@@ -28,11 +28,6 @@ import (
 //   - "oaicompat:<url>"                   → OAI-compat with explicit endpoint
 //   - anything else matching inference.presets.<name>.endpoint  → OAI-compat
 func Run(cfg *config.Config) error {
-	prov, err := buildProvider(cfg)
-	if err != nil {
-		return fmt.Errorf("tui: provider: %w", err)
-	}
-
 	th, err := loadTheme(cfg)
 	if err != nil {
 		return fmt.Errorf("tui: theme: %w", err)
@@ -46,7 +41,8 @@ func Run(cfg *config.Config) error {
 	keyReg := keys.NewRegistry()
 	_ = keys.LoadOverrides(keyReg, cfg)
 
-	m := NewModel(cwd, cfg.Defaults.Model, prov, rnd, keyReg)
+	builder := func() (agent.Provider, error) { return buildProvider(cfg) }
+	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, builder, rnd, keyReg)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Attach(p)
 

@@ -67,8 +67,14 @@ type Model struct {
 	keys     *keys.Registry
 	theme    *theme.Theme
 	renderer *render.Renderer
-	provider agent.Provider
-	model    string
+
+	// Provider is resolved lazily on the first StreamTurn so stado can boot
+	// without credentials present. buildProvider runs on demand; errors
+	// surface as in-UI messages instead of crashing startup.
+	provider      agent.Provider
+	buildProvider func() (agent.Provider, error)
+	providerName  string // displayed before lazy build resolves the real name
+	model         string
 
 	// UI components
 	input    *input.Editor
@@ -108,21 +114,64 @@ type approvalRequest struct {
 	toolID   string
 }
 
-// NewModel wires the TUI given an agent.Provider + model + cwd.
-func NewModel(cwd, modelName string, prov agent.Provider, rnd *render.Renderer, keyReg *keys.Registry) *Model {
+// NewModel wires the TUI. buildProvider is called on the first streamed turn
+// — no credentials are read until then, so stado boots even without an API
+// key. providerName labels the status bar before the lazy build resolves.
+func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.Provider, error), rnd *render.Renderer, keyReg *keys.Registry) *Model {
 	m := &Model{
-		cwd:         cwd,
-		keys:        keyReg,
-		theme:       rnd.Theme(),
-		renderer:    rnd,
-		provider:    prov,
-		model:       modelName,
-		input:       input.New(keyReg),
-		slash:       palette.New(),
-		vp:          viewport.New(0, 0),
-		sidebarOpen: true,
+		cwd:           cwd,
+		keys:          keyReg,
+		theme:         rnd.Theme(),
+		renderer:      rnd,
+		buildProvider: buildProvider,
+		providerName:  providerName,
+		model:         modelName,
+		input:         input.New(keyReg),
+		slash:         palette.New(),
+		vp:            viewport.New(0, 0),
+		sidebarOpen:   true,
 	}
 	return m
+}
+
+// ensureProvider lazy-builds the provider on first use. On failure sets the
+// error state and returns false.
+func (m *Model) ensureProvider() bool {
+	if m.provider != nil {
+		return true
+	}
+	if m.buildProvider == nil {
+		m.state = stateError
+		m.errorMsg = "no provider configured"
+		m.appendBlock(block{kind: "system", body: "No provider configured. Set defaults.provider in ~/.config/stado/config.toml or an inference preset."})
+		return false
+	}
+	p, err := m.buildProvider()
+	if err != nil {
+		m.state = stateError
+		m.errorMsg = err.Error()
+		m.appendBlock(block{kind: "system", body: "Provider unavailable: " + err.Error()})
+		return false
+	}
+	m.provider = p
+	return true
+}
+
+// providerDisplayName returns the active provider name, or the configured
+// placeholder if the provider hasn't been built yet.
+func (m *Model) providerDisplayName() string {
+	if m.provider != nil {
+		return m.provider.Name()
+	}
+	return m.providerName
+}
+
+// providerCaps returns active capabilities (empty if no provider yet).
+func (m *Model) providerCaps() agent.Capabilities {
+	if m.provider == nil {
+		return agent.Capabilities{}
+	}
+	return m.provider.Capabilities()
 }
 
 // Attach wires the tea.Program so the streaming goroutine can post messages.
@@ -351,7 +400,7 @@ func (m *Model) renderStatus(width int) string {
 	s, err := m.renderer.Exec("status", map[string]any{
 		"State":        state,
 		"Model":        m.model,
-		"ProviderName": m.provider.Name(),
+		"ProviderName": m.providerDisplayName(),
 		"Cwd":          m.cwd,
 		"ErrorMessage": m.errorMsg,
 		"Width":        width,
@@ -364,7 +413,7 @@ func (m *Model) renderStatus(width int) string {
 
 func (m *Model) renderSidebar(width int) string {
 	tokPct := ""
-	if cap := m.provider.Capabilities().MaxContextTokens; cap > 0 && m.usage.InputTokens > 0 {
+	if cap := m.providerCaps().MaxContextTokens; cap > 0 && m.usage.InputTokens > 0 {
 		pct := 100 * m.usage.InputTokens / cap
 		tokPct = fmt.Sprintf("%d%% used", pct)
 	}
@@ -372,7 +421,7 @@ func (m *Model) renderSidebar(width int) string {
 		"Title":        "stado",
 		"Version":      "0.0.0-dev",
 		"Model":        m.model,
-		"ProviderName": m.provider.Name(),
+		"ProviderName": m.providerDisplayName(),
 		"Cwd":          m.cwd,
 		"TokensHuman":  fmt.Sprintf("%s tokens", humanize(m.usage.InputTokens+m.usage.OutputTokens)),
 		"TokenPercent": tokPct,
@@ -456,6 +505,9 @@ func (m *Model) appendBlock(b block) {
 // startStream fires a non-interactive streaming call to the provider and
 // relays events back to the UI via tea.Program.Send.
 func (m *Model) startStream() tea.Cmd {
+	if !m.ensureProvider() {
+		return nil
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.streamMu.Lock()
 	m.streamCancel = cancel
