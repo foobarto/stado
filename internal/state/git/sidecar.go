@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -148,6 +149,39 @@ func (s *Sidecar) resolveRef(name plumbing.ReferenceName) (plumbing.Hash, error)
 		return plumbing.ZeroHash, err
 	}
 	return ref.Hash(), nil
+}
+
+// ResolveRef is the exported form of resolveRef for cross-package callers
+// (CLI commands that walk session refs).
+func (s *Sidecar) ResolveRef(name plumbing.ReferenceName) (plumbing.Hash, error) {
+	return s.resolveRef(name)
+}
+
+// DeleteSessionRefs removes every ref under refs/sessions/<id>/. Idempotent —
+// missing refs are ignored.
+func (s *Sidecar) DeleteSessionRefs(id string) error {
+	prefix := "refs/sessions/" + id + "/"
+	iter, err := s.repo.References()
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	var toDelete []plumbing.ReferenceName
+	if err := iter.ForEach(func(ref *plumbing.Reference) error {
+		name := string(ref.Name())
+		if strings.HasPrefix(name, prefix) || name == "refs/sessions/"+id {
+			toDelete = append(toDelete, ref.Name())
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, n := range toDelete {
+		if err := s.repo.Storer.RemoveReference(n); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // configAuthor sets the sidecar's default bot author identity. Called once on

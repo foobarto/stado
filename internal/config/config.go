@@ -129,3 +129,19 @@ func (c *Config) StateDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share", appName)
 }
+
+// WorktreeDir is the root under which per-session worktrees live. Uses
+// XDG_STATE_HOME (volatile user state) per PLAN.md §2.1.
+func (c *Config) WorktreeDir() string {
+	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+		return filepath.Join(xdg, appName, "worktrees")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", appName, "worktrees")
+}
+
+// SidecarPath returns the bare-repo path for the user repo rooted at
+// userRepoRoot (or cwd if empty). Filename is stable-hashed via RepoID.
+func (c *Config) SidecarPath(userRepoRoot, repoID string) string {
+	return filepath.Join(c.StateDir(), "sessions", repoID+".git")
+}
