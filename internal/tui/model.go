@@ -12,6 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/overlays"
@@ -19,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // block is the UI-level conversation unit. One conversation is a slice of these.
@@ -54,10 +57,11 @@ const (
 
 // Internal messages used by the bubbletea update loop.
 type (
-	streamEventMsg struct{ ev agent.Event }
-	streamErrorMsg struct{ err error }
-	streamDoneMsg  struct{}
-	approvalMsg    struct{ allow bool }
+	streamEventMsg    struct{ ev agent.Event }
+	streamErrorMsg    struct{ err error }
+	streamDoneMsg     struct{}
+	approvalMsg       struct{ allow bool }
+	toolsExecutedMsg  struct{ results []agent.ToolResultBlock }
 )
 
 // Model is the root bubbletea model for stado's TUI.
@@ -75,6 +79,11 @@ type Model struct {
 	buildProvider func() (agent.Provider, error)
 	providerName  string // displayed before lazy build resolves the real name
 	model         string
+
+	// Tool execution + git state. executor may be nil (no session) in which
+	// case tool calls are reported but not executed.
+	executor *tools.Executor
+	session  *stadogit.Session
 
 	// UI components
 	input    *input.Editor
@@ -106,6 +115,12 @@ type Model struct {
 
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program
+
+	// Per-turn accumulators (reset on startStream).
+	turnText       string
+	turnThinking   string
+	turnThinkSig   string
+	turnToolCalls  []agent.ToolUseBlock
 }
 
 type approvalRequest struct {
@@ -203,10 +218,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case streamDoneMsg:
-		m.state = stateIdle
 		m.streamCancel = nil
+		return m, m.onTurnComplete()
+
+	case toolsExecutedMsg:
+		// Append a role=tool message with the accumulated tool results.
+		if len(msg.results) > 0 {
+			blocks := make([]agent.Block, 0, len(msg.results))
+			for _, r := range msg.results {
+				cpy := r
+				blocks = append(blocks, agent.Block{ToolResult: &cpy})
+			}
+			m.msgs = append(m.msgs, agent.Message{Role: agent.RoleTool, Content: blocks})
+		}
 		m.renderBlocks()
-		return m, nil
+		return m, m.startStream()
 
 	case tea.KeyMsg:
 		if m.showHelp {
@@ -508,6 +534,12 @@ func (m *Model) startStream() tea.Cmd {
 	if !m.ensureProvider() {
 		return nil
 	}
+	// Reset per-turn accumulators.
+	m.turnText = ""
+	m.turnThinking = ""
+	m.turnThinkSig = ""
+	m.turnToolCalls = nil
+
 	ctx, cancel := context.WithCancel(context.Background())
 	m.streamMu.Lock()
 	m.streamCancel = cancel
@@ -518,6 +550,7 @@ func (m *Model) startStream() tea.Cmd {
 	req := agent.TurnRequest{
 		Model:    m.model,
 		Messages: m.msgs,
+		Tools:    m.toolDefs(),
 	}
 
 	go func() {
@@ -553,16 +586,21 @@ func (m *Model) sendMsg(msg tea.Msg) {
 func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvTextDelta:
+		m.turnText += ev.Text
 		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "assistant" {
 			m.blocks = append(m.blocks, block{kind: "assistant"})
 		}
 		m.blocks[len(m.blocks)-1].body += ev.Text
 
 	case agent.EvThinkingDelta:
-		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
-			m.blocks = append(m.blocks, block{kind: "thinking"})
+		m.turnThinking += ev.Text
+		m.turnThinkSig += ev.ThinkingSig
+		if ev.Text != "" {
+			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
+				m.blocks = append(m.blocks, block{kind: "thinking"})
+			}
+			m.blocks[len(m.blocks)-1].body += ev.Text
 		}
-		m.blocks[len(m.blocks)-1].body += ev.Text
 
 	case agent.EvToolCallStart:
 		if ev.ToolCall == nil {
@@ -588,18 +626,113 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		if ev.ToolCall == nil {
 			return
 		}
+		cp := *ev.ToolCall
+		m.turnToolCalls = append(m.turnToolCalls, cp)
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == ev.ToolCall.ID {
 				m.blocks[i].toolArgs = string(ev.ToolCall.Input)
 				m.blocks[i].endedAt = time.Now()
-				// Tool execution is deferred to Phase 4; for now we record the
-				// call + placeholder result.
-				m.blocks[i].toolResult = "(tool execution not wired up — Phase 4)"
 				break
 			}
 		}
 	}
 }
+
+// onTurnComplete is called when the provider's stream ends. It persists the
+// assistant turn into msgs; if the turn ended on tool calls, it kicks off
+// execution and (on results) a follow-up stream. Otherwise the turn is idle.
+func (m *Model) onTurnComplete() tea.Cmd {
+	// Build the assistant message from the accumulated turn.
+	var asstBlocks []agent.Block
+	if m.turnThinking != "" || m.turnThinkSig != "" {
+		asstBlocks = append(asstBlocks, agent.Block{Thinking: &agent.ThinkingBlock{
+			Text:      m.turnThinking,
+			Signature: m.turnThinkSig,
+		}})
+	}
+	if m.turnText != "" {
+		asstBlocks = append(asstBlocks, agent.Block{Text: &agent.TextBlock{Text: m.turnText}})
+	}
+	for i := range m.turnToolCalls {
+		tc := m.turnToolCalls[i]
+		asstBlocks = append(asstBlocks, agent.Block{ToolUse: &tc})
+	}
+	if len(asstBlocks) > 0 {
+		m.msgs = append(m.msgs, agent.Message{Role: agent.RoleAssistant, Content: asstBlocks})
+	}
+
+	if len(m.turnToolCalls) == 0 {
+		m.state = stateIdle
+		return nil
+	}
+
+	// Hand off to a tea.Cmd goroutine so the UI stays responsive during
+	// tool execution.
+	calls := m.turnToolCalls
+	executor := m.executor
+	workdir := m.cwd
+	if m.session != nil {
+		workdir = m.session.WorktreePath
+	}
+	host := hostAdapter{workdir: workdir}
+
+	return func() tea.Msg {
+		var results []agent.ToolResultBlock
+		for _, call := range calls {
+			if executor == nil {
+				results = append(results, agent.ToolResultBlock{
+					ToolUseID: call.ID,
+					Content:   "tool execution unavailable (no session)",
+					IsError:   true,
+				})
+				continue
+			}
+			res, err := executor.Run(context.Background(), call.Name, call.Input, host)
+			content := res.Content
+			isErr := res.Error != ""
+			if err != nil {
+				content = err.Error()
+				isErr = true
+			} else if isErr {
+				content = res.Error
+			}
+			results = append(results, agent.ToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   content,
+				IsError:   isErr,
+			})
+		}
+		return toolsExecutedMsg{results: results}
+	}
+}
+
+// toolDefs builds the tool-definition list for the current turn request. An
+// empty registry (no session) returns nil so the provider runs pure chat.
+func (m *Model) toolDefs() []agent.ToolDef {
+	if m.executor == nil {
+		return nil
+	}
+	all := m.executor.Registry.All()
+	out := make([]agent.ToolDef, 0, len(all))
+	for _, t := range all {
+		schema, _ := json.Marshal(t.Schema())
+		out = append(out, agent.ToolDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Schema:      schema,
+		})
+	}
+	return out
+}
+
+// hostAdapter implements tool.Host for the executor goroutine. Approval is
+// auto-allow in this build; PLAN §5 introduces the real approval flow.
+type hostAdapter struct{ workdir string }
+
+func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
+	return tool.DecisionAllow, nil
+}
+func (h hostAdapter) Workdir() string { return h.workdir }
 
 func (m *Model) toggleLastToolExpand() {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
