@@ -1,0 +1,5 @@
+stado
+*.db
+*.log
+.stado/
+
