@@ -64,8 +64,17 @@ type Sandbox struct{}
 // Git is Phase 2's [git] section — sidecar paths, author identity.
 type Git struct{}
 
-// OTel is Phase 6's [otel] section.
-type OTel struct{}
+// OTel is Phase 6's [otel] section. Mirrors telemetry.Config shape so
+// internal/telemetry can cast this straight into its config type.
+type OTel struct {
+	Enabled     bool              `koanf:"enabled"`
+	Endpoint    string            `koanf:"endpoint"`
+	Protocol    string            `koanf:"protocol"`
+	Insecure    bool              `koanf:"insecure"`
+	Headers     map[string]string `koanf:"headers"`
+	SampleRate  float64           `koanf:"sample_rate"`
+	ServiceName string            `koanf:"service_name"`
+}
 
 // ACP is Phase 8's [acp] section.
 type ACP struct{}
