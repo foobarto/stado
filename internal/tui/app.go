@@ -77,6 +77,10 @@ func Run(cfg *config.Config) error {
 	return nil
 }
 
+// BuildProvider is the exported version of the internal provider-resolution
+// switch, for use by `stado run` and other headless surfaces.
+func BuildProvider(cfg *config.Config) (agent.Provider, error) { return buildProvider(cfg) }
+
 func buildProvider(cfg *config.Config) (agent.Provider, error) {
 	name := cfg.Defaults.Provider
 	switch name {
