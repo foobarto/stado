@@ -1,153 +1,265 @@
+// Package openai is the direct openai-go implementation of pkg/agent.Provider.
+//
+// Wraps Chat Completions with parallel tool calls and JSON-schema tools.
+// reasoning_content from OpenAI's reasoning models is exposed via the Responses
+// API rather than Chat Completions; use the oaicompat provider for DeepSeek /
+// third-party servers that emit reasoning_content on chat completions.
 package openai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
-	"github.com/foobarto/stado/pkg/provider"
-	openai "github.com/openai/openai-go"
+	"github.com/foobarto/stado/pkg/agent"
+	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/ssestream"
 )
 
-type OpenAI struct {
-	client openai.Client
+type Provider struct {
+	client sdk.Client
+	name   string
 }
 
-func New(apiKey, baseURL string) (*OpenAI, error) {
+func New(apiKey, baseURL string) (*Provider, error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY not set")
+		return nil, fmt.Errorf("openai: OPENAI_API_KEY not set")
 	}
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
 	}
-	return &OpenAI{client: openai.NewClient(opts...)}, nil
+	return &Provider{client: sdk.NewClient(opts...), name: "openai"}, nil
 }
 
-func (o *OpenAI) Name() string {
-	return "openai"
+func (p *Provider) Name() string { return p.name }
+
+func (p *Provider) Capabilities() agent.Capabilities {
+	return agent.Capabilities{
+		SupportsPromptCache:  true,
+		SupportsThinking:     false, // via Responses API only; not in this provider
+		MaxParallelToolCalls: 8,
+		SupportsVision:       true,
+		MaxContextTokens:     128_000,
+	}
 }
 
-func (o *OpenAI) Stream(ctx context.Context, req provider.Request) (<-chan provider.Event, error) {
-	ch := make(chan provider.Event, 1)
+func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+	params, err := buildParams(req)
+	if err != nil {
+		return nil, err
+	}
+	s := p.client.Chat.Completions.NewStreaming(ctx, params)
+	ch := make(chan agent.Event, 16)
+	go streamChunks(s, ch)
+	return ch, nil
+}
 
-	messages := buildMessages(req.Messages)
+type chunkStream = ssestream.Stream[sdk.ChatCompletionChunk]
 
-	model := req.Model
-	if model == "" {
-		model = "gpt-4o"
+func streamChunks(s *chunkStream, ch chan<- agent.Event) {
+	defer close(ch)
+
+	type pending struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	// Parallel tool calls: keyed by delta.index.
+	calls := map[int64]*pending{}
+	var order []int64
+	var usage *agent.Usage
+
+	for s.Next() {
+		chunk := s.Current()
+		if chunk.Usage.TotalTokens > 0 {
+			usage = &agent.Usage{
+				InputTokens:  int(chunk.Usage.PromptTokens),
+				OutputTokens: int(chunk.Usage.CompletionTokens),
+			}
+		}
+		for _, choice := range chunk.Choices {
+			d := choice.Delta
+			if d.Content != "" {
+				ch <- agent.Event{Kind: agent.EvTextDelta, Text: d.Content}
+			}
+			for _, tc := range d.ToolCalls {
+				p, exists := calls[tc.Index]
+				if !exists {
+					p = &pending{}
+					calls[tc.Index] = p
+					order = append(order, tc.Index)
+				}
+				if tc.ID != "" {
+					p.id = tc.ID
+				}
+				if tc.Function.Name != "" {
+					p.name = tc.Function.Name
+				}
+				if !exists && p.id != "" && p.name != "" {
+					ch <- agent.Event{
+						Kind:     agent.EvToolCallStart,
+						ToolCall: &agent.ToolUseBlock{ID: p.id, Name: p.name},
+					}
+				}
+				if tc.Function.Arguments != "" {
+					p.args.WriteString(tc.Function.Arguments)
+					ch <- agent.Event{Kind: agent.EvToolCallArgsDelta, ToolArgsDelta: tc.Function.Arguments}
+				}
+			}
+			if choice.FinishReason != "" {
+				for _, idx := range order {
+					p := calls[idx]
+					ch <- agent.Event{
+						Kind: agent.EvToolCallEnd,
+						ToolCall: &agent.ToolUseBlock{
+							ID:    p.id,
+							Name:  p.name,
+							Input: json.RawMessage(p.args.String()),
+						},
+					}
+				}
+				ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
+				return
+			}
+		}
 	}
 
-	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(model),
+	if err := s.Err(); err != nil {
+		ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("openai: %w", err)}
+		return
+	}
+	// Stream ended without a finish_reason (shouldn't normally happen).
+	for _, idx := range order {
+		p := calls[idx]
+		ch <- agent.Event{
+			Kind: agent.EvToolCallEnd,
+			ToolCall: &agent.ToolUseBlock{
+				ID:    p.id,
+				Name:  p.name,
+				Input: json.RawMessage(p.args.String()),
+			},
+		}
+	}
+	ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
+}
+
+func buildParams(req agent.TurnRequest) (sdk.ChatCompletionNewParams, error) {
+	messages, err := convertMessages(req.System, req.Messages)
+	if err != nil {
+		return sdk.ChatCompletionNewParams{}, err
+	}
+	params := sdk.ChatCompletionNewParams{
+		Model:    sdk.ChatModel(req.Model),
 		Messages: messages,
+		StreamOptions: sdk.ChatCompletionStreamOptionsParam{
+			IncludeUsage: sdk.Bool(true),
+		},
 	}
-
+	if req.Temperature != nil {
+		params.Temperature = sdk.Float(*req.Temperature)
+	}
+	if req.MaxTokens > 0 {
+		params.MaxCompletionTokens = sdk.Int(int64(req.MaxTokens))
+	}
 	if len(req.Tools) > 0 {
-		var tools []openai.ChatCompletionToolParam
+		tools := make([]sdk.ChatCompletionToolParam, 0, len(req.Tools))
 		for _, t := range req.Tools {
 			var schema map[string]any
-			json.Unmarshal(t.Parameters, &schema)
-			tools = append(tools, openai.ChatCompletionToolParam{
-				Function: openai.FunctionDefinitionParam{
+			if err := json.Unmarshal(t.Schema, &schema); err != nil {
+				return params, fmt.Errorf("openai: tool %q schema: %w", t.Name, err)
+			}
+			tools = append(tools, sdk.ChatCompletionToolParam{
+				Function: sdk.FunctionDefinitionParam{
 					Name:        t.Name,
-					Description: openai.String(t.Description),
-					Parameters:  openai.FunctionParameters(schema),
+					Description: sdk.String(t.Description),
+					Parameters:  sdk.FunctionParameters(schema),
 				},
 			})
 		}
 		params.Tools = tools
+		params.ParallelToolCalls = sdk.Bool(true)
 	}
-
-	go func() {
-		defer close(ch)
-
-		stream := o.client.Chat.Completions.NewStreaming(ctx, params)
-
-		var currentToolCall *provider.ToolCall
-
-		for stream.Next() {
-			chunk := stream.Current()
-			if len(chunk.Choices) == 0 {
-				continue
-			}
-			delta := chunk.Choices[0].Delta
-
-			if delta.Content != "" {
-				ch <- provider.Event{
-					Type:      provider.EventTextDelta,
-					TextDelta: delta.Content,
-				}
-			}
-
-			for _, tc := range delta.ToolCalls {
-				if tc.ID != "" {
-					currentToolCall = &provider.ToolCall{
-						ID:   tc.ID,
-						Name: tc.Function.Name,
-					}
-					ch <- provider.Event{
-						Type:     provider.EventToolCallStart,
-						ToolCall: currentToolCall,
-					}
-				}
-				if currentToolCall != nil && tc.Function.Arguments != "" {
-					currentToolCall.Args += tc.Function.Arguments
-					ch <- provider.Event{
-						Type:     provider.EventToolCallArgsDelta,
-						ToolCall: &provider.ToolCall{Args: tc.Function.Arguments},
-					}
-				}
-			}
-		}
-
-		if err := stream.Err(); err != nil {
-			ch <- provider.Event{
-				Type: provider.EventError,
-				Err:  fmt.Errorf("stream error: %w", err),
-			}
-			return
-		}
-
-		if currentToolCall != nil {
-			ch <- provider.Event{
-				Type:     provider.EventToolCallEnd,
-				ToolCall: currentToolCall,
-			}
-		}
-
-		ch <- provider.Event{Type: provider.EventDone}
-	}()
-
-	return ch, nil
+	return params, nil
 }
 
-func buildMessages(msgs []provider.Message) []openai.ChatCompletionMessageParamUnion {
-	var out []openai.ChatCompletionMessageParamUnion
+func convertMessages(system string, msgs []agent.Message) ([]sdk.ChatCompletionMessageParamUnion, error) {
+	var out []sdk.ChatCompletionMessageParamUnion
+	if system != "" {
+		out = append(out, sdk.SystemMessage(system))
+	}
 	for _, m := range msgs {
 		switch m.Role {
-		case "user":
-			out = append(out, openai.UserMessage(m.Content))
-		case "assistant":
-			out = append(out, openai.AssistantMessage(m.Content))
-		case "tool":
-			var tr ToolResult
-			if err := json.Unmarshal([]byte(m.Content), &tr); err != nil {
-				continue
+		case agent.RoleUser:
+			msg, err := convertUser(m.Content)
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, openai.ToolMessage(tr.Content, tr.ID))
+			out = append(out, msg)
+
+		case agent.RoleAssistant:
+			out = append(out, convertAssistant(m.Content))
+
+		case agent.RoleTool:
+			for _, b := range m.Content {
+				if b.ToolResult == nil {
+					continue
+				}
+				out = append(out, sdk.ToolMessage(b.ToolResult.Content, b.ToolResult.ToolUseID))
+			}
 		}
 	}
-	return out
+	return out, nil
 }
 
-type ToolResult struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
-	IsError bool   `json:"is_error"`
+func convertUser(blocks []agent.Block) (sdk.ChatCompletionMessageParamUnion, error) {
+	// Fast path: single text block.
+	if len(blocks) == 1 && blocks[0].Text != nil {
+		return sdk.UserMessage(blocks[0].Text.Text), nil
+	}
+	var parts []sdk.ChatCompletionContentPartUnionParam
+	for _, b := range blocks {
+		switch {
+		case b.Text != nil:
+			parts = append(parts, sdk.TextContentPart(b.Text.Text))
+		case b.Image != nil:
+			dataURL := "data:" + b.Image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(b.Image.Data)
+			parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
+				URL: dataURL,
+			}))
+		}
+	}
+	return sdk.UserMessage(parts), nil
+}
+
+func convertAssistant(blocks []agent.Block) sdk.ChatCompletionMessageParamUnion {
+	assistant := sdk.ChatCompletionAssistantMessageParam{}
+	var textBuf strings.Builder
+	for _, b := range blocks {
+		switch {
+		case b.Text != nil:
+			textBuf.WriteString(b.Text.Text)
+		case b.ToolUse != nil:
+			assistant.ToolCalls = append(assistant.ToolCalls, sdk.ChatCompletionMessageToolCallParam{
+				ID: b.ToolUse.ID,
+				Function: sdk.ChatCompletionMessageToolCallFunctionParam{
+					Name:      b.ToolUse.Name,
+					Arguments: string(b.ToolUse.Input),
+				},
+			})
+		}
+		// Thinking blocks are dropped — OpenAI's Chat Completions API doesn't
+		// accept reasoning payloads on replay.
+	}
+	if textBuf.Len() > 0 {
+		assistant.Content.OfString = sdk.String(textBuf.String())
+	}
+	return sdk.ChatCompletionMessageParamUnion{OfAssistant: &assistant}
 }
