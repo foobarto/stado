@@ -24,9 +24,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Approvals.Mode != "prompt" {
 		t.Errorf("Approvals.Mode = %q, want %q", cfg.Approvals.Mode, "prompt")
 	}
-	if !cfg.Context.Enabled {
-		t.Error("Context.Enabled should be true by default")
-	}
 }
 
 func TestEnvOverride(t *testing.T) {

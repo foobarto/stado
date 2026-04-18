@@ -14,15 +14,24 @@ import (
 
 const appName = "stado"
 
+// Config is the top-level stado configuration.
+//
+// Phase 0 scaffold: legacy [providers.*], [context], [embeddings] sections are
+// gone; [inference], [sandbox], [git], [otel], [acp], [plugins] are placeholders
+// that later phases fill in (see PLAN.md).
 type Config struct {
 	ConfigPath string `koanf:"-"`
 
-	Defaults   Defaults            `koanf:"defaults"`
-	Providers  map[string]Provider `koanf:"providers"`
-	Approvals  Approvals           `koanf:"approvals"`
-	Context    Context             `koanf:"context"`
-	Embeddings Embeddings          `koanf:"embeddings"`
-	MCP        MCP                 `koanf:"mcp"`
+	Defaults  Defaults  `koanf:"defaults"`
+	Approvals Approvals `koanf:"approvals"`
+	MCP       MCP       `koanf:"mcp"`
+
+	Inference Inference `koanf:"inference"`
+	Sandbox   Sandbox   `koanf:"sandbox"`
+	Git       Git       `koanf:"git"`
+	OTel      OTel      `koanf:"otel"`
+	ACP       ACP       `koanf:"acp"`
+	Plugins   Plugins   `koanf:"plugins"`
 }
 
 type Defaults struct {
@@ -30,40 +39,39 @@ type Defaults struct {
 	Model    string `koanf:"model"`
 }
 
-type Provider struct {
-	Kind        string `koanf:"kind"`
-	BaseURL     string `koanf:"base_url"`
-	APIKeyEnv   string `koanf:"api_key_env"`
-	Profile     string `koanf:"profile"`
-	Mode        string `koanf:"mode"`
-	Command     string `koanf:"command"`
-	OneShotArgs []string `koanf:"one_shot_args"`
-	ResumeArg   string `koanf:"resume_arg"`
-	OutputFormat string `koanf:"output_format"`
-	SessionIDRegex string `koanf:"session_id_regex"`
-	Env         map[string]string `koanf:"env"`
-}
-
 type Approvals struct {
 	Mode      string   `koanf:"mode"`
 	Allowlist []string `koanf:"allowlist"`
 }
 
-type Context struct {
-	Enabled    bool `koanf:"enabled"`
-	Lexical    bool `koanf:"lexical"`
-	Symbols    bool `koanf:"symbols"`
-	Embeddings bool `koanf:"embeddings"`
-}
-
-type Embeddings struct {
-	Provider string `koanf:"provider"`
-	Model    string `koanf:"model"`
-}
-
 type MCP struct {
 	ConfigPath string `koanf:"config_path"`
 }
+
+// Inference is Phase 1's [inference] section: presets for OAI-compat endpoints
+// plus per-provider settings. Filled in with Phase 1.
+type Inference struct {
+	Presets map[string]InferencePreset `koanf:"presets"`
+}
+
+type InferencePreset struct {
+	Endpoint string `koanf:"endpoint"`
+}
+
+// Sandbox is Phase 3's [sandbox] section — placeholder.
+type Sandbox struct{}
+
+// Git is Phase 2's [git] section — sidecar paths, author identity.
+type Git struct{}
+
+// OTel is Phase 6's [otel] section.
+type OTel struct{}
+
+// ACP is Phase 8's [acp] section.
+type ACP struct{}
+
+// Plugins is Phase 7's [plugins] section — trusted signer fingerprints, CRL URL.
+type Plugins struct{}
 
 func Load() (*Config, error) {
 	k := koanf.New(".")
@@ -101,11 +109,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.Approvals.Mode == "" {
 		cfg.Approvals.Mode = "prompt"
-	}
-	if !cfg.Context.Enabled {
-		cfg.Context.Enabled = true
-		cfg.Context.Lexical = true
-		cfg.Context.Symbols = true
 	}
 
 	return &cfg, nil
