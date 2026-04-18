@@ -1,0 +1,6 @@
+{{- /* Bottom status bar. Left = state + model; right = tokens + cost + shortcut. */ -}}
+{{- $dot := "●" -}}
+{{- if eq .State "streaming" }}{{ color "warning" $dot }} {{ color "muted" "thinking" }}
+{{- else if eq .State "approval" }}{{ color "warning" $dot }} {{ color "muted" "awaiting approval" }}
+{{- else if eq .State "error" }}{{ color "error" $dot }} {{ color "muted" .ErrorMessage }}
+{{- else }}{{ color "success" $dot }} {{ color "muted" "ready" }}{{ end }}  {{ color "text_secondary" .Model | bold }} {{ color "muted" .ProviderName }}{{ if .Cwd }}  {{ color "text_dim" .Cwd }}{{ end }}

@@ -1,0 +1,25 @@
+{{- /* Right sidebar — Context + Cwd + Model + Todo + version. */ -}}
+{{ color "primary" .Title | bold }}
+
+{{ color "text_secondary" "Context" | bold }}
+{{ color "text" .TokensHuman }}
+{{ color "muted" .TokenPercent }}
+{{ color "accent" .CostHuman }}
+{{- if .Cwd }}
+
+{{ color "text_secondary" "Cwd" | bold }}
+{{ color "muted" (wrapHard .Cwd .Width) }}
+{{- end }}
+
+{{ color "text_secondary" "Model" | bold }}
+{{ color "text" .Model }}
+{{ color "muted" .ProviderName }}
+{{- if .Todos }}
+
+{{ color "text_secondary" "Todo" | bold }}
+{{- range .Todos }}
+{{ todoMarker .Status }} {{ color (todoColor .Status) (wrapHard .Title $.Width) }}
+{{- end }}
+{{- end }}
+
+{{ color "text_dim" .Version }}

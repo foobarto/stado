@@ -30,4 +30,6 @@ var Defaults = map[Action]string{
 	TipsToggle:              "?",
 	Approve:                 "y,enter",
 	Deny:                    "n,esc",
+	SidebarToggle:           "ctrl+t",
+	ToolExpand:              "tab",
 }

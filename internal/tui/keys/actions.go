@@ -32,6 +32,8 @@ const (
 	TipsToggle               Action = "tips_toggle"
 	Approve                  Action = "approve"
 	Deny                     Action = "deny"
+	SidebarToggle            Action = "sidebar_toggle"
+	ToolExpand               Action = "tool_expand"
 )
 
 var ActionDescriptions = map[Action]string{
@@ -64,4 +66,6 @@ var ActionDescriptions = map[Action]string{
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",
+	SidebarToggle:           "Toggle sidebar",
+	ToolExpand:              "Expand tool call",
 }

@@ -1,0 +1,29 @@
+name = "stado-dark"
+
+[colors]
+background      = "#16161e"
+surface         = "#1a1b26"
+border          = "#3b4261"
+primary         = "#7aa2f7"
+accent          = "#bb9af7"
+muted           = "#565f89"
+success         = "#9ece6a"
+warning         = "#e0af68"
+error           = "#f7768e"
+
+text            = "#c0caf5"
+text_dim        = "#565f89"
+text_secondary  = "#a9b1d6"
+
+role_user       = "#7aa2f7"
+role_assistant  = "#c0caf5"
+role_thinking   = "#bb9af7"
+role_tool       = "#e0af68"
+role_system     = "#f7768e"
+
+[layout]
+sidebar_width     = 32
+sidebar_min_width = 24
+border_style      = "rounded"
+padding           = 1
+message_indent    = 2
