@@ -1,0 +1,153 @@
+package tools
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/foobarto/stado/internal/sandbox"
+	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/pkg/tool"
+)
+
+// Executor runs tools with sandboxing + git-native state commits (PLAN §4.6).
+//
+// Invariants per call:
+//   - trace ref always gets a commit (metadata-only, empty-tree).
+//   - tree ref gets a commit iff the tool is Mutating, or Exec and the
+//     worktree tree hash changed.
+//   - stado_tool_latency_ms is recorded on every call.
+//   - failures still emit trace commits with an Error trailer.
+type Executor struct {
+	Registry *Registry
+	Session  *stadogit.Session
+	Runner   sandbox.Runner
+	Metrics  telemetry.Metrics
+	// Agent is the bot identity recorded in commit trailers (e.g. "claude-code-acp").
+	Agent string
+	// Model is the current LLM model for trailer recording.
+	Model string
+}
+
+// Run invokes a tool by name. Returns the tool result and writes the commit
+// trailers for audit. If the tool isn't registered, returns an error without
+// touching refs.
+func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	t, ok := e.Registry.Get(name)
+	if !ok {
+		return tool.Result{Error: "unknown tool"}, fmt.Errorf("unknown tool: %s", name)
+	}
+	class := e.Registry.ClassOf(name)
+
+	// Capture pre-state for Exec diff-then-commit.
+	var preTree plumbing.Hash
+	if e.Session != nil && class == tool.ClassExec {
+		pre, err := e.Session.CurrentTree()
+		if err == nil {
+			preTree = pre
+		}
+	}
+
+	start := time.Now()
+	res, runErr := t.Run(ctx, args, h)
+	duration := time.Since(start)
+
+	outcome := "ok"
+	if runErr != nil || res.Error != "" {
+		outcome = "error"
+	}
+	if e.Metrics.ToolLatency != nil {
+		e.Metrics.ToolLatency.Record(ctx, float64(duration.Milliseconds()))
+	}
+
+	meta := stadogit.CommitMeta{
+		Tool:       name,
+		ShortArg:   shortArgOf(args),
+		Summary:    fmt.Sprintf("%s [%s]", class.String(), outcome),
+		ArgsSHA:    sha256Of(args),
+		ResultSHA:  sha256Of([]byte(res.Content)),
+		Agent:      e.Agent,
+		Model:      e.Model,
+		DurationMs: duration.Milliseconds(),
+	}
+	if e.Session != nil {
+		meta.Turn = e.Session.Turn()
+	}
+	if runErr != nil {
+		meta.Error = runErr.Error()
+	} else if res.Error != "" {
+		meta.Error = res.Error
+	}
+
+	if e.Session == nil {
+		return res, runErr
+	}
+
+	// trace ref always.
+	if _, err := e.Session.CommitToTrace(meta); err != nil {
+		return res, fmt.Errorf("commit trace: %w", err)
+	}
+
+	// tree ref policy.
+	var treeHash plumbing.Hash
+	switch class {
+	case tool.ClassMutating:
+		if runErr == nil && res.Error == "" {
+			post, err := e.Session.BuildTreeFromDir(e.Session.WorktreePath)
+			if err != nil {
+				return res, fmt.Errorf("build tree: %w", err)
+			}
+			treeHash = post
+		}
+	case tool.ClassExec:
+		post, err := e.Session.BuildTreeFromDir(e.Session.WorktreePath)
+		if err != nil {
+			return res, fmt.Errorf("build tree: %w", err)
+		}
+		if post != preTree && !post.IsZero() {
+			treeHash = post
+		}
+	}
+	if !treeHash.IsZero() {
+		if _, err := e.Session.CommitToTree(treeHash, meta); err != nil {
+			return res, fmt.Errorf("commit tree: %w", err)
+		}
+	}
+
+	return res, runErr
+}
+
+func shortArgOf(args json.RawMessage) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal(args, &m); err != nil {
+		return ""
+	}
+	// Prefer common key names that identify the operation.
+	for _, k := range []string{"path", "file", "pattern", "command", "name", "url"} {
+		if v, ok := m[k]; ok {
+			s := fmt.Sprintf("%v", v)
+			if len(s) > 40 {
+				s = s[:40] + "…"
+			}
+			return s
+		}
+	}
+	return ""
+}
+
+func sha256Of(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
