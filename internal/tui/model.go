@@ -266,6 +266,42 @@ func detectRunningLocalHint() string {
 	return renderLocalRunnerHint(localdetect.DetectBundled(ctx))
 }
 
+// renderProvidersOverview is the backing formatter for the `/providers`
+// slash command. Lists the currently active provider plus every
+// reachable local runner, each with its model count + a representative
+// model name. Re-probes on each invocation so the list reflects
+// right-now state (a user might have started LM Studio mid-session).
+func (m *Model) renderProvidersOverview() string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("active provider: %s  (model: %s)\n",
+		m.providerDisplayName(), m.model))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	results := localdetect.DetectBundled(ctx)
+
+	b.WriteString("\nlocal runners on this machine:\n")
+	any := false
+	for _, r := range results {
+		switch {
+		case !r.Reachable:
+			fmt.Fprintf(&b, "  %-9s %s  — not running\n", r.Name, r.Endpoint)
+		case len(r.Models) == 0:
+			any = true
+			fmt.Fprintf(&b, "  %-9s %s  — running · no models loaded\n", r.Name, r.Endpoint)
+		default:
+			any = true
+			fmt.Fprintf(&b, "  %-9s %s  — running · %d model(s), e.g. %s\n",
+				r.Name, r.Endpoint, len(r.Models), r.Models[0])
+		}
+	}
+	if any {
+		b.WriteString("\nSwitch with `/model <name>` (current session) or\n")
+		b.WriteString("`STADO_DEFAULTS_PROVIDER=<name>` on the next launch.")
+	}
+	return b.String()
+}
+
 // renderLocalRunnerHint is the pure formatter behind detectRunningLocalHint.
 // Kept as a standalone function so tests can exercise the output without
 // needing real endpoints.
@@ -1329,6 +1365,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		return m.startCompaction()
 	case "/context":
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
+	case "/providers":
+		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}

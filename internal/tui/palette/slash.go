@@ -38,6 +38,7 @@ var Commands = []Command{
 	{"/approvals", "'always <tool>' or 'forget'", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
+	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},
