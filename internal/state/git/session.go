@@ -32,6 +32,12 @@ type Session struct {
 	// SignCommitBody in commit.go to produce a tamper-evident audit trail.
 	Signer CommitSigner
 
+	// OnCommit, if non-nil, is invoked after every successful commit on
+	// either tree or trace refs. Used for PLAN §5.5's OTel log mirror —
+	// kept as a plain callback so state/git doesn't need to import the
+	// telemetry package (avoids cycles + keeps it test-friendly).
+	OnCommit func(CommitEvent)
+
 	// Turn counter. Increments at each LLM-turn boundary; used for turn tags.
 	turn int
 }
@@ -41,6 +47,15 @@ type Session struct {
 // import state/git (would be a cycle).
 type CommitSigner interface {
 	Sign(treeHash string, parents []string, body string) string
+}
+
+// CommitEvent is the payload of Session.OnCommit. Fires after a successful
+// commit on either ref, so observers (telemetry, SIEM) can mirror without
+// touching state/git's critical path.
+type CommitEvent struct {
+	Ref  string     // e.g. "refs/sessions/abc/trace"
+	Hash string     // commit sha
+	Meta CommitMeta // the structured metadata that went into the message
 }
 
 // CreateSession initialises a new session with a fresh worktree directory.

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -63,6 +64,22 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	}
 	// Signer is optional — unsigned commits still work; audit verify will
 	// flag them.
+
+	// Mirror every committed event to slog so operators get a structured
+	// log line per tool call alongside the commit. OTel log exporter (PLAN
+	// §5.5) bridges slog → OTLP when enabled; until then the lines land in
+	// whatever sink slog.Default points at.
+	sess.OnCommit = func(ev stadogit.CommitEvent) {
+		slog.Info("stado.commit",
+			slog.String("ref", ev.Ref),
+			slog.String("hash", ev.Hash),
+			slog.String("tool", ev.Meta.Tool),
+			slog.String("short_arg", ev.Meta.ShortArg),
+			slog.Int("turn", ev.Meta.Turn),
+			slog.Int64("duration_ms", ev.Meta.DurationMs),
+			slog.String("error", ev.Meta.Error),
+		)
+	}
 
 	// Drop a pid file so `stado agents list` / `stado agents kill` can find
 	// this process. Best-effort: ignore write errors (worktree might be

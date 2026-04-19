@@ -140,6 +140,13 @@ func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, me
 	if err := s.Sidecar.setRef(ref, hash); err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("update ref: %w", err)
 	}
+	if s.OnCommit != nil {
+		s.OnCommit(CommitEvent{
+			Ref:  string(ref),
+			Hash: hash.String(),
+			Meta: meta,
+		})
+	}
 	return hash, nil
 }
 
