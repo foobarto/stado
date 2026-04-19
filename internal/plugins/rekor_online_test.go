@@ -25,8 +25,7 @@ import (
 // without reaching out to a live Rekor instance.
 func fakeRekor(t *testing.T) *httptest.Server {
 	t.Helper()
-	var stored map[string]map[string]any // uuid → entry
-	stored = map[string]map[string]any{}
+	stored := map[string]map[string]any{} // uuid → entry
 	const fakeUUID = "2065f45a6cc96d4a8b3a1c6f0f9b3e1c7e2d9f0a1b2c3d4e5f6a7b8c9d0e1f2a"
 
 	mux := http.NewServeMux()
