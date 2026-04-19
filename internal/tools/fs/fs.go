@@ -2,8 +2,11 @@ package fs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,28 +17,129 @@ import (
 type ReadTool struct{}
 
 func (ReadTool) Name() string        { return "read" }
-func (ReadTool) Description() string { return "Read the contents of a file" }
+func (ReadTool) Description() string {
+	return "Read the contents of a file. Optional start/end line numbers (1-indexed, inclusive; end=-1 means EOF)."
+}
 func (ReadTool) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path": map[string]any{"type": "string", "description": "Path to the file"},
+			"path":  map[string]any{"type": "string", "description": "Path to the file"},
+			"start": map[string]any{"type": "integer", "description": "First line to read (1-indexed, inclusive). Omit for full file."},
+			"end":   map[string]any{"type": "integer", "description": "Last line to read (1-indexed, inclusive). Omit or set to -1 for EOF."},
 		},
 		"required": []string{"path"},
 	}
 }
 
+// Run handles both full-file and ranged reads. For repeated calls against
+// the same path+range in a single stado process, returns a terse reference
+// response in place of the file bytes when the content hash matches a prior
+// read — saves tokens without rewriting prior turns.
+// See DESIGN §"Context management" → "In-turn deduplication".
 func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
-	var p PathArgs
+	var p ReadArgs
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	full := filepath.Join(h.Workdir(), p.Path)
-	data, err := os.ReadFile(full)
+
+	// Resolve ranged-read slice. Canonical form for the ReadKey.Range:
+	// "" when no start/end were passed, "<start>:<end>" otherwise (EOF
+	// preserved as -1 so the key survives file growth).
+	raw, err := os.ReadFile(full)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	return tool.Result{Content: string(data)}, nil
+
+	rangeKey := canonicalRange(p.Start, p.End)
+	content := raw
+	if rangeKey != "" {
+		start, end := resolveBounds(p.Start, p.End)
+		content = sliceLines(raw, start, end)
+	}
+
+	// Hash the bytes we'd surface to the model. sha256 is pinned for
+	// alignment with the audit layer (DESIGN §"Audit") — one hash
+	// vocabulary per session.
+	hsum := sha256.New()
+	_, _ = io.Copy(hsum, strings.NewReader(string(content)))
+	contentHash := hex.EncodeToString(hsum.Sum(nil))
+
+	key := tool.ReadKey{Path: p.Path, Range: rangeKey}
+
+	// Dedup: if the prior hash for this exact key matches the current
+	// hash, return a citation in place of the bytes. The prior turn
+	// stays untouched — append-only invariant upheld.
+	if prior, ok := h.PriorRead(key); ok && prior.ContentHash == contentHash {
+		return tool.Result{Content: referenceResponse(prior, rangeKey)}, nil
+	}
+
+	// Fresh read: record + return the bytes.
+	h.RecordRead(key, tool.PriorReadInfo{ContentHash: contentHash})
+	return tool.Result{Content: string(content)}, nil
+}
+
+// canonicalRange returns "" for full-file, "<start>:<end>" for ranged.
+// A caller that passes neither start nor end gets full-file; passing
+// either (even as -1/EOF) produces a ranged key.
+func canonicalRange(start, end *int) string {
+	if start == nil && end == nil {
+		return ""
+	}
+	s := 1
+	if start != nil {
+		s = *start
+	}
+	e := -1
+	if end != nil {
+		e = *end
+	}
+	return fmt.Sprintf("%d:%d", s, e)
+}
+
+// resolveBounds hydrates 1-indexed inclusive bounds. start defaults to 1;
+// end defaults to -1 (EOF). Upstream of sliceLines which resolves -1.
+func resolveBounds(start, end *int) (int, int) {
+	s := 1
+	e := -1
+	if start != nil {
+		s = *start
+	}
+	if end != nil {
+		e = *end
+	}
+	if s < 1 {
+		s = 1
+	}
+	return s, e
+}
+
+// sliceLines returns the lines of data from start through end (1-indexed,
+// both inclusive). end == -1 means EOF. Out-of-range returns empty.
+func sliceLines(data []byte, start, end int) []byte {
+	lines := strings.Split(string(data), "\n")
+	if start > len(lines) {
+		return nil
+	}
+	if end == -1 || end > len(lines) {
+		end = len(lines)
+	}
+	if end < start {
+		return nil
+	}
+	return []byte(strings.Join(lines[start-1:end], "\n"))
+}
+
+// referenceResponse is the terse citation returned on a dedup hit. Matches
+// DESIGN §"Context management": "already read at turn 5" or "already read
+// lines 10:20 at turn 5". Lets the model disambiguate full-file from
+// ranged hits without inspecting the prior turn.
+func referenceResponse(prior tool.PriorReadInfo, rangeKey string) string {
+	if rangeKey == "" {
+		return fmt.Sprintf("[dedup] already read at turn %d (content unchanged)", prior.Turn)
+	}
+	return fmt.Sprintf("[dedup] already read lines %s at turn %d (content unchanged)", rangeKey, prior.Turn)
 }
 
 type WriteTool struct{}
@@ -188,9 +292,17 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	return tool.Result{Content: strings.Join(results, "\n")}, nil
 }
 
-type PathArgs struct {
-	Path string `json:"path"`
+// ReadArgs is the input to ReadTool. Start/End are 1-indexed, inclusive.
+// Omit both for a full-file read; pass end=-1 to mean EOF.
+type ReadArgs struct {
+	Path  string `json:"path"`
+	Start *int   `json:"start,omitempty"`
+	End   *int   `json:"end,omitempty"`
 }
+
+// PathArgs is the legacy alias kept for any external callers. Prefer
+// ReadArgs. Deprecated: use ReadArgs.
+type PathArgs = ReadArgs
 
 type WriteArgs struct {
 	Path    string `json:"path"`
