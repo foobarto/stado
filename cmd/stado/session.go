@@ -185,7 +185,7 @@ var sessionAttachCmd = &cobra.Command{
 
 var sessionShowCmd = &cobra.Command{
 	Use:   "show <id>",
-	Short: "Print session refs + worktree + latest commits",
+	Short: "Print session refs + worktree + turn count + latest commit summary",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -208,13 +208,61 @@ var sessionShowCmd = &cobra.Command{
 		} {
 			head, err := sc.ResolveRef(pair.ref(id))
 			if err != nil {
-				fmt.Printf("%-6s  (unset)\n", pair.name)
+				fmt.Printf("%-6s    (unset)\n", pair.name)
 				continue
 			}
-			fmt.Printf("%-6s  %s\n", pair.name, head.String()[:12])
+			fmt.Printf("%-6s    %s\n", pair.name, head.String()[:12])
+		}
+
+		// Turn-boundary tags. Empty sessions report 0 cleanly.
+		turns, err := sc.ListTurnRefs(id)
+		if err == nil {
+			fmt.Printf("turns     %d\n", len(turns))
+			if n := len(turns); n > 0 {
+				last := turns[n-1]
+				// Truncate long summaries so the output stays parseable.
+				summary := last.Summary
+				if len(summary) > 64 {
+					summary = summary[:63] + "…"
+				}
+				fmt.Printf("latest    turns/%d  %s  %s\n",
+					last.Turn, last.When.Format("2006-01-02 15:04"), summary)
+			}
+		}
+
+		// Trace-ref depth: how many tool calls were audited. Mirrors
+		// `git rev-list --count refs/sessions/<id>/trace` without
+		// shelling out.
+		if n, err := countCommits(sc, stadogit.TraceRef(id)); err == nil {
+			fmt.Printf("audit     %d tool call(s) on trace ref\n", n)
 		}
 		return nil
 	},
+}
+
+// countCommits walks a ref's first-parent chain and returns the commit
+// count. Returns 0 + nil for unset refs (fresh session) so callers can
+// surface a clean "0" line.
+func countCommits(sc *stadogit.Sidecar, ref plumbing.ReferenceName) (int, error) {
+	head, err := sc.ResolveRef(ref)
+	if err != nil {
+		return 0, nil // unset ref, not an error here
+	}
+	repo := sc.Repo()
+	count := 0
+	cur := head
+	for !cur.IsZero() {
+		commit, err := repo.CommitObject(cur)
+		if err != nil {
+			return count, err
+		}
+		count++
+		if len(commit.ParentHashes) == 0 {
+			break
+		}
+		cur = commit.ParentHashes[0]
+	}
+	return count, nil
 }
 
 var sessionLandCmd = &cobra.Command{
