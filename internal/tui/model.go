@@ -1803,7 +1803,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge())
+	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name))
 }
 
 // buildPluginBridge wires the live TUI's Session + active provider
@@ -1811,13 +1811,16 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 // capabilities see real conversation state. Returns nil when the TUI
 // has no session or provider — plugins with those capabilities will
 // error cleanly at call time, matching the `stado plugin run` CLI
-// path's behaviour.
-func (m *Model) buildPluginBridge() *pluginRuntime.SessionBridgeImpl {
+// path's behaviour. `pluginName` populates the `Plugin:` audit
+// trailer so plugin-initiated LLM calls + forks are attributable in
+// the trace log.
+func (m *Model) buildPluginBridge(pluginName string) *pluginRuntime.SessionBridgeImpl {
 	if m.session == nil && m.provider == nil {
 		return nil
 	}
 	msgs := append([]agent.Message(nil), m.msgs...) // snapshot by copy
 	bridge := pluginRuntime.NewSessionBridge(m.session, m.provider, m.model)
+	bridge.PluginName = pluginName
 	bridge.MessagesFn = func() []agent.Message { return msgs }
 	bridge.TokensFn = func() int { return m.usage.InputTokens }
 	if m.session != nil {

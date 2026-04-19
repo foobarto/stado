@@ -47,6 +47,13 @@ type CommitMeta struct {
 	Agent       string
 	Turn        int
 	Error       string
+	// Plugin identifies the plugin that initiated this action, for
+	// trace commits made on behalf of plugin-triggered LLM invocations,
+	// forks, or tool calls. Empty for actions the core agent loop ran
+	// directly. Surfaces as a `Plugin:` trailer so `git log` + `stado
+	// audit export` can attribute every commit correctly per DESIGN
+	// §"Plugin extension points for context management" invariant 3.
+	Plugin string
 
 	// preformatted lets callers (e.g. CommitCompaction) pass an
 	// already-rendered message through commitOnRef without going
@@ -89,6 +96,9 @@ func (c CommitMeta) formatMessage() string {
 	}
 	if c.Error != "" {
 		trailers = append(trailers, struct{ k, v string }{"Error", c.Error})
+	}
+	if c.Plugin != "" {
+		trailers = append(trailers, struct{ k, v string }{"Plugin", c.Plugin})
 	}
 	for _, t := range trailers {
 		if t.v == "" {

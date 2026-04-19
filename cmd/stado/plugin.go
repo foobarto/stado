@@ -478,7 +478,9 @@ var pluginRunCmd = &cobra.Command{
 		// session:fork + llm:invoke are inert. Plugins running in a
 		// live TUI will get a richer bridge in part 4.
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
-			host.SessionBridge = pluginRuntime.NewSessionBridge(nil, nil, "")
+			bridge := pluginRuntime.NewSessionBridge(nil, nil, "")
+			bridge.PluginName = m.Name
+			host.SessionBridge = bridge
 			fmt.Fprintln(os.Stderr,
 				"stado plugin run: session-aware capabilities declared; note that the one-shot CLI has no live session — "+
 					"session:read returns zeroed fields, session:fork + llm:invoke are unavailable")

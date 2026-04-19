@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -31,6 +32,7 @@ type SessionBridgeImpl struct {
 	Session     *stadogit.Session
 	Provider    agent.Provider
 	Model       string
+	PluginName  string                 // for Plugin: audit trailer
 	MessagesFn  func() []agent.Message // snapshot of current conversation
 	TokensFn    func() int             // current input-token count
 	LastTurnRef func() string          // ref like refs/sessions/<id>/turns/N
@@ -148,6 +150,13 @@ func (b *SessionBridgeImpl) Fork(ctx context.Context, atTurnRef, seedMessage str
 // reported usage when the provider emits it; falls back to a byte
 // count / 4 heuristic when not reported so budget enforcement still
 // pushes back on runaway plugins.
+//
+// On success, commits a trace-ref record with a `Plugin:` trailer
+// attributing the call to PluginName — DESIGN invariant 3
+// ("plugin-triggered actions are audited"). Commit failures are
+// logged via stadogit's OnCommit hook but do not fail the call — a
+// degraded audit trail is preferable to a plugin that can't invoke
+// the model at all.
 func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string) (string, int, error) {
 	if b.Provider == nil {
 		return "", 0, errors.New("llm_invoke: no provider on bridge")
@@ -160,14 +169,16 @@ func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string) (strin
 	if err != nil {
 		return "", 0, fmt.Errorf("llm_invoke: %w", err)
 	}
-	var reply, tokens = "", 0
+	var reply, tokens, inTokens, outTokens = "", 0, 0, 0
 	for ev := range ch {
 		switch ev.Kind {
 		case agent.EvTextDelta:
 			reply += ev.Text
 		case agent.EvUsage:
 			if ev.Usage != nil {
-				tokens = ev.Usage.InputTokens + ev.Usage.OutputTokens
+				inTokens = ev.Usage.InputTokens
+				outTokens = ev.Usage.OutputTokens
+				tokens = inTokens + outTokens
 			}
 		case agent.EvDone:
 			// stream-complete marker — nothing to do, loop will exit
@@ -178,8 +189,44 @@ func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string) (strin
 		// English prose. Enough to push back on runaway loops; real
 		// providers report exact numbers via EvUsage.
 		tokens = (len(prompt) + len(reply) + 3) / 4
+		inTokens = (len(prompt) + 3) / 4
+		outTokens = tokens - inTokens
 	}
+
+	// Trace-audit the invocation. Best-effort: errors are swallowed
+	// because the LLM call itself already succeeded, and a
+	// conversation-level failure shouldn't kill the plugin.
+	if b.Session != nil && b.PluginName != "" {
+		_, _ = b.Session.CommitToTrace(stadogit.CommitMeta{
+			Tool:      "llm_invoke",
+			ShortArg:  trimForCommit(prompt, 40),
+			Summary:   "plugin LLM call",
+			TokensIn:  inTokens,
+			TokensOut: outTokens,
+			Model:     b.Model,
+			Agent:     "plugin:" + b.PluginName,
+			Plugin:    b.PluginName,
+			Turn:      b.Session.Turn(),
+		})
+	}
+
 	return reply, tokens, nil
+}
+
+// trimForCommit truncates a string for the commit title's ShortArg
+// column. Single-line, runes-bounded, ellipsis-terminated — matches
+// the style of other shortArgOf callers so `git log --oneline`
+// alignment stays sane.
+func trimForCommit(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max < 1 {
+		return "…"
+	}
+	return string(r[:max-1]) + "…"
 }
 
 // marshalHistory flattens the live conversation into a compact JSON
