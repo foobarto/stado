@@ -4,8 +4,10 @@
 package tools
 
 import (
+	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -21,4 +23,6 @@ var Classes = map[string]tool.Class{
 	(fs.WriteTool{}).Name():          tool.ClassMutating,
 	(fs.EditTool{}).Name():           tool.ClassMutating,
 	(webfetch.WebFetchTool{}).Name(): tool.ClassNonMutating,
+	(rg.Tool{}).Name():               tool.ClassNonMutating,
+	(astgrep.Tool{}).Name():          tool.ClassNonMutating,
 }

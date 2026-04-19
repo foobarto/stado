@@ -23,8 +23,10 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -94,6 +96,8 @@ func BuildDefaultRegistry() *tools.Registry {
 	r.Register(fs.GrepTool{})
 	r.Register(bash.BashTool{Timeout: 60 * time.Second})
 	r.Register(webfetch.WebFetchTool{})
+	r.Register(rg.Tool{})
+	r.Register(astgrep.Tool{})
 	return r
 }
 
