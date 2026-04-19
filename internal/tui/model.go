@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/foobarto/stado/internal/compact"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/input"
@@ -52,6 +53,11 @@ const (
 	stateIdle sessionState = iota
 	stateStreaming
 	stateApproval
+	// stateCompactionPending: a summarisation stream has finished and
+	// the proposed summary is visible in the conversation. The next
+	// 'y' / 'n' / '/' keystroke resolves it. See DESIGN §"Compaction":
+	// no replacement without explicit confirmation.
+	stateCompactionPending
 	stateError
 )
 
@@ -141,6 +147,15 @@ type Model struct {
 	// subsequent turns don't re-probe.
 	tokenCounterChecked bool
 	tokenCounterPresent bool
+
+	// Compaction state. pendingCompactionSummary holds the proposed
+	// summary between the end of the summarisation stream and the user's
+	// y/n decision. Consumed by resolveCompaction.
+	pendingCompactionSummary string
+	// compacting marks a summarisation stream in-flight so we can route
+	// its text deltas into a "compaction-preview" block rather than the
+	// regular assistant block.
+	compacting bool
 
 	// Layout
 	width          int
@@ -361,6 +376,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.keys.Matches(msg, keys.Deny) {
 				return m, m.resolveApproval(false)
 			}
+			return m, nil
+		}
+
+		// Compaction confirmation: reuse the Approve / Deny keybindings
+		// (y / n by default) so the UX matches tool-call approval.
+		if m.state == stateCompactionPending {
+			if m.keys.Matches(msg, keys.Approve) {
+				m.resolveCompaction(true)
+				m.renderBlocks()
+				return m, nil
+			}
+			if m.keys.Matches(msg, keys.Deny) {
+				m.resolveCompaction(false)
+				m.renderBlocks()
+				return m, nil
+			}
+			// Any other key while pending is ignored — no accidental msgs
+			// mutation while the user reads the summary.
 			return m, nil
 		}
 
@@ -813,6 +846,17 @@ func (m *Model) sendMsg(msg tea.Msg) {
 func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvTextDelta:
+		// Compaction streams go into the pending-summary buffer AND the
+		// assistant block the caller pre-appended — the user sees the
+		// summary materialise, and resolveCompaction has the full text
+		// when they accept.
+		if m.compacting {
+			m.pendingCompactionSummary += ev.Text
+			if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == "assistant" {
+				m.blocks[len(m.blocks)-1].body += ev.Text
+			}
+			return
+		}
 		m.turnText += ev.Text
 		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "assistant" {
 			m.blocks = append(m.blocks, block{kind: "assistant"})
@@ -869,6 +913,24 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 // assistant turn into msgs; if the turn ended on tool calls, it starts the
 // approval queue so the user sees each tool before it runs.
 func (m *Model) onTurnComplete() tea.Cmd {
+	// Compaction turn: the summariser has produced its draft. Park in
+	// stateCompactionPending, waiting for y/n. msgs is NOT touched — the
+	// replacement only happens after explicit confirmation.
+	if m.compacting {
+		m.compacting = false
+		if strings.TrimSpace(m.pendingCompactionSummary) == "" {
+			m.appendBlock(block{kind: "system", body: "compaction: model returned empty summary — aborting."})
+			m.state = stateIdle
+			return nil
+		}
+		m.appendBlock(block{
+			kind: "system",
+			body: "compaction: press 'y' to replace conversation with the summary above, 'n' to discard.",
+		})
+		m.state = stateCompactionPending
+		return nil
+	}
+
 	// Build the assistant message from the accumulated turn.
 	var asstBlocks []agent.Block
 	if m.turnThinking != "" || m.turnThinkSig != "" {
@@ -984,6 +1046,83 @@ func (m *Model) toolDefs() []agent.ToolDef {
 		})
 	}
 	return out
+}
+
+// compactRequest / compactReplace are thin aliases so the code sites
+// read in-place (the compact package owns the wire contract, not the TUI).
+var (
+	compactRequest = compact.BuildRequest
+	compactReplace = compact.ReplaceMessages
+)
+
+// startCompaction kicks off a summarisation stream and parks the UI in
+// stateCompactionPending once it completes. See DESIGN §"Compaction":
+// user-invoked only, explicit confirmation required before msgs is
+// replaced.
+func (m *Model) startCompaction() tea.Cmd {
+	if m.state != stateIdle {
+		m.appendBlock(block{kind: "system", body: "compaction: busy — wait for the current turn to finish"})
+		return nil
+	}
+	if !m.ensureProvider() {
+		return nil
+	}
+	if len(m.msgs) == 0 {
+		m.appendBlock(block{kind: "system", body: "compaction: conversation is empty — nothing to compact"})
+		return nil
+	}
+
+	m.appendBlock(block{kind: "system", body: "compacting conversation — streaming proposed summary below..."})
+	m.appendBlock(block{kind: "assistant", body: ""})
+	m.compacting = true
+	m.pendingCompactionSummary = ""
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.streamMu.Lock()
+	m.streamCancel = cancel
+	m.state = stateStreaming
+	m.errorMsg = ""
+	m.streamMu.Unlock()
+
+	req := compactRequest(m.model, m.msgs)
+
+	go func() {
+		defer cancel()
+		ch, err := m.provider.StreamTurn(ctx, req)
+		if err != nil {
+			m.sendMsg(streamErrorMsg{err: err})
+			return
+		}
+		for ev := range ch {
+			m.sendMsg(streamEventMsg{ev: ev})
+			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
+				m.sendMsg(streamDoneMsg{})
+				return
+			}
+		}
+		m.sendMsg(streamDoneMsg{})
+	}()
+	return nil
+}
+
+// resolveCompaction is called from Update when the user presses 'y' or
+// 'n' while in stateCompactionPending. 'y' replaces msgs; 'n' discards.
+func (m *Model) resolveCompaction(accept bool) {
+	if m.state != stateCompactionPending {
+		return
+	}
+	if accept {
+		summary := m.pendingCompactionSummary
+		m.msgs = compactReplace(summary)
+		m.appendBlock(block{
+			kind: "system",
+			body: "compaction accepted — prior conversation replaced with summary.",
+		})
+	} else {
+		m.appendBlock(block{kind: "system", body: "compaction declined — conversation unchanged."})
+	}
+	m.pendingCompactionSummary = ""
+	m.state = stateIdle
 }
 
 // hostAdapter implements tool.Host for the executor goroutine. Approval is
@@ -1110,6 +1249,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		} else {
 			m.appendBlock(block{kind: "system", body: "provider: " + name + "  (not yet initialised)"})
 		}
+	case "/compact":
+		return m.startCompaction()
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}

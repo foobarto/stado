@@ -10,14 +10,12 @@ so you can verify what you're running, including from an airgapped
 environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native state, signed
-> audit log, sandbox (Linux), OpenTelemetry instrumentation, and
-> MCP/ACP integration are shipped. Context management is almost done
-> — prompt-cache plumbing, token counting, in-turn read dedup,
-> per-tool output budgets, and fork-from-point ergonomics (scripted
-> `--at` + interactive `session tree`) are in; user-invoked
-> compaction is the last piece. macOS/Windows sandbox and WASM
-> plugins are still in flight — see [PLAN.md](PLAN.md) for the
-> phased roadmap.
+> audit log, sandbox (Linux), OpenTelemetry instrumentation, MCP/ACP
+> integration, and Phase 11 context management (prompt-cache
+> plumbing, token counting, in-turn read dedup, per-tool output
+> budgets, fork-from-point ergonomics, and user-invoked compaction)
+> are shipped. macOS/Windows sandbox and WASM plugins are still in
+> flight — see [PLAN.md](PLAN.md) for the phased roadmap.
 
 ---
 
@@ -179,10 +177,11 @@ via config and auto-register their tools.
 **Git-native state.** Sidecar bare repo per user repo. Alternates link
 to your `.git/objects` so agent sessions reference your history without
 copying objects. Dual-ref model (`tree` + `trace`), turn-boundary tags,
-nine `session` subcommands: `new`, `list`, `show`, `attach`, `delete`,
+ten `session` subcommands: `new`, `list`, `show`, `attach`, `delete`,
 `fork` (with `--at <turns/N|sha>` to fork from a specific turn), `land`,
-`revert`, `tree` (standalone interactive browser — navigate turn history
-and fork from a chosen turn).
+`revert`, `tree` (interactive turn-history browser — navigate and fork
+from a chosen turn), `compact` (advisory; the real flow is `/compact`
+inside the TUI).
 
 **Sandbox (Linux).** Landlock for FS confinement, bubblewrap for
 bash/exec, CONNECT-allowlist proxy for egress, capability-declaration
@@ -206,7 +205,11 @@ tokenizers (Anthropic `count_tokens`, tiktoken offline for OpenAI and
 OAI-compat, Gemini `count_tokens`); soft/hard thresholds are configurable
 under `[context]` and the TUI's ctx% indicator colour-codes when crossed.
 In-turn read deduplication returns a terse reference when the same
-file+range resolves to the same content hash.
+file+range resolves to the same content hash. Per-tool output budgets
+(read / webfetch 16K, bash 32K, grep / ripgrep 100 matches, glob 200
+entries) with visible truncation markers. User-invoked compaction via
+`/compact` in the TUI — summarises the conversation, shows a
+preview-and-confirm flow, never touches msgs without explicit y.
 
 **Observability.** OpenTelemetry spans around every tool call
 (`stado.tool_call`), every turn (`stado.turn`), and every provider
@@ -229,9 +232,11 @@ SLSA 3 provenance via `slsa-github-generator`. SBOM via syft.
 
 See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
-- **User-invoked compaction** (Phase 11.3). `stado session compact` +
-  `/compact` slash entry + preview-edit-confirm flow. Last remaining
-  piece of Phase 11.
+- **Compaction — CLI-driven + dual-ref persistence** (Phase 11.3
+  remainder). The TUI `/compact` flow is shipped; a fully
+  CLI-driven `stado session compact <id>` and the dual-ref commit
+  that preserves compaction on disk need a conversation-persistence
+  layer that doesn't yet exist.
 - **Sandbox — macOS and Windows** (Phase 3). `sandbox-exec` profile
   generation, Windows job objects with restricted tokens.
 - **WASM plugins** (Phase 7). Manifest + trust store + CLI shipped;

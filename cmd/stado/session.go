@@ -273,9 +273,38 @@ func init() {
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionForkCmd,
 		sessionAttachCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
-		sessionTreeCmd,
+		sessionTreeCmd, sessionCompactCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
+}
+
+// sessionCompactCmd is the DESIGN §"Compaction" CLI entry. Compaction
+// itself is conversation-shaped and lives in the TUI (where the agent
+// loop and the msgs array the summariser works on actually live); this
+// command points the user at `/compact` inside the TUI session rather
+// than silently refusing.
+//
+// A fully CLI-driven compaction requires a persistence layer for
+// conversation history that stado does not yet have — tracked as a
+// follow-up to Phase 11.3.
+var sessionCompactCmd = &cobra.Command{
+	Use:   "compact <id>",
+	Short: "Compaction is run from inside the TUI via /compact — this command is an advisory stub",
+	Long: "Compaction summarises the current in-memory conversation and replaces\n" +
+		"prior turns with the summary after explicit confirmation. It runs\n" +
+		"inside the TUI session where the conversation lives, via the\n" +
+		"`/compact` slash command.\n\n" +
+		"A fully CLI-driven compaction requires a persistence layer for\n" +
+		"conversation history that stado doesn't yet have — tracked as a\n" +
+		"follow-up to Phase 11.3. For now: attach to the session, type\n" +
+		"/compact in the TUI, and approve the proposed summary.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Fprintf(os.Stderr,
+			"session %s: run `/compact` inside the main TUI to compact this session.\n"+
+				"See PLAN.md §11.3 for status of CLI-driven compaction.\n", args[0])
+		return nil
+	},
 }
 
 // --- helpers -------------------------------------------------------------

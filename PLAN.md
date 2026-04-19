@@ -33,7 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter interface + 4 provider impls + config `[context]` thresholds + TUI warning-coloured pct + capability-probe system message; hard-block recovery waits on compaction) · 11.4 ✅ (Host extension, ReadLog, ranged reads, hash-dedup, invariants, per-tool output budgets + truncation markers) · 11.5 ✅ (`session fork --at <turn-ref>` scripted path + standalone `session tree` tea.Program + ListTurnRefs helper + integration tests) · 11.3 ⬜ (user-invoked compaction). Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter + 4 impls + `[context]` thresholds + TUI warning-pct + capability-probe; hard-block UX pairs with compaction) · 11.3 🟡 (TUI `/compact` + `stateCompactionPending` y/n confirmation + `internal/compact` summarisation helper + advisory CLI stub; dual-ref persistence + fully CLI-driven flow pending) · 11.4 ✅ · 11.5 ✅. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
@@ -634,7 +634,7 @@ has landed. What's left, in the order I'd tackle it:
 | A  | ✅ OTel span instrumentation: `tools.Executor.Run` / `runtime.AgentLoop` / all 4 providers' `StreamTurn` wrapped. Phase 6 closed. | 6 |
 | B  | ✅ Phase 11.1 — cache-awareness plumbing: append-only guardrails, deterministic tool serialisation, `cache_control` breakpoint placement driven by `Capabilities.SupportsPromptCache`, cache-stability + tool-ordering tests. | 11 |
 | C  | 🟡 Phase 11.2 — shipped: agent.TokenCounter + 4 provider impls (anthropic HTTP, openai/oaicompat tiktoken offline, google HTTP), `[context]` config, TUI warning-coloured ctx%, first-turn capability probe. Remaining: hard-block flow (pairs with compaction in PR D). | 11 |
-| D  | Phase 11.3 — user-invoked compaction: `stado session compact` CLI + TUI action, summary-preview-edit-confirm flow, dual-ref compaction commit. | 11 |
+| D  | 🟡 Phase 11.3 — shipped: TUI `/compact` + `stateCompactionPending` state + y/n confirmation + `internal/compact` package (summarisation prompt + async Summarise) + advisory `stado session compact` CLI stub + full test coverage. Remaining: dual-ref compaction commit on `tree` + `trace` (needs conversation persistence, not yet in stado) + inline summary editor (`e` key). | 11 |
 | E  | ✅ Phase 11.4 — ranged `read` args, content-hash dedup, Host.PriorRead/RecordRead, ReadLog, NullHost, per-tool output budgets (read/webfetch/bash/grep/glob/ripgrep) with DESIGN-spec'd truncation markers, and full invariants + truncation-coverage test suites. | 11 |
 | F  | ✅ Phase 11.5 — shipped: `session fork <id> --at <turns/N\|sha>` scripted path, standalone `session tree <id>` cobra subcommand with its own tea.Program (navigate + press `f` to fork), `Sidecar.ListTurnRefs` helper, scripted + interactive integration tests. PTY harness pending for a future full end-to-end test. | 11 |
 | G  | Phase 3.3 — seccomp BPF via `bwrap --seccomp=FD`. | 3 |
