@@ -11,11 +11,13 @@ environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native state, signed
 > audit log, sandbox (Linux), OpenTelemetry instrumentation, and
-> MCP/ACP integration are shipped. Context management is partially
-> shipped (prompt-cache plumbing, token counting, in-turn read dedup);
-> compaction flow and fork-from-point ergonomics remain. macOS/Windows
-> sandbox and WASM plugins are still in flight — see [PLAN.md](PLAN.md)
-> for the phased roadmap.
+> MCP/ACP integration are shipped. Context management is almost done
+> — prompt-cache plumbing, token counting, in-turn read dedup,
+> per-tool output budgets, and fork-from-point ergonomics (scripted
+> `--at` + interactive `session tree`) are in; user-invoked
+> compaction is the last piece. macOS/Windows sandbox and WASM
+> plugins are still in flight — see [PLAN.md](PLAN.md) for the
+> phased roadmap.
 
 ---
 
@@ -177,8 +179,10 @@ via config and auto-register their tools.
 **Git-native state.** Sidecar bare repo per user repo. Alternates link
 to your `.git/objects` so agent sessions reference your history without
 copying objects. Dual-ref model (`tree` + `trace`), turn-boundary tags,
-eight `session` subcommands: `new`, `list`, `show`, `attach`, `delete`,
-`fork`, `land`, `revert`.
+nine `session` subcommands: `new`, `list`, `show`, `attach`, `delete`,
+`fork` (with `--at <turns/N|sha>` to fork from a specific turn), `land`,
+`revert`, `tree` (standalone interactive browser — navigate turn history
+and fork from a chosen turn).
 
 **Sandbox (Linux).** Landlock for FS confinement, bubblewrap for
 bash/exec, CONNECT-allowlist proxy for egress, capability-declaration
@@ -225,11 +229,9 @@ SLSA 3 provenance via `slsa-github-generator`. SBOM via syft.
 
 See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
-- **Context management — remaining pieces** (Phase 11). Per-tool
-  output budgets + truncation markers, user-invoked compaction
-  (`stado session compact` + preview-edit-confirm flow), polished
-  fork-from-point ergonomics (`session fork --at <turn-ref>` +
-  standalone `session tree` subcommand).
+- **User-invoked compaction** (Phase 11.3). `stado session compact` +
+  `/compact` slash entry + preview-edit-confirm flow. Last remaining
+  piece of Phase 11.
 - **Sandbox — macOS and Windows** (Phase 3). `sandbox-exec` profile
   generation, Windows job objects with restricted tokens.
 - **WASM plugins** (Phase 7). Manifest + trust store + CLI shipped;
