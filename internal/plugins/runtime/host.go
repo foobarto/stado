@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -32,6 +34,59 @@ type Host struct {
 	FSWrite []string
 	NetHost []string // allowed hostnames; empty → no net
 	Workdir string   // CWD the plugin sees for relative paths
+
+	// Session/LLM capability gates — Phase 7.1b (PR K2). DESIGN
+	// §"Plugin extension points for context management".
+	//
+	// SessionObserve gates stado_session_next_event (polling variant
+	// of stado_session_observe — wasm-native, no callback refs).
+	// SessionRead gates stado_session_read.
+	// SessionFork gates stado_session_fork.
+	// LLMInvokeBudget gates stado_llm_invoke; 0 = not permitted,
+	// positive = per-session token budget ceiling. Default when
+	// "llm:invoke" is declared without a suffix: 10000.
+	SessionObserve  bool
+	SessionRead     bool
+	SessionFork     bool
+	LLMInvokeBudget int
+
+	// SessionBridge wires the host-side session operations (read
+	// history, fork, LLM invoke, subscribe-to-events). Nil when the
+	// caller doesn't have a live session — in that case the gated
+	// host imports return -1 with a diagnostic in the log. Exposed as
+	// an interface so TUI / headless / tests can plug in different
+	// backings.
+	SessionBridge SessionBridge
+
+	// llmTokensUsed tracks the per-session running total against
+	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
+	// import so concurrent plugin calls don't race past the ceiling.
+	llmTokensUsed int64
+}
+
+// SessionBridge is the capability-checked surface plugin code calls
+// through. Every method corresponds to one host import gated by a
+// matching `session:*` or `llm:*` capability in the plugin manifest.
+// A nil SessionBridge is valid — it means the runtime doesn't have a
+// session (e.g. `stado plugin run` outside a session context); the
+// host imports return -1 with a diagnostic.
+type SessionBridge interface {
+	// NextEvent blocks until the next session event (or ctx deadline)
+	// and returns an opaque JSON payload the plugin can parse. Empty
+	// payload = no events yet (plugin should back off).
+	NextEvent(ctx context.Context) ([]byte, error)
+	// ReadField returns the current value of a named session field.
+	// Supported names are spec-defined (see DESIGN): "message_count",
+	// "token_count", "session_id", "last_turn_ref", "history".
+	ReadField(name string) ([]byte, error)
+	// Fork creates a new session rooted at atTurnRef with seedMessage
+	// as its first user turn. Returns the new session ID.
+	Fork(ctx context.Context, atTurnRef, seedMessage string) (sessionID string, err error)
+	// InvokeLLM runs a one-shot completion against the active
+	// provider with the given prompt, returning the aggregated reply
+	// text and the number of tokens consumed (used to enforce the
+	// per-session budget).
+	InvokeLLM(ctx context.Context, prompt string) (reply string, tokensUsed int, err error)
 }
 
 // NewHost parses a manifest's capabilities into a Host.
@@ -69,6 +124,31 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			if rest != "" && rest != "allow" && rest != "deny" {
 				h.NetHost = append(h.NetHost, rest)
 			}
+		case "session":
+			// DESIGN §"Plugin extension points for context management":
+			// session:observe / session:read / session:fork.
+			switch parts[1] {
+			case "observe":
+				h.SessionObserve = true
+			case "read":
+				h.SessionRead = true
+			case "fork":
+				h.SessionFork = true
+			}
+		case "llm":
+			// llm:invoke or llm:invoke:<budget>. Default budget when
+			// the suffix is omitted is 10000 — conservative ceiling
+			// that forces explicit uplift for bigger workloads.
+			if parts[1] != "invoke" {
+				continue
+			}
+			budget := 10000
+			if len(parts) == 3 && parts[2] != "" {
+				if n, err := strconv.Atoi(parts[2]); err == nil && n > 0 {
+					budget = n
+				}
+			}
+			h.LLMInvokeBudget = budget
 		}
 	}
 	return h
@@ -205,6 +285,218 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_fs_write")
+
+	// stado_session_read(field_ptr, field_len, buf_ptr, buf_cap) → int32
+	//
+	// Phase 7.1b — session:read capability. Copies the named session
+	// field's serialised payload into the plugin's buffer. Fields are
+	// stringly-typed because the set is small and stable:
+	//   "message_count"   → decimal-ASCII integer
+	//   "token_count"     → decimal-ASCII integer (input-tokens, current turn)
+	//   "session_id"      → session ID string
+	//   "last_turn_ref"   → turn tag ref, e.g. "refs/sessions/<id>/turns/5"
+	//   "history"         → JSON array of {role,text} objects for the full
+	//                       conversation. Largest payload — plugins that
+	//                       only need counts should prefer the numeric
+	//                       fields above.
+	//
+	// Returns bytes written, -1 on deny / no-session / unknown-field /
+	// truncation beyond buf_cap.
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			if !host.SessionRead {
+				host.Logger.Warn("stado_session_read denied — manifest lacks session:read")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if host.SessionBridge == nil {
+				host.Logger.Warn("stado_session_read: no SessionBridge wired (run context has no session)")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			fieldPtr := api.DecodeU32(stack[0])
+			fieldLen := api.DecodeU32(stack[1])
+			bufPtr := api.DecodeU32(stack[2])
+			bufCap := api.DecodeU32(stack[3])
+			field, err := readString(mod, fieldPtr, fieldLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			data, err := host.SessionBridge.ReadField(field)
+			if err != nil {
+				host.Logger.Warn("stado_session_read failed",
+					slog.String("field", field), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if uint32(len(data)) > bufCap {
+				// Don't silently truncate session data — a plugin that
+				// asks for "history" and gets half of it would produce
+				// nonsense. Signal error; plugin can re-request with a
+				// bigger buffer or a smaller field.
+				host.Logger.Warn("stado_session_read truncation",
+					slog.String("field", field),
+					slog.Int("data_bytes", len(data)),
+					slog.Uint64("buf_cap", uint64(bufCap)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_session_read")
+
+	// stado_session_next_event(buf_ptr, buf_cap) → int32
+	//
+	// Phase 7.1b — session:observe capability. Polling variant of the
+	// spec's stado_session_observe(callback_ref). WASM has no native
+	// closure type, so we expose a non-blocking reader: plugin calls
+	// this once per scheduling tick; 0 = no event available right
+	// now (plugin should yield), >0 = JSON event payload written,
+	// -1 = capability denied or session gone.
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			if !host.SessionObserve {
+				host.Logger.Warn("stado_session_next_event denied — manifest lacks session:observe")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if host.SessionBridge == nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			bufPtr := api.DecodeU32(stack[0])
+			bufCap := api.DecodeU32(stack[1])
+			ev, err := host.SessionBridge.NextEvent(ctx)
+			if err != nil {
+				host.Logger.Warn("stado_session_next_event failed", slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if len(ev) == 0 {
+				stack[0] = api.EncodeI32(0)
+				return
+			}
+			if uint32(len(ev)) > bufCap {
+				// Oversize event — surface as truncation-denied so the
+				// plugin can retry with a bigger buffer rather than
+				// receive half an event.
+				host.Logger.Warn("stado_session_next_event event larger than buf_cap",
+					slog.Int("event_bytes", len(ev)),
+					slog.Uint64("buf_cap", uint64(bufCap)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, ev))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_session_next_event")
+
+	// stado_session_fork(at_turn_ptr, at_turn_len, seed_ptr, seed_len,
+	//                    out_ptr, out_cap) → int32
+	//
+	// Phase 7.1b — session:fork capability. DESIGN invariant: plugins
+	// recover context by forking to a new session, never by rewriting
+	// the parent. Returns bytes of the new session ID written to
+	// out_ptr, or -1 on deny / fork failure.
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			if !host.SessionFork {
+				host.Logger.Warn("stado_session_fork denied — manifest lacks session:fork")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if host.SessionBridge == nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			atPtr := api.DecodeU32(stack[0])
+			atLen := api.DecodeU32(stack[1])
+			seedPtr := api.DecodeU32(stack[2])
+			seedLen := api.DecodeU32(stack[3])
+			outPtr := api.DecodeU32(stack[4])
+			outCap := api.DecodeU32(stack[5])
+			atRef, err := readString(mod, atPtr, atLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			seed, err := readString(mod, seedPtr, seedLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			newID, err := host.SessionBridge.Fork(ctx, atRef, seed)
+			if err != nil {
+				host.Logger.Warn("stado_session_fork failed",
+					slog.String("at", atRef), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			data := []byte(newID)
+			if uint32(len(data)) > outCap {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, data))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32,
+			api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_session_fork")
+
+	// stado_llm_invoke(prompt_ptr, prompt_len, out_ptr, out_cap) → int32
+	//
+	// Phase 7.1b — llm:invoke capability. One-shot completion against
+	// the active provider. Budget enforcement: the plugin's manifest
+	// declared "llm:invoke:<N>" becomes host.LLMInvokeBudget (default
+	// 10000 when no suffix). Tokens consumed across all calls in this
+	// instantiation add to host.llmTokensUsed; once the budget is
+	// exhausted, further calls return -1 without touching the bridge.
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			if host.LLMInvokeBudget <= 0 {
+				host.Logger.Warn("stado_llm_invoke denied — manifest lacks llm:invoke")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if host.SessionBridge == nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			used := atomic.LoadInt64(&host.llmTokensUsed)
+			if used >= int64(host.LLMInvokeBudget) {
+				host.Logger.Warn("stado_llm_invoke denied — per-session token budget exhausted",
+					slog.Int("budget", host.LLMInvokeBudget),
+					slog.Int64("used", used))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			promptPtr := api.DecodeU32(stack[0])
+			promptLen := api.DecodeU32(stack[1])
+			outPtr := api.DecodeU32(stack[2])
+			outCap := api.DecodeU32(stack[3])
+			prompt, err := readString(mod, promptPtr, promptLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			reply, tokens, err := host.SessionBridge.InvokeLLM(ctx, prompt)
+			if err != nil {
+				host.Logger.Warn("stado_llm_invoke failed", slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			atomic.AddInt64(&host.llmTokensUsed, int64(tokens))
+			data := []byte(reply)
+			if uint32(len(data)) > outCap {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, data))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_llm_invoke")
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)
