@@ -28,8 +28,19 @@ type Session struct {
 	Author    string // e.g., "claude-code-acp"
 	AuthorEmail string
 
+	// Signer, if non-nil, signs every commit on tree/trace refs. Used via
+	// SignCommitBody in commit.go to produce a tamper-evident audit trail.
+	Signer CommitSigner
+
 	// Turn counter. Increments at each LLM-turn boundary; used for turn tags.
 	turn int
+}
+
+// CommitSigner is the interface Session uses to sign a commit body. Wider
+// than a concrete type so tests can stub it and so audit/ doesn't need to
+// import state/git (would be a cycle).
+type CommitSigner interface {
+	Sign(treeHash string, parents []string, body string) string
 }
 
 // CreateSession initialises a new session with a fresh worktree directory.

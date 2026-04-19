@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/google/uuid"
 
+	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -31,6 +32,9 @@ import (
 
 // OpenSession creates a new session + sidecar rooted at cwd's repo.
 // Non-fatal callers can swallow the error and carry on without state.
+//
+// Loads (or creates on first use) the agent signing key and attaches it to
+// the session so every trace/tree commit carries an Ed25519 signature.
 func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	userRepo := FindRepoRoot(cwd)
 	repoID, err := stadogit.RepoID(userRepo)
@@ -44,7 +48,23 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
 		return nil, err
 	}
-	return stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
+	if err != nil {
+		return nil, err
+	}
+
+	priv, err := audit.LoadOrCreateKey(SigningKeyPath(cfg))
+	if err == nil {
+		sess.Signer = audit.NewSigner(priv)
+	}
+	// Signer is optional — unsigned commits still work; audit verify will
+	// flag them.
+	return sess, nil
+}
+
+// SigningKeyPath returns the path to stado's agent signing key.
+func SigningKeyPath(cfg *config.Config) string {
+	return filepath.Join(cfg.StateDir(), "keys", audit.KeyFileName)
 }
 
 // FindRepoRoot walks up from start looking for a .git dir; falls back to start.

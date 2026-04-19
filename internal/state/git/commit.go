@@ -12,6 +12,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+var _ = strings.Builder{} // keep strings import usage visible after Phase 5 edit
+
 // CommitMeta is the structured per-tool-call metadata we record in every
 // commit message (both tree and trace refs). Machine-parseable trailers so
 // `stado audit export` / SIEM ingestion can reconstruct the call.
@@ -92,7 +94,9 @@ func (s *Session) CommitToTree(treeHash plumbing.Hash, meta CommitMeta) (plumbin
 }
 
 // commitOnRef creates a commit with parent = current ref tip (if any) and
-// updates the ref to the new commit. Signing lands in Phase 5.
+// updates the ref to the new commit. When Session.Signer is non-nil, the
+// signature trailer is appended to the commit message before encoding so
+// the message text itself carries the tamper-evident proof.
 func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, meta CommitMeta) (plumbing.Hash, error) {
 	var parents []plumbing.Hash
 	head, err := s.Sidecar.resolveRef(ref)
@@ -100,12 +104,24 @@ func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, me
 		parents = append(parents, head)
 	}
 
+	msg := meta.formatMessage()
+	if s.Signer != nil {
+		parentStrs := make([]string, len(parents))
+		for i, p := range parents {
+			parentStrs[i] = p.String()
+		}
+		sigValue := s.Signer.Sign(tree.String(), parentStrs, msg)
+		if sigValue != "" {
+			msg = appendSignatureTrailer(msg, sigValue)
+		}
+	}
+
 	now := time.Now()
 	sig := s.signature(now)
 	commit := &object.Commit{
 		Author:    sig,
 		Committer: sig,
-		Message:   meta.formatMessage(),
+		Message:   msg,
 		TreeHash:  tree,
 	}
 	for _, p := range parents {
@@ -125,6 +141,27 @@ func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, me
 		return plumbing.ZeroHash, fmt.Errorf("update ref: %w", err)
 	}
 	return hash, nil
+}
+
+// appendSignatureTrailer adds `Signature: ed25519:<base64>` as the last line
+// of body, stripping any preexisting trailer first. Kept here (not in audit/)
+// to avoid a state/git → audit import cycle.
+func appendSignatureTrailer(body, sigValue string) string {
+	const trailer = "Signature: "
+	// Strip existing Signature line(s).
+	lines := strings.Split(body, "\n")
+	filtered := lines[:0]
+	for _, line := range lines {
+		if strings.HasPrefix(line, trailer) {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	body = strings.Join(filtered, "\n")
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	return body + trailer + sigValue + "\n"
 }
 
 // writeEmptyTree creates (or returns the cached hash of) the empty tree object.
