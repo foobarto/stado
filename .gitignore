@@ -4,3 +4,12 @@
 .stado/
 .claude/
 
+# Binary blobs fetched by `go run hack/fetch-binaries.go` + the per-
+# platform embed files it generates. Release builds run the script as
+# a goreleaser before-hook; dev builds don't need them.
+/internal/tools/rg/bundled/*
+!/internal/tools/rg/bundled/.gitkeep
+/internal/tools/rg/bundled_*_*.go
+/internal/tools/astgrep/bundled/*
+!/internal/tools/astgrep/bundled/.gitkeep
+/internal/tools/astgrep/bundled_*_*.go

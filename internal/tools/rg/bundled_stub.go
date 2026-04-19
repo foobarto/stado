@@ -1,10 +1,12 @@
+//go:build !stado_embed_binaries
+
 // Default stub for the bundled ripgrep blob. Populated for a specific
-// GOOS/GOARCH by a release build that ran `go run hack/fetch-binaries.go`
-// + replaced this file with a `//go:embed bundled/rg-<os>-<arch>` one.
-//
-// The build-tag-less version shipped in source keeps everything working
-// on dev machines: bundledBytes is empty → binext.ErrNotBundled →
-// ripgrep.ResolveBinary falls back to PATH (today's behaviour).
+// GOOS/GOARCH by a release build that ran `go run hack/fetch-binaries.go`,
+// which writes a matching `bundled_<goos>_<goarch>.go` tagged
+// `//go:build stado_embed_binaries && <goos> && <goarch>` that declares
+// the same two vars with `//go:embed` directives. Release builds pass
+// `-tags stado_embed_binaries`; dev builds omit it and compile this
+// stub instead (empty bytes → PATH fallback).
 
 package rg
 

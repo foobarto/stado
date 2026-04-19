@@ -288,7 +288,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Replace bespoke context engine with solid search primitives + LSP; wire diff-then-commit.
 
-**Shipped:** 4.1 ripgrep tool, 4.2 ast-grep tool, 4.3 LSP client + 4 tools (`find_definition/find_references/document_symbols/hover`), 4.4 `read_with_context` (Go-aware via `go/parser`), 4.5 classification (Mutating/NonMutating/Exec), 4.6 `tools.Executor` with dual-ref commit invariants, 4.7 task stub deleted. **Pending:** 4.1/4.2 binary-embed build pipeline (currently use-on-PATH + helpful install hints).
+**Shipped:** 4.1 ripgrep tool, 4.2 ast-grep tool, 4.3 LSP client + 4 tools (`find_definition/find_references/document_symbols/hover`), 4.4 `read_with_context` (Go-aware via `go/parser`), 4.5 classification (Mutating/NonMutating/Exec), 4.6 `tools.Executor` with dual-ref commit invariants, 4.7 task stub deleted, 4.1/4.2 binary-embed release pipeline (`hack/fetch-binaries.go` generates per-platform `//go:embed` files gated on `-tags stado_embed_binaries`; goreleaser's before-hook runs the fetcher and every cross-compile sets the tag; dev builds without the tag fall back to PATH). **Pending:** none.
 
 | # | Tool | Details |
 |---|------|---------|

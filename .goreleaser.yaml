@@ -3,6 +3,13 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    # Fetch + embed ripgrep and ast-grep binaries for every supported
+    # (GOOS, GOARCH). Generates bundled_<os>_<arch>.go files tagged
+    # `//go:build stado_embed_binaries && <goos> && <goarch>` that
+    # `//go:embed` the blobs written under bundled/. The release build
+    # below sets -tags stado_embed_binaries so each cross-compile picks
+    # up exactly one of these files.
+    - go run ./hack/fetch-binaries.go
 
 builds:
   - id: stado
@@ -10,6 +17,11 @@ builds:
     binary: stado
     env:
       - CGO_ENABLED=0
+    # `stado_embed_binaries` activates per-platform //go:embed files for
+    # ripgrep + ast-grep (PLAN §4.1/4.2). Dev builds omit the tag and
+    # fall back to PATH resolution.
+    tags:
+      - stado_embed_binaries
     # Reproducible-build flags (PLAN.md §10.1):
     #   -trimpath strips GOPATH / absolute module paths from binary → same
     #     inputs → same output regardless of checkout location.
