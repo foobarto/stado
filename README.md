@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="stado — sandboxed, git-native coding agent for the terminal" width="720">
+</p>
+
 # stado
 
 A sandboxed, git-native coding agent for the terminal.
