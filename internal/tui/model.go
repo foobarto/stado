@@ -22,6 +22,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/input"
@@ -592,7 +593,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cpy := r
 				blocks = append(blocks, agent.Block{ToolResult: &cpy})
 			}
-			m.msgs = append(m.msgs, agent.Message{Role: agent.RoleTool, Content: blocks})
+			toolMsg := agent.Message{Role: agent.RoleTool, Content: blocks}
+			m.msgs = append(m.msgs, toolMsg)
+			m.persistMessage(toolMsg)
 		}
 		m.renderBlocks()
 		return m, m.startStream()
@@ -1110,12 +1113,104 @@ func (m *Model) renderBlocks() {
 // ==== Streaming + conversation state =====================================
 
 func (m *Model) appendUser(text string) {
+	msg := agent.Text(agent.RoleUser, text)
 	m.blocks = append(m.blocks, block{kind: "user", body: text})
-	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, text))
+	m.msgs = append(m.msgs, msg)
+	m.persistMessage(msg)
 }
 
 func (m *Model) appendBlock(b block) {
 	m.blocks = append(m.blocks, b)
+}
+
+// persistMessage append-writes msg to this session's conversation
+// log so a future `stado` boot under the same worktree can resume
+// the conversation. Best-effort: a disk error degrades resume but
+// shouldn't interrupt the live session, so we swallow errors here
+// (they already log through slog via OpenSession's OnCommit).
+func (m *Model) persistMessage(msg agent.Message) {
+	if m.session == nil {
+		return
+	}
+	_ = runtime.AppendMessage(m.session.WorktreePath, msg)
+}
+
+// persistReplacement rewrites the conversation log with the current
+// m.msgs state. Called after compaction-accept — the compacted form
+// is what the user wants to resume, not the pre-compaction trail.
+// Same best-effort error handling as persistMessage.
+func (m *Model) persistReplacement() {
+	if m.session == nil {
+		return
+	}
+	_ = runtime.WriteConversation(m.session.WorktreePath, m.msgs)
+}
+
+// LoadPersistedConversation seeds m.msgs + m.blocks from whatever
+// `runtime.LoadConversation` finds under the session's worktree. No-op
+// when the conversation file is absent (fresh session) or the session
+// itself is nil (test harness). Callers invoke this once at TUI boot,
+// after the session is wired but before the first user input.
+//
+// Only text blocks are recreated faithfully. Tool-use / tool-result /
+// thinking / image blocks are summarised with placeholder tags since
+// the TUI's live-render pipeline for those is tied to in-flight
+// streaming events that aren't present on replay. A future iteration
+// could reconstruct them more fully; for now, the user sees enough to
+// know what the conversation was without losing the m.msgs LLM-side
+// prompt prefix.
+func (m *Model) LoadPersistedConversation() {
+	if m.session == nil {
+		return
+	}
+	loaded, err := runtime.LoadConversation(m.session.WorktreePath)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	m.msgs = loaded
+	m.blocks = append(m.blocks, msgsToBlocks(loaded)...)
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("resumed session — %d prior message(s) loaded from disk.", len(loaded)),
+	})
+}
+
+// msgsToBlocks renders a persisted message slice into the TUI's
+// block model so the user sees the prior conversation on resume.
+// Multi-block messages collapse into one per role; non-text blocks
+// get short placeholder tags so the UI doesn't show blank
+// assistant turns for tool-heavy history.
+func msgsToBlocks(msgs []agent.Message) []block {
+	out := make([]block, 0, len(msgs))
+	for _, msg := range msgs {
+		var body string
+		for _, b := range msg.Content {
+			switch {
+			case b.Text != nil:
+				if body != "" {
+					body += "\n"
+				}
+				body += b.Text.Text
+			case b.Thinking != nil:
+				body += "[thinking]"
+			case b.ToolUse != nil:
+				body += "[tool_use " + b.ToolUse.Name + "]"
+			case b.ToolResult != nil:
+				body += "[tool_result]"
+			case b.Image != nil:
+				body += "[image]"
+			}
+		}
+		kind := "assistant"
+		switch msg.Role {
+		case agent.RoleUser:
+			kind = "user"
+		case agent.RoleTool:
+			kind = "tool"
+		}
+		out = append(out, block{kind: kind, body: body})
+	}
+	return out
 }
 
 // startStream fires a non-interactive streaming call to the provider and
@@ -1309,7 +1404,9 @@ func (m *Model) onTurnComplete() tea.Cmd {
 		asstBlocks = append(asstBlocks, agent.Block{ToolUse: &tc})
 	}
 	if len(asstBlocks) > 0 {
-		m.msgs = append(m.msgs, agent.Message{Role: agent.RoleAssistant, Content: asstBlocks})
+		asstMsg := agent.Message{Role: agent.RoleAssistant, Content: asstBlocks}
+		m.msgs = append(m.msgs, asstMsg)
+		m.persistMessage(asstMsg)
 	}
 
 	if len(m.turnToolCalls) == 0 {
@@ -1582,6 +1679,12 @@ func (m *Model) resolveCompaction(accept bool) {
 		summary := m.pendingCompactionSummary
 		turnsTotal := len(m.msgs)
 		m.msgs = compactReplace(summary)
+		// Rewrite the on-disk conversation log to match the compacted
+		// state so a future resume sees the summary instead of the
+		// full pre-compaction trail. Dual-ref commit (tree + trace)
+		// preserves the raw turns separately on the trace ref for
+		// audit, so nothing is lost.
+		m.persistReplacement()
 
 		accepted := "compaction accepted — prior conversation replaced with summary."
 		if m.session != nil {

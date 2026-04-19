@@ -69,6 +69,11 @@ func Run(cfg *config.Config) error {
 	// context so every subsequent span links back to the fork event's
 	// trace tree — Phase 9.4/9.5 cross-process span link.
 	m.SetRootContext(runtime.RootContext(cwd))
+	// Replay any persisted conversation from the session's worktree so
+	// "kill stado and come back" picks up where the user left off.
+	// No-op on fresh sessions — conversation.jsonl only exists after
+	// at least one message has been written.
+	m.LoadPersistedConversation()
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Attach(p)
 

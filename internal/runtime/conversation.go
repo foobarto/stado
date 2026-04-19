@@ -86,6 +86,45 @@ func LoadConversation(worktree string) ([]agent.Message, error) {
 	return decodeMessages(f)
 }
 
+// WriteConversation replaces the on-disk conversation log atomically
+// with the given message slice. Used when the TUI transforms the
+// conversation in-memory (e.g. compaction-accept, which replaces
+// prior turns with a summary) and needs disk state to match what
+// the user will see on resume.
+//
+// The write is tmp+rename so a crash mid-write can't leave a
+// truncated conversation. A missing `.stado/` dir is created on the
+// fly — symmetric with AppendMessage.
+func WriteConversation(worktree string, msgs []agent.Message) error {
+	if worktree == "" {
+		return errors.New("conversation: worktree required")
+	}
+	dir := filepath.Join(worktree, ".stado")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
+	}
+	final := filepath.Join(worktree, ConversationFile)
+	tmp := final + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("conversation: open tmp: %w", err)
+	}
+	enc := json.NewEncoder(f)
+	enc.SetEscapeHTML(false)
+	for i, m := range msgs {
+		if err := enc.Encode(m); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmp)
+			return fmt.Errorf("conversation: encode msg %d: %w", i, err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, final)
+}
+
 func decodeMessages(r io.Reader) ([]agent.Message, error) {
 	var msgs []agent.Message
 	scanner := bufio.NewScanner(r)
