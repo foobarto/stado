@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/foobarto/stado/internal/config"
@@ -20,6 +21,11 @@ const ProtocolVersion = 1
 type Server struct {
 	Cfg      *config.Config
 	Provider agent.Provider
+
+	// EnableTools, if set, means session.prompt opens a sidecar session on
+	// demand and runs the full audited executor loop (tools + git commits
+	// + sandbox). Advertised as ToolCalls: true in initialize.
+	EnableTools bool
 
 	conn *Conn
 	mu   sync.Mutex
@@ -92,7 +98,7 @@ func (s *Server) handleInitialize(_ json.RawMessage) (any, error) {
 		AgentVersion:    "0.0.0-dev",
 		Capabilities: initializeCaps{
 			Prompts:   true,
-			ToolCalls: false, // v1: tool calls aren't plumbed through ACP yet
+			ToolCalls: s.EnableTools,
 			Thinking:  true,
 		},
 	}, nil
@@ -143,22 +149,40 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
 
-	// Stream; as events arrive, notify the client with session/update.
-	text, _, err := runtime.AgentLoop(pctx, runtime.AgentLoopOptions{
+	opts := runtime.AgentLoopOptions{
 		Provider: prov,
 		Model:    s.Cfg.Defaults.Model,
 		Messages: sess.messages,
-		MaxTurns: 1, // ACP v1 = one turn per prompt; multi-turn via subsequent prompts
+		MaxTurns: 10, // with tools enabled we may need multiple turns
 		OnEvent: func(ev agent.Event) {
-			if ev.Kind == agent.EvTextDelta && ev.Text != "" {
-				_ = s.conn.Notify("session/update", map[string]any{
-					"sessionId": p.SessionID,
-					"kind":      "text",
-					"text":      ev.Text,
-				})
+			switch ev.Kind {
+			case agent.EvTextDelta:
+				if ev.Text != "" {
+					_ = s.conn.Notify("session/update", map[string]any{
+						"sessionId": p.SessionID, "kind": "text", "text": ev.Text,
+					})
+				}
+			case agent.EvToolCallEnd:
+				if ev.ToolCall != nil {
+					_ = s.conn.Notify("session/update", map[string]any{
+						"sessionId": p.SessionID, "kind": "tool_call",
+						"name": ev.ToolCall.Name, "input": string(ev.ToolCall.Input),
+					})
+				}
 			}
 		},
-	})
+	}
+	if s.EnableTools {
+		cwd, _ := os.Getwd()
+		gitSess, err := runtime.OpenSession(s.Cfg, cwd)
+		if err == nil {
+			opts.Executor = runtime.BuildExecutor(gitSess, s.Cfg, "stado-acp")
+		}
+	} else {
+		opts.MaxTurns = 1 // pure chat: single shot
+	}
+
+	text, _, err := runtime.AgentLoop(pctx, opts)
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 	}
