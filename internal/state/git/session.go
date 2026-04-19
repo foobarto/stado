@@ -49,6 +49,18 @@ type CommitSigner interface {
 	Sign(treeHash string, parents []string, body string) string
 }
 
+// SSHCommitSigner is an optional extension of CommitSigner: when a
+// Signer implements it, Session also writes an SSHSIG-format signature
+// into the commit's gpgsig header so git tooling (`git log
+// --show-signature`, `ssh-keygen -Y verify`) can verify the commit
+// against the signer's public key.
+//
+// Called with the commit's canonical bytes — the git object encoded
+// *without* the gpgsig header. Returns "" to skip gpgsig emission.
+type SSHCommitSigner interface {
+	SignSSH(message []byte) (string, error)
+}
+
 // CommitEvent is the payload of Session.OnCommit. Fires after a successful
 // commit on either ref, so observers (telemetry, SIEM) can mirror without
 // touching state/git's critical path.

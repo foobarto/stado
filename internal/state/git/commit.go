@@ -3,6 +3,7 @@ package git
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,18 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+// readEncodedObject drains an EncodedObject's Reader and returns its
+// bytes. Used to recover the canonical git bytes after Encode so the
+// SSH signer can sign exactly what git signs.
+func readEncodedObject(obj plumbing.EncodedObject) ([]byte, error) {
+	r, err := obj.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	return io.ReadAll(r)
+}
 
 var _ = strings.Builder{} // keep strings import usage visible after Phase 5 edit
 
@@ -126,6 +139,32 @@ func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, me
 	}
 	for _, p := range parents {
 		commit.ParentHashes = append(commit.ParentHashes, p)
+	}
+
+	// SSHSIG gpgsig header (Phase 5 — git-tooling interop). When the
+	// Signer also implements SSHCommitSigner, encode the commit once
+	// with an empty signature to get the canonical bytes git signs,
+	// feed those through SignSSH, and re-encode with the PGPSignature
+	// field set. `git log --show-signature` then recognises the
+	// signature and (with gpg.ssh.allowedSignersFile configured)
+	// verifies it against the signer's pubkey. The existing Signature:
+	// trailer path stays untouched for stado-native audit verification.
+	if sshSigner, ok := s.Signer.(SSHCommitSigner); ok {
+		probe := s.Sidecar.repo.Storer.NewEncodedObject()
+		if err := commit.Encode(probe); err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("encode commit (sshsig probe): %w", err)
+		}
+		canonicalBytes, err := readEncodedObject(probe)
+		if err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("read canonical bytes: %w", err)
+		}
+		sshsig, err := sshSigner.SignSSH(canonicalBytes)
+		if err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("sshsig: %w", err)
+		}
+		if sshsig != "" {
+			commit.PGPSignature = sshsig
+		}
 	}
 
 	obj := s.Sidecar.repo.Storer.NewEncodedObject()

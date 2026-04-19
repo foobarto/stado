@@ -45,6 +45,21 @@ func (s *Signer) Sign(treeHash string, parents []string, body string) (sigB64 st
 	return SigPrefix + base64.StdEncoding.EncodeToString(sig)
 }
 
+// SignSSH produces an SSHSIG-format signature over `message` bound to
+// the `git` namespace and sha512 hash (git tooling interop).
+// Returns "" when the Signer is nil so call-sites stay straight-line.
+//
+// `message` should be the git commit canonical bytes (i.e. the commit
+// object encoded *without* the gpgsig header) so `git log
+// --show-signature` / `ssh-keygen -Y verify` can verify against the
+// signer's public key.
+func (s *Signer) SignSSH(message []byte) (string, error) {
+	if s == nil || s.priv == nil {
+		return "", nil
+	}
+	return SignSSH(s.priv, GitNamespace, HashSHA512, message)
+}
+
 // AppendTrailer inserts or replaces the Signature trailer in a commit body.
 // Body should end with a newline; the trailer is added as the last line.
 func AppendTrailer(body, sigValue string) string {

@@ -311,7 +311,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Signed git refs as the audit primitive.
 
-**Shipped:** all sub-phases. Signatures ride in the commit message as a `Signature: ed25519:<base64>` trailer (stado-native scheme, not SSH signature format yet — interop with `git log --show-signature` is a follow-up). 5.5 is currently a slog mirror via `Session.OnCommit`; wiring to OTel logs is a config change once the exporter lands.
+**Shipped:** all sub-phases. Every commit carries two signatures now: the stado-native `Signature: ed25519:<base64>` trailer in the commit message (used by `stado audit verify`) AND an SSHSIG-format signature in the commit's `gpgsig` header (used by `git log --show-signature` + `ssh-keygen -Y verify`). SSHSIG is Ed25519 over the git-canonical commit bytes, namespace "git", sha512 — per https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.sshsig. 5.5 is currently a slog mirror via `Session.OnCommit`; wiring to OTel logs is a config change once the exporter lands.
 
 | # | Action |
 |---|--------|
