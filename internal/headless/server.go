@@ -123,10 +123,12 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	defer func() { sess.cancel = nil }()
 
 	opts := runtime.AgentLoopOptions{
-		Provider: s.Provider,
-		Model:    s.Cfg.Defaults.Model,
-		Messages: sess.messages,
-		MaxTurns: 10,
+		Provider:             s.Provider,
+		Model:                s.Cfg.Defaults.Model,
+		Messages:             sess.messages,
+		MaxTurns:             10,
+		Thinking:             s.Cfg.Agent.Thinking,
+		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		OnEvent: func(ev agent.Event) {
 			if ev.Kind == agent.EvTextDelta && ev.Text != "" {
 				_ = s.conn.Notify("session.update", map[string]any{

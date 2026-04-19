@@ -210,6 +210,15 @@ type AgentLoopOptions struct {
 	// Host implements tool.Host during tool execution. Defaults to an
 	// auto-approve host using Session.WorktreePath as workdir.
 	Host tool.Host
+
+	// Thinking controls extended-thinking injection. Values mirror
+	// cfg.Agent.Thinking: "auto" / "on" / "off" / "" (same as auto).
+	// Auto respects Capabilities.SupportsThinking on the active
+	// provider.
+	Thinking string
+	// ThinkingBudgetTokens is threaded through to the provider when
+	// Thinking resolves to on. 0 means "use a sensible default."
+	ThinkingBudgetTokens int
 }
 
 // AgentLoop runs the headless multi-turn loop. Returns the final assistant
@@ -292,6 +301,25 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			// DESIGN §"Prompt-cache awareness".
 			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 1}}
 		}
+		// Extended-thinking injection (Phase 1.6 — capability-driven
+		// branching). "auto" + supported → enable; "on" forces it even
+		// when the provider might reject (for debugging); "off" hard
+		// disables. Default budget of 16K when the caller didn't pin
+		// one mirrors cfg.Agent.ThinkingBudgetTokens.
+		if wantThinking(opts.Thinking, caps.SupportsThinking) {
+			budget := opts.ThinkingBudgetTokens
+			if budget <= 0 {
+				budget = 16384
+			}
+			req.Thinking = &agent.ThinkingConfig{BudgetTokens: budget}
+		}
+		// Vision filtering. When the provider can't accept images,
+		// quietly strip ImageBlocks before the request so the model
+		// sees only what it can process. A slog.Warn surfaces each
+		// dropped block so the caller can detect silent data loss.
+		if !caps.SupportsVision {
+			req.Messages = stripImageBlocks(req.Messages, opts.Provider.Name())
+		}
 		turnSpan.SetAttributes(attribute.Int("turn.tools", len(req.Tools)))
 		ch, err := opts.Provider.StreamTurn(turnCtx, req)
 		if err != nil {
@@ -364,6 +392,60 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		turnSpan.End()
 	}
 	return finalText, msgs, fmt.Errorf("runtime: exceeded %d turns", opts.MaxTurns)
+}
+
+// wantThinking resolves the agent-loop Thinking knob against the
+// provider's capability. Empty / "auto" → enable iff supported. "on"
+// → enable unconditionally. "off" → always disabled.
+func wantThinking(mode string, supported bool) bool {
+	switch mode {
+	case "on":
+		return true
+	case "off":
+		return false
+	default: // "", "auto"
+		return supported
+	}
+}
+
+// stripImageBlocks removes Image blocks from every message. Logs a
+// slog.Warn per drop so callers notice when vision-laden input is
+// being sent to a non-vision provider — better than a silent pass
+// through that fails at provider-side with a less-specific error.
+func stripImageBlocks(msgs []agent.Message, providerName string) []agent.Message {
+	dropped := 0
+	out := make([]agent.Message, len(msgs))
+	for i, m := range msgs {
+		if !hasImage(m.Content) {
+			out[i] = m
+			continue
+		}
+		filtered := make([]agent.Block, 0, len(m.Content))
+		for _, b := range m.Content {
+			if b.Image != nil {
+				dropped++
+				continue
+			}
+			filtered = append(filtered, b)
+		}
+		out[i] = agent.Message{Role: m.Role, Content: filtered}
+	}
+	if dropped > 0 {
+		slog.Warn("stado.runtime.vision_not_supported",
+			slog.String("provider", providerName),
+			slog.Int("image_blocks_dropped", dropped),
+		)
+	}
+	return out
+}
+
+func hasImage(blocks []agent.Block) bool {
+	for _, b := range blocks {
+		if b.Image != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // hashMessagesPrefix returns a short, stable fingerprint of msgs[:n]. Used by

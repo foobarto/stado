@@ -58,7 +58,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 
 **Goal:** ~200 LOC seam in `pkg/agent` encoding what the agent loop actually needs; 4 direct implementations. No third-party LLM abstraction library.
 
-**Shipped:** all 5 sub-phases (1.1 interface, 1.2 anthropic, 1.3 openai, 1.4 google, 1.5 oaicompat). 1.6 capability-driven branching partial — `Capabilities{}` populated and surfaced via `/provider`, but the agent loop doesn't yet *exploit* differences (e.g. cache_control selection based on `SupportsPromptCache`). Bundled presets added beyond PLAN: `lmstudio`, `litellm`, `groq`, `openrouter`, `deepseek`, `xai`, `mistral`, `cerebras`.
+**Shipped:** all 6 sub-phases. 1.1 interface, 1.2 anthropic, 1.3 openai, 1.4 google, 1.5 oaicompat, 1.6 capability-driven branching (cache_control placement from `SupportsPromptCache`, extended thinking auto-enabled when `SupportsThinking` and `[agent] thinking = auto|on` — default auto, vision-block filtering when `!SupportsVision` with a slog warning per dropped image). `[agent]` config section added (`thinking`, `thinking_budget_tokens`). Bundled presets beyond PLAN: `lmstudio`, `litellm`, `groq`, `openrouter`, `deepseek`, `xai`, `mistral`, `cerebras`.
 
 ### 1.1 `pkg/agent/agent.go` — the interface
 

@@ -57,11 +57,13 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		var executor *runtime.AgentLoopOptions
 		_ = executor // silence unused warning when --tools is off
 		opts := runtime.AgentLoopOptions{
-			Provider: prov,
-			Model:    cfg.Defaults.Model,
-			Messages: []agent.Message{agent.Text(agent.RoleUser, runPrompt)},
-			MaxTurns: runMaxTurns,
-			OnEvent:  emitter(runJSON, os.Stdout),
+			Provider:             prov,
+			Model:                cfg.Defaults.Model,
+			Messages:             []agent.Message{agent.Text(agent.RoleUser, runPrompt)},
+			MaxTurns:             runMaxTurns,
+			OnEvent:              emitter(runJSON, os.Stdout),
+			Thinking:             cfg.Agent.Thinking,
+			ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 		}
 		if runTools {
 			cwd, _ := os.Getwd()

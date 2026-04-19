@@ -145,10 +145,12 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
 
 	opts := runtime.AgentLoopOptions{
-		Provider: prov,
-		Model:    s.Cfg.Defaults.Model,
-		Messages: sess.messages,
-		MaxTurns: 10, // with tools enabled we may need multiple turns
+		Provider:             prov,
+		Model:                s.Cfg.Defaults.Model,
+		Messages:             sess.messages,
+		MaxTurns:             10, // with tools enabled we may need multiple turns
+		Thinking:             s.Cfg.Agent.Thinking,
+		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		OnEvent: func(ev agent.Event) {
 			switch ev.Kind {
 			case agent.EvTextDelta:

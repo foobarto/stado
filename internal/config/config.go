@@ -33,6 +33,23 @@ type Config struct {
 	ACP       ACP       `koanf:"acp"`
 	Plugins   Plugins   `koanf:"plugins"`
 	Context   Context   `koanf:"context"`
+	Agent     Agent     `koanf:"agent"`
+}
+
+// Agent is the [agent] config section — capability-driven knobs that
+// shape how the runtime talks to a given provider. Defaults land in
+// Load() when unset.
+type Agent struct {
+	// Thinking controls extended-thinking behaviour:
+	//   "auto" (default) — enable when the provider's Capabilities
+	//                       report SupportsThinking=true
+	//   "on"              — always enable, even if the provider will
+	//                       reject (useful for debugging)
+	//   "off"             — never enable
+	Thinking string `koanf:"thinking"`
+	// ThinkingBudgetTokens is the budget passed to providers that
+	// accept one (Anthropic). Ignored when Thinking resolves to off.
+	ThinkingBudgetTokens int `koanf:"thinking_budget_tokens"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage
@@ -177,6 +194,12 @@ func Load() (*Config, error) {
 	// the canonical default.
 	if cfg.Approvals.Mode == "" {
 		cfg.Approvals.Mode = "prompt"
+	}
+	if cfg.Agent.Thinking == "" {
+		cfg.Agent.Thinking = "auto"
+	}
+	if cfg.Agent.ThinkingBudgetTokens == 0 {
+		cfg.Agent.ThinkingBudgetTokens = 16384
 	}
 	if cfg.Context.SoftThreshold == 0 {
 		cfg.Context.SoftThreshold = 0.70
