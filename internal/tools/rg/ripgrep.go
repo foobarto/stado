@@ -164,15 +164,24 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	return tool.Result{Content: joined}, nil
 }
 
-// ResolveBinary picks the rg binary to use. Precedence: explicit override,
-// ${STADO_RG}, PATH lookup. Returns a friendly error pointing at install
-// docs when none found.
+// ResolveBinary picks the rg binary to use. Precedence:
+//  1. explicit override arg (from tests / user flags)
+//  2. ${STADO_RG} env var
+//  3. bundled blob (release builds include one; extracted + verified
+//     to $XDG_CACHE_HOME/stado/bin on first use)
+//  4. PATH lookup
+//
+// Returns a friendly error pointing at install docs when nothing
+// resolves.
 func ResolveBinary(override string) (string, error) {
 	if override != "" {
 		return override, nil
 	}
 	if env := envRG(); env != "" {
 		return env, nil
+	}
+	if path, err := bundledBinary(); err == nil {
+		return path, nil
 	}
 	full, err := exec.LookPath("rg")
 	if err != nil {

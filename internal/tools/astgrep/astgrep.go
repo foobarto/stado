@@ -110,7 +110,11 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	return tool.Result{Content: strings.Join(matches, "\n")}, nil
 }
 
-// ResolveBinary picks an ast-grep binary. Override → STADO_AST_GREP → PATH.
+// ResolveBinary picks an ast-grep binary. Precedence:
+//  1. explicit override arg
+//  2. ${STADO_AST_GREP} env var
+//  3. bundled blob (release builds include one; extracted on first use)
+//  4. PATH lookup (accepts `ast-grep` or older alias `sg`)
 func ResolveBinary(override string) (string, error) {
 	if override != "" {
 		return override, nil
@@ -118,7 +122,9 @@ func ResolveBinary(override string) (string, error) {
 	if v := os.Getenv("STADO_AST_GREP"); v != "" {
 		return v, nil
 	}
-	// Accept either `ast-grep` or `sg` (older alias).
+	if path, err := bundledBinary(); err == nil {
+		return path, nil
+	}
 	for _, name := range []string{"ast-grep", "sg"} {
 		if full, err := exec.LookPath(name); err == nil {
 			return full, nil
