@@ -1,0 +1,4 @@
+{{- /* Inline status line that lives INSIDE the input box border.
+       Layout: Mode · Model · Provider · <hint>
+       Mode is colour-coded (warning=Plan, accent=Do). */ -}}
+{{ if eq .Mode "Plan" }}{{ color "warning" "Plan" | bold }}{{ else }}{{ color "success" "Do" | bold }}{{ end }} {{ color "muted" "·" }} {{ color "text_secondary" .Model | bold }} {{ color "muted" .ProviderName }}{{ if .Hint }} {{ color "muted" "·" }} {{ color "accent" .Hint }}{{ end }}

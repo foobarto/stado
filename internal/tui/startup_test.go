@@ -5,6 +5,11 @@ import (
 	"os"
 	"testing"
 
+	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/bash"
+	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -98,5 +103,43 @@ func TestBuildProvider_LocalOllamaNeedsNoKey(t *testing.T) {
 	}
 	if ep == "" {
 		t.Error("ollama endpoint empty")
+	}
+}
+
+// TestPlanMode_FiltersMutatingTools proves the Plan/Do toggle actually
+// removes exec + mutating tools from the TurnRequest, so the model
+// genuinely cannot act in Plan mode (not just a post-hoc approval loop).
+func TestPlanMode_FiltersMutatingTools(t *testing.T) {
+	rnd, _ := render.New(theme.Default())
+	reg := tools.NewRegistry()
+	reg.Register(fs.ReadTool{})     // NonMutating
+	reg.Register(fs.WriteTool{})    // Mutating
+	reg.Register(fs.EditTool{})     // Mutating
+	reg.Register(rg.Tool{})         // NonMutating
+	reg.Register(bash.BashTool{})   // Exec
+	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
+
+	m := NewModel("/tmp", "m", "anthropic",
+		func() (agent.Provider, error) { return nil, nil },
+		rnd, keys.NewRegistry())
+	m.executor = exec
+
+	// Do mode — all five tools visible.
+	m.mode = modeDo
+	defs := m.toolDefs()
+	if len(defs) != 5 {
+		t.Errorf("Do mode: want 5 tools, got %d", len(defs))
+	}
+
+	// Plan mode — only NonMutating (read + ripgrep).
+	m.mode = modePlan
+	defs = m.toolDefs()
+	if len(defs) != 2 {
+		t.Errorf("Plan mode: want 2 tools (read, ripgrep), got %d", len(defs))
+	}
+	for _, d := range defs {
+		if d.Name == "write" || d.Name == "edit" || d.Name == "bash" {
+			t.Errorf("Plan mode leaked mutating tool %q", d.Name)
+		}
 	}
 }

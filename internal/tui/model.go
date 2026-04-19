@@ -55,6 +55,23 @@ const (
 	stateError
 )
 
+// inputMode switches the agent between read-only analysis ("Plan") and
+// full execution ("Do"). Plan mode filters Mutating + Exec tools out of
+// the TurnRequest so the model naturally produces an outline/plan.
+type inputMode int
+
+const (
+	modeDo inputMode = iota
+	modePlan
+)
+
+func (m inputMode) String() string {
+	if m == modePlan {
+		return "Plan"
+	}
+	return "Do"
+}
+
 // Internal messages used by the bubbletea update loop.
 type (
 	streamEventMsg    struct{ ev agent.Event }
@@ -90,6 +107,11 @@ type Model struct {
 	slash    *palette.Model
 	vp       viewport.Model
 	showHelp bool
+
+	// mode is Do (default — all tools allowed) or Plan (mutating + exec
+	// tools hidden from the model so it produces an analysis-only
+	// response). Tab toggles.
+	mode inputMode
 
 	// Conversation state
 	blocks   []block
@@ -352,6 +374,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderBlocks()
 			return m, nil
 
+		case m.keys.Matches(msg, keys.ModeToggle):
+			if m.mode == modeDo {
+				m.mode = modePlan
+			} else {
+				m.mode = modeDo
+			}
+			m.layout()
+			return m, nil
+
 		case m.keys.Matches(msg, keys.InputClear):
 			if m.input.Value() == "" {
 				return m, tea.Quit
@@ -449,8 +480,7 @@ func (m *Model) View() string {
 	if m.slash.Visible {
 		left.WriteString(m.slash.View() + "\n")
 	}
-	inputBox := m.theme.Pane().Width(mainW - 2).Render(m.input.View())
-	left.WriteString(inputBox + "\n")
+	left.WriteString(m.renderInputBox(mainW))
 	left.WriteString(m.renderStatus(mainW))
 
 	leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
@@ -472,7 +502,31 @@ func (m *Model) layout() {
 	m.renderBlocks()
 }
 
-// renderStatus runs the status template.
+// renderInputBox produces the opencode-style bordered input: a textarea
+// stacked on top of an inline status line (Mode · Model · Provider),
+// all inside one rounded border. Width = mainW - 2 accounting for the
+// border glyphs lipgloss adds.
+func (m *Model) renderInputBox(mainW int) string {
+	inner := mainW - 4 // border + padding
+	if inner < 20 {
+		inner = 20
+	}
+	inline, err := m.renderer.Exec("input_status", map[string]any{
+		"Mode":         m.mode.String(),
+		"Model":        m.model,
+		"ProviderName": m.providerDisplayName(),
+		"Hint":         "", // reserved — "xhigh" effort-style badge lands when reasoning-effort config does
+	})
+	if err != nil {
+		inline = "[input status render error: " + err.Error() + "]"
+	}
+	body := m.input.View() + "\n" + strings.TrimRight(inline, "\n")
+	return m.theme.Pane().Width(mainW - 2).Render(body) + "\n"
+}
+
+// renderStatus runs the bottom status template (right-aligned muted
+// tokens/cost + ctrl+p commands hint, plus an optional left-side
+// state indicator when busy).
 func (m *Model) renderStatus(width int) string {
 	state := "idle"
 	switch m.state {
@@ -483,18 +537,43 @@ func (m *Model) renderStatus(width int) string {
 	case stateError:
 		state = "error"
 	}
-	s, err := m.renderer.Exec("status", map[string]any{
+	tokens := fmt.Sprintf("%s (%s)", humanize(m.usage.InputTokens+m.usage.OutputTokens), tokenPctString(m))
+	cost := fmt.Sprintf("$%.2f", m.usage.CostUSD)
+
+	body, err := m.renderer.Exec("status", map[string]any{
 		"State":        state,
 		"Model":        m.model,
 		"ProviderName": m.providerDisplayName(),
 		"Cwd":          m.cwd,
 		"ErrorMessage": m.errorMsg,
 		"Width":        width,
+		"Tokens":       tokens,
+		"Cost":         cost,
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
 	}
-	return s
+	// Right-align the rendered status within the available width (+ 1 line
+	// terminator). The template emits [left-state (optional) + right stats]
+	// on a single line; padding the START of the line pushes the whole
+	// thing to the right edge. Minus the ANSI noise — strip-free width
+	// measurement comes from lipgloss.Width.
+	visible := lipgloss.Width(strings.TrimRight(body, "\n"))
+	if pad := width - visible; pad > 0 {
+		body = strings.Repeat(" ", pad) + strings.TrimRight(body, "\n") + "\n"
+	}
+	return body
+}
+
+// tokenPctString renders the in-context-window fraction for the bottom
+// status bar. Returns "" when we can't meaningfully compute the ratio.
+func tokenPctString(m *Model) string {
+	cap := m.providerCaps().MaxContextTokens
+	used := m.usage.InputTokens + m.usage.OutputTokens
+	if cap <= 0 || used == 0 {
+		return "0%"
+	}
+	return fmt.Sprintf("%d%%", 100*used/cap)
 }
 
 func (m *Model) renderSidebar(width int) string {
@@ -787,6 +866,12 @@ func (m *Model) executeCall(call agent.ToolUseBlock) agent.ToolResultBlock {
 
 // toolDefs builds the tool-definition list for the current turn request. An
 // empty registry (no session) returns nil so the provider runs pure chat.
+//
+// In Plan mode only NonMutating tools are exposed — the model can grep/read/
+// look-up-defs to form a plan, but can't edit/write/bash. This is the
+// principled enforcement (no approval-loop workaround): the model literally
+// doesn't see the mutating tools as available, so it produces analysis
+// rather than asking to execute.
 func (m *Model) toolDefs() []agent.ToolDef {
 	if m.executor == nil {
 		return nil
@@ -794,6 +879,12 @@ func (m *Model) toolDefs() []agent.ToolDef {
 	all := m.executor.Registry.All()
 	out := make([]agent.ToolDef, 0, len(all))
 	for _, t := range all {
+		if m.mode == modePlan {
+			class := m.executor.Registry.ClassOf(t.Name())
+			if class != tool.ClassNonMutating {
+				continue
+			}
+		}
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, agent.ToolDef{
 			Name:        t.Name(),

@@ -129,20 +129,48 @@ func TestRenderer_Sidebar(t *testing.T) {
 func TestRenderer_Status(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("status", map[string]any{
-		"State":        "idle",
-		"Model":        "claude-sonnet",
-		"ProviderName": "anthropic",
-		"Cwd":          "/p",
-		"Width":        80,
+		"State":  "idle",
+		"Tokens": "1.2K (12%)",
+		"Cost":   "$0.03",
+		"Width":  80,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "claude-sonnet") || !strings.Contains(out, "anthropic") {
-		t.Errorf("status missing model/provider: %q", out)
+	// New status bar is right-aligned: tokens · cost  ctrl+p commands
+	if !strings.Contains(out, "1.2K (12%)") || !strings.Contains(out, "$0.03") {
+		t.Errorf("status missing tokens/cost: %q", out)
 	}
-	if !strings.Contains(out, "ready") {
-		t.Errorf("idle state should render 'ready': %q", out)
+	if !strings.Contains(out, "ctrl+p") || !strings.Contains(out, "commands") {
+		t.Errorf("status missing ctrl+p hint: %q", out)
+	}
+}
+
+func TestRenderer_InputStatus(t *testing.T) {
+	r := newRenderer(t)
+	out, err := r.Exec("input_status", map[string]any{
+		"Mode":         "Plan",
+		"Model":        "Claude Opus 4.7",
+		"ProviderName": "Anthropic",
+		"Hint":         "xhigh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Plan", "Claude Opus 4.7", "Anthropic", "xhigh"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("input_status missing %q: %q", want, out)
+		}
+	}
+
+	out2, _ := r.Exec("input_status", map[string]any{
+		"Mode":         "Do",
+		"Model":        "gpt-4o",
+		"ProviderName": "openai",
+		"Hint":         "",
+	})
+	if !strings.Contains(out2, "Do") {
+		t.Errorf("Do mode label missing: %q", out2)
 	}
 }
 
