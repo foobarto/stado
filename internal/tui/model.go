@@ -829,6 +829,36 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		} else {
 			m.appendBlock(block{kind: "system", body: "usage: /approvals always <tool>  |  /approvals forget"})
 		}
+	case "/tools":
+		if m.executor == nil {
+			m.appendBlock(block{kind: "system", body: "no tools registered (session unavailable)"})
+		} else {
+			var sb strings.Builder
+			sb.WriteString("Registered tools:")
+			for _, t := range m.executor.Registry.All() {
+				cls := m.executor.Registry.ClassOf(t.Name()).String()
+				sb.WriteString(fmt.Sprintf("\n  %s [%s] — %s", t.Name(), cls, t.Description()))
+			}
+			m.appendBlock(block{kind: "system", body: sb.String()})
+		}
+	case "/model":
+		if len(parts) < 2 {
+			m.appendBlock(block{kind: "system", body: "current model: " + m.model + "  (usage: /model <name>)"})
+		} else {
+			old := m.model
+			m.model = parts[1]
+			m.appendBlock(block{kind: "system", body: "model: " + old + " → " + m.model})
+		}
+	case "/provider":
+		name := m.providerDisplayName()
+		if m.provider != nil {
+			caps := m.provider.Capabilities()
+			body := fmt.Sprintf("provider: %s  (cache=%v thinking=%v vision=%v ctx=%d)",
+				name, caps.SupportsPromptCache, caps.SupportsThinking, caps.SupportsVision, caps.MaxContextTokens)
+			m.appendBlock(block{kind: "system", body: body})
+		} else {
+			m.appendBlock(block{kind: "system", body: "provider: " + name + "  (not yet initialised)"})
+		}
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
