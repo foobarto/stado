@@ -96,6 +96,7 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	// directory that we should not trust).
 	if sess := resumeFromCWD(cfg, sc, cwd); sess != nil {
 		attachSessionScaffolding(sess, cfg, userRepo)
+		emitResumeSpan(cwd, sess.ID)
 		return sess, nil
 	}
 
@@ -179,6 +180,29 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 	// read-only or similar).
 	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
 	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+}
+
+// emitResumeSpan opens a short `stado.session.resume` span parented
+// by whatever trace context `.stado-span-context` carries (written
+// by a prior `stado session fork`). Jaeger then renders
+// fork → resume → turns as a single tree — closes out the Phase
+// 9.4/9.5 cross-process span link for the reattach case specifically.
+//
+// Zero-op when cwd has no traceparent file (no fork ancestry) or
+// when telemetry isn't configured — same graceful-degrade contract
+// as WriteCurrentTraceparent.
+func emitResumeSpan(cwd, sessionID string) {
+	ctx, ok := telemetry.LoadParentTraceparent(context.Background(), cwd)
+	if !ok {
+		return // non-forked resume, nothing to link back to
+	}
+	_, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanSessionResume,
+		trace.WithAttributes(
+			attribute.String("session.id", sessionID),
+			attribute.String("session.worktree", cwd),
+		),
+	)
+	span.End()
 }
 
 // resumeFromCWD returns an opened Session when cwd looks like an

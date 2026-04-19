@@ -62,7 +62,8 @@ func newMetrics(m metric.Meter) (Metrics, error) {
 // dashboards don't break on refactors.
 const (
 	SpanSession        = "stado.session"
-	SpanSessionFork    = "stado.session.fork" // DESIGN §"Phase 9.4 — supervisory trace across forks"
+	SpanSessionFork    = "stado.session.fork"   // DESIGN §"Phase 9.4 — supervisory trace across forks"
+	SpanSessionResume  = "stado.session.resume" // fires when OpenSession's resume-on-cwd branch reattaches an existing session
 	SpanTurn           = "stado.turn"
 	SpanToolCall       = "stado.tool_call"
 	SpanSandboxExec    = "stado.sandbox.exec"
