@@ -132,6 +132,12 @@ type Plugins struct {
 	// when CRLURL is set — empty disables verification and falls back to
 	// the trust-store-only gate with a stderr advisory.
 	CRLIssuerPubkey string `koanf:"crl_issuer_pubkey"`
+	// RekorURL points at a Rekor transparency-log instance (e.g.
+	// `https://rekor.sigstore.dev`). When set, `stado plugin verify`
+	// consults Rekor for a matching hashedrekord entry — proof that the
+	// manifest signature was logged before install. Empty = advisory
+	// only, no Rekor lookup.
+	RekorURL string `koanf:"rekor_url"`
 }
 
 func Load() (*Config, error) {

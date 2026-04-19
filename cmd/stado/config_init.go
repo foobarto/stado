@@ -121,7 +121,14 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # hard_threshold = 0.90   # future turns blocked pending fork / compact / abort
 
 # ---------------------------------------------------------------------------
-# [sandbox] / [git] / [acp] / [plugins] — reserved.
-# Scaffolded here so users see them; fields land with the matching phases.
+# [sandbox] / [git] / [acp] — reserved. Fields land with the matching phases.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# [plugins] — plugin trust + revocation + transparency log (Phase 7.6 / 7.7)
+# ---------------------------------------------------------------------------
+# [plugins]
+# crl_url = "https://example.com/stado/plugin-crl.json"
+# crl_issuer_pubkey = "hex-or-base64-of-ed25519-pubkey"
+# rekor_url = "https://rekor.sigstore.dev"  # Rekor transparency log
 `

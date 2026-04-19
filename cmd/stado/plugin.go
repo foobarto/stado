@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -132,6 +134,33 @@ var pluginVerifyCmd = &cobra.Command{
 			}
 		}
 
+		// Consult Rekor transparency log (if configured). DESIGN §"Phase
+		// 7.7": defence-in-depth on top of the trust store — proves the
+		// signature was publicly logged before install. Absence is
+		// advisory; mismatch is fatal.
+		if cfg.Plugins.RekorURL != "" {
+			entries, tsErr := ts.Load()
+			if tsErr == nil {
+				if entry, ok := entries[m.AuthorPubkeyFpr]; ok {
+					pubBytes, pErr := hex.DecodeString(entry.Pubkey)
+					if pErr != nil || len(pubBytes) != ed25519.PublicKeySize {
+						return fmt.Errorf("verify: trust-store pubkey malformed for %s", m.AuthorPubkeyFpr)
+					}
+					canonical, cErr := m.Canonical()
+					if cErr != nil {
+						return fmt.Errorf("verify: canonicalise: %w", cErr)
+					}
+					sigBytes, sErr := base64.StdEncoding.DecodeString(sig)
+					if sErr != nil {
+						return fmt.Errorf("verify: decode signature: %w", sErr)
+					}
+					if err := consultRekor(cmd.Context(), cfg.Plugins.RekorURL, canonical, sigBytes, ed25519.PublicKey(pubBytes)); err != nil {
+						return fmt.Errorf("verify: %w", err)
+					}
+				}
+			}
+		}
+
 		fmt.Printf("OK  %s v%s  author=%s  sha256=%s  caps=%d\n",
 			m.Name, m.Version, m.Author, m.WASMSHA256[:12], len(m.Capabilities))
 		return nil
@@ -186,6 +215,39 @@ func consultCRL(cfg *config.Config, m *plugins.Manifest) error {
 	if revoked {
 		return fmt.Errorf("plugin %s v%s is revoked — %s", m.Name, m.Version, reason)
 	}
+	return nil
+}
+
+// consultRekor checks that the plugin manifest has a Rekor transparency
+// log entry matching its signature + signer + canonical digest. Treats
+// `ErrRekorNotFound` and airgap-disabled errors as advisory (stderr
+// hint) rather than fatal — the manifest sig is already verified by
+// the trust store, Rekor is defence-in-depth.
+//
+// Hard-fails only when an entry exists but its contents don't match
+// (mismatched sig / pubkey / hash) — that's evidence of tampering.
+func consultRekor(ctx context.Context, rekorURL string, canonicalBytes, sig []byte, pub ed25519.PublicKey) error {
+	if rekorURL == "" {
+		return nil
+	}
+	entry, err := plugins.SearchByHash(ctx, rekorURL, canonicalBytes)
+	if err != nil {
+		if errors.Is(err, plugins.ErrRekorNotFound) {
+			fmt.Fprintf(os.Stderr,
+				"rekor: no log entry for this manifest at %s — advisory only\n", rekorURL)
+			return nil
+		}
+		// Network errors / airgap stubs: advisory, fall back to the
+		// trust-store verification that already happened.
+		fmt.Fprintf(os.Stderr,
+			"rekor: lookup failed (%v); falling back to trust-store verification\n", err)
+		return nil
+	}
+	digest := sha256.Sum256(canonicalBytes)
+	if err := plugins.VerifyEntry(*entry, sig, pub, digest[:]); err != nil {
+		return fmt.Errorf("rekor entry mismatch (tampering?): %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "rekor: matched entry %s (log index %d)\n", entry.UUID, entry.LogIndex)
 	return nil
 }
 

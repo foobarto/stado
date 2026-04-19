@@ -271,9 +271,6 @@ See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
   apt/rpm repos. Cosign-online verification on self-update also still
   pending (couples with sigstore deps for Phase 7.7 Rekor); the
   minisign path is wired.
-- **WASM plugins — Rekor attestation** (Phase 7.7). Manifest + trust
-  store + CRL + wazero runtime + `stado plugin run` are shipped; Rekor
-  transparency-log attestation lands with the rest of sigstore.
 
 ---
 
