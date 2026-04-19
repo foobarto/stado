@@ -644,7 +644,7 @@ has landed. What's left, in the order I'd tackle it:
 | K  | Phase 7.1 — wazero runtime host for WASM plugins. | 7 |
 | L  | Phase 7.6/7.7 — CRL fetch + optional Rekor attestation for plugin publish. | 7 |
 | M  | ✅ Phase 8.1 — per-MCP-server sandbox policy: config.MCPServer gains `capabilities []string`, `mcp.ParseCapabilities` maps forms (fs/net/exec/env) to `sandbox.Policy`, `mcp.ServerConfig` carries a Runner + Policy, and `transport.WithCommandFunc` routes stdio-server spawns through `sandbox.Runner.Command`. Unsandboxed servers warn on stderr. | 8 |
-| N  | Phase 9.4/9.5 — supervisory OTel trace across forks (parent→child span links). | 9 |
+| N  | 🟡 Phase 9.4/9.5 — fork-time `stado.session.fork` span landed (parent id / child id / root commit / at_turn_ref attrs). Cross-process span-link from child sessions back to the parent's context still pending — needs persisted span context, which stado doesn't carry across session-spawn boundaries yet. | 9 |
 | O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
 | P  | Phase 10.5 — `-tags airgap` build (strip cosign). | 10 |
 | Q  | Phase 10.7 — Homebrew tap + apt/rpm repos via `nfpm`. | 10 |

@@ -61,10 +61,11 @@ func newMetrics(m metric.Meter) (Metrics, error) {
 // Span name constants for the PLAN §6.2 hierarchy. Keep these stable so
 // dashboards don't break on refactors.
 const (
-	SpanSession       = "stado.session"
-	SpanTurn          = "stado.turn"
-	SpanToolCall      = "stado.tool_call"
-	SpanSandboxExec   = "stado.sandbox.exec"
+	SpanSession        = "stado.session"
+	SpanSessionFork    = "stado.session.fork" // DESIGN §"Phase 9.4 — supervisory trace across forks"
+	SpanTurn           = "stado.turn"
+	SpanToolCall       = "stado.tool_call"
+	SpanSandboxExec    = "stado.sandbox.exec"
 	SpanProviderStream = "stado.provider.stream"
 )
 

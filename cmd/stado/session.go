@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,9 +11,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -331,11 +337,31 @@ func createSession(cfg *config.Config, parentID string) (*stadogit.Session, erro
 // blank session. See DESIGN §"Fork semantics" and §"Fork-from-point
 // ergonomics" for the user-facing contract.
 func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash) (*stadogit.Session, error) {
+	// Open a fork-time OTel span so operators can visualise the fork
+	// graph (DESIGN §"Phase 9.4 — supervisory trace across forks").
+	// No-op when telemetry is disabled. Parent: the process's root
+	// context; child-session span linking is a follow-up — needs
+	// persisted span context, which stado doesn't carry across
+	// session-spawn boundaries yet.
+	spanCtx, span := otel.Tracer(telemetry.TracerName).Start(
+		context.Background(), telemetry.SpanSessionFork,
+		trace.WithAttributes(
+			attribute.String("session.parent_id", parentID),
+			attribute.Bool("fork.at_turn_ref", !atCommit.IsZero()),
+		),
+	)
+	defer span.End()
+	_ = spanCtx
+
 	sc, err := openSidecar(cfg)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -350,6 +376,8 @@ func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash
 			// fresh session. Not an error.
 			fmt.Fprintf(os.Stderr, "fork: parent %s has no tree ref yet; creating empty child\n", parentID)
 		default:
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("fork: resolve parent: %w", err)
 		}
 	}
@@ -357,17 +385,27 @@ func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash
 	id := uuid.New().String()
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, rootCommit)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
+	span.SetAttributes(
+		attribute.String("session.child_id", id),
+		attribute.String("session.root_commit", rootCommit.String()),
+	)
 
 	// Materialise the root tree into the child's worktree. Zero root =
 	// clean worktree (fresh session).
 	if !rootCommit.IsZero() {
 		treeHash, err := sess.TreeFromCommit(rootCommit)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("fork: resolve tree: %w", err)
 		}
 		if err := sess.MaterializeTreeToDir(treeHash, sess.WorktreePath); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("fork: materialise worktree: %w", err)
 		}
 	}
