@@ -4,7 +4,9 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +19,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/foobarto/stado/internal/audit"
 )
 
 var (
@@ -33,9 +37,11 @@ var selfUpdateCmd = &cobra.Command{
 		"verifies the sha256 from the release's checksums.txt, extracts the\n" +
 		"stado binary, and atomically swaps it into place.\n\n" +
 		"Keeps the previous binary at <bin>.prev so you can roll back.\n\n" +
-		"Signature verification (cosign + minisign) is a follow-up — once\n" +
-		"the release keys are pinned. Until then the sha256 check is the\n" +
-		"integrity proof.",
+		"Integrity: sha256 from checksums.txt always checked. When the build\n" +
+		"has an embedded minisign pubkey AND the release publishes a\n" +
+		"checksums.txt.minisig, the signature is verified before the\n" +
+		"checksums are trusted. Cosign verification lands alongside the\n" +
+		"full sigstore wiring in a follow-up.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSelfUpdate()
 	},
@@ -161,30 +167,38 @@ func pickAsset(assets []ghAsset) (ghAsset, error) {
 }
 
 // fetchChecksums parses checksums.txt (one "sha256  filename" per line) into
-// a map.
+// a map. When the release also publishes checksums.txt.minisig AND stado
+// was built with a pinned EmbeddedMinisignPubkey, the minisig is verified
+// against the embedded key before the checksums are trusted — DESIGN
+// §"Phase 10.8b: signature verification on self-update". No embedded key
+// = advisory-only, sha256 remains the integrity proof.
 func fetchChecksums(assets []ghAsset) (map[string]string, error) {
-	var checksumsURL string
+	var checksumsURL, minisigURL string
 	for _, a := range assets {
-		if a.Name == "checksums.txt" {
+		switch a.Name {
+		case "checksums.txt":
 			checksumsURL = a.BrowserDownloadURL
-			break
+		case "checksums.txt.minisig":
+			minisigURL = a.BrowserDownloadURL
 		}
 	}
 	if checksumsURL == "" {
 		return nil, fmt.Errorf("no checksums.txt in release assets")
 	}
-	resp, err := http.Get(checksumsURL)
+
+	// Download checksums.txt.
+	data, err := fetchBytes(checksumsURL, "checksums.txt")
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("checksums.txt HTTP %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
+
+	// Verify the minisig when we have both (a) a pinned embedded pubkey
+	// and (b) a minisig asset on the release. Otherwise log the state
+	// so the user knows what the integrity guarantee actually is.
+	if err := verifyChecksumsMinisig(data, minisigURL); err != nil {
 		return nil, err
 	}
+
 	out := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -194,6 +208,56 @@ func fetchChecksums(assets []ghAsset) (map[string]string, error) {
 		out[fields[1]] = fields[0]
 	}
 	return out, nil
+}
+
+// fetchBytes is a thin GET helper that reads the whole body.
+func fetchBytes(url, label string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s HTTP %d", label, resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// verifyChecksumsMinisig enforces the signature contract when both sides
+// are present. Returns nil (+ stderr advisory) for the degraded cases so
+// existing environments without a pinned key keep working.
+func verifyChecksumsMinisig(checksums []byte, minisigURL string) error {
+	pinned := audit.EmbeddedMinisignPubkey
+	switch {
+	case pinned == "" && minisigURL == "":
+		fmt.Fprintln(os.Stderr,
+			"self-update: no minisign pubkey pinned and no .minisig asset — sha256 is the only integrity check.")
+		return nil
+	case pinned == "":
+		fmt.Fprintln(os.Stderr,
+			"self-update: no minisign pubkey pinned; release publishes a .minisig but we can't verify it. (PR O wires the ceremony.)")
+		return nil
+	case minisigURL == "":
+		fmt.Fprintln(os.Stderr,
+			"self-update: minisign pubkey pinned but release has no checksums.txt.minisig — falling back to sha256 only.")
+		return nil
+	}
+
+	// Both present — enforce.
+	pub, err := base64.StdEncoding.DecodeString(pinned)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return fmt.Errorf("self-update: embedded minisign pubkey malformed: %w", err)
+	}
+	sigBytes, err := fetchBytes(minisigURL, "checksums.txt.minisig")
+	if err != nil {
+		return err
+	}
+	trusted, err := audit.MinisignVerify(ed25519.PublicKey(pub), checksums, sigBytes)
+	if err != nil {
+		return fmt.Errorf("self-update: minisign verification failed: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "self-update: minisign verified (trusted comment: %s)\n", trusted)
+	return nil
 }
 
 // downloadAndVerify streams url to a temp file, computing sha256 as it goes.

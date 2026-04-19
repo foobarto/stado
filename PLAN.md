@@ -648,7 +648,7 @@ has landed. What's left, in the order I'd tackle it:
 | O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
 | P  | Phase 10.5 — `-tags airgap` build (strip cosign). | 10 |
 | Q  | Phase 10.7 — Homebrew tap + apt/rpm repos via `nfpm`. | 10 |
-| R  | Phase 10.8b — signature verification on `stado self-update` (cosign online, minisign unconditional). | 10 |
+| R  | 🟡 Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. Cosign online verification still pending (sigstore deps). | 10 |
 
 PRs B–F compose Phase 11 and are best landed in order — each builds on
 the previous. Everything else (A, G–R) is independent; land in whatever
