@@ -33,7 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | ⬜ | See [DESIGN.md §"Context management"](DESIGN.md). Token thresholds + `session compact` + per-tool output budgets + cache-stability invariants |
+| 11 — Context management | ⬜ | 11.1–11.5 all ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
@@ -64,6 +64,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 
 ```go
 type Provider interface {
+    Name() string
     Capabilities() Capabilities
     StreamTurn(ctx context.Context, req TurnRequest) (<-chan Event, error)
 }
@@ -445,7 +446,7 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 | # | Action |
 |---|--------|
-| 9.1 | Extract headless core: `internal/core/runtime.go` — session manager, agent loop, tool executor, state committer — all UI-independent. |
+| 9.1 | Extract headless core: `internal/runtime/runtime.go` — session manager, agent loop, tool executor, state committer — all UI-independent. |
 | 9.2 | `stado headless` — JSON-RPC over stdio surface matching TUI events. Enables scripting, CI integration, and TUI-as-client-of-daemon pattern. |
 | 9.3 | `stado run --prompt "..." --agent claude-code-acp --max-turns 20 --json` — non-interactive; exit code reflects outcome; emits structured events. |
 | 9.4 | **Parallel agents** — `stado session fork <id>` creates new worktree + branches → independent agent runtime. Manager multiplexes I/O, keeps a supervisory OTel trace per fork. TUI gets an "agents" pane showing all forks of current session. |
@@ -461,7 +462,7 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 **Goal:** Signed, reproducible, airgap-installable single binary.
 
-**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.8 `stado self-update` (sha256 verify from checksums.txt + atomic swap with `.prev` backup). **Pending:** 10.3 offline minisign-key ceremony, 10.5 `-tags airgap` build, 10.7 Homebrew tap + apt/rpm repos, 10.8 sig verification on self-update.
+**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.8a `stado self-update` sha256 verify from checksums.txt + atomic swap with `.prev` backup. **Pending:** 10.3 offline minisign-key ceremony, 10.5 `-tags airgap` build, 10.7 Homebrew tap + apt/rpm repos, 10.8b signature verification layered onto `stado self-update` (cosign when online, minisign unconditionally).
 
 | # | Action |
 |---|--------|
@@ -479,6 +480,128 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 - `cosign verify-blob` passes against pinned identity + issuer
 - `minisign verify` passes against embedded pubkey
 - `stado self-update` refuses tampered download
+
+---
+
+## Phase 11 — Context Management — ⬜
+
+**Goal:** Implement the four-concern context-management model specified
+in [DESIGN §"Context management"](DESIGN.md#context-management):
+prompt-cache efficiency, overflow handling, user-invoked compaction,
+and tool-output curation. Forking (not summarisation) is the preferred
+recovery for oversized sessions, so the phase also hardens
+fork-from-point ergonomics to the point where reaching for it is
+obvious.
+
+**Design invariants** (copied here because they are acceptance criteria,
+not just documentation — DESIGN is the single source of truth for wording):
+
+- Append-only conversation history. The agent loop never rewrites prior
+  turns. Any transformation that edits a past message invalidates every
+  downstream cache entry and is therefore forbidden.
+- No automatic compaction. Not on threshold breach, not in the
+  background, not via any config flag. Fork-from-point is the recovery.
+- Curation and caching are primary. Overflow handling is a safety net.
+- Dedup is best-effort optimisation, never a correctness guarantee.
+
+### 11.1 Prompt-cache awareness plumbing
+
+**Scope:** `pkg/agent`, `internal/providers/*`, `internal/runtime`.
+
+| # | Action |
+|---|--------|
+| 11.1.1 | Add append-only guardrail to `runtime.AgentLoop` — panic (in debug builds) or log+refuse (in release) if an in-place mutation of a prior `Message` is attempted. |
+| 11.1.2 | Deterministic `TurnRequest.Tools` — sort by `Tool.Name()`. Any map-iteration source in the prompt-byte path is banned; lint (or a go-arch-lint rule) catches new offenders. |
+| 11.1.3 | Cache-breakpoint placement in `providers/anthropic` — set `cache_control: ephemeral` on the final block of the stable prefix when `Capabilities.SupportsPromptCache` is true. |
+| 11.1.4 | Capability-driven branching in `runtime.AgentLoop` per PLAN §1.6 — cache hints only populated when the active provider supports them. |
+| 11.1.5 | **Cache-stability test** — render the system-prompt prefix twice with identical inputs, assert byte equality. Fails loudly on any clock/UUID/map-iteration leak. |
+| 11.1.6 | **Tool-ordering test** — register tools in randomised order, assert serialised `TurnRequest.Tools` bytes are identical across runs. |
+
+### 11.2 Token accounting
+
+**Scope:** `pkg/agent`, `internal/providers/*`, `internal/runtime`,
+`internal/tui`, `internal/headless`.
+
+| # | Action |
+|---|--------|
+| 11.2.1 | Extend `agent.Provider` with `CountTokens(ctx, req) (int, error)` OR add a capability flag + per-provider tokenizer helper. Prefer the helper approach — it avoids round-tripping to the provider for every count. |
+| 11.2.2 | Per-provider tokenizer wiring: Anthropic `Messages.CountTokens` (or official tokenizer), OpenAI `tiktoken`, Google genai tokenizer, OAI-compat uses `tiktoken` by default with a config override. |
+| 11.2.3 | Capability probe on first provider use. A backend that cannot report counts is a hard error on first turn — **refuse to proceed blind**. |
+| 11.2.4 | Soft/hard threshold enforcement as percentages of `Capabilities.MaxContextTokens`. Defaults: soft 70%, hard 90%. Configurable under `[context]` in config. |
+| 11.2.5 | Soft threshold surface: TUI shows a dismissable warning indicator; headless emits `session.update { kind: "context_warning" }`. |
+| 11.2.6 | Hard threshold surface: next turn blocked. User prompted to fork, `session compact`, or abort. |
+| 11.2.7 | **Token-counting fidelity test** — per provider, assert reported count matches the provider's own count for a fixed prompt within 1% tolerance. |
+
+### 11.3 User-invoked compaction
+
+**Scope:** `cmd/stado/session.go`, `internal/runtime`, `internal/state/git`,
+`internal/tui`.
+
+| # | Action |
+|---|--------|
+| 11.3.1 | `stado session compact <id>` CLI subcommand. |
+| 11.3.2 | TUI action — command-palette entry + slash command (`/compact`). |
+| 11.3.3 | Summarisation call — uses the active provider, cheap-model preference where available (e.g. Anthropic haiku class). **Open question:** should summarisation be pinned to a separate `[context.compaction.model]` config? Deferred until we see real usage. |
+| 11.3.4 | Summary-preview-edit-confirm flow. User sees the proposed summary, can edit, can reject. No commit without explicit confirmation. |
+| 11.3.5 | Dual-ref compaction commit: `tree` gets the summary-replaces-turns commit, `trace` keeps raw turns unchanged. `checkout tree~1` restores pre-compaction state. |
+| 11.3.6 | Compaction-marker metadata surfaced by `stado session show` — which turns, when, summary SHA. |
+
+### 11.4 Tool-output curation + in-turn dedup
+
+**Scope:** `pkg/tool`, `internal/tools/*`, `internal/runtime`.
+
+| # | Action |
+|---|--------|
+| 11.4.1 | Per-tool default output budgets (tokens). See DESIGN §"Tool-output curation" for the table. Implemented as a `Tool.DefaultBudget() int` method with a sensible base default (4K). |
+| 11.4.2 | Truncation markers — explicit `[truncated: X of Y … call with range=... for more]` so the model knows it can request more. |
+| 11.4.3 | `read` tool args extended with `start?: int, end?: int` (1-indexed, inclusive, `end=-1` → EOF). Rename `fs.PathArgs` → `fs.ReadArgs` along the way (codebase hygiene, not a spec requirement). |
+| 11.4.4 | Extend `pkg/tool.Host` with `PriorRead(key ReadKey) (PriorReadInfo, bool)` and `RecordRead(key ReadKey, info PriorReadInfo)`. See DESIGN §"Tool interface" for exact semantics. |
+| 11.4.5 | Ship a `nullHost` helper in the tools package — zero-behaviour Host for tests. `PriorRead` returns `(PriorReadInfo{}, false)`, `RecordRead` is a no-op. ~20 LOC; saves every test double from reimplementing the same stub. |
+| 11.4.6 | Executor maintains the read log as `map[ReadKey]PriorReadInfo` behind a `sync.Mutex`. Per-process lifetime. Process-local turn counter increments on each top-level user prompt. |
+| 11.4.7 | `read` tool calls `PriorRead` / hashes current file region / compares / returns reference response on match, fresh read otherwise. Hash via `io.MultiWriter` during the read itself (one pass over bytes). |
+| 11.4.8 | Range canonicalisation inside the `read` tool — `""` for full-file, `"<start>:<end>"` for ranged. Resolution of any alternative input shape into canonical form happens before `ReadKey` is constructed. |
+| 11.4.9 | **Truncation coverage test** — for each bundled tool, assert default budget is respected and truncation marker is present when hit. |
+| 11.4.10 | **Read-dedup invariants test** — PriorRead/RecordRead round-trip, staleness check (modified file → fresh read, not reference), range canonicalisation asserted for every input shape, concurrent reads under mutex don't corrupt the log. |
+
+### 11.5 Fork-from-point ergonomics
+
+**Scope:** `cmd/stado/session.go`, `internal/tui/fork` (new package),
+`internal/state/git`.
+
+| # | Action |
+|---|--------|
+| 11.5.1 | `stado session fork <id> --at <turn-ref>` — extends the existing `session fork` (which forks from tree HEAD). `<turn-ref>` accepts `turns/N` or full commit SHA. No-`--at` form preserved. |
+| 11.5.2 | `stado session tree <id>` — **standalone cobra subcommand** with its own `tea.Program`. Not a slash command in the main TUI (that may come later as an additional surface). |
+| 11.5.3 | `session tree`'s navigable view renders turn boundaries only by default; sub-turn commits reachable via git tooling with the SHA escape hatch. Single keybinding on cursor-selected turn forks into a fresh session rooted there. |
+| 11.5.4 | PTY test harness — `github.com/creack/pty` (de facto Go standard, zero non-stdlib transitive deps, neutral to the charm ecosystem). New infrastructure; one-time setup cost. |
+| 11.5.5 | **Scripted-path test** — `session fork <id> --at turns/<N>` single invocation → child session whose tree-ref head matches parent's `turns/<N>` tag, worktree materialised to match. |
+| 11.5.6 | **Interactive-path test** — drive `session tree` through the PTY harness, navigate to a turn, press the fork keybinding, assert the resulting session's tree-ref and materialised worktree. |
+
+### 11.6 Non-goals (explicit)
+
+A contribution proposing any of these must first justify why
+fork-from-point is inadequate for their use case. Landing such a
+contribution requires revising DESIGN first, not back-door-ing through
+a PR:
+
+- Automatic or background summarisation of any kind.
+- Semantic importance scoring of individual turns.
+- Vector-store-backed "memory" of prior sessions.
+- Sliding-window auto-eviction without user consent.
+
+**Verify (Phase 11 as a whole):**
+- A long session with repeated reads of the same unchanged file shows
+  a single disk read plus reference responses; modifying the file
+  between reads produces fresh reads.
+- Cache-hit ratio metric (once Phase 6 span-wrapping lands, PR A)
+  reports >80% on the stable-prefix tokens across turns 2+.
+- Soft threshold warning fires at 70% on a synthetic session that
+  fills context; hard threshold blocks the next turn at 90%.
+- `session fork <id> --at turns/5` in one shell, `session tree <id>`
+  + keybinding in another, both produce equivalent child sessions
+  when rooted at the same turn.
+- No automatic compaction path exists — search the codebase for any
+  call to `Compact` that isn't gated behind an explicit user action.
 
 ---
 
@@ -501,25 +624,39 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 ---
 
-## Suggested PR Sequence
+## Remaining work
 
-| PR | Content |
-|----|---------|
-| 1 | Phase 0 (demolition only) |
-| 2 | Phase 1.1 interface + 1.5 OAI-compat (proves interface shape with simplest provider) |
-| 3 | Phase 1.2–1.4 (three SDK-backed providers) |
-| 4 | Phase 2.1–2.6 (git-native core) |
-| 5 | Phase 2.7–2.8 + CLI (`stado session {new,list,show,attach,delete,fork,land,revert}`) |
-| 6 | Phase 3 (sandbox layer) |
-| 7 | Phase 4 (tool runtime) |
-| 8 | Phase 5 (audit signing) |
-| 9 | Phase 6 (OTel) |
-| 10 | Phase 7 (WASM plugins) |
-| 11 | Phase 8 (MCP + ACP) |
-| 12 | Phase 9 (headless + parallel) |
-| 13 | Phase 10 (release) |
+The original greenfield PR sequence (PRs 1–13 covering Phases 0–10)
+has landed. What's left, in the order I'd tackle it:
 
-**Rough estimate:** 8–12 weeks of focused work for a single strong Go developer to PR13, with Phase 3 (sandbox) and Phase 7 (WASM plugins) being the gnarliest.
+| PR | Content | Phase |
+|----|---------|-------|
+| A  | OTel span instrumentation: wrap `tools.Executor.Run`, `runtime.AgentLoop.turn`, and `providers/*.StreamTurn` with `tracer.Start`. Closes Phase 6 🟢→✅. | 6 |
+| B  | Phase 11.1 — cache-awareness plumbing: append-only guardrails, deterministic tool serialisation, `cache_control` breakpoint placement driven by `Capabilities.SupportsPromptCache`, cache-stability + tool-ordering tests. | 11 |
+| C  | Phase 11.2 — token accounting: per-provider tokenizer calls, capability probe, soft/hard threshold enforcement in TUI + headless. | 11 |
+| D  | Phase 11.3 — user-invoked compaction: `stado session compact` CLI + TUI action, summary-preview-edit-confirm flow, dual-ref compaction commit. | 11 |
+| E  | Phase 11.4 — tool-output curation: per-tool default budgets, truncation markers, read-tool ranged-read args (`start/end`), in-turn dedup (Host.PriorRead + RecordRead + process-local read log + turn counter). | 11 |
+| F  | Phase 11.5 — fork-from-point ergonomics: `session fork --at <turn-ref>` scripted path + `session tree` standalone cobra subcommand with its own `tea.Program`. | 11 |
+| G  | Phase 3.3 — seccomp BPF via `bwrap --seccomp=FD`. | 3 |
+| H  | Phase 3.5 — macOS `sandbox-exec` runner. | 3 |
+| I  | Phase 3.6 — Windows job-objects + restricted-tokens runner. | 3 |
+| J  | Phase 4.1/4.2 — binary-embed pipeline for ripgrep + ast-grep. | 4 |
+| K  | Phase 7.1 — wazero runtime host for WASM plugins. | 7 |
+| L  | Phase 7.6/7.7 — CRL fetch + optional Rekor attestation for plugin publish. | 7 |
+| M  | Phase 8.1 — per-MCP-server sandbox policy. | 8 |
+| N  | Phase 9.4/9.5 — supervisory OTel trace across forks (parent→child span links). | 9 |
+| O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
+| P  | Phase 10.5 — `-tags airgap` build (strip cosign). | 10 |
+| Q  | Phase 10.7 — Homebrew tap + apt/rpm repos via `nfpm`. | 10 |
+| R  | Phase 10.8b — signature verification on `stado self-update` (cosign online, minisign unconditional). | 10 |
+
+PRs B–F compose Phase 11 and are best landed in order — each builds on
+the previous. Everything else (A, G–R) is independent; land in whatever
+order matches priorities.
+
+**Rough estimate for PRs A–F (the Phase 6 + Phase 11 arc):** 3–4 weeks
+of focused work. Phase 11.5 interactive (PR F) is the longest single
+task because the PTY harness is new infrastructure.
 
 ---
 
@@ -746,7 +883,12 @@ narrow further. Never to widen.
 
 ---
 
-## Planned implementation details (remaining work)
+## Design notes for remaining sub-phases
+
+Approach, risks, and open questions for the gnarlier pending items.
+For the PR-level breakdown of what's left, see §"Remaining work"
+above. This section is design-detail only — the kind of notes you'd
+want open on the side while writing the PR.
 
 ### Phase 3.3 — Linux seccomp BPF
 
@@ -920,3 +1062,4 @@ mapping to nested dots — e.g. `STADO_DEFAULTS_PROVIDER=ollama`
    Homebrew tap push via `brew-tap` release job; `nfpm` .deb/.rpm
    publish to a signed apt/rpm repo; `stado self-update` verifies both
    cosign (online) and minisign (airgap) before installing.
+   

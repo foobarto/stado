@@ -24,32 +24,39 @@ compose the same runtime core.
 ## Component map
 
 ```
-            ┌────────────────────────────────────────────┐
-            │   User surfaces                            │
-            │                                            │
-            │  TUI   stado run   stado acp   stado headless
-            │   │       │           │             │       │
-            └───┼───────┼───────────┼─────────────┼───────┘
-                └───────┴───────────┴─────────────┘
-                                │
-                                ▼
-                    internal/runtime (AgentLoop)
-                    ┌────────────┬──────────────┐
-                    │            │              │
-                    ▼            ▼              ▼
-            pkg/agent     internal/tools   internal/state/git
-            (Provider)    (Executor +      (Sidecar, refs,
-                │          Registry +       signatures,
-                │          classification)  materialisation)
-                ▼              │
-    ┌───────────┬─────┬────┐   │
-    ▼           ▼     ▼    ▼   ▼
-  anthropic  openai google oaicompat
-                               │
-                               ▼
-                         internal/sandbox
-                         (Policy, Runner,
-                          landlock, proxy)
+  ┌──────────────────── User surfaces ────────────────────┐
+  │                                                       │
+  │   TUI      stado run      stado acp     stado headless│
+  │    │           │              │                │      │
+  └────┼───────────┼──────────────┼────────────────┼──────┘
+       │           │              │                │
+       └───────────┴──────┬───────┴────────────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │   internal/runtime    │
+              │      (AgentLoop)      │
+              └───────────┬───────────┘
+                          │
+         ┌────────────────┼────────────────┐
+         ▼                ▼                ▼
+   ┌───────────┐  ┌───────────────┐  ┌──────────────────┐
+   │ pkg/agent │  │ internal/tools│  │internal/state/git│
+   │(Provider) │  │  (Executor +  │  │  (Sidecar, refs, │
+   │           │  │   Registry +  │  │    signatures,   │
+   │           │  │   classifier) │  │   materialisation│
+   └─────┬─────┘  └───────┬───────┘  └──────────────────┘
+         │                │
+   ┌─────┴─────┬──────┬───┴────────┐
+   ▼           ▼      ▼            ▼
+anthropic   openai  google     oaicompat
+                                    │
+                                    ▼
+                        ┌────────────────────┐
+                        │  internal/sandbox  │
+                        │  (Policy, Runner,  │
+                        │   landlock, proxy) │
+                        └────────────────────┘
 ```
 
 - **Provider interface**: one streaming method (`StreamTurn`) emitting a
@@ -135,7 +142,11 @@ exploited across all code paths; see PLAN §1.6).
 `EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
 `CacheWriteTokens` are the canonical surface for prompt-cache telemetry;
 §"Context management" defines the invariants around what may appear in
-the cached prefix and how the hit/miss counts feed OTel metrics.
+the cached prefix and how the hit/miss counts feed OTel metrics. The
+events and usage fields are emitted today by every provider; the OTel
+instruments they feed (`stado_cache_hit_ratio` etc.) are declared in
+`internal/telemetry` but not yet wrapped at the call sites — see PLAN §6
+for the remaining span-instrumentation work.
 
 ---
 
@@ -278,7 +289,7 @@ assert canonicalization for each input shape the tool accepts.
 
 | Tool | Class | Notes |
 |---|---|---|
-| `read` | NonMutating | |
+| `read` | NonMutating | args: `{path: string, start?: int, end?: int}`. `start`/`end` are 1-indexed, inclusive. Omit both for full-file read. `end` may be `-1` to mean EOF. |
 | `write` | Mutating | |
 | `edit` | Mutating | |
 | `glob` | NonMutating | |
@@ -300,7 +311,7 @@ Per call, unconditionally:
 1. classify → `Mutating | NonMutating | Exec`
 2. time the call
 3. `Registry.Get(name).Run(ctx, args, host)`
-4. record `stado_tool_latency_ms`
+4. record `stado_tool_latency_ms` (instrument declared; call-site wrapping pending, see PLAN §6)
 5. build `CommitMeta` trailers
 
 Then:
@@ -548,30 +559,36 @@ first justify why fork-from-point is inadequate for the use case:
 
 ### Testing requirements
 
-The following tests gate the invariants above and run on every CI
-build:
+These tests gate the invariants above. They are **Phase 11 acceptance
+criteria** — none exist in CI today. Each maps to a sub-phase under
+PLAN §11:
 
-- **Cache-stability test.** Render the system-prompt prefix twice with
-  the same inputs, assert byte equality. Fails loudly on any clock /
-  UUID / map-iteration leak.
-- **Tool-ordering test.** Register tools in randomised order, assert
-  the serialised `TurnRequest.Tools` bytes are identical across runs.
-- **Token-counting fidelity.** For each supported provider, assert the
-  agent's reported token count matches the provider's own count for a
-  fixed prompt to within 1% tolerance.
-- **Truncation coverage.** For each bundled tool, assert the default
-  output budget is respected and the truncation marker is present when
-  hit.
-- **Fork-from-point ergonomics (scripted).** Assert that
+- **Cache-stability test** (PLAN §11.1). Render the system-prompt
+  prefix twice with the same inputs, assert byte equality. Fails
+  loudly on any clock / UUID / map-iteration leak.
+- **Tool-ordering test** (PLAN §11.1). Register tools in randomised
+  order, assert the serialised `TurnRequest.Tools` bytes are identical
+  across runs.
+- **Token-counting fidelity** (PLAN §11.2). For each supported
+  provider, assert the agent's reported token count matches the
+  provider's own count for a fixed prompt to within 1% tolerance.
+- **Truncation coverage** (PLAN §11.4). For each bundled tool, assert
+  the default output budget is respected and the truncation marker is
+  present when hit.
+- **Read-dedup invariants** (PLAN §11.4). `PriorRead` / `RecordRead`
+  round-trip; staleness check rejects dedup when content hash diverges;
+  canonicalisation of `ReadKey.Range` asserted for every input shape
+  the `read` tool accepts.
+- **Fork-from-point ergonomics — scripted** (PLAN §11.5). Assert that
   `stado session fork <id> --at turns/<N>` in a single invocation
   produces a fresh session whose tree-ref head matches the parent's
   `turns/<N>` tag, and whose worktree has been materialised to match.
-- **Fork-from-point ergonomics (interactive).** End-to-end test that
-  `stado session tree <id>` renders a navigable view, and a single
-  keybinding on a specific turn forks into a fresh session at that
-  turn — asserted by the resulting session's tree-ref and its
-  materialised worktree. Runs against a headless/PTY harness so it
-  fires on CI.
+- **Fork-from-point ergonomics — interactive** (PLAN §11.5). End-to-end
+  test that `stado session tree <id>` renders a navigable view, and a
+  single keybinding on a specific turn forks into a fresh session at
+  that turn — asserted by the resulting session's tree-ref and its
+  materialised worktree. Runs against a headless/PTY harness
+  (`github.com/creack/pty`) so it fires on CI.
 
 ---
 
