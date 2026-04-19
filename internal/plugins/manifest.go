@@ -45,6 +45,13 @@ type Manifest struct {
 type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Schema is the JSON Schema the tool's input adheres to. Kept as a
+	// string so the manifest's canonicalisation hashes the exact
+	// bytes the signer authored (embedded JSON values would re-serialize
+	// differently). Empty is permitted; consumers treat it as "object
+	// with no declared properties". Added after v1 manifests — legacy
+	// manifests without the field still verify thanks to `omitempty`.
+	Schema string `json:"schema,omitempty"`
 }
 
 // Canonical returns deterministic bytes for the manifest — compact JSON with
