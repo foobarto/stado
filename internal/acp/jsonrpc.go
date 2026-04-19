@@ -88,12 +88,23 @@ func (c *Conn) Done() <-chan struct{} { return c.done }
 // Serve reads incoming requests until the peer disconnects and dispatches
 // them to h. Requests with no ID are treated as notifications — no response
 // is sent. Parse errors abort the read loop with an error.
+//
+// Serve waits for in-flight dispatches to complete before returning, so the
+// last response lands on the wire before the connection closes. This matters
+// for scripts that pipe a single JSON-RPC request into stado and expect the
+// response on stdout.
 func (c *Conn) Serve(ctx context.Context, h Handler) error {
 	defer c.Close()
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for {
 		line, err := c.r.ReadBytes('\n')
 		if len(line) > 0 {
-			go c.dispatch(ctx, h, line)
+			wg.Add(1)
+			go func(raw []byte) {
+				defer wg.Done()
+				c.dispatch(ctx, h, raw)
+			}(line)
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {

@@ -242,10 +242,7 @@ type Position struct {
 // Location is an LSP result — file + range.
 type Location struct {
 	URI   string `json:"uri"`
-	Range struct {
-		Start Position `json:"start"`
-		End   Position `json:"end"`
-	} `json:"range"`
+	Range Range  `json:"range"`
 }
 
 // Definition queries textDocument/definition. Returns 0 or more locations;
@@ -291,6 +288,82 @@ func (c *Client) Definition(ctx context.Context, path string, pos Position) ([]L
 		return []Location{loc}, nil
 	}
 	return nil, errors.New("lsp: unrecognised definition response shape")
+}
+
+// References queries textDocument/references; returns every location
+// referencing the symbol at the given position (including declaration).
+func (c *Client) References(ctx context.Context, path string, pos Position, includeDeclaration bool) ([]Location, error) {
+	absPath, _ := filepath.Abs(path)
+	raw, err := c.call(ctx, "textDocument/references", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(absPath)},
+		"position":     pos,
+		"context":      map[string]any{"includeDeclaration": includeDeclaration},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || bytesEqual(raw, "null") {
+		return nil, nil
+	}
+	var locs []Location
+	if err := json.Unmarshal(raw, &locs); err != nil {
+		return nil, err
+	}
+	return locs, nil
+}
+
+// DocumentSymbol is a single symbol in a file's outline.
+type DocumentSymbol struct {
+	Name     string           `json:"name"`
+	Detail   string           `json:"detail,omitempty"`
+	Kind     int              `json:"kind"`
+	Range    Range            `json:"range"`
+	Selection Range           `json:"selectionRange"`
+	Children []DocumentSymbol `json:"children,omitempty"`
+}
+
+type Range struct {
+	Start Position `json:"start"`
+	End   Position `json:"end"`
+}
+
+// DocumentSymbols queries textDocument/documentSymbol; returns the file's
+// top-level symbol outline. Servers may return either DocumentSymbol[] (the
+// hierarchical form, preferred) or SymbolInformation[] (flat, legacy).
+func (c *Client) DocumentSymbols(ctx context.Context, path string) ([]DocumentSymbol, error) {
+	absPath, _ := filepath.Abs(path)
+	raw, err := c.call(ctx, "textDocument/documentSymbol", map[string]any{
+		"textDocument": map[string]any{"uri": pathToURI(absPath)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) == 0 || bytesEqual(raw, "null") {
+		return nil, nil
+	}
+	var syms []DocumentSymbol
+	if err := json.Unmarshal(raw, &syms); err == nil && len(syms) > 0 && syms[0].Name != "" {
+		return syms, nil
+	}
+	// Legacy SymbolInformation[] — flatten into a Name-only outline.
+	var legacy []struct {
+		Name     string `json:"name"`
+		Kind     int    `json:"kind"`
+		Location Location `json:"location"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return nil, err
+	}
+	out := make([]DocumentSymbol, len(legacy))
+	for i, l := range legacy {
+		out[i] = DocumentSymbol{
+			Name:      l.Name,
+			Kind:      l.Kind,
+			Range:     l.Location.Range,
+			Selection: l.Location.Range,
+		}
+	}
+	return out, nil
 }
 
 // Hover queries textDocument/hover; returns formatted markdown/plain text or "".

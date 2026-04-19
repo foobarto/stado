@@ -108,7 +108,11 @@ func BuildDefaultRegistry() *tools.Registry {
 	r.Register(rg.Tool{})
 	r.Register(astgrep.Tool{})
 	r.Register(readctx.Tool{})
-	r.Register(&lspfind.FindDefinition{})
+	def := &lspfind.FindDefinition{}
+	r.Register(def)
+	r.Register(&lspfind.FindReferences{Definition: def})
+	r.Register(&lspfind.DocumentSymbols{Definition: def})
+	r.Register(&lspfind.Hover{Definition: def})
 	return r
 }
 

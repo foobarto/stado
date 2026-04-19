@@ -28,5 +28,8 @@ var Classes = map[string]tool.Class{
 	(rg.Tool{}).Name():               tool.ClassNonMutating,
 	(astgrep.Tool{}).Name():          tool.ClassNonMutating,
 	(readctx.Tool{}).Name():          tool.ClassNonMutating,
-	(&lspfind.FindDefinition{}).Name(): tool.ClassNonMutating,
+	(&lspfind.FindDefinition{}).Name():                                    tool.ClassNonMutating,
+	(&lspfind.FindReferences{}).Name():                                    tool.ClassNonMutating,
+	(&lspfind.DocumentSymbols{}).Name():                                   tool.ClassNonMutating,
+	(&lspfind.Hover{}).Name():                                             tool.ClassNonMutating,
 }
