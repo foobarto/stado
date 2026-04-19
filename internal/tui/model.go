@@ -14,6 +14,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
@@ -103,6 +105,15 @@ type (
 		tool    string
 		content string
 		errMsg  string
+	}
+	// pluginForkMsg is dispatched when a plugin's ForkFn closure
+	// creates a child session. Surfaced in Update as a user-visible
+	// system block per DESIGN invariant 4 — "user-visible by default."
+	pluginForkMsg struct {
+		plugin    string // plugin name from the manifest
+		childID   string // new session ID
+		atTurnRef string // fork point, or empty for parent tree HEAD
+		seed      string // plugin-provided seed / summary text
 	}
 )
 
@@ -530,6 +541,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				body: fmt.Sprintf("plugin %s/%s → %s", msg.plugin, msg.tool, msg.content),
 			})
 		}
+		m.renderBlocks()
+		return m, nil
+
+	case pluginForkMsg:
+		// A plugin's session:fork capability just created a child
+		// session. DESIGN invariant 4: this is user-visible by
+		// default. Show both the new session id + the fork point +
+		// a summary of the seed the plugin wrote into the child's
+		// trace log.
+		at := msg.atTurnRef
+		if at == "" {
+			at = "parent tree HEAD"
+		}
+		body := fmt.Sprintf("plugin %s forked session → %s  (at %s)", msg.plugin, msg.childID, at)
+		if msg.seed != "" {
+			body += "\n  seed: " + trimSeed(msg.seed, 120)
+		}
+		body += "\n  attach:  stado session attach " + msg.childID
+		m.appendBlock(block{kind: "system", body: body})
 		m.renderBlocks()
 		return m, nil
 
@@ -1827,15 +1857,120 @@ func (m *Model) buildPluginBridge(pluginName string) *pluginRuntime.SessionBridg
 		bridge.LastTurnRef = func() string {
 			return string(stadogit.TurnTagRef(m.session.ID, m.session.Turn()))
 		}
-		bridge.ForkFn = func(ctx context.Context, atTurnRef, seed string) (string, error) {
-			// Plugin-initiated fork path — same primitive `stado
-			// session fork --at` uses. Out of scope for this part:
-			// threading the seed message into the child session's
-			// first turn (that lands with part 4's audit trailers).
-			return "", fmt.Errorf("plugin fork not yet wired into TUI — use `stado session fork` externally")
-		}
+		bridge.ForkFn = m.pluginForkAt(pluginName)
 	}
 	return bridge
+}
+
+// pluginForkAt returns a ForkFn closure that drives the same
+// fork-from-point primitive `stado session fork --at` uses: resolve
+// at_turn_ref against the parent session's refs, create a new session
+// rooted at that commit, materialise the worktree, then write a
+// trace-ref marker to the new session tagged with `Plugin: <name>`
+// whose Summary is the plugin-provided seed message. Returns the new
+// session ID so the plugin can surface it.
+//
+// DESIGN invariant: the parent session is never modified. The child
+// carries a marker commit that records what the plugin summarised;
+// when conversation persistence lands, that same marker seeds the
+// child's m.msgs with the summary as its first user turn.
+//
+// Also posts a pluginForkMsg so the TUI update loop can render a
+// user-visible notification (DESIGN invariant 4 — "user-visible by
+// default").
+func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurnRef, seed string) (string, error) {
+	return func(ctx context.Context, atTurnRef, seed string) (string, error) {
+		if m.session == nil || m.session.Sidecar == nil {
+			return "", fmt.Errorf("plugin fork: no live session")
+		}
+		sc := m.session.Sidecar
+		parentID := m.session.ID
+
+		// Resolve the fork point. Empty atTurnRef → parent's tree HEAD
+		// (fork from the current state, same as `stado session fork`
+		// without --at).
+		var rootCommit plumbing.Hash
+		if atTurnRef != "" {
+			h, err := resolveTurnRefForBridge(sc, parentID, atTurnRef)
+			if err != nil {
+				return "", fmt.Errorf("plugin fork: resolve %s: %w", atTurnRef, err)
+			}
+			rootCommit = h
+		} else {
+			h, err := sc.ResolveRef(stadogit.TreeRef(parentID))
+			if err == nil {
+				rootCommit = h
+			}
+		}
+
+		worktreeRoot := filepath.Dir(m.session.WorktreePath)
+		childID := uuid.New().String()
+		childSess, err := stadogit.CreateSession(sc, worktreeRoot, childID, rootCommit)
+		if err != nil {
+			return "", fmt.Errorf("plugin fork: create child: %w", err)
+		}
+
+		// Materialise the worktree at the fork point so the child is
+		// a working session, not just a ref graph node.
+		if !rootCommit.IsZero() {
+			treeHash, tErr := childSess.TreeFromCommit(rootCommit)
+			if tErr == nil {
+				_ = childSess.MaterializeTreeToDir(treeHash, childSess.WorktreePath)
+			}
+		}
+
+		// Write the Plugin: tagged seed marker onto the child's trace
+		// ref. Best-effort — the fork already succeeded; commit
+		// failures shouldn't invalidate the new session.
+		_, _ = childSess.CommitToTrace(stadogit.CommitMeta{
+			Tool:     "plugin_fork",
+			ShortArg: atTurnRef,
+			Summary:  trimSeed(seed, 60),
+			Agent:    "plugin:" + pluginName,
+			Plugin:   pluginName,
+			Turn:     0,
+		})
+
+		// Notify the user asynchronously via the tea program. Not a
+		// synchronous block — the plugin is waiting on this function
+		// to return, and we don't want to sleep here waiting for the
+		// UI. If the program isn't attached (test harness), the send
+		// is a no-op.
+		if m.program != nil {
+			m.program.Send(pluginForkMsg{
+				plugin:    pluginName,
+				childID:   childID,
+				atTurnRef: atTurnRef,
+				seed:      seed,
+			})
+		}
+		return childID, nil
+	}
+}
+
+// resolveTurnRefForBridge is the bridge-local equivalent of
+// cmd/stado's resolveTurnRef. Inlined to avoid importing cmd/stado
+// from internal/tui.
+func resolveTurnRefForBridge(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
+	if strings.HasPrefix(target, "turns/") {
+		return sc.ResolveRef(plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target))
+	}
+	if len(target) < 40 {
+		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
+	}
+	return plumbing.NewHash(target), nil
+}
+
+func trimSeed(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if max < 1 {
+		return "…"
+	}
+	return string(r[:max-1]) + "…"
 }
 
 // runPluginToolAsync spawns a fresh wazero runtime, instantiates the
