@@ -124,8 +124,23 @@ type Model struct {
 	streamMu     sync.Mutex
 	errorMsg     string
 
-	// Aggregate usage across turns
+	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
+	// prompt size (not cumulative) — it's the correct input for the
+	// context-window percentage calculation. OutputTokens and CostUSD
+	// remain cumulative.
 	usage agent.Usage
+
+	// Context thresholds from config.Context. Compared against
+	// usage.InputTokens / Capabilities.MaxContextTokens. See DESIGN
+	// §"Token accounting".
+	ctxSoftThreshold float64
+	ctxHardThreshold float64
+
+	// tokenCounterChecked is set once we've probed the provider for
+	// agent.TokenCounter. tokenCounterPresent records the result so
+	// subsequent turns don't re-probe.
+	tokenCounterChecked bool
+	tokenCounterPresent bool
 
 	// Layout
 	width          int
@@ -166,19 +181,33 @@ type approvalRequest struct {
 // key. providerName labels the status bar before the lazy build resolves.
 func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.Provider, error), rnd *render.Renderer, keyReg *keys.Registry) *Model {
 	m := &Model{
-		cwd:           cwd,
-		keys:          keyReg,
-		theme:         rnd.Theme(),
-		renderer:      rnd,
-		buildProvider: buildProvider,
-		providerName:  providerName,
-		model:         modelName,
-		input:         input.New(keyReg),
-		slash:         palette.New(),
-		vp:            viewport.New(0, 0),
-		sidebarOpen:   true,
+		cwd:              cwd,
+		keys:             keyReg,
+		theme:            rnd.Theme(),
+		renderer:         rnd,
+		buildProvider:    buildProvider,
+		providerName:     providerName,
+		model:            modelName,
+		input:            input.New(keyReg),
+		slash:            palette.New(),
+		vp:               viewport.New(0, 0),
+		sidebarOpen:      true,
+		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
+		ctxHardThreshold: 0.90,
 	}
 	return m
+}
+
+// SetContextThresholds overrides the soft/hard threshold defaults. Called
+// from the TUI entry point to propagate [context] config values. Values
+// outside (0, 1] are rejected and the previous value kept.
+func (m *Model) SetContextThresholds(soft, hard float64) {
+	if soft > 0 && soft <= 1 {
+		m.ctxSoftThreshold = soft
+	}
+	if hard > 0 && hard <= 1 {
+		m.ctxHardThreshold = hard
+	}
 }
 
 // ensureProvider lazy-builds the provider on first use. On failure sets the
@@ -556,7 +585,7 @@ func (m *Model) renderStatus(width int) string {
 	case stateError:
 		state = "error"
 	}
-	tokens := fmt.Sprintf("%s (%s)", humanize(m.usage.InputTokens+m.usage.OutputTokens), tokenPctString(m))
+	tokens := fmt.Sprintf("%s (%s)", humanize(m.usage.InputTokens), tokenPctString(m))
 	cost := fmt.Sprintf("$%.2f", m.usage.CostUSD)
 
 	body, err := m.renderer.Exec("status", map[string]any{
@@ -585,14 +614,25 @@ func (m *Model) renderStatus(width int) string {
 }
 
 // tokenPctString renders the in-context-window fraction for the bottom
-// status bar. Returns "" when we can't meaningfully compute the ratio.
+// status bar. Returns "0%" when we can't meaningfully compute the ratio.
+// Soft/hard thresholds (DESIGN §"Token accounting") colour the number
+// when crossed — warning at soft, error at hard — so users see the
+// context approaching capacity without reading docs.
 func tokenPctString(m *Model) string {
 	cap := m.providerCaps().MaxContextTokens
-	used := m.usage.InputTokens + m.usage.OutputTokens
+	used := m.usage.InputTokens
 	if cap <= 0 || used == 0 {
 		return "0%"
 	}
-	return fmt.Sprintf("%d%%", 100*used/cap)
+	fraction := float64(used) / float64(cap)
+	s := fmt.Sprintf("%d%%", int(100*fraction))
+	switch {
+	case fraction >= m.ctxHardThreshold:
+		return lipgloss.NewStyle().Foreground(theme.Error).Bold(true).Render(s)
+	case fraction >= m.ctxSoftThreshold:
+		return lipgloss.NewStyle().Foreground(theme.Warning).Bold(true).Render(s)
+	}
+	return s
 }
 
 func (m *Model) renderSidebar(width int) string {
@@ -692,6 +732,25 @@ func (m *Model) startStream() tea.Cmd {
 	if !m.ensureProvider() {
 		return nil
 	}
+
+	// First-turn capability probe (DESIGN §"Token accounting"). A
+	// provider that doesn't satisfy TokenCounter means we can't see
+	// how close we are to the context window — surface this as a
+	// system message so the user knows the context % is unreliable.
+	// No hard-block: the compaction recovery path lands in PR D; until
+	// then a loud advisory is the best we can do.
+	if !m.tokenCounterChecked {
+		m.tokenCounterChecked = true
+		_, m.tokenCounterPresent = m.provider.(agent.TokenCounter)
+		if !m.tokenCounterPresent {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("warning: provider %q doesn't expose a token counter — context-window percentage will be zero until the provider returns usage.",
+					m.providerDisplayName()),
+			})
+		}
+	}
+
 	// Reset per-turn accumulators.
 	m.turnText = ""
 	m.turnThinking = ""
@@ -728,7 +787,11 @@ func (m *Model) startStream() tea.Cmd {
 			m.sendMsg(streamEventMsg{ev: ev})
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
 				if ev.Kind == agent.EvDone && ev.Usage != nil {
-					m.usage.InputTokens += ev.Usage.InputTokens
+					// InputTokens is the prompt size for this turn, already
+					// including all prior history — assign, don't accumulate.
+					// DESIGN §"Token accounting" threshold percentages are
+					// relative to this number.
+					m.usage.InputTokens = ev.Usage.InputTokens
 					m.usage.OutputTokens += ev.Usage.OutputTokens
 					m.usage.CostUSD += ev.Usage.CostUSD
 				}

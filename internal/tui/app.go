@@ -53,6 +53,7 @@ func Run(cfg *config.Config) error {
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, builder, rnd, keyReg)
 	m.executor = exec
 	m.session = sess
+	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Attach(p)
 

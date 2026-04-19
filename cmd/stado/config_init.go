@@ -100,6 +100,14 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # sample_rate = 1.0             # 0.0..1.0
 
 # ---------------------------------------------------------------------------
+# [context] — context-window thresholds. Both fractions of the active model's
+#             max_context_tokens. See DESIGN §"Token accounting".
+# ---------------------------------------------------------------------------
+# [context]
+# soft_threshold = 0.70   # TUI shows warning indicator at this fraction
+# hard_threshold = 0.90   # future turns blocked pending fork / compact / abort
+
+# ---------------------------------------------------------------------------
 # [sandbox] / [git] / [acp] / [plugins] — reserved.
 # Scaffolded here so users see them; fields land with the matching phases.
 # ---------------------------------------------------------------------------

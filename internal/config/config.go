@@ -32,6 +32,19 @@ type Config struct {
 	OTel      OTel      `koanf:"otel"`
 	ACP       ACP       `koanf:"acp"`
 	Plugins   Plugins   `koanf:"plugins"`
+	Context   Context   `koanf:"context"`
+}
+
+// Context is Phase 11's [context] section: soft/hard percentage
+// thresholds against the active model's MaxContextTokens. Defaults applied
+// in Load when unset.
+type Context struct {
+	// SoftThreshold is the fraction of MaxContextTokens (0..1) at which
+	// the TUI + headless surface a warning. Default 0.70.
+	SoftThreshold float64 `koanf:"soft_threshold"`
+	// HardThreshold is the fraction at which further turns are blocked
+	// pending user action (fork / compact / abort). Default 0.90.
+	HardThreshold float64 `koanf:"hard_threshold"`
 }
 
 type Defaults struct {
@@ -128,6 +141,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.Approvals.Mode == "" {
 		cfg.Approvals.Mode = "prompt"
+	}
+	if cfg.Context.SoftThreshold == 0 {
+		cfg.Context.SoftThreshold = 0.70
+	}
+	if cfg.Context.HardThreshold == 0 {
+		cfg.Context.HardThreshold = 0.90
 	}
 
 	return &cfg, nil
