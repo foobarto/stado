@@ -226,7 +226,7 @@ Per-agent bot identity, e.g. `claude-code-acp <agent@stado.local>`, so `git log 
 
 ---
 
-## Phase 3 — Sandbox Layer — 🟡
+## Phase 3 — Sandbox Layer — 🟢
 
 **Goal:** Platform-abstracted policy enforcement. Capabilities declared, OS enforces.
 
@@ -345,11 +345,11 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 7 — WASM Plugin Runtime + Signed Manifest — 🟡
+## Phase 7 — WASM Plugin Runtime + Signed Manifest — 🟢
 
 **Goal:** Third-party plugins run in wazero, capability-gated, signed.
 
-**Shipped:** 7.2 plugin package layout, 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing, 7.4 verification pipeline with rollback protection, 7.5 `stado plugin trust/untrust` key management, 7.8 CLI (`stado plugin trust/untrust/list/verify/digest`). **Pending:** 7.1 wazero runtime host, 7.6 CRL, 7.7 Rekor attestation. The trust gate is complete so no unsigned or downgraded plugin can ever reach the (still-to-be-built) runtime.
+**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** 7.7 Rekor attestation (sigstore deps).
 
 ### 7.1 `internal/plugins/runtime.go` — wazero host (pure Go, CGO-free)
 
@@ -637,18 +637,18 @@ has landed. What's left, in the order I'd tackle it:
 | D  | 🟡 Phase 11.3 — shipped: TUI `/compact` + `stateCompactionPending` state + y/n confirmation + `internal/compact` package (summarisation prompt + async Summarise) + advisory `stado session compact` CLI stub + full test coverage. Remaining: dual-ref compaction commit on `tree` + `trace` (needs conversation persistence, not yet in stado) + inline summary editor (`e` key). | 11 |
 | E  | ✅ Phase 11.4 — ranged `read` args, content-hash dedup, Host.PriorRead/RecordRead, ReadLog, NullHost, per-tool output budgets (read/webfetch/bash/grep/glob/ripgrep) with DESIGN-spec'd truncation markers, and full invariants + truncation-coverage test suites. | 11 |
 | F  | ✅ Phase 11.5 — shipped: `session fork <id> --at <turns/N\|sha>` scripted path, standalone `session tree <id>` cobra subcommand with its own tea.Program (navigate + press `f` to fork), `Sidecar.ListTurnRefs` helper, scripted + interactive integration tests. PTY harness pending for a future full end-to-end test. | 11 |
-| G  | Phase 3.3 — seccomp BPF via `bwrap --seccomp=FD`. | 3 |
-| H  | Phase 3.5 — macOS `sandbox-exec` runner. | 3 |
-| I  | Phase 3.6 — Windows job-objects + restricted-tokens runner. | 3 |
-| J  | Phase 4.1/4.2 — binary-embed pipeline for ripgrep + ast-grep. | 4 |
-| K  | Phase 7.1 — wazero runtime host for WASM plugins. | 7 |
-| L  | 🟡 Phase 7.6 — plugin CRL shipped: `internal/plugins/crl.go` (Fetch / LoadLocal / SaveLocal / Sign / IsRevoked, Ed25519-signed JSON with canonical-bytes invariant), `[plugins]` config section (crl_url + crl_issuer_pubkey), `stado plugin verify` consults CRL when configured (airgap-friendly: falls back to cached copy). 7.7 Rekor attestation deferred (brings sigstore deps). | 7 |
+| G  | ✅ Phase 3.3 — seccomp BPF compiler: `internal/sandbox/seccomp_linux.go` hand-rolled allow-default + curated kill-list (`mount`/`umount2`/`reboot`/`kexec_*`/`init_module`/`finit_module`/`delete_module`/`keyctl`/`ptrace`/`process_vm_writev`), per-arch syscall tables, `bwrap --seccomp=FD` integration. Non-Linux stubs in `seccomp_other.go`. | 3 |
+| H  | ✅ Phase 3.5 — macOS `sandbox-exec` runner: `internal/sandbox/sbx_profile.go` generates Scheme-ish `.sb` DSL from Policy; `runner_darwin.go` SbxRunner writes profile to tempfile + spawns `sandbox-exec -f <profile> -- cmd`. | 3 |
+| I  | 🟡 Phase 3.6 — Windows v1 shipped: `runner_windows.go` WinWarnRunner emits one-time warning + runs unsandboxed. v2 (job objects + restricted tokens) still pending. | 3 |
+| J  | ✅ Phase 4.1/4.2 — binary-embed release pipeline: `hack/fetch-binaries.go` downloads ripgrep/ast-grep per-(OS,arch) and emits `bundled_<os>_<arch>.go` with `//go:build stado_embed_binaries && <os> && <arch>` + `//go:embed` directives; goreleaser before-hook runs the fetcher and release build passes the tag; dev builds without the tag fall back to PATH. | 4 |
+| K  | ✅ Phase 7.1 — wazero runtime host: `internal/plugins/runtime/` with scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), `PluginTool` adapter + `stado plugin run` CLI (7.1c). | 7 |
+| L  | ✅ Phase 7.6 — plugin CRL: `internal/plugins/crl.go` (LoadLocal / SaveLocal / Sign / IsRevoked) + `crl_online.go` (Fetch, `!airgap`) / `crl_airgap.go` (ErrAirgap, `airgap`); Ed25519-signed JSON with canonical-bytes invariant, `[plugins]` config section, `stado plugin verify` consults CRL with cache fallback. 7.7 Rekor attestation still pending (sigstore deps). | 7 |
 | M  | ✅ Phase 8.1 — per-MCP-server sandbox policy: config.MCPServer gains `capabilities []string`, `mcp.ParseCapabilities` maps forms (fs/net/exec/env) to `sandbox.Policy`, `mcp.ServerConfig` carries a Runner + Policy, and `transport.WithCommandFunc` routes stdio-server spawns through `sandbox.Runner.Command`. Unsandboxed servers warn on stderr. | 8 |
 | N  | 🟡 Phase 9.4/9.5 — fork-time `stado.session.fork` span landed (parent id / child id / root commit / at_turn_ref attrs). Cross-process span-link from child sessions back to the parent's context still pending — needs persisted span context, which stado doesn't carry across session-spawn boundaries yet. | 9 |
 | O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
-| P  | Phase 10.5 — `-tags airgap` build (strip cosign). | 10 |
+| P  | ✅ Phase 10.5 — `-tags airgap` build: splits self-update, plugin CRL Fetch, and webfetch.Run into `!airgap` / `airgap` pairs. Airgap binary physically cannot reach the network from its own control plane; provider HTTP (user's chosen inference target) untouched. | 10 |
 | Q  | Phase 10.7 — Homebrew tap + apt/rpm repos via `nfpm`. | 10 |
-| R  | 🟡 Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. Cosign online verification still pending (sigstore deps). | 10 |
+| R  | 🟡 Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. Cosign online verification still pending (sigstore deps — lands alongside Phase 7.7). | 10 |
 
 PRs B–F compose Phase 11 and are best landed in order — each builds on
 the previous. Everything else (A, G–R) is independent; land in whatever

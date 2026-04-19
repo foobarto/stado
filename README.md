@@ -38,9 +38,11 @@ audit verify` walks the chain and reports tampering.
 
 **Tool execution is sandboxed.** Capability manifests declare what a
 tool can touch; the OS enforces. Linux uses Landlock for filesystem
-confinement plus bubblewrap for bash/exec with a HTTPS-CONNECT-allowlist
-proxy for network policy. macOS (`sandbox-exec`) and Windows (job
-objects) are planned.
+confinement plus bubblewrap + seccomp BPF for bash/exec with a
+HTTPS-CONNECT-allowlist proxy for network policy. macOS generates a
+`sandbox-exec` `.sb` profile from the Policy. Windows runs unsandboxed
+in v1 (with a one-time warning); job objects + restricted tokens come
+in v2.
 
 **Provider-agnostic by design.** Four direct implementations: Anthropic,
 OpenAI, Google, and a hand-rolled OpenAI-compatible client covering
@@ -92,8 +94,11 @@ for progress.
 go install github.com/foobarto/stado/cmd/stado@latest
 ```
 
-Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps except
-optional runtime tools (`rg`, `ast-grep`, `gopls`).
+Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps — official
+release binaries bundle `rg` and `ast-grep` via `go:embed` (extracted
+on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified). Source
+builds (`go install`) skip the embed and fall back to the system PATH;
+`gopls` is optional and always resolved via PATH.
 
 ---
 
@@ -257,17 +262,18 @@ See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
   CLI-driven `stado session compact <id>` and the dual-ref commit
   that preserves compaction on disk need a conversation-persistence
   layer that doesn't yet exist.
-- **Sandbox — macOS and Windows** (Phase 3). `sandbox-exec` profile
-  generation, Windows job objects with restricted tokens.
-- **Sandbox — seccomp BPF on Linux** (Phase 3.3). `bwrap --seccomp=FD`
-  integration for defense-in-depth beyond the FS/net policy.
-- **WASM plugins — runtime** (Phase 7.1). Manifest + trust store +
-  CRL + CLI shipped; the wazero runtime host (actually executing
-  plugin wasm with sandboxed host imports) is the remaining piece.
-- **Release distribution** (Phase 10.3b / 10.7). Offline minisign
-  key ceremony that seeds the embedded pubkey, Homebrew tap, signed
-  apt/rpm repos. Cosign-online verification on self-update also
-  still pending — minisign path is wired.
+- **Sandbox — Windows v2** (Phase 3.6). Linux (bubblewrap + landlock +
+  seccomp + CONNECT-proxy) and macOS (`sandbox-exec`) are shipped;
+  Windows runs unsandboxed with a warning until job objects + restricted
+  tokens land in v2.
+- **Release distribution** (Phase 10.3b / 10.7). Offline minisign key
+  ceremony that seeds the embedded pubkey, Homebrew tap, signed
+  apt/rpm repos. Cosign-online verification on self-update also still
+  pending (couples with sigstore deps for Phase 7.7 Rekor); the
+  minisign path is wired.
+- **WASM plugins — Rekor attestation** (Phase 7.7). Manifest + trust
+  store + CRL + wazero runtime + `stado plugin run` are shipped; Rekor
+  transparency-log attestation lands with the rest of sigstore.
 
 ---
 
