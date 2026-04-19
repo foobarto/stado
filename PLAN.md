@@ -33,6 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
+| 11 — Context management | ⬜ | See [DESIGN.md §"Context management"](DESIGN.md). Token thresholds + `session compact` + per-tool output budgets + cache-stability invariants |
 
 ---
 

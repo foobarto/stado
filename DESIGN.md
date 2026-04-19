@@ -132,6 +132,11 @@ sequences.
 `MaxContextTokens`. The agent loop can branch on these (not yet
 exploited across all code paths; see PLAN §1.6).
 
+`EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
+`CacheWriteTokens` are the canonical surface for prompt-cache telemetry;
+§"Context management" defines the invariants around what may appear in
+the cached prefix and how the hit/miss counts feed OTel metrics.
+
 ---
 
 ## Git-native state (`internal/state/git`)
@@ -236,6 +241,172 @@ Then:
 - **trace ref**: always committed (even on failure; `Error:` trailer).
 - **tree ref**: committed iff `Mutating` (success) OR `Exec` AND
   post-run tree hash differs from pre-run tree hash.
+
+---
+
+## Context management
+
+Four separate concerns that must not be conflated: (1) prompt-cache
+efficiency, (2) context-window overflow handling, (3) compaction, (4)
+tool-output curation. Each has a different answer, and the answers
+sometimes trade against each other.
+
+**Philosophy.** Curation and caching are primary. Overflow handling is a
+safety net. Compaction is strictly user-invoked — there is no automatic
+summarizer, no background compactor, no threshold-triggered eviction.
+When a session becomes unwieldy, the preferred recovery is
+fork-from-an-earlier-point into a fresh session (see §"Fork semantics"),
+not lossy in-place summarization. Forking must stay cheap and obvious so
+users reach for it instead.
+
+### Prompt-cache awareness
+
+The turn prefix (system prompt + tool definitions + any session-static
+header) is treated as a **stable byte-identical artefact** across
+successive turns. Cache breakpoints — where the provider supports
+explicit ones, as with Anthropic's `cache_control: ephemeral` via
+`agent.TurnRequest.CacheHints` — are placed at the end of this prefix.
+
+Rules, enforced at the code level:
+
+- **Append-only history.** The agent loop never rewrites prior turns
+  in place. `Model.msgs` / `runtime.AgentLoop`'s message slice grows
+  monotonically within a session. Any transformation that would edit a
+  prior message invalidates every downstream cache entry and is
+  therefore forbidden.
+- **Deterministic tool serialization.** `TurnRequest.Tools` must emit
+  tools sorted by name. Map iteration order is banned from any code
+  path that produces prompt bytes. Applies equally to the wire
+  serialisation inside provider packages (tool-call ids, JSON field
+  order).
+- **No dynamic content in the prefix.** Timestamps, per-run UUIDs,
+  token counters, random nonces, wall-clock clocks — none may appear
+  inside the cached bytes. The test below is the gate: the rendered
+  prefix for identical inputs must be byte-identical.
+- **Cache telemetry round-trips through the provider seam.** The
+  existing `EvCacheHit` / `EvCacheMiss` events on `pkg/agent.Event`,
+  plus `Usage.CacheReadTokens` / `CacheWriteTokens`, are the canonical
+  way providers surface hit/miss. These feed the `stado_cache_hit_ratio`
+  histogram defined in the telemetry spec.
+
+Cross-refs: §"Provider interface" (events + usage fields); PLAN.md §6.3
+(`stado_cache_hit_ratio`).
+
+### Token accounting
+
+Token counts come from the provider's own tokenizer — never from
+estimation. Per-backend:
+
+| Backend | Tokenizer |
+|---|---|
+| Anthropic | `Messages.CountTokens` pre-flight, or the official tokenizer |
+| OpenAI + OAI-compat | `tiktoken` (or server-reported if available) |
+| Google / Gemini | genai SDK tokenizer |
+
+Capability probing on first provider use returns a boolean indicating
+whether token counting is available. A configured backend that cannot
+report counts is a hard error on first turn: **we refuse to proceed
+blind**.
+
+Two configurable thresholds, expressed as percentages of the active
+model's `Capabilities.MaxContextTokens` (percentages, not absolute —
+context windows vary wildly):
+
+- **Soft (default 70%).** TUI shows a dismissable warning indicator;
+  headless emits a `session.update { kind: "context_warning" }`
+  notification. Recommendation is to fork. No automatic action.
+- **Hard (default 90%).** The next turn is blocked. User is prompted
+  to fork, run `session compact` explicitly, or abort. There is no
+  path by which the agent silently compacts mid-session.
+
+### Tool-output curation
+
+Every tool declares a default output-size budget, expressed in tokens.
+Defaults:
+
+| Tool | Default budget | Notes |
+|---|---|---|
+| `read` | 4K | `start` / `end` line-range args request specific regions |
+| `ripgrep` | first 100 matches | truncation marker appended |
+| `grep` | first 100 matches | same |
+| `bash` | 8K combined stdout+stderr | head + tail preserved; middle elided with byte count |
+| `glob` / `list_dir` | 200 entries | |
+| `webfetch` | 4K | |
+| *other bundled* | 4K | unless the tool overrides |
+
+Truncation is **visible to the model** — truncated output carries an
+explicit marker so the model knows to request more:
+
+```
+[truncated: 14823 of 15000 lines elided — call with range=... for more]
+```
+
+The override is per-call via tool arguments, never a global config
+knob. The model, not the user, decides when full output is warranted.
+
+**Duplicate-read consolidation.** When the agent reads the same
+file path twice within a session via the `read` tool *and exact-path
+matches*, a later turn's `TurnRequest` building may project the
+earlier `tool_result` to a shortened reference (`see turn N`). Because
+this projection mutates bytes the provider would otherwise cache, it
+is applied ONLY when the soft threshold is crossed — and it
+invalidates the prompt cache for that turn. This is an explicit
+trade: cache miss exchanged for context-window headroom. Ranged reads
+of the same file are never consolidated — they're considered
+independent by construction.
+
+### Compaction
+
+User-invoked only. Ship as `stado session compact` (CLI) and a TUI
+action.
+
+Invariants:
+
+- **No automatic trigger.** Not on threshold breach, not in the
+  background, not via any config flag. If a contributor proposes an
+  auto-compaction path, the onus is on them to explain why
+  fork-from-point is insufficient.
+- **Confirmation required.** Compaction produces a proposed summary,
+  shows it to the user, permits edit, and only commits on explicit
+  confirmation.
+- **Original turns survive on `trace`.** The `tree` ref receives a
+  compaction commit that replaces the conversation-view with the
+  summary; the `trace` ref keeps the raw turns unchanged. The
+  compaction itself is a commit on both refs, so
+  `git checkout refs/sessions/<id>/tree~1 -- …` recovers the
+  pre-compaction state exactly. See §"Git-native state" for the
+  ref model.
+- **Compaction marker.** The session's metadata (surfaced by
+  `stado session show`) records which turns were compacted and when.
+
+### Non-goals
+
+Explicitly out of scope. A contribution proposing any of these must
+first justify why fork-from-point is inadequate for the use case:
+
+- Automatic or background summarization of any kind.
+- Semantic importance scoring of individual turns.
+- Vector-store-backed "memory" of prior sessions.
+- Sliding-window auto-eviction without user consent.
+
+### Testing requirements
+
+The following tests gate the invariants above and run on every CI
+build:
+
+- **Cache-stability test.** Render the system-prompt prefix twice with
+  the same inputs, assert byte equality. Fails loudly on any clock /
+  UUID / map-iteration leak.
+- **Tool-ordering test.** Register tools in randomised order, assert
+  the serialised `TurnRequest.Tools` bytes are identical across runs.
+- **Token-counting fidelity.** For each supported provider, assert the
+  agent's reported token count matches the provider's own count for a
+  fixed prompt to within 1% tolerance.
+- **Truncation coverage.** For each bundled tool, assert the default
+  output budget is respected and the truncation marker is present when
+  hit.
+- **Fork-from-point ergonomics.** Measure the number of commands a
+  user runs to fork from turn N into a fresh session. Target: **one**.
 
 ---
 
