@@ -18,8 +18,12 @@ type Command struct {
 var Commands = []Command{
 	{"/help", "Show keyboard shortcuts and help"},
 	{"/clear", "Clear message history"},
-	{"/model", "Change model for current session"},
-	{"/provider", "Show current provider"},
+	{"/model", "Show or change the model (/model <name>)"},
+	{"/provider", "Show current provider + capabilities"},
+	{"/tools", "List tools available to the model"},
+	{"/sidebar", "Toggle the right-hand sidebar"},
+	{"/todo", "Add a todo item (/todo <title>)"},
+	{"/approvals", "Remember (always <tool>) or forget approvals"},
 	{"/exit", "Quit application"},
 }
 

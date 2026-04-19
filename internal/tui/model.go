@@ -383,6 +383,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.layout()
 			return m, nil
 
+		case m.keys.Matches(msg, keys.CommandList):
+			// Ctrl+P opens the command palette. If the input is empty we
+			// seed it with "/" so the palette's filter logic engages and
+			// the user can type to narrow matches; if the input already
+			// has content, toggle visibility without clobbering it.
+			if !m.slash.Visible {
+				if m.input.Value() == "" {
+					m.input.SetValue("/")
+					m.slash.UpdateFilter("/")
+				} else {
+					m.slash.Visible = true
+				}
+			} else {
+				m.slash.Visible = false
+				if strings.HasPrefix(m.input.Value(), "/") {
+					m.input.Reset()
+				}
+			}
+			m.layout()
+			return m, nil
+
 		case m.keys.Matches(msg, keys.InputClear):
 			if m.input.Value() == "" {
 				return m, tea.Quit
@@ -504,8 +525,9 @@ func (m *Model) layout() {
 
 // renderInputBox produces the opencode-style bordered input: a textarea
 // stacked on top of an inline status line (Mode · Model · Provider),
-// all inside one rounded border. Width = mainW - 2 accounting for the
-// border glyphs lipgloss adds.
+// all inside one rounded border whose LEFT edge is mode-coloured
+// (yellow=Plan, green=Do) so the agent's stance is visible at a glance
+// even when focus is elsewhere.
 func (m *Model) renderInputBox(mainW int) string {
 	inner := mainW - 4 // border + padding
 	if inner < 20 {
@@ -521,7 +543,19 @@ func (m *Model) renderInputBox(mainW int) string {
 		inline = "[input status render error: " + err.Error() + "]"
 	}
 	body := m.input.View() + "\n" + strings.TrimRight(inline, "\n")
-	return m.theme.Pane().Width(mainW - 2).Render(body) + "\n"
+
+	borderFg := m.theme.Fg("border").GetForeground()
+	modeColor := m.theme.Fg("success").GetForeground() // Do
+	if m.mode == modePlan {
+		modeColor = m.theme.Fg("warning").GetForeground()
+	}
+	style := lipgloss.NewStyle().
+		Border(m.theme.Border()).
+		BorderForeground(borderFg).
+		BorderLeftForeground(modeColor).
+		Padding(0, 1).
+		Width(mainW - 2)
+	return style.Render(body) + "\n"
 }
 
 // renderStatus runs the bottom status template (right-aligned muted

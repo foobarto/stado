@@ -18,7 +18,11 @@ type Editor struct {
 func New(reg *keys.Registry) *Editor {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (Enter to send, Shift+Enter for new line)"
-	ta.Prompt = "> "
+	// No per-line prompt — opencode-style: the bordered pane is the frame,
+	// and the textarea itself leaves the left margin clean. The mode
+	// indicator in the inline status line below the text area conveys
+	// "Plan/Do" without needing a gutter glyph.
+	ta.Prompt = ""
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
 
@@ -112,4 +116,11 @@ func (e *Editor) Value() string {
 func (e *Editor) Reset() {
 	e.Model.Reset()
 	e.History.ResetIndex()
+}
+
+// SetValue replaces the editor contents and places the cursor at the end.
+// Used to programmatically open the slash palette from Ctrl+P.
+func (e *Editor) SetValue(s string) {
+	e.Model.SetValue(s)
+	e.Model.CursorEnd()
 }
