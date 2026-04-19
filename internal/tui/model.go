@@ -336,17 +336,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.slash.Visible {
+			// Palette owns all keypresses while visible — keystrokes feed
+			// its internal Query (so characters don't leak into the main
+			// textarea beneath the modal).
 			cmd, handled := m.slash.Update(msg)
 			if handled {
 				return m, cmd
 			}
 			if m.keys.Matches(msg, keys.InputSubmit) {
 				if sel := m.slash.Selected(); sel != nil {
-					m.input.Reset()
-					m.slash.Visible = false
+					m.slash.Close()
 					return m, m.handleSlash(sel.Name)
 				}
 			}
+			// Any other keys swallowed so they don't reach the input.
+			return m, nil
 		}
 
 		switch {
@@ -384,23 +388,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case m.keys.Matches(msg, keys.CommandList):
-			// Ctrl+P opens the command palette. If the input is empty we
-			// seed it with "/" so the palette's filter logic engages and
-			// the user can type to narrow matches; if the input already
-			// has content, toggle visibility without clobbering it.
-			if !m.slash.Visible {
-				if m.input.Value() == "" {
-					m.input.SetValue("/")
-					m.slash.UpdateFilter("/")
-				} else {
-					m.slash.Visible = true
-				}
-			} else {
-				m.slash.Visible = false
-				if strings.HasPrefix(m.input.Value(), "/") {
-					m.input.Reset()
-				}
-			}
+			// Ctrl+P opens the command palette modal. The palette owns
+			// its own search input — the main textarea is untouched.
+			m.slash.Open()
 			m.layout()
 			return m, nil
 
@@ -433,14 +423,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd, _ := m.vp, tea.Cmd(nil)
 	_ = cmd
 
-	oldVal := m.input.Value()
 	inputCmd, _ := m.input.Update(msg)
 	cmds = append(cmds, inputCmd)
-	newVal := m.input.Value()
-	if oldVal != newVal {
-		m.slash.UpdateFilter(newVal)
-		m.layout()
-	}
 
 	// Scroll messages viewport
 	var vpCmd tea.Cmd
@@ -475,13 +459,10 @@ func (m *Model) View() string {
 	if inputH > m.height/3 {
 		inputH = m.height / 3
 	}
-	// Reserve: input + border(2) + status(1)
+	// Reserve: input + border(2) + status(1).
 	mainH := m.height - inputH - 3
 	if m.approval != nil {
 		mainH -= 2
-	}
-	if m.slash.Visible {
-		mainH -= len(m.slash.Matches)
 	}
 	if mainH < 4 {
 		mainH = 4
@@ -490,7 +471,7 @@ func (m *Model) View() string {
 	m.vp.Width = mainW
 	m.vp.Height = mainH
 
-	// Left column: messages viewport + approval + slash + input + status
+	// Left column: messages viewport + approval + input + status
 	var left strings.Builder
 	left.WriteString(m.vp.View() + "\n")
 	if m.approval != nil {
@@ -498,24 +479,28 @@ func (m *Model) View() string {
 			fmt.Sprintf("⚠ %s — allow? [y]es / [n]o  %s",
 				m.approval.toolName, m.theme.Fg("muted").Render(truncate(m.approval.args, mainW-20)))) + "\n")
 	}
-	if m.slash.Visible {
-		left.WriteString(m.slash.View() + "\n")
-	}
 	left.WriteString(m.renderInputBox(mainW))
 	left.WriteString(m.renderStatus(mainW))
 
 	leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
 
-	if sidebarW == 0 {
-		return leftBlock
+	base := leftBlock
+	if sidebarW > 0 {
+		sidebar := m.renderSidebar(sidebarW)
+		base = lipgloss.JoinHorizontal(lipgloss.Top,
+			leftBlock,
+			lipgloss.NewStyle().Foreground(m.theme.Fg("border").GetForeground()).Render(strings.Repeat("│\n", m.height-1)+"│"),
+			sidebar,
+		)
 	}
 
-	sidebar := m.renderSidebar(sidebarW)
-	return lipgloss.JoinHorizontal(lipgloss.Top,
-		leftBlock,
-		lipgloss.NewStyle().Foreground(m.theme.Fg("border").GetForeground()).Render(strings.Repeat("│\n", m.height-1)+"│"),
-		sidebar,
-	)
+	// Modal overlay: command palette centred on the whole screen.
+	if m.slash.Visible {
+		m.slash.Width = m.width
+		m.slash.Height = m.height
+		return m.slash.View(m.width, m.height)
+	}
+	return base
 }
 
 // layout: recompute viewport size + wrap width; trigger a render.
