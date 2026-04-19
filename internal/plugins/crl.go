@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -68,38 +66,10 @@ func SaveLocal(c *CRL, path string) error {
 	return os.Rename(tmp, path)
 }
 
-// Fetch downloads a signed CRL from url, verifies the signature against
-// issuerPubkey, and returns it. Callers typically persist the result via
-// SaveLocal so offline use picks up the cached copy.
-//
-// Signature scheme: Ed25519 over the JSON bytes with the Signature field
-// set to "". Same canonicalisation pattern as manifest.go uses for
-// plugin-manifest signatures so we only ship one signing story.
-func Fetch(url string, issuerPubkey ed25519.PublicKey) (*CRL, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "stado-plugin-crl")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("crl: fetch %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("crl: fetch %s: HTTP %d: %s", url, resp.StatusCode, b)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	c, err := parseAndVerify(body, issuerPubkey)
-	if err != nil {
-		return nil, fmt.Errorf("crl: %w", err)
-	}
-	return c, nil
-}
+// Fetch lives in crl_online.go (`!airgap`) and crl_airgap.go (`airgap`).
+// Online builds fetch from a signed URL and verify against issuerPubkey;
+// airgap builds return ErrAirgap so callers fall back to the on-disk
+// cache written by SaveLocal.
 
 func parseAndVerify(raw []byte, issuerPubkey ed25519.PublicKey) (*CRL, error) {
 	var c CRL

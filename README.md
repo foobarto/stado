@@ -289,9 +289,15 @@ combinations:
 - **vLLM** — for team-scale self-hosted inference. Point at the
   `vllm serve` endpoint. `STADO_DEFAULTS_PROVIDER=vllm`.
 
-Build with `-tags airgap` to strip cosign and produce a smaller binary
-for environments that can't verify against Rekor. `stado verify` falls
-back to minisign-only in this configuration.
+Build with `-tags airgap` to strip every outbound-HTTP path that stado
+controls: `self-update` refuses to run (pointing operators at the
+manual `download → verify → copy` flow), `plugin install` stops
+refreshing the CRL and relies on the on-disk cache written by the last
+online refresh, and the `webfetch` tool errors on every invocation.
+Provider HTTP clients (llama.cpp, Ollama, LM Studio, vLLM, remote APIs)
+stay untouched — those are the user's explicit inference target, not
+stado's own phone-home. `stado verify` keeps the minisign-only
+verification path it already uses when no network is available.
 
 A word of honesty: a Claude Sonnet-class coding experience is not
 replicated by Qwen2.5-Coder-32B or Llama-3.3-70B on a laptop. Local

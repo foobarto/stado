@@ -1,3 +1,5 @@
+//go:build !airgap
+
 package main
 
 import (
