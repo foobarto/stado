@@ -13,3 +13,14 @@
 /internal/tools/astgrep/bundled/*
 !/internal/tools/astgrep/bundled/.gitkeep
 /internal/tools/astgrep/bundled_*_*.go
+
+# Example-plugin build artefacts (committed source + manifest template
+# only; build.sh regenerates these).
+/examples/plugins/*/plugin.wasm
+/examples/plugins/*/plugin.manifest.json
+/examples/plugins/*/plugin.manifest.sig
+/examples/plugins/*/hello-demo.seed
+/examples/plugins/*/*.o
+/examples/plugins/*/.zig-cache/
+/examples/plugins/*/zig-cache/
+/examples/plugins/*/zig-out/
