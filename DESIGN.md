@@ -190,6 +190,12 @@ that particular agent's actions.
 but rooted at an earlier point in history; produces a new child session,
 leaves the parent untouched.
 
+The user-facing contract for "forking from an earlier point" — the
+two required paths (`session fork --at` and `session tree`), the
+turn-reference syntax, and the promise that the parent is never
+modified — is specified in §"Fork-from-point ergonomics" under
+§"Context management".
+
 ---
 
 ## Tool runtime (`internal/tools`)
@@ -207,6 +213,59 @@ type Tool interface {
 // Optional — tools that want explicit mutation class.
 type Classifier interface { Class() Class }
 ```
+
+`Host` is the read-write surface tools use to reach the runtime.
+`PriorRead` / `RecordRead` are the extensions required by §"Context
+management" → "In-turn deduplication".
+
+```go
+type Host interface {
+    Approve(ctx, ApprovalRequest) (Decision, error)
+    Workdir() string
+    PriorRead(key ReadKey) (PriorReadInfo, bool)
+    RecordRead(key ReadKey, info PriorReadInfo)
+}
+
+// ReadKey identifies a read for deduplication.
+type ReadKey struct {
+    Path  string
+    Range string
+}
+
+// PriorReadInfo is what Host.PriorRead hands back on a match.
+type PriorReadInfo struct {
+    Turn        int    // 1-indexed turn number when the prior read occurred
+    ContentHash string // sha256 of the bytes returned to the model in that turn
+}
+```
+
+`Host.PriorRead` returns the MOST RECENT prior read when multiple
+exist. Implementations live in the TUI and headless surfaces and
+delegate to a session-scoped read log maintained by the Executor.
+Both the `ReadKey` input and `PriorReadInfo` output are structs so
+future fields (hash algorithm, compression marker, …) don't force
+signature churn.
+
+`RecordRead` is the symmetric write side of `PriorRead`. Only the
+`read` tool calls it; this is a convention enforced by documentation,
+not by the interface itself. Other tools (`ripgrep`, `bash`, …) must
+not call `RecordRead` even when they incidentally read files. The
+Executor's in-memory log is the sole consumer; there is no
+persistence.
+
+The `read` tool computes the content hash incrementally while reading
+(via `io.MultiWriter` into both the output buffer and a `sha256.New()`
+hasher), not as a post-read pass. Hash scope is the **targeted region
+only**, not the full file for ranged reads — a range request + range
+match is independent of bytes outside the range. One pass over the
+bytes, one hash.
+
+`ReadKey.Range` is a canonical form produced by the read tool: `""`
+for a full-file read, `"<start>:<end>"` for a ranged read (both
+inclusive, 1-indexed to match the tool's user-facing args). The read
+tool is responsible for resolving any alternative input shapes into
+this canonical form before constructing the `ReadKey`. Tests must
+assert canonicalization for each input shape the tool accepts.
 
 ### Bundled tools (14)
 
@@ -344,16 +403,70 @@ explicit marker so the model knows to request more:
 The override is per-call via tool arguments, never a global config
 knob. The model, not the user, decides when full output is warranted.
 
-**Duplicate-read consolidation.** When the agent reads the same
-file path twice within a session via the `read` tool *and exact-path
-matches*, a later turn's `TurnRequest` building may project the
-earlier `tool_result` to a shortened reference (`see turn N`). Because
-this projection mutates bytes the provider would otherwise cache, it
-is applied ONLY when the soft threshold is crossed — and it
-invalidates the prompt cache for that turn. This is an explicit
-trade: cache miss exchanged for context-window headroom. Ranged reads
-of the same file are never consolidated — they're considered
-independent by construction.
+**In-turn deduplication (SHOULD).** The tool layer should detect when
+a `read` call targets a path+range already read earlier in the current
+session and return a reference response in the *current* turn's
+`tool_result` rather than re-reading from disk. The prior turn is not
+modified — its `tool_result` bytes remain unchanged, so the prompt
+cache stays valid. The current turn's `tool_result` carries the
+reference; the model learns of the duplicate from the new turn's
+payload.
+
+Reference responses include the canonical range in the citation — e.g.
+`"already read lines 10:20 at turn 5"` for ranged matches,
+`"already read at turn 5"` for full-file matches — so the model can
+disambiguate ranged from full-file hits.
+
+Dedup is keyed on **path + range + content hash**, via
+`Host.PriorRead(ReadKey) (PriorReadInfo, bool)` (see §"Tool interface"):
+
+1. Build `ReadKey{Path, Range}` from the current call.
+2. Call `Host.PriorRead(key)` — if `ok=false`, read from disk normally.
+3. On `ok=true`, compute sha256 of the file region the current call
+   targets.
+4. If the current hash ≠ `PriorReadInfo.ContentHash`, the file has
+   changed since the prior read — read from disk normally. The fresh
+   bytes are what the model sees; staleness is surfaced, not masked.
+5. If the hashes match, return the reference response.
+
+Exact path-and-range match only; a ranged read of a previously
+full-file read (or vice versa) is a distinct key and does not dedup.
+Hash algorithm pinned to sha256 — same algorithm the audit layer
+already uses (§"Audit") so a session's artefacts share one hash
+vocabulary.
+
+**Scope — `read` tool only.** This SHOULD applies only to the `read`
+tool. Tools that read files as implementation details of other
+operations (`ripgrep`, `ast_grep`, `read_with_context`, `bash`) do not
+participate in the read log and do not dedup against it. The read log
+tracks content delivered to the model via the `read` tool only; tools
+do not record against the read log on each other's behalf.
+
+**Scope — per-process.** The read log is maintained by the Executor
+in memory for the lifetime of the current `stado` invocation. A
+session resumed in a new process starts with an empty read log.
+Persistent cross-process deduplication is explicitly not a goal —
+restoring an old session into a fresh process should behave as
+day-one.
+
+The Executor maintains a process-local turn counter (incremented on
+each top-level user prompt, independent of `Session`). When a
+`Session` is available, the counter tracks `Session.Turn()`; when
+running in the no-session fallback, the counter is authoritative.
+`PriorReadInfo.Turn` is always populated from this counter and is
+never zero for a successful prior-read match. A turn spans one user
+prompt plus all tool-result iterations that follow it, up to but not
+including the next user prompt. Agent-internal re-streams after tool
+execution do not increment the turn counter.
+
+**Concurrency.** When multiple `read` calls execute in parallel
+(provider `MaxParallelToolCalls > 1`), `PriorRead` and `RecordRead`
+are serialised against the Executor's read log. "Most recent" is
+defined as **`RecordRead`-call-order**, not issue-order. Concurrent
+reads of the same key issued before either records will both read
+from disk; subsequent reads see whichever recorded last. This is
+acceptable — deduplication is a best-effort optimisation, not a
+correctness guarantee.
 
 ### Compaction
 
@@ -378,6 +491,43 @@ Invariants:
   ref model.
 - **Compaction marker.** The session's metadata (surfaced by
   `stado session show`) records which turns were compacted and when.
+
+### Fork-from-point ergonomics
+
+Both paths must exist for the fork-as-preferred-recovery premise to
+hold; a single surface is not sufficient.
+
+- **Scripted.** `stado session fork <id> --at <turn-ref>` forks into
+  a fresh session rooted at the specified turn in one invocation.
+  This extends today's `stado session fork <id>` (which forks from
+  tree HEAD); the no-`--at` form is preserved for backward
+  compatibility.
+- **Interactive.** `stado session tree <id>` is a **standalone cobra
+  subcommand** that opens a `tea.Program` of its own — not a slash
+  command inside the main TUI. It renders the session's turn history
+  in a navigable view; a single keybinding on the cursor-selected
+  turn forks into a fresh session rooted at that turn. Standalone,
+  because the primary fork-from-point journey is post-session
+  recovery, which must work from any shell independent of whether
+  the main TUI is running. A slash-command entry point inside the
+  TUI may be added later as an additional surface, but the
+  standalone subcommand is load-bearing.
+
+Both paths land the user in a new session whose `tree` ref is seeded
+at the selected turn's commit and whose worktree has been
+materialised to match. The parent session is never modified (see
+§"Fork semantics").
+
+**Turn reference syntax.** The canonical user-facing turn identifier
+is `turns/<N>`, where `<N>` is the 1-indexed turn number within the
+session. This is the form displayed in `session tree`, accepted by
+`session fork --at`, and emitted in error messages. Full commit SHAs
+on the session's `tree` ref are also accepted anywhere a turn
+reference is valid, for scripting and sub-turn precision.
+`session tree`'s default view shows turn boundaries (`turns/<N>`)
+only; sub-turn commits are not rendered by default. Users who need
+sub-turn fork precision obtain the relevant SHA via
+`git log refs/sessions/<id>/tree` and pass it to `session fork --at`.
 
 ### Non-goals
 
@@ -405,8 +555,16 @@ build:
 - **Truncation coverage.** For each bundled tool, assert the default
   output budget is respected and the truncation marker is present when
   hit.
-- **Fork-from-point ergonomics.** Measure the number of commands a
-  user runs to fork from turn N into a fresh session. Target: **one**.
+- **Fork-from-point ergonomics (scripted).** Assert that
+  `stado session fork <id> --at turns/<N>` in a single invocation
+  produces a fresh session whose tree-ref head matches the parent's
+  `turns/<N>` tag, and whose worktree has been materialised to match.
+- **Fork-from-point ergonomics (interactive).** End-to-end test that
+  `stado session tree <id>` renders a navigable view, and a single
+  keybinding on a specific turn forks into a fresh session at that
+  turn — asserted by the resulting session's tree-ref and its
+  materialised worktree. Runs against a headless/PTY harness so it
+  fires on CI.
 
 ---
 
