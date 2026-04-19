@@ -597,9 +597,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case m.keys.Matches(msg, keys.InputClear):
+			// Ctrl+C at the top level: cancel in-flight state rather than
+			// quit. The exit key is ctrl+d; let ctrl+c act like a
+			// "get me out of whatever I was typing" escape that never
+			// leaves stado. If the input is empty and nothing's in
+			// flight, no-op (user can ctrl+d to exit).
 			if m.input.Value() == "" {
-				return m, tea.Quit
+				if m.state == stateStreaming && m.streamCancel != nil {
+					m.streamCancel()
+				}
+				if m.state == stateCompactionPending {
+					m.resolveCompaction(false)
+				}
+				if m.approval != nil {
+					return m, m.resolveApproval(false)
+				}
+				return m, nil
 			}
+			// Non-empty input: the editor's InputClear case (editor.go)
+			// resets the textarea. Fall through to let inputCmd do that.
 
 		case m.keys.Matches(msg, keys.InputSubmit):
 			if m.input.Value() == "" || m.state == stateStreaming {

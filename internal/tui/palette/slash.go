@@ -135,9 +135,15 @@ func (m *Model) moveCursor(delta int) {
 	m.Cursor = (m.Cursor + delta + len(m.Matches)) % len(m.Matches)
 }
 
-// refresh recomputes m.Matches from m.Query using fuzzy matching across the
-// Name + Desc corpora. Empty query shows everything in registration order
-// (so the groups stay intact for the categorised view).
+// refresh recomputes m.Matches from m.Query using fuzzy matching on
+// command Names only. Including Desc in the haystack kicked up false
+// rankings — e.g. typing "model" was matching `/tools` because its
+// description ("List tools available to the model") contained the
+// whole word. Name-only matching is what users expect when typing a
+// slash-command prefix; the Desc stays as purely display copy.
+//
+// Empty query shows everything in registration order so groups stay
+// intact for the categorised view.
 func (m *Model) refresh() {
 	q := strings.TrimSpace(strings.TrimPrefix(m.Query, "/"))
 	if q == "" {
@@ -145,7 +151,7 @@ func (m *Model) refresh() {
 	} else {
 		words := make([]string, len(Commands))
 		for i, c := range Commands {
-			words[i] = c.Name + " " + c.Desc
+			words[i] = strings.TrimPrefix(c.Name, "/")
 		}
 		found := fuzzy.Find(q, words)
 		m.Matches = nil
