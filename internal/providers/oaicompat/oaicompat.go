@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -104,6 +105,14 @@ func (p *Provider) Probe(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// CountTokens uses tiktoken as the default tokenizer for all OAI-compat
+// servers. Servers that bundle a more accurate endpoint-server-side
+// counter (e.g. llama.cpp's `/tokenize`) could override this in future.
+// See DESIGN §"Token accounting".
+func (p *Provider) CountTokens(_ context.Context, req agent.TurnRequest) (int, error) {
+	return tokenize.CountOAI(req.Model, req)
 }
 
 // StreamTurn posts to /chat/completions (streaming) and translates SSE chunks

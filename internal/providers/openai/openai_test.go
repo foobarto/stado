@@ -7,6 +7,10 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+// Compile-time assertion: Provider satisfies agent.TokenCounter. See
+// anthropic_test.go for the rationale.
+var _ agent.TokenCounter = (*Provider)(nil)
+
 func TestConvertMessages_TextAndToolRoundTrip(t *testing.T) {
 	msgs := []agent.Message{
 		agent.Text(agent.RoleUser, "read foo.go"),

@@ -8,6 +8,9 @@ import (
 	"github.com/google/generative-ai-go/genai"
 )
 
+// Compile-time assertion: Provider satisfies agent.TokenCounter.
+var _ agent.TokenCounter = (*Provider)(nil)
+
 func TestSplitMessages_HistoryAndCurrent(t *testing.T) {
 	msgs := []agent.Message{
 		agent.Text(agent.RoleUser, "first"),

@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -55,6 +56,13 @@ func (p *Provider) Capabilities() agent.Capabilities {
 		SupportsVision:       true,
 		MaxContextTokens:     128_000,
 	}
+}
+
+// CountTokens uses tiktoken (offline BPE loader) to return the prompt-side
+// token count for req under req.Model's encoding. Zero network calls.
+// See DESIGN §"Token accounting".
+func (p *Provider) CountTokens(_ context.Context, req agent.TurnRequest) (int, error) {
+	return tokenize.CountOAI(req.Model, req)
 }
 
 func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {

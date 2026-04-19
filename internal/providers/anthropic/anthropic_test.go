@@ -8,6 +8,11 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+// Compile-time assertion: Provider satisfies agent.TokenCounter. See
+// DESIGN §"Token accounting": a backend missing CountTokens is a hard
+// error on first turn, so every bundled provider must pass this check.
+var _ agent.TokenCounter = (*Provider)(nil)
+
 func TestBuildMessages_TextAndToolRoundTrip(t *testing.T) {
 	req := agent.TurnRequest{
 		Messages: []agent.Message{

@@ -55,6 +55,50 @@ func (p *Provider) Capabilities() agent.Capabilities {
 	}
 }
 
+// CountTokens hits Anthropic's /v1/messages/count_tokens endpoint. It's an
+// HTTP round-trip — the SDK doesn't expose a local tokenizer — so the
+// agent loop should cache the result when possible and avoid calling it
+// per-keystroke. See DESIGN §"Token accounting".
+func (p *Provider) CountTokens(ctx context.Context, req agent.TurnRequest) (int, error) {
+	messages, err := buildMessages(req)
+	if err != nil {
+		return 0, err
+	}
+	params := sdk.MessageCountTokensParams{
+		Model:    sdk.Model(req.Model),
+		Messages: messages,
+	}
+	if req.System != "" {
+		params.System = sdk.MessageCountTokensParamsSystemUnion{
+			OfTextBlockArray: []sdk.TextBlockParam{{Text: req.System}},
+		}
+	}
+	if len(req.Tools) > 0 {
+		params.Tools = make([]sdk.MessageCountTokensToolUnionParam, 0, len(req.Tools))
+		for _, t := range req.Tools {
+			var schema map[string]any
+			if err := json.Unmarshal(t.Schema, &schema); err != nil {
+				return 0, fmt.Errorf("anthropic: count_tokens tool %q schema: %w", t.Name, err)
+			}
+			params.Tools = append(params.Tools, sdk.MessageCountTokensToolUnionParam{
+				OfTool: &sdk.ToolParam{
+					Name:        t.Name,
+					Description: sdk.String(t.Description),
+					InputSchema: sdk.ToolInputSchemaParam{
+						Properties: schema["properties"],
+						Required:   strSlice(schema["required"]),
+					},
+				},
+			})
+		}
+	}
+	resp, err := p.client.Messages.CountTokens(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("anthropic: count_tokens: %w", err)
+	}
+	return int(resp.InputTokens), nil
+}
+
 func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
 	messages, err := buildMessages(req)
 	if err != nil {

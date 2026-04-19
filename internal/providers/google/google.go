@@ -58,6 +58,34 @@ func (p *Provider) Capabilities() agent.Capabilities {
 	}
 }
 
+// CountTokens hits Gemini's CountTokens endpoint. HTTP round-trip, so the
+// agent loop should cache results per-turn rather than on keystroke. See
+// DESIGN §"Token accounting".
+func (p *Provider) CountTokens(ctx context.Context, req agent.TurnRequest) (int, error) {
+	model := p.client.GenerativeModel(req.Model)
+	if req.System != "" {
+		model.SystemInstruction = genai.NewUserContent(genai.Text(req.System))
+	}
+
+	// Gemini counts tokens for a list of content parts. We replay the full
+	// chat history as parts — close enough to what StreamTurn would send
+	// for threshold-purposes accounting.
+	var parts []genai.Part
+	for _, m := range req.Messages {
+		ps, err := convertContent(m.Content, m.Role)
+		if err != nil {
+			return 0, fmt.Errorf("google: count_tokens convert: %w", err)
+		}
+		parts = append(parts, ps...)
+	}
+
+	resp, err := model.CountTokens(ctx, parts...)
+	if err != nil {
+		return 0, fmt.Errorf("google: count_tokens: %w", err)
+	}
+	return int(resp.TotalTokens), nil
+}
+
 func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
 	model := p.client.GenerativeModel(req.Model)
 	if req.System != "" {

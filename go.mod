@@ -94,6 +94,8 @@ require (
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
+	github.com/pkoukk/tiktoken-go v0.1.8 // indirect
+	github.com/pkoukk/tiktoken-go-loader v0.0.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect

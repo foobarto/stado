@@ -23,6 +23,22 @@ type Provider interface {
 	StreamTurn(ctx context.Context, req TurnRequest) (<-chan Event, error)
 }
 
+// TokenCounter is an optional interface providers implement when they can
+// pre-flight count tokens for a TurnRequest. Detection is via type
+// assertion so adding the interface doesn't break existing Provider impls.
+//
+// DESIGN §"Token accounting" mandates exact counts — no estimation. A
+// configured backend that doesn't satisfy TokenCounter is a hard error
+// on first turn; the agent loop refuses to proceed blind.
+type TokenCounter interface {
+	// CountTokens returns the prompt-side token count for req, using the
+	// provider's native tokenizer. Result covers system + messages + tools
+	// (the "stable prefix"); output is estimated at generation time via
+	// Usage.OutputTokens on EvDone. Best-effort: returns error on network
+	// failures (where applicable).
+	CountTokens(ctx context.Context, req TurnRequest) (int, error)
+}
+
 // Capabilities tells the agent loop what a provider can do on this model.
 // Populated either statically (known provider) or via runtime probing
 // (oaicompat /v1/models + first-call heuristics).

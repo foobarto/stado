@@ -13,6 +13,9 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+// Compile-time assertion: Provider satisfies agent.TokenCounter.
+var _ agent.TokenCounter = (*Provider)(nil)
+
 // sseServer returns an httptest.Server that replays the given SSE chunks
 // (one per slice entry) as `data: ...\n\n` frames, terminated by `data: [DONE]`.
 func sseServer(t *testing.T, method, path string, chunks []string) *httptest.Server {
