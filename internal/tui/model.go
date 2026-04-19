@@ -160,7 +160,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 }
 
 // ensureProvider lazy-builds the provider on first use. On failure sets the
-// error state and returns false.
+// error state and appends an actionable system-role hint to the chat.
 func (m *Model) ensureProvider() bool {
 	if m.provider != nil {
 		return true
@@ -168,18 +168,68 @@ func (m *Model) ensureProvider() bool {
 	if m.buildProvider == nil {
 		m.state = stateError
 		m.errorMsg = "no provider configured"
-		m.appendBlock(block{kind: "system", body: "No provider configured. Set defaults.provider in ~/.config/stado/config.toml or an inference preset."})
+		m.appendBlock(block{kind: "system", body: "No provider configured.\n" +
+			"Run `stado config init` to scaffold ~/.config/stado/config.toml,\n" +
+			"or set `defaults.provider` there. 'ollama' works locally with no key."})
 		return false
 	}
 	p, err := m.buildProvider()
 	if err != nil {
 		m.state = stateError
 		m.errorMsg = err.Error()
-		m.appendBlock(block{kind: "system", body: "Provider unavailable: " + err.Error()})
+		body := "Provider unavailable: " + err.Error()
+		if hint := providerErrorHint(m.providerName, err.Error()); hint != "" {
+			body += "\n\n" + hint
+		}
+		m.appendBlock(block{kind: "system", body: body})
 		return false
 	}
 	m.provider = p
 	return true
+}
+
+// providerErrorHint returns a provider-specific suggestion the user can act
+// on. Missing API key → env var + local-alternative pointer; connection
+// refused → "start the server" commands.
+func providerErrorHint(provider, errMsg string) string {
+	switch {
+	case strings.Contains(errMsg, "API_KEY not set"):
+		env := providerEnvForName(provider)
+		return "Fix: `export " + env + "=…` and restart stado, or change\n" +
+			"`defaults.provider` in ~/.config/stado/config.toml to one of the\n" +
+			"local options: ollama / llamacpp / vllm / lmstudio (no key needed)."
+	case strings.Contains(errMsg, "connection refused"):
+		return "Fix: start the local server and try again.\n" +
+			"  ollama:    `ollama serve`      (→ http://localhost:11434)\n" +
+			"  llama.cpp: `llama-server -m …` (→ http://localhost:8080)\n" +
+			"  vLLM:      `vllm serve <model>`(→ http://localhost:8000)"
+	}
+	return ""
+}
+
+// providerEnvForName returns the conventional API-key env var for a provider.
+func providerEnvForName(p string) string {
+	switch p {
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "google", "gemini":
+		return "GEMINI_API_KEY"
+	case "groq":
+		return "GROQ_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
+	case "deepseek":
+		return "DEEPSEEK_API_KEY"
+	case "xai":
+		return "XAI_API_KEY"
+	case "mistral":
+		return "MISTRAL_API_KEY"
+	case "cerebras":
+		return "CEREBRAS_API_KEY"
+	}
+	return "the API key env var"
 }
 
 // providerDisplayName returns the active provider name, or the configured

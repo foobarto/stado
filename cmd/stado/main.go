@@ -14,6 +14,11 @@ const version = "0.0.0-dev"
 var rootCmd = &cobra.Command{
 	Use:   "stado",
 	Short: "AI CLI harness and editor",
+	// With no subcommand, launch the TUI. stado boots without any API key
+	// thanks to lazy provider init — the first prompt surfaces a helpful
+	// message if credentials are missing.
+	SilenceUsage:  true, // don't dump the full usage on RunE error
+	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
