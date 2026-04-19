@@ -64,6 +64,11 @@ func Run(cfg *config.Config) error {
 	m.executor = exec
 	m.session = sess
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
+	// If we booted into a worktree that a prior `stado session fork`
+	// wrote a `.stado-span-context` into, wrap the TUI's ancestor
+	// context so every subsequent span links back to the fork event's
+	// trace tree — Phase 9.4/9.5 cross-process span link.
+	m.SetRootContext(runtime.RootContext(cwd))
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Attach(p)
 

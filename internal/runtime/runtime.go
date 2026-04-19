@@ -43,6 +43,21 @@ import (
 	"github.com/foobarto/stado/pkg/tool"
 )
 
+// RootContext returns the base context.Context callers should use as
+// the ancestor of every span they create for this stado process.
+// Normally this is context.Background(). When cwd contains a
+// `.stado-span-context` written by a prior `stado session fork`, the
+// base context is wrapped with the parent trace reference so Jaeger
+// renders one fork tree instead of two disconnected ones.
+//
+// PLAN §9.4/9.5 cross-process span link. Safe to call from any
+// caller (TUI, run, ACP, headless) at boot; no-op when no traceparent
+// file is present.
+func RootContext(cwd string) context.Context {
+	ctx, _ := telemetry.LoadParentTraceparent(context.Background(), cwd)
+	return ctx
+}
+
 // OpenSession creates a new session + sidecar rooted at cwd's repo.
 // Non-fatal callers can swallow the error and carry on without state.
 //

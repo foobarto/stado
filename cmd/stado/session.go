@@ -457,6 +457,19 @@ func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash
 			return nil, fmt.Errorf("fork: materialise worktree: %w", err)
 		}
 	}
+
+	// Persist the fork span's context so the child process (when the
+	// user `cd`s into the new worktree and runs stado) can link its
+	// own spans back to this fork point — PLAN §9.4/9.5 cross-process
+	// span link. Best-effort: observability failures don't fail the
+	// fork itself.
+	if err := telemetry.WriteCurrentTraceparent(spanCtx, sess.WorktreePath); err != nil {
+		span.RecordError(err)
+		// Not fatal — stderr advisory so operators know observability
+		// will be degraded for the child session's spans.
+		fmt.Fprintf(os.Stderr, "fork: failed to persist traceparent (%v); child spans will be disconnected\n", err)
+	}
+
 	return sess, nil
 }
 

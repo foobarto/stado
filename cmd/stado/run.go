@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -90,7 +91,12 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}
 		}
 
-		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
+		// Wrap the CLI's context with any `.stado-span-context`
+		// present in cwd (cross-process span link, Phase 9.4/9.5).
+		// Non-forked cwd is a no-op.
+		cwd, _ := os.Getwd()
+		baseCtx, _ := telemetry.LoadParentTraceparent(cmd.Context(), cwd)
+		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 		defer cancel()
 
 		_, _, err = runtime.AgentLoop(ctx, opts)

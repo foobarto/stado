@@ -125,6 +125,14 @@ type Model struct {
 	theme    *theme.Theme
 	renderer *render.Renderer
 
+	// rootCtx is the ancestor context for every span this TUI
+	// creates. When cwd contains a `.stado-span-context` (written by
+	// a prior `stado session fork`), it carries the parent trace
+	// reference so the TUI's spans link back — Phase 9.4/9.5 cross-
+	// process span link. Defaults to context.Background() in the
+	// no-fork-link case.
+	rootCtx context.Context
+
 	// Provider is resolved lazily on the first StreamTurn so stado can boot
 	// without credentials present. buildProvider runs on demand; errors
 	// surface as in-UI messages instead of crashing startup.
@@ -249,8 +257,21 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
+		rootCtx:          context.Background(),
 	}
 	return m
+}
+
+// SetRootContext replaces the TUI's ancestor context. Called from the
+// entry point (tui.Run) with a context pre-wrapped with any
+// `.stado-span-context` present in cwd — makes fork-triggered child
+// processes link back to the parent trace (Phase 9.4/9.5). Safe to
+// call before the bubbletea program starts.
+func (m *Model) SetRootContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.rootCtx = ctx
 }
 
 // SetContextThresholds overrides the soft/hard threshold defaults. Called
@@ -1128,7 +1149,10 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnThinkSig = ""
 	m.turnToolCalls = nil
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Span ancestor is m.rootCtx (Background or a cross-process
+	// traceparent-enriched context — see Phase 9.4/9.5), so turns
+	// inside a forked session link back to the parent's trace tree.
+	ctx, cancel := context.WithCancel(m.rootCtx)
 	m.streamMu.Lock()
 	m.streamCancel = cancel
 	m.state = stateStreaming
@@ -1455,7 +1479,9 @@ func (m *Model) startCompaction() tea.Cmd {
 	m.compacting = true
 	m.pendingCompactionSummary = ""
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Parent-link through rootCtx so the compaction turn's spans
+	// thread into the session's trace tree (Phase 9.4/9.5).
+	ctx, cancel := context.WithCancel(m.rootCtx)
 	m.streamMu.Lock()
 	m.streamCancel = cancel
 	m.state = stateStreaming
