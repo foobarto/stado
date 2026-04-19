@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +16,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
@@ -89,6 +95,15 @@ type (
 	streamErrorMsg   struct{ err error }
 	streamDoneMsg    struct{}
 	toolsExecutedMsg struct{ results []agent.ToolResultBlock }
+	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
+	// back to the Update loop. Rendered as a system block so the user
+	// sees the tool's return value alongside the conversation flow.
+	pluginRunResultMsg struct {
+		plugin  string
+		tool    string
+		content string
+		errMsg  string
+	}
 )
 
 // Model is the root bubbletea model for stado's TUI.
@@ -496,6 +511,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// error path. Append as a separate system block so the user
 		// sees it arrive after the initial error.
 		m.appendBlock(block{kind: "system", body: msg.body})
+		m.renderBlocks()
+		return m, nil
+
+	case pluginRunResultMsg:
+		// /plugin:<name>-<ver> <tool> [args] finished. Render outcome
+		// as a system block and leave conversation state untouched —
+		// plugin invocations are side-channel and don't pollute the
+		// turn log the LLM sees.
+		if msg.errMsg != "" {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("plugin %s/%s error: %s", msg.plugin, msg.tool, msg.errMsg),
+			})
+		} else {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("plugin %s/%s → %s", msg.plugin, msg.tool, msg.content),
+			})
+		}
 		m.renderBlocks()
 		return m, nil
 
@@ -1559,6 +1593,11 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	if len(parts) == 0 {
 		return nil
 	}
+	// /plugin and /plugin:<name>-<ver> [<tool> [json-args]] — routed
+	// before the switch since the plugin-name suffix is dynamic.
+	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {
+		return m.handlePluginSlash(parts)
+	}
 	switch parts[0] {
 	case "/clear":
 		m.blocks = nil
@@ -1629,6 +1668,209 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	}
 	m.layout()
 	return nil
+}
+
+// handlePluginSlash routes `/plugin` and `/plugin:<name>-<ver>` forms:
+//
+//   /plugin                                      → list installed plugins
+//   /plugin:<name>-<ver>                         → list that plugin's tools
+//   /plugin:<name>-<ver> <tool>                  → run with args={}
+//   /plugin:<name>-<ver> <tool> {"key":"val",…}  → run with supplied JSON
+//
+// Verifies manifest signature + wasm digest against the trust store on
+// every invocation (cheap, and catches a tampered-after-install plugin
+// before it runs). Tool execution happens on a tea.Cmd goroutine so
+// the UI stays responsive — result arrives as pluginRunResultMsg.
+func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
+	cfg, err := config.Load()
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin: config load: " + err.Error()})
+		return nil
+	}
+	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
+
+	// Bare /plugin → list installed.
+	if parts[0] == "/plugin" {
+		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(pluginsRoot)})
+		return nil
+	}
+
+	nameVer := strings.TrimPrefix(parts[0], "/plugin:")
+	if nameVer == "" {
+		m.appendBlock(block{
+			kind: "system",
+			body: "usage: /plugin:<name>-<version> <tool> [json-args]  (see /plugin to list installed)",
+		})
+		return nil
+	}
+
+	pluginDir := filepath.Join(pluginsRoot, nameVer)
+	if _, err := os.Stat(pluginDir); err != nil {
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("plugin %q not installed (run `stado plugin install <dir>` first)", nameVer),
+		})
+		return nil
+	}
+
+	mf, sig, err := plugins.LoadFromDir(pluginDir)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin load: " + err.Error()})
+		return nil
+	}
+	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
+	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin digest: " + err.Error()})
+		return nil
+	}
+	ts := plugins.NewTrustStore(cfg.StateDir())
+	if err := ts.VerifyManifest(mf, sig); err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin signature: " + err.Error()})
+		return nil
+	}
+
+	// No tool name → describe the plugin and list its tools.
+	if len(parts) < 2 {
+		m.appendBlock(block{kind: "system", body: renderPluginTools(nameVer, mf)})
+		return nil
+	}
+
+	toolName := parts[1]
+	argsJSON := "{}"
+	if len(parts) >= 3 {
+		argsJSON = strings.Join(parts[2:], " ")
+	}
+
+	var tdef *plugins.ToolDef
+	for i := range mf.Tools {
+		if mf.Tools[i].Name == toolName {
+			tdef = &mf.Tools[i]
+			break
+		}
+	}
+	if tdef == nil {
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("tool %q not declared in plugin %s — try /plugin:%s to list tools",
+				toolName, nameVer, nameVer),
+		})
+		return nil
+	}
+
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("plugin %s: invoking %s…", nameVer, toolName),
+	})
+	m.renderBlocks()
+
+	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer)
+}
+
+// runPluginToolAsync spawns a fresh wazero runtime, instantiates the
+// module under its capability-bound Host, invokes the tool, and posts
+// the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
+// runaway plugin can't wedge the TUI.
+func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		wasmBytes, err := os.ReadFile(filepath.Join(dir, "plugin.wasm"))
+		if err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: err.Error()}
+		}
+		rt, err := pluginRuntime.New(ctx)
+		if err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "runtime: " + err.Error()}
+		}
+		defer func() { _ = rt.Close(ctx) }()
+
+		host := pluginRuntime.NewHost(*mf, dir, nil)
+		if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "host imports: " + err.Error()}
+		}
+		mod, err := rt.Instantiate(ctx, wasmBytes, *mf)
+		if err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "instantiate: " + err.Error()}
+		}
+		defer func() { _ = mod.Close(ctx) }()
+
+		pt, err := pluginRuntime.NewPluginTool(mod, tdef)
+		if err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: err.Error()}
+		}
+		res, err := pt.Run(ctx, []byte(argsJSON), nil)
+		if err != nil {
+			msg := err.Error()
+			if res.Error != "" {
+				msg = res.Error
+			}
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: msg}
+		}
+		if res.Error != "" {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: res.Error}
+		}
+		return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, content: res.Content}
+	}
+}
+
+// renderInstalledPluginList scans pluginsRoot and returns a human body
+// enumerating each installed plugin with the tools it declares. Helpful
+// discovery block for the bare `/plugin` command.
+func renderInstalledPluginList(pluginsRoot string) string {
+	entries, err := os.ReadDir(pluginsRoot)
+	if err != nil || len(entries) == 0 {
+		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see examples/plugins/hello/."
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	if len(dirs) == 0 {
+		return "No plugins installed."
+	}
+	sort.Strings(dirs)
+
+	var sb strings.Builder
+	sb.WriteString("Installed plugins:")
+	for _, name := range dirs {
+		sb.WriteString("\n  /plugin:" + name)
+		mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsRoot, name))
+		if err != nil {
+			sb.WriteString("  (manifest load failed: " + err.Error() + ")")
+			continue
+		}
+		for _, t := range mf.Tools {
+			sb.WriteString("\n    · " + t.Name)
+			if t.Description != "" {
+				sb.WriteString(" — " + t.Description)
+			}
+		}
+	}
+	sb.WriteString("\n\nRun a tool with  /plugin:<name> <tool> [json-args]")
+	return sb.String()
+}
+
+// renderPluginTools formats one plugin's manifest tools for display
+// when the user asks about it specifically.
+func renderPluginTools(nameVer string, m *plugins.Manifest) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Plugin %s  (author=%s, caps=%d)", nameVer, m.Author, len(m.Capabilities)))
+	if len(m.Tools) == 0 {
+		sb.WriteString("\n  (no tools declared)")
+		return sb.String()
+	}
+	sb.WriteString("\nTools:")
+	for _, t := range m.Tools {
+		sb.WriteString("\n  · " + t.Name)
+		if t.Description != "" {
+			sb.WriteString("\n      " + t.Description)
+		}
+	}
+	sb.WriteString(fmt.Sprintf("\n\nRun with  /plugin:%s <tool> [json-args]", nameVer))
+	return sb.String()
 }
 
 // ---- helpers --------------------------------------------------------------
