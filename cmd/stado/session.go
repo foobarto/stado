@@ -236,6 +236,37 @@ var sessionShowCmd = &cobra.Command{
 		if n, err := countCommits(sc, stadogit.TraceRef(id)); err == nil {
 			fmt.Printf("audit     %d tool call(s) on trace ref\n", n)
 		}
+
+		// Compaction markers — PLAN §11.3.6. Surfaces which turn
+		// ranges have been collapsed, when, and by whom. Walks tree
+		// ref newest-first; rolled back or forked-over compactions
+		// simply don't appear in this listing.
+		if markers, err := sc.ListCompactions(id); err == nil && len(markers) > 0 {
+			fmt.Printf("compactions  %d event(s):\n", len(markers))
+			for _, m := range markers {
+				title := m.Title
+				if len(title) > 60 {
+					title = title[:59] + "…"
+				}
+				shaShort := m.CommitHash.String()[:12]
+				when := m.At
+				if len(when) > 19 {
+					when = when[:19] // trim to minute precision
+				}
+				by := ""
+				if m.By != "" {
+					by = " · by " + m.By
+				}
+				fmt.Printf("  %s  turns %d..%d (%d collapsed)%s\n",
+					shaShort, m.FromTurn, m.ToTurn, m.TurnsTotal, by)
+				if when != "" {
+					fmt.Printf("             at %s\n", when)
+				}
+				if title != "" {
+					fmt.Printf("             %s\n", title)
+				}
+			}
+		}
 		return nil
 	},
 }
