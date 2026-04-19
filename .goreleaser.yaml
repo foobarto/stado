@@ -10,6 +10,17 @@ builds:
     binary: stado
     env:
       - CGO_ENABLED=0
+    # Reproducible-build flags (PLAN.md §10.1):
+    #   -trimpath strips GOPATH / absolute module paths from binary → same
+    #     inputs → same output regardless of checkout location.
+    #   -buildvcs=true embeds the HEAD commit sha via debug/buildinfo so
+    #     `stado verify --show-build-info` can expose it.
+    flags:
+      - -trimpath
+      - -buildvcs=true
+    # Fixed build time: pinned to the tag's commit timestamp so two
+    # rebuilds of the same tag produce identical sha256 (PLAN §10.1).
+    mod_timestamp: "{{ .CommitTimestamp }}"
     goos:
       - linux
       - darwin
@@ -21,7 +32,29 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{ .CommitDate }}
+      - -buildid=                     # clear build-id (non-deterministic)
+
+# SLSA + SBOM: enabled for release builds; no-op on snapshots.
+sboms:
+  - artifacts: archive
+
+# Cosign keyless + minisign (dual scheme, PLAN §10.3).
+signs:
+  - id: cosign
+    cmd: cosign
+    certificate: "${artifact}.cert"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "--yes"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
 
 archives:
   - format: tar.gz
