@@ -127,9 +127,17 @@ func (r *Runtime) Instantiate(ctx context.Context, wasmBytes []byte, m plugins.M
 	}
 	r.mu.Unlock()
 
-	// Compile + instantiate. wazero.Runtime.Instantiate returns an
-	// api.Module whose Close tears down just this instance.
-	wmod, err := r.rt.Instantiate(ctx, wasmBytes)
+	// Compile + instantiate. We list both `_start` (default for
+	// command-style wasm) and `_initialize` (reactor-style — emitted by
+	// e.g. `GOOS=wasip1 -buildmode=c-shared` Go builds) as start
+	// functions. Whichever the module actually exports runs; the other
+	// is silently skipped. Without `_initialize`, a Go reactor module's
+	// runtime stays un-booted and every export traps on the first
+	// allocator call.
+	cfg := wazero.NewModuleConfig().
+		WithStartFunctions("_start", "_initialize").
+		WithName(m.Name + "-" + m.Version)
+	wmod, err := r.rt.InstantiateWithConfig(ctx, wasmBytes, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("wazero: instantiate %s v%s: %w", m.Name, m.Version, err)
 	}

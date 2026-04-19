@@ -1,0 +1,18 @@
+{
+  "name": "hello-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [],
+  "tools": [
+    {
+      "name": "greet",
+      "description": "Greet someone by name — Go implementation. Reads { \"name\": \"...\" } and returns { \"message\": \"Hello, <name>!\" }.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":\"Name to greet\"}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-19T00:00:00Z",
+  "nonce": "hello-go-demo-001"
+}

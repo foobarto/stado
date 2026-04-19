@@ -19,8 +19,9 @@
 /examples/plugins/*/plugin.wasm
 /examples/plugins/*/plugin.manifest.json
 /examples/plugins/*/plugin.manifest.sig
-/examples/plugins/*/hello-demo.seed
+/examples/plugins/*/*.seed
 /examples/plugins/*/*.o
+/examples/plugins/*/go.sum
 /examples/plugins/*/.zig-cache/
 /examples/plugins/*/zig-cache/
 /examples/plugins/*/zig-out/
