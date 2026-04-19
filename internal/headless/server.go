@@ -19,7 +19,9 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -31,22 +33,33 @@ type Server struct {
 	conn     *acp.Conn
 	mu       sync.Mutex
 	sessions map[string]*hSession
+
+	// Background-plugin state. See plugins.go. Populated on Serve()
+	// entry from cfg.Plugins.Background and torn down on exit.
+	bgRuntime *pluginRuntime.Runtime
+	bgPlugins []*pluginRuntime.BackgroundPlugin
 }
 
 type hSession struct {
-	id       string
-	messages []agent.Message
-	cancel   context.CancelFunc
-	workdir  string
+	id              string
+	messages        []agent.Message
+	cancel          context.CancelFunc
+	workdir         string
+	gitSess         *stadogit.Session // lazy, set by ensureGitSession
+	lastInputTokens int               // most recent input-token observation
 }
 
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {
 	return &Server{Cfg: cfg, Provider: prov, sessions: map[string]*hSession{}}
 }
 
-// Serve runs the loop on r/w until the peer disconnects.
+// Serve runs the loop on r/w until the peer disconnects. Loads
+// cfg.Plugins.Background plugins before dispatch starts; tears them
+// down on exit.
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	s.conn = acp.NewConn(r, w)
+	s.loadBackgroundPlugins(ctx)
+	defer s.closeBackgroundPlugins(context.Background())
 	return s.conn.Serve(ctx, s.dispatch)
 }
 
@@ -71,6 +84,10 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			"available": []string{"anthropic", "openai", "google", "ollama", "llamacpp", "vllm"},
 			"current":   s.Cfg.Defaults.Provider,
 		}, nil
+	case "plugin.list":
+		return s.pluginList(), nil
+	case "plugin.run":
+		return s.pluginRun(ctx, params)
 	case "shutdown":
 		s.conn.Close()
 		return struct{}{}, nil
@@ -150,14 +167,15 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			// soft threshold is crossed. Fired on Usage events (end of
 			// turn) so clients see it before the next prompt.
 			if (ev.Kind == agent.EvUsage || ev.Kind == agent.EvDone) && ev.Usage != nil {
+				sess.lastInputTokens = ev.Usage.InputTokens
 				s.maybeEmitContextWarning(p.SessionID, ev.Usage.InputTokens)
 			}
 		},
 	}
 	if p.Tools {
-		gitSess, err := runtime.OpenSession(s.Cfg, sess.workdir)
-		if err == nil {
-			opts.Executor = runtime.BuildExecutor(gitSess, s.Cfg, "stado-headless")
+		s.ensureGitSession(sess)
+		if sess.gitSess != nil {
+			opts.Executor = runtime.BuildExecutor(sess.gitSess, s.Cfg, "stado-headless")
 		}
 	}
 
@@ -166,6 +184,13 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
 	}
 	sess.messages = msgs
+
+	// Turn-boundary tick for background plugins. Runs sequentially
+	// after the reply is assembled — clients get their result first,
+	// then any plugin_fork / compaction notifications arrive as
+	// separate session.update messages.
+	s.tickBackgroundPlugins(pctx, sess)
+
 	return sessionPromptResult{Text: text}, nil
 }
 
