@@ -36,6 +36,9 @@ linters:
         - "-S1011"   # append-slice loop
         - "-S1025"   # unnecessary Sprintf with string arg
         - "-S1039"   # unnecessary Sprintf for constant strings
+        - "-ST1000"  # package should have a package comment
+        - "-ST1020"  # exported method comment form
+        - "-ST1022"  # exported const comment form
   exclusions:
     rules:
       # Test files tolerate uncaught error returns on setup-style

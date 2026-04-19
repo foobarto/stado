@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompileHostMatch_Exact(t *testing.T) {
@@ -98,24 +99,33 @@ func TestProxy_CONNECT_Allowed(t *testing.T) {
 	defer conn.Close()
 	_, _ = fmt.Fprintf(conn, "CONNECT %s:%s HTTP/1.1\r\nHost: %s:%s\r\n\r\n", upHost, upPort, upHost, upPort)
 
-	// Read the CONNECT response.
+	// Read all bytes the proxy delivers until upstream closes. The
+	// CONNECT response and the upstream banner may arrive in the same
+	// read (CI timing makes the banner sometimes land into the first
+	// conn.Read) — so we must accumulate both, not split them across
+	// two separate reads. Bounded deadline so a true hang fails loudly.
+	_ = conn.(*net.TCPConn).SetReadDeadline(time.Now().Add(2 * time.Second))
+	var all strings.Builder
 	buf := make([]byte, 1024)
-	n, _ := conn.Read(buf)
-	resp := string(buf[:n])
-	if !strings.Contains(resp, "200") {
-		t.Fatalf("CONNECT not accepted: %q", resp)
-	}
-
-	// Now the tunnel is open — upstream writes "upstream-banner". Read it.
-	banner := make([]byte, 256)
-	// The CONNECT response may have been split; keep reading until we see the banner.
-	for i := 0; i < 3; i++ {
-		n, _ = conn.Read(banner)
-		if n > 0 && strings.Contains(string(banner[:n]), "upstream-banner") {
-			return
+	for {
+		n, err := conn.Read(buf)
+		if n > 0 {
+			all.Write(buf[:n])
+		}
+		if err != nil {
+			break
+		}
+		if strings.Contains(all.String(), "upstream-banner") {
+			break
 		}
 	}
-	t.Errorf("never saw upstream banner through the tunnel (got %q)", string(banner[:n]))
+	got := all.String()
+	if !strings.Contains(got, "200") {
+		t.Fatalf("CONNECT not accepted: %q", got)
+	}
+	if !strings.Contains(got, "upstream-banner") {
+		t.Errorf("never saw upstream banner through the tunnel (got %q)", got)
+	}
 }
 
 func TestProxy_CONNECT_Denied(t *testing.T) {

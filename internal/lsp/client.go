@@ -80,7 +80,7 @@ func Launch(ctx context.Context, server, projectRoot string) (*Client, error) {
 	go c.readLoop()
 
 	if err := c.initialize(ctx, projectRoot); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, err
 	}
 	return c, nil

@@ -150,7 +150,7 @@ func (c *Conn) Notify(method string, params any) error {
 }
 
 func (c *Conn) writeResult(id json.RawMessage, result any) {
-	c.write(Response{JSONRPC: "2.0", ID: id, Result: result})
+	_ = c.write(Response{JSONRPC: "2.0", ID: id, Result: result})
 }
 
 func (c *Conn) writeErr(id json.RawMessage, code int, msg string) {

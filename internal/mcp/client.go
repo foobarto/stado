@@ -105,13 +105,13 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 		},
 	})
 	if err != nil {
-		c.Close()
+		_ = c.Close()
 		return fmt.Errorf("initialize MCP server %s: %w", cfg.Name, err)
 	}
 
 	toolsResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		c.Close()
+		_ = c.Close()
 		return fmt.Errorf("list tools on MCP server %s: %w", cfg.Name, err)
 	}
 
@@ -128,7 +128,7 @@ func (m *MCPManager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, c := range m.clients {
-		c.Client.Close()
+		_ = c.Client.Close()
 	}
 }
 

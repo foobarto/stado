@@ -66,7 +66,7 @@ func ApplyLandlock(p Policy) error {
 			return fmt.Errorf("landlock: create ruleset: %w", err)
 		}
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 
 	for _, path := range p.FSRead {
 		if err := addPathBeneathRule(fd, path, readMask&handled); err != nil {
@@ -105,7 +105,7 @@ func addPathBeneathRule(rulesetFD int, path string, access uint64) error {
 		}
 		return fmt.Errorf("landlock: open %s: %w", path, err)
 	}
-	defer unix.Close(parentFD)
+	defer func() { _ = unix.Close(parentFD) }()
 
 	rule := unix.LandlockPathBeneathAttr{
 		Allowed_access: access,

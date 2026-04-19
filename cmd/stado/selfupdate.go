@@ -329,7 +329,7 @@ func extractBinary(archivePath, assetName string) (string, error) {
 			os.Remove(out)
 			return "", err
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }()
 		tr := tar.NewReader(gz)
 		for {
 			hdr, err := tr.Next()
@@ -369,7 +369,7 @@ func extractZipBinary(archivePath, outPath string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	for _, zf := range r.File {
 		base := filepath.Base(zf.Name)
 		if base == "stado" || base == "stado.exe" {
