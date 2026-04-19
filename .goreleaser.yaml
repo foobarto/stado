@@ -79,6 +79,61 @@ archives:
       - LICENSE
       - README.md
 
+# nfpms produces .deb (apt) and .rpm (dnf/yum) packages per PLAN §10.7.
+# Signing keys live outside the repo; populate
+# `fpm_signing_key_file` in the release environment when publishing to
+# a signed repo. Snapshot builds emit unsigned packages for testing.
+nfpms:
+  - id: stado
+    package_name: stado
+    vendor: stado maintainers
+    homepage: https://github.com/foobarto/stado
+    maintainer: stado maintainers <noreply@stado.local>
+    description: |
+      stado — sandboxed, git-native coding-agent runtime.
+      Signed commits as audit log. WASM plugins. OpenAI-, Anthropic-,
+      Google-, and OAI-compat providers.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    # Only package native-executable targets — Windows/Darwin ship as
+    # archives via the archives block above.
+    builds:
+      - stado
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/stado/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/stado/README.md
+    rpm:
+      group: Applications/Development
+    deb:
+      fields:
+        Bugs: https://github.com/foobarto/stado/issues
+
+# Homebrew tap — goreleaser opens a PR against the tap repo on each
+# release. Requires a GITHUB_TOKEN with write access to the tap;
+# snapshot builds skip the PR automatically.
+brews:
+  - name: stado
+    repository:
+      owner: foobarto
+      name: homebrew-tap
+      branch: main
+    directory: Formula
+    homepage: https://github.com/foobarto/stado
+    description: Sandboxed, git-native coding-agent runtime
+    license: MIT
+    skip_upload: auto
+    # Formula template — goreleaser derives url + sha256 from the
+    # release archives above. Targets macOS + Linux Homebrew installs.
+    install: |
+      bin.install "stado"
+    test: |
+      system "#{bin}/stado", "version"
+
 checksum:
   name_template: "checksums.txt"
 
