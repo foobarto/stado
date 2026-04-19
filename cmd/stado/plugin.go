@@ -471,6 +471,18 @@ var pluginRunCmd = &cobra.Command{
 		defer func() { _ = rt.Close(ctx) }()
 
 		host := pluginRuntime.NewHost(*m, dir, nil)
+		// Wire a SessionBridge only when the plugin declared at least
+		// one of the session/LLM capabilities. `stado plugin run` has
+		// no active session (it's a one-shot CLI path), so the bridge
+		// is minimal: it reports 0 messages / no session, and
+		// session:fork + llm:invoke are inert. Plugins running in a
+		// live TUI will get a richer bridge in part 4.
+		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
+			host.SessionBridge = pluginRuntime.NewSessionBridge(nil, nil, "")
+			fmt.Fprintln(os.Stderr,
+				"stado plugin run: session-aware capabilities declared; note that the one-shot CLI has no live session — "+
+					"session:read returns zeroed fields, session:fork + llm:invoke are unavailable")
+		}
 		if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 			return fmt.Errorf("host imports: %w", err)
 		}

@@ -349,7 +349,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Third-party plugins run in wazero, capability-gated, signed.
 
-**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.7 Rekor transparency-log integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry / VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a hash-index lookup and asserts the entry's sig / pubkey / digest triple matches the manifest — mismatch is fatal, absence is advisory, airgap stubs out); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** none at v1 scope — offline publish workflow for plugin maintainers is a cookbook, not code.
+**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.7 Rekor transparency-log integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry / VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a hash-index lookup and asserts the entry's sig / pubkey / digest triple matches the manifest — mismatch is fatal, absence is advisory, airgap stubs out); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** Context-management capabilities (`session:observe`, `session:read`, `session:fork`, `llm:invoke`) are planned as part of 7.1 — see §7.1 notes. Offline publish workflow for plugin maintainers is a cookbook, not code.
 
 ### 7.1 `internal/plugins/runtime.go` — wazero host (pure Go, CGO-free)
 
@@ -358,6 +358,19 @@ WASI preview 1 + custom host imports:
 - `stado_net_http` — proxied through net policy
 - `stado_log` — structured logging into OTel
 - `stado_tool_register` — plugins can register tools at init
+- `stado_session_observe` — subscribe to turn-boundary events (gated on `session:observe`)
+- `stado_session_read` — read conversation history, token counts, session metadata (gated on `session:read`)
+- `stado_session_fork` — programmatically fork-from-point, seeding the child with a plugin-provided message (gated on `session:fork`)
+- `stado_llm_invoke` — call an LLM (active provider by default; manifest may declare a preferred backend) with a per-session token budget enforced by `llm:invoke:<budget>` (gated on `llm:invoke`)
+
+The last four capabilities were designed with auto-compaction as the
+forcing function, but they are intended to support a broader class of
+plugins — export tools, telemetry bridges, second-opinion routers,
+session-replay writers. The invariants (append-only in parent, audit
+trailers, user-visible forks) apply to every plugin in this class.
+See DESIGN §"Plugin extension points for context management" for the
+canonical example and the indicative ABI; final host-import signatures
+land with PR K2.
 
 ### 7.2 Plugin package layout
 
@@ -376,7 +389,7 @@ plugin.manifest.sig    # Ed25519 over manifest bytes
 | `author` | Author identifier |
 | `author_pubkey_fpr` | Ed25519 fingerprint |
 | `wasm_sha256` | Hash of the WASM binary |
-| `capabilities` | `[]` of `fs:read:<glob>` | `fs:write:<glob>` | `net:<host-or-cidr>` | `exec:<bin>` |
+| `capabilities` | `[]` of `fs:read:<glob>` \| `fs:write:<glob>` \| `net:<host-or-cidr>` \| `exec:<bin>` \| `session:observe` \| `session:read` \| `session:fork` \| `llm:invoke[:<budget-tokens-per-session>]`. The `llm:invoke` form takes an optional budget suffix capping per-session token usage (e.g. `llm:invoke:50000`). Default if omitted: `10000` tokens per session — conservative on purpose. |
 | `tools` | `[]` tool-def |
 | `min_stado_version` | Minimum host version |
 | `timestamp_utc` | Signing time |
@@ -579,15 +592,21 @@ not just documentation — DESIGN is the single source of truth for wording):
 
 ### 11.6 Non-goals (explicit)
 
-A contribution proposing any of these must first justify why
-fork-from-point is inadequate for their use case. Landing such a
-contribution requires revising DESIGN first, not back-door-ing through
-a PR:
+Out of scope **for the core agent loop**. A contribution that lands
+any of these as core behaviour must first justify why fork-from-point
+is inadequate for their use case, and that justification belongs in
+DESIGN — not back-door-ed through a PR:
 
 - Automatic or background summarisation of any kind.
 - Semantic importance scoring of individual turns.
 - Vector-store-backed "memory" of prior sessions.
 - Sliding-window auto-eviction without user consent.
+
+**Plugins are a separate story.** A signed, capability-bounded plugin
+may implement any of the above *in plugin space*, provided it uses
+fork-from-point (not in-place rewriting) as the recovery primitive.
+See DESIGN §"Plugin extension points for context management" for the
+canonical shape — and PR K2 for the host imports that enable it.
 
 **Verify (Phase 11 as a whole):**
 - A long session with repeated reads of the same unchanged file shows
@@ -642,6 +661,7 @@ has landed. What's left, in the order I'd tackle it:
 | I  | ⏸️ Phase 3.6 — Windows v1 shipped: `runner_windows.go` WinWarnRunner emits one-time warning + runs unsandboxed. v2 (job objects + restricted tokens) **deferred** — needs a Windows dev environment to implement and verify; re-open when someone on the team picks up Windows support. | 3 |
 | J  | ✅ Phase 4.1/4.2 — binary-embed release pipeline: `hack/fetch-binaries.go` downloads ripgrep/ast-grep per-(OS,arch) and emits `bundled_<os>_<arch>.go` with `//go:build stado_embed_binaries && <os> && <arch>` + `//go:embed` directives; goreleaser before-hook runs the fetcher and release build passes the tag; dev builds without the tag fall back to PATH. | 4 |
 | K  | ✅ Phase 7.1 — wazero runtime host: `internal/plugins/runtime/` with scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), `PluginTool` adapter + `stado plugin run` CLI (7.1c). | 7 |
+| K2 | 🟡 Phase 7.1b — session/LLM plugin capabilities: **shipped** — manifest parses `session:observe` / `session:read` / `session:fork` / `llm:invoke[:<budget>]`; `stado_session_read` / `stado_session_next_event` / `stado_session_fork` / `stado_llm_invoke` host imports registered; `SessionBridge` interface + `SessionBridgeImpl` reference implementation wire real `stadogit.Session` + `agent.Provider`; polling variant (`stado_session_next_event`) chosen over the spec's callback-based `stado_session_observe` (wasm-native); TUI `/plugin:...` path constructs a bridge from live session state. 24 tests. **Remaining:** `ForkFn` on the TUI bridge (plugin-initiated fork path), `Plugin:` audit trailer on trace commits for plugin-originated actions, plugin-fork notification surfacing in TUI + headless — all coupled with a real-world auto-compaction plugin, which will ship as the validating example. | 7 |
 | L  | ✅ Phase 7.6 — plugin CRL: `internal/plugins/crl.go` (LoadLocal / SaveLocal / Sign / IsRevoked) + `crl_online.go` (Fetch, `!airgap`) / `crl_airgap.go` (ErrAirgap, `airgap`); Ed25519-signed JSON with canonical-bytes invariant, `[plugins]` config section, `stado plugin verify` consults CRL with cache fallback. | 7 |
 | L2 | ✅ Phase 7.7 — Rekor transparency log: direct REST client in `internal/plugins/rekor.go` (hashedrekord v0.0.1, PEM-encoded ed25519 pubkeys, no sigstore deps); `Upload` / `SearchByHash` / `FetchEntry` / `VerifyEntry`; `[plugins].rekor_url` config; `stado plugin verify` performs hash-index lookup and asserts entry sig/pubkey/digest match the trust-store-verified manifest. Mismatch is fatal; absence or airgap stubs are advisory. | 7 |
 | M  | ✅ Phase 8.1 — per-MCP-server sandbox policy: config.MCPServer gains `capabilities []string`, `mcp.ParseCapabilities` maps forms (fs/net/exec/env) to `sandbox.Policy`, `mcp.ServerConfig` carries a Runner + Policy, and `transport.WithCommandFunc` routes stdio-server spawns through `sandbox.Runner.Command`. Unsandboxed servers warn on stderr. | 8 |
@@ -652,8 +672,10 @@ has landed. What's left, in the order I'd tackle it:
 | R  | 🟡 Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. Cosign online verification still pending (sigstore deps — lands alongside Phase 7.7). | 10 |
 
 PRs B–F compose Phase 11 and are best landed in order — each builds on
-the previous. Everything else (A, G–R) is independent; land in whatever
-order matches priorities.
+the previous. Everything else (A, G–R plus K2) is independent; land in
+whatever order matches priorities. K2 is a prerequisite for any
+third-party context-management plugin — see DESIGN §"Plugin extension
+points for context management".
 
 **Rough estimate for PRs A–F (the Phase 6 + Phase 11 arc):** 3–4 weeks
 of focused work. Phase 11.5 interactive (PR F) is the longest single

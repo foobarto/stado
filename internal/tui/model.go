@@ -1803,14 +1803,43 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer)
+	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge())
+}
+
+// buildPluginBridge wires the live TUI's Session + active provider
+// behind a SessionBridgeImpl so plugins that declared session/LLM
+// capabilities see real conversation state. Returns nil when the TUI
+// has no session or provider — plugins with those capabilities will
+// error cleanly at call time, matching the `stado plugin run` CLI
+// path's behaviour.
+func (m *Model) buildPluginBridge() *pluginRuntime.SessionBridgeImpl {
+	if m.session == nil && m.provider == nil {
+		return nil
+	}
+	msgs := append([]agent.Message(nil), m.msgs...) // snapshot by copy
+	bridge := pluginRuntime.NewSessionBridge(m.session, m.provider, m.model)
+	bridge.MessagesFn = func() []agent.Message { return msgs }
+	bridge.TokensFn = func() int { return m.usage.InputTokens }
+	if m.session != nil {
+		bridge.LastTurnRef = func() string {
+			return string(stadogit.TurnTagRef(m.session.ID, m.session.Turn()))
+		}
+		bridge.ForkFn = func(ctx context.Context, atTurnRef, seed string) (string, error) {
+			// Plugin-initiated fork path — same primitive `stado
+			// session fork --at` uses. Out of scope for this part:
+			// threading the seed message into the child session's
+			// first turn (that lands with part 4's audit trailers).
+			return "", fmt.Errorf("plugin fork not yet wired into TUI — use `stado session fork` externally")
+		}
+	}
+	return bridge
 }
 
 // runPluginToolAsync spawns a fresh wazero runtime, instantiates the
 // module under its capability-bound Host, invokes the tool, and posts
 // the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
 // runaway plugin can't wedge the TUI.
-func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string) tea.Cmd {
+func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1826,6 +1855,13 @@ func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, 
 		defer func() { _ = rt.Close(ctx) }()
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
+		// Attach the session bridge only when the plugin declared at
+		// least one session/LLM capability AND the caller supplied a
+		// bridge. Keeps existing tool-only plugins (like the hello
+		// example) on their existing code path.
+		if bridge != nil && (host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0) {
+			host.SessionBridge = bridge
+		}
 		if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "host imports: " + err.Error()}
 		}
