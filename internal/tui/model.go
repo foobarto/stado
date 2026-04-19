@@ -134,6 +134,18 @@ type Model struct {
 	// no-fork-link case.
 	rootCtx context.Context
 
+	// backgroundPlugins are persistent plugin instances loaded once
+	// per TUI session from cfg.Plugins.Background. Each ticks after
+	// every turn boundary so session-observing plugins (auto-compact,
+	// telemetry bridges, recorders) can react without needing an
+	// explicit user slash-command. See internal/plugins/runtime
+	// §BackgroundPlugin for the ABI contract.
+	backgroundPlugins []*pluginRuntime.BackgroundPlugin
+	// pluginRuntime shared across all background plugins — each
+	// plugin's Module is separate, but the wazero Runtime is the
+	// container. Nil until LoadBackgroundPlugins runs.
+	bgPluginRuntime *pluginRuntime.Runtime
+
 	// Provider is resolved lazily on the first StreamTurn so stado can boot
 	// without credentials present. buildProvider runs on demand; errors
 	// surface as in-UI messages instead of crashing startup.
@@ -605,7 +617,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamDoneMsg:
 		m.streamCancel = nil
-		return m, m.onTurnComplete()
+		// Turn-boundary event for background plugins. Emit a
+		// turn_complete event onto every plugin's bridge so polling
+		// session:observe consumers see it, then tick each plugin.
+		m.emitTurnCompleteToBridges()
+		return m, tea.Batch(m.onTurnComplete(), m.tickBackgroundPlugins())
+
+	case backgroundTickResultMsg:
+		m.backgroundPlugins = msg.survivors
+		return m, nil
 
 	case localHintMsg:
 		// Async local-runner hint dispatched by ensureProvider's
@@ -1074,6 +1094,133 @@ func (m *Model) contextFraction() float64 {
 		return 0
 	}
 	return float64(used) / float64(cap)
+}
+
+// emitTurnCompleteToBridges pushes a JSON-encoded
+// `{"kind":"turn_complete","turn":N}` event onto every background
+// plugin's SessionBridge event channel. Plugins polling via
+// stado_session_next_event will pop these and can trigger behaviour
+// at turn boundaries. Buffer-full drops are tolerated (the bridge
+// Emit is non-blocking).
+func (m *Model) emitTurnCompleteToBridges() {
+	if len(m.backgroundPlugins) == 0 {
+		return
+	}
+	turn := 0
+	if m.session != nil {
+		turn = m.session.Turn()
+	}
+	payload := []byte(fmt.Sprintf(`{"kind":"turn_complete","turn":%d}`, turn))
+	for _, bp := range m.backgroundPlugins {
+		if bp.Host != nil {
+			if bridge, ok := bp.Host.SessionBridge.(*pluginRuntime.SessionBridgeImpl); ok && bridge != nil {
+				bridge.Emit(payload)
+			}
+		}
+	}
+}
+
+// LoadBackgroundPlugins instantiates every plugin listed in
+// cfg.Plugins.Background as a persistent (tick-every-turn) plugin.
+// Each plugin's manifest is verified against the trust store + wasm
+// digest before instantiation — same gate as `stado plugin run`. A
+// single failing plugin surfaces as a system block in the TUI but
+// doesn't abort the others. No-op when cfg.Plugins.Background is
+// empty.
+func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
+	if len(cfg.Plugins.Background) == 0 {
+		return
+	}
+	ctx := m.rootCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rt, err := pluginRuntime.New(ctx)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "background plugins: runtime: " + err.Error()})
+		return
+	}
+	m.bgPluginRuntime = rt
+
+	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
+	for _, id := range cfg.Plugins.Background {
+		bp, note := m.loadOneBackground(ctx, rt, pluginsRoot, id)
+		if note != "" {
+			m.appendBlock(block{kind: "system", body: note})
+		}
+		if bp != nil {
+			m.backgroundPlugins = append(m.backgroundPlugins, bp)
+		}
+	}
+}
+
+// loadOneBackground reads + verifies + instantiates a single plugin.
+// Returns (plugin, advisory) — advisory is non-empty on load
+// failure OR on successful load so the user knows the plugin is
+// active. nil plugin signals "skip this one."
+func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) (*pluginRuntime.BackgroundPlugin, string) {
+	dir := filepath.Join(pluginsRoot, id)
+	mf, sig, err := plugins.LoadFromDir(dir)
+	if err != nil {
+		return nil, fmt.Sprintf("background plugin %s: manifest load failed: %v", id, err)
+	}
+	wasmPath := filepath.Join(dir, "plugin.wasm")
+	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+		return nil, fmt.Sprintf("background plugin %s: digest mismatch: %v", id, err)
+	}
+	cfg, _ := config.Load()
+	if cfg != nil {
+		ts := plugins.NewTrustStore(cfg.StateDir())
+		if err := ts.VerifyManifest(mf, sig); err != nil {
+			return nil, fmt.Sprintf("background plugin %s: signature: %v", id, err)
+		}
+	}
+	wasmBytes, err := os.ReadFile(wasmPath)
+	if err != nil {
+		return nil, fmt.Sprintf("background plugin %s: read wasm: %v", id, err)
+	}
+	host := pluginRuntime.NewHost(*mf, dir, nil)
+	if bridge := m.buildPluginBridge(mf.Name); bridge != nil {
+		host.SessionBridge = bridge
+	}
+	bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, wasmBytes, host)
+	if err != nil {
+		return nil, fmt.Sprintf("background plugin %s: load: %v", id, err)
+	}
+	return bp, fmt.Sprintf("background plugin %s loaded (ticking on every turn boundary)", id)
+}
+
+// tickBackgroundPlugins invokes stado_plugin_tick on every loaded
+// background plugin. Returns a tea.Cmd because the ticks run in a
+// goroutine so a slow plugin can't freeze the UI. Called on each
+// streamDoneMsg in Update. Plugins returning non-zero are dropped
+// from the active set for the rest of the session.
+func (m *Model) tickBackgroundPlugins() tea.Cmd {
+	if len(m.backgroundPlugins) == 0 {
+		return nil
+	}
+	active := m.backgroundPlugins
+	return func() tea.Msg {
+		survivors := active[:0:len(active)]
+		for _, bp := range active {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			unregister, err := bp.Tick(ctx)
+			cancel()
+			if err != nil || unregister {
+				_ = bp.Close(context.Background())
+				continue
+			}
+			survivors = append(survivors, bp)
+		}
+		return backgroundTickResultMsg{survivors: survivors}
+	}
+}
+
+// backgroundTickResultMsg carries the post-tick surviving plugin
+// list back to the UI goroutine so the assignment to m.backgroundPlugins
+// happens under the bubbletea event loop rather than racing with it.
+type backgroundTickResultMsg struct {
+	survivors []*pluginRuntime.BackgroundPlugin
 }
 
 // installedAutoCompact returns the `auto-compact-<version>` directory

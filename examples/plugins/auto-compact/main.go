@@ -147,6 +147,60 @@ type compactResult struct {
 
 const defaultThreshold = 10000
 
+// runCompact is the shared compaction pipeline called by both the
+// one-shot tool and the background tick. Returns a compactResult
+// describing what happened (or why nothing happened).
+func runCompact(threshold int) compactResult {
+	if threshold <= 0 {
+		threshold = defaultThreshold
+	}
+	logAt("info", fmt.Sprintf("auto-compact: threshold=%d tokens", threshold))
+
+	tokStr := readField("token_count")
+	if tokStr == nil {
+		return compactResult{Status: "error", Reason: "session:read denied or no session attached"}
+	}
+	tokens, _ := strconv.Atoi(string(tokStr))
+	if tokens < threshold {
+		logAt("info", fmt.Sprintf("auto-compact: %d < %d, skipping", tokens, threshold))
+		return compactResult{
+			Status:    "skipped",
+			Reason:    "below threshold",
+			Tokens:    tokens,
+			Threshold: threshold,
+		}
+	}
+
+	history := readField("history")
+	if history == nil {
+		return compactResult{Status: "error", Reason: "read history failed"}
+	}
+	lastTurn := string(readField("last_turn_ref"))
+
+	prompt := buildSummarisePrompt(history)
+	logAt("info", fmt.Sprintf("auto-compact: summarising %d bytes of history", len(history)))
+
+	reply := invokeLLM(prompt)
+	if reply == nil {
+		return compactResult{Status: "error", Reason: "llm:invoke denied / failed / budget exhausted"}
+	}
+
+	child := forkAt(lastTurn, string(reply))
+	if child == "" {
+		return compactResult{Status: "error", Reason: "session:fork denied / failed"}
+	}
+
+	logAt("info", "auto-compact: forked child "+child)
+	return compactResult{
+		Status:      "compacted",
+		Tokens:      tokens,
+		Threshold:   threshold,
+		Child:       child,
+		SummaryLen:  len(reply),
+		LastTurnRef: lastTurn,
+	}
+}
+
 //go:wasmexport stado_tool_compact
 func stadoToolCompact(argsPtr, argsLen, resultPtr, resultCap int32) int32 {
 	// Parse args — threshold_tokens optional, falls back to 10K.
@@ -159,72 +213,30 @@ func stadoToolCompact(argsPtr, argsLen, resultPtr, resultCap int32) int32 {
 			})
 		}
 	}
-	if a.ThresholdTokens <= 0 {
-		a.ThresholdTokens = defaultThreshold
+	return writeResult(resultPtr, resultCap, runCompact(a.ThresholdTokens))
+}
+
+// stado_plugin_tick — background-lifecycle entry point. Called once
+// per turn boundary by the host. Runs the same compaction pipeline
+// with the default threshold; results are logged via stado_log but
+// not returned to any caller (the host doesn't see compaction
+// metadata at tick time). Always returns 0 (continue) — a production
+// plugin might unregister after N consecutive errors, but for the
+// demo we keep ticking so the user sees the behaviour across turns.
+//
+//go:wasmexport stado_plugin_tick
+func stadoPluginTick() int32 {
+	r := runCompact(defaultThreshold)
+	switch r.Status {
+	case "skipped":
+		// already logged inside runCompact; nothing to add
+	case "compacted":
+		logAt("info", fmt.Sprintf("auto-compact: tick compacted → child=%s summary=%dB",
+			r.Child, r.SummaryLen))
+	case "error":
+		logAt("warn", "auto-compact: tick error: "+r.Reason)
 	}
-
-	logAt("info", fmt.Sprintf("auto-compact: threshold=%d tokens", a.ThresholdTokens))
-
-	// 1. Token count — if host denies session:read, bail early.
-	tokStr := readField("token_count")
-	if tokStr == nil {
-		return writeResult(resultPtr, resultCap, compactResult{
-			Status: "error", Reason: "session:read denied or no session attached",
-		})
-	}
-	tokens, _ := strconv.Atoi(string(tokStr))
-	if tokens < a.ThresholdTokens {
-		logAt("info", fmt.Sprintf("auto-compact: %d < %d, skipping", tokens, a.ThresholdTokens))
-		return writeResult(resultPtr, resultCap, compactResult{
-			Status:    "skipped",
-			Reason:    "below threshold",
-			Tokens:    tokens,
-			Threshold: a.ThresholdTokens,
-		})
-	}
-
-	// 2. History + last turn ref for the summarisation input + fork point.
-	history := readField("history")
-	if history == nil {
-		return writeResult(resultPtr, resultCap, compactResult{
-			Status: "error", Reason: "read history failed",
-		})
-	}
-	lastTurn := string(readField("last_turn_ref"))
-
-	// 3. Ask the LLM for a summary. The prompt keeps stado's DESIGN
-	//    invariants visible so the model knows the output will seed
-	//    a forked session's first turn, not rewrite history.
-	prompt := buildSummarisePrompt(history)
-	logAt("info", fmt.Sprintf("auto-compact: summarising %d bytes of history", len(history)))
-
-	reply := invokeLLM(prompt)
-	if reply == nil {
-		return writeResult(resultPtr, resultCap, compactResult{
-			Status: "error", Reason: "llm:invoke denied / failed / budget exhausted",
-		})
-	}
-
-	// 4. Fork with the summary as seed. Empty atTurnRef = parent tree
-	//    HEAD (more common in practice since the fork point is
-	//    conceptually "now"); pass last_turn_ref to root at that tag.
-	atRef := lastTurn
-	child := forkAt(atRef, string(reply))
-	if child == "" {
-		return writeResult(resultPtr, resultCap, compactResult{
-			Status: "error", Reason: "session:fork denied / failed",
-		})
-	}
-
-	logAt("info", "auto-compact: forked child "+child)
-	return writeResult(resultPtr, resultCap, compactResult{
-		Status:      "compacted",
-		Tokens:      tokens,
-		Threshold:   a.ThresholdTokens,
-		Child:       child,
-		SummaryLen:  len(reply),
-		LastTurnRef: lastTurn,
-	})
+	return 0
 }
 
 // buildSummarisePrompt embeds history JSON into a compaction prompt.

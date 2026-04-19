@@ -112,6 +112,24 @@ Edit `main.go`, run `./build.sh`, bump `plugin.manifest.template.json`
 version OR `rm -rf $XDG_DATA_HOME/stado/plugins/auto-compact-0.1.0`
 before reinstalling (stado refuses same-version overwrites).
 
+## Running as a background plugin
+
+The plugin also exports `stado_plugin_tick` so it can be loaded as a
+persistent background plugin that fires on every turn boundary
+(rather than requiring explicit `/plugin:...` invocation). Enable it
+by adding the installed plugin ID to `[plugins].background` in your
+stado config:
+
+```toml
+[plugins]
+background = ["auto-compact-0.1.0"]
+```
+
+On each turn the plugin checks the token count against
+`defaultThreshold` (10K); under-threshold ticks are silent (logged
+at info level), over-threshold ticks run the full compact + fork
+flow. Plugin log lines appear in stado's stderr.
+
 ## Known limitations (of the current Phase 7.1b surface)
 
 - **No seed-message auto-replay.** The fork's seed text lands as a
@@ -121,8 +139,9 @@ before reinstalling (stado refuses same-version overwrites).
   plugin-supplied seeds don't flow through that file yet. Users
   currently see "resumed session — 0 prior messages loaded" in the
   child and need to re-send the summary as their first prompt.
-- **One-shot only.** A real production auto-compactor would subscribe
-  via `session:observe` and fire on every turn boundary. The polling
-  variant (`stado_session_next_event`) is declared in the manifest-
-  and runtime-layer but needs a persistent-plugin-lifecycle hook in
-  the TUI before it can tick. Follow-up work.
+- **Background ticking is turn-boundary granularity only.** The tick
+  fires after each assistant turn completes; tool-call round-trips
+  inside a turn don't trigger it. If you need sub-turn observation,
+  poll via `stado_session_next_event` inside the tick body — the
+  event queue receives `{"kind":"turn_complete","turn":N}` on each
+  tick firing and you can inspect session state in between.

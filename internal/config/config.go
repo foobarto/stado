@@ -155,6 +155,15 @@ type Plugins struct {
 	// manifest signature was logged before install. Empty = advisory
 	// only, no Rekor lookup.
 	RekorURL string `koanf:"rekor_url"`
+
+	// Background lists installed plugin IDs (`<name>-<version>`) to
+	// load as persistent background plugins for each new TUI session.
+	// A background plugin must export `stado_plugin_tick` — the TUI
+	// calls it once per turn boundary so the plugin can observe
+	// session events + react (auto-compaction, telemetry bridges,
+	// session recorders). DESIGN §"Plugin extension points for
+	// context management" has the full contract.
+	Background []string `koanf:"background"`
 }
 
 func Load() (*Config, error) {

@@ -74,6 +74,11 @@ func Run(cfg *config.Config) error {
 	// No-op on fresh sessions — conversation.jsonl only exists after
 	// at least one message has been written.
 	m.LoadPersistedConversation()
+	// Load declared background plugins (cfg.Plugins.Background). Each
+	// ticks once per turn boundary and can observe/fork the session
+	// via the host-import ABI. Failures are advisory — a bad plugin
+	// shouldn't brick the TUI.
+	m.LoadBackgroundPlugins(cfg)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.Attach(p)
 
