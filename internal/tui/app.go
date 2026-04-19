@@ -1,18 +1,21 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
 	"github.com/foobarto/stado/internal/runtime"
@@ -89,6 +92,21 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 // TUI uses this to rebuild after the user swaps providers mid-session
 // (e.g. via the /model picker choosing a detected local runner).
 func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error) {
+	// First-run fallback: config.Load() defaults Provider to "anthropic",
+	// but a user with no API key AND a live local runner is better
+	// served by auto-switching than by the bare "ANTHROPIC_API_KEY not
+	// set" error. Probe bundled local endpoints concurrently with a
+	// short budget; use the first reachable one.
+	//
+	// Respects explicit configuration — if ANTHROPIC_API_KEY is set,
+	// or the user pointed at anthropic on purpose and filled it in
+	// later, the probe doesn't run.
+	if name == "anthropic" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+		if p := detectLocalFallback(cfg); p != nil {
+			return p, nil
+		}
+	}
+
 	switch name {
 	case "anthropic":
 		return anthropic.New("")
@@ -123,6 +141,37 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		return oaicompat.New(ep, opts...)
 	}
 	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
+}
+
+// detectLocalFallback probes bundled local runners (+ user-configured
+// localhost presets) concurrently with a short budget. Returns the
+// first reachable OAI-compat provider — used when the default
+// "anthropic" provider is selected without an API key. Returns nil
+// when no local runner answers; the caller then falls through to the
+// original anthropic path so the user sees the canonical
+// "ANTHROPIC_API_KEY not set" error with no mysterious behaviour.
+func detectLocalFallback(cfg *config.Config) agent.Provider {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	presets := map[string]string{}
+	for name, p := range cfg.Inference.Presets {
+		presets[name] = p.Endpoint
+	}
+	results := localdetect.Detect(ctx, localdetect.MergeUserPresets(presets))
+	for _, r := range results {
+		if !r.Reachable {
+			continue
+		}
+		p, err := oaicompat.New(r.Endpoint, oaicompat.WithName(r.Name))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(os.Stderr,
+			"stado: no ANTHROPIC_API_KEY — falling back to local %s at %s (set defaults.provider to silence this)\n",
+			r.Name, r.Endpoint)
+		return p
+	}
+	return nil
 }
 
 // builtinPreset returns (endpoint, api-key-env-var, ok) for bundled
