@@ -33,7 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter interface + 4 provider impls + config `[context]` thresholds + TUI warning-coloured pct + capability-probe system message; hard-block recovery waits on compaction) · 11.4 ✅ (Host extension, ReadLog, ranged reads, hash-dedup, invariants, per-tool output budgets + truncation markers) · 11.3 / 11.5 ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter interface + 4 provider impls + config `[context]` thresholds + TUI warning-coloured pct + capability-probe system message; hard-block recovery waits on compaction) · 11.4 ✅ (Host extension, ReadLog, ranged reads, hash-dedup, invariants, per-tool output budgets + truncation markers) · 11.5 ✅ (`session fork --at <turn-ref>` scripted path + standalone `session tree` tea.Program + ListTurnRefs helper + integration tests) · 11.3 ⬜ (user-invoked compaction). Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
@@ -636,7 +636,7 @@ has landed. What's left, in the order I'd tackle it:
 | C  | 🟡 Phase 11.2 — shipped: agent.TokenCounter + 4 provider impls (anthropic HTTP, openai/oaicompat tiktoken offline, google HTTP), `[context]` config, TUI warning-coloured ctx%, first-turn capability probe. Remaining: hard-block flow (pairs with compaction in PR D). | 11 |
 | D  | Phase 11.3 — user-invoked compaction: `stado session compact` CLI + TUI action, summary-preview-edit-confirm flow, dual-ref compaction commit. | 11 |
 | E  | ✅ Phase 11.4 — ranged `read` args, content-hash dedup, Host.PriorRead/RecordRead, ReadLog, NullHost, per-tool output budgets (read/webfetch/bash/grep/glob/ripgrep) with DESIGN-spec'd truncation markers, and full invariants + truncation-coverage test suites. | 11 |
-| F  | Phase 11.5 — fork-from-point ergonomics: `session fork --at <turn-ref>` scripted path + `session tree` standalone cobra subcommand with its own `tea.Program`. | 11 |
+| F  | ✅ Phase 11.5 — shipped: `session fork <id> --at <turns/N\|sha>` scripted path, standalone `session tree <id>` cobra subcommand with its own tea.Program (navigate + press `f` to fork), `Sidecar.ListTurnRefs` helper, scripted + interactive integration tests. PTY harness pending for a future full end-to-end test. | 11 |
 | G  | Phase 3.3 — seccomp BPF via `bwrap --seccomp=FD`. | 3 |
 | H  | Phase 3.5 — macOS `sandbox-exec` runner. | 3 |
 | I  | Phase 3.6 — Windows job-objects + restricted-tokens runner. | 3 |

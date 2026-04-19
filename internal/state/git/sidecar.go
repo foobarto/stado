@@ -18,7 +18,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -155,6 +158,70 @@ func (s *Sidecar) resolveRef(name plumbing.ReferenceName) (plumbing.Hash, error)
 // (CLI commands that walk session refs).
 func (s *Sidecar) ResolveRef(name plumbing.ReferenceName) (plumbing.Hash, error) {
 	return s.resolveRef(name)
+}
+
+// TurnEntry is one turn-boundary tag from a session's history, enriched
+// with the commit object's metadata so TUIs can render a navigable view
+// without a second lookup per row.
+type TurnEntry struct {
+	Turn    int
+	Commit  plumbing.Hash
+	Author  string
+	When    time.Time
+	Summary string // first line of commit message
+}
+
+// ListTurnRefs enumerates every refs/sessions/<id>/turns/<n> tag in
+// ascending turn order, resolving each to its commit. Used by the
+// standalone `stado session tree` subcommand. Returns an empty slice
+// for sessions with no turn tags yet (not an error).
+func (s *Sidecar) ListTurnRefs(sessionID string) ([]TurnEntry, error) {
+	prefix := "refs/sessions/" + sessionID + "/turns/"
+	iter, err := s.repo.References()
+	if err != nil {
+		return nil, err
+	}
+	defer iter.Close()
+
+	type raw struct {
+		turn int
+		hash plumbing.Hash
+	}
+	var raws []raw
+	if err := iter.ForEach(func(ref *plumbing.Reference) error {
+		name := string(ref.Name())
+		if !strings.HasPrefix(name, prefix) {
+			return nil
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(name, prefix))
+		if err != nil {
+			return nil // skip unparseable
+		}
+		raws = append(raws, raw{turn: n, hash: ref.Hash()})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(raws, func(i, j int) bool { return raws[i].turn < raws[j].turn })
+
+	out := make([]TurnEntry, 0, len(raws))
+	for _, r := range raws {
+		commit, err := s.repo.CommitObject(r.hash)
+		if err != nil {
+			// Skip stale tags pointing at missing objects; don't abort
+			// the whole listing.
+			continue
+		}
+		summary, _, _ := strings.Cut(commit.Message, "\n")
+		out = append(out, TurnEntry{
+			Turn:    r.turn,
+			Commit:  r.hash,
+			Author:  commit.Author.Name,
+			When:    commit.Author.When,
+			Summary: strings.TrimSpace(summary),
+		})
+	}
+	return out, nil
 }
 
 // DeleteSessionRefs removes every ref under refs/sessions/<id>/. Idempotent —

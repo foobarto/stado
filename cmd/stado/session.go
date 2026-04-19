@@ -273,6 +273,7 @@ func init() {
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionForkCmd,
 		sessionAttachCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
+		sessionTreeCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
 }
