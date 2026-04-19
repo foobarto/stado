@@ -58,13 +58,25 @@ func RootContext(cwd string) context.Context {
 	return ctx
 }
 
-// OpenSession creates a new session + sidecar rooted at cwd's repo.
-// Non-fatal callers can swallow the error and carry on without state.
+// OpenSession creates a new session (or resumes an existing one)
+// + sidecar rooted at cwd's repo. Non-fatal callers can swallow the
+// error and carry on without state.
+//
+// Resume semantics: when cwd is a direct child of cfg.WorktreeDir()
+// (i.e. the user cd'd into an existing session's worktree), we reuse
+// that session's ID + git refs instead of spawning a fresh UUID.
+// This pairs with `stado session fork` / `session attach`: fork
+// creates the worktree, user cd's in, next stado boot picks up where
+// the session left off.
 //
 // Loads (or creates on first use) the agent signing key and attaches it to
 // the session so every trace/tree commit carries an Ed25519 signature.
 func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
-	userRepo := FindRepoRoot(cwd)
+	// Worktree-cwd discriminator: normal cwds go through FindRepoRoot
+	// to locate the containing user repo. But when cwd IS a session
+	// worktree, the parent repo lives elsewhere — we persist it per
+	// worktree at .stado/user-repo so resume-on-cwd can recover it.
+	userRepo := resolveUserRepo(cfg, cwd)
 	repoID, err := stadogit.RepoID(userRepo)
 	if err != nil {
 		return nil, err
@@ -76,9 +88,67 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
 		return nil, err
 	}
+
+	// Resume-on-cwd path: if cwd is exactly a session worktree dir
+	// under cfg.WorktreeDir(), reopen that session rather than
+	// creating a fresh one. Silent no-op when cwd doesn't match or
+	// the session's tree ref is unset (implying a stale / bogus
+	// directory that we should not trust).
+	if sess := resumeFromCWD(cfg, sc, cwd); sess != nil {
+		attachSessionScaffolding(sess, cfg, userRepo)
+		return sess, nil
+	}
+
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
 	if err != nil {
 		return nil, err
+	}
+	attachSessionScaffolding(sess, cfg, userRepo)
+	return sess, nil
+}
+
+// userRepoFile is the relative-to-worktree file that pins which user
+// repo a session belongs to. Written on first scaffold, read by
+// resolveUserRepo when cwd is a session worktree.
+const userRepoFile = ".stado/user-repo"
+
+// resolveUserRepo finds the user repo root for an OpenSession call.
+// For a plain cwd (repo checkout) it's FindRepoRoot(cwd). For a
+// session worktree cwd it's the path recorded in .stado/user-repo —
+// because the worktree itself isn't the repo and FindRepoRoot would
+// otherwise fall back to cwd and generate a stale repoID.
+func resolveUserRepo(cfg *config.Config, cwd string) string {
+	if cwd == "" {
+		return FindRepoRoot(cwd)
+	}
+	data, err := os.ReadFile(filepath.Join(cwd, userRepoFile))
+	if err == nil {
+		if s := string(data); s != "" {
+			// Drop a trailing newline if present.
+			if s[len(s)-1] == '\n' {
+				s = s[:len(s)-1]
+			}
+			return s
+		}
+	}
+	return FindRepoRoot(cwd)
+}
+
+// attachSessionScaffolding wires the signer, slog OnCommit mirror,
+// pid-file drop, and the .stado/user-repo pin onto sess. Shared by
+// the fresh-session and resume-from-cwd paths so both produce
+// identically-configured Session objects.
+func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRepo string) {
+	// Persist the user-repo pointer so future resume-on-cwd boots can
+	// locate the right sidecar without walking up for a .git (which
+	// won't exist under a worktree subdir). Best-effort — a failure
+	// here just degrades the resume path for this worktree; tool
+	// execution still works.
+	if userRepo != "" {
+		dir := filepath.Join(sess.WorktreePath, ".stado")
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(sess.WorktreePath, userRepoFile),
+			[]byte(userRepo+"\n"), 0o644)
 	}
 
 	priv, err := audit.LoadOrCreateKey(SigningKeyPath(cfg))
@@ -109,8 +179,44 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	// read-only or similar).
 	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
 	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+}
 
-	return sess, nil
+// resumeFromCWD returns an opened Session when cwd looks like an
+// existing session's worktree, else nil. A worktree qualifies when
+// cwd's parent is exactly cfg.WorktreeDir() (forked sessions live
+// directly under it) AND the named session has a tree ref (rules
+// out stale empty directories).
+func resumeFromCWD(cfg *config.Config, sc *stadogit.Sidecar, cwd string) *stadogit.Session {
+	if cwd == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil
+	}
+	parent := filepath.Dir(abs)
+	wtDir, err := filepath.Abs(cfg.WorktreeDir())
+	if err != nil {
+		return nil
+	}
+	if parent != wtDir {
+		return nil
+	}
+	id := filepath.Base(abs)
+	if id == "" || id == "." || id == "/" {
+		return nil
+	}
+	// Must have a tree ref to count as a real session. Fresh worktree
+	// dirs (just-created fork, never-committed) are handled by the
+	// fork path separately.
+	if _, err := sc.ResolveRef(stadogit.TreeRef(id)); err != nil {
+		return nil
+	}
+	sess, err := stadogit.OpenSession(sc, cfg.WorktreeDir(), id)
+	if err != nil {
+		return nil
+	}
+	return sess
 }
 
 // SigningKeyPath returns the path to stado's agent signing key.
