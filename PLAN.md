@@ -12,9 +12,31 @@ stado is a **sandboxed, git-native coding-agent runtime**:
 - TUI + headless both; ACP server for editor integration; MCP client for tool interop
 - OTel everywhere; reproducible signed releases (cosign keyless + minisign)
 
+See [`DESIGN.md`](DESIGN.md) for the as-built architecture.
+
 ---
 
-## Phase 0 — Demolition
+## Status snapshot
+
+Legend: ✅ complete · 🟡 partial · ⬜ not yet
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0 — Demolition | ✅ | |
+| 1 — Provider interface + 4 impls | ✅ | Also 11 bundled OAI-compat presets |
+| 2 — Git-native state | ✅ | All 8 session subcommands shipped |
+| 3 — Sandbox layer | 🟡 | policy + bwrap + landlock + net-proxy ✅ · seccomp/macOS/Windows ⬜ |
+| 4 — Tool runtime | ✅ | 14 bundled tools; embed pipeline ⬜ |
+| 5 — Tamper-evident audit | ✅ | Ed25519 commit signing + `stado audit` |
+| 6 — OTel | 🟢 skeleton | Exporters + metrics + slog mirror; span call-sites pending |
+| 7 — WASM plugins | 🟡 | Manifest + trust-store + CLI ✅ · wazero runtime ⬜ |
+| 8 — MCP + ACP | ✅ | Both shipped |
+| 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
+| 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
+
+---
+
+## Phase 0 — Demolition — ✅
 
 **Goal:** Remove code that doesn't survive the pivot so subsequent phases build cleanly.
 
@@ -31,9 +53,11 @@ stado is a **sandboxed, git-native coding-agent runtime**:
 
 ---
 
-## Phase 1 — Coding-Agent Provider Interface
+## Phase 1 — Coding-Agent Provider Interface — ✅
 
 **Goal:** ~200 LOC seam in `pkg/agent` encoding what the agent loop actually needs; 4 direct implementations. No third-party LLM abstraction library.
+
+**Shipped:** all 5 sub-phases (1.1 interface, 1.2 anthropic, 1.3 openai, 1.4 google, 1.5 oaicompat). 1.6 capability-driven branching partial — `Capabilities{}` populated and surfaced via `/provider`, but the agent loop doesn't yet *exploit* differences (e.g. cache_control selection based on `SupportsPromptCache`). Bundled presets added beyond PLAN: `lmstudio`, `litellm`, `groq`, `openrouter`, `deepseek`, `xai`, `mistral`, `cerebras`.
 
 ### 1.1 `pkg/agent/agent.go` — the interface
 
@@ -109,9 +133,11 @@ No lowest-common-denominator path. Exploit Anthropic's caching when available; d
 
 ---
 
-## Phase 2 — Git-Native State Core
+## Phase 2 — Git-Native State Core — ✅
 
 **Goal:** Sidecar repo with alternates; dual-ref; turn tags; diff-then-commit.
+
+**Shipped:** 2.1–2.8 complete. Session CLI has all 8 subcommands (`new/list/show/attach/delete/fork/land/revert`). Tree ↔ worktree materialisation is symmetric (`BuildTreeFromDir` + `MaterializeTreeToDir`/`…Replacing`), so `fork` populates the child worktree and `revert` creates a new child session at a historical commit/turn tag.
 
 ### 2.1 `internal/state/git` — pure-Go via go-git
 
@@ -197,9 +223,11 @@ Per-agent bot identity, e.g. `claude-code-acp <agent@stado.local>`, so `git log 
 
 ---
 
-## Phase 3 — Sandbox Layer
+## Phase 3 — Sandbox Layer — 🟡
 
 **Goal:** Platform-abstracted policy enforcement. Capabilities declared, OS enforces.
+
+**Shipped:** 3.1 Policy/NetPolicy/Merge, 3.4 bubblewrap runner, 3.2 Linux landlock (pure Go via `x/sys/unix`, regression-tested via subprocess re-exec), 3.7 Linux CONNECT-allowlist proxy. `stado run --sandbox-fs` narrows the process with `WorktreeWrite`. **Pending:** 3.3 seccomp BPF, 3.5 macOS `sandbox-exec`, 3.6 Windows job objects.
 
 ### 3.1 `internal/sandbox/policy.go`
 
@@ -253,9 +281,11 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 4 — Tool Runtime Overhaul
+## Phase 4 — Tool Runtime Overhaul — ✅ (v1)
 
 **Goal:** Replace bespoke context engine with solid search primitives + LSP; wire diff-then-commit.
+
+**Shipped:** 4.1 ripgrep tool, 4.2 ast-grep tool, 4.3 LSP client + 4 tools (`find_definition/find_references/document_symbols/hover`), 4.4 `read_with_context` (Go-aware via `go/parser`), 4.5 classification (Mutating/NonMutating/Exec), 4.6 `tools.Executor` with dual-ref commit invariants, 4.7 task stub deleted. **Pending:** 4.1/4.2 binary-embed build pipeline (currently use-on-PATH + helpful install hints).
 
 | # | Tool | Details |
 |---|------|---------|
@@ -274,9 +304,11 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 5 — Tamper-Evident Audit
+## Phase 5 — Tamper-Evident Audit — ✅
 
 **Goal:** Signed git refs as the audit primitive.
+
+**Shipped:** all sub-phases. Signatures ride in the commit message as a `Signature: ed25519:<base64>` trailer (stado-native scheme, not SSH signature format yet — interop with `git log --show-signature` is a follow-up). 5.5 is currently a slog mirror via `Session.OnCommit`; wiring to OTel logs is a config change once the exporter lands.
 
 | # | Action |
 |---|--------|
@@ -292,9 +324,11 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 6 — OpenTelemetry from Boot
+## Phase 6 — OpenTelemetry from Boot — 🟢 skeleton
 
 **Goal:** Traces/metrics/logs across every boundary; off by default, one-line enable.
+
+**Shipped:** `internal/telemetry` with OTLP gRPC + HTTP exporters, the 6 metric instruments in PLAN §6.3, span-name constants for the hierarchy, `[otel]` config section, disabled-safe no-op runtime. **Pending:** actually wrapping `tracer.Start(ctx, SpanToolCall)` around the call sites in `tools.Executor`, `runtime.AgentLoop`, `providers/*.StreamTurn`. The harness is there; it just needs invocation.
 
 | # | Action |
 |---|--------|
@@ -308,9 +342,11 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 7 — WASM Plugin Runtime + Signed Manifest
+## Phase 7 — WASM Plugin Runtime + Signed Manifest — 🟡
 
 **Goal:** Third-party plugins run in wazero, capability-gated, signed.
+
+**Shipped:** 7.2 plugin package layout, 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing, 7.4 verification pipeline with rollback protection, 7.5 `stado plugin trust/untrust` key management, 7.8 CLI (`stado plugin trust/untrust/list/verify/digest`). **Pending:** 7.1 wazero runtime host, 7.6 CRL, 7.7 Rekor attestation. The trust gate is complete so no unsigned or downgraded plugin can ever reach the (still-to-be-built) runtime.
 
 ### 7.1 `internal/plugins/runtime.go` — wazero host (pure Go, CGO-free)
 
@@ -381,9 +417,11 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 ---
 
-## Phase 8 — MCP Hardening + ACP Server
+## Phase 8 — MCP Hardening + ACP Server — ✅ (v1)
 
 **Goal:** MCP as client (tool interop), ACP as server (editor interop, Zed).
+
+**Shipped:** 8.1 MCP client wiring via `[mcp.servers]` config; every server's tools auto-register in the executor and benefit from trace-ref audit. 8.2 ACP server over stdio (`stado acp [--tools]`) — text-only without `--tools`, full agent-loop with git audit when `--tools` is set. **Pending:** per-MCP-server sandbox policy (currently they run with the calling process's privileges — once `tool.Host` gets `Sandbox() → Policy`, MCP servers inherit).
 
 | # | Action |
 |---|--------|
@@ -397,9 +435,11 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 ---
 
-## Phase 9 — Headless + Parallel Agents
+## Phase 9 — Headless + Parallel Agents — ✅
 
 **Goal:** Same core, multiple surfaces. True parallel agents.
+
+**Shipped:** all 5 sub-phases. `internal/runtime` is the shared headless core; both TUI and `stado run` compose it. `stado headless` exposes a JSON-RPC 2.0 daemon surface (`session.new/prompt/list/cancel`, `tools.list`, `providers.list`, `shutdown`). `stado run --prompt` is the one-shot variant. `stado agents list/kill/attach` round out the parallel-agent story; every `runtime.OpenSession` drops `<worktree>/.stado-pid` so `agents list` can report liveness.
 
 | # | Action |
 |---|--------|
@@ -415,9 +455,11 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 ---
 
-## Phase 10 — Release & Reproducibility
+## Phase 10 — Release & Reproducibility — 🟢
 
 **Goal:** Signed, reproducible, airgap-installable single binary.
+
+**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.8 `stado self-update` (sha256 verify from checksums.txt + atomic swap with `.prev` backup). **Pending:** 10.3 offline minisign-key ceremony, 10.5 `-tags airgap` build, 10.7 Homebrew tap + apt/rpm repos, 10.8 sig verification on self-update.
 
 | # | Action |
 |---|--------|
@@ -482,3 +524,397 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 ## Offline / Airgap Honesty
 
 Be honest in docs about what "works offline" means at the model capability level. A Claude Sonnet-class coding experience is not replicated by Qwen2.5-Coder-32B or Llama-3.3-70B on a laptop — they're genuinely useful but distinctly weaker at long agentic tool-use loops. The airgap wedge is real for users who legally can't send code to a cloud provider; it's a lie for users who just want to save money and expect frontier-model quality from a 7B model on their MacBook. Setting expectations in the README saves angry issues.
+
+---
+
+## Architecture
+
+### Package layout
+
+```
+pkg/
+  agent/        Provider seam (Provider, TurnRequest, Event, Message, Block…).
+  tool/         Tool + Classifier interfaces + Host + ApprovalRequest.
+internal/
+  providers/
+    anthropic/  Direct anthropic-sdk-go.
+    openai/     Direct openai-go (Chat Completions).
+    google/     Direct generative-ai-go.
+    oaicompat/  Hand-rolled /v1/chat/completions HTTP + SSE.
+  state/git/    Sidecar, dual-ref, commits, tree materialisation.
+  audit/        Ed25519 commit signing, walker, JSONL export, minisign.
+  sandbox/      Policy, runners (NoneRunner, BwrapRunner), landlock, proxy.
+  tools/        Registry, Executor, classification; subdirs per tool:
+                bash / fs / webfetch / rg / astgrep / readctx / lspfind.
+  lsp/          Pure-Go LSP client (Content-Length framing, process mgmt).
+  runtime/      UI-independent core. OpenSession, BuildExecutor, AgentLoop.
+  mcp/          MCP client (process/HTTP transports).
+  mcpbridge/    MCPTool adapter so MCP servers' tools satisfy pkg/tool.Tool.
+  acp/          JSON-RPC 2.0 line-delimited + Zed ACP server.
+  headless/     JSON-RPC 2.0 daemon (editor-neutral namespace).
+  telemetry/    OpenTelemetry runtime (exporters, metrics, span names).
+  plugins/      Manifest + trust-store + signing (runtime pending).
+  config/       TOML via koanf; XDG paths; preset lookup.
+  tui/
+    theme/      TOML-loadable Theme + bundled default.toml.
+    render/     text/template engine + per-widget .tmpl files.
+    input/      textarea wrapper + history ring buffer.
+    keys/       Action enum + Registry + default bindings + overrides.
+    palette/    Modal command palette (Ctrl+P).
+    overlays/   Help overlay.
+cmd/stado/      Cobra CLI: main, run, session, agents, audit, plugin,
+                acp, headless, doctor, verify, self-update, config_init.
+```
+
+### Dependency rules
+
+- `pkg/` never imports `internal/`.
+- `pkg/agent` never imports any concrete provider.
+- `internal/state/git` never imports `internal/audit` (signature hook is a
+  `CommitSigner` interface; keeps the cycle from forming).
+- `internal/runtime` is the only place `internal/tui`, `cmd/stado/run.go`,
+  `cmd/stado/acp.go`, `cmd/stado/headless.go` share session/executor
+  construction. Every new surface should compose via `runtime.*`.
+- `internal/telemetry` never imported from the critical path of
+  `state/git` — `Session.OnCommit` is a plain callback so a test or a
+  no-op runtime doesn't drag the OTel exporters in.
+
+### Turn lifecycle
+
+One agent turn, top to bottom:
+
+```
+user prompt
+  │
+  ▼
+Model.startStream(ctx)                           — TUI
+  │  Model.toolDefs()  ─── Plan mode filters out Mutating/Exec tools
+  │
+  ▼
+provider.StreamTurn(ctx, TurnRequest)            — pkg/agent
+  │
+  ▼
+events: TextDelta / ThinkingDelta / ToolCallStart / ToolCallArgsDelta /
+        ToolCallEnd / Usage / Done / Error
+  │
+  ▼
+Model.handleStreamEvent — accumulates per-turn text/thinking/tool_calls
+  │
+  ▼
+Model.onTurnComplete — flushes assistant Message into history
+  │
+  ├── len(tool_calls) == 0 → stateIdle, done
+  │
+  └── tool_calls > 0 → approval queue
+                ├── rememberedAllow[name]=true → auto-execute
+                └── else → prompt user (y/n)
+                            ▼
+                      tools.Executor.Run(name, input, host)
+                            │  (1) resolve Tool + Classifier.Class
+                            │  (2) NOTE ClassExec: snapshot pre-tree
+                            │  (3) tool.Run() — in-process or exec child
+                            │  (4) compute post-state (diff for Exec)
+                            │  (5) always commit to trace ref
+                            │  (6) commit to tree if Mutating (success),
+                            │      or Exec-with-diff
+                            │  (7) signer (if set) signs commit body
+                            │  (8) Session.OnCommit → slog / OTel
+                            │
+                            ▼
+                      ToolResultBlock appended to pending results
+                │
+                ▼  (queue drained)
+        toolsExecutedMsg → Model appends role=tool Message →
+        Model.startStream()  (loop until no tool_calls, or max turns)
+```
+
+### Key invariants
+
+- **User repo is read-only** from stado's perspective. Every mutation lives
+  under `${XDG_DATA_HOME}/stado/sessions/<repo-id>.git` (sidecar) or
+  `${XDG_STATE_HOME}/stado/worktrees/<id>/` (session worktree).
+- **Alternates link** sidecar → user's `.git/objects`, so session refs
+  can reference any commit in the user repo without copying objects.
+- **Dual-ref commit policy** (see §2.4): every tool call commits to
+  `refs/sessions/<id>/trace` (empty tree); only mutating or exec-with-diff
+  tool calls commit to `refs/sessions/<id>/tree`. Turn boundaries tagged
+  as `refs/sessions/<id>/turns/<n>`.
+- **Thinking blocks round-trip verbatim**: `agent.ThinkingBlock.Signature`
+  + `Native` are carried back to the provider on the next turn so
+  Anthropic extended-thinking + tool-use sequences don't break.
+- **Provider is lazy**: `stado` boots with zero API keys. `ensureProvider`
+  runs on first prompt; failures surface in-UI with an actionable hint.
+- **Tools are classified at registration**. Mutation class drives commit
+  policy; Plan mode drops Mutating/Exec out of `TurnRequest.Tools`
+  entirely so the model literally can't request them.
+- **Signatures cover `stado-audit-v1` framing** (tree hash + parent hashes
+  + body with any preexisting sig trailer stripped). Tampering with any
+  commit field the framing covers invalidates the signature — `stado
+  audit verify` walks refs and reports first-invalid-at.
+
+### Data paths and XDG
+
+| Purpose | Path | Notes |
+|---|---|---|
+| Config | `${XDG_CONFIG_HOME:-~/.config}/stado/config.toml` | Scaffolded by `stado config init`. |
+| Theme override | `${XDG_CONFIG_HOME}/stado/theme.toml` | Merged over bundled default. |
+| Sidecar bare repo | `${XDG_DATA_HOME:-~/.local/share}/stado/sessions/<repo-id>.git` | One per user repo; shared across sessions for that repo. |
+| Agent signing key | `${XDG_DATA_HOME}/stado/keys/agent.ed25519` | Chmod 0600; created on first run. |
+| Plugin trust store | `${XDG_DATA_HOME}/stado/plugins/trusted_keys.json` | |
+| Session worktrees | `${XDG_STATE_HOME:-~/.local/state}/stado/worktrees/<session-id>/` | Volatile; safe to delete. |
+| Pid file (running TUI / run) | `<worktree>/.stado-pid` | Consumed by `stado agents list/kill`. |
+
+---
+
+## Implementation notes & conventions
+
+### Error surfaces
+
+1. Boot-time errors (`stado` startup, `stado run --help`) must NOT depend on
+   network or API keys. The provider is built lazily.
+2. Runtime errors in a tool call populate `res.Error` + set `is_error` on
+   the `ToolResultBlock`; the model sees the error content and can adapt.
+3. Session/sidecar errors at TUI boot are non-fatal — TUI continues with
+   `session=nil` and audit disabled; a stderr line mentions the
+   degradation. Rationale: users on read-only repos or in sandboxes
+   should still be able to chat.
+
+### go-git constraints
+
+- We never use `git worktree add`. Instead worktrees are plain directories
+  whose contents we materialise from a tree hash via
+  `Session.MaterializeTreeToDir`. The sidecar's `alternates` makes this
+  cheap: no object copying.
+- Commits are synthesised directly (go-git `object.Commit.Encode`) rather
+  than through the Worktree API; lets us attach signature trailers
+  without round-tripping through the worktree.
+
+### Streaming events
+
+- Providers emit `agent.Event` over a buffered channel (cap 16). The
+  channel closes on `Done`/`Error`.
+- `ToolCall` is tracked across `Start / ArgsDelta / End`. Parallel calls
+  are distinguished by `index` (OAI) or by `content_block_index` in
+  Anthropic's SDK events.
+- ACP + headless re-emit `session.update` notifications for every
+  `TextDelta` / `ToolCallEnd` so editor clients can stream progress
+  without reimplementing the provider SSE parser.
+
+### Tool execution cost accounting
+
+- Every `tools.Executor.Run` records
+  `stado_tool_latency_ms` regardless of outcome.
+- Usage tokens from each `EvUsage` / `EvDone` event accumulate in
+  `Model.usage`. Cost is provider-specific and currently not computed;
+  providers could populate `Usage.CostUSD` from a pricing table on the
+  agent side.
+
+### Sandbox policy composition
+
+`Policy.Merge(inner)` is an INTERSECTION:
+
+- FS allow-lists: intersect (restrict-only-further).
+- Net: stricter of the two kinds wins (`DenyAll` > `AllowHosts` > `AllowAll`).
+- Exec allow-list: intersect.
+- Env passthrough: intersect.
+- Timeout: shorter positive value wins.
+
+An outer "session" policy (read-everywhere, write-worktree-only) can be
+composed with an inner per-tool policy (exec=[rg] only, net=DenyAll) to
+narrow further. Never to widen.
+
+### Plan / Do mode
+
+- **Plan mode** (`Tab`): `Model.toolDefs` filters to `NonMutating` only.
+  Left border of the input box turns yellow (`warning`). The model
+  literally can't request write/edit/bash — principled enforcement, not
+  an approval-loop workaround.
+- **Do mode**: full toolset. Left border green (`success`).
+- Toggle is per-conversation-state and persists across turns until
+  changed.
+
+### Approvals
+
+- Every tool call — in Do mode — is queued and shown to the user with
+  y/n.  `/approvals always <tool>` auto-approves that tool name for the
+  rest of the session; `/approvals forget` clears.
+- Denials feed a `"Denied by user"` error back to the model as a
+  `ToolResultBlock{IsError: true}` — the model can adapt (ask a
+  different question) rather than hanging.
+
+---
+
+## Planned implementation details (remaining work)
+
+### Phase 3.3 — Linux seccomp BPF
+
+**Approach:** compile a sock_filter[] at startup from a Policy allow-list
+of syscalls, then `seccomp_set_mode_filter` after `PR_SET_NO_NEW_PRIVS`.
+
+**Risks:** Go runtime needs a wide-ish syscall set (`futex`, `clone`,
+`rt_sigaction`, `mmap`, `mprotect`, `nanosleep`, …). A too-narrow filter
+deadlocks the runtime. Proper seccomp should run in a child process
+spawned by bwrap (`bwrap --seccomp=FD` accepts a pre-compiled filter fd)
+rather than in-process.
+
+**v1 target:** compile a BPF program from Policy, write it to a file
+descriptor, and pass via `BwrapRunner`'s `--seccomp` flag. No in-process
+seccomp.
+
+### Phase 4.1/4.2 — binary embed pipeline
+
+**Approach:**
+
+1. `hack/fetch-binaries.go`: at build time, download the ripgrep +
+   ast-grep release assets for the matrix in `.goreleaser.yaml`,
+   verify sha256, stage into `internal/tools/rg/bundled/` +
+   `internal/tools/astgrep/bundled/`.
+2. `go:embed` each per-GOOS/GOARCH blob via a build-tagged file:
+   `rg_linux_amd64.go` etc. embed `bundled/rg-linux-amd64`.
+3. First use: extract to `${XDG_CACHE_HOME}/stado/bin/rg-<sha256>[.exe]`,
+   verify hash, `exec` from there.
+4. `-tags airgap` excludes the non-host-arch blobs (keeps binary small).
+
+**Open questions:** licensing — ripgrep is MIT, ast-grep is MIT, so
+bundling is fine. Must include LICENSE files in the extracted cache
+directory.
+
+### Phase 7.1 — wazero runtime
+
+**Plan:**
+
+- `internal/plugins/runtime_wazero.go` (build tag `!airgap`): wazero
+  runtime preloaded with WASI preview 1 + 4 host imports:
+  - `stado_fs_read(path, buf, len) → n` — proxies through sandbox
+  - `stado_fs_write(path, buf, len) → n`
+  - `stado_net_http(method, url, body, …)` — routes via sandbox net
+    proxy
+  - `stado_log(level, msg)` — structured slog
+  - `stado_tool_register(name, desc, schema)` — plugin exports tools
+- Plugin lifecycle: verify manifest → verify wasm sha256 → check
+  `min_stado_version` → check rollback → prompt user for capability
+  grant → instantiate wazero module → call exported `_stado_init` →
+  on exit, flush OTel span, close runtime.
+- `internal/plugins/runtime_noop.go` (build tag `airgap`): stub that
+  returns "plugins unavailable" — keeps the binary small for airgap.
+
+**Open questions:** host-import ABI versioning scheme. Leaning toward
+`min_stado_version` field in the manifest being the canonical gate —
+bump it when an import's signature changes. Plugins compiled against
+an older host version refuse to load.
+
+### Phase 8.1 — per-MCP-server sandbox
+
+**Plan:** extend `config.MCPServer` with an optional `capabilities`
+field:
+
+```toml
+[mcp.servers.github]
+command = "mcp-github"
+capabilities = ["net:api.github.com", "env:GITHUB_TOKEN"]
+```
+
+`runtime.attachMCP` maps these to a `sandbox.Policy` and spawns the
+server via `sandbox.Runner.Command(policy, cmd)` — bubblewrap on
+Linux, sandbox-exec on macOS. Out-of-manifest syscalls fail visibly.
+
+### Phase 9.4/9.5 — supervisory trace across forks
+
+**Plan:** when `stado session fork` runs, emit an OTel span
+`stado.session.fork` with attributes `parent.id` + `child.id`. When
+child sessions run tools, their spans link back via `trace.Link` to the
+parent's span context so a single trace visualises the whole fork graph.
+
+### Phase 10.3/10.4 — release key ceremony
+
+**Plan:**
+
+1. Offline Ed25519 key generated on an air-gapped machine (e.g.
+   `minisign -G` on a live-USB).
+2. Public key + fingerprint committed to `internal/audit/embedded.go`
+   via `go:generate` so `stado verify` can validate without network.
+3. Each `v*` tag: CI fetches a pre-signed `release.minisig` that was
+   produced offline against the checksums.txt draft (manual step; GA
+   later once we have a secure signing service).
+
+### Phase 10.7 — distribution
+
+**Homebrew:** separate tap `foobarto/homebrew-stado` with a Formula
+that points at the GitHub release `.tar.gz`, verifies the minisig
+against the embedded pubkey, and installs.
+
+**apt/rpm:** use `nfpm` (already goreleaser-compatible) to produce
+`.deb` and `.rpm` with the same reproducibility flags. Sign the
+repo metadata with the same minisign key.
+
+---
+
+## Testing strategy
+
+- **Unit tests** for pure translation layers (`convertMessages`,
+  `parseMatches`, `canonicalise`), error paths (`ResolveBinary` env
+  fallbacks), and protocol framing (JSON-RPC, LSP Content-Length).
+- **Integration tests** that skip gracefully when a binary isn't
+  available (ripgrep integration tests run if `rg` on PATH; ast-grep
+  similar; LSP tests gated on `gopls`).
+- **Subprocess re-exec** for irreversible process-wide syscalls —
+  landlock can't be undone, so the test forks itself with an env
+  marker and inspects the child's exit code. See
+  `.learnings/testing-irreversible-process-syscalls.md`.
+- **End-to-end commit-chain tests** in `internal/audit/integration_test.go`:
+  sign real session commits, tamper with the message, prove verify
+  detects the tamper.
+- **Reproducibility**: two sequential `go build -trimpath -buildvcs=true
+  -ldflags='-s -w -buildid='` invocations must produce identical sha256.
+
+---
+
+## Configuration surface
+
+Full `config.toml` shape (scaffolded by `stado config init`):
+
+```toml
+[defaults]
+provider = "anthropic"              # bundled name or user-defined preset
+model    = "claude-sonnet-4-5"
+
+[approvals]
+mode      = "prompt"                # "prompt" | "allowlist"
+allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
+
+[inference.presets.my-proxy]
+endpoint = "https://proxy.example/v1"
+
+[mcp.servers.github]
+command = "mcp-github"
+args    = ["--readonly"]
+env     = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+
+[otel]
+enabled     = false                  # default off
+endpoint    = "localhost:4317"
+protocol    = "grpc"                 # "grpc" | "http"
+insecure    = true
+sample_rate = 1.0
+```
+
+**Env-var overrides:** any key prefixed with `STADO_` with underscores
+mapping to nested dots — e.g. `STADO_DEFAULTS_PROVIDER=ollama`
+`STADO_OTEL_ENABLED=1`.
+
+---
+
+## Release pipeline (as-built + planned)
+
+1. **Tag** `v0.X.Y` pushed to main.
+2. **`.github/workflows/release.yml`** runs goreleaser on Linux/darwin/
+   windows × amd64/arm64 with reproducible flags.
+3. goreleaser produces: per-target archive, `checksums.txt`, SBOM
+   (syft), cosign signature over `checksums.txt` (Rekor entry implicit).
+4. `slsa-framework/slsa-github-generator` attestation step consumes
+   goreleaser's `artifacts.json` and produces a SLSA 3 provenance
+   document attached to the release.
+5. **Planned:** minisign signing step using offline key (see §10.3);
+   Homebrew tap push via `brew-tap` release job; `nfpm` .deb/.rpm
+   publish to a signed apt/rpm repo; `stado self-update` verifies both
+   cosign (online) and minisign (airgap) before installing.
