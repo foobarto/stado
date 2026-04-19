@@ -37,6 +37,11 @@ type Executor struct {
 	Agent string
 	// Model is the current LLM model for trailer recording.
 	Model string
+	// ReadLog records reads surfaced by the read tool so subsequent calls
+	// this run can return a reference response rather than re-spending
+	// tokens. See DESIGN §"Context management" → "In-turn deduplication".
+	// Nil means dedup is disabled (tests, headless bootstrap).
+	ReadLog *ReadLog
 }
 
 // Run invokes a tool by name. Returns the tool result and writes the commit

@@ -18,11 +18,11 @@ import (
 
 // ---- fixture helpers ----
 
-type stubHost struct{ workdir string }
-
-func (h stubHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
-	return tool.DecisionAllow, nil
+type stubHost struct {
+	NullHost
+	workdir string
 }
+
 func (h stubHost) Workdir() string { return h.workdir }
 
 // A tool whose class is set via an inner Class field; used to drive policy.

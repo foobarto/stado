@@ -58,9 +58,48 @@ type Result struct {
 	Error   string
 }
 
+// Host is the read-write surface tools use to reach the runtime.
+// PriorRead / RecordRead support in-turn read-dedup — see DESIGN §"Context
+// management" → "In-turn deduplication". Only the read tool is expected to
+// call these; other tools MUST NOT record against the read log even when
+// they incidentally read files.
 type Host interface {
 	Approve(ctx context.Context, req ApprovalRequest) (Decision, error)
 	Workdir() string
+
+	// PriorRead returns the most recent prior read matching key, if any.
+	// On ok=true, all fields of PriorReadInfo must be populated (non-zero
+	// Turn, non-empty ContentHash). On ok=false, the returned value is
+	// undefined — callers must inspect only ok. Hosts that don't support
+	// dedup (tests, headless without a read log) always return ok=false.
+	PriorRead(key ReadKey) (PriorReadInfo, bool)
+
+	// RecordRead stores info keyed by key. Last-writer-wins under
+	// concurrent calls — "most recent" is defined as RecordRead-call-order,
+	// not issue-order. See DESIGN §"Context management" → "Concurrency".
+	RecordRead(key ReadKey, info PriorReadInfo)
+}
+
+// ReadKey identifies a read for deduplication. Range is a canonical string:
+// "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
+// The read tool is responsible for resolving any alternative input shapes
+// into this canonical form before constructing the ReadKey.
+type ReadKey struct {
+	Path  string
+	Range string
+}
+
+// PriorReadInfo is what Host.PriorRead hands back on a match. All fields
+// populated on ok=true; undefined on ok=false. Structs (rather than
+// multiple return values) so future fields — hash algorithm, compression
+// marker, … — don't force signature churn.
+type PriorReadInfo struct {
+	// Turn is the 1-indexed turn number when the prior read occurred.
+	Turn int
+	// ContentHash is the hex-encoded sha256 of the bytes returned to the
+	// model in that turn. Scope is the targeted region only (for ranged
+	// reads), not the full file.
+	ContentHash string
 }
 
 type ApprovalRequest struct {

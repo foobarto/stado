@@ -161,6 +161,7 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 		Runner:   sandbox.Detect(),
 		Agent:    agentName,
 		Model:    cfg.Defaults.Model,
+		ReadLog:  tools.NewReadLog(),
 	}
 }
 
@@ -223,10 +224,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	}
 	if opts.Host == nil {
 		workdir := ""
-		if opts.Executor != nil && opts.Executor.Session != nil {
-			workdir = opts.Executor.Session.WorktreePath
+		var rlog *tools.ReadLog
+		if opts.Executor != nil {
+			if opts.Executor.Session != nil {
+				workdir = opts.Executor.Session.WorktreePath
+			}
+			rlog = opts.Executor.ReadLog
 		}
-		opts.Host = autoApproveHost{workdir: workdir}
+		opts.Host = autoApproveHost{workdir: workdir, readLog: rlog}
 	}
 
 	msgs := opts.Messages
@@ -399,9 +404,26 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 	return text, calls, nil
 }
 
-type autoApproveHost struct{ workdir string }
+type autoApproveHost struct {
+	workdir string
+	readLog *tools.ReadLog
+}
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
 func (h autoApproveHost) Workdir() string { return h.workdir }
+
+func (h autoApproveHost) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
+	if h.readLog == nil {
+		return tool.PriorReadInfo{}, false
+	}
+	return h.readLog.PriorRead(key)
+}
+
+func (h autoApproveHost) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
+	if h.readLog == nil {
+		return
+	}
+	h.readLog.RecordRead(key, info)
+}

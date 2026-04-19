@@ -877,7 +877,10 @@ func (m *Model) executeCall(call agent.ToolUseBlock) agent.ToolResultBlock {
 	if m.session != nil {
 		workdir = m.session.WorktreePath
 	}
-	res, err := m.executor.Run(context.Background(), call.Name, call.Input, hostAdapter{workdir: workdir})
+	res, err := m.executor.Run(context.Background(), call.Name, call.Input, hostAdapter{
+		workdir: workdir,
+		readLog: m.executor.ReadLog,
+	})
 	content := res.Content
 	isErr := res.Error != ""
 	if err != nil {
@@ -922,12 +925,31 @@ func (m *Model) toolDefs() []agent.ToolDef {
 
 // hostAdapter implements tool.Host for the executor goroutine. Approval is
 // auto-allow in this build; PLAN §5 introduces the real approval flow.
-type hostAdapter struct{ workdir string }
+// readLog delegates PriorRead/RecordRead to the Executor's shared log so
+// the read tool can dedup across a session's turns.
+type hostAdapter struct {
+	workdir string
+	readLog *tools.ReadLog
+}
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
 func (h hostAdapter) Workdir() string { return h.workdir }
+
+func (h hostAdapter) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
+	if h.readLog == nil {
+		return tool.PriorReadInfo{}, false
+	}
+	return h.readLog.PriorRead(key)
+}
+
+func (h hostAdapter) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
+	if h.readLog == nil {
+		return
+	}
+	h.readLog.RecordRead(key, info)
+}
 
 func (m *Model) toggleLastToolExpand() {
 	for i := len(m.blocks) - 1; i >= 0; i-- {

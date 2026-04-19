@@ -14,7 +14,9 @@ type stubHost struct{ wd string }
 func (s stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (s stubHost) Workdir() string { return s.wd }
+func (s stubHost) Workdir() string                                        { return s.wd }
+func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
+func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
 
 func TestSchema_RequiresAllCoordinates(t *testing.T) {
 	s := (&FindDefinition{}).Schema()
