@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/sandbox"
 )
 
@@ -62,6 +64,12 @@ var doctorCmd = &cobra.Command{
 
 		// Context management readiness (Phase 11).
 		checkContext(&d, cfg)
+
+		// Local inference autodetection — probe ollama / llamacpp /
+		// vllm / lmstudio endpoints so the report tells the user
+		// "you have lmstudio running at localhost:1234 with 3 models
+		// loaded" without requiring them to set up a provider first.
+		checkLocalProviders(cmd.Context(), &d)
 
 		d.render(cmd.OutOrStdout())
 		if d.fails > 0 {
@@ -162,6 +170,54 @@ func providerEnvName(provider string) string {
 
 func init() {
 	rootCmd.AddCommand(doctorCmd)
+}
+
+// checkLocalProviders probes each bundled local-runner endpoint + adds
+// one row per. Concurrent probes → total wait bounded by
+// localdetect.DefaultTimeout (1s).
+func checkLocalProviders(ctx context.Context, d *report) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	results := localdetect.DetectBundled(ctx)
+	for _, r := range results {
+		label := "Local " + r.Name
+		switch {
+		case !r.Reachable:
+			d.check(label, r.Endpoint, "not running (probe: "+sanitizeErr(r.Err)+")", true)
+		case len(r.Models) == 0:
+			d.check(label, r.Endpoint, "running · no models loaded", true)
+		default:
+			preview := strings.Join(r.Models, ", ")
+			if len(preview) > 80 {
+				preview = preview[:79] + "…"
+			}
+			detail := fmt.Sprintf("running · %d model(s): %s", len(r.Models), preview)
+			d.check(label, r.Endpoint, detail, true)
+		}
+	}
+}
+
+// sanitizeErr trims long dial-error messages to a short reason the
+// doctor report can fit on one line.
+func sanitizeErr(err error) string {
+	if err == nil {
+		return "no response"
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return "connection refused"
+	case strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "Timeout"):
+		return "timeout"
+	case strings.Contains(msg, "HTTP 404"):
+		return "wrong endpoint (404)"
+	}
+	// Fallback: trim to a safe length.
+	if len(msg) > 60 {
+		msg = msg[:59] + "…"
+	}
+	return msg
 }
 
 // checkContext reports Phase 11 context-management readiness: threshold
