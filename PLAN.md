@@ -230,7 +230,7 @@ Per-agent bot identity, e.g. `claude-code-acp <agent@stado.local>`, so `git log 
 
 **Goal:** Platform-abstracted policy enforcement. Capabilities declared, OS enforces.
 
-**Shipped:** 3.1 Policy/NetPolicy/Merge, 3.4 bubblewrap runner, 3.2 Linux landlock (pure Go via `x/sys/unix`, regression-tested via subprocess re-exec), 3.7 Linux CONNECT-allowlist proxy. `stado run --sandbox-fs` narrows the process with `WorktreeWrite`. **Pending:** 3.3 seccomp BPF, 3.5 macOS `sandbox-exec`, 3.6 Windows job objects.
+**Shipped:** 3.1 Policy/NetPolicy/Merge, 3.4 bubblewrap runner, 3.2 Linux landlock (pure Go via `x/sys/unix`, regression-tested via subprocess re-exec), 3.7 Linux CONNECT-allowlist proxy, 3.3 seccomp BPF compiler (Linux), 3.5 macOS `sandbox-exec` runner (generates `.sb` profile from Policy), 3.6 Windows v1 (log warning, runs unsandboxed). `stado run --sandbox-fs` narrows the process with `WorktreeWrite`. **Pending:** 3.6 v2 Windows job objects + restricted tokens.
 
 ### 3.1 `internal/sandbox/policy.go`
 
