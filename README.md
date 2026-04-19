@@ -2,6 +2,16 @@
   <img src="assets/logo.png" alt="stado — sandboxed, git-native coding agent for the terminal" width="720">
 </p>
 
+<p align="center">
+  <a href="https://github.com/foobarto/stado/actions/workflows/ci.yml"><img src="https://github.com/foobarto/stado/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/foobarto/stado/releases/latest"><img src="https://img.shields.io/github/v/release/foobarto/stado?include_prereleases&amp;sort=semver" alt="Release"></a>
+  <a href="https://goreportcard.com/report/github.com/foobarto/stado"><img src="https://goreportcard.com/badge/github.com/foobarto/stado" alt="Go Report Card"></a>
+  <a href="https://pkg.go.dev/github.com/foobarto/stado"><img src="https://pkg.go.dev/badge/github.com/foobarto/stado.svg" alt="Go Reference"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/foobarto/stado" alt="Go version">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/foobarto/stado" alt="License"></a>
+  <a href="https://securityscorecards.dev/viewer/?uri=github.com/foobarto/stado"><img src="https://api.securityscorecards.dev/projects/github.com/foobarto/stado/badge" alt="OpenSSF Scorecard"></a>
+</p>
+
 # stado
 
 A sandboxed, git-native coding agent for the terminal.
