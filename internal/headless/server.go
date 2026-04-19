@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
@@ -58,6 +59,12 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.sessionPrompt(ctx, params)
 	case "session.list":
 		return s.sessionList(), nil
+	case "session.cancel":
+		return s.sessionCancel(params)
+	case "session.delete":
+		return s.sessionDelete(params)
+	case "session.compact":
+		return s.sessionCompact(ctx, params)
 	case "tools.list":
 		return s.toolsList(), nil
 	case "providers.list":
@@ -137,6 +144,13 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 					"input":     string(ev.ToolCall.Input),
 				})
 			}
+			// Threshold notification — DESIGN §"Token accounting" 11.2.5:
+			// headless emits session.update{kind:"context_warning"} when
+			// soft threshold is crossed. Fired on Usage events (end of
+			// turn) so clients see it before the next prompt.
+			if (ev.Kind == agent.EvUsage || ev.Kind == agent.EvDone) && ev.Usage != nil {
+				s.maybeEmitContextWarning(p.SessionID, ev.Usage.InputTokens)
+			}
 		},
 	}
 	if p.Tools {
@@ -207,3 +221,131 @@ func (s *Server) toolsList() []toolInfo {
 
 // Suppress unused import of filepath if future changes remove it.
 var _ = filepath.Clean
+
+// --- session.cancel / delete / compact ---
+
+type sessionIDParam struct {
+	SessionID string `json:"sessionId"`
+}
+
+// sessionCancel interrupts an in-flight session.prompt. No-op (success)
+// when the session has no active stream — the cancel func is nil until
+// a prompt is running.
+func (s *Server) sessionCancel(raw json.RawMessage) (any, error) {
+	var p sessionIDParam
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
+	}
+	s.mu.Lock()
+	sess := s.sessions[p.SessionID]
+	s.mu.Unlock()
+	if sess == nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	}
+	if sess.cancel != nil {
+		sess.cancel()
+	}
+	return struct {
+		Cancelled bool `json:"cancelled"`
+	}{Cancelled: sess.cancel != nil}, nil
+}
+
+// sessionDelete drops a session from the in-memory map. No sidecar
+// cleanup — that's `stado session delete <id>`'s job; the headless
+// surface only sees the in-flight sessions created via session.new.
+func (s *Server) sessionDelete(raw json.RawMessage) (any, error) {
+	var p sessionIDParam
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[p.SessionID]; !ok {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	}
+	delete(s.sessions, p.SessionID)
+	return struct{}{}, nil
+}
+
+type sessionCompactResult struct {
+	Summary      string `json:"summary"`
+	PriorTurns   int    `json:"priorTurns"`
+	PostTurns    int    `json:"postTurns"`
+}
+
+// sessionCompact summarises the session's conversation history via the
+// configured provider and replaces the in-memory msgs with the
+// compacted form. Unlike the TUI flow there's no interactive preview
+// step — headless clients implement their own confirmation UX on top
+// of the returned summary. Call session.prompt next to continue from
+// the compacted state.
+func (s *Server) sessionCompact(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p sessionIDParam
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
+	}
+	s.mu.Lock()
+	sess := s.sessions[p.SessionID]
+	s.mu.Unlock()
+	if sess == nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	}
+	if s.Provider == nil {
+		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
+	}
+	if len(sess.messages) == 0 {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session has no messages to compact"}
+	}
+
+	summary, err := compact.Summarise(ctx, s.Provider, s.Cfg.Defaults.Model, sess.messages)
+	if err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+	}
+
+	s.mu.Lock()
+	prior := len(sess.messages)
+	sess.messages = compact.ReplaceMessages(summary)
+	post := len(sess.messages)
+	s.mu.Unlock()
+
+	return sessionCompactResult{Summary: summary, PriorTurns: prior, PostTurns: post}, nil
+}
+
+// maybeEmitContextWarning fires a session.update{kind:"context_warning"}
+// notification when inputTokens crosses cfg.Context.SoftThreshold. Hard
+// threshold is left to clients to act on — the headless surface doesn't
+// block its own callers (DESIGN §"Token accounting"). No-op when
+// Provider.Capabilities().MaxContextTokens is unknown.
+func (s *Server) maybeEmitContextWarning(sessionID string, inputTokens int) {
+	if s.Provider == nil {
+		return
+	}
+	cap := s.Provider.Capabilities().MaxContextTokens
+	if cap <= 0 || inputTokens <= 0 {
+		return
+	}
+	soft := s.Cfg.Context.SoftThreshold
+	if soft <= 0 {
+		soft = 0.70
+	}
+	fraction := float64(inputTokens) / float64(cap)
+	if fraction < soft {
+		return
+	}
+	level := "soft"
+	hard := s.Cfg.Context.HardThreshold
+	if hard <= 0 {
+		hard = 0.90
+	}
+	if fraction >= hard {
+		level = "hard"
+	}
+	_ = s.conn.Notify("session.update", map[string]any{
+		"sessionId":    sessionID,
+		"kind":         "context_warning",
+		"level":        level,
+		"fraction":     fraction,
+		"input_tokens": inputTokens,
+		"max_tokens":   cap,
+	})
+}

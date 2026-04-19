@@ -33,7 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped; per-MCP sandbox policy ✅ (capability parser + `transport.WithCommandFunc` → `sandbox.Runner.Command`) |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter + 4 impls + `[context]` thresholds + TUI warning-pct + capability-probe; hard-block UX pairs with compaction) · 11.3 🟡 (TUI `/compact` + `stateCompactionPending` y/n confirmation + `internal/compact` summarisation helper + advisory CLI stub; dual-ref persistence + fully CLI-driven flow pending) · 11.4 ✅ · 11.5 ✅. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 ✅ (TokenCounter + 4 impls + `[context]` thresholds + TUI warning-pct + capability-probe + headless `session.update{kind:"context_warning"}`) · 11.3 🟡 (TUI `/compact` + `stateCompactionPending` y/n confirmation + `internal/compact` summarisation helper + headless `session.compact` RPC + advisory CLI stub; dual-ref persistence still pending) · 11.4 ✅ · 11.5 ✅. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
