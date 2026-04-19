@@ -91,20 +91,22 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 // buildProviderByName resolves a provider by explicit name override. The
 // TUI uses this to rebuild after the user swaps providers mid-session
 // (e.g. via the /model picker choosing a detected local runner).
+//
+// An empty `name` means "no provider configured" — the function probes
+// bundled + user-preset localhost endpoints (ollama / lmstudio /
+// llamacpp / vllm / custom presets) concurrently and picks the first
+// reachable one. No hosted provider (anthropic / openai / google) is
+// assumed as a default; if nothing answers and nothing is configured,
+// the caller gets a clear error telling them to set defaults.provider.
+// Once any name is set explicitly, it's taken at face value — no probe.
 func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error) {
-	// First-run fallback: config.Load() defaults Provider to "anthropic",
-	// but a user with no API key AND a live local runner is better
-	// served by auto-switching than by the bare "ANTHROPIC_API_KEY not
-	// set" error. Probe bundled local endpoints concurrently with a
-	// short budget; use the first reachable one.
-	//
-	// Respects explicit configuration — if ANTHROPIC_API_KEY is set,
-	// or the user pointed at anthropic on purpose and filled it in
-	// later, the probe doesn't run.
-	if name == "anthropic" && os.Getenv("ANTHROPIC_API_KEY") == "" {
+	if name == "" {
 		if p := detectLocalFallback(cfg); p != nil {
 			return p, nil
 		}
+		return nil, errors.New("no provider configured and no local inference runner detected — " +
+			"set defaults.provider in config (e.g. 'anthropic', 'openai', 'ollama', 'lmstudio') " +
+			"or start a local server (ollama serve / llama-server / lmstudio / vllm)")
 	}
 
 	switch name {
@@ -114,8 +116,6 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		return openai.New("", "")
 	case "google", "gemini":
 		return google.New("")
-	case "":
-		return nil, errors.New("no provider configured (set defaults.provider)")
 	}
 
 	// User-defined preset wins over the bundled default of the same name

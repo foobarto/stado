@@ -37,12 +37,18 @@ var doctorCmd = &cobra.Command{
 
 		// Provider selection + API key check.
 		prov := cfg.Defaults.Provider
-		d.check("Provider", prov, "configured", prov != "")
-		if keyEnv := providerEnvName(prov); keyEnv != "" {
-			if os.Getenv(keyEnv) != "" {
-				d.check("Provider key  ("+keyEnv+")", "present", "ok", true)
-			} else {
-				d.check("Provider key  ("+keyEnv+")", "not set", "missing — stado will fail on first prompt", false)
+		if prov == "" {
+			d.check("Provider", "(unset — probes local at boot)",
+				"stado will auto-detect a running local runner (ollama/lmstudio/llamacpp/vllm/user preset); set defaults.provider in config to pin a specific provider",
+				true)
+		} else {
+			d.check("Provider", prov, "configured", true)
+			if keyEnv := providerEnvName(prov); keyEnv != "" {
+				if os.Getenv(keyEnv) != "" {
+					d.check("Provider key  ("+keyEnv+")", "present", "ok", true)
+				} else {
+					d.check("Provider key  ("+keyEnv+")", "not set", "missing — stado will fail on first prompt", false)
+				}
 			}
 		}
 
@@ -278,12 +284,18 @@ func checkContext(d *report, cfg *config.Config) {
 		"mistral":    true,
 		"cerebras":   true,
 	}
-	if known[strings.ToLower(cfg.Defaults.Provider)] {
+	switch {
+	case cfg.Defaults.Provider == "":
+		d.check("Token counter",
+			"provider resolved at boot via local probe",
+			"ctx% accuracy depends on which local runner answers — typically works with ollama/lmstudio/llamacpp/vllm",
+			true)
+	case known[strings.ToLower(cfg.Defaults.Provider)]:
 		d.check("Token counter",
 			"supported by "+cfg.Defaults.Provider,
 			"tiktoken / native — ctx% will be accurate",
 			true)
-	} else {
+	default:
 		d.check("Token counter",
 			"unknown provider "+cfg.Defaults.Provider,
 			"may not satisfy agent.TokenCounter — ctx% will stay at 0 until usage is reported",

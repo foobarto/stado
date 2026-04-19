@@ -15,11 +15,14 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load() error: %v", err)
 	}
 
-	if cfg.Defaults.Provider != "anthropic" {
-		t.Errorf("Defaults.Provider = %q, want %q", cfg.Defaults.Provider, "anthropic")
+	// Provider + Model are intentionally empty on a fresh config —
+	// stado probes local runners at provider-build time rather than
+	// assuming a specific hosted provider as a default.
+	if cfg.Defaults.Provider != "" {
+		t.Errorf("Defaults.Provider = %q, want empty (probe-at-build)", cfg.Defaults.Provider)
 	}
-	if cfg.Defaults.Model != "claude-sonnet-4-5" {
-		t.Errorf("Defaults.Model = %q, want %q", cfg.Defaults.Model, "claude-sonnet-4-5")
+	if cfg.Defaults.Model != "" {
+		t.Errorf("Defaults.Model = %q, want empty", cfg.Defaults.Model)
 	}
 	if cfg.Approvals.Mode != "prompt" {
 		t.Errorf("Approvals.Mode = %q, want %q", cfg.Approvals.Mode, "prompt")

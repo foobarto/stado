@@ -168,12 +168,13 @@ func Load() (*Config, error) {
 
 	cfg.ConfigPath = configPath
 
-	if cfg.Defaults.Provider == "" {
-		cfg.Defaults.Provider = "anthropic"
-	}
-	if cfg.Defaults.Model == "" {
-		cfg.Defaults.Model = "claude-sonnet-4-5"
-	}
+	// No hardcoded provider/model defaults. An empty Defaults.Provider
+	// is the signal for buildProvider to probe local inference runners
+	// (ollama / lmstudio / llamacpp / vllm / user presets) and pick
+	// the first reachable one. If the user wants anthropic / openai /
+	// google, they set it explicitly in config or STADO_DEFAULTS_*.
+	// This keeps stado from assuming a specific hosted provider as
+	// the canonical default.
 	if cfg.Approvals.Mode == "" {
 		cfg.Approvals.Mode = "prompt"
 	}

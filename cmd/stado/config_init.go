@@ -55,15 +55,21 @@ const defaultConfigTemplate = `# stado — config.toml
 #   STADO_DEFAULTS_PROVIDER=openai STADO_DEFAULTS_MODEL=gpt-4o stado
 
 [defaults]
-# The provider stado uses when you launch it. Bundled names:
+# The provider stado uses when you launch it. Leave both commented out
+# and stado will probe bundled local runners (ollama / lmstudio /
+# llamacpp / vllm) + any [inference.presets.*] you define below, using
+# the first reachable one. Set explicit values here to pin a specific
+# provider — no local probe is performed when the provider key is set.
+#
+# Bundled names:
 #   anthropic  — direct anthropic-sdk-go (needs ANTHROPIC_API_KEY)
 #   openai     — direct openai-go        (needs OPENAI_API_KEY)
 #   google     — direct generative-ai-go (needs GEMINI_API_KEY)
 #   ollama / llamacpp / vllm / lmstudio  — local OAI-compat runners
 #   groq / openrouter / deepseek / xai / mistral / cerebras / litellm
 #                                        — hosted OAI-compat services
-provider = "anthropic"
-model    = "claude-sonnet-4-5"
+# provider = "anthropic"
+# model    = "claude-sonnet-4-5"
 
 [approvals]
 # What stado does with tool calls: "prompt" asks every time, "allowlist"
