@@ -1,17 +1,32 @@
 name: Release
 
+# Triggered by vX.Y.Z tags. Produces:
+#   1. Cross-platform binaries (linux/darwin/windows × amd64/arm64) via
+#      goreleaser, with checksums.txt and SBOM per-archive.
+#   2. Cosign keyless signature over checksums.txt (sig + cert uploaded
+#      alongside). Rekor transparency-log entry is implicit with cosign ≥ 2.
+#   3. SLSA 3 provenance attestation for every artifact via
+#      slsa-framework/slsa-github-generator.
+#
+# Reproducibility is enforced by -trimpath + -buildvcs=true + pinned
+# mod_timestamp in .goreleaser.yaml. A third-party rebuild at the same
+# commit sha must produce identical sha256 (see `stado verify`).
 on:
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: write
-  packages: write
+  contents: write    # upload release artifacts
+  packages: write    # publish to GHCR (Homebrew tap push comes later)
+  id-token: write    # OIDC for cosign keyless + SLSA provenance
 
 jobs:
   release:
+    name: goreleaser
     runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.checksums.outputs.hashes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,7 +38,16 @@ jobs:
           go-version: "1.25"
           cache: true
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Install syft (SBOM)
+        uses: anchore/sbom-action/download-syft@v0
+
       - name: Run GoReleaser
+        id: goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -31,3 +55,24 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect artifact digests
+        id: checksums
+        run: |
+          set -euo pipefail
+          # goreleaser's artifacts.json has path + digest for each built asset.
+          hashes=$(jq -r 'map(select(.type|test("Archive|Binary"))) | map("\(.extra.Checksum|sub("^sha256:"; ""))  \(.name)") | .[]' dist/artifacts.json | base64 -w0)
+          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
+
+  provenance:
+    name: SLSA 3 provenance
+    needs: [release]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    # Pinned tag: don't drift across releases.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: "${{ needs.release.outputs.hashes }}"
+      upload-assets: true
