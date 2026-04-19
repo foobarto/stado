@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
@@ -43,8 +42,6 @@ type SessionBridgeImpl struct {
 	// empty it returns ([]byte{}, nil) so the plugin sees the
 	// "yield" signal (import returns 0, plugin backs off).
 	Events chan []byte
-
-	mu sync.Mutex
 }
 
 // NewSessionBridge wires a SessionBridgeImpl against real subsystems.
