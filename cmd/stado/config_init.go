@@ -72,10 +72,15 @@ mode      = "prompt"
 allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 
 # ---------------------------------------------------------------------------
-# [inference.presets] — custom OAI-compat endpoints (use via defaults.provider).
+# [inference.presets] — custom OAI-compat endpoints OR overrides for bundled
+# preset names (lmstudio / ollama / …) when the server isn't on the default
+# port. A user-defined preset with the same name as a bundled one wins.
 # ---------------------------------------------------------------------------
 # [inference.presets.my-proxy]
 # endpoint = "https://my-proxy.example.com/v1"
+#
+# [inference.presets.lmstudio]    # override the bundled http://localhost:1234
+# endpoint = "http://localhost:1235/v1"
 
 # ---------------------------------------------------------------------------
 # [mcp.servers] — MCP tool servers to auto-attach.

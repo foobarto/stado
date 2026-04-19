@@ -87,6 +87,16 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 		return nil, errors.New("no provider configured (set defaults.provider)")
 	}
 
+	// User-defined preset wins over the bundled default of the same name
+	// — lets operators point `lmstudio` at a non-default port, etc.,
+	// without writing a whole new preset or setting an env var.
+	// STADO_INFERENCE_PRESETS_<NAME>_ENDPOINT=... also lands here via koanf.
+	if cfg.Inference.Presets != nil {
+		if preset, ok := cfg.Inference.Presets[name]; ok && preset.Endpoint != "" {
+			return oaicompat.New(preset.Endpoint, oaicompat.WithName(name))
+		}
+	}
+
 	// Bundled OAI-compat presets — known endpoints so users don't have to
 	// write them out by hand. API key env var is picked up by oaicompat's
 	// WithAPIKey option from the matching STADO_*_API_KEY.
@@ -98,13 +108,6 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 			}
 		}
 		return oaicompat.New(ep, opts...)
-	}
-
-	// Look up user-defined inference presets from config.
-	if cfg.Inference.Presets != nil {
-		if preset, ok := cfg.Inference.Presets[name]; ok && preset.Endpoint != "" {
-			return oaicompat.New(preset.Endpoint, oaicompat.WithName(name))
-		}
 	}
 	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
 }

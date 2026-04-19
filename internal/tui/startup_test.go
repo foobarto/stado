@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/sandbox"
@@ -88,21 +89,26 @@ func TestStartup_NoProviderKey(t *testing.T) {
 	}
 }
 
-// TestBuildProvider_LocalOllamaNeedsNoKey sanity-checks that the bundled
-// local presets don't hit any env-var check. (Hosted presets like groq DO
-// need a key and are tested for that in app_test.go.)
-func TestBuildProvider_LocalOllamaNeedsNoKey(t *testing.T) {
-	t.Setenv("OLLAMA_HOST", "")
-	// builtinPreset lookup for "ollama" should resolve without a key env.
-	ep, keyEnv, ok := builtinPreset("ollama")
-	if !ok {
-		t.Fatal("ollama preset should exist")
-	}
-	if keyEnv != "" {
-		t.Errorf("ollama should not require a key env, got %q", keyEnv)
-	}
-	if ep == "" {
-		t.Error("ollama endpoint empty")
+// TestBuildProvider_LocalPresetsNeedNoKey sanity-checks that the bundled
+// local-runner presets don't hit any env-var check. (Hosted presets
+// like groq DO need a key and are tested for that in app_test.go.)
+func TestBuildProvider_LocalPresetsNeedNoKey(t *testing.T) {
+	for _, name := range []string{"ollama", "llamacpp", "vllm", "lmstudio"} {
+		t.Run(name, func(t *testing.T) {
+			ep, keyEnv, ok := builtinPreset(name)
+			if !ok {
+				t.Fatalf("%s preset should exist", name)
+			}
+			if keyEnv != "" {
+				t.Errorf("%s should not require a key env, got %q", name, keyEnv)
+			}
+			if ep == "" {
+				t.Errorf("%s endpoint empty", name)
+			}
+			if !strings.HasPrefix(ep, "http://localhost:") {
+				t.Errorf("%s should default to localhost, got %q", name, ep)
+			}
+		})
 	}
 }
 

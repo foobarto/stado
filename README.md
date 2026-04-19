@@ -105,7 +105,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 export GOOGLE_API_KEY=...
 # Or a local model:
-export STADO_DEFAULTS_PROVIDER=ollama   # uses http://localhost:11434/v1
+export STADO_DEFAULTS_PROVIDER=ollama     # http://localhost:11434/v1
+export STADO_DEFAULTS_PROVIDER=lmstudio   # http://localhost:1234/v1
+export STADO_DEFAULTS_PROVIDER=llamacpp   # http://localhost:8080/v1
 
 # Scaffold config (optional — stado works with env vars alone)
 stado config init
@@ -275,13 +277,17 @@ stado runs fully offline with a local inference backend. Known-good
 combinations:
 
 - **llama.cpp** (`llama-server`) — the reference test target. Single
-  binary, cleanest airgap story.
+  binary, cleanest airgap story. `STADO_DEFAULTS_PROVIDER=llamacpp`.
 - **Ollama** — works via its OpenAI-compat endpoint. Set
   `STADO_DEFAULTS_PROVIDER=ollama`. Note: Ollama's default context
   length is conservative; set `num_ctx` on the model or
   `OLLAMA_CONTEXT_LENGTH` env var.
+- **LM Studio** — point-and-click local runner with a GUI. Load a
+  model, enable the local server (default port 1234), set
+  `STADO_DEFAULTS_PROVIDER=lmstudio`. Override the port via
+  `[inference.presets.lmstudio].endpoint` in config if you changed it.
 - **vLLM** — for team-scale self-hosted inference. Point at the
-  `vllm serve` endpoint.
+  `vllm serve` endpoint. `STADO_DEFAULTS_PROVIDER=vllm`.
 
 Build with `-tags airgap` to strip cosign and produce a smaller binary
 for environments that can't verify against Rekor. `stado verify` falls

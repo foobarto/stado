@@ -1,7 +1,8 @@
 // Package oaicompat is a hand-rolled OpenAI-compatible HTTP client.
 //
-// Covers llama.cpp (llama-server), vLLM, ollama, LiteLLM, OpenRouter, Groq,
-// Cerebras, xAI, DeepSeek, Mistral — anything that speaks /v1/chat/completions.
+// Covers llama.cpp (llama-server), vLLM, ollama, LM Studio, LiteLLM,
+// OpenRouter, Groq, Cerebras, xAI, DeepSeek, Mistral — anything that
+// speaks /v1/chat/completions.
 // No third-party SDK; stdlib HTTP + SSE parsing (~300 LOC).
 package oaicompat
 
@@ -430,7 +431,7 @@ func friendlyError(err error, endpoint string) error {
 		}
 		switch {
 		case strings.Contains(opErr.Error(), "connection refused"):
-			return fmt.Errorf("oaicompat: connection refused at %s — is the server running? (ollama: `ollama serve`; llama.cpp: `llama-server`; vLLM: `vllm serve <model>`)", host)
+			return fmt.Errorf("oaicompat: connection refused at %s — is the server running? (ollama: `ollama serve`; llama.cpp: `llama-server`; vLLM: `vllm serve <model>`; LM Studio: load a model in the app and enable the local server on port 1234)", host)
 		case errors.Is(opErr.Err, context.DeadlineExceeded):
 			return fmt.Errorf("oaicompat: timeout connecting to %s", host)
 		}
