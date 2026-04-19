@@ -33,7 +33,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | 🟡 | 11.1 ✅ (prompt-cache plumbing + guardrails + tests). 11.2–11.5 ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 11 — Context management | 🟡 | 11.1 ✅ (prompt-cache plumbing + guardrails + tests). 11.4 🟡 (Host extension, ReadLog, NullHost, ranged reads, hash-based dedup, invariant tests — per-tool output budgets pending). 11.2 / 11.3 / 11.5 ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
@@ -635,7 +635,7 @@ has landed. What's left, in the order I'd tackle it:
 | B  | ✅ Phase 11.1 — cache-awareness plumbing: append-only guardrails, deterministic tool serialisation, `cache_control` breakpoint placement driven by `Capabilities.SupportsPromptCache`, cache-stability + tool-ordering tests. | 11 |
 | C  | Phase 11.2 — token accounting: per-provider tokenizer calls, capability probe, soft/hard threshold enforcement in TUI + headless. | 11 |
 | D  | Phase 11.3 — user-invoked compaction: `stado session compact` CLI + TUI action, summary-preview-edit-confirm flow, dual-ref compaction commit. | 11 |
-| E  | Phase 11.4 — tool-output curation: per-tool default budgets, truncation markers, read-tool ranged-read args (`start/end`), in-turn dedup (Host.PriorRead + RecordRead + process-local read log + turn counter). | 11 |
+| E  | 🟡 Phase 11.4 — shipped: ranged `read` args + content-hash dedup + Host.PriorRead/RecordRead + ReadLog + NullHost + full invariants test suite. Remaining: per-tool output budgets + truncation markers (blocks on PR C for token counts). | 11 |
 | F  | Phase 11.5 — fork-from-point ergonomics: `session fork --at <turn-ref>` scripted path + `session tree` standalone cobra subcommand with its own `tea.Program`. | 11 |
 | G  | Phase 3.3 — seccomp BPF via `bwrap --seccomp=FD`. | 3 |
 | H  | Phase 3.5 — macOS `sandbox-exec` runner. | 3 |
