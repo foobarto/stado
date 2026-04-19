@@ -249,15 +249,26 @@ func (m *Model) ensureProvider() bool {
 		if hint := providerErrorHint(m.providerName, err.Error()); hint != "" {
 			body += "\n\n" + hint
 		}
-		if detected := detectRunningLocalHint(); detected != "" {
-			body += "\n\n" + detected
-		}
+		// The local-runner hint does a real network probe (bounded at
+		// ~1.5s total). Running it synchronously here froze the UI
+		// before the error surfaced. Fire it as an async tea.Cmd so the
+		// error appears instantly + the hint arrives when ready.
 		m.appendBlock(block{kind: "system", body: body})
+		go func() {
+			if h := detectRunningLocalHint(); h != "" {
+				m.sendMsg(localHintMsg{body: h})
+			}
+		}()
 		return false
 	}
 	m.provider = p
 	return true
 }
+
+// localHintMsg carries an async-produced local-runner hint back to the
+// main bubbletea goroutine. Dispatched by the goroutine in ensureProvider
+// and consumed in Update → appendBlock.
+type localHintMsg struct{ body string }
 
 // detectRunningLocalHint probes the bundled local endpoints and returns a
 // human message when any responded. Stays under ~1.5s total thanks to
@@ -290,8 +301,9 @@ func (m *Model) openModelPicker() {
 		if r.Reachable {
 			for _, modelID := range r.Models {
 				items = append(items, modelpicker.Item{
-					ID:     modelID,
-					Origin: r.Name + " · detected",
+					ID:           modelID,
+					Origin:       r.Name + " · detected",
+					ProviderName: r.Name,
 				})
 			}
 		}
@@ -467,6 +479,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamCancel = nil
 		return m, m.onTurnComplete()
 
+	case localHintMsg:
+		// Async local-runner hint dispatched by ensureProvider's
+		// error path. Append as a separate system block so the user
+		// sees it arrive after the initial error.
+		m.appendBlock(block{kind: "system", body: msg.body})
+		m.renderBlocks()
+		return m, nil
+
 	case toolsExecutedMsg:
 		// Append a role=tool message with the accumulated tool results.
 		if len(msg.results) > 0 {
@@ -544,10 +564,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.keys.Matches(msg, keys.InputSubmit) {
 				if sel := m.modelPicker.Selected(); sel != nil {
 					old := m.model
+					oldProvider := m.providerName
 					m.model = sel.ID
+
+					// Provider switch: when the selected model came from
+					// a different provider (typically a detected local
+					// runner), the user almost certainly wants the
+					// backend to switch too. Otherwise picking
+					// "lmstudio · detected" still routes to anthropic
+					// on the next prompt.
+					providerSwitched := false
+					if sel.ProviderName != "" && sel.ProviderName != oldProvider {
+						m.providerName = sel.ProviderName
+						m.provider = nil // force rebuild via buildProvider on next ensureProvider
+						// Reset the token-counter probe so we re-check
+						// against the new backend's capabilities.
+						m.tokenCounterChecked = false
+						providerSwitched = true
+					}
+
 					m.modelPicker.Close()
-					m.appendBlock(block{kind: "system",
-						body: "model: " + old + " → " + m.model + "  (" + sel.Origin + ")"})
+					body := "model: " + old + " → " + m.model + "  (" + sel.Origin + ")"
+					if providerSwitched {
+						body += "\nprovider: " + oldProvider + " → " + m.providerName
+					}
+					m.appendBlock(block{kind: "system", body: body})
 					m.layout()
 					return m, nil
 				}

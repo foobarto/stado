@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
@@ -140,6 +141,61 @@ func TestHandleSlashModelWithArgStillWorks(t *testing.T) {
 	}
 	if m.model != "claude-sonnet-4-5" {
 		t.Errorf("m.model = %q, want claude-sonnet-4-5", m.model)
+	}
+}
+
+// TestModelPickerSwitchesProviderOnDetectedPick is the regression
+// against the "selecting lmstudio model but provider stays anthropic"
+// user report. Seeding the picker with a detected-local item and
+// submitting must swap m.providerName AND invalidate m.provider so
+// the next ensureProvider rebuilds against the new backend.
+func TestModelPickerSwitchesProviderOnDetectedPick(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+
+	// Directly seed the picker — mimics what openModelPicker would
+	// produce when lmstudio is reachable with one model loaded.
+	m.modelPicker.Open([]modelpicker.Item{
+		{
+			ID:           "qwen/qwen3.6-35b-a3b",
+			Origin:       "lmstudio · detected",
+			ProviderName: "lmstudio",
+		},
+	}, m.model)
+
+	// Enter — apply selection.
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.model != "qwen/qwen3.6-35b-a3b" {
+		t.Errorf("m.model = %q, want qwen/qwen3.6-35b-a3b", m.model)
+	}
+	if m.providerName != "lmstudio" {
+		t.Errorf("m.providerName = %q, want lmstudio — provider didn't switch", m.providerName)
+	}
+	if m.provider != nil {
+		t.Errorf("m.provider should have been nilled for rebuild")
+	}
+
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" ||
+		!contains(last.body, "qwen/qwen3.6-35b-a3b") ||
+		!contains(last.body, "anthropic → lmstudio") {
+		t.Errorf("announcement missing model or provider swap: %+v", last)
+	}
+}
+
+// TestModelPickerSameProviderNoSwitch: picking a catalog entry for the
+// same provider the user's already on shouldn't announce a change.
+func TestModelPickerSameProviderNoSwitch(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	m.openModelPicker() // catalog items tagged ProviderName="anthropic"
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.providerName != "anthropic" {
+		t.Errorf("providerName should stay anthropic, got %q", m.providerName)
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if contains(last.body, "provider:") && contains(last.body, "→") {
+		t.Errorf("same-provider pick should not announce a provider swap: %q", last.body)
 	}
 }
 

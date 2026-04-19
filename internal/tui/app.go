@@ -49,8 +49,15 @@ func Run(cfg *config.Config) error {
 	}
 	exec := runtime.BuildExecutor(sess, cfg, "stado-tui")
 
-	builder := func() (agent.Provider, error) { return buildProvider(cfg) }
-	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, builder, rnd, keyReg)
+	// The TUI may swap providers mid-session (e.g. `/model` picks a
+	// detected local runner); pass a builder that reads the current
+	// provider name from the Model so the rebuild honours the swap.
+	var builder func() (agent.Provider, error)
+	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
+	builder = func() (agent.Provider, error) {
+		return buildProviderByName(cfg, m.providerName)
+	}
+	m.buildProvider = builder
 	m.executor = exec
 	m.session = sess
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
@@ -75,7 +82,13 @@ func Run(cfg *config.Config) error {
 func BuildProvider(cfg *config.Config) (agent.Provider, error) { return buildProvider(cfg) }
 
 func buildProvider(cfg *config.Config) (agent.Provider, error) {
-	name := cfg.Defaults.Provider
+	return buildProviderByName(cfg, cfg.Defaults.Provider)
+}
+
+// buildProviderByName resolves a provider by explicit name override. The
+// TUI uses this to rebuild after the user swaps providers mid-session
+// (e.g. via the /model picker choosing a detected local runner).
+func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error) {
 	switch name {
 	case "anthropic":
 		return anthropic.New("")

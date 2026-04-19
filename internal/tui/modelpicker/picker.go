@@ -18,14 +18,16 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
-// Item is one model entry surfaced in the picker. Origin is a short
-// tag identifying where the model came from (e.g. "anthropic",
-// "lmstudio · detected") so users can tell apart two models with the
-// same id on different backends.
+// Item is one model entry surfaced in the picker. Origin is the
+// human-readable tag ("lmstudio · detected"); ProviderName is the
+// stado provider id the caller should switch to on select. Keeping
+// them separate lets the display text be verbose without making the
+// TUI re-parse it back into a provider name.
 type Item struct {
-	ID     string // model name, assigned to m.model on select
-	Origin string // "anthropic" / "lmstudio" / "preset:my-llama"
-	Note   string // optional per-model hint (context window, etc.)
+	ID           string // model name, assigned to m.model on select
+	Origin       string // human display — e.g. "anthropic", "lmstudio · detected"
+	ProviderName string // stado provider id — set when selecting should swap providers
+	Note         string // optional per-model hint (context window, etc.)
 }
 
 // Model is the modal picker. Open populates Items; Update handles the
