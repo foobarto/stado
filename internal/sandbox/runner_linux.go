@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
 // detectList prefers bubblewrap, then falls back to None. Landlock/seccomp
@@ -89,5 +88,3 @@ func execEnviron() []string {
 	return exec.Command("").Env // nil — NoneRunner does the real environ; bwrap filters below
 }
 
-// netHostsString is used by logs/trace — not enforced at the runner layer.
-func (r BwrapRunner) netHostsString(hosts []string) string { return strings.Join(hosts, ",") }

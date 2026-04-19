@@ -127,7 +127,7 @@ func Start(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	mp, err := buildMeterProvider(ctx, cfg, res)
 	if err != nil {
-		tp.Shutdown(ctx)
+		_ = tp.Shutdown(ctx)
 		return nil, err
 	}
 
@@ -138,8 +138,8 @@ func Start(ctx context.Context, cfg Config) (*Runtime, error) {
 	meter := mp.Meter("github.com/foobarto/stado")
 	m, err := newMetrics(meter)
 	if err != nil {
-		tp.Shutdown(ctx)
-		mp.Shutdown(ctx)
+		_ = tp.Shutdown(ctx)
+		_ = mp.Shutdown(ctx)
 		return nil, err
 	}
 	return &Runtime{

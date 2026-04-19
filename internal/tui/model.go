@@ -35,7 +35,6 @@ type block struct {
 	toolName  string
 	toolArgs  string
 	toolResult string
-	toolErr    bool
 	startedAt  time.Time
 	endedAt    time.Time
 	expanded   bool
@@ -80,11 +79,10 @@ func (m inputMode) String() string {
 
 // Internal messages used by the bubbletea update loop.
 type (
-	streamEventMsg    struct{ ev agent.Event }
-	streamErrorMsg    struct{ err error }
-	streamDoneMsg     struct{}
-	approvalMsg       struct{ allow bool }
-	toolsExecutedMsg  struct{ results []agent.ToolResultBlock }
+	streamEventMsg   struct{ ev agent.Event }
+	streamErrorMsg   struct{ err error }
+	streamDoneMsg    struct{}
+	toolsExecutedMsg struct{ results []agent.ToolResultBlock }
 )
 
 // Model is the root bubbletea model for stado's TUI.
@@ -576,10 +574,6 @@ func (m *Model) layout() {
 // (yellow=Plan, green=Do) so the agent's stance is visible at a glance
 // even when focus is elsewhere.
 func (m *Model) renderInputBox(mainW int) string {
-	inner := mainW - 4 // border + padding
-	if inner < 20 {
-		inner = 20
-	}
 	inline, err := m.renderer.Exec("input_status", map[string]any{
 		"Mode":         m.mode.String(),
 		"Model":        m.model,

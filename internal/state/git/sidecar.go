@@ -251,16 +251,4 @@ func (s *Sidecar) DeleteSessionRefs(id string) error {
 	return nil
 }
 
-// configAuthor sets the sidecar's default bot author identity. Called once on
-// session creation so later commits can use MarshallableSignature without
-// reading global git config.
-func (s *Sidecar) configAuthor(name, email string) error {
-	cfg, err := s.repo.Config()
-	if err != nil {
-		return err
-	}
-	cfg.Raw.SetOption("user", "", "name", name)
-	cfg.Raw.SetOption("user", "", "email", email)
-	return s.repo.SetConfig(cfg)
-}
 

@@ -36,7 +36,6 @@ type Server struct {
 type hSession struct {
 	id       string
 	messages []agent.Message
-	executor interface{} // runtime.Executor when tools enabled; nil otherwise
 	cancel   context.CancelFunc
 	workdir  string
 }

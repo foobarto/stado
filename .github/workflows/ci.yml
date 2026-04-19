@@ -21,8 +21,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: CGO_ENABLED=0 go test -race -v ./...
+      - name: Run tests (CGO enabled for -race)
+        # -race requires cgo; the build matrix below still validates
+        # CGO_ENABLED=0 for every target so release binaries stay pure-Go.
+        run: CGO_ENABLED=1 go test -race -v ./...
 
       - name: govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...

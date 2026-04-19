@@ -73,11 +73,6 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 
 // --- handlers ---
 
-type initializeParams struct {
-	ClientName    string `json:"clientName,omitempty"`
-	ClientVersion string `json:"clientVersion,omitempty"`
-}
-
 type initializeResult struct {
 	ProtocolVersion int                 `json:"protocolVersion"`
 	AgentName       string              `json:"agentName"`

@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
@@ -72,7 +71,7 @@ var agentsListCmd = &cobra.Command{
 			wt := filepath.Join(cfg.WorktreeDir(), id)
 			alive := "-"
 			if pid := readPidFile(wt); pid > 0 {
-				if err := syscall.Kill(pid, 0); err == nil {
+				if processAlive(pid) {
 					alive = fmt.Sprintf("pid=%d", pid)
 				} else {
 					alive = fmt.Sprintf("pid=%d(stale)", pid)
@@ -99,8 +98,8 @@ var agentsKillCmd = &cobra.Command{
 		id := args[0]
 		wt := filepath.Join(cfg.WorktreeDir(), id)
 		if pid := readPidFile(wt); pid > 0 {
-			if err := syscall.Kill(pid, syscall.SIGTERM); err == nil {
-				fmt.Fprintf(os.Stderr, "sent SIGTERM to pid %d\n", pid)
+			if err := terminateProcess(pid); err == nil {
+				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
 			}
 		}
 		if err := os.RemoveAll(wt); err != nil {

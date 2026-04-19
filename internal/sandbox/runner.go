@@ -99,12 +99,6 @@ func filterEnv(env, keep []string) []string {
 	return out
 }
 
-// detectList is platform-specific — filled in by runner_linux.go / darwin etc.
-// The generic build (other GOOS) returns a NoneRunner only.
-func detectListDefault() []Runner {
-	return []Runner{NoneRunner{}}
-}
-
 // GOOS is exported so tests can introspect which platform the package
 // compiled against.
 const GOOS = runtime.GOOS

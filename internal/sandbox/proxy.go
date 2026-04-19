@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -218,23 +217,3 @@ func EnvForProxy(p *Proxy) []string {
 	}
 }
 
-// acceptWithTimeout is an internal helper: accept one connection with an
-// explicit context. Currently unused externally but kept as a sketch for
-// future integration tests that spin proxies up and down.
-func acceptWithTimeout(ctx context.Context, ln net.Listener) (net.Conn, error) {
-	type result struct {
-		conn net.Conn
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		c, err := ln.Accept()
-		ch <- result{c, err}
-	}()
-	select {
-	case r := <-ch:
-		return r.conn, r.err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}

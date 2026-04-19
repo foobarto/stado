@@ -1,0 +1,51 @@
+version: "2"
+
+# Keep linting useful — the default noisy set surfaces low-signal
+# issues on a codebase under active development. Enabled: errcheck,
+# ineffassign, staticcheck, unused (standard set). Configured below so
+# idiomatic patterns (defer Close, test setup) don't fail CI.
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net.Conn).Close
+        - (io.ReadCloser).Close
+        - io.Copy
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - os.Remove
+        - os.Unsetenv
+        - (*bufio.Writer).Flush
+        - (io.Writer).Write
+        - (net.Conn).Write
+    staticcheck:
+      # Style-only checks that fire en masse on legacy code. Disabled
+      # until we do a dedicated cleanup pass.
+      checks:
+        - all
+        - "-QF1001"  # De Morgan's law
+        - "-QF1012"  # fmt.Fprintf vs Write([]byte(fmt.Sprintf…))
+        - "-S1011"   # append-slice loop
+        - "-S1025"   # unnecessary Sprintf with string arg
+        - "-S1039"   # unnecessary Sprintf for constant strings
+  exclusions:
+    rules:
+      # Test files tolerate uncaught error returns on setup-style
+      # calls. Real issues there surface as test failures.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - unused
+      # Platform-specific stubs appear unused on the other OS; they're
+      # selected via build tags.
+      - path: cmd/stado/agents_(windows|unix)\.go
+        linters:
+          - unused
