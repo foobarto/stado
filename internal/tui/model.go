@@ -869,12 +869,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// more context. The draft text stays in the input so the
 			// recovery flow doesn't lose it.
 			if m.aboveHardThreshold() {
-				m.appendBlock(block{
-					kind: "system",
-					body: fmt.Sprintf(
-						"context at %.0f%% (hard threshold %.0f%%) — blocked. Recover with /compact, or fork from an earlier turn (`stado session fork <id> --at turns/<N>`), then retry.",
-						100*m.contextFraction(), 100*m.ctxHardThreshold),
-				})
+				body := fmt.Sprintf(
+					"context at %.0f%% (hard threshold %.0f%%) — blocked. Recover with:\n"+
+						"  · /compact — user-confirmed in-TUI summarisation\n"+
+						"  · stado session fork <id> --at turns/<N> — branch from an earlier turn",
+					100*m.contextFraction(), 100*m.ctxHardThreshold)
+				// Offer auto-compact specifically when it's installed —
+				// the user doesn't have to remember the exact plugin-id
+				// string; we've already found one on disk.
+				if ac := m.installedAutoCompact(); ac != "" {
+					body += fmt.Sprintf("\n  · /plugin:%s compact — automated compact + fork via the auto-compact plugin", ac)
+				}
+				m.appendBlock(block{kind: "system", body: body})
 				m.renderBlocks()
 				return m, nil
 			}
@@ -1068,6 +1074,36 @@ func (m *Model) contextFraction() float64 {
 		return 0
 	}
 	return float64(used) / float64(cap)
+}
+
+// installedAutoCompact returns the `auto-compact-<version>` directory
+// name when a plugin matching that naming pattern is installed under
+// $XDG_DATA_HOME/stado/plugins/, or "" otherwise. Used by the
+// hard-threshold advisory to offer `/plugin:auto-compact-<ver> compact`
+// as a one-click recovery when the plugin is available.
+//
+// Picks the lexicographically-latest version if multiple are
+// installed — simple heuristic that matches install-order in
+// practice (version bumps go forward).
+func (m *Model) installedAutoCompact() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	entries, err := os.ReadDir(filepath.Join(cfg.StateDir(), "plugins"))
+	if err != nil {
+		return ""
+	}
+	latest := ""
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "auto-compact-") {
+			continue
+		}
+		if e.Name() > latest {
+			latest = e.Name()
+		}
+	}
+	return latest
 }
 
 // aboveHardThreshold reports whether the current turn's running
