@@ -120,8 +120,19 @@ type OTel struct {
 // ACP is Phase 8's [acp] section.
 type ACP struct{}
 
-// Plugins is Phase 7's [plugins] section — trusted signer fingerprints, CRL URL.
-type Plugins struct{}
+// Plugins is Phase 7's [plugins] section. CRL fields are Phase 7.6 —
+// the revocation list is downloaded from CRLURL, verified against
+// CRLIssuerPubkey (hex- or base64-encoded Ed25519), and consulted
+// during `stado plugin verify` / install.
+type Plugins struct {
+	// CRLURL points at a signed JSON CRL (stado serves a public one;
+	// airgap users can self-host). Empty = CRL checks disabled.
+	CRLURL string `koanf:"crl_url"`
+	// CRLIssuerPubkey is the Ed25519 key the CRL is signed with. Required
+	// when CRLURL is set — empty disables verification and falls back to
+	// the trust-store-only gate with a stderr advisory.
+	CRLIssuerPubkey string `koanf:"crl_issuer_pubkey"`
+}
 
 func Load() (*Config, error) {
 	k := koanf.New(".")

@@ -642,7 +642,7 @@ has landed. What's left, in the order I'd tackle it:
 | I  | Phase 3.6 — Windows job-objects + restricted-tokens runner. | 3 |
 | J  | Phase 4.1/4.2 — binary-embed pipeline for ripgrep + ast-grep. | 4 |
 | K  | Phase 7.1 — wazero runtime host for WASM plugins. | 7 |
-| L  | Phase 7.6/7.7 — CRL fetch + optional Rekor attestation for plugin publish. | 7 |
+| L  | 🟡 Phase 7.6 — plugin CRL shipped: `internal/plugins/crl.go` (Fetch / LoadLocal / SaveLocal / Sign / IsRevoked, Ed25519-signed JSON with canonical-bytes invariant), `[plugins]` config section (crl_url + crl_issuer_pubkey), `stado plugin verify` consults CRL when configured (airgap-friendly: falls back to cached copy). 7.7 Rekor attestation deferred (brings sigstore deps). | 7 |
 | M  | ✅ Phase 8.1 — per-MCP-server sandbox policy: config.MCPServer gains `capabilities []string`, `mcp.ParseCapabilities` maps forms (fs/net/exec/env) to `sandbox.Policy`, `mcp.ServerConfig` carries a Runner + Policy, and `transport.WithCommandFunc` routes stdio-server spawns through `sandbox.Runner.Command`. Unsandboxed servers warn on stderr. | 8 |
 | N  | 🟡 Phase 9.4/9.5 — fork-time `stado.session.fork` span landed (parent id / child id / root commit / at_turn_ref attrs). Cross-process span-link from child sessions back to the parent's context still pending — needs persisted span context, which stado doesn't carry across session-spawn boundaries yet. | 9 |
 | O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
