@@ -64,11 +64,29 @@ type MCP struct {
 
 // MCPServer is one entry under [mcp.servers.<name>] in config.toml.
 // Either Command (stdio server) or URL (streamable HTTP) is set.
+//
+// Capabilities declare what the server is allowed to touch; stado maps
+// them to a sandbox.Policy and launches the stdio subprocess through the
+// platform runner (bubblewrap on Linux, etc.). Out-of-manifest syscalls
+// fail visibly. Empty slice = unsandboxed (backwards-compat default).
+//
+// Supported forms:
+//
+//	fs:read:<path>           read-only bind
+//	fs:write:<path>          read-write bind
+//	net:<host>               allow egress to host (via stado's proxy)
+//	net:deny                 unshare-net (no egress)
+//	net:allow                share host network
+//	exec:<binary>            add binary to the exec allow-list
+//	env:<VAR>                pass through the env var
+//
+// See DESIGN §"Phase 8.1 — per-MCP-server sandbox" / PLAN §8.1.
 type MCPServer struct {
-	Command string            `koanf:"command"`
-	Args    []string          `koanf:"args"`
-	Env     map[string]string `koanf:"env"`
-	URL     string            `koanf:"url"`
+	Command      string            `koanf:"command"`
+	Args         []string          `koanf:"args"`
+	Env          map[string]string `koanf:"env"`
+	URL          string            `koanf:"url"`
+	Capabilities []string          `koanf:"capabilities"`
 }
 
 // Inference is Phase 1's [inference] section: presets for OAI-compat endpoints

@@ -84,10 +84,18 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # [mcp.servers.github]
 # command = "mcp-github"
 # args    = ["--readonly"]
-# env     = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+# env    = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+# capabilities = [
+#   "net:api.github.com",
+#   "net:raw.githubusercontent.com",
+#   "env:GITHUB_TOKEN",
+# ]
+# # Empty capabilities = unsandboxed (legacy default); stado warns on stderr.
+# # Forms: fs:read:<path> | fs:write:<path> | net:<host>|allow|deny
+# #        exec:<binary>  | env:<VAR>
 #
 # [mcp.servers.weather]
-# url = "https://weather.example.com/mcp"
+# url = "https://weather.example.com/mcp"   # HTTP servers don't participate in the sandbox
 
 # ---------------------------------------------------------------------------
 # [otel] — OpenTelemetry export. Off by default.

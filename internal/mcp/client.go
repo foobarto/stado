@@ -4,19 +4,33 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/foobarto/stado/internal/sandbox"
 )
 
+// ServerConfig carries the connection details for one MCP server.
+// Runner + Policy are set when the server should be spawned inside a
+// sandbox (stdio transport only — HTTP servers run in-process on the
+// remote host). DESIGN §"Phase 8.1 — per-MCP-server sandbox".
 type ServerConfig struct {
 	Name    string
 	Command string
 	Args    []string
 	Env     map[string]string
 	URL     string
+
+	// Runner spawns stdio servers through a sandbox. nil → stdio server
+	// runs unwrapped (backwards-compat default). When non-nil, Policy
+	// must also be set.
+	Runner sandbox.Runner
+	Policy sandbox.Policy
 }
 
 type MCPClient struct {
@@ -53,7 +67,28 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 			}
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
-		c, err = client.NewStdioMCPClient(cfg.Command, env, cfg.Args...)
+		var opts []transport.StdioOption
+		if cfg.Runner != nil {
+			// Route the subprocess spawn through the platform sandbox
+			// runner. mcp-go calls our CommandFunc in place of
+			// exec.CommandContext when building the stdio transport.
+			policy := cfg.Policy
+			runner := cfg.Runner
+			opts = append(opts, transport.WithCommandFunc(
+				func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
+					cmd, err := runner.Command(ctx, policy, command, args)
+					if err != nil {
+						return nil, fmt.Errorf("sandbox for MCP server %s: %w", cfg.Name, err)
+					}
+					// mcp-go passes the merged env through `env`; re-apply
+					// on top of the sandbox's filtered env so configured
+					// key=value overrides still land.
+					cmd.Env = append(cmd.Env, env...)
+					return cmd, nil
+				},
+			))
+		}
+		c, err = client.NewStdioMCPClientWithOptions(cfg.Command, env, cfg.Args, opts...)
 	}
 
 	if err != nil {

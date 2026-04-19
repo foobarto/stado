@@ -30,7 +30,7 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 5 — Tamper-evident audit | ✅ | Ed25519 commit signing + `stado audit` |
 | 6 — OTel | ✅ | Exporters + metrics + span instrumentation across `tools.Executor`, `runtime.AgentLoop`, and all 4 providers |
 | 7 — WASM plugins | 🟡 | Manifest + trust-store + CLI ✅ · wazero runtime ⬜ |
-| 8 — MCP + ACP | ✅ | Both shipped |
+| 8 — MCP + ACP | ✅ | Both shipped; per-MCP sandbox policy ✅ (capability parser + `transport.WithCommandFunc` → `sandbox.Runner.Command`) |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
 | 11 — Context management | 🟡 | 11.1 ✅ · 11.2 🟡 (TokenCounter + 4 impls + `[context]` thresholds + TUI warning-pct + capability-probe; hard-block UX pairs with compaction) · 11.3 🟡 (TUI `/compact` + `stateCompactionPending` y/n confirmation + `internal/compact` summarisation helper + advisory CLI stub; dual-ref persistence + fully CLI-driven flow pending) · 11.4 ✅ · 11.5 ✅. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
@@ -643,7 +643,7 @@ has landed. What's left, in the order I'd tackle it:
 | J  | Phase 4.1/4.2 — binary-embed pipeline for ripgrep + ast-grep. | 4 |
 | K  | Phase 7.1 — wazero runtime host for WASM plugins. | 7 |
 | L  | Phase 7.6/7.7 — CRL fetch + optional Rekor attestation for plugin publish. | 7 |
-| M  | Phase 8.1 — per-MCP-server sandbox policy. | 8 |
+| M  | ✅ Phase 8.1 — per-MCP-server sandbox policy: config.MCPServer gains `capabilities []string`, `mcp.ParseCapabilities` maps forms (fs/net/exec/env) to `sandbox.Policy`, `mcp.ServerConfig` carries a Runner + Policy, and `transport.WithCommandFunc` routes stdio-server spawns through `sandbox.Runner.Command`. Unsandboxed servers warn on stderr. | 8 |
 | N  | Phase 9.4/9.5 — supervisory OTel trace across forks (parent→child span links). | 9 |
 | O  | Phase 10.3b — offline minisign-key ceremony + pubkey commit to `internal/audit/embedded.go`. | 10 |
 | P  | Phase 10.5 — `-tags airgap` build (strip cosign). | 10 |
