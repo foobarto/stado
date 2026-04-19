@@ -7,23 +7,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
-	"github.com/foobarto/stado/internal/sandbox"
-	stadogit "github.com/foobarto/stado/internal/state/git"
-	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/bash"
-	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/webfetch"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -50,12 +42,12 @@ func Run(cfg *config.Config) error {
 	keyReg := keys.NewRegistry()
 	_ = keys.LoadOverrides(keyReg, cfg)
 
-	sess, err := openSession(cfg, cwd)
+	sess, err := runtime.OpenSession(cfg, cwd)
 	if err != nil {
 		// Non-fatal: run without git state; tool-call audit will be skipped.
 		fmt.Fprintf(os.Stderr, "stado: git state unavailable: %v (continuing without audit)\n", err)
 	}
-	exec := buildExecutor(sess, cfg)
+	exec := runtime.BuildExecutor(sess, cfg, "stado-tui")
 
 	builder := func() (agent.Provider, error) { return buildProvider(cfg) }
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, builder, rnd, keyReg)
@@ -118,57 +110,3 @@ func loadTheme(cfg *config.Config) (*theme.Theme, error) {
 	return theme.Default(), nil
 }
 
-// openSession opens (or creates) the sidecar + a fresh session for this TUI
-// run. Worktree lives under XDG_STATE_HOME; the current cwd seeds the user
-// repo root so alternates point at the user's .git/objects.
-func openSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
-	userRepo := findRepoRoot(cwd)
-	repoID, err := stadogit.RepoID(userRepo)
-	if err != nil {
-		return nil, err
-	}
-	sc, err := stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
-		return nil, err
-	}
-	return stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
-}
-
-// buildExecutor wires the tool registry + sandbox runner + session so every
-// tool call the model makes gets audited to the trace ref (and to tree for
-// mutations).
-func buildExecutor(sess *stadogit.Session, cfg *config.Config) *tools.Executor {
-	reg := tools.NewRegistry()
-	reg.Register(fs.ReadTool{})
-	reg.Register(fs.WriteTool{})
-	reg.Register(fs.EditTool{})
-	reg.Register(fs.GlobTool{})
-	reg.Register(fs.GrepTool{})
-	reg.Register(bash.BashTool{Timeout: 60 * time.Second})
-	reg.Register(webfetch.WebFetchTool{})
-	return &tools.Executor{
-		Registry: reg,
-		Session:  sess,
-		Runner:   sandbox.Detect(),
-		Agent:    "stado-tui",
-		Model:    cfg.Defaults.Model,
-	}
-}
-
-// findRepoRoot walks up looking for a .git dir. Falls back to start.
-func findRepoRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return start
-		}
-		dir = parent
-	}
-}
