@@ -1509,23 +1509,63 @@ func (m *Model) cancelSummaryEdit() {
 }
 
 // resolveCompaction is called from Update when the user presses 'y' or
-// 'n' while in stateCompactionPending. 'y' replaces msgs; 'n' discards.
+// 'n' while in stateCompactionPending. 'y' replaces msgs AND writes a
+// dual-ref git commit (tree + trace) recording the compaction event;
+// 'n' discards the summary and leaves both sides untouched.
+//
+// DESIGN §"Compaction" invariant: `tree` commit keeps its parent's
+// tree hash (filesystem unchanged — compaction is conversation-scope,
+// not file-scope), so `git checkout refs/sessions/<id>/tree~1 -- …`
+// restores the pre-compaction state exactly. `trace` keeps the raw
+// turn commits so the audit trail is never rewritten.
 func (m *Model) resolveCompaction(accept bool) {
 	if m.state != stateCompactionPending {
 		return
 	}
 	if accept {
 		summary := m.pendingCompactionSummary
+		turnsTotal := len(m.msgs)
 		m.msgs = compactReplace(summary)
-		m.appendBlock(block{
-			kind: "system",
-			body: "compaction accepted — prior conversation replaced with summary.",
-		})
+
+		accepted := "compaction accepted — prior conversation replaced with summary."
+		if m.session != nil {
+			toTurn := m.session.Turn()
+			title := compactionTitle(summary)
+			treeSHA, traceSHA, err := m.session.CommitCompaction(stadogit.CompactionMeta{
+				Title:      title,
+				Summary:    summary,
+				FromTurn:   0, // chained-compactions tracking lands in a follow-up
+				ToTurn:     toTurn,
+				TurnsTotal: turnsTotal,
+				ByAuthor:   m.providerDisplayName(),
+			})
+			if err != nil {
+				accepted += fmt.Sprintf("\n(tree/trace commit failed: %v — summary still replaced in-memory.)", err)
+			} else {
+				accepted += fmt.Sprintf("\ntree: %s  trace: %s",
+					treeSHA.String()[:12], traceSHA.String()[:12])
+			}
+		}
+		m.appendBlock(block{kind: "system", body: accepted})
 	} else {
 		m.appendBlock(block{kind: "system", body: "compaction declined — conversation unchanged."})
 	}
 	m.pendingCompactionSummary = ""
 	m.state = stateIdle
+}
+
+// compactionTitle derives a short subject line from the summary — the
+// first sentence, capped at ~70 chars. The full body lands in the
+// commit message under the subject.
+func compactionTitle(summary string) string {
+	s := strings.TrimSpace(summary)
+	if i := strings.IndexAny(s, ".\n"); i > 0 && i < 120 {
+		s = s[:i]
+	}
+	if len(s) > 70 {
+		s = s[:69] + "…"
+	}
+	return s
 }
 
 // hostAdapter implements tool.Host for the executor goroutine. Approval is

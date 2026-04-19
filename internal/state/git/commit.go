@@ -47,11 +47,22 @@ type CommitMeta struct {
 	Agent       string
 	Turn        int
 	Error       string
+
+	// preformatted lets callers (e.g. CommitCompaction) pass an
+	// already-rendered message through commitOnRef without going
+	// through the tool-call-oriented trailer layout below. Empty →
+	// formatMessage builds the standard CommitMeta form.
+	preformatted string
 }
 
 // formatMessage renders a CommitMeta into the structured commit message.
 // First line: `<tool>(<short-arg>): <summary>`. Blank line. Trailer block.
+// When preformatted is non-empty, it's returned as-is — the caller has
+// already produced the final message (compaction, future custom events).
 func (c CommitMeta) formatMessage() string {
+	if c.preformatted != "" {
+		return c.preformatted
+	}
 	var b strings.Builder
 	title := fmt.Sprintf("%s", c.Tool)
 	if c.ShortArg != "" {
@@ -104,6 +115,111 @@ func (s *Session) CommitToTrace(meta CommitMeta) (plumbing.Hash, error) {
 // made for mutating or exec-with-diff tool calls.
 func (s *Session) CommitToTree(treeHash plumbing.Hash, meta CommitMeta) (plumbing.Hash, error) {
 	return s.commitOnRef(TreeRef(s.ID), treeHash, meta)
+}
+
+// CompactionMeta is the payload for a user-accepted /compact event.
+// Kept separate from CommitMeta because compaction commits carry
+// summary-prose metadata rather than tool-call telemetry — different
+// audience (humans reading `git log`), different trailers.
+type CompactionMeta struct {
+	Title       string // short single-line title for the commit subject
+	Summary     string // full summary body
+	FromTurn    int    // first turn included in the compaction (0 = session start)
+	ToTurn      int    // last turn included
+	TurnsTotal  int    // number of turns collapsed (for audit)
+	ByAuthor    string // who/what ran the compaction (usually the session's bot identity)
+}
+
+// formatCompactionMessage renders CompactionMeta into the structured
+// commit message format shared across tree + trace refs. First line is
+// the subject; body is the summary; trailers pin the turn range and
+// audit timestamp.
+func (c CompactionMeta) formatMessage(ts time.Time) string {
+	var b strings.Builder
+	title := c.Title
+	if title == "" {
+		title = fmt.Sprintf("compaction: turns %d..%d", c.FromTurn, c.ToTurn)
+	}
+	b.WriteString("Compaction: ")
+	b.WriteString(title)
+	b.WriteString("\n\n")
+	if c.Summary != "" {
+		b.WriteString(strings.TrimSpace(c.Summary))
+		b.WriteString("\n\n")
+	}
+	trailers := []struct{ k, v string }{
+		{"Compaction-From-Turn", fmt.Sprintf("%d", c.FromTurn)},
+		{"Compaction-To-Turn", fmt.Sprintf("%d", c.ToTurn)},
+		{"Compaction-Turns-Total", fmt.Sprintf("%d", c.TurnsTotal)},
+		{"Compaction-At", ts.UTC().Format(time.RFC3339)},
+	}
+	if c.ByAuthor != "" {
+		trailers = append(trailers, struct{ k, v string }{"Compaction-By", c.ByAuthor})
+	}
+	for _, t := range trailers {
+		if t.v == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s: %s\n", t.k, t.v)
+	}
+	return b.String()
+}
+
+// CommitCompaction records a user-accepted /compact event on both
+// refs. Per DESIGN §"Compaction":
+//
+//   - `tree` ref gets a new commit whose tree hash equals its parent's
+//     (filesystem is unchanged — compaction is a conversation-scope
+//     event). `git checkout refs/sessions/<id>/tree~1 -- …` therefore
+//     restores the pre-compaction state exactly.
+//   - `trace` ref gets a parallel empty-tree commit with the same
+//     summary body, so tooling that walks either ref sees the event.
+//
+// Both commits share the same subject + summary; trailers reference
+// the collapsed turn range for downstream audit / UI rendering by
+// `stado session show`.
+func (s *Session) CommitCompaction(meta CompactionMeta) (treeSHA, traceSHA plumbing.Hash, err error) {
+	// Resolve the current tree-ref head so we can reuse its tree hash.
+	// Compaction on an empty session is a no-op — nothing to compact.
+	treeHead, err := s.Sidecar.resolveRef(TreeRef(s.ID))
+	if err != nil {
+		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: no tree ref yet (session has no commits): %w", err)
+	}
+	headCommit, err := object.GetCommit(s.Sidecar.repo.Storer, treeHead)
+	if err != nil {
+		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: resolve tree head: %w", err)
+	}
+
+	// Synthetic CommitMeta lets us reuse commitOnRef (signing, OnCommit
+	// hook, encoded-object plumbing) without a parallel pathway.
+	// formatMessage returns a single string — we inject it by setting
+	// Summary to the pre-formatted payload and nulling the title/tool
+	// fields that would otherwise be prepended.
+	now := time.Now()
+	payload := meta.formatMessage(now)
+
+	treeSHA, err = s.commitOnRef(TreeRef(s.ID), headCommit.TreeHash, preformattedMeta(payload))
+	if err != nil {
+		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: tree commit: %w", err)
+	}
+
+	emptyTree, err := s.writeEmptyTree()
+	if err != nil {
+		return treeSHA, plumbing.ZeroHash, fmt.Errorf("compaction: empty tree: %w", err)
+	}
+	traceSHA, err = s.commitOnRef(TraceRef(s.ID), emptyTree, preformattedMeta(payload))
+	if err != nil {
+		return treeSHA, plumbing.ZeroHash, fmt.Errorf("compaction: trace commit: %w", err)
+	}
+	return treeSHA, traceSHA, nil
+}
+
+// preformattedMeta wraps a fully-rendered commit message as a
+// CommitMeta that passes it through unchanged. Used when the caller
+// has its own formatter (e.g. CompactionMeta.formatMessage) and
+// doesn't want CommitMeta's tool-call-specific layout.
+func preformattedMeta(msg string) CommitMeta {
+	return CommitMeta{preformatted: msg}
 }
 
 // commitOnRef creates a commit with parent = current ref tip (if any) and
