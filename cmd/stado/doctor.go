@@ -60,6 +60,9 @@ var doctorCmd = &cobra.Command{
 			d.check("Landlock", err.Error(), "unavailable (not fatal)", false)
 		}
 
+		// Context management readiness (Phase 11).
+		checkContext(&d, cfg)
+
 		d.render(cmd.OutOrStdout())
 		if d.fails > 0 {
 			os.Exit(2)
@@ -159,4 +162,67 @@ func providerEnvName(provider string) string {
 
 func init() {
 	rootCmd.AddCommand(doctorCmd)
+}
+
+// checkContext reports Phase 11 context-management readiness: threshold
+// values in sane range, and whether the configured provider has a
+// TokenCounter (without constructing one — that'd require API keys).
+func checkContext(d *report, cfg *config.Config) {
+	// Thresholds: must be 0 < soft < hard <= 1.
+	soft, hard := cfg.Context.SoftThreshold, cfg.Context.HardThreshold
+	switch {
+	case soft <= 0 || soft >= 1:
+		d.check("Context soft threshold",
+			fmt.Sprintf("%.2f", soft),
+			"must be in (0, 1) — defaults to 0.70 when unset",
+			false)
+	case hard <= 0 || hard > 1:
+		d.check("Context hard threshold",
+			fmt.Sprintf("%.2f", hard),
+			"must be in (0, 1] — defaults to 0.90 when unset",
+			false)
+	case soft >= hard:
+		d.check("Context thresholds",
+			fmt.Sprintf("soft=%.2f hard=%.2f", soft, hard),
+			"soft must be < hard",
+			false)
+	default:
+		d.check("Context thresholds",
+			fmt.Sprintf("soft=%.0f%% hard=%.0f%%", 100*soft, 100*hard),
+			"ok",
+			true)
+	}
+
+	// Token counter: every bundled provider satisfies agent.TokenCounter
+	// (compile-time asserted in each provider's _test.go). The check here
+	// is "is the configured provider one of the known-good names" rather
+	// than a live probe — we don't want doctor to require API keys.
+	known := map[string]bool{
+		"anthropic":  true,
+		"openai":     true,
+		"google":     true,
+		"gemini":     true,
+		"ollama":     true,
+		"llamacpp":   true,
+		"vllm":       true,
+		"lmstudio":   true,
+		"litellm":    true,
+		"groq":       true,
+		"openrouter": true,
+		"deepseek":   true,
+		"xai":        true,
+		"mistral":    true,
+		"cerebras":   true,
+	}
+	if known[strings.ToLower(cfg.Defaults.Provider)] {
+		d.check("Token counter",
+			"supported by "+cfg.Defaults.Provider,
+			"tiktoken / native — ctx% will be accurate",
+			true)
+	} else {
+		d.check("Token counter",
+			"unknown provider "+cfg.Defaults.Provider,
+			"may not satisfy agent.TokenCounter — ctx% will stay at 0 until usage is reported",
+			false)
+	}
 }
