@@ -42,7 +42,6 @@ const (
 	bpfIMM  = 0x00
 	bpfK    = 0x00
 	bpfJEQ  = 0x10
-	bpfJUMP = bpfJMP | 0x00
 
 	// seccomp return values — see linux/seccomp.h.
 	seccompRetAllow        = 0x7fff0000
@@ -114,11 +113,9 @@ func CompileDenyList(killNames []string) ([]byte, error) {
 			nrs = append(nrs, n)
 		}
 	}
-	if len(nrs) == 0 {
-		// Empty allow-everything program still has to pass the arch
-		// check — a raw RET_ALLOW is valid and gives us a non-empty
-		// filter for bwrap.
-	}
+	// An empty nrs list is fine — the emitted filter is still a valid
+	// arch-check followed by RET_ALLOW, which bwrap accepts as a no-op
+	// allow-everything program.
 
 	// seccomp_data struct layout: nr (u32), arch (u32), ip (u64), args[6]
 	// → arch is at byte offset 4, nr is at byte offset 0.
