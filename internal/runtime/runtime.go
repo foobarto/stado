@@ -26,6 +26,7 @@ import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tools/webfetch"
@@ -107,6 +108,7 @@ func BuildDefaultRegistry() *tools.Registry {
 	r.Register(rg.Tool{})
 	r.Register(astgrep.Tool{})
 	r.Register(readctx.Tool{})
+	r.Register(&lspfind.FindDefinition{})
 	return r
 }
 
