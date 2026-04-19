@@ -32,7 +32,7 @@ var Commands = []Command{
 	{"/exit", "Quit stado", "ctrl+d", "Quick"},
 
 	// Session — state about this run.
-	{"/model", "Show or change the model", "", "Session"},
+	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "", "Session"},
 	{"/provider", "Show the current provider + capabilities", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/approvals", "'always <tool>' or 'forget'", "", "Session"},

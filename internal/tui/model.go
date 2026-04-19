@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/overlays"
 	"github.com/foobarto/stado/internal/tui/palette"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -108,10 +109,11 @@ type Model struct {
 	session  *stadogit.Session
 
 	// UI components
-	input    *input.Editor
-	slash    *palette.Model
-	vp       viewport.Model
-	showHelp bool
+	input       *input.Editor
+	slash       *palette.Model
+	modelPicker *modelpicker.Model
+	vp          viewport.Model
+	showHelp    bool
 
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only
@@ -204,6 +206,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		model:            modelName,
 		input:            input.New(keyReg),
 		slash:            palette.New(),
+		modelPicker:      modelpicker.New(),
 		vp:               viewport.New(0, 0),
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
@@ -264,6 +267,44 @@ func detectRunningLocalHint() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	return renderLocalRunnerHint(localdetect.DetectBundled(ctx))
+}
+
+// openModelPicker builds the item list for the current provider +
+// any reachable local runners, then opens the modal picker. See
+// internal/tui/modelpicker for the picker itself.
+func (m *Model) openModelPicker() {
+	items := modelpicker.CatalogFor(m.providerName)
+
+	// Overlay detected local runners — if the active provider matches
+	// a probed runner's name, the catalog entries get retagged
+	// "<name> · detected"; new ids append. Otherwise local runners
+	// show up alongside so the user can pick a different backend
+	// right from the picker.
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	for _, r := range localdetect.DetectBundled(ctx) {
+		if r.Reachable && r.Name == m.providerName {
+			items = modelpicker.MergeLocal(items, r.Name, true, r.Models)
+			continue
+		}
+		if r.Reachable {
+			for _, modelID := range r.Models {
+				items = append(items, modelpicker.Item{
+					ID:     modelID,
+					Origin: r.Name + " · detected",
+				})
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		m.appendBlock(block{kind: "system",
+			body: "model picker: no known models for provider " + m.providerName +
+				".\nUse `/model <exact-id>` to set one by name."})
+		return
+	}
+	m.modelPicker.Open(items, m.model)
+	m.layout()
 }
 
 // renderProvidersOverview is the backing formatter for the `/providers`
@@ -494,6 +535,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Model picker is modal too — same routing pattern as palette.
+		if m.modelPicker.Visible {
+			cmd, handled := m.modelPicker.Update(msg)
+			if handled {
+				return m, cmd
+			}
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				if sel := m.modelPicker.Selected(); sel != nil {
+					old := m.model
+					m.model = sel.ID
+					m.modelPicker.Close()
+					m.appendBlock(block{kind: "system",
+						body: "model: " + old + " → " + m.model + "  (" + sel.Origin + ")"})
+					m.layout()
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		switch {
 		case m.keys.Matches(msg, keys.AppExit):
 			return m, tea.Quit
@@ -640,6 +701,13 @@ func (m *Model) View() string {
 		m.slash.Width = m.width
 		m.slash.Height = m.height
 		return m.slash.View(m.width, m.height)
+	}
+	// Model picker is the second modal — only one can be open at a
+	// time since each path routes independently through Update.
+	if m.modelPicker.Visible {
+		m.modelPicker.Width = m.width
+		m.modelPicker.Height = m.height
+		return m.modelPicker.View(m.width, m.height)
 	}
 	return base
 }
@@ -1345,7 +1413,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/model":
 		if len(parts) < 2 {
-			m.appendBlock(block{kind: "system", body: "current model: " + m.model + "  (usage: /model <name>)"})
+			m.openModelPicker()
 		} else {
 			old := m.model
 			m.model = parts[1]
