@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tui"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -180,6 +181,39 @@ var sessionAttachCmd = &cobra.Command{
 		}
 		fmt.Println(wt)
 		return nil
+	},
+}
+
+// sessionResumeCmd is the one-shot equivalent of
+//    cd $(stado session attach <id>) && stado
+// — changes into the session's worktree so `runtime.OpenSession`'s
+// resume-on-cwd logic reattaches to the same session ID, then
+// launches the TUI inline. Fast path for the common "I killed stado,
+// I want it back" workflow.
+var sessionResumeCmd = &cobra.Command{
+	Use:   "resume <id>",
+	Short: "Attach to an existing session and launch the TUI in its worktree",
+	Long: "Changes into the session's worktree (equivalent to\n" +
+		"`cd $(stado session attach <id>)`) and boots the TUI inline.\n" +
+		"The TUI resumes the session: same ID, same git refs, conversation\n" +
+		"history replayed from the worktree's `.stado/conversation.jsonl`.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		wt := filepath.Join(cfg.WorktreeDir(), args[0])
+		if _, err := os.Stat(wt); err != nil {
+			return fmt.Errorf("resume: session %s has no worktree: %w", args[0], err)
+		}
+		if err := os.Chdir(wt); err != nil {
+			return fmt.Errorf("resume: chdir %s: %w", wt, err)
+		}
+		// Launch the same entry point `stado` uses for its default
+		// TUI. runtime.OpenSession sees that cwd is a session
+		// worktree and takes the resume-on-cwd branch.
+		return tui.Run(cfg)
 	},
 }
 
@@ -357,7 +391,7 @@ type refMakerSession func(sessionID string) plumbing.ReferenceName
 func init() {
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionForkCmd,
-		sessionAttachCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
+		sessionAttachCmd, sessionResumeCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
 		sessionTreeCmd, sessionCompactCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
