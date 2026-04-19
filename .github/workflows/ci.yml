@@ -27,7 +27,17 @@ jobs:
         run: CGO_ENABLED=1 go test -race -v ./...
 
       - name: govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+        # Pin a version instead of @latest so the go.sum cache catches
+        # the download — otherwise sum.golang.org hiccups fail CI.
+        # Retry once on transient network errors.
+        run: |
+          set -e
+          for i in 1 2 3; do
+            go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 && break
+            echo "retry $i: govulncheck install hiccup, sleeping"
+            sleep 10
+          done
+          govulncheck ./...
 
   lint:
     runs-on: ubuntu-latest
