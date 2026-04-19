@@ -158,7 +158,7 @@ func (c *Conn) writeErr(id json.RawMessage, code int, msg string) {
 }
 
 func (c *Conn) writeErrStruct(id json.RawMessage, e *RPCError) {
-	c.write(Response{JSONRPC: "2.0", ID: id, Error: e})
+	_ = c.write(Response{JSONRPC: "2.0", ID: id, Error: e})
 }
 
 func (c *Conn) write(v any) error {
