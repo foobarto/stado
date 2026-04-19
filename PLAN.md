@@ -203,11 +203,12 @@ Enables `git log turns/5..turns/6` for turn-level diffs.
 |---------|--------|
 | `stado session new` | New session, new worktree |
 | `stado session list` | List active sessions |
-| `stado session attach <id>` | Reattach to existing session |
+| `stado session show <id>` | Print session refs + worktree + latest commit summary |
+| `stado session attach <id>` | Print the worktree path of an existing session |
 | `stado session delete <id>` | Remove session + worktree |
-| `stado fork <session>` | New worktree + both refs forked (parallel agent) |
-| `stado land <session>` | Push `refs/sessions/<id>/tree` to user repo as `<branch-name>` |
-| `stado revert <commit-or-turn>` | `git reset --hard` on a new child session branch |
+| `stado session fork <id>` | New worktree + both refs forked from parent's tree head (parallel agent) |
+| `stado session land <id> <branch>` | Push `refs/sessions/<id>/tree` to user repo as `<branch>` |
+| `stado session revert <id> <commit-or-turns/N>` | Create a new child session rooted at the target commit; parent untouched |
 
 **trace never gets pushed to user repo** — stays in sidecar as AppSec record.
 
@@ -447,7 +448,7 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 | 9.1 | Extract headless core: `internal/core/runtime.go` — session manager, agent loop, tool executor, state committer — all UI-independent. |
 | 9.2 | `stado headless` — JSON-RPC over stdio surface matching TUI events. Enables scripting, CI integration, and TUI-as-client-of-daemon pattern. |
 | 9.3 | `stado run --prompt "..." --agent claude-code-acp --max-turns 20 --json` — non-interactive; exit code reflects outcome; emits structured events. |
-| 9.4 | **Parallel agents** — `stado fork <session>` creates new worktree + branches → independent agent runtime. Manager multiplexes I/O, keeps a supervisory OTel trace per fork. TUI gets an "agents" pane showing all forks of current session. |
+| 9.4 | **Parallel agents** — `stado session fork <id>` creates new worktree + branches → independent agent runtime. Manager multiplexes I/O, keeps a supervisory OTel trace per fork. TUI gets an "agents" pane showing all forks of current session. |
 | 9.5 | `stado agents list/attach/kill` |
 
 **Verify:**
@@ -508,7 +509,7 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 | 2 | Phase 1.1 interface + 1.5 OAI-compat (proves interface shape with simplest provider) |
 | 3 | Phase 1.2–1.4 (three SDK-backed providers) |
 | 4 | Phase 2.1–2.6 (git-native core) |
-| 5 | Phase 2.7–2.8 + CLI (`stado session/fork/land/revert`) |
+| 5 | Phase 2.7–2.8 + CLI (`stado session {new,list,show,attach,delete,fork,land,revert}`) |
 | 6 | Phase 3 (sandbox layer) |
 | 7 | Phase 4 (tool runtime) |
 | 8 | Phase 5 (audit signing) |
