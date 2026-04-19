@@ -113,15 +113,31 @@ func BuildDefaultRegistry() *tools.Registry {
 }
 
 // BuildExecutor wires the tool registry + session + sandbox runner.
+//
+// Also loads any MCP servers from config and registers their tools. Failed
+// MCP connections are logged to stderr, not fatal — stado should boot
+// without them if the endpoint is down.
 func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) *tools.Executor {
+	reg := BuildDefaultRegistry()
+
+	if len(cfg.MCP.Servers) > 0 {
+		if err := attachMCP(reg, cfg.MCP.Servers); err != nil {
+			fmt.Fprintf(os.Stderr, "stado: MCP setup: %v\n", err)
+		}
+	}
+
 	return &tools.Executor{
-		Registry: BuildDefaultRegistry(),
+		Registry: reg,
 		Session:  sess,
 		Runner:   sandbox.Detect(),
 		Agent:    agentName,
 		Model:    cfg.Defaults.Model,
 	}
 }
+
+// attachMCP is defined in mcp_glue.go — kept in a separate file so pulling
+// the MCP SDK in is a single-file diff and easier to #ifdef out on airgap
+// builds later.
 
 // ToolDefs renders the registry as []agent.ToolDef for a TurnRequest.
 func ToolDefs(reg *tools.Registry) []agent.ToolDef {

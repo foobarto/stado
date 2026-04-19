@@ -1,0 +1,44 @@
+package runtime
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/tools"
+)
+
+func TestAttachMCP_NoServers_NoOp(t *testing.T) {
+	reg := tools.NewRegistry()
+	// Empty server map should be handled by the caller, but attachMCP with
+	// an empty map should also be safe.
+	if err := attachMCP(reg, map[string]config.MCPServer{}); err != nil {
+		t.Errorf("attachMCP with empty servers: %v", err)
+	}
+}
+
+func TestAttachMCP_BadCommand_Error(t *testing.T) {
+	reg := tools.NewRegistry()
+	err := attachMCP(reg, map[string]config.MCPServer{
+		"bogus": {Command: "/nonexistent/binary/should-fail"},
+	})
+	if err == nil {
+		t.Error("expected error for non-existent MCP server command")
+	}
+}
+
+func TestJoinErrors_FormatsMultiple(t *testing.T) {
+	errs := []error{errors.New("first"), errors.New("second")}
+	out := joinErrors(errs)
+	if !strings.Contains(out.Error(), "first") || !strings.Contains(out.Error(), "second") {
+		t.Errorf("joined error missing parts: %v", out)
+	}
+}
+
+func TestJoinErrors_SingleUnwraps(t *testing.T) {
+	only := errors.New("solo")
+	if got := joinErrors([]error{only}); got != only {
+		t.Errorf("single-element join should return the error unchanged")
+	}
+}

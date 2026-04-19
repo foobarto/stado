@@ -45,7 +45,17 @@ type Approvals struct {
 }
 
 type MCP struct {
-	ConfigPath string `koanf:"config_path"`
+	ConfigPath string               `koanf:"config_path"`
+	Servers    map[string]MCPServer `koanf:"servers"`
+}
+
+// MCPServer is one entry under [mcp.servers.<name>] in config.toml.
+// Either Command (stdio server) or URL (streamable HTTP) is set.
+type MCPServer struct {
+	Command string            `koanf:"command"`
+	Args    []string          `koanf:"args"`
+	Env     map[string]string `koanf:"env"`
+	URL     string            `koanf:"url"`
 }
 
 // Inference is Phase 1's [inference] section: presets for OAI-compat endpoints
