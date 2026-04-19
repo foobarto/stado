@@ -69,7 +69,9 @@ var doctorCmd = &cobra.Command{
 		// vllm / lmstudio endpoints so the report tells the user
 		// "you have lmstudio running at localhost:1234 with 3 models
 		// loaded" without requiring them to set up a provider first.
-		checkLocalProviders(cmd.Context(), &d)
+		// Merges in user-configured presets at local-looking endpoints
+		// so custom ports get probed too.
+		checkLocalProviders(cmd.Context(), &d, cfg)
 
 		d.render(cmd.OutOrStdout())
 		if d.fails > 0 {
@@ -172,14 +174,20 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 }
 
-// checkLocalProviders probes each bundled local-runner endpoint + adds
-// one row per. Concurrent probes → total wait bounded by
-// localdetect.DefaultTimeout (1s).
-func checkLocalProviders(ctx context.Context, d *report) {
+// checkLocalProviders probes each bundled local-runner endpoint + user
+// presets that look local + adds one row per. Concurrent probes →
+// total wait bounded by localdetect.DefaultTimeout (1s).
+func checkLocalProviders(ctx context.Context, d *report, cfg *config.Config) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	results := localdetect.DetectBundled(ctx)
+	user := map[string]string{}
+	if cfg != nil {
+		for name, p := range cfg.Inference.Presets {
+			user[name] = p.Endpoint
+		}
+	}
+	results := localdetect.Detect(ctx, localdetect.MergeUserPresets(user))
 	for _, r := range results {
 		label := "Local " + r.Name
 		switch {

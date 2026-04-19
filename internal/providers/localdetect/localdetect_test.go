@@ -116,6 +116,74 @@ func TestDetect_TimeoutIsBounded(t *testing.T) {
 	}
 }
 
+// TestMergeUserPresets_OverrideAndExtend covers the two real scenarios:
+// (a) user overrides a bundled preset's port, (b) user adds a new local
+// preset with a name bundled doesn't have.
+func TestMergeUserPresets_OverrideAndExtend(t *testing.T) {
+	// No user presets: BundledLocal as-is.
+	got := MergeUserPresets(nil)
+	if len(got) != len(BundledLocal) {
+		t.Errorf("nil map should return %d bundled, got %d", len(BundledLocal), len(got))
+	}
+
+	// Override the lmstudio port.
+	overridden := MergeUserPresets(map[string]string{
+		"lmstudio": "http://localhost:1235/v1",
+	})
+	var lmstudio Target
+	for _, target := range overridden {
+		if target.Name == "lmstudio" {
+			lmstudio = target
+			break
+		}
+	}
+	if lmstudio.Endpoint != "http://localhost:1235/v1" {
+		t.Errorf("override failed: got %q", lmstudio.Endpoint)
+	}
+
+	// Extend with a new local preset.
+	extended := MergeUserPresets(map[string]string{
+		"my-local": "http://localhost:9999/v1",
+	})
+	if len(extended) != len(BundledLocal)+1 {
+		t.Errorf("extend: expected %d, got %d", len(BundledLocal)+1, len(extended))
+	}
+
+	// Remote endpoint NOT extended (only bundled-name override applies).
+	remote := MergeUserPresets(map[string]string{
+		"hosted": "https://hosted.example.com/v1",
+	})
+	for _, target := range remote {
+		if target.Name == "hosted" {
+			t.Error("hosted remote preset should not be added as a local target")
+		}
+	}
+}
+
+// TestIsLocalEndpoint covers the hostname sniff for the preset-merger.
+func TestIsLocalEndpoint(t *testing.T) {
+	for _, ep := range []string{
+		"http://localhost:1234/v1",
+		"https://localhost:1234/v1",
+		"http://127.0.0.1:1234/v1",
+		"http://0.0.0.0:1234/v1",
+		"http://[::1]:1234/v1",
+	} {
+		if !isLocalEndpoint(ep) {
+			t.Errorf("expected %q to count as local", ep)
+		}
+	}
+	for _, ep := range []string{
+		"https://api.example.com/v1",
+		"http://192.168.1.1/v1",
+		"https://api.openai.com/v1",
+	} {
+		if isLocalEndpoint(ep) {
+			t.Errorf("expected %q to not count as local", ep)
+		}
+	}
+}
+
 // TestDetect_ConcurrentResultsOrdered verifies Detect preserves input
 // order in the output even though probes run concurrently.
 func TestDetect_ConcurrentResultsOrdered(t *testing.T) {

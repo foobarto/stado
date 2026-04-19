@@ -71,6 +71,60 @@ func DetectBundled(ctx context.Context) []Result {
 	return Detect(ctx, BundledLocal)
 }
 
+// MergeUserPresets combines BundledLocal with user-defined
+// [inference.presets.<name>] entries (endpoint set). A user preset
+// whose name matches a bundled one overrides the bundled endpoint —
+// same precedence as buildProvider's ordering, so doctor probes see
+// the same endpoint the TUI will dial. Only http://localhost (and
+// 127.0.0.1 / 0.0.0.0 / [::1]) endpoints are added beyond the bundled
+// set; remote endpoints are hosted services (groq / openrouter / …)
+// that aren't "local runners" for autodetect purposes.
+//
+// userPresets is typically cfg.Inference.Presets; the map is passed as
+// name→endpoint so this package doesn't pull in the config type.
+func MergeUserPresets(userPresets map[string]string) []Target {
+	byName := map[string]Target{}
+	order := []string{}
+	for _, t := range BundledLocal {
+		byName[t.Name] = t
+		order = append(order, t.Name)
+	}
+	for name, ep := range userPresets {
+		if ep == "" {
+			continue
+		}
+		_, existed := byName[name]
+		if !existed && !isLocalEndpoint(ep) {
+			// Skip remote endpoints unless they override a bundled name.
+			continue
+		}
+		if !existed {
+			order = append(order, name)
+		}
+		byName[name] = Target{Name: name, Endpoint: ep}
+	}
+	out := make([]Target, 0, len(order))
+	for _, n := range order {
+		out = append(out, byName[n])
+	}
+	return out
+}
+
+func isLocalEndpoint(ep string) bool {
+	for _, pfx := range []string{
+		"http://localhost",
+		"https://localhost",
+		"http://127.",
+		"http://0.0.0.0",
+		"http://[::1]",
+	} {
+		if len(ep) >= len(pfx) && ep[:len(pfx)] == pfx {
+			return true
+		}
+	}
+	return false
+}
+
 // probeOne hits {endpoint}/models with a short timeout. OAI-compat
 // servers (ollama, vllm, llamacpp, lmstudio) all implement this path.
 func probeOne(ctx context.Context, t Target) Result {
