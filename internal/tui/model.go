@@ -121,6 +121,16 @@ type Model struct {
 	turnThinking   string
 	turnThinkSig   string
 	turnToolCalls  []agent.ToolUseBlock
+
+	// Approval queue: calls waiting for user decision + the results already
+	// collected during this tool batch. When the queue drains we emit a
+	// toolsExecutedMsg and the agent loop continues.
+	pendingCalls   []agent.ToolUseBlock
+	pendingResults []agent.ToolResultBlock
+
+	// Session-scoped "always allow this tool" — reset when the TUI exits.
+	// PLAN cross-cutting: session-scoped remember with explicit forget.
+	rememberedAllow map[string]bool
 }
 
 type approvalRequest struct {
@@ -639,8 +649,8 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 }
 
 // onTurnComplete is called when the provider's stream ends. It persists the
-// assistant turn into msgs; if the turn ended on tool calls, it kicks off
-// execution and (on results) a follow-up stream. Otherwise the turn is idle.
+// assistant turn into msgs; if the turn ended on tool calls, it starts the
+// approval queue so the user sees each tool before it runs.
 func (m *Model) onTurnComplete() tea.Cmd {
 	// Build the assistant message from the accumulated turn.
 	var asstBlocks []agent.Block
@@ -666,44 +676,63 @@ func (m *Model) onTurnComplete() tea.Cmd {
 		return nil
 	}
 
-	// Hand off to a tea.Cmd goroutine so the UI stays responsive during
-	// tool execution.
-	calls := m.turnToolCalls
-	executor := m.executor
+	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
+	m.pendingResults = nil
+	return m.advanceApproval()
+}
+
+// advanceApproval pops the next pending call and either auto-executes
+// (remembered allow) or shows an approval prompt. When the queue drains it
+// returns a tea.Cmd that posts toolsExecutedMsg with the accumulated results.
+func (m *Model) advanceApproval() tea.Cmd {
+	for len(m.pendingCalls) > 0 {
+		call := m.pendingCalls[0]
+		if m.rememberedAllow[call.Name] {
+			m.pendingCalls = m.pendingCalls[1:]
+			m.pendingResults = append(m.pendingResults, m.executeCall(call))
+			continue
+		}
+		m.state = stateApproval
+		m.approval = &approvalRequest{
+			toolName: call.Name,
+			toolID:   call.ID,
+			args:     string(call.Input),
+		}
+		m.renderBlocks()
+		return nil
+	}
+	// Queue drained — post the results and let the agent loop re-stream.
+	results := m.pendingResults
+	m.pendingResults = nil
+	m.state = stateIdle
+	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+// executeCall actually runs a single tool through the Executor. Called after
+// approve/remembered-allow. Returns a ToolResultBlock suitable for append
+// to pendingResults.
+func (m *Model) executeCall(call agent.ToolUseBlock) agent.ToolResultBlock {
+	if m.executor == nil {
+		return agent.ToolResultBlock{
+			ToolUseID: call.ID,
+			Content:   "tool execution unavailable (no session)",
+			IsError:   true,
+		}
+	}
 	workdir := m.cwd
 	if m.session != nil {
 		workdir = m.session.WorktreePath
 	}
-	host := hostAdapter{workdir: workdir}
-
-	return func() tea.Msg {
-		var results []agent.ToolResultBlock
-		for _, call := range calls {
-			if executor == nil {
-				results = append(results, agent.ToolResultBlock{
-					ToolUseID: call.ID,
-					Content:   "tool execution unavailable (no session)",
-					IsError:   true,
-				})
-				continue
-			}
-			res, err := executor.Run(context.Background(), call.Name, call.Input, host)
-			content := res.Content
-			isErr := res.Error != ""
-			if err != nil {
-				content = err.Error()
-				isErr = true
-			} else if isErr {
-				content = res.Error
-			}
-			results = append(results, agent.ToolResultBlock{
-				ToolUseID: call.ID,
-				Content:   content,
-				IsError:   isErr,
-			})
-		}
-		return toolsExecutedMsg{results: results}
+	res, err := m.executor.Run(context.Background(), call.Name, call.Input, hostAdapter{workdir: workdir})
+	content := res.Content
+	isErr := res.Error != ""
+	if err != nil {
+		content = err.Error()
+		isErr = true
+	} else if isErr {
+		content = res.Error
 	}
+	return agent.ToolResultBlock{ToolUseID: call.ID, Content: content, IsError: isErr}
 }
 
 // toolDefs builds the tool-definition list for the current turn request. An
@@ -744,13 +773,26 @@ func (m *Model) toggleLastToolExpand() {
 }
 
 func (m *Model) resolveApproval(allow bool) tea.Cmd {
+	req := m.approval
 	m.approval = nil
-	m.state = stateIdle
-	if !allow {
-		m.appendBlock(block{kind: "system", body: "Tool execution denied"})
+	if req == nil || len(m.pendingCalls) == 0 {
+		m.state = stateIdle
+		m.renderBlocks()
+		return nil
 	}
-	m.renderBlocks()
-	return nil
+	call := m.pendingCalls[0]
+	m.pendingCalls = m.pendingCalls[1:]
+
+	if allow {
+		m.pendingResults = append(m.pendingResults, m.executeCall(call))
+	} else {
+		m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
+			ToolUseID: call.ID,
+			Content:   "Denied by user",
+			IsError:   true,
+		})
+	}
+	return m.advanceApproval()
 }
 
 func (m *Model) handleSlash(text string) tea.Cmd {
@@ -773,6 +815,19 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// Demo: quick way to test sidebar todo rendering.
 		if len(parts) > 1 {
 			m.todos = append(m.todos, todo{Title: strings.Join(parts[1:], " "), Status: "open"})
+		}
+	case "/approvals":
+		if len(parts) >= 2 && parts[1] == "forget" {
+			m.rememberedAllow = nil
+			m.appendBlock(block{kind: "system", body: "remembered approvals cleared"})
+		} else if len(parts) >= 3 && parts[1] == "always" {
+			if m.rememberedAllow == nil {
+				m.rememberedAllow = map[string]bool{}
+			}
+			m.rememberedAllow[parts[2]] = true
+			m.appendBlock(block{kind: "system", body: "will auto-approve " + parts[2] + " for the rest of this session"})
+		} else {
+			m.appendBlock(block{kind: "system", body: "usage: /approvals always <tool>  |  /approvals forget"})
 		}
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
