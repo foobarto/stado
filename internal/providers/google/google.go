@@ -14,9 +14,15 @@ import (
 	"io"
 	"os"
 
-	"github.com/foobarto/stado/pkg/agent"
 	"github.com/google/generative-ai-go/genai"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/option"
+
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 type Provider struct {
@@ -81,8 +87,17 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 	session := model.StartChat()
 	session.History = history
 
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
+		trace.WithAttributes(
+			attribute.String("provider.name", p.name),
+			attribute.String("provider.model", req.Model),
+			attribute.Int("provider.messages", len(req.Messages)),
+			attribute.Int("provider.tools", len(req.Tools)),
+		),
+	)
+
 	ch := make(chan agent.Event, 16)
-	go streamSession(ctx, session, current, ch)
+	go streamSession(ctx, session, current, ch, span)
 	return ch, nil
 }
 
@@ -183,8 +198,9 @@ func buildTools(defs []agent.ToolDef) ([]*genai.Tool, error) {
 	return []*genai.Tool{{FunctionDeclarations: funcs}}, nil
 }
 
-func streamSession(ctx context.Context, session *genai.ChatSession, parts []genai.Part, ch chan<- agent.Event) {
+func streamSession(ctx context.Context, session *genai.ChatSession, parts []genai.Part, ch chan<- agent.Event, span trace.Span) {
 	defer close(ch)
+	defer span.End()
 
 	iter := session.SendMessageStream(ctx, parts...)
 	var usage *agent.Usage
@@ -195,6 +211,8 @@ func streamSession(ctx context.Context, session *genai.ChatSession, parts []gena
 			break
 		}
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("google: %w", err)}
 			return
 		}
@@ -227,6 +245,12 @@ func streamSession(ctx context.Context, session *genai.ChatSession, parts []gena
 		}
 	}
 
+	if usage != nil {
+		span.SetAttributes(
+			attribute.Int("provider.input_tokens", usage.InputTokens),
+			attribute.Int("provider.output_tokens", usage.OutputTokens),
+		)
+	}
 	ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
 }
 

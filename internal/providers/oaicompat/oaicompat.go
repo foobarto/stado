@@ -19,6 +19,12 @@ import (
 	"net/url"
 	"strings"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -117,18 +123,35 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 	httpReq.Header.Set("Accept", "text/event-stream")
 	p.setAuth(httpReq)
 
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
+		trace.WithAttributes(
+			attribute.String("provider.name", p.name),
+			attribute.String("provider.model", req.Model),
+			attribute.Int("provider.messages", len(req.Messages)),
+			attribute.Int("provider.tools", len(req.Tools)),
+		),
+	)
+	_ = ctx
+
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.End()
 		return nil, friendlyError(err, p.endpoint)
 	}
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		resp.Body.Close()
-		return nil, httpStatusError(resp.StatusCode, b, p.endpoint)
+		serr := httpStatusError(resp.StatusCode, b, p.endpoint)
+		span.RecordError(serr)
+		span.SetStatus(codes.Error, serr.Error())
+		span.End()
+		return nil, serr
 	}
 
 	events := make(chan agent.Event, 16)
-	go parseSSE(resp.Body, events)
+	go parseSSE(resp.Body, events, span)
 	return events, nil
 }
 
@@ -248,10 +271,11 @@ func buildUserMessage(blocks []agent.Block) (chatMessage, error) {
 }
 
 // parseSSE reads an SSE stream of chat-completions chunks from r and emits
-// agent events on ch. Closes ch when the stream ends.
-func parseSSE(r io.ReadCloser, ch chan<- agent.Event) {
+// agent events on ch. Closes ch when the stream ends. Ends span on return.
+func parseSSE(r io.ReadCloser, ch chan<- agent.Event, span trace.Span) {
 	defer close(ch)
 	defer r.Close()
+	defer span.End()
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -344,12 +368,15 @@ func parseSSE(r io.ReadCloser, ch chan<- agent.Event) {
 						},
 					}
 				}
+				recordUsageSpan(span, lastUsage)
 				ch <- agent.Event{Kind: agent.EvDone, Usage: lastUsage}
 				return
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("oaicompat: stream read: %w", err)}
 		return
 	}
@@ -365,7 +392,18 @@ func parseSSE(r io.ReadCloser, ch chan<- agent.Event) {
 			},
 		}
 	}
+	recordUsageSpan(span, lastUsage)
 	ch <- agent.Event{Kind: agent.EvDone, Usage: lastUsage}
+}
+
+func recordUsageSpan(span trace.Span, u *agent.Usage) {
+	if u == nil {
+		return
+	}
+	span.SetAttributes(
+		attribute.Int("provider.input_tokens", u.InputTokens),
+		attribute.Int("provider.output_tokens", u.OutputTokens),
+	)
 }
 
 // friendlyError unwraps net errors into human-readable messages with the

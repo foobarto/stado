@@ -67,3 +67,9 @@ const (
 	SpanSandboxExec   = "stado.sandbox.exec"
 	SpanProviderStream = "stado.provider.stream"
 )
+
+// TracerName is the instrumentation-library identifier used for every stado
+// span. Call sites fetch the tracer via otel.Tracer(TracerName); the global
+// provider returns a no-op tracer until Start() wires up a real one, so
+// instrumentation code is safe to call unconditionally.
+const TracerName = "github.com/foobarto/stado"

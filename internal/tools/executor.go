@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -45,6 +49,14 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	}
 	class := e.Registry.ClassOf(name)
 
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanToolCall,
+		trace.WithAttributes(
+			attribute.String("tool.name", name),
+			attribute.String("tool.class", class.String()),
+		),
+	)
+	defer span.End()
+
 	// Capture pre-state for Exec diff-then-commit.
 	var preTree plumbing.Hash
 	if e.Session != nil && class == tool.ClassExec {
@@ -61,6 +73,17 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	outcome := "ok"
 	if runErr != nil || res.Error != "" {
 		outcome = "error"
+	}
+	span.SetAttributes(
+		attribute.String("tool.outcome", outcome),
+		attribute.Int64("tool.duration_ms", duration.Milliseconds()),
+		attribute.Int("tool.result_bytes", len(res.Content)),
+	)
+	if runErr != nil {
+		span.RecordError(runErr)
+		span.SetStatus(codes.Error, runErr.Error())
+	} else if res.Error != "" {
+		span.SetStatus(codes.Error, res.Error)
 	}
 	if e.Metrics.ToolLatency != nil {
 		e.Metrics.ToolLatency.Record(ctx, float64(duration.Milliseconds()))

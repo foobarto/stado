@@ -28,12 +28,12 @@ Legend: ✅ complete · 🟡 partial · ⬜ not yet
 | 3 — Sandbox layer | 🟡 | policy + bwrap + landlock + net-proxy ✅ · seccomp/macOS/Windows ⬜ |
 | 4 — Tool runtime | ✅ | 14 bundled tools; embed pipeline ⬜ |
 | 5 — Tamper-evident audit | ✅ | Ed25519 commit signing + `stado audit` |
-| 6 — OTel | 🟢 skeleton | Exporters + metrics + slog mirror; span call-sites pending |
+| 6 — OTel | ✅ | Exporters + metrics + span instrumentation across `tools.Executor`, `runtime.AgentLoop`, and all 4 providers |
 | 7 — WASM plugins | 🟡 | Manifest + trust-store + CLI ✅ · wazero runtime ⬜ |
 | 8 — MCP + ACP | ✅ | Both shipped |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
 | 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | ⬜ | 11.1–11.5 all ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 11 — Context management | 🟡 | 11.1 ✅ (prompt-cache plumbing + guardrails + tests). 11.2–11.5 ⬜. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
 
 ---
 
@@ -331,7 +331,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Traces/metrics/logs across every boundary; off by default, one-line enable.
 
-**Shipped:** `internal/telemetry` with OTLP gRPC + HTTP exporters, the 6 metric instruments in PLAN §6.3, span-name constants for the hierarchy, `[otel]` config section, disabled-safe no-op runtime. **Pending:** actually wrapping `tracer.Start(ctx, SpanToolCall)` around the call sites in `tools.Executor`, `runtime.AgentLoop`, `providers/*.StreamTurn`. The harness is there; it just needs invocation.
+**Shipped:** `internal/telemetry` with OTLP gRPC + HTTP exporters, the 6 metric instruments in PLAN §6.3, span-name constants for the hierarchy, `[otel]` config section, disabled-safe no-op runtime. Span instrumentation now in place at every call site: `tools.Executor.Run` wraps each tool call in `stado.tool_call` (attrs: name, class, outcome, duration, result_bytes); `runtime.AgentLoop` wraps each turn in `stado.turn` (attrs: turn.index, provider, model, message/tool counts); all four providers wrap `StreamTurn` in `stado.provider.stream` (attrs: provider.name, input/output/cache tokens). No-op tracer path runs under every test.
 
 | # | Action |
 |---|--------|
@@ -631,8 +631,8 @@ has landed. What's left, in the order I'd tackle it:
 
 | PR | Content | Phase |
 |----|---------|-------|
-| A  | OTel span instrumentation: wrap `tools.Executor.Run`, `runtime.AgentLoop.turn`, and `providers/*.StreamTurn` with `tracer.Start`. Closes Phase 6 🟢→✅. | 6 |
-| B  | Phase 11.1 — cache-awareness plumbing: append-only guardrails, deterministic tool serialisation, `cache_control` breakpoint placement driven by `Capabilities.SupportsPromptCache`, cache-stability + tool-ordering tests. | 11 |
+| A  | ✅ OTel span instrumentation: `tools.Executor.Run` / `runtime.AgentLoop` / all 4 providers' `StreamTurn` wrapped. Phase 6 closed. | 6 |
+| B  | ✅ Phase 11.1 — cache-awareness plumbing: append-only guardrails, deterministic tool serialisation, `cache_control` breakpoint placement driven by `Capabilities.SupportsPromptCache`, cache-stability + tool-ordering tests. | 11 |
 | C  | Phase 11.2 — token accounting: per-provider tokenizer calls, capability probe, soft/hard threshold enforcement in TUI + headless. | 11 |
 | D  | Phase 11.3 — user-invoked compaction: `stado session compact` CLI + TUI action, summary-preview-edit-confirm flow, dual-ref compaction commit. | 11 |
 | E  | Phase 11.4 — tool-output curation: per-tool default budgets, truncation markers, read-tool ranged-read args (`start/end`), in-turn dedup (Host.PriorRead + RecordRead + process-local read log + turn counter). | 11 |

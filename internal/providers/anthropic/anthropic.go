@@ -14,6 +14,12 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -77,15 +83,25 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 		}
 	}
 
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
+		trace.WithAttributes(
+			attribute.String("provider.name", p.name),
+			attribute.String("provider.model", req.Model),
+			attribute.Int("provider.messages", len(req.Messages)),
+			attribute.Int("provider.tools", len(req.Tools)),
+		),
+	)
+
 	ch := make(chan agent.Event, 16)
-	go stream(ctx, p.client.Messages.NewStreaming(ctx, params), ch)
+	go stream(ctx, p.client.Messages.NewStreaming(ctx, params), ch, span)
 	return ch, nil
 }
 
 // stream translates SDK events to agent.Events. Parallel tool calls are tracked
 // by SDK `index`; thinking deltas and signatures round-trip verbatim.
-func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event) {
+func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span trace.Span) {
 	defer close(ch)
+	defer span.End()
 
 	type pending struct {
 		kind      string // "text" | "thinking" | "tool_use" | "redacted_thinking"
@@ -172,8 +188,18 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event) {
 	}
 
 	if err := s.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("anthropic: %w", err)}
 		return
+	}
+	if finalUsage != nil {
+		span.SetAttributes(
+			attribute.Int("provider.input_tokens", finalUsage.InputTokens),
+			attribute.Int("provider.output_tokens", finalUsage.OutputTokens),
+			attribute.Int("provider.cache_read_tokens", finalUsage.CacheReadTokens),
+			attribute.Int("provider.cache_write_tokens", finalUsage.CacheWriteTokens),
+		)
 	}
 	ch <- agent.Event{Kind: agent.EvDone, Usage: finalUsage}
 }

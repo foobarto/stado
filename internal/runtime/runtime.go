@@ -21,11 +21,16 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
@@ -239,6 +244,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	var priorLen int
 
 	caps := opts.Provider.Capabilities()
+	tracer := otel.Tracer(telemetry.TracerName)
 
 	for turn := 0; turn < opts.MaxTurns; turn++ {
 		if turn > 0 {
@@ -259,6 +265,15 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			}
 		}
 
+		turnCtx, turnSpan := tracer.Start(ctx, telemetry.SpanTurn,
+			trace.WithAttributes(
+				attribute.Int("turn.index", turn),
+				attribute.Int("turn.messages", len(msgs)),
+				attribute.String("provider.name", opts.Provider.Name()),
+				attribute.String("provider.model", opts.Model),
+			),
+		)
+
 		req := agent.TurnRequest{
 			Model:    opts.Model,
 			Messages: msgs,
@@ -272,15 +287,26 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			// DESIGN §"Prompt-cache awareness".
 			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 1}}
 		}
-		ch, err := opts.Provider.StreamTurn(ctx, req)
+		turnSpan.SetAttributes(attribute.Int("turn.tools", len(req.Tools)))
+		ch, err := opts.Provider.StreamTurn(turnCtx, req)
 		if err != nil {
+			turnSpan.RecordError(err)
+			turnSpan.SetStatus(codes.Error, err.Error())
+			turnSpan.End()
 			return finalText, msgs, fmt.Errorf("stream: %w", err)
 		}
 
 		text, calls, err := collectTurn(ch, opts.OnEvent)
 		if err != nil {
+			turnSpan.RecordError(err)
+			turnSpan.SetStatus(codes.Error, err.Error())
+			turnSpan.End()
 			return finalText, msgs, err
 		}
+		turnSpan.SetAttributes(
+			attribute.Int("turn.text_bytes", len(text)),
+			attribute.Int("turn.tool_calls", len(calls)),
+		)
 		if opts.OnTurnComplete != nil {
 			opts.OnTurnComplete(text, calls)
 		}
@@ -300,16 +326,18 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		finalText += text
 
 		if len(calls) == 0 {
+			turnSpan.End()
 			return finalText, msgs, nil
 		}
 		if opts.Executor == nil {
+			turnSpan.End()
 			return finalText, msgs, errors.New("runtime: tool calls requested but executor is nil")
 		}
 
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
 		for _, c := range calls {
-			res, runErr := opts.Executor.Run(ctx, c.Name, c.Input, opts.Host)
+			res, runErr := opts.Executor.Run(turnCtx, c.Name, c.Input, opts.Host)
 			content := res.Content
 			isErr := res.Error != ""
 			if runErr != nil {
@@ -328,6 +356,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 
 		priorLen = len(msgs)
 		priorHash = hashMessagesPrefix(msgs, priorLen)
+		turnSpan.End()
 	}
 	return finalText, msgs, fmt.Errorf("runtime: exceeded %d turns", opts.MaxTurns)
 }

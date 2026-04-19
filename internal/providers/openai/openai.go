@@ -14,10 +14,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/foobarto/stado/pkg/agent"
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/ssestream"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 type Provider struct {
@@ -56,16 +62,25 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 	if err != nil {
 		return nil, err
 	}
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanProviderStream,
+		trace.WithAttributes(
+			attribute.String("provider.name", p.name),
+			attribute.String("provider.model", req.Model),
+			attribute.Int("provider.messages", len(req.Messages)),
+			attribute.Int("provider.tools", len(req.Tools)),
+		),
+	)
 	s := p.client.Chat.Completions.NewStreaming(ctx, params)
 	ch := make(chan agent.Event, 16)
-	go streamChunks(s, ch)
+	go streamChunks(s, ch, span)
 	return ch, nil
 }
 
 type chunkStream = ssestream.Stream[sdk.ChatCompletionChunk]
 
-func streamChunks(s *chunkStream, ch chan<- agent.Event) {
+func streamChunks(s *chunkStream, ch chan<- agent.Event, span trace.Span) {
 	defer close(ch)
+	defer span.End()
 
 	type pending struct {
 		id   string
@@ -126,6 +141,7 @@ func streamChunks(s *chunkStream, ch chan<- agent.Event) {
 						},
 					}
 				}
+				recordUsageAttrs(span, usage)
 				ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
 				return
 			}
@@ -133,6 +149,8 @@ func streamChunks(s *chunkStream, ch chan<- agent.Event) {
 	}
 
 	if err := s.Err(); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("openai: %w", err)}
 		return
 	}
@@ -148,7 +166,18 @@ func streamChunks(s *chunkStream, ch chan<- agent.Event) {
 			},
 		}
 	}
+	recordUsageAttrs(span, usage)
 	ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
+}
+
+func recordUsageAttrs(span trace.Span, u *agent.Usage) {
+	if u == nil {
+		return
+	}
+	span.SetAttributes(
+		attribute.Int("provider.input_tokens", u.InputTokens),
+		attribute.Int("provider.output_tokens", u.OutputTokens),
+	)
 }
 
 func buildParams(req agent.TurnRequest) (sdk.ChatCompletionNewParams, error) {
