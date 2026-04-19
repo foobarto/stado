@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/input"
@@ -245,11 +246,55 @@ func (m *Model) ensureProvider() bool {
 		if hint := providerErrorHint(m.providerName, err.Error()); hint != "" {
 			body += "\n\n" + hint
 		}
+		if detected := detectRunningLocalHint(); detected != "" {
+			body += "\n\n" + detected
+		}
 		m.appendBlock(block{kind: "system", body: body})
 		return false
 	}
 	m.provider = p
 	return true
+}
+
+// detectRunningLocalHint probes the bundled local endpoints and returns a
+// human message when any responded. Stays under ~1.5s total thanks to
+// localdetect's per-probe timeout + concurrency. Empty return = no
+// running local runner detected (or the probe was interrupted).
+func detectRunningLocalHint() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	return renderLocalRunnerHint(localdetect.DetectBundled(ctx))
+}
+
+// renderLocalRunnerHint is the pure formatter behind detectRunningLocalHint.
+// Kept as a standalone function so tests can exercise the output without
+// needing real endpoints.
+func renderLocalRunnerHint(results []localdetect.Result) string {
+	var running []localdetect.Result
+	for _, r := range results {
+		if r.Reachable {
+			running = append(running, r)
+		}
+	}
+	if len(running) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Detected running local provider(s) on this machine:\n")
+	for _, r := range running {
+		switch {
+		case len(r.Models) == 0:
+			fmt.Fprintf(&b, "  %-9s %s  (no models loaded)\n", r.Name, r.Endpoint)
+		case len(r.Models) == 1:
+			fmt.Fprintf(&b, "  %-9s %s  (1 model: %s)\n", r.Name, r.Endpoint, r.Models[0])
+		default:
+			fmt.Fprintf(&b, "  %-9s %s  (%d models, e.g. %s)\n",
+				r.Name, r.Endpoint, len(r.Models), r.Models[0])
+		}
+	}
+	fmt.Fprintf(&b, "\nSwitch to one via `STADO_DEFAULTS_PROVIDER=<name> stado`,\n"+
+		"or `/model <name>` to try a specific model in this session.")
+	return b.String()
 }
 
 // providerErrorHint returns a provider-specific suggestion the user can act
