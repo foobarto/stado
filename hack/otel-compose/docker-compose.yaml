@@ -1,0 +1,42 @@
+# Local OTel dev fixture — spin up Jaeger + an OTel Collector that
+# routes traces from stado (and anything else you aim at it) into
+# Jaeger's UI. Closes Phase 6's verify checkbox in PLAN.md: "run a TUI
+# session; see full trace hierarchy in Jaeger UI."
+#
+# Usage:
+#   cd hack/otel-compose
+#   docker compose up -d            # or podman-compose up -d
+#   STADO_OTEL_ENABLED=1 \
+#   STADO_OTEL_ENDPOINT=localhost:4317 \
+#   STADO_OTEL_PROTOCOL=grpc \
+#   STADO_OTEL_INSECURE=1 \
+#     stado run --prompt "hi"
+#   open http://localhost:16686  →  service "stado"  →  trace list
+#
+# Cleanup:
+#   docker compose down -v
+#
+# The services exposed to the host:
+#   16686/tcp  — Jaeger UI (trace search, service list)
+#   4317/tcp   — OTLP gRPC (stado's default `STADO_OTEL_PROTOCOL=grpc`)
+#   4318/tcp   — OTLP HTTP (for `STADO_OTEL_PROTOCOL=http`)
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.64
+    container_name: stado-jaeger
+    environment:
+      # Jaeger's all-in-one accepts OTLP directly on 4317/4318 in
+      # recent versions. No collector translation needed — keeps the
+      # fixture single-service.
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
+      interval: 5s
+      timeout: 2s
+      retries: 5

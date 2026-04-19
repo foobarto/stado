@@ -141,6 +141,157 @@ Plugins are a separate trust domain from the stado binary itself;
 compromising a plugin signing key doesn't affect release-signing
 integrity.
 
+### Plugin-publish cookbook (for third-party maintainers)
+
+Step-by-step for maintainers who want to publish an offline-signed
+plugin. Assumes you already have working `plugin.wasm` +
+`plugin.manifest.json` templates — see `examples/plugins/hello/` for a
+minimal starting point and `examples/plugins/auto-compact/` for the
+full session-capable shape.
+
+#### 1. Generate a signing key (one-time per maintainer identity)
+
+```sh
+# On an airgapped or otherwise-trusted machine:
+stado plugin gen-key plugin-signer.seed
+
+# → prints:
+#   pubkey (hex):   <64 hex chars>
+#   fingerprint:    <short fpr>
+#   seed written:   plugin-signer.seed (chmod 0600 — keep offline)
+```
+
+- Treat the `.seed` file like any other private key: offline storage,
+  no backups to cloud drives, `chmod 0600`.
+- The fingerprint is short enough to print on a business card; users
+  will verify the pubkey-hex matches the fingerprint on first install.
+- One key per *maintainer identity*, not per plugin — the same key
+  can sign every plugin you ship.
+
+#### 2. Publish the pubkey + fingerprint
+
+Distribute **via a channel outside your plugin-distribution channel** so
+a compromise of one doesn't take down the other. Good options:
+
+- Your project's homepage (HTTPS, not just GitHub Pages on a custom domain)
+- A DNS TXT record under your domain
+- A transparency-log service (sigstore, etc.)
+- Print on conference swag
+
+The users' pinning step (`stado plugin trust <pubkey> "<comment>"`) is
+a one-time trust decision; make it easy for them to verify.
+
+#### 3. Fill in manifest metadata
+
+In `plugin.manifest.json` fill in every field *before* signing:
+
+```json
+{
+  "name":             "my-plugin",
+  "version":          "0.3.1",
+  "author":           "alice@example.com",
+  "capabilities":     ["session:read", "llm:invoke:50000"],
+  "tools":            [ /* ... */ ],
+  "min_stado_version": "0.9.0",
+  "timestamp_utc":    "2026-04-20T10:15:00Z",
+  "nonce":            "<random hex — openssl rand -hex 16>"
+}
+```
+
+`wasm_sha256` + `author_pubkey_fpr` are filled automatically by
+`stado plugin sign` — leave them empty in the template. Bump `version`
+for every release; stado's rollback guard rejects installs that go
+backwards. `nonce` prevents replay of old signed manifests under the
+same version.
+
+#### 4. Sign the manifest
+
+```sh
+stado plugin sign plugin.manifest.json --key plugin-signer.seed --wasm plugin.wasm
+
+# Produces:
+#   plugin.manifest.json   (with wasm_sha256 + author_pubkey_fpr filled in)
+#   plugin.manifest.sig    (base64 Ed25519 signature)
+```
+
+Both files must ship side-by-side — the install verifier reads the
+`.sig` from the same directory as `.json`.
+
+#### 5. (Optional) Upload to Rekor for public verifiability
+
+```sh
+# One-time: point stado at the public Rekor instance.
+# (Or run your own — Rekor is Apache-2-licensed.)
+echo '[plugins]
+rekor_url = "https://rekor.sigstore.dev"' >> ~/.config/stado/config.toml
+
+# Rekor upload happens automatically during `stado plugin verify`
+# when rekor_url is set AND the manifest has no prior entry. Users
+# who pass through `stado plugin install` see the entry UUID printed
+# to stderr; absence is advisory (the trust store is still the
+# authoritative gate).
+```
+
+Uploading is a unilateral action — once logged, the entry is
+append-only. Do it before distributing so users' `verify` calls find
+an entry instead of advising "no log entry".
+
+#### 6. Distribute the plugin directory
+
+Ship everything in `examples/plugins/<name>/` shape:
+
+```
+my-plugin/
+├── plugin.wasm
+├── plugin.manifest.json       # signed
+├── plugin.manifest.sig        # signature
+└── README.md                  # usage + capability explanation
+```
+
+A tarball, a git tag, a GitHub release — any medium works. The verifier
+doesn't care about transport, only that the four files land together.
+
+#### 7. Revocation (only if the key is compromised)
+
+Contact the stado project to add your key to the CRL — the CRL is
+operated by the project and signed by a separate key pinned in
+`[plugins].crl_issuer_pubkey`. **Do not rotate silently:** users who
+installed under the old key need to see a revocation event, not just
+a new plugin version with a new signer.
+
+After revocation:
+
+1. Generate a fresh key (back to step 1).
+2. Publish the new pubkey + rotation-event notice via the same channel
+   as step 2.
+3. Re-sign + re-distribute every still-supported plugin version.
+4. Users re-run `stado plugin trust <new-pubkey>` + re-install.
+
+#### 8. Rotating without compromise (hygiene)
+
+Annual rotation is good practice even without an incident. Same flow
+as revocation minus the CRL step: publish a *rotation notice*, sign
+future releases with the new key, leave the old key's
+already-published signatures valid (they're still verifiable — the
+CRL's absence is what matters).
+
+#### 9. Testing the publish flow locally
+
+Before pushing to users, round-trip a fresh install against your own
+trust store:
+
+```sh
+stado plugin gen-key test.seed                                          # step 1
+stado plugin sign plugin.manifest.json --key test.seed --wasm plugin.wasm  # step 4
+stado plugin trust $(grep 'pubkey' test-output | awk '{print $3}') "test"  # step 2
+stado plugin verify .                                                    # should pass
+stado plugin install .                                                   # should install
+stado plugin run my-plugin-0.3.1 hello '{}'                              # smoke-test
+```
+
+A green round-trip here means end users will also succeed, assuming
+they've pinned your real pubkey.
+
 ---
 
 ## Reporting a vulnerability

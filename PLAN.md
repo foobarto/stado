@@ -341,7 +341,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 | 6.4 | `slog` + `otelslog` — structured logs correlated with spans. |
 | 6.5 | Config `[otel]` section — exporter, endpoint, sampling, headers, insecure, timeout. |
 
-**Verify:** local docker-compose with jaeger + otel-collector; run a TUI session; see full trace hierarchy in Jaeger UI.
+**Verify:** local compose fixture shipped at [`hack/otel-compose/`](hack/otel-compose/) — single-service Jaeger-all-in-one accepting OTLP on 4317/4318; README walks through env-vars / config.toml to point stado at it and the expected span hierarchy to look for in the UI.
 
 ---
 
@@ -349,7 +349,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Third-party plugins run in wazero, capability-gated, signed.
 
-**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.7 Rekor transparency-log integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry / VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a hash-index lookup and asserts the entry's sig / pubkey / digest triple matches the manifest — mismatch is fatal, absence is advisory, airgap stubs out); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** Context-management capabilities (`session:observe`, `session:read`, `session:fork`, `llm:invoke`) are planned as part of 7.1 — see §7.1 notes. Offline publish workflow for plugin maintainers is a cookbook, not code.
+**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.7 Rekor transparency-log integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry / VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a hash-index lookup and asserts the entry's sig / pubkey / digest triple matches the manifest — mismatch is fatal, absence is advisory, airgap stubs out); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** Context-management capabilities (`session:observe`, `session:read`, `session:fork`, `llm:invoke`) are planned as part of 7.1 — see §7.1 notes. Offline publish cookbook shipped in [SECURITY.md §"Plugin-publish cookbook"](SECURITY.md#plugin-publish-cookbook-for-third-party-maintainers) — nine-step maintainer guide from gen-key through rotation.
 
 ### 7.1 `internal/plugins/runtime.go` — wazero host (pure Go, CGO-free)
 
