@@ -245,7 +245,7 @@ type refMakerSession func(sessionID string) plumbing.ReferenceName
 func init() {
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionForkCmd,
-		sessionAttachCmd, sessionShowCmd, sessionLandCmd,
+		sessionAttachCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
 }
@@ -263,6 +263,8 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 }
 
 // createSession makes a new session, optionally branched from parentID.
+// Forked sessions have their worktree materialised to the parent's tree so
+// the child starts with the same files the parent had.
 func createSession(cfg *config.Config, parentID string) (*stadogit.Session, error) {
 	sc, err := openSidecar(cfg)
 	if err != nil {
@@ -272,21 +274,101 @@ func createSession(cfg *config.Config, parentID string) (*stadogit.Session, erro
 		return nil, err
 	}
 
-	var parentTree plumbing.Hash
+	var parentTreeCommit plumbing.Hash
 	if parentID != "" {
 		head, err := sc.ResolveRef(stadogit.TreeRef(parentID))
-		if err != nil {
-			return nil, fmt.Errorf("fork: parent %s has no tree ref: %w", parentID, err)
+		switch {
+		case err == nil:
+			parentTreeCommit = head
+		case errors.Is(err, plumbing.ErrReferenceNotFound):
+			// Parent hasn't committed anything yet — fork is equivalent to a
+			// fresh session. Not an error.
+			fmt.Fprintf(os.Stderr, "fork: parent %s has no tree ref yet; creating empty child\n", parentID)
+		default:
+			return nil, fmt.Errorf("fork: resolve parent: %w", err)
 		}
-		parentTree = head
 	}
 
 	id := uuid.New().String()
-	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, parentTree)
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, parentTreeCommit)
 	if err != nil {
 		return nil, err
 	}
+
+	// Materialise the parent's tree into the child's worktree. Empty parent
+	// tree = clean worktree.
+	if !parentTreeCommit.IsZero() {
+		treeHash, err := sess.TreeFromCommit(parentTreeCommit)
+		if err != nil {
+			return nil, fmt.Errorf("fork: resolve tree: %w", err)
+		}
+		if err := sess.MaterializeTreeToDir(treeHash, sess.WorktreePath); err != nil {
+			return nil, fmt.Errorf("fork: materialise worktree: %w", err)
+		}
+	}
 	return sess, nil
+}
+
+var sessionRevertCmd = &cobra.Command{
+	Use:   "revert <id> <commit-or-turn>",
+	Short: "Reset a session's worktree to an earlier commit on a new child session",
+	Long: "Create a new session whose tree ref points at the given historical commit\n" +
+		"(or turns/<N> tag) from <id>'s history, and materialise the worktree to\n" +
+		"match. The parent session is untouched — revert is non-destructive and\n" +
+		"lives on a fresh session ID.",
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		sc, err := openSidecar(cfg)
+		if err != nil {
+			return err
+		}
+		srcID, target := args[0], args[1]
+		commitHash, err := resolveRevertTarget(sc, srcID, target)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+			return err
+		}
+		newID := uuid.New().String()
+		sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), newID, commitHash)
+		if err != nil {
+			return err
+		}
+		treeHash, err := sess.TreeFromCommit(commitHash)
+		if err != nil {
+			return fmt.Errorf("revert: read tree from commit: %w", err)
+		}
+		if err := sess.MaterializeTreeReplacing(treeHash, sess.WorktreePath); err != nil {
+			return fmt.Errorf("revert: materialise: %w", err)
+		}
+		fmt.Println(newID)
+		fmt.Fprintf(os.Stderr, "reverted %s@%s → new session %s (worktree %s)\n",
+			srcID, commitHash.String()[:12], newID, sess.WorktreePath)
+		return nil
+	},
+}
+
+// resolveRevertTarget accepts either a commit prefix (looked up via a linear
+// walk of src's tree ref) or "turns/<N>" which resolves via the turn-tag ref.
+func resolveRevertTarget(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
+	if strings.HasPrefix(target, "turns/") {
+		ref := plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target)
+		h, err := sc.ResolveRef(ref)
+		if err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("revert: tag %s not found: %w", target, err)
+		}
+		return h, nil
+	}
+	// Treat as raw hash or prefix. v1: only accept full 40-char hashes.
+	if len(target) < 40 {
+		return plumbing.ZeroHash, fmt.Errorf("revert: pass a full 40-char commit sha or turns/<N>")
+	}
+	return plumbing.NewHash(target), nil
 }
 
 // findRepoRoot walks up from start looking for a .git dir. Falls back to the

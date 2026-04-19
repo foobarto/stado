@@ -60,6 +60,11 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Persist what you've learned
+
+After solving an issue that required few cycles to figure out how to do it's important to save what you've learned.
+Save new learnings in `.learnings/` folder. Use a file name that's descriptive. When encountering new issue first check if there are any files in `.learnings/` that might contain a solution to your problem.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

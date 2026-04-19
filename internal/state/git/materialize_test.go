@@ -1,0 +1,140 @@
+package git
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing"
+)
+
+func TestMaterialize_RoundTrip(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	wt := t.TempDir()
+	sess, _ := CreateSession(sc, wt, "mat-1", plumbing.ZeroHash)
+
+	// Populate + build tree from the source worktree.
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("alpha"), 0o644)
+	os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("beta"), 0o644)
+	os.WriteFile(filepath.Join(src, "exe"), []byte("#!/bin/sh\necho hi\n"), 0o755)
+
+	tree, err := sess.BuildTreeFromDir(src)
+	if err != nil {
+		t.Fatalf("BuildTreeFromDir: %v", err)
+	}
+
+	// Materialise into a fresh dir and compare.
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := sess.MaterializeTreeToDir(tree, dst); err != nil {
+		t.Fatalf("Materialize: %v", err)
+	}
+
+	for _, p := range []string{"a.txt", "sub/b.txt", "exe"} {
+		srcBody, _ := os.ReadFile(filepath.Join(src, p))
+		dstBody, err := os.ReadFile(filepath.Join(dst, p))
+		if err != nil {
+			t.Errorf("missing after materialise: %s (%v)", p, err)
+			continue
+		}
+		if !bytes.Equal(srcBody, dstBody) {
+			t.Errorf("body mismatch at %s", p)
+		}
+	}
+
+	// Exec bit preserved?
+	info, err := os.Stat(filepath.Join(dst, "exe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("exe mode %o lost executable bit", info.Mode().Perm())
+	}
+}
+
+func TestMaterialize_Replacing_RemovesExtras(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	wt := t.TempDir()
+	sess, _ := CreateSession(sc, wt, "mat-2", plumbing.ZeroHash)
+
+	// Tree contains only a.txt.
+	src := filepath.Join(t.TempDir(), "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644)
+	tree, _ := sess.BuildTreeFromDir(src)
+
+	// Destination starts with a.txt + extra stuff.
+	dst := filepath.Join(t.TempDir(), "dst")
+	os.MkdirAll(dst, 0o755)
+	os.WriteFile(filepath.Join(dst, "a.txt"), []byte("old"), 0o644)
+	os.WriteFile(filepath.Join(dst, "extra.txt"), []byte("kill me"), 0o644)
+	os.MkdirAll(filepath.Join(dst, "stale"), 0o755)
+	os.WriteFile(filepath.Join(dst, "stale", "x"), []byte("x"), 0o644)
+
+	if err := sess.MaterializeTreeReplacing(tree, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dst, "extra.txt")); err == nil {
+		t.Error("extra.txt should have been pruned")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "stale")); err == nil {
+		t.Error("stale/ should have been pruned")
+	}
+	body, _ := os.ReadFile(filepath.Join(dst, "a.txt"))
+	if string(body) != "a" {
+		t.Errorf("a.txt = %q, want updated content 'a'", body)
+	}
+}
+
+func TestMaterialize_Replacing_PreservesStadoInternal(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	wt := t.TempDir()
+	sess, _ := CreateSession(sc, wt, "mat-3", plumbing.ZeroHash)
+
+	src := filepath.Join(t.TempDir(), "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "keep"), []byte("k"), 0o644)
+	tree, _ := sess.BuildTreeFromDir(src)
+
+	dst := filepath.Join(t.TempDir(), "dst")
+	os.MkdirAll(dst, 0o755)
+	os.WriteFile(filepath.Join(dst, "keep"), []byte("old"), 0o644)
+	os.WriteFile(filepath.Join(dst, ".stado-pid"), []byte("12345"), 0o644)
+
+	if err := sess.MaterializeTreeReplacing(tree, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".stado-pid")); err != nil {
+		t.Errorf(".stado-pid should be preserved: %v", err)
+	}
+}
+
+func TestMaterialize_ZeroTreeEmptyDir(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-4", plumbing.ZeroHash)
+
+	dst := filepath.Join(t.TempDir(), "dst")
+	os.MkdirAll(dst, 0o755)
+	os.WriteFile(filepath.Join(dst, "stuff"), []byte("x"), 0o644)
+
+	// Non-replacing + zero tree → no-op (dst/stuff survives).
+	if err := sess.MaterializeTreeToDir(plumbing.ZeroHash, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "stuff")); err != nil {
+		t.Error("non-replacing zero-tree should be a no-op")
+	}
+
+	// Replacing + zero tree → wipe dst content.
+	if err := sess.MaterializeTreeReplacing(plumbing.ZeroHash, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "stuff")); err == nil {
+		t.Error("replacing zero-tree should have wiped content")
+	}
+}
