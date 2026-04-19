@@ -671,6 +671,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.slash.Visible = false
 				return m, m.handleSlash(text)
 			}
+			// Hard-threshold gate (DESIGN §"Token accounting" 11.2.6).
+			// Refuse to start a fresh turn once we're at/above the hard
+			// bound — forces the user to /compact or fork before adding
+			// more context. The draft text stays in the input so the
+			// recovery flow doesn't lose it.
+			if m.aboveHardThreshold() {
+				m.appendBlock(block{
+					kind: "system",
+					body: fmt.Sprintf(
+						"context at %.0f%% (hard threshold %.0f%%) — blocked. Recover with /compact, or fork from an earlier turn (`stado session fork <id> --at turns/<N>`), then retry.",
+						100*m.contextFraction(), 100*m.ctxHardThreshold),
+				})
+				m.renderBlocks()
+				return m, nil
+			}
 			m.input.History.Push(text)
 			m.input.Reset()
 			m.appendUser(text)
@@ -851,6 +866,29 @@ func (m *Model) renderStatus(width int) string {
 // Soft/hard thresholds (DESIGN §"Token accounting") colour the number
 // when crossed — warning at soft, error at hard — so users see the
 // context approaching capacity without reading docs.
+// contextFraction returns current input-token usage as a fraction of
+// the provider's reported max context. Returns 0 when capacity or
+// usage is unknown — callers treat that as "not above threshold".
+func (m *Model) contextFraction() float64 {
+	cap := m.providerCaps().MaxContextTokens
+	used := m.usage.InputTokens
+	if cap <= 0 || used == 0 {
+		return 0
+	}
+	return float64(used) / float64(cap)
+}
+
+// aboveHardThreshold reports whether the current turn's running
+// context usage has crossed the hard threshold. DESIGN §"Token
+// accounting" §11.2.6: new user-initiated turns block above this
+// bound; in-flight tool-continuation turns are allowed to finish.
+func (m *Model) aboveHardThreshold() bool {
+	if m.ctxHardThreshold <= 0 {
+		return false
+	}
+	return m.contextFraction() >= m.ctxHardThreshold
+}
+
 func tokenPctString(m *Model) string {
 	cap := m.providerCaps().MaxContextTokens
 	used := m.usage.InputTokens

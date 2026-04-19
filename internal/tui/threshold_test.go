@@ -24,6 +24,55 @@ func (fakeCappedProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan
 	panic("not called in these tests")
 }
 
+// TestAboveHardThreshold covers the three regions around the hard
+// bound: well below, exactly at, well above. DESIGN §"Token
+// accounting" 11.2.6 requires the at-threshold case to count as
+// "above" — half-open intervals would let one extra turn slip past.
+func TestAboveHardThreshold(t *testing.T) {
+	m := &Model{
+		ctxSoftThreshold: 0.70,
+		ctxHardThreshold: 0.90,
+		provider:         fakeCappedProvider{max: 100},
+	}
+	m.usage.InputTokens = 50
+	if m.aboveHardThreshold() {
+		t.Error("50/100 reported above hard threshold 0.9")
+	}
+	m.usage.InputTokens = 90
+	if !m.aboveHardThreshold() {
+		t.Error("90/100 (== hard) should count as above")
+	}
+	m.usage.InputTokens = 95
+	if !m.aboveHardThreshold() {
+		t.Error("95/100 not reported above hard threshold")
+	}
+}
+
+// TestAboveHardThreshold_DisabledWhenZero — threshold == 0 treats the
+// feature as off so existing tests that don't set thresholds don't
+// spuriously hit the gate.
+func TestAboveHardThreshold_DisabledWhenZero(t *testing.T) {
+	m := &Model{provider: fakeCappedProvider{max: 100}}
+	m.usage.InputTokens = 99
+	if m.aboveHardThreshold() {
+		t.Error("zero hardThreshold should disable the gate")
+	}
+}
+
+// TestContextFraction_NoCapOrNoUsage returns 0 when inputs are absent
+// — callers use this as the "don't-block" signal.
+func TestContextFraction_NoCapOrNoUsage(t *testing.T) {
+	m := &Model{provider: fakeCappedProvider{max: 0}}
+	m.usage.InputTokens = 100
+	if got := m.contextFraction(); got != 0 {
+		t.Errorf("no cap → fraction %v, want 0", got)
+	}
+	m = &Model{provider: fakeCappedProvider{max: 100}}
+	if got := m.contextFraction(); got != 0 {
+		t.Errorf("no usage → fraction %v, want 0", got)
+	}
+}
+
 // TestSetContextThresholdsRejectsInvalid asserts bad values are ignored and
 // defaults survive.
 func TestSetContextThresholdsRejectsInvalid(t *testing.T) {
