@@ -253,6 +253,13 @@ not call `RecordRead` even when they incidentally read files. The
 Executor's in-memory log is the sole consumer; there is no
 persistence.
 
+**Return-value contract for `PriorRead`.** On `ok=true`, all fields of
+`PriorReadInfo` must be populated (non-zero `Turn`, non-empty
+`ContentHash`). On `ok=false`, callers must treat the returned
+`PriorReadInfo` as undefined and inspect only `ok`. Future fields
+added to `PriorReadInfo` follow the same rule — populated on success,
+undefined on failure.
+
 The `read` tool computes the content hash incrementally while reading
 (via `io.MultiWriter` into both the output buffer and a `sha256.New()`
 hasher), not as a post-read pass. Hash scope is the **targeted region
