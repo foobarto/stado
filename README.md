@@ -197,6 +197,24 @@ for SIEM ingestion.
 `stado headless` (JSON-RPC 2.0 daemon), `stado acp` (Zed Agent Client
 Protocol server). All compose the same `internal/runtime` core.
 
+**MCP sandbox.** Each `[mcp.servers.<name>]` can declare a
+`capabilities` list (fs:read/fs:write/net:<host>/exec:<binary>/env:VAR).
+Stado maps these to a sandbox policy and launches the stdio server via
+bubblewrap so it can't silently touch anything not in the manifest.
+Unsandboxed servers emit a stderr advisory at attach time.
+
+**Plugin CRL.** When `[plugins].crl_url` + `crl_issuer_pubkey` are
+configured, `stado plugin verify` fetches an Ed25519-signed revocation
+list, caches it on disk (airgap-friendly), and refuses installation of
+any (author_fpr, version, wasm_sha256) triple listed — independent
+check on top of the trust-store signature + rollback gates.
+
+**Self-update integrity.** `stado self-update` verifies the sha256 from
+checksums.txt, and — once a release pubkey is embedded via build
+ldflags — also validates `checksums.txt.minisig` before trusting the
+checksums. Four (pubkey × signature) states all handled with cleanly
+degraded advisories.
+
 **Context management.** Prompt-cache breakpoints placed automatically
 on providers that support them (Anthropic); deterministic tool
 serialisation + append-only guardrails keep the cached prefix
@@ -239,10 +257,15 @@ See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
   layer that doesn't yet exist.
 - **Sandbox — macOS and Windows** (Phase 3). `sandbox-exec` profile
   generation, Windows job objects with restricted tokens.
-- **WASM plugins** (Phase 7). Manifest + trust store + CLI shipped;
-  the wazero runtime host is the remaining piece.
-- **Distribution** (Phase 10). Homebrew tap, signed apt/rpm repos,
-  signature verification on `stado self-update`.
+- **Sandbox — seccomp BPF on Linux** (Phase 3.3). `bwrap --seccomp=FD`
+  integration for defense-in-depth beyond the FS/net policy.
+- **WASM plugins — runtime** (Phase 7.1). Manifest + trust store +
+  CRL + CLI shipped; the wazero runtime host (actually executing
+  plugin wasm with sandboxed host imports) is the remaining piece.
+- **Release distribution** (Phase 10.3b / 10.7). Offline minisign
+  key ceremony that seeds the embedded pubkey, Homebrew tap, signed
+  apt/rpm repos. Cosign-online verification on self-update also
+  still pending — minisign path is wired.
 
 ---
 
