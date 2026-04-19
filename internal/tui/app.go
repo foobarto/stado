@@ -82,23 +82,63 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 		return openai.New("", "")
 	case "google", "gemini":
 		return google.New("")
-	case "ollama":
-		return oaicompat.New("http://localhost:11434/v1", oaicompat.WithName("ollama"))
-	case "llamacpp":
-		return oaicompat.New("http://localhost:8080/v1", oaicompat.WithName("llamacpp"))
-	case "vllm":
-		return oaicompat.New("http://localhost:8000/v1", oaicompat.WithName("vllm"))
 	case "":
 		return nil, errors.New("no provider configured (set defaults.provider)")
 	}
 
-	// Look up inference presets.
+	// Bundled OAI-compat presets — known endpoints so users don't have to
+	// write them out by hand. API key env var is picked up by oaicompat's
+	// WithAPIKey option from the matching STADO_*_API_KEY.
+	if ep, keyEnv, ok := builtinPreset(name); ok {
+		opts := []oaicompat.Option{oaicompat.WithName(name)}
+		if keyEnv != "" {
+			if v := os.Getenv(keyEnv); v != "" {
+				opts = append(opts, oaicompat.WithAPIKey(v))
+			}
+		}
+		return oaicompat.New(ep, opts...)
+	}
+
+	// Look up user-defined inference presets from config.
 	if cfg.Inference.Presets != nil {
 		if preset, ok := cfg.Inference.Presets[name]; ok && preset.Endpoint != "" {
 			return oaicompat.New(preset.Endpoint, oaicompat.WithName(name))
 		}
 	}
-	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, or a configured preset)", name)
+	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
+}
+
+// builtinPreset returns (endpoint, api-key-env-var, ok) for bundled
+// OAI-compat providers. API-key envs follow upstream convention so existing
+// tooling keeps working.
+func builtinPreset(name string) (string, string, bool) {
+	switch name {
+	// Local runners — no API key required.
+	case "ollama":
+		return "http://localhost:11434/v1", "", true
+	case "llamacpp":
+		return "http://localhost:8080/v1", "", true
+	case "vllm":
+		return "http://localhost:8000/v1", "", true
+	case "lmstudio":
+		return "http://localhost:1234/v1", "", true
+	case "litellm":
+		return "http://localhost:4000/v1", "LITELLM_API_KEY", true
+	// Hosted services that speak OAI-compat.
+	case "groq":
+		return "https://api.groq.com/openai/v1", "GROQ_API_KEY", true
+	case "openrouter":
+		return "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", true
+	case "deepseek":
+		return "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY", true
+	case "xai":
+		return "https://api.x.ai/v1", "XAI_API_KEY", true
+	case "mistral":
+		return "https://api.mistral.ai/v1", "MISTRAL_API_KEY", true
+	case "cerebras":
+		return "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", true
+	}
+	return "", "", false
 }
 
 func loadTheme(cfg *config.Config) (*theme.Theme, error) {
