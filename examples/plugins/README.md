@@ -10,6 +10,7 @@ matches the toolchain you already have.
 | [`hello-go/`](hello-go/)                       | Go       | ~3 MB     | reactor via `-buildmode=c-shared`, WASIp1                                                                  |
 | [`session-inspect/`](session-inspect/)         | Go       | ~3 MB     | Phase 7.1b capability demo — declares `session:read` / `session:fork` / `llm:invoke`, exercises the first |
 | [`auto-compact/`](auto-compact/)               | Go       | ~3 MB     | Phase 7.1b validator — exercises **all four** session/LLM imports end-to-end: read token count + history, invoke LLM to summarise, fork with summary as seed |
+| [`session-recorder/`](session-recorder/)       | Go       | ~3 MB     | Phase 7.1b second validator — `session:read` + `fs:read`/`fs:write` + `stado_plugin_tick`. Appends a JSONL line per turn to `.stado/session-recordings.jsonl`. Different capability mix from auto-compact, same ABI — proves the surface is general-purpose |
 
 Both implement the same tool contract so you can diff them:
 

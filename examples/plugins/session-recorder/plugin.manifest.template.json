@@ -1,0 +1,22 @@
+{
+  "name": "session-recorder",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "session:read",
+    "fs:read:.stado",
+    "fs:write:.stado"
+  ],
+  "tools": [
+    {
+      "name": "snapshot",
+      "description": "Capture the current session state (turn, tokens, message count, last_turn_ref) and append one JSONL line to .stado/session-recordings.jsonl. Invoke manually to record a checkpoint; the background-tick lifecycle records automatically on every turn boundary when loaded via [plugins].background.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"note\":{\"type\":\"string\",\"description\":\"Optional free-form tag stored with this recording.\"}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-20T00:00:00Z",
+  "nonce": "session-recorder-demo-001"
+}
