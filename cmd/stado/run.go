@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,15 +14,17 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
 var (
-	runPrompt   string
-	runMaxTurns int
-	runJSON     bool
-	runTools    bool
+	runPrompt     string
+	runMaxTurns   int
+	runJSON       bool
+	runTools      bool
+	runSandboxFS  bool
 )
 
 var runCmd = &cobra.Command{
@@ -68,6 +71,21 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}
 			opts.Executor = runtime.BuildExecutor(sess, cfg, "stado-run")
 			fmt.Fprintf(os.Stderr, "stado run: session %s (worktree %s)\n", sess.ID, sess.WorktreePath)
+
+			if runSandboxFS {
+				// Narrow our own process so mutating tools can only touch
+				// the worktree + /tmp. Read-anywhere stays permitted so
+				// globs/greps/reads still work across the repo.
+				if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(sess.WorktreePath)); err != nil {
+					if errors.Is(err, sandbox.ErrLandlockUnavailable) {
+						fmt.Fprintln(os.Stderr, "stado run: --sandbox-fs requested but landlock unavailable on this kernel; continuing unsandboxed")
+					} else {
+						return fmt.Errorf("sandbox: %w", err)
+					}
+				} else {
+					fmt.Fprintln(os.Stderr, "stado run: landlock applied (writes confined to worktree + /tmp)")
+				}
+			}
 		}
 
 		ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Minute)
@@ -124,5 +142,6 @@ func init() {
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable tool-calling (bash/fs/webfetch) with git-native audit")
+	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
 	rootCmd.AddCommand(runCmd)
 }

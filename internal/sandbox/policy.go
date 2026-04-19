@@ -118,6 +118,19 @@ func ReadOnlyFS(readGlobs ...string) Policy {
 	}
 }
 
+// WorktreeWrite returns a Policy that allows reading anywhere on the
+// filesystem but only writing inside `worktree` (and /tmp, which many tools
+// need for scratch files). Typical use: narrow stado's own process when
+// running `stado run --sandbox`.
+//
+// Net left unset — callers layer NetPolicy themselves.
+func WorktreeWrite(worktree string) Policy {
+	return Policy{
+		FSRead:  []string{"/"},
+		FSWrite: []string{worktree, "/tmp"},
+	}
+}
+
 func intersect(a, b []string) []string {
 	if len(a) == 0 {
 		return nil
