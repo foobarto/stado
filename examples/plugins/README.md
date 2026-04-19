@@ -4,10 +4,11 @@ Each subdirectory is a self-contained, signable plugin. The ABI is the
 same across all of them; the source language isn't. Pick whichever
 matches the toolchain you already have.
 
-| Example                 | Language | Wasm size | Notes                                    |
-|-------------------------|----------|-----------|------------------------------------------|
-| [`hello/`](hello/)       | Zig      | ~800 B    | freestanding wasm32, no runtime          |
-| [`hello-go/`](hello-go/) | Go       | ~3 MB     | reactor via `-buildmode=c-shared`, WASIp1 |
+| Example                                       | Language | Wasm size | Notes                                                                                                     |
+|-----------------------------------------------|----------|-----------|-----------------------------------------------------------------------------------------------------------|
+| [`hello/`](hello/)                             | Zig      | ~800 B    | freestanding wasm32, no runtime                                                                           |
+| [`hello-go/`](hello-go/)                       | Go       | ~3 MB     | reactor via `-buildmode=c-shared`, WASIp1                                                                  |
+| [`session-inspect/`](session-inspect/)         | Go       | ~3 MB     | Phase 7.1b capability demo — declares `session:read` / `session:fork` / `llm:invoke`, exercises the first |
 
 Both implement the same tool contract so you can diff them:
 

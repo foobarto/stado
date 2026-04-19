@@ -549,13 +549,100 @@ sub-turn fork precision obtain the relevant SHA via
 
 ### Non-goals
 
-Explicitly out of scope. A contribution proposing any of these must
-first justify why fork-from-point is inadequate for the use case:
+Explicitly out of scope **for the core agent loop**. A contribution
+that proposes any of these as core behavior must first justify why
+fork-from-point is inadequate:
 
 - Automatic or background summarization of any kind.
 - Semantic importance scoring of individual turns.
 - Vector-store-backed "memory" of prior sessions.
 - Sliding-window auto-eviction without user consent.
+
+**Plugins may implement any of these behaviors** via documented
+extension points — in particular, by forking to a new session
+rather than rewriting conversation history in place. A plugin that
+rewrites history in place violates the append-only invariant
+regardless of where the code lives. See §"Plugin extension points
+for context management" below.
+
+### Plugin extension points for context management
+
+The core agent loop is closed to automatic context manipulation, but
+the plugin layer is not. A signed, capability-bounded plugin can
+observe turn boundaries, read the session's state, and fork into a
+new session whose first message is a plugin-provided summary. The
+append-only invariant is preserved because nothing in the parent
+session is rewritten — the plugin's recovery move is the same move
+stado's core offers (fork-from-point), just initiated programmatically.
+
+This subsection defines what a context-management plugin can request
+and the invariants it must honour. The canonical motivating case is
+auto-compaction, but the surface is deliberately broader.
+
+**Capabilities a context-management plugin may request.** In addition
+to the existing `fs:*`, `net:*`, and `exec:*` capabilities, four
+session/LLM capabilities gate the host imports below:
+
+| Capability | Purpose | Host import |
+|---|---|---|
+| `session:observe` | Subscribe to turn-boundary events and receive notifications when a turn completes. | `stado_session_observe(callback_ref)` |
+| `session:read` | Read the current session's conversation history, token counts, and metadata. Read-only — no mutation. | `stado_session_read(field, buf, len) → n` |
+| `session:fork` | Initiate a fork-from-point programmatically, seeding the child session with a plugin-provided message (e.g. a summary). Returns the new session ID. | `stado_session_fork(at_turn_ref, seed_message, buf, len) → n` |
+| `llm:invoke` | Call an LLM with a prompt and receive the response. Uses the active provider by default; plugin manifest may declare a preferred backend. Subject to rate-limiting and budget caps set in plugin config. | `stado_llm_invoke(prompt_ptr, prompt_len, out_buf, out_len) → n` |
+
+> **ABI note.** The signatures above are *indicative* and will be
+> finalised with the 7.1b host-import PR. Several shapes are
+> under-specified against stado's existing `(ptr, len)`-pair ABI
+> convention — notably the `callback_ref` parameter (wasm has no
+> native closure/callback type), the `field` encoding in
+> `stado_session_read`, and whether `stado_llm_invoke` streams or
+> aggregates. Consult the PR when it lands for the authoritative
+> shapes; this table documents the *capability semantics*, not the
+> wire format.
+
+**Invariants plugins must respect.** Non-negotiable:
+
+1. **Append-only in the parent session.** A plugin must never rewrite
+   conversation history in any session — parent or child. Summaries
+   are expressed by forking to a new session whose first message is
+   the summary, not by editing an existing session's messages.
+2. **Capability-bounded.** A plugin's manifest declares every
+   capability it uses. Runtime denies capabilities not declared.
+   `llm:invoke` specifically carries a token budget per session; a
+   plugin that exhausts the budget is killed and reports the denial
+   via the audit log.
+3. **All plugin-triggered actions are audited.** Any fork initiated
+   by a plugin, any LLM call made by a plugin, any tool invocation
+   on the plugin's behalf lands on the session's `trace` ref with a
+   `Plugin:` trailer identifying the plugin by name + signature
+   fingerprint.
+4. **User-visible by default.** When a plugin forks a session,
+   the TUI surfaces the fork (inline notification; not a silent
+   operation). Headless mode emits `session.update { kind:
+   "plugin_fork", plugin: "<name>", reason: "<plugin-provided>" }`.
+
+**Canonical example: the auto-compaction plugin shape.** Walking
+through how an auto-compaction plugin uses the four capabilities
+together:
+
+- At startup, declare capabilities: `session:observe`, `session:read`,
+  `session:fork`, `llm:invoke`.
+- Subscribe to turn-boundary events via `session:observe`.
+- On each turn boundary, check token usage via `session:read`. If
+  below configured threshold, do nothing.
+- If threshold crossed: read conversation history via `session:read`,
+  invoke LLM via `llm:invoke` to produce a summary of the oldest N
+  turns, call `session:fork` with the summary as seed message rooted
+  at the turn boundary being compacted.
+- Return. User sees the fork notification; new session continues with
+  the summary as the seed context. Parent session is untouched and
+  remains resumable.
+
+This plugin shape is explicitly allowed because it never rewrites
+history; it only forks. Per §"Non-goals", the core prohibition is
+on *in-place* summarization — not on this fork-based pattern. A
+plugin that edited prior turns on the parent session would violate
+invariant 1 above and the runtime would refuse the action.
 
 ### Testing requirements
 
@@ -735,6 +822,12 @@ Ship a `plugin.wasm` + `plugin.manifest.json` + `plugin.manifest.sig`
 directory. Author's public key must be pinned via
 `stado plugin trust <pubkey>`. Manifest version must monotonically
 increase (rollback protection).
+
+Context-management plugins (auto-compaction, second-opinion routing,
+session-replay exporters) have a dedicated set of capabilities —
+`session:observe`, `session:read`, `session:fork`, and `llm:invoke`.
+See §"Plugin extension points for context management" for semantics
+and the required invariants.
 
 ### Custom theme
 

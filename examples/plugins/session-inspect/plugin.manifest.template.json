@@ -1,0 +1,22 @@
+{
+  "name": "session-inspect",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "session:read",
+    "session:fork",
+    "llm:invoke:20000"
+  ],
+  "tools": [
+    {
+      "name": "inspect",
+      "description": "Report the current session's shape — id, message count, token count, last turn ref, and a head of the history payload. Demonstrates the Phase 7.1b session:read host import end-to-end.",
+      "schema": "{\"type\":\"object\",\"properties\":{}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-19T00:00:00Z",
+  "nonce": "session-inspect-demo-001"
+}
