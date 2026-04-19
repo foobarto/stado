@@ -18,3 +18,8 @@ package audit
 // without editing source, and so tests can swap it for the duration
 // of a test case.
 var EmbeddedMinisignPubkey = ""
+
+// EmbeddedMinisignKeyID is the signer's 64-bit key id (minisign's own
+// anti-mixup identifier). Empty default pairs with the empty pubkey.
+// Release builds can seed via ldflags alongside the pubkey.
+var EmbeddedMinisignKeyID uint64 = 0
