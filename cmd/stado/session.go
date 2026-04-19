@@ -115,21 +115,48 @@ var sessionDeleteCmd = &cobra.Command{
 
 var sessionForkCmd = &cobra.Command{
 	Use:   "fork <id>",
-	Short: "Create a new session branched from an existing one's tree head",
-	Args:  cobra.ExactArgs(1),
+	Short: "Create a new session branched from an existing one's tree head, or from a specific turn via --at",
+	Long: "Without --at, the new session's tree head matches the parent's current\n" +
+		"tree head. With --at <turns/N> or --at <commit-sha>, the new session is\n" +
+		"rooted at an earlier point in the parent's history.\n\n" +
+		"The parent session is never modified — fork-from-point is always\n" +
+		"non-destructive and lands on a fresh session ID.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		parent, err := createSession(cfg, args[0])
+		at, _ := cmd.Flags().GetString("at")
+
+		var atCommit plumbing.Hash
+		if at != "" {
+			sc, err := openSidecar(cfg)
+			if err != nil {
+				return err
+			}
+			atCommit, err = resolveTurnRef(sc, args[0], at)
+			if err != nil {
+				return err
+			}
+		}
+
+		child, err := createSessionAt(cfg, args[0], atCommit)
 		if err != nil {
 			return err
 		}
-		fmt.Println(parent.ID)
-		fmt.Fprintf(os.Stderr, "worktree: %s\n", parent.WorktreePath)
+		fmt.Println(child.ID)
+		fmt.Fprintf(os.Stderr, "worktree: %s\n", child.WorktreePath)
+		if !atCommit.IsZero() {
+			fmt.Fprintf(os.Stderr, "rooted at: %s (%s)\n", at, atCommit.String()[:12])
+		}
 		return nil
 	},
+}
+
+func init() {
+	sessionForkCmd.Flags().String("at", "",
+		"Fork from a specific turn (turns/<N>) or commit SHA instead of parent's tree head")
 }
 
 var sessionAttachCmd = &cobra.Command{
@@ -262,10 +289,18 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 	return stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
 }
 
-// createSession makes a new session, optionally branched from parentID.
-// Forked sessions have their worktree materialised to the parent's tree so
-// the child starts with the same files the parent had.
+// createSession makes a new session, optionally branched from parentID's
+// tree head. Forked sessions have their worktree materialised to the
+// parent's tree so the child starts with the same files the parent had.
 func createSession(cfg *config.Config, parentID string) (*stadogit.Session, error) {
+	return createSessionAt(cfg, parentID, plumbing.ZeroHash)
+}
+
+// createSessionAt is the general fork primitive: fork parentID at atCommit
+// when non-zero, otherwise at parent's tree head. Empty parentID creates a
+// blank session. See DESIGN §"Fork semantics" and §"Fork-from-point
+// ergonomics" for the user-facing contract.
+func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash) (*stadogit.Session, error) {
 	sc, err := openSidecar(cfg)
 	if err != nil {
 		return nil, err
@@ -274,12 +309,12 @@ func createSession(cfg *config.Config, parentID string) (*stadogit.Session, erro
 		return nil, err
 	}
 
-	var parentTreeCommit plumbing.Hash
-	if parentID != "" {
+	rootCommit := atCommit
+	if rootCommit.IsZero() && parentID != "" {
 		head, err := sc.ResolveRef(stadogit.TreeRef(parentID))
 		switch {
 		case err == nil:
-			parentTreeCommit = head
+			rootCommit = head
 		case errors.Is(err, plumbing.ErrReferenceNotFound):
 			// Parent hasn't committed anything yet — fork is equivalent to a
 			// fresh session. Not an error.
@@ -290,15 +325,15 @@ func createSession(cfg *config.Config, parentID string) (*stadogit.Session, erro
 	}
 
 	id := uuid.New().String()
-	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, parentTreeCommit)
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, rootCommit)
 	if err != nil {
 		return nil, err
 	}
 
-	// Materialise the parent's tree into the child's worktree. Empty parent
-	// tree = clean worktree.
-	if !parentTreeCommit.IsZero() {
-		treeHash, err := sess.TreeFromCommit(parentTreeCommit)
+	// Materialise the root tree into the child's worktree. Zero root =
+	// clean worktree (fresh session).
+	if !rootCommit.IsZero() {
+		treeHash, err := sess.TreeFromCommit(rootCommit)
 		if err != nil {
 			return nil, fmt.Errorf("fork: resolve tree: %w", err)
 		}
@@ -327,7 +362,7 @@ var sessionRevertCmd = &cobra.Command{
 			return err
 		}
 		srcID, target := args[0], args[1]
-		commitHash, err := resolveRevertTarget(sc, srcID, target)
+		commitHash, err := resolveTurnRef(sc, srcID, target)
 		if err != nil {
 			return err
 		}
@@ -353,20 +388,22 @@ var sessionRevertCmd = &cobra.Command{
 	},
 }
 
-// resolveRevertTarget accepts either a commit prefix (looked up via a linear
-// walk of src's tree ref) or "turns/<N>" which resolves via the turn-tag ref.
-func resolveRevertTarget(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
+// resolveTurnRef accepts either "turns/<N>" (looked up via the per-session
+// turn-tag ref) or a full 40-char commit SHA. Shared by session revert +
+// session fork --at. See DESIGN §"Fork-from-point ergonomics" for the
+// canonical user-facing turn identifier syntax.
+func resolveTurnRef(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
 	if strings.HasPrefix(target, "turns/") {
 		ref := plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target)
 		h, err := sc.ResolveRef(ref)
 		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("revert: tag %s not found: %w", target, err)
+			return plumbing.ZeroHash, fmt.Errorf("%s: tag not found in session %s: %w", target, srcID, err)
 		}
 		return h, nil
 	}
 	// Treat as raw hash or prefix. v1: only accept full 40-char hashes.
 	if len(target) < 40 {
-		return plumbing.ZeroHash, fmt.Errorf("revert: pass a full 40-char commit sha or turns/<N>")
+		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
 	}
 	return plumbing.NewHash(target), nil
 }
