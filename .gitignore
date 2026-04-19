@@ -1,4 +1,4 @@
-stado
+/stado
 *.db
 *.log
 .stado/
