@@ -710,6 +710,12 @@ func (m *Model) startStream() tea.Cmd {
 		Messages: m.msgs,
 		Tools:    m.toolDefs(),
 	}
+	// Cache-breakpoint placement — DESIGN §"Prompt-cache awareness".
+	// One ephemeral breakpoint on the last prior message, so every turn
+	// caches the entire history up through the previous turn.
+	if m.provider.Capabilities().SupportsPromptCache && len(m.msgs) > 0 {
+		req.CacheHints = []agent.CachePoint{{MessageIndex: len(m.msgs) - 1}}
+	}
 
 	go func() {
 		defer cancel()

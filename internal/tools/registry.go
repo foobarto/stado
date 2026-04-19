@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/foobarto/stado/pkg/tool"
@@ -33,6 +34,11 @@ func (r *Registry) Get(name string) (tool.Tool, bool) {
 	return t, ok
 }
 
+// All returns every registered tool sorted by Name. Stable ordering is
+// load-bearing for prompt-cache stability — see DESIGN §"Prompt-cache
+// awareness": any map-iteration source in the prompt-bytes path invalidates
+// the cache on every turn. Callers that want a different ordering must
+// re-sort, but the default MUST be Name-sorted.
 func (r *Registry) All() []tool.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -40,6 +46,7 @@ func (r *Registry) All() []tool.Tool {
 	for _, t := range r.tools {
 		out = append(out, t)
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 	return out
 }
 

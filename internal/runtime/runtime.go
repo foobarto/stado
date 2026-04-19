@@ -8,12 +8,15 @@ package runtime
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -224,13 +227,50 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	msgs := opts.Messages
 	var finalText string
 
+	// Append-only guardrail (DESIGN §"Context management" → "Append-only
+	// history"). Prior messages are the cached prefix; any in-place mutation
+	// invalidates every downstream cache entry. We record a hash at each
+	// turn boundary and verify it survived the tool-execution interlude.
+	// Mismatch panics under `go test` (fail loudly in CI); in release it
+	// logs slog.Warn and continues — we cannot undo the mutation from here,
+	// but the session's prompt-cache hit ratio will visibly collapse and
+	// operators will see the warning line next to the metric.
+	var priorHash string
+	var priorLen int
+
+	caps := opts.Provider.Capabilities()
+
 	for turn := 0; turn < opts.MaxTurns; turn++ {
+		if turn > 0 {
+			got := hashMessagesPrefix(msgs, priorLen)
+			if got != priorHash {
+				violationMsg := fmt.Sprintf(
+					"runtime: append-only invariant violated at turn %d (prior_len=%d, expected=%s, got=%s)",
+					turn, priorLen, priorHash, got)
+				if testing.Testing() {
+					panic(violationMsg)
+				}
+				slog.Warn("stado.runtime.append_only_violation",
+					slog.Int("turn", turn),
+					slog.Int("prior_len", priorLen),
+					slog.String("expected_hash", priorHash),
+					slog.String("got_hash", got),
+				)
+			}
+		}
+
 		req := agent.TurnRequest{
 			Model:    opts.Model,
 			Messages: msgs,
 		}
 		if opts.Executor != nil {
 			req.Tools = ToolDefs(opts.Executor.Registry)
+		}
+		if caps.SupportsPromptCache && len(msgs) > 0 {
+			// Single breakpoint at the end of the stable prefix — everything
+			// up through the last prior message is the cache candidate.
+			// DESIGN §"Prompt-cache awareness".
+			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 1}}
 		}
 		ch, err := opts.Provider.StreamTurn(ctx, req)
 		if err != nil {
@@ -285,8 +325,27 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			}})
 		}
 		msgs = append(msgs, agent.Message{Role: agent.RoleTool, Content: results})
+
+		priorLen = len(msgs)
+		priorHash = hashMessagesPrefix(msgs, priorLen)
 	}
 	return finalText, msgs, fmt.Errorf("runtime: exceeded %d turns", opts.MaxTurns)
+}
+
+// hashMessagesPrefix returns a short, stable fingerprint of msgs[:n]. Used by
+// the append-only guardrail to detect in-place mutation of prior turns
+// between StreamTurn calls. Hashes the JSON encoding; Go's encoding/json
+// sorts map keys so ordering within Block/Message is deterministic.
+func hashMessagesPrefix(msgs []agent.Message, n int) string {
+	if n > len(msgs) {
+		n = len(msgs)
+	}
+	h := fnv.New64a()
+	enc := json.NewEncoder(h)
+	for i := 0; i < n; i++ {
+		_ = enc.Encode(msgs[i])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // collectTurn drains an event stream into (assistant_text, tool_calls).
