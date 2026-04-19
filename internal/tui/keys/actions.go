@@ -32,6 +32,7 @@ const (
 	TipsToggle               Action = "tips_toggle"
 	Approve                  Action = "approve"
 	Deny                     Action = "deny"
+	EditSummary              Action = "edit_summary"
 	SidebarToggle            Action = "sidebar_toggle"
 	ToolExpand               Action = "tool_expand"
 	ModeToggle               Action = "mode_toggle"
@@ -67,6 +68,7 @@ var ActionDescriptions = map[Action]string{
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",
+	EditSummary:             "Edit compaction summary",
 	SidebarToggle:           "Toggle sidebar",
 	ToolExpand:              "Expand tool call",
 	ModeToggle:              "Toggle Plan/Do mode",

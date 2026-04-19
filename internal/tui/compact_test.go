@@ -217,6 +217,112 @@ func TestCompactIgnoresKeysBeforeStreamDone(t *testing.T) {
 	}
 }
 
+// TestCompactEditRoundTrip — the 'e' path. After compaction produces a
+// summary, the user edits it inline, commits, and the updated text
+// flows into both pendingCompactionSummary (used on 'y' apply) and
+// the visible assistant block (what the user is reading). The draft
+// they had in flight is restored to the input on commit.
+func TestCompactEditRoundTrip(t *testing.T) {
+	m := newCompactTestModel(t, compactStubProvider{summary: "v1 summary"})
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hi")}
+	m.input.SetValue("user's in-progress prompt")
+
+	_ = m.startCompaction()
+	m.handleStreamEvent(agent.Event{Kind: agent.EvTextDelta, Text: "v1 summary"})
+	_ = m.onTurnComplete()
+	if m.state != stateCompactionPending {
+		t.Fatalf("state=%d, want CompactionPending", m.state)
+	}
+
+	// Enter edit mode. Input should be preloaded with the summary;
+	// the stashed draft preserved.
+	m.enterSummaryEdit()
+	if m.state != stateCompactionEditing {
+		t.Fatalf("enter: state=%d, want CompactionEditing", m.state)
+	}
+	if m.input.Value() != "v1 summary" {
+		t.Errorf("editor not preloaded: %q", m.input.Value())
+	}
+	if m.savedDraftBeforeEdit != "user's in-progress prompt" {
+		t.Errorf("draft not stashed: %q", m.savedDraftBeforeEdit)
+	}
+
+	// Revise the summary and commit.
+	m.input.SetValue("v2 — revised summary")
+	m.commitSummaryEdit()
+	if m.state != stateCompactionPending {
+		t.Errorf("commit: state=%d, want CompactionPending", m.state)
+	}
+	if m.pendingCompactionSummary != "v2 — revised summary" {
+		t.Errorf("pending not updated: %q", m.pendingCompactionSummary)
+	}
+	if m.blocks[m.compactionBlockIdx].body != "v2 — revised summary" {
+		t.Errorf("visible block not updated: %q", m.blocks[m.compactionBlockIdx].body)
+	}
+	if m.input.Value() != "user's in-progress prompt" {
+		t.Errorf("draft not restored: %q", m.input.Value())
+	}
+	if m.savedDraftBeforeEdit != "" {
+		t.Errorf("savedDraftBeforeEdit should be cleared after commit")
+	}
+
+	// 'y' now applies the revised summary, not the original.
+	m.resolveCompaction(true)
+	if m.state != stateIdle {
+		t.Errorf("resolve: state=%d, want Idle", m.state)
+	}
+	applied := m.msgs[0].Content[0].Text.Text
+	if !strings.Contains(applied, "v2 — revised summary") {
+		t.Errorf("applied summary missing edit: %q", applied)
+	}
+}
+
+// TestCompactEditCancelRestores — Esc/'n' during edit discards the
+// editor buffer and restores the draft, leaving the pending summary
+// + visible block unchanged.
+func TestCompactEditCancelRestores(t *testing.T) {
+	m := newCompactTestModel(t, compactStubProvider{summary: "original"})
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hi")}
+	m.input.SetValue("draft")
+
+	_ = m.startCompaction()
+	m.handleStreamEvent(agent.Event{Kind: agent.EvTextDelta, Text: "original"})
+	_ = m.onTurnComplete()
+
+	m.enterSummaryEdit()
+	m.input.SetValue("throwaway revision")
+	m.cancelSummaryEdit()
+
+	if m.state != stateCompactionPending {
+		t.Errorf("cancel: state=%d, want CompactionPending", m.state)
+	}
+	if m.pendingCompactionSummary != "original" {
+		t.Errorf("pending summary mutated on cancel: %q", m.pendingCompactionSummary)
+	}
+	if m.blocks[m.compactionBlockIdx].body != "original" {
+		t.Errorf("visible block mutated on cancel: %q", m.blocks[m.compactionBlockIdx].body)
+	}
+	if m.input.Value() != "draft" {
+		t.Errorf("draft not restored after cancel: %q", m.input.Value())
+	}
+}
+
+// TestEnterSummaryEdit_NoopOutsidePending — guarding the helpers so a
+// stray 'e' keystroke from another state can't poison the editor /
+// summary buffer.
+func TestEnterSummaryEdit_NoopOutsidePending(t *testing.T) {
+	m := newCompactTestModel(t, compactStubProvider{summary: "x"})
+	m.input.SetValue("user's draft")
+	m.state = stateStreaming
+	m.enterSummaryEdit()
+	if m.state != stateStreaming {
+		t.Errorf("enterSummaryEdit mutated state from non-pending: %d", m.state)
+	}
+	if m.input.Value() != "user's draft" {
+		t.Errorf("editor overwritten outside pending: %q", m.input.Value())
+	}
+}
+
 // Catch a compilation regression — the key binding the confirmation
 // uses MUST exist in the default registry so users can actually
 // confirm compaction.

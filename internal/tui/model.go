@@ -56,9 +56,13 @@ const (
 	stateApproval
 	// stateCompactionPending: a summarisation stream has finished and
 	// the proposed summary is visible in the conversation. The next
-	// 'y' / 'n' / '/' keystroke resolves it. See DESIGN §"Compaction":
-	// no replacement without explicit confirmation.
+	// 'y' / 'n' / 'e' / '/' keystroke resolves it. See DESIGN
+	// §"Compaction": no replacement without explicit confirmation.
 	stateCompactionPending
+	// stateCompactionEditing: user pressed 'e' on a pending summary —
+	// the editor holds the summary text for inline revision. Enter
+	// commits the edit (back to stateCompactionPending), Esc cancels.
+	stateCompactionEditing
 	stateError
 )
 
@@ -153,6 +157,14 @@ type Model struct {
 	// summary between the end of the summarisation stream and the user's
 	// y/n decision. Consumed by resolveCompaction.
 	pendingCompactionSummary string
+	// savedDraftBeforeEdit stashes the in-progress user prompt when
+	// the user presses 'e' to enter summary-editing mode, so the
+	// draft survives the edit round-trip.
+	savedDraftBeforeEdit string
+	// compactionBlockIdx remembers which m.blocks entry holds the
+	// visible compaction draft, so an edit updates the same block the
+	// user is looking at instead of appending a new one.
+	compactionBlockIdx int
 	// compacting marks a summarisation stream in-flight so we can route
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
@@ -521,6 +533,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Compaction confirmation: reuse the Approve / Deny keybindings
 		// (y / n by default) so the UX matches tool-call approval.
+		// EditSummary ('e') switches into an inline editor where the
+		// user can revise the draft before accepting.
 		if m.state == stateCompactionPending {
 			if m.keys.Matches(msg, keys.Approve) {
 				m.resolveCompaction(true)
@@ -532,9 +546,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.renderBlocks()
 				return m, nil
 			}
+			if m.keys.Matches(msg, keys.EditSummary) {
+				m.enterSummaryEdit()
+				m.renderBlocks()
+				return m, nil
+			}
 			// Any other key while pending is ignored — no accidental msgs
 			// mutation while the user reads the summary.
 			return m, nil
+		}
+
+		// Summary-editing state: Enter commits, Esc/Deny cancels. All
+		// other keys flow to the editor so the user can type freely.
+		if m.state == stateCompactionEditing {
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				m.commitSummaryEdit()
+				m.renderBlocks()
+				return m, nil
+			}
+			if m.keys.Matches(msg, keys.Deny) {
+				m.cancelSummaryEdit()
+				m.renderBlocks()
+				return m, nil
+			}
+			inputCmd, _ := m.input.Update(msg)
+			return m, inputCmd
 		}
 
 		if m.slash.Visible {
@@ -1349,6 +1385,9 @@ func (m *Model) startCompaction() tea.Cmd {
 
 	m.appendBlock(block{kind: "system", body: "compacting conversation — streaming proposed summary below..."})
 	m.appendBlock(block{kind: "assistant", body: ""})
+	// Remember where the streamed summary lives so inline-edit
+	// ('e' key) can rewrite the right block when the user revises.
+	m.compactionBlockIdx = len(m.blocks) - 1
 	m.compacting = true
 	m.pendingCompactionSummary = ""
 
@@ -1378,6 +1417,61 @@ func (m *Model) startCompaction() tea.Cmd {
 		m.sendMsg(streamDoneMsg{})
 	}()
 	return nil
+}
+
+// enterSummaryEdit swaps the user's in-flight draft for the proposed
+// compaction summary so they can revise it in the main editor. The
+// draft is stashed and restored on commit/cancel — DESIGN §"Compaction"
+// emphasises the user shouldn't lose their current thought while
+// deciding how to recover.
+func (m *Model) enterSummaryEdit() {
+	if m.state != stateCompactionPending {
+		return
+	}
+	m.savedDraftBeforeEdit = m.input.Value()
+	m.input.SetValue(m.pendingCompactionSummary)
+	m.state = stateCompactionEditing
+	m.appendBlock(block{
+		kind: "system",
+		body: "editing summary — Enter to save, Esc/n to cancel.",
+	})
+}
+
+// commitSummaryEdit finalises the edit: the new text becomes
+// pendingCompactionSummary AND is written back into the visible
+// assistant block so the user sees the revision before pressing y.
+func (m *Model) commitSummaryEdit() {
+	if m.state != stateCompactionEditing {
+		return
+	}
+	edited := m.input.Value()
+	m.pendingCompactionSummary = edited
+	if m.compactionBlockIdx >= 0 && m.compactionBlockIdx < len(m.blocks) {
+		m.blocks[m.compactionBlockIdx].body = edited
+	}
+	m.input.SetValue(m.savedDraftBeforeEdit)
+	m.savedDraftBeforeEdit = ""
+	m.state = stateCompactionPending
+	m.appendBlock(block{
+		kind: "system",
+		body: "summary updated — press 'y' to apply, 'n' to discard, 'e' to edit again.",
+	})
+}
+
+// cancelSummaryEdit restores the original summary + the draft the user
+// had in flight. pendingCompactionSummary and the visible block are
+// left untouched — we only discard the editor's buffer.
+func (m *Model) cancelSummaryEdit() {
+	if m.state != stateCompactionEditing {
+		return
+	}
+	m.input.SetValue(m.savedDraftBeforeEdit)
+	m.savedDraftBeforeEdit = ""
+	m.state = stateCompactionPending
+	m.appendBlock(block{
+		kind: "system",
+		body: "edit cancelled — original summary kept.",
+	})
 }
 
 // resolveCompaction is called from Update when the user presses 'y' or

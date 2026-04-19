@@ -62,7 +62,7 @@ func (r *Registry) ActionsByGroup() map[string][]Action {
 			AppExit, TipsToggle, CommandList,
 		},
 		"Session": {
-			SessionInterrupt, Approve, Deny,
+			SessionInterrupt, Approve, Deny, EditSummary,
 		},
 		"Input Navigation": {
 			InputMoveLeft, InputMoveRight, InputWordBackward, InputWordForward,
