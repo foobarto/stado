@@ -40,6 +40,7 @@ var Commands = []Command{
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
+	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},

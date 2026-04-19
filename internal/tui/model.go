@@ -379,6 +379,74 @@ func (m *Model) openModelPicker() {
 	m.layout()
 }
 
+// renderSessionsOverview is the backing formatter for the `/sessions`
+// slash command. Enumerates every other session for the current repo
+// with last-active time, turn/message/compaction counts, and a
+// `stado session resume <id>` hint per row.
+//
+// Swapping sessions live inside a running TUI isn't supported (m.msgs
+// + m.session are tied to the program's lifecycle), so the output is
+// informational — the user exits + runs resume to switch.
+func (m *Model) renderSessionsOverview() string {
+	if m.session == nil || m.session.Sidecar == nil {
+		return "/sessions: no live session — run `stado session list` instead."
+	}
+	worktreeRoot := filepath.Dir(m.session.WorktreePath)
+	sc := m.session.Sidecar
+
+	// Scan sidecar refs for all session IDs. Same pattern
+	// `stado session list` uses.
+	ids := map[string]struct{}{}
+	iter, err := sc.Repo().References()
+	if err != nil {
+		return "/sessions: could not list session refs: " + err.Error()
+	}
+	defer iter.Close()
+	_ = iter.ForEach(func(ref *plumbing.Reference) error {
+		name := string(ref.Name())
+		const prefix = "refs/sessions/"
+		if !strings.HasPrefix(name, prefix) {
+			return nil
+		}
+		rest := strings.TrimPrefix(name, prefix)
+		id := strings.Split(rest, "/")[0]
+		ids[id] = struct{}{}
+		return nil
+	})
+	// Augment with worktree-only sessions (never-committed forks).
+	if entries, err := os.ReadDir(worktreeRoot); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				ids[e.Name()] = struct{}{}
+			}
+		}
+	}
+	// Skip our own session — it's the one the user is already in.
+	delete(ids, m.session.ID)
+
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Current session: %s  (turns %d · msgs %d)\n",
+		m.session.ID, m.session.Turn(), len(m.msgs))
+	if len(sorted) == 0 {
+		b.WriteString("\nNo other sessions for this repo.")
+		return b.String()
+	}
+	b.WriteString("\nOther sessions:\n")
+	for _, id := range sorted {
+		r := runtime.SummariseSession(worktreeRoot, sc, id)
+		fmt.Fprintf(&b, "  %s  %s  turns=%d msgs=%d compact=%d  %s\n",
+			r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
+		fmt.Fprintf(&b, "    resume:  stado session resume %s\n", r.ID)
+	}
+	return b.String()
+}
+
 // renderProvidersOverview is the backing formatter for the `/providers`
 // slash command. Lists the currently active provider plus every
 // reachable local runner, each with its model count + a representative
@@ -1862,6 +1930,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
 	case "/providers":
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
+	case "/sessions":
+		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}

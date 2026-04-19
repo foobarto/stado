@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
@@ -82,18 +83,29 @@ var sessionListCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "(no sessions)")
 			return nil
 		}
+		// Gather metadata for all sessions. Slower than the old
+		// one-liner but the information matters now that
+		// `stado session resume <id>` needs users to pick out "which
+		// session?" from a list of UUIDs.
+		rows := make([]runtime.SessionSummary, 0, len(ids))
 		for _, id := range ids {
-			wt := filepath.Join(cfg.WorktreeDir(), id)
-			status := "detached"
-			if _, err := os.Stat(wt); err == nil {
-				status = "attached"
-			}
-			tree, _ := sc.ResolveRef(stadogit.TreeRef(id))
-			fmt.Printf("%s\t%s\ttree=%s\n", id, status, short(tree))
+			rows = append(rows, runtime.SummariseSession(cfg.WorktreeDir(), sc, id))
+		}
+
+		// Columns: ID | last-active | turns | msgs | compactions | status
+		// Aligned so `session list | less -S` stays scannable.
+		const header = "SESSION ID                              LAST ACTIVE           TURNS  MSGS  COMPACT  STATUS\n"
+		fmt.Print(header)
+		for _, r := range rows {
+			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %s\n",
+				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
 		}
 		return nil
 	},
 }
+
+// (sessionRow + summariseSession live in internal/runtime so the TUI
+// can share them — see runtime.SessionSummary / runtime.SummariseSession.)
 
 var sessionDeleteCmd = &cobra.Command{
 	Use:   "delete <id>",
