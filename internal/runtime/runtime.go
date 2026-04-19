@@ -26,6 +26,7 @@ import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/agent"
@@ -61,6 +62,13 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	}
 	// Signer is optional — unsigned commits still work; audit verify will
 	// flag them.
+
+	// Drop a pid file so `stado agents list` / `stado agents kill` can find
+	// this process. Best-effort: ignore write errors (worktree might be
+	// read-only or similar).
+	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
+	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+
 	return sess, nil
 }
 
@@ -98,6 +106,7 @@ func BuildDefaultRegistry() *tools.Registry {
 	r.Register(webfetch.WebFetchTool{})
 	r.Register(rg.Tool{})
 	r.Register(astgrep.Tool{})
+	r.Register(readctx.Tool{})
 	return r
 }
 
