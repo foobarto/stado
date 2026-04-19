@@ -37,6 +37,7 @@ var Commands = []Command{
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/approvals", "'always <tool>' or 'forget'", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
+	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},

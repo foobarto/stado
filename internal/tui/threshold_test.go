@@ -85,3 +85,59 @@ func TestTokenPctStringZeroWhenNoUsage(t *testing.T) {
 		t.Fatalf("got %q want 0%%", got)
 	}
 }
+
+// TestRenderContextStatus_Regions exercises the three threshold regions
+// plus the degraded "no token counter" path.
+func TestRenderContextStatus_Regions(t *testing.T) {
+	base := func() *Model {
+		return &Model{
+			ctxSoftThreshold:    0.70,
+			ctxHardThreshold:    0.90,
+			provider:            fakeCappedProvider{max: 100},
+			tokenCounterChecked: true,
+			tokenCounterPresent: true,
+			providerName:        "test",
+		}
+	}
+
+	// Healthy: 50% → "healthy" string.
+	m := base()
+	m.usage.InputTokens = 50
+	got := m.renderContextStatus()
+	if !strings.Contains(got, "healthy") {
+		t.Errorf("healthy region: missing 'healthy' in %q", got)
+	}
+	if !strings.Contains(got, "50.0%") {
+		t.Errorf("healthy region: pct not surfaced: %q", got)
+	}
+
+	// Soft: 80% → "above soft threshold" + fork recommendation.
+	m = base()
+	m.usage.InputTokens = 80
+	got = m.renderContextStatus()
+	if !strings.Contains(got, "above soft") {
+		t.Errorf("soft region missing status: %q", got)
+	}
+	if !strings.Contains(got, "fork") {
+		t.Errorf("soft region missing fork hint: %q", got)
+	}
+
+	// Hard: 95% → "above hard threshold" + /compact mention.
+	m = base()
+	m.usage.InputTokens = 95
+	got = m.renderContextStatus()
+	if !strings.Contains(got, "above hard") {
+		t.Errorf("hard region missing status: %q", got)
+	}
+	if !strings.Contains(got, "/compact") {
+		t.Errorf("hard region missing /compact hint: %q", got)
+	}
+
+	// No token counter: degraded path.
+	m = base()
+	m.tokenCounterPresent = false
+	got = m.renderContextStatus()
+	if !strings.Contains(got, "unavailable") {
+		t.Errorf("degraded path missing 'unavailable': %q", got)
+	}
+}

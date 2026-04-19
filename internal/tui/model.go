@@ -1055,6 +1055,43 @@ var (
 	compactReplace = compact.ReplaceMessages
 )
 
+// renderContextStatus summarises what the ctx% in the status bar is
+// made of, plus what the user's options are at each threshold. Kept
+// terse — one system block, readable in < 1 screen.
+func (m *Model) renderContextStatus() string {
+	used := m.usage.InputTokens
+	var sb strings.Builder
+
+	caps := m.providerCaps()
+	switch {
+	case !m.tokenCounterPresent && m.tokenCounterChecked:
+		sb.WriteString(fmt.Sprintf("context: unavailable — provider %q doesn't expose a token counter.\n",
+			m.providerDisplayName()))
+	case caps.MaxContextTokens == 0:
+		sb.WriteString("context: unavailable — provider hasn't reported MaxContextTokens.\n")
+	case used == 0:
+		sb.WriteString(fmt.Sprintf("context: 0 / %d tokens (0%%) — first turn hasn't run yet.\n",
+			caps.MaxContextTokens))
+	default:
+		fraction := float64(used) / float64(caps.MaxContextTokens)
+		sb.WriteString(fmt.Sprintf("context: %s / %s tokens (%.1f%%)\n",
+			humanize(used), humanize(caps.MaxContextTokens), 100*fraction))
+		sb.WriteString(fmt.Sprintf("thresholds: soft %.0f%% · hard %.0f%%\n",
+			100*m.ctxSoftThreshold, 100*m.ctxHardThreshold))
+		switch {
+		case fraction >= m.ctxHardThreshold:
+			sb.WriteString("status: above hard threshold — consider /compact or `stado session fork <id> --at turns/<N>` in another shell.\n")
+		case fraction >= m.ctxSoftThreshold:
+			sb.WriteString("status: above soft threshold — forking from an earlier turn is the preferred recovery; /compact is the lossy fallback.\n")
+		default:
+			sb.WriteString("status: healthy.\n")
+		}
+	}
+	sb.WriteString(fmt.Sprintf("turns: %d messages in history\n", len(m.msgs)))
+	sb.WriteString("options: /compact (summarise + confirm)  ·  session tree <id> / session fork <id> --at turns/<N>")
+	return strings.TrimRight(sb.String(), "\n")
+}
+
 // startCompaction kicks off a summarisation stream and parks the UI in
 // stateCompactionPending once it completes. See DESIGN §"Compaction":
 // user-invoked only, explicit confirmation required before msgs is
@@ -1251,6 +1288,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/compact":
 		return m.startCompaction()
+	case "/context":
+		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
