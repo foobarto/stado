@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 	"golang.org/x/net/html"
 )
@@ -60,9 +61,8 @@ func (WebFetchTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) 
 	}
 
 	content := htmlToMarkdown(string(body))
-	if len(content) > 10000 {
-		content = content[:10000] + "\n... (content truncated)"
-	}
+	content = budget.TruncateBytes(content, budget.WebfetchBytes,
+		"narrow the URL path or target a specific page section")
 
 	return tool.Result{Content: content}, nil
 }

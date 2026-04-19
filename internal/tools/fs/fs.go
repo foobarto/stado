@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -59,11 +60,18 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 		content = sliceLines(raw, start, end)
 	}
 
+	// Apply the per-tool output budget BEFORE hashing. Hash scope is
+	// "the bytes returned to the model" (DESIGN §"Tool-output curation"),
+	// so an identical re-truncation hashes identically → dedup still
+	// works for large-file re-reads.
+	rendered := budget.TruncateBytes(string(content), budget.ReadBytes,
+		fmt.Sprintf("call %s with start=<N> end=<M> to request a specific range", p.Path))
+
 	// Hash the bytes we'd surface to the model. sha256 is pinned for
 	// alignment with the audit layer (DESIGN §"Audit") — one hash
 	// vocabulary per session.
 	hsum := sha256.New()
-	_, _ = io.Copy(hsum, strings.NewReader(string(content)))
+	_, _ = io.Copy(hsum, strings.NewReader(rendered))
 	contentHash := hex.EncodeToString(hsum.Sum(nil))
 
 	key := tool.ReadKey{Path: p.Path, Range: rangeKey}
@@ -77,7 +85,7 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 
 	// Fresh read: record + return the bytes.
 	h.RecordRead(key, tool.PriorReadInfo{ContentHash: contentHash})
-	return tool.Result{Content: string(content)}, nil
+	return tool.Result{Content: rendered}, nil
 }
 
 // canonicalRange returns "" for full-file, "<start>:<end>" for ranged.
@@ -238,7 +246,9 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 		r, _ := filepath.Rel(h.Workdir(), match)
 		rel[i] = r
 	}
-	return tool.Result{Content: strings.Join(rel, "\n")}, nil
+	joined := strings.Join(rel, "\n")
+	return tool.Result{Content: budget.TruncateLines(joined, budget.GlobEntries,
+		"narrow the pattern to reduce matches")}, nil
 }
 
 type GrepTool struct{}
@@ -289,7 +299,9 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if len(results) == 0 {
 		return tool.Result{Content: "No matches found"}, nil
 	}
-	return tool.Result{Content: strings.Join(results, "\n")}, nil
+	joined := strings.Join(results, "\n")
+	return tool.Result{Content: budget.TruncateLines(joined, budget.GrepMatches,
+		"narrow the pattern or path to reduce matches")}, nil
 }
 
 // ReadArgs is the input to ReadTool. Start/End are 1-indexed, inclusive.

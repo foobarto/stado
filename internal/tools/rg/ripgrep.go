@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -61,7 +62,7 @@ func (Tool) Schema() map[string]any {
 			},
 			"max_matches": map[string]any{
 				"type":        "integer",
-				"description": "Cap on total matches returned. Default 200.",
+				"description": "Cap on total matches returned. Default 100 (DESIGN §Tool-output curation).",
 			},
 			"include_hidden": map[string]any{
 				"type":        "boolean",
@@ -106,7 +107,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		searchPath = h.Workdir()
 	}
 	if a.MaxMatches <= 0 {
-		a.MaxMatches = 200
+		a.MaxMatches = budget.RipgrepMatches
 	}
 
 	args := []string{"--json", "--line-number"}
@@ -152,7 +153,15 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	if len(matches) == 0 {
 		return tool.Result{Content: "No matches found"}, nil
 	}
-	return tool.Result{Content: strings.Join(matches, "\n")}, nil
+	// The parse-loop already caps at MaxMatches, but a user who passes
+	// `max_matches: 10000` still gets exactly that many — drop a
+	// truncation marker when the number of matches equals the cap, as
+	// it almost certainly clipped more than it kept.
+	joined := strings.Join(matches, "\n")
+	if len(matches) >= a.MaxMatches {
+		joined += fmt.Sprintf("\n[truncated: capped at %d matches — narrow the pattern or raise max_matches]", a.MaxMatches)
+	}
+	return tool.Result{Content: joined}, nil
 }
 
 // ResolveBinary picks the rg binary to use. Precedence: explicit override,

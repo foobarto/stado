@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -78,7 +79,7 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 		out.WriteString(err.Error())
 	}
 
-	return tool.Result{Content: out.String()}, nil
+	return tool.Result{Content: budget.TruncateBashOutput(out.String(), budget.BashBytes)}, nil
 }
 
 type BashArgs struct {
