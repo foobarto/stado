@@ -380,22 +380,28 @@ var sessionAttachCmd = &cobra.Command{
 // launches the TUI inline. Fast path for the common "I killed stado,
 // I want it back" workflow.
 var sessionResumeCmd = &cobra.Command{
-	Use:   "resume <id>",
+	Use:   "resume <id-or-label>",
 	Short: "Attach to an existing session and launch the TUI in its worktree",
 	Long: "Changes into the session's worktree (equivalent to\n" +
 		"`cd $(stado session attach <id>)`) and boots the TUI inline.\n" +
 		"The TUI resumes the session: same ID, same git refs, conversation\n" +
-		"history replayed from the worktree's `.stado/conversation.jsonl`.",
+		"history replayed from the worktree's `.stado/conversation.jsonl`.\n\n" +
+		"The lookup argument can be:\n" +
+		"  · a full session UUID\n" +
+		"  · a unique UUID prefix (≥8 chars)\n" +
+		"  · a case-insensitive substring match of a session's description\n" +
+		"Ambiguous matches error out listing candidates so you can narrow.",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
-		wt := filepath.Join(cfg.WorktreeDir(), args[0])
-		if _, err := os.Stat(wt); err != nil {
-			return fmt.Errorf("resume: session %s not found (no worktree at %s)", args[0], wt)
+		id, err := resolveSessionID(cfg, args[0])
+		if err != nil {
+			return fmt.Errorf("resume: %w", err)
 		}
+		wt := filepath.Join(cfg.WorktreeDir(), id)
 		if err := os.Chdir(wt); err != nil {
 			return fmt.Errorf("resume: chdir %s: %w", wt, err)
 		}
@@ -404,6 +410,87 @@ var sessionResumeCmd = &cobra.Command{
 		// worktree and takes the resume-on-cwd branch.
 		return tui.Run(cfg)
 	},
+}
+
+// resolveSessionID turns a user-friendly lookup string into a
+// concrete session id:
+//   - exact UUID match wins
+//   - UUID prefix ≥ 8 chars wins when unique
+//   - case-insensitive substring of session Description wins when unique
+//
+// Ambiguous matches return a listing error so the user can pick
+// precisely. Used by `session resume` today; other commands that
+// take a session id can opt in.
+func resolveSessionID(cfg *config.Config, q string) (string, error) {
+	if q == "" {
+		return "", fmt.Errorf("empty lookup")
+	}
+	entries, err := os.ReadDir(cfg.WorktreeDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No worktree dir means no sessions exist yet. Keep the
+			// message mentioning the user's query so callers that
+			// surface it ("resume: no session found for X") stay
+			// readable.
+			return "", fmt.Errorf("no worktree dir — no sessions exist yet (looked for %q)", q)
+		}
+		return "", err
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	// Exact match short-circuit.
+	for _, id := range ids {
+		if id == q {
+			return id, nil
+		}
+	}
+
+	var prefixHits []string
+	if len(q) >= 8 {
+		for _, id := range ids {
+			if strings.HasPrefix(id, q) {
+				prefixHits = append(prefixHits, id)
+			}
+		}
+	}
+	if len(prefixHits) == 1 {
+		return prefixHits[0], nil
+	}
+	if len(prefixHits) > 1 {
+		return "", fmt.Errorf("prefix %q is ambiguous — matches: %s",
+			q, strings.Join(prefixHits, ", "))
+	}
+
+	// Description substring.
+	needle := strings.ToLower(q)
+	var descHits []string
+	for _, id := range ids {
+		wt := filepath.Join(cfg.WorktreeDir(), id)
+		desc := runtime.ReadDescription(wt)
+		if desc == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(desc), needle) {
+			descHits = append(descHits, id)
+		}
+	}
+	if len(descHits) == 1 {
+		return descHits[0], nil
+	}
+	if len(descHits) > 1 {
+		labels := make([]string, 0, len(descHits))
+		for _, id := range descHits {
+			d := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
+			labels = append(labels, fmt.Sprintf("%s (%q)", id, d))
+		}
+		return "", fmt.Errorf("description %q is ambiguous — matches: %s",
+			q, strings.Join(labels, "; "))
+	}
+	return "", fmt.Errorf("no session matches %q (tried exact, prefix ≥8, description substring)", q)
 }
 
 var sessionShowCmd = &cobra.Command{

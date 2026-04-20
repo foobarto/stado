@@ -463,8 +463,13 @@ func (m *Model) renderSessionsOverview() string {
 	b.WriteString("\nOther sessions:\n")
 	for _, id := range sorted {
 		r := runtime.SummariseSession(worktreeRoot, sc, id)
-		fmt.Fprintf(&b, "  %s  %s  turns=%d msgs=%d compact=%d  %s\n",
-			r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
+		label := r.ID
+		if r.Description != "" {
+			label = fmt.Sprintf("%s  \"%s\"", r.ID, r.Description)
+		}
+		fmt.Fprintf(&b, "  %s\n", label)
+		fmt.Fprintf(&b, "    %s  turns=%d msgs=%d compact=%d  %s\n",
+			r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
 		fmt.Fprintf(&b, "    resume:  stado session resume %s\n", r.ID)
 	}
 	return b.String()
