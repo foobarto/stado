@@ -104,6 +104,37 @@ func TestOSCStripReader_PlainPassthrough(t *testing.T) {
 	}
 }
 
+// TestOSCStripReader_LoneESCFlushes: a single ESC byte arriving
+// alone (user pressing Escape) must propagate to the caller. The
+// first Read into the reader returns the ESC; holding it would
+// swallow the Escape key (the reported TUI-broken bug).
+func TestOSCStripReader_LoneESCFlushes(t *testing.T) {
+	// Emit the ESC alone in its own Read chunk to simulate a real
+	// keyboard Escape press.
+	r := newOSCStripReader(&sequentialReader{chunks: []string{"\x1b"}})
+	buf := make([]byte, 4)
+	n, err := r.Read(buf)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if n != 1 || buf[0] != 0x1b {
+		t.Errorf("lone ESC should flush; got n=%d buf=% x", n, buf[:n])
+	}
+}
+
+// TestOSCStripReader_ESCThenTypingInSameReadPreserved: ESC followed
+// by non-bracket in the SAME Read flushes both (lone Esc followed
+// by a keypress). Also covered by TestOSCStripReader_LoneESCFalls
+// Through — this one specifically pins the "alt+key" shape that
+// bubbletea treats as a modified keystroke.
+func TestOSCStripReader_ESCThenTypingInSameReadPreserved(t *testing.T) {
+	src := "\x1bx"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "\x1bx" {
+		t.Errorf("alt+x sequence lost; got %q", got)
+	}
+}
+
 // sequentialReader returns chunks one Read() call at a time so tests
 // can simulate input arriving in separate OS buffer fills — exactly
 // how a terminal's late OSC response is likely to appear after the

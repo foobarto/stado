@@ -123,5 +123,24 @@ func (r *oscStripReader) Read(p []byte) (int, error) {
 			r.state = oscInOSC
 		}
 	}
+	// End-of-read flush: if the last byte we processed left us in
+	// oscSawESC, that means the ESC arrived alone in this Read. It's
+	// almost certainly a real Escape keypress (user pressing Esc),
+	// not an OSC opener — terminals deliver OSC responses as one
+	// atomic burst. Holding the ESC would swallow the Escape key
+	// across the session. Emit it now so bubbletea sees it; the next
+	// Read starts fresh.
+	//
+	// Trade-off: on the rare terminal that splits an OSC response
+	// across two Read calls (ESC in one, `]11;...` in the next), the
+	// leading `]NN;...` leaks through — but the tea.WithFilter
+	// backstop (filterOSCResponses) catches those tail-shapes.
+	if r.state == oscSawESC {
+		if w < len(p) {
+			p[w] = 0x1b
+			w++
+		}
+		r.state = oscIdle
+	}
 	return w, err
 }
