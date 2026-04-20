@@ -32,47 +32,47 @@ Grouped by surface. Scenario naming convention:
 
 | # | Scenario | Status |
 |---|----------|--------|
-| C1 | `/model` with no args → picker opens | 🟡 `TestModelPicker_Flow_SlashOpensPicker` |
-| C2 | Picker Up/Down → cursor moves | 🟡 existing picker tests |
+| C1 | `/model` with no args → picker opens | ✅ `TestUAT_SlashModelOpensPicker` |
+| C2 | Picker Up/Down → cursor moves | 🟡 `internal/tui/modelpicker/picker_test.go` |
 | C3 | Picker Enter → swaps model (+ provider on cross-provider pick) | 🟡 existing |
-| C4 | Picker Esc → closes without swap | 🟡 existing |
+| C4 | Picker Esc → closes without swap | ✅ `TestUAT_ModelPickerEscClosesWithoutSwap` |
 
 ## D. File picker (@ trigger)
 
 | # | Scenario | Status |
 |---|----------|--------|
-| D1 | Type `@` at word start → picker opens, lists cwd files | ✅ `TestFilePicker_AtTriggerOpensPicker` |
-| D2 | Type `@foo` → fuzzy narrows matches | ✅ `TestFilePicker_NarrowsAsYouType` |
+| D1 | Type `@` at word start → picker opens, lists cwd files | ✅ `TestFilePicker_AtTriggerOpensPicker` + `TestUAT_FilePickerOpenAndNarrow` |
+| D2 | Type `@foo` → fuzzy narrows matches | ✅ `TestFilePicker_NarrowsAsYouType` + `TestUAT_FilePickerOpenAndNarrow` |
 | D3 | Picker up/down → navigation | ✅ `TestUpDownNavigateHandled` |
 | D4 | Picker Tab → accepts path, replaces @-fragment + trailing space | ✅ `TestFilePicker_TabAcceptsSelection` |
 | D5 | Space after @-word → picker closes | ✅ `TestFilePicker_SpaceClosesPicker` |
-| D6 | Esc → picker closes, buffer unchanged | ✅ `TestFilePicker_EscCloses` |
+| D6 | Esc → picker closes, buffer unchanged | ✅ `TestFilePicker_EscCloses` + `TestUAT_FilePickerEscLeavesBufferIntact` |
 | D7 | Email-style `user@x` → picker does NOT open | ✅ `TestFilePicker_EmailAtDoesNotTrigger` |
 
 ## E. Approval flow
 
 | # | Scenario | Status |
 |---|----------|--------|
-| E1 | Tool call arrives → state=Approval, prompt shown | 🟡 existing approval tests |
-| E2 | `y` → approves, tool runs | 🟡 existing |
-| E3 | `n` → denies, tool result marks deny | 🟡 existing |
+| E1 | approval + `n` → IsError result with "Denied" in content, carried via toolsExecutedMsg | ✅ `TestUAT_ApprovalStateRoutesYN` |
+| E2 | approval + `y` → approved path, NO "Denied" in content | ✅ `TestUAT_ApprovalYApprovesAndAdvances` |
+| E3 | approval ignores other keys | 🟡 existing `internal/tui/modelpicker_flow_test.go`-adjacent |
 
 ## F. Compaction
 
 | # | Scenario | Status |
 |---|----------|--------|
 | F1 | `/compact` opens the summariser flow | 🟡 `TestCompact_*` |
-| F2 | Pending state, `y` → replace msgs | 🟡 existing |
-| F3 | Pending state, `n` → discard | 🟡 existing |
-| F4 | Pending state, `e` → enter edit mode, commit on Enter | 🟡 existing |
+| F2 | Pending state, `y` → replace msgs | ✅ `TestUAT_CompactionYReplacesMessages` |
+| F3 | Pending state, `n` → discard (msgs preserved) | ✅ `TestUAT_CompactionNDiscards` |
+| F4 | Pending state, `e` → enter edit mode, input pre-filled | ✅ `TestUAT_CompactionESwitchesToEdit` |
 
 ## G. Context thresholds
 
 | # | Scenario | Status |
 |---|----------|--------|
-| G1 | Above hard threshold, Enter → submit blocked with recovery hint | 🟡 `TestThreshold_*` |
-| G2 | Below soft → status % renders | 🟡 existing |
-| G3 | At/above soft — status % turns warning colour | 🟡 existing |
+| G1 | Above hard threshold, Enter → submit blocked with recovery hint + draft preserved | ✅ `TestUAT_HardThresholdBlocksSubmit` |
+| G2 | Below soft → normal submit succeeds | ✅ `TestUAT_BelowSoftThresholdSubmitsNormally` |
+| G3 | At/above soft — status % turns warning colour | 🟡 `TestThreshold_*` |
 
 ## H. Mode + sidebar
 
@@ -118,7 +118,11 @@ Grouped by surface. Scenario naming convention:
 
 **Running:** `go test ./internal/tui/ -run TestUAT -v`
 
-**Coverage summary:** 17 new scenario tests added in
-`internal/tui/uat_scenarios_test.go` + `uat_direct_test.go`. Existing
-tests (🟡) already cover the remainder. No 🔴 gaps — every enumerated
-user-facing flow has at least one automated regression guard.
+**Coverage summary:** 30 UAT scenario tests across three files:
+- `internal/tui/uat_direct_test.go` (3) — dogfood-bug regression guards
+- `internal/tui/uat_scenarios_test.go` (16) — sections A/B/H/I/J/M/N
+- `internal/tui/uat_scenarios_extended_test.go` (11) — sections C/D/E/F/G
+
+Sibling unit tests (🟡) still guard the remaining surface — every
+user-facing flow has at least one automated regression guard. No
+🔴 gaps.
