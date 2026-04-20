@@ -142,6 +142,46 @@ func TestSessionLogs_UnknownSession(t *testing.T) {
 	}
 }
 
+// TestSessionLogs_FollowPicksUpNewCommits: initial history dumps,
+// then follow-loop sees a newly-committed trace entry and prints it.
+// Drives the helpers directly (not the full command) so we can
+// control timing.
+func TestSessionLogs_FollowPicksUpNewCommits(t *testing.T) {
+	id, cfg, restore := logsEnv(t, []stadogit.CommitMeta{
+		{Tool: "grep", Summary: "initial"},
+	})
+	defer restore()
+
+	sc, _ := openSidecar(cfg)
+	head, _ := sc.ResolveRef(stadogit.TraceRef(id))
+	if head.IsZero() {
+		t.Fatal("pre-condition: trace ref should have one commit")
+	}
+
+	// Append a second trace commit directly via the sess path.
+	// Since we created the session in logsEnv via CreateSession,
+	// just CommitToTrace a fresh entry through the sidecar.
+	sess, err := stadogit.OpenSession(sc, cfg.WorktreeDir(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sess.CommitToTrace(stadogit.CommitMeta{Tool: "read", Summary: "live-append"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the follow helper sees it.
+	newTip, _ := sc.ResolveRef(stadogit.TraceRef(id))
+	if newTip == head {
+		t.Fatal("trace ref didn't advance")
+	}
+	out := captureStdout(t, func() {
+		printNewCommitsForward(sc, newTip, head, false)
+	})
+	if !strings.Contains(out, "live-append") {
+		t.Errorf("follow helper missed new commit: %q", out)
+	}
+}
+
 // itoaLogs — small strconv-free helper matching Summary's needs.
 // The test doesn't import strconv to match the production file's
 // style in stats.go (which uses its own atoi helpers).

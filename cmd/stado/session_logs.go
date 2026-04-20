@@ -14,9 +14,12 @@ package main
 // with the fields users actually want: time, tool, args, outcome.
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/cobra"
 
@@ -25,7 +28,9 @@ import (
 )
 
 var (
-	logsLimit int
+	logsLimit    int
+	logsFollow   bool
+	logsPollFreq time.Duration
 )
 
 var sessionLogsCmd = &cobra.Command{
@@ -51,38 +56,102 @@ var sessionLogsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("logs: %w", err)
 		}
-		head, err := sc.ResolveRef(stadogit.TraceRef(id))
-		if err != nil || head.IsZero() {
+		useColour := useColor(os.Stdout)
+
+		// Initial dump (newest-first) up to --limit. Follow-mode
+		// starts its polling loop from the current tip, so we
+		// remember the tip before dumping to avoid re-printing what
+		// the dump already showed.
+		head, _ := sc.ResolveRef(stadogit.TraceRef(id))
+		lastSeen := head
+		if head.IsZero() {
 			fmt.Fprintf(os.Stderr, "(session %s has no trace commits yet)\n", id)
+			if !logsFollow {
+				return nil
+			}
+		} else {
+			dumpLogHistory(sc, head, logsLimit, useColour)
+		}
+		if !logsFollow {
 			return nil
 		}
-
-		repo := sc.Repo()
-		useColor := useColor(os.Stdout)
-		cur := head
-		count := 0
-		seen := map[string]bool{}
-		for !cur.IsZero() {
-			if seen[cur.String()] {
-				break
-			}
-			seen[cur.String()] = true
-			c, err := object.GetCommit(repo.Storer, cur)
-			if err != nil {
-				return fmt.Errorf("logs: read commit %s: %w", cur, err)
-			}
-			printLogEntry(c, useColor)
-			count++
-			if logsLimit > 0 && count >= logsLimit {
-				break
-			}
-			if len(c.ParentHashes) == 0 {
-				break
-			}
-			cur = c.ParentHashes[0]
+		// Follow loop. Polls the trace ref tip at logsPollFreq,
+		// prints any new commits in forward (chronological) order,
+		// exits on Ctrl+C via cobra's context.
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = contextBackground()
 		}
-		return nil
+		ticker := time.NewTicker(logsPollFreq)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				tip, err := sc.ResolveRef(stadogit.TraceRef(id))
+				if err != nil || tip.IsZero() || tip == lastSeen {
+					continue
+				}
+				printNewCommitsForward(sc, tip, lastSeen, useColour)
+				lastSeen = tip
+			}
+		}
 	},
+}
+
+// dumpLogHistory walks backwards from head printing entries, up to
+// limit. Factored out so the follow path can skip it when tailing
+// from-the-start.
+func dumpLogHistory(sc *stadogit.Sidecar, head plumbingHashType, limit int, colour bool) {
+	repo := sc.Repo()
+	cur := head
+	count := 0
+	seen := map[string]bool{}
+	for !cur.IsZero() {
+		if seen[cur.String()] {
+			break
+		}
+		seen[cur.String()] = true
+		c, err := object.GetCommit(repo.Storer, cur)
+		if err != nil {
+			return
+		}
+		printLogEntry(c, colour)
+		count++
+		if limit > 0 && count >= limit {
+			break
+		}
+		if len(c.ParentHashes) == 0 {
+			break
+		}
+		cur = c.ParentHashes[0]
+	}
+}
+
+// printNewCommitsForward walks from newTip back toward lastSeen,
+// collects the range, then prints in reverse (oldest-first) so the
+// follow-feed reads chronologically. Stops when it hits lastSeen
+// (the previous tip) or walks off the root.
+func printNewCommitsForward(sc *stadogit.Sidecar, newTip, lastSeen plumbingHashType, colour bool) {
+	repo := sc.Repo()
+	var chain []*object.Commit
+	cur := newTip
+	for !cur.IsZero() && cur != lastSeen {
+		c, err := object.GetCommit(repo.Storer, cur)
+		if err != nil {
+			return
+		}
+		chain = append(chain, c)
+		if len(c.ParentHashes) == 0 {
+			break
+		}
+		cur = c.ParentHashes[0]
+	}
+	// Print in reverse so the oldest-new commit shows first.
+	for i := len(chain) - 1; i >= 0; i-- {
+		printLogEntry(chain[i], colour)
+	}
 }
 
 // printLogEntry renders one trace commit as:
@@ -123,9 +192,22 @@ func printLogEntry(c *object.Commit, colour bool) {
 	fmt.Println(line)
 }
 
+// plumbingHashType is a local alias for go-git's plumbing.Hash so
+// helper signatures stay readable without re-importing at every
+// site.
+type plumbingHashType = plumbing.Hash
+
+func contextBackground() context.Context {
+	return context.Background()
+}
+
 func init() {
 	sessionLogsCmd.Flags().IntVar(&logsLimit, "limit", 0,
 		"Cap entries (0 = unlimited, newest first). Pipe through head/tail to scope differently.")
+	sessionLogsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false,
+		"After the initial dump, keep watching the trace ref and print new commits as they land.")
+	sessionLogsCmd.Flags().DurationVar(&logsPollFreq, "interval", 500*time.Millisecond,
+		"Follow-mode poll frequency.")
 	sessionLogsCmd.ValidArgsFunction = completeSessionIDs
 	sessionCmd.AddCommand(sessionLogsCmd)
 }
