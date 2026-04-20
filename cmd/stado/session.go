@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -106,6 +107,115 @@ var sessionListCmd = &cobra.Command{
 
 // (sessionRow + summariseSession live in internal/runtime so the TUI
 // can share them — see runtime.SessionSummary / runtime.SummariseSession.)
+
+// sessionGCCmd sweeps zero-turn, zero-message, zero-compaction
+// sessions older than --older-than. Dogfood #6: `run --prompt`, bare
+// `session new`, and each headless session leaves a session on disk;
+// over a week of scripted use they pile up into session-list noise.
+// GC touches only sessions that clearly never did any work.
+var sessionGCCmd = &cobra.Command{
+	Use:   "gc",
+	Short: "Sweep zero-turn sessions older than --older-than (dry-run by default)",
+	Long: "Scans every session (ref-backed + worktree-backed) and removes those\n" +
+		"that have: 0 turn tags AND 0 persisted conversation messages AND 0\n" +
+		"compaction markers AND a worktree mtime older than --older-than. Any\n" +
+		"session currently live (valid .stado-pid) is skipped regardless of\n" +
+		"age. Default is dry-run — pass --apply to actually delete.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		sc, err := openSidecar(cfg)
+		if err != nil {
+			return err
+		}
+		ids, err := listSessions(sc)
+		if err != nil {
+			return fmt.Errorf("list sessions: %w", err)
+		}
+		// Also scan the worktree dir for UUID-looking directories the
+		// sidecar may not know about — dogfood showed `run --prompt`
+		// can leave a worktree without a trace ref.
+		if entries, err := os.ReadDir(cfg.WorktreeDir()); err == nil {
+			seen := map[string]struct{}{}
+			for _, id := range ids {
+				seen[id] = struct{}{}
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					if _, ok := seen[e.Name()]; !ok {
+						ids = append(ids, e.Name())
+					}
+				}
+			}
+			sort.Strings(ids)
+		}
+
+		cutoff := time.Now().Add(-sessionGCOlderThan)
+		var toDelete []string
+		var skipped int
+		for _, id := range ids {
+			summary := runtime.SummariseSession(cfg.WorktreeDir(), sc, id)
+			if summary.Status == "live" {
+				skipped++
+				continue
+			}
+			if summary.Turns > 0 || summary.Msgs > 0 || summary.Compactions > 0 {
+				skipped++
+				continue
+			}
+			wt := filepath.Join(cfg.WorktreeDir(), id)
+			if info, err := os.Stat(wt); err == nil {
+				if info.ModTime().After(cutoff) {
+					skipped++
+					continue
+				}
+			}
+			toDelete = append(toDelete, id)
+		}
+
+		if len(toDelete) == 0 {
+			fmt.Fprintf(os.Stderr, "no candidates (older than %s). %d session(s) skipped.\n",
+				sessionGCOlderThan, skipped)
+			return nil
+		}
+
+		fmt.Fprintf(os.Stderr, "%d candidate(s) older than %s:\n",
+			len(toDelete), sessionGCOlderThan)
+		for _, id := range toDelete {
+			fmt.Fprintln(os.Stderr, "  "+id)
+		}
+		if !sessionGCApply {
+			fmt.Fprintln(os.Stderr, "(dry run — rerun with --apply to delete)")
+			return nil
+		}
+		var errs int
+		for _, id := range toDelete {
+			wt := filepath.Join(cfg.WorktreeDir(), id)
+			if err := sc.DeleteSessionRefs(id); err != nil {
+				fmt.Fprintf(os.Stderr, "delete refs %s: %v\n", id, err)
+				errs++
+				continue
+			}
+			if err := os.RemoveAll(wt); err != nil {
+				fmt.Fprintf(os.Stderr, "remove worktree %s: %v\n", id, err)
+				errs++
+				continue
+			}
+			fmt.Fprintln(os.Stderr, "deleted", id)
+		}
+		if errs > 0 {
+			return fmt.Errorf("%d deletion error(s)", errs)
+		}
+		return nil
+	},
+}
+
+var (
+	sessionGCOlderThan time.Duration
+	sessionGCApply     bool
+)
 
 var sessionDeleteCmd = &cobra.Command{
 	Use:   "delete <id>",
@@ -411,8 +521,12 @@ func findRepoRootForLand(start string) string {
 type refMakerSession func(sessionID string) plumbing.ReferenceName
 
 func init() {
+	sessionGCCmd.Flags().DurationVar(&sessionGCOlderThan, "older-than", 24*time.Hour,
+		"Skip sessions whose worktree was touched more recently than this")
+	sessionGCCmd.Flags().BoolVar(&sessionGCApply, "apply", false,
+		"Actually delete. Default is dry-run (list candidates only)")
 	sessionCmd.AddCommand(
-		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionForkCmd,
+		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionGCCmd, sessionForkCmd,
 		sessionAttachCmd, sessionResumeCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
 		sessionTreeCmd, sessionCompactCmd,
 	)

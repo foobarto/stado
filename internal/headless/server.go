@@ -80,16 +80,32 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	case "tools.list":
 		return s.toolsList(), nil
 	case "providers.list":
+		// `current` reflects what the server actually resolved, not
+		// what's written in config — the local-fallback path leaves
+		// cfg.Defaults.Provider empty even when a runner is serving.
+		// Clients call this to learn which provider they're talking
+		// to; blank when neither config nor a resolved runner applies.
+		current := s.Cfg.Defaults.Provider
+		if s.Provider != nil {
+			current = s.Provider.Name()
+		}
 		return map[string]any{
 			"available": []string{"anthropic", "openai", "google", "ollama", "llamacpp", "vllm"},
-			"current":   s.Cfg.Defaults.Provider,
+			"current":   current,
 		}, nil
 	case "plugin.list":
 		return s.pluginList(), nil
 	case "plugin.run":
 		return s.pluginRun(ctx, params)
 	case "shutdown":
-		s.conn.Close()
+		// Wait for every other in-flight dispatch to complete before
+		// we reply — otherwise shutdown races ahead of slow calls like
+		// plugin.run, and the client sees responses arriving *after*
+		// the shutdown ACK. Conn.Close then runs on the background
+		// drain path in a fresh goroutine so this dispatch can return
+		// + its response can flush before we tear down the pipe.
+		s.conn.WaitPendingExceptCaller()
+		go s.conn.Close()
 		return struct{}{}, nil
 	}
 	return nil, &acp.RPCError{Code: acp.CodeMethodNotFound, Message: "unknown method: " + method}

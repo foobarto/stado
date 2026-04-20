@@ -164,3 +164,54 @@ func readLine(t *testing.T, r io.Reader, timeout time.Duration) string {
 		return ""
 	}
 }
+
+// TestConn_WaitPendingExceptCaller_OrdersShutdownLast pins the fix for
+// dogfood finding #1: a handler that wants its response to land *after*
+// all earlier in-flight dispatches must be able to drain them before
+// replying. Without WaitPendingExceptCaller, "shutdown" wins the race
+// against a slow "work" call and the client sees them out of order.
+func TestConn_WaitPendingExceptCaller_OrdersShutdownLast(t *testing.T) {
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	srv := NewConn(server, server)
+	// slow + shutdown handler. slow sleeps 100ms; shutdown waits for
+	// pending via the new primitive, then replies. Reading the replies
+	// in wire order should give us slow before shutdown.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = srv.Serve(context.Background(), func(ctx context.Context, method string, _ json.RawMessage) (any, error) {
+			switch method {
+			case "slow":
+				time.Sleep(100 * time.Millisecond)
+				return map[string]string{"finished": "slow"}, nil
+			case "shutdown":
+				srv.WaitPendingExceptCaller()
+				return map[string]string{"finished": "shutdown"}, nil
+			}
+			return nil, &RPCError{Code: CodeMethodNotFound}
+		})
+	}()
+
+	// Fire slow then shutdown immediately — shutdown will finish first
+	// without the wait primitive.
+	io.WriteString(client, `{"jsonrpc":"2.0","id":1,"method":"slow"}`+"\n")
+	io.WriteString(client, `{"jsonrpc":"2.0","id":2,"method":"shutdown"}`+"\n")
+
+	first := readLine(t, client, 2*time.Second)
+	second := readLine(t, client, 2*time.Second)
+
+	// Wire order: slow's id=1 must come before shutdown's id=2.
+	if !strings.Contains(first, `"id":1`) || !strings.Contains(first, "slow") {
+		t.Errorf("first reply should be id=1 slow, got %q", first)
+	}
+	if !strings.Contains(second, `"id":2`) || !strings.Contains(second, "shutdown") {
+		t.Errorf("second reply should be id=2 shutdown, got %q", second)
+	}
+
+	client.Close()
+	wg.Wait()
+}

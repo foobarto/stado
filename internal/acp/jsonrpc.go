@@ -66,14 +66,42 @@ type Conn struct {
 	w    io.Writer
 	done chan struct{}
 	once sync.Once
+
+	// pending counts in-flight dispatches. Used by
+	// WaitPendingExceptCaller so handlers like "shutdown" can drain
+	// earlier requests before replying. Protected by pendMu; pendCond
+	// broadcasts on every decrement.
+	pendMu   sync.Mutex
+	pend     int
+	pendCond *sync.Cond
 }
 
 // NewConn wraps a reader/writer pair into a JSON-RPC connection.
 func NewConn(r io.Reader, w io.Writer) *Conn {
-	return &Conn{
+	c := &Conn{
 		r:    bufio.NewReaderSize(r, 64*1024),
 		w:    w,
 		done: make(chan struct{}),
+	}
+	c.pendCond = sync.NewCond(&c.pendMu)
+	return c
+}
+
+// WaitPendingExceptCaller blocks until every in-flight dispatch other
+// than the caller's has completed. Call this from a handler that needs
+// to order its response after all previously-submitted requests — most
+// importantly "shutdown", so the final ACK lands on the wire after the
+// slow work a client fires right before hanging up.
+//
+// Safe to call only from inside a live dispatch (the caller's own
+// pending count keeps pend > 0 while we wait). If called outside a
+// dispatch, it blocks forever — the counter stays zero but the caller's
+// "exception" makes us wait for pend > 1 which never arrives.
+func (c *Conn) WaitPendingExceptCaller() {
+	c.pendMu.Lock()
+	defer c.pendMu.Unlock()
+	for c.pend > 1 {
+		c.pendCond.Wait()
 	}
 }
 
@@ -101,8 +129,17 @@ func (c *Conn) Serve(ctx context.Context, h Handler) error {
 		line, err := c.r.ReadBytes('\n')
 		if len(line) > 0 {
 			wg.Add(1)
+			c.pendMu.Lock()
+			c.pend++
+			c.pendMu.Unlock()
 			go func(raw []byte) {
 				defer wg.Done()
+				defer func() {
+					c.pendMu.Lock()
+					c.pend--
+					c.pendCond.Broadcast()
+					c.pendMu.Unlock()
+				}()
 				c.dispatch(ctx, h, raw)
 			}(line)
 		}

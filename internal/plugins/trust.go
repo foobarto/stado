@@ -126,7 +126,13 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 	}
 	entry, ok := store[m.AuthorPubkeyFpr]
 	if !ok {
-		return fmt.Errorf("verify: author %s is not pinned; run `stado plugin trust <pubkey>` first", m.AuthorPubkeyFpr)
+		// The manifest only carries a fingerprint, not the full pubkey —
+		// the Ed25519 pubkey isn't recoverable from the signature alone.
+		// Point the user at both canonical paths: out-of-band-known key
+		// goes through `plugin trust`; first-trust-on-install goes
+		// through `--signer <pubkey>` (TOFU) so they don't have to
+		// pin out-of-band before they even look at the plugin.
+		return fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band and run `stado plugin trust <pubkey>`, or retry with `stado plugin verify . --signer <pubkey>` to pin on first use (TOFU)", m.AuthorPubkeyFpr)
 	}
 	pub, err := hex.DecodeString(entry.Pubkey)
 	if err != nil || len(pub) != ed25519.PublicKeySize {

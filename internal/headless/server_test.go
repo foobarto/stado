@@ -10,7 +10,19 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/pkg/agent"
 )
+
+// stubProvider is a minimal agent.Provider for tests that only care
+// about the `Name()` seam. StreamTurn panics so we notice if a test
+// accidentally hits the provider path.
+type stubProvider struct{ name string }
+
+func (s stubProvider) Name() string                 { return s.name }
+func (s stubProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (s stubProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	panic("stubProvider.StreamTurn: test shouldn't invoke the provider")
+}
 
 // pipeRW wraps an io.Pipe pair into an in-memory ReadWriteCloser for tests.
 type pipeRW struct {
@@ -135,6 +147,37 @@ func TestHeadless_ProvidersList(t *testing.T) {
 	}
 	if len(r.Result.Available) < 4 {
 		t.Errorf("available = %v", r.Result.Available)
+	}
+	client.Close()
+}
+
+// TestHeadless_ProvidersList_ResolvedProviderWins pins dogfood #2:
+// when a provider is injected (local-fallback path in real use), the
+// `current` field must report the resolved name, NOT the empty
+// cfg.Defaults.Provider. Without this, scripted clients can't tell
+// which backend is actually answering.
+func TestHeadless_ProvidersList_ResolvedProviderWins(t *testing.T) {
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	cfg := &config.Config{} // Defaults.Provider intentionally empty
+	srv := NewServer(cfg, stubProvider{name: "lmstudio"})
+	go srv.Serve(context.Background(), server, server)
+
+	io.WriteString(client, `{"jsonrpc":"2.0","id":9,"method":"providers.list"}`+"\n")
+	reply := readLine(t, client, 2*time.Second)
+
+	var r struct {
+		Result struct {
+			Current string `json:"current"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(reply), &r); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if r.Result.Current != "lmstudio" {
+		t.Errorf("current = %q, want lmstudio (resolved provider, not empty config)", r.Result.Current)
 	}
 	client.Close()
 }
