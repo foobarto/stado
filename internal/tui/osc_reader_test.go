@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,44 @@ func TestOSCStripReader_ESCThenTypingInSameReadPreserved(t *testing.T) {
 	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
 	if got != "\x1bx" {
 		t.Errorf("alt+x sequence lost; got %q", got)
+	}
+}
+
+// TestOSCStripFile_ExposesFdNameWriteClose verifies the production
+// wrapper keeps the *os.File's term.File + cancelreader.File surface
+// intact. Without these, bubbletea silently falls back to cooked-mode
+// stdin and keyboard input breaks completely (keystrokes echo to the
+// terminal cursor; nothing reaches the TUI).
+func TestOSCStripFile_ExposesFdNameWriteClose(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = pr.Close()
+		_ = pw.Close()
+	})
+
+	sf := newOSCStripFile(pr)
+
+	// Fd must forward to the underlying file — this is what bubbletea
+	// type-asserts on to decide whether to enter raw mode.
+	if sf.Fd() != pr.Fd() {
+		t.Errorf("Fd mismatch: got %d, want %d", sf.Fd(), pr.Fd())
+	}
+	if sf.Name() != pr.Name() {
+		t.Errorf("Name mismatch: got %q, want %q", sf.Name(), pr.Name())
+	}
+
+	// Read filters: write an OSC sequence to the pipe, read through
+	// the wrapper, confirm it's elided.
+	go func() {
+		_, _ = pw.WriteString("A\x1b]11;rgb:1/1/1\x07Z")
+		_ = pw.Close()
+	}()
+	got := readAll(t, sf)
+	if got != "AZ" {
+		t.Errorf("filtered read got %q, want %q", got, "AZ")
 	}
 }
 

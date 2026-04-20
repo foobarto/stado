@@ -176,6 +176,25 @@ Three features added after researching the top coding-agent CLIs.
   through the response across Read boundaries + `tea.WithFilter`
   backstop for the Alt-wrapped shape. Both removed once
   bubbletea v2 (native OSC parser) lands.
+- **Raw-mode regression** from the OSC wrapper — fixed. The
+  earlier stripper was a plain `io.Reader`, which made bubbletea's
+  `initInput` type assertion (`p.input.(term.File)`) fail: no raw
+  mode, no epoll cancel path, so keystrokes echoed to the
+  terminal cursor instead of reaching the TUI. New
+  `oscStripFile` embeds `*os.File` so `Fd()`/`Write()`/`Close()`/
+  `Name()` forward to stdin and bubbletea can still call
+  `term.MakeRaw(fd)`. cancelreader's epoll reads via
+  `file.Read()` which routes through the filter.
+- **Sidebar no longer latches closed** on the first render. View()
+  used to flip `sidebarOpen = false` when width was below the
+  min threshold — but the very first View() call runs before
+  any `WindowSizeMsg` arrives, at width=0, permanently closing
+  the sidebar. Now the flag is preserved; only the current-frame
+  render is skipped.
+- `hack/tmux-uat.sh` — real-PTY harness. Spawns `./stado` in a
+  detached tmux session, asserts against the captured pane.
+  Orthogonal to teatest: it catches regressions in the termios +
+  cancelreader path (the exact path the two fixes above sit on).
 
 ### CLI polish
 

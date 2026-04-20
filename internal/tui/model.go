@@ -1010,8 +1010,12 @@ func (m *Model) View() string {
 		if sidebarW > m.width/3 {
 			sidebarW = m.width / 3
 		}
+		// Too-narrow terminal: don't render a sidebar this frame, but
+		// keep m.sidebarOpen so a later WindowSizeMsg with a wider
+		// terminal brings it back. Previously we flipped the flag here,
+		// which meant the first View() call (pre-WindowSizeMsg, width=0)
+		// permanently closed the sidebar for the session.
 		if sidebarW < m.theme.Layout.SidebarMinWidth {
-			m.sidebarOpen = false
 			sidebarW = 0
 		}
 	}

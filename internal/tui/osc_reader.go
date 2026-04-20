@@ -2,6 +2,7 @@ package tui
 
 import (
 	"io"
+	"os"
 )
 
 // oscStripReader wraps an io.Reader and elides terminal OSC response
@@ -51,11 +52,43 @@ const (
 	oscInOSCSawESC
 )
 
-// newOSCStripReader wraps src. Safe to wrap os.Stdin directly; not
-// thread-safe (one reader per TUI program).
+// newOSCStripReader wraps src. Tests pass arbitrary readers here; the
+// TUI uses newOSCStripFile so bubbletea can still hit the real fd for
+// termios + epoll. Not thread-safe (one reader per TUI program).
 func newOSCStripReader(src io.Reader) *oscStripReader {
 	return &oscStripReader{src: src}
 }
+
+// oscStripFile is the production wrapper around os.Stdin: embeds the
+// *os.File (so Fd()/Write()/Close()/Name() are exposed verbatim), but
+// overrides Read to run through the OSC-stripping state machine.
+//
+// Both bubbletea's initInput (needs term.File to call MakeRaw on the
+// tty fd) and muesli/cancelreader (needs cancelreader.File to epoll
+// on the tty fd) type-assert on methods Fd()+Name()+Write()+Close().
+// Wrapping as a plain io.Reader — which is what `newOSCStripReader`
+// alone produces — silently fell back to cooked-mode stdin: keystrokes
+// echoed to the terminal's cursor position and never reached the TUI.
+// This type keeps the raw-mode setup path while routing every Read
+// through the filter.
+type oscStripFile struct {
+	*os.File
+	r oscStripReader
+}
+
+// newOSCStripFile wraps an *os.File. The embedded *os.File satisfies
+// every non-Read method of term.File + cancelreader.File, so bubbletea
+// and cancelreader never see a demoted io.Reader.
+func newOSCStripFile(f *os.File) *oscStripFile {
+	sf := &oscStripFile{File: f}
+	sf.r.src = f
+	return sf
+}
+
+// Read routes through the stripper. cancelreader's epollCancelReader
+// calls this method (r.file.Read) after the fd signals readable, so
+// the filter sees every byte even though epoll waits on the real fd.
+func (f *oscStripFile) Read(p []byte) (int, error) { return f.r.Read(p) }
 
 // Read copies from src into p, dropping any bytes that are part of an
 // OSC sequence. Sequence state persists across Read calls so a split

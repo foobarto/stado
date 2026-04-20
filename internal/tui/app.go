@@ -89,7 +89,7 @@ func Run(cfg *config.Config) error {
 	p := tea.NewProgram(m,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
-		tea.WithInput(newOSCStripReader(os.Stdin)),
+		tea.WithInput(newOSCStripFile(os.Stdin)),
 		tea.WithFilter(filterOSCResponses))
 	m.Attach(p)
 
