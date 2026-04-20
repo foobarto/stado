@@ -1,7 +1,10 @@
 {{- /* Bottom status strip — right-aligned tokens/cost + keybind hint, muted.
-       Left side (state dot + message) appears only when not idle. */ -}}
+       Left side (state dot + message) appears only when not idle.
+       When a message is queued (user hit Enter mid-stream), render a
+       separate pill so the buffered text is visible. */ -}}
 {{- $dot := "●" -}}
 {{- if eq .State "streaming" }}{{ color "warning" $dot }} {{ color "muted" "thinking" }}  {{ end -}}
 {{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "muted" "awaiting approval" }}  {{ end -}}
 {{- if eq .State "error" }}{{ color "error" $dot }} {{ color "muted" .ErrorMessage }}  {{ end -}}
+{{- if .Queued }}{{ color "primary" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
 {{ color "muted" .Tokens }} {{ color "muted" "·" }} {{ color "muted" .Cost }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}

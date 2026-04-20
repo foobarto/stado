@@ -184,6 +184,14 @@ type Model struct {
 	streamMu     sync.Mutex
 	errorMsg     string
 
+	// queuedPrompt is the user's follow-up message buffered while an
+	// earlier turn is still streaming. Enter while stateStreaming
+	// enqueues; onTurnComplete drains. Esc / Ctrl+C clears the queue
+	// (preferred over cancelling the in-flight stream when a queued
+	// message exists). Pi's pattern — lets the user line up "the next
+	// thing to try" without waiting for the model to finish typing.
+	queuedPrompt string
+
 	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
 	// prompt size (not cumulative) — it's the correct input for the
 	// context-window percentage calculation. OutputTokens and CostUSD
@@ -884,6 +892,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// leaves stado. If the input is empty and nothing's in
 			// flight, no-op (user can ctrl+d to exit).
 			if m.input.Value() == "" {
+				// Queued-prompt clears first: if the user queued a
+				// follow-up while streaming and wants to take it back,
+				// they reach for Ctrl+C/Esc before the model finishes.
+				// Don't also cancel the stream in the same keystroke —
+				// that combines two intents.
+				if m.queuedPrompt != "" {
+					m.queuedPrompt = ""
+					return m, nil
+				}
 				if m.state == stateStreaming && m.streamCancel != nil {
 					m.streamCancel()
 				}
@@ -899,11 +916,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// resets the textarea. Fall through to let inputCmd do that.
 
 		case m.keys.Matches(msg, keys.InputSubmit):
-			if m.input.Value() == "" || m.state == stateStreaming {
+			if m.input.Value() == "" {
 				return m, nil
 			}
 			text := strings.TrimSpace(m.input.Value())
 			if text == "" {
+				return m, nil
+			}
+			// Enter while a turn is still streaming: queue the prompt
+			// for after-done instead of silently dropping it (the old
+			// behaviour) or abruptly cancelling (bad UX). onTurnComplete
+			// picks it up. Slash-commands queue the same way — their
+			// side effects are all local, but UX-wise the user fired
+			// them while busy and expects them to apply next.
+			if m.state == stateStreaming {
+				m.queuedPrompt = text
+				m.input.History.Push(text)
+				m.input.Reset()
 				return m, nil
 			}
 			if strings.HasPrefix(text, "/") {
@@ -1098,6 +1127,13 @@ func (m *Model) renderStatus(width int) string {
 	tokens := fmt.Sprintf("%s (%s)", humanize(m.usage.InputTokens), tokenPctString(m))
 	cost := fmt.Sprintf("$%.2f", m.usage.CostUSD)
 
+	// Queued-message indicator (mid-stream Enter buffer). Empty when
+	// nothing queued — template conditional-renders the pill.
+	queued := ""
+	if m.queuedPrompt != "" {
+		queued = trimSeed(m.queuedPrompt, 40)
+	}
+
 	body, err := m.renderer.Exec("status", map[string]any{
 		"State":        state,
 		"Model":        m.model,
@@ -1107,6 +1143,7 @@ func (m *Model) renderStatus(width int) string {
 		"Width":        width,
 		"Tokens":       tokens,
 		"Cost":         cost,
+		"Queued":       queued,
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
@@ -1706,6 +1743,23 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	if len(m.turnToolCalls) == 0 {
 		m.state = stateIdle
+		// Drain any queued follow-up message the user typed while the
+		// previous turn was streaming. Dispatch it exactly like a fresh
+		// submit would: append a user message, start the stream. Slash
+		// commands (leading /) route through handleSlash. Queued
+		// prompts bypass the hard-threshold gate on the theory that if
+		// the user decided to queue something mid-stream, they can
+		// react to the block on arrival.
+		if m.queuedPrompt != "" {
+			queued := m.queuedPrompt
+			m.queuedPrompt = ""
+			if strings.HasPrefix(queued, "/") {
+				return m.handleSlash(queued)
+			}
+			m.appendUser(queued)
+			m.renderBlocks()
+			return m.startStream()
+		}
 		return nil
 	}
 
