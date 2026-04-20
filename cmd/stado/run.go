@@ -21,11 +21,12 @@ import (
 )
 
 var (
-	runPrompt     string
-	runMaxTurns   int
-	runJSON       bool
-	runTools      bool
-	runSandboxFS  bool
+	runPrompt    string
+	runMaxTurns  int
+	runJSON      bool
+	runTools     bool
+	runSandboxFS bool
+	runSessionID string
 )
 
 var runCmd = &cobra.Command{
@@ -55,12 +56,38 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			return fmt.Errorf("provider: %w", err)
 		}
 
+		// Session-continuation path: --session <id-or-label> loads the
+		// existing conversation and appends the new prompt. The reply
+		// gets persisted back, so `stado` resume + TUI see the
+		// exchange. Useful for scripted follow-ups on a long-running
+		// session: `stado run --session react "what was that hook
+		// we extracted?"`.
+		var priorMsgs []agent.Message
+		var continueSessID string
+		var continueWorktree string
+		if runSessionID != "" {
+			resolved, err := resolveSessionID(cfg, runSessionID)
+			if err != nil {
+				return fmt.Errorf("run: --session: %w", err)
+			}
+			continueSessID = resolved
+			continueWorktree = cfgWorktreeDirPath(cfg, resolved)
+			priorMsgs, err = runtime.LoadConversation(continueWorktree)
+			if err != nil {
+				return fmt.Errorf("run: load conversation for %s: %w", resolved, err)
+			}
+			fmt.Fprintf(os.Stderr,
+				"stado run: continuing session %s (%d prior message(s))\n",
+				resolved, len(priorMsgs))
+		}
+
+		newUserMsg := agent.Text(agent.RoleUser, runPrompt)
 		var executor *runtime.AgentLoopOptions
 		_ = executor // silence unused warning when --tools is off
 		opts := runtime.AgentLoopOptions{
 			Provider:             prov,
 			Model:                cfg.Defaults.Model,
-			Messages:             []agent.Message{agent.Text(agent.RoleUser, runPrompt)},
+			Messages:             append(priorMsgs, newUserMsg),
 			MaxTurns:             runMaxTurns,
 			OnEvent:              emitter(runJSON, os.Stdout),
 			Thinking:             cfg.Agent.Thinking,
@@ -99,7 +126,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 		defer cancel()
 
-		_, _, err = runtime.AgentLoop(ctx, opts)
+		_, finalMsgs, err := runtime.AgentLoop(ctx, opts)
 		if err != nil {
 			if strings.Contains(err.Error(), "exceeded") {
 				fmt.Fprintln(os.Stderr, err.Error())
@@ -107,11 +134,34 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}
 			return err
 		}
+		// Persist the session-continuation exchange. priorMsgs was
+		// the prefix; finalMsgs is that prefix + the new user msg +
+		// whatever assistant/tool turns came back. Slice off the
+		// prefix and append each new message so the TUI replay sees
+		// the full flow next time it resumes.
+		if continueWorktree != "" && continueSessID != "" {
+			for i, m := range finalMsgs {
+				if i < len(priorMsgs) {
+					continue
+				}
+				if err := runtime.AppendMessage(continueWorktree, m); err != nil {
+					fmt.Fprintf(os.Stderr, "stado run: persist message %d: %v\n", i, err)
+				}
+			}
+		}
 		if !runJSON {
 			fmt.Fprintln(os.Stdout)
 		}
 		return nil
 	},
+}
+
+// cfgWorktreeDirPath is a shorthand used only by run.go's session
+// continuation path. Inlined helper keeps the main command body
+// readable without pulling filepath into the import list here
+// (it's already in session.go).
+func cfgWorktreeDirPath(cfg *config.Config, id string) string {
+	return cfg.WorktreeDir() + "/" + id
 }
 
 // emitter returns an OnEvent callback that streams to out.
@@ -151,5 +201,7 @@ func init() {
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable tool-calling (bash/fs/webfetch) with git-native audit")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
+	runCmd.Flags().StringVar(&runSessionID, "session", "",
+		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
 	rootCmd.AddCommand(runCmd)
 }
