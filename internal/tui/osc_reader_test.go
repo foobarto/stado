@@ -1,0 +1,124 @@
+package tui
+
+import (
+	"bytes"
+	"io"
+	"strings"
+	"testing"
+)
+
+// readAll drains the stripping reader into a string so tests can
+// assert against the resulting byte stream.
+func readAll(t *testing.T, r io.Reader) string {
+	t.Helper()
+	var out bytes.Buffer
+	buf := make([]byte, 128)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			out.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return out.String()
+}
+
+// TestOSCStripReader_BELTerminator: an OSC 11 response ending in BEL
+// (the short xterm form) is fully elided. Plain bytes before/after
+// are preserved.
+func TestOSCStripReader_BELTerminator(t *testing.T) {
+	src := "hello\x1b]11;rgb:1e1e/1e1e/1e1e\x07world"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "helloworld" {
+		t.Errorf("got %q, want %q", got, "helloworld")
+	}
+}
+
+// TestOSCStripReader_STTerminator: ST form (\x1b\\) also elides
+// cleanly.
+func TestOSCStripReader_STTerminator(t *testing.T) {
+	src := "abc\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\xyz"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "abcxyz" {
+		t.Errorf("got %q, want %q", got, "abcxyz")
+	}
+}
+
+// TestOSCStripReader_SplitAcrossReads: the terminator may land in a
+// different Read call than the body. State must persist across
+// Read-boundaries, else the tail leaks. This is exactly the bug the
+// tea.WithFilter approach missed.
+func TestOSCStripReader_SplitAcrossReads(t *testing.T) {
+	// Arrange: emit the sequence in two chunks, with a plain byte
+	// after the terminator.
+	first := "abc\x1b]11;rgb:1e1e/1e1e/"
+	second := "1e1e\x1b\\xyz"
+	r := newOSCStripReader(&sequentialReader{chunks: []string{first, second}})
+	got := readAll(t, r)
+	if got != "abcxyz" {
+		t.Errorf("got %q, want %q", got, "abcxyz")
+	}
+}
+
+// TestOSCStripReader_LoneESCFallsThrough: an ESC that's NOT followed
+// by ']' must re-emit as-is — otherwise the reader would swallow
+// legitimate Alt-prefixed keybinds or CSI sequences.
+func TestOSCStripReader_LoneESCFallsThrough(t *testing.T) {
+	// \x1b[A is a CSI Up-arrow; must survive the reader unchanged.
+	src := "\x1b[A"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "\x1b[A" {
+		t.Errorf("got %q, want %q", got, "\x1b[A")
+	}
+	// Alt+x (ESC x) also survives.
+	src2 := "\x1bx"
+	got2 := readAll(t, newOSCStripReader(strings.NewReader(src2)))
+	if got2 != "\x1bx" {
+		t.Errorf("got %q, want %q", got2, "\x1bx")
+	}
+}
+
+// TestOSCStripReader_MultipleSequences: two OSC responses back to
+// back (which is what the user saw in the textarea screenshot) both
+// get elided.
+func TestOSCStripReader_MultipleSequences(t *testing.T) {
+	src := "A\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\B\x1b]10;rgb:ffff/ffff/ffff\x07C"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "ABC" {
+		t.Errorf("got %q, want %q", got, "ABC")
+	}
+}
+
+// TestOSCStripReader_PlainPassthrough: no OSC in the stream → bytes
+// unchanged.
+func TestOSCStripReader_PlainPassthrough(t *testing.T) {
+	src := "the quick brown fox"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != src {
+		t.Errorf("got %q, want %q", got, src)
+	}
+}
+
+// sequentialReader returns chunks one Read() call at a time so tests
+// can simulate input arriving in separate OS buffer fills — exactly
+// how a terminal's late OSC response is likely to appear after the
+// user has already started typing.
+type sequentialReader struct {
+	chunks []string
+	i      int
+}
+
+func (r *sequentialReader) Read(p []byte) (int, error) {
+	if r.i >= len(r.chunks) {
+		return 0, io.EOF
+	}
+	chunk := r.chunks[r.i]
+	r.i++
+	n := copy(p, chunk)
+	return n, nil
+}

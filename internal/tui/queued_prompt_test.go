@@ -56,6 +56,16 @@ func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
 	if m.state != stateStreaming {
 		t.Errorf("state = %v, should still be streaming after queue", m.state)
 	}
+	// Regression against dogfood bug: the queued message must appear
+	// in m.blocks immediately so the user sees it in the chat, not
+	// only after the current stream finishes.
+	if len(m.blocks) == 0 {
+		t.Fatal("queued message should appear in blocks immediately")
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "user" || last.body != "retry now" {
+		t.Errorf("last block = %+v, want user/'retry now'", last)
+	}
 }
 
 // TestQueuedPrompt_CtrlCClearsQueueFirst: when a queued prompt exists,

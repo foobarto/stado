@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,7 +80,16 @@ func Run(cfg *config.Config) error {
 	// via the host-import ABI. Failures are advisory — a bad plugin
 	// shouldn't brick the TUI.
 	m.LoadBackgroundPlugins(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(),
+	// Wrap stdin with an OSC-response stripper. See osc_reader.go:
+	// the terminal's late replies to lipgloss/termenv's one-shot
+	// background-colour query would otherwise leak into the focused
+	// widget as literal text. tea.WithFilter below is the backstop for
+	// responses that slipped past the wrapper (shouldn't happen but
+	// costs nothing to keep).
+	p := tea.NewProgram(m,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+		tea.WithInput(newOSCStripReader(os.Stdin)),
 		tea.WithFilter(filterOSCResponses))
 	m.Attach(p)
 
@@ -96,32 +106,42 @@ func Run(cfg *config.Config) error {
 	return nil
 }
 
-// filterOSCResponses drops terminal OSC replies that bubbletea v1.3
-// misparses as Alt-prefixed rune bursts (bubbletea@v1.3.10/key.go
-// detectOneMsg has no OSC parser — ESC opens an Alt-runes window and
-// the OSC payload leaks into the current focused widget, visible in
-// the textarea as '`]11;rgb:1e1e/1e1e/1e1e\`'. Terminals emit these
-// in response to lipgloss/termenv's one-shot background-color query
-// at init time; slow terminals' responses arrive after stado has
-// taken over stdin. We filter anything matching `Alt=true` + runes
-// starting with ']<digit>...;' — the shape of every OSC
-// status-report reply (]10 = fg, ]11 = bg, ]708 = border, etc.).
-// Removed when we upgrade to bubbletea v2 which parses OSC natively.
+// filterOSCResponses is the backstop filter for terminal OSC replies
+// that slipped past the byte-level newOSCStripReader (see
+// osc_reader.go). The reader handles the common case; this filter
+// catches the Alt-prefixed-runes shape bubbletea v1.3's input parser
+// synthesises when an ESC is followed by the OSC payload in the same
+// Read — we intercept the synthesised KeyMsg before it reaches the
+// textarea. Removed once we upgrade to bubbletea v2 (native OSC
+// parser). Also drops payload-only bursts that start with "rgb:" —
+// a split OSC 10/11/12 tail where the leading ']NN;' has already
+// been consumed but the colour spec leaked.
 func filterOSCResponses(_ tea.Model, msg tea.Msg) tea.Msg {
 	km, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return msg
 	}
-	if !km.Alt || len(km.Runes) < 3 || km.Runes[0] != ']' {
+	if len(km.Runes) == 0 {
 		return msg
 	}
-	// Require a digit after ']' — OSC status reports always start
-	// with a numeric Ps parameter. Rules out legit Alt+] user input.
-	r := km.Runes[1]
-	if r < '0' || r > '9' {
-		return msg
+	runes := string(km.Runes)
+	// Alt-prefixed '<digit>...;' form: shape of an OSC status-report
+	// reply where bubbletea still saw the opening ESC.
+	if km.Alt && km.Runes[0] == ']' && len(km.Runes) >= 3 {
+		r := km.Runes[1]
+		if r >= '0' && r <= '9' {
+			return nil
+		}
 	}
-	return nil
+	// Payload-only tail when the ]NN; prefix was consumed in a prior
+	// Read. The colour-spec "rgb:HHHH/HHHH/HHHH" is unmistakable;
+	// drop any rune burst that contains it. Rules out legit user
+	// input because "rgb:" followed by four-hex/slash-four-hex is
+	// not a sequence humans type.
+	if strings.Contains(runes, "rgb:") && strings.Contains(runes, "/") {
+		return nil
+	}
+	return msg
 }
 
 // BuildProvider is the exported version of the internal provider-resolution

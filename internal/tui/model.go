@@ -925,12 +925,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Enter while a turn is still streaming: queue the prompt
 			// for after-done instead of silently dropping it (the old
-			// behaviour) or abruptly cancelling (bad UX). onTurnComplete
-			// picks it up. Slash-commands queue the same way — their
-			// side effects are all local, but UX-wise the user fired
-			// them while busy and expects them to apply next.
+			// behaviour) or abruptly cancelling (bad UX). The user's
+			// block is appended to m.blocks IMMEDIATELY so they see
+			// their message in the chat (dogfood-bug: silent queue
+			// looked like a freeze). Only m.msgs add + startStream
+			// wait for drain — the current turn is mid-stream and
+			// must not see the new user message in its context window.
 			if m.state == stateStreaming {
 				m.queuedPrompt = text
+				if !strings.HasPrefix(text, "/") {
+					m.appendBlock(block{kind: "user", body: text})
+					m.renderBlocks()
+				}
 				m.input.History.Push(text)
 				m.input.Reset()
 				return m, nil
@@ -1754,20 +1760,25 @@ func (m *Model) onTurnComplete() tea.Cmd {
 	if len(m.turnToolCalls) == 0 {
 		m.state = stateIdle
 		// Drain any queued follow-up message the user typed while the
-		// previous turn was streaming. Dispatch it exactly like a fresh
-		// submit would: append a user message, start the stream. Slash
-		// commands (leading /) route through handleSlash. Queued
-		// prompts bypass the hard-threshold gate on the theory that if
-		// the user decided to queue something mid-stream, they can
-		// react to the block on arrival.
+		// previous turn was streaming. The block was already appended
+		// at queue-time for immediate visual feedback; drain just
+		// adds the message to m.msgs (the LLM-facing history) and
+		// kicks the next turn. Slash commands route through
+		// handleSlash. Queued prompts bypass the hard-threshold gate
+		// on the theory that if the user decided to queue something
+		// mid-stream, they can react to the block on arrival.
 		if m.queuedPrompt != "" {
 			queued := m.queuedPrompt
 			m.queuedPrompt = ""
 			if strings.HasPrefix(queued, "/") {
 				return m.handleSlash(queued)
 			}
-			m.appendUser(queued)
-			m.renderBlocks()
+			// Block was already appended at submit-time. Just thread
+			// it through msgs + persistence so the next stream sees
+			// it as a user turn.
+			msg := agent.Text(agent.RoleUser, queued)
+			m.msgs = append(m.msgs, msg)
+			m.persistMessage(msg)
 			return m.startStream()
 		}
 		return nil

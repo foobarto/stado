@@ -64,3 +64,25 @@ func TestFilterOSCResponses_PassesRegularTyping(t *testing.T) {
 		t.Error("plain typing must pass through")
 	}
 }
+
+// TestFilterOSCResponses_DropsSplitOSCTail: when the ']NN;' prefix
+// was consumed in a prior Read and only the colour-spec tail lands
+// as a fresh rune burst — e.g. 'e1e/1e1e/1e1e\' from the user's
+// actual bug report — the filter must still drop it. The 'rgb:' +
+// '/' substrings are the shape's signature.
+func TestFilterOSCResponses_DropsSplitOSCTail(t *testing.T) {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rgb:1e1e/1e1e/1e1e")}
+	if got := filterOSCResponses(nil, msg); got != nil {
+		t.Errorf("split OSC tail not dropped: %+v", got)
+	}
+}
+
+// TestFilterOSCResponses_PassesLegitRGBPrefix: a user typing "rgb:"
+// in a CSS snippet (no slashes) must pass — the 'rgb:' token alone
+// isn't enough to fire.
+func TestFilterOSCResponses_PassesLegitRGBPrefix(t *testing.T) {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rgb:255,0,0")}
+	if got := filterOSCResponses(nil, msg); got == nil {
+		t.Error("legit 'rgb:255,0,0' without slashes should pass")
+	}
+}
