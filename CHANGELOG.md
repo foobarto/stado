@@ -15,6 +15,12 @@ Plugins / Infra / Fixes.
   ignored, so configs survive tool renames.
   Applies everywhere the executor is built: TUI, `run`, `headless`,
   and the headless `tools.list` RPC.
+- `stado plugin init <name>` — scaffold a new plugin project. Go
+  wasip1 template with the full ABI surface (stado_alloc,
+  stado_free, stado_tool_*, stado_log import) plus a working demo
+  tool. `--dir` relocates; `--force` overwrites. Pairs with
+  SECURITY.md's publish cookbook — zero → signed plugin in
+  minutes.
 - `stado session logs <id> -f` — follow mode live-tails the trace
   ref. Useful for multi-terminal workflows: agent runs in pane 1,
   logs watches in pane 2. `--interval` tunes poll frequency
