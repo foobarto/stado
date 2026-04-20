@@ -124,3 +124,32 @@ func (e *Editor) SetValue(s string) {
 	e.Model.SetValue(s)
 	e.Model.CursorEnd()
 }
+
+// CursorOffset returns the absolute byte offset of the text cursor in
+// Value(). Sums the lengths of lines above the current row plus the
+// column offset within the current line. Used by the file picker to
+// find the @-trigger fragment the user is typing.
+func (e *Editor) CursorOffset() int {
+	val := e.Model.Value()
+	line := e.Model.Line()
+	col := e.Model.LineInfo().ColumnOffset
+	if line <= 0 {
+		if col > len(val) {
+			return len(val)
+		}
+		return col
+	}
+	off := 0
+	rows := 0
+	for i := 0; i < len(val) && rows < line; i++ {
+		off++
+		if val[i] == '\n' {
+			rows++
+		}
+	}
+	off += col
+	if off > len(val) {
+		off = len(val)
+	}
+	return off
+}

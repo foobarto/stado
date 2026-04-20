@@ -1,0 +1,173 @@
+package tui
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/render"
+	"github.com/foobarto/stado/internal/tui/theme"
+	"github.com/foobarto/stado/pkg/agent"
+)
+
+// filePickerModel returns a Model with a repo-ish tempdir wired as cwd
+// and a couple of files for the picker to find.
+func filePickerModel(t *testing.T) (*Model, string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, p := range []string{"main.go", "pkg/util.go", "README.md"} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("package x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rnd, err := render.New(theme.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := keys.NewRegistry()
+	m := NewModel(dir, "m", "p",
+		func() (agent.Provider, error) { return nil, nil }, rnd, reg)
+	m.width, m.height = 120, 30
+	return m, dir
+}
+
+// TestFilePicker_AtTriggerOpensPicker: typing '@' into the editor
+// should open the picker with an empty query matching the repo's
+// tracked files.
+func TestFilePicker_AtTriggerOpensPicker(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after typing '@'")
+	}
+	if m.filePicker.Anchor != 0 {
+		t.Errorf("anchor = %d, want 0 (only '@' in buffer)", m.filePicker.Anchor)
+	}
+	if len(m.filePicker.Matches) == 0 {
+		t.Error("expected matches after '@' on a populated cwd")
+	}
+}
+
+// TestFilePicker_NarrowsAsYouType: typing '@util' should filter the
+// matches to something containing 'util'.
+func TestFilePicker_NarrowsAsYouType(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range []rune{'@', 'u', 't', 'i', 'l'} {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible during @-fragment typing")
+	}
+	if len(m.filePicker.Matches) == 0 {
+		t.Fatal("expected matches for 'util'")
+	}
+	found := false
+	for _, p := range m.filePicker.Matches {
+		if strings.Contains(p, "util.go") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("util.go should rank in @util matches: %v", m.filePicker.Matches)
+	}
+}
+
+// TestFilePicker_TabAcceptsSelection: pressing Tab while the picker
+// has a selection must replace the @-fragment with the path.
+func TestFilePicker_TabAcceptsSelection(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range []rune{'@', 'u', 't', 'i', 'l'} {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.filePicker.Selected() == "" {
+		t.Fatalf("no selection to accept: matches=%v", m.filePicker.Matches)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.filePicker.Visible {
+		t.Error("Tab accept should close the picker")
+	}
+	val := m.input.Value()
+	if strings.Contains(val, "@util") {
+		t.Errorf("input should no longer contain '@util': %q", val)
+	}
+	if !strings.Contains(val, "util.go") {
+		t.Errorf("input should contain the accepted path: %q", val)
+	}
+	if !strings.HasSuffix(val, " ") {
+		t.Errorf("accept should append a trailing space for continued typing: %q", val)
+	}
+}
+
+// TestFilePicker_SpaceClosesPicker: typing a space after the @-word
+// means the user's done mentioning — picker should hide.
+func TestFilePicker_SpaceClosesPicker(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range []rune{'@', 'm', 'a', 'i', 'n'} {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after @main")
+	}
+	// Space as a literal rune — bubbletea's textarea.Model consumes
+	// space via KeyRunes, not tea.KeySpace.
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+
+	if m.filePicker.Visible {
+		t.Errorf("picker should close once user types past the @-word; input=%q",
+			m.input.Value())
+	}
+}
+
+// TestFilePicker_EscCloses: pressing Escape dismisses the picker
+// without changing the input.
+func TestFilePicker_EscCloses(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range []rune{'@', 'f'} {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	beforeVal := m.input.Value()
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible")
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if m.filePicker.Visible {
+		t.Error("Esc should close the picker")
+	}
+	if m.input.Value() != beforeVal {
+		t.Errorf("Esc mutated input: %q → %q", beforeVal, m.input.Value())
+	}
+}
+
+// TestFilePicker_EmailAtDoesNotTrigger: an `@` that immediately
+// follows a non-space character (e.g. 'user@example') must not fire
+// the picker — would be false-positive noise on email addresses.
+func TestFilePicker_EmailAtDoesNotTrigger(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range []rune{'u', 's', 'e', 'r', '@'} {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.filePicker.Visible {
+		t.Errorf("email-style @ should not trigger picker; input=%q", m.input.Value())
+	}
+}

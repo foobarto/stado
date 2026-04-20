@@ -25,6 +25,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
@@ -163,6 +164,7 @@ type Model struct {
 	input       *input.Editor
 	slash       *palette.Model
 	modelPicker *modelpicker.Model
+	filePicker  *filepicker.Model
 	vp          viewport.Model
 	showHelp    bool
 
@@ -266,6 +268,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		input:            input.New(keyReg),
 		slash:            palette.New(),
 		modelPicker:      modelpicker.New(),
+		filePicker:       filepicker.New(),
 		vp:               viewport.New(0, 0),
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
@@ -808,6 +811,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Filepicker popover owns navigation keys while visible so
+		// Up/Down don't scroll the textarea and Tab/Enter accept the
+		// highlighted path instead of inserting literal whitespace or
+		// submitting a half-written prompt. Esc closes without
+		// inserting. Anything else falls through so typing refines
+		// the query naturally.
+		if m.filePicker.Visible {
+			if cmd, handled := m.filePicker.Update(msg); handled {
+				return m, cmd
+			}
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.filePicker.Close()
+				return m, nil
+			case tea.KeyTab:
+				m.acceptFilePickerSelection()
+				return m, nil
+			case tea.KeyEnter:
+				if m.filePicker.Selected() != "" {
+					m.acceptFilePickerSelection()
+					return m, nil
+				}
+			}
+		}
+
 		switch {
 		case m.keys.Matches(msg, keys.AppExit):
 			return m, tea.Quit
@@ -918,6 +946,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	inputCmd, _ := m.input.Update(msg)
 	cmds = append(cmds, inputCmd)
 
+	// Re-scan for an active @-trigger after every editor keypress.
+	// Typing '@' opens the picker; typing past the word boundary
+	// (space, newline, or moving the cursor away) closes it.
+	m.updateFilePickerFromInput()
+
 	// Scroll messages viewport
 	var vpCmd tea.Cmd
 	m.vp, vpCmd = m.vp.Update(msg)
@@ -1022,7 +1055,18 @@ func (m *Model) renderInputBox(mainW int) string {
 	if err != nil {
 		inline = "[input status render error: " + err.Error() + "]"
 	}
-	body := m.input.View() + "\n" + strings.TrimRight(inline, "\n")
+
+	// File-picker popover (triggered by `@` in the buffer). Rendered
+	// INSIDE the bordered input frame, above the textarea, so the
+	// suggestion column stays visually anchored to the input cursor
+	// instead of floating at the top of the screen.
+	var pickerPrefix string
+	if m.filePicker.Visible && len(m.filePicker.Matches) > 0 {
+		// Leave 2 cols of breathing room inside the border + padding.
+		pickerPrefix = m.filePicker.View(mainW-4) + "\n"
+	}
+
+	body := pickerPrefix + m.input.View() + "\n" + strings.TrimRight(inline, "\n")
 
 	borderFg := m.theme.Fg("border").GetForeground()
 	modeColor := m.theme.Fg("success").GetForeground() // Do
@@ -2328,6 +2372,76 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 		}
 		return childID, nil
 	}
+}
+
+// activeAtTrigger returns (atPos, query, ok) when the input cursor
+// sits inside an @-prefixed word. atPos is the byte index of '@' in
+// the buffer; query is everything between '@' and the cursor. The
+// trigger is only recognised when '@' is at the start of input or
+// directly preceded by whitespace, so email addresses and package
+// references don't accidentally fire the picker.
+func (m *Model) activeAtTrigger() (atPos int, query string, ok bool) {
+	val := m.input.Value()
+	cursor := m.input.CursorOffset()
+	if cursor < 0 || cursor > len(val) {
+		return 0, "", false
+	}
+	for i := cursor - 1; i >= 0; i-- {
+		r := val[i]
+		if r == '@' {
+			if i == 0 || val[i-1] == ' ' || val[i-1] == '\n' || val[i-1] == '\t' {
+				return i, val[i+1 : cursor], true
+			}
+			return 0, "", false
+		}
+		if r == ' ' || r == '\n' || r == '\t' {
+			return 0, "", false
+		}
+	}
+	return 0, "", false
+}
+
+// updateFilePickerFromInput inspects the current editor state and
+// shows/hides/refreshes the file picker accordingly. Called after
+// every keypress the editor processes. No-op when the picker's
+// visibility is already correct for the buffer state.
+func (m *Model) updateFilePickerFromInput() {
+	atPos, query, ok := m.activeAtTrigger()
+	if !ok {
+		if m.filePicker.Visible {
+			m.filePicker.Close()
+		}
+		return
+	}
+	if !m.filePicker.Visible || m.filePicker.Anchor != atPos {
+		cwd := m.cwd
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		m.filePicker.Open(cwd, atPos)
+	}
+	m.filePicker.SetQuery(query)
+}
+
+// acceptFilePickerSelection replaces the @<query> fragment in the
+// input buffer with the highlighted path, followed by a space so the
+// user can keep typing. Closes the picker. No-op when nothing is
+// selected — the caller falls through to the normal submit/tab path.
+func (m *Model) acceptFilePickerSelection() {
+	sel := m.filePicker.Selected()
+	if sel == "" {
+		return
+	}
+	val := m.input.Value()
+	anchor := m.filePicker.Anchor
+	cursor := m.input.CursorOffset()
+	if anchor < 0 || anchor > len(val) || cursor < anchor || cursor > len(val) {
+		m.filePicker.Close()
+		return
+	}
+	newVal := val[:anchor] + sel + " " + val[cursor:]
+	m.input.SetValue(newVal)
+	m.filePicker.Close()
 }
 
 // resolveTurnRefForBridge is the bridge-local equivalent of
