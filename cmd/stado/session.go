@@ -100,9 +100,14 @@ var sessionListCmd = &cobra.Command{
 		// past STATUS soft-wraps gracefully.
 		const header = "SESSION ID                              LAST ACTIVE           TURNS  MSGS  COMPACT  STATUS     DESCRIPTION\n"
 		fmt.Print(header)
+		use := useColor(os.Stdout)
 		for _, r := range rows {
-			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %-9s  %s\n",
-				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status, r.Description)
+			statusPadded := fmt.Sprintf("%-9s", r.Status)
+			if use {
+				statusPadded = colorizeStatus(r.Status, statusPadded)
+			}
+			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %s  %s\n",
+				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, statusPadded, r.Description)
 		}
 		return nil
 	},
