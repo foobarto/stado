@@ -78,6 +78,28 @@ mode      = "prompt"
 allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 
 # ---------------------------------------------------------------------------
+# [tools] — trim the bundled tool set.
+#
+# All tools are available by default. Use 'enabled' as an explicit allowlist
+# OR 'disabled' to remove specific names. If both are set, 'enabled' wins.
+# Unknown names are ignored with a stderr warning — typo-tolerant so a
+# config doesn't break stado across renames.
+#
+# Bundled tool names (list via 'stado headless' tools.list or session show):
+#   bash                 shell exec
+#   read, write, edit    file ops
+#   glob, grep           filesystem patterns
+#   ripgrep              fast content search
+#   ast_grep             structural search via ast-grep
+#   webfetch             fetch a URL → markdown
+#   read_with_context    read + one hop of imports
+#   find_definition, find_references, hover, document_symbols  (LSP-backed)
+# ---------------------------------------------------------------------------
+# [tools]
+# enabled  = ["read", "grep", "bash"]   # allowlist — only these are active
+# disabled = ["webfetch"]               # or: remove specific tools from the default set
+
+# ---------------------------------------------------------------------------
 # [inference.presets] — custom OAI-compat endpoints OR overrides for bundled
 # preset names (lmstudio / ollama / …) when the server isn't on the default
 # port. A user-defined preset with the same name as a bundled one wins.

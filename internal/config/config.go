@@ -34,6 +34,26 @@ type Config struct {
 	Plugins   Plugins   `koanf:"plugins"`
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
+	Tools     Tools     `koanf:"tools"`
+}
+
+// Tools is the [tools] config section — user-level control over
+// which bundled tools are visible to the agent. All tools are
+// available by default. Either list is accepted; Enabled wins when
+// both are set (it's an explicit allowlist so mentioning Disabled
+// alongside is redundant).
+//
+//   [tools]
+//   enabled  = ["read", "grep", "bash"]    # only these — allowlist mode
+//   disabled = ["webfetch"]                 # remove specific tools from default set
+//
+// Tool names match the `Name()` each bundled tool returns (see
+// internal/runtime/runtime.go BuildDefaultRegistry for the
+// canonical list). Unknown names in either list are ignored with a
+// warning on stderr — tolerates typos without refusing to boot.
+type Tools struct {
+	Enabled  []string `koanf:"enabled"`
+	Disabled []string `koanf:"disabled"`
 }
 
 // Agent is the [agent] config section — capability-driven knobs that

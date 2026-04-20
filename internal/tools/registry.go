@@ -27,6 +27,16 @@ func (r *Registry) Register(t tool.Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Unregister removes a tool by name. Idempotent — missing name is a
+// silent no-op. Used by config-driven filtering so
+// BuildDefaultRegistry can stay a simple register-everything shape
+// while callers trim per user config.
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
 func (r *Registry) Get(name string) (tool.Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

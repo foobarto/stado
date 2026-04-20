@@ -286,11 +286,66 @@ func BuildDefaultRegistry() *tools.Registry {
 	return r
 }
 
+// ApplyToolFilter trims a registry per cfg.Tools. All tools are on
+// by default; Enabled acts as an allowlist (keep only these);
+// Disabled removes specific names from the default set. When both
+// are set Enabled wins — Disabled is redundant against an explicit
+// allowlist.
+//
+// Unknown tool names in either list log to stderr but don't abort —
+// typo-tolerant so a user's config doesn't break stado across
+// version upgrades that rename a tool. Mutates the registry in
+// place so it's safe to chain after BuildDefaultRegistry.
+func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if len(cfg.Tools.Enabled) == 0 && len(cfg.Tools.Disabled) == 0 {
+		return
+	}
+	known := map[string]bool{}
+	for _, t := range reg.All() {
+		known[t.Name()] = true
+	}
+
+	// Warn on unknown names so typos surface.
+	warnUnknown := func(list []string, label string) {
+		for _, n := range list {
+			if !known[n] {
+				fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such bundled tool (ignored)\n", label, n)
+			}
+		}
+	}
+	warnUnknown(cfg.Tools.Enabled, "enabled")
+	warnUnknown(cfg.Tools.Disabled, "disabled")
+
+	if len(cfg.Tools.Enabled) > 0 {
+		allow := map[string]bool{}
+		for _, n := range cfg.Tools.Enabled {
+			allow[n] = true
+		}
+		for name := range known {
+			if !allow[name] {
+				reg.Unregister(name)
+			}
+		}
+		return
+	}
+	// Disabled-only path.
+	for _, n := range cfg.Tools.Disabled {
+		reg.Unregister(n)
+	}
+}
+
 // BuildExecutor wires the tool registry + session + sandbox runner.
 //
 // Also loads any MCP servers from config and registers their tools. Failed
 // MCP connections are logged to stderr, not fatal — stado should boot
 // without them if the endpoint is down.
+//
+// Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
+// blocklist is applied AFTER MCP tools land so MCP-sourced names can
+// also be trimmed.
 func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) *tools.Executor {
 	reg := BuildDefaultRegistry()
 
@@ -299,6 +354,7 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 			fmt.Fprintf(os.Stderr, "stado: MCP setup: %v\n", err)
 		}
 	}
+	ApplyToolFilter(reg, cfg)
 
 	return &tools.Executor{
 		Registry: reg,

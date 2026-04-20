@@ -8,6 +8,20 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- `[tools]` config section lets users trim the bundled tool set.
+  `enabled = [...]` acts as an explicit allowlist; `disabled =
+  [...]` removes specific tools from the default. When both are
+  set, `enabled` wins. Unknown names log a stderr warning and are
+  ignored, so configs survive tool renames.
+  Applies everywhere the executor is built: TUI, `run`, `headless`,
+  and the headless `tools.list` RPC.
+- `stado session logs <id> -f` — follow mode live-tails the trace
+  ref. Useful for multi-terminal workflows: agent runs in pane 1,
+  logs watches in pane 2. `--interval` tunes poll frequency
+  (default 500ms).
+
+#### Earlier iterations
+
 Continued polish after the first round of dogfood fixes. Each item
 landed independently so the history tells the shape of the
 feature set.

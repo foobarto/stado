@@ -248,6 +248,9 @@ type toolInfo struct {
 
 func (s *Server) toolsList() []toolInfo {
 	reg := runtime.BuildDefaultRegistry()
+	// Honour the user's [tools] config so the headless surface
+	// reports the same set the TUI + run would execute.
+	runtime.ApplyToolFilter(reg, s.Cfg)
 	all := reg.All()
 	out := make([]toolInfo, 0, len(all))
 	for _, t := range all {
