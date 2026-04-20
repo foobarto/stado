@@ -79,7 +79,8 @@ func Run(cfg *config.Config) error {
 	// via the host-import ABI. Failures are advisory — a bad plugin
 	// shouldn't brick the TUI.
 	m.LoadBackgroundPlugins(cfg)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion(),
+		tea.WithFilter(filterOSCResponses))
 	m.Attach(p)
 
 	c := make(chan os.Signal, 1)
@@ -91,6 +92,34 @@ func Run(cfg *config.Config) error {
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
+	}
+	return nil
+}
+
+// filterOSCResponses drops terminal OSC replies that bubbletea v1.3
+// misparses as Alt-prefixed rune bursts (bubbletea@v1.3.10/key.go
+// detectOneMsg has no OSC parser — ESC opens an Alt-runes window and
+// the OSC payload leaks into the current focused widget, visible in
+// the textarea as '`]11;rgb:1e1e/1e1e/1e1e\`'. Terminals emit these
+// in response to lipgloss/termenv's one-shot background-color query
+// at init time; slow terminals' responses arrive after stado has
+// taken over stdin. We filter anything matching `Alt=true` + runes
+// starting with ']<digit>...;' — the shape of every OSC
+// status-report reply (]10 = fg, ]11 = bg, ]708 = border, etc.).
+// Removed when we upgrade to bubbletea v2 which parses OSC natively.
+func filterOSCResponses(_ tea.Model, msg tea.Msg) tea.Msg {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return msg
+	}
+	if !km.Alt || len(km.Runes) < 3 || km.Runes[0] != ']' {
+		return msg
+	}
+	// Require a digit after ']' — OSC status reports always start
+	// with a numeric Ps parameter. Rules out legit Alt+] user input.
+	r := km.Runes[1]
+	if r < '0' || r > '9' {
+		return msg
 	}
 	return nil
 }
