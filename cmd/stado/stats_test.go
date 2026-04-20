@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,6 +219,52 @@ func TestFmtMs_UnitScaling(t *testing.T) {
 		if got := fmtMs(in); got != want {
 			t.Errorf("fmtMs(%d) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestRenderStatsJSON_ShapeStable: JSON output has the agreed keys
+// and roundtrips through encoding/json unchanged. Guards against a
+// refactor silently changing field names and breaking downstream
+// jq pipelines.
+func TestRenderStatsJSON_ShapeStable(t *testing.T) {
+	agg := newStatsAgg()
+	agg.totalCalls = 5
+	agg.totalIn = 1000
+	agg.totalOut = 200
+	agg.totalCost = 0.12
+	agg.totalMs = 3500
+	agg.byModel["claude"] = &modelStats{calls: 3, in: 600, out: 120, cost: 0.08}
+	agg.byTool["grep"] = &toolStats{calls: 3, ms: 1500}
+
+	statsDays = 7
+	statsSession = "sid"
+	statsModel = ""
+	var buf bytes.Buffer
+	if err := renderStatsJSON(&buf, agg); err != nil {
+		t.Fatalf("renderStatsJSON: %v", err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("invalid JSON: %v\nbody: %s", err, buf.String())
+	}
+	for _, key := range []string{"window_days", "session_id", "total", "by_model", "by_tool"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("JSON missing top-level key %q; got keys: %v", key, got)
+		}
+	}
+	total, _ := got["total"].(map[string]interface{})
+	if total == nil {
+		t.Fatal("total missing or wrong type")
+	}
+	if total["calls"].(float64) != 5 {
+		t.Errorf("total.calls = %v, want 5", total["calls"])
+	}
+	if total["cost_usd"].(float64) != 0.12 {
+		t.Errorf("total.cost_usd = %v, want 0.12", total["cost_usd"])
+	}
+	byModel, _ := got["by_model"].(map[string]interface{})
+	if _, ok := byModel["claude"]; !ok {
+		t.Error("by_model.claude missing")
 	}
 }
 

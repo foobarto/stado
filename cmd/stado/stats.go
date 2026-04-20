@@ -10,9 +10,11 @@ package main
 // Opencode/pi parity motivation — dogfood gap #3 (research 2026-04-20).
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,7 @@ var (
 	statsSession   string
 	statsModel     string
 	statsShowTools bool
+	statsJSON      bool
 )
 
 var statsCmd = &cobra.Command{
@@ -68,12 +71,77 @@ var statsCmd = &cobra.Command{
 			}
 		}
 		if agg.empty() {
+			if statsJSON {
+				// Emit a structurally-valid empty shape so scripts
+				// don't have to special-case the "no data" case.
+				fmt.Println(`{"window_days":` + strconv.Itoa(statsDays) + `,"total":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"duration_ms":0},"by_model":{},"by_tool":{}}`)
+				return nil
+			}
 			fmt.Fprintln(os.Stderr, "(no tool calls in window)")
 			return nil
+		}
+		if statsJSON {
+			return renderStatsJSON(os.Stdout, agg)
 		}
 		renderStats(os.Stdout, agg, statsShowTools)
 		return nil
 	},
+}
+
+// renderStatsJSON marshals the aggregate into a stable JSON shape
+// suitable for scripting (jq, CI gating, dashboards). Field names
+// use snake_case for consistency with external tooling; values are
+// unscaled integers / raw floats so consumers can format as they
+// please.
+func renderStatsJSON(w interface {
+	Write(p []byte) (int, error)
+}, agg *statsAgg) error {
+	type modelRow struct {
+		Calls    int     `json:"calls"`
+		TokensIn int     `json:"tokens_in"`
+		TokensOut int    `json:"tokens_out"`
+		CostUSD  float64 `json:"cost_usd"`
+	}
+	type toolRow struct {
+		Calls      int   `json:"calls"`
+		DurationMs int64 `json:"duration_ms"`
+	}
+	out := struct {
+		WindowDays int                  `json:"window_days"`
+		SessionID  string               `json:"session_id,omitempty"`
+		ModelFilter string              `json:"model_filter,omitempty"`
+		Total      modelRow             `json:"total"`
+		DurationMs int64                `json:"total_duration_ms"`
+		ByModel    map[string]modelRow  `json:"by_model"`
+		ByTool     map[string]toolRow   `json:"by_tool"`
+	}{
+		WindowDays:  statsDays,
+		SessionID:   statsSession,
+		ModelFilter: statsModel,
+		Total: modelRow{
+			Calls:     agg.totalCalls,
+			TokensIn:  agg.totalIn,
+			TokensOut: agg.totalOut,
+			CostUSD:   agg.totalCost,
+		},
+		DurationMs: agg.totalMs,
+		ByModel:    make(map[string]modelRow, len(agg.byModel)),
+		ByTool:     make(map[string]toolRow, len(agg.byTool)),
+	}
+	for name, s := range agg.byModel {
+		out.ByModel[name] = modelRow{
+			Calls:     s.calls,
+			TokensIn:  s.in,
+			TokensOut: s.out,
+			CostUSD:   s.cost,
+		}
+	}
+	for name, s := range agg.byTool {
+		out.ByTool[name] = toolRow{Calls: s.calls, DurationMs: s.ms}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }
 
 // statsAgg holds the accumulation as we walk commits. Keyed by model so
@@ -363,5 +431,6 @@ func init() {
 	statsCmd.Flags().StringVar(&statsSession, "session", "", "Restrict to one session id")
 	statsCmd.Flags().StringVar(&statsModel, "model", "", "Restrict to one model id (matches Model: trailer)")
 	statsCmd.Flags().BoolVar(&statsShowTools, "tools", false, "Include per-tool breakdown")
+	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Emit JSON instead of the human table (pipe into jq)")
 	rootCmd.AddCommand(statsCmd)
 }
