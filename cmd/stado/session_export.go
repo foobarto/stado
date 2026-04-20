@@ -35,8 +35,9 @@ var (
 )
 
 var sessionExportCmd = &cobra.Command{
-	Use:   "export <id>",
-	Short: "Render a session's conversation as markdown (or raw JSONL)",
+	Use:     "export <id>",
+	Aliases: []string{"cat"},
+	Short:   "Render a session's conversation as markdown (or raw JSONL)",
 	Long: "Reads <worktree>/.stado/conversation.jsonl for the given session\n" +
 		"and writes it out in a human-readable form. Default format is\n" +
 		"markdown; --format jsonl emits the underlying append-only log\n" +

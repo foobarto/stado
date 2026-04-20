@@ -50,7 +50,8 @@ var sessionNewCmd = &cobra.Command{
 }
 
 var sessionListCmd = &cobra.Command{
-	Use:   "list",
+	Use:     "list",
+	Aliases: []string{"ls"},
 	Short: "List sessions for the current repo",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -220,8 +221,9 @@ var (
 )
 
 var sessionDeleteCmd = &cobra.Command{
-	Use:   "delete <id>",
-	Short: "Delete a session (refs + worktree)",
+	Use:     "delete <id>",
+	Aliases: []string{"rm"},
+	Short:   "Delete a session (refs + worktree)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
