@@ -75,8 +75,11 @@ func TestSummariseSession_AttachedRichMetadata(t *testing.T) {
 	_ = AppendMessage(sess.WorktreePath, agent.Text(agent.RoleAssistant, "two"))
 
 	r := SummariseSession(worktreeRoot, sc, sess.ID)
-	if r.Status != "attached" {
-		t.Errorf("Status = %q, want attached", r.Status)
+	// No .stado-pid file was written (attachSessionScaffolding wasn't
+	// called in this test), so the worktree-exists path lands on
+	// "idle", not "live".
+	if r.Status != "idle" {
+		t.Errorf("Status = %q, want idle", r.Status)
 	}
 	if r.Turns != 2 {
 		t.Errorf("Turns = %d, want 2", r.Turns)
@@ -102,4 +105,75 @@ func TestLastActiveFormatted_ZeroReturnsNever(t *testing.T) {
 	if got := s.LastActiveFormatted(); got != "never" {
 		t.Errorf("zero LastActive → %q, want never", got)
 	}
+}
+
+// TestSummariseSession_LivePIDPromotesToLive — drop a .stado-pid file
+// containing the current test process's pid (which is definitely
+// alive), and Status should resolve to "live" with PID populated. The
+// dogfood report #5 fix: "attached" used to mean "worktree exists on
+// disk" regardless of whether a process was using it.
+func TestSummariseSession_LivePIDPromotesToLive(t *testing.T) {
+	base := t.TempDir()
+	sidecarPath := filepath.Join(base, "sessions.git")
+	worktreeRoot := filepath.Join(base, "worktrees")
+	_ = os.MkdirAll(worktreeRoot, 0o755)
+	sc, _ := stadogit.OpenOrInitSidecar(sidecarPath, base)
+	sess, err := stadogit.CreateSession(sc, worktreeRoot, "s-live", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
+	pid := os.Getpid()
+	if err := os.WriteFile(pidPath, []byte(itoa(pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := SummariseSession(worktreeRoot, sc, sess.ID)
+	if r.Status != "live" {
+		t.Errorf("Status = %q, want live", r.Status)
+	}
+	if r.PID != pid {
+		t.Errorf("PID = %d, want %d", r.PID, pid)
+	}
+}
+
+// TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
+// pointing at a non-existent pid must NOT be read as live. 2147483640
+// is a very-high pid unlikely to exist; os.FindProcess will "succeed"
+// but signal(0) fails → idle.
+func TestSummariseSession_StalePIDFallsBackToIdle(t *testing.T) {
+	base := t.TempDir()
+	sidecarPath := filepath.Join(base, "sessions.git")
+	worktreeRoot := filepath.Join(base, "worktrees")
+	_ = os.MkdirAll(worktreeRoot, 0o755)
+	sc, _ := stadogit.OpenOrInitSidecar(sidecarPath, base)
+	sess, _ := stadogit.CreateSession(sc, worktreeRoot, "s-stale", plumbing.ZeroHash)
+	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
+	_ = os.WriteFile(pidPath, []byte("2147483640"), 0o644)
+	r := SummariseSession(worktreeRoot, sc, sess.ID)
+	if r.Status != "idle" {
+		t.Errorf("Status = %q, want idle (stale pid)", r.Status)
+	}
+	if r.PID != 0 {
+		t.Errorf("PID = %d, want 0 when not live", r.PID)
+	}
+}
+
+// itoa keeps the test self-contained without reaching for strconv.
+func itoa(i int) string {
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var buf [20]byte
+	pos := len(buf)
+	for i > 0 || pos == len(buf) {
+		pos--
+		buf[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
 }

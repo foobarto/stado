@@ -22,15 +22,15 @@ import (
 
 var pluginCmd = &cobra.Command{
 	Use:   "plugin",
-	Short: "Manage trusted plugin signers + verify plugin packages",
+	Short: "Manage trusted plugin signers + verify + run plugin packages",
 	Long: "stado's plugin model: every plugin ships a signed manifest. Before it\n" +
 		"can run, the author's Ed25519 public key must be pinned via\n" +
 		"`stado plugin trust`, and the signature + wasm sha256 + minimum\n" +
 		"stado-version + rollback protection are all checked by\n" +
-		"`stado plugin verify`.\n\n" +
-		"The wazero runtime that actually executes plugin wasm is a follow-up;\n" +
-		"the trust layer lands first so an unsigned or downgraded plugin can\n" +
-		"never reach the runtime.",
+		"`stado plugin verify`. `stado plugin install` copies a verified\n" +
+		"plugin into stado's state dir, after which `stado plugin run` (or\n" +
+		"`/plugin:<name>-<ver>` in the TUI) can invoke its declared tools\n" +
+		"via the wazero wasm runtime.",
 }
 
 var pluginTrustCmd = &cobra.Command{
@@ -429,7 +429,7 @@ var pluginRunCmd = &cobra.Command{
 		}
 		dir := filepath.Join(cfg.StateDir(), "plugins", args[0])
 		if _, err := os.Stat(dir); err != nil {
-			return fmt.Errorf("plugin %s not installed (run `stado plugin install`): %w", args[0], err)
+			return fmt.Errorf("plugin %s not installed (run `stado plugin install <plugin-dir>` after building + signing it)", args[0])
 		}
 		toolName := args[1]
 		argsJSON := "{}"

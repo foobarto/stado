@@ -130,7 +130,11 @@ func (r *report) render(w fmtWriter) {
 		fmt.Fprintf(w, "  %s %-*s  %s  (%s)\n", mark, maxLabel, row.label, row.value, row.detail)
 	}
 	if r.fails > 0 {
-		fmt.Fprintf(w, "\n%d check(s) failed\n", r.fails)
+		noun := "checks"
+		if r.fails == 1 {
+			noun = "check"
+		}
+		fmt.Fprintf(w, "\n%d %s failed\n", r.fails, noun)
 	} else {
 		fmt.Fprintln(w, "\nall checks passed")
 	}

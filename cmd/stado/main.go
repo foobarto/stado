@@ -4,22 +4,31 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mattn/go-isatty"
+	"github.com/spf13/cobra"
+
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/tui"
-	"github.com/spf13/cobra"
 )
 
 const version = "0.0.0-dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "stado",
-	Short: "AI CLI harness and editor",
+	Short: "Sandboxed, git-native coding-agent runtime",
 	// With no subcommand, launch the TUI. stado boots without any API key
 	// thanks to lazy provider init — the first prompt surfaces a helpful
 	// message if credentials are missing.
 	SilenceUsage:  true, // don't dump the full usage on RunE error
 	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// The TUI needs both a usable stdin and stdout TTY; without
+		// one, bubbletea bails with a low-level "/dev/tty: no such
+		// device" message. Catch that early with an actionable pointer
+		// to the scripting surfaces (`run`, `headless`).
+		if !isatty.IsTerminal(os.Stdin.Fd()) || !isatty.IsTerminal(os.Stdout.Fd()) {
+			return fmt.Errorf("stado: interactive TUI requires a TTY — try `stado run --prompt \"...\"` for one-shot, or `stado headless` for JSON-RPC")
+		}
 		cfg, err := config.Load()
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
@@ -32,7 +41,10 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print stado version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(version)
+		// Share collectBuildInfo with `stado verify` so `version` and
+		// `verify` can't disagree — both resolve `0.0.0-dev` through
+		// debug.ReadBuildInfo() when the binary wasn't ldflags-stamped.
+		fmt.Println(collectBuildInfo().Version)
 	},
 }
 

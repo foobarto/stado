@@ -121,13 +121,23 @@ var sessionDeleteCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
+		wt := filepath.Join(cfg.WorktreeDir(), id)
+		refsExisted, _ := sc.SessionHasRefs(id)
+		_, worktreeErr := os.Stat(wt)
+		worktreeExisted := worktreeErr == nil
+
 		if err := sc.DeleteSessionRefs(id); err != nil {
 			return fmt.Errorf("delete refs: %w", err)
 		}
-		if err := os.RemoveAll(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
+		if err := os.RemoveAll(wt); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
-		fmt.Fprintln(os.Stderr, "deleted", id)
+		switch {
+		case refsExisted || worktreeExisted:
+			fmt.Fprintln(os.Stderr, "deleted", id)
+		default:
+			fmt.Fprintln(os.Stderr, id, "already deleted (or never existed — no refs or worktree found)")
+		}
 		return nil
 	},
 }
@@ -189,7 +199,7 @@ var sessionAttachCmd = &cobra.Command{
 		}
 		wt := filepath.Join(cfg.WorktreeDir(), args[0])
 		if _, err := os.Stat(wt); err != nil {
-			return fmt.Errorf("attach: session %s has no worktree: %w", args[0], err)
+			return fmt.Errorf("attach: session %s not found (no worktree at %s)", args[0], wt)
 		}
 		fmt.Println(wt)
 		return nil
@@ -217,7 +227,7 @@ var sessionResumeCmd = &cobra.Command{
 		}
 		wt := filepath.Join(cfg.WorktreeDir(), args[0])
 		if _, err := os.Stat(wt); err != nil {
-			return fmt.Errorf("resume: session %s has no worktree: %w", args[0], err)
+			return fmt.Errorf("resume: session %s not found (no worktree at %s)", args[0], wt)
 		}
 		if err := os.Chdir(wt); err != nil {
 			return fmt.Errorf("resume: chdir %s: %w", wt, err)

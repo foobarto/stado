@@ -224,6 +224,28 @@ func (s *Sidecar) ListTurnRefs(sessionID string) ([]TurnEntry, error) {
 	return out, nil
 }
 
+// SessionHasRefs reports whether at least one ref exists under
+// refs/sessions/<id>/. Used by callers that want to distinguish
+// "really deleted something" from "idempotent no-op on an already-gone
+// session" without paying the cost of a second iter after the delete.
+func (s *Sidecar) SessionHasRefs(id string) (bool, error) {
+	prefix := "refs/sessions/" + id + "/"
+	iter, err := s.repo.References()
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	var found bool
+	_ = iter.ForEach(func(ref *plumbing.Reference) error {
+		name := string(ref.Name())
+		if strings.HasPrefix(name, prefix) || name == "refs/sessions/"+id {
+			found = true
+		}
+		return nil
+	})
+	return found, nil
+}
+
 // DeleteSessionRefs removes every ref under refs/sessions/<id>/. Idempotent —
 // missing refs are ignored.
 func (s *Sidecar) DeleteSessionRefs(id string) error {

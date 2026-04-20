@@ -69,7 +69,7 @@ const defaultConfigTemplate = `# stado — config.toml
 #   groq / openrouter / deepseek / xai / mistral / cerebras / litellm
 #                                        — hosted OAI-compat services
 # provider = "anthropic"
-# model    = "claude-sonnet-4-5"
+# model    = "claude-sonnet-4-6"
 
 [approvals]
 # What stado does with tool calls: "prompt" asks every time, "allowlist"

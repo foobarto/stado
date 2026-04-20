@@ -3,6 +3,9 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -13,8 +16,11 @@ import (
 // valued when the underlying ref is missing; a partially-corrupted
 // sidecar collapses to "no data" rather than erroring out.
 type SessionSummary struct {
-	ID          string
-	Status      string    // "attached" when the worktree exists on disk, "detached" otherwise
+	ID     string
+	Status string // "live" (pid alive), "idle" (worktree present, no live pid), "detached" (no worktree)
+	// PID is the owning process's id when Status=="live"; 0 otherwise.
+	// Read from the .stado-pid file attachSessionScaffolding drops.
+	PID         int
 	LastActive  time.Time // latest turn-tag time; zero when the session has never committed a turn
 	Turns       int       // turns/<N> tag count
 	Msgs        int       // persisted conversation message count
@@ -31,6 +37,31 @@ func (r SessionSummary) LastActiveFormatted() string {
 	return r.LastActive.UTC().Format("2006-01-02 15:04 UTC")
 }
 
+// liveOwningPID reads .stado-pid from worktreeDir and returns
+// (pid, true) when that process is alive. Missing file, unreadable
+// pid, or a signal-0 that errors all collapse to (0, false) — the
+// session is idle (worktree exists but nobody's using it). Works on
+// unix-likes; Windows port would need OpenProcess() instead.
+func liveOwningPID(worktreeDir string) (int, bool) {
+	data, err := os.ReadFile(filepath.Join(worktreeDir, ".stado-pid"))
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return 0, false
+	}
+	// Signal 0 is a cheap "does this pid exist?" probe on POSIX.
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		return 0, false
+	}
+	return pid, true
+}
+
 // SummariseSession gathers every field of SessionSummary in one pass.
 // `worktreeRoot` is the directory that holds session worktree dirs
 // (`cfg.WorktreeDir()`); passed directly rather than via *config so
@@ -43,7 +74,11 @@ func SummariseSession(worktreeRoot string, sc *stadogit.Sidecar, id string) Sess
 	r := SessionSummary{ID: id, Status: "detached"}
 	wt := filepath.Join(worktreeRoot, id)
 	if _, err := os.Stat(wt); err == nil {
-		r.Status = "attached"
+		r.Status = "idle"
+		if pid, alive := liveOwningPID(wt); alive {
+			r.Status = "live"
+			r.PID = pid
+		}
 	}
 	if turns, err := sc.ListTurnRefs(id); err == nil {
 		r.Turns = len(turns)

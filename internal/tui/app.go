@@ -182,7 +182,7 @@ func detectLocalFallback(cfg *config.Config) agent.Provider {
 			continue
 		}
 		fmt.Fprintf(os.Stderr,
-			"stado: no ANTHROPIC_API_KEY — falling back to local %s at %s (set defaults.provider to silence this)\n",
+			"stado: no provider configured — using local %s at %s (set defaults.provider in config to pin)\n",
 			r.Name, r.Endpoint)
 		return p
 	}

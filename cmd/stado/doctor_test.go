@@ -58,11 +58,18 @@ func TestReport_Render(t *testing.T) {
 	if !strings.Contains(out, "✓") || !strings.Contains(out, "✗") {
 		t.Errorf("missing status marks: %q", out)
 	}
-	if !strings.Contains(out, "1 check(s) failed") {
-		t.Errorf("failure count missing: %q", out)
+	if !strings.Contains(out, "1 check failed") {
+		t.Errorf("failure count missing (singular): %q", out)
 	}
 	if r.fails != 1 {
 		t.Errorf("fails = %d, want 1", r.fails)
+	}
+	// Second failing check should switch to plural.
+	r.check("label-c", "value-c", "detail-c", false)
+	var buf2 strings.Builder
+	r.render(&buf2)
+	if !strings.Contains(buf2.String(), "2 checks failed") {
+		t.Errorf("failure count missing (plural): %q", buf2.String())
 	}
 }
 
