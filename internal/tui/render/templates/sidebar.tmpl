@@ -1,5 +1,8 @@
 {{- /* Right sidebar — Context + Cwd + Model + Todo + version. */ -}}
 {{ color "primary" .Title | bold }}
+{{- if .SessionLabel }}
+{{ color "text_secondary" (wrapHard .SessionLabel .Width) }}
+{{- end }}
 
 {{ color "text_secondary" "Context" | bold }}
 {{ color "text" .TokensHuman }}

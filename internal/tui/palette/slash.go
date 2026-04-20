@@ -41,6 +41,7 @@ var Commands = []Command{
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
+	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},

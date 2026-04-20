@@ -1389,9 +1389,17 @@ func (m *Model) renderSidebar(width int) string {
 		pct := 100 * m.usage.InputTokens / cap
 		tokPct = fmt.Sprintf("%d%% used", pct)
 	}
+	// Session description — shown below the stado title so the user
+	// knows which session they're in. Empty when unset, template
+	// conditionally renders.
+	sessionLabel := ""
+	if m.session != nil {
+		sessionLabel = runtime.ReadDescription(m.session.WorktreePath)
+	}
 	data := map[string]any{
 		"Title":        "stado",
 		"Version":      "0.0.0-dev",
+		"SessionLabel": sessionLabel,
 		"Model":        m.model,
 		"ProviderName": m.providerDisplayName(),
 		"Cwd":          m.cwd,
@@ -2239,11 +2247,58 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/sessions":
 		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
+	case "/describe":
+		m.handleDescribeSlash(parts)
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
 	return nil
+}
+
+// handleDescribeSlash sets the live session's description from
+// `/describe <text>` or clears it with `/describe --clear`. Without
+// args, prints the current description. Mirrors the CLI
+// `stado session describe` subcommand so users can label a session
+// from inside the TUI without dropping to a shell.
+func (m *Model) handleDescribeSlash(parts []string) {
+	if m.session == nil {
+		m.appendBlock(block{kind: "system", body: "/describe: no live session"})
+		return
+	}
+	wt := m.session.WorktreePath
+
+	// Read-only form.
+	if len(parts) == 1 {
+		if d := runtime.ReadDescription(wt); d != "" {
+			m.appendBlock(block{kind: "system", body: "description: " + d})
+		} else {
+			m.appendBlock(block{kind: "system", body: "(no description set — /describe <text> to add one)"})
+		}
+		return
+	}
+
+	// --clear form.
+	if len(parts) == 2 && parts[1] == "--clear" {
+		if err := runtime.WriteDescription(wt, ""); err != nil {
+			m.appendBlock(block{kind: "system", body: "/describe: clear failed: " + err.Error()})
+			return
+		}
+		m.appendBlock(block{kind: "system", body: "description cleared"})
+		return
+	}
+
+	text := strings.TrimSpace(strings.Join(parts[1:], " "))
+	if text == "" {
+		m.appendBlock(block{kind: "system",
+			body: "/describe: empty text — use /describe --clear to remove the label"})
+		return
+	}
+	if err := runtime.WriteDescription(wt, text); err != nil {
+		m.appendBlock(block{kind: "system", body: "/describe: write failed: " + err.Error()})
+		return
+	}
+	m.appendBlock(block{kind: "system", body: "description set: " + text})
 }
 
 // handlePluginSlash routes `/plugin` and `/plugin:<name>-<ver>` forms:
