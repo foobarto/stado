@@ -26,22 +26,28 @@ import (
 // C. Model picker
 // ============================================================
 
-// C1: `/model` with no args opens the picker.
+// C1: `/model` with no args opens the picker when the catalog has
+// items. Uses a known provider name ("anthropic") so CatalogFor
+// returns a populated list — without this, CI environments with no
+// local runners detected land on the empty-catalog branch (system
+// advisory instead of picker).
 func TestUAT_SlashModelOpensPicker(t *testing.T) {
 	m := scenarioModel(t)
+	m.providerName = "anthropic"
 	m.state = stateIdle
 	if m.modelPicker.Visible {
 		t.Fatal("picker should start hidden")
 	}
 	_ = m.handleSlash("/model")
 	if !m.modelPicker.Visible {
-		t.Error("/model with no args should open the picker")
+		t.Error("/model with a populated catalog should open the picker")
 	}
 }
 
 // C4: Esc from model picker closes without swapping.
 func TestUAT_ModelPickerEscClosesWithoutSwap(t *testing.T) {
 	m := scenarioModel(t)
+	m.providerName = "anthropic"
 	m.state = stateIdle
 	origModel := m.model
 	_ = m.handleSlash("/model")
