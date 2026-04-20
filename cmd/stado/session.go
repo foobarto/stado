@@ -93,13 +93,15 @@ var sessionListCmd = &cobra.Command{
 			rows = append(rows, runtime.SummariseSession(cfg.WorktreeDir(), sc, id))
 		}
 
-		// Columns: ID | last-active | turns | msgs | compactions | status
-		// Aligned so `session list | less -S` stays scannable.
-		const header = "SESSION ID                              LAST ACTIVE           TURNS  MSGS  COMPACT  STATUS\n"
+		// Columns: ID | last-active | turns | msgs | compactions | status | description
+		// Aligned so `session list | less -S` stays scannable. The
+		// DESCRIPTION column is last because its width varies; anything
+		// past STATUS soft-wraps gracefully.
+		const header = "SESSION ID                              LAST ACTIVE           TURNS  MSGS  COMPACT  STATUS     DESCRIPTION\n"
 		fmt.Print(header)
 		for _, r := range rows {
-			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %s\n",
-				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
+			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %-9s  %s\n",
+				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status, r.Description)
 		}
 		return nil
 	},
@@ -252,6 +254,61 @@ var sessionDeleteCmd = &cobra.Command{
 	},
 }
 
+// sessionDescribeCmd lets the user attach a human-readable label to a
+// session. Stored in `<worktree>/.stado/description`; shown by
+// `session list` (description column) and `session show`. Writing "" /
+// `--clear` removes the label.
+var sessionDescribeCmd = &cobra.Command{
+	Use:   "describe <id> [text]",
+	Short: "Attach (or clear) a human-readable description for a session",
+	Long: "Sessions are identified by UUIDs which are hard to recall. Describe\n" +
+		"lets you give a session a short human label — visible in `session list`\n" +
+		"and `session show`. Stored at `<worktree>/.stado/description`.\n\n" +
+		"  stado session describe <id> \"react refactor\"   # set\n" +
+		"  stado session describe <id> --clear             # remove\n" +
+		"  stado session describe <id>                     # print current",
+	Args: cobra.RangeArgs(1, 2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		id := args[0]
+		wt := filepath.Join(cfg.WorktreeDir(), id)
+		if _, err := os.Stat(wt); err != nil {
+			return fmt.Errorf("describe: session %s not found (no worktree at %s)", id, wt)
+		}
+		if describeClear {
+			if err := runtime.WriteDescription(wt, ""); err != nil {
+				return fmt.Errorf("describe: clear: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "cleared description for", id)
+			return nil
+		}
+		if len(args) == 1 {
+			// Read mode.
+			d := runtime.ReadDescription(wt)
+			if d == "" {
+				fmt.Fprintln(os.Stderr, "(no description set)")
+			} else {
+				fmt.Println(d)
+			}
+			return nil
+		}
+		text := strings.TrimSpace(args[1])
+		if text == "" {
+			return fmt.Errorf("describe: empty text — use --clear to remove the description")
+		}
+		if err := runtime.WriteDescription(wt, text); err != nil {
+			return fmt.Errorf("describe: write: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "described %s: %q\n", id, text)
+		return nil
+	},
+}
+
+var describeClear bool
+
 var sessionForkCmd = &cobra.Command{
 	Use:   "fork <id>",
 	Short: "Create a new session branched from an existing one's tree head, or from a specific turn via --at",
@@ -363,8 +420,12 @@ var sessionShowCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
+		wt := filepath.Join(cfg.WorktreeDir(), id)
 		fmt.Printf("session:  %s\n", id)
-		fmt.Printf("worktree: %s\n", filepath.Join(cfg.WorktreeDir(), id))
+		if desc := runtime.ReadDescription(wt); desc != "" {
+			fmt.Printf("label:    %s\n", desc)
+		}
+		fmt.Printf("worktree: %s\n", wt)
 		for _, pair := range []struct {
 			name string
 			ref  refMakerSession
@@ -525,10 +586,12 @@ func init() {
 		"Skip sessions whose worktree was touched more recently than this")
 	sessionGCCmd.Flags().BoolVar(&sessionGCApply, "apply", false,
 		"Actually delete. Default is dry-run (list candidates only)")
+	sessionDescribeCmd.Flags().BoolVar(&describeClear, "clear", false,
+		"Remove the description instead of setting one")
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionGCCmd, sessionForkCmd,
 		sessionAttachCmd, sessionResumeCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
-		sessionTreeCmd, sessionCompactCmd,
+		sessionTreeCmd, sessionCompactCmd, sessionDescribeCmd, sessionSearchCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
 }

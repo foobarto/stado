@@ -20,11 +20,47 @@ type SessionSummary struct {
 	Status string // "live" (pid alive), "idle" (worktree present, no live pid), "detached" (no worktree)
 	// PID is the owning process's id when Status=="live"; 0 otherwise.
 	// Read from the .stado-pid file attachSessionScaffolding drops.
-	PID         int
+	PID int
+	// Description is the user-supplied human label for this session
+	// from `.stado/description`. Empty when unset — UIs should fall
+	// back to the truncated ID. `stado session describe <id> "<text>"`
+	// is the writer.
+	Description string
 	LastActive  time.Time // latest turn-tag time; zero when the session has never committed a turn
 	Turns       int       // turns/<N> tag count
 	Msgs        int       // persisted conversation message count
 	Compactions int       // tree-ref compaction markers
+}
+
+// DescriptionFile is the per-worktree path where the user-supplied
+// description lives. Plaintext, single line, no trailing newline
+// necessary (reader trims whitespace).
+const DescriptionFile = ".stado/description"
+
+// ReadDescription returns the description for a worktree, or "" when
+// unset. Missing file / read errors collapse to "" so callers can
+// always render *something* (fallback to the session id).
+func ReadDescription(worktreeDir string) string {
+	data, err := os.ReadFile(filepath.Join(worktreeDir, DescriptionFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// WriteDescription replaces the description for a worktree. Creates
+// `.stado/` if absent. Empty text clears the description (writes an
+// empty file) so users can unset via `session describe <id> ""`.
+func WriteDescription(worktreeDir, text string) error {
+	if worktreeDir == "" {
+		return nil
+	}
+	dir := filepath.Join(worktreeDir, ".stado")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(worktreeDir, DescriptionFile),
+		[]byte(strings.TrimSpace(text)+"\n"), 0o644)
 }
 
 // LastActiveFormatted renders LastActive compactly. Returns "never"
@@ -92,5 +128,6 @@ func SummariseSession(worktreeRoot string, sc *stadogit.Sidecar, id string) Sess
 	if msgs, err := LoadConversation(wt); err == nil {
 		r.Msgs = len(msgs)
 	}
+	r.Description = ReadDescription(wt)
 	return r
 }
