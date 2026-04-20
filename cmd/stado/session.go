@@ -670,12 +670,6 @@ func listSessions(sc *stadogit.Sidecar) ([]string, error) {
 	return ids, nil
 }
 
-func short(h plumbing.Hash) string {
-	if h.IsZero() {
-		return "-"
-	}
-	return h.String()[:7]
-}
 
 // Silence "gogit imported but not used" — cobra command file uses it for
 // error typing in case we later want to branch on ErrRepositoryNotExists.
