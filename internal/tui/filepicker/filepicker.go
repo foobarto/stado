@@ -166,7 +166,7 @@ func (m *Model) View(maxWidth int) string {
 	b.WriteString(header)
 	b.WriteString("\n")
 	for i, p := range m.Matches {
-		row := p
+		var row string
 		if i == m.Cursor {
 			row = lipgloss.NewStyle().
 				Background(theme.Primary).

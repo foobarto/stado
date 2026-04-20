@@ -42,7 +42,7 @@ func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
 	_ = ctx
 
 	// Type "retry now" and hit Enter.
-	for _, r := range []rune("retry now") {
+	for _, r := range "retry now" {
 		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})

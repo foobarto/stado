@@ -1127,6 +1127,15 @@ func (m *Model) renderStatus(width int) string {
 	tokens := fmt.Sprintf("%s (%s)", humanize(m.usage.InputTokens), tokenPctString(m))
 	cost := fmt.Sprintf("$%.2f", m.usage.CostUSD)
 
+	// Cache-hit ratio: fraction of input tokens served from prompt
+	// cache. Only meaningful on providers that report it
+	// (Anthropic + cache-aware OAI-compat); elsewhere zero. Render
+	// only when the ratio is non-trivial so it doesn't clutter.
+	cacheRatio := ""
+	if r := cacheHitRatio(m.usage); r > 0 {
+		cacheRatio = fmt.Sprintf("cache %.0f%%", r*100)
+	}
+
 	// Queued-message indicator (mid-stream Enter buffer). Empty when
 	// nothing queued — template conditional-renders the pill.
 	queued := ""
@@ -1143,6 +1152,7 @@ func (m *Model) renderStatus(width int) string {
 		"Width":        width,
 		"Tokens":       tokens,
 		"Cost":         cost,
+		"Cache":        cacheRatio,
 		"Queued":       queued,
 	})
 	if err != nil {
@@ -2647,6 +2657,21 @@ func humanize(n int) string {
 		return fmt.Sprintf("%.1fK", float64(n)/1000)
 	}
 	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+}
+
+// cacheHitRatio returns fraction of prompt tokens served from prompt
+// cache on the last turn. Formula: CacheReadTokens /
+// (CacheReadTokens + InputTokens) — the numerator is what the cache
+// saved the user; the denominator is everything the model had to
+// "look at" whether from cache or from the fresh prompt body. Returns
+// 0 when either the provider doesn't report cache tokens or there
+// were no prompts yet.
+func cacheHitRatio(u agent.Usage) float64 {
+	total := u.CacheReadTokens + u.InputTokens
+	if total == 0 || u.CacheReadTokens == 0 {
+		return 0
+	}
+	return float64(u.CacheReadTokens) / float64(total)
 }
 
 func truncate(s string, max int) string {
