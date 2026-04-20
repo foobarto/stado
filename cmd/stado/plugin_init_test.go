@@ -1,0 +1,110 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestPluginInit_WritesAllFiles: scaffolding produces the expected
+// file set with the right content stamped in each.
+func TestPluginInit_WritesAllFiles(t *testing.T) {
+	dir := t.TempDir()
+	restore := chdir(t, dir)
+	defer restore()
+
+	pluginInitDir = ""
+	pluginInitForce = false
+	if err := pluginInitCmd.RunE(pluginInitCmd, []string{"my-plugin"}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	root := filepath.Join(dir, "my-plugin")
+	for _, f := range []string{
+		"go.mod",
+		"main.go",
+		"plugin.manifest.template.json",
+		"build.sh",
+		"README.md",
+	} {
+		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
+			t.Errorf("missing scaffolded file %s: %v", f, err)
+		}
+	}
+	// go.mod carries the plugin name as the module path.
+	body, _ := os.ReadFile(filepath.Join(root, "go.mod"))
+	if !strings.Contains(string(body), "my-plugin") {
+		t.Errorf("go.mod should reference the plugin name: %q", body)
+	}
+	// main.go exports the expected wasm ABI symbols.
+	body, _ = os.ReadFile(filepath.Join(root, "main.go"))
+	for _, want := range []string{"stado_alloc", "stado_free", "stado_tool_greet", "stadoLog"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("main.go missing %q: ...", want)
+		}
+	}
+	// build.sh is executable.
+	info, _ := os.Stat(filepath.Join(root, "build.sh"))
+	if info.Mode()&0o100 == 0 {
+		t.Errorf("build.sh not executable: %v", info.Mode())
+	}
+}
+
+// TestPluginInit_DirFlagOverride: --dir lets the user place the
+// scaffold somewhere other than ./<name>.
+func TestPluginInit_DirFlagOverride(t *testing.T) {
+	base := t.TempDir()
+	restore := chdir(t, base)
+	defer restore()
+
+	custom := filepath.Join(base, "custom", "path")
+	pluginInitDir = custom
+	pluginInitForce = false
+	defer func() { pluginInitDir = "" }()
+
+	if err := pluginInitCmd.RunE(pluginInitCmd, []string{"plugname"}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(custom, "main.go")); err != nil {
+		t.Errorf("expected scaffold under --dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "plugname")); !os.IsNotExist(err) {
+		t.Errorf("--dir should override default location: %v", err)
+	}
+}
+
+// TestPluginInit_RejectsInvalidName: non-alphanum-dash names error.
+func TestPluginInit_RejectsInvalidName(t *testing.T) {
+	restore := chdir(t, t.TempDir())
+	defer restore()
+
+	pluginInitDir = ""
+	pluginInitForce = false
+	for _, bad := range []string{"Uppercase", "has space", "underscored_name", ""} {
+		err := pluginInitCmd.RunE(pluginInitCmd, []string{bad})
+		if err == nil {
+			t.Errorf("expected error for invalid name %q", bad)
+		}
+	}
+}
+
+// TestPluginInit_RefusesExistingWithoutForce: second init into the
+// same dir errors unless --force.
+func TestPluginInit_RefusesExistingWithoutForce(t *testing.T) {
+	base := t.TempDir()
+	restore := chdir(t, base)
+	defer restore()
+
+	pluginInitDir = ""
+	pluginInitForce = false
+	if err := pluginInitCmd.RunE(pluginInitCmd, []string{"pl"}); err != nil {
+		t.Fatalf("first init: %v", err)
+	}
+	err := pluginInitCmd.RunE(pluginInitCmd, []string{"pl"})
+	if err == nil {
+		t.Fatal("second init should refuse without --force")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error should mention existing dir: %v", err)
+	}
+}
