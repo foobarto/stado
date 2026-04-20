@@ -6,6 +6,39 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Iteration-cycle additions (post-initial-sweep)
+
+Continued polish after the first round of dogfood fixes. Each item
+landed independently so the history tells the shape of the
+feature set.
+
+- `stado run --session <id>` — continue a long-running session
+  from the CLI. Loads the prior conversation, appends the new
+  prompt, persists the exchange so the TUI resume picks it up.
+  Useful for scripted follow-ups: `stado run --session react
+  "what was that hook we extracted?"`. Same id/prefix/description
+  resolver as `session resume`.
+- `stado session logs <id>` — render the session's trace ref as
+  a scannable one-line-per-tool-call feed. Fills the gap between
+  `session show` (summary) and `audit export` (JSONL). Shows
+  time, tool(arg), summary, tokens, cost, duration, and marks
+  errors with ✗. `--limit N` to cap; accepts the same lookup
+  resolver.
+- `stado config show` — print the resolved effective config
+  (TOML + env + defaults merged). Human table by default, `--json`
+  for jq. Answers "why is stado using X?" without reading the
+  loader. Highlights when `config.toml` doesn't exist yet.
+- `stado stats --json` — structured output for dashboards, CI
+  gating, jq piping. Shape:
+  `{window_days, total{calls,tokens_in,tokens_out,cost_usd},
+  total_duration_ms, by_model, by_tool}`. Empty-window case emits
+  a valid empty shape so scripts don't special-case.
+- Shell-style aliases on frequent subcommands: `session ls` →
+  `list`, `session rm` → `delete`, `session cat` → `export`.
+- `session list` status column is now colourised — live green,
+  idle grey, detached dim. Respects `NO_COLOR` / `FORCE_COLOR` /
+  isatty so piped output stays plain.
+
 ### UX sweep — dogfood-driven findings (pre-release polish)
 
 **Session management.**

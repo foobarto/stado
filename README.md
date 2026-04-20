@@ -142,18 +142,44 @@ to the session's audit log.
 
 ### Useful first commands
 
+Core session workflow:
+
 ```sh
-stado session list                      # sessions in this repo
-stado session show <id>                 # refs + worktree + latest commit
-stado session fork <id>                 # new session branched from parent's tree head
-stado session revert <id> <commit>      # new child session rooted at an earlier commit
+stado session ls                        # sessions in this repo (ls alias for list)
+stado session show <id>                 # refs + worktree + latest commit + usage totals
+stado session describe <id> "label"     # attach a human label; surfaces in list + TUI sidebar
+stado session resume react              # resume by id, id-prefix, or description substring
+stado session logs <id>                 # tool-call audit as a scannable one-line feed
+stado session export <id> -o out.md     # conversation as markdown (or --format jsonl)
+stado session search "react hook"       # grep across every session's conversation
+stado session gc --older-than=24h       # sweep zero-turn sessions (dry-run by default)
+stado session fork <id> --at turns/5    # fork from an earlier turn
+stado session tree <id>                 # interactive fork-from-turn picker
 stado session land <id> <branch>        # push agent's tree to your repo
 stado audit verify <id>                 # tamper-check the audit log
-stado agents list                       # running agents across all sessions
 ```
 
-Fork-from-an-earlier-turn (`session fork <id> --at turns/5` / interactive
-`session tree`) is planned — see Phase 11.5.
+Run + stats + config:
+
+```sh
+stado run --prompt "..."                # one-shot, exits after the agent finishes
+stado run --session <id> "follow-up"    # continue an existing session from the CLI
+stado stats                             # cost + token dashboard (past 7 days)
+stado stats --json | jq                 # same, for scripting
+stado config show                       # resolved effective config (file + env + defaults)
+stado doctor                            # env diagnostic (runners, sandbox, binaries)
+```
+
+Plugins + GitHub bot:
+
+```sh
+stado plugin installed                  # what plugins are installed
+stado plugin list                       # trusted signers
+stado plugin run <id> <tool> '{...}'    # invoke a plugin's tool
+stado github install                    # generate the @stado-bot workflow template
+```
+
+Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
 ### Headless (scripted) use
 
