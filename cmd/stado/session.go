@@ -412,6 +412,47 @@ var sessionResumeCmd = &cobra.Command{
 	},
 }
 
+// completeSessionIDs is a cobra ValidArgsFunction that lists
+// extant session IDs for shell tab-completion. Filters by the
+// prefix the user has typed so `stado session show abc<TAB>`
+// narrows. Returns IDs alongside their descriptions (cobra renders
+// the description as the completion hint) when present.
+//
+// Returns only for first-positional-arg completion; subsequent
+// args on subcommands that take just one ID get no completions
+// (avoids duplicate-suggest weirdness).
+func completeSessionIDs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) >= 1 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+	entries, err := os.ReadDir(cfg.WorktreeDir())
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	var completions []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		id := e.Name()
+		if toComplete != "" && !strings.HasPrefix(id, toComplete) {
+			continue
+		}
+		desc := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
+		if desc != "" {
+			completions = append(completions, id+"\t"+desc)
+		} else {
+			completions = append(completions, id)
+		}
+	}
+	sort.Strings(completions)
+	return completions, cobra.ShellCompDirectiveNoFileComp
+}
+
 // resolveSessionID turns a user-friendly lookup string into a
 // concrete session id:
 //   - exact UUID match wins
@@ -551,6 +592,16 @@ var sessionShowCmd = &cobra.Command{
 			fmt.Printf("audit     %d tool call(s) on trace ref\n", n)
 		}
 
+		// Cost/tokens summary from the trace-ref trailers (same
+		// source as `stado stats`). Window is the session's entire
+		// lifetime since we're scoped to one session — no cutoff.
+		agg := newStatsAgg()
+		_ = walkSessionForStats(sc, id, time.Time{}, agg)
+		if agg.totalCalls > 0 {
+			fmt.Printf("usage     %d call(s)  tokens=%d/%d  cost=%s  time=%s\n",
+				agg.totalCalls, agg.totalIn, agg.totalOut, fmtCost(agg.totalCost), fmtMs(agg.totalMs))
+		}
+
 		// Compaction markers — PLAN §11.3.6. Surfaces which turn
 		// ranges have been collapsed, when, and by whom. Walks tree
 		// ref newest-first; rolled back or forked-over compactions
@@ -675,6 +726,25 @@ func init() {
 		"Actually delete. Default is dry-run (list candidates only)")
 	sessionDescribeCmd.Flags().BoolVar(&describeClear, "clear", false,
 		"Remove the description instead of setting one")
+
+	// Shell-completion for session IDs. Every subcommand that takes
+	// an <id> first-positional gets the same completer so
+	// `stado session <subcmd> <TAB>` lists extant sessions in bash/
+	// zsh/fish. Subcommands whose first arg is something else (new,
+	// list, gc, search) don't get a completer — ValidArgsFunction
+	// default is "no completions" which matches cobra's built-in.
+	idCompleter := completeSessionIDs
+	sessionShowCmd.ValidArgsFunction = idCompleter
+	sessionAttachCmd.ValidArgsFunction = idCompleter
+	sessionResumeCmd.ValidArgsFunction = idCompleter
+	sessionDeleteCmd.ValidArgsFunction = idCompleter
+	sessionForkCmd.ValidArgsFunction = idCompleter
+	sessionDescribeCmd.ValidArgsFunction = idCompleter
+	sessionRevertCmd.ValidArgsFunction = idCompleter
+	sessionLandCmd.ValidArgsFunction = idCompleter
+	sessionTreeCmd.ValidArgsFunction = idCompleter
+	sessionExportCmd.ValidArgsFunction = idCompleter
+
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionGCCmd, sessionForkCmd,
 		sessionAttachCmd, sessionResumeCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
