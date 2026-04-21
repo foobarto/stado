@@ -84,6 +84,14 @@ func (r *Runner) exec(ctx context.Context, shellCmd string, stdin []byte, label 
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
+	// WaitDelay forces cmd.Run to return promptly after the context
+	// is cancelled, even when a grand-child (e.g. /bin/sh's child
+	// process) keeps the output pipes open. Without this, a hook
+	// that spawns `sleep 5` would make cmd.Run block for the full 5s
+	// even after the 100ms context cap fired — the race-enabled CI
+	// reliably reproduced this. The extra 200ms after context expiry
+	// is the graceful window before Go force-closes the fds.
+	cmd.WaitDelay = 200 * time.Millisecond
 
 	start := time.Now()
 	runErr := cmd.Run()
