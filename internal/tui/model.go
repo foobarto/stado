@@ -294,12 +294,6 @@ type Model struct {
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
 	turnStart time.Time
-
-	// lastStreamRender throttles per-event renderBlocks() during
-	// high-rate streaming — reasoning models can push 10+ events/sec,
-	// rendering on every one starves the event loop. Set in the
-	// streamEventMsg handler.
-	lastStreamRender time.Time
 }
 
 type approvalRequest struct {
