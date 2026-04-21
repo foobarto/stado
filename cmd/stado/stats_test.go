@@ -35,6 +35,34 @@ func statsEnv(t *testing.T) (*config.Config, *stadogit.Sidecar, func()) {
 	return cfg, sc, restore
 }
 
+// TestStats_JSONEmptyWhenNoSessions: `stado stats --json` must emit
+// a structurally-valid empty shape even when there are no sessions
+// on disk at all — otherwise `stado stats --json | jq` in a fresh
+// repo errors on "parse error: no input". Earlier fix added the
+// empty-agg case; this guards the earlier "no sessions" branch.
+func TestStats_JSONEmptyWhenNoSessions(t *testing.T) {
+	_, _, restore := statsEnv(t)
+	defer restore()
+
+	statsJSON = true
+	statsDays = 7
+	t.Cleanup(func() { statsJSON = false })
+
+	out := captureStdout(t, func() {
+		_ = statsCmd.RunE(statsCmd, nil)
+	})
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("not valid JSON: %v\nraw: %q", err, out)
+	}
+	if wd, ok := got["window_days"].(float64); !ok || int(wd) != 7 {
+		t.Errorf("window_days: got %v", got["window_days"])
+	}
+	if _, ok := got["total"].(map[string]any); !ok {
+		t.Errorf("missing total: %v", got)
+	}
+}
+
 // TestStatsAgg_SumsTokensAcrossCommits: feed three trace commits with
 // different models + tokens; aggregator totals and per-model breakdown
 // must match.

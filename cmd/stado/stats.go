@@ -60,6 +60,14 @@ var statsCmd = &cobra.Command{
 			ids = filterStringSlice(ids, statsSession)
 		}
 		if len(ids) == 0 {
+			if statsJSON {
+				// Same structurally-valid empty shape as the "no tool
+				// calls in window" branch below. Without this, --json
+				// consumers got zero stdout bytes when no sessions
+				// existed at all, which broke `stado stats --json | jq`.
+				fmt.Println(`{"window_days":` + strconv.Itoa(statsDays) + `,"total":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"duration_ms":0},"by_model":{},"by_tool":{}}`)
+				return nil
+			}
 			fmt.Fprintln(os.Stderr, "(no sessions in window)")
 			return nil
 		}

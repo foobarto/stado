@@ -1,0 +1,173 @@
+// Package skills discovers project-level skill files and exposes them
+// as reusable prompts. A "skill" is a markdown file with YAML-style
+// frontmatter that names and describes it:
+//
+//	---
+//	name: refactor
+//	description: Extract a function from the current selection
+//	---
+//	Find repeated code near the cursor and factor it out into a
+//	helper. Prefer the narrowest shared scope; keep call sites
+//	unchanged.
+//
+// Stado loads every `.stado/skills/*.md` file under the cwd walk at
+// TUI startup and registers each as a slash command `/skill:<name>`.
+// Invocation seeds the body into the conversation as a user message
+// so the LLM acts on it. Matches the Claude Code "skills" convention
+// that's becoming a de-facto standard across coding agents.
+//
+// Scope limitations (deliberate, by design):
+//   - Plain text body, no includes / templating / args. A skill is a
+//     one-shot prompt, not a macro system — keep it skimmable.
+//   - Only cwd + direct parents are scanned; no user-global
+//     ~/.config/stado/skills/ yet. The project-root scope matches
+//     AGENTS.md's semantics and avoids the "why did this skill run?"
+//     problem of global state.
+package skills
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// Skill is one parsed skill file.
+type Skill struct {
+	Name        string // from frontmatter; falls back to filename stem
+	Description string // from frontmatter; may be empty
+	Body        string // everything after the frontmatter
+	Path        string // absolute path on disk (for error messages)
+}
+
+// Load walks from `start` upward and gathers every `.stado/skills/*.md`
+// it finds. Nearest-wins when two levels define a skill with the same
+// name — a module-local skill.md overrides a repo-root one, same as
+// the instructions loader's policy.
+//
+// A clean miss (no `.stado/skills/` anywhere up the tree) returns a
+// nil slice and nil error. Unreadable skill files produce a per-file
+// error returned alongside any successfully-loaded skills so a single
+// broken skill doesn't black-hole the rest.
+func Load(start string) ([]Skill, error) {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return nil, fmt.Errorf("skills: abs %s: %w", start, err)
+	}
+
+	// Walk cwd → parents, collecting skill directories bottom-up.
+	// Bottom-up order means later overrides earlier; we invert that
+	// by keeping the FIRST occurrence of each name (nearest wins).
+	var dirs []string
+	dir := abs
+	for {
+		candidate := filepath.Join(dir, ".stado", "skills")
+		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+			dirs = append(dirs, candidate)
+		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("skills: stat %s: %w", candidate, statErr)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	seen := map[string]bool{}
+	var out []Skill
+	var firstErr error
+	for _, d := range dirs {
+		entries, readErr := os.ReadDir(d)
+		if readErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("skills: read dir %s: %w", d, readErr)
+			}
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			path := filepath.Join(d, e.Name())
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)
+				}
+				continue
+			}
+			sk := parse(string(body))
+			sk.Path = path
+			if sk.Name == "" {
+				// Fall back to the filename stem.
+				sk.Name = strings.TrimSuffix(e.Name(), ".md")
+			}
+			if seen[sk.Name] {
+				continue // nearer dir already claimed this name
+			}
+			seen[sk.Name] = true
+			out = append(out, sk)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, firstErr
+}
+
+// parse strips the optional `---`-bounded YAML frontmatter off a skill
+// body and pulls out name/description. The parser is deliberately
+// minimal — one `key: value` per line, no quoting, no nested objects.
+// Anything more elaborate is outside the "one-shot prompt" scope.
+func parse(src string) Skill {
+	sk := Skill{}
+	lines := strings.Split(src, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		sk.Body = src
+		return sk
+	}
+	// Walk until the closing `---`.
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		// Unterminated frontmatter — treat the whole thing as body.
+		sk.Body = src
+		return sk
+	}
+	for _, ln := range lines[1:end] {
+		k, v, ok := splitKV(ln)
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			sk.Name = v
+		case "description":
+			sk.Description = v
+		}
+	}
+	sk.Body = strings.TrimLeft(strings.Join(lines[end+1:], "\n"), "\n")
+	return sk
+}
+
+// splitKV turns "name: refactor" into ("name", "refactor", true).
+// Returns (_, _, false) for blank, commented, or malformed lines.
+func splitKV(ln string) (string, string, bool) {
+	ln = strings.TrimSpace(ln)
+	if ln == "" || strings.HasPrefix(ln, "#") {
+		return "", "", false
+	}
+	colon := strings.IndexByte(ln, ':')
+	if colon <= 0 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(ln[:colon])
+	val := strings.TrimSpace(ln[colon+1:])
+	return key, val, true
+}

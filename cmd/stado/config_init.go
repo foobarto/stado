@@ -149,6 +149,26 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # hard_threshold = 0.90   # future turns blocked pending fork / compact / abort
 
 # ---------------------------------------------------------------------------
+# [budget] — cumulative cost guardrail per session. Both values are in USD.
+#            Zero (the default) disables the guard; set either to opt in.
+# warn_usd paints a yellow status-bar pill + one-time system block.
+# hard_usd blocks further turns pending '/budget ack' (or raising this cap).
+# stado run exits 2 with ErrCostCapExceeded if hard_usd is crossed.
+# hard_usd must be > warn_usd — a pair where hard ≤ warn is ignored (stderr warning).
+# ---------------------------------------------------------------------------
+# [budget]
+# warn_usd = 1.00
+# hard_usd = 5.00
+
+# ---------------------------------------------------------------------------
+# AGENTS.md / CLAUDE.md — project-level instructions. Drop either file in
+# your repo root (or any parent directory) and stado auto-loads the body as
+# the system prompt on every turn. AGENTS.md wins if both exist; CLAUDE.md
+# is supported for backwards-compat with existing repos. Nearest-wins when
+# a monorepo has files at multiple levels.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
 # [sandbox] / [git] / [acp] — reserved. Fields land with the matching phases.
 # ---------------------------------------------------------------------------
 

@@ -8,6 +8,25 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **Skills: `.stado/skills/*.md` auto-loader.** Drop a markdown file
+  with frontmatter `name:` / `description:` in a `.stado/skills/`
+  directory and stado exposes it as `/skill:<name>` in the TUI.
+  Invocation injects the body as a user message so the next turn
+  acts on it. `/skill` alone lists what's loaded. Resolution walks
+  from cwd upward — nearest-wins for module-level overrides in a
+  monorepo. Bodies without frontmatter use the filename stem as
+  the name. Matches the emerging cross-vendor convention for
+  reusable prompt fragments.
+- **`stats --json` now emits a valid empty shape when there are no
+  sessions.** Previously stdout was empty and `(no sessions in
+  window)` leaked to stderr, which broke `stado stats --json | jq`
+  in a fresh repo. Matches the already-valid empty case for
+  "sessions exist but no tool calls in window."
+- **`config init` template now covers `[budget]` + an AGENTS.md
+  pointer.** The generated template was the only docs users saw
+  for many knobs; adding budget + pointing at AGENTS.md closes the
+  gap between config knobs users can see and features actually
+  available.
 - **`session list` hides empty rows by default.** Zero-turn +
   zero-message + zero-compaction sessions were cluttering the
   default output — `session list` on a long-lived repo was showing

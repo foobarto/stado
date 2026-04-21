@@ -21,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/skills"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
@@ -276,6 +277,12 @@ type Model struct {
 	// found walking up from cwd.
 	systemPrompt     string
 	systemPromptPath string
+
+	// skills is the list of `.stado/skills/*.md` files discovered at
+	// startup. Each is reachable as `/skill:<name>` from the palette;
+	// invocation injects the skill body as a user message so the
+	// LLM acts on it. Empty when no skills dir exists up the tree.
+	skills []skills.Skill
 }
 
 type approvalRequest struct {
@@ -315,6 +322,16 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 	} else if res.Content != "" {
 		m.systemPrompt = res.Content
 		m.systemPromptPath = res.Path
+	}
+	// Load project-level skills (`.stado/skills/*.md` up the tree).
+	// A broken skill file surfaces as a stderr warning alongside any
+	// successfully-loaded skills — one bad file shouldn't hide the
+	// others.
+	if sks, err := skills.Load(cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "stado: skills load: %v\n", err)
+		m.skills = sks
+	} else {
+		m.skills = sks
 	}
 	return m
 }
@@ -2281,6 +2298,11 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {
 		return m.handlePluginSlash(parts)
 	}
+	// /skill lists loaded skills; /skill:<name> injects the body as
+	// a user message so the LLM acts on it on the next turn.
+	if parts[0] == "/skill" || strings.HasPrefix(parts[0], "/skill:") {
+		return m.handleSkillSlash(parts)
+	}
 	switch parts[0] {
 	case "/clear":
 		m.blocks = nil
@@ -2423,6 +2445,57 @@ func (m *Model) maybeEmitBudgetWarning() {
 		body: fmt.Sprintf("budget warning: cost $%.2f crossed warn cap $%.2f%s", m.usage.CostUSD, cap, hint),
 	})
 	m.renderBlocks()
+}
+
+// handleSkillSlash implements /skill + /skill:<name>.
+//
+//	/skill                 — list loaded skills with descriptions
+//	/skill:<name>          — inject the body as a user message;
+//	                         the next turn picks it up as prompt
+//
+// Invocation doesn't auto-start a turn; the user still presses Enter
+// with an empty input (or types follow-up text) to actually fire.
+// That keeps intent explicit — a rogue keystroke can't burn tokens.
+func (m *Model) handleSkillSlash(parts []string) tea.Cmd {
+	if parts[0] == "/skill" {
+		if len(m.skills) == 0 {
+			m.appendBlock(block{kind: "system",
+				body: "no skills loaded — drop `.stado/skills/<name>.md` files in the repo to define some"})
+			return nil
+		}
+		var sb strings.Builder
+		sb.WriteString("loaded skills:")
+		for _, sk := range m.skills {
+			desc := sk.Description
+			if desc == "" {
+				desc = "(no description)"
+			}
+			sb.WriteString(fmt.Sprintf("\n  /skill:%s — %s", sk.Name, desc))
+		}
+		m.appendBlock(block{kind: "system", body: sb.String()})
+		return nil
+	}
+	// /skill:<name>
+	name := strings.TrimPrefix(parts[0], "/skill:")
+	var chosen *skills.Skill
+	for i := range m.skills {
+		if m.skills[i].Name == name {
+			chosen = &m.skills[i]
+			break
+		}
+	}
+	if chosen == nil {
+		m.appendBlock(block{kind: "system",
+			body: fmt.Sprintf("skill %q not found — try /skill for the list", name)})
+		return nil
+	}
+	// Inject as a user message. Append to m.msgs so the next
+	// StreamTurn sees it; also render a visible user block so the
+	// user knows what was sent.
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, chosen.Body))
+	m.appendBlock(block{kind: "user", body: chosen.Body})
+	m.renderBlocks()
+	return nil
 }
 
 // handleDescribeSlash sets the live session's description from
