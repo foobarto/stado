@@ -38,6 +38,21 @@ Plugins / Infra / Fixes.
   a non-empty prompt no longer pops the help overlay or command
   palette — the characters insert as text instead. Both shortcuts
   still work when the input box is empty.
+- **Tool cancellation actually works.** Approved tool calls run on a
+  goroutine so the UI stays responsive. Previously there was no way
+  to cancel a long-running tool after approving it. Now Ctrl+C
+  propagates cancellation into the tool's context; the goroutine
+  exits with "cancelled by user" instead of running to completion.
+- **Live "tool running" indicator with elapsed counter.** Tool blocks
+  now show `running 3.2s` while the command is active, refreshed
+  every 250 ms via `toolTickMsg`. No more silent 30-second waits
+  where the user can't tell if stado is working or frozen.
+
+### Infra
+
+- **Test coverage: 5 new UAT scenarios** for previously uncovered
+  slash commands: `/split`, `/todo`, `/provider` (uninitialised),
+  `/tools` (populated + empty paths).
 
 ## v0.0.1 — 2026-04-21
 + ACP + plugin ABI + MCP client + MCP server surfaces are all

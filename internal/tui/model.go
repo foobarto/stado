@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,6 +140,9 @@ type (
 	toolResultMsg struct {
 		result agent.ToolResultBlock
 	}
+	// toolTickMsg ticks every 250ms while a tool is running so the
+	// elapsed-time counter in the tool block re-renders live.
+	toolTickMsg struct{}
 	// pluginForkMsg is dispatched when a plugin's ForkFn closure
 	// creates a child session. Surfaced in Update as a user-visible
 	// system block per DESIGN invariant 4 — "user-visible by default."
@@ -282,6 +286,15 @@ type Model struct {
 
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program
+
+	// toolCancel cancels an in-flight async tool call so the user can
+	// stop it mid-execution after approving it. Only non-nil when a
+	// tool is actively running; reset in toolResultMsg or streamCancel.
+	toolCancel context.CancelFunc
+	toolMu     sync.Mutex
+	// toolTickTimer is the handle for the live-elapsed update while a
+	// tool runs. Cancelled when the toolResultMsg arrives.
+	toolTickTimer *time.Timer
 
 	// Per-turn accumulators (reset on startStream).
 	turnText       string
@@ -893,8 +906,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toolResultMsg:
 		// Async tool call completed — result arrives here so the UI
 		// never blocks on long-running tools (e.g. bash sleep 30).
+		m.toolMu.Lock()
+		if m.toolTickTimer != nil {
+			m.toolTickTimer.Stop()
+			m.toolTickTimer = nil
+		}
+		m.toolCancel = nil
+		m.toolMu.Unlock()
+		// Update the matching tool block with the result.
+		for i := range m.blocks {
+			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
+				m.blocks[i].toolResult = msg.result.Content
+				m.invalidateBlockCache(i)
+				break
+			}
+		}
 		m.pendingResults = append(m.pendingResults, msg.result)
+		m.renderBlocks()
 		return m, m.advanceApproval()
+
+	case toolTickMsg:
+		// Re-render tool blocks so the elapsed-time counter ticks.
+		m.renderBlocks()
+		return m, m.toolTickCmd()
 
 	case pluginRunResultMsg:
 		// /plugin:<name>-<ver> <tool> [args] finished. Render outcome
@@ -1183,6 +1217,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.approval != nil {
 					return m, m.resolveApproval(false)
 				}
+				// Also cancel any async tool that is still running.
+				m.toolMu.Lock()
+				if m.toolCancel != nil {
+					m.toolCancel()
+					m.toolCancel = nil
+				}
+				if m.toolTickTimer != nil {
+					m.toolTickTimer.Stop()
+					m.toolTickTimer = nil
+				}
+				m.toolMu.Unlock()
 				return m, nil
 			}
 			// Non-empty input: the editor's InputClear case (editor.go)
@@ -1901,8 +1946,17 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		})
 	case "tool":
 		duration := ""
-		if !blk.endedAt.IsZero() && !blk.startedAt.IsZero() {
-			duration = blk.endedAt.Sub(blk.startedAt).Round(time.Millisecond).String()
+		if !blk.startedAt.IsZero() {
+			if !blk.endedAt.IsZero() {
+				duration = blk.endedAt.Sub(blk.startedAt).Round(time.Millisecond).String()
+			} else {
+				// Tool is still running — show live elapsed counter.
+				d := time.Since(blk.startedAt).Round(time.Second)
+				if d < time.Second {
+					d = time.Since(blk.startedAt).Round(100 * time.Millisecond)
+				}
+				duration = "running " + d.String()
+			}
 		}
 		return m.renderer.Exec("message_tool", map[string]any{
 			"Name":        blk.toolName,
@@ -2166,6 +2220,14 @@ func streamTickCmd() tea.Cmd {
 	})
 }
 
+// toolTickCmd reschedules itself every 250ms while a tool is running
+// so the elapsed-time pill in the tool block updates live.
+func (m *Model) toolTickCmd() tea.Cmd {
+	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+		return toolTickMsg{}
+	})
+}
+
 func (m *Model) sendMsg(msg tea.Msg) {
 	if m.program != nil {
 		m.program.Send(msg)
@@ -2365,7 +2427,8 @@ func (m *Model) advanceApproval() tea.Cmd {
 
 // executeCallAsync runs a single tool through the Executor on a goroutine
 // so long-running tools (e.g. bash sleep 30) never block the UI. The result
-// is ferried back via toolResultMsg.
+// is ferried back via toolResultMsg. A cancellable context lets Ctrl+C stop
+// the tool mid-execution; a tick timer updates the elapsed counter live.
 func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	if m.executor == nil {
 		return func() tea.Msg {
@@ -2384,12 +2447,37 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		workdir: workdir,
 		readLog: m.executor.ReadLog,
 	}
+	// Create a cancellable context for this tool execution.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.toolMu.Lock()
+	m.toolCancel = cancel
+	// Start the tick timer for live elapsed-time updates.
+	m.toolTickTimer = time.AfterFunc(250*time.Millisecond, func() {
+		if m.program != nil {
+			m.program.Send(toolTickMsg{})
+		}
+	})
+	m.toolMu.Unlock()
 	return func() tea.Msg {
-		res, err := m.executor.Run(context.Background(), call.Name, call.Input, host)
+		defer func() {
+			// Ensure timer is stopped when tool completes (normally or cancelled).
+			m.toolMu.Lock()
+			if m.toolTickTimer != nil {
+				m.toolTickTimer.Stop()
+				m.toolTickTimer = nil
+			}
+			m.toolMu.Unlock()
+		}()
+		res, err := m.executor.Run(ctx, call.Name, call.Input, host)
 		content := res.Content
 		isErr := res.Error != ""
 		if err != nil {
-			content = err.Error()
+			// Distinguish cancellation from other errors.
+			if errors.Is(err, context.Canceled) {
+				content = "cancelled by user"
+			} else {
+				content = err.Error()
+			}
 			isErr = true
 		} else if isErr {
 			content = res.Error

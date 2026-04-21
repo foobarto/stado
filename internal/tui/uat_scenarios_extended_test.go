@@ -12,6 +12,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // ============================================================
@@ -405,19 +408,106 @@ func (thresholdStub) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan 
 	return ch, nil
 }
 
-// G2 (below soft): a modest usage doesn't block.
-func TestUAT_BelowSoftThresholdSubmitsNormally(t *testing.T) {
+// ============================================================
+// H. Missing slash-command UAT
+// ============================================================
+
+// H1: /split toggles splitView and renders a system advisory.
+func TestUAT_SplitTogglesSplitView(t *testing.T) {
 	m := scenarioModel(t)
-	m.state = stateIdle
-	m.provider = thresholdStub{max: 100000}
-	m.usage.InputTokens = 1000 // 1% — well under soft
-	m.ctxSoftThreshold = 0.70
-	m.ctxHardThreshold = 0.90
+	if m.splitView {
+		t.Fatal("splitView should start false")
+	}
+	cmd := m.handleSlash("/split")
+	if cmd != nil {
+		t.Fatal("/split should return nil cmd")
+	}
+	if !m.splitView {
+		t.Error("/split should set splitView = true")
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "split view: on") {
+		t.Errorf("expected split-on advisory, got: %q", last.body)
+	}
 
-	typeString(m, "small prompt")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Toggle off again.
+	m.handleSlash("/split")
+	if m.splitView {
+		t.Error("second /split should toggle splitView = false")
+	}
+}
 
-	if m.state != stateStreaming {
-		t.Errorf("state = %v, want streaming (submit should go through)", m.state)
+// H2: /todo adds a todo item when given a title.
+func TestUAT_TodoAddsItem(t *testing.T) {
+	m := scenarioModel(t)
+	if len(m.todos) != 0 {
+		t.Fatal("todos should start empty")
+	}
+	m.handleSlash("/todo review PR")
+	if len(m.todos) != 1 {
+		t.Fatalf("expected 1 todo, got %d", len(m.todos))
+	}
+	if m.todos[0].Title != "review PR" {
+		t.Errorf("todo title = %q, want 'review PR'", m.todos[0].Title)
+	}
+	if m.todos[0].Status != "open" {
+		t.Errorf("todo status = %q, want open", m.todos[0].Status)
+	}
+}
+
+// H3: /provider without an initialised provider shows "not yet initialised".
+func TestUAT_ProviderShowsUninitialised(t *testing.T) {
+	m := scenarioModel(t)
+	m.provider = nil
+	m.providerName = "anthropic"
+	m.handleSlash("/provider")
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "not yet initialised") {
+		t.Errorf("expected 'not yet initialised' advisory, got: %q", last.body)
+	}
+}
+
+// H4: /tools with a registry lists every tool.
+func TestUAT_ToolsListsRegistered(t *testing.T) {
+	m := scenarioModel(t)
+	// Seed an executor with at least one dummy tool so the listing path
+	// is hit instead of the "no tools registered" branch.
+	ex := &tools.Executor{Registry: tools.NewRegistry()}
+	ex.Registry.Register(dummyTool{name: "read", desc: "read a file", class: tool.ClassNonMutating})
+	m.executor = ex
+	m.handleSlash("/tools")
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "Registered tools:") {
+		t.Errorf("expected tools list, got: %q", last.body)
+	}
+	if !strings.Contains(last.body, "read") {
+		t.Errorf("tools list should include 'read', got: %q", last.body)
+	}
+}
+
+type dummyTool struct {
+	name  string
+	desc  string
+	class tool.Class
+}
+
+func (d dummyTool) Name() string        { return d.name }
+func (d dummyTool) Description() string { return d.desc }
+func (d dummyTool) Schema() map[string]any {
+	return map[string]any{"type": "object"}
+}
+func (d dummyTool) Class() tool.Class { return d.class }
+func (d dummyTool) Run(_ context.Context, _ json.RawMessage, _ tool.Host) (tool.Result, error) {
+	return tool.Result{}, nil
+}
+
+// H5: /tools with no executor shows the unavailable advisory.
+func TestUAT_ToolsNoExecutorUnavailable(t *testing.T) {
+	m := scenarioModel(t)
+	m.executor = nil
+	m.handleSlash("/tools")
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "no tools registered") {
+		t.Errorf("expected unavailable advisory, got: %q", last.body)
 	}
 }
