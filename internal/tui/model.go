@@ -1153,12 +1153,13 @@ func (m *Model) View() string {
 	if inputH > m.height/3 {
 		inputH = m.height / 3
 	}
-	// Reserve: textarea (inputH) + border(2) + inline status row
-	// inside the bordered box(1) + outer status row(1) = inputH+4.
-	// The old constant was 3, which left the chat area 1 row too
-	// tall and pushed content over the pane edge so the first chat
-	// block got clipped off the top.
-	mainH := m.height - inputH - 4
+	// Reserve: textarea (inputH) + top border (1) + inline status
+	// row inside the bordered box (1) + bottom border (1) + trailing
+	// newline after the input box (1) + outer status row (1) =
+	// inputH + 5. Earlier constants (3, then 4) left the left
+	// column taller than the pane by 1-2 rows, so the top of the
+	// chat area (first user-card row) got clipped off.
+	mainH := m.height - inputH - 5
 	if m.approval != nil {
 		mainH -= 2
 	}
@@ -1180,7 +1181,7 @@ func (m *Model) View() string {
 	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
 		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
 	} else {
-		left.WriteString(m.vp.View() + "\n")
+		left.WriteString(m.vp.View())
 	}
 	if m.approval != nil {
 		left.WriteString(m.theme.Fg("warning").Render(
@@ -1578,7 +1579,13 @@ func (m *Model) renderSidebar(width int) string {
 	if err != nil {
 		body = "[sidebar render error] " + err.Error()
 	}
-	return m.theme.Pane().Width(width - 2).Height(m.height - 1).Render(body)
+	// Height(m.height - 3): Pane adds 2 border rows, so passing
+	// m.height-3 gives a total rendered height of m.height - 1 —
+	// exactly matching leftBlock's (m.height - status_row) height
+	// so JoinHorizontal doesn't pad leftBlock beyond pane height.
+	// A taller sidebar here used to push the top row of the chat
+	// off the visible area.
+	return m.theme.Pane().Width(width - 2).Height(m.height - 3).Render(body)
 }
 
 func (m *Model) renderBlocks() {
@@ -1633,7 +1640,18 @@ func (m *Model) renderBlocks() {
 		}
 	}
 	m.vp.SetContent(b.String())
-	m.vp.GotoBottom()
+	// GotoBottom only when content actually overflows. For small
+	// conversations (content fits in the viewport height) we want
+	// to start at the top so the first user card / assistant block
+	// is pinned to row 0 rather than drifting with the scroll
+	// position. Without this guard, bubbletea's viewport rendered
+	// content with the first line sometimes positioned just above
+	// the visible pane edge — the card top row got clipped.
+	if lineCount := strings.Count(b.String(), "\n"); lineCount < m.vp.Height {
+		m.vp.GotoTop()
+	} else {
+		m.vp.GotoBottom()
+	}
 }
 
 // ==== Streaming + conversation state =====================================
