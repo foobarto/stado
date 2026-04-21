@@ -581,9 +581,31 @@ func (m *Model) renderSessionsOverview() string {
 		b.WriteString("\nNo other sessions for this repo.")
 		return b.String()
 	}
-	b.WriteString("\nOther sessions:\n")
+	// Filter out sessions with no completed turns — aborted runs
+	// and half-typed orphan prompts leave worktrees behind and used
+	// to flood /sessions with stale UUIDs (one msg persisted but
+	// never a real turn). Turns == 0 means no work boundary was ever
+	// committed, so the session can't be meaningfully resumed.
+	rows := make([]runtime.SessionSummary, 0, len(sorted))
+	hidden := 0
 	for _, id := range sorted {
 		r := runtime.SummariseSession(worktreeRoot, sc, id)
+		if r.Turns == 0 && r.Compactions == 0 {
+			hidden++
+			continue
+		}
+		rows = append(rows, r)
+	}
+	if len(rows) == 0 {
+		if hidden > 0 {
+			fmt.Fprintf(&b, "\nNo other active sessions (%d empty session(s) hidden).", hidden)
+		} else {
+			b.WriteString("\nNo other sessions for this repo.")
+		}
+		return b.String()
+	}
+	b.WriteString("\nOther sessions:\n")
+	for _, r := range rows {
 		label := r.ID
 		if r.Description != "" {
 			label = fmt.Sprintf("%s  \"%s\"", r.ID, r.Description)
@@ -592,6 +614,9 @@ func (m *Model) renderSessionsOverview() string {
 		fmt.Fprintf(&b, "    %s  turns=%d msgs=%d compact=%d  %s\n",
 			r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
 		fmt.Fprintf(&b, "    resume:  stado session resume %s\n", r.ID)
+	}
+	if hidden > 0 {
+		fmt.Fprintf(&b, "\n(%d empty session(s) hidden — run `stado session gc --apply` to clean up)", hidden)
 	}
 	return b.String()
 }

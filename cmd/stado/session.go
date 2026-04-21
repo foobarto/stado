@@ -110,7 +110,10 @@ var sessionListCmd = &cobra.Command{
 		if !sessionListAll {
 			visible = visible[:0]
 			for _, r := range rows {
-				if r.Turns == 0 && r.Msgs == 0 && r.Compactions == 0 {
+				// Turns == 0 means no work boundary was ever committed,
+				// even if an orphan user message got persisted. Those
+				// sessions can't be meaningfully resumed; hide them.
+				if r.Turns == 0 && r.Compactions == 0 {
 					hidden++
 					continue
 				}
