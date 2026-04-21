@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.0.1 — 2026-04-21
+
+First tagged release. Marks the point where the TUI + CLI + headless
++ ACP + plugin ABI + MCP client + MCP server surfaces are all
+feature-complete relative to the ranked research list (AGENTS.md
+auto-load, `[budget]` cost gate, `.stado/skills/`, `[hooks]`
+post_turn, and `stado mcp-server`). Pre-1.0: breaking changes still
+allowed between tags.
+
 ### Iteration-cycle additions (post-initial-sweep)
 
 - **`stado mcp-server` — expose stado's tools as an MCP server.**
