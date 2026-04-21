@@ -293,6 +293,12 @@ type Model struct {
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
 	turnStart time.Time
+
+	// lastStreamRender throttles per-event renderBlocks() during
+	// high-rate streaming — reasoning models can push 10+ events/sec,
+	// rendering on every one starves the event loop. Set in the
+	// streamEventMsg handler.
+	lastStreamRender time.Time
 }
 
 type approvalRequest struct {
@@ -724,7 +730,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamEventMsg:
 		m.handleStreamEvent(msg.ev)
-		m.renderBlocks()
+		// Throttle visual re-renders during high-rate streaming so
+		// bubbletea's renderer doesn't fall behind. Fast models +
+		// reasoning tokens can produce 10+ events/second; rendering
+		// the viewport that frequently stalls the event loop and
+		// makes later deltas invisible. Always render on terminal
+		// events (EvDone / EvError / EvToolCallEnd) so the final
+		// state is pixel-accurate.
+		now := time.Now()
+		boundary := msg.ev.Kind == agent.EvDone ||
+			msg.ev.Kind == agent.EvError ||
+			msg.ev.Kind == agent.EvToolCallEnd ||
+			msg.ev.Kind == agent.EvToolCallStart
+		if boundary || now.Sub(m.lastStreamRender) > 80*time.Millisecond {
+			m.renderBlocks()
+			m.lastStreamRender = now
+		}
 		return m, nil
 
 	case streamErrorMsg:
