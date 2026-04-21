@@ -35,6 +35,13 @@ func New(reg *keys.Registry) *Editor {
 	ta.BlurredStyle = ta.FocusedStyle
 
 	ta.Focus()
+	// Compact by default: the textarea grows with content (via
+	// strings.Count(Value(), "\n")+1 in the model layout), but when
+	// empty it needs to occupy exactly one visible row so mainH
+	// reservation matches reality. Without this the bubbles default
+	// (~5 rows) overflows the left column by several rows and pushes
+	// the first rendered chat blocks off the top of the pane.
+	ta.SetHeight(1)
 
 	ta.KeyMap.InsertNewline.SetKeys(keysToStrings(reg.Get(keys.InputNewline))...)
 	ta.KeyMap.CharacterBackward.SetKeys(keysToStrings(reg.Get(keys.InputMoveLeft))...)

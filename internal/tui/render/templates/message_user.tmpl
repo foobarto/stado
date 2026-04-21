@@ -1,2 +1,6 @@
-{{- /* A user message: cyan angle marker + body, wrapped to width. */ -}}
-{{ marker "▌" "role_user" }} {{ wrap .Body .Width }}
+{{- /* A user message — card-style block so it's visually distinct
+       from assistant / thinking / tool output. Rounded-border frame
+       with a role_user-coloured left rule + the body wrapped to width
+       (minus 4 cols for border + padding). Matches the ChatGPT /
+       Claude-style chat bubble convention. */ -}}
+{{ cardUser .Body .Width }}

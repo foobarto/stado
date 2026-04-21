@@ -22,18 +22,28 @@ import (
 // State machine for one sequence:
 //
 //	idle           — copying bytes
-//	sawESC         — last byte was \x1b; might be OSC start
+//	sawESC         — last byte was \x1b; might be OSC or CSI start
 //	inOSC          — inside \x1b]... body; dropping bytes
 //	inOSCsawESC    — inside OSC, last byte was \x1b; next might be \\
+//	inCSIReport    — inside \x1b[<digits>...; swallow until the final
+//	                 letter if it matches a known-response class
 //
 // Sequence terminators recognised:
-//   - \x07 (BEL)      — tmux / xterm short form
-//   - \x1b\\ (ST)     — xterm long form
+//   - \x07 (BEL)      — tmux / xterm short form (OSC)
+//   - \x1b\\ (ST)     — xterm long form (OSC)
+//   - R | c | n       — CSI cursor-position / device-attrs / report
 //
-// Not bracketed-paste aware (which uses \x1b[200~ ... \x1b[201~ —
-// CSI sequences, not OSC). Also not CSI: CSI escapes like bracketed
-// paste are consumed by bubbletea's existing unknownCSIRe path, so
-// they don't need byte-level stripping.
+// The CSI handling is NARROW: it only eats CSI sequences whose body
+// starts with a digit or semicolon (terminal responses) AND ends in
+// a report-class letter (R/c/n). Arrow keys (\x1b[A..D) and function
+// keys (\x1b[N~) have no digit prefix or end in ~, so they flow
+// through untouched. Bracketed paste (\x1b[200~ ... \x1b[201~) is
+// also safe — its final char is ~, not a report letter.
+//
+// Why this matters: bubbletea v1.3 has no CSI-response parser, so
+// terminal cursor-position reports (emitted in reply to CPR queries
+// that some themes/runners issue during streaming) leak as visible
+// text like `[45;1R` into the focused textarea.
 type oscStripReader struct {
 	src   io.Reader
 	state oscState
@@ -50,6 +60,7 @@ const (
 	oscSawESC
 	oscInOSC
 	oscInOSCSawESC
+	oscInCSIReport
 )
 
 // newOSCStripReader wraps src. Tests pass arbitrary readers here; the
@@ -90,6 +101,22 @@ func newOSCStripFile(f *os.File) *oscStripFile {
 // the filter sees every byte even though epoll waits on the real fd.
 func (f *oscStripFile) Read(p []byte) (int, error) { return f.r.Read(p) }
 
+// retractCSIReport walks w backwards, discarding bytes up through
+// the most recent `\x1b[` opener that marked the start of a CSI
+// report. Returns the new write cursor. Used when a report-class
+// final char (R/c/n) confirms the CSI sequence we'd already begun
+// emitting is a terminal response that must be suppressed.
+func retractCSIReport(p []byte, w int) int {
+	for i := w - 1; i >= 0; i-- {
+		if p[i] == '[' && i > 0 && p[i-1] == 0x1b {
+			return i - 1
+		}
+	}
+	// Shouldn't happen (we only enter oscInCSIReport after emitting
+	// ESC[), but defensive: keep what we had.
+	return w
+}
+
 // Read copies from src into p, dropping any bytes that are part of an
 // OSC sequence. Sequence state persists across Read calls so a split
 // sequence (terminal flushing mid-\x1b\\) still gets elided cleanly.
@@ -125,6 +152,25 @@ func (r *oscStripReader) Read(p []byte) (int, error) {
 				r.state = oscInOSC
 				continue
 			}
+			if b == '[' {
+				// CSI opener. We don't know yet whether this is a
+				// report (eatable) or a keystroke (must pass through).
+				// Peek-style: emit ESC+[ and also remember to re-check
+				// if next byte is a digit. Simpler: hold ESC and '['
+				// for one byte, then decide. To avoid that complexity
+				// we emit the pair now and switch to a state that
+				// watches for a `;`-ended report. If the sequence
+				// turns out to be an arrow key (`\x1b[A`) it's already
+				// emitted, which is correct.
+				p[w] = 0x1b
+				w++
+				if w < len(p) {
+					p[w] = '['
+					w++
+				}
+				r.state = oscInCSIReport
+				continue
+			}
 			// False alarm — emit the held ESC + current byte as-is.
 			p[w] = 0x1b
 			w++
@@ -154,6 +200,33 @@ func (r *oscStripReader) Read(p []byte) (int, error) {
 			// OSC start if followed by ']', else drop the held ESC and
 			// stay in body. Either way, stay safe: go back to oscInOSC.
 			r.state = oscInOSC
+		case oscInCSIReport:
+			// We've already emitted `\x1b[` to p. Watch the body:
+			// if the final char is R/c/n AND we saw at least one
+			// digit or semicolon, RETRACT the emitted ESC+[ pair
+			// and drop the report entirely. If the final char is
+			// anything else (a keystroke final like A/B/C/D/~/letter),
+			// emit and return to idle — the ESC+[ we already wrote
+			// was correct.
+			switch {
+			case b >= '0' && b <= '9', b == ';', b == '?', b == ':':
+				// Report-body byte. Still "pending" — emit it; we'll
+				// retract the whole thing if the final char confirms
+				// it's a report.
+				p[w] = b
+				w++
+			case b == 'R' || b == 'c' || b == 'n':
+				// Report final. Walk back through the emitted bytes
+				// to drop everything from the ESC[.
+				w = retractCSIReport(p, w)
+				r.state = oscIdle
+			default:
+				// Non-report final (arrow, ~, letter, etc.). Emit
+				// as-is and return to idle.
+				p[w] = b
+				w++
+				r.state = oscIdle
+			}
 		}
 	}
 	// End-of-read flush: if the last byte we processed left us in

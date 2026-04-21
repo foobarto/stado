@@ -136,6 +136,43 @@ func TestOSCStripReader_ESCThenTypingInSameReadPreserved(t *testing.T) {
 	}
 }
 
+// TestOSCStripReader_CSICursorPositionReportElided: a cursor-position
+// report from the terminal (\x1b[<row>;<col>R) must not reach
+// bubbletea as input — users saw literal `[45;1R` turn up in the
+// focused textarea when a background streaming prompt triggered a
+// CPR query on slow terminals. The report body and terminator are
+// all dropped; surrounding plain bytes pass through.
+func TestOSCStripReader_CSICursorPositionReportElided(t *testing.T) {
+	src := "A\x1b[45;1RB"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != "AB" {
+		t.Errorf("got %q, want %q", got, "AB")
+	}
+}
+
+// TestOSCStripReader_ArrowKeyPreserved: a CSI arrow-key escape
+// (\x1b[A) does NOT match the report-class finals (R/c/n), so the
+// whole sequence flows through untouched. Guards against an
+// over-aggressive stripper that'd eat user keyboard input.
+func TestOSCStripReader_ArrowKeyPreserved(t *testing.T) {
+	src := "\x1b[A\x1b[B\x1b[C\x1b[D"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != src {
+		t.Errorf("arrow keys altered: got %q, want %q", got, src)
+	}
+}
+
+// TestOSCStripReader_FunctionKeyPreserved: \x1b[15~ (F5) ends in '~',
+// not a report final, so it survives. Same for bracketed-paste
+// markers \x1b[200~ and \x1b[201~.
+func TestOSCStripReader_FunctionKeyPreserved(t *testing.T) {
+	src := "\x1b[15~\x1b[200~pasted\x1b[201~"
+	got := readAll(t, newOSCStripReader(strings.NewReader(src)))
+	if got != src {
+		t.Errorf("function/paste keys altered: got %q, want %q", got, src)
+	}
+}
+
 // TestOSCStripFile_ExposesFdNameWriteClose verifies the production
 // wrapper keeps the *os.File's term.File + cancelreader.File surface
 // intact. Without these, bubbletea silently falls back to cooked-mode

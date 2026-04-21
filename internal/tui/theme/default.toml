@@ -1,36 +1,25 @@
-name = "stado-green"
-
-# Palette (user-supplied):
-#   BG=#0B0F0E              FG=#E6EAEA
-#   GREEN_PRIMARY=#7CFF9E   GREEN_TERM=#39D98A   GREEN_DIM=#2F7A5C
-#   GRAY_1=#111716          GRAY_2=#2A2F2E       GRAY_3=#AAB3B1
-#   GLOW=#00FF88            ERROR=#FF5C5C
-#
-# Mapping notes: no yellow in the palette, so `warning` doubles up on
-# GREEN_PRIMARY — intensity (vs. GREEN_TERM for success) carries the
-# "needs attention" signal. If a distinct warning hue is needed later,
-# override `warning` in ~/.config/stado/theme.toml.
+name = "stado-dark"
 
 [colors]
-background      = "#0B0F0E"   # BG
-surface         = "#111716"   # GRAY_1
-border          = "#2A2F2E"   # GRAY_2
-primary         = "#7CFF9E"   # GREEN_PRIMARY
-accent          = "#00FF88"   # GLOW
-muted           = "#2F7A5C"   # GREEN_DIM
-success         = "#39D98A"   # GREEN_TERM
-warning         = "#7CFF9E"   # GREEN_PRIMARY (intensity-coded)
-error           = "#FF5C5C"   # ERROR
+background      = "#16161e"
+surface         = "#1a1b26"
+border          = "#3b4261"
+primary         = "#7aa2f7"
+accent          = "#bb9af7"
+muted           = "#565f89"
+success         = "#9ece6a"
+warning         = "#e0af68"
+error           = "#f7768e"
 
-text            = "#E6EAEA"   # FG
-text_dim        = "#AAB3B1"   # GRAY_3
-text_secondary  = "#AAB3B1"   # GRAY_3
+text            = "#c0caf5"
+text_dim        = "#565f89"
+text_secondary  = "#a9b1d6"
 
-role_user       = "#7CFF9E"   # GREEN_PRIMARY
-role_assistant  = "#E6EAEA"   # FG
-role_thinking   = "#00FF88"   # GLOW
-role_tool       = "#39D98A"   # GREEN_TERM
-role_system     = "#AAB3B1"   # GRAY_3
+role_user       = "#7aa2f7"
+role_assistant  = "#c0caf5"
+role_thinking   = "#bb9af7"
+role_tool       = "#e0af68"
+role_system     = "#f7768e"
 
 [layout]
 sidebar_width     = 32

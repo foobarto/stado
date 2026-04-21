@@ -719,14 +719,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.slash.Width = msg.Width
-		// Prime the viewport width so renderBlocks (called via
-		// layout() below) can gate the empty-state banner on an
-		// accurate chat-area width. View() sets this too on every
-		// frame, but on boot View() hasn't run yet.
-		chatW := m.width - m.theme.Layout.SidebarWidth - 1
-		if chatW > 0 {
-			m.vp.Width = chatW
-		}
 		m.layout()
 		return m, nil
 
@@ -1161,8 +1153,12 @@ func (m *Model) View() string {
 	if inputH > m.height/3 {
 		inputH = m.height / 3
 	}
-	// Reserve: input + border(2) + status(1).
-	mainH := m.height - inputH - 3
+	// Reserve: textarea (inputH) + border(2) + inline status row
+	// inside the bordered box(1) + outer status row(1) = inputH+4.
+	// The old constant was 3, which left the chat area 1 row too
+	// tall and pushed content over the pane edge so the first chat
+	// block got clipped off the top.
+	mainH := m.height - inputH - 4
 	if m.approval != nil {
 		mainH -= 2
 	}
@@ -1181,17 +1177,7 @@ func (m *Model) View() string {
 	// pane. Don't pad to mainH — vp.View() on empty content returns
 	// an empty string, so the input box normally floats up; we match
 	// that behaviour and let the banner occupy only its own rows.
-	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
-		// Leading newline is load-bearing: the left column's first
-		// row is consumed by the surrounding lipgloss/JoinHorizontal
-		// layout (same behaviour as an empty viewport, which renders
-		// "" rather than a visible row). Without this the top row of
-		// the banner — the tightest part of the sheep's wool — gets
-		// eaten and the logo reads as starting mid-shape.
-		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
-	} else {
-		left.WriteString(m.vp.View() + "\n")
-	}
+	left.WriteString(m.vp.View() + "\n")
 	if m.approval != nil {
 		left.WriteString(m.theme.Fg("warning").Render(
 			fmt.Sprintf("⚠ %s — allow? [y]es / [n]o  %s",

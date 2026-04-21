@@ -162,6 +162,25 @@ func (r *Renderer) funcMap() template.FuncMap {
 				return "text"
 			}
 		},
+		// cardUser renders a user message as a bordered card so it
+		// reads as "the user said this" visually distinct from the
+		// assistant's output. Rounded border painted in role_user;
+		// content is word-wrapped to width-4 (border 1 + padding 1
+		// on each side). Right-shifted by a single col so the card
+		// doesn't sit flush against the viewport edge.
+		"cardUser": func(body any, width int) string {
+			w := width - 4
+			if w < 10 {
+				w = 10
+			}
+			content := wordWrap(toStr(body), w)
+			return lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(r.theme.Fg("role_user").GetForeground()).
+				Foreground(r.theme.Fg("text").GetForeground()).
+				Padding(0, 1).
+				Render(content)
+		},
 	}
 }
 
