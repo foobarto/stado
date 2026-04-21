@@ -47,6 +47,21 @@ Plugins / Infra / Fixes.
   now show `running 3.2s` while the command is active, refreshed
   every 250 ms via `toolTickMsg`. No more silent 30-second waits
   where the user can't tell if stado is working or frozen.
+- **Narrow-terminal startup hint.** Terminals narrower than 90 columns
+  no longer show a blank empty-state — they get `"Send a message to
+  get started — /help for commands"` so first-time users aren't
+  staring at empty whitespace.
+- **`Ctrl+C` during streaming confirms cancellation.** Cancelling a turn
+  now drops a one-time "turn cancelled" system block into the chat,
+  so users know the keystroke registered instead of wondering if
+  the model finished coincidentally.
+- **Collapsed tool cards show an expand affordance.** When a tool
+  call has completed but the card is collapsed, a muted
+  `shift+tab` hint is appended to the header row so the user
+  knows they can expand it.
+- **Sidebar placeholder when no model is set.** If `model` is empty in
+  config, the sidebar Model field now reads `"no model set — /model"`
+  instead of a completely blank line.
 
 ### Infra
 

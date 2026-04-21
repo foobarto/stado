@@ -1,5 +1,5 @@
 {{- /* A tool call card: header line (+ args preview), result when Expanded. */ -}}
-{{ if .Expanded }}{{ color "role_tool" "▾" }}{{ else }}{{ color "role_tool" "▸" }}{{ end }} {{ color "role_tool" .Name | bold }}{{ if .ArgsPreview }} {{ color "muted" .ArgsPreview }}{{ end }}{{ if .Duration }}  {{ color "muted" .Duration }}{{ end }}
+{{ if .Expanded }}{{ color "role_tool" "▾" }}{{ else }}{{ color "role_tool" "▸" }}{{ end }} {{ color "role_tool" .Name | bold }}{{ if .ArgsPreview }} {{ color "muted" .ArgsPreview }}{{ end }}{{ if .Duration }}  {{ color "muted" .Duration }}{{ end }}{{ if .Result }}{{ if not .Expanded }} {{ color "muted" "shift+tab" }}{{ end }}{{ end }}
 {{- if .Expanded }}
 {{ indent (wrap .FullArgs .Width) 2 | color "text_dim" }}
 {{ if .Result }}{{ indent (wrap .Result .Width) 2 | color "text_secondary" }}{{ end }}

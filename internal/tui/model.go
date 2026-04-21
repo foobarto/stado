@@ -1210,6 +1210,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.state == stateStreaming && m.streamCancel != nil {
 					m.streamCancel()
+					m.appendBlock(block{kind: "system", body: "turn cancelled"})
+					m.renderBlocks()
 				}
 				if m.state == stateCompactionPending {
 					m.resolveCompaction(false)
@@ -1415,8 +1417,16 @@ func (m *Model) View() string {
 	// pane. Leading newline compensates for the first-row eat in the
 	// lipgloss layout pipeline; mainH-1 so the banner leaves one row
 	// for the input box to dock at the bottom.
-	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
-		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
+	// Narrow-terminal fallback: when the viewport is too narrow for the
+	// ASCII banner, render a text hint so the user isn't staring at
+	// empty whitespace.
+	if len(m.blocks) == 0 {
+		if banner := bannerFor(mainW); banner != "" {
+			left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
+		} else {
+			left.WriteString(m.theme.Fg("muted").Render(
+				"  Send a message to get started  —  /help for commands") + "\n")
+		}
 	} else if m.splitView {
 		// Top pane: activity tail (tool + system blocks).
 		left.WriteString(m.activityVP.View())
@@ -1828,7 +1838,7 @@ func (m *Model) renderSidebar(width int) string {
 		"Title":            "stado",
 		"Version":          "0.0.0-dev",
 		"SessionLabel":     sessionLabel,
-		"Model":            m.model,
+		"Model":            modelOrPlaceholder(m.model),
 		"ProviderName":     m.providerDisplayName(),
 		"Cwd":              m.cwd,
 		"TokensHuman":      fmt.Sprintf("%s tokens", humanize(m.usage.InputTokens+m.usage.OutputTokens)),
@@ -2527,6 +2537,15 @@ var (
 	compactRequest = compact.BuildRequest
 	compactReplace = compact.ReplaceMessages
 )
+
+// modelOrPlaceholder returns the model name, or a helpful placeholder
+// when no model is configured so the sidebar never shows a blank line.
+func modelOrPlaceholder(s string) string {
+	if s == "" {
+		return "no model set  —  /model"
+	}
+	return s
+}
 
 // renderContextStatus summarises what the ctx% in the status bar is
 // made of, plus what the user's options are at each threshold. Kept
