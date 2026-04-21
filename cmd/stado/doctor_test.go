@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func TestProviderEnvName_KnownAndUnknown(t *testing.T) {
@@ -111,5 +113,43 @@ func TestCheckBin_MissingDoesFail(t *testing.T) {
 	r.checkBin("required-tool", "probably-not-on-path-xyzzy")
 	if r.fails != 1 {
 		t.Errorf("expected fails=1 for missing required bin, got %d", r.fails)
+	}
+}
+
+// TestCheckOptInFeatures_SurfacesConfiguredAndUnset: verifies the
+// "did my config take effect?" rows render whether the knob is set
+// or not. Users often forget which features exist; the doctor output
+// doubles as a discovery hint.
+func TestCheckOptInFeatures_SurfacesConfiguredAndUnset(t *testing.T) {
+	// With everything unset: three rows, all ✓, values showing "unset".
+	r := &report{}
+	cfg := &config.Config{}
+	checkOptInFeatures(r, cfg)
+	if len(r.rows) != 3 {
+		t.Fatalf("expected 3 rows (budget/hooks/tools); got %d", len(r.rows))
+	}
+	for _, row := range r.rows {
+		if !row.ok {
+			t.Errorf("row %q should be ok (informational)", row.label)
+		}
+	}
+	// With budget + hooks configured, the values must reflect that.
+	r2 := &report{}
+	cfg2 := &config.Config{}
+	cfg2.Budget.WarnUSD = 1.0
+	cfg2.Budget.HardUSD = 5.0
+	cfg2.Hooks.PostTurn = "notify-send 'done'"
+	cfg2.Tools.Disabled = []string{"webfetch"}
+	checkOptInFeatures(r2, cfg2)
+	// Concatenate all row values so assertion order is stable.
+	var all strings.Builder
+	for _, row := range r2.rows {
+		all.WriteString(row.label + "=" + row.value + ";")
+	}
+	got := all.String()
+	for _, want := range []string{"$1.00", "$5.00", "notify-send", "webfetch"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in rows; got %q", want, got)
+		}
 	}
 }

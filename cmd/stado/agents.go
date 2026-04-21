@@ -34,9 +34,14 @@ its own worktree directory and its own tree/trace refs in the sidecar.
   stado agents kill <id>    # signal the owning process + remove worktree`,
 }
 
+var agentsListAll bool
+
 var agentsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List active agent sessions with worktree + tree tip + owning PID if known",
+	Long: "Default view is 'actually useful agents': rows with a live PID\n" +
+		"or committed tree/trace content. Stale rows (PID dead, no refs)\n" +
+		"are hidden and summarised in a footer. --all shows everything.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -67,20 +72,38 @@ var agentsListCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "(no agents)")
 			return nil
 		}
+		hidden := 0
 		for _, id := range ids {
 			wt := filepath.Join(cfg.WorktreeDir(), id)
 			alive := "-"
+			liveAgent := false
 			if pid := readPidFile(wt); pid > 0 {
 				if processAlive(pid) {
 					alive = fmt.Sprintf("pid=%d", pid)
+					liveAgent = true
 				} else {
 					alive = fmt.Sprintf("pid=%d(stale)", pid)
 				}
 			}
 			tree, _ := sc.ResolveRef(stadogit.TreeRef(id))
 			trace, _ := sc.ResolveRef(stadogit.TraceRef(id))
+			hasContent := !tree.IsZero() || !trace.IsZero()
+
+			// Hide stale + empty rows unless --all. An agent row is
+			// worth showing when: its process is alive, OR it has
+			// committed something. Everything else is noise from
+			// aborted runs.
+			if !agentsListAll && !liveAgent && !hasContent {
+				hidden++
+				continue
+			}
 			fmt.Printf("%s\t%s\ttree=%s\ttrace=%s\n",
 				id, alive, shortHash(tree), shortHash(trace))
+		}
+		if hidden > 0 {
+			fmt.Fprintf(os.Stderr,
+				"\n(%d stale/empty agent(s) hidden — use `stado agents list --all` to see them, or `stado session gc --apply` to clean up)\n",
+				hidden)
 		}
 		return nil
 	},
@@ -130,6 +153,8 @@ var agentsAttachCmd = &cobra.Command{
 
 func init() {
 	agentsCmd.AddCommand(agentsListCmd, agentsKillCmd, agentsAttachCmd)
+	agentsListCmd.Flags().BoolVar(&agentsListAll, "all", false,
+		"Include stale/empty agent rows (hidden by default)")
 	rootCmd.AddCommand(agentsCmd)
 }
 

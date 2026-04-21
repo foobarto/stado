@@ -8,6 +8,18 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`agents list` hides stale/empty rows by default.** Same problem
+  `session list` had pre-dogfood: every aborted run leaves a PID
+  file + empty worktree in the agents listing, so the output was
+  30+ stale rows with dashes everywhere. Now hidden; `--all`
+  restores the full view. A row is worth showing when the process
+  is alive OR there's committed content on the tree/trace refs.
+- **`stado doctor` now surfaces opt-in feature config** — Budget
+  caps, Lifecycle hooks, Tools filter. All render as ✓ regardless
+  of whether they're set; the point is to make the features
+  discoverable and let users verify that their config.toml took
+  effect. "Did I configure the budget cap?" is now a `doctor`-
+  answerable question instead of a config-file-read task.
 - **Lifecycle hooks — `[hooks]` section (MVP, notification-only).**
   Users can wire a shell command to the `post_turn` event; stado
   runs `/bin/sh -c <cmd>` with a JSON payload on stdin carrying

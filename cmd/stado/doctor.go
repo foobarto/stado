@@ -72,6 +72,12 @@ var doctorCmd = &cobra.Command{
 		// Context management readiness (Phase 11).
 		checkContext(&d, cfg)
 
+		// Opt-in feature visibility — so a user who wrote config.toml
+		// can confirm the knob took effect. These are all ✓ with
+		// value = "(unset)" when absent; the point is to show the
+		// feature exists rather than gate on it being configured.
+		checkOptInFeatures(&d, cfg)
+
 		// Local inference autodetection — probe ollama / llamacpp /
 		// vllm / lmstudio endpoints so the report tells the user
 		// "you have lmstudio running at localhost:1234 with 3 models
@@ -257,6 +263,47 @@ func sanitizeErr(err error) string {
 		msg = msg[:59] + "…"
 	}
 	return msg
+}
+
+// checkOptInFeatures surfaces the user-opt-in config surfaces so
+// `stado doctor` doubles as a "did my config.toml take effect?"
+// report. Each row is ✓ regardless of setting — we just want the
+// value to be visible. Users often forget which knobs exist.
+func checkOptInFeatures(d *report, cfg *config.Config) {
+	// [budget]
+	budgetVal := "(unset — no cost guardrail)"
+	if cfg.Budget.WarnUSD > 0 || cfg.Budget.HardUSD > 0 {
+		w := "(unset)"
+		if cfg.Budget.WarnUSD > 0 {
+			w = fmt.Sprintf("$%.2f", cfg.Budget.WarnUSD)
+		}
+		h := "(unset)"
+		if cfg.Budget.HardUSD > 0 {
+			h = fmt.Sprintf("$%.2f", cfg.Budget.HardUSD)
+		}
+		budgetVal = fmt.Sprintf("warn=%s hard=%s", w, h)
+	}
+	d.check("Budget caps", budgetVal, "ok", true)
+
+	// [hooks]
+	hooksVal := "(unset)"
+	if cfg.Hooks.PostTurn != "" {
+		cmd := cfg.Hooks.PostTurn
+		if len(cmd) > 40 {
+			cmd = cmd[:37] + "..."
+		}
+		hooksVal = "post_turn: " + cmd
+	}
+	d.check("Lifecycle hooks", hooksVal, "ok", true)
+
+	// [tools]
+	toolsVal := "(default — all bundled tools available)"
+	if len(cfg.Tools.Enabled) > 0 {
+		toolsVal = fmt.Sprintf("allowlist: %s", strings.Join(cfg.Tools.Enabled, ","))
+	} else if len(cfg.Tools.Disabled) > 0 {
+		toolsVal = fmt.Sprintf("defaults minus: %s", strings.Join(cfg.Tools.Disabled, ","))
+	}
+	d.check("Tools filter", toolsVal, "ok", true)
 }
 
 // checkContext reports Phase 11 context-management readiness: threshold
