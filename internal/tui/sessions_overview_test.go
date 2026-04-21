@@ -40,6 +40,11 @@ func newSessionsOverviewTestModel(t *testing.T) *Model {
 	if _, err := other.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
+	// Tag a turn boundary so the session passes the "has work" filter
+	// (otherwise /sessions hides it as unresumable).
+	if err := other.NextTurn(); err != nil {
+		t.Fatal(err)
+	}
 
 	rnd, _ := render.New(theme.Default())
 	reg := keys.NewRegistry()
