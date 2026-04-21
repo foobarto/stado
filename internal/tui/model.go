@@ -1298,6 +1298,22 @@ func (m *Model) renderStatus(width int) string {
 		queued = trimSeed(m.queuedPrompt, 40)
 	}
 
+	// Elapsed-time pill during streaming. Slow local reasoning models
+	// (qwen3.6-35b with a large tool surface) can take tens of seconds
+	// before the first EvDone; without an elapsed counter the "●
+	// thinking" indicator looks indistinguishable from a freeze. The
+	// counter ticks via tea.Tick in Update; here we just format the
+	// current elapsed as "Ns" / "MmSs".
+	elapsed := ""
+	if m.state == stateStreaming && !m.turnStart.IsZero() {
+		d := time.Since(m.turnStart).Round(time.Second)
+		if d >= time.Minute {
+			elapsed = fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+		} else {
+			elapsed = fmt.Sprintf("%ds", int(d.Seconds()))
+		}
+	}
+
 	body, err := m.renderer.Exec("status", map[string]any{
 		"State":        state,
 		"Model":        m.model,
@@ -1310,6 +1326,7 @@ func (m *Model) renderStatus(width int) string {
 		"Cache":        cacheRatio,
 		"Queued":       queued,
 		"Budget":       m.budgetWarning(),
+		"Elapsed":      elapsed,
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
@@ -1823,10 +1840,6 @@ func (m *Model) startStream() tea.Cmd {
 			m.sendMsg(streamEventMsg{ev: ev})
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
 				if ev.Kind == agent.EvDone && ev.Usage != nil {
-					// InputTokens is the prompt size for this turn, already
-					// including all prior history — assign, don't accumulate.
-					// DESIGN §"Token accounting" threshold percentages are
-					// relative to this number.
 					m.usage.InputTokens = ev.Usage.InputTokens
 					m.usage.OutputTokens += ev.Usage.OutputTokens
 					m.usage.CostUSD += ev.Usage.CostUSD
