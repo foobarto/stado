@@ -2442,20 +2442,19 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	if len(parts) == 0 {
 		return nil
 	}
+	// Every early-return path below that's appended a system block
+	// must reach the viewport. Using defer here instead of duplicating
+	// renderBlocks() across every branch avoids the recurring bug
+	// where /plugin and /skill silently swallowed their output.
+	defer m.renderBlocks()
+
 	// /plugin and /plugin:<name>-<ver> [<tool> [json-args]] — routed
 	// before the switch since the plugin-name suffix is dynamic.
-	// Both return early, bypassing the renderBlocks() at the bottom
-	// of this function; do it here so any system block the handlers
-	// appended actually reaches the viewport.
 	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {
-		cmd := m.handlePluginSlash(parts)
-		m.renderBlocks()
-		return cmd
+		return m.handlePluginSlash(parts)
 	}
 	if parts[0] == "/skill" || strings.HasPrefix(parts[0], "/skill:") {
-		cmd := m.handleSkillSlash(parts)
-		m.renderBlocks()
-		return cmd
+		return m.handleSkillSlash(parts)
 	}
 	switch parts[0] {
 	case "/clear":
