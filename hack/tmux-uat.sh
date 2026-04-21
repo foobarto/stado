@@ -155,24 +155,152 @@ cmd_sidebar() {
   stop_stado
 }
 
+cmd_banner() {
+  start_stado
+  # The startup banner renders only when m.blocks is empty. It's
+  # built from unicode block-drawing chars; any of ░▒▓█▀▁▂▃▄▅▆▇
+  # signals the banner painted something. If JoinHorizontal's
+  # sidebar-height mismatch regresses, the top row of banner gets
+  # clipped but the middle/bottom usually still show.
+  local frame; frame=$(capture)
+  if ! grep -qE '[░▒▓█▀▁▂▃▄▅▆▇▖▗▘▙▚▛▜▝▞▟]' <<<"$frame"; then
+    fail "banner not visible (no block chars in pane)"
+  fi
+  log "OK: banner renders (block chars present)"
+  stop_stado
+}
+
+cmd_user_card() {
+  start_stado
+  # Submit a message and confirm the user-card frame renders both
+  # top (╭────╮) and bottom (╰────╯) borders. Regresses if the
+  # layout's sidebar-height mismatch returns.
+  tmux send-keys -t "$SESSION" "probe"
+  sleep 0.3
+  tmux send-keys -t "$SESSION" Enter
+  sleep 1
+  local frame; frame=$(capture)
+  if ! grep -qE '╭────+╮' <<<"$frame"; then
+    fail "user card top border missing"
+  fi
+  if ! grep -qE '╰────+╯' <<<"$frame"; then
+    fail "user card bottom border missing"
+  fi
+  log "OK: user card renders with both borders"
+  stop_stado
+}
+
+cmd_slash_palette_nav() {
+  start_stado
+  tmux send-keys -t "$SESSION" "/"
+  sleep 0.3
+  tmux send-keys -t "$SESSION" Down Down Down
+  sleep 0.3
+  tmux send-keys -t "$SESSION" Escape
+  sleep 0.3
+  # After Esc, palette must close AND a subsequent keystroke must
+  # reach the input (not get swallowed by stale palette state).
+  tmux send-keys -t "$SESSION" "xy"
+  sleep 0.3
+  local frame; frame=$(capture)
+  if ! grep -qF "│ xy" <<<"$frame"; then
+    fail "typing after palette-close was swallowed"
+  fi
+  log "OK: palette nav + close + resume typing"
+  stop_stado
+}
+
+cmd_help_overlay() {
+  start_stado
+  tmux send-keys -t "$SESSION" "?"
+  sleep 0.4
+  assert_contains "Slash commands" "help overlay slash section"
+  assert_contains "/budget"        "help overlay lists /budget"
+  tmux send-keys -t "$SESSION" "?"
+  sleep 0.3
+  # Overlay should close and return us to the input pane.
+  local frame; frame=$(capture)
+  if grep -qF "Slash commands" <<<"$frame"; then
+    fail "help overlay did not close on ?-toggle"
+  fi
+  log "OK: help overlay toggles cleanly"
+  stop_stado
+}
+
+cmd_mode_toggle() {
+  start_stado
+  # Tab toggles Plan/Do. Input-box bottom row shows the mode:
+  # "Do ·" or "Plan ·".
+  local frame; frame=$(capture)
+  if ! grep -qF "Do ·" <<<"$frame"; then
+    fail "default Do mode indicator missing"
+  fi
+  tmux send-keys -t "$SESSION" Tab
+  sleep 0.3
+  frame=$(capture)
+  if ! grep -qF "Plan ·" <<<"$frame"; then
+    fail "Plan mode indicator missing after Tab"
+  fi
+  tmux send-keys -t "$SESSION" Tab
+  sleep 0.3
+  frame=$(capture)
+  if ! grep -qF "Do ·" <<<"$frame"; then
+    fail "Do mode indicator missing after second Tab"
+  fi
+  log "OK: Tab toggles Plan/Do"
+  stop_stado
+}
+
+cmd_input_history() {
+  start_stado
+  # Type + submit, then press Up to recall the previous message
+  # from history.
+  tmux send-keys -t "$SESSION" "first-prompt"
+  sleep 0.2
+  tmux send-keys -t "$SESSION" Enter
+  sleep 1
+  # Clear any streamed content by not waiting for stream completion —
+  # history should work regardless of stream state.
+  tmux send-keys -t "$SESSION" Up
+  sleep 0.3
+  local frame; frame=$(capture)
+  if ! grep -qF "first-prompt" <<<"$frame"; then
+    fail "Up-arrow history recall missing 'first-prompt'"
+  fi
+  log "OK: history-up recalls last submitted message"
+  stop_stado
+}
+
 cmd_all() {
   cmd_smoke
   cmd_input
   cmd_slash
   cmd_escape
   cmd_sidebar
+  cmd_banner
+  cmd_user_card
+  cmd_slash_palette_nav
+  cmd_help_overlay
+  cmd_mode_toggle
+  cmd_input_history
   log "all tmux UAT checks green"
 }
 
 case "${1:-all}" in
-  smoke)   cmd_smoke ;;
-  input)   cmd_input ;;
-  slash)   cmd_slash ;;
-  escape)  cmd_escape ;;
-  sidebar) cmd_sidebar ;;
-  all)     cmd_all ;;
+  smoke)       cmd_smoke ;;
+  input)       cmd_input ;;
+  slash)       cmd_slash ;;
+  escape)      cmd_escape ;;
+  sidebar)     cmd_sidebar ;;
+  banner)      cmd_banner ;;
+  card)        cmd_user_card ;;
+  palette)     cmd_slash_palette_nav ;;
+  help)        cmd_help_overlay ;;
+  mode)        cmd_mode_toggle ;;
+  history)     cmd_input_history ;;
+  all)         cmd_all ;;
   *)
-    echo "usage: $0 {smoke|input|slash|escape|sidebar|all}" >&2
+    echo "usage: $0 {smoke|input|slash|escape|sidebar|banner|card|palette|help|mode|history|all}" >&2
     exit 2
     ;;
 esac
