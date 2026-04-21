@@ -205,6 +205,20 @@ type Model struct {
 	ctxSoftThreshold float64
 	ctxHardThreshold float64
 
+	// Budget thresholds from config.Budget. Compared against
+	// usage.CostUSD (cumulative across turns).
+	// - budgetWarnUSD > 0 and crossed: render "budget N%" pill and
+	//   append a one-time system block. budgetWarned latches so the
+	//   block doesn't repeat every turn.
+	// - budgetHardUSD > 0 and crossed: further user prompts are
+	//   blocked with an actionable hint; session acks to unblock via
+	//   `/budget ack` which sets budgetAcked for the rest of the
+	//   session.
+	budgetWarnUSD float64
+	budgetHardUSD float64
+	budgetWarned  bool
+	budgetAcked   bool
+
 	// tokenCounterChecked is set once we've probed the provider for
 	// agent.TokenCounter. tokenCounterPresent records the result so
 	// subsequent turns don't re-probe.
@@ -327,6 +341,42 @@ func (m *Model) SetContextThresholds(soft, hard float64) {
 	if hard > 0 && hard <= 1 {
 		m.ctxHardThreshold = hard
 	}
+}
+
+// SetBudget propagates [budget] config into the TUI. Both args are
+// optional (zero = "no cap"); a negative value is a no-op. Sanity
+// check (hard > warn) is enforced upstream in config.Load.
+func (m *Model) SetBudget(warnUSD, hardUSD float64) {
+	if warnUSD >= 0 {
+		m.budgetWarnUSD = warnUSD
+	}
+	if hardUSD >= 0 {
+		m.budgetHardUSD = hardUSD
+	}
+}
+
+// budgetExceeded reports whether the cumulative session cost has
+// crossed the configured hard cap. budgetAcked lets the user continue
+// past the cap for the rest of the session after confirming.
+func (m *Model) budgetExceeded() bool {
+	if m.budgetAcked || m.budgetHardUSD <= 0 {
+		return false
+	}
+	return m.usage.CostUSD >= m.budgetHardUSD
+}
+
+// budgetWarning returns a short status-bar pill ("budget $X / $Y") when
+// cumulative cost has crossed warn but not hard. Empty when no warn cap
+// is configured or cost is still below it.
+func (m *Model) budgetWarning() string {
+	if m.budgetWarnUSD <= 0 || m.usage.CostUSD < m.budgetWarnUSD {
+		return ""
+	}
+	cap := m.budgetWarnUSD
+	if m.budgetHardUSD > 0 {
+		cap = m.budgetHardUSD
+	}
+	return fmt.Sprintf("budget $%.2f/$%.2f", m.usage.CostUSD, cap)
 }
 
 // ensureProvider lazy-builds the provider on first use. On failure sets the
@@ -652,6 +702,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamDoneMsg:
 		m.streamCancel = nil
+		// Budget warn-once check: m.usage.CostUSD was updated inside
+		// the stream goroutine before sendMsg(streamDoneMsg), so by
+		// the time we're here it reflects the just-finished turn.
+		m.maybeEmitBudgetWarning()
 		// Turn-boundary event for background plugins. Emit a
 		// turn_complete event onto every plugin's bridge so polling
 		// session:observe consumers see it, then tick each plugin.
@@ -970,6 +1024,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.slash.Visible = false
 				return m, m.handleSlash(text)
 			}
+			// Budget hard-cap gate (same UX pattern as the context
+			// hard-threshold). Draft text stays in input; user clears
+			// the block with `/budget ack` which sets budgetAcked for
+			// the remainder of the session.
+			if m.budgetExceeded() {
+				body := fmt.Sprintf(
+					"cost $%.2f ≥ hard cap $%.2f — blocked. Continue with:\n"+
+						"  · /budget ack — acknowledge and continue this session\n"+
+						"  · edit [budget].hard_usd in config.toml to raise the cap",
+					m.usage.CostUSD, m.budgetHardUSD)
+				m.appendBlock(block{kind: "system", body: body})
+				m.renderBlocks()
+				return m, nil
+			}
 			// Hard-threshold gate (DESIGN §"Token accounting" 11.2.6).
 			// Refuse to start a fresh turn once we're at/above the hard
 			// bound — forces the user to /compact or fork before adding
@@ -1188,6 +1256,7 @@ func (m *Model) renderStatus(width int) string {
 		"Cost":         cost,
 		"Cache":        cacheRatio,
 		"Queued":       queued,
+		"Budget":       m.budgetWarning(),
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
@@ -2281,11 +2350,79 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
 	case "/describe":
 		m.handleDescribeSlash(parts)
+	case "/budget":
+		m.handleBudgetSlash(parts)
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
 	return nil
+}
+
+// handleBudgetSlash shows the current budget state or acknowledges a
+// hard-cap breach so the session can continue. Three forms:
+//
+//	/budget                → show warn + hard + current + state
+//	/budget ack            → set budgetAcked = true (unblocks turns)
+//	/budget reset          → clear budgetAcked so the next breach re-blocks
+//
+// Raising the actual cap numbers is deliberately not exposed as a
+// runtime mutation — the cap lives in config.toml so cost controls
+// survive a session restart.
+func (m *Model) handleBudgetSlash(parts []string) {
+	if len(parts) == 1 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("cost so far: $%.4f\n", m.usage.CostUSD))
+		if m.budgetWarnUSD > 0 {
+			sb.WriteString(fmt.Sprintf("warn cap: $%.2f\n", m.budgetWarnUSD))
+		} else {
+			sb.WriteString("warn cap: (unset)\n")
+		}
+		if m.budgetHardUSD > 0 {
+			sb.WriteString(fmt.Sprintf("hard cap: $%.2f", m.budgetHardUSD))
+			if m.budgetAcked {
+				sb.WriteString("  (acknowledged — turns unblocked)")
+			}
+		} else {
+			sb.WriteString("hard cap: (unset)")
+		}
+		m.appendBlock(block{kind: "system", body: sb.String()})
+		return
+	}
+	switch parts[1] {
+	case "ack":
+		m.budgetAcked = true
+		m.appendBlock(block{kind: "system", body: "budget: acknowledged — turns unblocked for the rest of this session"})
+	case "reset":
+		m.budgetAcked = false
+		m.appendBlock(block{kind: "system", body: "budget: ack cleared — next breach will re-block"})
+	default:
+		m.appendBlock(block{kind: "system", body: "usage: /budget  |  /budget ack  |  /budget reset"})
+	}
+}
+
+// maybeEmitBudgetWarning fires a one-time system block once cumulative
+// cost crosses the warn cap, so users don't keep seeing the same
+// notice every turn. Called from handleStreamEvent on every Usage
+// update.
+func (m *Model) maybeEmitBudgetWarning() {
+	if m.budgetWarnUSD <= 0 || m.budgetWarned {
+		return
+	}
+	if m.usage.CostUSD < m.budgetWarnUSD {
+		return
+	}
+	m.budgetWarned = true
+	cap := m.budgetWarnUSD
+	hint := ""
+	if m.budgetHardUSD > 0 {
+		hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
+	}
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("budget warning: cost $%.2f crossed warn cap $%.2f%s", m.usage.CostUSD, cap, hint),
+	})
+	m.renderBlocks()
 }
 
 // handleDescribeSlash sets the live session's description from

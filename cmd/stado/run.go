@@ -109,6 +109,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			Thinking:             cfg.Agent.Thinking,
 			ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 			System:               sysPrompt,
+			CostCapUSD:           cfg.Budget.HardUSD,
 		}
 		if runTools {
 			cwd, _ := os.Getwd()
@@ -145,6 +146,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 
 		_, finalMsgs, err := runtime.AgentLoop(ctx, opts)
 		if err != nil {
+			if errors.Is(err, runtime.ErrCostCapExceeded) {
+				fmt.Fprintln(os.Stderr, "stado run: "+err.Error())
+				fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
+				os.Exit(2)
+			}
 			if strings.Contains(err.Error(), "exceeded") {
 				fmt.Fprintln(os.Stderr, err.Error())
 				os.Exit(2)

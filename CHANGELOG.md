@@ -8,6 +8,16 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`[budget]` cost guardrail.** Two opt-in thresholds:
+  `warn_usd` paints a yellow status-bar pill `budget $X/$cap` and
+  appends a one-time system block once the cumulative session cost
+  crosses it. `hard_usd` blocks further turns with an actionable
+  hint; `/budget ack` unblocks for the rest of the session; `/budget
+  reset` re-arms the gate. `stado run` maps the hard cap onto
+  `AgentLoopOptions.CostCapUSD` and exits 2 with a pointer at the
+  config knob. Defaults are 0 (disabled) so local-runner users with
+  no cost concerns see no guardrail UI. Misconfigured pairs
+  (`hard_usd ≤ warn_usd`) drop the hard cap with a stderr warning.
 - **Project-level instructions auto-loader.** Stado now walks up
   from cwd looking for `AGENTS.md` (preferred, cross-vendor
   convention) or `CLAUDE.md` (fallback) and injects the file body

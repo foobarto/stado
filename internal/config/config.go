@@ -35,6 +35,26 @@ type Config struct {
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
 	Tools     Tools     `koanf:"tools"`
+	Budget    Budget    `koanf:"budget"`
+}
+
+// Budget is the [budget] config section — per-session cost guardrails.
+// Stado already tracks CostUSD on every provider turn; this adds two
+// thresholds to surface a warning and (optionally) hard-block new
+// turns. Both default to 0, meaning "no limit" — the guardrail is
+// opt-in so cost-insensitive local-runner users don't see a pill for
+// nothing.
+//
+//	[budget]
+//	warn_usd = 1.00   # status-bar pill + one-time system block when crossed
+//	hard_usd = 5.00   # block further turns pending user ack
+//
+// Fractional dollars allowed. A hard_usd below warn_usd is a config
+// error and is ignored with a stderr warning — the guard would never
+// warn before blocking.
+type Budget struct {
+	WarnUSD float64 `koanf:"warn_usd"`
+	HardUSD float64 `koanf:"hard_usd"`
 }
 
 // Tools is the [tools] config section — user-level control over
@@ -235,6 +255,17 @@ func Load() (*Config, error) {
 	}
 	if cfg.Context.HardThreshold == 0 {
 		cfg.Context.HardThreshold = 0.90
+	}
+	// Budget sanity: if both thresholds are set but the hard cap is at
+	// or below the warn cap, the warning would never fire. Drop the
+	// hard cap back to zero ("no hard limit") and announce so the user
+	// can fix their config — better than silently blocking turns that
+	// the user thought would just warn.
+	if cfg.Budget.HardUSD > 0 && cfg.Budget.WarnUSD > 0 && cfg.Budget.HardUSD <= cfg.Budget.WarnUSD {
+		fmt.Fprintf(os.Stderr,
+			"stado: [budget] hard_usd=%.2f must be > warn_usd=%.2f — ignoring hard_usd\n",
+			cfg.Budget.HardUSD, cfg.Budget.WarnUSD)
+		cfg.Budget.HardUSD = 0
 	}
 
 	return &cfg, nil

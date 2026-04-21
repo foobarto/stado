@@ -427,7 +427,22 @@ type AgentLoopOptions struct {
 	// default — callers that don't want project instructions (e.g.
 	// plugin-driven sub-loops) can leave it zero.
 	System string
+
+	// CostCapUSD is the optional cumulative-cost ceiling for this
+	// loop. Zero disables the guard (the common case). When set, the
+	// loop checks cumulative cost at every turn boundary and returns
+	// ErrCostCapExceeded once the ceiling is crossed. Partial output
+	// up to the moment of abort is still returned in the usual
+	// (text, msgs, err) tuple so callers can persist what the model
+	// already produced.
+	CostCapUSD float64
 }
+
+// ErrCostCapExceeded is returned by AgentLoop when the cumulative
+// provider cost for the loop has crossed opts.CostCapUSD. Callers map
+// it to a non-zero exit code so CI / scripting pipelines can gate on
+// cost overruns.
+var ErrCostCapExceeded = errors.New("runtime: cost cap exceeded")
 
 // AgentLoop runs the headless multi-turn loop. Returns the final assistant
 // text (concatenated across turns) and the final accumulated message
@@ -453,6 +468,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 
 	msgs := opts.Messages
 	var finalText string
+	var totalCostUSD float64
 
 	// Append-only guardrail (DESIGN §"Context management" → "Append-only
 	// history"). Prior messages are the cached prefix; any in-place mutation
@@ -538,16 +554,19 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			return finalText, msgs, fmt.Errorf("stream: %w", err)
 		}
 
-		text, calls, err := collectTurn(ch, opts.OnEvent)
+		text, calls, usage, err := collectTurn(ch, opts.OnEvent)
 		if err != nil {
 			turnSpan.RecordError(err)
 			turnSpan.SetStatus(codes.Error, err.Error())
 			turnSpan.End()
 			return finalText, msgs, err
 		}
+		totalCostUSD += usage.CostUSD
 		turnSpan.SetAttributes(
 			attribute.Int("turn.text_bytes", len(text)),
 			attribute.Int("turn.tool_calls", len(calls)),
+			attribute.Float64("turn.cost_usd", usage.CostUSD),
+			attribute.Float64("loop.cumulative_cost_usd", totalCostUSD),
 		)
 		if opts.OnTurnComplete != nil {
 			opts.OnTurnComplete(text, calls)
@@ -567,6 +586,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		finalText += text
 
+		if opts.CostCapUSD > 0 && totalCostUSD >= opts.CostCapUSD {
+			turnSpan.End()
+			return finalText, msgs,
+				fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
+		}
 		if len(calls) == 0 {
 			turnSpan.End()
 			return finalText, msgs, nil
@@ -673,10 +697,14 @@ func hashMessagesPrefix(msgs []agent.Message, n int) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// collectTurn drains an event stream into (assistant_text, tool_calls).
-func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []agent.ToolUseBlock, error) {
+// collectTurn drains an event stream into (assistant_text, tool_calls,
+// usage, err). usage is the final EvDone.Usage on providers that
+// report it; zero value if the provider emits neither EvDone nor a
+// Usage payload.
+func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []agent.ToolUseBlock, agent.Usage, error) {
 	var text string
 	var calls []agent.ToolUseBlock
+	var usage agent.Usage
 	for ev := range ch {
 		if onEvent != nil {
 			onEvent(ev)
@@ -688,11 +716,15 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 			if ev.ToolCall != nil {
 				calls = append(calls, *ev.ToolCall)
 			}
+		case agent.EvDone:
+			if ev.Usage != nil {
+				usage = *ev.Usage
+			}
 		case agent.EvError:
-			return text, calls, ev.Err
+			return text, calls, usage, ev.Err
 		}
 	}
-	return text, calls, nil
+	return text, calls, usage, nil
 }
 
 type autoApproveHost struct {

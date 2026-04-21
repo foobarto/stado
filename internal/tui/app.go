@@ -65,6 +65,7 @@ func Run(cfg *config.Config) error {
 	m.executor = exec
 	m.session = sess
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
+	m.SetBudget(cfg.Budget.WarnUSD, cfg.Budget.HardUSD)
 	// If we booted into a worktree that a prior `stado session fork`
 	// wrote a `.stado-span-context` into, wrap the TUI's ancestor
 	// context so every subsequent span links back to the fork event's

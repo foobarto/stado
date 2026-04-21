@@ -7,4 +7,5 @@
 {{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "muted" "awaiting approval" }}  {{ end -}}
 {{- if eq .State "error" }}{{ color "error" $dot }} {{ color "muted" .ErrorMessage }}  {{ end -}}
 {{- if .Queued }}{{ color "primary" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
+{{- if .Budget }}{{ color "warning" .Budget }}  {{ end -}}
 {{ color "muted" .Tokens }}{{ if .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end }} {{ color "muted" "·" }} {{ color "muted" .Cost }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}
