@@ -2395,11 +2395,71 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.handleDescribeSlash(parts)
 	case "/budget":
 		m.handleBudgetSlash(parts)
+	case "/retry":
+		return m.handleRetrySlash()
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
 	return nil
+}
+
+// handleRetrySlash re-generates the last assistant turn without the
+// user having to retype the prompt. Truncates m.msgs back to the
+// most recent user message (dropping the last assistant + tool-role
+// messages) and kicks off a fresh stream. Equivalent to "regenerate"
+// buttons in ChatGPT/Claude web UIs — high-value when a response
+// was off-target or errored.
+//
+// No-op + warning when:
+//   - a stream is already running (avoid racing)
+//   - there's no user message to retry from
+//   - the last message is already a user message (no prior assistant
+//     turn to discard — just press Enter on an empty prompt)
+func (m *Model) handleRetrySlash() tea.Cmd {
+	if m.state == stateStreaming {
+		m.appendBlock(block{kind: "system", body: "/retry: wait for the current turn to finish"})
+		return nil
+	}
+	// Find the last user-role message in m.msgs.
+	lastUser := -1
+	for i := len(m.msgs) - 1; i >= 0; i-- {
+		if m.msgs[i].Role == agent.RoleUser {
+			lastUser = i
+			break
+		}
+	}
+	if lastUser < 0 {
+		m.appendBlock(block{kind: "system", body: "/retry: nothing to retry — no user messages yet"})
+		return nil
+	}
+	if lastUser == len(m.msgs)-1 {
+		m.appendBlock(block{kind: "system", body: "/retry: last message is already a user prompt — press Enter to submit"})
+		return nil
+	}
+	// Drop everything after the last user message. The LLM will
+	// regenerate the assistant (+ tool-use) blocks from scratch on
+	// the same prompt.
+	m.msgs = m.msgs[:lastUser+1]
+
+	// Sync the visible chat: drop blocks added since the last user
+	// block so the screen matches m.msgs. Plain-text block kinds
+	// that accompany the retried turn are "assistant" / "thinking" /
+	// "tool" / "system". Keep user blocks; prune the rest back to
+	// the point where the last user block lives.
+	lastUserBlock := -1
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "user" {
+			lastUserBlock = i
+			break
+		}
+	}
+	if lastUserBlock >= 0 {
+		m.blocks = m.blocks[:lastUserBlock+1]
+	}
+	m.appendBlock(block{kind: "system", body: "/retry: regenerating..."})
+	m.renderBlocks()
+	return m.startStream()
 }
 
 // handleBudgetSlash shows the current budget state or acknowledges a

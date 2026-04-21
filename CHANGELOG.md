@@ -8,6 +8,13 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`/retry` slash command.** Regenerates the last assistant turn
+  from the same user prompt — equivalent to the "regenerate" button
+  in ChatGPT/Claude web UIs. Truncates the conversation back to the
+  last user message (dropping assistant + tool-role messages) and
+  re-streams. No-ops with a hint when there's nothing to retry, the
+  last message is already a user prompt, or a stream is already
+  running (avoids doubling cost and racing the goroutine).
 - **`agents list` hides stale/empty rows by default.** Same problem
   `session list` had pre-dogfood: every aborted run leaves a PID
   file + empty worktree in the agents listing, so the output was
