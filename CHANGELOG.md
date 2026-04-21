@@ -8,6 +8,17 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`/context` is a one-stop session-state view.** Used to show
+  only token + threshold info. Now also renders: session id,
+  cost, budget caps (when set), loaded instructions file, skill
+  names, configured post_turn hook. Answers "what does this
+  session look like to the model?" without bouncing across
+  /budget, /skill, sidebar.
+- **`/session` slash command** — prints the current session id,
+  worktree path, and description label. Copy-paste target for
+  `stado session fork`, `session tree`, `session attach` in
+  other shells. Explains itself when invoked outside a live
+  session instead of silently failing.
 - **TUI sidebar surfaces loaded skills.** A new "Skills: N — /skill"
   row renders when skills are loaded from `.stado/skills/`. Users
   no longer have to know the slash command in advance to discover

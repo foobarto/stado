@@ -2082,7 +2082,55 @@ func (m *Model) renderContextStatus() string {
 		}
 	}
 	sb.WriteString(fmt.Sprintf("turns: %d messages in history\n", len(m.msgs)))
-	sb.WriteString("options: /compact (summarise + confirm)  ·  session tree <id> / session fork <id> --at turns/<N>")
+
+	// Session id (if we're in one) so users can copy-paste into
+	// `stado session fork` / `session tree` without a separate /session
+	// lookup. Zero-value session fields are tolerated — a TUI running
+	// outside a session prints "(no session)".
+	if m.session != nil && m.session.ID != "" {
+		sb.WriteString(fmt.Sprintf("session: %s\n", m.session.ID))
+	}
+
+	// Cost / budget. Cost is always shown; budget caps only when set.
+	sb.WriteString(fmt.Sprintf("cost: $%.4f\n", m.usage.CostUSD))
+	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
+		w := "(unset)"
+		if m.budgetWarnUSD > 0 {
+			w = fmt.Sprintf("$%.2f", m.budgetWarnUSD)
+		}
+		h := "(unset)"
+		if m.budgetHardUSD > 0 {
+			h = fmt.Sprintf("$%.2f", m.budgetHardUSD)
+		}
+		sb.WriteString(fmt.Sprintf("budget: warn=%s · hard=%s", w, h))
+		if m.budgetAcked {
+			sb.WriteString(" · ack")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Project-level instructions (AGENTS.md / CLAUDE.md), if loaded.
+	if m.systemPromptPath != "" {
+		sb.WriteString(fmt.Sprintf("instructions: %s\n", filepath.Base(m.systemPromptPath)))
+	}
+	// Loaded skills.
+	if len(m.skills) > 0 {
+		names := make([]string, 0, len(m.skills))
+		for _, s := range m.skills {
+			names = append(names, s.Name)
+		}
+		sb.WriteString(fmt.Sprintf("skills: %d loaded — %s\n", len(names), strings.Join(names, ", ")))
+	}
+	// post_turn hook, if configured.
+	if m.hookRunner.PostTurnCmd != "" {
+		cmd := m.hookRunner.PostTurnCmd
+		if len(cmd) > 60 {
+			cmd = cmd[:57] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("hook post_turn: %s\n", cmd))
+	}
+
+	sb.WriteString("options: /compact (summarise + confirm)  ·  /retry (regenerate last turn)  ·  session tree / session fork --at turns/<N>")
 	return strings.TrimRight(sb.String(), "\n")
 }
 
@@ -2410,11 +2458,31 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.handleBudgetSlash(parts)
 	case "/retry":
 		return m.handleRetrySlash()
+	case "/session":
+		m.handleSessionSlash()
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
 	return nil
+}
+
+// handleSessionSlash prints the current session's id + worktree so
+// users can copy-paste into other shells (for `session fork`,
+// `session tree`, `session attach` workflows). Zero-state when
+// there's no live session — surfaces a hint rather than failing.
+func (m *Model) handleSessionSlash() {
+	if m.session == nil || m.session.ID == "" {
+		m.appendBlock(block{kind: "system", body: "session: (no live session — launch with `stado` inside a repo)"})
+		return
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("id:       %s\n", m.session.ID))
+	sb.WriteString(fmt.Sprintf("worktree: %s", m.session.WorktreePath))
+	if desc := runtime.ReadDescription(m.session.WorktreePath); desc != "" {
+		sb.WriteString(fmt.Sprintf("\nlabel:    %s", desc))
+	}
+	m.appendBlock(block{kind: "system", body: sb.String()})
 }
 
 // handleRetrySlash re-generates the last assistant turn without the

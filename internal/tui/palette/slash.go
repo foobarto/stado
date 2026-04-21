@@ -45,6 +45,7 @@ var Commands = []Command{
 	{"/budget", "Show the cost budget or /budget ack to continue past the hard cap", "", "Session"},
 	{"/skill", "List loaded skills — /skill:<name> to inject a skill's prompt body", "", "Session"},
 	{"/retry", "Regenerate the last assistant turn from the same user prompt", "", "Session"},
+	{"/session", "Print the current session id + worktree (copy for other shells)", "", "Session"},
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},
