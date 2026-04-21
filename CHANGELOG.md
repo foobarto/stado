@@ -8,6 +8,18 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`stado mcp-server` — expose stado's tools as an MCP server.**
+  Every bundled stado tool (read, grep, ripgrep, ast-grep, bash,
+  webfetch, file ops, LSP-find) is registered with an MCP v1
+  server over stdio. Other MCP-aware agents (Claude Desktop,
+  Cursor, etc.) can call stado as a tool backend. Scope is
+  tools-only in this release — no resources, no prompts, no
+  sampling. `[tools].enabled` / `[tools].disabled` trim the
+  exposed surface same as the TUI and `run` paths, so an MCP
+  client only sees what stado is currently configured to offer.
+  Auto-approve host rooted at process cwd — the MCP client is
+  assumed to be the authorization boundary. Closes the last item
+  in the ranked research list.
 - **`/context` is a one-stop session-state view.** Used to show
   only token + threshold info. Now also renders: session id,
   cost, budget caps (when set), loaded instructions file, skill
