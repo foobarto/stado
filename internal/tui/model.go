@@ -293,7 +293,8 @@ type Model struct {
 	hookRunner hooks.Runner
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
-	turnStart time.Time
+	turnStart        time.Time
+	lastStreamRender time.Time
 
 	// splitView toggles a two-pane chat area: activity blocks (tool
 	// + system) on top + conversation blocks (user/assistant/thinking)
@@ -778,16 +779,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case streamTickMsg:
+		// Drain the shared stream buffer. Throttle the actual
+		// renderBlocks() to at most once every 100ms so bubbletea's
+		// renderer doesn't choke under reasoning-model event rates.
+		// Without this, each tick (50ms) renders the whole viewport
+		// — 10+ renders/sec of ANSI-heavy markdown content starves
+		// the keyboard reader on bubbletea's unbuffered message
+		// channel. Terminal events (seen inside batch) force an
+		// immediate render so the final state is never stale.
 		m.streamBufMu.Lock()
 		batch := m.streamBuf
 		m.streamBuf = nil
 		closed := m.streamBufClosed
 		m.streamBufMu.Unlock()
+		boundary := false
 		for _, ev := range batch {
 			m.handleStreamEvent(ev)
+			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError ||
+				ev.Kind == agent.EvToolCallStart || ev.Kind == agent.EvToolCallEnd {
+				boundary = true
+			}
 		}
-		if len(batch) > 0 {
+		if len(batch) > 0 && (boundary || time.Since(m.lastStreamRender) > 100*time.Millisecond) {
 			m.renderBlocks()
+			m.lastStreamRender = time.Now()
 		}
 		if closed {
 			return m, func() tea.Msg { return streamDoneMsg{} }
