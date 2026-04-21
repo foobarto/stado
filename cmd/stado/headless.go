@@ -22,9 +22,12 @@ var headlessCmd = &cobra.Command{
 		"  session.list        → [{ sessionId, turns, workdir }]\n" +
 		"  tools.list          → [{ name, description, class }]\n" +
 		"  providers.list      → { available, current }\n" +
-		"  shutdown            → end the daemon.\n\n" +
+		"  plugin.list         → [{ id, author, toolCount, capabilities }]\n" +
+		"  plugin.run          { pluginId, tool, argsJSON } → { content, errMsg? }\n" +
+		"  shutdown            → end the daemon (drains in-flight RPCs first).\n\n" +
 		"Notifications:\n" +
-		"  session.update      { sessionId, kind, text? | name? input? }\n",
+		"  session.update      { sessionId, kind, text? | name? input? }\n" +
+		"                      kind: text | tool_call | plugin_fork | context_warning | system\n",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

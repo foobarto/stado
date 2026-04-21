@@ -18,6 +18,11 @@
 {{ color "text_secondary" "Instructions" | bold }}
 {{ color "muted" .InstructionsName }}
 {{- end }}
+{{- if .SkillsCount }}
+
+{{ color "text_secondary" "Skills" | bold }}
+{{ color "muted" .SkillsCount }}
+{{- end }}
 
 {{ color "text_secondary" "Model" | bold }}
 {{ color "text" .Model }}

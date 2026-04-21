@@ -92,3 +92,40 @@ func TestSkill_UnknownReportsError(t *testing.T) {
 		t.Errorf("unhelpful error: %q", last)
 	}
 }
+
+// TestSkill_SidebarSurfacesCount: when skills are loaded, the
+// sidebar renders a "Skills: N — /skill" row so users discover
+// the feature without needing to know the slash command in
+// advance. Empty when no skills are loaded (template conditional
+// hides the row entirely rather than showing "0 skills").
+func TestSkill_SidebarSurfacesCount(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".stado", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		body := "---\nname: " + name + "\n---\nbody"
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := newSkillModel(t, root)
+	m.width, m.height = 120, 40
+
+	got := m.renderSidebar(40)
+	if !strings.Contains(got, "3 skills") {
+		t.Errorf("sidebar missing skill count: %q", got)
+	}
+	if !strings.Contains(got, "/skill") {
+		t.Errorf("sidebar missing /skill hint: %q", got)
+	}
+
+	// No skills: Skills row should NOT render (avoiding "0 skills").
+	mEmpty := newSkillModel(t, t.TempDir())
+	mEmpty.width, mEmpty.height = 120, 40
+	got2 := mEmpty.renderSidebar(40)
+	if strings.Contains(got2, "Skills") {
+		t.Errorf("sidebar should hide Skills row when empty: %q", got2)
+	}
+}

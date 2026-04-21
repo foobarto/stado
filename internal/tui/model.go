@@ -1532,6 +1532,18 @@ func (m *Model) renderSidebar(width int) string {
 	if m.systemPromptPath != "" {
 		instructionsName = filepath.Base(m.systemPromptPath)
 	}
+	// Skills count — surfaces the feature's existence. Empty string
+	// (instead of "0") when no skills are loaded so the template
+	// conditional hides the row entirely, not showing "Skills: 0"
+	// which would look broken.
+	skillsCount := ""
+	if n := len(m.skills); n > 0 {
+		verb := "skills"
+		if n == 1 {
+			verb = "skill"
+		}
+		skillsCount = fmt.Sprintf("%d %s — /skill", n, verb)
+	}
 	data := map[string]any{
 		"Title":            "stado",
 		"Version":          "0.0.0-dev",
@@ -1545,6 +1557,7 @@ func (m *Model) renderSidebar(width int) string {
 		"Todos":            m.todos,
 		"Width":            width - 4,
 		"InstructionsName": instructionsName,
+		"SkillsCount":      skillsCount,
 	}
 	body, err := m.renderer.Exec("sidebar", data)
 	if err != nil {

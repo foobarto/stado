@@ -8,6 +8,17 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **TUI sidebar surfaces loaded skills.** A new "Skills: N — /skill"
+  row renders when skills are loaded from `.stado/skills/`. Users
+  no longer have to know the slash command in advance to discover
+  the feature — a repo with a skills directory advertises itself.
+  The row stays hidden when no skills are loaded so empty repos
+  don't see a misleading "0 skills" row.
+- **`stado headless --help` documents `plugin.list`/`plugin.run`.**
+  Both RPC methods landed months ago but the help text never
+  listed them, so CI integrators had to read the server code to
+  learn they existed. Added the shape summary for both plus the
+  full set of `session.update` notification kinds.
 - **`stado run --skill <name>`** — skills are now CLI-usable, not
   just a TUI feature. Resolves `.stado/skills/<name>.md` from cwd
   and uses the body as the prompt. Combines with `--prompt` (skill
