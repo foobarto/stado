@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
@@ -28,6 +29,7 @@ var (
 	runTools     bool
 	runSandboxFS bool
 	runSessionID string
+	runSkill     string
 )
 
 var runCmd = &cobra.Command{
@@ -44,8 +46,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		if runPrompt == "" && len(args) > 0 {
 			runPrompt = strings.Join(args, " ")
 		}
+		if err := resolveRunPromptFromFlags(); err != nil {
+			return err
+		}
 		if runPrompt == "" {
-			return fmt.Errorf("run: --prompt (or positional) required")
+			return fmt.Errorf("run: --prompt (or positional) or --skill required")
 		}
 
 		cfg, err := config.Load()
@@ -220,6 +225,8 @@ func emitter(jsonOut bool, out io.Writer) func(agent.Event) {
 
 func init() {
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt text (or provide as positional argument)")
+	runCmd.Flags().StringVar(&runSkill, "skill", "",
+		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable tool-calling (bash/fs/webfetch) with git-native audit")
@@ -227,4 +234,44 @@ func init() {
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
 	rootCmd.AddCommand(runCmd)
+}
+
+// resolveRunPromptFromFlags mutates runPrompt to reflect --skill
+// resolution. Factored out of runCmd.RunE so the resolution logic
+// is unit-testable without wiring up a provider. Safe to call even
+// when --skill is empty (no-op).
+func resolveRunPromptFromFlags() error {
+	if runSkill == "" {
+		return nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("run: getwd: %w", err)
+	}
+	sks, err := skills.Load(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stado run: skills load: %v\n", err)
+	}
+	var chosen *skills.Skill
+	for i := range sks {
+		if sks[i].Name == runSkill {
+			chosen = &sks[i]
+			break
+		}
+	}
+	if chosen == nil {
+		names := make([]string, 0, len(sks))
+		for _, s := range sks {
+			names = append(names, s.Name)
+		}
+		return fmt.Errorf("run: skill %q not found (available: %s)",
+			runSkill, strings.Join(names, ", "))
+	}
+	if runPrompt == "" {
+		runPrompt = chosen.Body
+	} else {
+		runPrompt = chosen.Body + "\n\n" + runPrompt
+	}
+	fmt.Fprintf(os.Stderr, "stado run: loaded skill %s (%s)\n", chosen.Name, chosen.Path)
+	return nil
 }

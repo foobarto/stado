@@ -8,6 +8,15 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`stado run --skill <name>`** — skills are now CLI-usable, not
+  just a TUI feature. Resolves `.stado/skills/<name>.md` from cwd
+  and uses the body as the prompt. Combines with `--prompt` (skill
+  body prepended) so the reusable skill plus a per-invocation ask
+  compose naturally. Unknown skill lists the available names in the
+  error message so a typo doesn't force a filesystem grep. Useful
+  in CI: a repo can ship `.stado/skills/ci-review.md` and pipelines
+  invoke `stado run --skill ci-review` instead of inlining the
+  full prompt text.
 - **`/retry` slash command.** Regenerates the last assistant turn
   from the same user prompt — equivalent to the "regenerate" button
   in ChatGPT/Claude web UIs. Truncates the conversation back to the
