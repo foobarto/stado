@@ -53,9 +53,7 @@ func TestInstructions_AgentsMdFlowsIntoTurnRequest(t *testing.T) {
 	m := NewModel(dir, "m", "p", func() (agent.Provider, error) { return prov, nil }, rnd, keys.NewRegistry())
 
 	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hello")}
-	if err := m.startStream(); err != nil {
-		t.Fatalf("startStream: %v", err)
-	}
+	m.startStream()
 	// Wait for the provider-goroutine to record the request.
 	select {
 	case <-prov.done:

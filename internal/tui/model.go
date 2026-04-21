@@ -295,13 +295,21 @@ type Model struct {
 	// post_turn hook can report wall-clock duration.
 	turnStart time.Time
 
-	// splitView toggles a two-pane chat area: conversation blocks
-	// (user/assistant/thinking) on top + a tail of activity blocks
-	// (tool/system) on the bottom. Toggled with `/split`. Single
-	// viewport layout when false. The activity viewport is a
-	// separate viewport.Model so it scrolls independently.
-	splitView   bool
-	activityVP  viewport.Model
+	// splitView toggles a two-pane chat area: activity blocks (tool
+	// + system) on top + conversation blocks (user/assistant/thinking)
+	// on the bottom. Toggled with /split.
+	splitView  bool
+	activityVP viewport.Model
+
+	// streamBuf decouples the stream goroutine from bubbletea's
+	// unbuffered program channel. The goroutine appends events here
+	// under the mutex; a tea.Tick-driven drain (streamTickMsg) runs
+	// on the main loop, forwards the batch, and reschedules itself
+	// while the stream is live. Prevents high-rate reasoning
+	// deltas from starving the KeyMsg path on the same channel.
+	streamBuf       []agent.Event
+	streamBufMu     sync.Mutex
+	streamBufClosed bool
 }
 
 type approvalRequest struct {
@@ -738,17 +746,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case streamBatchMsg:
-		// Apply a batched run of stream events in one pass. The
-		// stream goroutine coalesces non-boundary deltas (text /
-		// thinking) into these batches so bubbletea's unbuffered
-		// program.msgs channel doesn't backlog under reasoning-
-		// model event rates — which was starving KeyMsgs (/clear,
-		// Ctrl+C, typing) for tens of seconds.
 		for _, ev := range msg.evs {
 			m.handleStreamEvent(ev)
 		}
 		m.renderBlocks()
 		return m, nil
+
+	case streamTickMsg:
+		m.streamBufMu.Lock()
+		batch := m.streamBuf
+		m.streamBuf = nil
+		closed := m.streamBufClosed
+		m.streamBufMu.Unlock()
+		for _, ev := range batch {
+			m.handleStreamEvent(ev)
+		}
+		if len(batch) > 0 {
+			m.renderBlocks()
+		}
+		if closed {
+			return m, func() tea.Msg { return streamDoneMsg{} }
+		}
+		return m, streamTickCmd()
 
 	case streamErrorMsg:
 		m.state = stateError
@@ -1948,6 +1967,16 @@ func (m *Model) startStream() tea.Cmd {
 		req.CacheHints = []agent.CachePoint{{MessageIndex: len(m.msgs) - 1}}
 	}
 
+	// Shared stream buffer — the stream goroutine appends events
+	// here under m.streamMu; the tea.Tick-driven flush reads them
+	// out in batches on the main loop. This decouples the stream's
+	// ingestion rate from bubbletea's unbuffered program channel
+	// so KeyMsgs never get starved by reasoning-model delta bursts.
+	m.streamBufMu.Lock()
+	m.streamBuf = m.streamBuf[:0]
+	m.streamBufClosed = false
+	m.streamBufMu.Unlock()
+
 	go func() {
 		defer cancel()
 		ch, err := m.provider.StreamTurn(ctx, req)
@@ -1955,49 +1984,37 @@ func (m *Model) startStream() tea.Cmd {
 			m.sendMsg(streamErrorMsg{err: err})
 			return
 		}
-		// Coalesce runs of text/thinking deltas into a single
-		// streamBatchMsg send so KeyMsgs (/clear, Ctrl+C, plain
-		// typing) interleave cleanly on bubbletea's unbuffered
-		// program channel. Without this, reasoning models can push
-		// hundreds of tiny events in a burst and effectively starve
-		// the keyboard reader for tens of seconds.
-		const flushInterval = 30 * time.Millisecond
-		var pending []agent.Event
-		lastFlush := time.Now()
-		flush := func() {
-			if len(pending) == 0 {
-				return
-			}
-			// Copy the slice (the caller will keep mutating pending).
-			batch := make([]agent.Event, len(pending))
-			copy(batch, pending)
-			m.sendMsg(streamBatchMsg{evs: batch})
-			pending = pending[:0]
-			lastFlush = time.Now()
-		}
 		for ev := range ch {
-			boundary := ev.Kind == agent.EvDone ||
-				ev.Kind == agent.EvError ||
-				ev.Kind == agent.EvToolCallStart ||
-				ev.Kind == agent.EvToolCallEnd
-			pending = append(pending, ev)
-			if boundary || time.Since(lastFlush) >= flushInterval {
-				flush()
-			}
+			m.streamBufMu.Lock()
+			m.streamBuf = append(m.streamBuf, ev)
+			m.streamBufMu.Unlock()
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
 				if ev.Kind == agent.EvDone && ev.Usage != nil {
 					m.usage.InputTokens = ev.Usage.InputTokens
 					m.usage.OutputTokens += ev.Usage.OutputTokens
 					m.usage.CostUSD += ev.Usage.CostUSD
 				}
-				m.sendMsg(streamDoneMsg{})
-				return
+				break
 			}
 		}
-		flush()
-		m.sendMsg(streamDoneMsg{})
+		m.streamBufMu.Lock()
+		m.streamBufClosed = true
+		m.streamBufMu.Unlock()
 	}()
-	return nil
+	return streamTickCmd()
+}
+
+// streamTick periodically polls the shared stream buffer and
+// forwards accumulated events to the main loop as a single
+// streamBatchMsg. Fires every 50ms during a stream. One message per
+// tick means bubbletea's unbuffered channel never backs up, even when
+// the stream produces hundreds of events/sec.
+type streamTickMsg struct{}
+
+func streamTickCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
+		return streamTickMsg{}
+	})
 }
 
 func (m *Model) sendMsg(msg tea.Msg) {
