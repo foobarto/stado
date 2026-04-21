@@ -8,6 +8,17 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **Project-level instructions auto-loader.** Stado now walks up
+  from cwd looking for `AGENTS.md` (preferred, cross-vendor
+  convention) or `CLAUDE.md` (fallback) and injects the file body
+  into every turn as a system prompt. `stado run` prints the
+  resolved path to stderr; the TUI sidebar gains an `Instructions`
+  row showing the file's basename. Missing file is a silent no-op;
+  a broken file becomes a stderr warning — the TUI never fails to
+  boot because of an instructions file. Wired into TUI,
+  `stado run`, ACP server, and the headless JSON-RPC session.prompt.
+  Compaction retains its purpose-specific summarisation prompt —
+  only user-facing turns pick up `AGENTS.md`.
 - `[tools]` config section lets users trim the bundled tool set.
   `enabled = [...]` acts as an explicit allowlist; `disabled =
   [...]` removes specific tools from the default. When both are

@@ -420,6 +420,13 @@ type AgentLoopOptions struct {
 	// ThinkingBudgetTokens is threaded through to the provider when
 	// Thinking resolves to on. 0 means "use a sensible default."
 	ThinkingBudgetTokens int
+
+	// System is the optional system prompt fed to every turn in this
+	// loop. The `stado run` / headless entry points populate it from
+	// AGENTS.md / CLAUDE.md via internal/instructions.Load. Empty by
+	// default — callers that don't want project instructions (e.g.
+	// plugin-driven sub-loops) can leave it zero.
+	System string
 }
 
 // AgentLoop runs the headless multi-turn loop. Returns the final assistant
@@ -492,6 +499,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		req := agent.TurnRequest{
 			Model:    opts.Model,
 			Messages: msgs,
+			System:   opts.System,
 		}
 		if opts.Executor != nil {
 			req.Tools = ToolDefs(opts.Executor.Registry)

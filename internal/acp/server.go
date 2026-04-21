@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -144,6 +145,17 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
 
+	// AGENTS.md / CLAUDE.md injection — same policy as `stado run`.
+	// Resolved from the ACP server's process cwd because ACP sessions
+	// don't carry a per-session workdir today; fine for the common
+	// case where a client spawns stado in-repo.
+	sysPrompt := ""
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		if res, err := instructions.Load(cwd); err == nil {
+			sysPrompt = res.Content
+		}
+	}
+
 	opts := runtime.AgentLoopOptions{
 		Provider:             prov,
 		Model:                s.Cfg.Defaults.Model,
@@ -151,6 +163,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		MaxTurns:             10, // with tools enabled we may need multiple turns
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
+		System:               sysPrompt,
 		OnEvent: func(ev agent.Event) {
 			switch ev.Kind {
 			case agent.EvTextDelta:

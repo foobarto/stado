@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
@@ -84,6 +85,21 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		newUserMsg := agent.Text(agent.RoleUser, runPrompt)
 		var executor *runtime.AgentLoopOptions
 		_ = executor // silence unused warning when --tools is off
+
+		// Project-level instructions (AGENTS.md / CLAUDE.md) resolved
+		// from the current working directory. A missing file is fine;
+		// a broken one is surfaced as a stderr warning and the run
+		// proceeds without a system prompt rather than aborting.
+		sysPrompt := ""
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			if res, err := instructions.Load(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "stado run: instructions load: %v\n", err)
+			} else if res.Path != "" {
+				sysPrompt = res.Content
+				fmt.Fprintf(os.Stderr, "stado run: loaded %s\n", res.Path)
+			}
+		}
+
 		opts := runtime.AgentLoopOptions{
 			Provider:             prov,
 			Model:                cfg.Defaults.Model,
@@ -92,6 +108,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			OnEvent:              emitter(runJSON, os.Stdout),
 			Thinking:             cfg.Agent.Thinking,
 			ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
+			System:               sysPrompt,
 		}
 		if runTools {
 			cwd, _ := os.Getwd()

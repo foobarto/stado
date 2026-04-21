@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -155,6 +156,22 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	sess.cancel = cancel
 	defer func() { sess.cancel = nil }()
 
+	// Project instructions resolved from the session's workdir, not
+	// the process cwd — a headless client may hold several sessions
+	// rooted at different repos. Silent on miss; warn on read error.
+	sysPrompt := ""
+	if sess.workdir != "" {
+		if res, err := instructions.Load(sess.workdir); err != nil {
+			_ = s.conn.Notify("session.update", map[string]any{
+				"sessionId": p.SessionID,
+				"kind":      "system",
+				"text":      fmt.Sprintf("instructions: %v", err),
+			})
+		} else {
+			sysPrompt = res.Content
+		}
+	}
+
 	opts := runtime.AgentLoopOptions{
 		Provider:             s.Provider,
 		Model:                s.Cfg.Defaults.Model,
@@ -162,6 +179,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		MaxTurns:             10,
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
+		System:               sysPrompt,
 		OnEvent: func(ev agent.Event) {
 			if ev.Kind == agent.EvTextDelta && ev.Text != "" {
 				_ = s.conn.Notify("session.update", map[string]any{

@@ -19,6 +19,7 @@ import (
 
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
@@ -253,6 +254,14 @@ type Model struct {
 	// Session-scoped "always allow this tool" — reset when the TUI exits.
 	// PLAN cross-cutting: session-scoped remember with explicit forget.
 	rememberedAllow map[string]bool
+
+	// systemPrompt is the project-root AGENTS.md / CLAUDE.md body
+	// resolved at TUI startup. Injected into every TurnRequest.System
+	// so the model sees project-specific guidance without the user
+	// having to paste it into every session. Empty if no file was
+	// found walking up from cwd.
+	systemPrompt     string
+	systemPromptPath string
 }
 
 type approvalRequest struct {
@@ -282,6 +291,16 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
 		rootCtx:          context.Background(),
+	}
+	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
+	// fallback). A missing file is fine; a broken file is a stderr
+	// warning — we'd rather boot the TUI with no system prompt than
+	// refuse to start.
+	if res, err := instructions.Load(cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "stado: instructions load: %v\n", err)
+	} else if res.Content != "" {
+		m.systemPrompt = res.Content
+		m.systemPromptPath = res.Path
 	}
 	return m
 }
@@ -1400,18 +1419,26 @@ func (m *Model) renderSidebar(width int) string {
 	if m.session != nil {
 		sessionLabel = runtime.ReadDescription(m.session.WorktreePath)
 	}
+	// Show just the basename of the loaded AGENTS.md / CLAUDE.md so
+	// the user knows which file informed the system prompt, without
+	// eating sidebar width with a full path.
+	instructionsName := ""
+	if m.systemPromptPath != "" {
+		instructionsName = filepath.Base(m.systemPromptPath)
+	}
 	data := map[string]any{
-		"Title":        "stado",
-		"Version":      "0.0.0-dev",
-		"SessionLabel": sessionLabel,
-		"Model":        m.model,
-		"ProviderName": m.providerDisplayName(),
-		"Cwd":          m.cwd,
-		"TokensHuman":  fmt.Sprintf("%s tokens", humanize(m.usage.InputTokens+m.usage.OutputTokens)),
-		"TokenPercent": tokPct,
-		"CostHuman":    fmt.Sprintf("$%.2f spent", m.usage.CostUSD),
-		"Todos":        m.todos,
-		"Width":        width - 4,
+		"Title":            "stado",
+		"Version":          "0.0.0-dev",
+		"SessionLabel":     sessionLabel,
+		"Model":            m.model,
+		"ProviderName":     m.providerDisplayName(),
+		"Cwd":              m.cwd,
+		"TokensHuman":      fmt.Sprintf("%s tokens", humanize(m.usage.InputTokens+m.usage.OutputTokens)),
+		"TokenPercent":     tokPct,
+		"CostHuman":        fmt.Sprintf("$%.2f spent", m.usage.CostUSD),
+		"Todos":            m.todos,
+		"Width":            width - 4,
+		"InstructionsName": instructionsName,
 	}
 	body, err := m.renderer.Exec("sidebar", data)
 	if err != nil {
@@ -1623,6 +1650,7 @@ func (m *Model) startStream() tea.Cmd {
 		Model:    m.model,
 		Messages: m.msgs,
 		Tools:    m.toolDefs(),
+		System:   m.systemPrompt,
 	}
 	// Cache-breakpoint placement — DESIGN §"Prompt-cache awareness".
 	// One ephemeral breakpoint on the last prior message, so every turn

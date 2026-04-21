@@ -13,6 +13,11 @@
 {{ color "text_secondary" "Cwd" | bold }}
 {{ color "muted" (wrapHard .Cwd .Width) }}
 {{- end }}
+{{- if .InstructionsName }}
+
+{{ color "text_secondary" "Instructions" | bold }}
+{{ color "muted" .InstructionsName }}
+{{- end }}
 
 {{ color "text_secondary" "Model" | bold }}
 {{ color "text" .Model }}
