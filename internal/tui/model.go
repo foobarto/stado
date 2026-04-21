@@ -1174,10 +1174,14 @@ func (m *Model) View() string {
 	// Empty-state: draw the banner directly into the left column
 	// (bypassing the viewport) so the top of the logo isn't eaten by
 	// the viewport's scroll position when content is taller than the
-	// pane. Don't pad to mainH — vp.View() on empty content returns
-	// an empty string, so the input box normally floats up; we match
-	// that behaviour and let the banner occupy only its own rows.
-	left.WriteString(m.vp.View() + "\n")
+	// pane. Leading newline compensates for the first-row eat in the
+	// lipgloss layout pipeline; mainH-1 so the banner leaves one row
+	// for the input box to dock at the bottom.
+	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
+		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
+	} else {
+		left.WriteString(m.vp.View() + "\n")
+	}
 	if m.approval != nil {
 		left.WriteString(m.theme.Fg("warning").Render(
 			fmt.Sprintf("⚠ %s — allow? [y]es / [n]o  %s",
