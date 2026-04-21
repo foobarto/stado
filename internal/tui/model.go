@@ -1170,9 +1170,20 @@ func (m *Model) View() string {
 		mainW -= 1 // gap
 	}
 
-	inputH := strings.Count(m.input.Value(), "\n") + 1
+	// Input height grows with newlines. Horizontal scroll handles
+	// long single-line input (bubbles textarea doesn't soft-wrap),
+	// but newlines from Shift+Enter produce extra rendered rows.
+	value := m.input.Value()
+	inputH := strings.Count(value, "\n") + 1
+	if inputH < 1 {
+		inputH = 1
+	}
 	if inputH > m.height/3 {
 		inputH = m.height / 3
+	}
+	m.input.Model.SetHeight(inputH)
+	if textW := mainW - 4; textW > 0 {
+		m.input.Model.SetWidth(textW)
 	}
 	// Reserve: textarea (inputH) + top border (1) + inline status
 	// row inside the bordered box (1) + bottom border (1) + trailing
