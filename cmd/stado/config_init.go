@@ -161,6 +161,18 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # hard_usd = 5.00
 
 # ---------------------------------------------------------------------------
+# [hooks] — run shell commands at TUI lifecycle events. Notification-only
+#           in this release (cannot block or modify a turn). Each hook runs
+#           /bin/sh -c <cmd> with a 5s wall-clock cap; a JSON payload is
+#           piped to stdin so scripts can act on token counts / cost.
+# ---------------------------------------------------------------------------
+# [hooks]
+# post_turn = "notify-send stado 'turn complete'"
+# # The payload: {"event":"post_turn","turn_index":N,"tokens_in":X,
+# #               "tokens_out":Y,"cost_usd":Z,"text_excerpt":"...",
+# #               "duration_ms":M}
+
+# ---------------------------------------------------------------------------
 # AGENTS.md / CLAUDE.md — project-level instructions. Drop either file in
 # your repo root (or any parent directory) and stado auto-loads the body as
 # the system prompt on every turn. AGENTS.md wins if both exist; CLAUDE.md

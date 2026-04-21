@@ -36,6 +36,31 @@ type Config struct {
 	Agent     Agent     `koanf:"agent"`
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
+	Hooks     Hooks     `koanf:"hooks"`
+}
+
+// Hooks is the [hooks] config section — user-provided shell commands
+// fired at TUI lifecycle events. MVP scope: notification-only.
+// Commands can't block the turn or mutate state. stdout/stderr are
+// logged to stado's stderr, not the TUI chat window, so a noisy hook
+// doesn't eat the user's context.
+//
+//	[hooks]
+//	post_turn = "notify-send 'stado' 'turn complete'"
+//
+// Each hook runs with /bin/sh -c so users can pipe, redirect, etc.
+// A JSON payload with the turn's usage numbers is piped to stdin so
+// scripts can act on token counts / cost without parsing a log file:
+//
+//	{"event":"post_turn", "turn_index":N, "tokens_in":X,
+//	 "tokens_out":Y, "cost_usd":Z, "text_excerpt":"..."}
+//
+// Hook execution has a 5-second wall-clock timeout; longer-running
+// work should fork + exit. Exit codes are recorded but not acted on.
+type Hooks struct {
+	// PostTurn fires after every completed TUI turn (EvDone → drain).
+	// Empty = no hook.
+	PostTurn string `koanf:"post_turn"`
 }
 
 // Budget is the [budget] config section — per-session cost guardrails.

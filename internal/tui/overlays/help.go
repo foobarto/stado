@@ -6,13 +6,18 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/palette"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
 
+// RenderHelp paints the ? overlay. Sections: keybindings (grouped by
+// action category) first, then an index of the slash-command palette
+// so a user pressing ? sees both halves of the surface — previously
+// the help overlay never mentioned /budget, /skill, /model, etc. and
+// users had to remember to open the palette to discover them.
 func RenderHelp(reg *keys.Registry, width int) string {
 	groups := reg.ActionsByGroup()
-	
-	// Define a strict order for the groups
+
 	order := []string{
 		"App",
 		"Session",
@@ -28,32 +33,48 @@ func RenderHelp(reg *keys.Registry, width int) string {
 		if len(actions) == 0 {
 			continue
 		}
-		
+
 		b.WriteString(theme.Title.Render(groupName) + "\n")
-		
+
 		for _, action := range actions {
 			bindings := reg.Get(action)
 			if len(bindings) == 0 {
 				continue
 			}
-			
-			// Join multiple keys for the same action
+
 			var keyStrs []string
 			for _, kb := range bindings {
 				keyStrs = append(keyStrs, kb.Help().Key)
 			}
-			
+
 			keyStr := strings.Join(keyStrs, ", ")
 			desc := keys.ActionDescriptions[action]
-			
+
 			line := fmt.Sprintf("  %-25s %s\n", keyStr, lipgloss.NewStyle().Foreground(theme.TextDim).Render(desc))
 			b.WriteString(line)
 		}
 		b.WriteString("\n")
 	}
 
+	// Slash commands section. Render grouped the same way the palette
+	// renders them, but as a compact name-→-description table so users
+	// can skim what's available at a glance.
+	b.WriteString(theme.Title.Render("Slash commands") + "\n")
+	dim := lipgloss.NewStyle().Foreground(theme.TextDim)
+	lastGroup := ""
+	for _, cmd := range palette.Commands {
+		if cmd.Group != lastGroup {
+			if lastGroup != "" {
+				b.WriteString("\n")
+			}
+			b.WriteString(dim.Render("  "+cmd.Group+":") + "\n")
+			lastGroup = cmd.Group
+		}
+		b.WriteString(fmt.Sprintf("    %-15s %s\n", cmd.Name, dim.Render(cmd.Desc)))
+	}
+
 	content := strings.TrimRight(b.String(), "\n")
-	
+
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).

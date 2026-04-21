@@ -19,6 +19,7 @@ import (
 
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/skills"
@@ -283,6 +284,14 @@ type Model struct {
 	// invocation injects the skill body as a user message so the
 	// LLM acts on it. Empty when no skills dir exists up the tree.
 	skills []skills.Skill
+
+	// hookRunner fires user-configured shell hooks at lifecycle
+	// events (see config.Hooks). Zero-value is a no-op so the TUI
+	// boots fine without any hooks defined.
+	hookRunner hooks.Runner
+	// turnStart timestamps the moment we called startStream, so the
+	// post_turn hook can report wall-clock duration.
+	turnStart time.Time
 }
 
 type approvalRequest struct {
@@ -358,6 +367,13 @@ func (m *Model) SetContextThresholds(soft, hard float64) {
 	if hard > 0 && hard <= 1 {
 		m.ctxHardThreshold = hard
 	}
+}
+
+// SetHooks propagates [hooks] config into the TUI. Passing an empty
+// string disables a given hook. Called from app.go; tests can set
+// hooks directly on the model.
+func (m *Model) SetHooks(postTurn string) {
+	m.hookRunner.PostTurnCmd = postTurn
 }
 
 // SetBudget propagates [budget] config into the TUI. Both args are
@@ -723,6 +739,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the stream goroutine before sendMsg(streamDoneMsg), so by
 		// the time we're here it reflects the just-finished turn.
 		m.maybeEmitBudgetWarning()
+		// Fire the post_turn lifecycle hook (no-op when unset). Runs
+		// synchronously but capped at 5s inside the Runner so a slow
+		// hook can't stall the next turn meaningfully.
+		m.firePostTurnHook()
 		// Turn-boundary event for background plugins. Emit a
 		// turn_complete event onto every plugin's bridge so polling
 		// session:observe consumers see it, then tick each plugin.
@@ -1730,6 +1750,7 @@ func (m *Model) startStream() tea.Cmd {
 	m.streamCancel = cancel
 	m.state = stateStreaming
 	m.errorMsg = ""
+	m.turnStart = time.Now()
 	m.streamMu.Unlock()
 
 	req := agent.TurnRequest{
@@ -2421,6 +2442,33 @@ func (m *Model) handleBudgetSlash(parts []string) {
 	default:
 		m.appendBlock(block{kind: "system", body: "usage: /budget  |  /budget ack  |  /budget reset"})
 	}
+}
+
+// firePostTurnHook invokes the user-configured post_turn shell
+// command (if any) with a JSON payload on stdin. No-op when the
+// hook isn't configured. Errors / timeouts are logged by the hook
+// runner; never propagated — the turn is over.
+func (m *Model) firePostTurnHook() {
+	if m.hookRunner.PostTurnCmd == "" {
+		return
+	}
+	excerpt := m.turnText
+	if len(excerpt) > 200 {
+		excerpt = excerpt[:200]
+	}
+	dur := int64(0)
+	if !m.turnStart.IsZero() {
+		dur = time.Since(m.turnStart).Milliseconds()
+	}
+	m.hookRunner.FirePostTurn(m.rootCtx, hooks.PostTurnPayload{
+		Event:       "post_turn",
+		TurnIndex:   len(m.msgs),
+		TokensIn:    m.usage.InputTokens,
+		TokensOut:   m.usage.OutputTokens,
+		CostUSD:     m.usage.CostUSD,
+		TextExcerpt: excerpt,
+		DurationMS:  dur,
+	})
 }
 
 // maybeEmitBudgetWarning fires a one-time system block once cumulative

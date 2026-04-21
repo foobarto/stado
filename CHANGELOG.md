@@ -8,6 +8,21 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **Lifecycle hooks — `[hooks]` section (MVP, notification-only).**
+  Users can wire a shell command to the `post_turn` event; stado
+  runs `/bin/sh -c <cmd>` with a JSON payload on stdin carrying
+  turn index, input/output tokens, cost, duration, and a ≤200-char
+  excerpt of the assistant text. 5-second wall-clock cap per hook.
+  stdout/stderr go to stado's own stderr with a `stado[hook:<event>]`
+  prefix so they're distinguishable in shared terminals. Failures
+  are logged, never propagated — a broken hook can't poison the
+  next turn. MVP scope is deliberate; a richer "approve tool call
+  via external policy" form can grow on top.
+- **Help overlay (`?`) now lists slash commands.** Users had to
+  open the palette separately to learn that `/budget`, `/skill`,
+  `/model`, etc. existed. The overlay now appends the palette's
+  Commands table below the keybindings section, grouped the same
+  way (Quick / Session / View).
 - **Skills: `.stado/skills/*.md` auto-loader.** Drop a markdown file
   with frontmatter `name:` / `description:` in a `.stado/skills/`
   directory and stado exposes it as `/skill:<name>` in the TUI.
