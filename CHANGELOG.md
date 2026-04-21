@@ -8,6 +8,23 @@ Plugins / Infra / Fixes.
 
 ### Iteration-cycle additions (post-initial-sweep)
 
+- **`session list` hides empty rows by default.** Zero-turn +
+  zero-message + zero-compaction sessions were cluttering the
+  default output — `session list` on a long-lived repo was showing
+  50 empties per 3 real rows. Now hidden; `--all` restores the
+  full listing. A stderr footer reports how many were hidden with
+  a copy-pasteable `session gc --apply` pointer.
+- **`stado doctor` stops failing on missing optional tools.** gopls
+  is only needed by the `lsp-find` tool; stado works fine without
+  it. Now rendered as ✓ with a "not found — optional" detail
+  instead of ✗, and the exit code no longer flips to 2 when the
+  only missing dep is optional. New `checkOptionalBin` helper
+  separates "must-have" from "nice-to-have" checks.
+- **`stado config show` now prints `[budget]` and `[tools]`.** Both
+  sections were silently absent — users could set them in
+  config.toml but couldn't confirm they took effect without
+  reading the loader. Budget always renders (with "(unset)"
+  labels) so the knob doubles as documentation.
 - **`[budget]` cost guardrail.** Two opt-in thresholds:
   `warn_usd` paints a yellow status-bar pill `budget $X/$cap` and
   appends a one-time system block once the cumulative session cost

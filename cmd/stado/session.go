@@ -49,10 +49,17 @@ var sessionNewCmd = &cobra.Command{
 	},
 }
 
+var sessionListAll bool
+
 var sessionListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
-	Short: "List sessions for the current repo",
+	Short:   "List sessions for the current repo",
+	Long: "By default, zero-turn + zero-message sessions are hidden so the\n" +
+		"list surfaces meaningful work. Pass --all to see every session\n" +
+		"on disk, including empties left over from aborted runs.\n\n" +
+		"Hidden rows are summarised as a footer line with a pointer to\n" +
+		"`session gc --apply` so cleanup is one copy-paste away.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -94,6 +101,23 @@ var sessionListCmd = &cobra.Command{
 			rows = append(rows, runtime.SummariseSession(cfg.WorktreeDir(), sc, id))
 		}
 
+		// Filter: default behaviour hides zero-turn + zero-message
+		// sessions so `session list` surfaces meaningful work, not
+		// test-run detritus. --all restores the old behaviour when
+		// someone needs to see the full picture.
+		hidden := 0
+		visible := rows
+		if !sessionListAll {
+			visible = visible[:0]
+			for _, r := range rows {
+				if r.Turns == 0 && r.Msgs == 0 && r.Compactions == 0 {
+					hidden++
+					continue
+				}
+				visible = append(visible, r)
+			}
+		}
+
 		// Columns: ID | last-active | turns | msgs | compactions | status | description
 		// Aligned so `session list | less -S` stays scannable. The
 		// DESCRIPTION column is last because its width varies; anything
@@ -101,13 +125,18 @@ var sessionListCmd = &cobra.Command{
 		const header = "SESSION ID                              LAST ACTIVE           TURNS  MSGS  COMPACT  STATUS     DESCRIPTION\n"
 		fmt.Print(header)
 		use := useColor(os.Stdout)
-		for _, r := range rows {
+		for _, r := range visible {
 			statusPadded := fmt.Sprintf("%-9s", r.Status)
 			if use {
 				statusPadded = colorizeStatus(r.Status, statusPadded)
 			}
 			fmt.Printf("%-40s %-21s %5d  %4d  %7d  %s  %s\n",
 				r.ID, r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, statusPadded, r.Description)
+		}
+		if hidden > 0 {
+			fmt.Fprintf(os.Stderr,
+				"\n(%d empty session(s) hidden — use `stado session list --all` to see them, or `stado session gc --apply` to clean up)\n",
+				hidden)
 		}
 		return nil
 	},
@@ -360,6 +389,8 @@ var sessionForkCmd = &cobra.Command{
 func init() {
 	sessionForkCmd.Flags().String("at", "",
 		"Fork from a specific turn (turns/<N>) or commit SHA instead of parent's tree head")
+	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false,
+		"Include zero-turn / zero-message sessions (hidden by default)")
 }
 
 var sessionAttachCmd = &cobra.Command{

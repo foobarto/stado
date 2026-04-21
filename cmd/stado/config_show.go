@@ -81,6 +81,35 @@ func renderConfigHuman(w interface {
 	write("  soft_threshold   %.2f\n", cfg.Context.SoftThreshold)
 	write("  hard_threshold   %.2f\n\n", cfg.Context.HardThreshold)
 
+	// Always render [budget] so users can see "(unset)" and remember
+	// the knob exists. Zero values mean no cap; label them that way
+	// so the listing doubles as documentation.
+	write("[budget]\n")
+	if cfg.Budget.WarnUSD > 0 {
+		write("  warn_usd   $%.2f\n", cfg.Budget.WarnUSD)
+	} else {
+		write("  warn_usd   (unset — no warn pill)\n")
+	}
+	if cfg.Budget.HardUSD > 0 {
+		write("  hard_usd   $%.2f\n\n", cfg.Budget.HardUSD)
+	} else {
+		write("  hard_usd   (unset — no hard gate)\n\n")
+	}
+
+	// [tools] — allowlist/denylist of the bundled tool set. Empty
+	// lists = "all defaults available"; listing here lets users
+	// confirm their config.toml actually took effect.
+	if len(cfg.Tools.Enabled) > 0 || len(cfg.Tools.Disabled) > 0 {
+		write("[tools]\n")
+		if len(cfg.Tools.Enabled) > 0 {
+			write("  enabled    %s\n", strings.Join(cfg.Tools.Enabled, ", "))
+		}
+		if len(cfg.Tools.Disabled) > 0 {
+			write("  disabled   %s\n", strings.Join(cfg.Tools.Disabled, ", "))
+		}
+		write("\n")
+	}
+
 	if cfg.OTel.Enabled || cfg.OTel.Endpoint != "" {
 		write("[otel]\n")
 		write("  enabled    %v\n", cfg.OTel.Enabled)

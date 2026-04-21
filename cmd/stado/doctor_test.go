@@ -82,3 +82,34 @@ func TestReport_AllPassedMessage(t *testing.T) {
 		t.Errorf("all-passed message missing: %q", buf.String())
 	}
 }
+
+// TestCheckOptionalBin_MissingDoesNotFail: missing optional dep
+// renders as a visible row but does NOT bump report.fails. Before
+// this split, `stado doctor` exited 2 on any dev machine without
+// gopls installed — noise, since stado works fine without it.
+func TestCheckOptionalBin_MissingDoesNotFail(t *testing.T) {
+	r := &report{}
+	r.checkOptionalBin("definitely-optional", "probably-not-on-path-xyzzy", "test note")
+	if r.fails != 0 {
+		t.Errorf("expected fails=0 for missing optional bin, got %d", r.fails)
+	}
+	if len(r.rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(r.rows))
+	}
+	if !r.rows[0].ok {
+		t.Error("expected row to render as ok (✓) even though bin is missing")
+	}
+	if r.rows[0].detail != "test note" {
+		t.Errorf("expected detail to carry note; got %q", r.rows[0].detail)
+	}
+}
+
+// TestCheckBin_MissingDoesFail: the non-optional form still counts
+// as a real failure. Guards against a refactor collapsing the two.
+func TestCheckBin_MissingDoesFail(t *testing.T) {
+	r := &report{}
+	r.checkBin("required-tool", "probably-not-on-path-xyzzy")
+	if r.fails != 1 {
+		t.Errorf("expected fails=1 for missing required bin, got %d", r.fails)
+	}
+}

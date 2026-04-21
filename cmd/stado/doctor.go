@@ -56,7 +56,8 @@ var doctorCmd = &cobra.Command{
 		d.checkBin("ripgrep (rg)", "rg")
 		d.checkBin("ast-grep", "ast-grep")
 		d.checkBin("bubblewrap (bwrap)", "bwrap")
-		d.checkBin("gopls", "gopls")
+		d.checkOptionalBin("gopls", "gopls",
+			"optional — install via `go install golang.org/x/tools/gopls@latest` to enable the lsp-find tool")
 		d.checkBin("git", "git")
 		d.checkBin("cosign", "cosign")
 
@@ -110,6 +111,26 @@ func (r *report) checkBin(label, bin string) {
 	full, err := exec.LookPath(bin)
 	if err != nil {
 		r.check(label, "not found on PATH", "missing (install hint via --help)", false)
+		return
+	}
+	r.check(label, full, "ok", true)
+}
+
+// checkOptionalBin is checkBin that doesn't flag the report as failed
+// when the binary is missing. Used for capabilities like gopls where
+// stado functions fine without them (the LSP tool silently skips) —
+// the user should still see the row but "1 check failed" shouldn't
+// be triggered by a missing optional dependency.
+func (r *report) checkOptionalBin(label, bin, note string) {
+	full, err := exec.LookPath(bin)
+	if err != nil {
+		// Emit a visually-distinct row but don't bump r.fails.
+		r.rows = append(r.rows, reportRow{
+			label:  label,
+			value:  "not found on PATH",
+			detail: note,
+			ok:     true, // render as ✓ so the exit code stays clean
+		})
 		return
 	}
 	r.check(label, full, "ok", true)
