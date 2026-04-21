@@ -23,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/skills"
+	"github.com/foobarto/stado/internal/tui/banner"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
@@ -718,6 +719,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.slash.Width = msg.Width
+		// Prime the viewport width so renderBlocks (called via
+		// layout() below) can gate the empty-state banner on an
+		// accurate chat-area width. View() sets this too on every
+		// frame, but on boot View() hasn't run yet.
+		chatW := m.width - m.theme.Layout.SidebarWidth - 1
+		if chatW > 0 {
+			m.vp.Width = chatW
+		}
 		m.layout()
 		return m, nil
 
@@ -1571,6 +1580,17 @@ func (m *Model) renderBlocks() {
 	width := m.vp.Width - 2
 	if width < 10 {
 		width = 10
+	}
+	// Empty-state: no user blocks yet → paint the startup banner so
+	// the chat area doesn't open to a blank void. Banner goes away
+	// as soon as the first block arrives. Hidden entirely when the
+	// viewport is too narrow to fit it without wrapping.
+	if len(m.blocks) == 0 {
+		if b64 := bannerFor(m.vp.Width); b64 != "" {
+			m.vp.SetContent(b64)
+			m.vp.GotoTop()
+			return
+		}
 	}
 	for i, blk := range m.blocks {
 		var out string
@@ -2583,6 +2603,27 @@ func (m *Model) handleBudgetSlash(parts []string) {
 	default:
 		m.appendBlock(block{kind: "system", body: "usage: /budget  |  /budget ack  |  /budget reset"})
 	}
+}
+
+// bannerFor returns the startup banner suitable for the given
+// viewport width. Width under 90 cols returns "" so the banner isn't
+// truncated mid-line — narrow terminals just see the plain empty
+// chat area. 90 is the natural cut-off: the banner is 100 cols wide
+// (chafa --size 100) and a handful of cols wrap gracefully, but
+// anything below 90 splits the logo visibly.
+//
+// The plain variant is used unconditionally here: bubbletea's
+// viewport wraps based on visible width, but counts ANSI escape
+// bytes as content, so the 256-colour banner (~50KB of escapes)
+// renders as a garbled soup in the chat viewport. The plain banner
+// is still recognisable as the stado logo and fits cleanly.
+// `stado banner --color` can print the ANSI variant to a regular
+// terminal where escape-aware width-measuring is available.
+func bannerFor(vpWidth int) string {
+	if vpWidth < 90 {
+		return ""
+	}
+	return banner.Plain()
 }
 
 // firePostTurnHook invokes the user-configured post_turn shell
