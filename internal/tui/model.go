@@ -2693,7 +2693,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	case "/split":
 		m.splitView = !m.splitView
 		if m.splitView {
-			m.appendBlock(block{kind: "system", body: "split view: on — conversation on top, activity tail on the bottom. /split again to toggle off."})
+			m.appendBlock(block{kind: "system", body: "split view: on — activity (tool + system) on top, conversation on bottom. /split again to toggle off."})
 		} else {
 			m.appendBlock(block{kind: "system", body: "split view: off — single chat pane restored."})
 		}

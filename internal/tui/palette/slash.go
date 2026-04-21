@@ -274,9 +274,15 @@ func groupMatches(cmds []Command) []group {
 }
 
 func renderRow(width int, c Command, selected bool) string {
-	rightCol := c.Shortcut
-	if rightCol == "" {
-		rightCol = c.Name // when no shortcut, echo the slash-command id (opencode does this)
+	// Right column shows both the slash-command id AND the
+	// keyboard shortcut (when one exists), separated by a spacer —
+	// so users can see how to invoke a command both ways at a glance
+	// rather than only seeing the "most-specific" form. Previously
+	// a command with a shortcut hid its /name; one with no shortcut
+	// hid the fact no shortcut existed.
+	rightCol := c.Name
+	if c.Shortcut != "" {
+		rightCol = c.Name + "  " + c.Shortcut
 	}
 	padded := rowTwoCol(width, c.Desc, rightCol)
 
@@ -286,9 +292,22 @@ func renderRow(width int, c Command, selected bool) string {
 			Foreground(theme.Background).
 			Render(padded)
 	}
+	// Split styling: command id in text_secondary, shortcut in muted
+	// so the keybind pops while the name stays visible.
+	name := c.Name
+	shortcut := c.Shortcut
+	var right string
+	if shortcut != "" {
+		right = lipgloss.NewStyle().Foreground(theme.Secondary).Render(name) +
+			"  " +
+			lipgloss.NewStyle().Foreground(theme.Muted).Render(shortcut)
+	} else {
+		right = lipgloss.NewStyle().Foreground(theme.Muted).Render(name)
+	}
+	pad := max(width-lipgloss.Width(c.Desc)-lipgloss.Width(rightCol), 1)
 	return lipgloss.NewStyle().Foreground(theme.Text).Render(c.Desc) +
-		strings.Repeat(" ", max(width-lipgloss.Width(c.Desc)-lipgloss.Width(rightCol), 1)) +
-		lipgloss.NewStyle().Foreground(theme.Muted).Render(rightCol)
+		strings.Repeat(" ", pad) +
+		right
 }
 
 // rowTwoCol produces a line of exactly `width` visible columns with `left`
