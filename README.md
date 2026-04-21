@@ -512,9 +512,10 @@ plugin cookbook in SECURITY.md for the publish flow.
 - [DESIGN.md](DESIGN.md) — as-built architecture
 - [PLAN.md](PLAN.md) — phased roadmap and remaining work
 - [docs/](docs/) — per-command + per-feature deep-dive guides
-- `CONTRIBUTING.md` — build, test, contribute *(pending)*
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, contribute
 - `SECURITY.md` — security policy, key rotation, vulnerability
-  reporting *(pending)*
+  reporting *(plugin-publish cookbook landed; policy + contact still
+  pending)*
 
 ---
 
