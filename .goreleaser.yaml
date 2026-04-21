@@ -113,9 +113,12 @@ nfpms:
       fields:
         Bugs: https://github.com/foobarto/stado/issues
 
-# Homebrew tap — goreleaser opens a PR against the tap repo on each
-# release. Requires a GITHUB_TOKEN with write access to the tap;
-# snapshot builds skip the PR automatically.
+# Homebrew tap — config kept for future re-enable. Disabled with
+# skip_upload: true for v0.0.1 because the tap repo
+# (foobarto/homebrew-tap) doesn't exist yet; goreleaser hard-fails
+# the release when it can't resolve the tap's default branch.
+# Flip to "auto" once the tap repo is created + a token with write
+# access is wired into the release environment.
 brews:
   - name: stado
     repository:
@@ -126,7 +129,7 @@ brews:
     homepage: https://github.com/foobarto/stado
     description: Sandboxed, git-native coding-agent runtime
     license: MIT
-    skip_upload: auto
+    skip_upload: true
     # Formula template — goreleaser derives url + sha256 from the
     # release archives above. Targets macOS + Linux Homebrew installs.
     install: |
