@@ -308,8 +308,31 @@ func parseSSE(r io.ReadCloser, ch chan<- agent.Event, span trace.Span) {
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "" {
 			continue
+		}
+		if data == "[DONE]" {
+			// End-of-stream sentinel. Some OAI-compat servers (notably
+			// lmstudio) emit `data: [DONE]` and then keep the HTTP
+			// connection open waiting for the client to close — a
+			// plain `continue` here made scanner.Scan() block forever
+			// and the TUI sat in state=streaming after the final token
+			// had already arrived. Treat [DONE] as EOF: flush any
+			// in-progress tool calls and return like a normal finish.
+			for _, idx := range order {
+				p := calls[idx]
+				ch <- agent.Event{
+					Kind: agent.EvToolCallEnd,
+					ToolCall: &agent.ToolUseBlock{
+						ID:    p.id,
+						Name:  p.name,
+						Input: json.RawMessage(p.args.String()),
+					},
+				}
+			}
+			recordUsageSpan(span, lastUsage)
+			ch <- agent.Event{Kind: agent.EvDone, Usage: lastUsage}
+			return
 		}
 		var chunk chatChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
