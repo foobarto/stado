@@ -294,6 +294,14 @@ type Model struct {
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
 	turnStart time.Time
+
+	// splitView toggles a two-pane chat area: conversation blocks
+	// (user/assistant/thinking) on top + a tail of activity blocks
+	// (tool/system) on the bottom. Toggled with `/split`. Single
+	// viewport layout when false. The activity viewport is a
+	// separate viewport.Model so it scrolls independently.
+	splitView   bool
+	activityVP  viewport.Model
 }
 
 type approvalRequest struct {
@@ -319,6 +327,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		modelPicker:      modelpicker.New(),
 		filePicker:       filepicker.New(),
 		vp:               viewport.New(0, 0),
+		activityVP:       viewport.New(0, 0),
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
@@ -1202,6 +1211,23 @@ func (m *Model) View() string {
 	m.vp.Width = mainW
 	m.vp.Height = mainH
 
+	// Split-view: top = activity (tool + system), bottom = conversation.
+	// Divide the chat area roughly 40/60 between them. Both panes get
+	// the same width but half the height (minus 1 for the separator).
+	if m.splitView {
+		actH := mainH*2/5 - 1
+		if actH < 3 {
+			actH = 3
+		}
+		convoH := mainH - actH - 1 // -1 for separator row
+		if convoH < 3 {
+			convoH = 3
+		}
+		m.activityVP.Width = mainW
+		m.activityVP.Height = actH
+		m.vp.Height = convoH
+	}
+
 	// Left column: messages viewport + approval + input + status
 	var left strings.Builder
 	// Empty-state: draw the banner directly into the left column
@@ -1212,6 +1238,16 @@ func (m *Model) View() string {
 	// for the input box to dock at the bottom.
 	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
 		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
+	} else if m.splitView {
+		// Top pane: activity tail (tool + system blocks).
+		left.WriteString(m.activityVP.View())
+		// Separator between the two panes — a dim hr matching the
+		// border colour so it reads as a structural divider rather
+		// than just more chat content.
+		left.WriteString("\n" + m.theme.Fg("border").Render(
+			strings.Repeat("─", mainW)) + "\n")
+		// Bottom pane: conversation.
+		left.WriteString(m.vp.View())
 	} else {
 		left.WriteString(m.vp.View())
 	}
@@ -1638,51 +1674,21 @@ func (m *Model) renderSidebar(width int) string {
 }
 
 func (m *Model) renderBlocks() {
+	// Split view: activity (tool + system) goes into activityVP (top
+	// pane); conversation (user + assistant + thinking) stays in vp
+	// (bottom pane). Single-view mode renders everything into vp in
+	// timeline order, which is the default behaviour.
+	if m.splitView {
+		m.renderSplitPanes()
+		return
+	}
 	var b strings.Builder
 	width := m.vp.Width - 2
 	if width < 10 {
 		width = 10
 	}
 	for i, blk := range m.blocks {
-		var out string
-		var err error
-		switch blk.kind {
-		case "user":
-			out, err = m.renderer.Exec("message_user", map[string]any{
-				"Body":  blk.body,
-				"Width": width,
-			})
-		case "assistant":
-			out, err = m.renderer.Exec("message_assistant", map[string]any{
-				"Body":  blk.body,
-				"Width": width,
-				"Model": m.model,
-			})
-		case "thinking":
-			out, err = m.renderer.Exec("message_thinking", map[string]any{
-				"Body":  blk.body,
-				"Width": width,
-			})
-		case "tool":
-			duration := ""
-			if !blk.endedAt.IsZero() && !blk.startedAt.IsZero() {
-				duration = blk.endedAt.Sub(blk.startedAt).Round(time.Millisecond).String()
-			}
-			out, err = m.renderer.Exec("message_tool", map[string]any{
-				"Name":        blk.toolName,
-				"ArgsPreview": truncate(blk.toolArgs, 40),
-				"FullArgs":    prettyJSON(blk.toolArgs),
-				"Result":      blk.toolResult,
-				"Expanded":    blk.expanded,
-				"Duration":    duration,
-				"Width":       width - 4,
-			})
-		case "system":
-			out = m.theme.Fg("error").Render(blk.body) + "\n"
-		}
-		if err != nil {
-			out = fmt.Sprintf("[render error: %v]\n", err)
-		}
+		out, _ := m.renderBlock(blk, width)
 		b.WriteString(out)
 		if i < len(m.blocks)-1 {
 			b.WriteString("\n")
@@ -1701,6 +1707,87 @@ func (m *Model) renderBlocks() {
 	} else {
 		m.vp.GotoBottom()
 	}
+}
+
+// renderBlock returns the rendered string for a single block at the
+// given target column width. Used by both the single-view and
+// split-view renderers. Width must already subtract padding for
+// whatever pane is rendering.
+func (m *Model) renderBlock(blk block, width int) (string, error) {
+	switch blk.kind {
+	case "user":
+		return m.renderer.Exec("message_user", map[string]any{
+			"Body":  blk.body,
+			"Width": width,
+		})
+	case "assistant":
+		return m.renderer.Exec("message_assistant", map[string]any{
+			"Body":  blk.body,
+			"Width": width,
+			"Model": m.model,
+		})
+	case "thinking":
+		return m.renderer.Exec("message_thinking", map[string]any{
+			"Body":  blk.body,
+			"Width": width,
+		})
+	case "tool":
+		duration := ""
+		if !blk.endedAt.IsZero() && !blk.startedAt.IsZero() {
+			duration = blk.endedAt.Sub(blk.startedAt).Round(time.Millisecond).String()
+		}
+		return m.renderer.Exec("message_tool", map[string]any{
+			"Name":        blk.toolName,
+			"ArgsPreview": truncate(blk.toolArgs, 40),
+			"FullArgs":    prettyJSON(blk.toolArgs),
+			"Result":      blk.toolResult,
+			"Expanded":    blk.expanded,
+			"Duration":    duration,
+			"Width":       width - 4,
+		})
+	case "system":
+		return m.theme.Fg("error").Render(blk.body) + "\n", nil
+	}
+	return "", nil
+}
+
+// renderSplitPanes paints m.blocks into two separate viewports:
+// activity (tool + system) in the TOP pane (m.activityVP),
+// conversation (user + assistant + thinking) in the BOTTOM pane
+// (m.vp). Default ordering within each pane is chronological so the
+// most recent output lands at the bottom of its pane (matching the
+// chat-log metaphor).
+func (m *Model) renderSplitPanes() {
+	var convo, activity strings.Builder
+	convoW := m.vp.Width - 2
+	if convoW < 10 {
+		convoW = 10
+	}
+	actW := m.activityVP.Width - 2
+	if actW < 10 {
+		actW = 10
+	}
+	for _, blk := range m.blocks {
+		isActivity := blk.kind == "tool" || blk.kind == "system"
+		var target *strings.Builder
+		var w int
+		if isActivity {
+			target = &activity
+			w = actW
+		} else {
+			target = &convo
+			w = convoW
+		}
+		out, _ := m.renderBlock(blk, w)
+		target.WriteString(out)
+		target.WriteString("\n")
+	}
+	m.activityVP.SetContent(activity.String())
+	m.vp.SetContent(convo.String())
+	// Pin each to its bottom so the most recent entry is always in
+	// view when new events arrive.
+	m.activityVP.GotoBottom()
+	m.vp.GotoBottom()
 }
 
 // ==== Streaming + conversation state =====================================
@@ -2586,6 +2673,14 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		return m.handleRetrySlash()
 	case "/session":
 		m.handleSessionSlash()
+	case "/split":
+		m.splitView = !m.splitView
+		if m.splitView {
+			m.appendBlock(block{kind: "system", body: "split view: on — conversation on top, activity tail on the bottom. /split again to toggle off."})
+		} else {
+			m.appendBlock(block{kind: "system", body: "split view: off — single chat pane restored."})
+		}
+		m.renderBlocks()
 	default:
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}

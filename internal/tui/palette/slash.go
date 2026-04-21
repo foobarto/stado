@@ -49,6 +49,7 @@ var Commands = []Command{
 
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},
+	{"/split", "Split the chat into conversation + activity tail panes", "", "View"},
 	{"/todo", "Add a todo item (/todo <title>)", "", "View"},
 }
 
