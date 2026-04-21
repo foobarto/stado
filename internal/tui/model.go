@@ -2605,15 +2605,16 @@ func (m *Model) handleBudgetSlash(parts []string) {
 // isn't truncated mid-line — narrow terminals just see the plain
 // empty chat area.
 //
-// Plain variant is used here: bubbletea's viewport counts ANSI
-// escape bytes as content, so the 256-colour banner (~50KB of
-// escapes) confuses wrap-measurement. The plain banner is still
-// recognisable as the stado logo and fits cleanly.
+// We now write the banner directly into the left column (bypassing
+// bubbletea's viewport) so the 256-colour ANSI variant renders
+// correctly: lipgloss's layout passes the escape bytes through
+// untouched and the terminal paints them as colours. NO_COLOR is
+// honoured inside banner.String() — sets the plain variant there.
 func bannerFor(vpWidth int) string {
 	if vpWidth < 90 {
 		return ""
 	}
-	return banner.Plain()
+	return banner.String()
 }
 
 // renderBannerBlock returns the banner trimmed to at most maxH rows
