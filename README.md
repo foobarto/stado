@@ -408,15 +408,113 @@ land`. The sidecar repo is safe to delete — it rebuilds on next run.
 
 ---
 
+## Configuring tools & sandboxing
+
+Stado ships 14 bundled tools by default (read/write/edit, glob/grep/
+ripgrep/ast_grep, bash, webfetch, read_with_context, four LSP-backed
+symbol tools). All are exposed to the model in every surface: the TUI,
+`stado run --tools`, headless JSON-RPC, the ACP server, and
+`stado mcp-server`. `stado config show` prints the current effective
+surface; `stado doctor` reports which opt-in knobs are set.
+
+### Trim the tool set
+
+Two `[tools]` knobs in `config.toml`:
+
+```toml
+[tools]
+# Allowlist — only these 3 tools are visible to the model. Every
+# other bundled tool is silently omitted from the registry.
+enabled  = ["read", "grep", "bash"]
+
+# OR: start from the full default set and strip specific tools.
+# enabled takes precedence when both are set.
+disabled = ["webfetch", "bash"]
+```
+
+Unknown names in either list log a stderr warning and are ignored —
+configs survive tool renames across stado versions.
+
+### Approvals
+
+`[approvals]` controls when the TUI prompts before a tool call runs:
+
+```toml
+[approvals]
+mode      = "prompt"                    # "prompt" | "allowlist"
+allowlist = ["read", "glob", "grep",    # auto-approved in allowlist mode
+             "ripgrep", "ast_grep"]
+```
+
+In the TUI, `/approvals always <tool>` adds a session-scoped
+auto-approve for the current run (cleared on restart). `/approvals
+forget` removes every session-scoped entry.
+
+### Sandboxing
+
+Linux uses two enforcement layers, both kernel-native:
+
+- **Landlock** (kernel ≥ 5.13) — filesystem confinement. `stado run
+  --sandbox-fs` narrows the whole process to writes under the active
+  worktree + `/tmp`. Reads stay permitted so globs and greps across
+  the rest of the repo still work.
+- **Bubblewrap + seccomp BPF** — shell exec. Every `bash` tool call
+  and every MCP stdio server is launched inside a bwrap namespace
+  with a seccomp profile that strips the usual escape routes
+  (`ptrace`, `mount`, `bpf`, `modify_ldt`, etc.).
+
+**Network egress** goes through an in-process CONNECT-allowlist
+proxy. The `bash` tool can only reach hosts the capability manifest
+permits (`net:<host>` entries in the MCP server's capabilities list,
+or `net:allow` for unrestricted — noisy stderr warning when that
+broad). `stado doctor` reports Landlock availability and the
+sandbox runner in use.
+
+### MCP server isolation
+
+Each `[mcp.servers.<name>]` block attaches an external MCP tool
+server. Declare a `capabilities` list to gate what that server can
+touch:
+
+```toml
+[mcp.servers.github]
+command      = "mcp-github"
+args         = ["--readonly"]
+env          = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+capabilities = [
+  "net:api.github.com",
+  "net:raw.githubusercontent.com",
+  "env:GITHUB_TOKEN",
+]
+```
+
+Capability grammar: `fs:read:<path>` · `fs:write:<path>` · `net:<host>`
+· `net:allow` · `net:deny` · `exec:<binary>` · `env:<VAR>`. Empty
+capabilities mean unsandboxed (a legacy default); stado logs a loud
+advisory on stderr.
+
+HTTP MCP servers (`url = "https://…"`) don't participate in the
+bubblewrap sandbox — their network activity is the client's
+concern. stdio servers (`command = …`) do.
+
+### WASM plugins
+
+Third-party tools ship as signed wasm binaries, verified against an
+Ed25519 trust store (`stado plugin trust <pubkey>`). Capabilities are
+declared in the manifest, enforced by the `wazero` runtime — no
+kernel-level sandbox needed because wasm already is one. See the
+plugin cookbook in SECURITY.md for the publish flow.
+
+---
+
 ## Docs
 
 - [DESIGN.md](DESIGN.md) — as-built architecture
 - [PLAN.md](PLAN.md) — phased roadmap and remaining work
+- [docs/](docs/) — per-command + per-feature deep-dive guides
 - `CONTRIBUTING.md` — build, test, contribute *(pending)*
 - `SECURITY.md` — security policy, key rotation, vulnerability
   reporting *(pending)*
-- `docs/` — per-topic guides (ACP integration, MCP servers, sandbox
-  policies, telemetry) *(pending)*
 
 ---
 
