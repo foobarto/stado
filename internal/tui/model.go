@@ -1175,7 +1175,23 @@ func (m *Model) View() string {
 
 	// Left column: messages viewport + approval + input + status
 	var left strings.Builder
-	left.WriteString(m.vp.View() + "\n")
+	// Empty-state: draw the banner directly into the left column
+	// (bypassing the viewport) so the top of the logo isn't eaten by
+	// the viewport's scroll position when content is taller than the
+	// pane. Don't pad to mainH — vp.View() on empty content returns
+	// an empty string, so the input box normally floats up; we match
+	// that behaviour and let the banner occupy only its own rows.
+	if len(m.blocks) == 0 && bannerFor(mainW) != "" {
+		// Leading newline is load-bearing: the left column's first
+		// row is consumed by the surrounding lipgloss/JoinHorizontal
+		// layout (same behaviour as an empty viewport, which renders
+		// "" rather than a visible row). Without this the top row of
+		// the banner — the tightest part of the sheep's wool — gets
+		// eaten and the logo reads as starting mid-shape.
+		left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
+	} else {
+		left.WriteString(m.vp.View() + "\n")
+	}
 	if m.approval != nil {
 		left.WriteString(m.theme.Fg("warning").Render(
 			fmt.Sprintf("⚠ %s — allow? [y]es / [n]o  %s",
@@ -1580,17 +1596,6 @@ func (m *Model) renderBlocks() {
 	width := m.vp.Width - 2
 	if width < 10 {
 		width = 10
-	}
-	// Empty-state: no user blocks yet → paint the startup banner so
-	// the chat area doesn't open to a blank void. Banner goes away
-	// as soon as the first block arrives. Hidden entirely when the
-	// viewport is too narrow to fit it without wrapping.
-	if len(m.blocks) == 0 {
-		if b64 := bannerFor(m.vp.Width); b64 != "" {
-			m.vp.SetContent(b64)
-			m.vp.GotoTop()
-			return
-		}
 	}
 	for i, blk := range m.blocks {
 		var out string
@@ -2606,24 +2611,37 @@ func (m *Model) handleBudgetSlash(parts []string) {
 }
 
 // bannerFor returns the startup banner suitable for the given
-// viewport width. Width under 90 cols returns "" so the banner isn't
-// truncated mid-line — narrow terminals just see the plain empty
-// chat area. 90 is the natural cut-off: the banner is 100 cols wide
-// (chafa --size 100) and a handful of cols wrap gracefully, but
-// anything below 90 splits the logo visibly.
+// chat-column width. Width under 90 cols returns "" so the banner
+// isn't truncated mid-line — narrow terminals just see the plain
+// empty chat area.
 //
-// The plain variant is used unconditionally here: bubbletea's
-// viewport wraps based on visible width, but counts ANSI escape
-// bytes as content, so the 256-colour banner (~50KB of escapes)
-// renders as a garbled soup in the chat viewport. The plain banner
-// is still recognisable as the stado logo and fits cleanly.
-// `stado banner --color` can print the ANSI variant to a regular
-// terminal where escape-aware width-measuring is available.
+// Plain variant is used here: bubbletea's viewport counts ANSI
+// escape bytes as content, so the 256-colour banner (~50KB of
+// escapes) confuses wrap-measurement. The plain banner is still
+// recognisable as the stado logo and fits cleanly.
 func bannerFor(vpWidth int) string {
 	if vpWidth < 90 {
 		return ""
 	}
 	return banner.Plain()
+}
+
+// renderBannerBlock returns the banner trimmed to at most maxH rows
+// so a short terminal gets a truncated banner rather than one that
+// overflows and pushes the input box off-screen. No bottom padding:
+// vp.View() on empty content returns an empty string (not maxH
+// blanks), so the input box floats up naturally — we mirror that
+// so the banner occupies just its own rows.
+func renderBannerBlock(width, maxH int) string {
+	raw := bannerFor(width)
+	if raw == "" {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
+	if len(lines) > maxH {
+		lines = lines[:maxH]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // firePostTurnHook invokes the user-configured post_turn shell
