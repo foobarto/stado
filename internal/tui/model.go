@@ -100,6 +100,7 @@ func (m inputMode) String() string {
 // Internal messages used by the bubbletea update loop.
 type (
 	streamEventMsg   struct{ ev agent.Event }
+	streamBatchMsg   struct{ evs []agent.Event }
 	streamErrorMsg   struct{ err error }
 	streamDoneMsg    struct{}
 	toolsExecutedMsg struct{ results []agent.ToolResultBlock }
@@ -730,22 +731,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamEventMsg:
 		m.handleStreamEvent(msg.ev)
-		// Throttle visual re-renders during high-rate streaming so
-		// bubbletea's renderer doesn't fall behind. Fast models +
-		// reasoning tokens can produce 10+ events/second; rendering
-		// the viewport that frequently stalls the event loop and
-		// makes later deltas invisible. Always render on terminal
-		// events (EvDone / EvError / EvToolCallEnd) so the final
-		// state is pixel-accurate.
-		now := time.Now()
-		boundary := msg.ev.Kind == agent.EvDone ||
-			msg.ev.Kind == agent.EvError ||
-			msg.ev.Kind == agent.EvToolCallEnd ||
-			msg.ev.Kind == agent.EvToolCallStart
-		if boundary || now.Sub(m.lastStreamRender) > 80*time.Millisecond {
-			m.renderBlocks()
-			m.lastStreamRender = now
+		m.renderBlocks()
+		return m, nil
+
+	case streamBatchMsg:
+		// Apply a batched run of stream events in one pass. The
+		// stream goroutine coalesces non-boundary deltas (text /
+		// thinking) into these batches so bubbletea's unbuffered
+		// program.msgs channel doesn't backlog under reasoning-
+		// model event rates — which was starving KeyMsgs (/clear,
+		// Ctrl+C, typing) for tens of seconds.
+		for _, ev := range msg.evs {
+			m.handleStreamEvent(ev)
 		}
+		m.renderBlocks()
 		return m, nil
 
 	case streamErrorMsg:
@@ -1069,11 +1068,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// wait for drain — the current turn is mid-stream and
 			// must not see the new user message in its context window.
 			if m.state == stateStreaming {
-				m.queuedPrompt = text
-				if !strings.HasPrefix(text, "/") {
-					m.appendBlock(block{kind: "user", body: text})
-					m.renderBlocks()
+				// Slash commands bypass the queue — /clear, /compact,
+				// /retry etc. are meta-commands users expect to act
+				// immediately even mid-stream. Everything else
+				// (regular prompts) gets queued for after-drain.
+				if strings.HasPrefix(text, "/") {
+					m.input.Reset()
+					m.slash.Visible = false
+					return m, m.handleSlash(text)
 				}
+				m.queuedPrompt = text
+				m.appendBlock(block{kind: "user", body: text})
+				m.renderBlocks()
 				m.input.History.Push(text)
 				m.input.Reset()
 				return m, nil
@@ -1868,8 +1874,35 @@ func (m *Model) startStream() tea.Cmd {
 			m.sendMsg(streamErrorMsg{err: err})
 			return
 		}
+		// Coalesce runs of text/thinking deltas into a single
+		// streamBatchMsg send so KeyMsgs (/clear, Ctrl+C, plain
+		// typing) interleave cleanly on bubbletea's unbuffered
+		// program channel. Without this, reasoning models can push
+		// hundreds of tiny events in a burst and effectively starve
+		// the keyboard reader for tens of seconds.
+		const flushInterval = 30 * time.Millisecond
+		var pending []agent.Event
+		lastFlush := time.Now()
+		flush := func() {
+			if len(pending) == 0 {
+				return
+			}
+			// Copy the slice (the caller will keep mutating pending).
+			batch := make([]agent.Event, len(pending))
+			copy(batch, pending)
+			m.sendMsg(streamBatchMsg{evs: batch})
+			pending = pending[:0]
+			lastFlush = time.Now()
+		}
 		for ev := range ch {
-			m.sendMsg(streamEventMsg{ev: ev})
+			boundary := ev.Kind == agent.EvDone ||
+				ev.Kind == agent.EvError ||
+				ev.Kind == agent.EvToolCallStart ||
+				ev.Kind == agent.EvToolCallEnd
+			pending = append(pending, ev)
+			if boundary || time.Since(lastFlush) >= flushInterval {
+				flush()
+			}
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
 				if ev.Kind == agent.EvDone && ev.Usage != nil {
 					m.usage.InputTokens = ev.Usage.InputTokens
@@ -1880,6 +1913,7 @@ func (m *Model) startStream() tea.Cmd {
 				return
 			}
 		}
+		flush()
 		m.sendMsg(streamDoneMsg{})
 	}()
 	return nil
@@ -1892,6 +1926,13 @@ func (m *Model) sendMsg(msg tea.Msg) {
 }
 
 func (m *Model) handleStreamEvent(ev agent.Event) {
+	// Drop stray events that arrived after the stream was cancelled
+	// (e.g. /clear pressed mid-stream). Compaction state has its own
+	// required flow so don't gate it.
+	if m.state != stateStreaming && !m.compacting &&
+		ev.Kind != agent.EvDone && ev.Kind != agent.EvError {
+		return
+	}
 	switch ev.Kind {
 	case agent.EvTextDelta:
 		// Compaction streams go into the pending-summary buffer AND the
@@ -2469,8 +2510,17 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	}
 	switch parts[0] {
 	case "/clear":
+		if m.state == stateStreaming && m.streamCancel != nil {
+			m.streamCancel()
+			m.streamCancel = nil
+			m.state = stateIdle
+		}
 		m.blocks = nil
 		m.msgs = nil
+		m.queuedPrompt = ""
+		m.turnText = ""
+		m.turnThinking = ""
+		m.turnToolCalls = nil
 		m.renderBlocks()
 	case "/help":
 		m.showHelp = true
