@@ -55,6 +55,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-repo PAT for publishing the Homebrew formula to
+          # foobarto/homebrew-tap. The default GITHUB_TOKEN only has
+          # write scope on the current repo, so the tap PR needs a
+          # PAT provisioned as HOMEBREW_TAP_TOKEN. When unset, the
+          # goreleaser tap step auto-skips and the release still
+          # succeeds — just without the tap PR.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Collect artifact digests
         id: checksums
