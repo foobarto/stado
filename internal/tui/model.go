@@ -2444,13 +2444,18 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	}
 	// /plugin and /plugin:<name>-<ver> [<tool> [json-args]] — routed
 	// before the switch since the plugin-name suffix is dynamic.
+	// Both return early, bypassing the renderBlocks() at the bottom
+	// of this function; do it here so any system block the handlers
+	// appended actually reaches the viewport.
 	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {
-		return m.handlePluginSlash(parts)
+		cmd := m.handlePluginSlash(parts)
+		m.renderBlocks()
+		return cmd
 	}
-	// /skill lists loaded skills; /skill:<name> injects the body as
-	// a user message so the LLM acts on it on the next turn.
 	if parts[0] == "/skill" || strings.HasPrefix(parts[0], "/skill:") {
-		return m.handleSkillSlash(parts)
+		cmd := m.handleSkillSlash(parts)
+		m.renderBlocks()
+		return cmd
 	}
 	switch parts[0] {
 	case "/clear":
