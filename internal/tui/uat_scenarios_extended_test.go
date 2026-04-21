@@ -161,9 +161,11 @@ func TestUAT_ApprovalStateRoutesYN(t *testing.T) {
 	}
 }
 
-// E2: 'y' approves — without a real executor, executeCall still
+// E2: 'y' approves — without a real executor, executeCallAsync still
 // runs and returns an "unavailable" result. The distinguishing
 // signal vs deny is the lack of "Denied" in the content body.
+// Async tool execution means the result arrives via toolResultMsg
+// and must be forwarded through Update to reach toolsExecutedMsg.
 func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateApproval
@@ -177,17 +179,98 @@ func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 		t.Error("y should clear approval request")
 	}
 	if cmd == nil {
-		t.Fatal("approve should return a cmd carrying toolsExecutedMsg")
+		t.Fatal("approve should return a cmd carrying toolResultMsg")
 	}
-	tem, ok := cmd().(toolsExecutedMsg)
+	// executeCallAsync returns a tea.Cmd that produces toolResultMsg.
+	// Feed that back into Update so advanceApproval can drain to
+	// toolsExecutedMsg.
+	msg := cmd()
+	trm, ok := msg.(toolResultMsg)
 	if !ok {
-		t.Fatalf("cmd returned wrong type: %T", cmd)
+		t.Fatalf("cmd returned %T, want toolResultMsg", msg)
+	}
+	_, cmd2 := m.Update(trm)
+	if cmd2 == nil {
+		t.Fatal("toolResultMsg should trigger toolsExecutedMsg")
+	}
+	tem, ok := cmd2().(toolsExecutedMsg)
+	if !ok {
+		t.Fatalf("second cmd returned wrong type: %T", cmd2)
 	}
 	if len(tem.results) != 1 {
 		t.Fatalf("results = %d, want 1", len(tem.results))
 	}
 	if strings.Contains(tem.results[0].Content, "Denied") {
 		t.Errorf("approved call should NOT contain 'Denied': %q", tem.results[0].Content)
+	}
+}
+
+// E3: SetApprovals with mode=allowlist pre-populates rememberedAllow
+// so named tools run without the ⚠ y/n prompt. Covers the bug where
+// `[approvals]` in config was parsed but never applied by the TUI.
+func TestUAT_ApprovalConfigAllowlistAutoPasses(t *testing.T) {
+	m := scenarioModel(t)
+	m.SetApprovals("allowlist", []string{"read", "grep"})
+
+	if !m.rememberedAllow["read"] || !m.rememberedAllow["grep"] {
+		t.Fatalf("rememberedAllow missing entries: %v", m.rememberedAllow)
+	}
+
+	// Prompt mode (default) must NOT seed auto-allows even if an
+	// allowlist is passed — that's the explicit opt-in contract.
+	m2 := scenarioModel(t)
+	m2.SetApprovals("prompt", []string{"read"})
+	if m2.rememberedAllow["read"] {
+		t.Error("prompt mode should leave rememberedAllow empty")
+	}
+}
+
+// E4: queued user message renders as a block with a "queued" pill and
+// clears the pill once the running stream drains and the follow-up
+// gets dispatched. This is the visible counterpart to queuedPrompt
+// — before we kept the follow-up in the status bar only, which made
+// it easy to miss.
+func TestUAT_QueuedPromptRendersBlockAndClearsOnDrain(t *testing.T) {
+	m := scenarioModel(t)
+	// Manually fabricate the state submit would produce during a
+	// streaming turn: a queued block + the text in queuedPrompt.
+	m.state = stateStreaming
+	m.blocks = append(m.blocks, block{kind: "user", body: "hi"})
+	m.blocks = append(m.blocks, block{kind: "user", body: "follow-up", queued: true})
+	m.queuedPrompt = "follow-up"
+
+	// End the fake turn — onTurnComplete should drain queuedPrompt
+	// and clear the queued flag on the matching block.
+	m.state = stateIdle
+	_ = m.onTurnComplete()
+
+	if m.blocks[1].queued {
+		t.Error("queued flag should be cleared after drain")
+	}
+	if m.queuedPrompt != "" {
+		t.Errorf("queuedPrompt = %q, want empty", m.queuedPrompt)
+	}
+}
+
+// E5: Ctrl+C with a queued-but-not-yet-dispatched prompt wipes both
+// the pending text AND the block we appended for visual feedback.
+// Leaving the block behind would show a dangling "queued" pill with
+// no matching message in history.
+func TestUAT_QueuedPromptCtrlCDropsBlock(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.blocks = append(m.blocks, block{kind: "user", body: "queued-msg", queued: true})
+	m.queuedPrompt = "queued-msg"
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if m.queuedPrompt != "" {
+		t.Error("Ctrl+C should clear queuedPrompt")
+	}
+	for _, blk := range m.blocks {
+		if blk.queued {
+			t.Errorf("queued block survived Ctrl+C: %+v", blk)
+		}
 	}
 }
 

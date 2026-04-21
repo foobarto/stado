@@ -24,12 +24,13 @@ so you can verify what you're running, including from an airgapped
 environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native state, signed
-> audit log, sandbox (Linux), OpenTelemetry instrumentation, MCP/ACP
-> integration, and Phase 11 context management (prompt-cache
-> plumbing, token counting, in-turn read dedup, per-tool output
-> budgets, fork-from-point ergonomics, and user-invoked compaction)
-> are shipped. macOS/Windows sandbox and WASM plugins are still in
-> flight — see [PLAN.md](PLAN.md) for the phased roadmap.
+> audit log, sandbox (Linux + macOS), OpenTelemetry instrumentation,
+> MCP/ACP integration, signed WASM plugins with CRL enforcement, and
+> Phase 11 context management (prompt-cache plumbing, token counting,
+> in-turn read dedup, per-tool output budgets, fork-from-point
+> ergonomics, and user-invoked compaction) are shipped. Windows
+> sandbox v2 (job objects + restricted tokens) is still in flight —
+> see [PLAN.md](PLAN.md) for the phased roadmap.
 
 ---
 
@@ -359,7 +360,7 @@ stado reads `$XDG_CONFIG_HOME/stado/config.toml` (scaffolded by
 ```toml
 [defaults]
 provider = "anthropic"
-model    = "claude-sonnet-4-5"
+model    = "claude-sonnet-4-6"
 
 [approvals]
 mode      = "prompt"                     # "prompt" | "allowlist"
@@ -380,7 +381,7 @@ protocol = "grpc"
 
 [context]
 soft_threshold = 0.70   # TUI shows a warning indicator above this
-hard_threshold = 0.90   # reserved for future blocking UX (pairs with compaction)
+hard_threshold = 0.90   # blocks new turns above this — /compact or /clear to continue
 ```
 
 Every key is overridable via env var: `STADO_DEFAULTS_PROVIDER=ollama`,
@@ -554,3 +555,7 @@ and Google. The planned WASM plugin runtime will use
 [wazero](https://github.com/tetratelabs/wazero). The Agent Client
 Protocol is developed by [Zed](https://github.com/zed-industries/agent-client-protocol).
 The Model Context Protocol is developed by [Anthropic](https://modelcontextprotocol.io/).
+
+<p align="center">
+  <img src="assets/stado_footer.png" alt="stado" width="100%">
+</p>

@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/charmbracelet/glamour"
@@ -27,9 +28,15 @@ var defaultTemplates embed.FS
 
 // Renderer renders UI elements using loaded templates and a theme.
 type Renderer struct {
-	theme    *theme.Theme
-	glamour  *glamour.TermRenderer
-	tmpl     *template.Template
+	theme *theme.Theme
+	tmpl  *template.Template
+	// mdCache memoises per-width TermRenderer instances. Creating one
+	// via glamour.NewTermRenderer parses the entire ansi style bundle
+	// (chroma lexer init, theme compile) — easily 5-10ms. During a
+	// streaming turn we re-render every block 10+ times/sec at a
+	// stable viewport width, so caching by width is a big win.
+	mdCache map[int]*glamour.TermRenderer
+	mdMu    sync.Mutex
 }
 
 // New returns a Renderer using bundled templates.
@@ -41,16 +48,7 @@ func New(th *theme.Theme) (*Renderer, error) {
 // overrides loaded from overlayDir. Filenames must match bundled names
 // ("message_user.tmpl" etc.); missing files fall back to the embedded default.
 func NewWithOverlay(th *theme.Theme, overlayDir string) (*Renderer, error) {
-	r := &Renderer{theme: th}
-
-	gm, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(0), // caller controls width
-	)
-	if err != nil {
-		return nil, fmt.Errorf("render: glamour: %w", err)
-	}
-	r.glamour = gm
+	r := &Renderer{theme: th, mdCache: map[int]*glamour.TermRenderer{}}
 
 	root := template.New("stado").Funcs(r.funcMap())
 	if err := walkTemplates(root, defaultTemplates, "templates"); err != nil {
@@ -199,18 +197,28 @@ func toStr(v any) string {
 
 // markdown renders body through glamour at a given width. Falls back to raw
 // text if glamour errors, so a template author never ends up with an empty
-// assistant message.
+// assistant message. The per-width TermRenderer is memoised on r (protected
+// by mdMu) — creating one costs ~5-10ms, which adds up fast when streaming.
 func (r *Renderer) markdown(body string, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	gm, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width),
-	)
-	if err != nil {
-		return body
+	r.mdMu.Lock()
+	gm, ok := r.mdCache[width]
+	if !ok {
+		var err error
+		gm, err = glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(width),
+			glamour.WithPreservedNewLines(),
+		)
+		if err != nil {
+			r.mdMu.Unlock()
+			return body
+		}
+		r.mdCache[width] = gm
 	}
+	r.mdMu.Unlock()
 	out, err := gm.Render(body)
 	if err != nil {
 		return body

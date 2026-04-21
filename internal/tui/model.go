@@ -46,14 +46,33 @@ type block struct {
 	kind string // "user" | "assistant" | "thinking" | "tool"
 	body string
 
+	// queued: user message appended to the chat while a turn was in
+	// flight. The block renders with a muted "queued" tag until the
+	// current stream drains and this message is dispatched to the
+	// model. Lets users see their own follow-up lined up instead of
+	// wondering if it registered.
+	queued bool
+
 	// Tool-call specific
-	toolID    string
-	toolName  string
-	toolArgs  string
+	toolID     string
+	toolName   string
+	toolArgs   string
 	toolResult string
 	startedAt  time.Time
 	endedAt    time.Time
 	expanded   bool
+
+	// Render cache: avoid re-running glamour/markdown on every frame.
+	// Streaming a long assistant message causes renderBlocks to fire
+	// 10+ times/sec; without caching, each tick re-renders every past
+	// block from scratch — glamour alone costs ~10ms per 3KB block, so
+	// for long conversations the main goroutine blocks for hundreds of
+	// ms per tick and the UI stops responding to keys. We cache per-
+	// block and invalidate on (body | width | expanded) change.
+	cachedWidth  int
+	cachedOut    string
+	cachedExpand bool
+	cachedResult string
 }
 
 type todo struct {
@@ -112,6 +131,13 @@ type (
 		tool    string
 		content string
 		errMsg  string
+	}
+	// toolResultMsg carries the outcome of a single approved or
+	// remembered-allow tool call back to the Update loop. The UI stays
+	// responsive while the tool runs; this message triggers the next
+	// remembered tool or the final toolsExecutedMsg drain.
+	toolResultMsg struct {
+		result agent.ToolResultBlock
 	}
 	// pluginForkMsg is dispatched when a plugin's ForkFn closure
 	// creates a child session. Surfaced in Update as a user-visible
@@ -394,6 +420,26 @@ func (m *Model) SetContextThresholds(soft, hard float64) {
 // hooks directly on the model.
 func (m *Model) SetHooks(postTurn string) {
 	m.hookRunner.PostTurnCmd = postTurn
+}
+
+// SetApprovals seeds the session-scoped auto-approve set from config.
+// mode "allowlist" turns every name in `allowlist` into an auto-pass so
+// the approval prompt skips those tools. Any other mode (default
+// "prompt") leaves the set empty — every call still asks y/n. The
+// /approvals slash commands continue to mutate the set at runtime.
+func (m *Model) SetApprovals(mode string, allowlist []string) {
+	if mode != "allowlist" || len(allowlist) == 0 {
+		return
+	}
+	if m.rememberedAllow == nil {
+		m.rememberedAllow = map[string]bool{}
+	}
+	for _, name := range allowlist {
+		if name == "" {
+			continue
+		}
+		m.rememberedAllow[name] = true
+	}
 }
 
 // SetBudget propagates [budget] config into the TUI. Both args are
@@ -844,6 +890,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, nil
 
+	case toolResultMsg:
+		// Async tool call completed — result arrives here so the UI
+		// never blocks on long-running tools (e.g. bash sleep 30).
+		m.pendingResults = append(m.pendingResults, msg.result)
+		return m, m.advanceApproval()
+
 	case pluginRunResultMsg:
 		// /plugin:<name>-<ver> <tool> [args] finished. Render outcome
 		// as a system block and leave conversation state untouched —
@@ -1052,7 +1104,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case m.keys.Matches(msg, keys.TipsToggle):
-			m.showHelp = true
+			// Gate `?` to empty input so a literal question mark inside a
+			// prompt ("what's this?") inserts as text instead of popping
+			// the help overlay. Ctrl+P / slash palette are still reachable
+			// with content in the editor.
+			if m.input.Value() == "" {
+				m.showHelp = true
+				m.layout()
+				return m, nil
+			}
+
+		case m.keys.Matches(msg, keys.CommandList):
+			// Ctrl+P opens the command palette modal. The palette owns
+			// its own search input — the main textarea is untouched.
+			// `/` only opens the palette when the editor is empty so
+			// typing a slash mid-prompt inserts as text instead.
+			if msg.String() == "/" && m.input.Value() != "" {
+				break
+			}
+			m.slash.Open()
 			m.layout()
 			return m, nil
 
@@ -1076,13 +1146,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.layout()
 			return m, nil
 
-		case m.keys.Matches(msg, keys.CommandList):
-			// Ctrl+P opens the command palette modal. The palette owns
-			// its own search input — the main textarea is untouched.
-			m.slash.Open()
-			m.layout()
-			return m, nil
-
 		case m.keys.Matches(msg, keys.InputClear):
 			// Ctrl+C at the top level: cancel in-flight state rather than
 			// quit. The exit key is ctrl+d; let ctrl+c act like a
@@ -1097,6 +1160,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// that combines two intents.
 				if m.queuedPrompt != "" {
 					m.queuedPrompt = ""
+					// Also drop the queued-user block that was appended
+					// for visual feedback — Ctrl+C on a queued prompt
+					// means "forget this message", so leaving the block
+					// in the transcript with a dangling "queued" pill
+					// would be misleading.
+					for i := len(m.blocks) - 1; i >= 0; i-- {
+						if m.blocks[i].kind == "user" && m.blocks[i].queued {
+							m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
+							break
+						}
+					}
+					m.renderBlocks()
 					return m, nil
 				}
 				if m.state == stateStreaming && m.streamCancel != nil {
@@ -1140,7 +1215,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.handleSlash(text)
 				}
 				m.queuedPrompt = text
-				m.appendBlock(block{kind: "user", body: text})
+				m.appendBlock(block{kind: "user", body: text, queued: true})
 				m.renderBlocks()
 				m.input.History.Push(text)
 				m.input.Reset()
@@ -1746,8 +1821,8 @@ func (m *Model) renderBlocks() {
 	if width < 10 {
 		width = 10
 	}
-	for i, blk := range m.blocks {
-		out, _ := m.renderBlock(blk, width)
+	for i := range m.blocks {
+		out := m.renderBlockCached(i, width)
 		b.WriteString(out)
 		if i < len(m.blocks)-1 {
 			b.WriteString("\n")
@@ -1768,6 +1843,39 @@ func (m *Model) renderBlocks() {
 	}
 }
 
+// renderBlockCached is the hot path: during streaming we call
+// renderBlocks many times per second, so re-running glamour on every
+// historical (unchanged) block is pure overhead. We cache the last
+// rendered output on the block itself and reuse it whenever body /
+// width / expand state / tool result are all unchanged. The live
+// streaming assistant/thinking block keeps growing so its cache misses
+// each tick, which is the intended behaviour — everything else is
+// immutable the moment it scrolls past the current turn.
+func (m *Model) renderBlockCached(i, width int) string {
+	blk := &m.blocks[i]
+	if blk.cachedOut != "" &&
+		blk.cachedWidth == width &&
+		blk.cachedExpand == blk.expanded &&
+		blk.cachedResult == blk.toolResult {
+		return blk.cachedOut
+	}
+	out, _ := m.renderBlock(*blk, width)
+	blk.cachedOut = out
+	blk.cachedWidth = width
+	blk.cachedExpand = blk.expanded
+	blk.cachedResult = blk.toolResult
+	return out
+}
+
+// invalidateBlockCache forces a re-render of the given block next time
+// renderBlocks runs. Call from handleStreamEvent after mutating a
+// block's body so the cache doesn't serve stale content.
+func (m *Model) invalidateBlockCache(i int) {
+	if i >= 0 && i < len(m.blocks) {
+		m.blocks[i].cachedOut = ""
+	}
+}
+
 // renderBlock returns the rendered string for a single block at the
 // given target column width. Used by both the single-view and
 // split-view renderers. Width must already subtract padding for
@@ -1776,8 +1884,9 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 	switch blk.kind {
 	case "user":
 		return m.renderer.Exec("message_user", map[string]any{
-			"Body":  blk.body,
-			"Width": width,
+			"Body":   blk.body,
+			"Width":  width,
+			"Queued": blk.queued,
 		})
 	case "assistant":
 		return m.renderer.Exec("message_assistant", map[string]any{
@@ -1826,7 +1935,8 @@ func (m *Model) renderSplitPanes() {
 	if actW < 10 {
 		actW = 10
 	}
-	for _, blk := range m.blocks {
+	for i := range m.blocks {
+		blk := &m.blocks[i]
 		isActivity := blk.kind == "tool" || blk.kind == "system"
 		var target *strings.Builder
 		var w int
@@ -1837,8 +1947,7 @@ func (m *Model) renderSplitPanes() {
 			target = &convo
 			w = convoW
 		}
-		out, _ := m.renderBlock(blk, w)
-		target.WriteString(out)
+		target.WriteString(m.renderBlockCached(i, w))
 		target.WriteString("\n")
 	}
 	m.activityVP.SetContent(activity.String())
@@ -2080,7 +2189,9 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		if m.compacting {
 			m.pendingCompactionSummary += ev.Text
 			if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == "assistant" {
-				m.blocks[len(m.blocks)-1].body += ev.Text
+				last := len(m.blocks) - 1
+				m.blocks[last].body += ev.Text
+				m.invalidateBlockCache(last)
 			}
 			return
 		}
@@ -2088,7 +2199,9 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "assistant" {
 			m.blocks = append(m.blocks, block{kind: "assistant"})
 		}
-		m.blocks[len(m.blocks)-1].body += ev.Text
+		last := len(m.blocks) - 1
+		m.blocks[last].body += ev.Text
+		m.invalidateBlockCache(last)
 
 	case agent.EvThinkingDelta:
 		m.turnThinking += ev.Text
@@ -2097,7 +2210,9 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
 				m.blocks = append(m.blocks, block{kind: "thinking"})
 			}
-			m.blocks[len(m.blocks)-1].body += ev.Text
+			last := len(m.blocks) - 1
+			m.blocks[last].body += ev.Text
+			m.invalidateBlockCache(last)
 		}
 
 	case agent.EvToolCallStart:
@@ -2118,6 +2233,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		last := &m.blocks[len(m.blocks)-1]
 		if last.kind == "tool" {
 			last.toolArgs += ev.ToolArgsDelta
+			m.invalidateBlockCache(len(m.blocks) - 1)
 		}
 
 	case agent.EvToolCallEnd:
@@ -2130,6 +2246,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == ev.ToolCall.ID {
 				m.blocks[i].toolArgs = string(ev.ToolCall.Input)
 				m.blocks[i].endedAt = time.Now()
+				m.invalidateBlockCache(i)
 				break
 			}
 		}
@@ -2195,9 +2312,18 @@ func (m *Model) onTurnComplete() tea.Cmd {
 			if strings.HasPrefix(queued, "/") {
 				return m.handleSlash(queued)
 			}
-			// Block was already appended at submit-time. Just thread
-			// it through msgs + persistence so the next stream sees
-			// it as a user turn.
+			// Block was already appended at submit-time. Clear the
+			// queued tag on the most recent matching user block so its
+			// "queued" pill disappears when the turn actually starts.
+			for i := len(m.blocks) - 1; i >= 0; i-- {
+				if m.blocks[i].kind == "user" && m.blocks[i].queued {
+					m.blocks[i].queued = false
+					m.invalidateBlockCache(i)
+					break
+				}
+			}
+			// Just thread it through msgs + persistence so the next
+			// stream sees it as a user turn.
 			msg := agent.Text(agent.RoleUser, queued)
 			m.msgs = append(m.msgs, msg)
 			m.persistMessage(msg)
@@ -2219,8 +2345,7 @@ func (m *Model) advanceApproval() tea.Cmd {
 		call := m.pendingCalls[0]
 		if m.rememberedAllow[call.Name] {
 			m.pendingCalls = m.pendingCalls[1:]
-			m.pendingResults = append(m.pendingResults, m.executeCall(call))
-			continue
+			return m.executeCallAsync(call)
 		}
 		m.state = stateApproval
 		m.approval = &approvalRequest{
@@ -2238,34 +2363,43 @@ func (m *Model) advanceApproval() tea.Cmd {
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
 }
 
-// executeCall actually runs a single tool through the Executor. Called after
-// approve/remembered-allow. Returns a ToolResultBlock suitable for append
-// to pendingResults.
-func (m *Model) executeCall(call agent.ToolUseBlock) agent.ToolResultBlock {
+// executeCallAsync runs a single tool through the Executor on a goroutine
+// so long-running tools (e.g. bash sleep 30) never block the UI. The result
+// is ferried back via toolResultMsg.
+func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	if m.executor == nil {
-		return agent.ToolResultBlock{
-			ToolUseID: call.ID,
-			Content:   "tool execution unavailable (no session)",
-			IsError:   true,
+		return func() tea.Msg {
+			return toolResultMsg{result: agent.ToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   "tool execution unavailable (no session)",
+				IsError:   true,
+			}}
 		}
 	}
 	workdir := m.cwd
 	if m.session != nil {
 		workdir = m.session.WorktreePath
 	}
-	res, err := m.executor.Run(context.Background(), call.Name, call.Input, hostAdapter{
+	host := hostAdapter{
 		workdir: workdir,
 		readLog: m.executor.ReadLog,
-	})
-	content := res.Content
-	isErr := res.Error != ""
-	if err != nil {
-		content = err.Error()
-		isErr = true
-	} else if isErr {
-		content = res.Error
 	}
-	return agent.ToolResultBlock{ToolUseID: call.ID, Content: content, IsError: isErr}
+	return func() tea.Msg {
+		res, err := m.executor.Run(context.Background(), call.Name, call.Input, host)
+		content := res.Content
+		isErr := res.Error != ""
+		if err != nil {
+			content = err.Error()
+			isErr = true
+		} else if isErr {
+			content = res.Error
+		}
+		return toolResultMsg{result: agent.ToolResultBlock{
+			ToolUseID: call.ID,
+			Content:   content,
+			IsError:   isErr,
+		}}
+	}
 }
 
 // toolDefs builds the tool-definition list for the current turn request. An
@@ -2475,6 +2609,7 @@ func (m *Model) commitSummaryEdit() {
 	m.pendingCompactionSummary = edited
 	if m.compactionBlockIdx >= 0 && m.compactionBlockIdx < len(m.blocks) {
 		m.blocks[m.compactionBlockIdx].body = edited
+		m.invalidateBlockCache(m.compactionBlockIdx)
 	}
 	m.input.SetValue(m.savedDraftBeforeEdit)
 	m.savedDraftBeforeEdit = ""
@@ -2525,6 +2660,14 @@ func (m *Model) resolveCompaction(accept bool) {
 		// preserves the raw turns separately on the trace ref for
 		// audit, so nothing is lost.
 		m.persistReplacement()
+
+		// Also clear the visual chat history so the user sees the
+		// replacement happen, not just read about it in a system note
+		// below the pre-compact turns. Without this the next user
+		// message pushes the old turns further up rather than starting
+		// fresh.
+		m.blocks = nil
+		m.appendBlock(block{kind: "assistant", body: summary})
 
 		accepted := "compaction accepted — prior conversation replaced with summary."
 		if m.session != nil {
@@ -2616,14 +2759,13 @@ func (m *Model) resolveApproval(allow bool) tea.Cmd {
 	m.pendingCalls = m.pendingCalls[1:]
 
 	if allow {
-		m.pendingResults = append(m.pendingResults, m.executeCall(call))
-	} else {
-		m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
-			ToolUseID: call.ID,
-			Content:   "Denied by user",
-			IsError:   true,
-		})
+		return m.executeCallAsync(call)
 	}
+	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
+		ToolUseID: call.ID,
+		Content:   "Denied by user",
+		IsError:   true,
+	})
 	return m.advanceApproval()
 }
 

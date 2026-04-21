@@ -6,9 +6,40 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-## v0.0.1 — 2026-04-21
+### UX
 
-First tagged release. Marks the point where the TUI + CLI + headless
+- **Async tool execution — TUI no longer blocks on long-running tools.**
+  `bash sleep 30` (or any slow tool call) used to freeze the entire
+  interface until the command returned. Tool calls now run on a
+  goroutine and ferry their result back via `toolResultMsg`, so the
+  user can keep typing, scroll, or cancel while the tool is in-flight.
+  Same pattern already used for `/plugin:...` invocations.
+- **Queued prompts get visual feedback.** When you hit Enter while a
+  turn is still streaming, the follow-up message is appended to the
+  chat immediately with a muted "queued — runs when the current turn
+  finishes" pill. Previously the only signal was a tiny status-bar
+  label that was easy to miss. Ctrl+C on a queued prompt now also
+  removes the block, not just the internal buffer.
+- **Render caching eliminates glamour-induced keypress lag.** Long
+  conversations used to stutter during streaming because every frame
+  re-ran glamour/markdown on every historical block. Two changes fix
+  this: (1) `Renderer` now memoises `glamour.TermRenderer` instances
+  per width (creating one costs 5–10 ms), and (2) each conversation
+  block caches its last rendered output, invalidating only when its
+  body, width, expand state, or tool result changes. The live
+  assistant block still re-renders every tick (it is growing), but
+  everything else is near-free.
+- **`[approvals]` allowlist is actually wired to the TUI.** The config
+  parser has supported `mode = "allowlist"` and `allowlist = ["read",
+  "grep"]` for a while, but `Run()` never called `SetApprovals()`, so
+  the allowlist was silently ignored. Now tools named in the allowlist
+  auto-execute without the `⚠ y/n` prompt.
+- **Gated `?` and `/` keybindings.** Typing a literal `?` or `/` inside
+  a non-empty prompt no longer pops the help overlay or command
+  palette — the characters insert as text instead. Both shortcuts
+  still work when the input box is empty.
+
+## v0.0.1 — 2026-04-21
 + ACP + plugin ABI + MCP client + MCP server surfaces are all
 feature-complete relative to the ranked research list (AGENTS.md
 auto-load, `[budget]` cost gate, `.stado/skills/`, `[hooks]`
