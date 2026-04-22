@@ -224,16 +224,19 @@ via config and auto-register their tools.
 **Git-native state.** Sidecar bare repo per user repo. Alternates link
 to your `.git/objects` so agent sessions reference your history without
 copying objects. Dual-ref model (`tree` + `trace`), turn-boundary tags,
-ten `session` subcommands: `new`, `list`, `show`, `attach`, `delete`,
-`fork` (with `--at <turns/N|sha>` to fork from a specific turn), `land`,
+and session subcommands for lifecycle, recovery, and introspection:
+`new`, `list`, `show`, `describe`, `resume`, `attach`, `delete`,
+`fork` (with `--at <turns/N|sha>` to fork from a specific turn),
 `revert`, `tree` (interactive turn-history browser — navigate and fork
-from a chosen turn), `compact` (advisory; the real flow is `/compact`
-inside the TUI).
+from a chosen turn), `land`, `export`, `search`, `logs`, `gc`, and
+`compact` (advisory; the real flow is `/compact` inside the TUI).
 
-**Sandbox (Linux).** Landlock for FS confinement, bubblewrap for
-bash/exec, CONNECT-allowlist proxy for egress, capability-declaration
-in `Policy`. `stado run --sandbox-fs` narrows the whole process to
-worktree-only writes. macOS and Windows pending.
+**Sandbox.** Linux ships Landlock for FS confinement, bubblewrap +
+seccomp BPF for bash/exec, and a CONNECT-allowlist proxy for egress.
+macOS generates a `sandbox-exec` profile from the same `Policy`.
+Windows still runs unsandboxed in v1 with a one-time warning while job
+objects + restricted tokens land in v2. `stado run --sandbox-fs`
+narrows the whole process to worktree-only writes.
 
 **Audit.** Ed25519 commit signatures over a canonical
 `stado-audit-v1` framing. `stado audit verify` walks refs and reports
@@ -511,11 +514,11 @@ plugin cookbook in SECURITY.md for the publish flow.
 
 - [DESIGN.md](DESIGN.md) — as-built architecture
 - [PLAN.md](PLAN.md) — phased roadmap and remaining work
-- [docs/](docs/) — per-command + per-feature deep-dive guides
+- [docs/](docs/) — per-command + per-feature deep-dive guides, plus an
+  index of guide gaps where `stado --help` is currently authoritative
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, contribute
-- `SECURITY.md` — security policy, key rotation, vulnerability
-  reporting *(plugin-publish cookbook landed; policy + contact still
-  pending)*
+- `SECURITY.md` — security model, key rotation, plugin publishing, and
+  vulnerability reporting
 
 ---
 

@@ -116,7 +116,7 @@ So `stado doctor` doubles as "did my config take effect?" verification.
 
 ## See also
 
-- `stado stats` — historical cost + tokens + per-model breakdown
-  ([stats.md](../commands/stats.md))
+- `stado stats` — historical cost + tokens + per-model breakdown.
+  No standalone guide yet; use `stado stats --help`.
 - [`[context]` soft/hard thresholds](./context.md) — the cognate
   guardrail on context-window usage

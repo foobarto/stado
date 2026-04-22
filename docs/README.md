@@ -11,24 +11,33 @@ Shorter forms live in:
 - [DESIGN.md](../DESIGN.md) — as-built architecture
 - [PLAN.md](../PLAN.md) — phased roadmap
 
-## Commands
+## Command guides
 
 | Command | Guide | One-liner |
 |---------|-------|-----------|
 | `stado` (TUI) | [commands/tui.md](commands/tui.md) | Interactive chat + tool loop |
 | `stado run` | [commands/run.md](commands/run.md) | Non-interactive single-shot prompt |
 | `stado session` | [commands/session.md](commands/session.md) | Create/list/fork/land agent sessions |
-| `stado agents` | [commands/agents.md](commands/agents.md) | Parallel agent view + kill |
-| `stado audit` | [commands/audit.md](commands/audit.md) | Verify signed tree/trace refs |
-| `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
-| `stado plugin` | [commands/plugin.md](commands/plugin.md) | Install/verify/run wasm plugins |
-| `stado headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
-| `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
-| `stado mcp-server` | [commands/mcp-server.md](commands/mcp-server.md) | Expose tools via MCP v1 |
-| `stado verify` | [commands/verify.md](commands/verify.md) | Print build provenance |
-| `stado self-update` | [commands/self-update.md](commands/self-update.md) | Download + verify latest release |
+
+Other shipped commands do not have standalone guides yet. Until they do,
+`stado <command> --help` is authoritative:
+
+| Command | Guide | One-liner |
+|---------|-------|-----------|
+| `stado agents` | _(guide pending)_ | Parallel agent view + kill |
+| `stado audit` | _(guide pending)_ | Verify signed tree/trace refs |
+| `stado stats` | _(guide pending)_ | Cost + usage dashboard |
+| `stado plugin` | _(guide pending)_ | Install/verify/run wasm plugins |
+| `stado headless` | _(guide pending)_ | JSON-RPC daemon |
+| `stado acp` | _(guide pending)_ | Zed Agent-Client-Protocol server |
+| `stado mcp-server` | _(guide pending)_ | Expose tools via MCP v1 |
+| `stado verify` | _(guide pending)_ | Print build provenance |
+| `stado self-update` | _(guide pending)_ | Download + install the latest release |
+| `stado config-path` | _(guide pending)_ | Print the path to the config file |
+| `stado completion` | _(guide pending)_ | Generate the autocompletion script for the specified shell |
+| `stado version` | _(guide pending)_ | Print stado version |
 
 ## Features
 
@@ -41,14 +50,13 @@ Shorter forms live in:
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
-| Session refs | [features/session-refs.md](features/session-refs.md) | Dual-ref (tree + trace) + turn tags |
+| Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |
 
 ## Status
 
-Per-command guides are being filled in incrementally. Pages missing
-from the tree above are TODO — until they land, `stado <cmd> --help`
-is authoritative. A completed guide is linked; an unlinked row is a
-stub to write.
+Guide coverage is incremental. Linked rows above exist today; rows
+marked `_(guide pending)_` do not. Until those guides land,
+`stado <cmd> --help` is authoritative.
 
 Contributions welcome — a doc PR that documents one command is a
 great first patch. The shape each guide follows:
