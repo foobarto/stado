@@ -225,7 +225,12 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			abs := resolveAbs(host.Workdir, path)
+			abs, err := realPath(host.Workdir, path)
+			if err != nil {
+				host.Logger.Warn("stado_fs_read denied — symlink resolution failed", slog.String("path", path), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			if !host.allowRead(abs) {
 				host.Logger.Warn("stado_fs_read denied", slog.String("path", abs))
 				stack[0] = api.EncodeI32(-1)
@@ -260,7 +265,12 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			abs := resolveAbs(host.Workdir, path)
+			abs, err := realPath(host.Workdir, path)
+			if err != nil {
+				host.Logger.Warn("stado_fs_write denied — symlink resolution failed", slog.String("path", path), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			if !host.allowWrite(abs) {
 				host.Logger.Warn("stado_fs_write denied", slog.String("path", abs))
 				stack[0] = api.EncodeI32(-1)
@@ -509,11 +519,57 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 // through. Cleaned via filepath.Clean so `..` traversal is normalised
 // — the capability check still rejects paths that escape the allowed
 // roots, but cleaning first avoids prefix-bypass with "/allowed/../etc".
+//
+// SECURITY: returns the cleaned absolute path *before* following symlinks.
+// The caller must use realPath() if symlink resolution is needed; for
+// fs_read/fs_write the capability check runs on the resolved target so
+// symlinks cannot escape the allowed prefix.
 func resolveAbs(workdir, path string) string {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(workdir, path)
 	}
 	return filepath.Clean(path)
+}
+
+// realPath returns the canonical filesystem path: absolute, cleaned,
+// and with symlink components evaluated. If the path (or any parent
+// component) resolves outside the allowed prefix, the returned string
+// still indicates that escape so the caller can reject it.
+//
+// SECURITY: used by fs_read/fs_write so that a symlink inside an allowed
+// directory pointing outside is caught.  The capability check runs
+// against the resolved target, not the symlink path.
+func realPath(workdir, path string) (string, error) {
+	abs := resolveAbs(workdir, path)
+
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+
+	// If the final component doesn't exist yet (legitimate for writes),
+	// resolve as far as possible by walking up to the deepest existing
+	// ancestor, resolving that, and appending the remaining suffix.
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	dir := filepath.Dir(abs)
+	base := filepath.Base(abs)
+	// Walk up until we find an existing directory.
+	for dir != "/" && dir != "." {
+		if _, err := os.Stat(dir); err == nil {
+			break
+		}
+		dir, base = filepath.Dir(dir), filepath.Join(filepath.Base(dir), base)
+	}
+
+	resolvedDir, derr := filepath.EvalSymlinks(dir)
+	if derr != nil {
+		return "", derr
+	}
+	result := filepath.Join(resolvedDir, base)
+	return filepath.Clean(result), nil
 }
 
 // NamespaceStado is the wasm module name plugins import from

@@ -212,22 +212,34 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 // so plugins that need session capabilities fail cleanly at the host
 // import layer.
 func (s *Server) buildBridge(sess *hSession, pluginName string) *pluginRuntime.SessionBridgeImpl {
-	if s.Provider == nil && sess.gitSess == nil {
+	sess.mu.Lock()
+	gs := sess.gitSess
+	sess.mu.Unlock()
+
+	if s.Provider == nil && gs == nil {
 		return nil
 	}
-	// Ensure a git session exists for this headless session so plugins
-	// that need session:read / session:fork see real refs. Best-effort:
-	// if OpenSession fails (no repo), plugins that need those
-	// capabilities get the usual empty-bridge error.
-	s.ensureGitSession(sess)
+	if gs == nil && sess.workdir != "" {
+		// Best-effort git session init without holding the lock during IO.
+		s.ensureGitSession(sess)
+		sess.mu.Lock()
+		gs = sess.gitSess
+		sess.mu.Unlock()
+	}
 
+	sess.mu.Lock()
+	tokens := sess.lastInputTokens
 	msgs := append([]agent.Message(nil), sess.messages...)
-	bridge := pluginRuntime.NewSessionBridge(sess.gitSess, s.Provider, s.Cfg.Defaults.Model)
+	sess.mu.Unlock()
+
+	bridge := pluginRuntime.NewSessionBridge(gs, s.Provider, s.Cfg.Defaults.Model)
 	bridge.PluginName = pluginName
 	bridge.MessagesFn = func() []agent.Message { return msgs }
-	bridge.TokensFn = func() int { return sess.lastInputTokens }
-	if sess.gitSess != nil {
+	bridge.TokensFn = func() int { return tokens }
+	if gs != nil {
 		bridge.LastTurnRef = func() string {
+			sess.mu.Lock()
+			defer sess.mu.Unlock()
 			return string(stadogit.TurnTagRef(sess.gitSess.ID, sess.gitSess.Turn()))
 		}
 		bridge.ForkFn = s.forkFn(sess, pluginName)
@@ -238,6 +250,9 @@ func (s *Server) buildBridge(sess *hSession, pluginName string) *pluginRuntime.S
 // ensureGitSession lazily opens the stadogit session for this headless
 // session's workdir so subsequent plugin / prompt runs reuse the same
 // refs. No-op if already set or workdir has no usable repo.
+//
+// Caller must hold sess.mu; this function reads and writes sess.gitSess
+// without locking.
 func (s *Server) ensureGitSession(sess *hSession) {
 	if sess.gitSess != nil || sess.workdir == "" {
 		return

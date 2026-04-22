@@ -118,7 +118,16 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		}
 		if runTools {
 			cwd, _ := os.Getwd()
-			sess, err := runtime.OpenSession(cfg, cwd)
+			// When continuing an existing session, tools must act in the
+			// session's worktree rather than the caller's cwd. Otherwise
+			// a command like `stado run --session abc --tools` from a
+			// different directory would execute mutating tools against the
+			// wrong repo.
+			toolWorktree := cwd
+			if continueWorktree != "" {
+				toolWorktree = continueWorktree
+			}
+			sess, err := runtime.OpenSession(cfg, toolWorktree)
 			if err != nil {
 				return fmt.Errorf("session: %w", err)
 			}

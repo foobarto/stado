@@ -94,7 +94,10 @@ func TestSessionCompactWithoutProviderErrors(t *testing.T) {
 
 	// Manually seed a message so the "empty session" branch doesn't fire first.
 	srv.mu.Lock()
-	srv.sessions["h-1"].messages = []agent.Message{agent.Text(agent.RoleUser, "hi")}
+	sess := srv.sessions["h-1"]
+	sess.mu.Lock()
+	sess.messages = []agent.Message{agent.Text(agent.RoleUser, "hi")}
+	sess.mu.Unlock()
 	srv.mu.Unlock()
 
 	io.WriteString(client, `{"jsonrpc":"2.0","id":2,"method":"session.compact","params":{"sessionId":"h-1"}}`+"\n")
@@ -142,11 +145,14 @@ func TestSessionCompactReplacesMessages(t *testing.T) {
 
 	// Seed 3 messages.
 	srv.mu.Lock()
-	srv.sessions["h-1"].messages = []agent.Message{
+	sess := srv.sessions["h-1"]
+	sess.mu.Lock()
+	sess.messages = []agent.Message{
 		agent.Text(agent.RoleUser, "task 1"),
 		agent.Text(agent.RoleAssistant, "reply 1"),
 		agent.Text(agent.RoleUser, "task 2"),
 	}
+	sess.mu.Unlock()
 	srv.mu.Unlock()
 
 	io.WriteString(client, `{"jsonrpc":"2.0","id":2,"method":"session.compact","params":{"sessionId":"h-1"}}`+"\n")

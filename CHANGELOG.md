@@ -6,7 +6,41 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Infra / Security
+
+- **Plugin FS sandbox now resolves symlinks before capability checks.**
+  `stado_fs_read` / `stado_fs_write` used to call `os.ReadFile` / `os.WriteFile`
+  directly, which follows symlinks. A plugin with `fs:read:/allowed` could
+  create a symlink in `/allowed` pointing outside the tree and read arbitrary
+  files. The new `realPath()` helper resolves symlinks before the
+  `allowRead` / `allowWrite` check, so escape is caught.
+- **Plugin install path traversal prevention.** Manifest `Name` and `Version`
+  are validated with `filepath.IsLocal()` plus explicit rejection of `/` and
+  `\` characters so a malicious manifest can't write outside the plugins
+  directory with fields like `Name: "../../../etc"`.
+- **Headless session ID no longer reuses numbers after deletion.**
+  `sessionNew` used `len(s.sessions)+1`, so deleting `h-1` and creating a new
+  session would overwrite `h-2`. Now uses a monotonic `nextID` counter.
+- **Headless session operations are mutex-protected.** `sessionPrompt`,
+  `sessionCancel`, and `sessionCompact` all raced on `sess.messages`,
+  `sess.cancel`, and `sess.gitSess`. Each `hSession` now carries its own
+  `sync.Mutex`.
+- **ACP session operations are mutex-protected.** Same race pattern as headless
+  — `session/prompt` and `session/cancel` dispatched on separate goroutines
+  could corrupt message history or cancel the wrong turn. Fixed with per-
+  `acpSession` mutex and monotonic ID counter.
+- **MCP client leak on reconnect fixed.** `attachMCP` called from every
+  `BuildExecutor` reconnected each configured MCP server without closing the
+  previous `client.Client`. After several tool-enabled prompts the process
+  leaked stdio MCP subprocesses. `Connect` now closes the old client inside
+  the lock after a successful replacement.
+- **`run --session --tools` now opens the correct worktree.** When `--session`
+  was set, tools still opened a session from the caller's cwd instead of the
+  resumed session's worktree. Running from a different directory would
+  execute mutating tools against the wrong repo.
+
 ### UX
+
 
 - **Async tool execution — TUI no longer blocks on long-running tools.**
   `bash sleep 30` (or any slow tool call) used to freeze the entire

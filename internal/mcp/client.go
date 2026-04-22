@@ -51,9 +51,35 @@ func NewManager() *MCPManager {
 }
 
 func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
+	// Build the new client entirely outside the lock so transient
+	// failures (network blip, stdio spawn failure, bad handshake)
+	// don't block other callers of AllClients / GetClient.
+	newClient, toolsList, err := m.connectAndProbe(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Replace only after the new connection is fully healthy. If the
+	// replacement fails for any reason, the old connection stays alive
+	// so tools don't become dead handles.
+	if old, ok := m.clients[cfg.Name]; ok {
+		_ = old.Client.Close()
+	}
+	m.clients[cfg.Name] = &MCPClient{
+		Name:   cfg.Name,
+		Client: newClient,
+		tools:  toolsList,
+	}
+	return nil
+}
+
+// connectAndProbe builds, initializes, and probes one MCP client.
+// Returns the live client + its tool list, or an error that may wrap
+// connection / initialization / list-tools failures.
+func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*client.Client, []mcp.Tool, error) {
 	var c *client.Client
 	var err error
 
@@ -69,20 +95,14 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 		}
 		var opts []transport.StdioOption
 		if cfg.Runner != nil {
-			// Route the subprocess spawn through the platform sandbox
-			// runner. mcp-go calls our CommandFunc in place of
-			// exec.CommandContext when building the stdio transport.
 			policy := cfg.Policy
 			runner := cfg.Runner
 			opts = append(opts, transport.WithCommandFunc(
 				func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
-					cmd, err := runner.Command(ctx, policy, command, args)
-					if err != nil {
-						return nil, fmt.Errorf("sandbox for MCP server %s: %w", cfg.Name, err)
+					cmd, pErr := runner.Command(ctx, policy, command, args)
+					if pErr != nil {
+						return nil, fmt.Errorf("sandbox for MCP server %s: %w", cfg.Name, pErr)
 					}
-					// mcp-go passes the merged env through `env`; re-apply
-					// on top of the sandbox's filtered env so configured
-					// key=value overrides still land.
 					cmd.Env = append(cmd.Env, env...)
 					return cmd, nil
 				},
@@ -92,7 +112,7 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("connect to MCP server %s: %w", cfg.Name, err)
+		return nil, nil, fmt.Errorf("connect to MCP server %s: %w", cfg.Name, err)
 	}
 
 	_, err = c.Initialize(ctx, mcp.InitializeRequest{
@@ -106,22 +126,16 @@ func (m *MCPManager) Connect(ctx context.Context, cfg ServerConfig) error {
 	})
 	if err != nil {
 		_ = c.Close()
-		return fmt.Errorf("initialize MCP server %s: %w", cfg.Name, err)
+		return nil, nil, fmt.Errorf("initialize MCP server %s: %w", cfg.Name, err)
 	}
 
 	toolsResult, err := c.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		_ = c.Close()
-		return fmt.Errorf("list tools on MCP server %s: %w", cfg.Name, err)
+		return nil, nil, fmt.Errorf("list tools on MCP server %s: %w", cfg.Name, err)
 	}
 
-	m.clients[cfg.Name] = &MCPClient{
-		Name:   cfg.Name,
-		Client: c,
-		tools:  toolsResult.Tools,
-	}
-
-	return nil
+	return c, toolsResult.Tools, nil
 }
 
 func (m *MCPManager) Close() {

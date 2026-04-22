@@ -28,8 +28,9 @@ type Server struct {
 	// + sandbox). Advertised as ToolCalls: true in initialize.
 	EnableTools bool
 
-	conn *Conn
-	mu   sync.Mutex
+	conn   *Conn
+	mu     sync.Mutex
+	nextID uint64
 
 	// sessions tracked by ID; one active ACP session can host many agent
 	// prompts. For v1 we keep state minimal: just the agent.Message history.
@@ -38,6 +39,7 @@ type Server struct {
 
 type acpSession struct {
 	id       string
+	mu       sync.Mutex
 	messages []agent.Message
 	cancel   context.CancelFunc
 }
@@ -105,8 +107,9 @@ type sessionNewResult struct {
 }
 
 func (s *Server) handleSessionNew(_ json.RawMessage) (any, error) {
-	id := fmt.Sprintf("acp-%d", len(s.sessions)+1)
 	s.mu.Lock()
+	s.nextID++
+	id := fmt.Sprintf("acp-%d", s.nextID)
 	s.sessions[id] = &acpSession{id: id}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
@@ -139,11 +142,18 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		return nil, &RPCError{Code: CodeInternalError, Message: "no provider configured"}
 	}
 
+	sess.mu.Lock()
+	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
+	localMsgs := append([]agent.Message(nil), sess.messages...)
+
 	pctx, cancel := context.WithCancel(ctx)
 	sess.cancel = cancel
-	defer func() { sess.cancel = nil }()
-
-	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
+	defer func() {
+		sess.mu.Lock()
+		sess.cancel = nil
+		sess.mu.Unlock()
+	}()
+	sess.mu.Unlock()
 
 	// AGENTS.md / CLAUDE.md injection — same policy as `stado run`.
 	// Resolved from the ACP server's process cwd because ACP sessions
@@ -159,7 +169,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	opts := runtime.AgentLoopOptions{
 		Provider:             prov,
 		Model:                s.Cfg.Defaults.Model,
-		Messages:             sess.messages,
+		Messages:             localMsgs,
 		MaxTurns:             10, // with tools enabled we may need multiple turns
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
@@ -196,9 +206,11 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 	}
+	sess.mu.Lock()
 	sess.messages = append(sess.messages, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{
 		{Text: &agent.TextBlock{Text: text}},
 	}})
+	sess.mu.Unlock()
 	return sessionPromptResult{Text: text}, nil
 }
 
@@ -217,8 +229,10 @@ func (s *Server) handleSessionCancel(raw json.RawMessage) (any, error) {
 	if sess == nil {
 		return nil, &RPCError{Code: CodeInvalidParams, Message: "unknown sessionId"}
 	}
+	sess.mu.Lock()
 	if sess.cancel != nil {
 		sess.cancel()
 	}
+	sess.mu.Unlock()
 	return struct{}{}, nil
 }

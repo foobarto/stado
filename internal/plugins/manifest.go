@@ -12,6 +12,7 @@
 package plugins
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
@@ -38,6 +39,13 @@ type Manifest struct {
 	MinStadoVersion  string         `json:"min_stado_version"`
 	TimestampUTC     string         `json:"timestamp_utc"`
 	Nonce            string         `json:"nonce"`
+
+	// AuthorPubkeyHex is the raw Ed25519 public key in hex (64 chars).
+	// It is NOT part of the canonicalised manifest — stored separately
+	// so the trust-layer can echo it in error messages when a pin is
+	// missing. Populated by LoadFromDir from an optional author.pubkey
+	// sibling file (written by `plugin sign`).
+	AuthorPubkeyHex string `json:"-"`
 }
 
 // ToolDef is a plugin-declared tool entry. Mirrors the fields an agent
@@ -164,6 +172,8 @@ func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
 }
 
 // LoadFromDir reads dir/plugin.manifest.json + dir/plugin.manifest.sig.
+// Also loads an optional dir/author.pubkey (hex, 64 chars) into
+// Manifest.AuthorPubkeyHex so trust errors can echo the full pubkey.
 // Returns (manifest, signature-base64) ready for Verify.
 func LoadFromDir(dir string) (*Manifest, string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.json"))
@@ -177,6 +187,10 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	sigBytes, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.sig"))
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read sig: %w", err)
+	}
+	pubBytes, _ := os.ReadFile(filepath.Join(dir, "author.pubkey"))
+	if len(bytes.TrimSpace(pubBytes)) == ed25519.PublicKeySize*2 {
+		m.AuthorPubkeyHex = string(bytes.TrimSpace(pubBytes))
 	}
 	return &m, string(sigBytes), nil
 }

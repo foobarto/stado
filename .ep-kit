@@ -1,0 +1,7 @@
+# EP Kit configuration
+# See ep-kit/README.md for available keys
+
+dir=docs/eps
+prefix=ep
+validator=/tmp/ep-kit/validate.sh
+kit_version=0.1.0

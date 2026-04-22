@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -395,6 +396,11 @@ var pluginInstallCmd = &cobra.Command{
 			}
 		}
 
+		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||
+			strings.ContainsAny(m.Name, "/\\") || strings.ContainsAny(m.Version, "/\\") {
+			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
+		}
+
 		dst := filepath.Join(cfg.StateDir(), "plugins", m.Name+"-"+m.Version)
 		if _, err := os.Stat(dst); err == nil {
 			fmt.Fprintf(os.Stderr, "install: %s v%s already installed at %s\n",
@@ -677,6 +683,14 @@ var pluginSignCmd = &cobra.Command{
 		fmt.Printf("author_fpr:     %s\n", m.AuthorPubkeyFpr)
 		fmt.Printf("pubkey (hex):   %s\n", hex.EncodeToString(pub))
 		fmt.Printf("signature:      %s\n", sigPath)
+
+		// Write author.pubkey sidecar so `stado plugin verify` can echo
+		// the full pubkey in its "not pinned" error (dogfood #8).
+		pubkeyPath := filepath.Join(dir, "author.pubkey")
+		if err := os.WriteFile(pubkeyPath, []byte(hex.EncodeToString(pub)+"\n"), 0o644); err != nil {
+			return fmt.Errorf("sign: write author.pubkey: %w", err)
+		}
+		fmt.Printf("author.pubkey:  %s\n", pubkeyPath)
 		return nil
 	},
 }

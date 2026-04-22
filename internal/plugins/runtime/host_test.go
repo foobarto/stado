@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -93,6 +94,48 @@ func TestResolveAbs_CleansTraversal(t *testing.T) {
 	}
 	if pathAllowed(got, []string{"/allowed"}) {
 		t.Error("cleaned path should NOT be allow-listed")
+	}
+}
+
+// TestRealPath_SymlinkEscape: a symlink inside an allowed directory
+// pointing outside must resolve to the real target; the capability
+// check then rejects it. This closes the fs sandbox escape where
+// os.ReadFile follows symlinks before the prefix check.
+func TestRealPath_SymlinkEscape(t *testing.T) {
+	tmp := t.TempDir()
+	allowed := filepath.Join(tmp, "allowed")
+	forbidden := filepath.Join(tmp, "forbidden")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(forbidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a file outside the allowed tree.
+	secret := filepath.Join(forbidden, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Create a symlink inside allowed pointing outside.
+	link := filepath.Join(allowed, "link_to_secret")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// realPath must resolve to the actual target, not stay inside allowed.
+	resolved, err := realPath("", link)
+	if err != nil {
+		t.Fatalf("realPath failed: %v", err)
+	}
+	if resolved != secret {
+		t.Errorf("realPath resolved to %q, want %q", resolved, secret)
+	}
+
+	// After resolution, the capability check rejects it.
+	h := NewHost(plugins.Manifest{Name: "test"}, "", nil)
+	h.FSRead = []string{allowed}
+	if h.allowRead(resolved) {
+		t.Error("resolved symlink target outside allowed should be denied")
 	}
 }
 
