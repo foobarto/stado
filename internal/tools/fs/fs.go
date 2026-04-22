@@ -281,7 +281,7 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	searchPath := h.Workdir()
+	var searchPath string
 	if p.Path == "" {
 		var err error
 		searchPath, err = workdirpath.Resolve(h.Workdir(), ".", false)

@@ -1641,9 +1641,10 @@ func (m *Model) renderInputBox(mainW int) string {
 	body := pickerPrefix + m.input.View() + "\n" + strings.TrimRight(inline, "\n")
 
 	modeColor := m.theme.Fg("success").GetForeground() // Do
-	if m.mode == modePlan {
+	switch m.mode {
+	case modePlan:
 		modeColor = m.theme.Fg("warning").GetForeground()
-	} else if m.mode == modeBTW {
+	case modeBTW:
 		modeColor = m.theme.Fg("accent").GetForeground()
 	}
 	style := lipgloss.NewStyle().
@@ -2393,17 +2394,6 @@ func msgsToBlocks(msgs []agent.Message) []block {
 		out = append(out, block{kind: kind, body: body})
 	}
 	return out
-}
-
-// mutationToolNames is retained for explicit slash-command guardrails;
-// toolDefs() and BTW mode use full tool classification instead.
-var mutationToolNames = map[string]bool{
-	"write": true, "edit": true, "apply": true, "undo": true,
-	"git_add": true, "git_commit": true, "git_push": true,
-	"git_checkout": true, "git_branch": true, "git_merge": true,
-	"git_rebase": true, "git_cherry_pick": true, "git_revert": true,
-	"git_reset": true, "git_clean": true, "git_rm": true,
-	"git_mv": true, "git_tag": true, "git_stash": true,
 }
 
 // startBtw fires an async BTW query: a StreamTurn that does NOT mutate
