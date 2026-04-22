@@ -49,6 +49,16 @@ func ReadDescription(worktreeDir string) string {
 	return textutil.StripControlChars(strings.TrimSpace(string(data)))
 }
 
+// ReadUserRepoPin returns the worktree's pinned user-repo path, or ""
+// when unset.
+func ReadUserRepoPin(worktreeDir string) string {
+	data, err := os.ReadFile(filepath.Join(worktreeDir, userRepoFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // WriteDescription replaces the description for a worktree. Creates
 // `.stado/` if absent. Empty text clears the description (writes an
 // empty file) so users can unset via `session describe <id> ""`.

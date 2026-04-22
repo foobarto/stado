@@ -87,6 +87,22 @@ func ApplyLandlock(p Policy) error {
 	return nil
 }
 
+// ProbeLandlock checks whether the running kernel supports Landlock without
+// applying any irreversible restrictions to the current process.
+func ProbeLandlock() error {
+	abi, err := landlockCreateRuleset(nil, 0, unix.LANDLOCK_CREATE_RULESET_VERSION)
+	if err != nil {
+		if errors.Is(err, syscall.ENOSYS) || errors.Is(err, syscall.EOPNOTSUPP) {
+			return ErrLandlockUnavailable
+		}
+		return fmt.Errorf("landlock: probe: %w", err)
+	}
+	if abi <= 0 {
+		return ErrLandlockUnavailable
+	}
+	return nil
+}
+
 // ErrLandlockUnavailable is returned when the kernel doesn't support
 // landlock (either too old or disabled in the kernel config). Callers
 // typically log it and continue unsandboxed.

@@ -26,6 +26,7 @@ import (
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
@@ -192,7 +193,9 @@ type Model struct {
 	// telemetry bridges, recorders) can react without needing an
 	// explicit user slash-command. See internal/plugins/runtime
 	// §BackgroundPlugin for the ABI contract.
-	backgroundPlugins []*pluginRuntime.BackgroundPlugin
+	backgroundPlugins     []*pluginRuntime.BackgroundPlugin
+	backgroundTickRunning bool
+	backgroundTickQueued  bool
 	// pluginRuntime shared across all background plugins — each
 	// plugin's Module is separate, but the wazero Runtime is the
 	// container. Nil until LoadBackgroundPlugins runs.
@@ -918,6 +921,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case backgroundTickResultMsg:
 		m.backgroundPlugins = msg.survivors
+		m.backgroundTickRunning = false
+		if m.backgroundTickQueued {
+			m.backgroundTickQueued = false
+			return m, m.tickBackgroundPlugins()
+		}
 		return m, nil
 
 	case localHintMsg:
@@ -1954,6 +1962,11 @@ func (m *Model) tickBackgroundPlugins() tea.Cmd {
 	if len(m.backgroundPlugins) == 0 {
 		return nil
 	}
+	if m.backgroundTickRunning {
+		m.backgroundTickQueued = true
+		return nil
+	}
+	m.backgroundTickRunning = true
 	active := m.backgroundPlugins
 	return func() tea.Msg {
 		survivors := active[:0:len(active)]
@@ -2363,9 +2376,8 @@ func msgsToBlocks(msgs []agent.Message) []block {
 	return out
 }
 
-// mutationToolNames is the set of tools that make filesystem or git
-// changes.  Used by toolDefs() and startBtw() to filter the tool
-// surface in Plan / BTW modes.
+// mutationToolNames is retained for explicit slash-command guardrails;
+// toolDefs() and BTW mode use full tool classification instead.
 var mutationToolNames = map[string]bool{
 	"write": true, "edit": true, "apply": true, "undo": true,
 	"git_add": true, "git_commit": true, "git_push": true,
@@ -2398,7 +2410,7 @@ func (m *Model) startBtw(question string) tea.Cmd {
 	if m.executor != nil {
 		for _, t := range m.executor.Registry.All() {
 			name := t.Name()
-			if mutationToolNames[name] {
+			if m.executor.Registry.ClassOf(name) != tool.ClassNonMutating {
 				continue
 			}
 			schema, _ := json.Marshal(t.Schema())
@@ -2783,6 +2795,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	host := hostAdapter{
 		workdir: workdir,
 		readLog: m.executor.ReadLog,
+		runner:  m.executor.Runner,
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2843,14 +2856,11 @@ func (m *Model) toolDefs() []agent.ToolDef {
 	out := make([]agent.ToolDef, 0, len(all))
 	for _, t := range all {
 		name := t.Name()
-		if m.mode == modePlan {
+		if m.mode == modePlan || m.mode == modeBTW {
 			class := m.executor.Registry.ClassOf(name)
 			if class != tool.ClassNonMutating {
 				continue
 			}
-		}
-		if m.mode == modeBTW && mutationToolNames[name] {
-			continue
 		}
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, agent.ToolDef{
@@ -2956,7 +2966,11 @@ func (m *Model) renderContextStatus() string {
 		if len(cmd) > 60 {
 			cmd = cmd[:57] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("hook post_turn: %s\n", cmd))
+		if m.hookRunner.Disabled {
+			sb.WriteString(fmt.Sprintf("hook post_turn: %s (disabled: bash tool unavailable)\n", cmd))
+		} else {
+			sb.WriteString(fmt.Sprintf("hook post_turn: %s\n", cmd))
+		}
 	}
 
 	sb.WriteString("options: /compact (summarise + confirm)  ·  /retry (regenerate last turn)  ·  session tree / session fork --at turns/<N>")
@@ -3155,12 +3169,14 @@ func compactionTitle(summary string) string {
 type hostAdapter struct {
 	workdir string
 	readLog *tools.ReadLog
+	runner  sandbox.Runner
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h hostAdapter) Workdir() string { return h.workdir }
+func (h hostAdapter) Workdir() string        { return h.workdir }
+func (h hostAdapter) Runner() sandbox.Runner { return h.runner }
 
 func (h hostAdapter) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
 	if h.readLog == nil {
@@ -3498,7 +3514,7 @@ func renderBannerBlock(width, maxH int) string {
 // hook isn't configured. Errors / timeouts are logged by the hook
 // runner; never propagated — the turn is over.
 func (m *Model) firePostTurnHook() {
-	if m.hookRunner.PostTurnCmd == "" {
+	if m.hookRunner.PostTurnCmd == "" || m.hookRunner.Disabled {
 		return
 	}
 	excerpt := m.turnText
@@ -3693,9 +3709,8 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "plugin digest: " + err.Error()})
 		return nil
 	}
-	ts := plugins.NewTrustStore(cfg.StateDir())
-	if err := ts.VerifyManifest(mf, sig); err != nil {
-		m.appendBlock(block{kind: "system", body: "plugin signature: " + err.Error()})
+	if err := runtime.VerifyInstalledPlugin(context.Background(), cfg, pluginDir, mf, sig); err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin verify: " + err.Error()})
 		return nil
 	}
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -53,8 +54,14 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "bash", "-c", p.Command)
-	cmd.Dir = h.Workdir()
+	var runner sandbox.Runner
+	if rh, ok := h.(interface{ Runner() sandbox.Runner }); ok {
+		runner = rh.Runner()
+	}
+	cmd, err := BuildShellCommand(cmdCtx, runner, h.Workdir(), p.Command)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -84,4 +91,28 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 
 type BashArgs struct {
 	Command string `json:"command"`
+}
+
+// BuildShellCommand creates the actual `bash -c` child process. When a runner
+// is present, the shell runs through the platform sandbox with access limited
+// to the session worktree and /tmp.
+func BuildShellCommand(ctx context.Context, runner sandbox.Runner, workdir, command string) (*exec.Cmd, error) {
+	if runner == nil {
+		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		cmd.Dir = workdir
+		return cmd, nil
+	}
+
+	policy := sandbox.Policy{
+		FSRead:  []string{"/tmp"},
+		FSWrite: []string{"/tmp"},
+		Exec:    []string{"bash"},
+		Net:     sandbox.NetPolicy{Kind: sandbox.NetAllowAll},
+		CWD:     workdir,
+	}
+	if workdir != "" {
+		policy.FSRead = append(policy.FSRead, workdir)
+		policy.FSWrite = append(policy.FSWrite, workdir)
+	}
+	return runner.Command(ctx, policy, "bash", []string{"-c", command})
 }

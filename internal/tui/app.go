@@ -70,6 +70,10 @@ func Run(cfg *config.Config) error {
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
 	m.SetBudget(cfg.Budget.WarnUSD, cfg.Budget.HardUSD)
 	m.SetHooks(cfg.Hooks.PostTurn)
+	if exec != nil {
+		_, bashEnabled := exec.Registry.Get("bash")
+		m.hookRunner.Disabled = !bashEnabled
+	}
 	m.SetApprovals(cfg.Approvals.Mode, cfg.Approvals.Allowlist)
 	// If we booted into a worktree that a prior `stado session fork`
 	// wrote a `.stado-span-context` into, wrap the TUI's ancestor

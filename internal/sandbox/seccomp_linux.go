@@ -113,6 +113,9 @@ func CompileDenyList(killNames []string) ([]byte, error) {
 			nrs = append(nrs, n)
 		}
 	}
+	if len(killNames) > 0 && len(nrs) == 0 && len(syscallTable) == 0 {
+		return nil, fmt.Errorf("seccomp: deny-list unsupported on %s", runtime.GOARCH)
+	}
 	// An empty nrs list is fine — the emitted filter is still a valid
 	// arch-check followed by RET_ALLOW, which bwrap accepts as a no-op
 	// allow-everything program.

@@ -122,17 +122,32 @@ func resolveUserRepo(cfg *config.Config, cwd string) string {
 	if cwd == "" {
 		return FindRepoRoot(cwd)
 	}
-	data, err := os.ReadFile(filepath.Join(cwd, userRepoFile))
-	if err == nil {
-		if s := string(data); s != "" {
-			// Drop a trailing newline if present.
-			if s[len(s)-1] == '\n' {
-				s = s[:len(s)-1]
-			}
-			return s
+	if isSessionWorktreeCWD(cfg, cwd) {
+		if pinned := ReadUserRepoPin(cwd); pinned != "" {
+			return pinned
 		}
 	}
 	return FindRepoRoot(cwd)
+}
+
+func isSessionWorktreeCWD(cfg *config.Config, cwd string) bool {
+	if cfg == nil || cwd == "" {
+		return false
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return false
+	}
+	wtDir, err := filepath.Abs(cfg.WorktreeDir())
+	if err != nil {
+		return false
+	}
+	parent := filepath.Dir(abs)
+	if parent != wtDir {
+		return false
+	}
+	base := filepath.Base(abs)
+	return base != "" && base != "." && base != string(filepath.Separator)
 }
 
 // attachSessionScaffolding wires the signer, slog OnCommit mirror,
@@ -464,14 +479,16 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	}
 	if opts.Host == nil {
 		workdir := ""
+		var runner sandbox.Runner
 		var rlog *tools.ReadLog
 		if opts.Executor != nil {
 			if opts.Executor.Session != nil {
 				workdir = opts.Executor.Session.WorktreePath
 			}
 			rlog = opts.Executor.ReadLog
+			runner = opts.Executor.Runner
 		}
-		opts.Host = autoApproveHost{workdir: workdir, readLog: rlog}
+		opts.Host = autoApproveHost{workdir: workdir, readLog: rlog, runner: runner}
 	}
 
 	msgs := opts.Messages
@@ -738,12 +755,14 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 type autoApproveHost struct {
 	workdir string
 	readLog *tools.ReadLog
+	runner  sandbox.Runner
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h autoApproveHost) Workdir() string { return h.workdir }
+func (h autoApproveHost) Workdir() string        { return h.workdir }
+func (h autoApproveHost) Runner() sandbox.Runner { return h.runner }
 
 func (h autoApproveHost) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
 	if h.readLog == nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/tetratelabs/wazero/api"
 
@@ -53,11 +54,51 @@ func NewPluginTool(mod *Module, def plugins.ToolDef) (*PluginTool, error) {
 				mod.Name, def.Name, err)
 		}
 	}
-	class, err := def.ClassValue()
+	class, err := EffectiveToolClass(def, mod.Manifest.Capabilities)
 	if err != nil {
 		return nil, err
 	}
 	return &PluginTool{mod: mod, def: def, schema: schema, class: class}, nil
+}
+
+// EffectiveToolClass computes the runtime class for one plugin tool.
+//
+// Tool classes in the manifest describe mutation intent only. Plugin
+// capabilities are plugin-wide, so any declared tool can still use the plugin's
+// broader host imports. A plugin with file-read, network, session, or LLM
+// capabilities is therefore not "safe" just because one tool declared itself
+// non-mutating. For safety-gating and audit we conservatively promote:
+//   - fs:write:* -> at least Mutating
+//   - fs:read:*, net:*, session:*, llm:* and unknown caps -> Exec
+func EffectiveToolClass(def plugins.ToolDef, capabilities []string) (tool.Class, error) {
+	class, err := def.ClassValue()
+	if err != nil {
+		return tool.ClassExec, err
+	}
+	for _, raw := range capabilities {
+		cap := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case cap == "":
+			continue
+		case strings.HasPrefix(cap, "fs:write:"):
+			class = maxClass(class, tool.ClassMutating)
+		case strings.HasPrefix(cap, "fs:read:"),
+			strings.HasPrefix(cap, "net:"),
+			strings.HasPrefix(cap, "session:"),
+			strings.HasPrefix(cap, "llm:"):
+			class = maxClass(class, tool.ClassExec)
+		default:
+			class = maxClass(class, tool.ClassExec)
+		}
+	}
+	return class, nil
+}
+
+func maxClass(a, b tool.Class) tool.Class {
+	if b > a {
+		return b
+	}
+	return a
 }
 
 func (p *PluginTool) Name() string        { return p.def.Name }
@@ -139,6 +180,9 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 		return tool.Result{Error: fmt.Sprintf("plugin %s %s: tool-side error",
 			p.mod.Name, p.def.Name)}, nil
 	}
+	if err := validateResultLength(n, resultCap, p.mod.Name, p.def.Name); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	// 5. Read result bytes.
 	result, ok := p.mod.wasmMod.Memory().Read(resultPtr, uint32(n))
@@ -182,6 +226,14 @@ func callAlloc(ctx context.Context, fn api.Function, size uint32) (uint32, error
 
 func callFree(ctx context.Context, fn api.Function, ptr, size uint32) {
 	_, _ = fn.Call(ctx, api.EncodeU32(ptr), api.EncodeU32(size))
+}
+
+func validateResultLength(n, cap int32, pluginName, toolName string) error {
+	if n > cap {
+		return fmt.Errorf("plugin %s %s: result %d exceeds %d-byte cap",
+			pluginName, toolName, n, cap)
+	}
+	return nil
 }
 
 // Compile-time check: PluginTool satisfies pkg/tool.Tool.

@@ -8,6 +8,7 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -222,5 +223,45 @@ func TestTurnTag(t *testing.T) {
 	}
 	if got != head {
 		t.Errorf("turn tag points to %s, want %s", HashString(got), HashString(head))
+	}
+}
+
+func TestCreateSession_RejectsPathTraversalID(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	if _, err := CreateSession(sc, t.TempDir(), "../escape", plumbing.ZeroHash); err == nil {
+		t.Fatal("expected invalid session id to be rejected")
+	}
+}
+
+func TestBuildTreeFromDir_DoesNotFollowSymlinkedDirectories(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	wtRoot := t.TempDir()
+	sess, err := CreateSession(sc, wtRoot, "s-symlink", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sess.WorktreePath, "outside")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+
+	treeHash, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatalf("BuildTreeFromDir: %v", err)
+	}
+	tree, err := object.GetTree(sc.repo.Storer, treeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree.Entries) != 1 {
+		t.Fatalf("tree entries = %d, want 1", len(tree.Entries))
+	}
+	if tree.Entries[0].Mode != filemode.Symlink {
+		t.Fatalf("entry mode = %v, want symlink", tree.Entries[0].Mode)
 	}
 }

@@ -33,6 +33,10 @@ func (t MCPTool) Schema() map[string]any {
 	return schema
 }
 
+// External MCP tools may execute arbitrary remote or local actions, so
+// they are hidden in plan mode by conservatively classifying them as exec.
+func (t MCPTool) Class() tool.Class { return tool.ClassExec }
+
 func (t MCPTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
 	var input map[string]any
 	if err := json.Unmarshal(args, &input); err != nil {

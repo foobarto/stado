@@ -152,3 +152,28 @@ func TestLoadParentTraceparent_EmptyDir_IsNoOp(t *testing.T) {
 		t.Error("empty dir should return (ctx, false)")
 	}
 }
+
+func TestLoadParentTraceparent_SymlinkIgnored(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real-traceparent")
+	if err := os.WriteFile(target, []byte("00-0102030405060708090a0b0c0d0e0f10-1112131415161718-01\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, TraceparentFile)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadParentTraceparent(context.Background(), dir); ok {
+		t.Fatal("symlinked traceparent file should be ignored")
+	}
+}
+
+func TestLoadParentTraceparent_OversizedIgnored(t *testing.T) {
+	dir := t.TempDir()
+	oversized := strings.Repeat("x", maxTraceparentBytes+1)
+	if err := os.WriteFile(filepath.Join(dir, TraceparentFile), []byte(oversized), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := LoadParentTraceparent(context.Background(), dir); ok {
+		t.Fatal("oversized traceparent file should be ignored")
+	}
+}

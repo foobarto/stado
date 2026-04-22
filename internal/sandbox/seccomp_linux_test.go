@@ -24,7 +24,7 @@ func TestCompileDenyList_EmptyListEmitsArchCheckAndAllow(t *testing.T) {
 	// Spot-check: the first instruction is LD |W| |ABS| K=4 (arch offset).
 	var first SockFilter
 	_ = binary.Read(bytes.NewReader(prog[:8]), binary.LittleEndian, &first)
-	if first.Code != (bpfLD | bpfW | bpfABS) || first.K != 4 {
+	if first.Code != (bpfLD|bpfW|bpfABS) || first.K != 4 {
 		t.Errorf("first insn wrong: %+v", first)
 	}
 }
@@ -102,5 +102,16 @@ func TestDefaultKillSyscallsCompile(t *testing.T) {
 	// substantial.
 	if len(prog)/8 < 10 {
 		t.Errorf("program too short (%d insns); syscall table may be mostly empty for this arch", len(prog)/8)
+	}
+}
+
+func TestCompileDenyList_EmptySyscallTableFailsForNonEmptyDenyList(t *testing.T) {
+	prev := syscallTable
+	syscallTable = map[string]uint32{}
+	t.Cleanup(func() { syscallTable = prev })
+
+	_, err := CompileDenyList([]string{"mount"})
+	if err == nil {
+		t.Fatal("expected unsupported-arch error when syscall table is empty")
 	}
 }

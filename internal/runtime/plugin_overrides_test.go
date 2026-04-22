@@ -145,3 +145,44 @@ func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 		t.Fatalf("ApplyToolOverrides error = %v, want session/llm rejection", err)
 	}
 }
+
+func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
+	cfg := isolatedRuntimeConfig(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
+		Name:        "read",
+		Description: "read via plugin",
+		Class:       "NonMutating",
+		Schema:      `{"type":"object"}`,
+	})
+	cfg.Tools.Overrides = map[string]string{"read": "corp-read-1.0.0"}
+
+	dir := filepath.Join(cfg.StateDir(), "plugins", "corp-read-1.0.0")
+	mf, _, err := plugins.LoadFromDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mf.Capabilities = []string{"fs:read:/work"}
+	canonical, err := mf.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := mf.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := BuildDefaultRegistry()
+	if err := ApplyToolOverrides(reg, cfg); err != nil {
+		t.Fatalf("ApplyToolOverrides: %v", err)
+	}
+	if got := reg.ClassOf("read"); got != tool.ClassExec {
+		t.Fatalf("ClassOf(read) = %v, want %v", got, tool.ClassExec)
+	}
+}

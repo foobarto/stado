@@ -25,7 +25,7 @@ type Session struct {
 	WorktreePath string
 	Sidecar      *Sidecar
 
-	Author    string // e.g., "claude-code-acp"
+	Author      string // e.g., "claude-code-acp"
 	AuthorEmail string
 
 	// Signer, if non-nil, signs every commit on tree/trace refs. Used via
@@ -76,19 +76,19 @@ type CommitEvent struct {
 // parentTree: optional hash to initialise tree-ref at (e.g. a fork point). Zero
 // hash means start from no parent.
 func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree plumbing.Hash) (*Session, error) {
-	if sessionID == "" {
-		return nil, errors.New("git: session id required")
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
 	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 	s := &Session{
-		ID:          sessionID,
+		ID:           sessionID,
 		WorktreePath: worktree,
-		Sidecar:     sidecar,
-		Author:      DefaultAuthorName,
-		AuthorEmail: DefaultAuthorEmail,
+		Sidecar:      sidecar,
+		Author:       DefaultAuthorName,
+		AuthorEmail:  DefaultAuthorEmail,
 	}
 	if !parentTree.IsZero() {
 		if err := sidecar.setRef(TreeRef(sessionID), parentTree); err != nil {
@@ -101,16 +101,19 @@ func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree 
 // OpenSession loads an existing session's state by ID. Worktree directory must
 // already exist; the refs may or may not exist yet.
 func OpenSession(sidecar *Sidecar, worktreeRoot, sessionID string) (*Session, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
+	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
 	if _, err := os.Stat(worktree); err != nil {
 		return nil, fmt.Errorf("open session %s: worktree missing: %w", sessionID, err)
 	}
 	return &Session{
-		ID:          sessionID,
+		ID:           sessionID,
 		WorktreePath: worktree,
-		Sidecar:     sidecar,
-		Author:      DefaultAuthorName,
-		AuthorEmail: DefaultAuthorEmail,
+		Sidecar:      sidecar,
+		Author:       DefaultAuthorName,
+		AuthorEmail:  DefaultAuthorEmail,
 	}, nil
 }
 
@@ -159,4 +162,14 @@ func (s *Session) signature(when time.Time) object.Signature {
 		Email: s.AuthorEmail,
 		When:  when,
 	}
+}
+
+func validateSessionID(sessionID string) error {
+	if sessionID == "" {
+		return errors.New("git: session id required")
+	}
+	if sessionID == "." || sessionID == ".." || filepath.IsAbs(sessionID) || filepath.Base(sessionID) != sessionID {
+		return fmt.Errorf("git: invalid session id %q", sessionID)
+	}
+	return nil
 }

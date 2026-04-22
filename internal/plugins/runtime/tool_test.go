@@ -49,6 +49,23 @@ func TestNewPluginTool_ClassRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNewPluginTool_ReadCapabilityPromotesClass(t *testing.T) {
+	mod := &Module{
+		Name: "demo",
+		Manifest: plugins.Manifest{
+			Name:         "demo",
+			Capabilities: []string{"fs:read:/work"},
+		},
+	}
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating"})
+	if err != nil {
+		t.Fatalf("NewPluginTool: %v", err)
+	}
+	if pt.Class() != tool.ClassExec {
+		t.Fatalf("Class() = %v, want %v", pt.Class(), tool.ClassExec)
+	}
+}
+
 // TestNewPluginTool_SchemaRoundTrip verifies a JSON Schema in the
 // manifest comes back intact via pt.Schema() — this is what the agent
 // loop passes to the provider's TurnRequest.Tools.
@@ -127,5 +144,14 @@ func TestLoadPluginTools_FromManifest(t *testing.T) {
 	}
 	if tools[0].Name() != "fetch" || tools[1].Name() != "summarise" {
 		t.Errorf("tool names: %q %q", tools[0].Name(), tools[1].Name())
+	}
+}
+
+func TestValidateResultLength(t *testing.T) {
+	if err := validateResultLength(128, 1024, "demo", "fetch"); err != nil {
+		t.Fatalf("unexpected in-cap error: %v", err)
+	}
+	if err := validateResultLength(2048, 1024, "demo", "fetch"); err == nil {
+		t.Fatal("expected over-cap result to fail")
 	}
 }

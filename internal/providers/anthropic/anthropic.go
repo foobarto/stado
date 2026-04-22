@@ -7,6 +7,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -330,7 +331,7 @@ func imageBlock(img *agent.ImageBlock) sdk.ContentBlockParamUnion {
 		OfImage: &sdk.ImageBlockParam{
 			Source: sdk.ImageBlockParamSourceUnion{
 				OfBase64: &sdk.Base64ImageSourceParam{
-					Data:      string(img.Data),
+					Data:      base64.StdEncoding.EncodeToString(img.Data),
 					MediaType: sdk.Base64ImageSourceMediaType(img.MediaType),
 				},
 			},

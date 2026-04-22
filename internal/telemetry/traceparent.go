@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,8 @@ const TraceparentFile = ".stado-span-context"
 // propagator is the standard W3C TraceContext propagator. Shared so
 // write + read agree on wire format.
 var propagator = propagation.TraceContext{}
+
+const maxTraceparentBytes = 256
 
 // WriteCurrentTraceparent persists the span context currently on ctx
 // to `<dir>/<TraceparentFile>`. Silent no-op when ctx carries no
@@ -94,8 +97,23 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 		return ctx, false
 	}
 	path := filepath.Join(dir, TraceparentFile)
-	data, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if err != nil {
+		return ctx, false
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return ctx, false
+	}
+	if info.Size() <= 0 || info.Size() > maxTraceparentBytes {
+		return ctx, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ctx, false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxTraceparentBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maxTraceparentBytes {
 		return ctx, false
 	}
 	tp := strings.TrimSpace(string(data))

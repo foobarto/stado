@@ -21,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -179,11 +180,16 @@ var sessionGCCmd = &cobra.Command{
 		// can leave a worktree without a trace ref.
 		if entries, err := os.ReadDir(cfg.WorktreeDir()); err == nil {
 			seen := map[string]struct{}{}
+			cwd, _ := os.Getwd()
+			currentRepo := findRepoRoot(cwd)
 			for _, id := range ids {
 				seen[id] = struct{}{}
 			}
 			for _, e := range entries {
 				if e.IsDir() {
+					if runtime.ReadUserRepoPin(filepath.Join(cfg.WorktreeDir(), e.Name())) != currentRepo {
+						continue
+					}
 					if _, ok := seen[e.Name()]; !ok {
 						ids = append(ids, e.Name())
 					}
@@ -272,7 +278,10 @@ var sessionDeleteCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return err
+		}
 		refsExisted, _ := sc.SessionHasRefs(id)
 		_, worktreeErr := os.Stat(wt)
 		worktreeExisted := worktreeErr == nil
@@ -617,7 +626,7 @@ var sessionShowCmd = &cobra.Command{
 			if n := len(turns); n > 0 {
 				last := turns[n-1]
 				// Truncate long summaries so the output stays parseable.
-				summary := last.Summary
+				summary := textutil.StripControlChars(last.Summary)
 				if len(summary) > 64 {
 					summary = summary[:63] + "…"
 				}
@@ -650,7 +659,7 @@ var sessionShowCmd = &cobra.Command{
 		if markers, err := sc.ListCompactions(id); err == nil && len(markers) > 0 {
 			fmt.Printf("compactions  %d event(s):\n", len(markers))
 			for _, m := range markers {
-				title := m.Title
+				title := textutil.StripControlChars(m.Title)
 				if len(title) > 60 {
 					title = title[:59] + "…"
 				}
@@ -661,7 +670,7 @@ var sessionShowCmd = &cobra.Command{
 				}
 				by := ""
 				if m.By != "" {
-					by = " · by " + m.By
+					by = " · by " + textutil.StripControlChars(m.By)
 				}
 				fmt.Printf("  %s  turns %d..%d (%d collapsed)%s\n",
 					shaShort, m.FromTurn, m.ToTurn, m.TurnsTotal, by)
@@ -833,6 +842,14 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 		return nil, err
 	}
 	return stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
+}
+
+func worktreePathForID(root, id string) (string, error) {
+	if id == "" || filepath.IsAbs(id) || filepath.Base(id) != id {
+		return "", fmt.Errorf("invalid session id %q", id)
+	}
+	wt := filepath.Join(root, id)
+	return wt, nil
 }
 
 // createSession makes a new session, optionally branched from parentID's

@@ -177,6 +177,8 @@ func TestIsLocalEndpoint(t *testing.T) {
 		"https://api.example.com/v1",
 		"http://192.168.1.1/v1",
 		"https://api.openai.com/v1",
+		"http://localhost.evil.com:1234/v1",
+		"http://localhost@evil.com:1234/v1",
 	} {
 		if isLocalEndpoint(ep) {
 			t.Errorf("expected %q to not count as local", ep)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // sessionTreeCmd is the standalone interactive half of Phase 11.5. See
@@ -168,7 +169,7 @@ func (m *treeModel) View() string {
 			t.Turn,
 			t.Commit.String()[:12],
 			t.When.Format("2006-01-02 15:04"),
-			firstN(t.Summary, 64),
+			firstN(textutil.StripControlChars(t.Summary), 64),
 		)
 		if i == m.cursor {
 			row = lipgloss.NewStyle().Bold(true).Render(row)

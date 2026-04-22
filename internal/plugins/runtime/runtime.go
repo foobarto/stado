@@ -150,6 +150,11 @@ func (r *Runtime) Instantiate(ctx context.Context, wasmBytes []byte, m plugins.M
 	}
 	key := m.Name + "-" + m.Version
 	r.mu.Lock()
+	if r.closed || r.modules == nil {
+		r.mu.Unlock()
+		_ = wmod.Close(ctx)
+		return nil, fmt.Errorf("wazero: runtime is closed")
+	}
 	r.modules[key] = mod
 	r.mu.Unlock()
 	return mod, nil

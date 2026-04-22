@@ -82,3 +82,20 @@ func TestHook_PostTurnUnconfiguredIsNoop(t *testing.T) {
 		t.Errorf("no-op hook took unexpectedly long: %v", time.Since(start))
 	}
 }
+
+func TestHook_PostTurnDisabledIsNoop(t *testing.T) {
+	rnd, err := render.New(theme.Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(t.TempDir(), "model", "prov",
+		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
+
+	out := filepath.Join(t.TempDir(), "hook.json")
+	m.SetHooks("cat > " + out)
+	m.hookRunner.Disabled = true
+	m.firePostTurnHook()
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("disabled hook should not run, got %v", err)
+	}
+}

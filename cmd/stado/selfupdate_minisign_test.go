@@ -23,37 +23,48 @@ func swapPubkey(t *testing.T, newVal string) {
 	t.Cleanup(func() { audit.EmbeddedMinisignPubkey = prev })
 }
 
-// TestVerifyChecksumsMinisig_NoPinAndNoSig is the default-build state.
-// No pinned key, no .minisig asset — sha256 stays the integrity proof,
-// no error.
+// TestVerifyChecksumsMinisig_NoPinAndNoSig: self-update must refuse to run
+// without an embedded minisign trust root.
 func TestVerifyChecksumsMinisig_NoPinAndNoSig(t *testing.T) {
 	swapPubkey(t, "")
-	if err := verifyChecksumsMinisig([]byte("irrelevant"), ""); err != nil {
-		t.Fatalf("unpinned + no-sig path returned error: %v", err)
+	err := verifyChecksumsMinisig([]byte("irrelevant"), "")
+	if err == nil {
+		t.Fatal("expected unpinned build to reject self-update")
+	}
+	if !strings.Contains(err.Error(), "embedded minisign pubkey") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestVerifyChecksumsMinisig_NoPinWithSig: release publishes a minisig
-// but we can't verify it because no pubkey is embedded. Advisory, no
-// error — a pinned-pubkey build will pick it up.
+// TestVerifyChecksumsMinisig_NoPinWithSig: a release-side minisig is not
+// enough if the local build has no embedded verification key.
 func TestVerifyChecksumsMinisig_NoPinWithSig(t *testing.T) {
 	swapPubkey(t, "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("bogus"))
 	}))
 	defer srv.Close()
-	if err := verifyChecksumsMinisig([]byte("checksums"), srv.URL); err != nil {
-		t.Fatalf("no-pin + sig path returned error: %v", err)
+	err := verifyChecksumsMinisig([]byte("checksums"), srv.URL)
+	if err == nil {
+		t.Fatal("expected unpinned build to reject self-update")
+	}
+	if !strings.Contains(err.Error(), "embedded minisign pubkey") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestVerifyChecksumsMinisig_PinWithoutSig: we have the pubkey but the
-// release doesn't ship a minisig. Falls back with advisory.
+// TestVerifyChecksumsMinisig_PinWithoutSig: a pinned pubkey must make
+// a missing minisig a hard failure; otherwise signature stripping
+// silently downgrades trust to sha256-only.
 func TestVerifyChecksumsMinisig_PinWithoutSig(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	swapPubkey(t, base64.StdEncoding.EncodeToString(pub))
-	if err := verifyChecksumsMinisig([]byte("checksums"), ""); err != nil {
-		t.Fatalf("pin + no-sig path returned error: %v", err)
+	err := verifyChecksumsMinisig([]byte("checksums"), "")
+	if err == nil {
+		t.Fatal("expected pin + no-sig path to fail")
+	}
+	if !strings.Contains(err.Error(), "checksums.txt.minisig") {
+		t.Fatalf("missing-minisig error = %v", err)
 	}
 }
 

@@ -129,3 +129,17 @@ func TestConversation_PreservesUnicodeAndTags(t *testing.T) {
 		t.Errorf("literal <div> missing: %q", raw)
 	}
 }
+
+func TestConversation_FilePermissionsArePrivate(t *testing.T) {
+	wt := t.TempDir()
+	if err := AppendMessage(wt, agent.Text(agent.RoleUser, "secret")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(wt, ConversationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("conversation mode = %#o, want 0600", got)
+	}
+}

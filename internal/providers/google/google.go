@@ -134,8 +134,23 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 // prior turns go in History.
 func splitMessages(msgs []agent.Message) ([]*genai.Content, []genai.Part, error) {
 	var history []*genai.Content
-	var lastUserParts []genai.Part
-	lastIsUser := false
+	var current []genai.Part
+	var currentRole string
+
+	lastIdx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		parts, err := convertContent(msgs[i].Content, msgs[i].Role)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(parts) > 0 {
+			lastIdx = i
+			break
+		}
+	}
+	if lastIdx == -1 {
+		return nil, nil, errors.New("google: no non-empty messages to send")
+	}
 
 	for i, m := range msgs {
 		parts, err := convertContent(m.Content, m.Role)
@@ -146,17 +161,17 @@ func splitMessages(msgs []agent.Message) ([]*genai.Content, []genai.Part, error)
 			continue
 		}
 		role := geminiRole(m.Role)
-		if i == len(msgs)-1 && role == "user" {
-			lastUserParts = parts
-			lastIsUser = true
+		if i == lastIdx {
+			current = parts
+			currentRole = role
 			break
 		}
 		history = append(history, &genai.Content{Role: role, Parts: parts})
 	}
-	if !lastIsUser {
-		return nil, nil, errors.New("google: last message must be user role for SendMessage")
+	if currentRole != "user" && currentRole != "function" {
+		return nil, nil, errors.New("google: last message must be user or tool role for SendMessage")
 	}
-	return history, lastUserParts, nil
+	return history, current, nil
 }
 
 func geminiRole(r agent.Role) string {

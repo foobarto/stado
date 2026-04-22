@@ -241,3 +241,30 @@ func TestConn_CloseUnblocksServeWithSeparateReader(t *testing.T) {
 		t.Fatal("Serve did not exit after Close")
 	}
 }
+
+func TestConn_RejectsOversizedRequestAndContinues(t *testing.T) {
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	srv := NewConn(server, server)
+	go srv.Serve(context.Background(), func(_ context.Context, method string, _ json.RawMessage) (any, error) {
+		if method == "ping" {
+			return map[string]string{"pong": "yes"}, nil
+		}
+		return nil, &RPCError{Code: CodeMethodNotFound, Message: "nope"}
+	})
+
+	oversized := `{"jsonrpc":"2.0","id":1,"method":"` + strings.Repeat("x", maxRequestLineBytes) + `"}`
+	io.WriteString(client, oversized+"\n")
+	reply := readLine(t, client, 2*time.Second)
+	if !strings.Contains(reply, `"code":-32600`) {
+		t.Fatalf("expected invalid-request for oversized frame, got %q", reply)
+	}
+
+	io.WriteString(client, `{"jsonrpc":"2.0","id":2,"method":"ping"}`+"\n")
+	reply = readLine(t, client, 2*time.Second)
+	if !strings.Contains(reply, `"pong":"yes"`) {
+		t.Fatalf("server did not recover after oversized frame: %q", reply)
+	}
+}

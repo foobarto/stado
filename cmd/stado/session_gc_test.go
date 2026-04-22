@@ -46,6 +46,13 @@ func createZeroTurnSession(t *testing.T, cfg *config.Config, sc *stadogit.Sideca
 		t.Fatal(err)
 	}
 	wt := filepath.Join(cfg.WorktreeDir(), id)
+	if err := os.MkdirAll(filepath.Join(wt, ".stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.WriteFile(filepath.Join(wt, ".stado", "user-repo"), []byte(cwd+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	past := time.Now().Add(-age)
 	_ = os.Chtimes(wt, past, past)
 	return id
@@ -125,6 +132,13 @@ func TestSessionGC_SkipsSessionsWithWork(t *testing.T) {
 
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), "gc-worked", plumbing.ZeroHash)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.WorktreePath, ".stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, ".stado", "user-repo"), []byte(cwd+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Produce a turn by committing something + tagging.

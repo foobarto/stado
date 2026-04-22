@@ -78,9 +78,9 @@ func TestRun_RejectsEscapingPath(t *testing.T) {
 	}
 }
 
-func TestClass_IsNonMutating(t *testing.T) {
-	if (Tool{}).Class() != tool.ClassNonMutating {
-		t.Error("ast_grep default class should be non-mutating")
+func TestClass_IsExec(t *testing.T) {
+	if (Tool{}).Class() != tool.ClassExec {
+		t.Error("ast_grep default class should be exec")
 	}
 }
 

@@ -16,6 +16,13 @@ import (
 	"sync"
 )
 
+const (
+	maxRequestLineBytes   = 64 * 1024
+	maxConcurrentDispatch = 32
+)
+
+var errRequestTooLarge = fmt.Errorf("jsonrpc: request exceeds %d bytes", maxRequestLineBytes)
+
 // Request is an incoming JSON-RPC 2.0 request. Notifications have no ID.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -76,6 +83,8 @@ type Conn struct {
 	pendMu   sync.Mutex
 	pend     int
 	pendCond *sync.Cond
+
+	dispatchSem chan struct{}
 }
 
 // NewConn wraps a reader/writer pair into a JSON-RPC connection.
@@ -85,10 +94,11 @@ func NewConn(r io.Reader, w io.Writer) *Conn {
 		rc = closer
 	}
 	c := &Conn{
-		r:    bufio.NewReaderSize(r, 64*1024),
-		rc:   rc,
-		w:    w,
-		done: make(chan struct{}),
+		r:           bufio.NewReaderSize(r, maxRequestLineBytes),
+		rc:          rc,
+		w:           w,
+		done:        make(chan struct{}),
+		dispatchSem: make(chan struct{}, maxConcurrentDispatch),
 	}
 	c.pendCond = sync.NewCond(&c.pendMu)
 	return c
@@ -138,13 +148,19 @@ func (c *Conn) Serve(ctx context.Context, h Handler) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
-		line, err := c.r.ReadBytes('\n')
+		line, err := c.readFrame()
+		if errors.Is(err, errRequestTooLarge) {
+			c.writeErr(nil, CodeInvalidRequest, err.Error())
+			continue
+		}
 		if len(line) > 0 {
+			c.dispatchSem <- struct{}{}
 			wg.Add(1)
 			c.pendMu.Lock()
 			c.pend++
 			c.pendMu.Unlock()
 			go func(raw []byte) {
+				defer func() { <-c.dispatchSem }()
 				defer wg.Done()
 				defer func() {
 					c.pendMu.Lock()
@@ -166,6 +182,26 @@ func (c *Conn) Serve(ctx context.Context, h Handler) error {
 			}
 			return err
 		}
+	}
+}
+
+func (c *Conn) readFrame() ([]byte, error) {
+	line, err := c.r.ReadSlice('\n')
+	switch {
+	case err == nil:
+		return append([]byte(nil), line...), nil
+	case errors.Is(err, bufio.ErrBufferFull):
+		for errors.Is(err, bufio.ErrBufferFull) {
+			_, err = c.r.ReadSlice('\n')
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		return nil, errRequestTooLarge
+	case len(line) > 0:
+		return append([]byte(nil), line...), nil
+	default:
+		return nil, err
 	}
 }
 

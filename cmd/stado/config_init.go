@@ -32,7 +32,7 @@ var configInitCmd = &cobra.Command{
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0o600); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", path)

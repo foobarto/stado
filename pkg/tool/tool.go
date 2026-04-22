@@ -13,7 +13,8 @@ type Tool interface {
 }
 
 // Classifier is an optional interface tools implement to declare their
-// mutation class. Tools that don't implement it default to ClassNonMutating.
+// mutation class. Tools that don't implement it default to ClassExec so
+// unknown tools are treated conservatively.
 //
 // Class drives the tree-vs-trace commit policy (PLAN.md §2.4):
 //   - NonMutating (grep/glob/read) → trace-only
@@ -44,13 +45,13 @@ func (c Class) String() string {
 	}
 }
 
-// ClassOf returns the class for any tool — falling back to NonMutating when
-// the tool doesn't implement Classifier.
+// ClassOf returns the class for any tool — falling back to Exec when the tool
+// doesn't implement Classifier.
 func ClassOf(t Tool) Class {
 	if c, ok := t.(Classifier); ok {
 		return c.Class()
 	}
-	return ClassNonMutating
+	return ClassExec
 }
 
 type Result struct {

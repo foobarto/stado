@@ -34,7 +34,11 @@ func (s *Session) buildTree(dir string) (plumbing.Hash, error) {
 		}
 		full := filepath.Join(dir, name)
 
-		if d.IsDir() {
+		info, err := os.Lstat(full)
+		if err != nil {
+			return plumbing.ZeroHash, fmt.Errorf("build tree: stat %s: %w", full, err)
+		}
+		if info.IsDir() {
 			sub, err := s.buildTree(full)
 			if err != nil {
 				return plumbing.ZeroHash, err
@@ -44,11 +48,6 @@ func (s *Session) buildTree(dir string) (plumbing.Hash, error) {
 			}
 			te = append(te, treeEntry{name: name, hash: sub, mode: filemode.Dir})
 			continue
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("build tree: stat %s: %w", full, err)
 		}
 		mode := filemode.Regular
 		if info.Mode()&os.ModeSymlink != 0 {

@@ -71,7 +71,7 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage, h
 // ClassOf returns the mutation class for a registered tool. Lookup order:
 //   1. tool.Classifier interface (per-instance)
 //   2. Classes static map (per-name, for bundled tools)
-//   3. ClassNonMutating default
+//   3. ClassExec default
 func (r *Registry) ClassOf(name string) tool.Class {
 	t, ok := r.Get(name)
 	if ok {
@@ -82,5 +82,5 @@ func (r *Registry) ClassOf(name string) tool.Class {
 	if c, ok := Classes[name]; ok {
 		return c
 	}
-	return tool.ClassNonMutating
+	return tool.ClassExec
 }

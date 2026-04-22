@@ -41,12 +41,9 @@ func (Tool) Schema() map[string]any {
 	}
 }
 
-// Class: if `rewrite` is set it's a mutation, otherwise a query. Default to
-// the conservative class (NonMutating) in the Classifier interface; the
-// Run method can upgrade via the Executor's commit policy if a rewrite is
-// requested — callers wanting a rewrite should explicitly wrap in an Exec
-// tool classification when that becomes relevant.
-func (Tool) Class() tool.Class { return tool.ClassNonMutating }
+// ast-grep can rewrite files in place when `rewrite` is set, so it must be
+// classified as exec-class to preserve tree commits whenever it mutates.
+func (Tool) Class() tool.Class { return tool.ClassExec }
 
 type Args struct {
 	Pattern  string `json:"pattern"`

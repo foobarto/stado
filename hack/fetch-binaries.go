@@ -28,6 +28,7 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -38,7 +39,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 const (
@@ -61,6 +61,16 @@ var matrix = []target{
 type manifest struct {
 	Version string            `json:"version"`
 	SHA256  map[string]string `json:"sha256"` // filename → hex digest
+}
+
+type githubRelease struct {
+	Assets []githubAsset `json:"assets"`
+}
+
+type githubAsset struct {
+	Name               string `json:"name"`
+	Digest             string `json:"digest"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 func main() {
@@ -90,11 +100,15 @@ func fetchRipgrep(version string) error {
 		return err
 	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
+	digests, err := fetchReleaseDigests("BurntSushi/ripgrep", version)
+	if err != nil {
+		return err
+	}
 
 	for _, t := range matrix {
 		url, archiveKind, innerPath := ripgrepAsset(version, t)
 		fmt.Printf("ripgrep %s/%s: %s\n", t.GOOS, t.GOARCH, url)
-		b, err := downloadArchiveFile(url, archiveKind, innerPath)
+		b, err := downloadArchiveFile(url, archiveKind, innerPath, digests[filepath.Base(url)])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s/%s: %v\n", t.GOOS, t.GOARCH, err)
 			continue
@@ -146,6 +160,10 @@ func fetchAstGrep(version string) error {
 		return err
 	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
+	digests, err := fetchReleaseDigests("ast-grep/ast-grep", version)
+	if err != nil {
+		return err
+	}
 
 	for _, t := range matrix {
 		url, kind := astGrepAsset(version, t)
@@ -154,7 +172,7 @@ func fetchAstGrep(version string) error {
 		if t.GOOS == "windows" {
 			inner = "ast-grep.exe"
 		}
-		b, err := downloadArchiveFile(url, kind, inner)
+		b, err := downloadArchiveFile(url, kind, inner, digests[filepath.Base(url)])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skipping %s/%s: %v\n", t.GOOS, t.GOARCH, err)
 			continue
@@ -197,7 +215,7 @@ func astGrepAsset(v string, t target) (string, string) {
 // downloadArchiveFile GETs url, walks the archive, and returns the
 // contents of the file whose path matches inner (exact, or basename
 // when the archive has flat structure).
-func downloadArchiveFile(url, kind, inner string) ([]byte, error) {
+func downloadArchiveFile(url, kind, inner, wantDigest string) ([]byte, error) {
 	if url == "" {
 		return nil, fmt.Errorf("no asset URL for this target")
 	}
@@ -209,11 +227,21 @@ func downloadArchiveFile(url, kind, inner string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if wantDigest == "" {
+		return nil, fmt.Errorf("missing published digest for %s", filepath.Base(url))
+	}
+	if got := sha256hex(body); got != wantDigest {
+		return nil, fmt.Errorf("digest mismatch for %s: got %s want %s", filepath.Base(url), got, wantDigest)
+	}
 	switch kind {
 	case "tar.gz":
-		return readFromTarGz(resp.Body, inner)
+		return readFromTarGz(bytes.NewReader(body), inner)
 	case "zip":
-		return readFromZip(resp.Body, inner)
+		return readFromZip(bytes.NewReader(body), inner)
 	}
 	return nil, fmt.Errorf("unknown archive kind %q", kind)
 }
@@ -284,6 +312,38 @@ func (r readerAtBytes) ReadAt(p []byte, off int64) (int, error) {
 
 func bytesReaderAt(b []byte) readerAtBytes { return readerAtBytes(b) }
 
+func fetchReleaseDigests(repo, tag string) (map[string]string, error) {
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/tags/"+tag, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "stado-fetch-binaries")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("release metadata HTTP %d", resp.StatusCode)
+	}
+	var rel githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, asset := range rel.Assets {
+		if asset.Digest == "" {
+			continue
+		}
+		const prefix = "sha256:"
+		if len(asset.Digest) > len(prefix) && asset.Digest[:len(prefix)] == prefix {
+			out[asset.Name] = asset.Digest[len(prefix):]
+		}
+	}
+	return out, nil
+}
+
 // --- embed generator ---
 
 // writeEmbedFile emits a per-platform Go source file that `//go:embed`s
@@ -339,7 +399,3 @@ func fatal(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "fetch-binaries: "+format+"\n", args...)
 	os.Exit(1)
 }
-
-// Keep strings import happy during partial rewrites (shouldn't be
-// strictly needed now but avoid churn).
-var _ = strings.TrimSpace

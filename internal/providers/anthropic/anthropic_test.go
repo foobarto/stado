@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
@@ -151,5 +152,21 @@ func TestCapabilities(t *testing.T) {
 	}
 	if c.MaxContextTokens != 200_000 {
 		t.Errorf("max ctx = %d", c.MaxContextTokens)
+	}
+}
+
+func TestImageBlock_Base64EncodesBytes(t *testing.T) {
+	img := &agent.ImageBlock{
+		MediaType: "image/png",
+		Data:      []byte{0x00, 0x01, 0x7f, 0xff},
+	}
+	block := imageBlock(img)
+	if block.OfImage == nil || block.OfImage.Source.OfBase64 == nil {
+		t.Fatalf("image block missing base64 source: %+v", block)
+	}
+	got := block.OfImage.Source.OfBase64.Data
+	want := base64.StdEncoding.EncodeToString(img.Data)
+	if got != want {
+		t.Fatalf("base64 payload = %q, want %q", got, want)
 	}
 }

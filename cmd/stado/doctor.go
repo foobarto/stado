@@ -13,6 +13,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 var doctorCmd = &cobra.Command{
@@ -63,7 +64,7 @@ var doctorCmd = &cobra.Command{
 
 		// Sandbox detection.
 		d.check("Sandbox runner", sandbox.Detect().Name(), "ok", true)
-		if err := sandbox.ApplyLandlock(sandbox.Policy{}); err == nil {
+		if err := sandbox.ProbeLandlock(); err == nil {
 			d.check("Landlock", "available", "kernel ≥ 5.13", true)
 		} else {
 			d.check("Landlock", err.Error(), "unavailable (not fatal)", false)
@@ -233,10 +234,7 @@ func checkLocalProviders(ctx context.Context, d *report, cfg *config.Config) {
 		case len(r.Models) == 0:
 			d.check(label, r.Endpoint, "running · no models loaded", true)
 		default:
-			preview := strings.Join(r.Models, ", ")
-			if len(preview) > 80 {
-				preview = preview[:79] + "…"
-			}
+			preview := modelPreview(r.Models)
 			detail := fmt.Sprintf("running · %d model(s): %s", len(r.Models), preview)
 			d.check(label, r.Endpoint, detail, true)
 		}
@@ -263,6 +261,14 @@ func sanitizeErr(err error) string {
 		msg = msg[:59] + "…"
 	}
 	return msg
+}
+
+func modelPreview(models []string) string {
+	preview := textutil.StripControlChars(strings.Join(models, ", "))
+	if len(preview) > 80 {
+		preview = preview[:79] + "…"
+	}
+	return preview
 }
 
 // checkOptInFeatures surfaces the user-opt-in config surfaces so

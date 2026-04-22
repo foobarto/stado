@@ -40,8 +40,8 @@ func TestClassOf_BuiltIns(t *testing.T) {
 
 func TestClassOf_UnknownTool(t *testing.T) {
 	r := NewRegistry()
-	if got := r.ClassOf("nonexistent"); got != tool.ClassNonMutating {
-		t.Errorf("ClassOf unknown = %v, want NonMutating (safe default)", got)
+	if got := r.ClassOf("nonexistent"); got != tool.ClassExec {
+		t.Errorf("ClassOf unknown = %v, want Exec (safe default)", got)
 	}
 }
 

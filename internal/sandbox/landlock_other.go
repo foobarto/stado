@@ -15,3 +15,5 @@ func ApplyLandlock(p Policy) error {
 	_ = p
 	return ErrLandlockUnavailable
 }
+
+func ProbeLandlock() error { return ErrLandlockUnavailable }

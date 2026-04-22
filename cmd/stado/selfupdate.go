@@ -39,11 +39,10 @@ var selfUpdateCmd = &cobra.Command{
 		"verifies the sha256 from the release's checksums.txt, extracts the\n" +
 		"stado binary, and atomically swaps it into place.\n\n" +
 		"Keeps the previous binary at <bin>.prev so you can roll back.\n\n" +
-		"Integrity: sha256 from checksums.txt always checked. When the build\n" +
-		"has an embedded minisign pubkey AND the release publishes a\n" +
-		"checksums.txt.minisig, the signature is verified before the\n" +
-		"checksums are trusted. Cosign verification lands alongside the\n" +
-		"full sigstore wiring in a follow-up.",
+		"Integrity: self-update requires a build with an embedded minisign\n" +
+		"pubkey and a release that publishes checksums.txt.minisig. The\n" +
+		"signature is verified before checksums.txt is trusted, and the\n" +
+		"archive sha256 must then match that signed manifest.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSelfUpdate()
 	},
@@ -115,9 +114,9 @@ func runSelfUpdate() error {
 // --- GitHub releases API ---
 
 type ghRelease struct {
-	TagName     string      `json:"tag_name"`
-	PublishedAt time.Time   `json:"published_at"`
-	Assets      []ghAsset   `json:"assets"`
+	TagName     string    `json:"tag_name"`
+	PublishedAt time.Time `json:"published_at"`
+	Assets      []ghAsset `json:"assets"`
 }
 
 type ghAsset struct {
@@ -225,24 +224,16 @@ func fetchBytes(url, label string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// verifyChecksumsMinisig enforces the signature contract when both sides
-// are present. Returns nil (+ stderr advisory) for the degraded cases so
-// existing environments without a pinned key keep working.
+// verifyChecksumsMinisig enforces the release trust root for self-update.
+// Self-update is only permitted from builds that embed the project's minisign
+// pubkey and from releases that publish a matching checksums.txt.minisig.
 func verifyChecksumsMinisig(checksums []byte, minisigURL string) error {
 	pinned := audit.EmbeddedMinisignPubkey
 	switch {
-	case pinned == "" && minisigURL == "":
-		fmt.Fprintln(os.Stderr,
-			"self-update: no minisign pubkey pinned and no .minisig asset — sha256 is the only integrity check.")
-		return nil
 	case pinned == "":
-		fmt.Fprintln(os.Stderr,
-			"self-update: no minisign pubkey pinned; release publishes a .minisig but we can't verify it. (PR O wires the ceremony.)")
-		return nil
+		return fmt.Errorf("self-update: this build has no embedded minisign pubkey; refusing unsigned release verification")
 	case minisigURL == "":
-		fmt.Fprintln(os.Stderr,
-			"self-update: minisign pubkey pinned but release has no checksums.txt.minisig — falling back to sha256 only.")
-		return nil
+		return fmt.Errorf("self-update: minisign pubkey pinned but release has no checksums.txt.minisig")
 	}
 
 	// Both present — enforce.

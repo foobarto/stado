@@ -14,8 +14,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -111,18 +114,19 @@ func MergeUserPresets(userPresets map[string]string) []Target {
 }
 
 func isLocalEndpoint(ep string) bool {
-	for _, pfx := range []string{
-		"http://localhost",
-		"https://localhost",
-		"http://127.",
-		"http://0.0.0.0",
-		"http://[::1]",
-	} {
-		if len(ep) >= len(pfx) && ep[:len(pfx)] == pfx {
-			return true
-		}
+	u, err := url.Parse(ep)
+	if err != nil || u.Host == "" {
+		return false
 	}
-	return false
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
 // probeOne hits {endpoint}/models with a short timeout. OAI-compat

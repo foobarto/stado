@@ -32,13 +32,13 @@ import (
 // New fields are appended here; consumers should treat unknown fields
 // as tolerable.
 type PostTurnPayload struct {
-	Event        string  `json:"event"` // always "post_turn"
-	TurnIndex    int     `json:"turn_index"`
-	TokensIn     int     `json:"tokens_in"`
-	TokensOut    int     `json:"tokens_out"`
-	CostUSD      float64 `json:"cost_usd"`
-	TextExcerpt  string  `json:"text_excerpt"`   // first ~200 chars of assistant text
-	DurationMS   int64   `json:"duration_ms"`    // wall time of the turn in ms
+	Event       string  `json:"event"` // always "post_turn"
+	TurnIndex   int     `json:"turn_index"`
+	TokensIn    int     `json:"tokens_in"`
+	TokensOut   int     `json:"tokens_out"`
+	CostUSD     float64 `json:"cost_usd"`
+	TextExcerpt string  `json:"text_excerpt"` // first ~200 chars of assistant text
+	DurationMS  int64   `json:"duration_ms"`  // wall time of the turn in ms
 }
 
 // Runner is the single entry point. Callers construct one per TUI
@@ -49,6 +49,10 @@ type Runner struct {
 	// PostTurnCmd is the /bin/sh -c argument for the post_turn event.
 	// Empty disables the hook.
 	PostTurnCmd string
+	// Disabled suppresses execution even when PostTurnCmd is set. The TUI uses
+	// this to keep hooks from bypassing a configuration that removed `bash`
+	// from the active tool set.
+	Disabled bool
 	// Logger receives one line per hook attempt (start + result).
 	// Defaults to os.Stderr.
 	Logger io.Writer
@@ -60,7 +64,7 @@ type Runner struct {
 // payload piped to stdin. Errors are logged, never returned — the
 // turn is over; a broken hook shouldn't poison the next one.
 func (r *Runner) FirePostTurn(ctx context.Context, p PostTurnPayload) {
-	if r == nil || r.PostTurnCmd == "" {
+	if r == nil || r.PostTurnCmd == "" || r.Disabled {
 		return
 	}
 	body, err := json.Marshal(p)

@@ -49,7 +49,7 @@ func AppendMessage(worktree string, msg agent.Message) error {
 		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
 	}
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("conversation: open %s: %w", path, err)
 	}
@@ -105,7 +105,7 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 	}
 	final := filepath.Join(worktree, ConversationFile)
 	tmp := final + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("conversation: open tmp: %w", err)
 	}

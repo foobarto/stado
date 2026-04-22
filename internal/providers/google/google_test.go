@@ -45,6 +45,31 @@ func TestSplitMessages_RequiresTrailingUser(t *testing.T) {
 	}
 }
 
+func TestSplitMessages_AllowsTrailingToolResult(t *testing.T) {
+	msgs := []agent.Message{
+		agent.Text(agent.RoleUser, "list files"),
+		{Role: agent.RoleAssistant, Content: []agent.Block{
+			{ToolUse: &agent.ToolUseBlock{Name: "glob", Input: json.RawMessage(`{"pattern":"*"}`)}},
+		}},
+		{Role: agent.RoleTool, Content: []agent.Block{
+			{ToolResult: &agent.ToolResultBlock{ToolUseID: "glob", Content: "main.go"}},
+		}},
+	}
+	hist, cur, err := splitMessages(msgs)
+	if err != nil {
+		t.Fatalf("splitMessages: %v", err)
+	}
+	if len(hist) != 2 {
+		t.Fatalf("history len = %d, want 2", len(hist))
+	}
+	if len(cur) != 1 {
+		t.Fatalf("current parts = %d, want 1", len(cur))
+	}
+	if _, ok := cur[0].(genai.FunctionResponse); !ok {
+		t.Fatalf("current part = %T, want FunctionResponse", cur[0])
+	}
+}
+
 func TestConvertContent_FunctionCallAndResult(t *testing.T) {
 	parts, err := convertContent([]agent.Block{
 		{ToolUse: &agent.ToolUseBlock{Name: "search", Input: json.RawMessage(`{"q":"hi"}`)}},

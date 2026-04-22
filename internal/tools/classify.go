@@ -16,20 +16,20 @@ import (
 
 // Classes is the static tool-name → class map for stado's built-ins.
 // Registry.ClassOf consults this first; tools implementing tool.Classifier
-// override on a per-instance basis. Unknown names default to NonMutating.
+// override on a per-instance basis. Unknown names default to Exec.
 var Classes = map[string]tool.Class{
-	(bash.BashTool{}).Name():         tool.ClassExec,
-	(fs.ReadTool{}).Name():           tool.ClassNonMutating,
-	(fs.GlobTool{}).Name():           tool.ClassNonMutating,
-	(fs.GrepTool{}).Name():           tool.ClassNonMutating,
-	(fs.WriteTool{}).Name():          tool.ClassMutating,
-	(fs.EditTool{}).Name():           tool.ClassMutating,
-	(webfetch.WebFetchTool{}).Name(): tool.ClassNonMutating,
-	(rg.Tool{}).Name():               tool.ClassNonMutating,
-	(astgrep.Tool{}).Name():          tool.ClassNonMutating,
-	(readctx.Tool{}).Name():          tool.ClassNonMutating,
-	(&lspfind.FindDefinition{}).Name():                                    tool.ClassNonMutating,
-	(&lspfind.FindReferences{}).Name():                                    tool.ClassNonMutating,
-	(&lspfind.DocumentSymbols{}).Name():                                   tool.ClassNonMutating,
-	(&lspfind.Hover{}).Name():                                             tool.ClassNonMutating,
+	(bash.BashTool{}).Name():            tool.ClassExec,
+	(fs.ReadTool{}).Name():              tool.ClassNonMutating,
+	(fs.GlobTool{}).Name():              tool.ClassNonMutating,
+	(fs.GrepTool{}).Name():              tool.ClassNonMutating,
+	(fs.WriteTool{}).Name():             tool.ClassMutating,
+	(fs.EditTool{}).Name():              tool.ClassMutating,
+	(webfetch.WebFetchTool{}).Name():    tool.ClassNonMutating,
+	(rg.Tool{}).Name():                  tool.ClassNonMutating,
+	(astgrep.Tool{}).Name():             tool.ClassExec,
+	(readctx.Tool{}).Name():             tool.ClassNonMutating,
+	(&lspfind.FindDefinition{}).Name():  tool.ClassNonMutating,
+	(&lspfind.FindReferences{}).Name():  tool.ClassNonMutating,
+	(&lspfind.DocumentSymbols{}).Name(): tool.ClassNonMutating,
+	(&lspfind.Hover{}).Name():           tool.ClassNonMutating,
 }

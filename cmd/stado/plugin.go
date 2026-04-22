@@ -222,6 +222,7 @@ var pluginVerifyCmd = &cobra.Command{
 // configured (caller checks first).
 func consultCRL(cfg *config.Config, m *plugins.Manifest) error {
 	crlPath := filepath.Join(cfg.StateDir(), "plugins", "crl.json")
+	var crl *plugins.CRL
 
 	var pub ed25519.PublicKey
 	if cfg.Plugins.CRLIssuerPubkey == "" {
@@ -241,14 +242,20 @@ func consultCRL(cfg *config.Config, m *plugins.Manifest) error {
 		fresh, err := plugins.Fetch(cfg.Plugins.CRLURL, pub)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "crl: fetch failed (%v); falling back to cached copy\n", err)
-		} else if err := plugins.SaveLocal(fresh, crlPath); err != nil {
-			fmt.Fprintf(os.Stderr, "crl: cache write failed (%v); continuing with in-memory copy\n", err)
+		} else {
+			crl = fresh
+			if err := plugins.SaveLocal(fresh, crlPath); err != nil {
+				fmt.Fprintf(os.Stderr, "crl: cache write failed (%v); continuing with in-memory copy\n", err)
+			}
 		}
 	}
 
-	crl, err := plugins.LoadLocal(crlPath)
-	if err != nil {
-		return fmt.Errorf("crl: load cached: %w", err)
+	if crl == nil {
+		var err error
+		crl, err = plugins.LoadLocal(crlPath)
+		if err != nil {
+			return fmt.Errorf("crl: load cached: %w", err)
+		}
 	}
 	if crl == nil {
 		if pub == nil {

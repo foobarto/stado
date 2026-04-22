@@ -116,7 +116,7 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 			return nil, fmt.Errorf("tool override %q: plugin %s schema: %w", target, pluginID, err)
 		}
 	}
-	class, err := def.ClassValue()
+	class, err := pluginRuntime.EffectiveToolClass(*def, mf.Capabilities)
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: plugin %s class: %w", target, pluginID, err)
 	}
@@ -175,11 +175,21 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 	return pub, nil
 }
 
+// VerifyInstalledPlugin re-runs the full installed-plugin trust checks used by
+// runtime overrides: digest, trust-store signature, CRL, and Rekor when
+// configured. TUI `/plugin` uses the same verifier so it cannot bypass
+// revocation/transparency policy.
+func VerifyInstalledPlugin(ctx context.Context, cfg *config.Config, pluginDir string, mf *plugins.Manifest, sig string) error {
+	_, err := verifyPluginOverride(ctx, cfg, pluginDir, mf, sig)
+	return err
+}
+
 func consultOverrideCRL(cfg *config.Config, mf *plugins.Manifest) error {
 	if cfg.Plugins.CRLURL == "" {
 		return nil
 	}
 	crlPath := filepath.Join(cfg.StateDir(), "plugins", "crl.json")
+	var crl *plugins.CRL
 
 	var pub ed25519.PublicKey
 	if cfg.Plugins.CRLIssuerPubkey == "" {
@@ -196,14 +206,20 @@ func consultOverrideCRL(cfg *config.Config, mf *plugins.Manifest) error {
 		fresh, err := plugins.Fetch(cfg.Plugins.CRLURL, pub)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "crl: fetch failed (%v); falling back to cached copy\n", err)
-		} else if err := plugins.SaveLocal(fresh, crlPath); err != nil {
-			fmt.Fprintf(os.Stderr, "crl: cache write failed (%v); continuing with in-memory copy\n", err)
+		} else {
+			crl = fresh
+			if err := plugins.SaveLocal(fresh, crlPath); err != nil {
+				fmt.Fprintf(os.Stderr, "crl: cache write failed (%v); continuing with in-memory copy\n", err)
+			}
 		}
 	}
 
-	crl, err := plugins.LoadLocal(crlPath)
-	if err != nil {
-		return fmt.Errorf("crl: load cached: %w", err)
+	if crl == nil {
+		var err error
+		crl, err = plugins.LoadLocal(crlPath)
+		if err != nil {
+			return fmt.Errorf("crl: load cached: %w", err)
+		}
 	}
 	if crl == nil {
 		if pub == nil {
