@@ -20,6 +20,7 @@ Shorter forms live in:
 | `stado session` | [commands/session.md](commands/session.md) | Create/list/fork/land agent sessions |
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
+| `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, scaffold, and run WASM plugins |
 
 Other shipped commands do not have standalone guides yet. Until they do,
 `stado <command> --help` is authoritative:
@@ -29,7 +30,6 @@ Other shipped commands do not have standalone guides yet. Until they do,
 | `stado agents` | _(guide pending)_ | Parallel agent view + kill |
 | `stado audit` | _(guide pending)_ | Verify signed tree/trace refs |
 | `stado stats` | _(guide pending)_ | Cost + usage dashboard |
-| `stado plugin` | _(guide pending)_ | Install/verify/run wasm plugins |
 | `stado headless` | _(guide pending)_ | JSON-RPC daemon |
 | `stado acp` | _(guide pending)_ | Zed Agent-Client-Protocol server |
 | `stado mcp-server` | _(guide pending)_ | Expose tools via MCP v1 |

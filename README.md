@@ -25,12 +25,13 @@ environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native state, signed
 > audit log, sandbox (Linux + macOS), OpenTelemetry instrumentation,
-> MCP/ACP integration, signed WASM plugins with CRL enforcement, and
-> Phase 11 context management (prompt-cache plumbing, token counting,
-> in-turn read dedup, per-tool output budgets, fork-from-point
-> ergonomics, and user-invoked compaction) are shipped. Windows
-> sandbox v2 (job objects + restricted tokens) is still in flight —
-> see [PLAN.md](PLAN.md) for the phased roadmap.
+> MCP/ACP integration, signed WASM plugins with CRL + Rekor checks,
+> bundled built-in tools loaded through the plugin runtime, and Phase 11
+> context management (prompt-cache plumbing, token counting, in-turn
+> read dedup, per-tool output budgets, fork-from-point ergonomics, and
+> user-invoked compaction) are shipped. Windows sandbox v2 (job objects
+> + restricted tokens) is still in flight — see [PLAN.md](PLAN.md) for
+> the phased roadmap.
 
 ---
 
@@ -81,10 +82,20 @@ roots compiled into the binary.
 A signature-verifying install script (`install.sh`) is planned; in the
 meantime use the manual download path or build from source.
 
-### Manual download
+### Homebrew
+
+```sh
+brew install foobarto/tap/stado
+```
+
+### Manual download / release assets
 
 Grab a binary from [Releases](https://github.com/foobarto/stado/releases)
-and verify:
+and verify. Each tag publishes platform archives (`.tar.gz` / `.zip`),
+Linux packages (`.deb` / `.rpm`), `checksums.txt`, the cosign
+certificate + signature, and SBOMs.
+
+Example verification:
 
 ```sh
 # cosign (online)
@@ -98,10 +109,8 @@ cosign verify-blob \
 stado verify stado-linux-amd64
 ```
 
-### Homebrew, apt, rpm
-
-Pending. Track [the distribution issue](https://github.com/foobarto/stado/issues)
-for progress.
+For Linux package installs, download the matching `.deb` or `.rpm` from
+the release page and install it with your native package manager.
 
 ### From source
 
@@ -174,9 +183,13 @@ stado doctor                            # env diagnostic (runners, sandbox, bina
 Plugins:
 
 ```sh
-stado plugin installed                  # what plugins are installed
-stado plugin list                       # trusted signers
-stado plugin run <id> <tool> '{...}'    # invoke a plugin's tool
+stado plugin init my-plugin             # scaffold a Go wasip1 plugin
+stado plugin gen-key my-plugin.seed     # one-time signer key
+stado plugin list                       # pinned signer keys
+stado plugin installed                  # installed plugin IDs
+stado plugin verify .                   # signature + digest + rollback/CRL/Rekor
+stado plugin install .                  # copy into state/plugins/
+stado plugin run <id> <tool> '{...}'    # invoke a plugin tool directly
 ```
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
@@ -218,8 +231,11 @@ line range + in-turn content-hash dedup so repeat reads of an unchanged
 file spend no tokens), `write`, `edit`, `glob`, `grep`, `ripgrep`,
 `ast_grep`, `bash`, `webfetch`, `read_with_context` (Go-aware import
 resolution), and four LSP-backed tools (`find_definition`,
-`find_references`, `document_symbols`, `hover`). MCP servers plug in
-via config and auto-register their tools.
+`find_references`, `document_symbols`, `hover`). They ship as embedded
+signed WASM modules loaded through the same plugin runtime used for
+third-party tools, so overrides and capability checks behave the same
+way across built-in and external plugins. MCP servers plug in via
+config and auto-register their tools.
 
 **Git-native state.** Sidecar bare repo per user repo. Alternates link
 to your `.git/objects` so agent sessions reference your history without
@@ -246,6 +262,12 @@ for SIEM ingestion.
 **Surfaces.** Terminal TUI (default), `stado run` (single-shot CLI),
 `stado headless` (JSON-RPC 2.0 daemon), `stado acp` (Zed Agent Client
 Protocol server). All compose the same `internal/runtime` core.
+
+**WASM plugins.** `stado plugin init`, `gen-key`, `sign`, `trust`,
+`verify`, `install`, `installed`, `list`, `run`, and `digest` cover the
+full author/install loop. `[tools].overrides` can replace bundled tools
+with installed plugins, and `[plugins].background` loads turn-boundary
+plugins such as auto-compactors or recorders at TUI startup.
 
 **MCP sandbox.** Each `[mcp.servers.<name>]` can declare a
 `capabilities` list (fs:read/fs:write/net:<host>/exec:<binary>/env:VAR).
@@ -553,7 +575,7 @@ stado builds on [go-git](https://github.com/go-git/go-git),
 [koanf](https://github.com/knadh/koanf),
 [tiktoken-go](https://github.com/pkoukk/tiktoken-go) (with the offline
 BPE loader), and the official provider SDKs from Anthropic, OpenAI,
-and Google. The planned WASM plugin runtime will use
+and Google. The WASM plugin runtime uses
 [wazero](https://github.com/tetratelabs/wazero). The Agent Client
 Protocol is developed by [Zed](https://github.com/zed-industries/agent-client-protocol).
 The Model Context Protocol is developed by [Anthropic](https://modelcontextprotocol.io/).

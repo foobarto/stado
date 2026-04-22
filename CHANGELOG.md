@@ -6,6 +6,42 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+- No changes yet.
+
+## v0.1.0 — 2026-04-23
+
++ Built-in tools now ship through the same signed WASM runtime as
+third-party plugins, macOS sandboxing is shipped alongside Linux, and
+the public plugin workflow is documented end-to-end. Pre-1.0: breaking
+changes still allowed between tags.
+
+### Plugins / Tool runtime
+
+- **Built-in tools now load through the plugin runtime.** The default
+  `read` / `write` / `edit` / `glob` / `grep` / `bash` / `webfetch` /
+  `ripgrep` / `ast_grep` / `read_with_context` / LSP tools are now
+  embedded signed WASM modules instantiated through the same wazero host
+  surface used for third-party plugins. That removes a large native-vs-
+  plugin split, makes override behavior consistent, and keeps the
+  bundled tool surface auditable.
+- **Approval wrappers moved into plugins.** The old in-process
+  "approval tool" path is gone. Approval behavior now lives in explicit
+  example plugins (`approval-bash-go`, `approval-write-go`,
+  `approval-edit-go`, `approval-ast-grep-go`) plus a bundled
+  `approval_demo` module that exercises the `ui:approval` import.
+
+### Docs
+
+- **README refresh for the 0.1.0 surface.** The install section now
+  documents release assets and the Homebrew tap that already exists, the
+  plugin command examples no longer mention the removed GitHub bot
+  workflow generator, and the shipped-status sections now reflect the
+  macOS sandbox + WASM plugin runtime that are already live.
+- **`stado plugin` now has a command guide.** `docs/README.md` links a
+  new `docs/commands/plugin.md` guide covering scaffold → sign → trust
+  → verify → install → run, plus the distinction between trusted
+  signers (`plugin list`) and installed plugin IDs (`plugin installed`).
+
 ### Infra / Security
 
 - **Removed the `stado github` bot workflow generator.** The GitHub
@@ -42,6 +78,11 @@ Plugins / Infra / Fixes.
   was set, tools still opened a session from the caller's cwd instead of the
   resumed session's worktree. Running from a different directory would
   execute mutating tools against the wrong repo.
+- **Host-safe SDK split for bundled WASM modules.** `internal/builtinplugins/sdk`
+  now keeps the real pointer-based implementation behind `//go:build wasip1`
+  and provides a host-only stub for tests and lint. That stops host-side
+  tooling from treating wasm32 offsets as native pointers while preserving
+  the ABI used by the embedded modules.
 
 ### UX
 
