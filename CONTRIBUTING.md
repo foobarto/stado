@@ -33,6 +33,18 @@ cancelreader path that teatest can't (the virtual terminal fakes
 those layers). Skip it with `STADO_SKIP_TMUX_UAT=1` if tmux isn't
 installed.
 
+When you touch bundled wasm tools under `internal/builtinplugins/`,
+verify both the host build and the `wasip1` build. The shared SDK in
+`internal/builtinplugins/sdk/` is imported by `GOOS=wasip1` modules,
+but host-side tests and linters still load the package, so the real
+pointer-based implementation must stay behind `//go:build wasip1`
+with a safe host stub for `!wasip1`.
+
+```sh
+go test ./internal/builtinplugins/sdk
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared ./internal/builtinplugins/modules/approval_demo
+```
+
 ## Lint
 
 ```sh
@@ -42,6 +54,11 @@ golangci-lint run --timeout=5m
 CI blocks on this. Unused fields, unused imports, ineffective
 assignments, and the full default `staticcheck` set all fail the
 build — fix warnings before pushing.
+
+`golangci-lint` runs against the host toolchain, so it sees the
+`!wasip1` side of `internal/builtinplugins/sdk/`. If host builds start
+depending on raw wasm pointer casts again, lint will fail even if the
+`wasip1` module still compiles.
 
 ## Run locally
 

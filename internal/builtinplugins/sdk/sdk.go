@@ -1,3 +1,5 @@
+//go:build wasip1
+
 package sdk
 
 import (
@@ -7,6 +9,8 @@ import (
 
 var pinned sync.Map
 
+// Alloc returns a pointer inside the module's wasm32 linear memory.
+// The host uses this offset to write tool input into the plugin heap.
 func Alloc(size int32) int32 {
 	if size <= 0 {
 		return 0
