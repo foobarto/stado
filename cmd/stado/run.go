@@ -38,7 +38,7 @@ var runCmd = &cobra.Command{
 	Long: `Execute a prompt through the configured provider without opening the TUI.
 
 Text streams to stdout (or JSON lines with --json). When --tools is set the
-model can call stado's bundled tools (bash / fs / webfetch), and every call
+model can call stado's bundled toolset, and every call
 is committed to the session's git-native audit log.
 
 Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
@@ -241,7 +241,7 @@ func init() {
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text")
-	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable tool-calling (bash/fs/webfetch) with git-native audit")
+	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable the bundled toolset with git-native audit")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")

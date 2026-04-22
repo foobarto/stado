@@ -93,6 +93,10 @@ func EffectiveToolClass(def plugins.ToolDef, capabilities []string) (tool.Class,
 			// lsp:* is read-only query capability. Leave the manifest
 			// class intact unless another capability promotes it.
 			continue
+		case strings.HasPrefix(cap, "ui:"):
+			// ui:* only affects interactive UX; it does not expand OS,
+			// network, session, or model access on its own.
+			continue
 		default:
 			class = maxClass(class, tool.ClassExec)
 		}

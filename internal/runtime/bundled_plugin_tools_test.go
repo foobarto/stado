@@ -48,6 +48,13 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	} else if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
 		t.Fatalf("read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
 	}
+	if got, ok := reg.Get("approval_demo"); !ok {
+		t.Fatal("approval_demo tool missing")
+	} else if pt, ok := got.(*bundledPluginTool); !ok {
+		t.Fatalf("approval_demo type = %T, want *bundledPluginTool", got)
+	} else if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "ui:approval" {
+		t.Fatalf("approval_demo capabilities = %v, want [ui:approval]", pt.manifest.Capabilities)
+	}
 }
 
 func TestBundledPluginTool_RunRead(t *testing.T) {
@@ -109,5 +116,8 @@ func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 	}
 	if got := reg.ClassOf("bash"); got != tool.ClassExec {
 		t.Fatalf("ClassOf(bash) = %v, want %v", got, tool.ClassExec)
+	}
+	if got := reg.ClassOf("approval_demo"); got != tool.ClassNonMutating {
+		t.Fatalf("ClassOf(approval_demo) = %v, want %v", got, tool.ClassNonMutating)
 	}
 }

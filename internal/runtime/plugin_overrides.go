@@ -55,6 +55,9 @@ func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h to
 
 	host := pluginRuntime.NewHost(p.manifest, h.Workdir(), nil)
 	host.ToolHost = h
+	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
+		host.ApprovalBridge = bridge
+	}
 	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("plugin %s: host imports: %w", p.pluginID, err)
 	}

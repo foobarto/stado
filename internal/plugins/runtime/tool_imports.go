@@ -98,6 +98,7 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 			}, []api.ValueType{api.ValueTypeI32}).
 			Export(spec.exportName)
 	}
+
 }
 
 func preflightReadPath(h *Host, raw json.RawMessage) error {

@@ -1,0 +1,23 @@
+{
+  "name": "approval-edit-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval",
+    "fs:read:.",
+    "fs:write:."
+  ],
+  "tools": [
+    {
+      "name": "edit",
+      "description": "Apply a text edit, but require explicit UI approval before the host wrapper runs.",
+      "class": "Mutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file\"},\"old\":{\"type\":\"string\",\"description\":\"Text to find (exact match)\"},\"new\":{\"type\":\"string\",\"description\":\"Replacement text\"}},\"required\":[\"path\",\"old\",\"new\"]}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-23T00:00:00Z",
+  "nonce": "approval-edit-go-demo-001"
+}

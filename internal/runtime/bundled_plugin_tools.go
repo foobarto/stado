@@ -52,6 +52,19 @@ func buildBundledPluginRegistry() *tools.Registry {
 	for _, t := range native.All() {
 		r.Register(newBundledPluginTool(t, native.ClassOf(t.Name())))
 	}
+	r.Register(newBundledStaticTool(
+		"approval_demo",
+		"Request an interactive approval prompt and return approved or denied.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"title": map[string]any{"type": "string"},
+				"body":  map[string]any{"type": "string"},
+			},
+		},
+		[]string{"ui:approval"},
+	))
 	return r
 }
 
@@ -89,6 +102,32 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 	}
 }
 
+func newBundledStaticTool(name, desc string, class tool.Class, schema map[string]any, caps []string) tool.Tool {
+	def := plugins.ToolDef{
+		Name:        name,
+		Description: desc,
+		Class:       pluginClassName(class),
+		Schema:      mustMarshalSchema(schema),
+	}
+	var parsed map[string]any
+	if def.Schema != "" {
+		_ = json.Unmarshal([]byte(def.Schema), &parsed)
+	}
+	return &bundledPluginTool{
+		manifest: plugins.Manifest{
+			Name:         builtinplugins.ManifestNamePrefix + "-" + name,
+			Version:      version.Version,
+			Author:       builtinplugins.Author,
+			Capabilities: caps,
+			Tools:        []plugins.ToolDef{def},
+		},
+		def:    def,
+		schema: parsed,
+		class:  class,
+		wasm:   builtinplugins.MustWasm(name),
+	}
+}
+
 func (p *bundledPluginTool) Name() string        { return p.def.Name }
 func (p *bundledPluginTool) Description() string { return p.def.Description }
 func (p *bundledPluginTool) Schema() map[string]any {
@@ -108,6 +147,9 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 
 	host := pluginRuntime.NewHost(p.manifest, h.Workdir(), nil)
 	host.ToolHost = h
+	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
+		host.ApprovalBridge = bridge
+	}
 	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: host imports: %w", p.def.Name, err)
 	}

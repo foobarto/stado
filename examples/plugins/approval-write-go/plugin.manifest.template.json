@@ -1,0 +1,22 @@
+{
+  "name": "approval-write-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval",
+    "fs:write:."
+  ],
+  "tools": [
+    {
+      "name": "write",
+      "description": "Write a file, but require explicit UI approval before the host wrapper runs.",
+      "class": "Mutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write\"}},\"required\":[\"path\",\"content\"]}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-23T00:00:00Z",
+  "nonce": "approval-write-go-demo-001"
+}

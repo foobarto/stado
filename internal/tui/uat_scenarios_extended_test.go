@@ -124,88 +124,56 @@ func TestUAT_FilePickerEscLeavesBufferIntact(t *testing.T) {
 // E. Approval flow
 // ============================================================
 
-// E1: approval + 'n' → tool-result with IsError=true and "Denied"
-// content flows via the toolsExecutedMsg that advanceApproval
-// returns. The results aren't left on m.pendingResults because
-// advanceApproval drains them into the returned cmd.
+// E1: an explicit plugin approval prompt routes 'n' back to the
+// waiting caller and clears the popup.
 func TestUAT_ApprovalStateRoutesYN(t *testing.T) {
 	m := scenarioModel(t)
-	m.state = stateApproval
-	m.approval = &approvalRequest{
-		toolName: "bash",
-		toolID:   "call-1",
-		args:     `{"cmd":"ls"}`,
-	}
-	m.pendingCalls = []agent.ToolUseBlock{
-		{ID: "call-1", Name: "bash", Input: []byte(`{"cmd":"ls"}`)},
-	}
-
+	resp := make(chan bool, 1)
+	_, _ = m.Update(pluginApprovalRequestMsg{
+		title:    "Plugin approval",
+		body:     "Allow the demo plugin to continue?",
+		response: resp,
+	})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-
 	if m.approval != nil {
 		t.Error("n should clear approval request")
 	}
-	if cmd == nil {
-		t.Fatal("deny should return a cmd carrying toolsExecutedMsg")
+	if cmd != nil {
+		t.Fatalf("deny should not return a follow-up cmd, got %T", cmd)
 	}
-	msg := cmd()
-	tem, ok := msg.(toolsExecutedMsg)
-	if !ok {
-		t.Fatalf("cmd returned %T, want toolsExecutedMsg", msg)
-	}
-	if len(tem.results) != 1 {
-		t.Fatalf("results = %d, want 1", len(tem.results))
-	}
-	res := tem.results[0]
-	if !res.IsError {
-		t.Error("denied tool should produce IsError=true result")
-	}
-	if !strings.Contains(res.Content, "Denied") {
-		t.Errorf("deny content should mention 'Denied': %q", res.Content)
+	select {
+	case allow := <-resp:
+		if allow {
+			t.Fatal("plugin approval should have been denied")
+		}
+	default:
+		t.Fatal("plugin approval response was not delivered")
 	}
 }
 
-// E2: 'y' approves — without a real executor, executeCallAsync still
-// runs and returns an "unavailable" result. The distinguishing
-// signal vs deny is the lack of "Denied" in the content body.
-// Async tool execution means the result arrives via toolResultMsg
-// and must be forwarded through Update to reach toolsExecutedMsg.
+// E2: 'y' allows an explicit plugin approval prompt.
 func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 	m := scenarioModel(t)
-	m.state = stateApproval
-	m.approval = &approvalRequest{toolName: "read", toolID: "call-2"}
-	m.pendingCalls = []agent.ToolUseBlock{
-		{ID: "call-2", Name: "read", Input: []byte(`{}`)},
-	}
-
+	resp := make(chan bool, 1)
+	_, _ = m.Update(pluginApprovalRequestMsg{
+		title:    "Plugin approval",
+		body:     "Allow the demo plugin to continue?",
+		response: resp,
+	})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if m.approval != nil {
 		t.Error("y should clear approval request")
 	}
-	if cmd == nil {
-		t.Fatal("approve should return a cmd carrying toolResultMsg")
+	if cmd != nil {
+		t.Fatalf("approve should not return a follow-up cmd, got %T", cmd)
 	}
-	// executeCallAsync returns a tea.Cmd that produces toolResultMsg.
-	// Feed that back into Update so advanceApproval can drain to
-	// toolsExecutedMsg.
-	msg := cmd()
-	trm, ok := msg.(toolResultMsg)
-	if !ok {
-		t.Fatalf("cmd returned %T, want toolResultMsg", msg)
-	}
-	_, cmd2 := m.Update(trm)
-	if cmd2 == nil {
-		t.Fatal("toolResultMsg should trigger toolsExecutedMsg")
-	}
-	tem, ok := cmd2().(toolsExecutedMsg)
-	if !ok {
-		t.Fatalf("second cmd returned wrong type: %T", cmd2)
-	}
-	if len(tem.results) != 1 {
-		t.Fatalf("results = %d, want 1", len(tem.results))
-	}
-	if strings.Contains(tem.results[0].Content, "Denied") {
-		t.Errorf("approved call should NOT contain 'Denied': %q", tem.results[0].Content)
+	select {
+	case allow := <-resp:
+		if !allow {
+			t.Fatal("plugin approval should have been allowed")
+		}
+	default:
+		t.Fatal("plugin approval response was not delivered")
 	}
 }
 
@@ -213,12 +181,12 @@ func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 // stay in the textarea until the user explicitly resolves the prompt.
 func TestUAT_ApprovalKeepsInputEditable(t *testing.T) {
 	m := scenarioModel(t)
-	m.pendingCalls = []agent.ToolUseBlock{
-		{ID: "call-3", Name: "bash", Input: []byte(`{"cmd":"ls"}`)},
-	}
-	if cmd := m.advanceApproval(); cmd != nil {
-		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
-	}
+	resp := make(chan bool, 1)
+	_, _ = m.Update(pluginApprovalRequestMsg{
+		title:    "Plugin approval",
+		body:     "Allow the demo plugin to continue?",
+		response: resp,
+	})
 
 	typeString(m, "draft")
 
@@ -238,12 +206,12 @@ func TestUAT_ApprovalKeepsInputEditable(t *testing.T) {
 // in-progress draft underneath.
 func TestUAT_ApprovalArrowNavigationConfirmsSelection(t *testing.T) {
 	m := scenarioModel(t)
-	m.pendingCalls = []agent.ToolUseBlock{
-		{ID: "call-4", Name: "bash", Input: []byte(`{"cmd":"ls -la"}`)},
-	}
-	if cmd := m.advanceApproval(); cmd != nil {
-		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
-	}
+	resp := make(chan bool, 1)
+	_, _ = m.Update(pluginApprovalRequestMsg{
+		title:    "Plugin approval",
+		body:     "Allow the demo plugin to continue?",
+		response: resp,
+	})
 	typeString(m, "draft")
 
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
@@ -257,38 +225,67 @@ func TestUAT_ApprovalArrowNavigationConfirmsSelection(t *testing.T) {
 	}
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil {
-		t.Fatal("Enter on focused approval card should resolve the request")
+	if cmd != nil {
+		t.Fatalf("approval enter should not return a cmd, got %T", cmd)
 	}
-	tem, ok := cmd().(toolsExecutedMsg)
-	if !ok {
-		t.Fatalf("cmd returned %T, want toolsExecutedMsg", cmd)
-	}
-	if len(tem.results) != 1 || !tem.results[0].IsError || !strings.Contains(tem.results[0].Content, "Denied") {
-		t.Fatalf("deny result = %+v, want one denied tool result", tem.results)
+	select {
+	case allow := <-resp:
+		if allow {
+			t.Fatal("Right+Enter should have denied the approval")
+		}
+	default:
+		t.Fatal("plugin approval response was not delivered")
 	}
 	if m.input.Value() != "draft" {
 		t.Fatalf("input = %q, want draft preserved after arrow-key approval flow", m.input.Value())
 	}
 }
 
-// E3: SetApprovals with mode=allowlist pre-populates rememberedAllow
-// so named tools run without the ⚠ y/n prompt. Covers the bug where
-// `[approvals]` in config was parsed but never applied by the TUI.
-func TestUAT_ApprovalConfigAllowlistAutoPasses(t *testing.T) {
+// E2d: a provider-emitted tool call that was not offered for the turn
+// must not enter the approval flow; it should be turned into an error
+// result immediately.
+func TestUAT_DisallowedToolCallSkipsApproval(t *testing.T) {
 	m := scenarioModel(t)
-	m.SetApprovals("allowlist", []string{"read", "grep"})
-
-	if !m.rememberedAllow["read"] || !m.rememberedAllow["grep"] {
-		t.Fatalf("rememberedAllow missing entries: %v", m.rememberedAllow)
+	m.turnAllowed = map[string]struct{}{"read": {}}
+	m.pendingCalls = []agent.ToolUseBlock{
+		{ID: "call-4", Name: "bash", Input: []byte(`{"command":"ls"}`)},
 	}
+	m.blocks = append(m.blocks, block{kind: "tool", toolID: "call-4", toolName: "bash"})
 
-	// Prompt mode (default) must NOT seed auto-allows even if an
-	// allowlist is passed — that's the explicit opt-in contract.
-	m2 := scenarioModel(t)
-	m2.SetApprovals("prompt", []string{"read"})
-	if m2.rememberedAllow["read"] {
-		t.Error("prompt mode should leave rememberedAllow empty")
+	cmd := m.advanceToolQueue()
+	if m.approval != nil {
+		t.Fatal("disallowed tool call should not open approval UI")
+	}
+	if cmd == nil {
+		t.Fatal("disallowed tool call should still return a toolsExecutedMsg cmd")
+	}
+	msg := cmd()
+	tem, ok := msg.(toolsExecutedMsg)
+	if !ok {
+		t.Fatalf("cmd returned %T, want toolsExecutedMsg", msg)
+	}
+	if len(tem.results) != 1 {
+		t.Fatalf("results = %d, want 1", len(tem.results))
+	}
+	if !tem.results[0].IsError {
+		t.Fatal("disallowed tool call should surface as an error result")
+	}
+	if !strings.Contains(tem.results[0].Content, "not available for this turn") {
+		t.Fatalf("unexpected error content: %q", tem.results[0].Content)
+	}
+	if got := m.blocks[len(m.blocks)-1].toolResult; !strings.Contains(got, "not available for this turn") {
+		t.Fatalf("tool block result = %q, want unavailable tool error", got)
+	}
+}
+
+// E3: the old /approvals command now explains that tool approvals were
+// removed and plugins must request approval explicitly.
+func TestUAT_ApprovalsSlashIsDeprecated(t *testing.T) {
+	m := scenarioModel(t)
+	m.handleSlash("/approvals always read")
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "tool-call approvals were removed") {
+		t.Fatalf("unexpected /approvals response: %q", last.body)
 	}
 }
 
@@ -296,12 +293,11 @@ func TestUAT_ApprovalConfigAllowlistAutoPasses(t *testing.T) {
 // bordered input frame underneath it.
 func TestUAT_ApprovalViewRendersSingleInputBox(t *testing.T) {
 	m := scenarioModel(t)
-	m.pendingCalls = []agent.ToolUseBlock{
-		{ID: "call-5", Name: "bash", Input: []byte(`{"cmd":"ls -la"}`)},
-	}
-	if cmd := m.advanceApproval(); cmd != nil {
-		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
-	}
+	_, _ = m.Update(pluginApprovalRequestMsg{
+		title:    "Plugin approval",
+		body:     "Allow the demo plugin to continue?",
+		response: make(chan bool, 1),
+	})
 
 	out := ansi.Strip(m.View())
 	inline, err := m.renderer.Exec("input_status", map[string]any{
@@ -315,7 +311,7 @@ func TestUAT_ApprovalViewRendersSingleInputBox(t *testing.T) {
 	}
 	statusLine := strings.TrimSpace(ansi.Strip(inline))
 
-	if !strings.Contains(out, "Approval required") {
+	if !strings.Contains(out, "Plugin approval") {
 		t.Fatalf("approval card missing from view: %q", out)
 	}
 	if got := strings.Count(out, statusLine); got != 1 {
@@ -562,21 +558,54 @@ func TestUAT_ProviderShowsUninitialised(t *testing.T) {
 	}
 }
 
-// H4: /tools with a registry lists every tool.
-func TestUAT_ToolsListsRegistered(t *testing.T) {
+// H4: /tools lists the tools visible to the current mode.
+func TestUAT_ToolsListsVisibleForMode(t *testing.T) {
 	m := scenarioModel(t)
-	// Seed an executor with at least one dummy tool so the listing path
-	// is hit instead of the "no tools registered" branch.
 	ex := &tools.Executor{Registry: tools.NewRegistry()}
 	ex.Registry.Register(dummyTool{name: "read", desc: "read a file", class: tool.ClassNonMutating})
+	ex.Registry.Register(dummyTool{name: "bash", desc: "run shell", class: tool.ClassExec})
+	ex.Registry.Register(dummyTool{name: "write", desc: "write a file", class: tool.ClassMutating})
 	m.executor = ex
+
 	m.handleSlash("/tools")
 	last := m.blocks[len(m.blocks)-1]
-	if last.kind != "system" || !strings.Contains(last.body, "Registered tools:") {
+	if last.kind != "system" || !strings.Contains(last.body, "Visible tools (Do mode):") {
 		t.Errorf("expected tools list, got: %q", last.body)
 	}
+	for _, want := range []string{"read", "bash", "write"} {
+		if !strings.Contains(last.body, want) {
+			t.Errorf("Do mode tools list should include %q, got: %q", want, last.body)
+		}
+	}
+
+	m.mode = modePlan
+	m.handleSlash("/tools")
+	last = m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "Visible tools (Plan mode):") {
+		t.Errorf("expected plan-mode tools list, got: %q", last.body)
+	}
 	if !strings.Contains(last.body, "read") {
-		t.Errorf("tools list should include 'read', got: %q", last.body)
+		t.Errorf("Plan mode tools list should include 'read', got: %q", last.body)
+	}
+	for _, hidden := range []string{"bash", "write"} {
+		if strings.Contains(last.body, hidden) {
+			t.Errorf("Plan mode tools list should hide %q, got: %q", hidden, last.body)
+		}
+	}
+
+	m.mode = modeBTW
+	m.handleSlash("/tools")
+	last = m.blocks[len(m.blocks)-1]
+	if last.kind != "system" || !strings.Contains(last.body, "Visible tools (BTW mode):") {
+		t.Errorf("expected BTW-mode tools list, got: %q", last.body)
+	}
+	if !strings.Contains(last.body, "read") {
+		t.Errorf("BTW mode tools list should include 'read', got: %q", last.body)
+	}
+	for _, hidden := range []string{"bash", "write"} {
+		if strings.Contains(last.body, hidden) {
+			t.Errorf("BTW mode tools list should hide %q, got: %q", hidden, last.body)
+		}
 	}
 }
 

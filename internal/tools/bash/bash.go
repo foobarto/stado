@@ -40,17 +40,6 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 		timeout = 30 * time.Second
 	}
 
-	approval, err := h.Approve(ctx, tool.ApprovalRequest{
-		Tool:    "bash",
-		Command: p.Command,
-	})
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	if approval == tool.DecisionDeny {
-		return tool.Result{Error: "command execution denied by user"}, nil
-	}
-
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

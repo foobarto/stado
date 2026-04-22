@@ -112,6 +112,43 @@ func TestAgentLoopGuardrailQuietOnCleanRun(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_RejectsToolCallNotOfferedThisTurn(t *testing.T) {
+	p := &scriptedProvider{
+		turns: []scriptedTurn{
+			{toolName: "bash", toolID: "call-1", toolInput: `{"command":"printf hi"}`},
+			{text: "done"},
+		},
+	}
+
+	finalText, finalMsgs, err := AgentLoop(context.Background(), AgentLoopOptions{
+		Provider: p,
+		Executor: nil,
+		Messages: []agent.Message{
+			agent.Text(agent.RoleUser, "say hi"),
+		},
+		MaxTurns: 4,
+	})
+	if err != nil {
+		t.Fatalf("AgentLoop: %v", err)
+	}
+	if finalText != "done" {
+		t.Fatalf("finalText = %q, want %q", finalText, "done")
+	}
+	if len(finalMsgs) < 4 {
+		t.Fatalf("finalMsgs = %d, want at least 4 messages", len(finalMsgs))
+	}
+	toolMsg := finalMsgs[2]
+	if toolMsg.Role != agent.RoleTool || len(toolMsg.Content) != 1 || toolMsg.Content[0].ToolResult == nil {
+		t.Fatalf("tool message malformed: %+v", toolMsg)
+	}
+	if !toolMsg.Content[0].ToolResult.IsError {
+		t.Fatal("disallowed tool call should become an error tool result")
+	}
+	if got := toolMsg.Content[0].ToolResult.Content; got != `tool "bash" is not available for this turn` {
+		t.Fatalf("tool result content = %q", got)
+	}
+}
+
 // TestHashMessagesPrefixSensitive asserts that the guardrail's fingerprint
 // function distinguishes structurally-different message prefixes — any
 // byte-level change in any prior Block produces a different hash. This is

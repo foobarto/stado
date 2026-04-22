@@ -20,6 +20,14 @@ type toolImportHost struct {
 
 func (h toolImportHost) Workdir() string { return h.workdir }
 
+type approvalBridgeStub struct {
+	allow bool
+}
+
+func (s approvalBridgeStub) RequestApproval(context.Context, string, string) (bool, error) {
+	return s.allow, nil
+}
+
 func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	ctx := context.Background()
 	rt, err := New(ctx)
@@ -90,5 +98,49 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "hello") {
 		t.Fatalf("content = %q, want file contents", res.Content)
+	}
+}
+
+func TestPublicToolImports_ApprovalDemoWorksWithCapability(t *testing.T) {
+	ctx := context.Background()
+	rt, err := New(ctx)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = rt.Close(ctx) }()
+
+	mf := plugins.Manifest{
+		Name:         "third-party",
+		Version:      "1.0.0",
+		Capabilities: []string{"ui:approval"},
+		Tools: []plugins.ToolDef{{
+			Name:  "approval_demo",
+			Class: "NonMutating",
+		}},
+	}
+	host := NewHost(mf, t.TempDir(), nil)
+	host.ApprovalBridge = approvalBridgeStub{allow: true}
+	if err := InstallHostImports(ctx, rt, host); err != nil {
+		t.Fatalf("InstallHostImports: %v", err)
+	}
+	mod, err := rt.Instantiate(ctx, builtinplugins.MustWasm("approval_demo"), mf)
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	defer func() { _ = mod.Close(ctx) }()
+
+	pt, err := NewPluginTool(mod, mf.Tools[0])
+	if err != nil {
+		t.Fatalf("NewPluginTool: %v", err)
+	}
+	res, err := pt.Run(ctx, json.RawMessage(`{"title":"demo","body":"continue?"}`), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("tool error: %q", res.Error)
+	}
+	if res.Content != "approved" {
+		t.Fatalf("content = %q, want approved", res.Content)
 	}
 }

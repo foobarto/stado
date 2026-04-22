@@ -59,6 +59,11 @@ type Host struct {
 	// backings.
 	SessionBridge SessionBridge
 
+	// ApprovalBridge powers explicit plugin-requested human approval
+	// prompts. Unlike the old global tool gate, this is opt-in per
+	// plugin capability and may be nil on non-interactive surfaces.
+	ApprovalBridge ApprovalBridge
+
 	// ToolHost is the runtime host surface native tool wrappers call
 	// through when a plugin uses the public built-in tool imports.
 	// Nil is valid in non-session contexts like `stado plugin run`;
@@ -73,6 +78,7 @@ type Host struct {
 	ExecSearch  bool
 	ExecASTGrep bool
 	LSPQuery    bool
+	UIApproval  bool
 
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
@@ -103,6 +109,14 @@ type SessionBridge interface {
 	// text and the number of tokens consumed (used to enforce the
 	// per-session budget).
 	InvokeLLM(ctx context.Context, prompt string) (reply string, tokensUsed int, err error)
+}
+
+// ApprovalBridge is the interactive UI hook plugins can call when they
+// explicitly want a human decision. Surfaces without a user-facing UI may
+// leave it nil; the host import returns -1 in that case so the plugin can
+// decide how to proceed.
+type ApprovalBridge interface {
+	RequestApproval(ctx context.Context, title, body string) (bool, error)
 }
 
 // NewHost parses a manifest's capabilities into a Host.
@@ -183,6 +197,10 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			if parts[1] == "query" {
 				h.LSPQuery = true
 			}
+		case "ui":
+			if parts[1] == "approval" {
+				h.UIApproval = true
+			}
 		}
 	}
 	return h
@@ -241,6 +259,52 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 			}
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32}, nil).
 		Export("stado_log")
+
+	// stado_ui_approve(title_ptr, title_len, body_ptr, body_len) -> int32
+	//
+	// Return values:
+	//   1  allow
+	//   0  deny
+	//  -1  unavailable / denied by capability / UI error
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			titlePtr := api.DecodeU32(stack[0])
+			titleLen := api.DecodeU32(stack[1])
+			bodyPtr := api.DecodeU32(stack[2])
+			bodyLen := api.DecodeU32(stack[3])
+			title, err := readString(mod, titlePtr, titleLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			body, err := readString(mod, bodyPtr, bodyLen)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if !host.UIApproval {
+				host.Logger.Warn("stado_ui_approve denied — manifest lacks ui:approval")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if host.ApprovalBridge == nil {
+				host.Logger.Warn("stado_ui_approve unavailable — no interactive approval bridge")
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			allow, err := host.ApprovalBridge.RequestApproval(ctx, title, body)
+			if err != nil {
+				host.Logger.Warn("stado_ui_approve failed", "err", err)
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if allow {
+				stack[0] = api.EncodeI32(1)
+				return
+			}
+			stack[0] = api.EncodeI32(0)
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32}, []api.ValueType{api.ValueTypeI32}).
+		Export("stado_ui_approve")
 
 	// stado_fs_read(path_ptr, path_len, buf_ptr, buf_cap) → int32
 	//

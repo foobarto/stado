@@ -127,11 +127,19 @@ func (m inputMode) String() string {
 
 // Internal messages used by the bubbletea update loop.
 type (
-	streamEventMsg   struct{ ev agent.Event }
-	streamBatchMsg   struct{ evs []agent.Event }
-	streamErrorMsg   struct{ err error }
-	streamDoneMsg    struct{}
-	toolsExecutedMsg struct{ results []agent.ToolResultBlock }
+	streamEventMsg           struct{ ev agent.Event }
+	streamBatchMsg           struct{ evs []agent.Event }
+	streamErrorMsg           struct{ err error }
+	streamDoneMsg            struct{}
+	toolsExecutedMsg         struct{ results []agent.ToolResultBlock }
+	pluginApprovalRequestMsg struct {
+		title    string
+		body     string
+		response chan bool
+	}
+	pluginApprovalCancelMsg struct {
+		response chan bool
+	}
 	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
 	// back to the Update loop. Rendered as a system block so the user
 	// sees the tool's return value alongside the conversation flow.
@@ -322,16 +330,13 @@ type Model struct {
 	turnThinking  string
 	turnThinkSig  string
 	turnToolCalls []agent.ToolUseBlock
+	turnAllowed   map[string]struct{}
 
-	// Approval queue: calls waiting for user decision + the results already
-	// collected during this tool batch. When the queue drains we emit a
-	// toolsExecutedMsg and the agent loop continues.
+	// Tool queue: calls waiting for execution + the results already
+	// collected during this tool batch. When the queue drains we emit
+	// a toolsExecutedMsg and the agent loop continues.
 	pendingCalls   []agent.ToolUseBlock
 	pendingResults []agent.ToolResultBlock
-
-	// Session-scoped "always allow this tool" — reset when the TUI exits.
-	// PLAN cross-cutting: session-scoped remember with explicit forget.
-	rememberedAllow map[string]bool
 
 	// systemPrompt is the project-root AGENTS.md / CLAUDE.md body
 	// resolved at TUI startup. Injected into every TurnRequest.System
@@ -374,9 +379,9 @@ type Model struct {
 }
 
 type approvalRequest struct {
-	toolName string
-	args     string
-	toolID   string
+	title    string
+	body     string
+	response chan bool
 }
 
 // NewModel wires the TUI. buildProvider is called on the first streamed turn
@@ -456,25 +461,10 @@ func (m *Model) SetHooks(postTurn string) {
 	m.hookRunner.PostTurnCmd = postTurn
 }
 
-// SetApprovals seeds the session-scoped auto-approve set from config.
-// mode "allowlist" turns every name in `allowlist` into an auto-pass so
-// the approval prompt skips those tools. Any other mode (default
-// "prompt") leaves the set empty — every call still asks y/n. The
-// /approvals slash commands continue to mutate the set at runtime.
-func (m *Model) SetApprovals(mode string, allowlist []string) {
-	if mode != "allowlist" || len(allowlist) == 0 {
-		return
-	}
-	if m.rememberedAllow == nil {
-		m.rememberedAllow = map[string]bool{}
-	}
-	for _, name := range allowlist {
-		if name == "" {
-			continue
-		}
-		m.rememberedAllow[name] = true
-	}
-}
+// SetApprovals is kept for config compatibility, but tool-call approvals
+// are no longer enforced by the TUI. Plugins may request approval
+// explicitly through the plugin host when they declare the UI capability.
+func (m *Model) SetApprovals(_ string, _ []string) {}
 
 // SetBudget propagates [budget] config into the TUI. Both args are
 // optional (zero = "no cap"); a negative value is a no-op. Sanity
@@ -956,7 +946,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pendingResults = append(m.pendingResults, msg.result)
 		m.renderBlocks()
-		return m, m.advanceApproval()
+		return m, m.advanceToolQueue()
+
+	case pluginApprovalRequestMsg:
+		if m.approval != nil {
+			select {
+			case msg.response <- false:
+			default:
+			}
+			return m, nil
+		}
+		m.approval = &approvalRequest{
+			title:    msg.title,
+			body:     msg.body,
+			response: msg.response,
+		}
+		m.approvalFocused = false
+		m.approvalAllowSelected = true
+		m.state = stateApproval
+		m.renderBlocks()
+		return m, nil
+
+	case pluginApprovalCancelMsg:
+		if m.approval != nil && m.approval.response == msg.response {
+			m.approval = nil
+			m.approvalFocused = false
+			m.approvalAllowSelected = true
+			m.state = stateIdle
+			m.renderBlocks()
+		}
+		return m, nil
 
 	case toolTickMsg:
 		m.toolMu.Lock()
@@ -1653,12 +1672,11 @@ func (m *Model) renderApprovalCard(mainW int) string {
 		innerW = 8
 	}
 
-	toolLine := lipgloss.JoinHorizontal(
-		lipgloss.Left,
-		m.theme.Fg("text").Bold(true).Render(m.approval.toolName),
-		"  ",
-		m.theme.Fg("muted").Render(truncate(m.approval.args, innerW)),
-	)
+	title := m.theme.Fg("warning").Bold(true).Render(strings.TrimSpace(m.approval.title))
+	if strings.TrimSpace(m.approval.title) == "" {
+		title = m.theme.Fg("warning").Bold(true).Render("Approval required")
+	}
+	body := m.theme.Fg("text").Render(truncate(m.approval.body, innerW*3))
 	allow := m.renderApprovalButton("Allow [y]", m.approvalAllowSelected, "success")
 	deny := m.renderApprovalButton("Deny [n]", !m.approvalAllowSelected, "error")
 	hint := m.theme.Fg("muted").Render("Up to focus, Left/Right to choose, Enter to confirm")
@@ -1666,10 +1684,10 @@ func (m *Model) renderApprovalCard(mainW int) string {
 		hint = m.theme.Fg("warning").Render("Left/Right to choose, Enter to confirm, Down to return")
 	}
 
-	body := lipgloss.JoinVertical(
+	cardBody := lipgloss.JoinVertical(
 		lipgloss.Left,
-		m.theme.Fg("warning").Bold(true).Render("Approval required"),
-		toolLine,
+		title,
+		body,
 		lipgloss.JoinHorizontal(lipgloss.Left, allow, " ", deny),
 		hint,
 	)
@@ -1685,7 +1703,7 @@ func (m *Model) renderApprovalCard(mainW int) string {
 	if mainW > 2 {
 		style = style.Width(mainW - 2)
 	}
-	return style.Render(body)
+	return style.Render(cardBody)
 }
 
 func (m *Model) renderApprovalButton(label string, active bool, tone string) string {
@@ -1943,6 +1961,7 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		return nil, fmt.Sprintf("background plugin %s: read wasm: %v", id, err)
 	}
 	host := pluginRuntime.NewHost(*mf, dir, nil)
+	host.ApprovalBridge = tuiApprovalBridge{model: m}
 	if bridge := m.buildPluginBridge(mf.Name); bridge != nil {
 		host.SessionBridge = bridge
 	}
@@ -2510,6 +2529,10 @@ func (m *Model) startStream() tea.Cmd {
 		Tools:    m.toolDefs(),
 		System:   m.systemPrompt,
 	}
+	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
+	for _, t := range req.Tools {
+		m.turnAllowed[t.Name] = struct{}{}
+	}
 	// Cache-breakpoint placement — DESIGN §"Prompt-cache awareness".
 	// One ephemeral breakpoint on the last prior message, so every turn
 	// caches the entire history up through the previous turn.
@@ -2578,6 +2601,25 @@ func (m *Model) toolTickCmd() tea.Cmd {
 func (m *Model) sendMsg(msg tea.Msg) {
 	if m.program != nil {
 		m.program.Send(msg)
+	}
+}
+
+func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (bool, error) {
+	if m.program == nil {
+		return false, errors.New("approval UI unavailable")
+	}
+	resp := make(chan bool, 1)
+	m.sendMsg(pluginApprovalRequestMsg{
+		title:    title,
+		body:     body,
+		response: resp,
+	})
+	select {
+	case allow := <-resp:
+		return allow, nil
+	case <-ctx.Done():
+		m.sendMsg(pluginApprovalCancelMsg{response: resp})
+		return false, ctx.Err()
 	}
 }
 
@@ -2743,35 +2785,58 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
-	return m.advanceApproval()
+	return m.advanceToolQueue()
 }
 
-// advanceApproval pops the next pending call and either auto-executes
-// (remembered allow) or shows an approval prompt. When the queue drains it
-// returns a tea.Cmd that posts toolsExecutedMsg with the accumulated results.
-func (m *Model) advanceApproval() tea.Cmd {
+// advanceToolQueue executes pending tool calls one-by-one without an
+// automatic approval gate. Plugins can still request approval
+// explicitly through the plugin host.
+func (m *Model) advanceToolQueue() tea.Cmd {
 	for len(m.pendingCalls) > 0 {
 		call := m.pendingCalls[0]
-		if m.rememberedAllow[call.Name] {
-			m.pendingCalls = m.pendingCalls[1:]
-			return m.executeCallAsync(call)
+		m.pendingCalls = m.pendingCalls[1:]
+		if !m.turnAllowsTool(call.Name) {
+			m.rejectUnavailableTool(call)
+			continue
 		}
-		m.state = stateApproval
-		m.approval = &approvalRequest{
-			toolName: call.Name,
-			toolID:   call.ID,
-			args:     string(call.Input),
-		}
-		m.approvalFocused = false
-		m.approvalAllowSelected = true
-		m.renderBlocks()
-		return nil
+		return m.executeCallAsync(call)
 	}
 	// Queue drained — post the results and let the agent loop re-stream.
 	results := m.pendingResults
 	m.pendingResults = nil
 	m.state = stateIdle
 	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+func (m *Model) turnAllowsTool(name string) bool {
+	if len(m.turnAllowed) == 0 {
+		return false
+	}
+	_, ok := m.turnAllowed[name]
+	return ok
+}
+
+func (m *Model) rejectUnavailableTool(call agent.ToolUseBlock) {
+	content := unavailableToolContent(call.Name)
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == call.ID {
+			m.blocks[i].toolResult = content
+			if m.blocks[i].endedAt.IsZero() {
+				m.blocks[i].endedAt = time.Now()
+			}
+			m.invalidateBlockCache(i)
+			break
+		}
+	}
+	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
+		ToolUseID: call.ID,
+		Content:   content,
+		IsError:   true,
+	})
+}
+
+func unavailableToolContent(name string) string {
+	return fmt.Sprintf("tool %q is not available for this turn", name)
 }
 
 // executeCallAsync runs a single tool through the Executor on a goroutine
@@ -2796,6 +2861,9 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		workdir: workdir,
 		readLog: m.executor.ReadLog,
 		runner:  m.executor.Runner,
+		approval: tuiApprovalBridge{
+			model: m,
+		},
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -2849,25 +2917,33 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 // doesn't see the mutating tools as available, so it produces analysis
 // rather than asking to execute.
 func (m *Model) toolDefs() []agent.ToolDef {
-	if m.executor == nil {
-		return nil
-	}
-	all := m.executor.Registry.All()
-	out := make([]agent.ToolDef, 0, len(all))
-	for _, t := range all {
-		name := t.Name()
-		if m.mode == modePlan || m.mode == modeBTW {
-			class := m.executor.Registry.ClassOf(name)
-			if class != tool.ClassNonMutating {
-				continue
-			}
-		}
+	visible := m.visibleTools()
+	out := make([]agent.ToolDef, 0, len(visible))
+	for _, t := range visible {
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, agent.ToolDef{
 			Name:        t.Name(),
 			Description: t.Description(),
 			Schema:      schema,
 		})
+	}
+	return out
+}
+
+func (m *Model) visibleTools() []tool.Tool {
+	if m.executor == nil {
+		return nil
+	}
+	all := m.executor.Registry.All()
+	if m.mode != modePlan && m.mode != modeBTW {
+		return all
+	}
+	out := make([]tool.Tool, 0, len(all))
+	for _, t := range all {
+		if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
 }
@@ -3162,14 +3238,27 @@ func compactionTitle(summary string) string {
 	return s
 }
 
-// hostAdapter implements tool.Host for the executor goroutine. Approval is
-// auto-allow in this build; PLAN §5 introduces the real approval flow.
+type tuiApprovalBridge struct {
+	model *Model
+}
+
+func (b tuiApprovalBridge) RequestApproval(ctx context.Context, title, body string) (bool, error) {
+	if b.model == nil {
+		return false, errors.New("approval UI unavailable")
+	}
+	return b.model.requestPluginApproval(ctx, title, body)
+}
+
+// hostAdapter implements tool.Host for the executor goroutine. Tool calls
+// themselves are yolo by default; the adapter only exposes an explicit
+// approval bridge for plugins that request it.
 // readLog delegates PriorRead/RecordRead to the Executor's shared log so
 // the read tool can dedup across a session's turns.
 type hostAdapter struct {
-	workdir string
-	readLog *tools.ReadLog
-	runner  sandbox.Runner
+	workdir  string
+	readLog  *tools.ReadLog
+	runner   sandbox.Runner
+	approval tuiApprovalBridge
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -3177,6 +3266,9 @@ func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decisi
 }
 func (h hostAdapter) Workdir() string        { return h.workdir }
 func (h hostAdapter) Runner() sandbox.Runner { return h.runner }
+func (h hostAdapter) RequestApproval(ctx context.Context, title, body string) (bool, error) {
+	return h.approval.RequestApproval(ctx, title, body)
+}
 
 func (h hostAdapter) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
 	if h.readLog == nil {
@@ -3206,23 +3298,20 @@ func (m *Model) resolveApproval(allow bool) tea.Cmd {
 	m.approval = nil
 	m.approvalFocused = false
 	m.approvalAllowSelected = true
-	if req == nil || len(m.pendingCalls) == 0 {
+	if req == nil {
 		m.state = stateIdle
 		m.renderBlocks()
 		return nil
 	}
-	call := m.pendingCalls[0]
-	m.pendingCalls = m.pendingCalls[1:]
-
-	if allow {
-		return m.executeCallAsync(call)
+	if req.response != nil {
+		select {
+		case req.response <- allow:
+		default:
+		}
 	}
-	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
-		ToolUseID: call.ID,
-		Content:   "Denied by user",
-		IsError:   true,
-	})
-	return m.advanceApproval()
+	m.state = stateIdle
+	m.renderBlocks()
+	return nil
 }
 
 func (m *Model) handleSlash(text string) tea.Cmd {
@@ -3283,25 +3372,15 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.todos = append(m.todos, todo{Title: strings.Join(parts[1:], " "), Status: "open"})
 		}
 	case "/approvals":
-		if len(parts) >= 2 && parts[1] == "forget" {
-			m.rememberedAllow = nil
-			m.appendBlock(block{kind: "system", body: "remembered approvals cleared"})
-		} else if len(parts) >= 3 && parts[1] == "always" {
-			if m.rememberedAllow == nil {
-				m.rememberedAllow = map[string]bool{}
-			}
-			m.rememberedAllow[parts[2]] = true
-			m.appendBlock(block{kind: "system", body: "will auto-approve " + parts[2] + " for the rest of this session"})
-		} else {
-			m.appendBlock(block{kind: "system", body: "usage: /approvals always <tool>  |  /approvals forget"})
-		}
+		m.appendBlock(block{kind: "system", body: "tool-call approvals were removed; plugins can request approval explicitly via the UI approval capability"})
 	case "/tools":
 		if m.executor == nil {
 			m.appendBlock(block{kind: "system", body: "no tools registered (session unavailable)"})
 		} else {
+			visible := m.visibleTools()
 			var sb strings.Builder
-			sb.WriteString("Registered tools:")
-			for _, t := range m.executor.Registry.All() {
+			sb.WriteString(fmt.Sprintf("Visible tools (%s mode):", m.mode.String()))
+			for _, t := range visible {
 				cls := m.executor.Registry.ClassOf(t.Name()).String()
 				sb.WriteString(fmt.Sprintf("\n  %s [%s] — %s", t.Name(), cls, t.Description()))
 			}
@@ -3748,7 +3827,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name))
+	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
 }
 
 // buildPluginBridge wires the live TUI's Session + active provider
@@ -3962,7 +4041,7 @@ func trimSeed(s string, max int) string {
 // module under its capability-bound Host, invokes the tool, and posts
 // the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
 // runaway plugin can't wedge the TUI.
-func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl) tea.Cmd {
+func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -3978,6 +4057,7 @@ func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, 
 		defer func() { _ = rt.Close(ctx) }()
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
+		host.ApprovalBridge = approval
 		// Attach the session bridge only when the plugin declared at
 		// least one session/LLM capability AND the caller supplied a
 		// bridge. Keeps existing tool-only plugins (like the hello

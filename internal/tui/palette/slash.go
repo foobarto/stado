@@ -36,7 +36,6 @@ var Commands = []Command{
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "", "Session"},
 	{"/provider", "Show the current provider + capabilities", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
-	{"/approvals", "'always <tool>' or 'forget'", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},

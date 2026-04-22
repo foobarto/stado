@@ -1,0 +1,24 @@
+{
+  "name": "approval-ast-grep-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval",
+    "fs:read:.",
+    "fs:write:.",
+    "exec:ast_grep"
+  ],
+  "tools": [
+    {
+      "name": "ast_grep",
+      "description": "Structural search/rewrite. Search-only runs directly; rewrite mode requires explicit UI approval.",
+      "class": "Exec",
+      "schema": "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"ast-grep pattern, e.g. 'fmt.Println($X)'\"},\"language\":{\"type\":\"string\",\"description\":\"Language hint (go, python, typescript, rust, …)\"},\"path\":{\"type\":\"string\",\"description\":\"Relative to workdir\"},\"rewrite\":{\"type\":\"string\",\"description\":\"Optional: replacement pattern for in-place rewrite\"}},\"required\":[\"pattern\"]}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-23T00:00:00Z",
+  "nonce": "approval-ast-grep-go-demo-001"
+}

@@ -387,6 +387,26 @@ func ToolDefs(reg *tools.Registry) []agent.ToolDef {
 	return out
 }
 
+func allowedToolSet(defs []agent.ToolDef) map[string]struct{} {
+	out := make(map[string]struct{}, len(defs))
+	for _, def := range defs {
+		out[def.Name] = struct{}{}
+	}
+	return out
+}
+
+func toolAllowed(allowed map[string]struct{}, name string) bool {
+	if len(allowed) == 0 {
+		return false
+	}
+	_, ok := allowed[name]
+	return ok
+}
+
+func unavailableToolResult(name string) string {
+	return fmt.Sprintf("tool %q is not available for this turn", name)
+}
+
 // AgentLoopOptions parameterises a headless agent loop. Callers typically
 // pre-build Executor (which owns the registry + session) and feed initial
 // messages; the loop streams turn → tool calls → tool exec → next turn until
@@ -521,6 +541,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		if opts.Executor != nil {
 			req.Tools = ToolDefs(opts.Executor.Registry)
 		}
+		allowedTools := allowedToolSet(req.Tools)
 		if caps.SupportsPromptCache && len(msgs) > 0 {
 			// Single breakpoint at the end of the stable prefix — everything
 			// up through the last prior message is the cache candidate.
@@ -596,7 +617,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			turnSpan.End()
 			return finalText, msgs, nil
 		}
-		if opts.Executor == nil {
+		needsExecutor := false
+		for _, c := range calls {
+			if toolAllowed(allowedTools, c.Name) {
+				needsExecutor = true
+				break
+			}
+		}
+		if needsExecutor && opts.Executor == nil {
 			turnSpan.End()
 			return finalText, msgs, errors.New("runtime: tool calls requested but executor is nil")
 		}
@@ -604,6 +632,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
 		for _, c := range calls {
+			if !toolAllowed(allowedTools, c.Name) {
+				results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
+					ToolUseID: c.ID,
+					Content:   unavailableToolResult(c.Name),
+					IsError:   true,
+				}})
+				continue
+			}
 			res, runErr := opts.Executor.Run(turnCtx, c.Name, c.Input, opts.Host)
 			content := res.Content
 			isErr := res.Error != ""

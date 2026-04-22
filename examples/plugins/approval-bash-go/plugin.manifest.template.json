@@ -1,0 +1,22 @@
+{
+  "name": "approval-bash-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval",
+    "exec:shallow_bash"
+  ],
+  "tools": [
+    {
+      "name": "bash",
+      "description": "Run bash, but require explicit UI approval before command execution.",
+      "class": "Exec",
+      "schema": "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to execute\"}},\"required\":[\"command\"]}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-23T00:00:00Z",
+  "nonce": "approval-bash-go-demo-001"
+}
