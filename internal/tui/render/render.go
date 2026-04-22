@@ -177,6 +177,7 @@ func (r *Renderer) funcMap() template.FuncMap {
 				BorderForeground(r.theme.Fg("role_user").GetForeground()).
 				Foreground(r.theme.Fg("text").GetForeground()).
 				Padding(0, 1).
+				Width(width).
 				Render(content)
 		},
 	}

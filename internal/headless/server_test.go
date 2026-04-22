@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -18,7 +19,7 @@ import (
 // accidentally hits the provider path.
 type stubProvider struct{ name string }
 
-func (s stubProvider) Name() string                 { return s.name }
+func (s stubProvider) Name() string                     { return s.name }
 func (s stubProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 func (s stubProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
 	panic("stubProvider.StreamTurn: test shouldn't invoke the provider")
@@ -32,7 +33,7 @@ type pipeRW struct {
 
 func (p pipeRW) Read(b []byte) (int, error)  { return p.r.Read(b) }
 func (p pipeRW) Write(b []byte) (int, error) { return p.w.Write(b) }
-func (p pipeRW) Close() error                 { p.r.Close(); return p.w.Close() }
+func (p pipeRW) Close() error                { p.r.Close(); return p.w.Close() }
 
 func newPair() (client, server io.ReadWriteCloser) {
 	cr, sw := io.Pipe()
@@ -127,6 +128,9 @@ func TestHeadless_ProvidersList(t *testing.T) {
 
 	cfg := &config.Config{}
 	cfg.Defaults.Provider = "ollama"
+	cfg.Inference.Presets = map[string]config.InferencePreset{
+		"corp-local": {Endpoint: "http://localhost:8123/v1"},
+	}
 	srv := NewServer(cfg, nil)
 	go srv.Serve(context.Background(), server, server)
 
@@ -145,8 +149,10 @@ func TestHeadless_ProvidersList(t *testing.T) {
 	if r.Result.Current != "ollama" {
 		t.Errorf("current = %q, want ollama", r.Result.Current)
 	}
-	if len(r.Result.Available) < 4 {
-		t.Errorf("available = %v", r.Result.Available)
+	for _, want := range []string{"lmstudio", "litellm", "corp-local"} {
+		if !contains(r.Result.Available, want) {
+			t.Errorf("available missing %q: %v", want, r.Result.Available)
+		}
 	}
 	client.Close()
 }
@@ -180,6 +186,78 @@ func TestHeadless_ProvidersList_ResolvedProviderWins(t *testing.T) {
 		t.Errorf("current = %q, want lmstudio (resolved provider, not empty config)", r.Result.Current)
 	}
 	client.Close()
+}
+
+func TestHeadless_RejectsOverlappingSessionPrompt(t *testing.T) {
+	srv := NewServer(&config.Config{}, &blockingPromptProvider{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	})
+	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
+
+	res, err := srv.sessionNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.(sessionNewResult).SessionID
+	first := json.RawMessage(`{"sessionId":"` + sessionID + `","prompt":"first"}`)
+	second := json.RawMessage(`{"sessionId":"` + sessionID + `","prompt":"second"}`)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := srv.sessionPrompt(context.Background(), first)
+		done <- err
+	}()
+
+	prov := srv.Provider.(*blockingPromptProvider)
+	select {
+	case <-prov.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first prompt did not start")
+	}
+
+	_, err = srv.sessionPrompt(context.Background(), second)
+	if err == nil || !strings.Contains(err.Error(), "active operation") {
+		t.Fatalf("second prompt error = %v, want active operation rejection", err)
+	}
+
+	close(prov.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("first prompt returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first prompt did not complete")
+	}
+}
+
+type blockingPromptProvider struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingPromptProvider) Name() string                     { return "blocking" }
+func (p *blockingPromptProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (p *blockingPromptProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	ch := make(chan agent.Event, 2)
+	go func() {
+		defer close(ch)
+		close(p.started)
+		<-p.release
+		ch <- agent.Event{Kind: agent.EvTextDelta, Text: "done"}
+		ch <- agent.Event{Kind: agent.EvDone}
+	}()
+	return ch, nil
+}
+
+func contains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func readLine(t *testing.T, r io.Reader, timeout time.Duration) string {

@@ -95,15 +95,37 @@ func TestGrepTruncatesMatchList(t *testing.T) {
 	}
 }
 
+func TestGlobRejectsEscapingPattern(t *testing.T) {
+	dir := t.TempDir()
+	h := &nullWorkdirHost{wd: dir}
+	raw, _ := json.Marshal(map[string]any{"pattern": "../*"})
+	_, err := GlobTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("GlobTool.Run error = %v, want workdir escape rejection", err)
+	}
+}
+
+func TestGrepRejectsEscapingPath(t *testing.T) {
+	dir := t.TempDir()
+	h := &nullWorkdirHost{wd: dir}
+	raw, _ := json.Marshal(map[string]any{"pattern": "needle", "path": "../"})
+	_, err := GrepTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("GrepTool.Run error = %v, want workdir escape rejection", err)
+	}
+}
+
 // nullWorkdirHost — tests that don't exercise dedup.
 type nullWorkdirHost struct{ wd string }
 
 func (h *nullWorkdirHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h *nullWorkdirHost) Workdir() string                                        { return h.wd }
-func (h *nullWorkdirHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
-func (h *nullWorkdirHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
+func (h *nullWorkdirHost) Workdir() string { return h.wd }
+func (h *nullWorkdirHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h *nullWorkdirHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 func max0(n int) int {
 	if n < 0 {

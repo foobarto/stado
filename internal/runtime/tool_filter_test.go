@@ -99,3 +99,14 @@ func TestApplyToolFilter_UnknownNamesTolerated(t *testing.T) {
 		t.Errorf("unknown tool name should be a no-op; was %d, got %d", before, got)
 	}
 }
+
+func TestApplyToolFilter_UnknownEnabledNamesDoNotEmptyRegistry(t *testing.T) {
+	reg := BuildDefaultRegistry()
+	before := len(reg.All())
+	cfg := &config.Config{}
+	cfg.Tools.Enabled = []string{"renamed-tool", "missing-tool"}
+	ApplyToolFilter(reg, cfg)
+	if got := len(reg.All()); got != before {
+		t.Fatalf("unknown enabled tools should be ignored; was %d, got %d", before, got)
+	}
+}

@@ -12,12 +12,13 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/tools/budget"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
 type ReadTool struct{}
 
-func (ReadTool) Name() string        { return "read" }
+func (ReadTool) Name() string { return "read" }
 func (ReadTool) Description() string {
 	return "Read the contents of a file. Optional start/end line numbers (1-indexed, inclusive; end=-1 means EOF)."
 }
@@ -43,7 +44,10 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	full := filepath.Join(h.Workdir(), p.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), p.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	// Resolve ranged-read slice. Canonical form for the ReadKey.Range:
 	// "" when no start/end were passed, "<start>:<end>" otherwise (EOF
@@ -170,7 +174,10 @@ func (WriteTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	full := filepath.Join(h.Workdir(), p.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), p.Path, true)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -201,7 +208,10 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	full := filepath.Join(h.Workdir(), p.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), p.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	data, err := os.ReadFile(full)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -237,7 +247,7 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	matches, err := filepath.Glob(filepath.Join(h.Workdir(), p.Pattern))
+	matches, err := workdirpath.Glob(h.Workdir(), p.Pattern)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -271,23 +281,40 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	searchPath := filepath.Join(h.Workdir(), p.Path)
+	searchPath := h.Workdir()
 	if p.Path == "" {
-		searchPath = h.Workdir()
+		var err error
+		searchPath, err = workdirpath.Resolve(h.Workdir(), ".", false)
+		if err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
+	} else {
+		var err error
+		searchPath, err = workdirpath.Resolve(h.Workdir(), p.Path, false)
+		if err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
 	}
 	var results []string
 	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || info.Size() > 1024*1024 {
+		if err != nil {
 			return err
 		}
-		data, err := os.ReadFile(path)
+		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() || info.Size() > 1024*1024 {
+			return err
+		}
+		resolved, err := workdirpath.Resolve(h.Workdir(), path, false)
+		if err != nil {
+			return nil
+		}
+		data, err := os.ReadFile(resolved)
 		if err != nil {
 			return nil
 		}
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if strings.Contains(line, p.Pattern) {
-				rel, _ := filepath.Rel(h.Workdir(), path)
+				rel, _ := filepath.Rel(h.Workdir(), resolved)
 				results = append(results, fmt.Sprintf("%s:%d:%s", rel, i+1, line))
 			}
 		}

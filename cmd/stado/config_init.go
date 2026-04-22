@@ -98,6 +98,7 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # [tools]
 # enabled  = ["read", "grep", "bash"]   # allowlist — only these are active
 # disabled = ["webfetch"]               # or: remove specific tools from the default set
+# overrides = { read = "my-read-1.0.0", webfetch = "corp-webfetch@2.1.0" }
 
 # ---------------------------------------------------------------------------
 # [inference.presets] — custom OAI-compat endpoints OR overrides for bundled

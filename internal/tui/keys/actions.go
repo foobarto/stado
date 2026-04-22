@@ -36,6 +36,7 @@ const (
 	SidebarToggle            Action = "sidebar_toggle"
 	ToolExpand               Action = "tool_expand"
 	ModeToggle               Action = "mode_toggle"
+	ModeToggleBtw            Action = "mode_toggle_btw"
 )
 
 var ActionDescriptions = map[Action]string{
@@ -72,4 +73,5 @@ var ActionDescriptions = map[Action]string{
 	SidebarToggle:           "Toggle sidebar",
 	ToolExpand:              "Expand tool call",
 	ModeToggle:              "Toggle Plan/Do mode",
+	ModeToggleBtw:           "Toggle BTW mode",
 }

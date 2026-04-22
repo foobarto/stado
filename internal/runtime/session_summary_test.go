@@ -136,6 +136,20 @@ func TestSummariseSession_LivePIDPromotesToLive(t *testing.T) {
 	}
 }
 
+func TestReadDescription_StripsTerminalControlChars(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteDescription(dir, "hello\x1b world"); err != nil {
+		t.Fatal(err)
+	}
+	got := ReadDescription(dir)
+	if got != "hello world" {
+		t.Fatalf("unexpected sanitized description: %q", got)
+	}
+	if strings.ContainsRune(got, '\x1b') {
+		t.Fatalf("control chars leaked from description: %q", got)
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"

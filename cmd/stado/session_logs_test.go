@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -128,6 +129,25 @@ func TestSessionLogs_ErrorCommitMarksRed(t *testing.T) {
 	}
 }
 
+func TestSessionLogs_StripsTerminalControlChars(t *testing.T) {
+	id, _, restore := logsEnv(t, []stadogit.CommitMeta{
+		{Tool: "bash", ShortArg: "\x1b[31mboom", Summary: "exit 1", Error: "\x1b]52;clip\x07denied"},
+	})
+	defer restore()
+
+	out := captureStdout(t, func() {
+		if err := sessionLogsCmd.RunE(sessionLogsCmd, []string{id}); err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+	})
+	if strings.ContainsRune(out, '\x1b') {
+		t.Fatalf("control chars leaked into logs output: %q", out)
+	}
+	if !strings.Contains(out, "boom") || !strings.Contains(out, "denied") {
+		t.Fatalf("sanitized content missing: %q", out)
+	}
+}
+
 // TestSessionLogs_UnknownSession: bad id → resolver error surfaces.
 func TestSessionLogs_UnknownSession(t *testing.T) {
 	_, _, restore := logsEnv(t, nil)
@@ -139,6 +159,26 @@ func TestSessionLogs_UnknownSession(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "logs:") {
 		t.Errorf("error should be wrapped by 'logs:': %v", err)
+	}
+}
+
+func TestSessionLogs_FollowRejectsNonPositiveInterval(t *testing.T) {
+	id, _, restore := logsEnv(t, nil)
+	defer restore()
+
+	logsFollow = true
+	logsPollFreq = 0
+	t.Cleanup(func() {
+		logsFollow = false
+		logsPollFreq = 500 * time.Millisecond
+	})
+
+	err := sessionLogsCmd.RunE(sessionLogsCmd, []string{id})
+	if err == nil {
+		t.Fatal("expected interval validation error")
+	}
+	if !strings.Contains(err.Error(), "interval must be > 0") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -3,6 +3,8 @@ package lspfind
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,9 +16,11 @@ type stubHost struct{ wd string }
 func (s stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (s stubHost) Workdir() string                                        { return s.wd }
-func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
-func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
+func (s stubHost) Workdir() string { return s.wd }
+func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 func TestSchema_RequiresAllCoordinates(t *testing.T) {
 	s := (&FindDefinition{}).Schema()
@@ -46,13 +50,33 @@ func TestRun_RejectsMissingArgs(t *testing.T) {
 }
 
 func TestRun_UnknownExtension(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "foo.md"), []byte("# hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	args, _ := json.Marshal(map[string]any{"path": "foo.md", "line": 1, "column": 1})
-	res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: "/tmp"})
+	res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: root})
 	if err == nil {
 		t.Error("expected error for unmapped extension")
 	}
 	if !strings.Contains(res.Error, "no LSP server") {
 		t.Errorf("error = %q", res.Error)
+	}
+}
+
+func TestRun_RejectsEscapingPath(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "foo.go")
+	if err := os.WriteFile(outside, []byte("package main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": outside, "line": 1, "column": 1})
+	res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: root})
+	if err == nil {
+		t.Fatal("expected workdir escape to fail")
+	}
+	if !strings.Contains(res.Error, "escapes workdir") {
+		t.Fatalf("unexpected error: %q", res.Error)
 	}
 }
 
@@ -74,12 +98,12 @@ func TestServerFor_KnownExtensions(t *testing.T) {
 
 func TestLanguageIDFor(t *testing.T) {
 	cases := map[string]string{
-		".go":   "go",
-		".py":   "python",
-		".tsx":  "typescriptreact",
-		".jsx":  "javascriptreact",
-		".rs":   "rust",
-		".md":   "plaintext",
+		".go":  "go",
+		".py":  "python",
+		".tsx": "typescriptreact",
+		".jsx": "javascriptreact",
+		".rs":  "rust",
+		".md":  "plaintext",
 	}
 	for ext, want := range cases {
 		if got := languageIDFor(ext); got != want {

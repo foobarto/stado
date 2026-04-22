@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -61,12 +60,7 @@ var statsCmd = &cobra.Command{
 		}
 		if len(ids) == 0 {
 			if statsJSON {
-				// Same structurally-valid empty shape as the "no tool
-				// calls in window" branch below. Without this, --json
-				// consumers got zero stdout bytes when no sessions
-				// existed at all, which broke `stado stats --json | jq`.
-				fmt.Println(`{"window_days":` + strconv.Itoa(statsDays) + `,"total":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"duration_ms":0},"by_model":{},"by_tool":{}}`)
-				return nil
+				return renderStatsJSON(os.Stdout, newStatsAgg())
 			}
 			fmt.Fprintln(os.Stderr, "(no sessions in window)")
 			return nil
@@ -80,10 +74,7 @@ var statsCmd = &cobra.Command{
 		}
 		if agg.empty() {
 			if statsJSON {
-				// Emit a structurally-valid empty shape so scripts
-				// don't have to special-case the "no data" case.
-				fmt.Println(`{"window_days":` + strconv.Itoa(statsDays) + `,"total":{"calls":0,"tokens_in":0,"tokens_out":0,"cost_usd":0,"duration_ms":0},"by_model":{},"by_tool":{}}`)
-				return nil
+				return renderStatsJSON(os.Stdout, agg)
 			}
 			fmt.Fprintln(os.Stderr, "(no tool calls in window)")
 			return nil
@@ -105,23 +96,23 @@ func renderStatsJSON(w interface {
 	Write(p []byte) (int, error)
 }, agg *statsAgg) error {
 	type modelRow struct {
-		Calls    int     `json:"calls"`
-		TokensIn int     `json:"tokens_in"`
-		TokensOut int    `json:"tokens_out"`
-		CostUSD  float64 `json:"cost_usd"`
+		Calls     int     `json:"calls"`
+		TokensIn  int     `json:"tokens_in"`
+		TokensOut int     `json:"tokens_out"`
+		CostUSD   float64 `json:"cost_usd"`
 	}
 	type toolRow struct {
 		Calls      int   `json:"calls"`
 		DurationMs int64 `json:"duration_ms"`
 	}
 	out := struct {
-		WindowDays int                  `json:"window_days"`
-		SessionID  string               `json:"session_id,omitempty"`
+		WindowDays  int                 `json:"window_days"`
+		SessionID   string              `json:"session_id,omitempty"`
 		ModelFilter string              `json:"model_filter,omitempty"`
-		Total      modelRow             `json:"total"`
-		DurationMs int64                `json:"total_duration_ms"`
-		ByModel    map[string]modelRow  `json:"by_model"`
-		ByTool     map[string]toolRow   `json:"by_tool"`
+		Total       modelRow            `json:"total"`
+		DurationMs  int64               `json:"total_duration_ms"`
+		ByModel     map[string]modelRow `json:"by_model"`
+		ByTool      map[string]toolRow  `json:"by_tool"`
 	}{
 		WindowDays:  statsDays,
 		SessionID:   statsSession,

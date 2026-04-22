@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
@@ -208,6 +209,69 @@ func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 	}
 }
 
+// E2b: approval no longer blocks draft editing; normal typing should
+// stay in the textarea until the user explicitly resolves the prompt.
+func TestUAT_ApprovalKeepsInputEditable(t *testing.T) {
+	m := scenarioModel(t)
+	m.pendingCalls = []agent.ToolUseBlock{
+		{ID: "call-3", Name: "bash", Input: []byte(`{"cmd":"ls"}`)},
+	}
+	if cmd := m.advanceApproval(); cmd != nil {
+		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
+	}
+
+	typeString(m, "draft")
+
+	if m.input.Value() != "draft" {
+		t.Fatalf("input = %q, want draft preserved while approval is pending", m.input.Value())
+	}
+	if m.approval == nil {
+		t.Fatal("approval should still be pending after draft edits")
+	}
+	if m.state != stateApproval {
+		t.Fatalf("state = %v, want stateApproval", m.state)
+	}
+}
+
+// E2c: Up focuses the approval card, Left/Right switches the active
+// choice, and Enter resolves the selected action without touching the
+// in-progress draft underneath.
+func TestUAT_ApprovalArrowNavigationConfirmsSelection(t *testing.T) {
+	m := scenarioModel(t)
+	m.pendingCalls = []agent.ToolUseBlock{
+		{ID: "call-4", Name: "bash", Input: []byte(`{"cmd":"ls -la"}`)},
+	}
+	if cmd := m.advanceApproval(); cmd != nil {
+		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
+	}
+	typeString(m, "draft")
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if !m.approvalFocused {
+		t.Fatal("Up should focus the approval card")
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if m.approvalAllowSelected {
+		t.Fatal("Right should move selection to deny")
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("Enter on focused approval card should resolve the request")
+	}
+	tem, ok := cmd().(toolsExecutedMsg)
+	if !ok {
+		t.Fatalf("cmd returned %T, want toolsExecutedMsg", cmd)
+	}
+	if len(tem.results) != 1 || !tem.results[0].IsError || !strings.Contains(tem.results[0].Content, "Denied") {
+		t.Fatalf("deny result = %+v, want one denied tool result", tem.results)
+	}
+	if m.input.Value() != "draft" {
+		t.Fatalf("input = %q, want draft preserved after arrow-key approval flow", m.input.Value())
+	}
+}
+
 // E3: SetApprovals with mode=allowlist pre-populates rememberedAllow
 // so named tools run without the ⚠ y/n prompt. Covers the bug where
 // `[approvals]` in config was parsed but never applied by the TUI.
@@ -225,6 +289,37 @@ func TestUAT_ApprovalConfigAllowlistAutoPasses(t *testing.T) {
 	m2.SetApprovals("prompt", []string{"read"})
 	if m2.rememberedAllow["read"] {
 		t.Error("prompt mode should leave rememberedAllow empty")
+	}
+}
+
+// E5: approval renders as a dedicated card without duplicating the
+// bordered input frame underneath it.
+func TestUAT_ApprovalViewRendersSingleInputBox(t *testing.T) {
+	m := scenarioModel(t)
+	m.pendingCalls = []agent.ToolUseBlock{
+		{ID: "call-5", Name: "bash", Input: []byte(`{"cmd":"ls -la"}`)},
+	}
+	if cmd := m.advanceApproval(); cmd != nil {
+		t.Fatalf("advanceApproval returned unexpected cmd %T", cmd)
+	}
+
+	out := ansi.Strip(m.View())
+	inline, err := m.renderer.Exec("input_status", map[string]any{
+		"Mode":         m.mode.String(),
+		"Model":        m.model,
+		"ProviderName": m.providerDisplayName(),
+		"Hint":         "",
+	})
+	if err != nil {
+		t.Fatalf("render input_status: %v", err)
+	}
+	statusLine := strings.TrimSpace(ansi.Strip(inline))
+
+	if !strings.Contains(out, "Approval required") {
+		t.Fatalf("approval card missing from view: %q", out)
+	}
+	if got := strings.Count(out, statusLine); got != 1 {
+		t.Fatalf("input status rendered %d times, want exactly one", got)
 	}
 }
 

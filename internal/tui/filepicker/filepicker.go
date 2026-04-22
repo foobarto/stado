@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
 
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
 
@@ -166,14 +167,15 @@ func (m *Model) View(maxWidth int) string {
 	b.WriteString(header)
 	b.WriteString("\n")
 	for i, p := range m.Matches {
+		display := textutil.StripControlChars(p)
 		var row string
 		if i == m.Cursor {
 			row = lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
-				Render(" " + p + " ")
+				Render(" " + display + " ")
 		} else {
-			row = lipgloss.NewStyle().Foreground(theme.Text).Render("  " + p)
+			row = lipgloss.NewStyle().Foreground(theme.Text).Render("  " + display)
 		}
 		b.WriteString(row)
 		b.WriteString("\n")
@@ -223,6 +225,9 @@ func scanPaths(cwd string) []string {
 		}
 		rel, err := filepath.Rel(cwd, path)
 		if err != nil {
+			return nil
+		}
+		if textutil.HasControlChars(rel) {
 			return nil
 		}
 		out = append(out, rel)

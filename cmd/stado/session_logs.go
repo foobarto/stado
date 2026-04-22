@@ -25,6 +25,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 var (
@@ -74,6 +75,9 @@ var sessionLogsCmd = &cobra.Command{
 		}
 		if !logsFollow {
 			return nil
+		}
+		if logsPollFreq <= 0 {
+			return fmt.Errorf("logs: interval must be > 0")
 		}
 		// Follow loop. Polls the trace ref tip at logsPollFreq,
 		// prints any new commits in forward (chronological) order,
@@ -155,7 +159,8 @@ func printNewCommitsForward(sc *stadogit.Sidecar, newTip, lastSeen plumbingHashT
 }
 
 // printLogEntry renders one trace commit as:
-//   YYYY-MM-DD HH:MM · <tool>(<short-arg>): <summary> · <tokens-in>/<tokens-out>tok <cost> <duration>
+//
+//	YYYY-MM-DD HH:MM · <tool>(<short-arg>): <summary> · <tokens-in>/<tokens-out>tok <cost> <duration>
 //
 // Colour (when enabled): error commits in red, title in default,
 // stats in dim. Whole line fits in 120 cols for most calls.
@@ -169,6 +174,8 @@ func printLogEntry(c *object.Commit, colour bool) {
 	durMs := atoi64Safe(trailers["Duration-Ms"])
 	errMsg := trailers["Error"]
 	_ = tool // not needed; title carries tool(arg) form
+	title = textutil.StripControlChars(title)
+	errMsg = textutil.StripControlChars(errMsg)
 
 	line := fmt.Sprintf("%s · %s", when, title)
 	// Append the stats tail when any data available. Keep silent

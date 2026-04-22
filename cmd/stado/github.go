@@ -117,7 +117,11 @@ permissions:
 
 jobs:
   trigger:
-    if: ${{ startsWith(github.event.comment.body, '@stado ') }}
+    if: >-
+      ${{
+        startsWith(github.event.comment.body, '@stado ') &&
+        contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      }}
     runs-on: ubuntu-latest
     env:
       # Edit these two to swap provider/model. STADO_DEFAULTS_* env vars

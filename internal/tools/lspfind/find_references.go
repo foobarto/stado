@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/lsp"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -20,18 +21,20 @@ type FindReferences struct {
 	Definition *FindDefinition // reuse the client cache
 }
 
-func (f *FindReferences) Name() string        { return "find_references" }
-func (f *FindReferences) Description() string { return "LSP textDocument/references — every usage of a symbol." }
-func (f *FindReferences) Class() tool.Class   { return tool.ClassNonMutating }
+func (f *FindReferences) Name() string { return "find_references" }
+func (f *FindReferences) Description() string {
+	return "LSP textDocument/references — every usage of a symbol."
+}
+func (f *FindReferences) Class() tool.Class { return tool.ClassNonMutating }
 
 func (f *FindReferences) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":                 map[string]any{"type": "string"},
-			"line":                 map[string]any{"type": "integer"},
-			"column":               map[string]any{"type": "integer"},
-			"include_declaration":  map[string]any{"type": "boolean", "description": "default true"},
+			"path":                map[string]any{"type": "string"},
+			"line":                map[string]any{"type": "integer"},
+			"column":              map[string]any{"type": "integer"},
+			"include_declaration": map[string]any{"type": "boolean", "description": "default true"},
 		},
 		"required": []string{"path", "line", "column"},
 	}
@@ -53,7 +56,10 @@ func (f *FindReferences) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 		return tool.Result{Error: "path, line (>=1), column (>=1) required"}, errors.New("lspfind: bad args")
 	}
 
-	full := filepath.Join(h.Workdir(), a.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), a.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	server := serverFor(filepath.Ext(a.Path))
 	if server == "" {
 		return tool.Result{Error: fmt.Sprintf("no LSP server for %q", filepath.Ext(a.Path))},

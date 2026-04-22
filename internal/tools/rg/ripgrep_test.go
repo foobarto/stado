@@ -17,9 +17,11 @@ type stubHost struct{ wd string }
 func (s stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (s stubHost) Workdir() string                                        { return s.wd }
-func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
-func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
+func (s stubHost) Workdir() string { return s.wd }
+func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 func haveRipgrep(t *testing.T) string {
 	t.Helper()
@@ -130,6 +132,18 @@ func TestRun_RejectsEmptyPattern(t *testing.T) {
 	}
 	if !strings.Contains(res.Error, "pattern required") {
 		t.Errorf("error wrong: %q", res.Error)
+	}
+}
+
+func TestRun_RejectsEscapingPath(t *testing.T) {
+	haveRipgrep(t)
+	args, _ := json.Marshal(map[string]any{"pattern": "main", "path": "../"})
+	res, err := (Tool{}).Run(context.Background(), args, stubHost{wd: t.TempDir()})
+	if err == nil {
+		t.Fatal("expected workdir escape to fail")
+	}
+	if !strings.Contains(res.Error, "escapes workdir") {
+		t.Fatalf("unexpected error: %q", res.Error)
 	}
 }
 

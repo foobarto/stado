@@ -16,9 +16,11 @@ type stubHost struct{ wd string }
 func (s stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (s stubHost) Workdir() string                                        { return s.wd }
-func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
-func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
+func (s stubHost) Workdir() string { return s.wd }
+func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 // setupGoModule creates a minimal Go module layout with a main file that
 // imports a local subpackage. Returns (workdir, main-file-relpath).
@@ -127,6 +129,57 @@ func TestRun_TruncatesLargeFiles(t *testing.T) {
 	res, _ := (Tool{}).Run(context.Background(), args, stubHost{wd: root})
 	if !strings.Contains(res.Content, "[truncated]") {
 		t.Errorf("truncation marker missing:\n%s", res.Content)
+	}
+}
+
+func TestRun_RejectsEscapingPath(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": outside})
+	res, err := (Tool{}).Run(context.Background(), args, stubHost{wd: root})
+	if err == nil {
+		t.Fatal("expected workdir escape to fail")
+	}
+	if !strings.Contains(res.Error, "escapes workdir") {
+		t.Fatalf("unexpected error: %q", res.Error)
+	}
+}
+
+func TestRun_SkipsSymlinkedImportedPackageOutsideWorkdir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "util"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "util", "util.go"), []byte("package util\n\nconst Secret = \"nope\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "util"), filepath.Join(root, "util")); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+	mainSrc := `package main
+
+import "example.com/demo/util"
+
+func main() { _ = util.Secret }
+`
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(mainSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	args, _ := json.Marshal(map[string]any{"path": "main.go"})
+	res, err := (Tool{}).Run(context.Background(), args, stubHost{wd: root})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.Contains(res.Content, "=== util/util.go ===") || strings.Contains(res.Content, "const Secret") {
+		t.Fatalf("symlinked outside import should not be included:\n%s", res.Content)
 	}
 }
 

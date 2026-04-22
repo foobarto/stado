@@ -52,3 +52,14 @@ func TestRenderHelp_GroupsSlashCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderHelp_IncludesModeBindingsAndFullPrefixChords(t *testing.T) {
+	reg := keys.NewRegistry()
+	out := RenderHelp(reg, 200)
+
+	for _, needle := range []string{"Modes", "ctrl+x ctrl+b", "ctrl+x ctrl+c"} {
+		if !strings.Contains(out, needle) {
+			t.Errorf("help overlay missing %q", needle)
+		}
+	}
+}

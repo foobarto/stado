@@ -28,6 +28,7 @@ func TestGithubInstall_WritesWorkflow(t *testing.T) {
 		"name: stado-bot",
 		"issue_comment:",
 		"startsWith(github.event.comment.body, '@stado ')",
+		`contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)`,
 		"STADO_DEFAULTS_PROVIDER",
 		"STADO_DEFAULTS_MODEL",
 		"ANTHROPIC_API_KEY",

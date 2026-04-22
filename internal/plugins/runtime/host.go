@@ -491,6 +491,22 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
+			// Preflight: a single call must not exceed the remaining
+			// budget.  We estimate input tokens at ~4 bytes/token (same
+			// fallback the bridge uses).  Output is capped by the
+			// remaining budget so an oversized response can't silently
+			// exhaust the allowance.
+			const bytesPerToken = 4
+			promptTokEstimate := (len(prompt) + bytesPerToken - 1) / bytesPerToken
+			remaining := host.LLMInvokeBudget - int(used)
+			if promptTokEstimate >= remaining {
+				host.Logger.Warn("stado_llm_invoke denied — call would exceed budget",
+					slog.Int("budget", host.LLMInvokeBudget),
+					slog.Int64("used", used),
+					slog.Int("prompt_estimate", promptTokEstimate))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			reply, tokens, err := host.SessionBridge.InvokeLLM(ctx, prompt)
 			if err != nil {
 				host.Logger.Warn("stado_llm_invoke failed", slog.String("err", err.Error()))

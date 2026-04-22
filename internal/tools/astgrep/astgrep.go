@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -69,9 +70,15 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	searchPath := filepath.Join(h.Workdir(), a.Path)
-	if a.Path == "" {
-		searchPath = h.Workdir()
+	searchPath, err := workdirpath.Resolve(h.Workdir(), ".", false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	if a.Path != "" {
+		searchPath, err = workdirpath.Resolve(h.Workdir(), a.Path, false)
+		if err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
 	}
 
 	args := []string{"run", "--json", "--pattern", a.Pattern}

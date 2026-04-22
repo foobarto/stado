@@ -147,6 +147,36 @@ func TestHiddenUpdateNoop(t *testing.T) {
 	}
 }
 
+func TestOpen_SkipsControlCharFilenames(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "good.txt"), "")
+	if err := os.WriteFile(filepath.Join(dir, "bad\x1bname.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New()
+	m.Open(dir, 0)
+
+	for _, p := range m.allPaths {
+		if strings.ContainsRune(p, '\x1b') {
+			t.Fatalf("control-char path leaked into picker: %q", p)
+		}
+	}
+}
+
+func TestView_StripsControlCharsFromRenderedRows(t *testing.T) {
+	m := New()
+	m.Visible = true
+	m.Matches = []string{"safe.txt", "bad\x1bname.txt"}
+	out := m.View(80)
+	if strings.ContainsRune(out, '\x1b') {
+		t.Fatalf("picker view leaked control chars: %q", out)
+	}
+	if !strings.Contains(out, "badname.txt") {
+		t.Fatalf("sanitized filename missing: %q", out)
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

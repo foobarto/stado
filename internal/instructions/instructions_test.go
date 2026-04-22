@@ -96,6 +96,24 @@ func TestLoad_NearestWins(t *testing.T) {
 	}
 }
 
+func TestLoad_SkipsSymlinkedInstructions(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "secret.txt")
+	mustWrite(t, target, "secret")
+	link := filepath.Join(dir, "AGENTS.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if r.Path != "" || r.Content != "" {
+		t.Fatalf("expected symlinked instructions to be skipped, got %+v", r)
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

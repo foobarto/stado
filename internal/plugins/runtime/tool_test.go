@@ -35,6 +35,20 @@ func TestNewPluginTool_SchemaDefaults(t *testing.T) {
 	}
 }
 
+func TestNewPluginTool_ClassRoundTrip(t *testing.T) {
+	mod := &Module{Name: "demo"}
+	pt, err := NewPluginTool(mod, plugins.ToolDef{
+		Name:  "execy",
+		Class: "Exec",
+	})
+	if err != nil {
+		t.Fatalf("NewPluginTool: %v", err)
+	}
+	if pt.Class() != tool.ClassExec {
+		t.Fatalf("Class() = %v, want %v", pt.Class(), tool.ClassExec)
+	}
+}
+
 // TestNewPluginTool_SchemaRoundTrip verifies a JSON Schema in the
 // manifest comes back intact via pt.Schema() — this is what the agent
 // loop passes to the provider's TurnRequest.Tools.
@@ -77,6 +91,17 @@ func TestNewPluginTool_BadSchemaRejected(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected schema parse error")
+	}
+}
+
+func TestNewPluginTool_BadClassRejected(t *testing.T) {
+	mod := &Module{Name: "demo"}
+	_, err := NewPluginTool(mod, plugins.ToolDef{
+		Name:  "bad",
+		Class: "not-a-class",
+	})
+	if err == nil {
+		t.Fatal("expected class parse error")
 	}
 }
 

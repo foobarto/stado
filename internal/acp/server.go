@@ -11,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -42,6 +43,9 @@ type acpSession struct {
 	mu       sync.Mutex
 	messages []agent.Message
 	cancel   context.CancelFunc
+	workdir  string
+	gitSess  *stadogit.Session
+	busy     bool
 }
 
 // NewServer returns a configured ACP server. Provider can be nil; lazy-built
@@ -68,7 +72,8 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	case "session/cancel":
 		return s.handleSessionCancel(params)
 	case "shutdown":
-		s.conn.Close()
+		s.conn.WaitPendingExceptCaller()
+		go s.conn.Close()
 		return struct{}{}, nil
 	}
 	return nil, &RPCError{Code: CodeMethodNotFound, Message: "unknown method: " + method}
@@ -77,16 +82,16 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 // --- handlers ---
 
 type initializeResult struct {
-	ProtocolVersion int                 `json:"protocolVersion"`
-	AgentName       string              `json:"agentName"`
-	AgentVersion    string              `json:"agentVersion"`
-	Capabilities    initializeCaps      `json:"capabilities"`
+	ProtocolVersion int            `json:"protocolVersion"`
+	AgentName       string         `json:"agentName"`
+	AgentVersion    string         `json:"agentVersion"`
+	Capabilities    initializeCaps `json:"capabilities"`
 }
 
 type initializeCaps struct {
-	Prompts    bool `json:"prompts"`
-	ToolCalls  bool `json:"toolCalls"`
-	Thinking   bool `json:"thinking"`
+	Prompts   bool `json:"prompts"`
+	ToolCalls bool `json:"toolCalls"`
+	Thinking  bool `json:"thinking"`
 }
 
 func (s *Server) handleInitialize(_ json.RawMessage) (any, error) {
@@ -107,10 +112,11 @@ type sessionNewResult struct {
 }
 
 func (s *Server) handleSessionNew(_ json.RawMessage) (any, error) {
+	cwd, _ := os.Getwd()
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("acp-%d", s.nextID)
-	s.sessions[id] = &acpSession{id: id}
+	s.sessions[id] = &acpSession{id: id, workdir: cwd}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
 }
@@ -143,14 +149,21 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	}
 
 	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		return nil, &RPCError{Code: CodeInvalidParams, Message: "session already has an active prompt"}
+	}
+	sess.busy = true
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
 	localMsgs := append([]agent.Message(nil), sess.messages...)
+	workdir := sess.workdir
 
 	pctx, cancel := context.WithCancel(ctx)
 	sess.cancel = cancel
 	defer func() {
 		sess.mu.Lock()
 		sess.cancel = nil
+		sess.busy = false
 		sess.mu.Unlock()
 	}()
 	sess.mu.Unlock()
@@ -160,8 +173,8 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	// don't carry a per-session workdir today; fine for the common
 	// case where a client spawns stado in-repo.
 	sysPrompt := ""
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		if res, err := instructions.Load(cwd); err == nil {
+	if workdir != "" {
+		if res, err := instructions.Load(workdir); err == nil {
 			sysPrompt = res.Content
 		}
 	}
@@ -193,23 +206,27 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		},
 	}
 	if s.EnableTools {
-		cwd, _ := os.Getwd()
-		gitSess, err := runtime.OpenSession(s.Cfg, cwd)
-		if err == nil {
-			opts.Executor = runtime.BuildExecutor(gitSess, s.Cfg, "stado-acp")
+		s.ensureGitSession(sess)
+		sess.mu.Lock()
+		gitSess := sess.gitSess
+		sess.mu.Unlock()
+		if gitSess != nil {
+			exec, err := runtime.BuildExecutor(gitSess, s.Cfg, "stado-acp")
+			if err != nil {
+				return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
+			}
+			opts.Executor = exec
 		}
 	} else {
 		opts.MaxTurns = 1 // pure chat: single shot
 	}
 
-	text, _, err := runtime.AgentLoop(pctx, opts)
+	text, msgs, err := runtime.AgentLoop(pctx, opts)
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 	}
 	sess.mu.Lock()
-	sess.messages = append(sess.messages, agent.Message{Role: agent.RoleAssistant, Content: []agent.Block{
-		{Text: &agent.TextBlock{Text: text}},
-	}})
+	sess.messages = msgs
 	sess.mu.Unlock()
 	return sessionPromptResult{Text: text}, nil
 }
@@ -235,4 +252,25 @@ func (s *Server) handleSessionCancel(raw json.RawMessage) (any, error) {
 	}
 	sess.mu.Unlock()
 	return struct{}{}, nil
+}
+
+func (s *Server) ensureGitSession(sess *acpSession) {
+	sess.mu.Lock()
+	if sess.gitSess != nil || sess.workdir == "" {
+		sess.mu.Unlock()
+		return
+	}
+	workdir := sess.workdir
+	sess.mu.Unlock()
+
+	gs, err := runtime.OpenSession(s.Cfg, workdir)
+	if err != nil {
+		return
+	}
+
+	sess.mu.Lock()
+	if sess.gitSess == nil {
+		sess.gitSess = gs
+	}
+	sess.mu.Unlock()
 }

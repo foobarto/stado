@@ -5,7 +5,38 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 )
+
+func TestPickLocalFallbackPrefersLoadedModels(t *testing.T) {
+	results := []localdetect.Result{
+		{Name: "ollama", Endpoint: "http://localhost:11434/v1", Reachable: true},
+		{Name: "lmstudio", Endpoint: "http://localhost:1234/v1", Reachable: true, Models: []string{"qwen/qwen3.6-35b-a3b"}},
+	}
+
+	got := pickLocalFallback(results)
+	if got == nil {
+		t.Fatal("pickLocalFallback returned nil")
+	}
+	if got.Name != "lmstudio" {
+		t.Fatalf("pickLocalFallback chose %q, want lmstudio", got.Name)
+	}
+}
+
+func TestPickLocalFallbackFallsBackToFirstReachable(t *testing.T) {
+	results := []localdetect.Result{
+		{Name: "ollama", Endpoint: "http://localhost:11434/v1", Reachable: true},
+		{Name: "lmstudio", Endpoint: "http://localhost:1234/v1", Reachable: true},
+	}
+
+	got := pickLocalFallback(results)
+	if got == nil {
+		t.Fatal("pickLocalFallback returned nil")
+	}
+	if got.Name != "ollama" {
+		t.Fatalf("pickLocalFallback chose %q, want ollama", got.Name)
+	}
+}
 
 func TestBuiltinPreset_CoversKnownProviders(t *testing.T) {
 	cases := []struct {
@@ -50,11 +81,6 @@ func TestBuiltinPreset_UnknownReturnsFalse(t *testing.T) {
 	}
 }
 
-// TestBuildProvider_UserPresetOverridesBuiltin lets operators point a
-// bundled preset name (e.g. lmstudio on a non-default port) at a
-// different endpoint via [inference.presets.<name>].endpoint without
-// writing a whole new preset or setting a STADO_*_HOST env var.
-// Regression guard for the ordering fix in buildProvider.
 func TestBuildProvider_UserPresetOverridesBuiltin(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Defaults.Provider = "lmstudio"
@@ -67,12 +93,6 @@ func TestBuildProvider_UserPresetOverridesBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildProvider: %v", err)
 	}
-	// oaicompat.Provider's Name() is user-settable via WithName; the
-	// bundled builder sets it to the preset name in both paths, so the
-	// differentiator is the endpoint. The provider doesn't expose
-	// Endpoint, so we confirm by ensuring StreamTurn to an unreachable
-	// port would fail — but that'd be a flakey network test. Instead,
-	// just confirm Name and that the builder chose a provider.
 	if prov == nil {
 		t.Fatal("buildProvider returned nil")
 	}

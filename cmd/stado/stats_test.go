@@ -61,6 +61,9 @@ func TestStats_JSONEmptyWhenNoSessions(t *testing.T) {
 	if _, ok := got["total"].(map[string]any); !ok {
 		t.Errorf("missing total: %v", got)
 	}
+	if _, ok := got["total_duration_ms"].(float64); !ok {
+		t.Errorf("missing total_duration_ms: %v", got)
+	}
 }
 
 // TestStatsAgg_SumsTokensAcrossCommits: feed three trace commits with
@@ -301,12 +304,12 @@ func TestRenderStatsJSON_ShapeStable(t *testing.T) {
 // %.4f so the range is narrow: "0.0000" through "999.9999".
 func TestAtofSafe_ParseTrailerFloats(t *testing.T) {
 	cases := map[string]float64{
-		"0.0012":    0.0012,
-		"0.5":       0.5,
-		"1.23":      1.23,
-		"123":       123,
-		"":          0,
-		"garbage":   0,
+		"0.0012":  0.0012,
+		"0.5":     0.5,
+		"1.23":    1.23,
+		"123":     123,
+		"":        0,
+		"garbage": 0,
 	}
 	for in, want := range cases {
 		got := atofSafe(in)

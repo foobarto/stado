@@ -50,16 +50,18 @@ func Load(start string) (Result, error) {
 	for {
 		for _, name := range Names {
 			candidate := filepath.Join(dir, name)
-			info, statErr := os.Stat(candidate)
+			info, statErr := os.Lstat(candidate)
 			if errors.Is(statErr, os.ErrNotExist) {
 				continue
 			}
 			if statErr != nil {
-				return Result{}, fmt.Errorf("instructions: stat %s: %w", candidate, statErr)
+				return Result{}, fmt.Errorf("instructions: lstat %s: %w", candidate, statErr)
 			}
-			if info.IsDir() {
-				// A directory with our exact name is unusual but possible
-				// (e.g. a user's notes folder called AGENTS.md/). Skip it.
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				// Never auto-follow symlinks here: a repo-controlled AGENTS.md
+				// symlink can otherwise exfiltrate arbitrary local files via the
+				// system prompt path. Non-regular files are skipped for the same
+				// reason.
 				continue
 			}
 			body, readErr := os.ReadFile(candidate)

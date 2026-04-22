@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/foobarto/stado/internal/lsp"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -17,9 +18,11 @@ type Hover struct {
 	Definition *FindDefinition
 }
 
-func (h *Hover) Name() string        { return "hover" }
-func (h *Hover) Description() string { return "LSP textDocument/hover — docs/type for a symbol at path:line:column." }
-func (h *Hover) Class() tool.Class   { return tool.ClassNonMutating }
+func (h *Hover) Name() string { return "hover" }
+func (h *Hover) Description() string {
+	return "LSP textDocument/hover — docs/type for a symbol at path:line:column."
+}
+func (h *Hover) Class() tool.Class { return tool.ClassNonMutating }
 
 func (h *Hover) Schema() map[string]any {
 	return map[string]any{
@@ -47,7 +50,10 @@ func (h *Hover) Run(ctx context.Context, raw json.RawMessage, host tool.Host) (t
 	if a.Path == "" || a.Line <= 0 || a.Column <= 0 {
 		return tool.Result{Error: "path, line, column required"}, errors.New("lspfind: bad args")
 	}
-	full := filepath.Join(host.Workdir(), a.Path)
+	full, err := workdirpath.Resolve(host.Workdir(), a.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	server := serverFor(filepath.Ext(a.Path))
 	if server == "" {
 		return tool.Result{Error: "no LSP server for this extension"}, fmt.Errorf("no server")

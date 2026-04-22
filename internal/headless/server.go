@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/foobarto/stado/internal/acp"
@@ -50,6 +51,7 @@ type hSession struct {
 	workdir         string
 	gitSess         *stadogit.Session // lazy, set by ensureGitSession
 	lastInputTokens int               // most recent input-token observation
+	busy            bool
 }
 
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {
@@ -81,7 +83,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 	case "session.compact":
 		return s.sessionCompact(ctx, params)
 	case "tools.list":
-		return s.toolsList(), nil
+		return s.toolsList()
 	case "providers.list":
 		// `current` reflects what the server actually resolved, not
 		// what's written in config — the local-fallback path leaves
@@ -93,7 +95,7 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			current = s.Provider.Name()
 		}
 		return map[string]any{
-			"available": []string{"anthropic", "openai", "google", "ollama", "llamacpp", "vllm"},
+			"available": availableProviders(s.Cfg),
 			"current":   current,
 		}, nil
 	case "plugin.list":
@@ -154,18 +156,29 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
 	}
 	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
+	}
+	sess.busy = true
 	sess.messages = append(sess.messages, agent.Text(agent.RoleUser, p.Prompt))
+	workdir := sess.workdir
 
 	pctx, cancel := context.WithCancel(ctx)
 	sess.cancel = cancel
-	defer func() { sess.cancel = nil }()
+	defer func() {
+		sess.mu.Lock()
+		sess.cancel = nil
+		sess.busy = false
+		sess.mu.Unlock()
+	}()
 
 	// Project instructions resolved from the session's workdir, not
 	// the process cwd — a headless client may hold several sessions
 	// rooted at different repos. Silent on miss; warn on read error.
 	sysPrompt := ""
-	if sess.workdir != "" {
-		if res, err := instructions.Load(sess.workdir); err != nil {
+	if workdir != "" {
+		if res, err := instructions.Load(workdir); err != nil {
 			_ = s.conn.Notify("session.update", map[string]any{
 				"sessionId": p.SessionID,
 				"kind":      "system",
@@ -226,7 +239,11 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		gs := sess.gitSess
 		sess.mu.Unlock()
 		if gs != nil {
-			opts.Executor = runtime.BuildExecutor(gs, s.Cfg, "stado-headless")
+			exec, err := runtime.BuildExecutor(gs, s.Cfg, "stado-headless")
+			if err != nil {
+				return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+			}
+			opts.Executor = exec
 		}
 	}
 
@@ -287,22 +304,22 @@ type toolInfo struct {
 	Class       string `json:"class"`
 }
 
-func (s *Server) toolsList() []toolInfo {
-	reg := runtime.BuildDefaultRegistry()
-	// Honour the user's [tools] config so the headless surface
-	// reports the same set the TUI + run would execute.
-	runtime.ApplyToolFilter(reg, s.Cfg)
-	all := reg.All()
+func (s *Server) toolsList() (any, error) {
+	exec, err := runtime.BuildExecutor(nil, s.Cfg, "stado-headless")
+	if err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+	}
+	all := exec.Registry.All()
 	out := make([]toolInfo, 0, len(all))
 	for _, t := range all {
-		cls := reg.ClassOf(t.Name()).String()
+		cls := exec.Registry.ClassOf(t.Name()).String()
 		out = append(out, toolInfo{
 			Name:        t.Name(),
 			Description: t.Description(),
 			Class:       cls,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // Suppress unused import of filepath if future changes remove it.
@@ -357,9 +374,9 @@ func (s *Server) sessionDelete(raw json.RawMessage) (any, error) {
 }
 
 type sessionCompactResult struct {
-	Summary      string `json:"summary"`
-	PriorTurns   int    `json:"priorTurns"`
-	PostTurns    int    `json:"postTurns"`
+	Summary    string `json:"summary"`
+	PriorTurns int    `json:"priorTurns"`
+	PostTurns  int    `json:"postTurns"`
 }
 
 // sessionCompact summarises the session's conversation history via the
@@ -383,13 +400,23 @@ func (s *Server) sessionCompact(ctx context.Context, raw json.RawMessage) (any, 
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
 	}
 	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
+	}
 	if len(sess.messages) == 0 {
 		sess.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session has no messages to compact"}
 	}
+	sess.busy = true
 	// Copy snapshot and release lock before the slow provider call so
 	// concurrent session.cancel / session.prompt aren't blocked.
 	msgs := append(make([]agent.Message, 0, len(sess.messages)), sess.messages...)
+	defer func() {
+		sess.mu.Lock()
+		sess.busy = false
+		sess.mu.Unlock()
+	}()
 	sess.mu.Unlock()
 
 	summary, err := compact.Summarise(ctx, s.Provider, s.Cfg.Defaults.Model, msgs)
@@ -442,4 +469,37 @@ func (s *Server) maybeEmitContextWarning(sessionID string, inputTokens int) {
 		"input_tokens": inputTokens,
 		"max_tokens":   cap,
 	})
+}
+
+func availableProviders(cfg *config.Config) []string {
+	set := map[string]struct{}{
+		"anthropic":  {},
+		"openai":     {},
+		"google":     {},
+		"gemini":     {},
+		"ollama":     {},
+		"llamacpp":   {},
+		"vllm":       {},
+		"lmstudio":   {},
+		"groq":       {},
+		"openrouter": {},
+		"deepseek":   {},
+		"xai":        {},
+		"mistral":    {},
+		"cerebras":   {},
+		"litellm":    {},
+	}
+	if cfg != nil {
+		for name, preset := range cfg.Inference.Presets {
+			if preset.Endpoint != "" {
+				set[name] = struct{}{}
+			}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for name := range set {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }

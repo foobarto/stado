@@ -189,3 +189,34 @@ func TestSessionSearch_RegexCompileError(t *testing.T) {
 		t.Errorf("error should mention bad regex: %v", err)
 	}
 }
+
+func TestSessionSearch_StripsTerminalControlChars(t *testing.T) {
+	cfg, restore := searchEnv(t)
+	defer restore()
+
+	sc, err := openSidecar(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := stadogit.OpenSession(sc, cfg.WorktreeDir(), "session-alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.AppendMessage(sess.WorktreePath, agent.Text(agent.RoleAssistant, "bad\x1bexcerpt")); err != nil {
+		t.Fatal(err)
+	}
+
+	searchRegex = false
+	searchSession = "session-alpha"
+	defer func() { searchSession = "" }()
+
+	out := captureSearchStdout(t, func() error {
+		return sessionSearchCmd.RunE(sessionSearchCmd, []string{"excerpt"})
+	})
+	if strings.ContainsRune(out, '\x1b') {
+		t.Fatalf("control chars leaked into search output: %q", out)
+	}
+	if !strings.Contains(out, "badexcerpt") {
+		t.Fatalf("sanitized excerpt missing: %q", out)
+	}
+}

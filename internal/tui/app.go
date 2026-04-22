@@ -51,7 +51,10 @@ func Run(cfg *config.Config) error {
 		// Non-fatal: run without git state; tool-call audit will be skipped.
 		fmt.Fprintf(os.Stderr, "stado: git state unavailable: %v (continuing without audit)\n", err)
 	}
-	exec := runtime.BuildExecutor(sess, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutor(sess, cfg, "stado-tui")
+	if err != nil {
+		return fmt.Errorf("tui: tools: %w", err)
+	}
 
 	// The TUI may swap providers mid-session (e.g. `/model` picks a
 	// detected local runner); pass a builder that reads the current
@@ -225,20 +228,33 @@ func detectLocalFallback(cfg *config.Config) agent.Provider {
 		presets[name] = p.Endpoint
 	}
 	results := localdetect.Detect(ctx, localdetect.MergeUserPresets(presets))
-	for _, r := range results {
+	if picked := pickLocalFallback(results); picked != nil {
+		p, err := oaicompat.New(picked.Endpoint, oaicompat.WithName(picked.Name))
+		if err == nil {
+			fmt.Fprintf(os.Stderr,
+				"stado: no provider configured — using local %s at %s (set defaults.provider in config to pin)\n",
+				picked.Name, picked.Endpoint)
+			return p
+		}
+	}
+	return nil
+}
+
+func pickLocalFallback(results []localdetect.Result) *localdetect.Result {
+	var reachable *localdetect.Result
+	for i := range results {
+		r := &results[i]
 		if !r.Reachable {
 			continue
 		}
-		p, err := oaicompat.New(r.Endpoint, oaicompat.WithName(r.Name))
-		if err != nil {
-			continue
+		if len(r.Models) > 0 {
+			return r
 		}
-		fmt.Fprintf(os.Stderr,
-			"stado: no provider configured — using local %s at %s (set defaults.provider in config to pin)\n",
-			r.Name, r.Endpoint)
-		return p
+		if reachable == nil {
+			reachable = r
+		}
 	}
-	return nil
+	return reachable
 }
 
 // builtinPreset returns (endpoint, api-key-env-var, ok) for bundled
@@ -282,4 +298,3 @@ func loadTheme(cfg *config.Config) (*theme.Theme, error) {
 	}
 	return theme.Default(), nil
 }
-

@@ -64,10 +64,10 @@ func Load(start string) ([]Skill, error) {
 	dir := abs
 	for {
 		candidate := filepath.Join(dir, ".stado", "skills")
-		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+		if info, statErr := os.Lstat(candidate); statErr == nil && info.Mode().IsDir() && info.Mode()&os.ModeSymlink == 0 {
 			dirs = append(dirs, candidate)
 		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-			return nil, fmt.Errorf("skills: stat %s: %w", candidate, statErr)
+			return nil, fmt.Errorf("skills: lstat %s: %w", candidate, statErr)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -92,6 +92,16 @@ func Load(start string) ([]Skill, error) {
 				continue
 			}
 			path := filepath.Join(d, e.Name())
+			info, statErr := os.Lstat(path)
+			if statErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("skills: lstat %s: %w", path, statErr)
+				}
+				continue
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				continue
+			}
 			body, readErr := os.ReadFile(path)
 			if readErr != nil {
 				if firstErr == nil {

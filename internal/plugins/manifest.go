@@ -24,21 +24,24 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // Manifest describes one plugin. The bytes that are signed are the
 // canonicalised JSON (object keys sorted, compact encoding, UTF-8).
 type Manifest struct {
-	Name             string         `json:"name"`
-	Version          string         `json:"version"`
-	Author           string         `json:"author"`
-	AuthorPubkeyFpr  string         `json:"author_pubkey_fpr"`
-	WASMSHA256       string         `json:"wasm_sha256"`
-	Capabilities     []string       `json:"capabilities"`
-	Tools            []ToolDef      `json:"tools"`
-	MinStadoVersion  string         `json:"min_stado_version"`
-	TimestampUTC     string         `json:"timestamp_utc"`
-	Nonce            string         `json:"nonce"`
+	Name            string    `json:"name"`
+	Version         string    `json:"version"`
+	Author          string    `json:"author"`
+	AuthorPubkeyFpr string    `json:"author_pubkey_fpr"`
+	WASMSHA256      string    `json:"wasm_sha256"`
+	Capabilities    []string  `json:"capabilities"`
+	Tools           []ToolDef `json:"tools"`
+	MinStadoVersion string    `json:"min_stado_version"`
+	TimestampUTC    string    `json:"timestamp_utc"`
+	Nonce           string    `json:"nonce"`
 
 	// AuthorPubkeyHex is the raw Ed25519 public key in hex (64 chars).
 	// It is NOT part of the canonicalised manifest — stored separately
@@ -53,6 +56,11 @@ type Manifest struct {
 type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Class is the tool's mutation class:
+	//   "NonMutating" (default), "Mutating", or "Exec".
+	// Parsed case-insensitively so manifests can use a looser style
+	// without changing the semantic value.
+	Class string `json:"class,omitempty"`
 	// Schema is the JSON Schema the tool's input adheres to. Kept as a
 	// string so the manifest's canonicalisation hashes the exact
 	// bytes the signer authored (embedded JSON values would re-serialize
@@ -60,6 +68,22 @@ type ToolDef struct {
 	// with no declared properties". Added after v1 manifests — legacy
 	// manifests without the field still verify thanks to `omitempty`.
 	Schema string `json:"schema,omitempty"`
+}
+
+// ClassValue parses the manifest-declared tool class. Empty means the
+// historical default (NonMutating). Invalid values are rejected so a
+// malformed manifest cannot silently downgrade audit behaviour.
+func (t ToolDef) ClassValue() (tool.Class, error) {
+	switch strings.ToLower(strings.TrimSpace(t.Class)) {
+	case "", "nonmutating", "non-mutating", "non_mutating":
+		return tool.ClassNonMutating, nil
+	case "mutating":
+		return tool.ClassMutating, nil
+	case "exec":
+		return tool.ClassExec, nil
+	default:
+		return tool.ClassNonMutating, fmt.Errorf("plugin: tool %q has invalid class %q", t.Name, t.Class)
+	}
 }
 
 // Canonical returns deterministic bytes for the manifest — compact JSON with

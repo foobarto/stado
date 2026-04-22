@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sync"
 )
 
@@ -62,6 +63,7 @@ type Handler func(ctx context.Context, method string, params json.RawMessage) (a
 // Conn is a JSON-RPC 2.0 line-delimited connection. Thread-safe writes.
 type Conn struct {
 	r    *bufio.Reader
+	rc   io.Closer
 	wMu  sync.Mutex
 	w    io.Writer
 	done chan struct{}
@@ -78,8 +80,13 @@ type Conn struct {
 
 // NewConn wraps a reader/writer pair into a JSON-RPC connection.
 func NewConn(r io.Reader, w io.Writer) *Conn {
+	var rc io.Closer
+	if closer, ok := r.(io.Closer); ok && !sameInterfaceValue(r, w) {
+		rc = closer
+	}
 	c := &Conn{
 		r:    bufio.NewReaderSize(r, 64*1024),
+		rc:   rc,
 		w:    w,
 		done: make(chan struct{}),
 	}
@@ -107,7 +114,12 @@ func (c *Conn) WaitPendingExceptCaller() {
 
 // Close terminates the connection. Safe to call multiple times.
 func (c *Conn) Close() {
-	c.once.Do(func() { close(c.done) })
+	c.once.Do(func() {
+		close(c.done)
+		if c.rc != nil {
+			_ = c.rc.Close()
+		}
+	})
 }
 
 // Done returns a channel that closes when the peer disconnects.
@@ -144,12 +156,26 @@ func (c *Conn) Serve(ctx context.Context, h Handler) error {
 			}(line)
 		}
 		if err != nil {
+			select {
+			case <-c.done:
+				return nil
+			default:
+			}
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
 	}
+}
+
+func sameInterfaceValue(a, b any) bool {
+	va := reflect.ValueOf(a)
+	vb := reflect.ValueOf(b)
+	if !va.IsValid() || !vb.IsValid() || !va.Type().Comparable() || !vb.Type().Comparable() {
+		return false
+	}
+	return va.Interface() == vb.Interface()
 }
 
 func (c *Conn) dispatch(ctx context.Context, h Handler, raw []byte) {

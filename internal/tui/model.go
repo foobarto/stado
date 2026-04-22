@@ -23,13 +23,13 @@ import (
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
-	"github.com/foobarto/stado/internal/skills"
-	"github.com/foobarto/stado/internal/tui/banner"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui/banner"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
@@ -225,9 +225,9 @@ type Model struct {
 	mode inputMode
 
 	// Conversation state
-	blocks   []block
-	msgs     []agent.Message
-	todos    []todo
+	blocks []block
+	msgs   []agent.Message
+	todos  []todo
 
 	// Streaming
 	state        sessionState
@@ -293,12 +293,14 @@ type Model struct {
 	compacting bool
 
 	// Layout
-	width          int
-	height         int
-	sidebarOpen    bool
+	width       int
+	height      int
+	sidebarOpen bool
 
 	// Approval
-	approval *approvalRequest
+	approval              *approvalRequest
+	approvalFocused       bool
+	approvalAllowSelected bool
 
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program
@@ -313,10 +315,10 @@ type Model struct {
 	toolTickTimer *time.Timer
 
 	// Per-turn accumulators (reset on startStream).
-	turnText       string
-	turnThinking   string
-	turnThinkSig   string
-	turnToolCalls  []agent.ToolUseBlock
+	turnText      string
+	turnThinking  string
+	turnThinkSig  string
+	turnToolCalls []agent.ToolUseBlock
 
 	// Approval queue: calls waiting for user decision + the results already
 	// collected during this tool batch. When the queue drains we emit a
@@ -854,6 +856,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case streamTickMsg:
+		if m.state != stateStreaming {
+			return m, nil
+		}
 		// Drain the shared stream buffer. Throttle the actual
 		// renderBlocks() to at most once every 100ms so bubbletea's
 		// renderer doesn't choke under reasoning-model event rates.
@@ -887,6 +892,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamErrorMsg:
 		m.state = stateError
 		m.errorMsg = msg.err.Error()
+		m.streamCancel = nil
+		m.streamBufMu.Lock()
+		m.streamBufClosed = true
+		m.streamBufMu.Unlock()
 		m.appendBlock(block{kind: "system", body: "error: " + msg.err.Error()})
 		m.renderBlocks()
 		return m, nil
@@ -942,6 +951,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.advanceApproval()
 
 	case toolTickMsg:
+		m.toolMu.Lock()
+		running := m.toolCancel != nil
+		m.toolMu.Unlock()
+		if !running {
+			return m, nil
+		}
 		// Re-render tool blocks so the elapsed-time counter ticks.
 		m.renderBlocks()
 		return m, m.toolTickCmd()
@@ -1024,13 +1039,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.approval != nil {
-			if m.keys.Matches(msg, keys.Approve) {
-				return m, m.resolveApproval(true)
+			if cmd, handled := m.handleApprovalKey(msg); handled {
+				return m, cmd
 			}
-			if m.keys.Matches(msg, keys.Deny) {
-				return m, m.resolveApproval(false)
-			}
-			return m, nil
 		}
 
 		// Compaction confirmation: reuse the Approve / Deny keybindings
@@ -1456,7 +1467,7 @@ func (m *Model) View() string {
 	// chat area (first user-card row) got clipped off.
 	mainH := m.height - inputH - 5
 	if m.approval != nil {
-		mainH -= 2
+		mainH -= m.approvalCardHeight(mainW)
 	}
 	if mainH < 4 {
 		mainH = 4
@@ -1514,9 +1525,7 @@ func (m *Model) View() string {
 		left.WriteString(m.vp.View())
 	}
 	if m.approval != nil {
-		left.WriteString(m.theme.Fg("warning").Render(
-			fmt.Sprintf("⚠ %s — allow? [y]es / [n]o  %s",
-				m.approval.toolName, m.theme.Fg("muted").Render(truncate(m.approval.args, mainW-20)))) + "\n")
+		left.WriteString(m.renderApprovalCard(mainW) + "\n")
 	}
 	left.WriteString(m.renderInputBox(mainW))
 	left.WriteString(m.renderStatus(mainW))
@@ -1553,10 +1562,6 @@ func (m *Model) View() string {
 		if popupW > m.width-4 {
 			popupW = m.width - 4
 		}
-		popupH := 5
-		popupX := (m.width - popupW) / 2
-		popupY := (m.height - popupH) / 2
-
 		lines := []string{
 			m.theme.Fg("warning").Bold(true).Render("  Confirm exit?"),
 			"",
@@ -1569,13 +1574,7 @@ func (m *Model) View() string {
 			Padding(1, 2).
 			Width(popupW).
 			Render(content)
-
-		// Dim the background and overlay the popup.
-		dimmed := lipgloss.NewStyle().
-			Foreground(m.theme.Fg("muted").GetForeground()).
-			Render(base)
-		overlay := lipgloss.Place(popupX, popupY, lipgloss.Left, lipgloss.Top, box)
-		return lipgloss.JoinVertical(lipgloss.Top, dimmed, overlay)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 
 	return base
@@ -1626,6 +1625,136 @@ func (m *Model) renderInputBox(mainW int) string {
 		Padding(0, 1).
 		Width(mainW - 2)
 	return style.Render(body) + "\n"
+}
+
+func (m *Model) approvalCardHeight(mainW int) int {
+	card := m.renderApprovalCard(mainW)
+	if card == "" {
+		return 0
+	}
+	return lipgloss.Height(card) + 1
+}
+
+func (m *Model) renderApprovalCard(mainW int) string {
+	if m.approval == nil {
+		return ""
+	}
+
+	innerW := mainW - 8
+	if innerW < 8 {
+		innerW = 8
+	}
+
+	toolLine := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		m.theme.Fg("text").Bold(true).Render(m.approval.toolName),
+		"  ",
+		m.theme.Fg("muted").Render(truncate(m.approval.args, innerW)),
+	)
+	allow := m.renderApprovalButton("Allow [y]", m.approvalAllowSelected, "success")
+	deny := m.renderApprovalButton("Deny [n]", !m.approvalAllowSelected, "error")
+	hint := m.theme.Fg("muted").Render("Up to focus, Left/Right to choose, Enter to confirm")
+	if m.approvalFocused {
+		hint = m.theme.Fg("warning").Render("Left/Right to choose, Enter to confirm, Down to return")
+	}
+
+	body := lipgloss.JoinVertical(
+		lipgloss.Left,
+		m.theme.Fg("warning").Bold(true).Render("Approval required"),
+		toolLine,
+		lipgloss.JoinHorizontal(lipgloss.Left, allow, " ", deny),
+		hint,
+	)
+
+	border := m.theme.Fg("border").GetForeground()
+	if m.approvalFocused {
+		border = m.theme.Fg("warning").GetForeground()
+	}
+	style := lipgloss.NewStyle().
+		Border(m.theme.Border()).
+		BorderForeground(border).
+		Padding(0, 1)
+	if mainW > 2 {
+		style = style.Width(mainW - 2)
+	}
+	return style.Render(body)
+}
+
+func (m *Model) renderApprovalButton(label string, active bool, tone string) string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.theme.Fg("border").GetForeground()).
+		Padding(0, 1).
+		Foreground(m.theme.Fg("muted").GetForeground())
+	if active {
+		style = style.
+			BorderForeground(m.theme.Fg(tone).GetForeground()).
+			Foreground(m.theme.Fg(tone).GetForeground()).
+			Bold(true)
+	}
+	return style.Render(label)
+}
+
+func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if approvalChoice(msg, 'y') {
+		return m.resolveApproval(true), true
+	}
+	if approvalChoice(msg, 'n') {
+		return m.resolveApproval(false), true
+	}
+
+	switch msg.Type {
+	case tea.KeyUp:
+		if m.filePicker.Visible {
+			return nil, false
+		}
+		if !m.approvalFocused {
+			m.approvalFocused = true
+			m.renderBlocks()
+		}
+		return nil, true
+	case tea.KeyDown:
+		if m.approvalFocused {
+			m.approvalFocused = false
+			m.renderBlocks()
+			return nil, true
+		}
+		if m.filePicker.Visible {
+			return nil, false
+		}
+	case tea.KeyLeft:
+		if m.approvalFocused && !m.approvalAllowSelected {
+			m.approvalAllowSelected = true
+			m.renderBlocks()
+			return nil, true
+		}
+	case tea.KeyRight:
+		if m.approvalFocused && m.approvalAllowSelected {
+			m.approvalAllowSelected = false
+			m.renderBlocks()
+			return nil, true
+		}
+	case tea.KeyEnter:
+		if m.approvalFocused {
+			return m.resolveApproval(m.approvalAllowSelected), true
+		}
+		if m.filePicker.Visible {
+			return nil, false
+		}
+		// Keep the editor live while approval is pending, but don't
+		// submit a new turn until the pending tool decision resolves.
+		return nil, true
+	}
+
+	return nil, false
+}
+
+func approvalChoice(msg tea.KeyMsg, want rune) bool {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+		return false
+	}
+	r := msg.Runes[0]
+	return r == want || r == want-'a'+'A'
 }
 
 // renderStatus runs the bottom status template (right-aligned muted
@@ -1997,21 +2126,6 @@ func (m *Model) renderBlocks() {
 	bottomY := 0
 	if contentLines > m.vp.Height {
 		bottomY = contentLines - m.vp.Height
-	}
-	if m.vp.YOffset >= bottomY-2 {
-		m.vp.GotoBottom()
-	} else if contentLines < m.vp.Height {
-		m.vp.GotoTop()
-	}
-	if m.vp.YOffset >= bottomY-2 {
-		m.vp.GotoBottom()
-	} else if contentLines < m.vp.Height {
-		m.vp.GotoTop()
-	}
-	if m.vp.YOffset >= bottomY-2 {
-		m.vp.GotoBottom()
-	} else if contentLines < m.vp.Height {
-		m.vp.GotoTop()
 	}
 	if m.vp.YOffset >= bottomY-2 {
 		m.vp.GotoBottom()
@@ -2636,6 +2750,8 @@ func (m *Model) advanceApproval() tea.Cmd {
 			toolID:   call.ID,
 			args:     string(call.Input),
 		}
+		m.approvalFocused = false
+		m.approvalAllowSelected = true
 		m.renderBlocks()
 		return nil
 	}
@@ -3072,6 +3188,8 @@ func (m *Model) toggleLastToolExpand() {
 func (m *Model) resolveApproval(allow bool) tea.Cmd {
 	req := m.approval
 	m.approval = nil
+	m.approvalFocused = false
+	m.approvalAllowSelected = true
 	if req == nil || len(m.pendingCalls) == 0 {
 		m.state = stateIdle
 		m.renderBlocks()
@@ -3115,6 +3233,13 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		if m.state == stateStreaming && m.streamCancel != nil {
 			m.streamCancel()
 			m.streamCancel = nil
+			m.state = stateIdle
+		}
+		if m.state == stateCompactionPending || m.state == stateCompactionEditing || m.compacting {
+			m.pendingCompactionSummary = ""
+			m.savedDraftBeforeEdit = ""
+			m.compactionBlockIdx = 0
+			m.compacting = false
 			m.state = stateIdle
 		}
 		m.blocks = nil
@@ -3517,10 +3642,10 @@ func (m *Model) handleDescribeSlash(parts []string) {
 
 // handlePluginSlash routes `/plugin` and `/plugin:<name>-<ver>` forms:
 //
-//   /plugin                                      → list installed plugins
-//   /plugin:<name>-<ver>                         → list that plugin's tools
-//   /plugin:<name>-<ver> <tool>                  → run with args={}
-//   /plugin:<name>-<ver> <tool> {"key":"val",…}  → run with supplied JSON
+//	/plugin                                      → list installed plugins
+//	/plugin:<name>-<ver>                         → list that plugin's tools
+//	/plugin:<name>-<ver> <tool>                  → run with args={}
+//	/plugin:<name>-<ver> <tool> {"key":"val",…}  → run with supplied JSON
 //
 // Verifies manifest signature + wasm digest against the trust store on
 // every invocation (cheap, and catches a tampered-after-install plugin

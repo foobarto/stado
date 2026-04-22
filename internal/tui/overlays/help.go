@@ -21,6 +21,7 @@ func RenderHelp(reg *keys.Registry, width int) string {
 	order := []string{
 		"App",
 		"Session",
+		"Modes",
 		"Input Navigation",
 		"Input Editing",
 		"History",
@@ -37,14 +38,9 @@ func RenderHelp(reg *keys.Registry, width int) string {
 		b.WriteString(theme.Title.Render(groupName) + "\n")
 
 		for _, action := range actions {
-			bindings := reg.Get(action)
-			if len(bindings) == 0 {
+			keyStrs := reg.HelpKeys(action)
+			if len(keyStrs) == 0 {
 				continue
-			}
-
-			var keyStrs []string
-			for _, kb := range bindings {
-				keyStrs = append(keyStrs, kb.Help().Key)
 			}
 
 			keyStr := strings.Join(keyStrs, ", ")

@@ -19,7 +19,7 @@ type pipeConn struct {
 
 func (p pipeConn) Read(b []byte) (int, error)  { return p.r.Read(b) }
 func (p pipeConn) Write(b []byte) (int, error) { return p.w.Write(b) }
-func (p pipeConn) Close() error                 { p.r.Close(); return p.w.Close() }
+func (p pipeConn) Close() error                { p.r.Close(); return p.w.Close() }
 
 func newPair() (client, server io.ReadWriteCloser) {
 	cr, sw := io.Pipe()
@@ -214,4 +214,30 @@ func TestConn_WaitPendingExceptCaller_OrdersShutdownLast(t *testing.T) {
 
 	client.Close()
 	wg.Wait()
+}
+
+func TestConn_CloseUnblocksServeWithSeparateReader(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+	defer clientWriter.Close()
+
+	srv := NewConn(serverReader, serverWriter)
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.Serve(context.Background(), func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+			return struct{}{}, nil
+		})
+	}()
+
+	srv.Close()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Serve returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not exit after Close")
+	}
 }

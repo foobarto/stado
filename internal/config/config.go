@@ -88,9 +88,9 @@ type Budget struct {
 // both are set (it's an explicit allowlist so mentioning Disabled
 // alongside is redundant).
 //
-//   [tools]
-//   enabled  = ["read", "grep", "bash"]    # only these — allowlist mode
-//   disabled = ["webfetch"]                 # remove specific tools from default set
+//	[tools]
+//	enabled  = ["read", "grep", "bash"]    # only these — allowlist mode
+//	disabled = ["webfetch"]                 # remove specific tools from default set
 //
 // Tool names match the `Name()` each bundled tool returns (see
 // internal/runtime/runtime.go BuildDefaultRegistry for the
@@ -99,6 +99,11 @@ type Budget struct {
 type Tools struct {
 	Enabled  []string `koanf:"enabled"`
 	Disabled []string `koanf:"disabled"`
+	// Overrides maps a registry tool name to an installed plugin ID
+	// (`<name>-<version>` or `<name>@<version>`). When set, the plugin's
+	// matching tool declaration replaces the native/MCP tool under the
+	// same registry name.
+	Overrides map[string]string `koanf:"overrides"`
 }
 
 // Agent is the [agent] config section — capability-driven knobs that

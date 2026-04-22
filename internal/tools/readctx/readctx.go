@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -69,7 +70,10 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		a.MaxBytesPerFile = 64 * 1024
 	}
 
-	target := filepath.Join(h.Workdir(), a.Path)
+	target, err := workdirpath.Resolve(h.Workdir(), a.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	info, err := os.Stat(target)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -123,7 +127,7 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 	var out []filePair
 
 	// Locate the module root: walk up from filePath until a go.mod is found.
-	modRoot, modPath := findModuleRoot(filepath.Dir(filePath))
+	_, modPath := findModuleRoot(filepath.Dir(filePath))
 
 	for _, imp := range af.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -138,7 +142,10 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 		}
 		rel := strings.TrimPrefix(path, modPath)
 		rel = strings.TrimPrefix(rel, "/")
-		pkgDir := filepath.Join(modRoot, rel)
+		pkgDir, err := workdirpath.Resolve(workdir, rel, false)
+		if err != nil {
+			continue
+		}
 		if stat, err := os.Stat(pkgDir); err != nil || !stat.IsDir() {
 			continue
 		}
@@ -157,6 +164,10 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 			}
 		}
 		if candidate == "" {
+			continue
+		}
+		candidate, err = workdirpath.Resolve(workdir, candidate, false)
+		if err != nil {
 			continue
 		}
 		body, err := readBounded(candidate, maxBytes)

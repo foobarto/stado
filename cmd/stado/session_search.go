@@ -27,6 +27,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -223,7 +224,9 @@ func printMatch(id string, h searchMatch) {
 	role := string(h.role)
 	// Single space-separated line so `| grep` / `| awk` piping stays
 	// practical — `session:id` prefix doubles as a columnar key.
-	fmt.Printf("session:%s msg:%d role:%s  %s\n", id, h.msgIndex, role, strings.ReplaceAll(h.excerpt, "\n", " "))
+	excerpt := strings.ReplaceAll(h.excerpt, "\n", " ")
+	excerpt = textutil.StripControlChars(excerpt)
+	fmt.Printf("session:%s msg:%d role:%s  %s\n", id, h.msgIndex, role, excerpt)
 }
 
 func init() {

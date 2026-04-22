@@ -38,6 +38,7 @@ type PluginTool struct {
 	mod    *Module
 	def    plugins.ToolDef
 	schema map[string]any
+	class  tool.Class
 }
 
 // NewPluginTool builds one adapter per tool declared in a plugin's
@@ -52,7 +53,11 @@ func NewPluginTool(mod *Module, def plugins.ToolDef) (*PluginTool, error) {
 				mod.Name, def.Name, err)
 		}
 	}
-	return &PluginTool{mod: mod, def: def, schema: schema}, nil
+	class, err := def.ClassValue()
+	if err != nil {
+		return nil, err
+	}
+	return &PluginTool{mod: mod, def: def, schema: schema, class: class}, nil
 }
 
 func (p *PluginTool) Name() string        { return p.def.Name }
@@ -64,12 +69,8 @@ func (p *PluginTool) Schema() map[string]any {
 	return p.schema
 }
 
-// Class delegates to the plugin's manifest-declared classification —
-// but since the manifest schema doesn't carry per-tool class yet, we
-// default to NonMutating. Plugins that write files or exec need to
-// declare an appropriate capability in the manifest anyway, so the
-// sandbox layer is the real gate.
-func (p *PluginTool) Class() tool.Class { return tool.ClassNonMutating }
+// Class delegates to the manifest-declared per-tool classification.
+func (p *PluginTool) Class() tool.Class { return p.class }
 
 // Run invokes the plugin tool via the wasm ABI described above.
 //

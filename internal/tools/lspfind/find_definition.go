@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/foobarto/stado/internal/lsp"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -64,7 +65,10 @@ func (f *FindDefinition) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 			errors.New("lspfind: bad args")
 	}
 
-	full := filepath.Join(h.Workdir(), a.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), a.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	server := serverFor(filepath.Ext(a.Path))
 	if server == "" {
 		return tool.Result{Error: fmt.Sprintf("no LSP server configured for %q", filepath.Ext(a.Path))},

@@ -18,14 +18,68 @@ func TestCtrlCEmptyInputDoesNotQuit(t *testing.T) {
 	}
 }
 
-// TestCtrlDStillQuits regression-guards the intended exit keybinding.
-// ctrl+d must still quit since the user's complaint was "ctrl+c
-// should not close the editor", not "nothing should close the editor".
-func TestCtrlDStillQuits(t *testing.T) {
+// TestCtrlDShowsQuitConfirm: ctrl+d now opens a confirmation step
+// instead of quitting immediately.
+func TestCtrlDShowsQuitConfirm(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if cmd != nil {
+		t.Errorf("ctrl+d should not quit immediately, got %T", cmd)
+	}
+	if m.state != stateQuitConfirm {
+		t.Errorf("state = %v, want stateQuitConfirm", m.state)
+	}
+}
+
+// TestCtrlXCtrlCShowsQuitConfirm: the Emacs-style prefix alias
+// should land in the same confirmation state.
+func TestCtrlXCtrlCShowsQuitConfirm(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	// First chord.
+	_, cmd1 := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	if cmd1 != nil {
+		t.Errorf("ctrl+x (primer) should return nil, got %T", cmd1)
+	}
+	// Second chord.
+	_, cmd2 := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd2 != nil {
+		t.Errorf("ctrl+x ctrl+c should not quit immediately, got %T", cmd2)
+	}
+	if m.state != stateQuitConfirm {
+		t.Errorf("state = %v, want stateQuitConfirm", m.state)
+	}
+}
+
+func TestQuitConfirmAcceptQuits(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if cmd == nil {
-		t.Error("ctrl+d should return a tea.Cmd (tea.Quit)")
+		t.Error("confirming quit should return tea.Quit")
+	}
+}
+
+func TestQuitConfirmDenyReturnsToIdle(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if cmd != nil {
+		t.Errorf("denying quit should not return a cmd, got %T", cmd)
+	}
+	if m.state != stateIdle {
+		t.Errorf("state = %v, want stateIdle", m.state)
+	}
+}
+
+func TestQuitConfirmRendersModal(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+
+	out := m.View()
+	if !contains(out, "Confirm exit?") {
+		t.Fatalf("quit confirm modal missing prompt: %q", out)
 	}
 }
 

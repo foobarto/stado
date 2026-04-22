@@ -107,6 +107,16 @@ func renderConfigHuman(w interface {
 		if len(cfg.Tools.Disabled) > 0 {
 			write("  disabled   %s\n", strings.Join(cfg.Tools.Disabled, ", "))
 		}
+		if len(cfg.Tools.Overrides) > 0 {
+			keys := make([]string, 0, len(cfg.Tools.Overrides))
+			for k := range cfg.Tools.Overrides {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				write("  override   %s -> %s\n", k, cfg.Tools.Overrides[k])
+			}
+		}
 		write("\n")
 	}
 

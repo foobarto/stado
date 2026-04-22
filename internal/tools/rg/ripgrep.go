@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/tools/budget"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -30,7 +31,7 @@ type Tool struct {
 	Binary string
 }
 
-func (Tool) Name() string        { return "ripgrep" }
+func (Tool) Name() string { return "ripgrep" }
 func (Tool) Description() string {
 	return "Fast file-contents search via ripgrep. Structural, ignores .gitignore by default."
 }
@@ -102,9 +103,15 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	searchPath := filepath.Join(h.Workdir(), a.Path)
-	if a.Path == "" {
-		searchPath = h.Workdir()
+	searchPath, err := workdirpath.Resolve(h.Workdir(), ".", false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	if a.Path != "" {
+		searchPath, err = workdirpath.Resolve(h.Workdir(), a.Path, false)
+		if err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
 	}
 	if a.MaxMatches <= 0 {
 		a.MaxMatches = budget.RipgrepMatches
@@ -201,9 +208,9 @@ func parseJSON(raw []byte, workdir string, maxMatches int) ([]string, error) {
 	type rgMsg struct {
 		Type string `json:"type"`
 		Data struct {
-			Path  struct{ Text string } `json:"path"`
-			Lines struct{ Text string } `json:"lines"`
-			LineNumber int               `json:"line_number"`
+			Path       struct{ Text string } `json:"path"`
+			Lines      struct{ Text string } `json:"lines"`
+			LineNumber int                   `json:"line_number"`
 		} `json:"data"`
 	}
 	var out []string

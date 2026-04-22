@@ -1,7 +1,7 @@
 package keys
 
 var Defaults = map[Action]string{
-	AppExit:                 "ctrl+d",
+	AppExit:                 "ctrl+d,ctrl+x ctrl+c",
 	SessionInterrupt:        "esc",
 	HistoryPrevious:         "up,ctrl+p",
 	HistoryNext:             "down,ctrl+n",
@@ -34,4 +34,5 @@ var Defaults = map[Action]string{
 	SidebarToggle:           "ctrl+t",
 	ToolExpand:              "shift+tab",
 	ModeToggle:              "tab",
+	ModeToggleBtw:           "ctrl+x ctrl+b",
 }

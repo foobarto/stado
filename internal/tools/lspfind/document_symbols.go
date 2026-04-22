@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/lsp"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -18,9 +19,11 @@ type DocumentSymbols struct {
 	Definition *FindDefinition
 }
 
-func (d *DocumentSymbols) Name() string        { return "document_symbols" }
-func (d *DocumentSymbols) Description() string { return "File outline: functions, types, methods with their line ranges." }
-func (d *DocumentSymbols) Class() tool.Class   { return tool.ClassNonMutating }
+func (d *DocumentSymbols) Name() string { return "document_symbols" }
+func (d *DocumentSymbols) Description() string {
+	return "File outline: functions, types, methods with their line ranges."
+}
+func (d *DocumentSymbols) Class() tool.Class { return tool.ClassNonMutating }
 
 func (d *DocumentSymbols) Schema() map[string]any {
 	return map[string]any{
@@ -44,7 +47,10 @@ func (d *DocumentSymbols) Run(ctx context.Context, raw json.RawMessage, h tool.H
 	if a.Path == "" {
 		return tool.Result{Error: "path required"}, errors.New("lspfind: path required")
 	}
-	full := filepath.Join(h.Workdir(), a.Path)
+	full, err := workdirpath.Resolve(h.Workdir(), a.Path, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	server := serverFor(filepath.Ext(a.Path))
 	if server == "" {
 		return tool.Result{Error: "no LSP server for this extension"}, fmt.Errorf("no server")

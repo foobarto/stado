@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/plugins"
@@ -31,11 +31,11 @@ import (
 
 // pluginInfo is the wire shape returned by plugin.list.
 type pluginInfo struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Author       string   `json:"author,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
+	ID           string           `json:"id"`
+	Name         string           `json:"name"`
+	Version      string           `json:"version"`
+	Author       string           `json:"author,omitempty"`
+	Capabilities []string         `json:"capabilities,omitempty"`
 	Tools        []pluginToolInfo `json:"tools"`
 }
 
@@ -250,18 +250,23 @@ func (s *Server) buildBridge(sess *hSession, pluginName string) *pluginRuntime.S
 // ensureGitSession lazily opens the stadogit session for this headless
 // session's workdir so subsequent plugin / prompt runs reuse the same
 // refs. No-op if already set or workdir has no usable repo.
-//
-// Caller must hold sess.mu; this function reads and writes sess.gitSess
-// without locking.
 func (s *Server) ensureGitSession(sess *hSession) {
+	sess.mu.Lock()
 	if sess.gitSess != nil || sess.workdir == "" {
+		sess.mu.Unlock()
 		return
 	}
-	gs, err := runtime.OpenSession(s.Cfg, sess.workdir)
+	workdir := sess.workdir
+	sess.mu.Unlock()
+	gs, err := runtime.OpenSession(s.Cfg, workdir)
 	if err != nil {
 		return
 	}
-	sess.gitSess = gs
+	sess.mu.Lock()
+	if sess.gitSess == nil {
+		sess.gitSess = gs
+	}
+	sess.mu.Unlock()
 }
 
 // forkFn returns a closure the SessionBridge calls when the plugin

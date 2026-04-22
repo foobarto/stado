@@ -235,3 +235,57 @@ func TestReadConcurrentDoesNotCorruptLog(t *testing.T) {
 		}
 	}
 }
+
+func TestReadRejectsEscapingWorkdir(t *testing.T) {
+	root := t.TempDir()
+	workdir := filepath.Join(root, "wd")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, root, "secret.txt", "secret")
+
+	h := newRecordingHost(workdir)
+	raw, _ := json.Marshal(map[string]any{"path": "../secret.txt"})
+	_, err := ReadTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("ReadTool.Run error = %v, want workdir escape rejection", err)
+	}
+}
+
+func TestWriteRejectsEscapingWorkdir(t *testing.T) {
+	root := t.TempDir()
+	workdir := filepath.Join(root, "wd")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := newRecordingHost(workdir)
+
+	raw, _ := json.Marshal(map[string]any{"path": "../config.toml", "content": "pwned"})
+	_, err := WriteTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("WriteTool.Run error = %v, want workdir escape rejection", err)
+	}
+}
+
+func TestEditRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	workdir := filepath.Join(root, "wd")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(workdir, "link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	h := newRecordingHost(workdir)
+	raw, _ := json.Marshal(map[string]any{"path": "link.txt", "old": "secret", "new": "edited"})
+	_, err := EditTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("EditTool.Run error = %v, want symlink escape rejection", err)
+	}
+}

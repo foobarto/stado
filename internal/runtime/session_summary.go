@@ -9,6 +9,7 @@ import (
 	"time"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // SessionSummary is the per-session metadata both `stado session list`
@@ -45,7 +46,7 @@ func ReadDescription(worktreeDir string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	return textutil.StripControlChars(strings.TrimSpace(string(data)))
 }
 
 // WriteDescription replaces the description for a worktree. Creates

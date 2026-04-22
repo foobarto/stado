@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 func TestManifest_CanonicalIsStable(t *testing.T) {
@@ -175,6 +177,36 @@ func TestLoadFromDir(t *testing.T) {
 	}
 	if gotSig != sig {
 		t.Errorf("sig mismatch")
+	}
+}
+
+func TestToolDef_ClassValue(t *testing.T) {
+	cases := []struct {
+		class string
+		want  tool.Class
+		ok    bool
+	}{
+		{"", tool.ClassNonMutating, true},
+		{"NonMutating", tool.ClassNonMutating, true},
+		{"Mutating", tool.ClassMutating, true},
+		{"Exec", tool.ClassExec, true},
+		{"weird", tool.ClassNonMutating, false},
+	}
+	for _, tc := range cases {
+		td := ToolDef{Name: "demo", Class: tc.class}
+		got, err := td.ClassValue()
+		if tc.ok {
+			if err != nil {
+				t.Fatalf("ClassValue(%q): %v", tc.class, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ClassValue(%q) = %v, want %v", tc.class, got, tc.want)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("ClassValue(%q) should fail", tc.class)
+		}
 	}
 }
 

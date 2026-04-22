@@ -322,7 +322,12 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	if len(cfg.Tools.Enabled) > 0 {
 		allow := map[string]bool{}
 		for _, n := range cfg.Tools.Enabled {
-			allow[n] = true
+			if known[n] {
+				allow[n] = true
+			}
+		}
+		if len(allow) == 0 {
+			return
 		}
 		for name := range known {
 			if !allow[name] {
@@ -346,13 +351,16 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 // Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
 // blocklist is applied AFTER MCP tools land so MCP-sourced names can
 // also be trimmed.
-func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) *tools.Executor {
+func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
 	reg := BuildDefaultRegistry()
 
 	if len(cfg.MCP.Servers) > 0 {
 		if err := attachMCP(reg, cfg.MCP.Servers); err != nil {
 			fmt.Fprintf(os.Stderr, "stado: MCP setup: %v\n", err)
 		}
+	}
+	if err := ApplyToolOverrides(reg, cfg); err != nil {
+		return nil, err
 	}
 	ApplyToolFilter(reg, cfg)
 
@@ -363,7 +371,7 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 		Agent:    agentName,
 		Model:    cfg.Defaults.Model,
 		ReadLog:  tools.NewReadLog(),
-	}
+	}, nil
 }
 
 // attachMCP is defined in mcp_glue.go — kept in a separate file so pulling

@@ -15,8 +15,8 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
@@ -131,7 +131,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			if err != nil {
 				return fmt.Errorf("session: %w", err)
 			}
-			opts.Executor = runtime.BuildExecutor(sess, cfg, "stado-run")
+			opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
+			if err != nil {
+				return fmt.Errorf("tools: %w", err)
+			}
 			fmt.Fprintf(os.Stderr, "stado run: session %s (worktree %s)\n", sess.ID, sess.WorktreePath)
 
 			if runSandboxFS {
