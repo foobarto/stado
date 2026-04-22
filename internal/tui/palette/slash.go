@@ -30,6 +30,7 @@ var Commands = []Command{
 	{"/help", "Show keyboard shortcuts and help", "?", "Quick"},
 	{"/clear", "Clear the message history", "", "Quick"},
 	{"/exit", "Quit stado", "ctrl+d", "Quick"},
+	{"/btw", "Toggle BTW mode (off-band async queries)", "ctrl+x ctrl+b", "Quick"},
 
 	// Session — state about this run.
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "", "Session"},

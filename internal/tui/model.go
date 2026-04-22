@@ -44,7 +44,7 @@ import (
 
 // block is the UI-level conversation unit. One conversation is a slice of these.
 type block struct {
-	kind string // "user" | "assistant" | "thinking" | "tool"
+	kind string // "user" | "assistant" | "thinking" | "tool" | "system" | "btw"
 	body string
 
 	// queued: user message appended to the chat while a turn was in
@@ -98,23 +98,30 @@ const (
 	// commits the edit (back to stateCompactionPending), Esc cancels.
 	stateCompactionEditing
 	stateError
+	// stateQuitConfirm: user pressed ctrl+d — show a confirmation
+	// popup so they don't accidentally exit mid-session.
+	stateQuitConfirm
 )
 
-// inputMode switches the agent between read-only analysis ("Plan") and
-// full execution ("Do"). Plan mode filters Mutating + Exec tools out of
-// the TurnRequest so the model naturally produces an outline/plan.
+// inputMode switches the agent between read-only analysis ("Plan"),
+// full execution ("Do"), and off-band queries ("BTW").
 type inputMode int
 
 const (
 	modeDo inputMode = iota
 	modePlan
+	modeBTW
 )
 
 func (m inputMode) String() string {
-	if m == modePlan {
+	switch m {
+	case modePlan:
 		return "Plan"
+	case modeBTW:
+		return "BTW"
+	default:
+		return "Do"
 	}
-	return "Do"
 }
 
 // Internal messages used by the bubbletea update loop.
@@ -151,6 +158,15 @@ type (
 		childID   string // new session ID
 		atTurnRef string // fork point, or empty for parent tree HEAD
 		seed      string // plugin-provided seed / summary text
+	}
+	// btwResultMsg carries the reply from an async BTW query back to
+	// the Update loop.  Rendered as a "btw" block so the user sees
+	// the answer alongside the conversation, but it is NOT appended
+	// to the conversation history the main thread uses.
+	btwResultMsg struct {
+		question string
+		reply    string
+		errMsg   string
 	}
 )
 
@@ -968,6 +984,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, nil
 
+	case btwResultMsg:
+		if msg.errMsg != "" {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("btw error: %s", msg.errMsg),
+			})
+		} else {
+			m.appendBlock(block{
+				kind: "btw",
+				body: msg.reply,
+			})
+		}
+		m.renderBlocks()
+		return m, nil
+
 	case toolsExecutedMsg:
 		// Append a role=tool message with the accumulated tool results.
 		if len(msg.results) > 0 {
@@ -1042,6 +1073,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			inputCmd, _ := m.input.Update(msg)
 			return m, inputCmd
+		}
+
+		// Quit confirmation: y/Enter confirms, n/Esc cancels.
+		if m.state == stateQuitConfirm {
+			if m.keys.Matches(msg, keys.Approve) || msg.Type == tea.KeyEnter {
+				return m, tea.Quit
+			}
+			if m.keys.Matches(msg, keys.Deny) || msg.Type == tea.KeyEsc {
+				m.state = stateIdle
+				m.renderBlocks()
+				return m, nil
+			}
+			// Any other key is ignored.
+			return m, nil
 		}
 
 		if m.slash.Visible {
@@ -1128,9 +1173,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Prefix-chord dispatch: ctrl+x <chord>, etc.
+		// Placed after all modal checks so chords don't bypass overlays;
+		// placed before flat keybindings so they take priority when
+		// the prefix state is active.
+		if action, ok := m.keys.TryPrefix(msg); ok {
+			if action != "" {
+				switch action {
+				case keys.ModeToggleBtw:
+					if m.mode == modeBTW {
+						m.mode = modeDo
+					} else {
+						m.mode = modeBTW
+					}
+					m.layout()
+				case keys.AppExit:
+					m.state = stateQuitConfirm
+					m.layout()
+				}
+			}
+			return m, nil
+		}
+
 		switch {
+
 		case m.keys.Matches(msg, keys.AppExit):
-			return m, tea.Quit
+			m.state = stateQuitConfirm
+			m.layout()
+			return m, nil
 
 		case m.keys.Matches(msg, keys.SidebarToggle):
 			m.sidebarOpen = !m.sidebarOpen
@@ -1310,6 +1380,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.History.Push(text)
 			m.input.Reset()
+			if m.mode == modeBTW {
+				return m, m.startBtw(text)
+			}
 			m.appendUser(text)
 			m.renderBlocks()
 			return m, m.startStream()
@@ -1473,6 +1546,38 @@ func (m *Model) View() string {
 		m.modelPicker.Height = m.height
 		return m.modelPicker.View(m.width, m.height)
 	}
+
+	// Quit confirmation popup — centred overlay with y/n options.
+	if m.state == stateQuitConfirm {
+		popupW := 40
+		if popupW > m.width-4 {
+			popupW = m.width - 4
+		}
+		popupH := 5
+		popupX := (m.width - popupW) / 2
+		popupY := (m.height - popupH) / 2
+
+		lines := []string{
+			m.theme.Fg("warning").Bold(true).Render("  Confirm exit?"),
+			"",
+			m.theme.Fg("muted").Render("  [y]es / [n]o"),
+		}
+		content := strings.Join(lines, "\n")
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(m.theme.Fg("warning").GetForeground()).
+			Padding(1, 2).
+			Width(popupW).
+			Render(content)
+
+		// Dim the background and overlay the popup.
+		dimmed := lipgloss.NewStyle().
+			Foreground(m.theme.Fg("muted").GetForeground()).
+			Render(base)
+		overlay := lipgloss.Place(popupX, popupY, lipgloss.Left, lipgloss.Top, box)
+		return lipgloss.JoinVertical(lipgloss.Top, dimmed, overlay)
+	}
+
 	return base
 }
 
@@ -1509,15 +1614,15 @@ func (m *Model) renderInputBox(mainW int) string {
 
 	body := pickerPrefix + m.input.View() + "\n" + strings.TrimRight(inline, "\n")
 
-	borderFg := m.theme.Fg("border").GetForeground()
 	modeColor := m.theme.Fg("success").GetForeground() // Do
 	if m.mode == modePlan {
 		modeColor = m.theme.Fg("warning").GetForeground()
+	} else if m.mode == modeBTW {
+		modeColor = m.theme.Fg("accent").GetForeground()
 	}
 	style := lipgloss.NewStyle().
 		Border(m.theme.Border()).
-		BorderForeground(borderFg).
-		BorderLeftForeground(modeColor).
+		BorderForeground(modeColor).
 		Padding(0, 1).
 		Width(mainW - 2)
 	return style.Render(body) + "\n"
@@ -1884,17 +1989,34 @@ func (m *Model) renderBlocks() {
 		}
 	}
 	m.vp.SetContent(b.String())
-	// GotoBottom only when content actually overflows. For small
-	// conversations (content fits in the viewport height) we want
-	// to start at the top so the first user card / assistant block
-	// is pinned to row 0 rather than drifting with the scroll
-	// position. Without this guard, bubbletea's viewport rendered
-	// content with the first line sometimes positioned just above
-	// the visible pane edge — the card top row got clipped.
-	if lineCount := strings.Count(b.String(), "\n"); lineCount < m.vp.Height {
-		m.vp.GotoTop()
-	} else {
+	// Only auto-scroll to bottom when the user is already near the
+	// bottom.  YOffset is the scroll position (0 = top).  The bottom
+	// position is max(0, contentHeight - viewportHeight).  If the
+	// user has scrolled up to read history, preserve their position.
+	contentLines := strings.Count(b.String(), "\n")
+	bottomY := 0
+	if contentLines > m.vp.Height {
+		bottomY = contentLines - m.vp.Height
+	}
+	if m.vp.YOffset >= bottomY-2 {
 		m.vp.GotoBottom()
+	} else if contentLines < m.vp.Height {
+		m.vp.GotoTop()
+	}
+	if m.vp.YOffset >= bottomY-2 {
+		m.vp.GotoBottom()
+	} else if contentLines < m.vp.Height {
+		m.vp.GotoTop()
+	}
+	if m.vp.YOffset >= bottomY-2 {
+		m.vp.GotoBottom()
+	} else if contentLines < m.vp.Height {
+		m.vp.GotoTop()
+	}
+	if m.vp.YOffset >= bottomY-2 {
+		m.vp.GotoBottom()
+	} else if contentLines < m.vp.Height {
+		m.vp.GotoTop()
 	}
 }
 
@@ -1979,6 +2101,8 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		})
 	case "system":
 		return m.theme.Fg("error").Render(blk.body) + "\n", nil
+	case "btw":
+		return m.theme.Fg("accent").Render("▸ btw: "+blk.body) + "\n", nil
 	}
 	return "", nil
 }
@@ -2125,6 +2249,93 @@ func msgsToBlocks(msgs []agent.Message) []block {
 	return out
 }
 
+// mutationToolNames is the set of tools that make filesystem or git
+// changes.  Used by toolDefs() and startBtw() to filter the tool
+// surface in Plan / BTW modes.
+var mutationToolNames = map[string]bool{
+	"write": true, "edit": true, "apply": true, "undo": true,
+	"git_add": true, "git_commit": true, "git_push": true,
+	"git_checkout": true, "git_branch": true, "git_merge": true,
+	"git_rebase": true, "git_cherry_pick": true, "git_revert": true,
+	"git_reset": true, "git_clean": true, "git_rm": true,
+	"git_mv": true, "git_tag": true, "git_stash": true,
+}
+
+// startBtw fires an async BTW query: a StreamTurn that does NOT mutate
+// m.msgs.  The conversation history is snapshotted for context; the
+// reply is rendered as a "btw" block when it arrives via btwResultMsg.
+func (m *Model) startBtw(question string) tea.Cmd {
+	if !m.ensureProvider() {
+		return nil
+	}
+
+	// Show the user's question immediately as a btw block.
+	m.appendBlock(block{kind: "btw", body: question + "\n"})
+	m.renderBlocks()
+
+	// Snapshot the conversation for context.  Keep all prior messages
+	// (including system/tool) — the model needs enough context to answer.
+	msgs := make([]agent.Message, len(m.msgs))
+	copy(msgs, m.msgs)
+	msgs = append(msgs, agent.Text(agent.RoleUser, question))
+
+	// Build non-mutating tool set (same as Plan mode).
+	var tools []agent.ToolDef
+	if m.executor != nil {
+		for _, t := range m.executor.Registry.All() {
+			name := t.Name()
+			if mutationToolNames[name] {
+				continue
+			}
+			schema, _ := json.Marshal(t.Schema())
+			tools = append(tools, agent.ToolDef{
+				Name:        name,
+				Description: t.Description(),
+				Schema:      schema,
+			})
+		}
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(m.rootCtx, 120*time.Second)
+		defer cancel()
+
+		req := agent.TurnRequest{
+			Model:    m.model,
+			System:   m.systemPrompt,
+			Messages: msgs,
+			Tools:    tools,
+		}
+		if m.provider.Capabilities().SupportsPromptCache && len(msgs) > 1 {
+			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 2}}
+		}
+
+		ch, err := m.provider.StreamTurn(ctx, req)
+		if err != nil {
+			m.sendMsg(btwResultMsg{question: question, errMsg: err.Error()})
+			return
+		}
+
+		var reply strings.Builder
+		for ev := range ch {
+			switch ev.Kind {
+			case agent.EvTextDelta:
+				reply.WriteString(ev.Text)
+			case agent.EvError:
+				if ev.Err != nil {
+					m.sendMsg(btwResultMsg{question: question, errMsg: ev.Err.Error()})
+					return
+				}
+			case agent.EvDone:
+				goto done
+			}
+		}
+	done:
+		m.sendMsg(btwResultMsg{question: question, reply: reply.String()})
+	}()
+	return nil
+}
+
 // startStream fires a non-interactive streaming call to the provider and
 // relays events back to the UI via tea.Program.Send.
 func (m *Model) startStream() tea.Cmd {
@@ -2181,7 +2392,7 @@ func (m *Model) startStream() tea.Cmd {
 	}
 
 	// Shared stream buffer — the stream goroutine appends events
-	// here under m.streamMu; the tea.Tick-driven flush reads them
+	// here under m.streamBufMu; the tea.Tick-driven flush reads them
 	// out in batches on the main loop. This decouples the stream's
 	// ingestion rate from bubbletea's unbuffered program channel
 	// so KeyMsgs never get starved by reasoning-model delta bursts.
@@ -2515,11 +2726,15 @@ func (m *Model) toolDefs() []agent.ToolDef {
 	all := m.executor.Registry.All()
 	out := make([]agent.ToolDef, 0, len(all))
 	for _, t := range all {
+		name := t.Name()
 		if m.mode == modePlan {
-			class := m.executor.Registry.ClassOf(t.Name())
+			class := m.executor.Registry.ClassOf(name)
 			if class != tool.ClassNonMutating {
 				continue
 			}
+		}
+		if m.mode == modeBTW && mutationToolNames[name] {
+			continue
 		}
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, agent.ToolDef{
@@ -2911,6 +3126,12 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.renderBlocks()
 	case "/help":
 		m.showHelp = true
+	case "/btw":
+		if m.mode == modeBTW {
+			m.mode = modeDo
+		} else {
+			m.mode = modeBTW
+		}
 	case "/exit", "/quit":
 		return tea.Quit
 	case "/sidebar":
