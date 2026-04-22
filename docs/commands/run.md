@@ -37,10 +37,6 @@ Three orthogonal use cases share this surface:
    across pipeline stages. The session persists in the sidecar repo;
    subsequent invocations replay the conversation.
 
-3. **Batch review**: `stado github install` writes a workflow that
-   runs `stado run` on `@stado`-prefixed PR comments. The result
-   gets posted back via `gh api`.
-
 The TUI is the primary user interface. `stado run` is the mechanical
 sibling — same core runtime, no terminal UI, stdout-friendly.
 

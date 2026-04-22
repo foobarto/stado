@@ -171,13 +171,12 @@ stado config show                       # resolved effective config (file + env 
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
 ```
 
-Plugins + GitHub bot:
+Plugins:
 
 ```sh
 stado plugin installed                  # what plugins are installed
 stado plugin list                       # trusted signers
 stado plugin run <id> <tool> '{...}'    # invoke a plugin's tool
-stado github install                    # generate the @stado-bot workflow template
 ```
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.

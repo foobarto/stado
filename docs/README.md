@@ -27,7 +27,6 @@ Shorter forms live in:
 | `stado headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
 | `stado mcp-server` | [commands/mcp-server.md](commands/mcp-server.md) | Expose tools via MCP v1 |
-| `stado github` | [commands/github.md](commands/github.md) | Install GitHub Actions bot |
 | `stado verify` | [commands/verify.md](commands/verify.md) | Print build provenance |
 | `stado self-update` | [commands/self-update.md](commands/self-update.md) | Download + verify latest release |
 

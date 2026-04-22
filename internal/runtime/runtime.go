@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/google/uuid"
@@ -32,13 +31,6 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/astgrep"
-	"github.com/foobarto/stado/internal/tools/bash"
-	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/lspfind"
-	"github.com/foobarto/stado/internal/tools/readctx"
-	"github.com/foobarto/stado/internal/tools/rg"
-	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -282,23 +274,7 @@ func FindRepoRoot(start string) string {
 // (bash, fs, webfetch). Separate from Executor so callers can add/remove tools
 // before constructing the Executor.
 func BuildDefaultRegistry() *tools.Registry {
-	r := tools.NewRegistry()
-	r.Register(fs.ReadTool{})
-	r.Register(fs.WriteTool{})
-	r.Register(fs.EditTool{})
-	r.Register(fs.GlobTool{})
-	r.Register(fs.GrepTool{})
-	r.Register(bash.BashTool{Timeout: 60 * time.Second})
-	r.Register(webfetch.WebFetchTool{})
-	r.Register(rg.Tool{})
-	r.Register(astgrep.Tool{})
-	r.Register(readctx.Tool{})
-	def := &lspfind.FindDefinition{}
-	r.Register(def)
-	r.Register(&lspfind.FindReferences{Definition: def})
-	r.Register(&lspfind.DocumentSymbols{Definition: def})
-	r.Register(&lspfind.Hover{Definition: def})
-	return r
+	return buildBundledPluginRegistry()
 }
 
 // ApplyToolFilter trims a registry per cfg.Tools. All tools are on

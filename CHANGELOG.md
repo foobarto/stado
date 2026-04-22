@@ -8,6 +8,10 @@ Plugins / Infra / Fixes.
 
 ### Infra / Security
 
+- **Removed the `stado github` bot workflow generator.** The GitHub
+  comment-triggered bot path added a high-risk hosted-runner execution
+  surface that was not core to stado's runtime model. The CLI command,
+  its workflow template, and related docs references are gone.
 - **Plugin FS sandbox now resolves symlinks before capability checks.**
   `stado_fs_read` / `stado_fs_write` used to call `os.ReadFile` / `os.WriteFile`
   directly, which follows symlinks. A plugin with `fs:read:/allowed` could

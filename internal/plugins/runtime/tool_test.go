@@ -66,6 +66,34 @@ func TestNewPluginTool_ReadCapabilityPromotesClass(t *testing.T) {
 	}
 }
 
+func TestNewPluginTool_LSPCapabilityKeepsNonMutatingClass(t *testing.T) {
+	mod := &Module{
+		Name: "demo",
+		Manifest: plugins.Manifest{
+			Name:         "demo",
+			Capabilities: []string{"fs:read:.", "lsp:query"},
+		},
+	}
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "inspect", Class: "NonMutating"})
+	if err != nil {
+		t.Fatalf("NewPluginTool: %v", err)
+	}
+	if pt.Class() != tool.ClassExec {
+		// fs:read remains high-risk by policy, so the tool still promotes.
+		t.Fatalf("Class() = %v, want %v", pt.Class(), tool.ClassExec)
+	}
+}
+
+func TestEffectiveToolClass_LSPOnlyDoesNotPromote(t *testing.T) {
+	class, err := EffectiveToolClass(plugins.ToolDef{Name: "hover", Class: "NonMutating"}, []string{"lsp:query"})
+	if err != nil {
+		t.Fatalf("EffectiveToolClass: %v", err)
+	}
+	if class != tool.ClassNonMutating {
+		t.Fatalf("class = %v, want %v", class, tool.ClassNonMutating)
+	}
+}
+
 // TestNewPluginTool_SchemaRoundTrip verifies a JSON Schema in the
 // manifest comes back intact via pt.Schema() — this is what the agent
 // loop passes to the provider's TurnRequest.Tools.

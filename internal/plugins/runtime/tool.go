@@ -82,11 +82,17 @@ func EffectiveToolClass(def plugins.ToolDef, capabilities []string) (tool.Class,
 			continue
 		case strings.HasPrefix(cap, "fs:write:"):
 			class = maxClass(class, tool.ClassMutating)
+		case strings.HasPrefix(cap, "exec:"):
+			class = maxClass(class, tool.ClassExec)
 		case strings.HasPrefix(cap, "fs:read:"),
 			strings.HasPrefix(cap, "net:"),
 			strings.HasPrefix(cap, "session:"),
 			strings.HasPrefix(cap, "llm:"):
 			class = maxClass(class, tool.ClassExec)
+		case strings.HasPrefix(cap, "lsp:"):
+			// lsp:* is read-only query capability. Leave the manifest
+			// class intact unless another capability promotes it.
+			continue
 		default:
 			class = maxClass(class, tool.ClassExec)
 		}
@@ -177,6 +183,10 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	}
 	n := api.DecodeI32(ret[0])
 	if n < 0 {
+		msg, ok := readToolSideError(p.mod.wasmMod, resultPtr, n, resultCap)
+		if ok {
+			return tool.Result{Error: msg}, nil
+		}
 		return tool.Result{Error: fmt.Sprintf("plugin %s %s: tool-side error",
 			p.mod.Name, p.def.Name)}, nil
 	}
@@ -234,6 +244,21 @@ func validateResultLength(n, cap int32, pluginName, toolName string) error {
 			pluginName, toolName, n, cap)
 	}
 	return nil
+}
+
+func readToolSideError(mod api.Module, resultPtr uint32, n, cap int32) (string, bool) {
+	if n >= 0 {
+		return "", false
+	}
+	size := -n
+	if size <= 0 || size > cap {
+		return "", false
+	}
+	buf, ok := mod.Memory().Read(resultPtr, uint32(size))
+	if !ok {
+		return "", false
+	}
+	return string(buf), true
 }
 
 // Compile-time check: PluginTool satisfies pkg/tool.Tool.

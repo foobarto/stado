@@ -14,6 +14,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // Host is the capability-gated bridge exposed to a plugin's wasm
@@ -32,7 +33,7 @@ type Host struct {
 	// "deny all" — matches the strict default of plugin execution.
 	FSRead  []string
 	FSWrite []string
-	NetHost []string // allowed hostnames; empty → no net
+	NetHost []string // optional hostname allow-list for net:http_get
 	Workdir string   // CWD the plugin sees for relative paths
 
 	// Session/LLM capability gates — Phase 7.1b (PR K2). DESIGN
@@ -57,6 +58,21 @@ type Host struct {
 	// an interface so TUI / headless / tests can plug in different
 	// backings.
 	SessionBridge SessionBridge
+
+	// ToolHost is the runtime host surface native tool wrappers call
+	// through when a plugin uses the public built-in tool imports.
+	// Nil is valid in non-session contexts like `stado plugin run`;
+	// imports that require it return an error payload.
+	ToolHost tool.Host
+
+	// Public built-in tool capability bits. These map thin host
+	// wrappers to the underlying native implementation while keeping
+	// manifests narrow and auditable.
+	NetHTTPGet  bool
+	ExecBash    bool
+	ExecSearch  bool
+	ExecASTGrep bool
+	LSPQuery    bool
 
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
@@ -109,13 +125,18 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			if len(parts) != 3 {
 				continue
 			}
+			scope := normaliseCapabilityPath(workdir, parts[2])
 			switch parts[1] {
 			case "read":
-				h.FSRead = append(h.FSRead, parts[2])
+				h.FSRead = append(h.FSRead, scope)
 			case "write":
-				h.FSWrite = append(h.FSWrite, parts[2])
+				h.FSWrite = append(h.FSWrite, scope)
 			}
 		case "net":
+			if len(parts) == 2 && parts[1] == "http_get" {
+				h.NetHTTPGet = true
+				continue
+			}
 			// "net:<host>" — the cap string after "net:" is the
 			// exact host to allow. Special values "allow" / "deny" are
 			// handled at the MCP layer but aren't exposed to plugins
@@ -149,6 +170,19 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 			}
 			h.LLMInvokeBudget = budget
+		case "exec":
+			switch parts[1] {
+			case "shallow_bash", "bash":
+				h.ExecBash = true
+			case "search":
+				h.ExecSearch = true
+			case "ast_grep":
+				h.ExecASTGrep = true
+			}
+		case "lsp":
+			if parts[1] == "query" {
+				h.LSPQuery = true
+			}
 		}
 	}
 	return h
@@ -523,6 +557,7 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_llm_invoke")
+	installNativeToolImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)
@@ -595,3 +630,21 @@ const NamespaceStado = "stado"
 // Compile-time check: confirm wazero's NewHostModuleBuilder returns
 // the type we expect.
 var _ wazero.HostModuleBuilder = (wazero.HostModuleBuilder)(nil)
+
+func encodeToolSidePayload(mod api.Module, ptr, cap uint32, payload []byte) int32 {
+	n := writeBytes(mod, ptr, cap, payload)
+	if n <= 0 {
+		return -1
+	}
+	return -n
+}
+
+func normaliseCapabilityPath(workdir, path string) string {
+	if path == "" {
+		return path
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return resolveAbs(workdir, path)
+}

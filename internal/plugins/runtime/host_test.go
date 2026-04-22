@@ -15,18 +15,24 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 		Capabilities: []string{
 			"fs:read:/etc",
 			"fs:read:/home/user/projects",
+			"fs:read:.",
 			"fs:write:/tmp/work",
 			"net:api.github.com",
-			"net:deny",   // skipped — plugin-level "deny" isn't a useful allow entry
-			"net:allow",  // skipped — too permissive for plugins
-			"malformed",  // no colon → skipped
+			"net:http_get",
+			"exec:shallow_bash",
+			"exec:search",
+			"exec:ast_grep",
+			"lsp:query",
+			"net:deny",  // skipped — plugin-level "deny" isn't a useful allow entry
+			"net:allow", // skipped — too permissive for plugins
+			"malformed", // no colon → skipped
 		},
 	}
 	h := NewHost(m, "/tmp", nil)
 	if h.Manifest.Name != "demo" {
 		t.Errorf("manifest name: %q", h.Manifest.Name)
 	}
-	if len(h.FSRead) != 2 || h.FSRead[0] != "/etc" || h.FSRead[1] != "/home/user/projects" {
+	if len(h.FSRead) != 3 || h.FSRead[0] != "/etc" || h.FSRead[1] != "/home/user/projects" || h.FSRead[2] != "/tmp" {
 		t.Errorf("FSRead: %v", h.FSRead)
 	}
 	if len(h.FSWrite) != 1 || h.FSWrite[0] != "/tmp/work" {
@@ -34,6 +40,15 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	}
 	if len(h.NetHost) != 1 || h.NetHost[0] != "api.github.com" {
 		t.Errorf("NetHost: %v", h.NetHost)
+	}
+	if !h.NetHTTPGet {
+		t.Error("NetHTTPGet should be enabled")
+	}
+	if !h.ExecBash || !h.ExecSearch || !h.ExecASTGrep {
+		t.Errorf("exec caps not parsed: bash=%v search=%v ast=%v", h.ExecBash, h.ExecSearch, h.ExecASTGrep)
+	}
+	if !h.LSPQuery {
+		t.Error("LSPQuery should be enabled")
 	}
 	if h.Logger == nil {
 		t.Error("Logger should default to slog.Default")
@@ -46,9 +61,9 @@ func TestPathAllowed_PrefixAndExact(t *testing.T) {
 		path string
 		want bool
 	}{
-		{"/home/user/projects", true},           // exact
-		{"/home/user/projects/x.go", true},      // under tree
-		{"/home/user/projects-other", false},    // prefix but not subtree
+		{"/home/user/projects", true},        // exact
+		{"/home/user/projects/x.go", true},   // under tree
+		{"/home/user/projects-other", false}, // prefix but not subtree
 		{"/tmp", true},
 		{"/tmp/work/file.txt", true},
 		{"/etc/passwd", false},
