@@ -67,11 +67,12 @@ Mistral. No third-party LLM abstraction library. Thinking blocks and
 reasoning content round-trip verbatim — no lossy normalization.
 
 **Reproducible, signed, airgap-friendly.** Releases are bit-for-bit
-reproducible (`-trimpath -buildvcs=true -buildid=`). Every artifact is
-signed by both cosign (keyless, via GitHub Actions OIDC, with a Rekor
-transparency log entry) and minisign (Ed25519, long-lived key, offline
-verification). `stado verify --show-builtin-keys` displays the trust
-roots compiled into the binary.
+reproducible (`-trimpath -buildvcs=true -buildid=`). Each release ships
+a `checksums.txt` manifest signed two ways: cosign keyless (via GitHub
+Actions OIDC, Rekor-backed) and minisign (Ed25519, long-lived key,
+offline-friendly). Archives and packages are verified against that
+signed manifest. `stado verify --show-builtin-keys` displays the
+minisign trust roots compiled into the running binary.
 
 ---
 
@@ -88,29 +89,52 @@ meantime use the manual download path or build from source.
 brew install foobarto/tap/stado
 ```
 
-### Manual download / release assets
-
-Grab a binary from [Releases](https://github.com/foobarto/stado/releases)
-and verify. Each tag publishes platform archives (`.tar.gz` / `.zip`),
-Linux packages (`.deb` / `.rpm`), `checksums.txt`, the cosign
-certificate + signature, and SBOMs.
-
-Example verification:
+### Self-update (existing installs)
 
 ```sh
-# cosign (online)
-cosign verify-blob \
-  --certificate-identity-regexp 'https://github.com/foobarto/stado/.github/workflows/' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --signature stado-linux-amd64.sig \
-  stado-linux-amd64
-
-# minisign (airgap-safe; public key is compiled into every stado binary)
-stado verify stado-linux-amd64
+stado self-update --dry-run
+stado self-update
 ```
 
-For Linux package installs, download the matching `.deb` or `.rpm` from
-the release page and install it with your native package manager.
+`self-update` picks the archive matching the current OS/arch, verifies
+the downloaded asset against `checksums.txt`, and on release builds with
+an embedded minisign root also enforces `checksums.txt.minisig` before
+atomically swapping the binary into place.
+
+### Manual download / release assets
+
+Grab the matching archive or package from
+[Releases](https://github.com/foobarto/stado/releases) and verify it.
+Each tag publishes platform archives
+(`stado_<version>_<os>_<arch>.tar.gz` / `.zip`), Linux packages
+(`.deb` / `.rpm`), `checksums.txt`, `checksums.txt.sig`,
+`checksums.txt.cert`, `checksums.txt.minisig`, and SBOMs.
+
+Manual verification follows the same signed-checksum-manifest flow as
+`self-update`: first verify `checksums.txt`, then verify the specific
+archive/package against that manifest.
+
+```sh
+# keyless cosign verification of the checksum manifest
+cosign verify-blob \
+  --certificate checksums.txt.cert \
+  --certificate-identity-regexp 'https://github.com/foobarto/stado/.github/workflows/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --signature checksums.txt.sig \
+  checksums.txt
+
+# replace <asset> with the archive/package you downloaded
+grep " <asset>$" checksums.txt | sha256sum -c -         # Linux
+grep " <asset>$" checksums.txt | shasum -a 256 -c -    # macOS
+
+# inspect the minisign root embedded in the stado binary you already trust
+stado verify --show-builtin-keys
+```
+
+For a fully manual airgapped minisign flow, see
+[SECURITY.md](SECURITY.md). For Linux package installs, download the
+matching `.deb` or `.rpm` from the release page and install it with
+your native package manager.
 
 ### From source
 
@@ -122,7 +146,9 @@ Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps — official
 release binaries bundle `rg` and `ast-grep` via `go:embed` (extracted
 on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified). Source
 builds (`go install`) skip the embed and fall back to the system PATH;
-`gopls` is optional and always resolved via PATH.
+`gopls` is optional and always resolved via PATH. Dev/source builds also
+do not pin release minisign roots unless you pass the release ldflags,
+so `stado verify --show-builtin-keys` will usually report `(not pinned)`.
 
 ---
 
@@ -140,6 +166,9 @@ export STADO_DEFAULTS_PROVIDER=llamacpp   # http://localhost:8080/v1
 
 # Scaffold config (optional — stado works with env vars alone)
 stado config init
+
+# Optional preflight: provider keys, sandbox, bundled binaries
+stado doctor
 
 # Enter a repo and start a session
 cd ~/code/myproject
@@ -172,7 +201,8 @@ stado audit verify <id>                 # tamper-check the audit log
 Run + stats + config:
 
 ```sh
-stado run --prompt "..."                # one-shot, exits after the agent finishes
+stado run --prompt "..."                # one-shot, provider-only
+stado run --tools --prompt "..."        # one-shot with the audited tool loop
 stado run --session <id> "follow-up"    # continue an existing session from the CLI
 stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
@@ -185,12 +215,17 @@ Plugins:
 ```sh
 stado plugin init my-plugin             # scaffold a Go wasip1 plugin
 stado plugin gen-key my-plugin.seed     # one-time signer key
-stado plugin list                       # pinned signer keys
-stado plugin installed                  # installed plugin IDs
+stado plugin sign plugin.manifest.json --key my-plugin.seed --wasm plugin.wasm
+stado plugin trust <pubkey-hex> "Alice Example"
 stado plugin verify .                   # signature + digest + rollback/CRL/Rekor
 stado plugin install .                  # copy into state/plugins/
+stado plugin list                       # pinned signer keys
+stado plugin installed                  # installed plugin IDs
 stado plugin run <id> <tool> '{...}'    # invoke a plugin tool directly
 ```
+
+`plugin list` shows trusted authors; `plugin installed` shows runnable
+plugin IDs (`<name>-<version>`).
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
@@ -213,8 +248,9 @@ backend and drive from the editor:
 stado acp --tools
 ```
 
-Editor-specific setup docs land under `docs/` as the distribution
-channels stabilise.
+See [docs/README.md](docs/README.md) for the current guide index.
+Editor-specific ACP setup docs are still sparse, but the command
+surface itself is shipped and stable enough to wire into Zed today.
 
 ---
 
@@ -261,7 +297,8 @@ for SIEM ingestion.
 
 **Surfaces.** Terminal TUI (default), `stado run` (single-shot CLI),
 `stado headless` (JSON-RPC 2.0 daemon), `stado acp` (Zed Agent Client
-Protocol server). All compose the same `internal/runtime` core.
+Protocol server), and `stado mcp-server` (stado as an MCP v1 tool
+server). All compose the same `internal/runtime` core.
 
 **WASM plugins.** `stado plugin init`, `gen-key`, `sign`, `trust`,
 `verify`, `install`, `installed`, `list`, `run`, and `digest` cover the
@@ -313,7 +350,8 @@ its own agent loop — three agents on the same repo don't clobber each
 other. `stado agents list` / `attach` / `kill` multiplex them.
 
 **Reproducible, signed releases.** Bit-for-bit reproducible builds.
-Cosign keyless (Rekor-logged) + minisign Ed25519 on every artifact.
+`checksums.txt` is signed with cosign keyless (Rekor-logged) and
+minisign Ed25519; archives/packages are verified against that manifest.
 SLSA 3 provenance via `slsa-github-generator`. SBOM via syft.
 
 ---
@@ -331,11 +369,10 @@ See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
   seccomp + CONNECT-proxy) and macOS (`sandbox-exec`) are shipped;
   Windows runs unsandboxed with a warning until job objects + restricted
   tokens land in v2.
-- **Release distribution** (Phase 10.3b / 10.7). Offline minisign key
-  ceremony that seeds the embedded pubkey, Homebrew tap, signed
-  apt/rpm repos. Cosign-online verification on self-update also still
-  pending (couples with sigstore deps for Phase 7.7 Rekor); the
-  minisign path is wired.
+- **Release distribution** (Phase 10.3b / 10.7 tail). The Homebrew tap
+  is already live and release archives/packages are built today; the
+  remaining work is signed apt/rpm repository hosting plus the release
+  ceremony that seeds embedded minisign roots into tagged builds.
 
 ---
 
@@ -364,8 +401,11 @@ refreshing the CRL and relies on the on-disk cache written by the last
 online refresh, and the `webfetch` tool errors on every invocation.
 Provider HTTP clients (llama.cpp, Ollama, LM Studio, vLLM, remote APIs)
 stay untouched — those are the user's explicit inference target, not
-stado's own phone-home. `stado verify` keeps the minisign-only
-verification path it already uses when no network is available.
+stado's own phone-home. Release verification stays offline-friendly:
+`checksums.txt.minisig` can still be validated with the standalone
+minisign flow in [SECURITY.md](SECURITY.md), and `stado verify
+--show-builtin-keys` still prints the embedded trust roots of the
+running binary.
 
 A word of honesty: a Claude Sonnet-class coding experience is not
 replicated by Qwen2.5-Coder-32B or Llama-3.3-70B on a laptop. Local
@@ -412,9 +452,10 @@ Every key is overridable via env var: `STADO_DEFAULTS_PROVIDER=ollama`,
 `STADO_OTEL_ENABLED=1`, `STADO_CONTEXT_SOFT_THRESHOLD=0.6`, etc.
 Underscores map to nested dots.
 
-A full reference document under `docs/` is planned; until then
-[DESIGN.md](DESIGN.md) and `stado config init`'s scaffolded file are
-the authoritative source.
+Guide coverage is incremental. See [docs/README.md](docs/README.md) for
+the current command/feature index; `stado config init`'s scaffolded file
+and `stado config show` remain the quickest way to inspect keys that do
+not yet have a dedicated guide.
 
 ---
 
@@ -527,20 +568,30 @@ concern. stdio servers (`command = …`) do.
 Third-party tools ship as signed wasm binaries, verified against an
 Ed25519 trust store (`stado plugin trust <pubkey>`). Capabilities are
 declared in the manifest, enforced by the `wazero` runtime — no
-kernel-level sandbox needed because wasm already is one. See the
-plugin cookbook in SECURITY.md for the publish flow.
+kernel-level sandbox needed because wasm already is one. See
+[docs/commands/plugin.md](docs/commands/plugin.md) for the operator
+workflow and [SECURITY.md](SECURITY.md) for the publish/signing model.
 
 ---
 
 ## Docs
 
+- [docs/README.md](docs/README.md) — guide index; shows which commands
+  and features have standalone docs vs where `stado --help` is still
+  authoritative
+- [docs/commands/session.md](docs/commands/session.md) — session
+  lifecycle, fork/land flow, and export/search/logging
+- [docs/commands/plugin.md](docs/commands/plugin.md) — scaffold → sign
+  → trust → verify → install → run for WASM plugins
+- [docs/features/instructions.md](docs/features/instructions.md) —
+  `AGENTS.md` / `CLAUDE.md` resolution and loading rules
+- [docs/eps/README.md](docs/eps/README.md) — enhancement proposals and
+  retroactive design records for the major shipped decisions
 - [DESIGN.md](DESIGN.md) — as-built architecture
 - [PLAN.md](PLAN.md) — phased roadmap and remaining work
-- [docs/](docs/) — per-command + per-feature deep-dive guides, plus an
-  index of guide gaps where `stado --help` is currently authoritative
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, contribute
-- `SECURITY.md` — security model, key rotation, plugin publishing, and
-  vulnerability reporting
+- [SECURITY.md](SECURITY.md) — supply-chain model, key rotation, plugin
+  publishing, and vulnerability reporting
 
 ---
 

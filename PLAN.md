@@ -9,7 +9,7 @@ stado is a **sandboxed, git-native coding-agent runtime**:
 - Dual-ref model: `tree` (executable, mutations only) + `trace` (audit, every call)
 - Every tool call goes through an OS-level sandbox with a capability manifest
 - WASM plugins with capability-bound signed manifests
-- TUI + headless both; ACP server for editor integration; MCP client for tool interop
+- TUI + headless both; ACP server for editor integration; MCP client + `mcp-server` surface for tool interop
 - OTel everywhere; reproducible signed releases (cosign keyless + minisign)
 
 See [`DESIGN.md`](DESIGN.md) for the as-built architecture.
@@ -18,22 +18,22 @@ See [`DESIGN.md`](DESIGN.md) for the as-built architecture.
 
 ## Status snapshot
 
-Legend: ✅ complete · 🟡 partial · ⬜ not yet
+Legend: ✅ complete · 🟡 partial · ⏸️ deferred
 
 | Phase | Status | Notes |
 |-------|--------|-------|
 | 0 — Demolition | ✅ | |
 | 1 — Provider interface + 4 impls | ✅ | Also 11 bundled OAI-compat presets |
-| 2 — Git-native state | ✅ | All 8 session subcommands shipped |
-| 3 — Sandbox layer | 🟡 | policy + bwrap + landlock + net-proxy ✅ · seccomp/macOS/Windows ⬜ |
-| 4 — Tool runtime | ✅ | 14 bundled tools; embed pipeline ⬜ |
+| 2 — Git-native state | ✅ | Session lifecycle + recovery/export/search/logging surface shipped |
+| 3 — Sandbox layer | 🟡 | policy + bwrap + landlock + seccomp + macOS sandbox shipped · Windows v2 deferred |
+| 4 — Tool runtime | ✅ | 14 bundled tools + binary-embed pipeline shipped |
 | 5 — Tamper-evident audit | ✅ | Ed25519 commit signing + `stado audit` |
 | 6 — OTel | ✅ | Exporters + metrics + span instrumentation across `tools.Executor`, `runtime.AgentLoop`, and all 4 providers |
-| 7 — WASM plugins | 🟡 | Manifest + trust-store + CLI ✅ · wazero runtime ⬜ |
+| 7 — WASM plugins | ✅ | wazero runtime + signed manifest/trust/CRL/Rekor shipped |
 | 8 — MCP + ACP | ✅ | Both shipped; per-MCP sandbox policy ✅ (capability parser + `transport.WithCommandFunc` → `sandbox.Runner.Command`) |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
-| 10 — Release & reproducibility | 🟢 | Reproducible build ✅ · SLSA ✅ · minisign implementation ✅ (offline-key ceremony ⬜) · Homebrew/apt ⬜ |
-| 11 — Context management | 🟡 | 11.1 ✅ · 11.2 ✅ (TokenCounter + 4 impls + `[context]` thresholds + TUI warning-pct + capability-probe + headless `session.update{kind:"context_warning"}`) · 11.3 🟡 (TUI `/compact` + `stateCompactionPending` y/n confirmation + `internal/compact` summarisation helper + headless `session.compact` RPC + advisory CLI stub; dual-ref persistence still pending) · 11.4 ✅ · 11.5 ✅. Spec is in [DESIGN §"Context management"](DESIGN.md#context-management); PR sequence is B–F in §"Remaining work". |
+| 10 — Release & reproducibility | 🟡 | Reproducible builds/releases/Homebrew/self-update shipped · offline key ceremony + signed apt/rpm repos remain operational work |
+| 11 — Context management | ✅ | 11.1–11.5 shipped; `/compact` + headless `session.compact` active, CLI `session compact` remains advisory by design |
 
 ---
 
@@ -139,7 +139,13 @@ No lowest-common-denominator path. Exploit Anthropic's caching when available; d
 
 **Goal:** Sidecar repo with alternates; dual-ref; turn tags; diff-then-commit.
 
-**Shipped:** 2.1–2.8 complete. Session CLI has all 8 subcommands (`new/list/show/attach/delete/fork/land/revert`). Tree ↔ worktree materialisation is symmetric (`BuildTreeFromDir` + `MaterializeTreeToDir`/`…Replacing`), so `fork` populates the child worktree and `revert` creates a new child session at a historical commit/turn tag.
+**Shipped:** 2.1–2.8 complete. The session surface now covers
+lifecycle, recovery, and introspection end to end:
+`new/list/show/describe/resume/attach/delete/fork/revert/tree/land/
+export/search/logs/gc/compact`. Tree ↔ worktree materialisation is
+symmetric (`BuildTreeFromDir` + `MaterializeTreeToDir`/`…Replacing`),
+so `fork` populates the child worktree and `revert` creates a new child
+session at a historical commit/turn tag.
 
 ### 2.1 `internal/state/git` — pure-Go via go-git
 
@@ -226,7 +232,7 @@ Per-agent bot identity, e.g. `claude-code-acp <agent@stado.local>`, so `git log 
 
 ---
 
-## Phase 3 — Sandbox Layer — 🟢
+## Phase 3 — Sandbox Layer — 🟡
 
 **Goal:** Platform-abstracted policy enforcement. Capabilities declared, OS enforces.
 
@@ -294,7 +300,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 |---|------|---------|
 | 4.1 | ripgrep | Embed ripgrep binary via `go:embed` (per-OS/arch release assets). Extract to `$XDG_CACHE_HOME/stado/bin/rg` on first use, verify sha256. Tool surface: pattern, path, globs, context lines, case-sensitivity, max-matches. |
 | 4.2 | ast-grep | Same embed approach. Structural code queries. Tool surface: AST pattern, language, rewrite (optional). |
-| 4.3 | LSP client | Pure Go via `go.lsp.dev/protocol` + `go.lsp.dev/jsonrpc2`. Auto-launch `gopls`/`rust-analyzer`/`pyright`/`tsserver`. Tools: `find_definition`, `find_references`, `document_symbols`, `hover`, `workspace_symbols`. |
+| 4.3 | LSP client | Pure Go via `go.lsp.dev/protocol` + `go.lsp.dev/jsonrpc2`. Auto-launch `gopls`/`rust-analyzer`/`pyright`/`tsserver`. Tools: `find_definition`, `find_references`, `document_symbols`, `hover`. |
 | 4.4 | read_with_context | Reads requested files plus their direct imports (language-aware via LSP `document_symbols`). |
 | 4.5 | Tool classification | Classify each registered tool at registration time: `Mutating` | `NonMutating` | `Exec` (requires diff-then-commit). |
 | 4.6 | Wire tool executor → sandbox.Run → state.Commit (tree if mutating/exec+diff, trace always) |
@@ -327,7 +333,7 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 ---
 
-## Phase 6 — OpenTelemetry from Boot — 🟢 skeleton
+## Phase 6 — OpenTelemetry from Boot — ✅
 
 **Goal:** Traces/metrics/logs across every boundary; off by default, one-line enable.
 
@@ -349,7 +355,24 @@ All tool executions route through `internal/sandbox.Run(policy, cmd/fn)`.
 
 **Goal:** Third-party plugins run in wazero, capability-gated, signed.
 
-**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`): scaffold + lifecycle (7.1a), host imports `stado_log` / `stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter + `stado plugin run` CLI (7.1c); 7.2 plugin package layout; 7.3 manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4 verification pipeline with rollback protection; 7.5 `stado plugin trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON, `[plugins]` config section, `stado plugin verify` consults CRL with airgap-friendly cache fallback); 7.7 Rekor transparency-log integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry / VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a hash-index lookup and asserts the entry's sig / pubkey / digest triple matches the manifest — mismatch is fatal, absence is advisory, airgap stubs out); 7.8 CLI (`stado plugin trust/untrust/list/verify/digest/run`). **Pending:** Context-management capabilities (`session:observe`, `session:read`, `session:fork`, `llm:invoke`) are planned as part of 7.1 — see §7.1 notes. Offline publish cookbook shipped in [SECURITY.md §"Plugin-publish cookbook"](SECURITY.md#plugin-publish-cookbook-for-third-party-maintainers) — nine-step maintainer guide from gen-key through rotation.
+**Shipped:** 7.1 wazero runtime host (`internal/plugins/runtime/`):
+scaffold + lifecycle (7.1a), host imports `stado_log` /
+`stado_fs_read` / `stado_fs_write` (7.1b), plugin tool adapter +
+`stado plugin run` CLI (7.1c), plus the shipped session/LLM host
+imports described under K2 below; 7.2 plugin package layout; 7.3
+manifest schema with JCS-style canonical bytes + Ed25519 signing; 7.4
+verification pipeline with rollback protection; 7.5 `stado plugin
+trust/untrust` key management; 7.6 CRL (Ed25519-signed JSON,
+`[plugins]` config section, `stado plugin verify` consults CRL with
+airgap-friendly cache fallback); 7.7 Rekor transparency-log
+integration (`internal/plugins/rekor.go` — hashedrekord v0.0.1 client
+via direct REST, no sigstore deps; Upload / SearchByHash / FetchEntry /
+VerifyEntry; `[plugins].rekor_url` config; `stado plugin verify` does a
+hash-index lookup and asserts the entry's sig / pubkey / digest triple
+matches the manifest — mismatch is fatal, absence is advisory, airgap
+stubs out); 7.8 CLI (`stado plugin init/gen-key/sign/trust/untrust/list/
+verify/install/installed/digest/run`). Offline publish cookbook shipped
+in [SECURITY.md §"Plugin-publish cookbook"](SECURITY.md#plugin-publish-cookbook-for-third-party-maintainers) — nine-step maintainer guide from gen-key through rotation.
 
 ### 7.1 `internal/plugins/runtime.go` — wazero host (pure Go, CGO-free)
 
@@ -358,7 +381,7 @@ WASI preview 1 + custom host imports:
 - `stado_net_http` — proxied through net policy
 - `stado_log` — structured logging into OTel
 - `stado_tool_register` — plugins can register tools at init
-- `stado_session_observe` — subscribe to turn-boundary events (gated on `session:observe`)
+- `stado_session_next_event` — poll turn-boundary events (gated on `session:observe`)
 - `stado_session_read` — read conversation history, token counts, session metadata (gated on `session:read`)
 - `stado_session_fork` — programmatically fork-from-point, seeding the child with a plugin-provided message (gated on `session:fork`)
 - `stado_llm_invoke` — call an LLM (active provider by default; manifest may declare a preferred backend) with a per-session token budget enforced by `llm:invoke:<budget>` (gated on `llm:invoke`)
@@ -437,12 +460,18 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 **Goal:** MCP as client (tool interop), ACP as server (editor interop, Zed).
 
-**Shipped:** 8.1 MCP client wiring via `[mcp.servers]` config; every server's tools auto-register in the executor and benefit from trace-ref audit. 8.2 ACP server over stdio (`stado acp [--tools]`) — text-only without `--tools`, full agent-loop with git audit when `--tools` is set. **Pending:** per-MCP-server sandbox policy (currently they run with the calling process's privileges — once `tool.Host` gets `Sandbox() → Policy`, MCP servers inherit).
+**Shipped:** 8.1 MCP client wiring via `[mcp.servers]` config; every
+server's tools auto-register in the executor, benefit from trace-ref
+audit, and can be sandboxed per server via declared capabilities. 8.2
+ACP server over stdio (`stado acp [--tools]`) — text-only without
+`--tools`, full agent-loop with git audit when `--tools` is set.
+**Pending:** none inside the core MCP/ACP runtime; the remaining work is
+documentation depth and general release hardening.
 
 | # | Action |
 |---|--------|
 | 8.1 | **MCP client hardening** — each MCP server launch goes through sandbox layer with per-server policy. Server capability manifest declares caps in config; out-of-scope asks prompt user. Server output is audited to trace ref. |
-| 8.2 | **ACP server** — `internal/acp/server.go`. Implement Zed's Agent Client Protocol (`github.com/zed-industries/agent-client-protocol`). Stdio transport, JSON-RPC framing, `session`/`newSession`/`prompt`/`cancel` lifecycle. Editor connects to `stado --acp` as its agent backend. Tool calls from Zed route through the same sandboxed tool runtime. |
+| 8.2 | **ACP server** — `internal/acp/server.go`. Implement Zed's Agent Client Protocol (`github.com/zed-industries/agent-client-protocol`). Stdio transport, JSON-RPC framing, `session`/`newSession`/`prompt`/`cancel` lifecycle. Editor connects to `stado acp` as its agent backend. Tool calls from Zed route through the same sandboxed tool runtime. |
 | 8.3 | Header blurb on `stado acp` explaining capabilities (permission grants, file edits, etc.) |
 
 **Verify:**
@@ -455,14 +484,22 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 **Goal:** Same core, multiple surfaces. True parallel agents.
 
-**Shipped:** all 5 sub-phases. `internal/runtime` is the shared headless core; both TUI and `stado run` compose it. `stado headless` exposes a JSON-RPC 2.0 daemon surface (`session.new/prompt/list/cancel`, `tools.list`, `providers.list`, `shutdown`). `stado run --prompt` is the one-shot variant. `stado agents list/kill/attach` round out the parallel-agent story; every `runtime.OpenSession` drops `<worktree>/.stado-pid` so `agents list` can report liveness.
+**Shipped:** all 5 sub-phases. `internal/runtime` is the shared
+headless core; both TUI and `stado run` compose it. `stado headless`
+exposes a JSON-RPC 2.0 daemon surface for session lifecycle/prompting,
+provider/tool inspection, plugin execution, and shutdown.
+`stado run --prompt` is the one-shot variant; `stado run --tools`
+enables the same audited tool loop without the TUI. `stado agents
+list/kill/attach` round out the parallel-agent story; every
+`runtime.OpenSession` drops `<worktree>/.stado-pid` so `agents list`
+can report liveness.
 
 | # | Action |
 |---|--------|
 | 9.1 | Extract headless core: `internal/runtime/runtime.go` — session manager, agent loop, tool executor, state committer — all UI-independent. |
 | 9.2 | `stado headless` — JSON-RPC over stdio surface matching TUI events. Enables scripting, CI integration, and TUI-as-client-of-daemon pattern. |
-| 9.3 | `stado run --prompt "..." --agent claude-code-acp --max-turns 20 --json` — non-interactive; exit code reflects outcome; emits structured events. |
-| 9.4 | **Parallel agents** — `stado session fork <id>` creates new worktree + branches → independent agent runtime. Manager multiplexes I/O, keeps a supervisory OTel trace per fork. TUI gets an "agents" pane showing all forks of current session. |
+| 9.3 | `stado run --prompt "..." --tools --max-turns 20 --json` — non-interactive; exit code reflects outcome; emits structured events. |
+| 9.4 | **Parallel agents** — `stado session fork <id>` creates new worktree + branches → independent agent runtime. Manager multiplexes I/O, keeps a supervisory OTel trace per fork. Inspection/control live under `stado agents list/attach/kill`. |
 | 9.5 | `stado agents list/attach/kill` |
 
 **Verify:**
@@ -471,7 +508,7 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 
 ---
 
-## Phase 10 — Release & Reproducibility — 🟢
+## Phase 10 — Release & Reproducibility — 🟡
 
 **Goal:** Signed, reproducible, airgap-installable single binary.
 
@@ -480,23 +517,23 @@ Authors can submit manifest signature to Rekor; `stado plugin install` can verif
 | # | Action |
 |---|--------|
 | 10.1 | **Reproducible builds** — `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=true`, fixed build time via `-ldflags`. Matrix: `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`, `windows/{amd64,arm64}`. |
-| 10.2 | **SBOM** — `cyclonedx-gomod` per release; attached as artifact. |
-| 10.3 | **Signing — dual scheme on every release:**<br>(a) **cosign keyless** via GitHub Actions OIDC → signatures + Rekor attestations<br>(b) **minisign Ed25519** (long-lived key, stored offline) → `.minisig` beside every artifact<br>Both shipped unconditionally. |
-| 10.4 | **Binary-embedded trust roots** — compiled-in: minisign release pubkey, Fulcio root, pinned GitHub identity. `stado verify --show-builtin-keys` displays them. `stado verify <artifact>` verifies cosign if online, minisign unconditionally. |
-| 10.5 | **Build tags** — Default build: full cosign + Rekor + minisign. `-tags airgap`: strips cosign (~3MB smaller), minisign-only. |
+| 10.2 | **SBOM** — syft SBOMs attached to release artifacts. |
+| 10.3 | **Signing — dual scheme on the release checksum manifest:**<br>(a) **cosign keyless** via GitHub Actions OIDC → `checksums.txt.sig` + `checksums.txt.cert` (Rekor-backed)<br>(b) **minisign Ed25519** (long-lived key, stored offline) → `checksums.txt.minisig`<br>Archives/packages are then verified against that signed `checksums.txt`. |
+| 10.4 | **Binary-embedded minisign trust roots** — release builds can embed the minisign pubkey + keyid via ldflags, and `stado verify --show-builtin-keys` displays them for the running binary. Manual asset verification is against `checksums.txt` / `checksums.txt.minisig`; there is no standalone per-asset `stado verify` path. |
+| 10.5 | **Build tags** — `-tags airgap` strips stado-controlled outbound HTTP paths (`self-update`, CRL refresh, `webfetch`) while leaving the user's chosen provider HTTP untouched. |
 | 10.6 | **SLSA Level 3** provenance via `slsa-github-generator`. |
-| 10.7 | **Distribution** — GitHub Releases (primary), Homebrew tap, apt/rpm repos (signed), `stado self-update` with signature verification. |
+| 10.7 | **Distribution** — GitHub Releases + Homebrew tap are live; hosted signed apt/rpm repos remain operational follow-up work. |
 | 10.8 | **Rotation plan** published in `SECURITY.md`. |
 
 **Verify:**
 - Independent rebuild produces identical sha256
-- `cosign verify-blob` passes against pinned identity + issuer
-- `minisign verify` passes against embedded pubkey
-- `stado self-update` refuses tampered download
+- `cosign verify-blob` passes against the published checksum manifest
+- manual minisign verification of `checksums.txt` succeeds with the project pubkey
+- `stado self-update` refuses tampered downloads when the signed manifest path is available
 
 ---
 
-## Phase 11 — Context Management — 🟢
+## Phase 11 — Context Management — ✅
 
 **Goal:** Implement the four-concern context-management model specified
 in [DESIGN §"Context management"](DESIGN.md#context-management):
@@ -646,7 +683,9 @@ canonical shape — and PR K2 for the host imports that enable it.
 ## Remaining work
 
 The original greenfield PR sequence (PRs 1–13 covering Phases 0–10)
-has landed. What's left, in the order I'd tackle it:
+has landed. The table below is the tail ledger: completed rows are kept
+for historical context; paused/deferred rows are the actual remaining
+work.
 
 | PR | Content | Phase |
 |----|---------|-------|
@@ -669,7 +708,7 @@ has landed. What's left, in the order I'd tackle it:
 | O  | ✅ Phase 10.3b — offline minisign ceremony documented in `SECURITY.md` (keygen → ldflags embed → sign workflow → rotation plan). `internal/audit/embedded.go` is ldflags-seedable (no source edit needed per release). The actual key-generation event is a one-time operational task when the project cuts its first signed release. | 10 |
 | P  | ✅ Phase 10.5 — `-tags airgap` build: splits self-update, plugin CRL Fetch, and webfetch.Run into `!airgap` / `airgap` pairs. Airgap binary physically cannot reach the network from its own control plane; provider HTTP (user's chosen inference target) untouched. | 10 |
 | Q  | ⏸️ Phase 10.7 — goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring shipped in `.goreleaser.yaml`. External infra (tap repo, apt/rpm server, signing-key setup) **deferred** — those are publishing-side decisions and belong with whoever operates the release distribution. | 10 |
-| R  | 🟡 Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. Cosign online verification still pending (sigstore deps — lands alongside Phase 7.7). | 10 |
+| R  | ✅ Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. No additional cosign-on-self-update work is planned. | 10 |
 
 PRs B–F compose Phase 11 and are best landed in order — each builds on
 the previous. Everything else (A, G–R plus K2) is independent; land in
@@ -705,7 +744,7 @@ internal/
     oaicompat/  Hand-rolled /v1/chat/completions HTTP + SSE.
   state/git/    Sidecar, dual-ref, commits, tree materialisation.
   audit/        Ed25519 commit signing, walker, JSONL export, minisign.
-  sandbox/      Policy, runners (NoneRunner, BwrapRunner), landlock, proxy.
+  sandbox/      Policy, runners (BwrapRunner, SbxRunner, WinWarnRunner, NoneRunner), landlock, proxy.
   tools/        Registry, Executor, classification; subdirs per tool:
                 bash / fs / webfetch / rg / astgrep / readctx / lspfind.
   lsp/          Pure-Go LSP client (Content-Length framing, process mgmt).
@@ -715,7 +754,7 @@ internal/
   acp/          JSON-RPC 2.0 line-delimited + Zed ACP server.
   headless/     JSON-RPC 2.0 daemon (editor-neutral namespace).
   telemetry/    OpenTelemetry runtime (exporters, metrics, span names).
-  plugins/      Manifest + trust-store + signing (runtime pending).
+  plugins/      Manifest + trust-store + signing; runtime host lives under plugins/runtime.
   config/       TOML via koanf; XDG paths; preset lookup.
   tui/
     theme/      TOML-loadable Theme + bundled default.toml.
@@ -994,25 +1033,26 @@ parent's span context so a single trace visualises the whole fork graph.
 
 ### Phase 10.3/10.4 — release key ceremony
 
-**Plan:**
+**Current shape:**
 
-1. Offline Ed25519 key generated on an air-gapped machine (e.g.
-   `minisign -G` on a live-USB).
-2. Public key + fingerprint committed to `internal/audit/embedded.go`
-   via `go:generate` so `stado verify` can validate without network.
-3. Each `v*` tag: CI fetches a pre-signed `release.minisig` that was
-   produced offline against the checksums.txt draft (manual step; GA
-   later once we have a secure signing service).
+1. Generate the offline minisign key on an air-gapped machine (for
+   example via `minisign -G`).
+2. Seed the public key + key id into release builds via ldflags
+   (`EmbeddedMinisignPubkey` / `EmbeddedMinisignKeyID`), not by
+   committing key material to the repo.
+3. Each tagged release signs `checksums.txt` offline, publishes
+   `checksums.txt.minisig`, and lets release builds enforce that
+   signature during `self-update`.
 
 ### Phase 10.7 — distribution
 
-**Homebrew:** separate tap `foobarto/homebrew-stado` with a Formula
-that points at the GitHub release `.tar.gz`, verifies the minisig
-against the embedded pubkey, and installs.
+**Homebrew:** `foobarto/homebrew-tap` is the current tap. Goreleaser
+can open a PR there on tagged releases when the publishing token is
+available.
 
-**apt/rpm:** use `nfpm` (already goreleaser-compatible) to produce
-`.deb` and `.rpm` with the same reproducibility flags. Sign the
-repo metadata with the same minisign key.
+**apt/rpm:** goreleaser already emits `.deb` and `.rpm` packages. The
+remaining work is hosted signed repo metadata and whatever signing-key
+ceremony the operator of those repos wants to use.
 
 ---
 
@@ -1043,7 +1083,7 @@ Full `config.toml` shape (scaffolded by `stado config init`):
 ```toml
 [defaults]
 provider = "anthropic"              # bundled name or user-defined preset
-model    = "claude-sonnet-4-5"
+model    = "claude-sonnet-4-6"
 
 [approvals]
 mode      = "prompt"                # "prompt" | "allowlist"
@@ -1081,8 +1121,9 @@ mapping to nested dots — e.g. `STADO_DEFAULTS_PROVIDER=ollama`
 4. `slsa-framework/slsa-github-generator` attestation step consumes
    goreleaser's `artifacts.json` and produces a SLSA 3 provenance
    document attached to the release.
-5. **Planned:** minisign signing step using offline key (see §10.3);
-   Homebrew tap push via `brew-tap` release job; `nfpm` .deb/.rpm
-   publish to a signed apt/rpm repo; `stado self-update` verifies both
-   cosign (online) and minisign (airgap) before installing.
+5. **Current tail:** the minisign ceremony is documented and the
+   checksum-manifest verification path is implemented; Homebrew tap
+   publishing is live when the release token is configured; goreleaser
+   already emits `.deb` / `.rpm` packages. Signed hosted apt/rpm repos
+   remain operational work.
    

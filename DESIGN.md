@@ -15,9 +15,10 @@ that covers ollama/llama.cpp/vLLM/groq/openrouter/…). The agent loop
 owns a git sidecar repository per user repo; every tool call the model
 makes is committed to a per-session `trace` ref (audit log) and — if
 mutating — to a `tree` ref (executable history). Signatures on every
-commit make the refs tamper-evident. The TUI, an ACP server (for Zed),
-a JSON-RPC headless daemon, and a single-shot `stado run` CLI all
-compose the same runtime core.
+commit make the refs tamper-evident. The TUI, `stado run`, the ACP
+server (for Zed), and the JSON-RPC headless daemon all compose the same
+agent-loop core; `stado mcp-server` reuses the same tool/runtime stack
+to expose stado itself as an MCP v1 tool server.
 
 ---
 
@@ -136,8 +137,9 @@ sequences.
 
 **Capabilities** surface what a model supports — `SupportsPromptCache`,
 `SupportsThinking`, `MaxParallelToolCalls`, `SupportsVision`,
-`MaxContextTokens`. The agent loop can branch on these (not yet
-exploited across all code paths; see PLAN §1.6).
+`MaxContextTokens`. The agent loop branches on these today for prompt
+caching, thinking enablement/budgeting, vision gating, and context
+threshold enforcement.
 
 `EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
 `CacheWriteTokens` are the canonical surface for prompt-cache telemetry;
@@ -145,8 +147,8 @@ exploited across all code paths; see PLAN §1.6).
 the cached prefix and how the hit/miss counts feed OTel metrics. The
 events and usage fields are emitted today by every provider; the OTel
 instruments they feed (`stado_cache_hit_ratio` etc.) are declared in
-`internal/telemetry` but not yet wrapped at the call sites — see PLAN §6
-for the remaining span-instrumentation work.
+`internal/telemetry` and recorded by the current runtime/provider call
+sites.
 
 ---
 
@@ -311,7 +313,7 @@ Per call, unconditionally:
 1. classify → `Mutating | NonMutating | Exec`
 2. time the call
 3. `Registry.Get(name).Run(ctx, args, host)`
-4. record `stado_tool_latency_ms` (instrument declared; call-site wrapping pending, see PLAN §6)
+4. record `stado_tool_latency_ms`
 5. build `CommitMeta` trailers
 
 Then:
@@ -398,18 +400,19 @@ context windows vary wildly):
 
 ### Tool-output curation
 
-Every tool declares a default output-size budget, expressed in tokens.
+Every tool declares a default output-size budget. In the shipped code,
+these are enforced as byte, match, or entry caps; for text-heavy tools
+the byte limits are chosen as rough approximations of token budgets.
 Defaults:
 
 | Tool | Default budget | Notes |
 |---|---|---|
-| `read` | 4K | `start` / `end` line-range args request specific regions |
+| `read` | 16 KiB | Roughly 4K tokens; `start` / `end` request specific regions |
 | `ripgrep` | first 100 matches | truncation marker appended |
 | `grep` | first 100 matches | same |
-| `bash` | 8K combined stdout+stderr | head + tail preserved; middle elided with byte count |
-| `glob` / `list_dir` | 200 entries | |
-| `webfetch` | 4K | |
-| *other bundled* | 4K | unless the tool overrides |
+| `bash` | 32 KiB combined stdout+stderr | Roughly 8K tokens; head + tail preserved; middle elided |
+| `glob` | 200 entries | |
+| `webfetch` | 16 KiB | Roughly 4K tokens |
 
 Truncation is **visible to the model** — truncated output carries an
 explicit marker so the model knows to request more:
@@ -488,8 +491,10 @@ correctness guarantee.
 
 ### Compaction
 
-User-invoked only. Ship as `stado session compact` (CLI) and a TUI
-action.
+User-invoked only. Shipped surfaces today are `/compact` in the TUI and
+`session.compact` on the headless JSON-RPC server. `stado session
+compact` exists as an advisory CLI stub that points users back to the
+live session surface where the in-memory conversation exists.
 
 Invariants:
 
@@ -585,20 +590,17 @@ session/LLM capabilities gate the host imports below:
 
 | Capability | Purpose | Host import |
 |---|---|---|
-| `session:observe` | Subscribe to turn-boundary events and receive notifications when a turn completes. | `stado_session_observe(callback_ref)` |
+| `session:observe` | Subscribe to turn-boundary events and receive notifications when a turn completes, via a polling event queue. | `stado_session_next_event(buf, cap) → n` |
 | `session:read` | Read the current session's conversation history, token counts, and metadata. Read-only — no mutation. | `stado_session_read(field, buf, len) → n` |
 | `session:fork` | Initiate a fork-from-point programmatically, seeding the child session with a plugin-provided message (e.g. a summary). Returns the new session ID. | `stado_session_fork(at_turn_ref, seed_message, buf, len) → n` |
 | `llm:invoke` | Call an LLM with a prompt and receive the response. Uses the active provider by default; plugin manifest may declare a preferred backend. Subject to rate-limiting and budget caps set in plugin config. | `stado_llm_invoke(prompt_ptr, prompt_len, out_buf, out_len) → n` |
 
-> **ABI note.** The signatures above are *indicative* and will be
-> finalised with the 7.1b host-import PR. Several shapes are
-> under-specified against stado's existing `(ptr, len)`-pair ABI
-> convention — notably the `callback_ref` parameter (wasm has no
-> native closure/callback type), the `field` encoding in
-> `stado_session_read`, and whether `stado_llm_invoke` streams or
-> aggregates. Consult the PR when it lands for the authoritative
-> shapes; this table documents the *capability semantics*, not the
-> wire format.
+> **ABI note.** The shipped observe surface is polling-based:
+> `stado_session_next_event` replaced the earlier callback-shaped
+> `stado_session_observe` idea because WASM has no native closure type.
+> Headless `plugin_fork` notifications also include `child`,
+> `at_turn_ref`, and `childWorktree` metadata in addition to the core
+> `plugin` + `reason` fields.
 
 **Invariants plugins must respect.** Non-negotiable:
 
@@ -619,7 +621,8 @@ session/LLM capabilities gate the host imports below:
 4. **User-visible by default.** When a plugin forks a session,
    the TUI surfaces the fork (inline notification; not a silent
    operation). Headless mode emits `session.update { kind:
-   "plugin_fork", plugin: "<name>", reason: "<plugin-provided>" }`.
+   "plugin_fork", plugin: "<name>", reason: "<plugin-provided>",
+   child, at_turn_ref, childWorktree }`.
 
 **Canonical example: the auto-compaction plugin shape.** Walking
 through how an auto-compaction plugin uses the four capabilities
@@ -627,7 +630,7 @@ together:
 
 - At startup, declare capabilities: `session:observe`, `session:read`,
   `session:fork`, `llm:invoke`.
-- Subscribe to turn-boundary events via `session:observe`.
+- Poll `stado_session_next_event` for turn-boundary events.
 - On each turn boundary, check token usage via `session:read`. If
   below configured threshold, do nothing.
 - If threshold crossed: read conversation history via `session:read`,
@@ -647,8 +650,8 @@ invariant 1 above and the runtime would refuse the action.
 ### Testing requirements
 
 These tests gate the invariants above. They are **Phase 11 acceptance
-criteria** — none exist in CI today. Each maps to a sub-phase under
-PLAN §11:
+criteria**, and the core ones now exist in CI as regression coverage.
+Each maps to a sub-phase under PLAN §11:
 
 - **Cache-stability test** (PLAN §11.1). Render the system-prompt
   prefix twice with the same inputs, assert byte equality. Fails
@@ -698,7 +701,11 @@ type Policy struct {
 - `BwrapRunner` (Linux) — translates Policy to bubblewrap flags
   (`--ro-bind` FSRead, `--bind-try` FSWrite, `--unshare-net` on
   `NetDenyAll`, `--setenv` per Env entry, `--chdir` CWD).
-- Non-Linux: falls back to `NoneRunner`.
+- `SbxRunner` (macOS) — wraps commands with `sandbox-exec -f <profile>`
+  when the binary is available.
+- `WinWarnRunner` (Windows) — logs a one-time warning and runs
+  unsandboxed until Windows v2 lands.
+- Other platforms fall back to `NoneRunner`.
 
 `sandbox.Detect()` picks the most capable available runner.
 
@@ -816,7 +823,7 @@ env     = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
 
 `runtime.attachMCP` auto-registers every tool the server exposes.
 
-### New plugin (future, once Phase 7.1 lands)
+### New plugin
 
 Ship a `plugin.wasm` + `plugin.manifest.json` + `plugin.manifest.sig`
 directory. Author's public key must be pinned via
@@ -847,11 +854,12 @@ small change pending).
 
 - **Build**: `go build -trimpath -buildvcs=true -ldflags="-s -w
   -buildid=" -o stado ./cmd/stado`. Bit-for-bit reproducible.
-- **Test**: `go test ./...`. 194 unit tests across 25 packages. Tests
-  that depend on external binaries (`rg`, `ast-grep`, `gopls`) skip
-  gracefully if the binary is missing.
+- **Test**: `go test ./...`. Tests that depend on external binaries
+  (`rg`, `ast-grep`, `gopls`) skip gracefully if the binary is
+  missing.
 - **Release**: `.github/workflows/release.yml` builds the matrix via
-  goreleaser, produces SBOM + cosign signature + SLSA 3 provenance.
+  goreleaser, produces archives/packages + SBOMs + the signed checksum
+  manifest flow, and attaches the SLSA 3 provenance path.
 - **CGO**: disabled. Pure Go for the entire module including go-git,
   wazero-ready, landlock syscalls via `x/sys/unix`.
 

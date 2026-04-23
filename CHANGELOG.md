@@ -6,7 +6,19 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-- No changes yet.
+### Docs
+
+- **README refresh for the current release and CLI surface.** The
+  install section now documents the signed `checksums.txt` verification
+  flow that releases actually publish, the quick-start plugin commands
+  include the missing sign/trust steps, and the configuration / docs /
+  roadmap sections now point at shipped guides instead of stale
+  placeholder wording.
+- **Retroactive EP backfill for the major shipped design decisions.**
+  `docs/eps/` now includes accepted records for the provider seam,
+  git-native session model, sandboxing, plugin runtime, conversation
+  state, repo-local prompt inputs, guardrails, and interop surfaces,
+  and the docs indexes now link that catalog directly.
 
 ## v0.1.1 — 2026-04-23
 
