@@ -1,9 +1,10 @@
 # `[hooks]` — lifecycle shell hooks
 
-Wire a shell command to stado lifecycle events. Runs on every
-completed turn; gets the turn's usage numbers as JSON on stdin.
-Useful for desktop notifications, Slack pings, custom logging, or
-any "react to turn completion" workflow.
+Wire a shell command to stado lifecycle events. Today this is wired
+through completed TUI turns only; `stado run` and headless do not yet
+invoke the same hook surface. The hook gets the turn's usage numbers as
+JSON on stdin and is useful for desktop notifications, Slack pings,
+custom logging, or any "react to turn completion" workflow.
 
 MVP scope is **notification-only** — hooks cannot block or modify
 a turn. A richer "approve tool call via external policy" form
@@ -120,9 +121,9 @@ post_turn = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga"
 - **Invoked for every turn.** No filtering by cost, role, or
   content. Use jq predicates in the hook script for conditional
   behaviour.
-- **Not yet invoked in `stado run`.** MVP wires the hook through
-  the TUI path only — headless `stado run` skips it. Expect this
-  to land in a subsequent iteration.
+- **Not yet invoked outside the TUI.** MVP wires the hook through
+  the TUI path only — `stado run` and headless do not fire it yet.
+  Expect cross-surface parity in a later iteration.
 
 ## See also
 

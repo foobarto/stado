@@ -32,7 +32,7 @@ Legend: ✅ complete · 🟡 partial · ⏸️ deferred
 | 7 — WASM plugins | ✅ | wazero runtime + signed manifest/trust/CRL/Rekor shipped |
 | 8 — MCP + ACP | ✅ | Both shipped; per-MCP sandbox policy ✅ (capability parser + `transport.WithCommandFunc` → `sandbox.Runner.Command`) |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
-| 10 — Release & reproducibility | 🟡 | Reproducible builds/releases/Homebrew/self-update shipped · offline key ceremony + signed apt/rpm repos remain operational work |
+| 10 — Release & reproducibility | 🟡 | Reproducible builds/releases/Homebrew/self-update shipped · `install.sh`, offline key ceremony, and signed apt/rpm repos remain open |
 | 11 — Context management | ✅ | 11.1–11.5 shipped; `/compact` + headless `session.compact` active, CLI `session compact` remains advisory by design |
 
 ---
@@ -512,7 +512,7 @@ can report liveness.
 
 **Goal:** Signed, reproducible, airgap-installable single binary.
 
-**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.5 `-tags airgap` build — strips self-update network path, plugin CRL refresh, and webfetch tool network call; on-disk CRL cache still authoritative, `stado self-update` surfaces an airgap-install hint, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.7 goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring — goreleaser emits packages + opens a PR against `foobarto/homebrew-tap` on each release (external tap repo setup + repo-sign keys still user-driven), 10.8a `stado self-update` sha256 verify from checksums.txt + atomic swap with `.prev` backup, 10.8b minisign verification layered onto `stado self-update` (pinned `EmbeddedMinisignPubkey` + `checksums.txt.minisig`, enforced when both present, advisory otherwise). **Deferred:** 10.7 external tap-repo + apt/rpm-server infra + signing-key setup (goreleaser-side done — decision belongs with whoever operates distribution). **Moot:** 10.8b cosign-on-self-update — Phase 7.7 shipped via direct Rekor REST with zero sigstore deps, so the cosign half no longer needs to land "alongside" anything; adding it would mean pulling sigstore deliberately for a second verification tier, which the minisign path already covers.
+**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.5 `-tags airgap` build — strips self-update network path, plugin CRL refresh, and webfetch tool network call; on-disk CRL cache still authoritative, `stado self-update` surfaces an airgap-install hint, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.7 goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring — goreleaser emits packages + opens a PR against `foobarto/homebrew-tap` on each release (external tap repo setup + repo-sign keys still user-driven), 10.8a `stado self-update` sha256 verify from checksums.txt + atomic swap with `.prev` backup, 10.8b strict minisign verification in `stado self-update` once an operator-supplied release build embeds `EmbeddedMinisignPubkey` and the release publishes `checksums.txt.minisig`. **Deferred:** 10.7 external tap-repo + apt/rpm-server infra + signing-key setup (goreleaser-side done — decision belongs with whoever operates distribution). **Moot:** 10.8b cosign-on-self-update — Phase 7.7 shipped via direct Rekor REST with zero sigstore deps, so the cosign half no longer needs to land "alongside" anything; adding it would mean pulling sigstore deliberately for a second verification tier, which the minisign path already covers.
 
 | # | Action |
 |---|--------|
@@ -529,7 +529,7 @@ can report liveness.
 - Independent rebuild produces identical sha256
 - `cosign verify-blob` passes against the published checksum manifest
 - manual minisign verification of `checksums.txt` succeeds with the project pubkey
-- `stado self-update` refuses tampered downloads when the signed manifest path is available
+- `stado self-update` refuses updates when the minisign-verified manifest is missing or tampered
 
 ---
 
@@ -578,8 +578,8 @@ not just documentation — DESIGN is the single source of truth for wording):
 | 11.2.2 | Per-provider tokenizer wiring: Anthropic `Messages.CountTokens` (or official tokenizer), OpenAI `tiktoken`, Google genai tokenizer, OAI-compat uses `tiktoken` by default with a config override. |
 | 11.2.3 | Capability probe on first provider use. A backend that cannot report counts is a hard error on first turn — **refuse to proceed blind**. |
 | 11.2.4 | Soft/hard threshold enforcement as percentages of `Capabilities.MaxContextTokens`. Defaults: soft 70%, hard 90%. Configurable under `[context]` in config. |
-| 11.2.5 | Soft threshold surface: TUI shows a dismissable warning indicator; headless emits `session.update { kind: "context_warning" }`. |
-| 11.2.6 | Hard threshold surface: next turn blocked. User prompted to fork, `session compact`, or abort. |
+| 11.2.5 | Soft threshold surface: TUI shows a dismissable warning indicator; headless emits `session.update { kind: "context_warning", level: "soft" }` on completed turns at or above the soft threshold. |
+| 11.2.6 | Hard threshold surface: TUI blocks the next turn and prompts the user to fork, compact, or abort; headless emits `session.update { kind: "context_warning", level: "hard" }` and leaves blocking policy to the client. |
 | 11.2.7 | **Token-counting fidelity test** — per provider, assert reported count matches the provider's own count for a fixed prompt within 1% tolerance. |
 
 ### 11.3 User-invoked compaction
@@ -589,7 +589,7 @@ not just documentation — DESIGN is the single source of truth for wording):
 
 | # | Action |
 |---|--------|
-| 11.3.1 | `stado session compact <id>` CLI subcommand. |
+| 11.3.1 | `stado session compact <id>` CLI subcommand (landed deliberately as an advisory stub that points users back to `/compact` or headless `session.compact`). |
 | 11.3.2 | TUI action — command-palette entry + slash command (`/compact`). |
 | 11.3.3 | Summarisation call — uses the active provider, cheap-model preference where available (e.g. Anthropic haiku class). **Open question:** should summarisation be pinned to a separate `[context.compaction.model]` config? Deferred until we see real usage. |
 | 11.3.4 | Summary-preview-edit-confirm flow. User sees the proposed summary, can edit, can reject. No commit without explicit confirmation. |
@@ -687,6 +687,24 @@ has landed. The table below is the tail ledger: completed rows are kept
 for historical context; paused/deferred rows are the actual remaining
 work.
 
+### Current product gaps (ranked)
+
+This list is intentionally product-facing. It highlights the current
+half-implemented or missing user-visible surfaces, not pure release-ops
+work like external package-repo hosting.
+
+| Rank | Gap | Current state |
+|------|-----|---------------|
+| 1 | **Windows sandbox v2** | Windows still runs unsandboxed behind `WinWarnRunner`; job objects + restricted tokens remain the largest security/runtime gap in the shipped product. |
+| 2 | **Cross-surface `post_turn` hook parity** | `[hooks].post_turn` is wired only through the TUI turn-complete path. `stado run` and headless do not yet invoke the same lifecycle hook surface. |
+| 3 | **CLI-driven session compaction** | `/compact` in the TUI and headless `session.compact` are real; `stado session compact <id>` is still an advisory CLI stub because there is no standalone persisted-conversation compaction path yet. |
+| 4 | **Signature-verifying install script** | Existing users have `self-update`, and manual/Homebrew installs are documented, but first-install still lacks the planned `install.sh` path that verifies the release trust chain before installing. |
+| 5 | **TUI custom template overlay wiring** | The renderer supports `render.NewWithOverlay` and `$XDG_CONFIG_HOME/stado/templates/*.tmpl`, but `tui.Run` still constructs `render.New`, so template overrides are not yet live in the app entry point. |
+
+`Multi-session switching` in `BUGS.md` is still a valid feature request,
+but it is not listed above because it is a net-new capability rather
+than a half-shipped surface.
+
 | PR | Content | Phase |
 |----|---------|-------|
 | A  | ✅ OTel span instrumentation: `tools.Executor.Run` / `runtime.AgentLoop` / all 4 providers' `StreamTurn` wrapped. Phase 6 closed. | 6 |
@@ -708,7 +726,7 @@ work.
 | O  | ✅ Phase 10.3b — offline minisign ceremony documented in `SECURITY.md` (keygen → ldflags embed → sign workflow → rotation plan). `internal/audit/embedded.go` is ldflags-seedable (no source edit needed per release). The actual key-generation event is a one-time operational task when the project cuts its first signed release. | 10 |
 | P  | ✅ Phase 10.5 — `-tags airgap` build: splits self-update, plugin CRL Fetch, and webfetch.Run into `!airgap` / `airgap` pairs. Airgap binary physically cannot reach the network from its own control plane; provider HTTP (user's chosen inference target) untouched. | 10 |
 | Q  | ⏸️ Phase 10.7 — goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring shipped in `.goreleaser.yaml`. External infra (tap repo, apt/rpm server, signing-key setup) **deferred** — those are publishing-side decisions and belong with whoever operates the release distribution. | 10 |
-| R  | ✅ Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` (ldflags-seedable var, empty default) + `verifyChecksumsMinisig` covers the four (pin × sig) states with advisory-degrade on unpinned builds. 6 tests. No additional cosign-on-self-update work is planned. | 10 |
+| R  | ✅ Phase 10.8b — minisign verification wired: `internal/audit.EmbeddedMinisignPubkey` is ldflags-seedable (empty by default), and `verifyChecksumsMinisig` now makes embedded-key + published-`.minisig` a prerequisite for `self-update`. The checked-in repo supports the path; the offline minisign ceremony and ldflags seeding remain release-operator work. 6 tests. No additional cosign-on-self-update work is planned. | 10 |
 
 PRs B–F compose Phase 11 and are best landed in order — each builds on
 the previous. Everything else (A, G–R plus K2) is independent; land in

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,17 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
-	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui"
 	gogit "github.com/go-git/go-git/v5"
@@ -267,7 +260,7 @@ var sessionDeleteCmd = &cobra.Command{
 	Use:     "delete <id>",
 	Aliases: []string{"rm"},
 	Short:   "Delete a session (refs + worktree)",
-	Args:  cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -357,50 +350,7 @@ var sessionDescribeCmd = &cobra.Command{
 
 var describeClear bool
 
-var sessionForkCmd = &cobra.Command{
-	Use:   "fork <id>",
-	Short: "Create a new session branched from an existing one's tree head, or from a specific turn via --at",
-	Long: "Without --at, the new session's tree head matches the parent's current\n" +
-		"tree head. With --at <turns/N> or --at <commit-sha>, the new session is\n" +
-		"rooted at an earlier point in the parent's history.\n\n" +
-		"The parent session is never modified — fork-from-point is always\n" +
-		"non-destructive and lands on a fresh session ID.",
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		at, _ := cmd.Flags().GetString("at")
-
-		var atCommit plumbing.Hash
-		if at != "" {
-			sc, err := openSidecar(cfg)
-			if err != nil {
-				return err
-			}
-			atCommit, err = resolveTurnRef(sc, args[0], at)
-			if err != nil {
-				return err
-			}
-		}
-
-		child, err := createSessionAt(cfg, args[0], atCommit)
-		if err != nil {
-			return err
-		}
-		fmt.Println(child.ID)
-		fmt.Fprintf(os.Stderr, "worktree: %s\n", child.WorktreePath)
-		if !atCommit.IsZero() {
-			fmt.Fprintf(os.Stderr, "rooted at: %s (%s)\n", at, atCommit.String()[:12])
-		}
-		return nil
-	},
-}
-
 func init() {
-	sessionForkCmd.Flags().String("at", "",
-		"Fork from a specific turn (turns/<N>) or commit SHA instead of parent's tree head")
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false,
 		"Include zero-turn / zero-message sessions (hidden by default)")
 }
@@ -424,7 +374,9 @@ var sessionAttachCmd = &cobra.Command{
 }
 
 // sessionResumeCmd is the one-shot equivalent of
-//    cd $(stado session attach <id>) && stado
+//
+//	cd $(stado session attach <id>) && stado
+//
 // — changes into the session's worktree so `runtime.OpenSession`'s
 // resume-on-cwd logic reattaches to the same session ID, then
 // launches the TUI inline. Fast path for the common "I killed stado,
@@ -460,128 +412,6 @@ var sessionResumeCmd = &cobra.Command{
 		// worktree and takes the resume-on-cwd branch.
 		return tui.Run(cfg)
 	},
-}
-
-// completeSessionIDs is a cobra ValidArgsFunction that lists
-// extant session IDs for shell tab-completion. Filters by the
-// prefix the user has typed so `stado session show abc<TAB>`
-// narrows. Returns IDs alongside their descriptions (cobra renders
-// the description as the completion hint) when present.
-//
-// Returns only for first-positional-arg completion; subsequent
-// args on subcommands that take just one ID get no completions
-// (avoids duplicate-suggest weirdness).
-func completeSessionIDs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) >= 1 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveError
-	}
-	entries, err := os.ReadDir(cfg.WorktreeDir())
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	var completions []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		id := e.Name()
-		if toComplete != "" && !strings.HasPrefix(id, toComplete) {
-			continue
-		}
-		desc := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
-		if desc != "" {
-			completions = append(completions, id+"\t"+desc)
-		} else {
-			completions = append(completions, id)
-		}
-	}
-	sort.Strings(completions)
-	return completions, cobra.ShellCompDirectiveNoFileComp
-}
-
-// resolveSessionID turns a user-friendly lookup string into a
-// concrete session id:
-//   - exact UUID match wins
-//   - UUID prefix ≥ 8 chars wins when unique
-//   - case-insensitive substring of session Description wins when unique
-//
-// Ambiguous matches return a listing error so the user can pick
-// precisely. Used by `session resume` today; other commands that
-// take a session id can opt in.
-func resolveSessionID(cfg *config.Config, q string) (string, error) {
-	if q == "" {
-		return "", fmt.Errorf("empty lookup")
-	}
-	entries, err := os.ReadDir(cfg.WorktreeDir())
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No worktree dir means no sessions exist yet. Keep the
-			// message mentioning the user's query so callers that
-			// surface it ("resume: no session found for X") stay
-			// readable.
-			return "", fmt.Errorf("no worktree dir — no sessions exist yet (looked for %q)", q)
-		}
-		return "", err
-	}
-	var ids []string
-	for _, e := range entries {
-		if e.IsDir() {
-			ids = append(ids, e.Name())
-		}
-	}
-	// Exact match short-circuit.
-	for _, id := range ids {
-		if id == q {
-			return id, nil
-		}
-	}
-
-	var prefixHits []string
-	if len(q) >= 8 {
-		for _, id := range ids {
-			if strings.HasPrefix(id, q) {
-				prefixHits = append(prefixHits, id)
-			}
-		}
-	}
-	if len(prefixHits) == 1 {
-		return prefixHits[0], nil
-	}
-	if len(prefixHits) > 1 {
-		return "", fmt.Errorf("prefix %q is ambiguous — matches: %s",
-			q, strings.Join(prefixHits, ", "))
-	}
-
-	// Description substring.
-	needle := strings.ToLower(q)
-	var descHits []string
-	for _, id := range ids {
-		wt := filepath.Join(cfg.WorktreeDir(), id)
-		desc := runtime.ReadDescription(wt)
-		if desc == "" {
-			continue
-		}
-		if strings.Contains(strings.ToLower(desc), needle) {
-			descHits = append(descHits, id)
-		}
-	}
-	if len(descHits) == 1 {
-		return descHits[0], nil
-	}
-	if len(descHits) > 1 {
-		labels := make([]string, 0, len(descHits))
-		for _, id := range descHits {
-			d := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
-			labels = append(labels, fmt.Sprintf("%s (%q)", id, d))
-		}
-		return "", fmt.Errorf("description %q is ambiguous — matches: %s",
-			q, strings.Join(labels, "; "))
-	}
-	return "", fmt.Errorf("no session matches %q (tried exact, prefix ≥8, description substring)", q)
 }
 
 var sessionShowCmd = &cobra.Command{
@@ -686,31 +516,6 @@ var sessionShowCmd = &cobra.Command{
 	},
 }
 
-// countCommits walks a ref's first-parent chain and returns the commit
-// count. Returns 0 + nil for unset refs (fresh session) so callers can
-// surface a clean "0" line.
-func countCommits(sc *stadogit.Sidecar, ref plumbing.ReferenceName) (int, error) {
-	head, err := sc.ResolveRef(ref)
-	if err != nil {
-		return 0, nil // unset ref, not an error here
-	}
-	repo := sc.Repo()
-	count := 0
-	cur := head
-	for !cur.IsZero() {
-		commit, err := repo.CommitObject(cur)
-		if err != nil {
-			return count, err
-		}
-		count++
-		if len(commit.ParentHashes) == 0 {
-			break
-		}
-		cur = commit.ParentHashes[0]
-	}
-	return count, nil
-}
-
 var sessionLandCmd = &cobra.Command{
 	Use:   "land <id> <branch>",
 	Short: "Push the session's tree head to the user repo as <branch>",
@@ -751,23 +556,6 @@ var sessionLandCmd = &cobra.Command{
 		return nil
 	},
 }
-
-func findRepoRootForLand(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
-// refMakerSession mirrors TreeRef/TraceRef's signature within this file.
-type refMakerSession func(sessionID string) plumbing.ReferenceName
 
 func init() {
 	sessionGCCmd.Flags().DurationVar(&sessionGCOlderThan, "older-than", 24*time.Hour,
@@ -831,237 +619,6 @@ var sessionCompactCmd = &cobra.Command{
 		return nil
 	},
 }
-
-// --- helpers -------------------------------------------------------------
-
-func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
-	cwd, _ := os.Getwd()
-	userRepo := findRepoRoot(cwd)
-	repoID, err := stadogit.RepoID(userRepo)
-	if err != nil {
-		return nil, err
-	}
-	return stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
-}
-
-func worktreePathForID(root, id string) (string, error) {
-	if id == "" || filepath.IsAbs(id) || filepath.Base(id) != id {
-		return "", fmt.Errorf("invalid session id %q", id)
-	}
-	wt := filepath.Join(root, id)
-	return wt, nil
-}
-
-// createSession makes a new session, optionally branched from parentID's
-// tree head. Forked sessions have their worktree materialised to the
-// parent's tree so the child starts with the same files the parent had.
-func createSession(cfg *config.Config, parentID string) (*stadogit.Session, error) {
-	return createSessionAt(cfg, parentID, plumbing.ZeroHash)
-}
-
-// createSessionAt is the general fork primitive: fork parentID at atCommit
-// when non-zero, otherwise at parent's tree head. Empty parentID creates a
-// blank session. See DESIGN §"Fork semantics" and §"Fork-from-point
-// ergonomics" for the user-facing contract.
-func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash) (*stadogit.Session, error) {
-	// Open a fork-time OTel span so operators can visualise the fork
-	// graph (DESIGN §"Phase 9.4 — supervisory trace across forks").
-	// No-op when telemetry is disabled. Parent: the process's root
-	// context; child-session span linking is a follow-up — needs
-	// persisted span context, which stado doesn't carry across
-	// session-spawn boundaries yet.
-	spanCtx, span := otel.Tracer(telemetry.TracerName).Start(
-		context.Background(), telemetry.SpanSessionFork,
-		trace.WithAttributes(
-			attribute.String("session.parent_id", parentID),
-			attribute.Bool("fork.at_turn_ref", !atCommit.IsZero()),
-		),
-	)
-	defer span.End()
-	_ = spanCtx
-
-	sc, err := openSidecar(cfg)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-
-	rootCommit := atCommit
-	if rootCommit.IsZero() && parentID != "" {
-		head, err := sc.ResolveRef(stadogit.TreeRef(parentID))
-		switch {
-		case err == nil:
-			rootCommit = head
-		case errors.Is(err, plumbing.ErrReferenceNotFound):
-			// Parent hasn't committed anything yet — fork is equivalent to a
-			// fresh session. Not an error.
-			fmt.Fprintf(os.Stderr, "fork: parent %s has no tree ref yet; creating empty child\n", parentID)
-		default:
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("fork: resolve parent: %w", err)
-		}
-	}
-
-	id := uuid.New().String()
-	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, rootCommit)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-	span.SetAttributes(
-		attribute.String("session.child_id", id),
-		attribute.String("session.root_commit", rootCommit.String()),
-	)
-
-	// Materialise the root tree into the child's worktree. Zero root =
-	// clean worktree (fresh session).
-	if !rootCommit.IsZero() {
-		treeHash, err := sess.TreeFromCommit(rootCommit)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("fork: resolve tree: %w", err)
-		}
-		if err := sess.MaterializeTreeToDir(treeHash, sess.WorktreePath); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, fmt.Errorf("fork: materialise worktree: %w", err)
-		}
-	}
-
-	// Persist the fork span's context so the child process (when the
-	// user `cd`s into the new worktree and runs stado) can link its
-	// own spans back to this fork point — PLAN §9.4/9.5 cross-process
-	// span link. Best-effort: observability failures don't fail the
-	// fork itself.
-	if err := telemetry.WriteCurrentTraceparent(spanCtx, sess.WorktreePath); err != nil {
-		span.RecordError(err)
-		// Not fatal — stderr advisory so operators know observability
-		// will be degraded for the child session's spans.
-		fmt.Fprintf(os.Stderr, "fork: failed to persist traceparent (%v); child spans will be disconnected\n", err)
-	}
-
-	return sess, nil
-}
-
-var sessionRevertCmd = &cobra.Command{
-	Use:   "revert <id> <commit-or-turn>",
-	Short: "Reset a session's worktree to an earlier commit on a new child session",
-	Long: "Create a new session whose tree ref points at the given historical commit\n" +
-		"(or turns/<N> tag) from <id>'s history, and materialise the worktree to\n" +
-		"match. The parent session is untouched — revert is non-destructive and\n" +
-		"lives on a fresh session ID.",
-	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		sc, err := openSidecar(cfg)
-		if err != nil {
-			return err
-		}
-		srcID, target := args[0], args[1]
-		commitHash, err := resolveTurnRef(sc, srcID, target)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
-			return err
-		}
-		newID := uuid.New().String()
-		sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), newID, commitHash)
-		if err != nil {
-			return err
-		}
-		treeHash, err := sess.TreeFromCommit(commitHash)
-		if err != nil {
-			return fmt.Errorf("revert: read tree from commit: %w", err)
-		}
-		if err := sess.MaterializeTreeReplacing(treeHash, sess.WorktreePath); err != nil {
-			return fmt.Errorf("revert: materialise: %w", err)
-		}
-		fmt.Println(newID)
-		fmt.Fprintf(os.Stderr, "reverted %s@%s → new session %s (worktree %s)\n",
-			srcID, commitHash.String()[:12], newID, sess.WorktreePath)
-		return nil
-	},
-}
-
-// resolveTurnRef accepts either "turns/<N>" (looked up via the per-session
-// turn-tag ref) or a full 40-char commit SHA. Shared by session revert +
-// session fork --at. See DESIGN §"Fork-from-point ergonomics" for the
-// canonical user-facing turn identifier syntax.
-func resolveTurnRef(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
-	if strings.HasPrefix(target, "turns/") {
-		ref := plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target)
-		h, err := sc.ResolveRef(ref)
-		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("%s: tag not found in session %s: %w", target, srcID, err)
-		}
-		return h, nil
-	}
-	// Treat as raw hash or prefix. v1: only accept full 40-char hashes.
-	if len(target) < 40 {
-		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
-	}
-	return plumbing.NewHash(target), nil
-}
-
-// findRepoRoot walks up from start looking for a .git dir. Falls back to the
-// starting cwd if none found (so sessions still work outside repos).
-func findRepoRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return start
-		}
-		dir = parent
-	}
-}
-
-// listSessions returns session IDs found under refs/sessions/*.
-func listSessions(sc *stadogit.Sidecar) ([]string, error) {
-	seen := map[string]struct{}{}
-	iter, err := sc.Repo().References()
-	if err != nil {
-		return nil, err
-	}
-	defer iter.Close()
-	err = iter.ForEach(func(ref *plumbing.Reference) error {
-		name := string(ref.Name())
-		const prefix = "refs/sessions/"
-		if !strings.HasPrefix(name, prefix) {
-			return nil
-		}
-		rest := strings.TrimPrefix(name, prefix)
-		id := strings.Split(rest, "/")[0]
-		seen[id] = struct{}{}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(seen))
-	for id := range seen {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids, nil
-}
-
 
 // Silence "gogit imported but not used" — cobra command file uses it for
 // error typing in case we later want to branch on ErrRepositoryNotExists.

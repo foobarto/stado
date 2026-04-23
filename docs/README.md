@@ -9,6 +9,7 @@ Shorter forms live in:
 - [README.md](../README.md) — top-level intro + install + a section on
   [configuring tools & sandboxing](../README.md#configuring-tools--sandboxing)
 - [DESIGN.md](../DESIGN.md) — as-built architecture
+- [eps/README.md](eps/README.md) — retroactive design records and EP index
 - [PLAN.md](../PLAN.md) — phased roadmap
 
 ## Command guides
@@ -46,11 +47,12 @@ Other shipped commands do not have standalone guides yet. Until they do,
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
 | `[budget]` cost gate | [features/budget.md](features/budget.md) | Warn + hard-cap on cumulative $ spend |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
-| `[hooks]` lifecycle | [features/hooks.md](features/hooks.md) | Shell hook on turn boundaries |
+| `[hooks]` lifecycle | [features/hooks.md](features/hooks.md) | Shell hook on TUI turn boundaries today |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |
+| Enhancement Proposals | [eps/README.md](eps/README.md) | Durable design records for major architectural decisions |
 
 ## Status
 

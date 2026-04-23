@@ -12,9 +12,10 @@ stado ships three layers of supply-chain protection:
    `cosign verify-blob`. Implicit Rekor transparency-log entry.
 3. **Minisign Ed25519 signing** — `checksums.txt` additionally signed
    with a long-lived project key, offline-held. The corresponding
-   public key is compiled into every stado binary, so
-   `stado self-update` and `stado verify` can check signatures without
-   reaching out to Fulcio / Rekor. Airgap-safe by construction.
+   public key is compiled into release builds, so `stado self-update`
+   can verify release manifests offline and `stado verify
+   --show-builtin-keys` can expose the embedded trust roots. Airgap-safe
+   by construction.
 
 This document covers the operational procedures for the **minisign**
 half. Cosign keyless is fully automated via GitHub Actions and has no
@@ -46,9 +47,10 @@ the 32-byte Ed25519 public key encoded as minisign expects.
 
 ### Embedding the pubkey into release builds
 
-stado reads the pinned pubkey from `audit.EmbeddedMinisignPubkey`
-(empty by default — dev builds skip verification with an advisory).
-Release builds seed it via `-ldflags`:
+stado reads the pinned pubkey from `audit.EmbeddedMinisignPubkey`.
+It is empty by default, so local/dev builds do not carry a release
+trust root and `stado self-update` refuses to run. Release builds seed
+the key via `-ldflags`:
 
 ```sh
 # Extract the raw base64 from stado.pub (skip the comment line):
@@ -85,8 +87,8 @@ minisign -Sm checksums.txt -s stado.key -t "stado <version> signed $(date -u +%Y
 ```
 
 `stado self-update` looks for `checksums.txt.minisig` in the release's
-assets; when present AND the running binary has a pinned pubkey, the
-signature is enforced. Missing one side of the pair is advisory.
+assets and requires it alongside an embedded minisign pubkey in the
+running binary. Missing either side of that pair is a hard failure.
 
 ### Verifying a release (end users)
 
@@ -98,9 +100,9 @@ stado verify --show-builtin-keys          # prints the embedded fingerprint
 minisign -Vm checksums.txt -p stado.pub   # verifies with the standalone tool
 ```
 
-`stado verify <artefact>` (single-file form) also works when you've
-downloaded assets by hand and want to confirm the digest + signature
-before installing.
+`stado verify` does not verify individual assets. Manual asset checks
+stay on the published manifest path: verify `checksums.txt` first, then
+confirm the chosen archive/package digest against that manifest.
 
 ### Key rotation plan
 

@@ -119,8 +119,8 @@ Relevant `config.toml` sections:
   `ErrCostCapExceeded`.
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
-- `[hooks].post_turn` — shell hook on turn completion (runs in
-  `stado run` too, not just the TUI).
+- `[hooks].post_turn` — config exists, but the shipped hook runner is
+  currently TUI-only; `stado run` does not invoke it yet.
 
 `stado config show` prints the resolved effective config.
 
@@ -128,8 +128,10 @@ Relevant `config.toml` sections:
 
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.
-- **`--sandbox-fs` is Linux only.** macOS + Windows run unsandboxed
-  regardless of the flag (Windows v2 sandbox is deferred).
+- **`--sandbox-fs` is Linux only.** macOS still gets subprocess
+  sandboxing for tool execution, but it does not have a Linux-style
+  whole-process narrowing path for `stado run`. Windows v2 sandboxing
+  is still deferred.
 - **Streaming to pipes is line-buffered.** When redirecting, tokens
   may appear in chunks. Use `--json` for deterministic event
   boundaries.

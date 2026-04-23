@@ -1,13 +1,13 @@
 package audit
 
 // EmbeddedMinisignPubkey is the project's release-signing public key,
-// compiled into every stado binary so `stado verify` and `stado
-// self-update` can validate releases offline (airgap-friendly).
+// compiled into release builds so `stado self-update` can validate the
+// release manifest offline and `stado verify --show-builtin-keys` can
+// expose the embedded trust roots (airgap-friendly).
 //
-// Empty by default — a real key lands via PR O (Phase 10.3b offline
-// minisign ceremony). Until then, any code that depends on a pinned
-// pubkey falls back to advisory-only behaviour: sha256 stays the
-// integrity proof, minisign verification logs a warning and skips.
+// Empty by default — release builds seed the real key via ldflags.
+// Without that embedded trust root, `stado verify --show-builtin-keys`
+// reports "(not pinned)" and `stado self-update` refuses to run.
 //
 // When a real key replaces "" here, the expected encoding is base64
 // of the raw 32-byte Ed25519 public key (same shape as a

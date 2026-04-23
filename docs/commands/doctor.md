@@ -76,16 +76,18 @@ stado doctor --no-local    # skip local-runner probes (offline CI)
 `--json` emits one object per check:
 
 ```json
-{"check": "ripgrep (rg)", "status": "ok", "detail": "/usr/bin/rg"}
+{"check":"ripgrep (rg)","status":"ok","value":"/usr/bin/rg","detail":"ok"}
 ```
+
+The output is newline-delimited JSON (one object per line), so it's
+easy to pipe into `jq` or line-oriented tooling.
 
 ## Exit codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | All checks passed (including informational ones) |
-| 1 | One or more blocking checks failed — stado won't start cleanly |
-| 2 | Internal error in the doctor itself (rare — file a bug) |
+| 1 | One or more blocking checks failed, or the doctor command itself errored |
 
 Informational misses (e.g. `gopls not installed`) don't bump the
 exit code. A real failure looks like "sandbox runner: no backend

@@ -160,7 +160,7 @@ relevant sections:
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
 | `[budget]` | warn + hard cap on cumulative cost |
-| `[hooks]` | `post_turn` shell hook |
+| `[hooks]` | TUI `post_turn` shell hook |
 | `[plugins]` | background plugin load list, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
 

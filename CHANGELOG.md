@@ -6,6 +6,21 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.1.2 — 2026-04-23
+
++ Docs + CLI parity release: ships the documented `doctor` automation
+surface, refreshes the top-level/docs catalog for the actual shipped
+runtime, and lands a large internal source split to make the codebase
+easier to read and maintain.
+
+### CLI
+
+- **`stado doctor` now exposes the documented machine/CI flags.**
+  `--json` emits newline-delimited JSON (`check`, `status`, `value`,
+  `detail`) and `--no-local` skips local-runner probes for faster or
+  offline CI preflight. Blocking doctor failures now exit 1, matching
+  the command guide.
+
 ### Docs
 
 - **README refresh for the current release and CLI surface.** The
@@ -19,6 +34,22 @@ Plugins / Infra / Fixes.
   git-native session model, sandboxing, plugin runtime, conversation
   state, repo-local prompt inputs, guardrails, and interop surfaces,
   and the docs indexes now link that catalog directly.
+- **Roadmap + command docs now call out the actual remaining product
+  gaps.** `PLAN.md`, `README.md`, and the relevant `docs/` guides now
+  explicitly describe the unfinished user-visible surfaces: Windows
+  sandbox v2, cross-surface `post_turn` hook parity, the advisory-only
+  CLI `session compact` shim, the pending `install.sh` first-install
+  path, and template-overlay support that exists in the renderer but is
+  not yet wired into the TUI entry point.
+
+### Infra
+
+- **Large source files were split by concern without changing package
+  boundaries or exported surfaces.** The TUI model, session/plugin CLI,
+  plugin host runtime, headless server, runtime loop, and git commit
+  internals are now spread across smaller focused files, making the
+  codebase easier to review and maintain without changing the shipped
+  behavior.
 
 ## v0.1.1 — 2026-04-23
 

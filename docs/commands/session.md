@@ -203,5 +203,6 @@ Session data layout:
 - **Zero-turn session cleanup**: `session list` hides them by default
   but the worktrees stay on disk. Run `session gc --apply` periodically.
 - **`session compact`** (the CLI form) is an advisory stub — use
-  `/compact` inside the TUI. Compaction in `stado run`/headless is
-  planned (PLAN.md §11.3).
+  `/compact` inside the TUI or `session.compact` on the headless
+  JSON-RPC surface. The CLI command intentionally does not compact an
+  off-screen conversation for you.

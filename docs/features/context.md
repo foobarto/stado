@@ -1,16 +1,16 @@
 # Context management
 
 Every LLM has a finite context window. Stado tracks input tokens per
-turn, warns before you're close to the limit, and refuses to send
-further turns past the hard cap — always leaving you a way out
-(`/compact` to summarise, `/clear` to reset).
+turn and warns before you're close to the limit. In the TUI, the hard
+cap rejects further turns until you recover; headless surfaces context
+warnings to clients instead of blocking them on its own.
 
 ## The two thresholds
 
 ```toml
 [context]
 soft_threshold = 0.70   # advisory — flash a system note + offer /compact
-hard_threshold = 0.90   # blocking — new turns rejected until you act
+hard_threshold = 0.90   # TUI block; headless warns and leaves policy to clients
 ```
 
 Both values are **fractions of the provider's reported
@@ -19,9 +19,11 @@ mean:
 
 - At 70% you get a one-line system advisory under the current turn
   and a `/compact` suggestion in the sidebar. Nothing is blocked.
-- At 90% stado refuses to call the provider for a new turn. The
+- At 90% the TUI refuses to call the provider for a new turn. The
   input submit becomes a no-op with a clear reason; `/compact`,
-  `/retry`, `/clear` still route immediately.
+  `/retry`, `/clear` still route immediately. Headless emits
+  `session.update { kind: "context_warning", level: "hard" }`
+  and leaves blocking to the client.
 
 ## Why two thresholds (not one)
 
@@ -131,9 +133,10 @@ hard_threshold = 0.90   # 0 < x ≤ 1; 0 disables the block
 # hard_threshold = 0.98
 ```
 
-Headless mode (`stado headless`) honours the same values — the JSON
-event stream emits `context.soft` / `context.hard` notifications on
-crossings.
+Headless mode (`stado headless`) honours the same thresholds, but its
+JSON event stream emits `session.update { kind: "context_warning",
+level: "soft" | "hard" }` when completed turns sit at or above the
+configured threshold. Headless does not block its callers on its own.
 
 ## Gotchas
 

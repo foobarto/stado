@@ -168,11 +168,10 @@ func pickAsset(assets []ghAsset) (ghAsset, error) {
 }
 
 // fetchChecksums parses checksums.txt (one "sha256  filename" per line) into
-// a map. When the release also publishes checksums.txt.minisig AND stado
-// was built with a pinned EmbeddedMinisignPubkey, the minisig is verified
-// against the embedded key before the checksums are trusted — DESIGN
-// §"Phase 10.8b: signature verification on self-update". No embedded key
-// = advisory-only, sha256 remains the integrity proof.
+// a map. The release manifest must be verified through
+// checksums.txt.minisig before the checksums are trusted — self-update
+// refuses builds without an embedded minisign pubkey and releases that do
+// not publish the signature.
 func fetchChecksums(assets []ghAsset) (map[string]string, error) {
 	var checksumsURL, minisigURL string
 	for _, a := range assets {

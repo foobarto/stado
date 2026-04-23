@@ -392,11 +392,14 @@ model's `Capabilities.MaxContextTokens` (percentages, not absolute —
 context windows vary wildly):
 
 - **Soft (default 70%).** TUI shows a dismissable warning indicator;
-  headless emits a `session.update { kind: "context_warning" }`
-  notification. Recommendation is to fork. No automatic action.
-- **Hard (default 90%).** The next turn is blocked. User is prompted
-  to fork, run `session compact` explicitly, or abort. There is no
-  path by which the agent silently compacts mid-session.
+  headless emits a `session.update { kind: "context_warning",
+  level: "soft" }` notification. Recommendation is to fork. No
+  automatic action.
+- **Hard (default 90%).** In the TUI, the next turn is blocked and the
+  user is prompted to fork, compact explicitly, or abort. Headless
+  emits `session.update { kind: "context_warning", level: "hard" }`
+  and leaves blocking/recovery policy to the client. There is no path
+  by which the agent silently compacts mid-session.
 
 ### Tool-output curation
 
@@ -502,9 +505,11 @@ Invariants:
   background, not via any config flag. If a contributor proposes an
   auto-compaction path, the onus is on them to explain why
   fork-from-point is insufficient.
-- **Confirmation required.** Compaction produces a proposed summary,
-  shows it to the user, permits edit, and only commits on explicit
-  confirmation.
+- **TUI confirmation required.** In the TUI, compaction produces a
+  proposed summary, shows it to the user, permits edit, and only
+  commits on explicit confirmation. Headless `session.compact`
+  compacts immediately, returns the summary/result payload, and does
+  not have a built-in preview/confirm round-trip.
 - **Original turns survive on `trace`.** The `tree` ref receives a
   compaction commit that replaces the conversation-view with the
   summary; the `trace` ref keeps the raw turns unchanged. The
@@ -845,8 +850,9 @@ colour / layout fields; the bundled default fills the rest.
 
 Override any `.tmpl` in
 `$XDG_CONFIG_HOME/stado/templates/<name>.tmpl`. Loaded via
-`render.NewWithOverlay` (not yet wired into `stado`'s TUI entry point;
-small change pending).
+`render.NewWithOverlay`. The renderer support exists today, but
+`tui.Run` still constructs `render.New`, so template overrides are not
+yet live in the shipped TUI entry point.
 
 ---
 

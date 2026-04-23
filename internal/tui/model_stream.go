@@ -1,0 +1,1043 @@
+package tui
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
+)
+
+func (m *Model) appendUser(text string) {
+	msg := agent.Text(agent.RoleUser, text)
+	m.blocks = append(m.blocks, block{kind: "user", body: text})
+	m.msgs = append(m.msgs, msg)
+	m.persistMessage(msg)
+}
+
+func (m *Model) appendBlock(b block) {
+	m.blocks = append(m.blocks, b)
+}
+
+// persistMessage append-writes msg to this session's conversation
+// log so a future `stado` boot under the same worktree can resume
+// the conversation. Best-effort: a disk error degrades resume but
+// shouldn't interrupt the live session, so we swallow errors here
+// (they already log through slog via OpenSession's OnCommit).
+func (m *Model) persistMessage(msg agent.Message) {
+	if m.session == nil {
+		return
+	}
+	_ = runtime.AppendMessage(m.session.WorktreePath, msg)
+}
+
+// persistReplacement rewrites the conversation log with the current
+// m.msgs state. Called after compaction-accept — the compacted form
+// is what the user wants to resume, not the pre-compaction trail.
+// Same best-effort error handling as persistMessage.
+func (m *Model) persistReplacement() {
+	if m.session == nil {
+		return
+	}
+	_ = runtime.WriteConversation(m.session.WorktreePath, m.msgs)
+}
+
+// LoadPersistedConversation seeds m.msgs + m.blocks from whatever
+// `runtime.LoadConversation` finds under the session's worktree. No-op
+// when the conversation file is absent (fresh session) or the session
+// itself is nil (test harness). Callers invoke this once at TUI boot,
+// after the session is wired but before the first user input.
+//
+// Only text blocks are recreated faithfully. Tool-use / tool-result /
+// thinking / image blocks are summarised with placeholder tags since
+// the TUI's live-render pipeline for those is tied to in-flight
+// streaming events that aren't present on replay. A future iteration
+// could reconstruct them more fully; for now, the user sees enough to
+// know what the conversation was without losing the m.msgs LLM-side
+// prompt prefix.
+func (m *Model) LoadPersistedConversation() {
+	if m.session == nil {
+		return
+	}
+	loaded, err := runtime.LoadConversation(m.session.WorktreePath)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	m.msgs = loaded
+	m.blocks = append(m.blocks, msgsToBlocks(loaded)...)
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("resumed session — %d prior message(s) loaded from disk.", len(loaded)),
+	})
+}
+
+// msgsToBlocks renders a persisted message slice into the TUI's
+// block model so the user sees the prior conversation on resume.
+// Multi-block messages collapse into one per role; non-text blocks
+// get short placeholder tags so the UI doesn't show blank
+// assistant turns for tool-heavy history.
+func msgsToBlocks(msgs []agent.Message) []block {
+	out := make([]block, 0, len(msgs))
+	for _, msg := range msgs {
+		var body string
+		for _, b := range msg.Content {
+			switch {
+			case b.Text != nil:
+				if body != "" {
+					body += "\n"
+				}
+				body += b.Text.Text
+			case b.Thinking != nil:
+				body += "[thinking]"
+			case b.ToolUse != nil:
+				body += "[tool_use " + b.ToolUse.Name + "]"
+			case b.ToolResult != nil:
+				body += "[tool_result]"
+			case b.Image != nil:
+				body += "[image]"
+			}
+		}
+		kind := "assistant"
+		switch msg.Role {
+		case agent.RoleUser:
+			kind = "user"
+		case agent.RoleTool:
+			kind = "tool"
+		}
+		out = append(out, block{kind: kind, body: body})
+	}
+	return out
+}
+
+// startBtw fires an async BTW query: a StreamTurn that does NOT mutate
+// m.msgs.  The conversation history is snapshotted for context; the
+// reply is rendered as a "btw" block when it arrives via btwResultMsg.
+func (m *Model) startBtw(question string) tea.Cmd {
+	if !m.ensureProvider() {
+		return nil
+	}
+
+	// Show the user's question immediately as a btw block.
+	m.appendBlock(block{kind: "btw", body: question + "\n"})
+	m.renderBlocks()
+
+	// Snapshot the conversation for context.  Keep all prior messages
+	// (including system/tool) — the model needs enough context to answer.
+	msgs := make([]agent.Message, len(m.msgs))
+	copy(msgs, m.msgs)
+	msgs = append(msgs, agent.Text(agent.RoleUser, question))
+
+	// Build non-mutating tool set (same as Plan mode).
+	var tools []agent.ToolDef
+	if m.executor != nil {
+		for _, t := range m.executor.Registry.All() {
+			name := t.Name()
+			if m.executor.Registry.ClassOf(name) != tool.ClassNonMutating {
+				continue
+			}
+			schema, _ := json.Marshal(t.Schema())
+			tools = append(tools, agent.ToolDef{
+				Name:        name,
+				Description: t.Description(),
+				Schema:      schema,
+			})
+		}
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(m.rootCtx, 120*time.Second)
+		defer cancel()
+
+		req := agent.TurnRequest{
+			Model:    m.model,
+			System:   m.systemPrompt,
+			Messages: msgs,
+			Tools:    tools,
+		}
+		if m.provider.Capabilities().SupportsPromptCache && len(msgs) > 1 {
+			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 2}}
+		}
+
+		ch, err := m.provider.StreamTurn(ctx, req)
+		if err != nil {
+			m.sendMsg(btwResultMsg{question: question, errMsg: err.Error()})
+			return
+		}
+
+		var reply strings.Builder
+		for ev := range ch {
+			switch ev.Kind {
+			case agent.EvTextDelta:
+				reply.WriteString(ev.Text)
+			case agent.EvError:
+				if ev.Err != nil {
+					m.sendMsg(btwResultMsg{question: question, errMsg: ev.Err.Error()})
+					return
+				}
+			case agent.EvDone:
+				goto done
+			}
+		}
+	done:
+		m.sendMsg(btwResultMsg{question: question, reply: reply.String()})
+	}()
+	return nil
+}
+
+// startStream fires a non-interactive streaming call to the provider and
+// relays events back to the UI via tea.Program.Send.
+func (m *Model) startStream() tea.Cmd {
+	if !m.ensureProvider() {
+		return nil
+	}
+
+	// First-turn capability probe (DESIGN §"Token accounting"). A
+	// provider that doesn't satisfy TokenCounter means we can't see
+	// how close we are to the context window — surface this as a
+	// system message so the user knows the context % is unreliable.
+	// No hard-block: the compaction recovery path lands in PR D; until
+	// then a loud advisory is the best we can do.
+	if !m.tokenCounterChecked {
+		m.tokenCounterChecked = true
+		_, m.tokenCounterPresent = m.provider.(agent.TokenCounter)
+		if !m.tokenCounterPresent {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("warning: provider %q doesn't expose a token counter — context-window percentage will be zero until the provider returns usage.",
+					m.providerDisplayName()),
+			})
+		}
+	}
+
+	// Reset per-turn accumulators.
+	m.turnText = ""
+	m.turnThinking = ""
+	m.turnThinkSig = ""
+	m.turnToolCalls = nil
+
+	// Span ancestor is m.rootCtx (Background or a cross-process
+	// traceparent-enriched context — see Phase 9.4/9.5), so turns
+	// inside a forked session link back to the parent's trace tree.
+	ctx, cancel := context.WithCancel(m.rootCtx)
+	m.streamMu.Lock()
+	m.streamCancel = cancel
+	m.state = stateStreaming
+	m.errorMsg = ""
+	m.turnStart = time.Now()
+	m.streamMu.Unlock()
+
+	req := agent.TurnRequest{
+		Model:    m.model,
+		Messages: m.msgs,
+		Tools:    m.toolDefs(),
+		System:   m.systemPrompt,
+	}
+	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
+	for _, t := range req.Tools {
+		m.turnAllowed[t.Name] = struct{}{}
+	}
+	// Cache-breakpoint placement — DESIGN §"Prompt-cache awareness".
+	// One ephemeral breakpoint on the last prior message, so every turn
+	// caches the entire history up through the previous turn.
+	if m.provider.Capabilities().SupportsPromptCache && len(m.msgs) > 0 {
+		req.CacheHints = []agent.CachePoint{{MessageIndex: len(m.msgs) - 1}}
+	}
+
+	// Shared stream buffer — the stream goroutine appends events
+	// here under m.streamBufMu; the tea.Tick-driven flush reads them
+	// out in batches on the main loop. This decouples the stream's
+	// ingestion rate from bubbletea's unbuffered program channel
+	// so KeyMsgs never get starved by reasoning-model delta bursts.
+	m.streamBufMu.Lock()
+	m.streamBuf = m.streamBuf[:0]
+	m.streamBufClosed = false
+	m.streamBufMu.Unlock()
+
+	go func() {
+		defer cancel()
+		ch, err := m.provider.StreamTurn(ctx, req)
+		if err != nil {
+			m.sendMsg(streamErrorMsg{err: err})
+			return
+		}
+		for ev := range ch {
+			m.streamBufMu.Lock()
+			m.streamBuf = append(m.streamBuf, ev)
+			m.streamBufMu.Unlock()
+			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
+				if ev.Kind == agent.EvDone && ev.Usage != nil {
+					m.usage.InputTokens = ev.Usage.InputTokens
+					m.usage.OutputTokens += ev.Usage.OutputTokens
+					m.usage.CostUSD += ev.Usage.CostUSD
+				}
+				break
+			}
+		}
+		m.streamBufMu.Lock()
+		m.streamBufClosed = true
+		m.streamBufMu.Unlock()
+	}()
+	return streamTickCmd()
+}
+
+func streamTickCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
+		return streamTickMsg{}
+	})
+}
+
+// toolTickCmd reschedules itself every 250ms while a tool is running
+// so the elapsed-time pill in the tool block updates live.
+func (m *Model) toolTickCmd() tea.Cmd {
+	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+		return toolTickMsg{}
+	})
+}
+
+func (m *Model) sendMsg(msg tea.Msg) {
+	if m.program != nil {
+		m.program.Send(msg)
+	}
+}
+
+func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (bool, error) {
+	if m.program == nil {
+		return false, errors.New("approval UI unavailable")
+	}
+	resp := make(chan bool, 1)
+	m.sendMsg(pluginApprovalRequestMsg{
+		title:    title,
+		body:     body,
+		response: resp,
+	})
+	select {
+	case allow := <-resp:
+		return allow, nil
+	case <-ctx.Done():
+		m.sendMsg(pluginApprovalCancelMsg{response: resp})
+		return false, ctx.Err()
+	}
+}
+
+func (m *Model) handleStreamEvent(ev agent.Event) {
+	// Drop stray events that arrived after the stream was cancelled
+	// (e.g. /clear pressed mid-stream). Compaction state has its own
+	// required flow so don't gate it.
+	if m.state != stateStreaming && !m.compacting &&
+		ev.Kind != agent.EvDone && ev.Kind != agent.EvError {
+		return
+	}
+	switch ev.Kind {
+	case agent.EvTextDelta:
+		// Compaction streams go into the pending-summary buffer AND the
+		// assistant block the caller pre-appended — the user sees the
+		// summary materialise, and resolveCompaction has the full text
+		// when they accept.
+		if m.compacting {
+			m.pendingCompactionSummary += ev.Text
+			if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == "assistant" {
+				last := len(m.blocks) - 1
+				m.blocks[last].body += ev.Text
+				m.invalidateBlockCache(last)
+			}
+			return
+		}
+		m.turnText += ev.Text
+		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "assistant" {
+			m.blocks = append(m.blocks, block{kind: "assistant"})
+		}
+		last := len(m.blocks) - 1
+		m.blocks[last].body += ev.Text
+		m.invalidateBlockCache(last)
+
+	case agent.EvThinkingDelta:
+		m.turnThinking += ev.Text
+		m.turnThinkSig += ev.ThinkingSig
+		if ev.Text != "" {
+			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
+				m.blocks = append(m.blocks, block{kind: "thinking"})
+			}
+			last := len(m.blocks) - 1
+			m.blocks[last].body += ev.Text
+			m.invalidateBlockCache(last)
+		}
+
+	case agent.EvToolCallStart:
+		if ev.ToolCall == nil {
+			return
+		}
+		m.blocks = append(m.blocks, block{
+			kind:      "tool",
+			toolID:    ev.ToolCall.ID,
+			toolName:  ev.ToolCall.Name,
+			startedAt: time.Now(),
+		})
+
+	case agent.EvToolCallArgsDelta:
+		if len(m.blocks) == 0 {
+			return
+		}
+		last := &m.blocks[len(m.blocks)-1]
+		if last.kind == "tool" {
+			last.toolArgs += ev.ToolArgsDelta
+			m.invalidateBlockCache(len(m.blocks) - 1)
+		}
+
+	case agent.EvToolCallEnd:
+		if ev.ToolCall == nil {
+			return
+		}
+		cp := *ev.ToolCall
+		m.turnToolCalls = append(m.turnToolCalls, cp)
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == ev.ToolCall.ID {
+				m.blocks[i].toolArgs = string(ev.ToolCall.Input)
+				m.blocks[i].endedAt = time.Now()
+				m.invalidateBlockCache(i)
+				break
+			}
+		}
+	}
+}
+
+// onTurnComplete is called when the provider's stream ends. It persists the
+// assistant turn into msgs; if the turn ended on tool calls, it starts the
+// approval queue so the user sees each tool before it runs.
+func (m *Model) onTurnComplete() tea.Cmd {
+	// Compaction turn: the summariser has produced its draft. Park in
+	// stateCompactionPending, waiting for y/n. msgs is NOT touched — the
+	// replacement only happens after explicit confirmation.
+	if m.compacting {
+		m.compacting = false
+		if strings.TrimSpace(m.pendingCompactionSummary) == "" {
+			m.appendBlock(block{kind: "system", body: "compaction: model returned empty summary — aborting."})
+			m.state = stateIdle
+			return nil
+		}
+		m.appendBlock(block{
+			kind: "system",
+			body: "compaction: press 'y' to replace conversation with the summary above, 'n' to discard.",
+		})
+		m.state = stateCompactionPending
+		return nil
+	}
+
+	// Build the assistant message from the accumulated turn.
+	var asstBlocks []agent.Block
+	if m.turnThinking != "" || m.turnThinkSig != "" {
+		asstBlocks = append(asstBlocks, agent.Block{Thinking: &agent.ThinkingBlock{
+			Text:      m.turnThinking,
+			Signature: m.turnThinkSig,
+		}})
+	}
+	if m.turnText != "" {
+		asstBlocks = append(asstBlocks, agent.Block{Text: &agent.TextBlock{Text: m.turnText}})
+	}
+	for i := range m.turnToolCalls {
+		tc := m.turnToolCalls[i]
+		asstBlocks = append(asstBlocks, agent.Block{ToolUse: &tc})
+	}
+	if len(asstBlocks) > 0 {
+		asstMsg := agent.Message{Role: agent.RoleAssistant, Content: asstBlocks}
+		m.msgs = append(m.msgs, asstMsg)
+		m.persistMessage(asstMsg)
+	}
+
+	if len(m.turnToolCalls) == 0 {
+		m.state = stateIdle
+		// Drain any queued follow-up message the user typed while the
+		// previous turn was streaming. The block was already appended
+		// at queue-time for immediate visual feedback; drain just
+		// adds the message to m.msgs (the LLM-facing history) and
+		// kicks the next turn. Slash commands route through
+		// handleSlash. Queued prompts bypass the hard-threshold gate
+		// on the theory that if the user decided to queue something
+		// mid-stream, they can react to the block on arrival.
+		if m.queuedPrompt != "" {
+			queued := m.queuedPrompt
+			m.queuedPrompt = ""
+			if strings.HasPrefix(queued, "/") {
+				return m.handleSlash(queued)
+			}
+			// Block was already appended at submit-time. Clear the
+			// queued tag on the most recent matching user block so its
+			// "queued" pill disappears when the turn actually starts.
+			for i := len(m.blocks) - 1; i >= 0; i-- {
+				if m.blocks[i].kind == "user" && m.blocks[i].queued {
+					m.blocks[i].queued = false
+					m.invalidateBlockCache(i)
+					break
+				}
+			}
+			// Just thread it through msgs + persistence so the next
+			// stream sees it as a user turn.
+			msg := agent.Text(agent.RoleUser, queued)
+			m.msgs = append(m.msgs, msg)
+			m.persistMessage(msg)
+			return m.startStream()
+		}
+		return nil
+	}
+
+	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
+	m.pendingResults = nil
+	return m.advanceToolQueue()
+}
+
+// advanceToolQueue executes pending tool calls one-by-one without an
+// automatic approval gate. Plugins can still request approval
+// explicitly through the plugin host.
+func (m *Model) advanceToolQueue() tea.Cmd {
+	for len(m.pendingCalls) > 0 {
+		call := m.pendingCalls[0]
+		m.pendingCalls = m.pendingCalls[1:]
+		if !m.turnAllowsTool(call.Name) {
+			m.rejectUnavailableTool(call)
+			continue
+		}
+		return m.executeCallAsync(call)
+	}
+	// Queue drained — post the results and let the agent loop re-stream.
+	results := m.pendingResults
+	m.pendingResults = nil
+	m.state = stateIdle
+	return func() tea.Msg { return toolsExecutedMsg{results: results} }
+}
+
+func (m *Model) turnAllowsTool(name string) bool {
+	if len(m.turnAllowed) == 0 {
+		return false
+	}
+	_, ok := m.turnAllowed[name]
+	return ok
+}
+
+func (m *Model) rejectUnavailableTool(call agent.ToolUseBlock) {
+	content := unavailableToolContent(call.Name)
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == call.ID {
+			m.blocks[i].toolResult = content
+			if m.blocks[i].endedAt.IsZero() {
+				m.blocks[i].endedAt = time.Now()
+			}
+			m.invalidateBlockCache(i)
+			break
+		}
+	}
+	m.pendingResults = append(m.pendingResults, agent.ToolResultBlock{
+		ToolUseID: call.ID,
+		Content:   content,
+		IsError:   true,
+	})
+}
+
+func unavailableToolContent(name string) string {
+	return fmt.Sprintf("tool %q is not available for this turn", name)
+}
+
+// executeCallAsync runs a single tool through the Executor on a goroutine
+// so long-running tools (e.g. bash sleep 30) never block the UI. The result
+// is ferried back via toolResultMsg. A cancellable context lets Ctrl+C stop
+// the tool mid-execution; a tick timer updates the elapsed counter live.
+func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
+	if m.executor == nil {
+		return func() tea.Msg {
+			return toolResultMsg{result: agent.ToolResultBlock{
+				ToolUseID: call.ID,
+				Content:   "tool execution unavailable (no session)",
+				IsError:   true,
+			}}
+		}
+	}
+	workdir := m.cwd
+	if m.session != nil {
+		workdir = m.session.WorktreePath
+	}
+	host := hostAdapter{
+		workdir: workdir,
+		readLog: m.executor.ReadLog,
+		runner:  m.executor.Runner,
+		approval: tuiApprovalBridge{
+			model: m,
+		},
+	}
+	// Create a cancellable context for this tool execution.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.toolMu.Lock()
+	m.toolCancel = cancel
+	// Start the tick timer for live elapsed-time updates.
+	m.toolTickTimer = time.AfterFunc(250*time.Millisecond, func() {
+		if m.program != nil {
+			m.program.Send(toolTickMsg{})
+		}
+	})
+	m.toolMu.Unlock()
+	return func() tea.Msg {
+		defer func() {
+			// Ensure timer is stopped when tool completes (normally or cancelled).
+			m.toolMu.Lock()
+			if m.toolTickTimer != nil {
+				m.toolTickTimer.Stop()
+				m.toolTickTimer = nil
+			}
+			m.toolMu.Unlock()
+		}()
+		res, err := m.executor.Run(ctx, call.Name, call.Input, host)
+		content := res.Content
+		isErr := res.Error != ""
+		if err != nil {
+			// Distinguish cancellation from other errors.
+			if errors.Is(err, context.Canceled) {
+				content = "cancelled by user"
+			} else {
+				content = err.Error()
+			}
+			isErr = true
+		} else if isErr {
+			content = res.Error
+		}
+		return toolResultMsg{result: agent.ToolResultBlock{
+			ToolUseID: call.ID,
+			Content:   content,
+			IsError:   isErr,
+		}}
+	}
+}
+
+// toolDefs builds the tool-definition list for the current turn request. An
+// empty registry (no session) returns nil so the provider runs pure chat.
+//
+// In Plan mode only NonMutating tools are exposed — the model can grep/read/
+// look-up-defs to form a plan, but can't edit/write/bash. This is the
+// principled enforcement (no approval-loop workaround): the model literally
+// doesn't see the mutating tools as available, so it produces analysis
+// rather than asking to execute.
+func (m *Model) toolDefs() []agent.ToolDef {
+	visible := m.visibleTools()
+	out := make([]agent.ToolDef, 0, len(visible))
+	for _, t := range visible {
+		schema, _ := json.Marshal(t.Schema())
+		out = append(out, agent.ToolDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Schema:      schema,
+		})
+	}
+	return out
+}
+
+func (m *Model) visibleTools() []tool.Tool {
+	if m.executor == nil {
+		return nil
+	}
+	all := m.executor.Registry.All()
+	if m.mode != modePlan && m.mode != modeBTW {
+		return all
+	}
+	out := make([]tool.Tool, 0, len(all))
+	for _, t := range all {
+		if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// compactRequest / compactReplace are thin aliases so the code sites
+// read in-place (the compact package owns the wire contract, not the TUI).
+var (
+	compactRequest = compact.BuildRequest
+	compactReplace = compact.ReplaceMessages
+)
+
+// renderContextStatus summarises what the ctx% in the status bar is
+// made of, plus what the user's options are at each threshold. Kept
+// terse — one system block, readable in < 1 screen.
+func (m *Model) renderContextStatus() string {
+	used := m.usage.InputTokens
+	var sb strings.Builder
+
+	caps := m.providerCaps()
+	switch {
+	case !m.tokenCounterPresent && m.tokenCounterChecked:
+		sb.WriteString(fmt.Sprintf("context: unavailable — provider %q doesn't expose a token counter.\n",
+			m.providerDisplayName()))
+	case caps.MaxContextTokens == 0:
+		sb.WriteString("context: unavailable — provider hasn't reported MaxContextTokens.\n")
+	case used == 0:
+		sb.WriteString(fmt.Sprintf("context: 0 / %d tokens (0%%) — first turn hasn't run yet.\n",
+			caps.MaxContextTokens))
+	default:
+		fraction := float64(used) / float64(caps.MaxContextTokens)
+		sb.WriteString(fmt.Sprintf("context: %s / %s tokens (%.1f%%)\n",
+			humanize(used), humanize(caps.MaxContextTokens), 100*fraction))
+		sb.WriteString(fmt.Sprintf("thresholds: soft %.0f%% · hard %.0f%%\n",
+			100*m.ctxSoftThreshold, 100*m.ctxHardThreshold))
+		switch {
+		case fraction >= m.ctxHardThreshold:
+			sb.WriteString("status: above hard threshold — consider /compact or `stado session fork <id> --at turns/<N>` in another shell.\n")
+		case fraction >= m.ctxSoftThreshold:
+			sb.WriteString("status: above soft threshold — forking from an earlier turn is the preferred recovery; /compact is the lossy fallback.\n")
+		default:
+			sb.WriteString("status: healthy.\n")
+		}
+	}
+	sb.WriteString(fmt.Sprintf("turns: %d messages in history\n", len(m.msgs)))
+
+	// Session id (if we're in one) so users can copy-paste into
+	// `stado session fork` / `session tree` without a separate /session
+	// lookup. Zero-value session fields are tolerated — a TUI running
+	// outside a session prints "(no session)".
+	if m.session != nil && m.session.ID != "" {
+		sb.WriteString(fmt.Sprintf("session: %s\n", m.session.ID))
+	}
+
+	// Cost / budget. Cost is always shown; budget caps only when set.
+	sb.WriteString(fmt.Sprintf("cost: $%.4f\n", m.usage.CostUSD))
+	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
+		w := "(unset)"
+		if m.budgetWarnUSD > 0 {
+			w = fmt.Sprintf("$%.2f", m.budgetWarnUSD)
+		}
+		h := "(unset)"
+		if m.budgetHardUSD > 0 {
+			h = fmt.Sprintf("$%.2f", m.budgetHardUSD)
+		}
+		sb.WriteString(fmt.Sprintf("budget: warn=%s · hard=%s", w, h))
+		if m.budgetAcked {
+			sb.WriteString(" · ack")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Project-level instructions (AGENTS.md / CLAUDE.md), if loaded.
+	if m.systemPromptPath != "" {
+		sb.WriteString(fmt.Sprintf("instructions: %s\n", filepath.Base(m.systemPromptPath)))
+	}
+	// Loaded skills.
+	if len(m.skills) > 0 {
+		names := make([]string, 0, len(m.skills))
+		for _, s := range m.skills {
+			names = append(names, s.Name)
+		}
+		sb.WriteString(fmt.Sprintf("skills: %d loaded — %s\n", len(names), strings.Join(names, ", ")))
+	}
+	// post_turn hook, if configured.
+	if m.hookRunner.PostTurnCmd != "" {
+		cmd := m.hookRunner.PostTurnCmd
+		if len(cmd) > 60 {
+			cmd = cmd[:57] + "..."
+		}
+		if m.hookRunner.Disabled {
+			sb.WriteString(fmt.Sprintf("hook post_turn: %s (disabled: bash tool unavailable)\n", cmd))
+		} else {
+			sb.WriteString(fmt.Sprintf("hook post_turn: %s\n", cmd))
+		}
+	}
+
+	sb.WriteString("options: /compact (summarise + confirm)  ·  /retry (regenerate last turn)  ·  session tree / session fork --at turns/<N>")
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// startCompaction kicks off a summarisation stream and parks the UI in
+// stateCompactionPending once it completes. See DESIGN §"Compaction":
+// user-invoked only, explicit confirmation required before msgs is
+// replaced.
+func (m *Model) startCompaction() tea.Cmd {
+	if m.state != stateIdle {
+		m.appendBlock(block{kind: "system", body: "compaction: busy — wait for the current turn to finish"})
+		return nil
+	}
+	if !m.ensureProvider() {
+		return nil
+	}
+	if len(m.msgs) == 0 {
+		m.appendBlock(block{kind: "system", body: "compaction: conversation is empty — nothing to compact"})
+		return nil
+	}
+
+	m.appendBlock(block{kind: "system", body: "compacting conversation — streaming proposed summary below..."})
+	m.appendBlock(block{kind: "assistant", body: ""})
+	// Remember where the streamed summary lives so inline-edit
+	// ('e' key) can rewrite the right block when the user revises.
+	m.compactionBlockIdx = len(m.blocks) - 1
+	m.compacting = true
+	m.pendingCompactionSummary = ""
+
+	// Parent-link through rootCtx so the compaction turn's spans
+	// thread into the session's trace tree (Phase 9.4/9.5).
+	ctx, cancel := context.WithCancel(m.rootCtx)
+	m.streamMu.Lock()
+	m.streamCancel = cancel
+	m.state = stateStreaming
+	m.errorMsg = ""
+	m.streamMu.Unlock()
+
+	req := compactRequest(m.model, m.msgs)
+
+	go func() {
+		defer cancel()
+		ch, err := m.provider.StreamTurn(ctx, req)
+		if err != nil {
+			m.sendMsg(streamErrorMsg{err: err})
+			return
+		}
+		for ev := range ch {
+			m.sendMsg(streamEventMsg{ev: ev})
+			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
+				m.sendMsg(streamDoneMsg{})
+				return
+			}
+		}
+		m.sendMsg(streamDoneMsg{})
+	}()
+	return nil
+}
+
+// enterSummaryEdit swaps the user's in-flight draft for the proposed
+// compaction summary so they can revise it in the main editor. The
+// draft is stashed and restored on commit/cancel — DESIGN §"Compaction"
+// emphasises the user shouldn't lose their current thought while
+// deciding how to recover.
+func (m *Model) enterSummaryEdit() {
+	if m.state != stateCompactionPending {
+		return
+	}
+	m.savedDraftBeforeEdit = m.input.Value()
+	m.input.SetValue(m.pendingCompactionSummary)
+	m.state = stateCompactionEditing
+	m.appendBlock(block{
+		kind: "system",
+		body: "editing summary — Enter to save, Esc/n to cancel.",
+	})
+}
+
+// commitSummaryEdit finalises the edit: the new text becomes
+// pendingCompactionSummary AND is written back into the visible
+// assistant block so the user sees the revision before pressing y.
+func (m *Model) commitSummaryEdit() {
+	if m.state != stateCompactionEditing {
+		return
+	}
+	edited := m.input.Value()
+	m.pendingCompactionSummary = edited
+	if m.compactionBlockIdx >= 0 && m.compactionBlockIdx < len(m.blocks) {
+		m.blocks[m.compactionBlockIdx].body = edited
+		m.invalidateBlockCache(m.compactionBlockIdx)
+	}
+	m.input.SetValue(m.savedDraftBeforeEdit)
+	m.savedDraftBeforeEdit = ""
+	m.state = stateCompactionPending
+	m.appendBlock(block{
+		kind: "system",
+		body: "summary updated — press 'y' to apply, 'n' to discard, 'e' to edit again.",
+	})
+}
+
+// cancelSummaryEdit restores the original summary + the draft the user
+// had in flight. pendingCompactionSummary and the visible block are
+// left untouched — we only discard the editor's buffer.
+func (m *Model) cancelSummaryEdit() {
+	if m.state != stateCompactionEditing {
+		return
+	}
+	m.input.SetValue(m.savedDraftBeforeEdit)
+	m.savedDraftBeforeEdit = ""
+	m.state = stateCompactionPending
+	m.appendBlock(block{
+		kind: "system",
+		body: "edit cancelled — original summary kept.",
+	})
+}
+
+// resolveCompaction is called from Update when the user presses 'y' or
+// 'n' while in stateCompactionPending. 'y' replaces msgs AND writes a
+// dual-ref git commit (tree + trace) recording the compaction event;
+// 'n' discards the summary and leaves both sides untouched.
+//
+// DESIGN §"Compaction" invariant: `tree` commit keeps its parent's
+// tree hash (filesystem unchanged — compaction is conversation-scope,
+// not file-scope), so `git checkout refs/sessions/<id>/tree~1 -- …`
+// restores the pre-compaction state exactly. `trace` keeps the raw
+// turn commits so the audit trail is never rewritten.
+func (m *Model) resolveCompaction(accept bool) {
+	if m.state != stateCompactionPending {
+		return
+	}
+	if accept {
+		summary := m.pendingCompactionSummary
+		turnsTotal := len(m.msgs)
+		m.msgs = compactReplace(summary)
+		// Rewrite the on-disk conversation log to match the compacted
+		// state so a future resume sees the summary instead of the
+		// full pre-compaction trail. Dual-ref commit (tree + trace)
+		// preserves the raw turns separately on the trace ref for
+		// audit, so nothing is lost.
+		m.persistReplacement()
+
+		// Also clear the visual chat history so the user sees the
+		// replacement happen, not just read about it in a system note
+		// below the pre-compact turns. Without this the next user
+		// message pushes the old turns further up rather than starting
+		// fresh.
+		m.blocks = nil
+		m.appendBlock(block{kind: "assistant", body: summary})
+
+		accepted := "compaction accepted — prior conversation replaced with summary."
+		if m.session != nil {
+			toTurn := m.session.Turn()
+			title := compactionTitle(summary)
+			treeSHA, traceSHA, err := m.session.CommitCompaction(stadogit.CompactionMeta{
+				Title:      title,
+				Summary:    summary,
+				FromTurn:   0, // chained-compactions tracking lands in a follow-up
+				ToTurn:     toTurn,
+				TurnsTotal: turnsTotal,
+				ByAuthor:   m.providerDisplayName(),
+			})
+			if err != nil {
+				accepted += fmt.Sprintf("\n(tree/trace commit failed: %v — summary still replaced in-memory.)", err)
+			} else {
+				accepted += fmt.Sprintf("\ntree: %s  trace: %s",
+					treeSHA.String()[:12], traceSHA.String()[:12])
+			}
+		}
+		m.appendBlock(block{kind: "system", body: accepted})
+	} else {
+		m.appendBlock(block{kind: "system", body: "compaction declined — conversation unchanged."})
+	}
+	m.pendingCompactionSummary = ""
+	m.state = stateIdle
+}
+
+// compactionTitle derives a short subject line from the summary — the
+// first sentence, capped at ~70 chars. The full body lands in the
+// commit message under the subject.
+func compactionTitle(summary string) string {
+	s := strings.TrimSpace(summary)
+	if i := strings.IndexAny(s, ".\n"); i > 0 && i < 120 {
+		s = s[:i]
+	}
+	if len(s) > 70 {
+		s = s[:69] + "…"
+	}
+	return s
+}
+
+// installedAutoCompact returns the `auto-compact-<version>` directory
+// name when a plugin matching that naming pattern is installed under
+// $XDG_DATA_HOME/stado/plugins/, or "" otherwise. Used by the
+// hard-threshold advisory to offer `/plugin:auto-compact-<ver> compact`
+// as a one-click recovery when the plugin is available.
+//
+// Picks the lexicographically-latest version if multiple are
+// installed — simple heuristic that matches install-order in
+// practice (version bumps go forward).
+func (m *Model) installedAutoCompact() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	entries, err := os.ReadDir(filepath.Join(cfg.StateDir(), "plugins"))
+	if err != nil {
+		return ""
+	}
+	latest := ""
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "auto-compact-") {
+			continue
+		}
+		if e.Name() > latest {
+			latest = e.Name()
+		}
+	}
+	return latest
+}
+
+// aboveHardThreshold reports whether the current turn's running
+// context usage has crossed the hard threshold. DESIGN §"Token
+// accounting" §11.2.6: new user-initiated turns block above this
+// bound; in-flight tool-continuation turns are allowed to finish.
+func (m *Model) aboveHardThreshold() bool {
+	if m.ctxHardThreshold <= 0 {
+		return false
+	}
+	return m.contextFraction() >= m.ctxHardThreshold
+}
+
+// contextFraction returns current input-token usage as a fraction of
+// the provider's reported max context. Returns 0 when capacity or
+// usage is unknown — callers treat that as "not above threshold".
+func (m *Model) contextFraction() float64 {
+	cap := m.providerCaps().MaxContextTokens
+	used := m.usage.InputTokens
+	if cap <= 0 || used == 0 {
+		return 0
+	}
+	return float64(used) / float64(cap)
+}
+
+// firePostTurnHook invokes the user-configured post_turn shell
+// command (if any) with a JSON payload on stdin. No-op when the
+// hook isn't configured. Errors / timeouts are logged by the hook
+// runner; never propagated — the turn is over.
+func (m *Model) firePostTurnHook() {
+	if m.hookRunner.PostTurnCmd == "" || m.hookRunner.Disabled {
+		return
+	}
+	excerpt := m.turnText
+	if len(excerpt) > 200 {
+		excerpt = excerpt[:200]
+	}
+	dur := int64(0)
+	if !m.turnStart.IsZero() {
+		dur = time.Since(m.turnStart).Milliseconds()
+	}
+	m.hookRunner.FirePostTurn(m.rootCtx, hooks.PostTurnPayload{
+		Event:       "post_turn",
+		TurnIndex:   len(m.msgs),
+		TokensIn:    m.usage.InputTokens,
+		TokensOut:   m.usage.OutputTokens,
+		CostUSD:     m.usage.CostUSD,
+		TextExcerpt: excerpt,
+		DurationMS:  dur,
+	})
+}
+
+// maybeEmitBudgetWarning fires a one-time system block once cumulative
+// cost crosses the warn cap, so users don't keep seeing the same
+// notice every turn. Called from handleStreamEvent on every Usage
+// update.
+func (m *Model) maybeEmitBudgetWarning() {
+	if m.budgetWarnUSD <= 0 || m.budgetWarned {
+		return
+	}
+	if m.usage.CostUSD < m.budgetWarnUSD {
+		return
+	}
+	m.budgetWarned = true
+	cap := m.budgetWarnUSD
+	hint := ""
+	if m.budgetHardUSD > 0 {
+		hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
+	}
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("budget warning: cost $%.2f crossed warn cap $%.2f%s", m.usage.CostUSD, cap, hint),
+	})
+	m.renderBlocks()
+}

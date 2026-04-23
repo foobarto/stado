@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,11 @@ import (
 	"github.com/foobarto/stado/internal/textutil"
 )
 
+var (
+	doctorJSON    bool
+	doctorNoLocal bool
+)
+
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
 	Short: "Diagnose stado's environment: tools, sandbox, provider keys, paths",
@@ -27,72 +33,93 @@ var doctorCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		var d report
-		d.check("OS/arch", runtime.GOOS+"/"+runtime.GOARCH, "ok", true)
-		d.check("Go runtime", runtime.Version(), "ok", true)
-
-		// Paths.
-		d.check("Config file", cfg.ConfigPath, statusOfPath(cfg.ConfigPath), true)
-		d.check("State dir", cfg.StateDir(), statusOfPath(cfg.StateDir()), true)
-		d.check("Worktree dir", cfg.WorktreeDir(), statusOfPath(cfg.WorktreeDir()), true)
-
-		// Provider selection + API key check.
-		prov := cfg.Defaults.Provider
-		if prov == "" {
-			d.check("Provider", "(unset — probes local at boot)",
-				"stado will auto-detect a running local runner (ollama/lmstudio/llamacpp/vllm/user preset); set defaults.provider in config to pin a specific provider",
-				true)
+		d := buildDoctorReport(cmd.Context(), cfg, doctorOptions{
+			json:    doctorJSON,
+			noLocal: doctorNoLocal,
+		})
+		if doctorJSON {
+			d.renderJSON(cmd.OutOrStdout())
 		} else {
-			d.check("Provider", prov, "configured", true)
-			if keyEnv := providerEnvName(prov); keyEnv != "" {
-				if os.Getenv(keyEnv) != "" {
-					d.check("Provider key  ("+keyEnv+")", "present", "ok", true)
-				} else {
-					d.check("Provider key  ("+keyEnv+")", "not set", "missing — stado will fail on first prompt", false)
-				}
-			}
+			d.render(cmd.OutOrStdout())
 		}
-
-		// External tools — PATH or fallback notes.
-		d.checkBin("ripgrep (rg)", "rg")
-		d.checkBin("ast-grep", "ast-grep")
-		d.checkBin("bubblewrap (bwrap)", "bwrap")
-		d.checkOptionalBin("gopls", "gopls",
-			"optional — install via `go install golang.org/x/tools/gopls@latest` to enable the lsp-find tool")
-		d.checkBin("git", "git")
-		d.checkBin("cosign", "cosign")
-
-		// Sandbox detection.
-		d.check("Sandbox runner", sandbox.Detect().Name(), "ok", true)
-		if err := sandbox.ProbeLandlock(); err == nil {
-			d.check("Landlock", "available", "kernel ≥ 5.13", true)
-		} else {
-			d.check("Landlock", err.Error(), "unavailable (not fatal)", false)
-		}
-
-		// Context management readiness (Phase 11).
-		checkContext(&d, cfg)
-
-		// Opt-in feature visibility — so a user who wrote config.toml
-		// can confirm the knob took effect. These are all ✓ with
-		// value = "(unset)" when absent; the point is to show the
-		// feature exists rather than gate on it being configured.
-		checkOptInFeatures(&d, cfg)
-
-		// Local inference autodetection — probe ollama / llamacpp /
-		// vllm / lmstudio endpoints so the report tells the user
-		// "you have lmstudio running at localhost:1234 with 3 models
-		// loaded" without requiring them to set up a provider first.
-		// Merges in user-configured presets at local-looking endpoints
-		// so custom ports get probed too.
-		checkLocalProviders(cmd.Context(), &d, cfg)
-
-		d.render(cmd.OutOrStdout())
 		if d.fails > 0 {
-			os.Exit(2)
+			os.Exit(1)
 		}
 		return nil
 	},
+}
+
+type doctorOptions struct {
+	json    bool
+	noLocal bool
+}
+
+var checkLocalProvidersFn = checkLocalProviders
+
+func buildDoctorReport(ctx context.Context, cfg *config.Config, opts doctorOptions) report {
+	var d report
+	d.check("OS/arch", runtime.GOOS+"/"+runtime.GOARCH, "ok", true)
+	d.check("Go runtime", runtime.Version(), "ok", true)
+
+	// Paths.
+	d.check("Config file", cfg.ConfigPath, statusOfPath(cfg.ConfigPath), true)
+	d.check("State dir", cfg.StateDir(), statusOfPath(cfg.StateDir()), true)
+	d.check("Worktree dir", cfg.WorktreeDir(), statusOfPath(cfg.WorktreeDir()), true)
+
+	// Provider selection + API key check.
+	prov := cfg.Defaults.Provider
+	if prov == "" {
+		d.check("Provider", "(unset — probes local at boot)",
+			"stado will auto-detect a running local runner (ollama/lmstudio/llamacpp/vllm/user preset); set defaults.provider in config to pin a specific provider",
+			true)
+	} else {
+		d.check("Provider", prov, "configured", true)
+		if keyEnv := providerEnvName(prov); keyEnv != "" {
+			if os.Getenv(keyEnv) != "" {
+				d.check("Provider key  ("+keyEnv+")", "present", "ok", true)
+			} else {
+				d.check("Provider key  ("+keyEnv+")", "not set", "missing — stado will fail on first prompt", false)
+			}
+		}
+	}
+
+	// External tools — PATH or fallback notes.
+	d.checkBin("ripgrep (rg)", "rg")
+	d.checkBin("ast-grep", "ast-grep")
+	d.checkBin("bubblewrap (bwrap)", "bwrap")
+	d.checkOptionalBin("gopls", "gopls",
+		"optional — install via `go install golang.org/x/tools/gopls@latest` to enable the lsp-find tool")
+	d.checkBin("git", "git")
+	d.checkBin("cosign", "cosign")
+
+	// Sandbox detection.
+	d.check("Sandbox runner", sandbox.Detect().Name(), "ok", true)
+	if err := sandbox.ProbeLandlock(); err == nil {
+		d.check("Landlock", "available", "kernel ≥ 5.13", true)
+	} else {
+		d.check("Landlock", err.Error(), "unavailable (not fatal)", false)
+	}
+
+	// Context management readiness (Phase 11).
+	checkContext(&d, cfg)
+
+	// Opt-in feature visibility — so a user who wrote config.toml
+	// can confirm the knob took effect. These are all ✓ with
+	// value = "(unset)" when absent; the point is to show the
+	// feature exists rather than gate on it being configured.
+	checkOptInFeatures(&d, cfg)
+
+	// Local inference autodetection — probe ollama / llamacpp /
+	// vllm / lmstudio endpoints so the report tells the user
+	// "you have lmstudio running at localhost:1234 with 3 models
+	// loaded" without requiring them to set up a provider first.
+	// Merges in user-configured presets at local-looking endpoints
+	// so custom ports get probed too.
+	if !opts.noLocal {
+		checkLocalProvidersFn(ctx, &d, cfg)
+	}
+
+	return d
 }
 
 type reportRow struct {
@@ -168,6 +195,22 @@ func (r *report) render(w fmtWriter) {
 	}
 }
 
+func (r *report) renderJSON(w fmtWriter) {
+	enc := json.NewEncoder(w)
+	for _, row := range r.rows {
+		status := "ok"
+		if !row.ok {
+			status = "error"
+		}
+		_ = enc.Encode(map[string]string{
+			"check":  row.label,
+			"status": status,
+			"value":  row.value,
+			"detail": row.detail,
+		})
+	}
+}
+
 type fmtWriter interface {
 	Write([]byte) (int, error)
 }
@@ -209,6 +252,8 @@ func providerEnvName(provider string) string {
 }
 
 func init() {
+	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "Emit one JSON object per check")
+	doctorCmd.Flags().BoolVar(&doctorNoLocal, "no-local", false, "Skip local-runner probes")
 	rootCmd.AddCommand(doctorCmd)
 }
 

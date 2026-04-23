@@ -23,56 +23,30 @@ OS sandbox. Releases are reproducible and dual-signed (cosign + minisign)
 so you can verify what you're running, including from an airgapped
 environment.
 
-> **Status:** pre-1.0. The core agent loop, git-native state, signed
-> audit log, sandbox (Linux + macOS), OpenTelemetry instrumentation,
-> MCP/ACP integration, signed WASM plugins with CRL + Rekor checks,
-> bundled built-in tools loaded through the plugin runtime, and Phase 11
-> context management (prompt-cache plumbing, token counting, in-turn
-> read dedup, per-tool output budgets, fork-from-point ergonomics, and
-> user-invoked compaction) are shipped. Windows sandbox v2 (job objects
-> + restricted tokens) is still in flight — see [PLAN.md](PLAN.md) for
-> the phased roadmap.
+> **Status:** pre-1.0. The core agent loop, git-native sessions, signed
+> audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
+> context management are shipped. Main remaining gaps: Windows sandbox
+> v2, cross-surface `post_turn` hooks, a real CLI compaction path, the
+> first-install `install.sh`, and TUI template overlays. See
+> [PLAN.md](PLAN.md) for the phased roadmap.
 
 ---
 
 ## Why stado
 
-Most coding agents treat your repo as a scratch pad and your security
-team as an obstacle. stado inverts both:
-
-**Your repo stays read-only.** Every agent action lands in a sidecar
-git repo alternates-linked to your `.git/objects` — zero object
-duplication, zero pollution of your branches, zero risk of a runaway
-agent force-pushing over your work. Changes surface in your repo only
-when you run `stado session land`.
-
-**Every tool call is auditable.** Two refs per session: `tree` is the
-executable history (mutations only, diff-then-commit for shell), `trace`
-is the full audit log (every read, every grep, every LSP call — empty
-commits with structured trailers). Both are Ed25519-signed; `stado
-audit verify` walks the chain and reports tampering.
-
-**Tool execution is sandboxed.** Capability manifests declare what a
-tool can touch; the OS enforces. Linux uses Landlock for filesystem
-confinement plus bubblewrap + seccomp BPF for bash/exec with a
-HTTPS-CONNECT-allowlist proxy for network policy. macOS generates a
-`sandbox-exec` `.sb` profile from the Policy. Windows runs unsandboxed
-in v1 (with a one-time warning); job objects + restricted tokens come
-in v2.
-
-**Provider-agnostic by design.** Four direct implementations: Anthropic,
-OpenAI, Google, and a hand-rolled OpenAI-compatible client covering
-llama.cpp, vLLM, Ollama, Groq, Cerebras, OpenRouter, DeepSeek, xAI, and
-Mistral. No third-party LLM abstraction library. Thinking blocks and
-reasoning content round-trip verbatim — no lossy normalization.
-
-**Reproducible, signed, airgap-friendly.** Releases are bit-for-bit
-reproducible (`-trimpath -buildvcs=true -buildid=`). Each release ships
-a `checksums.txt` manifest signed two ways: cosign keyless (via GitHub
-Actions OIDC, Rekor-backed) and minisign (Ed25519, long-lived key,
-offline-friendly). Archives and packages are verified against that
-signed manifest. `stado verify --show-builtin-keys` displays the
-minisign trust roots compiled into the running binary.
+- **Your repo stays clean.** Agent state lives in a sidecar bare repo;
+  changes only touch your branch when you run `stado session land`.
+- **Every action is auditable.** Each session maintains signed `tree`
+  and `trace` refs; `stado audit verify` detects tampering.
+- **Tool execution is sandboxed.** Linux has the strongest shipped path
+  (`Landlock` + `bubblewrap` + `seccomp`), macOS has real subprocess
+  sandboxing via `sandbox-exec`, and Windows is still warning-only in
+  v1.
+- **Provider support is direct.** Anthropic, OpenAI, Google, and
+  OpenAI-compatible backends keep provider-native features instead of
+  flattening them behind a lossy abstraction.
+- **Releases are verifiable.** Builds are reproducible and shipped with
+  cosign + minisign signatures.
 
 ---
 
@@ -97,22 +71,17 @@ stado self-update
 ```
 
 `self-update` picks the archive matching the current OS/arch, verifies
-the downloaded asset against `checksums.txt`, and on release builds with
-an embedded minisign root also enforces `checksums.txt.minisig` before
-atomically swapping the binary into place.
+the downloaded asset against a minisign-verified `checksums.txt`
+manifest, and then atomically swaps the binary into place. The updater
+requires a build with an embedded minisign pubkey and a release that
+publishes `checksums.txt.minisig`; it does not fall back to unsigned
+manifest or raw-asset verification.
 
 ### Manual download / release assets
 
 Grab the matching archive or package from
-[Releases](https://github.com/foobarto/stado/releases) and verify it.
-Each tag publishes platform archives
-(`stado_<version>_<os>_<arch>.tar.gz` / `.zip`), Linux packages
-(`.deb` / `.rpm`), `checksums.txt`, `checksums.txt.sig`,
-`checksums.txt.cert`, `checksums.txt.minisig`, and SBOMs.
-
-Manual verification follows the same signed-checksum-manifest flow as
-`self-update`: first verify `checksums.txt`, then verify the specific
-archive/package against that manifest.
+[Releases](https://github.com/foobarto/stado/releases) and verify
+`checksums.txt`, then verify the specific asset against that manifest:
 
 ```sh
 # keyless cosign verification of the checksum manifest
@@ -131,10 +100,8 @@ grep " <asset>$" checksums.txt | shasum -a 256 -c -    # macOS
 stado verify --show-builtin-keys
 ```
 
-For a fully manual airgapped minisign flow, see
-[SECURITY.md](SECURITY.md). For Linux package installs, download the
-matching `.deb` or `.rpm` from the release page and install it with
-your native package manager.
+For the fully manual airgapped minisign flow, see
+[SECURITY.md](SECURITY.md).
 
 ### From source
 
@@ -146,9 +113,8 @@ Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps — official
 release binaries bundle `rg` and `ast-grep` via `go:embed` (extracted
 on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified). Source
 builds (`go install`) skip the embed and fall back to the system PATH;
-`gopls` is optional and always resolved via PATH. Dev/source builds also
-do not pin release minisign roots unless you pass the release ldflags,
-so `stado verify --show-builtin-keys` will usually report `(not pinned)`.
+`gopls` is optional and always resolved via PATH. Dev/source builds do
+not pin the release minisign roots unless you pass the release ldflags.
 
 ---
 
@@ -169,6 +135,7 @@ stado config init
 
 # Optional preflight: provider keys, sandbox, bundled binaries
 stado doctor
+stado doctor --json --no-local         # machine-readable CI/offline path
 
 # Enter a repo and start a session
 cd ~/code/myproject
@@ -208,6 +175,7 @@ stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
 stado config show                       # resolved effective config (file + env + defaults)
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
+stado doctor --json | jq                # newline-delimited JSON, one check per line
 ```
 
 Plugins:
@@ -254,105 +222,21 @@ surface itself is shipped and stable enough to wire into Zed today.
 
 ---
 
-## What's shipped
+## Highlights
 
-**Providers.** Anthropic (with prompt caching + extended thinking + signature
-round-trip), OpenAI (with `reasoning_content`), Google (Gemini), and a
-hand-rolled OpenAI-compat client with 11 bundled presets (ollama,
-llamacpp, vllm, lmstudio, litellm, groq, openrouter, deepseek, xai,
-mistral, cerebras) plus `--endpoint` for anything else.
+- **Providers.** Anthropic, OpenAI, Google, and OpenAI-compatible
+  backends with provider-native reasoning/thinking features preserved.
+- **Tools.** 14 bundled tools, MCP tool registration, and signed WASM
+  plugin overrides all flow through the same runtime.
+- **State.** Git-native sidecar sessions with signed `tree` + `trace`
+  refs, plus resume/fork/land/export/search tooling.
+- **Surfaces.** Terminal TUI, `stado run`, headless JSON-RPC, ACP, and
+  MCP server mode all compose the same core runtime.
+- **Ops.** Strict manifest-based self-update, OpenTelemetry, context
+  management, and signed audit export are already shipped.
 
-**Bundled tools (14).** `read` (supports optional 1-indexed `start`/`end`
-line range + in-turn content-hash dedup so repeat reads of an unchanged
-file spend no tokens), `write`, `edit`, `glob`, `grep`, `ripgrep`,
-`ast_grep`, `bash`, `webfetch`, `read_with_context` (Go-aware import
-resolution), and four LSP-backed tools (`find_definition`,
-`find_references`, `document_symbols`, `hover`). They ship as embedded
-signed WASM modules loaded through the same plugin runtime used for
-third-party tools, so overrides and capability checks behave the same
-way across built-in and external plugins. MCP servers plug in via
-config and auto-register their tools.
-
-**Git-native state.** Sidecar bare repo per user repo. Alternates link
-to your `.git/objects` so agent sessions reference your history without
-copying objects. Dual-ref model (`tree` + `trace`), turn-boundary tags,
-and session subcommands for lifecycle, recovery, and introspection:
-`new`, `list`, `show`, `describe`, `resume`, `attach`, `delete`,
-`fork` (with `--at <turns/N|sha>` to fork from a specific turn),
-`revert`, `tree` (interactive turn-history browser — navigate and fork
-from a chosen turn), `land`, `export`, `search`, `logs`, `gc`, and
-`compact` (advisory; the real flow is `/compact` inside the TUI).
-
-**Sandbox.** Linux ships Landlock for FS confinement, bubblewrap +
-seccomp BPF for bash/exec, and a CONNECT-allowlist proxy for egress.
-macOS generates a `sandbox-exec` profile from the same `Policy`.
-Windows still runs unsandboxed in v1 with a one-time warning while job
-objects + restricted tokens land in v2. `stado run --sandbox-fs`
-narrows the whole process to worktree-only writes.
-
-**Audit.** Ed25519 commit signatures over a canonical
-`stado-audit-v1` framing. `stado audit verify` walks refs and reports
-the first invalid commit. `stado audit export` emits JSONL suitable
-for SIEM ingestion.
-
-**Surfaces.** Terminal TUI (default), `stado run` (single-shot CLI),
-`stado headless` (JSON-RPC 2.0 daemon), `stado acp` (Zed Agent Client
-Protocol server), and `stado mcp-server` (stado as an MCP v1 tool
-server). All compose the same `internal/runtime` core.
-
-**WASM plugins.** `stado plugin init`, `gen-key`, `sign`, `trust`,
-`verify`, `install`, `installed`, `list`, `run`, and `digest` cover the
-full author/install loop. `[tools].overrides` can replace bundled tools
-with installed plugins, and `[plugins].background` loads turn-boundary
-plugins such as auto-compactors or recorders at TUI startup.
-
-**MCP sandbox.** Each `[mcp.servers.<name>]` can declare a
-`capabilities` list (fs:read/fs:write/net:<host>/exec:<binary>/env:VAR).
-Stado maps these to a sandbox policy and launches the stdio server via
-bubblewrap so it can't silently touch anything not in the manifest.
-Unsandboxed servers emit a stderr advisory at attach time.
-
-**Plugin CRL.** When `[plugins].crl_url` + `crl_issuer_pubkey` are
-configured, `stado plugin verify` fetches an Ed25519-signed revocation
-list, caches it on disk (airgap-friendly), and refuses installation of
-any (author_fpr, version, wasm_sha256) triple listed — independent
-check on top of the trust-store signature + rollback gates.
-
-**Self-update integrity.** `stado self-update` verifies the sha256 from
-checksums.txt, and — once a release pubkey is embedded via build
-ldflags — also validates `checksums.txt.minisig` before trusting the
-checksums. Four (pubkey × signature) states all handled with cleanly
-degraded advisories.
-
-**Context management.** Prompt-cache breakpoints placed automatically
-on providers that support them (Anthropic); deterministic tool
-serialisation + append-only guardrails keep the cached prefix
-byte-stable across turns. Token counting via provider-native
-tokenizers (Anthropic `count_tokens`, tiktoken offline for OpenAI and
-OAI-compat, Gemini `count_tokens`); soft/hard thresholds are configurable
-under `[context]` and the TUI's ctx% indicator colour-codes when crossed.
-In-turn read deduplication returns a terse reference when the same
-file+range resolves to the same content hash. Per-tool output budgets
-(read / webfetch 16K, bash 32K, grep / ripgrep 100 matches, glob 200
-entries) with visible truncation markers. User-invoked compaction via
-`/compact` in the TUI — summarises the conversation, shows a
-preview-and-confirm flow, never touches msgs without explicit y.
-
-**Observability.** OpenTelemetry spans around every tool call
-(`stado.tool_call`), every turn (`stado.turn`), and every provider
-stream (`stado.provider.stream`). Off by default; enable via `[otel]`
-or `STADO_OTEL_ENABLED=1`. Metrics instruments already defined:
-`stado_tool_latency_ms`, `stado_tokens_total`, `stado_cache_hit_ratio`,
-`stado_approval_rate`, `stado_sandbox_denials_total`.
-
-**Parallel agents.** `stado session fork` creates a new worktree with
-its own agent loop — three agents on the same repo don't clobber each
-other. `stado agents list` / `attach` / `kill` multiplex them.
-
-**Reproducible, signed releases.** Bit-for-bit reproducible builds.
-`checksums.txt` is signed with cosign keyless (Rekor-logged) and
-minisign Ed25519; archives/packages are verified against that manifest.
-SLSA 3 provenance via `slsa-github-generator`. SBOM via syft.
+For the full as-built detail, see [docs/README.md](docs/README.md),
+[DESIGN.md](DESIGN.md), and [PLAN.md](PLAN.md).
 
 ---
 
@@ -360,11 +244,6 @@ SLSA 3 provenance via `slsa-github-generator`. SBOM via syft.
 
 See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
-- **Compaction — CLI-driven + dual-ref persistence** (Phase 11.3
-  remainder). The TUI `/compact` flow is shipped; a fully
-  CLI-driven `stado session compact <id>` and the dual-ref commit
-  that preserves compaction on disk need a conversation-persistence
-  layer that doesn't yet exist.
 - **Sandbox — Windows v2** (Phase 3.6). Linux (bubblewrap + landlock +
   seccomp + CONNECT-proxy) and macOS (`sandbox-exec`) are shipped;
   Windows runs unsandboxed with a warning until job objects + restricted
@@ -378,41 +257,18 @@ See [PLAN.md](PLAN.md) for the full roadmap. Headlines:
 
 ## Offline / airgap
 
-stado runs fully offline with a local inference backend. Known-good
-combinations:
+stado works fully offline with local inference backends such as
+`llama.cpp`, Ollama, LM Studio, and vLLM.
 
-- **llama.cpp** (`llama-server`) — the reference test target. Single
-  binary, cleanest airgap story. `STADO_DEFAULTS_PROVIDER=llamacpp`.
-- **Ollama** — works via its OpenAI-compat endpoint. Set
-  `STADO_DEFAULTS_PROVIDER=ollama`. Note: Ollama's default context
-  length is conservative; set `num_ctx` on the model or
-  `OLLAMA_CONTEXT_LENGTH` env var.
-- **LM Studio** — point-and-click local runner with a GUI. Load a
-  model, enable the local server (default port 1234), set
-  `STADO_DEFAULTS_PROVIDER=lmstudio`. Override the port via
-  `[inference.presets.lmstudio].endpoint` in config if you changed it.
-- **vLLM** — for team-scale self-hosted inference. Point at the
-  `vllm serve` endpoint. `STADO_DEFAULTS_PROVIDER=vllm`.
+Build with `-tags airgap` to strip the outbound HTTP paths that stado
+itself controls: `self-update` refuses to run, `plugin install` stops
+refreshing the CRL and uses the on-disk cache, and `webfetch` errors on
+every invocation. Provider endpoints remain whatever you point stado at.
 
-Build with `-tags airgap` to strip every outbound-HTTP path that stado
-controls: `self-update` refuses to run (pointing operators at the
-manual `download → verify → copy` flow), `plugin install` stops
-refreshing the CRL and relies on the on-disk cache written by the last
-online refresh, and the `webfetch` tool errors on every invocation.
-Provider HTTP clients (llama.cpp, Ollama, LM Studio, vLLM, remote APIs)
-stay untouched — those are the user's explicit inference target, not
-stado's own phone-home. Release verification stays offline-friendly:
-`checksums.txt.minisig` can still be validated with the standalone
-minisign flow in [SECURITY.md](SECURITY.md), and `stado verify
---show-builtin-keys` still prints the embedded trust roots of the
-running binary.
-
-A word of honesty: a Claude Sonnet-class coding experience is not
-replicated by Qwen2.5-Coder-32B or Llama-3.3-70B on a laptop. Local
-models are genuinely useful for iteration and privacy-critical work;
-they're not a drop-in replacement for frontier hosted models on long
-agentic loops. See [PLAN §"Offline / Airgap
-Honesty"](PLAN.md#offline--airgap-honesty).
+Release verification stays offline-friendly via `checksums.txt.minisig`
+and `stado verify --show-builtin-keys`. For the detailed flow, see
+[SECURITY.md](SECURITY.md). For the honest tradeoff discussion on local
+model quality, see [PLAN.md](PLAN.md#offline--airgap-honesty).
 
 ---
 
@@ -445,7 +301,7 @@ protocol = "grpc"
 
 [context]
 soft_threshold = 0.70   # TUI shows a warning indicator above this
-hard_threshold = 0.90   # blocks new turns above this — /compact or /clear to continue
+hard_threshold = 0.90   # TUI blocks new turns; headless emits a hard warning event
 ```
 
 Every key is overridable via env var: `STADO_DEFAULTS_PROVIDER=ollama`,
@@ -476,12 +332,8 @@ land`. The sidecar repo is safe to delete — it rebuilds on next run.
 
 ## Configuring tools & sandboxing
 
-Stado ships 14 bundled tools by default (read/write/edit, glob/grep/
-ripgrep/ast_grep, bash, webfetch, read_with_context, four LSP-backed
-symbol tools). All are exposed to the model in every surface: the TUI,
-`stado run --tools`, headless JSON-RPC, the ACP server, and
-`stado mcp-server`. `stado config show` prints the current effective
-surface; `stado doctor` reports which opt-in knobs are set.
+Stado ships 14 bundled tools by default. `stado config show` prints the
+resolved config and `stado doctor` reports the main runtime knobs.
 
 ### Trim the tool set
 
@@ -498,8 +350,7 @@ enabled  = ["read", "grep", "bash"]
 disabled = ["webfetch", "bash"]
 ```
 
-Unknown names in either list log a stderr warning and are ignored —
-configs survive tool renames across stado versions.
+Unknown names warn on stderr and are ignored.
 
 ### Approvals
 
@@ -512,35 +363,25 @@ allowlist = ["read", "glob", "grep",    # auto-approved in allowlist mode
              "ripgrep", "ast_grep"]
 ```
 
-In the TUI, `/approvals always <tool>` adds a session-scoped
-auto-approve for the current run (cleared on restart). `/approvals
-forget` removes every session-scoped entry.
+In the TUI, `/approvals always <tool>` adds a session-scoped override
+for the current run. `/approvals forget` clears those overrides.
 
 ### Sandboxing
 
-Linux uses two enforcement layers, both kernel-native:
+- **Linux** — `stado run --sandbox-fs` uses Landlock to narrow the
+  whole process; sandboxed subprocesses use bubblewrap + seccomp BPF.
+- **macOS** — sandboxed subprocesses run under generated
+  `sandbox-exec` profiles from the same policy vocabulary, but there is
+  no Linux-style whole-process `--sandbox-fs` path.
+- **Windows** — v1 remains warning-only passthrough; v2 is planned.
 
-- **Landlock** (kernel ≥ 5.13) — filesystem confinement. `stado run
-  --sandbox-fs` narrows the whole process to writes under the active
-  worktree + `/tmp`. Reads stay permitted so globs and greps across
-  the rest of the repo still work.
-- **Bubblewrap + seccomp BPF** — shell exec. Every `bash` tool call
-  and every MCP stdio server is launched inside a bwrap namespace
-  with a seccomp profile that strips the usual escape routes
-  (`ptrace`, `mount`, `bpf`, `modify_ldt`, etc.).
-
-**Network egress** goes through an in-process CONNECT-allowlist
-proxy. The `bash` tool can only reach hosts the capability manifest
-permits (`net:<host>` entries in the MCP server's capabilities list,
-or `net:allow` for unrestricted — noisy stderr warning when that
-broad). `stado doctor` reports Landlock availability and the
-sandbox runner in use.
+`stado doctor` reports the sandbox runner in use. On Linux it also
+reports Landlock availability.
 
 ### MCP server isolation
 
-Each `[mcp.servers.<name>]` block attaches an external MCP tool
-server. Declare a `capabilities` list to gate what that server can
-touch:
+Each `[mcp.servers.<name>]` block can declare a `capabilities` list to
+gate what that stdio server can touch:
 
 ```toml
 [mcp.servers.github]
@@ -556,12 +397,9 @@ capabilities = [
 
 Capability grammar: `fs:read:<path>` · `fs:write:<path>` · `net:<host>`
 · `net:allow` · `net:deny` · `exec:<binary>` · `env:<VAR>`. Empty
-capabilities mean unsandboxed (a legacy default); stado logs a loud
-advisory on stderr.
-
-HTTP MCP servers (`url = "https://…"`) don't participate in the
-bubblewrap sandbox — their network activity is the client's
-concern. stdio servers (`command = …`) do.
+capabilities mean unsandboxed (legacy default) and emit a stderr
+advisory. HTTP MCP servers (`url = "https://…"`) are not wrapped
+locally; stdio servers (`command = …`) are.
 
 ### WASM plugins
 

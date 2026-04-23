@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,5 +153,68 @@ func TestCheckOptInFeatures_SurfacesConfiguredAndUnset(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in rows; got %q", want, got)
 		}
+	}
+}
+
+func TestReport_RenderJSON(t *testing.T) {
+	r := &report{}
+	r.check("ripgrep (rg)", "/usr/bin/rg", "ok", true)
+	r.check("Provider key", "not set", "missing", false)
+
+	var buf strings.Builder
+	r.renderJSON(&buf)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 JSON rows, got %d: %q", len(lines), buf.String())
+	}
+
+	var row1 struct {
+		Check  string `json:"check"`
+		Status string `json:"status"`
+		Value  string `json:"value"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &row1); err != nil {
+		t.Fatalf("row 1 is not valid JSON: %v", err)
+	}
+	if row1.Check != "ripgrep (rg)" || row1.Status != "ok" || row1.Value != "/usr/bin/rg" || row1.Detail != "ok" {
+		t.Fatalf("unexpected row 1: %+v", row1)
+	}
+
+	var row2 struct {
+		Check  string `json:"check"`
+		Status string `json:"status"`
+		Value  string `json:"value"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &row2); err != nil {
+		t.Fatalf("row 2 is not valid JSON: %v", err)
+	}
+	if row2.Check != "Provider key" || row2.Status != "error" || row2.Value != "not set" || row2.Detail != "missing" {
+		t.Fatalf("unexpected row 2: %+v", row2)
+	}
+}
+
+func TestDoctorFlags_Registered(t *testing.T) {
+	for _, name := range []string{"json", "no-local"} {
+		if doctorCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("expected doctor flag %q to be registered", name)
+		}
+	}
+}
+
+func TestBuildDoctorReport_NoLocalSkipsLocalProbe(t *testing.T) {
+	prev := checkLocalProvidersFn
+	defer func() { checkLocalProvidersFn = prev }()
+
+	called := 0
+	checkLocalProvidersFn = func(ctx context.Context, d *report, cfg *config.Config) {
+		called++
+	}
+
+	_ = buildDoctorReport(context.Background(), &config.Config{}, doctorOptions{noLocal: true})
+	if called != 0 {
+		t.Fatalf("expected no-local report build to skip local provider probe, called=%d", called)
 	}
 }
