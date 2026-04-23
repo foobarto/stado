@@ -55,32 +55,33 @@ seccomp filter that strips the common escape routes:
 - `reboot` / `kexec_load` — obvious escape hatches
 
 The filter allowlist is conservative: standard POSIX calls for
-normal program execution (open/read/write/exec/fork/wait/…) plus
-network syscalls used by the CONNECT proxy. Anything not on the
-allowlist returns EPERM.
+normal program execution (open/read/write/exec/fork/wait/…). Anything
+not on the allowlist returns EPERM.
 
 Bwrap runs on any Linux kernel ≥ 3.8 (the user-namespace baseline).
 Stado detects bwrap vs. alternatives at boot; `stado doctor` prints
 the runner in use.
 
-## Layer 3 — CONNECT-allowlist proxy (network)
+## Layer 3 — `pasta` + CONNECT proxy (Linux host-allowlist egress)
 
 An in-process HTTPS-CONNECT proxy is available for sandboxed
-subprocess policies that declare `net:<host>`. Proxy-aware clients
-that honor `HTTP_PROXY` / `HTTPS_PROXY` are matched against the
-capability list:
+subprocess policies that declare `net:<host>`. On Linux, the wrapped
+subprocess runs under `pasta --splice-only` and only the proxy port is
+forwarded into the private network namespace. Proxy-aware clients still
+honor `HTTP_PROXY` / `HTTPS_PROXY`, but the reachability boundary is now
+kernel-visible, not just an env-var convention.
+
+The proxy is still matched against the capability list:
 
 - `net:api.github.com` — allow a specific host
 - `net:allow` — allow ANY host (noisy stderr warning when set)
 - `net:deny` — explicit deny
 - (absence) — implicit deny
 
-The proxy refuses CONNECTs that don't match. This is not yet a
-universal egress firewall: raw TCP clients and plain HTTP clients
-that ignore proxy settings are outside this enforcement path while
-the process still shares the host network namespace. Stado uses this
-today as a host-allowlist wedge for proxy-aware subprocesses, not as
-a complete network sandbox.
+The proxy refuses CONNECTs that don't match. On Linux, direct loopback
+or raw-TCP bypasses are blocked by the private `pasta` netns because
+only the proxy port is forwarded. Plain HTTP is still outside the
+CONNECT proxy itself.
 
 ## Layer 4 — wazero (wasm plugins)
 
@@ -106,7 +107,7 @@ manifests:
 |---------|---------|---------|
 | `fs:read:<path>` | `fs:read:/etc/hosts` | Read a specific file or directory |
 | `fs:write:<path>` | `fs:write:/tmp` | Write under a specific path |
-| `net:<host>` | `net:api.github.com` | CONNECT to a specific host |
+| `net:<host>` | `net:api.github.com` | Reach only the allowlist proxy path for that host |
 | `net:allow` | — | Unrestricted egress (loud warning) |
 | `net:deny` | — | Block all egress (default for unlisted) |
 | `exec:<binary>` | `exec:/usr/bin/git` | Invoke a specific binary |
@@ -121,7 +122,7 @@ privileges.
 
 | Platform | Filesystem | Exec | Network |
 |----------|-----------|------|---------|
-| Linux | Landlock | bwrap + seccomp | CONNECT proxy |
+| Linux | Landlock | bwrap + seccomp | `pasta` proxy-only netns + CONNECT proxy |
 | macOS | sandbox-exec `.sb` profile generated from capabilities | same `.sb` profile | CONNECT proxy |
 | Windows | v1 unsandboxed (warning); v2 job objects + restricted tokens planned | same as FS | CONNECT proxy |
 
@@ -159,6 +160,9 @@ and still useful for diagnosis work.
 - **Landlock returning `unavailable`** on a new kernel usually means
   stado's binary was built against a different unistd ABI. `stado
   doctor` reports specifically what's wrong.
+- **Linux `net:<host>` needs `pasta`.** If a Linux subprocess or MCP
+  server with host allowlists fails to start, install or upgrade the
+  `passt` package so `pasta --splice-only` is available.
 - **The CONNECT proxy doesn't handle plain HTTP.** Tools that need
   to fetch non-TLS URLs must be outside the sandbox or use TLS.
 - **`net:allow` is visible in `doctor` output.** The loud stderr

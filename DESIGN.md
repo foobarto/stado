@@ -739,7 +739,9 @@ HTTPS CONNECT allowlist proxy. Spins up on 127.0.0.1:kernel-assigned.
 Matches destination host against `NetPolicy.Hosts` (exact names,
 `*.example.com` wildcards, CIDR for IPs). Caller wires it into a
 child process via `EnvForProxy(proxy)` which returns the four
-HTTP_PROXY/HTTPS_PROXY env assignments.
+HTTP_PROXY/HTTPS_PROXY env assignments. On Linux host-allowlist
+subprocesses, the launch is wrapped in `pasta --splice-only` so only
+the proxy port is reachable inside the private netns.
 
 ---
 

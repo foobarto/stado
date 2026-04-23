@@ -5,8 +5,10 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"net"
 	"os/exec"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -59,7 +61,12 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 
 	childEnv := filterEnv(baseEnv(env), p.Env)
 	cleanup := func() {}
+	usePasta := false
+	proxyPort := 0
 	if p.Net.Kind == NetAllowHosts {
+		if err := ensurePastaSpliceOnly(); err != nil {
+			return nil, err
+		}
 		var proxy *Proxy
 		proxy, err = ListenLoopback(p.Net)
 		if err != nil {
@@ -75,6 +82,13 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		}
 		childEnv = setEnvValue(childEnv, "NO_PROXY", "")
 		childEnv = setEnvValue(childEnv, "no_proxy", "")
+		tcpAddr, ok := proxy.Listener.Addr().(*net.TCPAddr)
+		if !ok || tcpAddr.Port <= 0 {
+			cleanup()
+			return nil, fmt.Errorf("bwrap: proxy listen: unexpected addr %T %q", proxy.Listener.Addr(), proxy.Listener.Addr().String())
+		}
+		proxyPort = tcpAddr.Port
+		usePasta = true
 	}
 	for _, kv := range stableEnv(childEnv) {
 		name, value, ok := splitEnvKV(kv)
@@ -88,9 +102,8 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	case NetDenyAll:
 		bwrapArgs = append(bwrapArgs, "--unshare-net")
 	case NetAllowHosts:
-		// v1: bwrap shares host net; per-host filtering lives at HTTP proxy
-		// layer (PLAN §3.7). Emit a one-line note so users know.
-		bwrapArgs = append(bwrapArgs, "--share-net")
+		// Host-allowlist mode runs inside pasta's private netns, so bwrap
+		// should inherit that namespace unchanged.
 	case NetAllowAll:
 		bwrapArgs = append(bwrapArgs, "--share-net")
 	}
@@ -98,7 +111,26 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	bwrapArgs = append(bwrapArgs, "--", full)
 	bwrapArgs = append(bwrapArgs, args...)
 
-	cmd := exec.CommandContext(ctx, "bwrap", bwrapArgs...)
+	cmdName := "bwrap"
+	cmdArgs := bwrapArgs
+	if usePasta {
+		cmdName = "pasta"
+		cmdArgs = []string{
+			"-q",
+			"-f",
+			"--runas", pastaRunAs(),
+			"--splice-only",
+			"-t", "none",
+			"-u", "none",
+			"-T", strconv.Itoa(proxyPort),
+			"-U", "none",
+			"--",
+			"bwrap",
+		}
+		cmdArgs = append(cmdArgs, bwrapArgs...)
+	}
+
+	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.Env = nil
 	attachCleanup(ctx, cmd, cleanup)
 	return cmd, nil

@@ -381,9 +381,8 @@ for the current run. `/approvals forget` clears those overrides.
   whole process; sandboxed subprocesses use bubblewrap + seccomp BPF.
   The built-in `bash` tool defaults to deny-all networking on this path.
   For `net:<host>` policies on subprocesses and MCP stdio servers,
-  stado injects loopback `HTTP_PROXY` / `HTTPS_PROXY` settings that
-  point at its local CONNECT-allowlist proxy. That path is for
-  HTTPS-aware clients, not arbitrary raw TCP.
+  stado wraps the subprocess in `pasta --splice-only` and exposes only
+  its local CONNECT-allowlist proxy port inside the private netns.
 - **macOS** — sandboxed subprocesses run under generated
   `sandbox-exec` profiles from the same policy vocabulary, but there is
   no Linux-style whole-process `--sandbox-fs` path.
@@ -417,9 +416,10 @@ Capability grammar: `fs:read:<path>` · `fs:write:<path>` · `net:<host>`
 servers without capabilities are refused at startup rather than run
 unsandboxed. HTTP MCP servers (`url = "https://…"`) are not wrapped
 locally; stdio servers (`command = …`) are. On Linux, `net:<host>`
-entries route HTTPS-aware stdio servers through stado's CONNECT
-allowlist proxy; plain HTTP and raw TCP protocols are outside that
-proxy path.
+entries require `pasta` (`passt` package) and run inside a private
+netns where only the CONNECT proxy port is reachable. On macOS,
+`net:<host>` remains `sandbox-exec`-enforced. Plain HTTP is still
+outside the CONNECT proxy itself.
 
 ### WASM plugins
 

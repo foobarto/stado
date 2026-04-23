@@ -4,6 +4,16 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.2.1 — 2026-04-24
+
+### Security / Hardening
+
+- **Linux `net:<host>` subprocess policies are now real proxy-only
+  network sandboxes.** Instead of sharing the host netns and relying on
+  proxy env vars alone, the Linux runner now wraps `bwrap` in
+  `pasta --splice-only` and forwards only the local proxy port into the
+  private netns.
+
 ## v0.2.0 — 2026-04-23
 
 + Plugin-driven context-management release: shipped bundled

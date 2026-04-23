@@ -14,8 +14,9 @@ import (
 
 // Proxy is a minimal HTTPS-tunneling (CONNECT) proxy that enforces a host
 // allowlist from a NetPolicy. Run it on a local port and point child
-// processes at it via HTTP_PROXY/HTTPS_PROXY — this is the Linux v1 wedge
-// per PLAN §3.7 until nftables + net namespaces arrive.
+// processes at it via HTTP_PROXY/HTTPS_PROXY. On Linux host-allowlist
+// subprocesses, runner_linux.go now wraps bwrap in pasta so this proxy is
+// the only forwarded egress path inside the private netns.
 //
 // Scope:
 //   - HTTPS via CONNECT is fully supported (host allowlist enforced before
@@ -216,4 +217,3 @@ func EnvForProxy(p *Proxy) []string {
 		"https_proxy=" + addr,
 	}
 }
-

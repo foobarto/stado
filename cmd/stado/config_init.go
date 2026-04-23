@@ -125,6 +125,8 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 #   "net:raw.githubusercontent.com",
 #   "env:GITHUB_TOKEN",
 # ]
+# # Linux net:<host> subprocess policies require pasta from the
+# # passt package so only the proxy port is reachable inside the netns.
 # # Stdio MCP servers must declare capabilities; empty lists are refused.
 # # Forms: fs:read:<path> | fs:write:<path> | net:<host>|allow|deny
 # #        exec:<binary>  | env:<VAR>

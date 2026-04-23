@@ -236,7 +236,7 @@ Per-agent bot identity, e.g. `claude-code-acp <agent@stado.local>`, so `git log 
 
 **Goal:** Platform-abstracted policy enforcement. Capabilities declared, OS enforces.
 
-**Shipped:** 3.1 Policy/NetPolicy/Merge, 3.4 bubblewrap runner, 3.2 Linux landlock (pure Go via `x/sys/unix`, regression-tested via subprocess re-exec), 3.7 Linux CONNECT-allowlist proxy, 3.3 seccomp BPF compiler (Linux), 3.5 macOS `sandbox-exec` runner (generates `.sb` profile from Policy), 3.6 Windows v1 (log warning, runs unsandboxed). `stado run --sandbox-fs` narrows the process with `WorktreeWrite`. **Deferred:** 3.6 v2 Windows job objects + restricted tokens — needs a Windows dev environment.
+**Shipped:** 3.1 Policy/NetPolicy/Merge, 3.4 bubblewrap runner, 3.2 Linux landlock (pure Go via `x/sys/unix`, regression-tested via subprocess re-exec), 3.7 Linux proxy-only `pasta` netns for `net:<host>` subprocesses, 3.3 seccomp BPF compiler (Linux), 3.5 macOS `sandbox-exec` runner (generates `.sb` profile from Policy), 3.6 Windows v1 (log warning, runs unsandboxed). `stado run --sandbox-fs` narrows the process with `WorktreeWrite`. **Deferred:** 3.6 v2 Windows job objects + restricted tokens — needs a Windows dev environment.
 
 ### 3.1 `internal/sandbox/policy.go`
 
@@ -274,9 +274,9 @@ Job objects + restricted tokens (v2). In v1: log warning that Windows runs unsan
 ### 3.7 Network policies
 
 - Per-tool egress allow-list
-- **Linux v1:** `HTTP_PROXY`/`HTTPS_PROXY` to a `goproxy` that enforces host allow-list; deny raw-TCP tools (documented limitation)
+- **Linux v1:** wrap `bwrap` in `pasta --splice-only` and forward only the local proxy port into the private netns
 - **Mac:** `sandbox-exec` network rules
-- **Linux v2:** dedicated net namespace + veth + nftables (requires `CAP_NET_ADMIN`)
+- **Linux v2:** broader host/CIDR egress policies beyond proxy-only mode, if we need them later
 
 ### 3.8 `pkg/tool.Host` extended with `Sandbox() → Policy`
 
