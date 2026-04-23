@@ -13,7 +13,7 @@ history:
 # updated: YYYY-MM-DD
 # requires: [N]
 # supersedes: [N]
-# superseded-by: N
+# superseded-by: [N]
 # extended-by: [N, M]
 # see-also: [N, M]
 # implemented-in: vX.Y.Z
