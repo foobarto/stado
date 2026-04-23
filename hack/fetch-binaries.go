@@ -39,6 +39,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/foobarto/stado/internal/releaseassets"
 )
 
 const (
@@ -61,16 +63,6 @@ var matrix = []target{
 type manifest struct {
 	Version string            `json:"version"`
 	SHA256  map[string]string `json:"sha256"` // filename → hex digest
-}
-
-type githubRelease struct {
-	Assets []githubAsset `json:"assets"`
-}
-
-type githubAsset struct {
-	Name               string `json:"name"`
-	Digest             string `json:"digest"`
-	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 func main() {
@@ -100,18 +92,17 @@ func fetchRipgrep(version string) error {
 		return err
 	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
-	digests, err := fetchReleaseDigests("BurntSushi/ripgrep", version)
-	if err != nil {
-		return err
-	}
 
 	for _, t := range matrix {
 		url, archiveKind, innerPath := ripgrepAsset(version, t)
 		fmt.Printf("ripgrep %s/%s: %s\n", t.GOOS, t.GOARCH, url)
-		b, err := downloadArchiveFile(url, archiveKind, innerPath, digests[filepath.Base(url)])
+		wantDigest, err := fetchSHA256Sidecar(url+".sha256", filepath.Base(url))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s/%s: %v\n", t.GOOS, t.GOARCH, err)
-			continue
+			return fmt.Errorf("%s/%s digest: %w", t.GOOS, t.GOARCH, err)
+		}
+		b, err := downloadArchiveFile(url, archiveKind, innerPath, wantDigest)
+		if err != nil {
+			return fmt.Errorf("%s/%s: %w", t.GOOS, t.GOARCH, err)
 		}
 		dst := filepath.Join(out, "rg-"+t.GOOS+"-"+t.GOARCH)
 		if t.GOOS == "windows" {
@@ -160,7 +151,7 @@ func fetchAstGrep(version string) error {
 		return err
 	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
-	digests, err := fetchReleaseDigests("ast-grep/ast-grep", version)
+	digests, err := fetchGitHubExpandedAssetDigests("ast-grep/ast-grep", version)
 	if err != nil {
 		return err
 	}
@@ -174,8 +165,7 @@ func fetchAstGrep(version string) error {
 		}
 		b, err := downloadArchiveFile(url, kind, inner, digests[filepath.Base(url)])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s/%s: %v\n", t.GOOS, t.GOARCH, err)
-			continue
+			return fmt.Errorf("%s/%s: %w", t.GOOS, t.GOARCH, err)
 		}
 		dst := filepath.Join(out, "ast-grep-"+t.GOOS+"-"+t.GOARCH)
 		if t.GOOS == "windows" {
@@ -312,12 +302,11 @@ func (r readerAtBytes) ReadAt(p []byte, off int64) (int, error) {
 
 func bytesReaderAt(b []byte) readerAtBytes { return readerAtBytes(b) }
 
-func fetchReleaseDigests(repo, tag string) (map[string]string, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/releases/tags/"+tag, nil)
+func fetchURL(url string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "stado-fetch-binaries")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -325,23 +314,25 @@ func fetchReleaseDigests(repo, tag string) (map[string]string, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("release metadata HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	var rel githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	return io.ReadAll(resp.Body)
+}
+
+func fetchSHA256Sidecar(url, assetName string) (string, error) {
+	body, err := fetchURL(url)
+	if err != nil {
+		return "", err
+	}
+	return releaseassets.ParseSHA256Sidecar(body, assetName)
+}
+
+func fetchGitHubExpandedAssetDigests(repo, tag string) (map[string]string, error) {
+	body, err := fetchURL("https://github.com/" + repo + "/releases/expanded_assets/" + tag)
+	if err != nil {
 		return nil, err
 	}
-	out := map[string]string{}
-	for _, asset := range rel.Assets {
-		if asset.Digest == "" {
-			continue
-		}
-		const prefix = "sha256:"
-		if len(asset.Digest) > len(prefix) && asset.Digest[:len(prefix)] == prefix {
-			out[asset.Name] = asset.Digest[len(prefix):]
-		}
-	}
-	return out, nil
+	return releaseassets.ParseGitHubExpandedAssetsDigests(body)
 }
 
 // --- embed generator ---

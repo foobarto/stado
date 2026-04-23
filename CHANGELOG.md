@@ -8,6 +8,20 @@ Plugins / Infra / Fixes.
 
 - No changes yet.
 
+## v0.1.1 — 2026-04-23
+
++ Release follow-up: fixes the bundle-fetch path that broke the `v0.1.0`
+release workflow, and is the first successful 0.1 release build.
+
+### Infra / Release
+
+- **Bundled-tool release fetches no longer depend on GitHub REST asset
+  digests.** `hack/fetch-binaries.go` now reads ripgrep checksums from
+  upstream `.sha256` sidecars, reads ast-grep checksums from GitHub's
+  public `expanded_assets` fragment, and aborts immediately on any
+  supported-target fetch failure instead of silently skipping a bundle
+  and letting the compiler fail later.
+
 ## v0.1.0 — 2026-04-23
 
 + Built-in tools now ship through the same signed WASM runtime as
