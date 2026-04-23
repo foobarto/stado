@@ -16,7 +16,7 @@ history:
   - date: 2026-04-23
     status: Implemented
     version: v0.1.0
-    note: Bundled tools now load through the signed plugin runtime; approval variants ship as plugins.
+    note: Bundled tools now load through the built-in plugin runtime; approval variants ship as plugins.
 ---
 
 # EP-2: All Tools as WASM Plugins
@@ -75,9 +75,9 @@ read = "my-read@v2.1.0"
 
 Host imports remain the execution boundary. Plugins declare capabilities
 in the manifest, and the host grants only the corresponding imports for
-filesystem, network, git, LLM, and approval-aware operations. Plugins do
-not own sandboxing or raw host access; they invoke narrow wrappers that
-the runtime can audit and constrain.
+filesystem, network, session, logging, LLM, and approval-aware
+operations. Plugins do not own sandboxing or raw host access; they
+invoke narrow wrappers that the runtime can audit and constrain.
 
 Approval-aware variants such as write-like or exec-like tools stay
 inside the plugin system. The runtime does not bypass the manifest or
@@ -90,6 +90,7 @@ tool registry.
 ### D1. All tools as plugins (not just extensible)
 
 - **Decided:** bundled tools load through the signed plugin runtime;
+- **Decided:** bundled tools load through the built-in plugin runtime;
   native Go code provides host services, not hidden tool
   implementations.
 - **Alternatives:** keep a split between built-in native tools and

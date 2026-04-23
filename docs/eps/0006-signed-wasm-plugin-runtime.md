@@ -62,7 +62,7 @@ trust store instead of treating download as trust.
 
 Execution happens inside wazero. The host-import model is narrow by
 design: plugins receive only the capability-gated imports required for
-filesystem, networking, git, session, approval, logging, or LLM access.
+filesystem, networking, session, approval, logging, or LLM access.
 Plugins do not receive raw syscalls or implicit repository access.
 
 The shipped runtime supports three plugin modes:
