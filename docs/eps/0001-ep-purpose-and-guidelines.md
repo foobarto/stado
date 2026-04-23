@@ -11,7 +11,7 @@ history:
     note: Initial draft — bootstraps the EP process itself, modelled after PEP-1.
   - date: 2026-04-23
     status: Accepted
-    note: Accepted as the canonical EP process after the first batch of retrofitted EPs.
+    note: Accepted as the canonical EP process after the first EPs using it landed.
 ---
 
 # EP-1: EP Purpose and Guidelines
@@ -321,11 +321,14 @@ dated around YYYY-MM-DD" if the original timeline matters.
   architectural boundary that code and docs are expected to follow.
 - **Informational** is explanatory only and should not be used for the
   main shipped runtime contracts.
-- **Implemented** is valid for EPs documented after the code shipped,
-  as long as the history makes the retrofit explicit.
 - **Process** changes how contributors work. This EP (EP-1) is
   Process. A future "how we version releases" or "how we handle
   security disclosures" would also be Process.
+
+## Status guidance
+
+- **Implemented** is valid for EPs documented after the code shipped,
+  as long as the history makes the retrofit explicit.
 
 ## Expected sections
 
