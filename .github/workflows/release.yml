@@ -67,8 +67,17 @@ jobs:
         id: checksums
         run: |
           set -euo pipefail
-          # goreleaser's artifacts.json has path + digest for each built asset.
-          hashes=$(jq -r 'map(select(.type|test("Archive|Binary"))) | map("\(.extra.Checksum|sub("^sha256:"; ""))  \(.name)") | .[]' dist/artifacts.json | base64 -w0)
+          # goreleaser's artifacts.json includes a few metadata rows with
+          # null type/checksum fields. Filter those out before building the
+          # SLSA subjects list from archive/binary digests.
+          hashes=$(jq -r '
+            map(select(
+              ((.type // "") | test("Archive|Binary")) and
+              ((.extra.Checksum // "") | startswith("sha256:"))
+            ))
+            | map("\(.extra.Checksum | sub("^sha256:"; ""))  \(.name)")
+            | .[]
+          ' dist/artifacts.json | base64 -w0)
           echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
 
   provenance:
