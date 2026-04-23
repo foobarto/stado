@@ -54,13 +54,14 @@ The shipped runtime keeps three invariants:
 
 The registry surface stays stable. Tools still present `ToolDef`
 metadata and return the same result blocks to the agent loop, but the
-implementation behind a tool name is a signed plugin module running in
-the wazero host.
+implementation behind a tool name is a plugin module running in the
+wazero host.
 
-Bundled tool plugins use the same manifest, trust, and verification
-pipeline as external plugins. That keeps the trust boundary uniform and
-makes the shipped tool surface auditable through the same runtime that
-powers user-installed extensions.
+Bundled tools and downloaded third-party plugins share the same runtime
+and registry surface, but not the same trust-install flow. Bundled tools
+ship with stado and load through the built-in plugin path; downloaded
+plugins go through the external manifest-signature, trust-store, and
+verification workflow described in EP-6.
 
 Override resolution is name-based. A configured override replaces the
 bundled implementation for that tool name without changing the agent
@@ -68,7 +69,7 @@ contract or the surrounding approval flow:
 
 ```toml
 [tools.overrides]
-web_fetch = "my-patched-fetch@v1.0.0"
+webfetch = "my-patched-fetch@v1.0.0"
 read = "my-read@v2.1.0"
 ```
 
@@ -112,7 +113,7 @@ tool registry.
 - **Why:** the host stays authoritative for sandboxing, pooling, and
   audit boundaries.
 
-### D4. Approval gate for ALL tool calls
+### D4. Keep approval-aware tool behavior inside the plugin model
 
 - **Decided:** approval-aware behavior stays in the plugin contract
   rather than reappearing as hidden native exceptions.

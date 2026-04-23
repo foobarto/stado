@@ -27,16 +27,17 @@ meaningful containment boundary. stado needs a runtime where the things
 the agent can do are bounded by declared capabilities and enforced by
 the OS or the WASM runtime.
 
-The same project also needs one capability vocabulary that can be
+The same project also needs one shared capability model that can be
 applied consistently to bundled tools, external MCP servers, and WASM
-plugins.
+plugins, even though individual surfaces expose different capability
+families on top of that common core.
 
 ## Goals
 
 - Express runtime permissions as explicit capabilities.
 - Enforce those capabilities in the kernel or runtime, not in prompt
   text.
-- Reuse one capability grammar across tools, MCP servers, and plugins.
+- Reuse one capability model across tools, MCP servers, and plugins.
 - Degrade on weaker platforms with explicit warnings rather than silent
   false security.
 
@@ -68,17 +69,21 @@ Windows v1 is explicitly degraded. stado warns that the platform is not
 receiving equivalent isolation and does not describe the current Windows
 path as matching Linux or macOS enforcement.
 
-The capability grammar is shared across runtime surfaces:
+The core capability model is shared across runtime surfaces. Minimal
+examples include:
 
 - `fs:read:<path>` / `fs:write:<path>`
 - `net:<host>` / `net:allow` / `net:deny`
 - `exec:<binary>`
 - `env:<VAR>`
 
-Bundled tools, MCP stdio servers, and plugins all consume that same
+Bundled tools, MCP stdio servers, and plugins all consume that shared
 policy model. Plugins receive capability-gated host imports; MCP
 children receive derived child-process policies; local tool execution
-receives OS-level confinement from the same declared capabilities.
+receives OS-level confinement from the same declared capabilities. The
+plugin/runtime surface also includes additional capability families
+beyond the minimal examples above, so the listed strings are examples of
+the shared model rather than an exhaustive grammar for every surface.
 
 Known platform gaps are part of the standard, not exceptions to it. The
 runtime is allowed to degrade only when it is explicit, warned, and
@@ -97,7 +102,7 @@ represented honestly in UX and documentation.
 ### D2. Use one capability vocabulary across surfaces
 
 - **Decided:** tools, MCP servers, and plugins share one capability
-  vocabulary.
+  model.
 - **Alternatives:** one config shape for MCP, another for plugins, and
   bespoke flags for local exec.
 - **Why:** a shared vocabulary keeps the security model legible and
