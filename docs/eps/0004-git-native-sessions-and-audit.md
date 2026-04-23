@@ -113,6 +113,8 @@ flows, and session introspection all consume the same signed history.
 
 - [EP-3: Provider-Native Agent Interface](./0003-provider-native-agent-interface.md)
 - [EP-7: Conversation State and Compaction](./0007-conversation-state-and-compaction.md)
+- [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
+- [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
 - [DESIGN.md](../../DESIGN.md#git-native-state-internalstategit)
 - [docs/commands/session.md](../commands/session.md)

@@ -124,5 +124,6 @@ process-local read log keyed by file path and requested range.
 - [EP-3: Provider-Native Agent Interface](./0003-provider-native-agent-interface.md)
 - [EP-4: Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md)
 - [EP-9: Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md)
+- [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
 - [DESIGN.md](../../DESIGN.md#context-management)
 - [docs/features/context.md](../features/context.md)

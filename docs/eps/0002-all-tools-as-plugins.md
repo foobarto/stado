@@ -6,6 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-22
 implemented-in: v0.1.0
+see-also: [5, 6, 10, 12]
 history:
   - date: 2026-04-22
     status: Draft
@@ -124,6 +125,8 @@ tool registry.
 
 ## Related
 
-- [EP-1: EP Purpose and Guidelines](0001-ep-purpose-and-guidelines.md)
+- [EP-5: Capability-Based Sandboxing](./0005-capability-based-sandboxing.md)
+- [EP-6: Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md)
+- [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
 - DESIGN.md §Tools
 - PLAN.md Phase 8 (plugin ecosystem)

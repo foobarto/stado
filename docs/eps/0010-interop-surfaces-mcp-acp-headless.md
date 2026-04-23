@@ -115,5 +115,6 @@ trusts the caller as the authorization boundary.
 - [EP-5: Capability-Based Sandboxing](./0005-capability-based-sandboxing.md)
 - [EP-6: Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md)
 - [EP-8: Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md)
+- [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
 - [DESIGN.md](../../DESIGN.md#extension-points)
 - [README.md](../../README.md#mcp-server-isolation)

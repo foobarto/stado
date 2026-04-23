@@ -25,7 +25,17 @@ it for bug fixes, dep bumps, and contained refactors.
 | #    | Title | Type | Status |
 |------|-------|------|--------|
 | 0001 | [EP Purpose and Guidelines](./0001-ep-purpose-and-guidelines.md) | Process | Accepted |
-| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Draft |
+| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Implemented |
+| 0003 | [Provider-Native Agent Interface](./0003-provider-native-agent-interface.md) | Standards | Implemented |
+| 0004 | [Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md) | Standards | Implemented |
+| 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Implemented |
+| 0006 | [Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md) | Standards | Implemented |
+| 0007 | [Conversation State and Compaction](./0007-conversation-state-and-compaction.md) | Standards | Implemented |
+| 0008 | [Repo-Local Instructions and Skills](./0008-repo-local-instructions-and-skills.md) | Standards | Implemented |
+| 0009 | [Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md) | Standards | Implemented |
+| 0010 | [Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md) | Standards | Implemented |
+| 0011 | [Observability and Telemetry](./0011-observability-and-telemetry.md) | Standards | Implemented |
+| 0012 | [Release Integrity and Distribution](./0012-release-integrity-and-distribution.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
@@ -37,9 +47,10 @@ it for bug fixes, dep bumps, and contained refactors.
   §"Placeholders."
 - **Draft** — author is iterating. Design space being actively
   worked out. Content may change.
-- **Accepted** — approved for implementation (or, for Informational
-  EPs, approved as the canonical record). Content is append-only.
-- **Implemented** — a Standards EP that has shipped. Optional
+- **Accepted** — approved for implementation or process adoption.
+  Content is append-only.
+- **Implemented** — a Standards EP that has shipped and now describes
+  the current runtime contract. Optional
   `implemented-in: vX.Y.Z` in frontmatter points at the release.
 - **Superseded** — replaced by a later EP. Frontmatter points forward
   via `superseded-by`.
@@ -48,10 +59,11 @@ it for bug fixes, dep bumps, and contained refactors.
 
 ## Types
 
-- **Standards** — proposes a change to code, on-disk layout, CLI, API,
-  or user-visible behaviour.
-- **Informational** — documents a decision record, convention, or
-  historical context. No implementation work implied.
+- **Standards** — defines code, on-disk layout, CLI, API, or
+  user-visible behaviour that the runtime is expected to implement.
+- **Informational** — documents background, conventions, decision
+  records, or historical context. It does not carry the main runtime
+  architecture.
 - **Process** — changes how contributors work (e.g., this process doc).
 
 ## Frontmatter fields

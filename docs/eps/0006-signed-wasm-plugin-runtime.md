@@ -6,7 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: [2, 5, 10, 12]
+see-also: [2, 5, 10, 11, 12]
 history:
   - date: 2026-04-23
     status: Accepted
@@ -119,6 +119,8 @@ and auditable in the runtime.
 
 - [EP-2: All Tools as WASM Plugins](./0002-all-tools-as-plugins.md)
 - [EP-5: Capability-Based Sandboxing](./0005-capability-based-sandboxing.md)
+- [EP-11: Observability and Telemetry](./0011-observability-and-telemetry.md)
+- [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
 - [docs/commands/plugin.md](../commands/plugin.md)
 - [SECURITY.md](../../SECURITY.md)

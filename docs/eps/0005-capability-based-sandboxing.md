@@ -129,5 +129,6 @@ represented honestly in UX and documentation.
 - [EP-6: Signed WASM Plugin Runtime](./0006-signed-wasm-plugin-runtime.md)
 - [EP-9: Session Guardrails and Hooks](./0009-session-guardrails-and-hooks.md)
 - [EP-10: Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md)
+- [EP-12: Release Integrity and Distribution](./0012-release-integrity-and-distribution.md)
 - [DESIGN.md](../../DESIGN.md#sandbox-internalsandbox)
 - [docs/features/sandboxing.md](../features/sandboxing.md)
