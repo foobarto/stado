@@ -62,28 +62,41 @@ both cases cleanly.
   supported distribution surfaces, with hosted apt/rpm infra still an
   operational follow-up
 
-The release workflow builds a reproducible artifact set and publishes a
-single checksum manifest as the integrity anchor. `.github/workflows/release.yml`
-documents the current contract: cross-platform binaries are produced via
-goreleaser, SBOMs are attached, `checksums.txt` is signed with cosign
-keyless using GitHub Actions OIDC, and SLSA provenance is emitted for
-the release artifacts. Reproducibility flags and pinned timestamps are
-part of that workflow, not informal release notes.
+The repo and runtime define the release contract around a signed
+checksum manifest, reproducible artifacts, and offline-verifiable trust
+roots when a release is prepared with the full ceremony. The checked-in
+automation in `.github/workflows/release.yml` already covers the
+reproducible goreleaser build matrix, SBOM attachment, cosign keyless
+signing of `checksums.txt`, and SLSA provenance emission. Those are
+concrete properties of the current GitHub Actions path, not informal
+release notes.
 
 stado uses two signature systems on the checksum manifest because they
 solve different problems. Cosign keyless ties the published manifest to
 the GitHub release workflow identity and Rekor-backed transparency.
-Minisign provides the long-lived Ed25519 trust root that can be embedded
-into release binaries and carried into offline environments. The project
-does not treat those as redundant copies of the same mechanism.
+Minisign provides the long-lived Ed25519 trust root that the repo and
+runtime know how to verify and that release builds can embed for offline
+verification. The project does not treat those as redundant copies of
+the same mechanism.
+
+The minisign half is supported and expected by the release contract, but
+it is not fully created by the checked-in GitHub Actions path alone.
+The offline minisign signing ceremony and ldflags seeding of
+`EmbeddedMinisignPubkey` and `EmbeddedMinisignKeyID` remain
+operator-supplied release-process steps. That distinction matters:
+the repo contains the verification logic and the release workflow for
+the cosign-backed path today, while the minisign root publication and
+binary pinning still depend on how a given release is cut.
 
 Manual verification and `self-update` both flow through the manifest.
 Operators first verify `checksums.txt` and then verify the chosen
 archive or package against that manifest. `cmd/stado/selfupdate.go`
-follows the same rule: it downloads `checksums.txt`, requires
-`checksums.txt.minisig` when the running build has an embedded minisign
-root, verifies the manifest, and only then accepts the selected asset's
-sha256. The updater does not trust release assets directly.
+follows the same rule: it downloads `checksums.txt`, requires an
+embedded minisign pubkey in the running build, requires a published
+`checksums.txt.minisig` alongside the release, verifies that manifest,
+and only then accepts the selected asset's sha256. The updater does not
+trust release assets directly and does not fall back to raw-asset or
+unsigned-manifest verification.
 
 Airgapped builds are a deliberate release-mode variant, not a docs-only
 warning. `cmd/stado/selfupdate_airgap.go` replaces the updater with a
@@ -126,10 +139,11 @@ inside the runtime.
 ### D3. Make self-update enforce the manifest flow
 
 - **Decided:** `self-update` verifies the manifest before trusting an
-  asset digest and refuses updates when the embedded minisign trust path
-  is unavailable for a pinned release build.
+  asset digest and refuses updates unless the running binary has an
+  embedded minisign pubkey and the release publishes
+  `checksums.txt.minisig`.
 - **Alternatives:** trust the GitHub asset URL, verify raw assets only,
-  or treat minisign as optional for pinned builds.
+  or treat minisign as optional for self-update.
 - **Why:** the updater should not bypass the same release contract the
   rest of the project documents.
 

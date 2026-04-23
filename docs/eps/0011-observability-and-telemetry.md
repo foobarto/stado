@@ -76,11 +76,15 @@ for sandboxed process launches. These names are kept stable so dashboards
 and traces survive refactors.
 
 Metrics are defined once in `internal/telemetry/metrics.go` and treated
-as baseline runtime instruments. The shipped set covers tool latency,
-token totals, prompt-cache hit ratio, approval decisions, sandbox
-denials, and active sessions. New surfaces are expected to compose with
-that metric contract rather than invent parallel names for the same
-events.
+as the baseline runtime instrument surface. That surface currently
+declares tool latency, token totals, prompt-cache hit ratio, approval
+decisions, sandbox denials, and active sessions, but it should not be
+read as claiming that every one of those instruments is emitted with the
+same breadth today. The clearly-wired runtime recording path today is
+tool-call latency in the executor; the remaining declared instruments
+establish the telemetry contract and naming surface that other runtime
+paths and future coverage are expected to use rather than inventing
+parallel metrics.
 
 Cross-process trace continuity is explicit. When `stado session fork`
 creates a child worktree, it writes the parent fork span's W3C
