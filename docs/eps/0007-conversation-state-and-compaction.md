@@ -56,11 +56,11 @@ available. The user-facing contract is two thresholds:
 
 Compaction is explicit. `/compact` and other live-session compaction
 surfaces ask the active provider for a summary, show the proposed
-result to the user, allow inline edits, and only rewrite conversation
-state after confirmation.
-Accepted compactions record dual-ref compaction markers so the compacted
-conversation on `tree` and the replaced raw turns on `trace` remain
-discoverable.
+result to the user, allow inline edits, and only rewrite the active
+conversation state after confirmation. Accepted compactions replace the
+current conversation view with the confirmed summary. Broader
+CLI-driven and on-disk persistence guarantees are separate work and are
+not part of this shipped contract.
 
 Historical recovery uses child sessions instead of in-place rewrites.
 `session fork --at` and `session tree` expose the same primitive: pick a
