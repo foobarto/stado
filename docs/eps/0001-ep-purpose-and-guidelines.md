@@ -120,7 +120,7 @@ contested feature with no paper trail.
   makes the retrofit explicit. Optional: add a "Shipped in" line
   referencing a release tag or PR.
 - **Superseded** — a later EP has replaced this one. The frontmatter
-  gains `superseded-by: <number>`.
+  gains `superseded-by: [<number>]`.
 - **Withdrawn** — the author pulled it before acceptance. Kept in the
   repo for historical reference.
 - **Rejected** — the community/maintainers declined it. Kept for
@@ -238,7 +238,7 @@ Optional fields, added as they become relevant:
 - `updated: YYYY-MM-DD` — last substantive edit.
 - `requires: [N, M]` — EPs this one depends on (the reader should
   read those first for context).
-- `superseded-by: N` — this EP is replaced by another; readers should
+- `superseded-by: [N]` — this EP is replaced by another; readers should
   follow the link forward.
 - `supersedes: [N, M]` — this EP replaces prior EPs listed here.
 - `extended-by: [N, M]` — later EPs that build on this one without
@@ -249,8 +249,8 @@ Optional fields, added as they become relevant:
 - `discussion-at: <URL>` — link to issue/PR where debate happened.
 
 All EP-reference fields use YAML lists (`[1, 3, 7]`) even when only
-one value is present (`[4]`) — makes tooling simpler and keeps the
-schema consistent.
+one value is present (`superseded-by: [4]`) — makes tooling simpler
+and keeps the schema consistent.
 
 ### The `history` field
 
@@ -271,7 +271,7 @@ edited or deleted.
 - `note:` — short human-readable context (one sentence). "Initial
   draft," "Approved after architecture review," "Shipped in v0.0.4,"
   "Replaced by EP-42 due to X," etc.
-- `superseded-by: N` — when status flips to `Superseded`, record the
+- `superseded-by: [N]` — when status flips to `Superseded`, record the
   replacing EP here. Mirrors the top-level `superseded-by:` field
   (they must agree).
 - `pr: <URL>` — link to the PR that landed this transition.
@@ -294,7 +294,7 @@ history:
     pr: https://github.com/example/project/pull/NNN
   - date: 2027-02-01
     status: Superseded
-    superseded-by: 42
+    superseded-by: [42]
     note: Replaced by EP-42 which extends the design.
 ```
 
@@ -419,7 +419,7 @@ the first few days of the EP process, it's looser.
   history entry noting the reason, and adds a short paragraph at the
   top of the document explaining why. The EP stays in the repo.
 - **Supersede:** the replacing EP's frontmatter has `supersedes: [N]`;
-  the replaced EP's frontmatter gains `superseded-by: M`,
+  the replaced EP's frontmatter gains `superseded-by: [M]`,
   `status: Superseded`, and a new history entry. Both stay in the repo.
 - **Reject:** a maintainer updates `status: Rejected` and appends a
   history entry with the reason. Used for:
@@ -428,30 +428,31 @@ the first few days of the EP process, it's looser.
   Rejected EPs stay in the repo on purpose — the "we considered this
   and said no" record is load-bearing for avoiding re-litigation.
 
-## Updating EPs — bidirectional links are mandatory
+## Updating EPs — strong relationships need reciprocal metadata
 
-Forward-reference metadata (`extended-by`, `superseded-by`, `see-also`)
-is the navigation layer. A reader landing on an old EP should be able
-to discover follow-up work without guessing. This only works if the
-links are kept bidirectional.
+Forward-reference metadata is the navigation layer. A reader landing on
+an old EP should be able to discover superseding or follow-on work
+without guessing.
 
-**The rule:** when a new EP extends or supersedes an older one, the
-same PR that adds the new EP **must** also update the older EP's
-frontmatter. Both changes ship together or neither ships.
+**The rule:** when a new EP explicitly **supersedes** an older one, or
+when maintainers decide the relationship is strong enough to encode as
+`extended-by`, the same PR **must** update the older EP's frontmatter.
+Loose `see-also` relationships do not need to be mirrored mechanically.
 
 Examples:
 
-- **EP-8 extends EP-2.** EP-8's frontmatter lists `requires: [2]` or
-  `see-also: [2]`; the PR that adds EP-8 also updates EP-2's
-  frontmatter to include `extended-by: [..., 8]`.
-- **EP-12 supersedes EP-4.** EP-12's frontmatter has `supersedes:
-  [4]`; the PR updates EP-4 to set `superseded-by: 12` and
+- **Hypothetical supersession.** If EP-M has `supersedes: [N]`, the PR
+  that lands EP-M also updates EP-N to set `superseded-by: [M]` and
   `status: Superseded`.
+- **Hypothetical explicit extension.** If EP-Q is intended as a direct
+  follow-on to EP-P, the PR can record that strongly with
+  `extended-by: [Q]` on EP-P. If the relationship is only contextual,
+  `see-also` is enough and no reciprocal update is required.
 
-Rationale: without this rule, forward-links rot immediately — nobody
-remembers to go back and update the old file months later. Making it a
-same-PR requirement is cheap and keeps navigation honest. Review
-checklist: "does this new/edited EP need to update any older ones?"
+Rationale: explicit supersession and strong extension links rot quickly
+unless they are updated in the same PR. Requiring reciprocal metadata
+only for those stronger relationships keeps navigation honest without
+turning every loose cross-reference into bookkeeping.
 
 ## Rejected alternatives for the process itself
 

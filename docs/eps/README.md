@@ -54,7 +54,7 @@ it for bug fixes, dep bumps, and contained refactors.
   the current runtime contract. Optional
   `implemented-in: vX.Y.Z` in frontmatter points at the release.
 - **Superseded** — replaced by a later EP. Frontmatter points forward
-  via `superseded-by`.
+  via `superseded-by: [N]`.
 - **Withdrawn** — author pulled it before acceptance.
 - **Rejected** — maintainers declined it. Kept for historical context.
 
@@ -86,7 +86,7 @@ Optional, added as relevant (see EP-1 for full semantics):
 updated: YYYY-MM-DD
 requires: [N, M]          # must-read-first dependencies
 supersedes: [N]           # this EP replaces these
-superseded-by: N          # this EP has been replaced
+superseded-by: [N]        # this EP has been replaced
 extended-by: [N, M]       # later EPs build on this one
 see-also: [N, M]          # loosely related
 implemented-in: vX.Y.Z
@@ -94,13 +94,15 @@ discussion-at: <URL>
 ```
 
 All EP-reference fields are YAML lists even when holding a single
-value (`extended-by: [8]`), for tooling consistency.
+value (`superseded-by: [8]`), for tooling consistency.
 
 ## Bidirectional links
 
-When a new EP extends or supersedes an older one, **the same PR must
-update the older EP's frontmatter** so navigation works in both
-directions. See EP-1 §"Updating EPs" for the full rule.
+When a new EP supersedes an older one, or when a strong extension
+relationship is recorded via `extended-by`, **the same PR must update
+the older EP's frontmatter** so navigation works in both directions.
+Loose `see-also` links do not need reciprocal updates. See EP-1
+§"Updating EPs" for the full rule.
 
 ## Conventions
 
