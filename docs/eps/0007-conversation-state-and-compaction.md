@@ -49,20 +49,28 @@ underlying git state.
 
 Context usage is tracked against the provider's max context window using
 client-side token estimates corrected by provider-reported usage when
-available. The user-facing contract is two thresholds:
+available. The configuration exposes two thresholds, but surfaces
+present them differently:
 
-- a soft threshold for warnings and `/compact` advice
-- a hard threshold that blocks fresh turns until the user acts
+- a soft threshold for warnings and `/compact` advice on interactive
+  surfaces, with headless emitting context-threshold notifications on
+  crossings
+- a hard threshold that gates fresh turns on surfaces that enforce the
+  client-side check, while other surfaces currently expose the crossing
+  through their own runtime behavior
 
-Compaction is explicit. `/compact` and other live-session compaction
-surfaces ask the active provider for a summary, show the proposed
-result to the user, allow inline edits, and only rewrite the active
-conversation state after confirmation. Accepted compactions replace the
-current conversation view with the confirmed summary. The underlying
-compaction audit shape uses dual-ref compaction markers to distinguish
-the compacted conversation view from the preserved raw turn range where
-that state is recorded. Broader CLI-driven persistence and ergonomics
-remain separate work and are not the user-facing contract here.
+Compaction is explicit. In the TUI, `/compact` asks the active provider
+for a summary, shows the proposed result to the user, allows inline
+edits, and only rewrites the active conversation state after
+confirmation. Other live-session surfaces, notably headless
+`session.compact`, currently differ in mechanics from the TUI preview
+flow even when they use the same underlying compaction primitive.
+Accepted compactions replace the current conversation view with the
+confirmed summary. The underlying compaction audit shape uses dual-ref
+compaction markers to distinguish the compacted conversation view from
+the preserved raw turn range where that state is recorded. Broader
+CLI-driven persistence and ergonomics remain separate work and are not
+the user-facing contract here.
 
 Historical recovery uses child sessions instead of in-place rewrites.
 `session fork --at` and `session tree` expose the same primitive: pick a

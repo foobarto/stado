@@ -58,11 +58,14 @@ raises the cap. In non-interactive runtimes, the same hard cap maps to a
 clear runtime error rather than a silent stop.
 
 Hooks are intentionally narrow. The current shipped hook surface is
-`[hooks].post_turn`, which runs one notification-oriented shell command
-with a stable JSON payload after a turn completes. The hook inherits
-environment, writes through stado's stderr, is capped by a short
-timeout, and cannot block or rewrite the already-finished turn. Hook
-failures are logged and never treated as turn failures.
+the TUI's `[hooks].post_turn`, which runs one notification-oriented
+shell command with a stable JSON payload after a turn completes.
+Runtime parity is not complete: this shipped hook path is not yet a
+general contract across `stado run`, headless, or every other
+non-interactive surface. The hook
+inherits environment, writes through stado's stderr, is capped by a
+short timeout, and cannot block or rewrite the already-finished turn.
+Hook failures are logged and never treated as turn failures.
 
 All three controls are scoped so they can be reasoned about locally:
 approvals are session-scoped when remembered, budget caps are

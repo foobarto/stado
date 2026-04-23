@@ -55,8 +55,10 @@ Two RPC servers sit on top of the shared runtime:
 - `stado headless` for editor-neutral JSON-RPC automation
 
 The two servers expose different method shapes, but both model the same
-underlying session lifecycle and both surface session notifications for
-text, tool calls, plugin forks, and context warnings.
+underlying session lifecycle. ACP currently surfaces the narrower
+editor-facing notification set for text and tool calls, while headless
+also emits richer session updates such as plugin-fork and
+context-warning notifications.
 
 MCP appears in both directions. As a client, stado can attach external
 MCP servers and register their tools into the local registry. Attached
