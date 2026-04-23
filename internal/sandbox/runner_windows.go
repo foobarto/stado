@@ -27,7 +27,7 @@ var winWarnOnce sync.Once
 func (WinWarnRunner) Name() string    { return "windows-passthrough" }
 func (WinWarnRunner) Available() bool { return true }
 
-func (WinWarnRunner) Command(ctx context.Context, p Policy, name string, args []string) (*exec.Cmd, error) {
+func (WinWarnRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
 	winWarnOnce.Do(func() {
 		fmt.Fprintln(os.Stderr,
 			"stado: sandbox: Windows runs unsandboxed (FS/net policy NOT enforced). "+
@@ -41,6 +41,6 @@ func (WinWarnRunner) Command(ctx context.Context, p Policy, name string, args []
 	if p.CWD != "" {
 		cmd.Dir = p.CWD
 	}
-	cmd.Env = filterEnv(os.Environ(), p.Env)
+	cmd.Env = filterEnv(baseEnv(env), p.Env)
 	return cmd, nil
 }

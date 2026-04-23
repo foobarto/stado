@@ -24,7 +24,7 @@ type SbxRunner struct{}
 func (SbxRunner) Name() string    { return "sandbox-exec" }
 func (SbxRunner) Available() bool { _, err := exec.LookPath("sandbox-exec"); return err == nil }
 
-func (r SbxRunner) Command(ctx context.Context, p Policy, name string, args []string) (*exec.Cmd, error) {
+func (r SbxRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (r SbxRunner) Command(ctx context.Context, p Policy, name string, args []st
 	if p.CWD != "" {
 		cmd.Dir = p.CWD
 	}
-	cmd.Env = filterEnv(os.Environ(), p.Env)
+	cmd.Env = filterEnv(baseEnv(env), p.Env)
 
 	// Best-effort cleanup — remove the profile when Cmd finishes.
 	// Stored on Cmd.Cancel so Wait-equivalents (Start + separate Wait)

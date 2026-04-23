@@ -41,7 +41,8 @@ environment.
 - **Tool execution is sandboxed.** Linux has the strongest shipped path
   (`Landlock` + `bubblewrap` + `seccomp`), macOS has real subprocess
   sandboxing via `sandbox-exec`, and Windows is still warning-only in
-  v1.
+  v1. Built-in and third-party WASM tools run inside `wazero` and are
+  gated by manifest capabilities rather than the OS subprocess runner.
 - **Provider support is direct.** Anthropic, OpenAI, Google, and
   OpenAI-compatible backends keep provider-native features instead of
   flattening them behind a lossy abstraction.
@@ -370,10 +371,17 @@ for the current run. `/approvals forget` clears those overrides.
 
 - **Linux** — `stado run --sandbox-fs` uses Landlock to narrow the
   whole process; sandboxed subprocesses use bubblewrap + seccomp BPF.
+  For `net:<host>` policies on subprocesses and MCP stdio servers,
+  stado injects loopback `HTTP_PROXY` / `HTTPS_PROXY` settings that
+  point at its local CONNECT-allowlist proxy. That path is for
+  HTTPS-aware clients, not arbitrary raw TCP.
 - **macOS** — sandboxed subprocesses run under generated
   `sandbox-exec` profiles from the same policy vocabulary, but there is
   no Linux-style whole-process `--sandbox-fs` path.
 - **Windows** — v1 remains warning-only passthrough; v2 is planned.
+- **WASM plugins and bundled plugin-backed tools** — execute inside
+  `wazero`; filesystem/session/LLM/tool access is mediated by
+  capability-gated host imports rather than the OS subprocess runner.
 
 `stado doctor` reports the sandbox runner in use. On Linux it also
 reports Landlock availability.
@@ -399,7 +407,10 @@ Capability grammar: `fs:read:<path>` · `fs:write:<path>` · `net:<host>`
 · `net:allow` · `net:deny` · `exec:<binary>` · `env:<VAR>`. Empty
 capabilities mean unsandboxed (legacy default) and emit a stderr
 advisory. HTTP MCP servers (`url = "https://…"`) are not wrapped
-locally; stdio servers (`command = …`) are.
+locally; stdio servers (`command = …`) are. On Linux, `net:<host>`
+entries route HTTPS-aware stdio servers through stado's CONNECT
+allowlist proxy; plain HTTP and raw TCP protocols are outside that
+proxy path.
 
 ### WASM plugins
 

@@ -6,6 +6,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sort"
+	"sync"
+	"time"
 )
 
 // detectList prefers bubblewrap, then falls back to None. Landlock/seccomp
@@ -23,7 +26,7 @@ type BwrapRunner struct{}
 func (BwrapRunner) Name() string    { return "bwrap" }
 func (BwrapRunner) Available() bool { _, err := exec.LookPath("bwrap"); return err == nil }
 
-func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string) (*exec.Cmd, error) {
+func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -53,8 +56,32 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	for _, wp := range p.FSWrite {
 		bwrapArgs = append(bwrapArgs, "--bind-try", wp, wp)
 	}
-	for _, ev := range p.Env {
-		bwrapArgs = append(bwrapArgs, "--setenv", ev, fmt.Sprintf("${%s}", ev))
+
+	childEnv := filterEnv(baseEnv(env), p.Env)
+	cleanup := func() {}
+	if p.Net.Kind == NetAllowHosts {
+		var proxy *Proxy
+		proxy, err = ListenLoopback(p.Net)
+		if err != nil {
+			return nil, fmt.Errorf("bwrap: proxy listen: %w", err)
+		}
+		cleanup = func() { _ = proxy.Close() }
+		for _, kv := range EnvForProxy(proxy) {
+			name, value, ok := splitEnvKV(kv)
+			if !ok {
+				continue
+			}
+			childEnv = setEnvValue(childEnv, name, value)
+		}
+		childEnv = setEnvValue(childEnv, "NO_PROXY", "")
+		childEnv = setEnvValue(childEnv, "no_proxy", "")
+	}
+	for _, kv := range stableEnv(childEnv) {
+		name, value, ok := splitEnvKV(kv)
+		if !ok {
+			continue
+		}
+		bwrapArgs = append(bwrapArgs, "--setenv", name, value)
 	}
 
 	switch p.Net.Kind {
@@ -72,19 +99,52 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	bwrapArgs = append(bwrapArgs, args...)
 
 	cmd := exec.CommandContext(ctx, "bwrap", bwrapArgs...)
-	cmd.Env = filterEnv(envSlice(), p.Env)
+	cmd.Env = nil
+	attachCleanup(ctx, cmd, cleanup)
 	return cmd, nil
 }
 
-func envSlice() []string {
-	// Kept tiny + indirection'd so tests can stub via a linker override if
-	// we ever need to; currently a thin wrapper.
-	return append([]string{}, execEnviron()...)
+func stableEnv(env []string) []string {
+	out := append([]string{}, env...)
+	sort.Slice(out, func(i, j int) bool {
+		ni, _, _ := splitEnvKV(out[i])
+		nj, _, _ := splitEnvKV(out[j])
+		if ni == nj {
+			return out[i] < out[j]
+		}
+		return ni < nj
+	})
+	return out
 }
 
-// execEnviron is os.Environ but aliased so the builder above reads as a flat
-// dependency rather than pulling os into this file.
-func execEnviron() []string {
-	return exec.Command("").Env // nil — NoneRunner does the real environ; bwrap filters below
+func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
+	if cleanup == nil {
+		return
+	}
+	var once sync.Once
+	runCleanup := func() { once.Do(cleanup) }
+	origCancel := cmd.Cancel
+	cmd.Cancel = func() error {
+		runCleanup()
+		if origCancel != nil {
+			return origCancel()
+		}
+		return nil
+	}
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if cmd.ProcessState != nil {
+				runCleanup()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				runCleanup()
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }
-

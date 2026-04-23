@@ -103,5 +103,5 @@ func BuildShellCommand(ctx context.Context, runner sandbox.Runner, workdir, comm
 		policy.FSRead = append(policy.FSRead, workdir)
 		policy.FSWrite = append(policy.FSWrite, workdir)
 	}
-	return runner.Command(ctx, policy, "bash", []string{"-c", command})
+	return runner.Command(ctx, policy, "bash", []string{"-c", command}, nil)
 }

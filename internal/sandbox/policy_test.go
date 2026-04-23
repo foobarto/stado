@@ -76,7 +76,7 @@ func TestDetect_AlwaysReturnsSomething(t *testing.T) {
 
 func TestNoneRunner_InheritsEnvOnEmptyAllow(t *testing.T) {
 	// When Policy.Env is empty, NoneRunner passes an empty env (deny-by-default).
-	cmd, err := NoneRunner{}.Command(context.Background(), Policy{}, "/bin/true", nil)
+	cmd, err := NoneRunner{}.Command(context.Background(), Policy{}, "/bin/true", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

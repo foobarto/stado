@@ -39,7 +39,7 @@ type fakeRunner struct {
 
 func (f *fakeRunner) Name() string    { return "fake" }
 func (f *fakeRunner) Available() bool { return true }
-func (f *fakeRunner) Command(ctx context.Context, p sandbox.Policy, name string, args []string) (*exec.Cmd, error) {
+func (f *fakeRunner) Command(ctx context.Context, p sandbox.Policy, name string, args []string, env []string) (*exec.Cmd, error) {
 	f.called = true
 	f.name = name
 	f.args = append([]string{}, args...)

@@ -99,11 +99,10 @@ func (m *MCPManager) connectAndProbe(ctx context.Context, cfg ServerConfig) (*cl
 			runner := cfg.Runner
 			opts = append(opts, transport.WithCommandFunc(
 				func(ctx context.Context, command string, env []string, args []string) (*exec.Cmd, error) {
-					cmd, pErr := runner.Command(ctx, policy, command, args)
+					cmd, pErr := runner.Command(ctx, policy, command, args, env)
 					if pErr != nil {
 						return nil, fmt.Errorf("sandbox for MCP server %s: %w", cfg.Name, pErr)
 					}
-					cmd.Env = mergeSandboxEnv(cmd.Env, env, policy.Env)
 					return cmd, nil
 				},
 			))
@@ -165,46 +164,4 @@ func (m *MCPManager) AllClients() []*MCPClient {
 		out = append(out, c)
 	}
 	return out
-}
-
-func mergeSandboxEnv(base, requested, allowed []string) []string {
-	if len(allowed) == 0 {
-		return base
-	}
-	keep := map[string]bool{}
-	for _, name := range allowed {
-		keep[name] = true
-	}
-	out := append([]string{}, base...)
-	index := map[string]int{}
-	for i, kv := range out {
-		if name, ok := splitEnvName(kv); ok {
-			index[name] = i
-		}
-	}
-	for _, kv := range requested {
-		name, ok := splitEnvName(kv)
-		if !ok || !keep[name] {
-			continue
-		}
-		if i, ok := index[name]; ok {
-			out[i] = kv
-			continue
-		}
-		index[name] = len(out)
-		out = append(out, kv)
-	}
-	return out
-}
-
-func splitEnvName(kv string) (string, bool) {
-	for i := 0; i < len(kv); i++ {
-		if kv[i] == '=' {
-			if i == 0 {
-				return "", false
-			}
-			return kv[:i], true
-		}
-	}
-	return "", false
 }

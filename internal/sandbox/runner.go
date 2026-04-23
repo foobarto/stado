@@ -16,7 +16,7 @@ import (
 type Runner interface {
 	Name() string    // "bwrap" | "sandbox-exec" | "none" | …
 	Available() bool // can this host use this runner?
-	Command(ctx context.Context, p Policy, cmd string, args []string) (*exec.Cmd, error)
+	Command(ctx context.Context, p Policy, cmd string, args []string, env []string) (*exec.Cmd, error)
 }
 
 // Detect picks the most capable Runner available on this host. Order of
@@ -38,7 +38,7 @@ type NoneRunner struct{}
 func (NoneRunner) Name() string    { return "none" }
 func (NoneRunner) Available() bool { return true }
 
-func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []string) (*exec.Cmd, error) {
+func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []string, env []string) (*exec.Cmd, error) {
 	full, err := ResolveBinary(p, name)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []str
 	if p.CWD != "" {
 		cmd.Dir = p.CWD
 	}
-	cmd.Env = filterEnv(os.Environ(), p.Env)
+	cmd.Env = filterEnv(baseEnv(env), p.Env)
 	return cmd, nil
 }
 
@@ -80,7 +80,15 @@ func ResolveBinary(p Policy, name string) (string, error) {
 	return full, nil
 }
 
-// filterEnv drops every env var whose name isn't in keep.
+func baseEnv(env []string) []string {
+	if env != nil {
+		return env
+	}
+	return os.Environ()
+}
+
+// filterEnv drops every env var whose name isn't in keep. If the same key
+// appears more than once, the last value wins.
 func filterEnv(env, keep []string) []string {
 	if len(keep) == 0 {
 		return nil
@@ -89,18 +97,46 @@ func filterEnv(env, keep []string) []string {
 	for _, k := range keep {
 		want[k] = true
 	}
+	last := map[string]int{}
+	for i, kv := range env {
+		if name, _, ok := splitEnvKV(kv); ok {
+			last[name] = i
+		}
+	}
 	var out []string
-	for _, kv := range env {
-		for i := 0; i < len(kv); i++ {
-			if kv[i] == '=' {
-				if want[kv[:i]] {
-					out = append(out, kv)
-				}
-				break
-			}
+	for i, kv := range env {
+		name, _, ok := splitEnvKV(kv)
+		if !ok {
+			continue
+		}
+		if want[name] && last[name] == i {
+			out = append(out, kv)
 		}
 	}
 	return out
+}
+
+func splitEnvKV(kv string) (string, string, bool) {
+	for i := 0; i < len(kv); i++ {
+		if kv[i] == '=' {
+			if i == 0 {
+				return "", "", false
+			}
+			return kv[:i], kv[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+func setEnvValue(env []string, name, value string) []string {
+	needle := name + "="
+	for i, kv := range env {
+		if len(kv) >= len(needle) && kv[:len(needle)] == needle {
+			env[i] = needle + value
+			return env
+		}
+	}
+	return append(env, needle+value)
 }
 
 // GOOS is exported so tests can introspect which platform the package

@@ -6,6 +6,36 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.1.3 — 2026-04-23
+
++ Sandbox follow-up release: Linux subprocess host-allowlist policies
+now route through the local CONNECT proxy as originally designed, and
+the README now distinguishes Linux, macOS, Windows, and WASM tool
+sandbox behavior more precisely.
+
+### Infra / Security
+
+- **Linux `net:<host>` subprocess policies now wire through the local
+  CONNECT-allowlist proxy.** `BwrapRunner` starts the loopback proxy for
+  `NetAllowHosts`, injects `HTTP_PROXY` / `HTTPS_PROXY` into the child,
+  and clears `NO_PROXY` so HTTPS-aware subprocesses and MCP stdio
+  servers actually honor the configured host allowlist instead of
+  bypassing it.
+- **Runner env propagation is now handled at the runner boundary.**
+  The sandbox runner interface accepts the candidate child environment
+  directly so Linux `bwrap`, macOS `sandbox-exec`, Windows passthrough,
+  and the fallback runner all perform filtering from the same source of
+  truth.
+
+### Docs
+
+- **README sandbox wording now matches the implementation.** The docs
+  now call out that Linux has the strongest shipped path, macOS has
+  real subprocess sandboxing but not Linux-style whole-process
+  narrowing, Windows v1 is still warning-only, and WASM tools are
+  sandboxed by `wazero` host-import gates rather than the OS subprocess
+  runner.
+
 ## v0.1.2 — 2026-04-23
 
 + Docs + CLI parity release: ships the documented `doctor` automation
