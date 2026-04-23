@@ -46,7 +46,7 @@ func UploadHashedRekord(ctx context.Context, rekorURL string, manifestBytes, sig
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "stado-plugin-rekor")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := onlineHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("rekor: POST: %w", err)
 	}
@@ -82,7 +82,7 @@ func SearchByHash(ctx context.Context, rekorURL string, manifestBytes []byte) (*
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "stado-plugin-rekor")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := onlineHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("rekor: index POST: %w", err)
 	}
@@ -113,7 +113,7 @@ func FetchEntry(ctx context.Context, rekorURL, uuid string) (*RekorEntry, error)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "stado-plugin-rekor")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := onlineHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("rekor: GET: %w", err)
 	}

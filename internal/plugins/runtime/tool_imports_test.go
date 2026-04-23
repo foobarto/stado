@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/foobarto/stado/internal/builtinplugins"
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/tools"
 )
@@ -46,7 +46,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	_, err = rt.Instantiate(ctx, builtinplugins.MustWasm("read"), mf)
+	_, err = rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
 	if err == nil {
 		t.Fatal("expected instantiate to fail without fs:read capability")
 	}
@@ -79,7 +79,7 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, builtinplugins.MustWasm("read"), mf)
+	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
 	if err != nil {
 		t.Fatalf("Instantiate: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestPublicToolImports_ApprovalDemoWorksWithCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, builtinplugins.MustWasm("approval_demo"), mf)
+	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("approval_demo"), mf)
 	if err != nil {
 		t.Fatalf("Instantiate: %v", err)
 	}

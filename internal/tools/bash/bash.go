@@ -84,7 +84,8 @@ type BashArgs struct {
 
 // BuildShellCommand creates the actual `bash -c` child process. When a runner
 // is present, the shell runs through the platform sandbox with access limited
-// to the session worktree and /tmp.
+// to the session worktree and /tmp. Network is denied by default for the
+// sandboxed path.
 func BuildShellCommand(ctx context.Context, runner sandbox.Runner, workdir, command string) (*exec.Cmd, error) {
 	if runner == nil {
 		cmd := exec.CommandContext(ctx, "bash", "-c", command)
@@ -96,7 +97,7 @@ func BuildShellCommand(ctx context.Context, runner sandbox.Runner, workdir, comm
 		FSRead:  []string{"/tmp"},
 		FSWrite: []string{"/tmp"},
 		Exec:    []string{"bash"},
-		Net:     sandbox.NetPolicy{Kind: sandbox.NetAllowAll},
+		Net:     sandbox.NetPolicy{Kind: sandbox.NetDenyAll},
 		CWD:     workdir,
 	}
 	if workdir != "" {

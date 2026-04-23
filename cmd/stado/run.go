@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -30,6 +31,12 @@ var (
 	runSandboxFS bool
 	runSessionID string
 	runSkill     string
+)
+
+var (
+	runLoadConfig    = config.Load
+	runBuildProvider = tui.BuildProvider
+	runAgentLoop     = runtime.AgentLoop
 )
 
 var runCmd = &cobra.Command{
@@ -53,13 +60,17 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			return fmt.Errorf("run: --prompt (or positional) or --skill required")
 		}
 
-		cfg, err := config.Load()
+		cfg, err := runLoadConfig()
 		if err != nil {
 			return err
 		}
-		prov, err := tui.BuildProvider(cfg)
+		prov, err := runBuildProvider(cfg)
 		if err != nil {
 			return fmt.Errorf("provider: %w", err)
+		}
+		hookRunner := hooks.Runner{
+			PostTurnCmd: cfg.Hooks.PostTurn,
+			Disabled:    hooks.DisabledByToolConfig(cfg),
 		}
 
 		// Session-continuation path: --session <id-or-label> loads the
@@ -106,11 +117,14 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		}
 
 		opts := runtime.AgentLoopOptions{
-			Provider:             prov,
-			Model:                cfg.Defaults.Model,
-			Messages:             append(priorMsgs, newUserMsg),
-			MaxTurns:             runMaxTurns,
-			OnEvent:              emitter(runJSON, os.Stdout),
+			Provider: prov,
+			Model:    cfg.Defaults.Model,
+			Messages: append(priorMsgs, newUserMsg),
+			MaxTurns: runMaxTurns,
+			OnEvent:  emitter(runJSON, os.Stdout),
+			OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
+				hookRunner.FirePostTurn(cmd.Context(), hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
+			},
 			Thinking:             cfg.Agent.Thinking,
 			ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 			System:               sysPrompt,
@@ -161,7 +175,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 		defer cancel()
 
-		_, finalMsgs, err := runtime.AgentLoop(ctx, opts)
+		_, finalMsgs, err := runAgentLoop(ctx, opts)
 		if err != nil {
 			if errors.Is(err, runtime.ErrCostCapExceeded) {
 				fmt.Fprintln(os.Stderr, "stado run: "+err.Error())

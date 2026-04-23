@@ -119,8 +119,9 @@ Relevant `config.toml` sections:
   `ErrCostCapExceeded`.
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
-- `[hooks].post_turn` — config exists, but the shipped hook runner is
-  currently TUI-only; `stado run` does not invoke it yet.
+- `[hooks].post_turn` — lifecycle shell hook fired after each completed
+  turn in `stado run` too. Disabled when `bash` is removed from the
+  active tool set.
 
 `stado config show` prints the resolved effective config.
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -86,6 +87,27 @@ func TestHeadless_PluginRun_UnknownPlugin(t *testing.T) {
 	reply := readLine(t, client, 2*time.Second)
 	if !strings.Contains(reply, "not installed") {
 		t.Errorf("expected not-installed error: %s", reply)
+	}
+	client.Close()
+}
+
+func TestHeadless_PluginRun_RejectsTraversalID(t *testing.T) {
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	cfg := stateDirCfg(t)
+	srv := NewServer(cfg, nil)
+	go srv.Serve(context.Background(), server, server)
+
+	io.WriteString(client, `{"jsonrpc":"2.0","id":1,"method":"session.new"}`+"\n")
+	_ = readLine(t, client, 2*time.Second)
+
+	io.WriteString(client,
+		`{"jsonrpc":"2.0","id":2,"method":"plugin.run","params":{"sessionId":"h-1","id":"../escape","tool":"x"}}`+"\n")
+	reply := readLine(t, client, 2*time.Second)
+	if !strings.Contains(reply, "invalid plugin id") {
+		t.Errorf("expected invalid plugin id error: %s", reply)
 	}
 	client.Close()
 }
@@ -177,6 +199,21 @@ func TestHeadless_ForkFn_CreatesChildSession(t *testing.T) {
 	}
 	if h == plumbing.ZeroHash {
 		t.Error("child trace ref is zero")
+	}
+	child, err := stadogit.OpenSession(sess.gitSess.Sidecar, filepath.Dir(sess.gitSess.WorktreePath), childID)
+	if err != nil {
+		t.Fatalf("open child: %v", err)
+	}
+	msgs, err := runtime.LoadConversation(child.WorktreePath)
+	if err != nil {
+		t.Fatalf("load child conversation: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("child messages = %d, want 1", len(msgs))
+	}
+	body := msgs[0].Content[0].Text.Text
+	if !strings.Contains(body, "[compaction summary") || !strings.Contains(body, "summary") {
+		t.Fatalf("unexpected child seed body: %q", body)
 	}
 }
 

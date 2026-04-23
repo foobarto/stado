@@ -26,9 +26,10 @@ type ServerConfig struct {
 	Env     map[string]string
 	URL     string
 
-	// Runner spawns stdio servers through a sandbox. nil → stdio server
-	// runs unwrapped (backwards-compat default). When non-nil, Policy
-	// must also be set.
+	// Runner spawns stdio servers through a sandbox. nil leaves the
+	// subprocess unwrapped; config-backed stdio servers should avoid that
+	// and declare capabilities so attachMCP can provide both Runner and
+	// Policy. When non-nil, Policy must also be set.
 	Runner sandbox.Runner
 	Policy sandbox.Policy
 }

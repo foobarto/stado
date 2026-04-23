@@ -18,10 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/google/uuid"
-
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/bundledplugins"
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
@@ -122,7 +121,10 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	}
 
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
-	dir := filepath.Join(pluginsRoot, p.ID)
+	dir, err := plugins.InstalledDir(pluginsRoot, p.ID)
+	if err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: fmt.Sprintf("plugin %q not installed", p.ID)}
 	}
@@ -271,8 +273,9 @@ func (s *Server) ensureGitSession(sess *hSession) {
 
 // forkFn returns a closure the SessionBridge calls when the plugin
 // invokes session_fork. Creates a real child session rooted at the
-// plugin-supplied turn ref, materialises its worktree, writes the
-// Plugin: seed marker to the child's trace ref, and emits
+// plugin-supplied turn ref, materialises its worktree, persists the
+// seed summary into the child's conversation log, writes the Plugin:
+// trace marker, and emits
 // session.update{kind:"plugin_fork"} so the headless client sees it.
 //
 // Mirrors TUI's pluginForkAt closure (model.go) — same DESIGN invariant
@@ -280,45 +283,14 @@ func (s *Server) ensureGitSession(sess *hSession) {
 // trailer).
 func (s *Server) forkFn(sess *hSession, pluginName string) func(context.Context, string, string) (string, error) {
 	return func(ctx context.Context, atTurnRef, seed string) (string, error) {
-		if sess.gitSess == nil || sess.gitSess.Sidecar == nil {
+		if sess.gitSess == nil {
 			return "", fmt.Errorf("plugin fork: no git session")
 		}
-		sc := sess.gitSess.Sidecar
-		parentID := sess.gitSess.ID
-
-		var rootCommit plumbing.Hash
-		if atTurnRef != "" {
-			h, err := resolveTurnRefHeadless(sc, parentID, atTurnRef)
-			if err != nil {
-				return "", fmt.Errorf("plugin fork: resolve %s: %w", atTurnRef, err)
-			}
-			rootCommit = h
-		} else {
-			if h, err := sc.ResolveRef(stadogit.TreeRef(parentID)); err == nil {
-				rootCommit = h
-			}
-		}
-
-		worktreeRoot := filepath.Dir(sess.gitSess.WorktreePath)
-		childID := uuid.New().String()
-		childSess, err := stadogit.CreateSession(sc, worktreeRoot, childID, rootCommit)
+		childSess, err := runtime.ForkPluginSession(s.Cfg, sess.gitSess, atTurnRef, seed, pluginName)
 		if err != nil {
-			return "", fmt.Errorf("plugin fork: create child: %w", err)
+			return "", err
 		}
-		if !rootCommit.IsZero() {
-			if treeHash, tErr := childSess.TreeFromCommit(rootCommit); tErr == nil {
-				_ = childSess.MaterializeTreeToDir(treeHash, childSess.WorktreePath)
-			}
-		}
-
-		_, _ = childSess.CommitToTrace(stadogit.CommitMeta{
-			Tool:     "plugin_fork",
-			ShortArg: atTurnRef,
-			Summary:  trimSeed(seed, 60),
-			Agent:    "plugin:" + pluginName,
-			Plugin:   pluginName,
-			Turn:     0,
-		})
+		childID := childSess.ID
 
 		if s.conn != nil {
 			// Shape matches DESIGN §"Plugin extension points" invariant 4:
@@ -338,20 +310,6 @@ func (s *Server) forkFn(sess *hSession, pluginName string) func(context.Context,
 		}
 		return childID, nil
 	}
-}
-
-// resolveTurnRefHeadless is the headless equivalent of the TUI's
-// resolveTurnRefForBridge. Same semantics: `turns/N` resolves via the
-// parent's session ref namespace; a 40-char hex string is treated as a
-// commit sha directly.
-func resolveTurnRefHeadless(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
-	if strings.HasPrefix(target, "turns/") {
-		return sc.ResolveRef(plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target))
-	}
-	if len(target) < 40 {
-		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
-	}
-	return plumbing.NewHash(target), nil
 }
 
 func trimSeed(s string, max int) string {
@@ -376,7 +334,8 @@ func trimSeed(s string, max int) string {
 // headless bridge reattaches to whichever session just completed a
 // prompt, so background plugins can follow activity across sessions.
 func (s *Server) loadBackgroundPlugins(ctx context.Context) {
-	if len(s.Cfg.Plugins.Background) == 0 {
+	ids := headlessBackgroundPluginIDs(s.Cfg)
+	if len(ids) == 0 {
 		return
 	}
 	rt, err := pluginRuntime.New(ctx)
@@ -385,7 +344,7 @@ func (s *Server) loadBackgroundPlugins(ctx context.Context) {
 	}
 	s.bgRuntime = rt
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
-	for _, id := range s.Cfg.Plugins.Background {
+	for _, id := range ids {
 		bp := s.loadOneBackground(ctx, rt, pluginsRoot, id)
 		if bp != nil {
 			s.bgPlugins = append(s.bgPlugins, bp)
@@ -393,8 +352,43 @@ func (s *Server) loadBackgroundPlugins(ctx context.Context) {
 	}
 }
 
+func headlessBackgroundPluginIDs(cfg *config.Config) []string {
+	if cfg == nil {
+		return bundledplugins.DefaultBackgroundPlugins()
+	}
+	var ids []string
+	seen := map[string]struct{}{}
+	for _, id := range bundledplugins.DefaultBackgroundPlugins() {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, id := range cfg.Plugins.Background {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) *pluginRuntime.BackgroundPlugin {
-	dir := filepath.Join(pluginsRoot, id)
+	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
+		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
+		bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, bundled.WASM, host)
+		if err != nil {
+			return nil
+		}
+		return bp
+	}
+
+	dir, err := plugins.InstalledDir(pluginsRoot, id)
+	if err != nil {
+		return nil
+	}
 	mf, sig, err := plugins.LoadFromDir(dir)
 	if err != nil {
 		return nil

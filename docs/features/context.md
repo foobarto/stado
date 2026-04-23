@@ -2,8 +2,10 @@
 
 Every LLM has a finite context window. Stado tracks input tokens per
 turn and warns before you're close to the limit. In the TUI, the hard
-cap rejects further turns until you recover; headless surfaces context
-warnings to clients instead of blocking them on its own.
+cap first asks the bundled `auto-compact` background plugin to recover
+by forking a compacted child session, then replays the blocked prompt
+there. Headless surfaces context warnings to clients instead of
+blocking them on its own.
 
 ## The two thresholds
 
@@ -19,11 +21,12 @@ mean:
 
 - At 70% you get a one-line system advisory under the current turn
   and a `/compact` suggestion in the sidebar. Nothing is blocked.
-- At 90% the TUI refuses to call the provider for a new turn. The
-  input submit becomes a no-op with a clear reason; `/compact`,
-  `/retry`, `/clear` still route immediately. Headless emits
-  `session.update { kind: "context_warning", level: "hard" }`
-  and leaves blocking to the client.
+- At 90% the TUI tries bundled auto-recovery first. If a child session
+  is forked, stado switches to it and replays the blocked prompt there.
+  If no child is produced, the input stays in the editor and you
+  recover manually with `/compact`, `/retry`, `/clear`, or an explicit
+  session fork. Headless emits `session.update { kind: "context_warning",
+  level: "hard" }` and leaves blocking to the client.
 
 ## Why two thresholds (not one)
 
@@ -89,16 +92,16 @@ paths (`/clear`, session fork) exist but aren't on the critical path.
 
 ### Hard threshold crossed
 
-Input submit is rejected with a block:
+Input submit first tries automatic recovery:
 
 ```
-context: 91% used — hard cap hit. /compact, /clear, or /retry before the next
-turn. Raise [context].hard_threshold if you want the room.
+context at 91% (hard threshold 90%) — running bundled auto-compact before
+replaying your prompt in a child session.
 ```
 
-The input text stays in the buffer so nothing is lost — just press
-`/compact` then Enter, and your prompt goes out against the compacted
-history.
+If recovery succeeds, the TUI switches into the compacted child session
+and replays the blocked prompt there. If it does not, the input text
+stays in the buffer so nothing is lost.
 
 ## `/compact` — summarise and replace
 
@@ -115,6 +118,13 @@ block with a y/n prompt:
 
 Compaction is idempotent: running it on an already-compacted
 conversation produces a new, tighter summary on top.
+
+Persisted-session CLI compaction is intentionally plugin-driven rather
+than a built-in core rewrite path. Use a session-aware plugin with
+`stado plugin run --session <id> <plugin-id> <tool> [json-args]`; the
+canonical source is `plugins/default/auto-compact/`: it uses
+fork-based recovery and seeds the child session's persisted
+conversation with the generated summary.
 
 ## Config
 

@@ -11,52 +11,28 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/google/uuid"
 
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
-// emitTurnCompleteToBridges pushes a JSON-encoded
-// `{"kind":"turn_complete","turn":N}` event onto every background
-// plugin's SessionBridge event channel. Plugins polling via
-// stado_session_next_event will pop these and can trigger behaviour
-// at turn boundaries. Buffer-full drops are tolerated (the bridge
-// Emit is non-blocking).
-func (m *Model) emitTurnCompleteToBridges() {
-	if len(m.backgroundPlugins) == 0 {
-		return
-	}
-	turn := 0
-	if m.session != nil {
-		turn = m.session.Turn()
-	}
-	payload := []byte(fmt.Sprintf(`{"kind":"turn_complete","turn":%d}`, turn))
-	for _, bp := range m.backgroundPlugins {
-		if bp.Host != nil {
-			if bridge, ok := bp.Host.SessionBridge.(*pluginRuntime.SessionBridgeImpl); ok && bridge != nil {
-				bridge.Emit(payload)
-			}
-		}
-	}
-}
-
 // LoadBackgroundPlugins instantiates every plugin listed in
-// cfg.Plugins.Background as a persistent (tick-every-turn) plugin.
-// Each plugin's manifest is verified against the trust store + wasm
-// digest before instantiation — same gate as `stado plugin run`. A
-// single failing plugin surfaces as a system block in the TUI but
-// doesn't abort the others. No-op when cfg.Plugins.Background is
-// empty.
+// cfg.Plugins.Background plus the default bundled auto-compact plugin
+// as persistent (tickable) plugins. A single failing plugin surfaces
+// as a system block in the TUI but doesn't abort the others.
 func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
-	if len(cfg.Plugins.Background) == 0 {
+	ids := effectiveBackgroundPluginIDs(cfg)
+	if len(ids) == 0 {
 		return
 	}
 	ctx := m.rootCtx
@@ -71,7 +47,7 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	m.bgPluginRuntime = rt
 
 	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
-	for _, id := range cfg.Plugins.Background {
+	for _, id := range ids {
 		bp, note := m.loadOneBackground(ctx, rt, pluginsRoot, id)
 		if note != "" {
 			m.appendBlock(block{kind: "system", body: note})
@@ -82,11 +58,47 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	}
 }
 
+func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
+	if cfg == nil {
+		return bundledplugins.DefaultBackgroundPlugins()
+	}
+	var ids []string
+	seen := map[string]struct{}{}
+	for _, id := range bundledplugins.DefaultBackgroundPlugins() {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, id := range cfg.Plugins.Background {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // loadOneBackground reads + verifies + instantiates a single plugin.
 // Returns (plugin, advisory) — advisory is non-empty on load
 // failure OR on successful load so the user knows the plugin is
 // active. nil plugin signals "skip this one."
 func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) (*pluginRuntime.BackgroundPlugin, string) {
+	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
+		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
+		host.ApprovalBridge = tuiApprovalBridge{model: m}
+		if bridge := m.buildPluginBridge(bundled.Manifest.Name); bridge != nil {
+			host.SessionBridge = bridge
+		}
+		bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, bundled.WASM, host)
+		if err != nil {
+			return nil, fmt.Sprintf("background plugin %s: load: %v", bundled.ID, err)
+		}
+		return bp, fmt.Sprintf("background plugin %s loaded (bundled default)", bundled.ID)
+	}
+
 	dir := filepath.Join(pluginsRoot, id)
 	mf, sig, err := plugins.LoadFromDir(dir)
 	if err != nil {
@@ -119,17 +131,18 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 	return bp, fmt.Sprintf("background plugin %s loaded (ticking on every turn boundary)", id)
 }
 
-// tickBackgroundPlugins invokes stado_plugin_tick on every loaded
-// background plugin. Returns a tea.Cmd because the ticks run in a
-// goroutine so a slow plugin can't freeze the UI. Called on each
-// streamDoneMsg in Update. Plugins returning non-zero are dropped
-// from the active set for the rest of the session.
-func (m *Model) tickBackgroundPlugins() tea.Cmd {
+// tickBackgroundPluginsWithEvent pushes one event onto every loaded
+// background plugin's bridge, refreshes the bridge to the current
+// session snapshot, then invokes stado_plugin_tick. Returns a tea.Cmd
+// because the ticks run in a goroutine so a slow plugin can't freeze
+// the UI. Plugins returning non-zero are dropped from the active set.
+func (m *Model) tickBackgroundPluginsWithEvent(payload []byte) tea.Cmd {
 	if len(m.backgroundPlugins) == 0 {
 		return nil
 	}
 	if m.backgroundTickRunning {
 		m.backgroundTickQueued = true
+		m.backgroundTickPayload = append([]byte(nil), payload...)
 		return nil
 	}
 	m.backgroundTickRunning = true
@@ -137,6 +150,12 @@ func (m *Model) tickBackgroundPlugins() tea.Cmd {
 	return func() tea.Msg {
 		survivors := active[:0:len(active)]
 		for _, bp := range active {
+			if bp.Host != nil {
+				if bridge := m.buildPluginBridge(bp.Name()); bridge != nil {
+					bp.Host.SessionBridge = bridge
+					bridge.Emit(payload)
+				}
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			unregister, err := bp.Tick(ctx)
 			cancel()
@@ -147,6 +166,17 @@ func (m *Model) tickBackgroundPlugins() tea.Cmd {
 			survivors = append(survivors, bp)
 		}
 		return backgroundTickResultMsg{survivors: survivors}
+	}
+}
+
+func (m *Model) closeBackgroundPlugins(ctx context.Context) {
+	for _, bp := range m.backgroundPlugins {
+		_ = bp.Close(ctx)
+	}
+	m.backgroundPlugins = nil
+	if m.bgPluginRuntime != nil {
+		_ = m.bgPluginRuntime.Close(ctx)
+		m.bgPluginRuntime = nil
 	}
 }
 
@@ -166,6 +196,37 @@ func (b tuiApprovalBridge) RequestApproval(ctx context.Context, title, body stri
 		return false, errors.New("approval UI unavailable")
 	}
 	return b.model.requestPluginApproval(ctx, title, body)
+}
+
+func (m *Model) turnCompleteEvent() []byte {
+	turn := 0
+	if m.session != nil {
+		turn = m.session.Turn()
+	}
+	return []byte(fmt.Sprintf(`{"kind":"turn_complete","turn":%d}`, turn))
+}
+
+func (m *Model) contextOverflowEvent(prompt string) []byte {
+	return []byte(fmt.Sprintf(
+		`{"kind":"context_overflow","turn":%d,"prompt":%q,"fraction":%.4f,"hard_threshold":%.4f}`,
+		m.currentTurnNumber(), prompt, m.contextFraction(), m.ctxHardThreshold,
+	))
+}
+
+func (m *Model) currentTurnNumber() int {
+	if m.session == nil {
+		return 0
+	}
+	return m.session.Turn()
+}
+
+func (m *Model) hasAutoCompactBackgroundPlugin() bool {
+	for _, bp := range m.backgroundPlugins {
+		if bp != nil && bp.Name() == "auto-compact" {
+			return true
+		}
+	}
+	return false
 }
 
 // hostAdapter implements tool.Host for the executor goroutine. Tool calls
@@ -231,6 +292,79 @@ func (m *Model) buildPluginBridge(pluginName string) *pluginRuntime.SessionBridg
 	return bridge
 }
 
+func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
+	if m.session == nil || m.session.Sidecar == nil {
+		m.appendBlock(block{kind: "system", body: "auto-recovery forked a child session, but no live parent session is attached"})
+		m.renderBlocks()
+		return nil
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "auto-recovery: config load: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
+	child, err := stadogit.OpenSession(m.session.Sidecar, filepath.Dir(m.session.WorktreePath), childID)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "auto-recovery: open child session: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
+	exec, err := runtime.BuildExecutor(child, cfg, "stado-tui")
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "auto-recovery: executor: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
+
+	prompt := m.recoveryPrompt
+	m.recoveryPrompt = ""
+	m.recoveryPluginName = ""
+	m.recoveryPluginActive = false
+	m.session = child
+	m.executor = exec
+	m.cwd = child.WorktreePath
+	m.msgs = nil
+	m.blocks = nil
+	m.todos = nil
+	m.queuedPrompt = ""
+	m.pendingCalls = nil
+	m.pendingResults = nil
+	m.turnToolCalls = nil
+	m.usage = agent.Usage{}
+	m.budgetWarned = false
+	m.budgetAcked = false
+	m.state = stateIdle
+	m.LoadPersistedConversation()
+	if res, err := instructions.Load(m.cwd); err == nil {
+		m.systemPrompt = res.Content
+		m.systemPromptPath = res.Path
+	} else {
+		m.systemPrompt = ""
+		m.systemPromptPath = ""
+	}
+	if sks, err := skills.Load(m.cwd); err == nil {
+		m.skills = sks
+	} else {
+		m.skills = nil
+	}
+
+	body := fmt.Sprintf("auto-recovery: switched to compacted child session %s", childID)
+	if strings.TrimSpace(seed) != "" {
+		body += "\nsummary: " + trimSeed(seed, 120)
+	}
+	if prompt == "" {
+		m.appendBlock(block{kind: "system", body: body})
+		m.renderBlocks()
+		return nil
+	}
+	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
+	m.appendUser(prompt)
+	m.input.Reset()
+	m.renderBlocks()
+	return m.startStream()
+}
+
 // pluginForkAt returns a ForkFn closure that drives the same
 // fork-from-point primitive `stado session fork --at` uses: resolve
 // at_turn_ref against the parent session's refs, create a new session
@@ -240,65 +374,27 @@ func (m *Model) buildPluginBridge(pluginName string) *pluginRuntime.SessionBridg
 // session ID so the plugin can surface it.
 //
 // DESIGN invariant: the parent session is never modified. The child
-// carries a marker commit that records what the plugin summarised;
-// when conversation persistence lands, that same marker seeds the
-// child's m.msgs with the summary as its first user turn.
+// carries a trace marker commit that records what the plugin
+// summarised, and the child's persisted conversation is seeded with
+// that summary as its first user turn.
 //
 // Also posts a pluginForkMsg so the TUI update loop can render a
 // user-visible notification (DESIGN invariant 4 — "user-visible by
 // default").
 func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurnRef, seed string) (string, error) {
 	return func(ctx context.Context, atTurnRef, seed string) (string, error) {
-		if m.session == nil || m.session.Sidecar == nil {
+		if m.session == nil {
 			return "", fmt.Errorf("plugin fork: no live session")
 		}
-		sc := m.session.Sidecar
-		parentID := m.session.ID
-
-		// Resolve the fork point. Empty atTurnRef → parent's tree HEAD
-		// (fork from the current state, same as `stado session fork`
-		// without --at).
-		var rootCommit plumbing.Hash
-		if atTurnRef != "" {
-			h, err := resolveTurnRefForBridge(sc, parentID, atTurnRef)
-			if err != nil {
-				return "", fmt.Errorf("plugin fork: resolve %s: %w", atTurnRef, err)
-			}
-			rootCommit = h
-		} else {
-			h, err := sc.ResolveRef(stadogit.TreeRef(parentID))
-			if err == nil {
-				rootCommit = h
-			}
-		}
-
-		worktreeRoot := filepath.Dir(m.session.WorktreePath)
-		childID := uuid.New().String()
-		childSess, err := stadogit.CreateSession(sc, worktreeRoot, childID, rootCommit)
+		cfg, err := config.Load()
 		if err != nil {
-			return "", fmt.Errorf("plugin fork: create child: %w", err)
+			return "", fmt.Errorf("plugin fork: load config: %w", err)
 		}
-
-		// Materialise the worktree at the fork point so the child is
-		// a working session, not just a ref graph node.
-		if !rootCommit.IsZero() {
-			treeHash, tErr := childSess.TreeFromCommit(rootCommit)
-			if tErr == nil {
-				_ = childSess.MaterializeTreeToDir(treeHash, childSess.WorktreePath)
-			}
+		childSess, err := runtime.ForkPluginSession(cfg, m.session, atTurnRef, seed, pluginName)
+		if err != nil {
+			return "", err
 		}
-
-		// Write the Plugin: tagged seed marker onto the child's trace
-		// ref. Best-effort — the fork already succeeded; commit
-		// failures shouldn't invalidate the new session.
-		_, _ = childSess.CommitToTrace(stadogit.CommitMeta{
-			Tool:     "plugin_fork",
-			ShortArg: atTurnRef,
-			Summary:  trimSeed(seed, 60),
-			Agent:    "plugin:" + pluginName,
-			Plugin:   pluginName,
-			Turn:     0,
-		})
+		childID := childSess.ID
 
 		// Notify the user asynchronously via the tea program. Not a
 		// synchronous block — the plugin is waiting on this function
@@ -315,19 +411,6 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 		}
 		return childID, nil
 	}
-}
-
-// resolveTurnRefForBridge is the bridge-local equivalent of
-// cmd/stado's resolveTurnRef. Inlined to avoid importing cmd/stado
-// from internal/tui.
-func resolveTurnRefForBridge(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
-	if strings.HasPrefix(target, "turns/") {
-		return sc.ResolveRef(plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target))
-	}
-	if len(target) < 40 {
-		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
-	}
-	return plumbing.NewHash(target), nil
 }
 
 // runPluginToolAsync spawns a fresh wazero runtime, instantiates the
@@ -392,7 +475,7 @@ func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, 
 func renderInstalledPluginList(pluginsRoot string) string {
 	entries, err := os.ReadDir(pluginsRoot)
 	if err != nil || len(entries) == 0 {
-		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see examples/plugins/hello/."
+		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see plugins/examples/hello/."
 	}
 	var dirs []string
 	for _, e := range entries {

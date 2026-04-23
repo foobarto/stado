@@ -90,6 +90,7 @@ func Run(cfg *config.Config) error {
 	// via the host-import ABI. Failures are advisory — a bad plugin
 	// shouldn't brick the TUI.
 	m.LoadBackgroundPlugins(cfg)
+	defer m.closeBackgroundPlugins(context.Background())
 	// Wrap stdin with an OSC-response stripper. See osc_reader.go:
 	// the terminal's late replies to lipgloss/termenv's one-shot
 	// background-colour query would otherwise leak into the focused

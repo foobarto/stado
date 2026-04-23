@@ -117,6 +117,7 @@ type (
 	streamErrorMsg           struct{ err error }
 	streamTickMsg            struct{}
 	streamDoneMsg            struct{}
+	recoveryTimeoutMsg       struct{}
 	toolsExecutedMsg         struct{ results []agent.ToolResultBlock }
 	pluginApprovalRequestMsg struct {
 		title    string
@@ -190,6 +191,7 @@ type Model struct {
 	backgroundPlugins     []*pluginRuntime.BackgroundPlugin
 	backgroundTickRunning bool
 	backgroundTickQueued  bool
+	backgroundTickPayload []byte
 	// pluginRuntime shared across all background plugins — each
 	// plugin's Module is separate, but the wazero Runtime is the
 	// container. Nil until LoadBackgroundPlugins runs.
@@ -239,6 +241,13 @@ type Model struct {
 	// message exists). Pi's pattern — lets the user line up "the next
 	// thing to try" without waiting for the model to finish typing.
 	queuedPrompt string
+	// recoveryPrompt is the blocked prompt currently waiting for a
+	// plugin-driven context recovery fork. When the expected plugin
+	// creates a child session, the TUI switches to it and replays this
+	// prompt there instead of dropping it.
+	recoveryPrompt       string
+	recoveryPluginName   string
+	recoveryPluginActive bool
 
 	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
 	// prompt size (not cumulative) — it's the correct input for the

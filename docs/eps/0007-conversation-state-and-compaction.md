@@ -62,15 +62,18 @@ present them differently:
 Compaction is explicit. In the TUI, `/compact` asks the active provider
 for a summary, shows the proposed result to the user, allows inline
 edits, and only rewrites the active conversation state after
-confirmation. Other live-session surfaces, notably headless
-`session.compact`, currently differ in mechanics from the TUI preview
-flow even when they use the same underlying compaction primitive.
+confirmation. Other shipped surfaces differ in mechanics: headless
+`session.compact` applies immediately to the in-memory session, while
+persisted-session CLI compaction is intentionally plugin-driven via
+`stado plugin run --session <id> ...` so fork-based recovery can stay
+in plugin space instead of shipping a second core rewrite path. The
+bundled default `auto-compact` background plugin follows that same
+fork-based path and the TUI now replays blocked hard-threshold prompts
+in the compacted child session it creates.
 Accepted compactions replace the current conversation view with the
 confirmed summary. The underlying compaction audit shape uses dual-ref
 compaction markers to distinguish the compacted conversation view from
-the preserved raw turn range where that state is recorded. Broader
-CLI-driven persistence and ergonomics remain separate work and are not
-the user-facing contract here.
+the preserved raw turn range where that state is recorded.
 
 Historical recovery uses child sessions instead of in-place rewrites.
 `session fork --at` and `session tree` expose the same primitive: pick a

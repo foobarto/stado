@@ -147,8 +147,8 @@ integrity.
 
 Step-by-step for maintainers who want to publish an offline-signed
 plugin. Assumes you already have working `plugin.wasm` +
-`plugin.manifest.json` templates — see `examples/plugins/hello/` for a
-minimal starting point and `examples/plugins/auto-compact/` for the
+`plugin.manifest.json` templates — see `plugins/examples/hello/` for a
+minimal starting point and `plugins/default/auto-compact/` for the
 full session-capable shape.
 
 #### 1. Generate a signing key (one-time per maintainer identity)
@@ -240,7 +240,7 @@ an entry instead of advising "no log entry".
 
 #### 6. Distribute the plugin directory
 
-Ship everything in `examples/plugins/<name>/` shape:
+Ship everything in `plugins/examples/<name>/` shape:
 
 ```
 my-plugin/

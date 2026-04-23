@@ -18,7 +18,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -129,7 +128,10 @@ type searchMatch struct {
 // returns every message whose text content matches. remaining limits
 // how many more matches the caller wants; 0 = unlimited.
 func searchSessionConversation(cfg *config.Config, id string, match func(string) bool, remaining int) ([]searchMatch, error) {
-	wt := filepath.Join(cfg.WorktreeDir(), id)
+	wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+	if err != nil {
+		return nil, nil
+	}
 	if _, err := os.Stat(wt); err != nil {
 		return nil, nil // detached session; nothing to search
 	}

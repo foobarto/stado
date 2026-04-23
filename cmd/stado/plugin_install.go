@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +58,7 @@ var pluginInstallCmd = &cobra.Command{
 				return fmt.Errorf("install: --signer fingerprint %s does not match manifest author_pubkey_fpr %s",
 					entry.Fingerprint, m.AuthorPubkeyFpr)
 			}
-			fmt.Fprintf(os.Stderr, "install: pinned signer %s (author=%s)\n",
+			fmt.Fprintf(cmd.ErrOrStderr(), "install: pinned signer %s (author=%s)\n",
 				entry.Fingerprint, m.Author)
 		}
 		if err := ts.VerifyManifest(m, sig); err != nil {
@@ -78,14 +77,14 @@ var pluginInstallCmd = &cobra.Command{
 
 		dst := filepath.Join(cfg.StateDir(), "plugins", m.Name+"-"+m.Version)
 		if _, err := os.Stat(dst); err == nil {
-			fmt.Fprintf(os.Stderr, "install: %s v%s already installed at %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "skipped: %s v%s already installed at %s\n",
 				m.Name, m.Version, dst)
 			return nil
 		}
 		if err := copyDir(src, dst); err != nil {
 			return fmt.Errorf("install: copy: %w", err)
 		}
-		fmt.Printf("installed %s v%s at %s\n", m.Name, m.Version, dst)
+		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
 		return nil
 	},
 }
@@ -131,11 +130,5 @@ func copyPluginFile(src, dst string, mode os.FileMode) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	return writeReaderToPath(dst, mode, in)
 }

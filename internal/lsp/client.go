@@ -118,7 +118,11 @@ func (c *Client) readLoop() {
 		if err != nil {
 			// On EOF, signal pending callers so they unblock.
 			c.pending.Range(func(k, v any) bool {
-				ch := v.(chan rawResponse)
+				ch, ok := v.(chan rawResponse)
+				if !ok {
+					c.pending.Delete(k)
+					return true
+				}
 				select {
 				case ch <- rawResponse{err: &rpcError{Code: -32001, Message: "server disconnected"}}:
 				default:
@@ -136,7 +140,11 @@ func (c *Client) readLoop() {
 			continue
 		}
 		if ch, ok := c.pending.LoadAndDelete(idNum); ok {
-			ch.(chan rawResponse) <- rawResponse{result: msg.Result, err: msg.Error}
+			respCh, ok := ch.(chan rawResponse)
+			if !ok {
+				continue
+			}
+			respCh <- rawResponse{result: msg.Result, err: msg.Error}
 		}
 	}
 }
@@ -195,9 +203,9 @@ func (c *Client) notify(method string, params any) error {
 // --- LSP message surface (minimal) ---
 
 type initializeParams struct {
-	ProcessID    int              `json:"processId"`
-	RootURI      string           `json:"rootUri"`
-	Capabilities map[string]any   `json:"capabilities"`
+	ProcessID    int            `json:"processId"`
+	RootURI      string         `json:"rootUri"`
+	Capabilities map[string]any `json:"capabilities"`
 }
 
 func (c *Client) initialize(ctx context.Context, root string) error {
@@ -314,12 +322,12 @@ func (c *Client) References(ctx context.Context, path string, pos Position, incl
 
 // DocumentSymbol is a single symbol in a file's outline.
 type DocumentSymbol struct {
-	Name     string           `json:"name"`
-	Detail   string           `json:"detail,omitempty"`
-	Kind     int              `json:"kind"`
-	Range    Range            `json:"range"`
-	Selection Range           `json:"selectionRange"`
-	Children []DocumentSymbol `json:"children,omitempty"`
+	Name      string           `json:"name"`
+	Detail    string           `json:"detail,omitempty"`
+	Kind      int              `json:"kind"`
+	Range     Range            `json:"range"`
+	Selection Range            `json:"selectionRange"`
+	Children  []DocumentSymbol `json:"children,omitempty"`
 }
 
 type Range struct {
@@ -347,8 +355,8 @@ func (c *Client) DocumentSymbols(ctx context.Context, path string) ([]DocumentSy
 	}
 	// Legacy SymbolInformation[] — flatten into a Name-only outline.
 	var legacy []struct {
-		Name     string `json:"name"`
-		Kind     int    `json:"kind"`
+		Name     string   `json:"name"`
+		Kind     int      `json:"kind"`
 		Location Location `json:"location"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {

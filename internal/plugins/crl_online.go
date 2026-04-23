@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+var onlineHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // Fetch downloads a signed CRL from url, verifies the signature against
 // issuerPubkey, and returns it. Callers typically persist the result via
@@ -25,7 +28,7 @@ func Fetch(url string, issuerPubkey ed25519.PublicKey) (*CRL, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "stado-plugin-crl")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := onlineHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("crl: fetch %s: %w", url, err)
 	}

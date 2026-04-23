@@ -6,11 +6,39 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+func TestEffectiveBackgroundPluginIDs_IncludeBundledAutoCompact(t *testing.T) {
+	ids := effectiveBackgroundPluginIDs(&config.Config{})
+	if len(ids) == 0 || ids[0] != "auto-compact" {
+		t.Fatalf("default background ids = %v, want auto-compact first", ids)
+	}
+}
+
+func TestHasAutoCompactBackgroundPlugin_DetectsLoadedPlugin(t *testing.T) {
+	rnd, _ := render.New(theme.Default())
+	m := NewModel("/tmp", "m", "p",
+		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
+	m.backgroundPlugins = []*pluginRuntime.BackgroundPlugin{{
+		Manifest: plugins.Manifest{},
+	}}
+	if m.hasAutoCompactBackgroundPlugin() {
+		t.Fatal("empty manifest should not count as auto-compact")
+	}
+	m.backgroundPlugins = []*pluginRuntime.BackgroundPlugin{{
+		Manifest: plugins.Manifest{Name: "auto-compact"},
+	}}
+	if !m.hasAutoCompactBackgroundPlugin() {
+		t.Fatal("auto-compact background plugin should have been detected")
+	}
+}
 
 // seedInstalledAutoCompact pretends an auto-compact plugin is
 // installed by creating a directory under $XDG_DATA_HOME/stado/plugins.

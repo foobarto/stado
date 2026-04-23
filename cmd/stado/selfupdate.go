@@ -26,6 +26,11 @@ import (
 )
 
 var (
+	selfUpdateAPIClient      = &http.Client{Timeout: 30 * time.Second}
+	selfUpdateDownloadClient = &http.Client{Timeout: 5 * time.Minute}
+)
+
+var (
 	selfUpdateDryRun bool
 	selfUpdateForce  bool
 	selfUpdateRepo   string
@@ -130,7 +135,7 @@ func fetchLatestRelease(repo string) (*ghRelease, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "stado-self-update")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := selfUpdateAPIClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github api: %w", err)
 	}
@@ -212,7 +217,7 @@ func fetchChecksums(assets []ghAsset) (map[string]string, error) {
 
 // fetchBytes is a thin GET helper that reads the whole body.
 func fetchBytes(url, label string) ([]byte, error) {
-	resp, err := http.Get(url)
+	resp, err := selfUpdateAPIClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +261,7 @@ func verifyChecksumsMinisig(checksums []byte, minisigURL string) error {
 // Returns the temp file (caller must remove) or an error if the digest doesn't
 // match wantHex.
 func downloadAndVerify(url, wantHex string) (*os.File, error) {
-	resp, err := http.Get(url)
+	resp, err := selfUpdateDownloadClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -335,17 +340,10 @@ func extractBinary(archivePath, assetName string) (string, error) {
 			}
 			base := filepath.Base(hdr.Name)
 			if base == "stado" || base == "stado.exe" {
-				w, err := os.OpenFile(out, os.O_WRONLY|os.O_TRUNC, 0o755)
-				if err != nil {
+				if err := writeReaderToPath(out, 0o755, tr); err != nil {
 					os.Remove(out)
 					return "", err
 				}
-				if _, err := io.Copy(w, tr); err != nil {
-					w.Close()
-					os.Remove(out)
-					return "", err
-				}
-				w.Close()
 				if err := os.Chmod(out, 0o755); err != nil {
 					return "", err
 				}
@@ -370,12 +368,7 @@ func extractZipBinary(archivePath, outPath string) error {
 				return err
 			}
 			defer rc.Close()
-			w, err := os.OpenFile(outPath, os.O_WRONLY|os.O_TRUNC, 0o755)
-			if err != nil {
-				return err
-			}
-			defer w.Close()
-			if _, err := io.Copy(w, rc); err != nil {
+			if err := writeReaderToPath(outPath, 0o755, rc); err != nil {
 				return err
 			}
 			return os.Chmod(outPath, 0o755)
@@ -414,13 +407,7 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	return writeReaderToPath(dst, 0o755, in)
 }
 
 func currentExe() string {

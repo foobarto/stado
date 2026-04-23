@@ -6,7 +6,7 @@ only `lint` was red.
 
 Root cause:
 
-- `internal/builtinplugins/sdk` was written with wasm32 pointer
+- `internal/bundledplugins/sdk` was written with wasm32 pointer
   assumptions but had no build tags, so host-side linting analyzed it
   as ordinary linux/amd64 code.
 - That exposed `govet` `unsafeptr` issues, and host-side tests would
@@ -25,4 +25,4 @@ Verification that matched CI:
 
 - `golangci-lint run --timeout=5m`
 - `/usr/local/go/bin/go test ./...`
-- `GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared ./internal/builtinplugins/modules/approval_demo`
+- `GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared ./internal/bundledplugins/modules/approval_demo`

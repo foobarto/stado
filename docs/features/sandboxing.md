@@ -28,6 +28,9 @@ Kernel ≥ 5.13. Filesystem ruleset applied at process start:
 - Write: confined to the session's worktree + `/tmp`. `bash` can
   build, edit its own scratch files, swap temp directories; it
   cannot `echo > ~/.ssh/authorized_keys`.
+- Network: the built-in `bash` tool defaults to deny-all when it runs
+  through the sandbox runner. Host-allowlist networking is only for
+  subprocess policies that explicitly declare `net:<host>`.
 
 `stado run --sandbox-fs` applies the ruleset to the entire `run`
 process. The TUI launches shell commands via bubblewrap (layer 2)
@@ -62,19 +65,22 @@ the runner in use.
 
 ## Layer 3 — CONNECT-allowlist proxy (network)
 
-An in-process HTTPS-CONNECT proxy sits between the sandboxed
-process and the network. Every egress connection is matched against
-the capability list:
+An in-process HTTPS-CONNECT proxy is available for sandboxed
+subprocess policies that declare `net:<host>`. Proxy-aware clients
+that honor `HTTP_PROXY` / `HTTPS_PROXY` are matched against the
+capability list:
 
 - `net:api.github.com` — allow a specific host
 - `net:allow` — allow ANY host (noisy stderr warning when set)
 - `net:deny` — explicit deny
 - (absence) — implicit deny
 
-The proxy refuses CONNECTs that don't match. DNS is scoped to the
-allowlist too (no resolving arbitrary hosts). Plain HTTP is not
-supported inside the sandbox — if a tool needs it, it must use the
-proxy's CONNECT → TLS-terminate flow.
+The proxy refuses CONNECTs that don't match. This is not yet a
+universal egress firewall: raw TCP clients and plain HTTP clients
+that ignore proxy settings are outside this enforcement path while
+the process still shares the host network namespace. Stado uses this
+today as a host-allowlist wedge for proxy-aware subprocesses, not as
+a complete network sandbox.
 
 ## Layer 4 — wazero (wasm plugins)
 
@@ -106,8 +112,10 @@ manifests:
 | `exec:<binary>` | `exec:/usr/bin/git` | Invoke a specific binary |
 | `env:<VAR>` | `env:GITHUB_TOKEN` | Inherit an env var into the child |
 
-**Default deny, opt-in allow.** An empty capability list means
-"unsandboxed (legacy default)"; stado warns loudly on stderr.
+**Default deny, opt-in allow.** For wasm plugins, an empty capability
+list means "no host privileges." For stdio MCP servers, an empty
+capability list is refused at startup instead of falling back to caller
+privileges.
 
 ## Platform coverage
 
@@ -157,6 +165,9 @@ and still useful for diagnosis work.
   advisory is designed to be noticed; if you see it in a long-lived
   session you didn't intend to run unsandboxed, check your MCP
   server configs.
+- **Stdio MCP servers now require capabilities.** If one fails to
+  start with a "capabilities are required" error, add the smallest
+  `fs:*`, `net:*`, `exec:*`, and `env:*` set it actually needs.
 - **Capability enforcement is runtime, not compile-time.** A tool can
   declare more than it uses; the extras are unused surface, not
   automatic risk. A tool cannot declare less and do more — the

@@ -26,8 +26,8 @@ environment.
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
 > context management are shipped. Main remaining gaps: Windows sandbox
-> v2, cross-surface `post_turn` hooks, a real CLI compaction path, the
-> first-install `install.sh`, and TUI template overlays. See
+> v2, the first-install `install.sh`, and
+> TUI template overlays. See
 > [PLAN.md](PLAN.md) for the phased roadmap.
 
 ---
@@ -191,10 +191,14 @@ stado plugin install .                  # copy into state/plugins/
 stado plugin list                       # pinned signer keys
 stado plugin installed                  # installed plugin IDs
 stado plugin run <id> <tool> '{...}'    # invoke a plugin tool directly
+stado plugin run --session <sid> <id> <tool> '{...}'  # session-aware plugin CLI
 ```
 
 `plugin list` shows trusted authors; `plugin installed` shows runnable
-plugin IDs (`<name>-<version>`).
+plugin IDs (`<name>-<version>`). The shipped bundled plugin catalog
+lives under [plugins/](plugins/): `plugins/default/auto-compact/` is on
+by default, while [plugins/examples/](plugins/examples/) are opt-in
+authoring samples.
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
@@ -235,6 +239,9 @@ surface itself is shipped and stable enough to wire into Zed today.
   MCP server mode all compose the same core runtime.
 - **Ops.** Strict manifest-based self-update, OpenTelemetry, context
   management, and signed audit export are already shipped.
+- **Recovery.** Bundled `auto-compact` is enabled by default as a
+  background plugin; when the TUI hits the hard context threshold it
+  forks a compacted child session and replays the blocked prompt there.
 
 For the full as-built detail, see [docs/README.md](docs/README.md),
 [DESIGN.md](DESIGN.md), and [PLAN.md](PLAN.md).
@@ -294,6 +301,7 @@ endpoint = "https://proxy.example/v1"
 command = "mcp-github"
 args    = ["--readonly"]
 env     = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+capabilities = ["net:api.github.com", "env:GITHUB_TOKEN"]
 
 [otel]
 enabled  = false
@@ -371,6 +379,7 @@ for the current run. `/approvals forget` clears those overrides.
 
 - **Linux** — `stado run --sandbox-fs` uses Landlock to narrow the
   whole process; sandboxed subprocesses use bubblewrap + seccomp BPF.
+  The built-in `bash` tool defaults to deny-all networking on this path.
   For `net:<host>` policies on subprocesses and MCP stdio servers,
   stado injects loopback `HTTP_PROXY` / `HTTPS_PROXY` settings that
   point at its local CONNECT-allowlist proxy. That path is for
@@ -388,8 +397,8 @@ reports Landlock availability.
 
 ### MCP server isolation
 
-Each `[mcp.servers.<name>]` block can declare a `capabilities` list to
-gate what that stdio server can touch:
+Each stdio `[mcp.servers.<name>]` block must declare a `capabilities`
+list to gate what that local server can touch:
 
 ```toml
 [mcp.servers.github]
@@ -404,9 +413,9 @@ capabilities = [
 ```
 
 Capability grammar: `fs:read:<path>` · `fs:write:<path>` · `net:<host>`
-· `net:allow` · `net:deny` · `exec:<binary>` · `env:<VAR>`. Empty
-capabilities mean unsandboxed (legacy default) and emit a stderr
-advisory. HTTP MCP servers (`url = "https://…"`) are not wrapped
+· `net:allow` · `net:deny` · `exec:<binary>` · `env:<VAR>`. Stdio
+servers without capabilities are refused at startup rather than run
+unsandboxed. HTTP MCP servers (`url = "https://…"`) are not wrapped
 locally; stdio servers (`command = …`) are. On Linux, `net:<host>`
 entries route HTTPS-aware stdio servers through stado's CONNECT
 allowlist proxy; plain HTTP and raw TCP protocols are outside that
@@ -420,6 +429,11 @@ declared in the manifest, enforced by the `wazero` runtime — no
 kernel-level sandbox needed because wasm already is one. See
 [docs/commands/plugin.md](docs/commands/plugin.md) for the operator
 workflow and [SECURITY.md](SECURITY.md) for the publish/signing model.
+
+The default bundled plugin is `auto-compact`: it is loaded as a
+background plugin automatically in the TUI and headless server. Extra
+installed background plugins from `[plugins].background` are additive,
+not a replacement for that default.
 
 ---
 

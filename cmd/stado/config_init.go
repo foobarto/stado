@@ -125,7 +125,7 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 #   "net:raw.githubusercontent.com",
 #   "env:GITHUB_TOKEN",
 # ]
-# # Empty capabilities = unsandboxed (legacy default); stado warns on stderr.
+# # Stdio MCP servers must declare capabilities; empty lists are refused.
 # # Forms: fs:read:<path> | fs:write:<path> | net:<host>|allow|deny
 # #        exec:<binary>  | env:<VAR>
 #
@@ -163,10 +163,12 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # hard_usd = 5.00
 
 # ---------------------------------------------------------------------------
-# [hooks] — run shell commands at TUI lifecycle events. Notification-only
-#           in this release (cannot block or modify a turn). Each hook runs
-#           /bin/sh -c <cmd> with a 5s wall-clock cap; a JSON payload is
-#           piped to stdin so scripts can act on token counts / cost.
+# [hooks] — run shell commands at completed turn boundaries across the
+#           TUI, stado run, and headless session.prompt.
+#           Notification-only in this release (cannot block or modify a
+#           turn). Each hook runs /bin/sh -c <cmd> with a 5s wall-clock
+#           cap; a JSON payload is piped to stdin so scripts can act on
+#           token counts / cost.
 # ---------------------------------------------------------------------------
 # [hooks]
 # post_turn = "notify-send stado 'turn complete'"
@@ -188,9 +190,13 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 
 # ---------------------------------------------------------------------------
 # [plugins] — plugin trust + revocation + transparency log (Phase 7.6 / 7.7)
+# The bundled auto-compact background plugin is enabled by default.
+# Add extra installed plugin IDs here if you want more long-lived
+# background plugins ticking alongside it.
 # ---------------------------------------------------------------------------
 # [plugins]
 # crl_url = "https://example.com/stado/plugin-crl.json"
 # crl_issuer_pubkey = "hex-or-base64-of-ed25519-pubkey"
 # rekor_url = "https://rekor.sigstore.dev"  # Rekor transparency log
+# background = ["session-recorder-0.1.0"]
 `

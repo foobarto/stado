@@ -51,7 +51,10 @@ var sessionExportCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(wt); err != nil {
 			return fmt.Errorf("session export: session %s not found (no worktree at %s)", id, wt)
 		}

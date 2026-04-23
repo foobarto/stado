@@ -1,0 +1,18 @@
+{
+  "name": "hello",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "5bc3855d455e44c4",
+  "wasm_sha256": "8478361f2dd85fff1aa6a730551661a23ab59f833e0804bc7df05b901f691dfe",
+  "capabilities": [],
+  "tools": [
+    {
+      "name": "greet",
+      "description": "Greet someone by name — reads { \"name\": \"...\" } and returns { \"message\": \"Hello, \u003cname\u003e!\" }.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":\"Name to greet\"}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-19T00:00:00Z",
+  "nonce": "hello-demo-001"
+}

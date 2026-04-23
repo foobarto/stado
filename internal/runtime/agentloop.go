@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -35,9 +36,10 @@ type AgentLoopOptions struct {
 	// Useful for stdout streaming in `stado run`.
 	OnEvent func(agent.Event)
 
-	// OnTurnComplete fires after a turn streams (text + tool-calls). Callers
-	// can log or inspect without intervening.
-	OnTurnComplete func(text string, toolCalls []agent.ToolUseBlock)
+	// OnTurnComplete fires after a turn streams (text + tool-calls) and
+	// before the assistant/tool messages are appended to history. Callers can
+	// inspect the turn with the same pre-append turn index the TUI hook sees.
+	OnTurnComplete func(turnIndex int, text string, toolCalls []agent.ToolUseBlock, usage agent.Usage, duration time.Duration)
 
 	// Host implements tool.Host during tool execution. Defaults to an
 	// auto-approve host using Session.WorktreePath as workdir.
@@ -144,6 +146,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				attribute.String("provider.model", opts.Model),
 			),
 		)
+		turnStart := time.Now()
 
 		req := agent.TurnRequest{
 			Model:    opts.Model,
@@ -203,7 +206,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			attribute.Float64("loop.cumulative_cost_usd", totalCostUSD),
 		)
 		if opts.OnTurnComplete != nil {
-			opts.OnTurnComplete(text, calls)
+			opts.OnTurnComplete(len(msgs), text, calls, usage, time.Since(turnStart))
 		}
 
 		// Flush assistant turn (text + tool_uses) into history.

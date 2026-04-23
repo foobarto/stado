@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/pkg/agent"
 )
 
 // TestFirePostTurn_RunsCommandWithPayload: a configured post_turn
@@ -87,5 +90,46 @@ func TestFirePostTurn_Timeout(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "hook") {
 		t.Errorf("timeout error not logged: %q", log.String())
+	}
+}
+
+func TestNewPostTurnPayload_NormalizesFields(t *testing.T) {
+	p := NewPostTurnPayload(7, agent.Usage{
+		InputTokens:  123,
+		OutputTokens: 45,
+		CostUSD:      0.67,
+	}, "hello "+strings.Repeat("x", 300), 1250*time.Millisecond)
+
+	if p.Event != "post_turn" || p.TurnIndex != 7 {
+		t.Fatalf("unexpected payload header: %+v", p)
+	}
+	if p.TokensIn != 123 || p.TokensOut != 45 || p.CostUSD != 0.67 {
+		t.Fatalf("usage lost: %+v", p)
+	}
+	if len(p.TextExcerpt) != 200 {
+		t.Fatalf("excerpt len = %d, want 200", len(p.TextExcerpt))
+	}
+	if p.DurationMS != 1250 {
+		t.Fatalf("duration = %d, want 1250", p.DurationMS)
+	}
+}
+
+func TestDisabledByToolConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  config.Config
+		want bool
+	}{
+		{name: "default", cfg: config.Config{}, want: false},
+		{name: "enabled includes bash", cfg: config.Config{Tools: config.Tools{Enabled: []string{"read", "bash"}}}, want: false},
+		{name: "enabled excludes bash", cfg: config.Config{Tools: config.Tools{Enabled: []string{"read"}}}, want: true},
+		{name: "disabled removes bash", cfg: config.Config{Tools: config.Tools{Disabled: []string{"bash"}}}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DisabledByToolConfig(&tc.cfg); got != tc.want {
+				t.Fatalf("DisabledByToolConfig() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

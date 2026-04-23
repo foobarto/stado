@@ -60,11 +60,9 @@ a silent stop; other non-interactive surfaces may expose the cap through
 their own runtime behavior.
 
 Hooks are intentionally narrow. The current shipped hook surface is
-the TUI's `[hooks].post_turn`, which runs one notification-oriented
-shell command with a stable JSON payload after a turn completes.
-Runtime parity is not complete: this shipped hook path is not yet a
-general contract across `stado run`, headless, or every other
-non-interactive surface. The hook
+`[hooks].post_turn`, which runs one notification-oriented shell
+command with a stable JSON payload after a turn completes in the TUI,
+`stado run`, and headless `session.prompt`. The hook
 inherits environment, writes through stado's stderr, is capped by a
 short timeout, and cannot block or rewrite the already-finished turn.
 Hook failures are logged and never treated as turn failures.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/foobarto/stado/internal/builtinplugins"
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/tools"
@@ -89,16 +89,16 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 	}
 	return &bundledPluginTool{
 		manifest: plugins.Manifest{
-			Name:         builtinplugins.ManifestNamePrefix + "-" + native.Name(),
+			Name:         bundledplugins.ManifestNamePrefix + "-" + native.Name(),
 			Version:      version.Version,
-			Author:       builtinplugins.Author,
+			Author:       bundledplugins.Author,
 			Capabilities: bundledToolCapabilities(native.Name()),
 			Tools:        []plugins.ToolDef{def},
 		},
 		def:    def,
 		schema: schema,
 		class:  class,
-		wasm:   builtinplugins.MustWasm(native.Name()),
+		wasm:   bundledplugins.MustWasm(native.Name()),
 	}
 }
 
@@ -115,16 +115,16 @@ func newBundledStaticTool(name, desc string, class tool.Class, schema map[string
 	}
 	return &bundledPluginTool{
 		manifest: plugins.Manifest{
-			Name:         builtinplugins.ManifestNamePrefix + "-" + name,
+			Name:         bundledplugins.ManifestNamePrefix + "-" + name,
 			Version:      version.Version,
-			Author:       builtinplugins.Author,
+			Author:       bundledplugins.Author,
 			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
 		def:    def,
 		schema: parsed,
 		class:  class,
-		wasm:   builtinplugins.MustWasm(name),
+		wasm:   bundledplugins.MustWasm(name),
 	}
 }
 

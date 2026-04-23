@@ -2,7 +2,7 @@ package main
 
 // `stado plugin init <name>` — scaffold a new plugin project.
 // Writes a minimal Go plugin directory matching the
-// examples/plugins/hello-go layout so the user can go from zero to
+// plugins/examples/hello-go layout so the user can go from zero to
 // compile in one command. Template is parameterised by the plugin
 // name (becomes the module path + tool name + manifest name).
 //
@@ -204,7 +204,7 @@ offline signing + distribution flow.
 
 // renderMainGo emits a minimal Go source file with the expected
 // wasm ABI surface. The demo tool echoes "Hello, <name>!" exactly
-// like examples/plugins/hello-go/ so users can compare output.
+// like plugins/examples/hello-go/ so users can compare output.
 func renderMainGo(name string) string {
 	return `// ` + name + ` — stado plugin scaffolded by 'stado plugin init'.
 //

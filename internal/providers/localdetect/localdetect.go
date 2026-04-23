@@ -23,6 +23,8 @@ import (
 	"time"
 )
 
+var probeHTTPClient = &http.Client{Timeout: DefaultTimeout}
+
 // BundledLocal is the set of local-runner presets stado probes by
 // default. Matches tui/app.go's builtinPreset entries where keyEnv == "".
 var BundledLocal = []Target{
@@ -144,7 +146,7 @@ func probeOne(ctx context.Context, t Target) Result {
 	}
 	req.Header.Set("User-Agent", "stado-localdetect")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := probeHTTPClient.Do(req)
 	if err != nil {
 		out.Err = err
 		return out

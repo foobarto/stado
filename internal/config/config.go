@@ -40,7 +40,8 @@ type Config struct {
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
-// fired at TUI lifecycle events. MVP scope: notification-only.
+// fired at completed turn boundaries across TUI, `stado run`, and
+// headless `session.prompt`. MVP scope: notification-only.
 // Commands can't block the turn or mutate state. stdout/stderr are
 // logged to stado's stderr, not the TUI chat window, so a noisy hook
 // doesn't eat the user's context.
@@ -58,7 +59,8 @@ type Config struct {
 // Hook execution has a 5-second wall-clock timeout; longer-running
 // work should fork + exit. Exit codes are recorded but not acted on.
 type Hooks struct {
-	// PostTurn fires after every completed TUI turn (EvDone → drain).
+	// PostTurn fires after every completed turn on the supported
+	// interactive and non-interactive surfaces.
 	// Empty = no hook.
 	PostTurn string `koanf:"post_turn"`
 }
@@ -153,9 +155,11 @@ type MCP struct {
 // Either Command (stdio server) or URL (streamable HTTP) is set.
 //
 // Capabilities declare what the server is allowed to touch; stado maps
-// them to a sandbox.Policy and launches the stdio subprocess through the
+// them to a sandbox.Policy and launches stdio subprocesses through the
 // platform runner (bubblewrap on Linux, etc.). Out-of-manifest syscalls
-// fail visibly. Empty slice = unsandboxed (backwards-compat default).
+// fail visibly. Stdio servers must declare at least one capability;
+// empty slices are rejected. HTTP servers run remotely and aren't
+// sandboxed locally.
 //
 // Supported forms:
 //
@@ -228,11 +232,14 @@ type Plugins struct {
 
 	// Background lists installed plugin IDs (`<name>-<version>`) to
 	// load as persistent background plugins for each new TUI session.
-	// A background plugin must export `stado_plugin_tick` — the TUI
-	// calls it once per turn boundary so the plugin can observe
-	// session events + react (auto-compaction, telemetry bridges,
-	// session recorders). DESIGN §"Plugin extension points for
-	// context management" has the full contract.
+	// The bundled `auto-compact` background plugin is loaded by
+	// default even when this list is empty; this slice is additive for
+	// extra installed plugins. A background plugin must export
+	// `stado_plugin_tick` — the TUI calls it once per event boundary
+	// so the plugin can observe session events + react
+	// (auto-compaction, telemetry bridges, session recorders). DESIGN
+	// §"Plugin extension points for context management" has the full
+	// contract.
 	Background []string `koanf:"background"`
 }
 

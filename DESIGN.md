@@ -494,17 +494,23 @@ correctness guarantee.
 
 ### Compaction
 
-User-invoked only. Shipped surfaces today are `/compact` in the TUI and
+Shipped core surfaces today are `/compact` in the TUI and
 `session.compact` on the headless JSON-RPC server. `stado session
-compact` exists as an advisory CLI stub that points users back to the
-live session surface where the in-memory conversation exists.
+compact` remains an advisory CLI stub by design; persisted-session CLI
+compaction is intentionally plugin-driven through `stado plugin run
+--session <id> ...` rather than another built-in core rewrite path.
+
+The shipped bundled `auto-compact` plugin is loaded by default as a
+background plugin in the TUI and headless server. It never rewrites the
+parent session in place: it observes `turn_complete` and
+`context_overflow` events, then recovers by forking a compacted child
+session.
 
 Invariants:
 
-- **No automatic trigger.** Not on threshold breach, not in the
-  background, not via any config flag. If a contributor proposes an
-  auto-compaction path, the onus is on them to explain why
-  fork-from-point is insufficient.
+- **No automatic in-place rewrite.** Automatic recovery is permitted
+  only through plugin-driven child-session forks. The parent session is
+  never rewritten by a background trigger.
 - **TUI confirmation required.** In the TUI, compaction produces a
   proposed summary, shows it to the user, permits edit, and only
   commits on explicit confirmation. Headless `session.compact`
@@ -642,9 +648,10 @@ together:
   invoke LLM via `llm:invoke` to produce a summary of the oldest N
   turns, call `session:fork` with the summary as seed message rooted
   at the turn boundary being compacted.
-- Return. User sees the fork notification; new session continues with
-  the summary as the seed context. Parent session is untouched and
-  remains resumable.
+- Return. User sees the fork notification; when the event came from a
+  hard-threshold `context_overflow` recovery in the TUI, stado switches
+  to the child session and replays the blocked prompt there. Parent
+  session is untouched and remains resumable.
 
 This plugin shape is explicitly allowed because it never rewrites
 history; it only forks. Per §"Non-goals", the core prohibition is
@@ -824,9 +831,12 @@ Declare in config:
 command = "mcp-github"
 args    = ["--readonly"]
 env     = { GITHUB_TOKEN = "@env:GITHUB_TOKEN" }
+capabilities = ["net:api.github.com", "env:GITHUB_TOKEN"]
 ```
 
 `runtime.attachMCP` auto-registers every tool the server exposes.
+Capability-less stdio servers are refused rather than run with caller
+privileges.
 
 ### New plugin
 

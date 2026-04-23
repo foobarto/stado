@@ -4,7 +4,74 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
-## Unreleased
+## v0.2.0 — 2026-04-23
+
++ Plugin-driven context-management release: shipped bundled
+auto-compaction by default, promoted session-aware plugin flows on the
+CLI/headless surfaces, reorganized the shipped/example plugin catalog,
+and tightened several local authority boundaries.
+
+### TUI / Plugins
+
+- **Bundled auto-compaction is now on by default.** Stado ships the
+  `auto-compact` plugin source at `plugins/default/auto-compact/`,
+  bundles it into the binary as a default background plugin, and loads
+  it automatically in the TUI/headless server.
+- **Hard-threshold TUI recovery now forks and replays automatically.**
+  When the TUI hits the hard context threshold, it emits a
+  `context_overflow` event to background plugins; the bundled
+  auto-compact plugin responds by forking a compacted child session and
+  the blocked prompt is replayed there.
+- **Plugin layout is now product-facing.** The repo now uses
+  `plugins/default/` for shipped bundled plugin sources and
+  `plugins/examples/` for opt-in samples; the old internal
+  `builtinplugins` package was renamed to `bundledplugins`.
+
+### CLI / Headless
+
+- **`[hooks].post_turn` now has cross-surface parity.** The same
+  notification-only shell hook now fires on completed turns in the TUI,
+  `stado run`, and headless `session.prompt`, with the same JSON payload
+  shape and the same bash-disable guard when `bash` is removed from the
+  active tool set.
+- **`stado plugin run` can now attach to persisted sessions.** Pass
+  `--session <id>` to give a plugin real `session:read`,
+  `session:fork`, and `llm:invoke` access on the CLI path instead of the
+  old "zeroed session" fallback.
+- **Plugin-created forked sessions now persist their seed summary.**
+  Session-aware plugins that fork a child session now write the seeded
+  summary into the child's `.stado/conversation.jsonl`, so resuming the
+  child picks up with that summary already loaded.
+- **`plugin install` no-op output is now explicit.** Reinstalling the
+  same plugin version prints a stdout `skipped:` line instead of only a
+  stderr advisory, so scripts and users can distinguish "already
+  installed" from silent failure.
+
+### Security / Hardening
+
+- **Session/agent/plugin path traversal holes were closed.** Session
+  and agent worktree lookups now validate local IDs before joining
+  paths, installed plugin IDs are checked before resolving under the
+  plugin state dir, and `session:fork` no longer accepts foreign-session
+  refs or raw commit hashes.
+- **Writable install/update paths now propagate final flush errors.**
+  Plugin install and self-update now treat `Sync` / `Close` failures as
+  real errors instead of reporting success after a partial write.
+- **Timeouts were added to external HTTP control paths.** Self-update,
+  CRL/Rekor, and local-provider probe calls now use explicit HTTP
+  clients instead of the process-wide default client with no timeout.
+- **Capability-less stdio MCP servers are now refused.** Local MCP
+  subprocesses must declare `capabilities` in config instead of falling
+  back to caller privileges.
+- **Sandbox defaults are narrower.** The built-in `bash` tool now uses
+  deny-all networking on the sandboxed subprocess path by default, and
+  the docs now describe the remaining Linux `net:<host>` limitation
+  honestly as proxy-mediated rather than a raw-socket firewall.
+- **Several crash/corruption edges were removed.** The LSP client no
+  longer panics on bad pending entries, plugin FS reads fail on overflow
+  instead of silently truncating, and TUI aggregate usage accounting now
+  stays on the Bubble Tea event loop instead of being mutated from the
+  stream goroutine.
 
 ## v0.1.3 — 2026-04-23
 
@@ -67,10 +134,9 @@ easier to read and maintain.
 - **Roadmap + command docs now call out the actual remaining product
   gaps.** `PLAN.md`, `README.md`, and the relevant `docs/` guides now
   explicitly describe the unfinished user-visible surfaces: Windows
-  sandbox v2, cross-surface `post_turn` hook parity, the advisory-only
-  CLI `session compact` shim, the pending `install.sh` first-install
-  path, and template-overlay support that exists in the renderer but is
-  not yet wired into the TUI entry point.
+  sandbox v2, the advisory-only CLI `session compact` shim, the pending
+  `install.sh` first-install path, and template-overlay support that
+  exists in the renderer but is not yet wired into the TUI entry point.
 
 ### Infra
 
@@ -165,7 +231,7 @@ changes still allowed between tags.
   was set, tools still opened a session from the caller's cwd instead of the
   resumed session's worktree. Running from a different directory would
   execute mutating tools against the wrong repo.
-- **Host-safe SDK split for bundled WASM modules.** `internal/builtinplugins/sdk`
+- **Host-safe SDK split for bundled WASM modules.** `internal/bundledplugins/sdk`
   now keeps the real pointer-based implementation behind `//go:build wasip1`
   and provides a host-only stub for tests and lint. That stops host-side
   tooling from treating wasm32 offsets as native pointers while preserving
@@ -529,7 +595,7 @@ Three features added after researching the top coding-agent CLIs.
   `stado_plugin_tick` load once per TUI boot via
   `[plugins].background = [...]` and fire on every turn
   boundary.
-- Second validating plugin: `examples/plugins/session-recorder/`
+- Second validating plugin: `plugins/examples/session-recorder/`
   — `session:read` + `fs:read` + `fs:write` + `stado_plugin_tick`.
   Appends JSONL per turn. Proves the ABI generalises beyond
   auto-compaction.

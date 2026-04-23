@@ -278,11 +278,6 @@ func (m *Model) startStream() tea.Cmd {
 			m.streamBuf = append(m.streamBuf, ev)
 			m.streamBufMu.Unlock()
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
-				if ev.Kind == agent.EvDone && ev.Usage != nil {
-					m.usage.InputTokens = ev.Usage.InputTokens
-					m.usage.OutputTokens += ev.Usage.OutputTokens
-					m.usage.CostUSD += ev.Usage.CostUSD
-				}
 				break
 			}
 		}
@@ -341,6 +336,13 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		return
 	}
 	switch ev.Kind {
+	case agent.EvDone:
+		if ev.Usage != nil {
+			m.usage.InputTokens = ev.Usage.InputTokens
+			m.usage.OutputTokens += ev.Usage.OutputTokens
+			m.usage.CostUSD += ev.Usage.CostUSD
+		}
+
 	case agent.EvTextDelta:
 		// Compaction streams go into the pending-summary buffer AND the
 		// assistant block the caller pre-appended — the user sees the
@@ -999,23 +1001,11 @@ func (m *Model) firePostTurnHook() {
 	if m.hookRunner.PostTurnCmd == "" || m.hookRunner.Disabled {
 		return
 	}
-	excerpt := m.turnText
-	if len(excerpt) > 200 {
-		excerpt = excerpt[:200]
-	}
-	dur := int64(0)
+	duration := time.Duration(0)
 	if !m.turnStart.IsZero() {
-		dur = time.Since(m.turnStart).Milliseconds()
+		duration = time.Since(m.turnStart)
 	}
-	m.hookRunner.FirePostTurn(m.rootCtx, hooks.PostTurnPayload{
-		Event:       "post_turn",
-		TurnIndex:   len(m.msgs),
-		TokensIn:    m.usage.InputTokens,
-		TokensOut:   m.usage.OutputTokens,
-		CostUSD:     m.usage.CostUSD,
-		TextExcerpt: excerpt,
-		DurationMS:  dur,
-	})
+	m.hookRunner.FirePostTurn(m.rootCtx, hooks.NewPostTurnPayload(len(m.msgs), m.usage, m.turnText, duration))
 }
 
 // maybeEmitBudgetWarning fires a one-time system block once cumulative

@@ -8,6 +8,8 @@ Shorter forms live in:
 - `stado --help` — one-line summaries at the CLI
 - [README.md](../README.md) — top-level intro + install + a section on
   [configuring tools & sandboxing](../README.md#configuring-tools--sandboxing)
+- [plugins/README.md](../plugins/README.md) — bundled/default vs
+  example plugin catalog
 - [DESIGN.md](../DESIGN.md) — as-built architecture
 - [eps/README.md](eps/README.md) — retroactive design records and EP index
 - [PLAN.md](../PLAN.md) — phased roadmap
@@ -47,7 +49,7 @@ Other shipped commands do not have standalone guides yet. Until they do,
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
 | `[budget]` cost gate | [features/budget.md](features/budget.md) | Warn + hard-cap on cumulative $ spend |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
-| `[hooks]` lifecycle | [features/hooks.md](features/hooks.md) | Shell hook on TUI turn boundaries today |
+| `[hooks]` lifecycle | [features/hooks.md](features/hooks.md) | Shell hook on completed TUI, CLI, and headless turns |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |

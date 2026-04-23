@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -137,10 +138,31 @@ func TestPluginInstall_Idempotent(t *testing.T) {
 	pluginInstallSigner = hex.EncodeToString(pub)
 	defer func() { pluginInstallSigner = "" }()
 
+	prevOut := pluginInstallCmd.OutOrStdout()
+	prevErr := pluginInstallCmd.ErrOrStderr()
+	defer func() {
+		pluginInstallCmd.SetOut(prevOut)
+		pluginInstallCmd.SetErr(prevErr)
+	}()
+	var out, errBuf bytes.Buffer
+	pluginInstallCmd.SetOut(&out)
+	pluginInstallCmd.SetErr(&errBuf)
+
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
+	if !strings.Contains(out.String(), "installed demo v1.0.0") {
+		t.Fatalf("first install stdout missing success line: %q", out.String())
+	}
+	out.Reset()
+	errBuf.Reset()
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Errorf("re-install should be no-op, got %v", err)
+	}
+	if !strings.Contains(out.String(), "skipped: demo v1.0.0 already installed at") {
+		t.Fatalf("reinstall stdout missing skip line: %q", out.String())
+	}
+	if strings.Contains(errBuf.String(), "already installed") {
+		t.Fatalf("reinstall should not warn on stderr, got %q", errBuf.String())
 	}
 }

@@ -204,7 +204,11 @@ var sessionGCCmd = &cobra.Command{
 				skipped++
 				continue
 			}
-			wt := filepath.Join(cfg.WorktreeDir(), id)
+			wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+			if err != nil {
+				skipped++
+				continue
+			}
 			if info, err := os.Stat(wt); err == nil {
 				if info.ModTime().After(cutoff) {
 					skipped++
@@ -231,7 +235,12 @@ var sessionGCCmd = &cobra.Command{
 		}
 		var errs int
 		for _, id := range toDelete {
-			wt := filepath.Join(cfg.WorktreeDir(), id)
+			wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "invalid session id %q: %v\n", id, err)
+				errs++
+				continue
+			}
 			if err := sc.DeleteSessionRefs(id); err != nil {
 				fmt.Fprintf(os.Stderr, "delete refs %s: %v\n", id, err)
 				errs++
@@ -315,7 +324,10 @@ var sessionDescribeCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(wt); err != nil {
 			return fmt.Errorf("describe: session %s not found (no worktree at %s)", id, wt)
 		}
@@ -364,7 +376,10 @@ var sessionAttachCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		wt := filepath.Join(cfg.WorktreeDir(), args[0])
+		wt, err := worktreePathForID(cfg.WorktreeDir(), args[0])
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(wt); err != nil {
 			return fmt.Errorf("attach: session %s not found (no worktree at %s)", args[0], wt)
 		}
@@ -403,7 +418,10 @@ var sessionResumeCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("resume: %w", err)
 		}
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return fmt.Errorf("resume: %w", err)
+		}
 		if err := os.Chdir(wt); err != nil {
 			return fmt.Errorf("resume: chdir %s: %w", wt, err)
 		}
@@ -428,7 +446,10 @@ var sessionShowCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return err
+		}
 		fmt.Printf("session:  %s\n", id)
 		if desc := runtime.ReadDescription(wt); desc != "" {
 			fmt.Printf("label:    %s\n", desc)
@@ -582,6 +603,7 @@ func init() {
 	sessionLandCmd.ValidArgsFunction = idCompleter
 	sessionTreeCmd.ValidArgsFunction = idCompleter
 	sessionExportCmd.ValidArgsFunction = idCompleter
+	sessionCompactCmd.ValidArgsFunction = idCompleter
 
 	sessionCmd.AddCommand(
 		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionGCCmd, sessionForkCmd,
@@ -589,35 +611,6 @@ func init() {
 		sessionTreeCmd, sessionCompactCmd, sessionDescribeCmd, sessionSearchCmd,
 	)
 	rootCmd.AddCommand(sessionCmd)
-}
-
-// sessionCompactCmd is the DESIGN §"Compaction" CLI entry. Compaction
-// itself is conversation-shaped and lives in the TUI (where the agent
-// loop and the msgs array the summariser works on actually live); this
-// command points the user at `/compact` inside the TUI session rather
-// than silently refusing.
-//
-// A fully CLI-driven compaction requires a persistence layer for
-// conversation history that stado does not yet have — tracked as a
-// follow-up to Phase 11.3.
-var sessionCompactCmd = &cobra.Command{
-	Use:   "compact <id>",
-	Short: "Compaction is run from inside the TUI via /compact — this command is an advisory stub",
-	Long: "Compaction summarises the current in-memory conversation and replaces\n" +
-		"prior turns with the summary after explicit confirmation. It runs\n" +
-		"inside the TUI session where the conversation lives, via the\n" +
-		"`/compact` slash command.\n\n" +
-		"A fully CLI-driven compaction requires a persistence layer for\n" +
-		"conversation history that stado doesn't yet have — tracked as a\n" +
-		"follow-up to Phase 11.3. For now: attach to the session, type\n" +
-		"/compact in the TUI, and approve the proposed summary.",
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Fprintf(os.Stderr,
-			"session %s: run `/compact` inside the main TUI to compact this session.\n"+
-				"See PLAN.md §11.3 for status of CLI-driven compaction.\n", args[0])
-		return nil
-	},
 }
 
 // Silence "gogit imported but not used" — cobra command file uses it for

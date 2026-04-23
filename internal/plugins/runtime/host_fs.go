@@ -51,7 +51,12 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 			if uint32(len(data)) > bufCap {
-				data = data[:bufCap]
+				host.Logger.Warn("stado_fs_read truncation",
+					slog.String("path", abs),
+					slog.Int("data_bytes", len(data)),
+					slog.Uint64("buf_cap", uint64(bufCap)))
+				stack[0] = api.EncodeI32(-1)
+				return
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},

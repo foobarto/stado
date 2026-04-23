@@ -1,10 +1,10 @@
 # `[hooks]` — lifecycle shell hooks
 
 Wire a shell command to stado lifecycle events. Today this is wired
-through completed TUI turns only; `stado run` and headless do not yet
-invoke the same hook surface. The hook gets the turn's usage numbers as
-JSON on stdin and is useful for desktop notifications, Slack pings,
-custom logging, or any "react to turn completion" workflow.
+through completed turns in the TUI, `stado run`, and headless
+`session.prompt`. The hook gets the turn's usage numbers as JSON on
+stdin and is useful for desktop notifications, Slack pings, custom
+logging, or any "react to turn completion" workflow.
 
 MVP scope is **notification-only** — hooks cannot block or modify
 a turn. A richer "approve tool call via external policy" form
@@ -106,27 +106,26 @@ post_turn = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga"
 
 ## Gotchas
 
-- **Synchronous within the TUI.** `FirePostTurn` runs on the main
-  bubbletea goroutine. The 5-second cap guarantees no session-wide
-  hang, but slow hooks DO delay the next turn's start. For
-  expensive work, fork and exit:
+- **Synchronous at the turn boundary.** The 5-second cap guarantees no
+  session-wide hang, but slow hooks DO delay the next turn's start on
+  whichever surface fired them. For expensive work, fork and exit:
   ```toml
   [hooks]
   post_turn = "my-heavy-job & disown"
   ```
-- **No error messaging back to the TUI.** A failing hook produces
-  a stderr line; nothing surfaces in the chat. If you want visible
-  feedback, write your hook to post a system block via `/` RPC
-  (not yet supported; design space).
+- **No user-facing error messaging.** A failing hook produces a stderr
+  line; it does not surface in the TUI chat transcript or as a headless
+  RPC result.
 - **Invoked for every turn.** No filtering by cost, role, or
   content. Use jq predicates in the hook script for conditional
   behaviour.
-- **Not yet invoked outside the TUI.** MVP wires the hook through
-  the TUI path only — `stado run` and headless do not fire it yet.
-  Expect cross-surface parity in a later iteration.
+- **Disabled when `bash` is removed from the active tool set.** This
+  keeps hooks from bypassing a config that explicitly turned off shell
+  execution by trimming `bash` out of `[tools]`.
 
 ## See also
 
 - [features/budget.md](./budget.md) — cost guardrails, same
   shell-hook pattern but gated on thresholds instead of every turn.
 - [commands/tui.md](../commands/tui.md) — TUI entry point.
+- [commands/run.md](../commands/run.md) — non-interactive CLI surface.

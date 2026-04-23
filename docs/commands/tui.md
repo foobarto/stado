@@ -16,7 +16,8 @@ Boot sequence:
 4. Walk cwd upward for `AGENTS.md` / `CLAUDE.md` → injected as the
    system prompt on every turn.
 5. Load `.stado/skills/*.md` → available as `/skill:<name>`.
-6. Load background plugins from `[plugins].background`.
+6. Load the bundled `auto-compact` background plugin, then any extra
+   installed plugins from `[plugins].background`.
 7. Start the bubbletea event loop.
 
 Shutdown: `Ctrl+D` or `/exit`.
@@ -32,6 +33,8 @@ Interactive coding sessions benefit from:
 - Tool-call approvals (unless auto-approved via `[approvals]`).
 - Mid-stream slash commands (`/clear`, `/compact`, `/retry`).
 - Context-window visibility (soft/hard thresholds, cost, cache ratio).
+- Automatic hard-threshold recovery through the bundled `auto-compact`
+  background plugin.
 - A sidebar pinning session label, cwd, model, instructions, skills.
 
 Everything the TUI does is backed by `internal/runtime`'s core agent
@@ -160,8 +163,8 @@ relevant sections:
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
 | `[budget]` | warn + hard cap on cumulative cost |
-| `[hooks]` | TUI `post_turn` shell hook |
-| `[plugins]` | background plugin load list, CRL, Rekor URL |
+| `[hooks]` | `post_turn` lifecycle shell hook |
+| `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
 
 ## Gotchas

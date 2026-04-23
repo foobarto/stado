@@ -21,10 +21,26 @@ func TestAttachMCP_NoServers_NoOp(t *testing.T) {
 func TestAttachMCP_BadCommand_Error(t *testing.T) {
 	reg := tools.NewRegistry()
 	err := attachMCP(reg, map[string]config.MCPServer{
-		"bogus": {Command: "/nonexistent/binary/should-fail"},
+		"bogus": {
+			Command:      "/nonexistent/binary/should-fail",
+			Capabilities: []string{"net:deny"},
+		},
 	})
 	if err == nil {
 		t.Error("expected error for non-existent MCP server command")
+	}
+}
+
+func TestAttachMCP_StdioRequiresCapabilities(t *testing.T) {
+	reg := tools.NewRegistry()
+	err := attachMCP(reg, map[string]config.MCPServer{
+		"bogus": {Command: "/nonexistent/binary/should-fail"},
+	})
+	if err == nil {
+		t.Fatal("expected error for stdio MCP server without capabilities")
+	}
+	if !strings.Contains(err.Error(), "capabilities are required") {
+		t.Fatalf("error %q missing capability requirement", err)
 	}
 }
 

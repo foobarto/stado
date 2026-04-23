@@ -124,6 +124,22 @@ jsonl`). `-o session.md` writes to a file; otherwise stdout. Markdown
 output has per-role headers, fenced tool-call/result bodies,
 thinking blocks as blockquotes (signature stripped).
 
+### `session compact <id>`
+
+Advisory only. CLI compaction is intentionally plugin-driven rather than
+a built-in core rewrite path. Resolve the target session, then run a
+session-aware plugin against it with:
+
+```sh
+stado plugin run --session <id> <plugin-id> <tool> [json-args]
+```
+
+The example `plugins/default/auto-compact/` plugin uses
+`session:read`, `llm:invoke`, and `session:fork` to create a compacted
+child session without mutating the parent. The same source also backs
+the bundled default background plugin that the TUI/headless server load
+automatically.
+
 ### `session search <query>`
 
 Grep across every session's persisted conversation. Case-insensitive
@@ -202,7 +218,7 @@ Session data layout:
   stay in the sidecar repo — they're not promoted to your user repo.
 - **Zero-turn session cleanup**: `session list` hides them by default
   but the worktrees stay on disk. Run `session gc --apply` periodically.
-- **`session compact`** (the CLI form) is an advisory stub — use
-  `/compact` inside the TUI or `session.compact` on the headless
-  JSON-RPC surface. The CLI command intentionally does not compact an
-  off-screen conversation for you.
+- **`session compact`** is advisory by design. For CLI compaction, use a
+  session-aware plugin via `stado plugin run --session <id> ...`; the
+  example auto-compact plugin forks a child session and seeds the
+  child's persisted conversation with the summary.

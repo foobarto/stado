@@ -90,19 +90,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// synchronously but capped at 5s inside the Runner so a slow
 		// hook can't stall the next turn meaningfully.
 		m.firePostTurnHook()
-		// Turn-boundary event for background plugins. Emit a
-		// turn_complete event onto every plugin's bridge so polling
-		// session:observe consumers see it, then tick each plugin.
-		m.emitTurnCompleteToBridges()
-		return m, tea.Batch(m.onTurnComplete(), m.tickBackgroundPlugins())
+		return m, tea.Batch(m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))
 
 	case backgroundTickResultMsg:
 		m.backgroundPlugins = msg.survivors
 		m.backgroundTickRunning = false
+		var cmds []tea.Cmd
+		if m.recoveryPluginActive {
+			cmds = append(cmds, tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return recoveryTimeoutMsg{} }))
+		}
 		if m.backgroundTickQueued {
 			m.backgroundTickQueued = false
-			return m, m.tickBackgroundPlugins()
+			payload := append([]byte(nil), m.backgroundTickPayload...)
+			m.backgroundTickPayload = nil
+			cmds = append(cmds, m.tickBackgroundPluginsWithEvent(payload))
 		}
+		return m, tea.Batch(cmds...)
+
+	case recoveryTimeoutMsg:
+		if !m.recoveryPluginActive {
+			return m, nil
+		}
+		m.recoveryPluginActive = false
+		m.recoveryPluginName = ""
+		m.appendBlock(block{
+			kind: "system",
+			body: "auto-recovery did not produce a compacted child session. Your blocked prompt is still in the editor; use /compact or session fork if you want to recover manually.",
+		})
+		m.renderBlocks()
 		return m, nil
 
 	case localHintMsg:
@@ -195,6 +210,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pluginForkMsg:
+		if m.recoveryPluginActive && msg.plugin == m.recoveryPluginName {
+			return m, m.adoptForkedSession(msg.childID, msg.seed)
+		}
 		// A plugin's session:fork capability just created a child
 		// session. DESIGN invariant 4: this is user-visible by
 		// default. Show both the new session id + the fork point +
@@ -587,6 +605,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// more context. The draft text stays in the input so the
 			// recovery flow doesn't lose it.
 			if m.aboveHardThreshold() {
+				if m.hasAutoCompactBackgroundPlugin() {
+					m.recoveryPrompt = text
+					m.recoveryPluginName = "auto-compact"
+					m.recoveryPluginActive = true
+					body := fmt.Sprintf(
+						"context at %.0f%% (hard threshold %.0f%%) — running bundled auto-compact before replaying your prompt in a child session.",
+						100*m.contextFraction(), 100*m.ctxHardThreshold)
+					m.appendBlock(block{kind: "system", body: body})
+					m.renderBlocks()
+					return m, m.tickBackgroundPluginsWithEvent(m.contextOverflowEvent(text))
+				}
 				body := fmt.Sprintf(
 					"context at %.0f%% (hard threshold %.0f%%) — blocked. Recover with:\n"+
 						"  · /compact — user-confirmed in-TUI summarisation\n"+

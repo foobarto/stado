@@ -45,7 +45,11 @@ func completeSessionIDs(cmd *cobra.Command, args []string, toComplete string) ([
 		if toComplete != "" && !strings.HasPrefix(id, toComplete) {
 			continue
 		}
-		desc := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			continue
+		}
+		desc := runtime.ReadDescription(wt)
 		if desc != "" {
 			completions = append(completions, id+"\t"+desc)
 		} else {
@@ -113,7 +117,10 @@ func resolveSessionID(cfg *config.Config, q string) (string, error) {
 	needle := strings.ToLower(q)
 	var descHits []string
 	for _, id := range ids {
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			continue
+		}
 		desc := runtime.ReadDescription(wt)
 		if desc == "" {
 			continue
@@ -128,7 +135,11 @@ func resolveSessionID(cfg *config.Config, q string) (string, error) {
 	if len(descHits) > 1 {
 		labels := make([]string, 0, len(descHits))
 		for _, id := range descHits {
-			d := runtime.ReadDescription(filepath.Join(cfg.WorktreeDir(), id))
+			wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+			if err != nil {
+				continue
+			}
+			d := runtime.ReadDescription(wt)
 			labels = append(labels, fmt.Sprintf("%s (%q)", id, d))
 		}
 		return "", fmt.Errorf("description %q is ambiguous — matches: %s",
@@ -192,7 +203,7 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 }
 
 func worktreePathForID(root, id string) (string, error) {
-	if id == "" || filepath.IsAbs(id) || filepath.Base(id) != id {
+	if id == "" || !filepath.IsLocal(id) || filepath.Base(id) != id {
 		return "", fmt.Errorf("invalid session id %q", id)
 	}
 	wt := filepath.Join(root, id)

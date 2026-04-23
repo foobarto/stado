@@ -74,7 +74,11 @@ var agentsListCmd = &cobra.Command{
 		}
 		hidden := 0
 		for _, id := range ids {
-			wt := filepath.Join(cfg.WorktreeDir(), id)
+			wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+			if err != nil {
+				hidden++
+				continue
+			}
 			alive := "-"
 			liveAgent := false
 			if pid := readPidFile(wt); pid > 0 {
@@ -119,7 +123,10 @@ var agentsKillCmd = &cobra.Command{
 			return err
 		}
 		id := args[0]
-		wt := filepath.Join(cfg.WorktreeDir(), id)
+		wt, err := worktreePathForID(cfg.WorktreeDir(), id)
+		if err != nil {
+			return err
+		}
 		if pid := readPidFile(wt); pid > 0 {
 			if err := terminateProcess(pid); err == nil {
 				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
@@ -142,7 +149,10 @@ var agentsAttachCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		wt := filepath.Join(cfg.WorktreeDir(), args[0])
+		wt, err := worktreePathForID(cfg.WorktreeDir(), args[0])
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(wt); err != nil {
 			return fmt.Errorf("attach: %w", err)
 		}

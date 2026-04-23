@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -38,9 +37,15 @@ func attachMCP(reg *tools.Registry, servers map[string]config.MCPServer) error {
 			Env:     cfg.Env,
 			URL:     cfg.URL,
 		}
-		// Only stdio servers (Command set) participate in the sandbox;
-		// HTTP servers run on a remote host and can't be wrapped.
-		if cfg.Command != "" && len(cfg.Capabilities) > 0 {
+		// Only stdio servers (Command set without URL) participate in the
+		// local sandbox; HTTP servers run on a remote host and can't be
+		// wrapped. Refuse capability-less stdio servers rather than
+		// silently running them with caller privileges.
+		if cfg.Command != "" && cfg.URL == "" {
+			if len(cfg.Capabilities) == 0 {
+				errs = append(errs, fmt.Errorf("%s stdio MCP server: capabilities are required", name))
+				continue
+			}
 			policy, err := mcp.ParseCapabilities(cfg.Capabilities)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s capabilities: %w", name, err))
@@ -48,14 +53,6 @@ func attachMCP(reg *tools.Registry, servers map[string]config.MCPServer) error {
 			}
 			scfg.Policy = policy
 			scfg.Runner = runner
-		} else if cfg.Command != "" {
-			// No capabilities declared — keep the unsandboxed default
-			// but emit a one-line advisory so operators notice. Lines
-			// up with DESIGN §"Phase 8.1 — per-MCP-server sandbox":
-			// out-of-manifest syscalls fail visibly only when a
-			// manifest exists.
-			fmt.Fprintf(os.Stderr,
-				"stado: MCP server %s has no capabilities declared — runs with calling process privileges\n", name)
 		}
 		if err := mcpMgr.Connect(ctx, scfg); err != nil {
 			errs = append(errs, fmt.Errorf("connect %s: %w", name, err))

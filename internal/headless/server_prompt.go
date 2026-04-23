@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
@@ -75,6 +77,10 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		copy(localMsgs, sess.messages)
 	}
 	sess.mu.Unlock()
+	hookRunner := hooks.Runner{
+		PostTurnCmd: s.Cfg.Hooks.PostTurn,
+		Disabled:    hooks.DisabledByToolConfig(s.Cfg),
+	}
 
 	opts := runtime.AgentLoopOptions{
 		Provider:             s.Provider,
@@ -111,6 +117,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 				sess.mu.Unlock()
 				s.maybeEmitContextWarning(p.SessionID, ev.Usage.InputTokens)
 			}
+		},
+		OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
+			hookRunner.FirePostTurn(pctx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 		},
 	}
 

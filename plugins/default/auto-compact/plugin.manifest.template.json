@@ -1,0 +1,23 @@
+{
+  "name": "auto-compact",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "session:observe",
+    "session:read",
+    "session:fork",
+    "llm:invoke:30000"
+  ],
+  "tools": [
+    {
+      "name": "compact",
+      "description": "Summarise the current session and fork into a fresh session seeded with the summary. Skips when token count is below threshold_tokens (default 10000). Phase 7.1b validating demo — exercises session:read, session:fork, and llm:invoke end-to-end.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"threshold_tokens\":{\"type\":\"integer\",\"description\":\"Skip compaction if session token count is below this; default 10000.\"}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-04-19T00:00:00Z",
+  "nonce": "auto-compact-demo-001"
+}

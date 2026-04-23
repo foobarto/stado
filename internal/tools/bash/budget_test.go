@@ -35,6 +35,7 @@ type fakeRunner struct {
 	name   string
 	args   []string
 	cwd    string
+	net    sandbox.NetKind
 }
 
 func (f *fakeRunner) Name() string    { return "fake" }
@@ -44,6 +45,7 @@ func (f *fakeRunner) Command(ctx context.Context, p sandbox.Policy, name string,
 	f.name = name
 	f.args = append([]string{}, args...)
 	f.cwd = p.CWD
+	f.net = p.Net.Kind
 	return exec.CommandContext(ctx, "bash", "-c", "printf runner-path"), nil
 }
 
@@ -117,6 +119,9 @@ func TestBashUsesRunnerWhenHostProvidesOne(t *testing.T) {
 	}
 	if len(r.args) != 2 || r.args[0] != "-c" || r.args[1] != "echo ignored" {
 		t.Fatalf("runner args = %v", r.args)
+	}
+	if r.net != sandbox.NetDenyAll {
+		t.Fatalf("runner net policy = %v, want NetDenyAll", r.net)
 	}
 	if !strings.Contains(res.Content, "runner-path") {
 		t.Fatalf("runner output missing from result: %q", res.Content)
