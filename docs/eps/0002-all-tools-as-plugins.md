@@ -89,7 +89,6 @@ tool registry.
 
 ### D1. All tools as plugins (not just extensible)
 
-- **Decided:** bundled tools load through the signed plugin runtime;
 - **Decided:** bundled tools load through the built-in plugin runtime;
   native Go code provides host services, not hidden tool
   implementations.
