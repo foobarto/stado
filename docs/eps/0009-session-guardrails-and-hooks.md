@@ -53,9 +53,11 @@ without touching the underlying sandbox rules.
 
 Budget caps are cumulative per session. `[budget].warn_usd` adds a
 warning pill and one-time advisory once the session crosses the cap.
-`[budget].hard_usd` blocks fresh turns until the user acknowledges or
-raises the cap. In non-interactive runtimes, the same hard cap maps to a
-clear runtime error rather than a silent stop.
+`[budget].hard_usd` blocks fresh turns on surfaces that implement the
+interactive gate until the user acknowledges or raises the cap. In
+`stado run`, the same hard cap maps to a clear runtime error rather than
+a silent stop; other non-interactive surfaces may expose the cap through
+their own runtime behavior.
 
 Hooks are intentionally narrow. The current shipped hook surface is
 the TUI's `[hooks].post_turn`, which runs one notification-oriented

@@ -53,8 +53,8 @@ available. The configuration exposes two thresholds, but surfaces
 present them differently:
 
 - a soft threshold for warnings and `/compact` advice on interactive
-  surfaces, with headless emitting context-threshold notifications on
-  crossings
+  surfaces, with headless reporting context-threshold warnings when
+  completed turns are at or above the configured threshold
 - a hard threshold that gates fresh turns on surfaces that enforce the
   client-side check, while other surfaces currently expose the crossing
   through their own runtime behavior
@@ -87,8 +87,9 @@ process-local read log keyed by file path and requested range.
 
 ### D1. Prefer explicit, user-controlled recovery
 
-- **Decided:** compaction and other history-shaping actions require an
-  explicit user action and confirmation.
+- **Decided:** compaction and other history-shaping actions stay
+  user-triggered and explicit, with confirmation or edit UX depending on
+  the surface.
 - **Alternatives:** automatic summarization or silent window eviction.
 - **Why:** invisible prompt surgery makes it too hard to reason about
   what the model still knows and what the audit trail should say.
