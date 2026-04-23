@@ -11,7 +11,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	sdk "github.com/openai/openai-go"
@@ -22,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
@@ -34,10 +34,10 @@ type Provider struct {
 
 func New(apiKey, baseURL string) (*Provider, error) {
 	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
+		apiKey = config.ResolveProviderAPIKey("openai")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("openai: OPENAI_API_KEY not set")
+		return nil, fmt.Errorf("openai: %s not set", config.ProviderAPIKeyEnv("openai"))
 	}
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if baseURL != "" {

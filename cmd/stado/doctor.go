@@ -227,28 +227,7 @@ func statusOfPath(path string) string {
 }
 
 func providerEnvName(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "google", "gemini":
-		return "GEMINI_API_KEY"
-	}
-	// Check bundled OAI-compat preset map for hosted services.
-	envs := map[string]string{
-		"groq":       "GROQ_API_KEY",
-		"openrouter": "OPENROUTER_API_KEY",
-		"deepseek":   "DEEPSEEK_API_KEY",
-		"xai":        "XAI_API_KEY",
-		"mistral":    "MISTRAL_API_KEY",
-		"cerebras":   "CEREBRAS_API_KEY",
-		"litellm":    "LITELLM_API_KEY",
-	}
-	if v, ok := envs[strings.ToLower(provider)]; ok {
-		return v
-	}
-	return ""
+	return config.ProviderAPIKeyEnv(provider)
 }
 
 func init() {

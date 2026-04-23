@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -33,10 +33,10 @@ type Provider struct {
 
 func New(apiKey string) (*Provider, error) {
 	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		apiKey = config.ResolveProviderAPIKey("anthropic")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic: ANTHROPIC_API_KEY not set")
+		return nil, fmt.Errorf("anthropic: %s not set", config.ProviderAPIKeyEnv("anthropic"))
 	}
 	return &Provider{
 		client: sdk.NewClient(option.WithAPIKey(apiKey)),

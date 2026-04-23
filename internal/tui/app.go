@@ -199,7 +199,11 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// STADO_INFERENCE_PRESETS_<NAME>_ENDPOINT=... also lands here via koanf.
 	if cfg.Inference.Presets != nil {
 		if preset, ok := cfg.Inference.Presets[name]; ok && preset.Endpoint != "" {
-			return oaicompat.New(preset.Endpoint, oaicompat.WithName(name))
+			opts := []oaicompat.Option{oaicompat.WithName(name)}
+			if key := config.ResolveProviderAPIKey(name); key != "" {
+				opts = append(opts, oaicompat.WithAPIKey(key))
+			}
+			return oaicompat.New(preset.Endpoint, opts...)
 		}
 	}
 
@@ -208,10 +212,11 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// WithAPIKey option from the matching STADO_*_API_KEY.
 	if ep, keyEnv, ok := builtinPreset(name); ok {
 		opts := []oaicompat.Option{oaicompat.WithName(name)}
-		if keyEnv != "" {
-			if v := os.Getenv(keyEnv); v != "" {
-				opts = append(opts, oaicompat.WithAPIKey(v))
-			}
+		if key := config.ResolveProviderAPIKey(name); key != "" {
+			opts = append(opts, oaicompat.WithAPIKey(key))
+		} else if keyEnv != "" {
+			// Keep the env-name branch explicit here so tests/documentation
+			// can still assert which key a bundled provider expects.
 		}
 		return oaicompat.New(ep, opts...)
 	}
@@ -266,33 +271,7 @@ func pickLocalFallback(results []localdetect.Result) *localdetect.Result {
 // OAI-compat providers. API-key envs follow upstream convention so existing
 // tooling keeps working.
 func builtinPreset(name string) (string, string, bool) {
-	switch name {
-	// Local runners — no API key required.
-	case "ollama":
-		return "http://localhost:11434/v1", "", true
-	case "llamacpp":
-		return "http://localhost:8080/v1", "", true
-	case "vllm":
-		return "http://localhost:8000/v1", "", true
-	case "lmstudio":
-		return "http://localhost:1234/v1", "", true
-	case "litellm":
-		return "http://localhost:4000/v1", "LITELLM_API_KEY", true
-	// Hosted services that speak OAI-compat.
-	case "groq":
-		return "https://api.groq.com/openai/v1", "GROQ_API_KEY", true
-	case "openrouter":
-		return "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", true
-	case "deepseek":
-		return "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY", true
-	case "xai":
-		return "https://api.x.ai/v1", "XAI_API_KEY", true
-	case "mistral":
-		return "https://api.mistral.ai/v1", "MISTRAL_API_KEY", true
-	case "cerebras":
-		return "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", true
-	}
-	return "", "", false
+	return config.BuiltinInferencePreset(name)
 }
 
 func loadTheme(cfg *config.Config) (*theme.Theme, error) {

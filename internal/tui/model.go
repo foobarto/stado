@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
@@ -602,25 +603,8 @@ func providerErrorHint(provider, errMsg string) string {
 
 // providerEnvForName returns the conventional API-key env var for a provider.
 func providerEnvForName(p string) string {
-	switch p {
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "google", "gemini":
-		return "GEMINI_API_KEY"
-	case "groq":
-		return "GROQ_API_KEY"
-	case "openrouter":
-		return "OPENROUTER_API_KEY"
-	case "deepseek":
-		return "DEEPSEEK_API_KEY"
-	case "xai":
-		return "XAI_API_KEY"
-	case "mistral":
-		return "MISTRAL_API_KEY"
-	case "cerebras":
-		return "CEREBRAS_API_KEY"
+	if env := config.ProviderAPIKeyEnv(p); env != "" {
+		return env
 	}
 	return "the API key env var"
 }

@@ -4,6 +4,20 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.2.2 — 2026-04-24
+
+### CLI / Infra
+
+- **Provider credential lookup is now centralized.** The direct
+  provider constructors, TUI provider builder, and `stado doctor` now
+  share one source of truth for provider-name-to-env-var resolution
+  under `internal/config` instead of carrying separate maps.
+- **Bundled hosted-provider overrides keep their API-key env lookup.**
+  If you override a bundled hosted provider name like `groq`,
+  `openrouter`, or `deepseek` via `[inference.presets.<name>]`, the TUI
+  now still injects the conventional API key for that provider instead
+  of silently dropping it.
+
 ## v0.2.1 — 2026-04-24
 
 ### Security / Hardening

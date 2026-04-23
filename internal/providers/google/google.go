@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/google/generative-ai-go/genai"
 	"go.opentelemetry.io/otel"
@@ -21,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/api/option"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -32,10 +32,10 @@ type Provider struct {
 
 func New(apiKey string) (*Provider, error) {
 	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
+		apiKey = config.ResolveProviderAPIKey("google")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("google: GEMINI_API_KEY not set")
+		return nil, fmt.Errorf("google: %s not set", config.ProviderAPIKeyEnv("google"))
 	}
 	client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
 	if err != nil {
