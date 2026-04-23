@@ -37,7 +37,7 @@ func Run(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("tui: theme: %w", err)
 	}
-	rnd, err := render.New(th)
+	rnd, err := loadRenderer(cfg, th)
 	if err != nil {
 		return fmt.Errorf("tui: render: %w", err)
 	}
@@ -281,4 +281,16 @@ func loadTheme(cfg *config.Config) (*theme.Theme, error) {
 		return theme.Load(themePath)
 	}
 	return theme.Default(), nil
+}
+
+func loadRenderer(cfg *config.Config, th *theme.Theme) (*render.Renderer, error) {
+	overlayDir := filepath.Join(filepath.Dir(cfg.ConfigPath), "templates")
+	info, err := os.Stat(overlayDir)
+	if err == nil && info.IsDir() {
+		return render.NewWithOverlay(th, overlayDir)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("render overlay: %w", err)
+	}
+	return render.New(th)
 }

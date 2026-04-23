@@ -4,6 +4,26 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.3.0 — 2026-04-24
+
+### CLI / Infra
+
+- **Shipped first-install `install.sh`.** Linux/macOS installs can now
+  follow a signed-manifest path on day one: the script verifies
+  `checksums.txt` with `cosign`, verifies the matching archive against
+  that manifest, and installs `stado` to `~/.local/bin` by default.
+- **Direct command coverage now includes `agents` and `audit`.**
+  `stado agents list/attach/kill` and `stado audit verify/export/pubkey`
+  now have dedicated command-level tests instead of depending only on
+  lower-level helper coverage.
+
+### TUI
+
+- **Custom template overlays are now live in the shipped app.** Files
+  under `$XDG_CONFIG_HOME/stado/templates/*.tmpl` now override the
+  bundled renderer templates at boot, matching the long-documented
+  `render.NewWithOverlay` contract.
+
 ## v0.2.2 — 2026-04-24
 
 ### CLI / Infra

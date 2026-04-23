@@ -32,7 +32,7 @@ Legend: ✅ complete · 🟡 partial · ⏸️ deferred
 | 7 — WASM plugins | ✅ | wazero runtime + signed manifest/trust/CRL/Rekor shipped |
 | 8 — MCP + ACP | ✅ | Both shipped; per-MCP sandbox policy ✅ (capability parser + `transport.WithCommandFunc` → `sandbox.Runner.Command`) |
 | 9 — Headless + parallel | ✅ | `stado run/headless/acp/agents` |
-| 10 — Release & reproducibility | 🟡 | Reproducible builds/releases/Homebrew/self-update shipped · `install.sh`, offline key ceremony, and signed apt/rpm repos remain open |
+| 10 — Release & reproducibility | 🟡 | Reproducible builds/releases/Homebrew/self-update/install.sh shipped · offline key ceremony and signed apt/rpm repos remain open |
 | 11 — Context management | ✅ | 11.1–11.5 shipped; `/compact` + headless `session.compact` active, CLI compaction intentionally plugin-driven via `plugin run --session` |
 
 ---
@@ -512,7 +512,7 @@ can report liveness.
 
 **Goal:** Signed, reproducible, airgap-installable single binary.
 
-**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.5 `-tags airgap` build — strips self-update network path, plugin CRL refresh, and webfetch tool network call; on-disk CRL cache still authoritative, `stado self-update` surfaces an airgap-install hint, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.7 goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring — goreleaser emits packages + opens a PR against `foobarto/homebrew-tap` on each release (external tap repo setup + repo-sign keys still user-driven), 10.8a `stado self-update` sha256 verify from checksums.txt + atomic swap with `.prev` backup, 10.8b strict minisign verification in `stado self-update` once an operator-supplied release build embeds `EmbeddedMinisignPubkey` and the release publishes `checksums.txt.minisig`. **Deferred:** 10.7 external tap-repo + apt/rpm-server infra + signing-key setup (goreleaser-side done — decision belongs with whoever operates distribution). **Moot:** 10.8b cosign-on-self-update — Phase 7.7 shipped via direct Rekor REST with zero sigstore deps, so the cosign half no longer needs to land "alongside" anything; adding it would mean pulling sigstore deliberately for a second verification tier, which the minisign path already covers.
+**Shipped:** 10.1 reproducible builds (verified bit-for-bit with `-trimpath -buildvcs=true -buildid=` + pinned `mod_timestamp`), 10.2 SBOM via syft in goreleaser, 10.3 implementations (cosign keyless ✅ + minisign Ed25519 with BLAKE2b prehashed ✅), 10.4 `stado verify` exposing embedded build-info, 10.5 `-tags airgap` build — strips self-update network path, plugin CRL refresh, and webfetch tool network call; on-disk CRL cache still authoritative, `stado self-update` surfaces an airgap-install hint, 10.6 SLSA 3 provenance via `slsa-framework/slsa-github-generator` in the Release workflow, 10.7 goreleaser `nfpms` (.deb + .rpm) + `brews` tap wiring — goreleaser emits packages + opens a PR against `foobarto/homebrew-tap` on each release (external tap repo setup + repo-sign keys still user-driven), 10.8a `stado self-update` sha256 verify from checksums.txt + atomic swap with `.prev` backup, 10.8b strict minisign verification in `stado self-update` once an operator-supplied release build embeds `EmbeddedMinisignPubkey` and the release publishes `checksums.txt.minisig`, and a first-install `install.sh` path that verifies `checksums.txt` with `cosign`, verifies the matching archive against that manifest, and installs `stado` to `~/.local/bin` by default. **Deferred:** 10.7 external tap-repo + apt/rpm-server infra + signing-key setup (goreleaser-side done — decision belongs with whoever operates distribution). **Moot:** 10.8b cosign-on-self-update — Phase 7.7 shipped via direct Rekor REST with zero sigstore deps, so the cosign half no longer needs to land "alongside" anything; adding it would mean pulling sigstore deliberately for a second verification tier, which the minisign path already covers.
 
 | # | Action |
 |---|--------|
@@ -696,8 +696,6 @@ work like external package-repo hosting.
 | Rank | Gap | Current state |
 |------|-----|---------------|
 | 1 | **Windows sandbox v2** | Windows still runs unsandboxed behind `WinWarnRunner`; job objects + restricted tokens remain the largest security/runtime gap in the shipped product. |
-| 2 | **Signature-verifying install script** | Existing users have `self-update`, and manual/Homebrew installs are documented, but first-install still lacks the planned `install.sh` path that verifies the release trust chain before installing. |
-| 3 | **TUI custom template overlay wiring** | The renderer supports `render.NewWithOverlay` and `$XDG_CONFIG_HOME/stado/templates/*.tmpl`, but `tui.Run` still constructs `render.New`, so template overrides are not yet live in the app entry point. |
 
 `Multi-session switching` in `BUGS.md` is still a valid feature request,
 but it is not listed above because it is a net-new capability rather

@@ -25,9 +25,8 @@ environment.
 
 > **Status:** pre-1.0. The core agent loop, git-native sessions, signed
 > audit log, Linux/macOS sandboxing, MCP/ACP, signed WASM plugins, and
-> context management are shipped. Main remaining gaps: Windows sandbox
-> v2, the first-install `install.sh`, and
-> TUI template overlays. See
+> context management are shipped. Main remaining gap: Windows sandbox
+> v2. See
 > [PLAN.md](PLAN.md) for the phased roadmap.
 
 ---
@@ -53,10 +52,27 @@ environment.
 
 ## Install
 
-### Install script (Linux, macOS) — *pending*
+### Install script (Linux, macOS)
 
-A signature-verifying install script (`install.sh`) is planned; in the
-meantime use the manual download path or build from source.
+`install.sh` is the first-install path. It downloads the signed
+`checksums.txt` manifest from the latest release (or a pinned tag),
+verifies that manifest with `cosign`, verifies the matching archive
+against the manifest, and installs `stado` to `~/.local/bin` by
+default.
+
+Requirements: `curl`, `cosign`, `tar`, and either `sha256sum` or
+`shasum`.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | bash
+```
+
+Useful overrides:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
+  bash -s -- --dir /usr/local/bin --version v0.3.0
+```
 
 ### Homebrew
 

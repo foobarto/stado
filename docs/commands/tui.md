@@ -52,6 +52,13 @@ stado session resume abc  # TUI rooted in a past session's worktree
 booting so replay of `.stado/conversation.jsonl` picks up where you
 left off.
 
+## Theme and templates
+
+- Theme overrides live at `$XDG_CONFIG_HOME/stado/theme.toml`.
+- Template overrides live at `$XDG_CONFIG_HOME/stado/templates/*.tmpl`.
+- Missing template files fall back to the bundled defaults, so you can
+  override a single widget without copying the entire template set.
+
 ## Layout
 
 ```

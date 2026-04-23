@@ -862,9 +862,9 @@ colour / layout fields; the bundled default fills the rest.
 
 Override any `.tmpl` in
 `$XDG_CONFIG_HOME/stado/templates/<name>.tmpl`. Loaded via
-`render.NewWithOverlay`. The renderer support exists today, but
-`tui.Run` still constructs `render.New`, so template overrides are not
-yet live in the shipped TUI entry point.
+`render.NewWithOverlay` from the TUI entry point. Missing files fall
+back to the bundled templates, so users can override one widget at a
+time instead of copying the whole template set.
 
 ---
 
