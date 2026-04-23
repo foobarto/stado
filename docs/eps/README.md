@@ -47,8 +47,9 @@ it for bug fixes, dep bumps, and contained refactors.
   §"Placeholders."
 - **Draft** — author is iterating. Design space being actively
   worked out. Content may change.
-- **Accepted** — approved for implementation or process adoption.
-  Content is append-only.
+- **Accepted** — approved for implementation, or for Informational and
+  retrofitted EPs, approved as the canonical record of an already
+  shipped decision. Content is append-only.
 - **Implemented** — a Standards EP that has shipped and now describes
   the current runtime contract. Optional
   `implemented-in: vX.Y.Z` in frontmatter points at the release.
