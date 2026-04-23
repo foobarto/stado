@@ -119,10 +119,9 @@ nfpms:
 # Cross-repo PRs need a PAT with `repo` scope on the tap — Actions'
 # default GITHUB_TOKEN only covers the current repo. Provision a PAT
 # in the release environment as HOMEBREW_TAP_TOKEN; repository.token
-# below picks it up via env interpolation. Without the secret the
-# step auto-skips (skip_upload: auto → true when a snapshot OR when
-# repository.token evaluates empty), so the release as a whole still
-# succeeds; only the tap PR is missing.
+# below picks it up via env interpolation. When the token is unset we
+# force skip_upload=true, so GoReleaser only writes the formula to
+# dist/ and the release still succeeds without attempting a tap PR.
 brews:
   - name: stado
     repository:
@@ -134,7 +133,7 @@ brews:
     homepage: https://github.com/foobarto/stado
     description: Sandboxed, git-native coding-agent runtime
     license: MIT
-    skip_upload: auto
+    skip_upload: '{{ if .Env.HOMEBREW_TAP_TOKEN }}auto{{ else }}true{{ end }}'
     # Formula template — goreleaser derives url + sha256 from the
     # release archives above. Targets macOS + Linux Homebrew installs.
     install: |
