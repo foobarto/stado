@@ -1,14 +1,17 @@
 ---
 ep: 1
 title: EP Purpose and Guidelines
-author: Your Name <you@example.com>
-status: Draft
+author: Bartosz Ptaszynski <foobarto@gmail.com>
+status: Accepted
 type: Process
-created: YYYY-MM-DD
+created: 2026-04-22
 history:
-  - date: YYYY-MM-DD
+  - date: 2026-04-22
     status: Draft
     note: Initial draft — bootstraps the EP process itself, modelled after PEP-1.
+  - date: 2026-04-23
+    status: Accepted
+    note: Accepted as the canonical EP process after the first batch of retrofitted EPs.
 ---
 
 # EP-1: EP Purpose and Guidelines
@@ -108,12 +111,14 @@ contested feature with no paper trail.
   §"Placeholders" below.
 - **Draft** — author is iterating. Expect edits. Safe to comment on
   and push back against. Design space is being actively worked out.
-- **Accepted** — approved for implementation (or, for Informational
-  EPs, approved as the canonical record). Content is now treated
-  as append-only; substantive changes go in a companion EP that
-  supersedes this one.
-- **Implemented** — the accepted design has shipped. Optional: add a
-  "Shipped in" line referencing a release tag or PR.
+- **Accepted** — approved for implementation, or for Informational and
+  retrofitted EPs, approved as the canonical record of an already
+  shipped decision. Content is now treated as append-only; substantive
+  changes go in a companion EP that supersedes this one.
+- **Implemented** — the accepted design has shipped. This is also valid
+  for EPs documented after the code shipped, as long as the history
+  makes the retrofit explicit. Optional: add a "Shipped in" line
+  referencing a release tag or PR.
 - **Superseded** — a later EP has replaced this one. The frontmatter
   gains `superseded-by: <number>`.
 - **Withdrawn** — the author pulled it before acceptance. Kept in the
@@ -312,11 +317,13 @@ dated around YYYY-MM-DD" if the original timeline matters.
 
 ## Types
 
-- **Standards** — proposes a change to the project's code, on-disk
-  layout, CLI, API, or user-visible behaviour. Most EPs are Standards.
-- **Informational** — documents a design rationale, captures historical
-  context, or describes a convention. No implementation work implied.
-- **Process** — changes how contributors work. This EP (EP-1) is
+- **Standards** means the EP defines a current invariant, contract, or
+  architectural boundary that code and docs are expected to follow.
+- **Informational** is explanatory only and should not be used for the
+  main shipped runtime contracts.
+- **Implemented** is valid for EPs documented after the code shipped,
+  as long as the history makes the retrofit explicit.
+- **Process** changes how contributors work. This EP (EP-1) is
   Process. A future "how we version releases" or "how we handle
   security disclosures" would also be Process.
 
