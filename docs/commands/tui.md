@@ -111,8 +111,8 @@ human debugging, not a replacement for OTLP export.
 - **Chat viewport** — all conversation blocks. Scroll with PageUp
   / PageDown. GotoBottom on every new block.
 - **Input box** — bubbles textarea. Grows with newlines (Shift+Enter).
-- **Status bar** — streaming state, elapsed-during-stream pill,
-  tokens / context %, cost, keybind hint.
+- **Status bar** — compact cwd, branch, version, streaming state,
+  elapsed-during-stream pill, tokens / context %, cost, keybind hint.
 - **Sidebar** — pinned metadata. Toggle with `Ctrl+T` or `/sidebar`.
   Debug diagnostics and the info log tail are hidden by default; use
   `/debug` to expand them when investigating runtime/provider issues.

@@ -6,7 +6,11 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Improved footer density.** The chat status row now keeps compact cwd,
+  git branch, and version context on the left while preserving usage and
+  command hints on the right.
 
 ## v0.9.0 — 2026-04-24
 

@@ -608,16 +608,81 @@ func (m *Model) renderStatus(width int) string {
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
 	}
-	// Right-align the rendered status within the available width (+ 1 line
-	// terminator). The template emits [left-state (optional) + right stats]
-	// on a single line; padding the START of the line pushes the whole
-	// thing to the right edge. Minus the ANSI noise — strip-free width
-	// measurement comes from lipgloss.Width.
-	visible := lipgloss.Width(strings.TrimRight(body, "\n"))
-	if pad := width - visible; pad > 0 {
-		body = strings.Repeat(" ", pad) + strings.TrimRight(body, "\n") + "\n"
+	right := strings.TrimRight(body, "\n")
+	rightW := lipgloss.Width(right)
+	if leftRaw := m.compactStatusLeft(width - rightW - 2); leftRaw != "" {
+		left := m.theme.Fg("muted").Render(leftRaw)
+		pad := width - lipgloss.Width(left) - rightW
+		if pad > 0 {
+			return left + strings.Repeat(" ", pad) + right + "\n"
+		}
 	}
-	return body
+	// Fallback: right-align the busy/usage side when the terminal is too
+	// narrow for cwd/branch/version.
+	if pad := width - rightW; pad > 0 {
+		return strings.Repeat(" ", pad) + right + "\n"
+	}
+	return right + "\n"
+}
+
+func (m *Model) compactStatusLeft(maxW int) string {
+	if maxW < 24 {
+		return ""
+	}
+	parts := []string{m.compactStatusCwd(maxW)}
+	if branch := currentGitBranch(m.cwd); branch != "" {
+		parts = append(parts, branch)
+	}
+	if version.Version != "" {
+		parts = append(parts, version.Version)
+	}
+	return trimSeed(strings.Join(parts, " · "), maxW)
+}
+
+func (m *Model) compactStatusCwd(width int) string {
+	cwd := filepath.Clean(m.cwd)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, ok := strings.CutPrefix(cwd, home); ok {
+			cwd = "~" + rel
+		}
+	}
+	return trimSeed(cwd, max(12, width))
+}
+
+func currentGitBranch(cwd string) string {
+	repo := runtime.FindRepoRoot(cwd)
+	if repo == "" {
+		return ""
+	}
+	gitDir := filepath.Join(repo, ".git")
+	if info, err := os.Stat(gitDir); err == nil && !info.IsDir() {
+		data, err := os.ReadFile(gitDir)
+		if err != nil {
+			return ""
+		}
+		line := strings.TrimSpace(string(data))
+		target, ok := strings.CutPrefix(line, "gitdir:")
+		if !ok {
+			return ""
+		}
+		target = strings.TrimSpace(target)
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(repo, target)
+		}
+		gitDir = target
+	}
+	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return ""
+	}
+	value := strings.TrimSpace(string(head))
+	if ref, ok := strings.CutPrefix(value, "ref: refs/heads/"); ok {
+		return ref
+	}
+	if len(value) >= 7 {
+		return value[:7]
+	}
+	return value
 }
 
 // tokenPctString renders the in-context-window fraction for the bottom

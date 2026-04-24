@@ -362,6 +362,23 @@ func TestUAT_StatusRowRendersAllThreeSignalsTogether(t *testing.T) {
 	}
 }
 
+func TestUAT_StatusRowIncludesCwdBranchAndVersion(t *testing.T) {
+	m := scenarioModel(t)
+	if err := os.Mkdir(filepath.Join(m.cwd, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.cwd, ".git", "HEAD"), []byte("ref: refs/heads/feature/status\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := m.renderStatus(160)
+	for _, want := range []string{filepath.Base(m.cwd), "feature/status", "ctrl+p"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("status missing %q in dense footer: %q", want, got)
+		}
+	}
+}
+
 // ============================================================
 // N. Slow-reply / timing edge cases
 // ============================================================
