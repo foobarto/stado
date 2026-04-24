@@ -287,13 +287,10 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// Bundled OAI-compat presets — known endpoints so users don't have to
 	// write them out by hand. API key env var is picked up by oaicompat's
 	// WithAPIKey option from the matching STADO_*_API_KEY.
-	if ep, keyEnv, ok := builtinPreset(name); ok {
+	if ep, _, ok := builtinPreset(name); ok {
 		opts := []oaicompat.Option{oaicompat.WithName(name)}
 		if key := config.ResolveProviderAPIKey(name); key != "" {
 			opts = append(opts, oaicompat.WithAPIKey(key))
-		} else if keyEnv != "" {
-			// Keep the env-name branch explicit here so tests/documentation
-			// can still assert which key a bundled provider expects.
 		}
 		return oaicompat.New(ep, opts...)
 	}

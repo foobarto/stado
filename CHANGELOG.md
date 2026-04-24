@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.4.2 — 2026-04-24
+
+### Fixes
+
+- **Fixed main CI failures from the `v0.4.1` push.** Cleaned up new
+  lint findings and removed the remaining `-race` hazards in TUI trace
+  logging and Linux sandbox cleanup.
+
 ## v0.4.1 — 2026-04-24
 
 ### Docs

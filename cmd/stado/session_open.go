@@ -67,10 +67,3 @@ func lastPersistedTurnRef(sc *stadogit.Sidecar, id string) string {
 	}
 	return string(stadogit.TurnTagRef(id, turns[len(turns)-1].Turn))
 }
-
-func sessionUserRepoPath(sess *stadogit.Session) string {
-	if sess == nil {
-		return ""
-	}
-	return runtime.ReadUserRepoPin(filepath.Clean(sess.WorktreePath))
-}

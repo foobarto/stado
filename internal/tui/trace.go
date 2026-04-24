@@ -5,23 +5,14 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
 const traceLevel = slog.Level(-8)
 
-var (
-	traceOnce    sync.Once
-	traceEnabled bool
-)
-
 func tuiTraceEnabled() bool {
-	traceOnce.Do(func() {
-		v := strings.TrimSpace(strings.ToLower(os.Getenv("STADO_TUI_TRACE")))
-		traceEnabled = v == "1" || v == "true" || v == "yes" || v == "on"
-	})
-	return traceEnabled
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("STADO_TUI_TRACE")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 func tuiTrace(msg string, args ...any) {

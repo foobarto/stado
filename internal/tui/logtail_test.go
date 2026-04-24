@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,12 +11,6 @@ import (
 
 func TestTUILogger_TraceDuringUpdateDoesNotBlock(t *testing.T) {
 	t.Setenv("STADO_TUI_TRACE", "1")
-	traceOnce = sync.Once{}
-	traceEnabled = false
-	t.Cleanup(func() {
-		traceOnce = sync.Once{}
-		traceEnabled = false
-	})
 
 	m := uatModel(t)
 	m.input.SetValue("hello")
@@ -45,7 +38,10 @@ func TestTUILogger_TraceDuringUpdateDoesNotBlock(t *testing.T) {
 		t.Fatal("trace logging blocked inside Model.Update")
 	}
 
-	if len(m.logTail) == 0 {
+	m.logMu.Lock()
+	logLines := len(m.logTail)
+	m.logMu.Unlock()
+	if logLines == 0 {
 		t.Fatal("expected trace log to be recorded")
 	}
 }

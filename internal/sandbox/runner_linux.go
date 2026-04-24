@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"sync"
-	"time"
 )
 
 // detectList prefers bubblewrap, then falls back to None. Landlock/seccomp
@@ -164,19 +163,7 @@ func attachCleanup(ctx context.Context, cmd *exec.Cmd, cleanup func()) {
 		return nil
 	}
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			if cmd.ProcessState != nil {
-				runCleanup()
-				return
-			}
-			select {
-			case <-ctx.Done():
-				runCleanup()
-				return
-			case <-ticker.C:
-			}
-		}
+		<-ctx.Done()
+		runCleanup()
 	}()
 }

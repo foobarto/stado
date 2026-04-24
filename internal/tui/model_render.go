@@ -800,14 +800,12 @@ func (m *Model) sidebarContextLine() sidebarLine {
 		return sidebarLine{Text: fmt.Sprintf("ctx 0%% / hard %d%%", int(100*m.ctxHardThreshold)), Tone: "muted"}
 	}
 	fraction := m.contextFraction()
-	tone := "muted"
+	tone := "text"
 	switch {
 	case fraction >= m.ctxHardThreshold:
 		tone = "error"
 	case fraction >= m.ctxSoftThreshold:
 		tone = "warning"
-	default:
-		tone = "text"
 	}
 	return sidebarLine{
 		Text: fmt.Sprintf("ctx %d%% / hard %d%%", int(100*fraction), int(100*m.ctxHardThreshold)),
@@ -825,14 +823,12 @@ func (m *Model) sidebarBudgetLine() sidebarLine {
 		limit = m.budgetWarnUSD
 		label = "warn $" + fmt.Sprintf("%.2f", limit)
 	}
-	tone := "muted"
+	tone := "text"
 	switch {
 	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD && !m.budgetAcked:
 		tone = "error"
 	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
 		tone = "warning"
-	default:
-		tone = "text"
 	}
 	text := fmt.Sprintf("budget $%.2f / %s", m.usage.CostUSD, label)
 	if m.budgetAcked {
@@ -1228,24 +1224,6 @@ func bannerFor(vpWidth int) string {
 		return ""
 	}
 	return banner.String()
-}
-
-// renderBannerBlock returns the banner trimmed to at most maxH rows
-// so a short terminal gets a truncated banner rather than one that
-// overflows and pushes the input box off-screen. No bottom padding:
-// vp.View() on empty content returns an empty string (not maxH
-// blanks), so the input box floats up naturally — we mirror that
-// so the banner occupies just its own rows.
-func renderBannerBlock(width, maxH int) string {
-	raw := bannerFor(width)
-	if raw == "" {
-		return ""
-	}
-	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
-	if len(lines) > maxH {
-		lines = lines[:maxH]
-	}
-	return strings.Join(lines, "\n")
 }
 
 func humanize(n int) string {
