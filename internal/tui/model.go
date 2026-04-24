@@ -237,6 +237,7 @@ type Model struct {
 	filePicker  *filepicker.Model
 	vp          viewport.Model
 	showHelp    bool
+	showStatus  bool
 
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only

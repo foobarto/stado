@@ -125,6 +125,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		} else {
 			m.appendBlock(block{kind: "system", body: "provider: " + name + "  (not yet initialised)"})
 		}
+	case "/status":
+		m.showStatus = true
 	case "/compact":
 		return m.startCompaction()
 	case "/context":

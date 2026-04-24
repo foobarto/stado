@@ -303,6 +303,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.startStream()
 
 	case tea.KeyMsg:
+		if m.showStatus {
+			if action, ok := m.keys.TryPrefix(msg); ok {
+				if action == keys.StatusView {
+					m.showStatus = false
+					m.layout()
+				}
+				return m, nil
+			}
+			if m.keys.Matches(msg, keys.SessionInterrupt) ||
+				m.keys.Matches(msg, keys.TipsToggle) ||
+				m.keys.Matches(msg, keys.StatusView) {
+				m.showStatus = false
+				m.layout()
+			}
+			return m, nil
+		}
+
 		if m.showHelp {
 			if m.keys.Matches(msg, keys.SessionInterrupt) || m.keys.Matches(msg, keys.TipsToggle) {
 				m.showHelp = false
@@ -557,6 +574,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case keys.ThemeSwitch:
 					m.openThemePicker()
 					m.layout()
+				case keys.StatusView:
+					m.showStatus = true
+					m.layout()
 				case keys.AppExit:
 					m.state = stateQuitConfirm
 					m.layout()
@@ -596,6 +616,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			m.slash.Open()
+			m.layout()
+			return m, nil
+
+		case m.keys.Matches(msg, keys.StatusView):
+			m.showStatus = true
 			m.layout()
 			return m, nil
 

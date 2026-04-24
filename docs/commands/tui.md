@@ -143,6 +143,7 @@ memorising:
 | `Ctrl+X L` | Open session switcher |
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+X T` | Open theme picker |
+| `Ctrl+X S` | Open status modal |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
@@ -196,6 +197,8 @@ the full list. Quick reference:
 - `/agents` — agent picker for Do, Plan, and BTW
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, and `stado-contrast`
+- `/status` — modal summary of provider, model, tools, plugins, MCP,
+  OTel, sandbox, and context
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

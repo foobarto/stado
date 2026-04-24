@@ -24,6 +24,9 @@ func (m *Model) View() string {
 	if m.showHelp {
 		return overlays.RenderHelp(m.keys, m.width)
 	}
+	if m.showStatus {
+		return m.renderStatusModal(m.width, m.height)
+	}
 
 	landing := len(m.blocks) == 0 && m.approval == nil
 	sidebarW := 0

@@ -33,6 +33,7 @@ const (
 	SessionSwitch           Action = "session_switch"
 	SessionNew              Action = "session_new"
 	ThemeSwitch             Action = "theme_switch"
+	StatusView              Action = "status_view"
 	TipsToggle              Action = "tips_toggle"
 	Approve                 Action = "approve"
 	Deny                    Action = "deny"
@@ -76,6 +77,7 @@ var ActionDescriptions = map[Action]string{
 	SessionSwitch:           "Switch session",
 	SessionNew:              "New session",
 	ThemeSwitch:             "Switch theme",
+	StatusView:              "Status modal",
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",

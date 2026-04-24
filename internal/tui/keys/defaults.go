@@ -31,6 +31,7 @@ var Defaults = map[Action]string{
 	SessionSwitch:           "ctrl+x l",
 	SessionNew:              "ctrl+x n",
 	ThemeSwitch:             "ctrl+x t",
+	StatusView:              "ctrl+x s",
 	TipsToggle:              "?",
 	Approve:                 "y,enter",
 	Deny:                    "n,esc",

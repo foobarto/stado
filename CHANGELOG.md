@@ -6,7 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Added a status modal.** `/status` and `Ctrl+X S` now show a compact
+  provider, model, tool, plugin, MCP, OTel, sandbox, and context summary.
 
 ## v0.7.0 — 2026-04-24
 

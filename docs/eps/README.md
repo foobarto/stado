@@ -46,6 +46,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0020 | [Inline Context Completion](./0020-inline-context-completion.md) | Standards | Partial |
 | 0021 | [Assistant Turn Metadata](./0021-assistant-turn-metadata.md) | Standards | Partial |
 | 0022 | [Theme Catalog and Picker](./0022-theme-catalog-and-picker.md) | Standards | Partial |
+| 0023 | [TUI Status Modal](./0023-status-modal.md) | Standards | Partial |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
