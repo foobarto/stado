@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.15.0 — 2026-04-24
+
+### CLI
+
+- **Added memory review commands.** `stado memory` now lists, shows,
+  approves, rejects, deletes, and exports the local append-only memory
+  store used by `memory:*` plugins.
+
 ## v0.14.0 — 2026-04-24
 
 ### Plugins

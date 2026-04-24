@@ -129,9 +129,10 @@ Installed plugin IDs match the directory names under the state dir, so
 session's persisted conversation and worktree, so `session:read`,
 `session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
 declare `memory:propose`, `memory:read`, or `memory:write` are wired to
-the local append-only memory store under the stado state directory.
-Without `--session`, the command stays a one-shot no-session path and
-session-aware capabilities see zeroed fields.
+the local append-only memory store under the stado state directory; use
+`stado memory list|show|approve|reject|delete|export` to review that
+store. Without `--session`, the command stays a one-shot no-session path
+and session-aware capabilities see zeroed fields.
 
 ## Config
 
@@ -167,3 +168,4 @@ Relevant `config.toml` sections:
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog
 - [plugins/examples/README.md](../../plugins/examples/README.md) — concrete opt-in plugin examples
+- [memory.md](memory.md) — review plugin-proposed persistent memories

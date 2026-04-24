@@ -1,0 +1,42 @@
+# `stado memory`
+
+Review the local memory store used by plugins that declare `memory:*`
+capabilities.
+
+## What It Does
+
+`stado memory` lists, inspects, approves, rejects, deletes, and exports
+memory items stored under the stado state directory. Plugin-proposed
+items start as `candidate`; they are not returned to memory queries
+until approved.
+
+## Common Flow
+
+```sh
+stado memory list
+stado memory show mem_...
+stado memory approve mem_...
+stado memory reject mem_...
+stado memory delete mem_...
+stado memory export > memories.json
+```
+
+Use `stado memory list --json` for scripts.
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `stado memory list` | Show the folded memory view |
+| `stado memory show <id>` | Print one memory item as JSON |
+| `stado memory approve <id>` | Promote a candidate to approved |
+| `stado memory reject <id>` | Mark a memory rejected |
+| `stado memory delete <id>` | Remove a memory from the folded active view |
+| `stado memory export` | Export folded items as JSON |
+
+## Notes
+
+The backing store is append-only JSONL. Delete and reject operations add
+events; they do not rewrite old events. Prompt retrieval remains scoped:
+only approved, non-secret items matching the requested global, repo, or
+session scope are returned through `memory:read`.

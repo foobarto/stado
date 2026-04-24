@@ -26,6 +26,7 @@ Shorter forms live in:
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
 | `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, scaffold, and run WASM plugins |
+| `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
 | `stado headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |

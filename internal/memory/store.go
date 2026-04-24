@@ -67,6 +67,10 @@ type QueryResult struct {
 	Items []RankedItem `json:"items"`
 }
 
+type Export struct {
+	Items []Item `json:"items"`
+}
+
 type Store struct {
 	Path  string
 	Actor string
@@ -224,6 +228,45 @@ func (s *Store) Query(_ context.Context, q Query) (QueryResult, error) {
 		})
 	}
 	return result, nil
+}
+
+func (s *Store) List(_ context.Context) ([]Item, error) {
+	items, err := s.fold()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Item, 0, len(items))
+	for _, item := range items {
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func (s *Store) Show(ctx context.Context, id string) (Item, bool, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return Item{}, false, err
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, true, nil
+		}
+	}
+	return Item{}, false, nil
+}
+
+func (s *Store) Export(ctx context.Context) (Export, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return Export{}, err
+	}
+	return Export{Items: items}, nil
 }
 
 func (s *Store) append(ev event) error {
