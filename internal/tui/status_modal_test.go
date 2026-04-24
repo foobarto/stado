@@ -16,7 +16,7 @@ func TestStatusSlashOpensModal(t *testing.T) {
 		t.Fatal("/status should open the status modal")
 	}
 	out := m.View()
-	for _, want := range []string{"Status", "Agent", "Runtime", "Context", "Extensions", "provider"} {
+	for _, want := range []string{"Status", "Agent", "Runtime", "Context", "Extensions", "provider", "lsp", "activates when supported files are read"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status modal missing %q: %q", want, out)
 		}

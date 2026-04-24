@@ -49,7 +49,7 @@ context-switch to the slash key.
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+F` inside the picker toggles favorites |
-| `/status` | Open the status modal for provider, tools, plugins, MCP, OTel, sandbox, and context (`Ctrl+X S`) |
+| `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context (`Ctrl+X S`) |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |

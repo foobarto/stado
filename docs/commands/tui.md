@@ -198,7 +198,7 @@ the full list. Quick reference:
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, and `stado-contrast`
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
-  OTel, sandbox, and context
+  LSP readiness, OTel, sandbox, and context
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

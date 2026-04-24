@@ -10,6 +10,9 @@ history:
   - date: 2026-04-24
     status: Partial
     note: First status modal shipped with provider, model, tools, plugins, MCP, OTel, sandbox, and context summaries.
+  - date: 2026-04-24
+    status: Partial
+    note: Added plain-language LSP readiness that lists detected language-server binaries without starting them.
 ---
 
 # EP-23: TUI Status Modal
@@ -27,8 +30,8 @@ sandbox, telemetry, and plugin model visible on demand.
 - Add a modal status surface available from keyboard and slash-command
   paths.
 - Show provider, model, current agent, and provider capabilities.
-- Show session, sandbox, tool count, plugin, MCP, OTel, budget, and
-  context summaries.
+- Show session, sandbox, tool count, plugin, MCP, LSP readiness, OTel,
+  budget, and context summaries.
 - Keep the default sidebar quiet.
 
 ## Non-goals
@@ -47,6 +50,10 @@ status key closes it. The modal groups state into:
 - Runtime
 - Context
 - Extensions
+
+The LSP row is informational only. It explains that LSP-backed tools
+activate when supported files are read and lists known language-server
+binaries found on `PATH`.
 
 The modal reads existing TUI state only; it does not probe providers or
 start MCP/plugin work while rendering.

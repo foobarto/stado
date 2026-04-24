@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -152,9 +153,32 @@ func (m *Model) statusExtensionRows() []statusRow {
 	return []statusRow{
 		{"plugins", plugins, "text"},
 		{"mcp", mcp, "text"},
+		{"lsp", lspStatusSummary(), "muted"},
 		{"otel", otel, "muted"},
 		{"instructions", instructions, "muted"},
 	}
+}
+
+func lspStatusSummary() string {
+	servers := []struct {
+		lang string
+		bin  string
+	}{
+		{"go", "gopls"},
+		{"rust", "rust-analyzer"},
+		{"python", "pyright"},
+		{"ts/js", "typescript-language-server"},
+	}
+	var available []string
+	for _, srv := range servers {
+		if _, err := exec.LookPath(srv.bin); err == nil {
+			available = append(available, srv.lang)
+		}
+	}
+	if len(available) == 0 {
+		return "activates when supported files are read; no servers found"
+	}
+	return "activates when supported files are read; available: " + strings.Join(available, ", ")
 }
 
 func statusTwoCol(width int, left, right string) string {

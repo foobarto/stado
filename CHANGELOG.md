@@ -6,7 +6,11 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Clarified LSP readiness.** The status modal now explains that LSP
+  tools activate when supported files are read and lists detected
+  language-server binaries.
 
 ## v0.8.0 — 2026-04-24
 
