@@ -15,6 +15,9 @@ history:
     status: Implemented
     version: v0.1.0
     note: Reproducible builds, checksum-manifest signing, self-update verification, and distribution surfaces are the shipped release contract.
+  - date: 2026-04-24
+    status: Accepted
+    note: Documented release-numbering policy: minor for features or meaningful behavior changes, patch for smaller changes.
 ---
 
 # EP-12: Release Integrity and Distribution
@@ -111,6 +114,13 @@ artifacts are produced today. Hosted signed apt/rpm repositories,
 however, remain operational follow-up work owned by distribution
 operators rather than a shipped v0.1.0 runtime invariant.
 
+Version bumps are chosen by impact, even while the project remains
+pre-1.0. New features and meaningful adjustments to existing behavior
+cut a minor release (`v0.N.0`). Smaller fixes, docs/process changes,
+dependency bumps, and contained internal changes cut a patch release
+(`v0.N.P`). Existing tags are immutable; the changelog entry must exist
+at the tagged commit.
+
 ## Open questions
 
 No release-integrity question blocks the shipped v0.1.0 contract. The
@@ -157,6 +167,15 @@ inside the runtime.
 - **Why:** the runtime and goreleaser wiring are implemented today, but
   repository hosting and signing operations are still deployment-side
   decisions.
+
+### D5. Use impact-based pre-1.0 version bumps
+
+- **Decided:** minor releases carry new features or meaningful behavior
+  adjustments; patch releases carry smaller changes.
+- **Alternatives:** always increment patch, or pick versions ad hoc per
+  release.
+- **Why:** users need version numbers to signal behavioral impact, and
+  pre-1.0 does not remove the need for predictable release semantics.
 
 ## Related
 

@@ -65,6 +65,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 After solving an issue that required few cycles to figure out how to do it's important to save what you've learned.
 Save new learnings in `.learnings/` folder. Use a file name that's descriptive. When encountering new issue first check if there are any files in `.learnings/` that might contain a solution to your problem.
 
+## 6. Release Versioning
+
+When cutting a release, choose the bump by user-visible impact:
+- Minor release (`v0.N.0`) for new features or meaningful adjustments to existing behavior.
+- Patch release (`v0.N.P`) for smaller fixes, documentation/process updates, dependency bumps, and contained internal changes.
+
+Do not reuse an existing tag. Update `CHANGELOG.md` before tagging.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

@@ -98,6 +98,18 @@ probes local runners automatically if nothing's pinned.
 - Sign commits if you can (cosign is already a release
   dependency). Not a hard requirement yet.
 
+## Release versioning
+
+stado is pre-1.0, but release numbers still communicate impact:
+
+- Cut a minor release (`v0.N.0`) for new features or meaningful
+  adjustments to existing behavior.
+- Cut a patch release (`v0.N.P`) for smaller fixes, docs/process
+  updates, dependency bumps, and contained internal changes.
+
+Do not reuse an existing tag. Update `CHANGELOG.md` before tagging so
+the release note exists at the tagged commit.
+
 ## Submitting a PR
 
 1. Make sure `go test ./...`, `golangci-lint run`, and

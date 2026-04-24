@@ -6,6 +6,13 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Docs
+
+- **Documented release versioning policy.** Minor releases now mean new
+  features or meaningful behavior adjustments; patch releases mean
+  smaller fixes, docs/process updates, dependency bumps, or contained
+  internal changes.
+
 ## v0.4.0 — 2026-04-24
 
 ### TUI
