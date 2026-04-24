@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.13.1 — 2026-04-24
+
 ### Fixes
 
 - **Restored session compaction auditability.** TUI compaction now keeps
