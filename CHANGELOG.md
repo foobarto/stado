@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.14.0 — 2026-04-24
+
 ### Plugins
 
 - **Added the first memory host API slice.** Plugins can now declare
