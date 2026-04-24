@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -850,7 +851,7 @@ func (m *Model) updateFilePickerFromInput() {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
-		m.filePicker.Open(cwd, atPos)
+		m.filePicker.OpenWithItems(cwd, atPos, m.filePickerAgentItems())
 	}
 	m.filePicker.SetQuery(query)
 }
@@ -860,8 +861,8 @@ func (m *Model) updateFilePickerFromInput() {
 // user can keep typing. Closes the picker. No-op when nothing is
 // selected — the caller falls through to the normal submit/tab path.
 func (m *Model) acceptFilePickerSelection() {
-	sel := m.filePicker.Selected()
-	if sel == "" {
+	item, ok := m.filePicker.SelectedItem()
+	if !ok {
 		return
 	}
 	val := m.input.Value()
@@ -871,7 +872,27 @@ func (m *Model) acceptFilePickerSelection() {
 		m.filePicker.Close()
 		return
 	}
-	newVal := val[:anchor] + sel + " " + val[cursor:]
+	if item.Kind == filepicker.KindAgent {
+		if err := m.setAgentMode(item.ID); err == nil {
+			before := val[:anchor]
+			after := strings.TrimLeft(val[cursor:], " \t")
+			if strings.TrimSpace(before) == "" {
+				before = ""
+			}
+			if before != "" && after != "" && !strings.HasSuffix(before, " ") && !strings.HasSuffix(before, "\n") {
+				before += " "
+			}
+			m.input.SetValue(before + after)
+			m.filePicker.Close()
+			m.layout()
+			return
+		}
+	}
+	insert := item.Insert
+	if insert == "" {
+		insert = item.Display
+	}
+	newVal := val[:anchor] + insert + " " + val[cursor:]
 	m.input.SetValue(newVal)
 	m.filePicker.Close()
 }

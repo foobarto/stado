@@ -6,7 +6,11 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Started unified `@` completion.** The inline `@` picker now shows
+  Do, Plan, and BTW agents before repo files; accepting an agent switches
+  the active agent and consumes the mention.
 
 ## v0.5.0 — 2026-04-24
 

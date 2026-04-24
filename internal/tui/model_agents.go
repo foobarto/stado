@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/foobarto/stado/internal/tui/agentpicker"
+	"github.com/foobarto/stado/internal/tui/filepicker"
 )
 
 func (m inputMode) agentID() string {
@@ -42,6 +43,20 @@ func agentPickerItems(current inputMode) []agentpicker.Item {
 
 func (m *Model) openAgentPicker() {
 	m.agentPick.Open(agentPickerItems(m.mode), m.mode.agentID())
+}
+
+func (m *Model) filePickerAgentItems() []filepicker.Item {
+	items := agentPickerItems(m.mode)
+	out := make([]filepicker.Item, 0, len(items))
+	for _, item := range items {
+		out = append(out, filepicker.Item{
+			Kind:    filepicker.KindAgent,
+			ID:      item.ID,
+			Display: item.Name,
+			Meta:    item.Desc,
+		})
+	}
+	return out
 }
 
 func (m *Model) setAgentMode(id string) error {

@@ -58,6 +58,50 @@ func TestFilePicker_AtTriggerOpensPicker(t *testing.T) {
 	}
 }
 
+func TestFilePicker_AtTriggerShowsAgentsFirst(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after typing '@'")
+	}
+	if len(m.filePicker.Matches) < 4 {
+		t.Fatalf("expected agents plus files, got %v", m.filePicker.Matches)
+	}
+	for i, want := range []string{"Do", "Plan", "BTW"} {
+		if m.filePicker.Matches[i] != want {
+			t.Fatalf("match %d = %q, want %q (all matches: %v)", i, m.filePicker.Matches[i], want, m.filePicker.Matches)
+		}
+	}
+}
+
+func TestFilePicker_AgentAcceptSwitchesMode(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range "@plan" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("@plan should open picker")
+	}
+	if sel := m.filePicker.Selected(); sel != "Plan" {
+		t.Fatalf("selected = %q, want Plan", sel)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.filePicker.Visible {
+		t.Fatal("agent accept should close picker")
+	}
+	if m.mode != modePlan {
+		t.Fatalf("mode = %s, want Plan", m.mode.String())
+	}
+	if strings.Contains(m.input.Value(), "@plan") {
+		t.Fatalf("agent mention should be consumed, input=%q", m.input.Value())
+	}
+}
+
 // TestFilePicker_NarrowsAsYouType: typing '@util' should filter the
 // matches to something containing 'util'.
 func TestFilePicker_NarrowsAsYouType(t *testing.T) {

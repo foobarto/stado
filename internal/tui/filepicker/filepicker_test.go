@@ -65,6 +65,30 @@ func TestFuzzyQueryNarrowsMatches(t *testing.T) {
 	}
 }
 
+func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
+	dir := t.TempDir()
+	mustWrite(t, filepath.Join(dir, "main.go"), "")
+
+	m := New()
+	m.OpenWithItems(dir, 0, []Item{{
+		Kind:    KindAgent,
+		ID:      "plan",
+		Display: "Plan",
+		Meta:    "read-only planning tools",
+	}})
+
+	if len(m.Matches) < 2 {
+		t.Fatalf("expected agent + file matches, got %v", m.Matches)
+	}
+	if m.Matches[0] != "Plan" {
+		t.Fatalf("first match = %q, want Plan", m.Matches[0])
+	}
+	item, ok := m.SelectedItem()
+	if !ok || item.Kind != KindAgent || item.ID != "plan" {
+		t.Fatalf("selected item = %+v, %v; want plan agent", item, ok)
+	}
+}
+
 // TestUpDownNavigateHandled: arrow keys move the cursor and return
 // handled=true so the host MUST NOT pass them through to the editor.
 // Without this, Up/Down would scroll the textarea while the popover
@@ -167,7 +191,11 @@ func TestOpen_SkipsControlCharFilenames(t *testing.T) {
 func TestView_StripsControlCharsFromRenderedRows(t *testing.T) {
 	m := New()
 	m.Visible = true
-	m.Matches = []string{"safe.txt", "bad\x1bname.txt"}
+	m.matchedItems = []Item{
+		{Kind: KindFile, Display: "safe.txt"},
+		{Kind: KindFile, Display: "bad\x1bname.txt"},
+	}
+	m.refreshMatchStrings()
 	out := m.View(80)
 	if strings.ContainsRune(out, '\x1b') {
 		t.Fatalf("picker view leaked control chars: %q", out)
