@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.12.0 — 2026-04-24
+
 ### TUI
 
 - **Added thinking display modes.** `Ctrl+X H` and `/thinking` now cycle
