@@ -2,7 +2,7 @@
 ep: 14
 title: Multi-Session TUI
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Placeholder
+status: Partial
 type: Standards
 created: 2026-04-24
 see-also: [4, 7, 10, 11]
@@ -10,6 +10,9 @@ history:
   - date: 2026-04-24
     status: Placeholder
     note: Captures the request for creating, listing, deleting, and switching sessions in one TUI process.
+  - date: 2026-04-24
+    status: Partial
+    note: First TUI slice shipped: searchable switcher plus new-session action.
 ---
 
 # EP-14: Multi-Session TUI
@@ -39,18 +42,33 @@ delete, and switch sessions.
 
 ## Design
 
-Placeholder. The design needs to choose the UI model, session state
-ownership, background activity policy, and deletion semantics.
+The first shipped slice uses a command-palette style session switcher:
 
-The likely shape is a session switcher/palette plus a session list view,
-backed by the existing runtime session index. Each TUI tab/session keeps
-its own model state, or a smaller serializable state record is swapped
-into one active model.
+- `ctrl+x l` opens a searchable overlay of sessions for the current repo
+- `ctrl+x n` creates a fresh session and switches to it immediately
+- `/switch` opens the same switcher from slash/command-palette paths
+- `/new` creates and switches to a fresh session from slash/command-palette paths
+- `/sessions` remains an informational list with CLI resume hints
+
+For this slice, the TUI swaps one active model record rather than
+running multiple live tab models. Switching replaces the active
+`session`, `executor`, conversation messages, rendered blocks, usage
+state, and viewport content, then reloads persisted conversation JSONL
+from the target worktree.
+
+Switching is intentionally blocked while there is active work or
+unsubmitted user text: drafts, queued prompts, streaming turns,
+approval cards, compaction confirmation/editing, and running tools must
+finish or be cleared first. This avoids hidden background mutation and
+wrong-session sends until a fuller per-session state cache exists.
+
+Delete, rename, fork, and background-running inactive sessions remain
+future work.
 
 ## Migration / rollout
 
-Start with list/switch for existing sessions. Add create and delete
-after persistence and safety checks are clear.
+The first rollout includes list/switch/create. Add delete, rename, fork,
+and per-session cached scroll/draft state after safety checks are clear.
 
 ## Failure modes
 
@@ -61,7 +79,7 @@ after persistence and safety checks are clear.
 
 ## Test strategy
 
-- Unit tests for session list/switch state transitions.
+- Unit tests for session list/switch/create state transitions.
 - TUI scenario tests for create/switch/delete flows.
 - Persistence tests to verify scroll/conversation state survives
   switching and process restart.

@@ -238,7 +238,7 @@ func (r *Registry) ActionsByGroup() map[string][]Action {
 			AppExit, TipsToggle, CommandList,
 		},
 		"Session": {
-			SessionInterrupt, Approve, Deny, EditSummary,
+			SessionInterrupt, SessionSwitch, SessionNew, Approve, Deny, EditSummary,
 		},
 		"View": {
 			SidebarToggle, SidebarNarrower, SidebarWider,

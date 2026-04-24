@@ -25,6 +25,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/palette"
 	"github.com/foobarto/stado/internal/tui/render"
+	"github.com/foobarto/stado/internal/tui/sessionpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -177,6 +178,7 @@ type (
 type Model struct {
 	// Config + infrastructure
 	cwd      string
+	cfg      *config.Config
 	keys     *keys.Registry
 	theme    *theme.Theme
 	renderer *render.Renderer
@@ -225,6 +227,7 @@ type Model struct {
 	input       *input.Editor
 	slash       *palette.Model
 	modelPicker *modelpicker.Model
+	sessionPick *sessionpicker.Model
 	filePicker  *filepicker.Model
 	vp          viewport.Model
 	showHelp    bool
@@ -417,6 +420,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		input:            input.New(keyReg),
 		slash:            palette.New(),
 		modelPicker:      modelpicker.New(),
+		sessionPick:      sessionpicker.New(),
 		filePicker:       filepicker.New(),
 		vp:               viewport.New(0, 0),
 		activityVP:       viewport.New(0, 0),

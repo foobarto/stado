@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
@@ -117,8 +116,16 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
 	case "/providers":
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
+	case "/switch":
+		if err := m.openSessionPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
 	case "/sessions":
 		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
+	case "/new":
+		if err := m.createAndSwitchSession(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
 	case "/describe":
 		m.handleDescribeSlash(parts)
 	case "/budget":
@@ -493,11 +500,7 @@ func (m *Model) openModelPicker() {
 // renderSessionsOverview is the backing formatter for the `/sessions`
 // slash command. Enumerates every other session for the current repo
 // with last-active time, turn/message/compaction counts, and a
-// `stado session resume <id>` hint per row.
-//
-// Swapping sessions live inside a running TUI isn't supported (m.msgs
-// + m.session are tied to the program's lifecycle), so the output is
-// informational — the user exits + runs resume to switch.
+// `ctrl+x l` hint per row for live switching.
 func (m *Model) renderSessionsOverview() string {
 	if m.session == nil || m.session.Sidecar == nil {
 		return "/sessions: no live session — run `stado session list` instead."
@@ -505,32 +508,9 @@ func (m *Model) renderSessionsOverview() string {
 	worktreeRoot := filepath.Dir(m.session.WorktreePath)
 	sc := m.session.Sidecar
 
-	// Scan sidecar refs for all session IDs. Same pattern
-	// `stado session list` uses.
-	ids := map[string]struct{}{}
-	iter, err := sc.Repo().References()
+	ids, err := listSessionIDs(worktreeRoot, sc)
 	if err != nil {
 		return "/sessions: could not list session refs: " + err.Error()
-	}
-	defer iter.Close()
-	_ = iter.ForEach(func(ref *plumbing.Reference) error {
-		name := string(ref.Name())
-		const prefix = "refs/sessions/"
-		if !strings.HasPrefix(name, prefix) {
-			return nil
-		}
-		rest := strings.TrimPrefix(name, prefix)
-		id := strings.Split(rest, "/")[0]
-		ids[id] = struct{}{}
-		return nil
-	})
-	// Augment with worktree-only sessions (never-committed forks).
-	if entries, err := os.ReadDir(worktreeRoot); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				ids[e.Name()] = struct{}{}
-			}
-		}
 	}
 	// Skip our own session — it's the one the user is already in.
 	delete(ids, m.session.ID)
@@ -580,7 +560,7 @@ func (m *Model) renderSessionsOverview() string {
 		fmt.Fprintf(&b, "  %s\n", label)
 		fmt.Fprintf(&b, "    %s  turns=%d msgs=%d compact=%d  %s\n",
 			r.LastActiveFormatted(), r.Turns, r.Msgs, r.Compactions, r.Status)
-		fmt.Fprintf(&b, "    resume:  stado session resume %s\n", r.ID)
+		fmt.Fprintf(&b, "    switch:  ctrl+x l  (or stado session resume %s)\n", r.ID)
 	}
 	if hidden > 0 {
 		fmt.Fprintf(&b, "\n(%d empty session(s) hidden — run `stado session gc --apply` to clean up)", hidden)

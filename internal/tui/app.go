@@ -73,6 +73,7 @@ func Run(cfg *config.Config) error {
 	// provider name from the Model so the rebuild honours the swap.
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
+	m.cfg = cfg
 	m.SetRootContext(runCtx)
 	var localFallback *prewarmedLocalFallback
 	if cfg.Defaults.Provider == "" {

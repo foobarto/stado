@@ -82,6 +82,12 @@ Forms: `session describe <id> <text>` (set), `session describe <id>
 replays the conversation from `<worktree>/.stado/conversation.jsonl`
 so you pick up mid-chat. Same lookup resolver as `show`.
 
+Inside an already-running TUI, use `Ctrl+X L` or `/switch` to switch
+sessions without leaving the process. Use `Ctrl+X N` or `/new` to
+create and switch to a fresh session. The in-TUI actions refuse to run
+while a draft, queued prompt, stream, approval, compaction, or tool is
+active.
+
 ### `session attach <id>`
 
 Prints the worktree path so you can `cd $(stado session attach

@@ -84,6 +84,53 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	return sess, nil
 }
 
+// NewSession creates a fresh session for the repo associated with cwd,
+// even when cwd is already an existing session worktree. It is used by
+// the TUI multi-session flow where "new session" must not resolve back
+// to the currently attached session.
+func NewSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
+	userRepo := resolveUserRepo(cfg, cwd)
+	repoID, err := stadogit.RepoID(userRepo)
+	if err != nil {
+		return nil, err
+	}
+	sc, err := stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+		return nil, err
+	}
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
+	if err != nil {
+		return nil, err
+	}
+	attachSessionScaffolding(sess, cfg, userRepo)
+	return sess, nil
+}
+
+// OpenSessionByID opens an existing session id for the repo associated
+// with cwd and attaches the same runtime scaffolding as OpenSession.
+// The id must be exact; prefix/description lookup stays in the CLI layer.
+func OpenSessionByID(cfg *config.Config, cwd, id string) (*stadogit.Session, error) {
+	userRepo := resolveUserRepo(cfg, cwd)
+	repoID, err := stadogit.RepoID(userRepo)
+	if err != nil {
+		return nil, err
+	}
+	sc, err := stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := stadogit.OpenSession(sc, cfg.WorktreeDir(), id)
+	if err != nil {
+		return nil, err
+	}
+	attachSessionScaffolding(sess, cfg, userRepo)
+	emitResumeSpan(sess.WorktreePath, sess.ID)
+	return sess, nil
+}
+
 // userRepoFile is the relative-to-worktree file that pins which user
 // repo a session belongs to. Written on first scaffold, read by
 // resolveUserRepo when cwd is a session worktree.

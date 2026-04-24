@@ -29,6 +29,8 @@ const (
 	MessagesFirst           Action = "messages_first"
 	MessagesLast            Action = "messages_last"
 	CommandList             Action = "command_list"
+	SessionSwitch           Action = "session_switch"
+	SessionNew              Action = "session_new"
 	TipsToggle              Action = "tips_toggle"
 	Approve                 Action = "approve"
 	Deny                    Action = "deny"
@@ -68,6 +70,8 @@ var ActionDescriptions = map[Action]string{
 	MessagesFirst:           "Scroll to top",
 	MessagesLast:            "Scroll to bottom",
 	CommandList:             "Command palette",
+	SessionSwitch:           "Switch session",
+	SessionNew:              "New session",
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",

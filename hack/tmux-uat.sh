@@ -35,6 +35,7 @@
 #   sidebar — confirm the landing view stays sidebar-free, submit one
 #             message, then confirm the chat view shows and toggles the
 #             sidebar.
+#   sessions — press ctrl+x l, confirm the session switcher opens.
 #   all     — run every subcommand above.
 #
 # The script exits nonzero on the first failing assertion and prints
@@ -197,6 +198,17 @@ cmd_sidebar() {
   stop_stado
 }
 
+cmd_sessions() {
+  start_stado
+  tmux send-keys -t "$SESSION" C-x l
+  sleep 0.3
+  assert_contains "Switch session" "session switcher header"
+  tmux send-keys -t "$SESSION" Escape
+  sleep 0.2
+  assert_not_contains "Switch session" "session switcher after Esc"
+  stop_stado
+}
+
 cmd_banner() {
   start_stado
   # The startup banner renders only when m.blocks is empty. It's
@@ -316,6 +328,7 @@ cmd_all() {
   cmd_slash
   cmd_escape
   cmd_sidebar
+  cmd_sessions
   cmd_banner
   cmd_user_card
   cmd_slash_palette_nav
@@ -331,6 +344,7 @@ case "${1:-all}" in
   slash)       cmd_slash ;;
   escape)      cmd_escape ;;
   sidebar)     cmd_sidebar ;;
+  sessions)    cmd_sessions ;;
   banner)      cmd_banner ;;
   card)        cmd_user_card ;;
   palette)     cmd_slash_palette_nav ;;
@@ -339,7 +353,7 @@ case "${1:-all}" in
   history)     cmd_input_history ;;
   all)         cmd_all ;;
   *)
-    echo "usage: $0 {smoke|input|slash|escape|sidebar|banner|card|palette|help|mode|history|all}" >&2
+    echo "usage: $0 {smoke|input|slash|escape|sidebar|sessions|banner|card|palette|help|mode|history|all}" >&2
     exit 2
     ;;
 esac

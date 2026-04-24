@@ -39,6 +39,7 @@ Interactive coding sessions benefit from:
 - Context-window visibility (soft/hard thresholds, cost, cache ratio).
 - Automatic hard-threshold recovery through the bundled `auto-compact`
   background plugin.
+- In-process session switching and fresh-session creation.
 - A sidebar pinning session label, cwd, model, instructions, skills.
 
 Everything the TUI does is backed by `internal/runtime`'s core agent
@@ -131,6 +132,8 @@ memorising:
 | `Shift+Enter` | Newline in input (multi-line prompt) |
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` / `/` | Open command palette |
+| `Ctrl+X L` | Open session switcher |
+| `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
@@ -167,6 +170,9 @@ the full list. Quick reference:
 - `/compact` — summarise and replace conversation (y/n confirm)
 - `/retry` — regenerate the last assistant turn
 - `/model` — model picker
+- `/switch` — session switcher
+- `/new` — create and switch to a fresh session
+- `/sessions` — textual session overview
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/btw` — off-band side-question mode
 

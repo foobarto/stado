@@ -431,6 +431,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.sessionPick.Visible {
+			cmd, handled := m.sessionPick.Update(msg)
+			if handled {
+				return m, cmd
+			}
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				if sel := m.sessionPick.Selected(); sel != nil {
+					m.sessionPick.Close()
+					if err := m.switchToSession(sel.ID); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		// Filepicker popover owns navigation keys while visible so
 		// Up/Down don't scroll the textarea and Tab/Enter accept the
 		// highlighted path instead of inserting literal whitespace or
@@ -476,6 +494,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case keys.SidebarWider:
 					m.resizeSidebar(sidebarResizeStep)
 					m.layout()
+				case keys.SessionSwitch:
+					if err := m.openSessionPicker(); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+				case keys.SessionNew:
+					if err := m.createAndSwitchSession(); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
 				case keys.AppExit:
 					m.state = stateQuitConfirm
 					m.layout()
