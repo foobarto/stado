@@ -5,10 +5,10 @@ capabilities.
 
 ## What It Does
 
-`stado memory` lists, inspects, approves, rejects, deletes, and exports
-memory items stored under the stado state directory. Plugin-proposed
-items start as `candidate`; they are not returned to memory queries
-until approved.
+`stado memory` lists, inspects, edits, approves, rejects, deletes, and
+exports memory items stored under the stado state directory.
+Plugin-proposed items start as `candidate`; they are not returned to
+memory queries until approved.
 
 Approved memories are only injected into provider prompts when
 `[memory].enabled = true` in `config.toml`. Injection is bounded by
@@ -22,6 +22,7 @@ context path.
 ```sh
 stado memory list
 stado memory show mem_...
+stado memory edit mem_... --summary "Prefer small diffs" --body "Keep changes focused."
 stado memory approve mem_...
 stado memory reject mem_...
 stado memory delete mem_...
@@ -36,6 +37,7 @@ Use `stado memory list --json` for scripts.
 |---------|---------|
 | `stado memory list` | Show the folded memory view |
 | `stado memory show <id>` | Print one memory item as JSON |
+| `stado memory edit <id>` | Append an edit event for a folded item |
 | `stado memory approve <id>` | Promote a candidate to approved |
 | `stado memory reject <id>` | Mark a memory rejected |
 | `stado memory delete <id>` | Remove a memory from the folded active view |
@@ -44,9 +46,10 @@ Use `stado memory list --json` for scripts.
 ## Notes
 
 The backing store is append-only JSONL. Delete and reject operations add
-events; they do not rewrite old events. Prompt retrieval remains scoped:
-only approved, non-secret items matching the requested global, repo, or
-session scope are returned through `memory:read`.
+events; they do not rewrite old events. Edit operations also append a
+new event, replacing only the folded active view. Prompt retrieval
+remains scoped: only approved, non-secret items matching the requested
+global, repo, or session scope are returned through `memory:read`.
 
 Prompt retrieval is opt-in. Candidate, rejected, deleted, expired, and
 `secret` memories are never injected into prompts; they remain visible

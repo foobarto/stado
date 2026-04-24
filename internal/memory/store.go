@@ -146,6 +146,30 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		}
 		ev.ID = req.Item.ID
 		ev.Item = req.Item
+	case "edit":
+		if ev.ID == "" || req.Item == nil {
+			return errors.New("memory update edit: id and item are required")
+		}
+		existing, err := s.requireExistingItem(ev.ID)
+		if err != nil {
+			return fmt.Errorf("memory update edit: %w", err)
+		}
+		if req.Item.ID == "" {
+			req.Item.ID = ev.ID
+		}
+		if req.Item.ID != ev.ID {
+			return fmt.Errorf("memory update edit: item id %q does not match %q", req.Item.ID, ev.ID)
+		}
+		if req.Item.CreatedAt.IsZero() {
+			req.Item.CreatedAt = existing.CreatedAt
+		}
+		if req.Item.Source == (Source{}) {
+			req.Item.Source = existing.Source
+		}
+		if err := s.prepareItem(req.Item); err != nil {
+			return fmt.Errorf("memory update edit: %w", err)
+		}
+		ev.Item = req.Item
 	case "supersede":
 		if ev.ID == "" || req.Item == nil {
 			return errors.New("memory update supersede: id and item are required")
@@ -326,7 +350,7 @@ func (s *Store) fold() (map[string]Item, error) {
 			continue
 		}
 		switch ev.Action {
-		case "propose", "upsert":
+		case "propose", "upsert", "edit":
 			if ev.Item == nil {
 				return nil, fmt.Errorf("memory store: line %d %s event missing item", line, ev.Action)
 			}
@@ -368,14 +392,20 @@ func (s *Store) fold() (map[string]Item, error) {
 }
 
 func (s *Store) requireExisting(id string) error {
+	_, err := s.requireExistingItem(id)
+	return err
+}
+
+func (s *Store) requireExistingItem(id string) (Item, error) {
 	items, err := s.fold()
 	if err != nil {
-		return err
+		return Item{}, err
 	}
-	if _, ok := items[id]; !ok {
-		return fmt.Errorf("memory %q does not exist", id)
+	item, ok := items[id]
+	if !ok {
+		return Item{}, fmt.Errorf("memory %q does not exist", id)
 	}
-	return nil
+	return item, nil
 }
 
 func (s *Store) prepareItem(item *Item) error {

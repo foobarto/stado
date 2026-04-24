@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,7 +19,7 @@ import (
 var memoryCmd = &cobra.Command{
 	Use:   "memory",
 	Short: "Review plugin-proposed persistent memories",
-	Long: "List, inspect, approve, reject, delete, and export the local\n" +
+	Long: "List, inspect, edit, approve, reject, delete, and export the local\n" +
 		"append-only memory store used by plugins that declare memory:*\n" +
 		"capabilities. Candidate memories are not injected into prompts;\n" +
 		"only approved, scoped, non-secret memories are queryable.",
@@ -108,6 +109,52 @@ var memoryDeleteCmd = &cobra.Command{
 	},
 }
 
+type memoryEditOptions struct {
+	Summary      string
+	Body         string
+	Kind         string
+	Scope        string
+	RepoID       string
+	SessionID    string
+	Sensitivity  string
+	Tags         string
+	ExpiresAt    string
+	ClearExpires bool
+	ClearBody    bool
+	ClearTags    bool
+}
+
+func newMemoryEditCmd() *cobra.Command {
+	opts := &memoryEditOptions{}
+	cmd := &cobra.Command{
+		Use:   "edit <id>",
+		Short: "Edit a folded memory item",
+		Long: "Append an edit event for a folded memory item. This is intended\n" +
+			"for reviewing plugin-proposed candidate memories before approval,\n" +
+			"but can also update approved memories explicitly.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return editMemory(cmd, args[0], opts)
+		},
+	}
+	flags := cmd.Flags()
+	flags.StringVar(&opts.Summary, "summary", "", "Replacement summary")
+	flags.StringVar(&opts.Body, "body", "", "Replacement body")
+	flags.BoolVar(&opts.ClearBody, "clear-body", false, "Clear the body")
+	flags.StringVar(&opts.Kind, "kind", "", "Replacement kind")
+	flags.StringVar(&opts.Scope, "scope", "", "Replacement scope: global, repo, or session")
+	flags.StringVar(&opts.RepoID, "repo-id", "", "Replacement repo id for repo-scoped memories")
+	flags.StringVar(&opts.SessionID, "session-id", "", "Replacement session id for session-scoped memories")
+	flags.StringVar(&opts.Sensitivity, "sensitivity", "", "Replacement sensitivity: normal, private, or secret")
+	flags.StringVar(&opts.Tags, "tags", "", "Comma-separated replacement tags")
+	flags.BoolVar(&opts.ClearTags, "clear-tags", false, "Clear all tags")
+	flags.StringVar(&opts.ExpiresAt, "expires-at", "", "Replacement expiry as RFC3339 timestamp")
+	flags.BoolVar(&opts.ClearExpires, "clear-expires", false, "Clear expiry")
+	return cmd
+}
+
+var memoryEditCmd = newMemoryEditCmd()
+
 var memoryExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export folded memory items as JSON",
@@ -138,6 +185,99 @@ func updateMemory(cmd *cobra.Command, id, action string) error {
 	}
 	fmt.Fprintf(os.Stderr, "memory %s %s\n", id, action)
 	return nil
+}
+
+func editMemory(cmd *cobra.Command, id string, opts *memoryEditOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	item, ok, err := store.Show(cmd.Context(), id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("memory %q not found", id)
+	}
+
+	flags := cmd.Flags()
+	changed := false
+	if flags.Changed("summary") {
+		item.Summary = opts.Summary
+		changed = true
+	}
+	if flags.Changed("body") {
+		item.Body = opts.Body
+		changed = true
+	}
+	if opts.ClearBody {
+		item.Body = ""
+		changed = true
+	}
+	if flags.Changed("kind") {
+		item.Kind = opts.Kind
+		changed = true
+	}
+	if flags.Changed("scope") {
+		item.Scope = opts.Scope
+		changed = true
+	}
+	if flags.Changed("repo-id") {
+		item.RepoID = opts.RepoID
+		changed = true
+	}
+	if flags.Changed("session-id") {
+		item.SessionID = opts.SessionID
+		changed = true
+	}
+	if flags.Changed("sensitivity") {
+		item.Sensitivity = opts.Sensitivity
+		changed = true
+	}
+	if flags.Changed("tags") {
+		item.Tags = parseMemoryTags(opts.Tags)
+		changed = true
+	}
+	if opts.ClearTags {
+		item.Tags = nil
+		changed = true
+	}
+	if flags.Changed("expires-at") {
+		expiresAt, err := time.Parse(time.RFC3339, opts.ExpiresAt)
+		if err != nil {
+			return fmt.Errorf("memory edit: --expires-at must be RFC3339: %w", err)
+		}
+		item.ExpiresAt = expiresAt
+		changed = true
+	}
+	if opts.ClearExpires {
+		item.ExpiresAt = time.Time{}
+		changed = true
+	}
+	if !changed {
+		return errors.New("memory edit: at least one edit flag is required")
+	}
+	raw, err := json.Marshal(memory.UpdateRequest{Action: "edit", ID: id, Item: &item})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "memory %s edited\n", id)
+	return nil
+}
+
+func parseMemoryTags(s string) []string {
+	parts := strings.Split(s, ",")
+	tags := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			tags = append(tags, part)
+		}
+	}
+	return tags
 }
 
 func openMemoryStore() (*memory.Store, error) {
@@ -183,6 +323,6 @@ func shortMemory(s string, max int) string {
 
 func init() {
 	memoryListCmd.Flags().BoolVar(&memoryListJSON, "json", false, "Emit JSON instead of a table")
-	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryExportCmd)
+	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memoryExportCmd)
 	rootCmd.AddCommand(memoryCmd)
 }

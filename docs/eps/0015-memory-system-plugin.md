@@ -26,6 +26,11 @@ history:
     note: >-
       Follow-up implementation added CLI review commands and opt-in
       approved-memory prompt injection for TUI, run, headless, and ACP.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added append-only memory edit events and the CLI edit surface for
+      reviewing candidates before approval.
 ---
 
 # EP-15: Memory System Plugin
@@ -177,7 +182,7 @@ The first shipped surface must include:
 - disable memory retrieval for the current session
 - export memory items as JSON for audit/recovery
 
-The CLI shape should be `stado memory list|show|approve|reject|edit|delete`
+The CLI shape should be `stado memory list|show|edit|approve|reject|delete`
 once the plugin API exists. TUI/headless surfaces may expose the same
 operations through commands/RPC.
 
@@ -217,10 +222,11 @@ plugins that explicitly declare `memory:propose`, `memory:read`, or
 `memory:write` are wired to a local append-only JSONL store, and the
 host enforces candidate-only proposes, approved-only retrieval, scope
 filtering, secret exclusion, and bounded query results. CLI review
-commands provide list/show/approve/reject/delete/export. Opt-in prompt
-injection is enabled with `[memory].enabled = true`; TUI, `stado run`,
-headless, and ACP inject the same bounded approved-memory block after
-identity/project instructions.
+commands provide list/show/edit/approve/reject/delete/export, with
+edits recorded as append-only events that replace only the folded active
+view. Opt-in prompt injection is enabled with `[memory].enabled = true`;
+TUI, `stado run`, headless, and ACP inject the same bounded
+approved-memory block after identity/project instructions.
 
 Remote or vector backends are later plugin choices, not required for the
 initial standard.

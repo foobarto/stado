@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.17.0 — 2026-04-25
+
+### CLI
+
+- **Added append-only memory edits.** `stado memory edit <id>` can now
+  update candidate or approved memory summaries, bodies, metadata,
+  tags, and expiry while preserving the JSONL audit log as explicit
+  `edit` events.
+
 ## v0.16.0 — 2026-04-24
 
 ### Prompt

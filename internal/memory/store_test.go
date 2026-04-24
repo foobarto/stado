@@ -117,6 +117,72 @@ func TestStoreDeleteHidesItemButKeepsAppendOnlyLog(t *testing.T) {
 	}
 }
 
+func TestStoreEditReplacesItemAppendOnly(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+	item := Item{
+		ID:         "mem_edit",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "Old summary",
+		Body:       "Old body",
+		Confidence: "candidate",
+	}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	before, ok, err := store.Show(ctx, "mem_edit")
+	if err != nil {
+		t.Fatalf("Show before edit: %v", err)
+	}
+	if !ok {
+		t.Fatal("memory missing before edit")
+	}
+	createdAt := before.CreatedAt
+
+	store.Now = func() time.Time {
+		return now.Add(time.Hour)
+	}
+	edited := Item{
+		ID:         "mem_edit",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "Edited summary",
+		Body:       "Edited body",
+		Confidence: "candidate",
+	}
+	editRaw, _ := json.Marshal(UpdateRequest{Action: "edit", ID: "mem_edit", Item: &edited})
+	if err := store.Update(ctx, editRaw); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+
+	got, ok, err := store.Show(ctx, "mem_edit")
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if !ok {
+		t.Fatal("edited memory missing")
+	}
+	if got.Summary != "Edited summary" || got.Body != "Edited body" {
+		t.Fatalf("edit did not replace item: %+v", got)
+	}
+	if !got.CreatedAt.Equal(createdAt) {
+		t.Fatalf("created_at = %s, want %s", got.CreatedAt, createdAt)
+	}
+	if !got.UpdatedAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("updated_at = %s, want %s", got.UpdatedAt, now.Add(time.Hour))
+	}
+	data, err := os.ReadFile(store.Path)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(data), `"action":"edit"`) {
+		t.Fatalf("append log missing edit event:\n%s", string(data))
+	}
+}
+
 func TestStoreRejectsInvalidScope(t *testing.T) {
 	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
 	raw, _ := json.Marshal(Item{ID: "mem_bad", Scope: "repo", Summary: "Missing repo"})
