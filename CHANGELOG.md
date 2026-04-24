@@ -6,6 +6,20 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### TUI
+
+- **Auto-title fresh sessions from the first prompt.** The TUI now writes
+  a compact session description from the first user message when no
+  manual `/describe` label exists, improving future session lists and
+  switchers without overwriting user labels.
+
+### Infra
+
+- **Refreshed the real-PTY TUI UAT harness for the landing view.** The
+  tmux harness now isolates config/state, avoids live-provider
+  nondeterminism, expects the startup landing view to be sidebar-free,
+  and checks the current rail-card message treatment.
+
 ## v0.4.2 — 2026-04-24
 
 ### Fixes

@@ -137,3 +137,55 @@ func TestUAT_SidebarHidesEmptyDescription(t *testing.T) {
 		t.Errorf("sidebar should still render title: %q", got)
 	}
 }
+
+func TestUAT_AutoTitleFirstPrompt(t *testing.T) {
+	m := describeSlashModel(t)
+
+	m.appendUser("  fix the flaky tmux harness after landing view  ")
+
+	got := runtime.ReadDescription(m.session.WorktreePath)
+	if got != "fix the flaky tmux harness after landing view" {
+		t.Fatalf("auto title = %q", got)
+	}
+}
+
+func TestUAT_AutoTitleDoesNotOverwriteManualDescription(t *testing.T) {
+	m := describeSlashModel(t)
+	_ = runtime.WriteDescription(m.session.WorktreePath, "manual label")
+
+	m.appendUser("replace me")
+
+	got := runtime.ReadDescription(m.session.WorktreePath)
+	if got != "manual label" {
+		t.Fatalf("description overwritten: %q", got)
+	}
+}
+
+func TestUAT_AutoTitleSkipsResumedConversation(t *testing.T) {
+	m := describeSlashModel(t)
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "prior prompt"))
+
+	m.appendUser("new prompt in resumed session")
+
+	got := runtime.ReadDescription(m.session.WorktreePath)
+	if got != "" {
+		t.Fatalf("resumed conversation got auto title: %q", got)
+	}
+}
+
+func TestAutoSessionTitleTruncates(t *testing.T) {
+	got := autoSessionTitle("one two three four five six seven eight nine ten eleven twelve")
+	if len([]rune(got)) > autoSessionTitleMaxRunes+3 {
+		t.Fatalf("title too long: %q", got)
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncated title missing suffix: %q", got)
+	}
+}
+
+func TestAutoSessionTitleStripsControlChars(t *testing.T) {
+	got := autoSessionTitle("hello\x1b[31m world")
+	if got != "hello[31m world" {
+		t.Fatalf("control chars not stripped: %q", got)
+	}
+}

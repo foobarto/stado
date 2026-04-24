@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -30,6 +31,7 @@ func (m *Model) turnSystemPrompt() string {
 }
 
 func (m *Model) appendUser(text string) {
+	m.maybeAutoTitleSession(text)
 	msg := agent.Text(agent.RoleUser, text)
 	m.blocks = append(m.blocks, block{kind: "user", body: text})
 	m.msgs = append(m.msgs, msg)
@@ -38,6 +40,44 @@ func (m *Model) appendUser(text string) {
 
 func (m *Model) appendBlock(b block) {
 	m.blocks = append(m.blocks, b)
+}
+
+const autoSessionTitleMaxRunes = 48
+
+func (m *Model) maybeAutoTitleSession(text string) {
+	if m.session == nil || m.session.WorktreePath == "" {
+		return
+	}
+	if runtime.ReadDescription(m.session.WorktreePath) != "" {
+		return
+	}
+	for _, msg := range m.msgs {
+		if msg.Role == agent.RoleUser {
+			return
+		}
+	}
+	title := autoSessionTitle(text)
+	if title == "" {
+		return
+	}
+	_ = runtime.WriteDescription(m.session.WorktreePath, title)
+}
+
+func autoSessionTitle(text string) string {
+	title := textutil.StripControlChars(text)
+	title = strings.Trim(strings.Join(strings.Fields(title), " "), "\"'` ")
+	if title == "" {
+		return ""
+	}
+	runes := []rune(title)
+	if len(runes) <= autoSessionTitleMaxRunes {
+		return title
+	}
+	title = strings.TrimRight(string(runes[:autoSessionTitleMaxRunes]), " .,;:-")
+	if title == "" {
+		return ""
+	}
+	return title + "..."
 }
 
 // persistMessage append-writes msg to this session's conversation
@@ -355,6 +395,7 @@ func (m *Model) promoteQueuedPrompt() tea.Cmd {
 		return m.handleSlash(queued)
 	}
 	m.clearQueuedUserBlock(false)
+	m.maybeAutoTitleSession(queued)
 	msg := agent.Text(agent.RoleUser, queued)
 	m.msgs = append(m.msgs, msg)
 	m.persistMessage(msg)

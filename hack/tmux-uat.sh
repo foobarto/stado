@@ -20,6 +20,11 @@
 #   TMUX_H      — tmux pane height    (default 50)
 #   SESSION     — tmux session name   (default stado-uat)
 #   WAIT        — seconds to wait after spawning stado (default 2)
+#   UAT_ROOT    — temp XDG root for test config/state/data (default mktemp)
+#   UAT_PROVIDER — provider name for deterministic submit tests
+#                  (default stado-uat-none)
+#   UAT_MODEL   — model label for deterministic submit tests
+#                 (default uat-model)
 #
 # Commands:
 #   smoke   — spawn, assert the input box renders, clean up.
@@ -27,8 +32,9 @@
 #             to the terminal row below).
 #   slash   — press '/', confirm the palette opens.
 #   escape  — press Escape, confirm no hang + palette closes.
-#   sidebar — press ctrl+t twice, confirm the sidebar is visible on the
-#             right both before and after the toggles.
+#   sidebar — confirm the landing view stays sidebar-free, submit one
+#             message, then confirm the chat view shows and toggles the
+#             sidebar.
 #   all     — run every subcommand above.
 #
 # The script exits nonzero on the first failing assertion and prints
@@ -41,6 +47,21 @@ TMUX_W="${TMUX_W:-200}"
 TMUX_H="${TMUX_H:-50}"
 SESSION="${SESSION:-stado-uat}"
 WAIT="${WAIT:-2}"
+UAT_PROVIDER="${UAT_PROVIDER:-stado-uat-none}"
+UAT_MODEL="${UAT_MODEL:-uat-model}"
+
+OWN_UAT_ROOT=0
+if [[ -z "${UAT_ROOT:-}" ]]; then
+  UAT_ROOT="$(mktemp -d)"
+  OWN_UAT_ROOT=1
+fi
+mkdir -p "$UAT_ROOT/config" "$UAT_ROOT/data" "$UAT_ROOT/state"
+cleanup_uat_root() {
+  if [[ "$OWN_UAT_ROOT" == "1" ]]; then
+    rm -rf "$UAT_ROOT"
+  fi
+}
+trap cleanup_uat_root EXIT
 
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux-uat: tmux not installed; skipping" >&2
@@ -52,6 +73,7 @@ if [[ ! -x "$STADO_BIN" ]]; then
 fi
 
 log()  { printf '[uat] %s\n' "$*" >&2; }
+quote() { printf '%q' "$1"; }
 fail() {
   printf '[uat] FAIL: %s\n' "$*" >&2
   tmux capture-pane -t "$SESSION" -p 2>/dev/null | sed 's/^/    /' >&2 || true
@@ -62,7 +84,15 @@ fail() {
 start_stado() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   tmux new-session -d -s "$SESSION" -x "$TMUX_W" -y "$TMUX_H"
-  tmux send-keys -t "$SESSION" "TERM=xterm-256color $STADO_BIN" Enter
+  local cmd
+  cmd="TERM=xterm-256color"
+  cmd+=" XDG_CONFIG_HOME=$(quote "$UAT_ROOT/config")"
+  cmd+=" XDG_DATA_HOME=$(quote "$UAT_ROOT/data")"
+  cmd+=" XDG_STATE_HOME=$(quote "$UAT_ROOT/state")"
+  cmd+=" STADO_DEFAULTS_PROVIDER=$(quote "$UAT_PROVIDER")"
+  cmd+=" STADO_DEFAULTS_MODEL=$(quote "$UAT_MODEL")"
+  cmd+=" $(quote "$STADO_BIN")"
+  tmux send-keys -t "$SESSION" "$cmd" Enter
   sleep "$WAIT"
 }
 stop_stado() {
@@ -137,18 +167,30 @@ cmd_escape() {
 
 cmd_sidebar() {
   start_stado
-  # Sidebar is open by default; the vertical divider pipes (││) and a
-  # second right-edge pipe are the tell that the right-column sidebar
-  # is actually laid out.
+  # The opencode-style landing view intentionally suppresses the
+  # sidebar so the first screen stays quiet. The sidebar should appear
+  # once the conversation has content.
   local frame; frame=$(capture)
-  if ! grep -qF "││" <<<"$frame"; then
-    fail "sidebar not rendered on startup (missing '││' divider)"
+  if grep -qF "Now" <<<"$frame" || grep -qF "Agent" <<<"$frame"; then
+    fail "sidebar rendered on landing view"
   fi
-  log "OK: sidebar rendered on startup"
+  log "OK: landing view starts without sidebar"
+
+  tmux send-keys -t "$SESSION" "sidebar-probe"
+  sleep 0.2
+  tmux send-keys -t "$SESSION" Enter
+  sleep 0.8
+  frame=$(capture)
+  if ! grep -qF "Now" <<<"$frame" || ! grep -qF "Agent" <<<"$frame"; then
+    fail "sidebar not rendered after first message"
+  fi
+  log "OK: sidebar renders after chat starts"
+
   # Toggle off + back on — the flag must not latch.
   tmux send-keys -t "$SESSION" "C-t"; sleep 0.2
   tmux send-keys -t "$SESSION" "C-t"; sleep 0.2
-  if ! capture | grep -qF "││"; then
+  frame=$(capture)
+  if ! grep -qF "Now" <<<"$frame" || ! grep -qF "Agent" <<<"$frame"; then
     fail "sidebar did not come back after ctrl+t toggle"
   fi
   log "OK: sidebar survives ctrl+t round-trip"
@@ -172,21 +214,18 @@ cmd_banner() {
 
 cmd_user_card() {
   start_stado
-  # Submit a message and confirm the user-card frame renders both
-  # top (╭────╮) and bottom (╰────╯) borders. Regresses if the
-  # layout's sidebar-height mismatch returns.
+  # Submit a message and confirm the user rail-card renders in the
+  # chat area. The current opencode-style message treatment is a
+  # flat panel with a colored left rail, not a rounded box.
   tmux send-keys -t "$SESSION" "probe"
   sleep 0.3
   tmux send-keys -t "$SESSION" Enter
   sleep 1
   local frame; frame=$(capture)
-  if ! grep -qE '╭────+╮' <<<"$frame"; then
-    fail "user card top border missing"
+  if ! grep -qF "│ probe" <<<"$frame"; then
+    fail "user rail card missing submitted text"
   fi
-  if ! grep -qE '╰────+╯' <<<"$frame"; then
-    fail "user card bottom border missing"
-  fi
-  log "OK: user card renders with both borders"
+  log "OK: user rail card renders submitted text"
   stop_stado
 }
 
