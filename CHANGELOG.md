@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.6.0 — 2026-04-24
+
 ### TUI
 
 - **Started unified `@` completion.** The inline `@` picker now shows
