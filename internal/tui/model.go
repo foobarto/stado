@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui/agentpicker"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
@@ -226,6 +227,7 @@ type Model struct {
 	// UI components
 	input       *input.Editor
 	slash       *palette.Model
+	agentPick   *agentpicker.Model
 	modelPicker *modelpicker.Model
 	sessionPick *sessionpicker.Model
 	filePicker  *filepicker.Model
@@ -423,6 +425,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		model:            modelName,
 		input:            input.New(keyReg),
 		slash:            palette.New(),
+		agentPick:        agentpicker.New(),
 		modelPicker:      modelpicker.New(),
 		sessionPick:      sessionpicker.New(),
 		filePicker:       filepicker.New(),

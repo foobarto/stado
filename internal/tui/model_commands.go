@@ -99,6 +99,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			}
 			m.appendBlock(block{kind: "system", body: sb.String()})
 		}
+	case "/agents":
+		m.openAgentPicker()
 	case "/model":
 		if len(parts) < 2 {
 			m.openModelPicker()

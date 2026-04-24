@@ -27,6 +27,7 @@ var Defaults = map[Action]string{
 	MessagesFirst:           "ctrl+g,home",
 	MessagesLast:            "ctrl+alt+g,end",
 	CommandList:             "ctrl+p,/",
+	AgentSwitch:             "ctrl+x a",
 	SessionSwitch:           "ctrl+x l",
 	SessionNew:              "ctrl+x n",
 	TipsToggle:              "?",

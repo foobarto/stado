@@ -33,6 +33,7 @@ var Commands = []Command{
 	{"/btw", "Toggle BTW mode (off-band async queries)", "ctrl+x ctrl+b", "Quick"},
 
 	// Session — state about this run.
+	{"/agents", "Open the agent picker for Do, Plan, and BTW", "ctrl+x a", "Session"},
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "", "Session"},
 	{"/provider", "Show the current provider + capabilities", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},

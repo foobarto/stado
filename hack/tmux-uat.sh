@@ -36,6 +36,7 @@
 #             message, then confirm the chat view shows and toggles the
 #             sidebar.
 #   sessions — press ctrl+x l, confirm the session switcher opens.
+#   agents  — press ctrl+x a, confirm the agent picker opens.
 #   all     — run every subcommand above.
 #
 # The script exits nonzero on the first failing assertion and prints
@@ -209,6 +210,18 @@ cmd_sessions() {
   stop_stado
 }
 
+cmd_agents() {
+  start_stado
+  tmux send-keys -t "$SESSION" C-x a
+  sleep 0.3
+  assert_contains "Select agent" "agent picker header"
+  assert_contains "Plan" "agent picker Plan row"
+  tmux send-keys -t "$SESSION" Escape
+  sleep 0.2
+  assert_not_contains "Select agent" "agent picker after Esc"
+  stop_stado
+}
+
 cmd_banner() {
   start_stado
   # The startup banner renders only when m.blocks is empty. It's
@@ -329,6 +342,7 @@ cmd_all() {
   cmd_escape
   cmd_sidebar
   cmd_sessions
+  cmd_agents
   cmd_banner
   cmd_user_card
   cmd_slash_palette_nav
@@ -345,6 +359,7 @@ case "${1:-all}" in
   escape)      cmd_escape ;;
   sidebar)     cmd_sidebar ;;
   sessions)    cmd_sessions ;;
+  agents)      cmd_agents ;;
   banner)      cmd_banner ;;
   card)        cmd_user_card ;;
   palette)     cmd_slash_palette_nav ;;
@@ -353,7 +368,7 @@ case "${1:-all}" in
   history)     cmd_input_history ;;
   all)         cmd_all ;;
   *)
-    echo "usage: $0 {smoke|input|slash|escape|sidebar|sessions|banner|card|palette|help|mode|history|all}" >&2
+    echo "usage: $0 {smoke|input|slash|escape|sidebar|sessions|agents|banner|card|palette|help|mode|history|all}" >&2
     exit 2
     ;;
 esac

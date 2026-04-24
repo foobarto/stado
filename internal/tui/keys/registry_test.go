@@ -102,6 +102,11 @@ func TestRegistryHelpKeys(t *testing.T) {
 		t.Fatalf("ModeToggleBtw help keys = %v, want [ctrl+x ctrl+b]", btw)
 	}
 
+	agentSwitch := r.HelpKeys(AgentSwitch)
+	if len(agentSwitch) != 1 || agentSwitch[0] != "ctrl+x a" {
+		t.Fatalf("AgentSwitch help keys = %v, want [ctrl+x a]", agentSwitch)
+	}
+
 	sidebarWider := r.HelpKeys(SidebarWider)
 	if len(sidebarWider) != 1 || sidebarWider[0] != "ctrl+x ]" {
 		t.Fatalf("SidebarWider help keys = %v, want [ctrl+x ]]", sidebarWider)

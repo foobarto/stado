@@ -18,6 +18,7 @@ Types a `/` and see them all:
                 Toggle BTW mode                      /btw   ctrl+x ctrl+b
 
                 Session
+                Open the agent picker                 /agents  ctrl+x a
                 Open a model picker                  /model
                 ...
 
@@ -44,6 +45,7 @@ context-switch to the slash key.
 
 | Command | What |
 |---------|------|
+| `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7` |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |

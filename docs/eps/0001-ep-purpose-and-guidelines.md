@@ -115,6 +115,9 @@ contested feature with no paper trail.
   retrofitted EPs, approved as the canonical record of an already
   shipped decision. Content is now treated as append-only; substantive
   changes go in a companion EP that supersedes this one.
+- **Partial** — one or more scoped slices have shipped, but the EP's
+  stated goals are not fully implemented yet. The remaining design and
+  rollout questions stay open.
 - **Implemented** — the accepted design has shipped. This is also valid
   for EPs documented after the code shipped, as long as the history
   makes the retrofit explicit. Optional: add a "Shipped in" line
@@ -262,7 +265,8 @@ edited or deleted.
 
 - `date: YYYY-MM-DD` — when the transition happened.
 - `status:` — the status the EP moved *to* (`Placeholder`, `Draft`,
-  `Accepted`, `Implemented`, `Superseded`, `Withdrawn`, `Rejected`).
+  `Accepted`, `Partial`, `Implemented`, `Superseded`, `Withdrawn`,
+  `Rejected`).
 
 **Optional keys:**
 

@@ -390,6 +390,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.agentPick.Visible {
+			cmd, handled := m.agentPick.Update(msg)
+			if handled {
+				return m, cmd
+			}
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				if sel := m.agentPick.Selected(); sel != nil {
+					m.agentPick.Close()
+					if err := m.setAgentMode(sel.ID); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					m.layout()
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		// Model picker is modal too — same routing pattern as palette.
 		if m.modelPicker.Visible {
 			cmd, handled := m.modelPicker.Update(msg)
@@ -500,6 +519,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.appendBlock(block{kind: "system", body: err.Error()})
 						m.renderBlocks()
 					}
+				case keys.AgentSwitch:
+					m.openAgentPicker()
+					m.layout()
 				case keys.SessionNew:
 					if err := m.createAndSwitchSession(); err != nil {
 						m.appendBlock(block{kind: "system", body: err.Error()})

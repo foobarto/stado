@@ -29,6 +29,7 @@ const (
 	MessagesFirst           Action = "messages_first"
 	MessagesLast            Action = "messages_last"
 	CommandList             Action = "command_list"
+	AgentSwitch             Action = "agent_switch"
 	SessionSwitch           Action = "session_switch"
 	SessionNew              Action = "session_new"
 	TipsToggle              Action = "tips_toggle"
@@ -70,6 +71,7 @@ var ActionDescriptions = map[Action]string{
 	MessagesFirst:           "Scroll to top",
 	MessagesLast:            "Scroll to bottom",
 	CommandList:             "Command palette",
+	AgentSwitch:             "Switch agent",
 	SessionSwitch:           "Switch session",
 	SessionNew:              "New session",
 	TipsToggle:              "Toggle help",

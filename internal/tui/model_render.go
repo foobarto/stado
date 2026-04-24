@@ -149,8 +149,13 @@ func (m *Model) View() string {
 		m.slash.Height = m.height
 		return m.slash.View(m.width, m.height)
 	}
-	// Model picker is the second modal — only one can be open at a
-	// time since each path routes independently through Update.
+	if m.agentPick.Visible {
+		m.agentPick.Width = m.width
+		m.agentPick.Height = m.height
+		return m.agentPick.View(m.width, m.height)
+	}
+	// Pickers are modal too — only one can be open at a time since
+	// each path routes independently through Update.
 	if m.modelPicker.Visible {
 		m.modelPicker.Width = m.width
 		m.modelPicker.Height = m.height

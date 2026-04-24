@@ -134,6 +134,7 @@ memorising:
 | `Shift+Enter` | Newline in input (multi-line prompt) |
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` / `/` | Open command palette |
+| `Ctrl+X A` | Open agent picker |
 | `Ctrl+X L` | Open session switcher |
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+T` | Toggle sidebar |
@@ -156,9 +157,11 @@ memorising:
   from the `TurnRequest.Tools`. The model naturally shifts to
   producing a plan / outline rather than executing.
 
-`/btw` or `Ctrl+X Ctrl+B` toggles **BTW** mode for off-band side
-questions. BTW replies render in their own block and do not append to
-the main conversation history.
+`Ctrl+X A` or `/agents` opens a picker for all three agents. `Tab`
+still toggles the common Do/Plan path, and `/btw` or `Ctrl+X Ctrl+B`
+still toggles **BTW** mode for off-band side questions. BTW replies
+render in their own block and do not append to the main conversation
+history.
 
 Mode indicator shows in the input box's inline status row.
 
@@ -173,6 +176,7 @@ the full list. Quick reference:
 - `/retry` — regenerate the last assistant turn
 - `/model` — model picker; marks the current model and surfaces recent
   model/provider selections first
+- `/agents` — agent picker for Do, Plan, and BTW
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

@@ -229,6 +229,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.pendingResults = nil
 	m.input.Reset()
 	m.slash.Close()
+	m.agentPick.Close()
 	m.modelPicker.Close()
 	m.sessionPick.Close()
 	m.filePicker.Close()

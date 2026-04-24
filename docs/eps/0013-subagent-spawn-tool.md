@@ -2,7 +2,7 @@
 ep: 13
 title: Subagent Spawn Tool
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Placeholder
+status: Partial
 type: Standards
 created: 2026-04-24
 see-also: [3, 4, 6, 10, 11]
@@ -10,6 +10,9 @@ history:
   - date: 2026-04-24
     status: Placeholder
     note: Captures the request for parallel agent work through a spawn/subagent tool.
+  - date: 2026-04-24
+    status: Partial
+    note: Added TUI agent-selection groundwork for Do, Plan, and BTW; spawn tool remains unimplemented.
 ---
 
 # EP-13: Subagent Spawn Tool
@@ -41,8 +44,14 @@ boundaries so they do not silently overwrite each other or the parent.
 
 ## Design
 
-Placeholder. The design needs to define the tool schema, child session
-model, lifecycle, result format, cancellation, and merge semantics.
+The full spawn tool design still needs to define the tool schema, child
+session model, lifecycle, result format, cancellation, and merge
+semantics.
+
+The first shipped slice makes agent selection explicit inside the TUI:
+`Ctrl+X A` and `/agents` open a picker for the built-in Do, Plan, and
+BTW agents. This does not create child agents yet; it establishes the
+user-facing agent-selection surface that future subagents can extend.
 
 The likely shape is a parent-visible tool that creates a child session
 rooted in the same repo/worktree context, with a prompt, ownership
