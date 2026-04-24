@@ -1,11 +1,9 @@
-{{- /* Bottom status strip — right-aligned tokens/cost + keybind hint, muted.
-       Left side (state dot + message) appears only when not idle.
-       When a message is queued (user hit Enter mid-stream), render a
-       separate pill so the buffered text is visible. */ -}}
+{{- /* Bottom status strip: quiet by default, with only active state calls
+       allowed to stand out. */ -}}
 {{- $dot := "●" -}}
-{{- if eq .State "streaming" }}{{ color "warning" $dot }} {{ color "muted" "thinking" }}{{ if .Elapsed }} {{ color "muted" .Elapsed }}{{ end }}  {{ end -}}
-{{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "muted" "awaiting approval" }}  {{ end -}}
-{{- if eq .State "error" }}{{ color "error" $dot }} {{ color "muted" .ErrorMessage }}  {{ end -}}
-{{- if .Queued }}{{ color "primary" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
+{{- if eq .State "streaming" }}{{ color "primary" $dot }} {{ color "text_secondary" "thinking" }}{{ if .Elapsed }} {{ color "muted" .Elapsed }}{{ end }}  {{ end -}}
+{{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "text_secondary" "awaiting approval" }}  {{ end -}}
+{{- if eq .State "error" }}{{ color "error" $dot }} {{ color "text_secondary" .ErrorMessage }}  {{ end -}}
+{{- if .Queued }}{{ color "accent" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
 {{- if .Budget }}{{ color "warning" .Budget }}  {{ end -}}
 {{ color "muted" .Tokens }}{{ if .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end }} {{ color "muted" "·" }} {{ color "muted" .Cost }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}

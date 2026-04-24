@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -31,14 +32,16 @@ var acpCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		prov, provErr := tui.BuildProvider(cfg)
-		if provErr != nil {
-			fmt.Fprintf(os.Stderr, "stado acp: provider unavailable: %v\n", provErr)
-		}
-		fmt.Fprintln(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=", acpTools, ")")
-		s := acp.NewServer(cfg, prov)
-		s.EnableTools = acpTools
-		return s.Serve(cmd.Context(), os.Stdin, os.Stdout)
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			prov, provErr := tui.BuildProvider(cfg)
+			if provErr != nil {
+				fmt.Fprintf(os.Stderr, "stado acp: provider unavailable: %v\n", provErr)
+			}
+			fmt.Fprintln(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=", acpTools, ")")
+			s := acp.NewServer(cfg, prov)
+			s.EnableTools = acpTools
+			return s.Serve(ctx, os.Stdin, os.Stdout)
+		})
 	},
 }
 

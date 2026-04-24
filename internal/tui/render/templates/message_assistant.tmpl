@@ -1,3 +1,3 @@
-{{- /* An assistant message: body rendered through glamour for markdown. */ -}}
-{{ marker "▎" "role_assistant" }} {{ color "muted" .Model }}
+{{- /* Assistant output stays mostly on the canvas: no heavy card chrome,
+       just the content. */ -}}
 {{ markdown .Body .Width }}

@@ -549,8 +549,8 @@ not just documentation — DESIGN is the single source of truth for wording):
 - Append-only conversation history. The agent loop never rewrites prior
   turns. Any transformation that edits a past message invalidates every
   downstream cache entry and is therefore forbidden.
-- No automatic compaction. Not on threshold breach, not in the
-  background, not via any config flag. Fork-from-point is the recovery.
+- No automatic in-place compaction. Background recovery may fork a
+  compacted child session, but the parent is never silently rewritten.
 - Curation and caching are primary. Overflow handling is a safety net.
 - Dedup is best-effort optimisation, never a correctness guarantee.
 
@@ -656,8 +656,9 @@ canonical shape — and PR K2 for the host imports that enable it.
 - `session fork <id> --at turns/5` in one shell, `session tree <id>`
   + keybinding in another, both produce equivalent child sessions
   when rooted at the same turn.
-- No automatic compaction path exists — search the codebase for any
-  call to `Compact` that isn't gated behind an explicit user action.
+- No automatic in-place compaction path exists. Background recovery may
+  fork a compacted child session, but the parent is never silently
+  rewritten.
 
 ---
 
@@ -675,7 +676,7 @@ canonical shape — and PR K2 for the host imports that enable it.
 | Inference | One OAI-compat HTTP client. Three documented presets (ollama, llamacpp, vllm) + custom. llama.cpp `llama-server` as primary reference/test target. |
 | Windows sandbox | Minimal in v1 (documented warning); proper job objects + restricted tokens in v2. |
 | Agent bot identity | Per-agent (e.g. `claude-code-acp <agent@stado.local>`) so `git log --author` can filter. |
-| Approval persistence | Session-scoped remember with explicit "forget approvals" command. |
+| Approval model | Native tools are controlled by visibility; plugins can request approval with `ui:approval`. |
 | Plugin ABI versioning | SemVer on host imports; bump `min_stado_version` when ABI breaks. |
 
 ---
@@ -820,14 +821,15 @@ Model.onTurnComplete — flushes assistant Message into history
   │
   ├── len(tool_calls) == 0 → stateIdle, done
   │
-  └── tool_calls > 0 → approval queue
-                ├── rememberedAllow[name]=true → auto-execute
-                └── else → prompt user (y/n)
+  └── tool_calls > 0 → execute visible calls
+                ├── invisible tool → rejected as model error
+                └── visible tool
                             ▼
                       tools.Executor.Run(name, input, host)
                             │  (1) resolve Tool + Classifier.Class
                             │  (2) NOTE ClassExec: snapshot pre-tree
-                            │  (3) tool.Run() — in-process or exec child
+                            │  (3) tool.Run() — in-process, plugin, MCP,
+                            │      or exec child
                             │  (4) compute post-state (diff for Exec)
                             │  (5) always commit to trace ref
                             │  (6) commit to tree if Mutating (success),
@@ -950,12 +952,13 @@ narrow further. Never to widen.
 
 ### Approvals
 
-- Every tool call — in Do mode — is queued and shown to the user with
-  y/n.  `/approvals always <tool>` auto-approves that tool name for the
-  rest of the session; `/approvals forget` clears.
-- Denials feed a `"Denied by user"` error back to the model as a
-  `ToolResultBlock{IsError: true}` — the model can adapt (ask a
-  different question) rather than hanging.
+- The old native bundled-tool approval loop has been removed. Do mode
+  executes tools that are visible in the current registry; Plan mode and
+  `[tools]` filtering are the current native-tool controls.
+- Human approval still exists as an explicit plugin capability:
+  plugins that declare `ui:approval` can render an approval card and
+  receive Allow/Deny before they delegate to another host action.
+- The old `/approvals` command is retained only as a compatibility hint.
 
 ---
 
@@ -1098,10 +1101,6 @@ Full `config.toml` shape (scaffolded by `stado config init`):
 [defaults]
 provider = "anthropic"              # bundled name or user-defined preset
 model    = "claude-sonnet-4-6"
-
-[approvals]
-mode      = "prompt"                # "prompt" | "allowlist"
-allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 
 [inference.presets.my-proxy]
 endpoint = "https://proxy.example/v1"

@@ -71,11 +71,27 @@ const defaultConfigTemplate = `# stado — config.toml
 # provider = "anthropic"
 # model    = "claude-sonnet-4-6"
 
-[approvals]
-# What stado does with tool calls: "prompt" asks every time, "allowlist"
-# auto-allows anything in the allowlist below, everything else prompts.
-mode      = "prompt"
-allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
+# [approvals] is kept for compatibility with older config files, but
+# bundled native tool approvals are no longer enforced by the TUI.
+# Narrow native tools with [tools], or use approval-wrapper plugins that
+# declare ui:approval when a human gate is required.
+
+# ---------------------------------------------------------------------------
+# [agent] — prompt and reasoning behavior.
+#
+# system_prompt_path is an editable Go text/template that stado executes for
+# every provider system prompt. The default file is created automatically at:
+#   ~/.config/stado/system-prompt.md
+#
+# Available template fields:
+#   {{ .Provider }}              active provider name when known
+#   {{ .Model }}                 active model id when known
+#   {{ .ProjectInstructions }}   nearest AGENTS.md / CLAUDE.md body, if any
+# ---------------------------------------------------------------------------
+# [agent]
+# thinking = "auto"                 # auto | on | off
+# thinking_budget_tokens = 16384
+# system_prompt_path = "~/.config/stado/system-prompt.md"
 
 # ---------------------------------------------------------------------------
 # [tools] — trim the bundled tool set.
@@ -85,7 +101,7 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 # Unknown names are ignored with a stderr warning — typo-tolerant so a
 # config doesn't break stado across renames.
 #
-# Bundled tool names (list via 'stado headless' tools.list or session show):
+# Bundled tool names (list via TUI /tools or headless tools.list):
 #   bash                 shell exec
 #   read, write, edit    file ops
 #   glob, grep           filesystem patterns
@@ -180,10 +196,10 @@ allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
 
 # ---------------------------------------------------------------------------
 # AGENTS.md / CLAUDE.md — project-level instructions. Drop either file in
-# your repo root (or any parent directory) and stado auto-loads the body as
-# the system prompt on every turn. AGENTS.md wins if both exist; CLAUDE.md
-# is supported for backwards-compat with existing repos. Nearest-wins when
-# a monorepo has files at multiple levels.
+# your repo root (or any parent directory) and stado auto-loads the body into
+# {{ .ProjectInstructions }} in system-prompt.md. AGENTS.md wins if both
+# exist; CLAUDE.md is supported for backwards-compat with existing repos.
+# Nearest-wins when a monorepo has files at multiple levels.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

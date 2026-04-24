@@ -1,29 +1,29 @@
-name = "stado-dark"
+name = "stado-foobarto"
 
 [colors]
-background      = "#16161e"
-surface         = "#1a1b26"
-border          = "#3b4261"
-primary         = "#7aa2f7"
-accent          = "#bb9af7"
-muted           = "#565f89"
-success         = "#9ece6a"
-warning         = "#e0af68"
-error           = "#f7768e"
+background      = "#0d0f0e"
+surface         = "#161917"
+border          = "#252927"
+primary         = "#7fdc8c"
+accent          = "#7faedc"
+muted           = "#747c76"
+success         = "#7fdc8c"
+warning         = "#e0c87b"
+error           = "#e07b7b"
 
-text            = "#c0caf5"
-text_dim        = "#565f89"
-text_secondary  = "#a9b1d6"
+text            = "#e3e7e3"
+text_dim        = "#838b85"
+text_secondary  = "#bdc6bf"
 
-role_user       = "#7aa2f7"
-role_assistant  = "#c0caf5"
-role_thinking   = "#bb9af7"
-role_tool       = "#e0af68"
-role_system     = "#f7768e"
+role_user       = "#7faedc"
+role_assistant  = "#e3e7e3"
+role_thinking   = "#8ea99a"
+role_tool       = "#7faedc"
+role_system     = "#e07b7b"
 
 [layout]
-sidebar_width     = 32
+sidebar_width     = 28
 sidebar_min_width = 24
-border_style      = "rounded"
+border_style      = "normal"
 padding           = 1
 message_indent    = 2

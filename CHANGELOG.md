@@ -4,6 +4,60 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## Unreleased
+
+## v0.4.0 — 2026-04-24
+
+### TUI
+
+- **Added the first-run landing view.** A new opencode-style startup
+  screen centers the stado ANSI logo, model/provider status, command
+  hints, and the editable prompt before the first message.
+- **Made the chat input taller by default.** The editor now reserves
+  three extra visible rows so multi-line prompts do not collapse the
+  interaction area immediately.
+- **Fixed the first-message freeze path.** TUI trace logging and
+  renderer/log-tail fixes keep input responsive while thinking and
+  response blocks stream into the chat history.
+- **First-turn provider startup is now async instead of blocking the
+  UI.** When no default provider is pinned, the TUI now probes local
+  runners at startup, queues the first prompt behind that probe if it is
+  still in flight, and replays the prompt automatically when the probe
+  resolves.
+- **Added focused TUI trace logging for startup / first-turn issues.**
+  `STADO_TUI_TRACE=1 stado` now emits timestamped trace lines for the
+  provider probe, first-submit queueing, provider resolution, and stream
+  start into the sidebar log tail.
+
+### CLI / Infra
+
+- **Added a configurable default system prompt template.** First-run
+  config creation now writes `system-prompt.md` under the stado config
+  directory, and the TUI, run, ACP, headless, MCP, and session-resume
+  surfaces all compose prompts from the same template.
+- **OpenTelemetry is now actually bootstrapped by the runtime-facing
+  command surfaces.** `stado` (TUI), `stado session resume`, `stado run`,
+  `stado headless`, `stado acp`, `stado mcp-server`, and session
+  fork/revert flows now start the configured OTel runtime and flush it on
+  shutdown instead of leaving the shipped spans as no-ops.
+- **Release builds now stamp both CLI and TUI version strings.**
+  Goreleaser sets the root command version and the sidebar/bundled
+  plugin version value from the same tag.
+
+### Docs
+
+- **Added standalone command guides for every shipped top-level
+  command.** The docs index now links `agents`, `audit`, `stats`,
+  `headless`, `acp`, `mcp-server`, `verify`, `self-update`, and the
+  small generated/informational commands.
+- **Moved planned work into EP placeholders.** `BUGS.md` now stays
+  focused on active bugs, while planned subagents, multi-session TUI,
+  memory, learning, tool approval policy, and system-prompt work are
+  covered by EPs.
+- **Refreshed stale design/config/context docs.** The docs now reflect
+  plugin approval cards, current context accounting, bundled
+  auto-compact behavior, and the actual `config` command surface.
+
 ## v0.3.0 — 2026-04-24
 
 ### CLI / Infra

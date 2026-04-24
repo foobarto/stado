@@ -71,7 +71,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.3.0
+  bash -s -- --dir /usr/local/bin --version v0.4.0
 ```
 
 ### Homebrew
@@ -160,8 +160,9 @@ stado
 ```
 
 The TUI opens with an input box. Type a request; stado streams the
-response, queues tool calls for your approval, and commits every call
-to the session's audit log.
+response, executes the configured tool surface, and commits every tool
+call to the session's audit log. Plugins that declare `ui:approval` can
+still request explicit Allow/Deny confirmation in the TUI.
 
 ### Useful first commands
 
@@ -178,8 +179,10 @@ stado session search "react hook"       # grep across every session's conversati
 stado session gc --older-than=24h       # sweep zero-turn sessions (dry-run by default)
 stado session fork <id> --at turns/5    # fork from an earlier turn
 stado session tree <id>                 # interactive fork-from-turn picker
+stado agents list                       # active/stale parallel worktrees for this repo
 stado session land <id> <branch>        # push agent's tree to your repo
 stado audit verify <id>                 # tamper-check the audit log
+stado audit export <id> > audit.jsonl   # machine-readable tree/trace history
 ```
 
 Run + stats + config:
@@ -306,9 +309,9 @@ stado reads `$XDG_CONFIG_HOME/stado/config.toml` (scaffolded by
 provider = "anthropic"
 model    = "claude-sonnet-4-6"
 
-[approvals]
-mode      = "prompt"                     # "prompt" | "allowlist"
-allowlist = ["read", "glob", "grep", "ripgrep", "ast_grep"]
+[agent]
+thinking = "auto"
+system_prompt_path = "~/.config/stado/system-prompt.md"
 
 [inference.presets.my-proxy]
 endpoint = "https://proxy.example/v1"
@@ -332,6 +335,12 @@ hard_threshold = 0.90   # TUI blocks new turns; headless emits a hard warning ev
 Every key is overridable via env var: `STADO_DEFAULTS_PROVIDER=ollama`,
 `STADO_OTEL_ENABLED=1`, `STADO_CONTEXT_SOFT_THRESHOLD=0.6`, etc.
 Underscores map to nested dots.
+
+When `[otel].enabled = true`, the runtime-facing command surfaces
+actually start the exporter runtime: `stado`, `stado session resume`,
+`stado run`, `stado headless`, `stado acp`, and `stado mcp-server`.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is also honored as a fallback when
+`[otel].endpoint` is unset.
 
 Guide coverage is incremental. See [docs/README.md](docs/README.md) for
 the current command/feature index; `stado config init`'s scaffolded file
@@ -377,19 +386,13 @@ disabled = ["webfetch", "bash"]
 
 Unknown names warn on stderr and are ignored.
 
-### Approvals
+### Tool approvals
 
-`[approvals]` controls when the TUI prompts before a tool call runs:
-
-```toml
-[approvals]
-mode      = "prompt"                    # "prompt" | "allowlist"
-allowlist = ["read", "glob", "grep",    # auto-approved in allowlist mode
-             "ripgrep", "ast_grep"]
-```
-
-In the TUI, `/approvals always <tool>` adds a session-scoped override
-for the current run. `/approvals forget` clears those overrides.
+The old bundled-tool approval loop is gone. Use `[tools].enabled` /
+`[tools].disabled` to control which native tools the model can see, and
+use approval-wrapper plugins when a specific tool should ask a human
+before delegating. Plugins with the `ui:approval` capability can open
+the TUI approval card explicitly.
 
 ### Sandboxing
 

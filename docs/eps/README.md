@@ -36,6 +36,12 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0010 | [Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md) | Standards | Implemented |
 | 0011 | [Observability and Telemetry](./0011-observability-and-telemetry.md) | Standards | Implemented |
 | 0012 | [Release Integrity and Distribution](./0012-release-integrity-and-distribution.md) | Standards | Implemented |
+| 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Placeholder |
+| 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Placeholder |
+| 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Placeholder |
+| 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Placeholder |
+| 0017 | [Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md) | Standards | Implemented |
+| 0018 | [Configurable System Prompt Template](./0018-configurable-system-prompt-template.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

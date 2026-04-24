@@ -141,9 +141,8 @@ The quickest path to "sandbox everything more tightly":
 [tools]
 enabled = ["read", "grep", "ripgrep", "ast_grep"]  # read-only agent
 
-# Prompt on every tool call.
-[approvals]
-mode = "prompt"
+# Use approval-wrapper plugins for tools that need a human gate.
+# The native tool set itself is controlled by [tools].
 
 # Cost guardrail so a runaway can't rack up spend.
 [budget]
@@ -152,7 +151,7 @@ hard_usd = 2.00
 ```
 
 Combined with `stado run --sandbox-fs`, that's: read-only tools,
-every call is approved interactively, $2 hard cap. Hard to misfire
+filesystem narrowing on Linux, and a $2 hard cap. Hard to misfire
 and still useful for diagnosis work.
 
 ## Gotchas

@@ -114,6 +114,51 @@ func TestLoad_SkipsSymlinkedInstructions(t *testing.T) {
 	}
 }
 
+func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
+	got := ComposeSystemPrompt(DefaultSystemPromptTemplate, "always write tests", RuntimeContext{
+		Provider: "lmstudio",
+		Model:    "qwen/qwen3.6-35b-a3b",
+	})
+	for _, want := range []string{
+		"Identify as stado",
+		"Do not claim to be Claude Code",
+		"provider: lmstudio",
+		"model: qwen/qwen3.6-35b-a3b",
+		"Project instructions:\nalways write tests",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("composed prompt missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestComposeSystemPrompt_AlwaysIncludesIdentity(t *testing.T) {
+	got := ComposeSystemPrompt("", "", RuntimeContext{})
+	if !strings.Contains(got, "Identify as stado") {
+		t.Fatalf("base prompt missing stado identity\n%s", got)
+	}
+	if strings.Contains(got, "Project instructions:") {
+		t.Fatalf("empty project prompt should not add project section\n%s", got)
+	}
+}
+
+func TestComposeSystemPrompt_ExecutesCustomTemplate(t *testing.T) {
+	got := ComposeSystemPrompt(
+		`agent={{ .Model }} via {{ .Provider }} rules={{ .ProjectInstructions }}`,
+		"be direct",
+		RuntimeContext{Provider: "lmstudio", Model: "qwen"},
+	)
+	if got != "agent=qwen via lmstudio rules=be direct" {
+		t.Fatalf("custom template output = %q", got)
+	}
+}
+
+func TestValidateSystemPromptTemplateRejectsUnknownFields(t *testing.T) {
+	if err := ValidateSystemPromptTemplate(`{{ .Unknown }}`); err == nil {
+		t.Fatal("expected unknown template field to fail validation")
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

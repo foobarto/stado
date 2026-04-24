@@ -187,6 +187,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
+		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
 		OnEvent: func(ev agent.Event) {
 			switch ev.Kind {
 			case agent.EvTextDelta:

@@ -46,6 +46,7 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
+      - -X github.com/foobarto/stado/internal/version.Version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{ .CommitDate }}
       - -buildid=                     # clear build-id (non-deterministic)

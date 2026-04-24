@@ -32,6 +32,8 @@ var Defaults = map[Action]string{
 	Deny:                    "n,esc",
 	EditSummary:             "e",
 	SidebarToggle:           "ctrl+t",
+	SidebarNarrower:         "ctrl+x [",
+	SidebarWider:            "ctrl+x ]",
 	ToolExpand:              "shift+tab",
 	ModeToggle:              "tab",
 	ModeToggleBtw:           "ctrl+x ctrl+b",

@@ -240,6 +240,9 @@ func (r *Registry) ActionsByGroup() map[string][]Action {
 		"Session": {
 			SessionInterrupt, Approve, Deny, EditSummary,
 		},
+		"View": {
+			SidebarToggle, SidebarNarrower, SidebarWider,
+		},
 		"Input Navigation": {
 			InputMoveLeft, InputMoveRight, InputWordBackward, InputWordForward,
 			InputLineHome, InputLineEnd,

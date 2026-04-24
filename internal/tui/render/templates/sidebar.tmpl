@@ -1,35 +1,58 @@
-{{- /* Right sidebar — Context + Cwd + Model + Todo + version. */ -}}
-{{ color "primary" .Title | bold }}
+{{- /* Right sidebar — current state, risks, agent inputs, repo, todo. */ -}}
+{{ color "text" .Title | bold }}
 {{- if .SessionLabel }}
 {{ color "text_secondary" (wrapHard .SessionLabel .Width) }}
 {{- end }}
-
-{{ color "text_secondary" "Context" | bold }}
-{{ color "text" .TokensHuman }}
-{{ color "muted" .TokenPercent }}
-{{ color "accent" .CostHuman }}
-{{- if .Cwd }}
-
-{{ color "text_secondary" "Cwd" | bold }}
-{{ color "muted" (wrapHard .Cwd .Width) }}
-{{- end }}
-{{- if .InstructionsName }}
-
-{{ color "text_secondary" "Instructions" | bold }}
-{{ color "muted" .InstructionsName }}
-{{- end }}
-{{- if .SkillsCount }}
-
-{{ color "text_secondary" "Skills" | bold }}
-{{ color "muted" .SkillsCount }}
+{{- if .SessionMeta }}
+{{ color "text_dim" (wrapHard .SessionMeta .Width) }}
 {{- end }}
 
-{{ color "text_secondary" "Model" | bold }}
-{{ color "text" .Model }}
-{{ color "muted" .ProviderName }}
-{{- if .Todos }}
+{{- if .NowLines }}
 
-{{ color "text_secondary" "Todo" | bold }}
+{{ color "text" "Now" | bold }}
+{{- range .NowLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
+{{- if .RiskLines }}
+
+{{ color "text" "Risk" | bold }}
+{{- range .RiskLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
+{{- if .AgentLines }}
+
+{{ color "text" "Agent" | bold }}
+{{- range .AgentLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
+{{- if .RepoLines }}
+
+{{ color "text" "Repo" | bold }}
+{{- range .RepoLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
+{{- if .LogLines }}
+
+{{ color "text" "Logs" | bold }}
+{{- range .LogLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
+{{- if or .TodoSummary .Todos }}
+
+{{ color "text" "Todo" | bold }}
+{{- if .TodoSummary }}
+{{ color "muted" (wrapHard .TodoSummary $.Width) }}
+{{- end }}
 {{- range .Todos }}
 {{ todoMarker .Status }} {{ color (todoColor .Status) (wrapHard .Title $.Width) }}
 {{- end }}

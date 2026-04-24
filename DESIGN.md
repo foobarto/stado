@@ -97,16 +97,15 @@ User types in TUI input
   └─ Model.onTurnComplete
      └─ flush assistant message (text + thinking + tool_uses)
      └─ any pending calls?
-        ├─ yes → advanceApproval
-        │        ├─ remembered-allow → execute immediately
-        │        └─ prompt user y/n
-        │            └─ executor.Run
-        │                ├─ resolve tool + class
-        │                ├─ run (in-proc or spawn via sandbox)
-        │                ├─ write trace commit (always)
-        │                ├─ write tree commit (if mutating/exec+diff)
-        │                ├─ session.OnCommit → slog
-        │                └─ return ToolResultBlock
+        ├─ yes → execute allowed calls
+        │        ├─ reject calls not visible in the current tool set
+        │        └─ executor.Run
+        │            ├─ resolve tool + class
+        │            ├─ run (in-proc, plugin, MCP, or sandboxed process)
+        │            ├─ write trace commit (always)
+        │            ├─ write tree commit (if mutating/exec+diff)
+        │            ├─ session.OnCommit → slog
+        │            └─ return ToolResultBlock
         │        (queue drained) → toolsExecutedMsg
         │            └─ append role=tool Message
         │            └─ Model.startStream (next iteration)
@@ -331,12 +330,12 @@ tool-output curation. Each has a different answer, and the answers
 sometimes trade against each other.
 
 **Philosophy.** Curation and caching are primary. Overflow handling is a
-safety net. Compaction is strictly user-invoked — there is no automatic
-summarizer, no background compactor, no threshold-triggered eviction.
-When a session becomes unwieldy, the preferred recovery is
-fork-from-an-earlier-point into a fresh session (see §"Fork semantics"),
-not lossy in-place summarization. Forking must stay cheap and obvious so
-users reach for it instead.
+safety net. In-place compaction is explicit and user-confirmed. Automatic
+recovery is allowed only through plugin-driven child-session forks, as
+with the bundled `auto-compact` background plugin; the parent session is
+not silently rewritten. When a session becomes unwieldy, the preferred
+manual recovery is fork-from-an-earlier-point into a fresh session (see
+§"Fork semantics"), not lossy in-place summarization.
 
 ### Prompt-cache awareness
 
@@ -373,19 +372,20 @@ Cross-refs: §"Provider interface" (events + usage fields); PLAN.md §6.3
 
 ### Token accounting
 
-Token counts come from the provider's own tokenizer — never from
-estimation. Per-backend:
+Token counts come from provider-native usage when available, with
+client-side estimates used before the provider responds and for
+OpenAI-compatible backends that do not expose a richer counter.
+Per-backend:
 
 | Backend | Tokenizer |
 |---|---|
 | Anthropic | `Messages.CountTokens` pre-flight, or the official tokenizer |
-| OpenAI + OAI-compat | `tiktoken` (or server-reported if available) |
+| OpenAI + OAI-compat | `tiktoken` or server-reported usage when available |
 | Google / Gemini | genai SDK tokenizer |
 
-Capability probing on first provider use returns a boolean indicating
-whether token counting is available. A configured backend that cannot
-report counts is a hard error on first turn: **we refuse to proceed
-blind**.
+When a provider cannot report a usable `MaxContextTokens`, stado keeps
+the session usable and hides/skips threshold enforcement rather than
+presenting a misleading percentage.
 
 Two configurable thresholds, expressed as percentages of the active
 model's `Capabilities.MaxContextTokens` (percentages, not absolute —
@@ -395,11 +395,13 @@ context windows vary wildly):
   headless emits a `session.update { kind: "context_warning",
   level: "soft" }` notification. Recommendation is to fork. No
   automatic action.
-- **Hard (default 90%).** In the TUI, the next turn is blocked and the
-  user is prompted to fork, compact explicitly, or abort. Headless
-  emits `session.update { kind: "context_warning", level: "hard" }`
-  and leaves blocking/recovery policy to the client. There is no path
-  by which the agent silently compacts mid-session.
+- **Hard (default 90%).** In the TUI, the next turn first attempts
+  bundled `auto-compact` recovery by forking a compacted child session
+  and replaying the blocked prompt there. If no child appears, the
+  prompt remains in the editor and the user recovers manually with
+  `/compact`, `session tree`, or `session fork --at`. Headless emits
+  `session.update { kind: "context_warning", level: "hard" }` and
+  leaves blocking/recovery policy to the client.
 
 ### Tool-output curation
 

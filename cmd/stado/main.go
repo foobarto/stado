@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/tui"
 )
 
-const version = "0.0.0-dev"
+var version = "0.0.0-dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "stado",
@@ -33,7 +34,9 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
-		return tui.Run(cfg)
+		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+			return tui.Run(cfg)
+		})
 	},
 }
 

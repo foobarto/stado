@@ -1,4 +1,4 @@
-# Active Bugs & Feature Requests
+# Active Bugs
 
 > This file should be read at the start of any coding session to maintain context.
 
@@ -7,6 +7,7 @@
 ## ACTIVE BUGS (Unfixed)
 
 - None currently tracked in this file.
+- Product gaps such as Windows sandbox v2 live in `PLAN.md`, not here.
 
 ---
 
@@ -21,9 +22,3 @@
 - **`AppExit regression`** — restored `ctrl+d` from accidental deletion.
 - **`ActionDescriptions duplication`** — removed duplicate map.
 - **`Render block comments`** — updated `kind` field comment.
-
----
-
-## FEATURE REQUESTS
-
-- **`Multi-session switching`** — ability to switch between sessions in the TUI (scheduled for later discussion).

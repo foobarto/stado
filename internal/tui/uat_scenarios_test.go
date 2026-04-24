@@ -232,6 +232,42 @@ func TestUAT_CtrlTTogglesSidebar(t *testing.T) {
 	}
 }
 
+// H3: Ctrl+X ] / Ctrl+X [ resize the sidebar without colliding with the editor.
+func TestUAT_SidebarResizeShortcuts(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateIdle
+	start := m.sidebarPreferredWidth()
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	if got := m.sidebarPreferredWidth(); got <= start {
+		t.Fatalf("sidebar width = %d, want > %d after widen chord", got, start)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	if got := m.sidebarPreferredWidth(); got != start {
+		t.Fatalf("sidebar width = %d, want %d after widen+narrow round-trip", got, start)
+	}
+}
+
+// H4: resizing should reopen the sidebar and respect the configured minimum.
+func TestUAT_SidebarResizeReopensAndClamps(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateIdle
+	m.sidebarOpen = false
+	m.sidebarWidth = m.sidebarMinWidth()
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	if !m.sidebarOpen {
+		t.Fatal("resize chord should reopen the sidebar")
+	}
+	if got := m.sidebarPreferredWidth(); got != m.sidebarMinWidth() {
+		t.Fatalf("sidebar width = %d, want clamp at min %d", got, m.sidebarMinWidth())
+	}
+}
+
 // ============================================================
 // I. Help overlay
 // ============================================================

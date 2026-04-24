@@ -7,8 +7,8 @@
 package render
 
 import (
-	_ "embed"
 	"embed"
+	_ "embed"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,6 +19,7 @@ import (
 	"text/template"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
@@ -160,23 +161,35 @@ func (r *Renderer) funcMap() template.FuncMap {
 				return "text"
 			}
 		},
-		// cardUser renders a user message as a bordered card so it
-		// reads as "the user said this" visually distinct from the
-		// assistant's output. Rounded border painted in role_user;
-		// content is word-wrapped to width-4 (border 1 + padding 1
-		// on each side). Right-shifted by a single col so the card
-		// doesn't sit flush against the viewport edge.
+		// railCard renders a flat inset block with a colored left rail,
+		// closer to opencode's message panels than a terminal "box".
+		"railCard": func(body any, width int, colorName string) string {
+			w := width - 4
+			if w < 10 {
+				w = 10
+			}
+			content := wordWrap(toStr(body), w-2)
+			return lipgloss.NewStyle().
+				Background(r.theme.Bg("surface").GetBackground()).
+				Border(lipgloss.Border{Left: "│"}, false, false, false, true).
+				BorderForeground(r.theme.Fg(colorName).GetForeground()).
+				Foreground(r.theme.Fg("text").GetForeground()).
+				Padding(1, 1).
+				Width(width).
+				Render(content)
+		},
 		"cardUser": func(body any, width int) string {
 			w := width - 4
 			if w < 10 {
 				w = 10
 			}
-			content := wordWrap(toStr(body), w)
+			content := wordWrap(toStr(body), w-2)
 			return lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
+				Background(r.theme.Bg("surface").GetBackground()).
+				Border(lipgloss.Border{Left: "│"}, false, false, false, true).
 				BorderForeground(r.theme.Fg("role_user").GetForeground()).
 				Foreground(r.theme.Fg("text").GetForeground()).
-				Padding(0, 1).
+				Padding(1, 1).
 				Width(width).
 				Render(content)
 		},
@@ -209,7 +222,10 @@ func (r *Renderer) markdown(body string, width int) string {
 	if !ok {
 		var err error
 		gm, err = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			// Avoid WithAutoStyle in the TUI: it queries terminal
+			// background via OSC/CPR on first assistant markdown render,
+			// racing Bubble Tea's input reader and freezing the UI.
+			glamour.WithStandardStyle(styles.DarkStyle),
 			glamour.WithWordWrap(width),
 			glamour.WithPreservedNewLines(),
 		)

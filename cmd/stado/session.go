@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -428,7 +429,9 @@ var sessionResumeCmd = &cobra.Command{
 		// Launch the same entry point `stado` uses for its default
 		// TUI. runtime.OpenSession sees that cwd is a session
 		// worktree and takes the resume-on-cwd branch.
-		return tui.Run(cfg)
+		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+			return tui.Run(cfg)
+		})
 	},
 }
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,8 +13,10 @@ import (
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/banner"
+	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/overlays"
 	"github.com/foobarto/stado/internal/tui/theme"
+	"github.com/foobarto/stado/internal/version"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -22,12 +25,10 @@ func (m *Model) View() string {
 		return overlays.RenderHelp(m.keys, m.width)
 	}
 
+	landing := len(m.blocks) == 0 && m.approval == nil
 	sidebarW := 0
-	if m.sidebarOpen {
-		sidebarW = m.theme.Layout.SidebarWidth
-		if sidebarW > m.width/3 {
-			sidebarW = m.width / 3
-		}
+	if m.sidebarOpen && !landing {
+		sidebarW = m.sidebarRenderWidth()
 		// Too-narrow terminal: don't render a sidebar this frame, but
 		// keep m.sidebarOpen so a later WindowSizeMsg with a wider
 		// terminal brings it back. Previously we flipped the flag here,
@@ -42,19 +43,26 @@ func (m *Model) View() string {
 		mainW -= 1 // gap
 	}
 
-	// Input height grows with newlines. Horizontal scroll handles
-	// long single-line input (bubbles textarea doesn't soft-wrap),
-	// but newlines from Shift+Enter produce extra rendered rows.
+	// Input height grows with newlines, plus a few spare rows so the
+	// editor is comfortable before users start writing multi-line prompts.
 	value := m.input.Value()
-	inputH := strings.Count(value, "\n") + 1
-	if inputH < 1 {
-		inputH = 1
+	inputH := strings.Count(value, "\n") + 1 + input.ExtraVisibleRows
+	if inputH < input.DefaultVisibleRows {
+		inputH = input.DefaultVisibleRows
 	}
-	if inputH > m.height/3 {
-		inputH = m.height / 3
+	maxInputH := m.height / 3
+	if maxInputH < 1 {
+		maxInputH = 1
+	}
+	if inputH > maxInputH {
+		inputH = maxInputH
 	}
 	m.input.Model.SetHeight(inputH)
-	if textW := mainW - 4; textW > 0 {
+	inputFrameW := mainW
+	if landing {
+		inputFrameW = landingInputWidth(mainW)
+	}
+	if textW := inputFrameW - 4; textW > 0 {
 		m.input.Model.SetWidth(textW)
 	}
 	// Reserve: textarea (inputH) + top border (1) + inline status
@@ -71,8 +79,7 @@ func (m *Model) View() string {
 		mainH = 4
 	}
 
-	m.vp.Width = mainW
-	m.vp.Height = mainH
+	vpWidth, vpHeight := mainW, mainH
 
 	// Split-view: top = activity (tool + system), bottom = conversation.
 	// Divide the chat area roughly 40/60 between them. Both panes get
@@ -88,56 +95,52 @@ func (m *Model) View() string {
 		}
 		m.activityVP.Width = mainW
 		m.activityVP.Height = actH
-		m.vp.Height = convoH
+		vpHeight = convoH
+	}
+	vpChanged := m.vp.Width != vpWidth || m.vp.Height != vpHeight
+	m.vp.Width = vpWidth
+	m.vp.Height = vpHeight
+	if vpChanged && len(m.blocks) > 0 {
+		m.renderBlocks()
 	}
 
-	// Left column: messages viewport + approval + input + status
-	var left strings.Builder
-	// Empty-state: draw the banner directly into the left column
-	// (bypassing the viewport) so the top of the logo isn't eaten by
-	// the viewport's scroll position when content is taller than the
-	// pane. Leading newline compensates for the first-row eat in the
-	// lipgloss layout pipeline; mainH-1 so the banner leaves one row
-	// for the input box to dock at the bottom.
-	// Narrow-terminal fallback: when the viewport is too narrow for the
-	// ASCII banner, render a text hint so the user isn't staring at
-	// empty whitespace.
-	if len(m.blocks) == 0 {
-		if banner := bannerFor(mainW); banner != "" {
-			left.WriteString("\n" + renderBannerBlock(mainW, mainH-1))
-		} else {
-			left.WriteString(m.theme.Fg("muted").Render(
-				"  Send a message to get started  —  /help for commands") + "\n")
-		}
-	} else if m.splitView {
-		// Top pane: activity tail (tool + system blocks).
-		left.WriteString(m.activityVP.View())
-		// Separator between the two panes — a dim hr matching the
-		// border colour so it reads as a structural divider rather
-		// than just more chat content.
-		left.WriteString("\n" + m.theme.Fg("border").Render(
-			strings.Repeat("─", mainW)) + "\n")
-		// Bottom pane: conversation.
-		left.WriteString(m.vp.View())
+	base := ""
+	if landing {
+		base = m.renderLanding(mainW, m.height)
 	} else {
-		left.WriteString(m.vp.View())
-	}
-	if m.approval != nil {
-		left.WriteString(m.renderApprovalCard(mainW) + "\n")
-	}
-	left.WriteString(m.renderInputBox(mainW))
-	left.WriteString(m.renderStatus(mainW))
+		// Left column: messages viewport + approval + input + status
+		var left strings.Builder
+		if m.splitView {
+			// Top pane: activity tail (tool + system blocks).
+			left.WriteString(m.activityVP.View())
+			// Separator between the two panes — a dim hr matching the
+			// border colour so it reads as a structural divider rather
+			// than just more chat content.
+			left.WriteString("\n" + m.theme.Fg("border").Render(
+				strings.Repeat("─", max(0, mainW))) + "\n")
+			// Bottom pane: conversation.
+			left.WriteString(m.vp.View())
+		} else {
+			left.WriteString(m.vp.View())
+		}
+		if m.approval != nil {
+			left.WriteString(m.renderApprovalCard(mainW) + "\n")
+		}
+		left.WriteString(m.renderInputBox(mainW))
+		left.WriteString(m.renderStatus(mainW))
 
-	leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
+		leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
 
-	base := leftBlock
-	if sidebarW > 0 {
-		sidebar := m.renderSidebar(sidebarW)
-		base = lipgloss.JoinHorizontal(lipgloss.Top,
-			leftBlock,
-			lipgloss.NewStyle().Foreground(m.theme.Fg("border").GetForeground()).Render(strings.Repeat("│\n", m.height-1)+"│"),
-			sidebar,
-		)
+		base = leftBlock
+		if sidebarW > 0 {
+			sidebar := m.renderSidebar(sidebarW)
+			sepH := max(1, m.height)
+			base = lipgloss.JoinHorizontal(lipgloss.Top,
+				leftBlock,
+				lipgloss.NewStyle().Foreground(m.theme.Fg("border").GetForeground()).Render(strings.Repeat("│\n", sepH-1)+"│"),
+				sidebar,
+			)
+		}
 	}
 
 	// Modal overlay: command palette centred on the whole screen.
@@ -183,11 +186,183 @@ func (m *Model) layout() {
 	m.renderBlocks()
 }
 
-// renderInputBox produces the opencode-style bordered input: a textarea
-// stacked on top of an inline status line (Mode · Model · Provider),
-// all inside one rounded border whose LEFT edge is mode-coloured
-// (yellow=Plan, green=Do) so the agent's stance is visible at a glance
-// even when focus is elsewhere.
+const sidebarResizeStep = 4
+
+func (m *Model) sidebarMinWidth() int {
+	if m.theme != nil && m.theme.Layout.SidebarMinWidth > 0 {
+		return m.theme.Layout.SidebarMinWidth
+	}
+	return 24
+}
+
+func (m *Model) sidebarPreferredWidth() int {
+	if m.sidebarWidth > 0 {
+		return m.sidebarWidth
+	}
+	if m.theme != nil && m.theme.Layout.SidebarWidth > 0 {
+		return m.theme.Layout.SidebarWidth
+	}
+	return 32
+}
+
+func (m *Model) sidebarMaxPreferredWidth() int {
+	minW := m.sidebarMinWidth()
+	maxW := max(minW, 56)
+	if m.width > 0 {
+		frameMax := m.width / 2
+		if frameMax > 0 && frameMax < maxW {
+			maxW = frameMax
+		}
+	}
+	if maxW < minW {
+		maxW = minW
+	}
+	return maxW
+}
+
+func (m *Model) sidebarRenderWidth() int {
+	width := m.sidebarPreferredWidth()
+	if m.width > 0 {
+		frameMax := m.width / 2
+		if frameMax > 0 && width > frameMax {
+			width = frameMax
+		}
+	}
+	return width
+}
+
+func (m *Model) resizeSidebar(delta int) {
+	if delta == 0 {
+		return
+	}
+	width := m.sidebarPreferredWidth() + delta
+	minW := m.sidebarMinWidth()
+	maxW := m.sidebarMaxPreferredWidth()
+	if width < minW {
+		width = minW
+	}
+	if width > maxW {
+		width = maxW
+	}
+	m.sidebarWidth = width
+	m.sidebarOpen = true
+}
+
+func landingInputWidth(width int) int {
+	if width < 1 {
+		return 1
+	}
+	target := 64
+	if width < 90 {
+		target = width - 8
+	}
+	if target > width-8 {
+		target = width - 8
+	}
+	if target < 40 {
+		target = width - 4
+	}
+	if target < 20 {
+		target = width
+	}
+	if target < 1 {
+		target = 1
+	}
+	return target
+}
+
+func (m *Model) renderLanding(width, height int) string {
+	if width < 1 {
+		return ""
+	}
+	input := strings.TrimRight(m.renderInputBox(landingInputWidth(width)), "\n")
+	hint := landingHint(m.theme)
+	bodyH := height - 1
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - 3
+	logo := renderLandingLogo(width, logoMaxH)
+
+	parts := make([]string, 0, 3)
+	if logo != "" {
+		parts = append(parts, logo)
+	}
+	parts = append(parts, centerLines(input, width), centerLines(hint, width))
+	stack := strings.Join(parts, "\n\n")
+	body := lipgloss.Place(width, bodyH, lipgloss.Center, lipgloss.Center, stack)
+	return body + "\n" + m.renderLandingFooter(width)
+}
+
+func renderLandingLogo(width, maxH int) string {
+	if maxH < 4 {
+		return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
+	}
+	raw := bannerFor(width)
+	if raw == "" {
+		return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
+	}
+	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
+	if maxH > 0 && len(lines) > maxH {
+		lines = lines[:maxH]
+	}
+	for i, line := range lines {
+		lines[i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func landingHint(th *theme.Theme) string {
+	if th == nil {
+		return "ctrl+p commands"
+	}
+	return th.Fg("text_secondary").Bold(true).Render("ctrl+p") + " " +
+		th.Fg("muted").Render("commands")
+}
+
+func centerLines(s string, width int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderLandingFooter(width int) string {
+	if width < 1 {
+		return ""
+	}
+	left := m.compactLandingCwd(width)
+	right := version.Version
+	if right == "" {
+		right = "0.0.0-dev"
+	}
+	left = m.theme.Fg("muted").Render(left)
+	right = m.theme.Fg("muted").Render(right)
+	pad := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if pad < 1 {
+		pad = 1
+	}
+	return left + strings.Repeat(" ", pad) + right
+}
+
+func (m *Model) compactLandingCwd(width int) string {
+	cwd := filepath.Clean(m.cwd)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if rel, ok := strings.CutPrefix(cwd, home); ok {
+			cwd = "~" + rel
+		}
+	}
+	maxW := width - len(version.Version) - 4
+	if maxW < 12 {
+		maxW = 12
+	}
+	return trimSeed(cwd, maxW)
+}
+
+// renderInputBox produces the bordered input area: a textarea stacked on
+// top of an inline status line (Mode · Model · Provider), all inside one
+// surfaced rounded frame.
 func (m *Model) renderInputBox(mainW int) string {
 	inline, err := m.renderer.Exec("input_status", map[string]any{
 		"Mode":         m.mode.String(),
@@ -211,18 +386,12 @@ func (m *Model) renderInputBox(mainW int) string {
 
 	body := pickerPrefix + m.input.View() + "\n" + strings.TrimRight(inline, "\n")
 
-	modeColor := m.theme.Fg("success").GetForeground() // Do
-	switch m.mode {
-	case modePlan:
-		modeColor = m.theme.Fg("warning").GetForeground()
-	case modeBTW:
-		modeColor = m.theme.Fg("accent").GetForeground()
-	}
-	style := lipgloss.NewStyle().
-		Border(m.theme.Border()).
-		BorderForeground(modeColor).
+	style := m.theme.Bg("surface").
+		Border(lipgloss.Border{Left: "│"}, false, false, false, true).
+		BorderForeground(m.theme.Fg("role_user").GetForeground()).
+		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1).
-		Width(mainW - 2)
+		Width(mainW - 1)
 	return style.Render(body) + "\n"
 }
 
@@ -268,9 +437,10 @@ func (m *Model) renderApprovalCard(mainW int) string {
 	if m.approvalFocused {
 		border = m.theme.Fg("warning").GetForeground()
 	}
-	style := lipgloss.NewStyle().
+	style := m.theme.Bg("surface").
 		Border(m.theme.Border()).
 		BorderForeground(border).
+		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1)
 	if mainW > 2 {
 		style = style.Width(mainW - 2)
@@ -454,12 +624,12 @@ func tokenPctString(m *Model) string {
 	return s
 }
 
+type sidebarLine struct {
+	Text string
+	Tone string
+}
+
 func (m *Model) renderSidebar(width int) string {
-	tokPct := ""
-	if cap := m.providerCaps().MaxContextTokens; cap > 0 && m.usage.InputTokens > 0 {
-		pct := 100 * m.usage.InputTokens / cap
-		tokPct = fmt.Sprintf("%d%% used", pct)
-	}
 	// Session description — shown below the stado title so the user
 	// knows which session they're in. Empty when unset, template
 	// conditionally renders.
@@ -467,51 +637,373 @@ func (m *Model) renderSidebar(width int) string {
 	if m.session != nil {
 		sessionLabel = runtime.ReadDescription(m.session.WorktreePath)
 	}
-	// Show just the basename of the loaded AGENTS.md / CLAUDE.md so
-	// the user knows which file informed the system prompt, without
-	// eating sidebar width with a full path.
-	instructionsName := ""
-	if m.systemPromptPath != "" {
-		instructionsName = filepath.Base(m.systemPromptPath)
-	}
-	// Skills count — surfaces the feature's existence. Empty string
-	// (instead of "0") when no skills are loaded so the template
-	// conditional hides the row entirely, not showing "Skills: 0"
-	// which would look broken.
-	skillsCount := ""
-	if n := len(m.skills); n > 0 {
-		verb := "skills"
-		if n == 1 {
-			verb = "skill"
-		}
-		skillsCount = fmt.Sprintf("%d %s — /skill", n, verb)
-	}
 	data := map[string]any{
-		"Title":            "stado",
-		"Version":          "0.0.0-dev",
-		"SessionLabel":     sessionLabel,
-		"Model":            modelOrPlaceholder(m.model),
-		"ProviderName":     m.providerDisplayName(),
-		"Cwd":              m.cwd,
-		"TokensHuman":      fmt.Sprintf("%s tokens", humanize(m.usage.InputTokens+m.usage.OutputTokens)),
-		"TokenPercent":     tokPct,
-		"CostHuman":        fmt.Sprintf("$%.2f spent", m.usage.CostUSD),
-		"Todos":            m.todos,
-		"Width":            width - 4,
-		"InstructionsName": instructionsName,
-		"SkillsCount":      skillsCount,
+		"Title":        "stado",
+		"Version":      "0.0.0-dev",
+		"SessionLabel": sessionLabel,
+		"SessionMeta":  m.sidebarSessionMeta(),
+		"NowLines":     m.sidebarNowLines(),
+		"RiskLines":    m.sidebarRiskLines(),
+		"AgentLines":   m.sidebarAgentLines(),
+		"RepoLines":    m.sidebarRepoLines(),
+		"LogLines":     m.sidebarLogLines(),
+		"TodoSummary":  m.sidebarTodoSummary(),
+		"Todos":        m.sidebarTodos(),
+		"Width":        width - 4,
 	}
 	body, err := m.renderer.Exec("sidebar", data)
 	if err != nil {
 		body = "[sidebar render error] " + err.Error()
 	}
-	// Height(m.height - 3): Pane adds 2 border rows, so passing
-	// m.height-3 gives a total rendered height of m.height - 1 —
-	// exactly matching leftBlock's (m.height - status_row) height
-	// so JoinHorizontal doesn't pad leftBlock beyond pane height.
-	// A taller sidebar here used to push the top row of the chat
-	// off the visible area.
-	return m.theme.Pane().Width(width - 2).Height(m.height - 3).Render(body)
+	return lipgloss.NewStyle().
+		Background(m.theme.Bg("surface").GetBackground()).
+		Foreground(m.theme.Fg("text").GetForeground()).
+		Padding(1, 1).
+		Width(width - 2).
+		Height(m.height).
+		Render(body)
+}
+
+func (m *Model) sidebarSessionMeta() string {
+	parts := []string{}
+	if m.session != nil && m.session.ID != "" {
+		parts = append(parts, "sess "+shortSessionID(m.session.ID))
+		parts = append(parts, fmt.Sprintf("turn %d", m.session.Turn()))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m *Model) sidebarNowLines() []sidebarLine {
+	lines := []sidebarLine{m.sidebarStateLine()}
+	if tool, _, ok := m.sidebarRunningTool(); ok {
+		lines = append(lines, sidebarLine{Text: "tool: " + tool, Tone: "role_tool"})
+	}
+	if elapsed := m.sidebarElapsed(); elapsed != "" {
+		lines = append(lines, sidebarLine{Text: "elapsed: " + elapsed, Tone: "muted"})
+	}
+	if m.queuedPrompt != "" {
+		lines = append(lines, sidebarLine{
+			Text: "queued: " + trimSeed(m.queuedPrompt, 32),
+			Tone: "accent",
+		})
+	}
+	if m.recoveryPluginActive {
+		name := m.recoveryPluginName
+		if name == "" {
+			name = "plugin"
+		}
+		lines = append(lines, sidebarLine{
+			Text: "recovery: " + name + " will replay the blocked prompt",
+			Tone: "warning",
+		})
+	}
+	if m.providerProbePending {
+		lines = append(lines, sidebarLine{
+			Text: "probing local providers before the first turn",
+			Tone: "muted",
+		})
+	} else if m.provider == nil && m.buildProvider != nil {
+		lines = append(lines, sidebarLine{
+			Text: "no provider configured",
+			Tone: "muted",
+		})
+	}
+	return lines
+}
+
+func (m *Model) sidebarStateLine() sidebarLine {
+	if m.recoveryPluginActive {
+		name := m.recoveryPluginName
+		if name == "" {
+			name = "plugin"
+		}
+		return sidebarLine{Text: "waiting for " + name + " recovery", Tone: "warning"}
+	}
+	switch m.state {
+	case stateStreaming:
+		if m.compacting {
+			return sidebarLine{Text: "compacting conversation", Tone: "warning"}
+		}
+		return sidebarLine{Text: "streaming turn", Tone: "warning"}
+	case stateApproval:
+		return sidebarLine{Text: "awaiting approval", Tone: "warning"}
+	case stateCompactionPending:
+		return sidebarLine{Text: "review compaction summary", Tone: "accent"}
+	case stateCompactionEditing:
+		return sidebarLine{Text: "editing compaction summary", Tone: "accent"}
+	case stateError:
+		text := "last turn failed"
+		if strings.TrimSpace(m.errorMsg) != "" {
+			text = "error: " + trimSeed(m.errorMsg, 32)
+		}
+		return sidebarLine{Text: text, Tone: "error"}
+	case stateQuitConfirm:
+		return sidebarLine{Text: "confirm exit", Tone: "warning"}
+	default:
+		return sidebarLine{Text: "idle", Tone: "text"}
+	}
+}
+
+func (m *Model) sidebarRunningTool() (string, time.Time, bool) {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		blk := m.blocks[i]
+		if blk.kind == "tool" && blk.toolName != "" && blk.endedAt.IsZero() {
+			return blk.toolName, blk.startedAt, true
+		}
+	}
+	return "", time.Time{}, false
+}
+
+func (m *Model) sidebarElapsed() string {
+	if _, startedAt, ok := m.sidebarRunningTool(); ok && !startedAt.IsZero() {
+		return sidebarDurationString(time.Since(startedAt))
+	}
+	if m.state == stateStreaming && !m.turnStart.IsZero() {
+		return sidebarDurationString(time.Since(m.turnStart))
+	}
+	return ""
+}
+
+func sidebarDurationString(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d >= time.Minute {
+		d = d.Round(time.Second)
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	if d >= 10*time.Second {
+		d = d.Round(time.Second)
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	d = d.Round(100 * time.Millisecond)
+	return d.String()
+}
+
+func (m *Model) sidebarRiskLines() []sidebarLine {
+	lines := []sidebarLine{m.sidebarContextLine(), m.sidebarBudgetLine(), m.sidebarSandboxLine()}
+	out := lines[:0]
+	for _, line := range lines {
+		if strings.TrimSpace(line.Text) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func (m *Model) sidebarContextLine() sidebarLine {
+	cap := m.providerCaps().MaxContextTokens
+	if cap <= 0 {
+		return sidebarLine{Text: "ctx unknown until the provider reports a limit", Tone: "muted"}
+	}
+	if m.usage.InputTokens <= 0 {
+		return sidebarLine{Text: fmt.Sprintf("ctx 0%% / hard %d%%", int(100*m.ctxHardThreshold)), Tone: "muted"}
+	}
+	fraction := m.contextFraction()
+	tone := "muted"
+	switch {
+	case fraction >= m.ctxHardThreshold:
+		tone = "error"
+	case fraction >= m.ctxSoftThreshold:
+		tone = "warning"
+	default:
+		tone = "text"
+	}
+	return sidebarLine{
+		Text: fmt.Sprintf("ctx %d%% / hard %d%%", int(100*fraction), int(100*m.ctxHardThreshold)),
+		Tone: tone,
+	}
+}
+
+func (m *Model) sidebarBudgetLine() sidebarLine {
+	if m.budgetWarnUSD <= 0 && m.budgetHardUSD <= 0 {
+		return sidebarLine{Text: "budget unbounded", Tone: "muted"}
+	}
+	limit := m.budgetHardUSD
+	label := fmt.Sprintf("$%.2f", limit)
+	if limit <= 0 {
+		limit = m.budgetWarnUSD
+		label = "warn $" + fmt.Sprintf("%.2f", limit)
+	}
+	tone := "muted"
+	switch {
+	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD && !m.budgetAcked:
+		tone = "error"
+	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
+		tone = "warning"
+	default:
+		tone = "text"
+	}
+	text := fmt.Sprintf("budget $%.2f / %s", m.usage.CostUSD, label)
+	if m.budgetAcked {
+		text += " (acked)"
+	}
+	return sidebarLine{Text: text, Tone: tone}
+}
+
+func (m *Model) sidebarSandboxLine() sidebarLine {
+	if m.executor == nil || m.executor.Runner == nil {
+		return sidebarLine{Text: "sandbox unavailable", Tone: "muted"}
+	}
+	name := m.executor.Runner.Name()
+	if strings.TrimSpace(name) == "" {
+		name = "unknown"
+	}
+	tone := "text"
+	if name == "none" {
+		tone = "error"
+	}
+	return sidebarLine{Text: "sandbox: " + name, Tone: tone}
+}
+
+func (m *Model) sidebarAgentLines() []sidebarLine {
+	modelLine := modelOrPlaceholder(m.model)
+	if provider := strings.TrimSpace(m.providerDisplayName()); provider != "" {
+		modelLine += " via " + provider
+	}
+	lines := []sidebarLine{{
+		Text: modelLine,
+		Tone: "text",
+	}}
+	if m.systemPromptPath != "" {
+		lines = append(lines, sidebarLine{
+			Text: "instructions: " + filepath.Base(m.systemPromptPath),
+			Tone: "muted",
+		})
+	}
+	if n := len(m.skills); n > 0 {
+		verb := "skills"
+		if n == 1 {
+			verb = "skill"
+		}
+		lines = append(lines, sidebarLine{
+			Text: fmt.Sprintf("%d %s loaded · /skill", n, verb),
+			Tone: "accent",
+		})
+	}
+	if pluginSummary := m.sidebarPluginSummary(); pluginSummary != "" {
+		lines = append(lines, sidebarLine{
+			Text: "plugins: " + pluginSummary,
+			Tone: "muted",
+		})
+	}
+	return lines
+}
+
+func (m *Model) sidebarPluginSummary() string {
+	if len(m.backgroundPlugins) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(m.backgroundPlugins))
+	for _, bp := range m.backgroundPlugins {
+		if bp == nil {
+			continue
+		}
+		name := strings.TrimSpace(bp.Name())
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	switch len(names) {
+	case 0:
+		return fmt.Sprintf("%d active", len(m.backgroundPlugins))
+	case 1:
+		return names[0]
+	case 2:
+		return names[0] + ", " + names[1]
+	default:
+		return fmt.Sprintf("%s +%d", names[0], len(names)-1)
+	}
+}
+
+func (m *Model) sidebarRepoLines() []sidebarLine {
+	repoRoot := m.sidebarRepoRoot()
+	if repoRoot == "" {
+		return nil
+	}
+	lines := []sidebarLine{{
+		Text: "repo: " + filepath.Base(repoRoot),
+		Tone: "text",
+	}}
+	if rel := sidebarRepoPath(repoRoot, m.cwd); rel != "" {
+		lines = append(lines, sidebarLine{
+			Text: "path: " + rel,
+			Tone: "muted",
+		})
+	} else if m.session != nil && m.session.ID != "" {
+		lines = append(lines, sidebarLine{
+			Text: "worktree: " + shortSessionID(m.session.ID),
+			Tone: "muted",
+		})
+	}
+	return lines
+}
+
+func (m *Model) sidebarRepoRoot() string {
+	if m.session != nil && m.session.WorktreePath != "" {
+		if pinned := runtime.ReadUserRepoPin(m.session.WorktreePath); pinned != "" {
+			return pinned
+		}
+	}
+	if m.cwd == "" {
+		return ""
+	}
+	return runtime.FindRepoRoot(m.cwd)
+}
+
+func sidebarRepoPath(repoRoot, cwd string) string {
+	if repoRoot == "" || cwd == "" {
+		return ""
+	}
+	rel, err := filepath.Rel(repoRoot, cwd)
+	if err != nil || rel == "" || rel == "." {
+		return ""
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return rel
+}
+
+func (m *Model) sidebarTodoSummary() string {
+	if len(m.todos) == 0 {
+		return ""
+	}
+	open := 0
+	done := 0
+	for _, td := range m.todos {
+		if td.Status == "done" {
+			done++
+			continue
+		}
+		open++
+	}
+	return fmt.Sprintf("%d open / %d done", open, done)
+}
+
+func (m *Model) sidebarTodos() []todo {
+	if len(m.todos) == 0 {
+		return nil
+	}
+	out := make([]todo, 0, 3)
+	for _, td := range m.todos {
+		if td.Status == "done" {
+			continue
+		}
+		out = append(out, td)
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out
+}
+
+func shortSessionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
 
 func (m *Model) renderBlocks() {
@@ -535,17 +1027,15 @@ func (m *Model) renderBlocks() {
 			b.WriteString("\n")
 		}
 	}
+	oldBottomY := max(0, m.vp.TotalLineCount()-m.vp.Height)
+	wasNearBottom := m.vp.YOffset >= oldBottomY-2
 	m.vp.SetContent(b.String())
 	// Only auto-scroll to bottom when the user is already near the
 	// bottom.  YOffset is the scroll position (0 = top).  The bottom
 	// position is max(0, contentHeight - viewportHeight).  If the
 	// user has scrolled up to read history, preserve their position.
-	contentLines := strings.Count(b.String(), "\n")
-	bottomY := 0
-	if contentLines > m.vp.Height {
-		bottomY = contentLines - m.vp.Height
-	}
-	if m.vp.YOffset >= bottomY-2 {
+	contentLines := m.vp.TotalLineCount()
+	if wasNearBottom {
 		m.vp.GotoBottom()
 	} else if contentLines < m.vp.Height {
 		m.vp.GotoTop()
@@ -632,11 +1122,47 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			"Width":       width - 4,
 		})
 	case "system":
-		return m.theme.Fg("error").Render(blk.body) + "\n", nil
+		tone := systemBlockTone(blk.body)
+		return lipgloss.NewStyle().
+			Background(m.theme.Bg("surface").GetBackground()).
+			Border(lipgloss.Border{Left: "│"}, false, false, false, true).
+			BorderForeground(m.theme.Fg(tone).GetForeground()).
+			Foreground(m.theme.Fg("text").GetForeground()).
+			Padding(0, 1).
+			Width(width).
+			Render(truncate(blk.body, width*6)) + "\n", nil
 	case "btw":
-		return m.theme.Fg("accent").Render("▸ btw: "+blk.body) + "\n", nil
+		return lipgloss.NewStyle().
+			Background(m.theme.Bg("surface").GetBackground()).
+			Border(lipgloss.Border{Left: "│"}, false, false, false, true).
+			BorderForeground(m.theme.Fg("accent").GetForeground()).
+			Foreground(m.theme.Fg("text_secondary").GetForeground()).
+			Padding(0, 1).
+			Width(width).
+			Render("btw: "+truncate(blk.body, width*6)) + "\n", nil
 	}
 	return "", nil
+}
+
+func systemBlockTone(body string) string {
+	body = strings.TrimSpace(strings.ToLower(body))
+	switch {
+	case strings.HasPrefix(body, "error:"),
+		strings.Contains(body, " error:"),
+		strings.Contains(body, ": error:"),
+		strings.Contains(body, " failed:"),
+		strings.Contains(body, ": load:"),
+		strings.Contains(body, ": runtime:"),
+		strings.Contains(body, "unavailable"):
+		return "error"
+	case strings.HasPrefix(body, "warning:"),
+		strings.Contains(body, " warning:"),
+		strings.Contains(body, "blocked"),
+		strings.Contains(body, "crossed warn cap"):
+		return "warning"
+	default:
+		return "accent"
+	}
 }
 
 // renderSplitPanes paints m.blocks into two separate viewports:

@@ -64,149 +64,126 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		if err != nil {
 			return err
 		}
-		prov, err := runBuildProvider(cfg)
-		if err != nil {
-			return fmt.Errorf("provider: %w", err)
-		}
-		hookRunner := hooks.Runner{
-			PostTurnCmd: cfg.Hooks.PostTurn,
-			Disabled:    hooks.DisabledByToolConfig(cfg),
-		}
-
-		// Session-continuation path: --session <id-or-label> loads the
-		// existing conversation and appends the new prompt. The reply
-		// gets persisted back, so `stado` resume + TUI see the
-		// exchange. Useful for scripted follow-ups on a long-running
-		// session: `stado run --session react "what was that hook
-		// we extracted?"`.
-		var priorMsgs []agent.Message
-		var continueSessID string
-		var continueWorktree string
-		if runSessionID != "" {
-			resolved, err := resolveSessionID(cfg, runSessionID)
+		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context) error {
+			prov, err := runBuildProvider(cfg)
 			if err != nil {
-				return fmt.Errorf("run: --session: %w", err)
+				return fmt.Errorf("provider: %w", err)
 			}
-			continueSessID = resolved
-			continueWorktree = cfgWorktreeDirPath(cfg, resolved)
-			priorMsgs, err = runtime.LoadConversation(continueWorktree)
-			if err != nil {
-				return fmt.Errorf("run: load conversation for %s: %w", resolved, err)
+			hookRunner := hooks.Runner{
+				PostTurnCmd: cfg.Hooks.PostTurn,
+				Disabled:    hooks.DisabledByToolConfig(cfg),
 			}
-			fmt.Fprintf(os.Stderr,
-				"stado run: continuing session %s (%d prior message(s))\n",
-				resolved, len(priorMsgs))
-		}
 
-		newUserMsg := agent.Text(agent.RoleUser, runPrompt)
-		var executor *runtime.AgentLoopOptions
-		_ = executor // silence unused warning when --tools is off
+			var priorMsgs []agent.Message
+			var continueSessID string
+			var continueWorktree string
+			if runSessionID != "" {
+				resolved, err := resolveSessionID(cfg, runSessionID)
+				if err != nil {
+					return fmt.Errorf("run: --session: %w", err)
+				}
+				continueSessID = resolved
+				continueWorktree = cfgWorktreeDirPath(cfg, resolved)
+				priorMsgs, err = runtime.LoadConversation(continueWorktree)
+				if err != nil {
+					return fmt.Errorf("run: load conversation for %s: %w", resolved, err)
+				}
+				fmt.Fprintf(os.Stderr,
+					"stado run: continuing session %s (%d prior message(s))\n",
+					resolved, len(priorMsgs))
+			}
 
-		// Project-level instructions (AGENTS.md / CLAUDE.md) resolved
-		// from the current working directory. A missing file is fine;
-		// a broken one is surfaced as a stderr warning and the run
-		// proceeds without a system prompt rather than aborting.
-		sysPrompt := ""
-		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			if res, err := instructions.Load(cwd); err != nil {
-				fmt.Fprintf(os.Stderr, "stado run: instructions load: %v\n", err)
-			} else if res.Path != "" {
-				sysPrompt = res.Content
-				fmt.Fprintf(os.Stderr, "stado run: loaded %s\n", res.Path)
-			}
-		}
+			newUserMsg := agent.Text(agent.RoleUser, runPrompt)
+			var executor *runtime.AgentLoopOptions
+			_ = executor
 
-		opts := runtime.AgentLoopOptions{
-			Provider: prov,
-			Model:    cfg.Defaults.Model,
-			Messages: append(priorMsgs, newUserMsg),
-			MaxTurns: runMaxTurns,
-			OnEvent:  emitter(runJSON, os.Stdout),
-			OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
-				hookRunner.FirePostTurn(cmd.Context(), hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
-			},
-			Thinking:             cfg.Agent.Thinking,
-			ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
-			System:               sysPrompt,
-			CostCapUSD:           cfg.Budget.HardUSD,
-		}
-		if runTools {
-			cwd, _ := os.Getwd()
-			// When continuing an existing session, tools must act in the
-			// session's worktree rather than the caller's cwd. Otherwise
-			// a command like `stado run --session abc --tools` from a
-			// different directory would execute mutating tools against the
-			// wrong repo.
-			toolWorktree := cwd
-			if continueWorktree != "" {
-				toolWorktree = continueWorktree
+			sysPrompt := ""
+			if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+				if res, err := instructions.Load(cwd); err != nil {
+					fmt.Fprintf(os.Stderr, "stado run: instructions load: %v\n", err)
+				} else if res.Path != "" {
+					sysPrompt = res.Content
+					fmt.Fprintf(os.Stderr, "stado run: loaded %s\n", res.Path)
+				}
 			}
-			sess, err := runtime.OpenSession(cfg, toolWorktree)
-			if err != nil {
-				return fmt.Errorf("session: %w", err)
-			}
-			opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
-			if err != nil {
-				return fmt.Errorf("tools: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "stado run: session %s (worktree %s)\n", sess.ID, sess.WorktreePath)
 
-			if runSandboxFS {
-				// Narrow our own process so mutating tools can only touch
-				// the worktree + /tmp. Read-anywhere stays permitted so
-				// globs/greps/reads still work across the repo.
-				if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(sess.WorktreePath)); err != nil {
-					if errors.Is(err, sandbox.ErrLandlockUnavailable) {
-						fmt.Fprintln(os.Stderr, "stado run: --sandbox-fs requested but landlock unavailable on this kernel; continuing unsandboxed")
+			opts := runtime.AgentLoopOptions{
+				Provider: prov,
+				Model:    cfg.Defaults.Model,
+				Messages: append(priorMsgs, newUserMsg),
+				MaxTurns: runMaxTurns,
+				OnEvent:  emitter(runJSON, os.Stdout),
+				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
+					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
+				},
+				Thinking:             cfg.Agent.Thinking,
+				ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
+				System:               sysPrompt,
+				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
+				CostCapUSD:           cfg.Budget.HardUSD,
+			}
+			if runTools {
+				cwd, _ := os.Getwd()
+				toolWorktree := cwd
+				if continueWorktree != "" {
+					toolWorktree = continueWorktree
+				}
+				sess, err := runtime.OpenSession(cfg, toolWorktree)
+				if err != nil {
+					return fmt.Errorf("session: %w", err)
+				}
+				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
+				if err != nil {
+					return fmt.Errorf("tools: %w", err)
+				}
+				fmt.Fprintf(os.Stderr, "stado run: session %s (worktree %s)\n", sess.ID, sess.WorktreePath)
+
+				if runSandboxFS {
+					if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(sess.WorktreePath)); err != nil {
+						if errors.Is(err, sandbox.ErrLandlockUnavailable) {
+							fmt.Fprintln(os.Stderr, "stado run: --sandbox-fs requested but landlock unavailable on this kernel; continuing unsandboxed")
+						} else {
+							return fmt.Errorf("sandbox: %w", err)
+						}
 					} else {
-						return fmt.Errorf("sandbox: %w", err)
+						fmt.Fprintln(os.Stderr, "stado run: landlock applied (writes confined to worktree + /tmp)")
 					}
-				} else {
-					fmt.Fprintln(os.Stderr, "stado run: landlock applied (writes confined to worktree + /tmp)")
 				}
 			}
-		}
 
-		// Wrap the CLI's context with any `.stado-span-context`
-		// present in cwd (cross-process span link, Phase 9.4/9.5).
-		// Non-forked cwd is a no-op.
-		cwd, _ := os.Getwd()
-		baseCtx, _ := telemetry.LoadParentTraceparent(cmd.Context(), cwd)
-		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
-		defer cancel()
+			cwd, _ := os.Getwd()
+			baseCtx, _ := telemetry.LoadParentTraceparent(runCtx, cwd)
+			ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
+			defer cancel()
 
-		_, finalMsgs, err := runAgentLoop(ctx, opts)
-		if err != nil {
-			if errors.Is(err, runtime.ErrCostCapExceeded) {
-				fmt.Fprintln(os.Stderr, "stado run: "+err.Error())
-				fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
-				os.Exit(2)
-			}
-			if strings.Contains(err.Error(), "exceeded") {
-				fmt.Fprintln(os.Stderr, err.Error())
-				os.Exit(2)
-			}
-			return err
-		}
-		// Persist the session-continuation exchange. priorMsgs was
-		// the prefix; finalMsgs is that prefix + the new user msg +
-		// whatever assistant/tool turns came back. Slice off the
-		// prefix and append each new message so the TUI replay sees
-		// the full flow next time it resumes.
-		if continueWorktree != "" && continueSessID != "" {
-			for i, m := range finalMsgs {
-				if i < len(priorMsgs) {
-					continue
+			_, finalMsgs, err := runAgentLoop(ctx, opts)
+			if err != nil {
+				if errors.Is(err, runtime.ErrCostCapExceeded) {
+					fmt.Fprintln(os.Stderr, "stado run: "+err.Error())
+					fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
+					os.Exit(2)
 				}
-				if err := runtime.AppendMessage(continueWorktree, m); err != nil {
-					fmt.Fprintf(os.Stderr, "stado run: persist message %d: %v\n", i, err)
+				if strings.Contains(err.Error(), "exceeded") {
+					fmt.Fprintln(os.Stderr, err.Error())
+					os.Exit(2)
+				}
+				return err
+			}
+			if continueWorktree != "" && continueSessID != "" {
+				for i, m := range finalMsgs {
+					if i < len(priorMsgs) {
+						continue
+					}
+					if err := runtime.AppendMessage(continueWorktree, m); err != nil {
+						fmt.Fprintf(os.Stderr, "stado run: persist message %d: %v\n", i, err)
+					}
 				}
 			}
-		}
-		if !runJSON {
-			fmt.Fprintln(os.Stdout)
-		}
-		return nil
+			if !runJSON {
+				fmt.Fprintln(os.Stdout)
+			}
+			return nil
+		})
 	},
 }
 

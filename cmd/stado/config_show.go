@@ -75,7 +75,8 @@ func renderConfigHuman(w interface {
 
 	write("[agent]\n")
 	write("  thinking                 %s\n", cfg.Agent.Thinking)
-	write("  thinking_budget_tokens   %d\n\n", cfg.Agent.ThinkingBudgetTokens)
+	write("  thinking_budget_tokens   %d\n", cfg.Agent.ThinkingBudgetTokens)
+	write("  system_prompt_path       %s\n\n", cfg.Agent.SystemPromptPath)
 
 	write("[context]\n")
 	write("  soft_threshold   %.2f\n", cfg.Context.SoftThreshold)

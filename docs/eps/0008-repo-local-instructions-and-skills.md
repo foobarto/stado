@@ -6,6 +6,7 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
+extended-by: [18]
 see-also: [9, 10]
 history:
   - date: 2026-04-23

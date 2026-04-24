@@ -51,11 +51,11 @@ type Colors struct {
 
 // Layout knobs — things users commonly want to tweak without editing templates.
 type Layout struct {
-	SidebarWidth      int    `toml:"sidebar_width"`       // default 28
-	SidebarMinWidth   int    `toml:"sidebar_min_width"`   // collapse below this
-	BorderStyle       string `toml:"border_style"`        // "rounded" | "normal" | "thick" | "double"
-	Padding           int    `toml:"padding"`             // cells of side-padding in main column
-	MessageIndent     int    `toml:"message_indent"`      // gutter width for role marker
+	SidebarWidth    int    `toml:"sidebar_width"`     // default 28
+	SidebarMinWidth int    `toml:"sidebar_min_width"` // collapse below this
+	BorderStyle     string `toml:"border_style"`      // "rounded" | "normal" | "thick" | "double"
+	Padding         int    `toml:"padding"`           // cells of side-padding in main column
+	MessageIndent   int    `toml:"message_indent"`    // gutter width for role marker
 }
 
 // Default returns the bundled theme.
@@ -182,6 +182,7 @@ func (t *Theme) Border() lipgloss.Border {
 // Pane returns a boxed pane style using the theme's border colour.
 func (t *Theme) Pane() lipgloss.Style {
 	return lipgloss.NewStyle().
+		Background(t.color("surface")).
 		Border(t.Border()).
 		BorderForeground(t.color("border")).
 		Padding(0, 1)

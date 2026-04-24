@@ -126,16 +126,13 @@ func TestUAT_SidebarShowsSessionDescription(t *testing.T) {
 	}
 }
 
-// TestUAT_SidebarHidesEmptyDescription: no label → sidebar doesn't
-// render an empty-line placeholder that would waste vertical space.
+// TestUAT_SidebarHidesEmptyDescription: no label still renders the
+// sidebar header cleanly instead of showing an empty placeholder row.
 func TestUAT_SidebarHidesEmptyDescription(t *testing.T) {
 	m := describeSlashModel(t)
 	_ = runtime.WriteDescription(m.session.WorktreePath, "")
 
 	got := m.renderSidebar(40)
-	// Two sanity signals: "stado" title shows, and the "Context"
-	// header shows immediately after without a gap we can detect
-	// via string contains.
 	if !strings.Contains(got, "stado") {
 		t.Errorf("sidebar should still render title: %q", got)
 	}

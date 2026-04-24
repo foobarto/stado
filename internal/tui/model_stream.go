@@ -15,11 +15,19 @@ import (
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
+
+func (m *Model) turnSystemPrompt() string {
+	return instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
+		Provider: m.providerDisplayName(),
+		Model:    m.model,
+	})
+}
 
 func (m *Model) appendUser(text string) {
 	msg := agent.Text(agent.RoleUser, text)
@@ -163,7 +171,7 @@ func (m *Model) startBtw(question string) tea.Cmd {
 
 		req := agent.TurnRequest{
 			Model:    m.model,
-			System:   m.systemPrompt,
+			System:   m.turnSystemPrompt(),
 			Messages: msgs,
 			Tools:    tools,
 		}
@@ -200,6 +208,11 @@ func (m *Model) startBtw(question string) tea.Cmd {
 // startStream fires a non-interactive streaming call to the provider and
 // relays events back to the UI via tea.Program.Send.
 func (m *Model) startStream() tea.Cmd {
+	done := tuiTraceCall("tui.startStream",
+		"provider", m.providerDisplayName(),
+		"model", m.model,
+		"messages", len(m.msgs))
+	defer done("state", int(m.state))
 	if !m.ensureProvider() {
 		return nil
 	}
@@ -243,7 +256,7 @@ func (m *Model) startStream() tea.Cmd {
 		Model:    m.model,
 		Messages: m.msgs,
 		Tools:    m.toolDefs(),
-		System:   m.systemPrompt,
+		System:   m.turnSystemPrompt(),
 	}
 	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
 	for _, t := range req.Tools {
@@ -268,22 +281,31 @@ func (m *Model) startStream() tea.Cmd {
 
 	go func() {
 		defer cancel()
+		tuiTrace("provider stream start", "provider", m.providerDisplayName(), "model", m.model)
 		ch, err := m.provider.StreamTurn(ctx, req)
 		if err != nil {
+			tuiTrace("provider stream error", "error", err.Error())
 			m.sendMsg(streamErrorMsg{err: err})
 			return
 		}
+		first := true
 		for ev := range ch {
+			if first {
+				first = false
+				tuiTrace("provider stream first event", "kind", int(ev.Kind))
+			}
 			m.streamBufMu.Lock()
 			m.streamBuf = append(m.streamBuf, ev)
 			m.streamBufMu.Unlock()
 			if ev.Kind == agent.EvDone || ev.Kind == agent.EvError {
+				tuiTrace("provider stream terminal event", "kind", int(ev.Kind))
 				break
 			}
 		}
 		m.streamBufMu.Lock()
 		m.streamBufClosed = true
 		m.streamBufMu.Unlock()
+		tuiTrace("provider stream closed")
 	}()
 	return streamTickCmd()
 }
@@ -306,6 +328,50 @@ func (m *Model) sendMsg(msg tea.Msg) {
 	if m.program != nil {
 		m.program.Send(msg)
 	}
+}
+
+func (m *Model) clearQueuedUserBlock(remove bool) {
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind != "user" || !m.blocks[i].queued {
+			continue
+		}
+		if remove {
+			m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
+			return
+		}
+		m.blocks[i].queued = false
+		m.invalidateBlockCache(i)
+		return
+	}
+}
+
+func (m *Model) promoteQueuedPrompt() tea.Cmd {
+	if m.queuedPrompt == "" {
+		return nil
+	}
+	queued := m.queuedPrompt
+	m.queuedPrompt = ""
+	if strings.HasPrefix(queued, "/") {
+		return m.handleSlash(queued)
+	}
+	m.clearQueuedUserBlock(false)
+	msg := agent.Text(agent.RoleUser, queued)
+	m.msgs = append(m.msgs, msg)
+	m.persistMessage(msg)
+	tuiTrace("queued prompt promoted", "chars", len(queued))
+	return m.startStream()
+}
+
+func (m *Model) restoreQueuedPromptToInput() string {
+	if m.queuedPrompt == "" {
+		return ""
+	}
+	queued := m.queuedPrompt
+	m.queuedPrompt = ""
+	m.clearQueuedUserBlock(true)
+	m.input.SetValue(queued)
+	tuiTrace("queued prompt restored to input", "chars", len(queued))
+	return queued
 }
 
 func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (bool, error) {
@@ -469,27 +535,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 		// on the theory that if the user decided to queue something
 		// mid-stream, they can react to the block on arrival.
 		if m.queuedPrompt != "" {
-			queued := m.queuedPrompt
-			m.queuedPrompt = ""
-			if strings.HasPrefix(queued, "/") {
-				return m.handleSlash(queued)
-			}
-			// Block was already appended at submit-time. Clear the
-			// queued tag on the most recent matching user block so its
-			// "queued" pill disappears when the turn actually starts.
-			for i := len(m.blocks) - 1; i >= 0; i-- {
-				if m.blocks[i].kind == "user" && m.blocks[i].queued {
-					m.blocks[i].queued = false
-					m.invalidateBlockCache(i)
-					break
-				}
-			}
-			// Just thread it through msgs + persistence so the next
-			// stream sees it as a user turn.
-			msg := agent.Text(agent.RoleUser, queued)
-			m.msgs = append(m.msgs, msg)
-			m.persistMessage(msg)
-			return m.startStream()
+			return m.promoteQueuedPrompt()
 		}
 		return nil
 	}

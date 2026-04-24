@@ -23,7 +23,9 @@ The effective config answers:
 
 - Which provider will stado dial (`[defaults].provider`)?
 - Which model was pinned, if any (`[defaults].model`)?
-- What `[approvals]` mode applies — prompt, allowlist?
+- Which `[agent].system_prompt_path` is used for the editable system
+  prompt template?
+- Which `[tools]` filter applies?
 - What `[context]` soft/hard thresholds are active?
 - What `[budget]` caps, if any, are set?
 - Where is the config file stado actually read?
@@ -52,57 +54,51 @@ Three reasons:
 ```sh
 stado config show              # human-readable
 stado config show --json       # jq-able
-stado config show --raw        # the TOML as loaded, pre-resolution
 ```
 
 Example output (human-readable):
 
 ```
-[loaded]
-  path         /home/user/.config/stado/config.toml
+config file    /home/user/.config/stado/config.toml
+state dir      /home/user/.local/share/stado
+worktree dir   /home/user/.local/state/stado/worktrees
 
 [defaults]
   provider     anthropic
   model        claude-sonnet-4-6
 
-[approvals]
-  mode         allowlist
-  allowlist    read, grep, ripgrep, ast_grep, glob
+[agent]
+  thinking                 auto
+  thinking_budget_tokens   16384
+  system_prompt_path       /home/user/.config/stado/system-prompt.md
 
 [context]
-  soft         0.70
-  hard         0.90
+  soft_threshold   0.70
+  hard_threshold   0.90
 
 [budget]
-  warn         1.00
-  hard         unset
-
-[hooks]
-  post_turn    notify-send stado 'turn done'
-
-[plugins]
-  background   (none)
-  crl          https://…/crl.json
-
-[agent]
-  thinking             auto
-  thinking_budget      16384
+  warn_usd   (unset — no warn pill)
+  hard_usd   (unset — no hard gate)
 ```
 
-A missing file is not an error — the output says `path  (none)` and
-the rest reflects env vars + defaults.
+A missing config file is not an error — the output notes that values
+come from defaults + env.
 
 ### Init
 
 ```sh
 stado config init                          # write to XDG default
-stado config init --path /path/to/cfg.toml # custom location
 stado config init --force                  # overwrite an existing file
 ```
 
 Default path: `$XDG_CONFIG_HOME/stado/config.toml`
 (typically `~/.config/stado/config.toml`). The template is written
 with every section commented; uncomment and edit what you need.
+
+On first config load, stado also creates
+`$XDG_CONFIG_HOME/stado/system-prompt.md`. That file is the editable
+system-prompt template used for every provider request. It receives
+`{{ .Provider }}`, `{{ .Model }}`, and `{{ .ProjectInstructions }}`.
 
 Refuses to overwrite an existing file without `--force` so you can
 `config init` idempotently in dotfile-setup scripts without fearing
@@ -113,11 +109,10 @@ accidental clobber.
 From highest-priority to lowest:
 
 1. `STADO_*` env vars (dotted-key form: `STADO_DEFAULTS_MODEL`,
-   `STADO_APPROVALS_MODE`, …)
-2. `--config <path>` flag if the invoked subcommand supports it
-3. `$XDG_CONFIG_HOME/stado/config.toml`
-4. `~/.config/stado/config.toml` (XDG fallback on non-XDG systems)
-5. Compiled-in defaults
+   `STADO_CONTEXT_SOFT_THRESHOLD`, …)
+2. `$XDG_CONFIG_HOME/stado/config.toml`
+3. `~/.config/stado/config.toml` (XDG fallback on non-XDG systems)
+4. Compiled-in defaults
 
 Lower layers are partial — a disk file with just
 `[defaults].provider = "openai"` leaves every other knob at the
@@ -126,12 +121,11 @@ default.
 ## Gotchas
 
 - **`STADO_*` env vars override the file silently.** `config show`
-  displays the merged values; use `--raw` to see the unmerged disk
-  TOML.
+  displays the merged values. Inspect `~/.config/stado/config.toml`
+  directly when you need the unmerged disk source.
 - **Unknown keys are ignored** (koanf's default). A typo in a section
-  name won't error — it just won't take effect. `config show` will
-  display the ignored key in the raw output; double-check there if
-  a setting isn't taking.
+  name won't error — it just won't take effect. Double-check the
+  effective output if a setting is not taking.
 - **Init doesn't migrate.** If you already have a config.toml and you
   want to add a newly-supported section, `config init --force`
   overwrites the whole file. Manual migration is safer.

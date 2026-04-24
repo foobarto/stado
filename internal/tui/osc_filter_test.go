@@ -77,6 +77,13 @@ func TestFilterOSCResponses_DropsSplitOSCTail(t *testing.T) {
 	}
 }
 
+func TestFilterOSCResponses_DropsColorTailAfterRGBPrefixWasConsumed(t *testing.T) {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e/1e1e/1e1e\\")}
+	if got := filterOSCResponses(nil, msg); got != nil {
+		t.Errorf("ragged split OSC tail not dropped: %+v", got)
+	}
+}
+
 // TestFilterOSCResponses_PassesLegitRGBPrefix: a user typing "rgb:"
 // in a CSS snippet (no slashes) must pass — the 'rgb:' token alone
 // isn't enough to fire.
@@ -84,5 +91,12 @@ func TestFilterOSCResponses_PassesLegitRGBPrefix(t *testing.T) {
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rgb:255,0,0")}
 	if got := filterOSCResponses(nil, msg); got == nil {
 		t.Error("legit 'rgb:255,0,0' without slashes should pass")
+	}
+}
+
+func TestFilterOSCResponses_PassesOrdinarySlashText(t *testing.T) {
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a/b/c")}
+	if got := filterOSCResponses(nil, msg); got == nil {
+		t.Error("ordinary slash-delimited text should pass")
 	}
 }

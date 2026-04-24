@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -37,6 +39,50 @@ func TestBuildProvider_EmptyProbesLocal(t *testing.T) {
 	}
 	if p == nil {
 		t.Fatal("expected fallback provider, got nil")
+	}
+}
+
+// Regression guard: selecting a detected local fallback must not print
+// directly to stderr while the TUI is running, because raw writes under
+// alt-screen corrupt the layout.
+func TestBuildProvider_EmptyProbesLocal_DoesNotWriteStderr(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/models") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"stub-model"}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		Inference: config.Inference{
+			Presets: map[string]config.InferencePreset{
+				"testlocal": {Endpoint: srv.URL + "/v1"},
+			},
+		},
+	}
+
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() { os.Stderr = oldStderr }()
+
+	_, err = buildProviderByName(cfg, "")
+	_ = w.Close()
+	if err != nil {
+		t.Fatalf("buildProviderByName(\"\"): %v", err)
+	}
+	got, readErr := io.ReadAll(r)
+	_ = r.Close()
+	if readErr != nil {
+		t.Fatalf("read stderr capture: %v", readErr)
+	}
+	if len(strings.TrimSpace(string(got))) != 0 {
+		t.Fatalf("buildProviderByName wrote to stderr: %q", string(got))
 	}
 }
 

@@ -80,6 +80,46 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, nil
 
+	case logTailMsg:
+		m.recordLogLine(msg.line)
+		return m, nil
+
+	case localFallbackReadyMsg:
+		m.providerProbePending = false
+		if m.provider == nil && msg.provider != nil {
+			m.provider = msg.provider
+		}
+		if m.providerName == "" && msg.providerName != "" {
+			m.providerName = msg.providerName
+		}
+		if m.model == "" && len(msg.models) > 0 {
+			m.model = msg.models[0]
+		}
+		if msg.provider != nil {
+			tuiTrace("startup provider probe resolved",
+				"provider", msg.providerName,
+				"models", len(msg.models),
+				"queued_prompt", m.queuedPrompt != "")
+			if m.state == stateIdle && m.queuedPrompt != "" {
+				m.renderBlocks()
+				return m, m.promoteQueuedPrompt()
+			}
+			return m, nil
+		}
+		tuiTrace("startup provider probe found no fallback", "queued_prompt", m.queuedPrompt != "")
+		if m.state == stateIdle && m.queuedPrompt != "" {
+			queued := m.restoreQueuedPromptToInput()
+			m.state = stateError
+			m.errorMsg = noProviderConfiguredError().Error()
+			m.appendBlock(block{
+				kind: "system",
+				body: "Provider unavailable: " + noProviderConfiguredError().Error() +
+					"\n\nYour draft was restored to the input box: " + trimSeed(queued, 48),
+			})
+			m.renderBlocks()
+		}
+		return m, nil
+
 	case streamDoneMsg:
 		m.streamCancel = nil
 		// Budget warn-once check: m.usage.CostUSD was updated inside
@@ -430,6 +470,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.mode = modeBTW
 					}
 					m.layout()
+				case keys.SidebarNarrower:
+					m.resizeSidebar(-sidebarResizeStep)
+					m.layout()
+				case keys.SidebarWider:
+					m.resizeSidebar(sidebarResizeStep)
+					m.layout()
 				case keys.AppExit:
 					m.state = stateQuitConfirm
 					m.layout()
@@ -555,6 +601,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				return m, nil
 			}
+			tuiTrace("input submit", "state", int(m.state), "chars", len(text), "probe_pending", m.providerProbePending)
 			// Enter while a turn is still streaming: queue the prompt
 			// for after-done instead of silently dropping it (the old
 			// behaviour) or abruptly cancelling (bad UX). The user's
@@ -629,6 +676,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.appendBlock(block{kind: "system", body: body})
 				m.renderBlocks()
+				return m, nil
+			}
+			if m.provider == nil && m.providerProbePending && m.providerName == "" {
+				m.queuedPrompt = text
+				m.appendBlock(block{kind: "user", body: text, queued: true})
+				m.renderBlocks()
+				m.input.History.Push(text)
+				m.input.Reset()
+				tuiTrace("submit queued behind startup provider probe", "chars", len(text))
 				return m, nil
 			}
 			m.input.History.Push(text)

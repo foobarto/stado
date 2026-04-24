@@ -113,9 +113,15 @@ func (m inputMode) String() string {
 
 // Internal messages used by the bubbletea update loop.
 type (
-	streamEventMsg           struct{ ev agent.Event }
-	streamBatchMsg           struct{ evs []agent.Event }
-	streamErrorMsg           struct{ err error }
+	streamEventMsg        struct{ ev agent.Event }
+	streamBatchMsg        struct{ evs []agent.Event }
+	streamErrorMsg        struct{ err error }
+	logTailMsg            struct{ line string }
+	localFallbackReadyMsg struct {
+		provider     agent.Provider
+		providerName string
+		models       []string
+	}
 	streamTickMsg            struct{}
 	streamDoneMsg            struct{}
 	recoveryTimeoutMsg       struct{}
@@ -205,6 +211,10 @@ type Model struct {
 	buildProvider func() (agent.Provider, error)
 	providerName  string // displayed before lazy build resolves the real name
 	model         string
+	// providerProbePending is true while the async startup probe for an
+	// implicit local fallback is still running. First-submit uses this to
+	// queue the prompt instead of blocking the UI on a duplicate probe.
+	providerProbePending bool
 
 	// Tool execution + git state. executor may be nil (no session) in which
 	// case tool calls are reported but not executed.
@@ -303,6 +313,16 @@ type Model struct {
 	width       int
 	height      int
 	sidebarOpen bool
+	// sidebarWidth is the user's preferred sidebar width for this TUI
+	// session. Zero means "use the theme default". The rendered width
+	// is still clamped per-frame to fit the current terminal.
+	sidebarWidth int
+
+	// logTail holds a short in-process tail of slog lines captured
+	// while the TUI is active. It is shown in the sidebar so runtime
+	// / plugin diagnostics stop trampling the terminal surface.
+	logMu   sync.Mutex
+	logTail []string
 
 	// Approval
 	approval              *approvalRequest
@@ -335,12 +355,14 @@ type Model struct {
 	pendingResults []agent.ToolResultBlock
 
 	// systemPrompt is the project-root AGENTS.md / CLAUDE.md body
-	// resolved at TUI startup. Injected into every TurnRequest.System
-	// so the model sees project-specific guidance without the user
-	// having to paste it into every session. Empty if no file was
-	// found walking up from cwd.
+	// resolved at TUI startup and passed into the system-prompt
+	// template as ProjectInstructions. Empty if no file was found
+	// walking up from cwd.
 	systemPrompt     string
 	systemPromptPath string
+	// systemPromptTemplate is loaded from ~/.config/stado/system-prompt.md
+	// and executed with runtime metadata for every provider request.
+	systemPromptTemplate string
 
 	// skills is the list of `.stado/skills/*.md` files discovered at
 	// startup. Each is reachable as `/skill:<name>` from the palette;
@@ -501,6 +523,11 @@ func (m *Model) budgetWarning() string {
 // ensureProvider lazy-builds the provider on first use. On failure sets the
 // error state and appends an actionable system-role hint to the chat.
 func (m *Model) ensureProvider() bool {
+	done := tuiTraceCall("tui.ensureProvider",
+		"has_provider", m.provider != nil,
+		"provider_name", m.providerName,
+		"probe_pending", m.providerProbePending)
+	defer done("state", int(m.state))
 	if m.provider != nil {
 		return true
 	}
@@ -512,8 +539,10 @@ func (m *Model) ensureProvider() bool {
 			"or set `defaults.provider` there. 'ollama' works locally with no key."})
 		return false
 	}
+	tuiTrace("provider builder start", "provider_name", m.providerName)
 	p, err := m.buildProvider()
 	if err != nil {
+		tuiTrace("provider builder error", "provider_name", m.providerName, "error", err.Error())
 		m.state = stateError
 		m.errorMsg = err.Error()
 		body := "Provider unavailable: " + err.Error()
@@ -533,6 +562,7 @@ func (m *Model) ensureProvider() bool {
 		return false
 	}
 	m.provider = p
+	tuiTrace("provider ready", "provider_name", m.provider.Name())
 	return true
 }
 

@@ -48,7 +48,7 @@ var Commands = []Command{
 	{"/session", "Print the current session id + worktree (copy for other shells)", "", "Session"},
 
 	// View — layout toggles.
-	{"/sidebar", "Toggle the right-hand sidebar", "ctrl+t", "View"},
+	{"/sidebar", "Toggle the right-hand sidebar; resize with ctrl+x [ / ]", "ctrl+t", "View"},
 	{"/split", "Split the chat into conversation + activity tail panes", "", "View"},
 	{"/todo", "Add a todo item (/todo <title>)", "", "View"},
 }

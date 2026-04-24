@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,11 +34,8 @@ func (p *captureReqProvider) StreamTurn(_ context.Context, req agent.TurnRequest
 }
 
 // TestInstructions_AgentsMdFlowsIntoTurnRequest: a project root with
-// an AGENTS.md is picked up at NewModel time and surfaces as
-// req.System on the first streamed turn. Without this the model
-// would have zero project context across the whole conversation —
-// the "bring your own rules" feature that every other coding-agent
-// CLI defaults to.
+// an AGENTS.md is picked up at NewModel time and surfaces in req.System
+// on the first streamed turn, after stado's own identity preamble.
 func TestInstructions_AgentsMdFlowsIntoTurnRequest(t *testing.T) {
 	dir := t.TempDir()
 	body := "always write tests first\n"
@@ -60,14 +58,17 @@ func TestInstructions_AgentsMdFlowsIntoTurnRequest(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("StreamTurn never called")
 	}
-	if prov.last.System != body {
-		t.Errorf("req.System = %q, want %q", prov.last.System, body)
+	for _, want := range []string{"Identify as stado", "model: m", "provider: capture", strings.TrimSpace(body)} {
+		if !strings.Contains(prov.last.System, want) {
+			t.Errorf("req.System missing %q:\n%s", want, prov.last.System)
+		}
 	}
 }
 
 // TestInstructions_MissingFileLeavesSystemEmpty: a project with no
-// AGENTS.md / CLAUDE.md must NOT inject a bogus prompt. The sidebar's
-// Instructions line stays empty and req.System == "".
+// AGENTS.md / CLAUDE.md leaves project instructions empty. The sidebar's
+// Instructions line stays empty; per-turn requests still get stado's
+// identity preamble from turnSystemPrompt.
 func TestInstructions_MissingFileLeavesSystemEmpty(t *testing.T) {
 	dir := t.TempDir()
 	prov := &captureReqProvider{}

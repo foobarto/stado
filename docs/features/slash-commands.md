@@ -15,6 +15,7 @@ Types a `/` and see them all:
                 Show keyboard shortcuts and help     /help  ?
                 Clear the message history            /clear
                 Quit stado                           /exit  ctrl+d
+                Toggle BTW mode                      /btw   ctrl+x ctrl+b
 
                 Session
                 Open a model picker                  /model
@@ -37,6 +38,7 @@ context-switch to the slash key.
 | `/help` | `?` | Show the help overlay (keybinds + slash commands) |
 | `/clear` | | Wipe conversation state; cancels any in-flight stream |
 | `/exit` | `Ctrl+D` | Quit stado cleanly |
+| `/btw` | `Ctrl+X Ctrl+B` | Toggle off-band BTW mode for side questions |
 
 ## Session
 
@@ -45,7 +47,7 @@ context-switch to the slash key.
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7` |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
-| `/approvals` | `always <tool>` to auto-approve a tool for the session; `forget` to reset |
+| `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |
 | `/compact` | Summarise the conversation and replace prior turns (requires y/n confirmation) |
 | `/context` | One-stop session state: session id, cost, budget caps, loaded instructions, skills, hook |
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp) |

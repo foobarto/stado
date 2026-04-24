@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,7 +51,11 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	for _, id := range ids {
 		bp, note := m.loadOneBackground(ctx, rt, pluginsRoot, id)
 		if note != "" {
-			m.appendBlock(block{kind: "system", body: note})
+			if bp != nil {
+				slog.Info(note)
+			} else {
+				m.appendBlock(block{kind: "system", body: note})
+			}
 		}
 		if bp != nil {
 			m.backgroundPlugins = append(m.backgroundPlugins, bp)

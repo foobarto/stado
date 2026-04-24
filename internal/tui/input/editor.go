@@ -15,6 +15,11 @@ type Editor struct {
 	reg     *keys.Registry
 }
 
+const (
+	ExtraVisibleRows   = 3
+	DefaultVisibleRows = 1 + ExtraVisibleRows
+)
+
 func New(reg *keys.Registry) *Editor {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (Enter to send, Shift+Enter for new line)"
@@ -35,13 +40,10 @@ func New(reg *keys.Registry) *Editor {
 	ta.BlurredStyle = ta.FocusedStyle
 
 	ta.Focus()
-	// Compact by default: the textarea grows with content (via
-	// strings.Count(Value(), "\n")+1 in the model layout), but when
-	// empty it needs to occupy exactly one visible row so mainH
-	// reservation matches reality. Without this the bubbles default
-	// (~5 rows) overflows the left column by several rows and pushes
-	// the first rendered chat blocks off the top of the pane.
-	ta.SetHeight(1)
+	// The model layout keeps this in sync with content height, but set
+	// the default here too so standalone editor tests and the first
+	// render agree.
+	ta.SetHeight(DefaultVisibleRows)
 
 	ta.KeyMap.InsertNewline.SetKeys(keysToStrings(reg.Get(keys.InputNewline))...)
 	ta.KeyMap.CharacterBackward.SetKeys(keysToStrings(reg.Get(keys.InputMoveLeft))...)
@@ -54,7 +56,7 @@ func New(reg *keys.Registry) *Editor {
 	ta.KeyMap.DeleteWordForward.SetKeys(keysToStrings(reg.Get(keys.InputDeleteWordForward))...)
 	ta.KeyMap.DeleteCharacterBackward.SetKeys(keysToStrings(reg.Get(keys.InputBackspace))...)
 	ta.KeyMap.DeleteCharacterForward.SetKeys(keysToStrings(reg.Get(keys.InputDelete))...)
-	
+
 	// We want to handle Up/Down history ourselves without textarea swallowing them
 	ta.KeyMap.LineNext.SetEnabled(false)
 	ta.KeyMap.LinePrevious.SetEnabled(false)

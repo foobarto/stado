@@ -120,6 +120,28 @@ func TestUAT_FilePickerEscLeavesBufferIntact(t *testing.T) {
 	}
 }
 
+// D3: the first submitted user message should render as its own full card in
+// the conversation area, not collapse into the line directly above the input.
+func TestUAT_FirstSubmittedMessageRendersAsSeparateCard(t *testing.T) {
+	m := scenarioModel(t)
+	m.sidebarOpen = false
+	m.state = stateIdle
+
+	for _, r := range "hello" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	out := m.View()
+	plain := ansi.Strip(out)
+	if got := strings.Count(plain, "hello"); got != 1 {
+		t.Fatalf("rendered view should contain submitted text once, got %d\nfull output:\n%s", got, plain)
+	}
+	if got := strings.Count(plain, "│"); got < 2 {
+		t.Fatalf("expected separate left-rail panels for the submitted card and input box, got %d rails\nfull output:\n%s", got, plain)
+	}
+}
+
 // ============================================================
 // E. Approval flow
 // ============================================================

@@ -90,6 +90,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
+		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
 		OnEvent: func(ev agent.Event) {
 			if ev.Kind == agent.EvTextDelta && ev.Text != "" {
 				_ = s.conn.Notify("session.update", map[string]any{

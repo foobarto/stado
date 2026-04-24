@@ -55,7 +55,7 @@ func TestRenderer_MessageThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Thinking:") {
+	if !strings.Contains(out, "thinking") {
 		t.Errorf("thinking label missing: %q", out)
 	}
 	if !strings.Contains(out, "reasoning step") {
@@ -102,14 +102,26 @@ func TestRenderer_ToolCollapsedAndExpanded(t *testing.T) {
 func TestRenderer_Sidebar(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("sidebar", map[string]any{
-		"Title":        "stado",
-		"Version":      "0.0.0-dev",
-		"Model":        "qwen",
-		"ProviderName": "ollama",
-		"Cwd":          "/tmp/proj",
-		"TokensHuman":  "1.2K tokens",
-		"TokenPercent": "12% used",
-		"CostHuman":    "$0.03 spent",
+		"Title":       "stado",
+		"Version":     "0.0.0-dev",
+		"SessionMeta": "sess abc12345 · turn 3",
+		"NowLines": []map[string]any{
+			{"Text": "streaming turn", "Tone": "warning"},
+			{"Text": "tool: bash", "Tone": "role_tool"},
+		},
+		"RiskLines": []map[string]any{
+			{"Text": "ctx 82% / hard 90%", "Tone": "warning"},
+			{"Text": "budget $0.03 / $2.00", "Tone": "text"},
+		},
+		"AgentLines": []map[string]any{
+			{"Text": "qwen via ollama", "Tone": "text"},
+			{"Text": "3 skills loaded · /skill", "Tone": "accent"},
+		},
+		"RepoLines": []map[string]any{
+			{"Text": "repo: proj", "Tone": "text"},
+			{"Text": "path: internal/tui", "Tone": "muted"},
+		},
+		"TodoSummary": "2 open / 0 done",
 		"Todos": []map[string]any{
 			{"Title": "write tests", "Status": "in_progress"},
 			{"Title": "ship it", "Status": "open"},
@@ -119,7 +131,11 @@ func TestRenderer_Sidebar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Context", "1.2K tokens", "Model", "qwen", "write tests", "ship it"} {
+	for _, want := range []string{
+		"Now", "Risk", "Agent", "Repo", "Todo",
+		"streaming turn", "tool: bash", "ctx 82% / hard 90%",
+		"qwen via ollama", "repo: proj", "write tests", "ship it",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("sidebar missing %q: %q", want, out)
 		}
@@ -158,7 +174,7 @@ func TestRenderer_InputStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Plan", "Claude Opus 4.7", "Anthropic", "xhigh"} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(strings.ToLower(out), strings.ToLower(want)) {
 			t.Errorf("input_status missing %q: %q", want, out)
 		}
 	}
@@ -169,7 +185,7 @@ func TestRenderer_InputStatus(t *testing.T) {
 		"ProviderName": "openai",
 		"Hint":         "",
 	})
-	if !strings.Contains(out2, "Do") {
+	if !strings.Contains(strings.ToLower(out2), "do") {
 		t.Errorf("Do mode label missing: %q", out2)
 	}
 }

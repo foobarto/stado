@@ -34,30 +34,32 @@ var sessionForkCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		at, _ := cmd.Flags().GetString("at")
+		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+			at, _ := cmd.Flags().GetString("at")
 
-		var atCommit plumbing.Hash
-		if at != "" {
-			sc, err := openSidecar(cfg)
+			var atCommit plumbing.Hash
+			if at != "" {
+				sc, err := openSidecar(cfg)
+				if err != nil {
+					return err
+				}
+				atCommit, err = resolveTurnRef(sc, args[0], at)
+				if err != nil {
+					return err
+				}
+			}
+
+			child, err := createSessionAt(cfg, args[0], atCommit)
 			if err != nil {
 				return err
 			}
-			atCommit, err = resolveTurnRef(sc, args[0], at)
-			if err != nil {
-				return err
+			fmt.Println(child.ID)
+			fmt.Fprintf(os.Stderr, "worktree: %s\n", child.WorktreePath)
+			if !atCommit.IsZero() {
+				fmt.Fprintf(os.Stderr, "rooted at: %s (%s)\n", at, atCommit.String()[:12])
 			}
-		}
-
-		child, err := createSessionAt(cfg, args[0], atCommit)
-		if err != nil {
-			return err
-		}
-		fmt.Println(child.ID)
-		fmt.Fprintf(os.Stderr, "worktree: %s\n", child.WorktreePath)
-		if !atCommit.IsZero() {
-			fmt.Fprintf(os.Stderr, "rooted at: %s (%s)\n", at, atCommit.String()[:12])
-		}
-		return nil
+			return nil
+		})
 	},
 }
 
@@ -74,34 +76,36 @@ var sessionRevertCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		sc, err := openSidecar(cfg)
-		if err != nil {
-			return err
-		}
-		srcID, target := args[0], args[1]
-		commitHash, err := resolveTurnRef(sc, srcID, target)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
-			return err
-		}
-		newID := uuid.New().String()
-		sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), newID, commitHash)
-		if err != nil {
-			return err
-		}
-		treeHash, err := sess.TreeFromCommit(commitHash)
-		if err != nil {
-			return fmt.Errorf("revert: read tree from commit: %w", err)
-		}
-		if err := sess.MaterializeTreeReplacing(treeHash, sess.WorktreePath); err != nil {
-			return fmt.Errorf("revert: materialise: %w", err)
-		}
-		fmt.Println(newID)
-		fmt.Fprintf(os.Stderr, "reverted %s@%s → new session %s (worktree %s)\n",
-			srcID, commitHash.String()[:12], newID, sess.WorktreePath)
-		return nil
+		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+			sc, err := openSidecar(cfg)
+			if err != nil {
+				return err
+			}
+			srcID, target := args[0], args[1]
+			commitHash, err := resolveTurnRef(sc, srcID, target)
+			if err != nil {
+				return err
+			}
+			if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+				return err
+			}
+			newID := uuid.New().String()
+			sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), newID, commitHash)
+			if err != nil {
+				return err
+			}
+			treeHash, err := sess.TreeFromCommit(commitHash)
+			if err != nil {
+				return fmt.Errorf("revert: read tree from commit: %w", err)
+			}
+			if err := sess.MaterializeTreeReplacing(treeHash, sess.WorktreePath); err != nil {
+				return fmt.Errorf("revert: materialise: %w", err)
+			}
+			fmt.Println(newID)
+			fmt.Fprintf(os.Stderr, "reverted %s@%s → new session %s (worktree %s)\n",
+				srcID, commitHash.String()[:12], newID, sess.WorktreePath)
+			return nil
+		})
 	},
 }
 

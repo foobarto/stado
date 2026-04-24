@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
@@ -54,12 +55,15 @@ type AgentLoopOptions struct {
 	// Thinking resolves to on. 0 means "use a sensible default."
 	ThinkingBudgetTokens int
 
-	// System is the optional system prompt fed to every turn in this
-	// loop. The `stado run` / headless entry points populate it from
-	// AGENTS.md / CLAUDE.md via internal/instructions.Load. Empty by
+	// System is the optional AGENTS.md / CLAUDE.md project-instructions
+	// body fed into SystemTemplate as ProjectInstructions. Empty by
 	// default — callers that don't want project instructions (e.g.
 	// plugin-driven sub-loops) can leave it zero.
 	System string
+	// SystemTemplate is the editable stado system prompt template loaded
+	// from ~/.config/stado/system-prompt.md by config.Load. Empty falls
+	// back to instructions.DefaultSystemPromptTemplate.
+	SystemTemplate string
 
 	// CostCapUSD is the optional cumulative-cost ceiling for this
 	// loop. Zero disables the guard (the common case). When set, the
@@ -151,7 +155,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		req := agent.TurnRequest{
 			Model:    opts.Model,
 			Messages: msgs,
-			System:   opts.System,
+			System: instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
+				Provider: opts.Provider.Name(),
+				Model:    opts.Model,
+			}),
 		}
 		if opts.Executor != nil {
 			req.Tools = ToolDefs(opts.Executor.Registry)

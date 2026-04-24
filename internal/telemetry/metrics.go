@@ -12,12 +12,12 @@ import (
 //
 // See PLAN.md §6.3 for the baseline metric set.
 type Metrics struct {
-	ToolLatency       metric.Float64Histogram // ms; attrs: tool, outcome
-	TokensTotal       metric.Int64Counter     // attrs: provider, model, direction (in|out)
-	CacheHitRatio     metric.Float64Histogram // fraction 0..1; attrs: provider, model
-	ApprovalRate      metric.Int64Counter     // attrs: tool, decision (allow|deny)
-	SandboxDenials    metric.Int64Counter     // attrs: tool, reason
-	SessionsActive    metric.Int64UpDownCounter
+	ToolLatency    metric.Float64Histogram // ms; attrs: tool, outcome
+	TokensTotal    metric.Int64Counter     // attrs: provider, model, direction (in|out)
+	CacheHitRatio  metric.Float64Histogram // fraction 0..1; attrs: provider, model
+	ApprovalRate   metric.Int64Counter     // attrs: tool, decision (allow|deny)
+	SandboxDenials metric.Int64Counter     // attrs: tool, reason
+	SessionsActive metric.Int64UpDownCounter
 }
 
 func newMetrics(m metric.Meter) (Metrics, error) {
@@ -61,13 +61,15 @@ func newMetrics(m metric.Meter) (Metrics, error) {
 // Span name constants for the PLAN §6.2 hierarchy. Keep these stable so
 // dashboards don't break on refactors.
 const (
-	SpanSession        = "stado.session"
-	SpanSessionFork    = "stado.session.fork"   // DESIGN §"Phase 9.4 — supervisory trace across forks"
-	SpanSessionResume  = "stado.session.resume" // fires when OpenSession's resume-on-cwd branch reattaches an existing session
-	SpanTurn           = "stado.turn"
-	SpanToolCall       = "stado.tool_call"
-	SpanSandboxExec    = "stado.sandbox.exec"
-	SpanProviderStream = "stado.provider.stream"
+	SpanSession          = "stado.session"
+	SpanSessionFork      = "stado.session.fork"   // DESIGN §"Phase 9.4 — supervisory trace across forks"
+	SpanSessionResume    = "stado.session.resume" // fires when OpenSession's resume-on-cwd branch reattaches an existing session
+	SpanTurn             = "stado.turn"
+	SpanToolCall         = "stado.tool_call"
+	SpanSandboxExec      = "stado.sandbox.exec"
+	SpanProviderStream   = "stado.provider.stream"
+	SpanTUIRun           = "stado.tui.run"
+	SpanTUIProviderProbe = "stado.tui.provider_probe"
 )
 
 // TracerName is the instrumentation-library identifier used for every stado

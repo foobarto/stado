@@ -1,2 +1,2 @@
-{{- /* A thinking block: purple, italic, label prefix. */ -}}
-{{ color "role_thinking" "Thinking:" | italic }} {{ wrap .Body .Width | italic | color "muted" }}
+{{- /* Thinking is a low-noise status line. */ -}}
+{{ marker "▪" "role_thinking" }} {{ color "text_secondary" "thinking" }}{{ if .Body }} {{ color "muted" "·" }} {{ wrap .Body .Width | color "muted" }}{{ end }}

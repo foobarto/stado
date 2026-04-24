@@ -1,14 +1,15 @@
 # `AGENTS.md` / `CLAUDE.md` — project instructions
 
 Drop a markdown file at the repo root and stado injects its contents
-as the system prompt on every turn. Standard cross-vendor shape:
+as project guidance in the system prompt on every turn. Standard cross-vendor shape:
 Claude Code, Cursor, Aider, Opencode, and the `agents.md` proposal all
 read the same file. One copy, every tool respects it.
 
 ## File format
 
 Plain markdown. No schema, no frontmatter. Stado reads the body
-verbatim and hands it to the provider as the `system` role message:
+verbatim into the `{{ .ProjectInstructions }}` field of the editable
+system prompt template at `~/.config/stado/system-prompt.md`:
 
 ```markdown
 # Project guidelines
@@ -67,8 +68,10 @@ Three reasons:
 
 ## What stado does with it
 
-Every `TurnRequest` built by the runtime carries the loaded content as
-`system`. This applies to:
+Every `TurnRequest` built by the runtime carries the rendered system
+prompt template as `system`. The default template includes stado's
+identity, runtime provider/model metadata, problem-solving defaults,
+and the loaded project content. This applies to:
 
 - The TUI (`stado`) on every turn.
 - `stado run` one-shot prompts.

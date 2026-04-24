@@ -1,9 +1,6 @@
-{{- /* A user message — full-width block with a role_user-colored
-       left marker so it reads distinctly from assistant / thinking /
-       tool output. No card border — matches opencode's chat style.
-       When .Queued is true the block shows a muted "queued" pill so
-       the user can see their follow-up waiting behind the active turn. */ -}}
-{{ marker "▎" "role_user" }} {{ wrap .Body .Width }}
+{{- /* User messages render as full-width cards so chat history stays
+       easy to scan even in long technical sessions. */ -}}
+{{ railCard .Body .Width "role_user" }}
 {{- if .Queued }}
 {{ color "muted" "  ⋯ queued — runs when the current turn finishes" }}
 {{- end }}

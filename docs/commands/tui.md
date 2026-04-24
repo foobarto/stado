@@ -9,8 +9,11 @@ Boot sequence:
 
 1. Load config (koanf: `config.toml` + `STADO_*` env + defaults).
 2. Resolve the provider — explicit `[defaults].provider` if set,
-   otherwise probe bundled local runners (ollama / llamacpp / vllm /
-   lmstudio) + user presets, picking the first reachable one.
+   otherwise start an async probe for bundled local runners
+   (ollama / llamacpp / vllm / lmstudio) + user presets, picking the
+   first reachable one. If the probe is still running when you hit
+   `Enter` on the first prompt, the prompt queues and auto-replays when
+   the probe resolves instead of freezing the UI on a duplicate probe.
 3. Open or create a session for this cwd (sidecar bare repo at
    `$XDG_DATA_HOME/stado/sessions/<repo-id>.git`).
 4. Walk cwd upward for `AGENTS.md` / `CLAUDE.md` → injected as the
@@ -30,7 +33,8 @@ Interactive coding sessions benefit from:
   thinking / tool blocks.
 - Live-streaming assistant text with an elapsed counter during
   long thinking.
-- Tool-call approvals (unless auto-approved via `[approvals]`).
+- Explicit plugin approval cards for plugins that declare
+  `ui:approval`.
 - Mid-stream slash commands (`/clear`, `/compact`, `/retry`).
 - Context-window visibility (soft/hard thresholds, cost, cache ratio).
 - Automatic hard-threshold recovery through the bundled `auto-compact`
@@ -51,6 +55,24 @@ stado session resume abc  # TUI rooted in a past session's worktree
 `stado session resume` changes into the session's worktree before
 booting so replay of `.stado/conversation.jsonl` picks up where you
 left off.
+
+### Tracing startup / first-turn issues
+
+For focused TUI diagnostics:
+
+```sh
+STADO_TUI_TRACE=1 stado
+```
+
+This enables a narrow trace log for the startup probe and first-turn
+path. The sidebar `Logs` section will show events like provider probe
+start/finish, prompt queueing behind the probe, provider resolution,
+and stream start/first-event timing.
+
+If `[otel].enabled = true`, the TUI also exports real OTel spans for the
+session boot path, including the TUI run span and the startup local-
+provider probe span. The sidebar trace mode is additive; it is for
+human debugging, not a replacement for OTLP export.
 
 ## Theme and templates
 
@@ -110,6 +132,7 @@ memorising:
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` / `/` | Open command palette |
 | `Ctrl+T` | Toggle sidebar |
+| `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
 | `Ctrl+D` | Exit stado |
 | `?` | Help overlay (keybinds + slash commands) |
@@ -118,15 +141,19 @@ memorising:
 | `Ctrl+G` / `Home` | Scroll to top |
 | `Ctrl+Alt+G` / `End` | Scroll to bottom |
 
-### Plan vs Do mode
+### Plan, Do, and BTW mode
 
-`Tab` toggles between:
+`Tab` toggles between the main two modes:
 
 - **Do** (default) — all configured tools visible to the model.
 - **Plan** — only non-mutating tools (`read`, `grep`, LSP lookup,
   …). Mutating (`write`, `edit`) and exec (`bash`) are filtered
   from the `TurnRequest.Tools`. The model naturally shifts to
   producing a plan / outline rather than executing.
+
+`/btw` or `Ctrl+X Ctrl+B` toggles **BTW** mode for off-band side
+questions. BTW replies render in their own block and do not append to
+the main conversation history.
 
 Mode indicator shows in the input box's inline status row.
 
@@ -141,22 +168,19 @@ the full list. Quick reference:
 - `/retry` — regenerate the last assistant turn
 - `/model` — model picker
 - `/context` — session state (tokens, cost, budget, instructions, skills)
+- `/btw` — off-band side-question mode
 
 ## Approvals
 
-By default, every tool call pauses for y/n confirmation. Change the
-default:
+Native bundled tools no longer pause on the old TUI approval loop.
+Control the native surface by narrowing `[tools].enabled` or
+`[tools].disabled`.
 
-```toml
-[approvals]
-mode      = "allowlist"             # or "prompt"
-allowlist = ["read", "grep", "ripgrep", "ast_grep", "glob"]
-```
-
-Session-scoped overrides (don't touch the config file):
-
-- `/approvals always <tool>` — auto-approve `<tool>` for this session
-- `/approvals forget` — clear session-scoped overrides
+Plugins can still ask for explicit user approval by declaring the
+`ui:approval` capability and calling the approval host import. Those
+requests render as a focused approval card with Allow/Deny actions while
+the text input remains editable. The old `/approvals` slash command is
+kept as a compatibility hint and explains this migration path.
 
 ## Config
 
@@ -166,7 +190,6 @@ relevant sections:
 | Section | Purpose |
 |---------|---------|
 | `[defaults]` | provider + model pins |
-| `[approvals]` | tool-call y/n policy |
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
 | `[budget]` | warn + hard cap on cumulative cost |
@@ -184,10 +207,12 @@ relevant sections:
 - **Slash commands during streaming route immediately** (since the
   queue-during-stream fix). Regular text prompts queue until the
   current turn drains.
-- **The textarea horizontally scrolls** on long single lines — use
-  `Shift+Enter` for explicit newlines.
-- **Banner in empty-state** — the sheep mascot renders until the
-  first block arrives. Terminals below 90 cols wide hide it.
+- **The input starts taller than one line** so short multi-line prompts
+  are visible without immediate growth. It still horizontally scrolls
+  on long single lines; use `Shift+Enter` for explicit newlines.
+- **Landing view** — empty sessions start with the stado ANSI logo,
+  centered input, command hints, cwd, and version. Once the first block
+  arrives, the normal chat layout takes over.
 
 ## See also
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -12,6 +13,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/anthropic"
@@ -20,6 +25,7 @@ import (
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -33,6 +39,8 @@ import (
 //   - "oaicompat:<url>"                   → OAI-compat with explicit endpoint
 //   - anything else matching inference.presets.<name>.endpoint  → OAI-compat
 func Run(cfg *config.Config) error {
+	done := tuiTraceCall("tui.Run")
+	defer done()
 	th, err := loadTheme(cfg)
 	if err != nil {
 		return fmt.Errorf("tui: theme: %w", err)
@@ -43,6 +51,10 @@ func Run(cfg *config.Config) error {
 	}
 
 	cwd, _ := os.Getwd()
+	rootCtx := runtime.RootContext(cwd)
+	runCtx, runSpan := otel.Tracer(telemetry.TracerName).Start(rootCtx, telemetry.SpanTUIRun,
+		oteltrace.WithAttributes(attribute.String("session.worktree", cwd)))
+	defer runSpan.End()
 	keyReg := keys.NewRegistry()
 	_ = keys.LoadOverrides(keyReg, cfg)
 
@@ -61,12 +73,34 @@ func Run(cfg *config.Config) error {
 	// provider name from the Model so the rebuild honours the swap.
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
+	m.SetRootContext(runCtx)
+	var localFallback *prewarmedLocalFallback
+	if cfg.Defaults.Provider == "" {
+		localFallback = startLocalFallbackPrewarm(runCtx, cfg)
+		m.providerProbePending = true
+		tuiTrace("startup provider prewarm started")
+	}
 	builder = func() (agent.Provider, error) {
+		if m.providerName == "" && localFallback != nil {
+			select {
+			case <-localFallback.ready:
+				if localFallback.provider != nil {
+					logLocalFallback(localFallback.picked)
+					return localFallback.provider, nil
+				}
+				return nil, noProviderConfiguredError()
+			default:
+			}
+		}
 		return buildProviderByName(cfg, m.providerName)
 	}
 	m.buildProvider = builder
 	m.executor = exec
 	m.session = sess
+	m.systemPromptTemplate = cfg.Agent.SystemPromptTemplate
+	if sess != nil {
+		runSpan.SetAttributes(attribute.String("session.id", sess.ID))
+	}
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
 	m.SetBudget(cfg.Budget.WarnUSD, cfg.Budget.HardUSD)
 	m.SetHooks(cfg.Hooks.PostTurn)
@@ -75,11 +109,9 @@ func Run(cfg *config.Config) error {
 		m.hookRunner.Disabled = !bashEnabled
 	}
 	m.SetApprovals(cfg.Approvals.Mode, cfg.Approvals.Allowlist)
-	// If we booted into a worktree that a prior `stado session fork`
-	// wrote a `.stado-span-context` into, wrap the TUI's ancestor
-	// context so every subsequent span links back to the fork event's
-	// trace tree — Phase 9.4/9.5 cross-process span link.
-	m.SetRootContext(runtime.RootContext(cwd))
+	prevLogger := slog.Default()
+	slog.SetDefault(newTUILogger(m))
+	defer slog.SetDefault(prevLogger)
 	// Replay any persisted conversation from the session's worktree so
 	// "kill stado and come back" picks up where the user left off.
 	// No-op on fresh sessions — conversation.jsonl only exists after
@@ -103,6 +135,17 @@ func Run(cfg *config.Config) error {
 		tea.WithInput(newOSCStripFile(os.Stdin)),
 		tea.WithFilter(filterOSCResponses))
 	m.Attach(p)
+	if localFallback != nil {
+		go func() {
+			<-localFallback.ready
+			msg := localFallbackReadyMsg{provider: localFallback.provider}
+			if localFallback.picked != nil {
+				msg.providerName = localFallback.picked.Name
+				msg.models = append([]string(nil), localFallback.picked.Models...)
+			}
+			m.sendMsg(msg)
+		}()
+	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -112,6 +155,8 @@ func Run(cfg *config.Config) error {
 	}()
 
 	if _, err := p.Run(); err != nil {
+		runSpan.RecordError(err)
+		runSpan.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("tui: %w", err)
 	}
 	return nil
@@ -145,14 +190,47 @@ func filterOSCResponses(_ tea.Model, msg tea.Msg) tea.Msg {
 		}
 	}
 	// Payload-only tail when the ]NN; prefix was consumed in a prior
-	// Read. The colour-spec "rgb:HHHH/HHHH/HHHH" is unmistakable;
-	// drop any rune burst that contains it. Rules out legit user
-	// input because "rgb:" followed by four-hex/slash-four-hex is
-	// not a sequence humans type.
-	if strings.Contains(runes, "rgb:") && strings.Contains(runes, "/") {
+	// Read. The colour-spec "rgb:HHHH/HHHH/HHHH" is unmistakable, and
+	// on slow splits the "rgb:" prefix may already be gone by the time
+	// Bubble Tea emits the rune burst (e.g. "e/1e1e/1e1e\\").
+	if isOSCColorReplyTail(runes) {
 		return nil
 	}
 	return msg
+}
+
+func isOSCColorReplyTail(s string) bool {
+	raw := strings.TrimSpace(s)
+	hasOSCShape := strings.HasPrefix(raw, "]") ||
+		strings.Contains(raw, "rgb:") ||
+		strings.HasSuffix(raw, "\\") ||
+		strings.HasSuffix(raw, "\a")
+	if !hasOSCShape {
+		return false
+	}
+	body := strings.TrimRight(raw, "\a\\")
+	if strings.HasPrefix(body, "]") {
+		if idx := strings.IndexByte(body, ';'); idx >= 0 {
+			body = body[idx+1:]
+		}
+	}
+	hadRGBPrefix := strings.HasPrefix(body, "rgb:")
+	body = strings.TrimPrefix(body, "rgb:")
+	parts := strings.Split(body, "/")
+	if len(parts) != 3 && !(hadRGBPrefix && len(parts) >= 2) {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" || len(p) > 4 {
+			return false
+		}
+		for _, r := range p {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // BuildProvider is the exported version of the internal provider-resolution
@@ -176,12 +254,11 @@ func buildProvider(cfg *config.Config) (agent.Provider, error) {
 // Once any name is set explicitly, it's taken at face value — no probe.
 func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error) {
 	if name == "" {
-		if p := detectLocalFallback(cfg); p != nil {
+		if p, picked := detectLocalFallback(context.Background(), cfg); p != nil {
+			logLocalFallback(picked)
 			return p, nil
 		}
-		return nil, errors.New("no provider configured and no local inference runner detected — " +
-			"set defaults.provider in config (e.g. 'anthropic', 'openai', 'ollama', 'lmstudio') " +
-			"or start a local server (ollama serve / llama-server / lmstudio / vllm)")
+		return nil, noProviderConfiguredError()
 	}
 
 	switch name {
@@ -223,6 +300,12 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
 }
 
+func noProviderConfiguredError() error {
+	return errors.New("no provider configured and no local inference runner detected — " +
+		"set defaults.provider in config (e.g. 'anthropic', 'openai', 'ollama', 'lmstudio') " +
+		"or start a local server (ollama serve / llama-server / lmstudio / vllm)")
+}
+
 // detectLocalFallback probes bundled local runners (+ user-configured
 // localhost presets) concurrently with a short budget. Returns the
 // first reachable OAI-compat provider — used when the default
@@ -230,24 +313,68 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 // when no local runner answers; the caller then falls through to the
 // original anthropic path so the user sees the canonical
 // "ANTHROPIC_API_KEY not set" error with no mysterious behaviour.
-func detectLocalFallback(cfg *config.Config) agent.Provider {
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+func detectLocalFallback(ctx context.Context, cfg *config.Config) (agent.Provider, *localdetect.Result) {
+	done := tuiTraceCall("tui.detectLocalFallback")
+	defer done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, span := otel.Tracer(telemetry.TracerName).Start(ctx, telemetry.SpanTUIProviderProbe,
+		oteltrace.WithAttributes(attribute.Int("probe.user_presets", len(cfg.Inference.Presets))))
+	defer span.End()
+	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
 	presets := map[string]string{}
 	for name, p := range cfg.Inference.Presets {
 		presets[name] = p.Endpoint
 	}
 	results := localdetect.Detect(ctx, localdetect.MergeUserPresets(presets))
+	tuiTrace("local fallback probe finished", "candidates", len(results))
+	span.SetAttributes(attribute.Int("probe.candidates", len(results)))
 	if picked := pickLocalFallback(results); picked != nil {
 		p, err := oaicompat.New(picked.Endpoint, oaicompat.WithName(picked.Name))
 		if err == nil {
-			fmt.Fprintf(os.Stderr,
-				"stado: no provider configured — using local %s at %s (set defaults.provider in config to pin)\n",
-				picked.Name, picked.Endpoint)
-			return p
+			tuiTrace("local fallback picked",
+				"provider", picked.Name,
+				"endpoint", picked.Endpoint,
+				"models", len(picked.Models))
+			span.SetAttributes(
+				attribute.String("provider.name", picked.Name),
+				attribute.String("provider.endpoint", picked.Endpoint),
+				attribute.Int("provider.models", len(picked.Models)),
+			)
+			return p, picked
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 	}
-	return nil
+	tuiTrace("local fallback unavailable")
+	span.SetAttributes(attribute.Bool("probe.reachable", false))
+	return nil, nil
+}
+
+type prewarmedLocalFallback struct {
+	ready    chan struct{}
+	provider agent.Provider
+	picked   *localdetect.Result
+}
+
+func startLocalFallbackPrewarm(ctx context.Context, cfg *config.Config) *prewarmedLocalFallback {
+	out := &prewarmedLocalFallback{ready: make(chan struct{})}
+	go func() {
+		out.provider, out.picked = detectLocalFallback(ctx, cfg)
+		close(out.ready)
+	}()
+	return out
+}
+
+func logLocalFallback(picked *localdetect.Result) {
+	if picked == nil {
+		return
+	}
+	slog.Info("no provider configured; using detected local fallback",
+		"provider", picked.Name,
+		"endpoint", picked.Endpoint)
 }
 
 func pickLocalFallback(results []localdetect.Result) *localdetect.Result {

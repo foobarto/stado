@@ -45,18 +45,20 @@ reply usually doesn't bridge them — you have time to act.
 
 ## How context usage is computed
 
-Stado does a client-side estimate using the provider's tokeniser
-(tiktoken for OpenAI / Anthropic, SentencePiece for Google, fallback
-to `n_chars / 3.5` for OAI-compat runners that don't expose one):
+Provider-reported usage from streaming events is the source of truth
+once a turn completes. Providers also implement `agent.TokenCounter`
+where practical so stado can warn when context percentage may be
+unreliable before usage arrives:
 
-- Every message in `m.msgs` is tokenised once at append time; the
-  totals live on the `Model` so the sidebar and thresholds don't
-  re-tokenise every frame.
-- The next-turn overhead (system prompt, tool schemas, new user
-  message) gets added at request-assembly time.
-- Provider-reported usage from each turn's final event overwrites the
-  client estimate — the server is always the source of truth once it
-  has responded.
+- Anthropic uses the Messages count-tokens endpoint.
+- OpenAI and OpenAI-compatible providers use the offline tiktoken path
+  for prompt-side estimates and provider usage when the server reports
+  it.
+- Google uses Gemini's `CountTokens` endpoint.
+
+If a provider cannot report a usable `MaxContextTokens`, stado shows
+`context: unavailable` and skips threshold enforcement instead of
+displaying a fake percentage.
 
 The sidebar percentage is `input_tokens / max_context_tokens`. Crosses
 to red past the hard threshold; amber past the soft.
@@ -111,8 +113,8 @@ decisions, and open questions. Output streams below the last assistant
 block with a y/n prompt:
 
 - `y` — replaces the conversation in-memory and on disk. A dual-ref
-  commit (tree + trace) preserves the original turns on the trace ref
-  so `stado session show --trace` can still walk them.
+  compaction marker preserves the original turn range in the sidecar
+  audit history.
 - `n` — discards the summary, conversation unchanged.
 - `e` — edit the summary inline before accepting.
 
@@ -158,9 +160,9 @@ configured threshold. Headless does not block its callers on its own.
 - **Thinking tokens count toward input on the next turn.** A reasoning
   model producing 5K thinking tokens inflates the next turn's prompt
   by that amount. Compacting is the only reset.
-- **The hard cap is client-side.** Bypass it with `--no-context-check`
-  on `stado run` if you know what you're doing (accepting a provider
-  429 as the failure mode).
+- **The hard cap is client-side.** If the provider does not report a
+  usable max-context size, thresholds are skipped and provider errors
+  become the failure mode.
 
 ## See also
 

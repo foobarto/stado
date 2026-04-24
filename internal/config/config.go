@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
@@ -122,6 +123,13 @@ type Agent struct {
 	// ThinkingBudgetTokens is the budget passed to providers that
 	// accept one (Anthropic). Ignored when Thinking resolves to off.
 	ThinkingBudgetTokens int `koanf:"thinking_budget_tokens"`
+	// SystemPromptPath points at the editable Go template used to build
+	// every provider system prompt. Empty means
+	// ~/.config/stado/system-prompt.md, created on first config load.
+	SystemPromptPath string `koanf:"system_prompt_path"`
+	// SystemPromptTemplate is loaded from SystemPromptPath after config +
+	// env resolution. It is intentionally not mapped back into koanf.
+	SystemPromptTemplate string `koanf:"-" json:"-"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage
@@ -270,6 +278,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg.ConfigPath = configPath
+	if err := cfg.loadSystemPromptTemplate(); err != nil {
+		return nil, err
+	}
 
 	// No hardcoded provider/model defaults. An empty Defaults.Provider
 	// is the signal for buildProvider to probe local inference runners
@@ -306,6 +317,57 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+const defaultSystemPromptFilename = "system-prompt.md"
+
+func (c *Config) loadSystemPromptTemplate() error {
+	if strings.TrimSpace(c.Agent.SystemPromptPath) == "" {
+		c.Agent.SystemPromptPath = filepath.Join(filepath.Dir(c.ConfigPath), defaultSystemPromptFilename)
+		if err := ensureDefaultSystemPromptTemplate(c.Agent.SystemPromptPath); err != nil {
+			return err
+		}
+	} else {
+		c.Agent.SystemPromptPath = expandHome(c.Agent.SystemPromptPath)
+	}
+	body, err := os.ReadFile(c.Agent.SystemPromptPath)
+	if err != nil {
+		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
+	}
+	if err := instructions.ValidateSystemPromptTemplate(string(body)); err != nil {
+		return fmt.Errorf("validate [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
+	}
+	c.Agent.SystemPromptTemplate = string(body)
+	return nil
+}
+
+func ensureDefaultSystemPromptTemplate(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat default system prompt template: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create system prompt template dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {
+		return fmt.Errorf("write default system prompt template: %w", err)
+	}
+	return nil
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return home
+		}
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+		}
+	}
+	return path
 }
 
 func defaultConfigPath() string {

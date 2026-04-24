@@ -43,17 +43,19 @@ var mcpServerCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
-		reg := runtime.BuildDefaultRegistry()
-		runtime.ApplyToolFilter(reg, cfg)
+		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+			reg := runtime.BuildDefaultRegistry()
+			runtime.ApplyToolFilter(reg, cfg)
 
-		srv := server.NewMCPServer("stado", stadoVersion())
-		host := stadoMCPHost{workdir: mustCwd()}
+			srv := server.NewMCPServer("stado", stadoVersion())
+			host := stadoMCPHost{workdir: mustCwd()}
 
-		for _, t := range reg.All() {
-			registerStadoTool(srv, t, host)
-		}
-		fmt.Fprintf(os.Stderr, "stado mcp-server: serving %d tool(s) on stdio\n", len(reg.All()))
-		return server.ServeStdio(srv)
+			for _, t := range reg.All() {
+				registerStadoTool(srv, t, host)
+			}
+			fmt.Fprintf(os.Stderr, "stado mcp-server: serving %d tool(s) on stdio\n", len(reg.All()))
+			return server.ServeStdio(srv)
+		})
 	},
 }
 
@@ -105,9 +107,11 @@ type stadoMCPHost struct {
 func (h stadoMCPHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h stadoMCPHost) Workdir() string                                  { return h.workdir }
-func (h stadoMCPHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
-func (h stadoMCPHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)      {}
+func (h stadoMCPHost) Workdir() string { return h.workdir }
+func (h stadoMCPHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h stadoMCPHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 func mustCwd() string {
 	cwd, err := os.Getwd()

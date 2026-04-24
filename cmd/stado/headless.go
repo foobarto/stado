@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -20,10 +21,13 @@ var headlessCmd = &cobra.Command{
 		"  session.new         → { sessionId }\n" +
 		"  session.prompt      { sessionId, prompt, tools? } → { text }\n" +
 		"  session.list        → [{ sessionId, turns, workdir }]\n" +
+		"  session.cancel      { sessionId } → { cancelled }\n" +
+		"  session.delete      { sessionId } → {}\n" +
+		"  session.compact     { sessionId } → { summary, priorTurns, postTurns }\n" +
 		"  tools.list          → [{ name, description, class }]\n" +
 		"  providers.list      → { available, current }\n" +
-		"  plugin.list         → [{ id, author, toolCount, capabilities }]\n" +
-		"  plugin.run          { pluginId, tool, argsJSON } → { content, errMsg? }\n" +
+		"  plugin.list         → { plugins: [{ id, author, capabilities, tools }] }\n" +
+		"  plugin.run          { sessionId, id, tool, args? } → { content, error? }\n" +
 		"  shutdown            → end the daemon (drains in-flight RPCs first).\n\n" +
 		"Notifications:\n" +
 		"  session.update      { sessionId, kind, text? | name? input? }\n" +
@@ -33,12 +37,14 @@ var headlessCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		prov, provErr := tui.BuildProvider(cfg)
-		if provErr != nil {
-			fmt.Fprintf(os.Stderr, "stado headless: provider unavailable: %v\n", provErr)
-		}
-		fmt.Fprintln(os.Stderr, "stado headless: ready (JSON-RPC 2.0, stdio)")
-		return headless.NewServer(cfg, prov).Serve(cmd.Context(), os.Stdin, os.Stdout)
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			prov, provErr := tui.BuildProvider(cfg)
+			if provErr != nil {
+				fmt.Fprintf(os.Stderr, "stado headless: provider unavailable: %v\n", provErr)
+			}
+			fmt.Fprintln(os.Stderr, "stado headless: ready (JSON-RPC 2.0, stdio)")
+			return headless.NewServer(cfg, prov).Serve(ctx, os.Stdin, os.Stdout)
+		})
 	},
 }
 

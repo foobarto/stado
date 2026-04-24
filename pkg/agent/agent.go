@@ -27,9 +27,9 @@ type Provider interface {
 // pre-flight count tokens for a TurnRequest. Detection is via type
 // assertion so adding the interface doesn't break existing Provider impls.
 //
-// DESIGN §"Token accounting" mandates exact counts — no estimation. A
-// configured backend that doesn't satisfy TokenCounter is a hard error
-// on first turn; the agent loop refuses to proceed blind.
+// When a provider does not satisfy TokenCounter, interactive surfaces can
+// still stream turns but should treat context-window percentages as
+// unavailable until provider-reported Usage arrives.
 type TokenCounter interface {
 	// CountTokens returns the prompt-side token count for req, using the
 	// provider's native tokenizer. Result covers system + messages + tools

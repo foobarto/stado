@@ -125,7 +125,10 @@ func TestSkill_SidebarSurfacesCount(t *testing.T) {
 	mEmpty := newSkillModel(t, t.TempDir())
 	mEmpty.width, mEmpty.height = 120, 40
 	got2 := mEmpty.renderSidebar(40)
-	if strings.Contains(got2, "Skills") {
-		t.Errorf("sidebar should hide Skills row when empty: %q", got2)
+	if strings.Contains(got2, "0 skills") {
+		t.Errorf("sidebar should hide zero skills state: %q", got2)
+	}
+	if strings.Contains(got2, "/skill") {
+		t.Errorf("sidebar should hide /skill hint when no skills are loaded: %q", got2)
 	}
 }
