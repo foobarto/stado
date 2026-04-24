@@ -10,6 +10,13 @@ memory items stored under the stado state directory. Plugin-proposed
 items start as `candidate`; they are not returned to memory queries
 until approved.
 
+Approved memories are only injected into provider prompts when
+`[memory].enabled = true` in `config.toml`. Injection is bounded by
+`[memory].max_items` and `[memory].budget_tokens`, and the prompt block
+is labeled as untrusted context below stado identity and project
+instructions. TUI, `stado run`, headless, and ACP use the same prompt
+context path.
+
 ## Common Flow
 
 ```sh
@@ -40,3 +47,7 @@ The backing store is append-only JSONL. Delete and reject operations add
 events; they do not rewrite old events. Prompt retrieval remains scoped:
 only approved, non-secret items matching the requested global, repo, or
 session scope are returned through `memory:read`.
+
+Prompt retrieval is opt-in. Candidate, rejected, deleted, expired, and
+`secret` memories are never injected into prompts; they remain visible
+through review/export surfaces for auditability.

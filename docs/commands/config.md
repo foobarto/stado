@@ -25,6 +25,7 @@ The effective config answers:
 - Which model was pinned, if any (`[defaults].model`)?
 - Which `[agent].system_prompt_path` is used for the editable system
   prompt template?
+- Whether `[memory]` prompt context is enabled, and its item/token caps.
 - Which `[tools]` filter applies?
 - What `[context]` soft/hard thresholds are active?
 - What `[budget]` caps, if any, are set?
@@ -71,6 +72,11 @@ worktree dir   /home/user/.local/state/stado/worktrees
   thinking                 auto
   thinking_budget_tokens   16384
   system_prompt_path       /home/user/.config/stado/system-prompt.md
+
+[memory]
+  enabled        false
+  max_items      8
+  budget_tokens  800
 
 [context]
   soft_threshold   0.70

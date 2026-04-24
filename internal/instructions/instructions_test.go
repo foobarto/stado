@@ -155,6 +155,23 @@ func TestComposeSystemPrompt_ExecutesCustomTemplate(t *testing.T) {
 	}
 }
 
+func TestComposeSystemPrompt_AppendsMemoryContext(t *testing.T) {
+	got := ComposeSystemPrompt(
+		`agent={{ .Model }} rules={{ .ProjectInstructions }}`,
+		"be direct",
+		RuntimeContext{Model: "qwen", Memory: "Memory snippets supplied by installed plugins.\n- [global/preference mem_1] Prefer focused tests."},
+	)
+	for _, want := range []string{
+		"agent=qwen rules=be direct",
+		"Memory snippets supplied by installed plugins.",
+		"[global/preference mem_1]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("composed prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestValidateSystemPromptTemplateRejectsUnknownFields(t *testing.T) {
 	if err := ValidateSystemPromptTemplate(`{{ .Unknown }}`); err == nil {
 		t.Fatal("expected unknown template field to fail validation")

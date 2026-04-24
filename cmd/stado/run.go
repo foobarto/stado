@@ -105,7 +105,9 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			_ = executor
 
 			sysPrompt := ""
+			promptWorkdir := ""
 			if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+				promptWorkdir = cwd
 				if res, err := instructions.Load(cwd); err != nil {
 					fmt.Fprintf(os.Stderr, "stado run: instructions load: %v\n", err)
 				} else if res.Path != "" {
@@ -113,6 +115,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					fmt.Fprintf(os.Stderr, "stado run: loaded %s\n", res.Path)
 				}
 			}
+			if continueWorktree != "" {
+				promptWorkdir = continueWorktree
+			}
+			memoryContext := buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, continueSessID, runPrompt)
 
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
@@ -127,6 +133,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				ThinkingBudgetTokens: cfg.Agent.ThinkingBudgetTokens,
 				System:               sysPrompt,
 				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
+				MemoryContext:        memoryContext,
 				CostCapUSD:           cfg.Budget.HardUSD,
 			}
 			if runTools {

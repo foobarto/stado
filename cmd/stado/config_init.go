@@ -94,6 +94,20 @@ const defaultConfigTemplate = `# stado — config.toml
 # system_prompt_path = "~/.config/stado/system-prompt.md"
 
 # ---------------------------------------------------------------------------
+# [memory] — opt-in approved-memory prompt context.
+#
+# Plugins with memory:* capabilities can propose or update append-only
+# memories. Candidate memories never affect model prompts until you approve
+# them with: stado memory approve <id>. Set enabled=true to inject
+# approved, scoped, non-secret memories into TUI, run, headless, and ACP
+# prompts as labeled untrusted context.
+# ---------------------------------------------------------------------------
+# [memory]
+# enabled = false
+# max_items = 8
+# budget_tokens = 800
+
+# ---------------------------------------------------------------------------
 # [tools] — trim the bundled tool set.
 #
 # All tools are available by default. Use 'enabled' as an explicit allowlist

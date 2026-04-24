@@ -64,6 +64,9 @@ type AgentLoopOptions struct {
 	// from ~/.config/stado/system-prompt.md by config.Load. Empty falls
 	// back to instructions.DefaultSystemPromptTemplate.
 	SystemTemplate string
+	// MemoryContext is optional approved-memory prompt context. Callers
+	// own retrieval/scoping so this loop stays provider/session generic.
+	MemoryContext string
 
 	// CostCapUSD is the optional cumulative-cost ceiling for this
 	// loop. Zero disables the guard (the common case). When set, the
@@ -158,6 +161,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			System: instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
 				Provider: opts.Provider.Name(),
 				Model:    opts.Model,
+				Memory:   opts.MemoryContext,
 			}),
 		}
 		if opts.Executor != nil {

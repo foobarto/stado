@@ -33,6 +33,8 @@ func TestConfigShow_HumanOutputHasKeySections(t *testing.T) {
 		"[approvals]",
 		"mode",
 		"[agent]",
+		"[memory]",
+		"budget_tokens",
 		"[context]",
 		"soft_threshold",
 		"hard_threshold",

@@ -34,6 +34,7 @@ type Config struct {
 	OTel      OTel      `koanf:"otel"`
 	ACP       ACP       `koanf:"acp"`
 	Plugins   Plugins   `koanf:"plugins"`
+	Memory    Memory    `koanf:"memory"`
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
 	Tools     Tools     `koanf:"tools"`
@@ -84,6 +85,31 @@ type Hooks struct {
 type Budget struct {
 	WarnUSD float64 `koanf:"warn_usd"`
 	HardUSD float64 `koanf:"hard_usd"`
+}
+
+type Memory struct {
+	// Enabled injects approved, scoped, non-secret memory snippets into
+	// provider system prompts. Off by default until users deliberately
+	// opt in to long-lived context.
+	Enabled bool `koanf:"enabled"`
+	// MaxItems caps prompt snippets retrieved per turn.
+	MaxItems int `koanf:"max_items"`
+	// BudgetTokens caps rough prompt-token spend for retrieved memories.
+	BudgetTokens int `koanf:"budget_tokens"`
+}
+
+func (m Memory) EffectiveMaxItems() int {
+	if m.MaxItems <= 0 {
+		return 8
+	}
+	return m.MaxItems
+}
+
+func (m Memory) EffectiveBudgetTokens() int {
+	if m.BudgetTokens <= 0 {
+		return 800
+	}
+	return m.BudgetTokens
 }
 
 // Tools is the [tools] config section — user-level control over

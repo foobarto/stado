@@ -20,8 +20,12 @@ history:
     note: >-
       First implementation slice added the append-only local memory
       store plus capability-gated WASM host imports for propose, query,
-      and update. User review surfaces and prompt injection remain
-      future work under this EP.
+      and update.
+  - date: 2026-04-24
+    status: Accepted
+    note: >-
+      Follow-up implementation added CLI review commands and opt-in
+      approved-memory prompt injection for TUI, run, headless, and ACP.
 ---
 
 # EP-15: Memory System Plugin
@@ -208,13 +212,15 @@ default plugin. The first iteration should ship only candidate capture,
 review, approved retrieval, and delete/supersede. Automatic background
 candidate suggestions can follow after the review UX is reliable.
 
-The first implementation slice provides the lower-level host contract:
+The first shipped implementation provides the lower-level host contract:
 plugins that explicitly declare `memory:propose`, `memory:read`, or
 `memory:write` are wired to a local append-only JSONL store, and the
 host enforces candidate-only proposes, approved-only retrieval, scope
-filtering, secret exclusion, and bounded query results. Write mutations
-still require the explicit `memory:write` capability; this does not yet
-enable automatic prompt injection or ship the user review UI.
+filtering, secret exclusion, and bounded query results. CLI review
+commands provide list/show/approve/reject/delete/export. Opt-in prompt
+injection is enabled with `[memory].enabled = true`; TUI, `stado run`,
+headless, and ACP inject the same bounded approved-memory block after
+identity/project instructions.
 
 Remote or vector backends are later plugin choices, not required for the
 initial standard.

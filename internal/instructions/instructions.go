@@ -41,6 +41,7 @@ type Result struct {
 type RuntimeContext struct {
 	Provider string
 	Model    string
+	Memory   string
 }
 
 const DefaultSystemPromptTemplate = `You are stado, an AI coding agent running in the stado terminal or CLI.
@@ -113,13 +114,21 @@ func ComposeSystemPrompt(templateText, project string, ctx RuntimeContext) strin
 	if err != nil {
 		rendered, _ = executeSystemPromptTemplate(DefaultSystemPromptTemplate, project, ctx)
 	}
-	return strings.TrimSpace(rendered)
+	rendered = strings.TrimSpace(rendered)
+	if memory := strings.TrimSpace(ctx.Memory); memory != "" {
+		if rendered != "" {
+			rendered += "\n\n"
+		}
+		rendered += memory
+	}
+	return rendered
 }
 
 func ValidateSystemPromptTemplate(templateText string) error {
 	_, err := executeSystemPromptTemplate(templateText, "project rules", RuntimeContext{
 		Provider: "provider",
 		Model:    "model",
+		Memory:   "memory context",
 	})
 	return err
 }

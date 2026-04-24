@@ -6,6 +6,21 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.16.0 — 2026-04-24
+
+### Prompt
+
+- **Added opt-in approved-memory prompt context.** `[memory].enabled =
+  true` now injects bounded, scoped, non-secret approved memories into
+  TUI, `stado run`, headless, and ACP prompts as labeled untrusted
+  context.
+
+### CLI
+
+- **Surfaced memory prompt settings in config.** `stado config init`
+  now documents `[memory]`, and `stado config show` prints the resolved
+  enable flag plus item/token caps.
+
 ## v0.15.0 — 2026-04-24
 
 ### CLI

@@ -200,6 +200,7 @@ stado run --session <id> "follow-up"    # continue an existing session from the 
 stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
 stado config show                       # resolved effective config (file + env + defaults)
+stado memory list                       # review plugin-proposed/approved memories
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
 stado doctor --json | jq                # newline-delimited JSON, one check per line
 ```
@@ -318,6 +319,11 @@ model    = "claude-sonnet-4-6"
 [agent]
 thinking = "auto"
 system_prompt_path = "~/.config/stado/system-prompt.md"
+
+[memory]
+enabled = false       # opt in to approved-memory prompt context
+max_items = 8
+budget_tokens = 800
 
 [inference.presets.my-proxy]
 endpoint = "https://proxy.example/v1"

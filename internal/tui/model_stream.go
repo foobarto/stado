@@ -16,6 +16,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
@@ -23,11 +24,56 @@ import (
 	"github.com/foobarto/stado/pkg/tool"
 )
 
-func (m *Model) turnSystemPrompt() string {
+func (m *Model) turnSystemPrompt(userPrompt string) string {
 	return instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
 		Provider: m.providerDisplayName(),
 		Model:    m.model,
+		Memory:   m.turnMemoryContext(userPrompt),
 	})
+}
+
+func (m *Model) turnMemoryContext(userPrompt string) string {
+	if m.cfg == nil || !m.cfg.Memory.Enabled {
+		return ""
+	}
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+	ctx := m.rootCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := memory.PromptContext(ctx, memory.PromptContextOptions{
+		Enabled:      m.cfg.Memory.Enabled,
+		StateDir:     m.cfg.StateDir(),
+		Workdir:      m.cwd,
+		SessionID:    sessionID,
+		Prompt:       userPrompt,
+		MaxItems:     m.cfg.Memory.EffectiveMaxItems(),
+		BudgetTokens: m.cfg.Memory.EffectiveBudgetTokens(),
+	})
+	if err != nil {
+		tuiTrace("memory prompt context failed", "error", err.Error())
+		return ""
+	}
+	return body
+}
+
+func latestUserPrompt(msgs []agent.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != agent.RoleUser {
+			continue
+		}
+		var parts []string
+		for _, b := range msgs[i].Content {
+			if b.Text != nil {
+				parts = append(parts, b.Text.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
 }
 
 func (m *Model) appendUser(text string) {
@@ -200,7 +246,7 @@ func (m *Model) startBtw(question string) tea.Cmd {
 
 		req := agent.TurnRequest{
 			Model:    m.model,
-			System:   m.turnSystemPrompt(),
+			System:   m.turnSystemPrompt(question),
 			Messages: msgs,
 			Tools:    tools,
 		}
@@ -288,7 +334,7 @@ func (m *Model) startStream() tea.Cmd {
 		Model:    m.model,
 		Messages: m.msgs,
 		Tools:    m.toolDefs(),
-		System:   m.turnSystemPrompt(),
+		System:   m.turnSystemPrompt(latestUserPrompt(m.msgs)),
 	}
 	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
 	for _, t := range req.Tools {

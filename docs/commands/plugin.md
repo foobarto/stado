@@ -131,8 +131,10 @@ session's persisted conversation and worktree, so `session:read`,
 declare `memory:propose`, `memory:read`, or `memory:write` are wired to
 the local append-only memory store under the stado state directory; use
 `stado memory list|show|approve|reject|delete|export` to review that
-store. Without `--session`, the command stays a one-shot no-session path
-and session-aware capabilities see zeroed fields.
+store. Approved memory only enters model prompts after enabling
+`[memory].enabled = true`; candidate memories remain review-only.
+Without `--session`, the command stays a one-shot no-session path and
+session-aware capabilities see zeroed fields.
 
 ## Config
 
@@ -143,6 +145,8 @@ Relevant `config.toml` sections:
 - `[plugins].rekor_url` — Rekor transparency-log endpoint
 - `[plugins].background` — extra installed plugin IDs loaded
   persistently in the TUI/headless server
+- `[memory].enabled` — opt in to injecting approved plugin memories as
+  bounded untrusted prompt context
 - `[tools].overrides` — map bundled tool names to installed plugin IDs
 
 `stado config show` prints the resolved values.

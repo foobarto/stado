@@ -617,6 +617,13 @@ LLM, and memory capabilities gate the host imports below:
 | `memory:read` | Query approved, scoped, non-secret memories from the local append-only memory store. | `stado_memory_query(json_ptr, json_len, buf, cap) → n` |
 | `memory:write` | Apply an explicit memory mutation such as approve, reject, delete, upsert, or supersede. Intended for user-approved flows. | `stado_memory_update(json_ptr, json_len) → rc` |
 
+Approved-memory prompt injection is separate from the plugin host API
+and disabled by default. When `[memory].enabled = true`, TUI,
+`stado run`, headless, and ACP query the same local append-only store
+before each turn and append a bounded, labeled memory block after
+stado identity/project instructions. Candidate, rejected, deleted,
+expired, and `secret` memories are never injected.
+
 > **ABI note.** The shipped observe surface is polling-based:
 > `stado_session_next_event` replaced the earlier callback-shaped
 > `stado_session_observe` idea because WASM has no native closure type.
