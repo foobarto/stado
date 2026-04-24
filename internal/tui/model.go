@@ -61,11 +61,12 @@ type block struct {
 	// for long conversations the main goroutine blocks for hundreds of
 	// ms per tick and the UI stops responding to keys. We cache per-
 	// block and invalidate on (body | width | expanded) change.
-	cachedWidth  int
-	cachedOut    string
-	cachedMeta   string
-	cachedExpand bool
-	cachedResult string
+	cachedWidth        int
+	cachedOut          string
+	cachedMeta         string
+	cachedExpand       bool
+	cachedResult       string
+	cachedThinkingMode thinkingDisplayMode
 }
 
 type todo struct {
@@ -115,6 +116,14 @@ func (m inputMode) String() string {
 		return "Do"
 	}
 }
+
+type thinkingDisplayMode int
+
+const (
+	thinkingShow thinkingDisplayMode = iota
+	thinkingTail
+	thinkingHide
+)
 
 // Internal messages used by the bubbletea update loop.
 type (
@@ -230,6 +239,7 @@ type Model struct {
 	// UI components
 	input       *input.Editor
 	slash       *palette.Model
+	slashInline bool
 	agentPick   *agentpicker.Model
 	modelPicker *modelpicker.Model
 	sessionPick *sessionpicker.Model
@@ -243,6 +253,10 @@ type Model struct {
 	// tools hidden from the model so it produces an analysis-only
 	// response). Tab toggles.
 	mode inputMode
+	// thinkingMode controls how provider-native thinking blocks are
+	// rendered in the TUI. It never changes what is captured or
+	// persisted; it is display-only.
+	thinkingMode thinkingDisplayMode
 
 	// Conversation state
 	blocks []block

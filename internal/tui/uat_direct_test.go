@@ -132,8 +132,8 @@ func TestUAT_SubmitWhileStreamingAppendsUserBlock(t *testing.T) {
 func TestUAT_OSCTailDroppedByFilter(t *testing.T) {
 	for _, tail := range []string{
 		"rgb:1e1e/1e1e/1e1e",
-		"rgb:1e1e/1e1e",                        // shorter ragged split
-		"]11;rgb:1e1e/1e1e/1e1e",               // full prefix (Alt-wrapped shape)
+		"rgb:1e1e/1e1e",          // shorter ragged split
+		"]11;rgb:1e1e/1e1e/1e1e", // full prefix (Alt-wrapped shape)
 	} {
 		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tail)}
 		if got := filterOSCResponses(nil, msg); got != nil && !strings.Contains(tail, "]11") {
@@ -144,8 +144,7 @@ func TestUAT_OSCTailDroppedByFilter(t *testing.T) {
 }
 
 // Note: slash commands (`/foo`) can't be type-tested like text
-// prompts because `/` is bound as CommandList (opens the slash
-// palette — keys/defaults.go). The palette has its own input
-// buffer and its own Update loop. Testing the palette during
-// streaming is out of scope for this UAT suite; see
-// plugin_slash_test.go for that surface.
+// prompts because `/` opens inline slash suggestions with their own
+// query state. Testing that suggestion surface during streaming is out
+// of scope for this UAT suite; see plugin_slash_test.go for direct
+// slash-command execution.

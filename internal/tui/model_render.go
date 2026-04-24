@@ -147,7 +147,7 @@ func (m *Model) View() string {
 	}
 
 	// Modal overlay: command palette centred on the whole screen.
-	if m.slash.Visible {
+	if m.slash.Visible && !m.slashInline {
 		m.slash.Width = m.width
 		m.slash.Height = m.height
 		return m.slash.View(m.width, m.height)
@@ -397,7 +397,9 @@ func (m *Model) renderInputBox(mainW int) string {
 	// suggestion column stays visually anchored to the input cursor
 	// instead of floating at the top of the screen.
 	var pickerPrefix string
-	if m.filePicker.Visible && len(m.filePicker.Matches) > 0 {
+	if m.slash.Visible && m.slashInline {
+		pickerPrefix = m.slash.InlineView(mainW-4) + "\n"
+	} else if m.filePicker.Visible && len(m.filePicker.Matches) > 0 {
 		// Leave 2 cols of breathing room inside the border + padding.
 		pickerPrefix = m.filePicker.View(mainW-4) + "\n"
 	}
@@ -406,11 +408,22 @@ func (m *Model) renderInputBox(mainW int) string {
 
 	style := m.theme.Bg("surface").
 		Border(lipgloss.Border{Left: "│"}, false, false, false, true).
-		BorderForeground(m.theme.Fg("role_user").GetForeground()).
+		BorderForeground(m.theme.Fg(m.inputBorderTone()).GetForeground()).
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1).
 		Width(mainW - 1)
 	return style.Render(body) + "\n"
+}
+
+func (m *Model) inputBorderTone() string {
+	switch m.mode {
+	case modePlan:
+		return "role_thinking"
+	case modeBTW:
+		return "accent"
+	default:
+		return "role_user"
+	}
 }
 
 func (m *Model) approvalCardHeight(mainW int) int {
@@ -1117,12 +1130,17 @@ func (m *Model) renderBlocks() {
 	if width < 10 {
 		width = 10
 	}
+	first := true
 	for i := range m.blocks {
-		out := m.renderBlockCached(i, width)
-		b.WriteString(out)
-		if i < len(m.blocks)-1 {
+		if !m.shouldRenderBlock(m.blocks[i]) {
+			continue
+		}
+		if !first {
 			b.WriteString("\n")
 		}
+		out := m.renderBlockCached(i, width)
+		b.WriteString(out)
+		first = false
 	}
 	oldBottomY := max(0, m.vp.TotalLineCount()-m.vp.Height)
 	wasNearBottom := m.vp.YOffset >= oldBottomY-2
@@ -1149,11 +1167,13 @@ func (m *Model) renderBlocks() {
 // immutable the moment it scrolls past the current turn.
 func (m *Model) renderBlockCached(i, width int) string {
 	blk := &m.blocks[i]
+	thinkingCacheOK := blk.kind != "thinking" || blk.cachedThinkingMode == m.thinkingMode
 	if blk.cachedOut != "" &&
 		blk.cachedWidth == width &&
 		blk.cachedMeta == blk.meta &&
 		blk.cachedExpand == blk.expanded &&
-		blk.cachedResult == blk.toolResult {
+		blk.cachedResult == blk.toolResult &&
+		thinkingCacheOK {
 		return blk.cachedOut
 	}
 	out, _ := m.renderBlock(*blk, width)
@@ -1162,6 +1182,9 @@ func (m *Model) renderBlockCached(i, width int) string {
 	blk.cachedMeta = blk.meta
 	blk.cachedExpand = blk.expanded
 	blk.cachedResult = blk.toolResult
+	if blk.kind == "thinking" {
+		blk.cachedThinkingMode = m.thinkingMode
+	}
 	return out
 }
 
@@ -1201,7 +1224,7 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		return strings.TrimRight(out, "\n") + "\n" + footer + "\n", nil
 	case "thinking":
 		return m.renderer.Exec("message_thinking", map[string]any{
-			"Body":  blk.body,
+			"Body":  m.thinkingBlockBody(blk.body),
 			"Width": width,
 		})
 	case "tool":
@@ -1289,6 +1312,9 @@ func (m *Model) renderSplitPanes() {
 	}
 	for i := range m.blocks {
 		blk := &m.blocks[i]
+		if !m.shouldRenderBlock(*blk) {
+			continue
+		}
 		isActivity := blk.kind == "tool" || blk.kind == "system"
 		var target *strings.Builder
 		var w int

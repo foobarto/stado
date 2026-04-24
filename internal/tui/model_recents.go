@@ -2,10 +2,12 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 )
 
@@ -106,6 +108,25 @@ func (m *Model) rememberModelSelection(item modelpicker.Item) {
 		return
 	}
 	_ = os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func (m *Model) persistDefaultModel(provider, model string) error {
+	if m.cfg == nil || strings.TrimSpace(m.cfg.ConfigPath) == "" {
+		return nil
+	}
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	if err := config.WriteDefaults(m.cfg.ConfigPath, provider, model); err != nil {
+		return fmt.Errorf("save default model: %w", err)
+	}
+	m.cfg.Defaults.Model = model
+	if provider != "" {
+		m.cfg.Defaults.Provider = provider
+	}
+	return nil
 }
 
 func (m *Model) toggleModelFavorite(item modelpicker.Item) bool {

@@ -6,7 +6,19 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Added thinking display modes.** `Ctrl+X H` and `/thinking` now cycle
+  provider-native thinking output between full, tail-only, and hidden
+  display without changing what is persisted.
+- **Improved model and slash workflows.** Model selection now persists
+  the chosen model/provider as the new default, `Ctrl+X M` opens the
+  model picker, `/` opens inline fuzzy command suggestions, and `Ctrl+P`
+  remains the full command palette.
+- **Clarified manual approval demo use.** The `approval_demo` tool spec
+  now warns that it is a human-triggered manual test tool only.
+- **Added mode-coloured input rails.** Do, Plan, and BTW now use distinct
+  left-rail colours in the chat input.
 
 ## v0.11.0 — 2026-04-24
 

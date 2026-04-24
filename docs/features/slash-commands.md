@@ -1,10 +1,11 @@
 # Slash commands
 
-Every TUI command reachable with `/` or `Ctrl+P`. Commands are
-grouped by intent — Quick / Session / View — so the palette stays
-scannable as the list grows.
+Every TUI command reachable with `/` or `Ctrl+P`. `/` opens compact
+inline fuzzy suggestions above the chat input; `Ctrl+P` opens the full
+modal command palette. Commands are grouped by intent — Quick /
+Session / View — so the list stays scannable as it grows.
 
-Types a `/` and see them all:
+Press `Ctrl+P` to see them all in the modal palette:
 
 ```
                 Commands                                    esc
@@ -30,9 +31,9 @@ Types a `/` and see them all:
                 ...
 ```
 
-Right column shows `/name  shortcut` when a keybind exists. `Ctrl+P`
-is an alias for the `/` opener so touch-typists don't have to
-context-switch to the slash key.
+Right column shows `/name  shortcut` when a keybind exists. `/` uses the
+same command list, but renders it inline near the prompt instead of
+taking over the screen.
 
 ## Quick
 
@@ -48,7 +49,7 @@ context-switch to the slash key.
 | Command | What |
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
-| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+F` inside the picker toggles favorites |
+| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker and `Ctrl+F` inside it toggles favorites |
 | `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context (`Ctrl+X S`) |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
@@ -72,6 +73,7 @@ context-switch to the slash key.
 |---------|----------|------|
 | `/sidebar` | `Ctrl+T` | Toggle the right-hand sidebar |
 | `/theme` | `Ctrl+X T` | Open the bundled theme picker; `/theme <id>` switches directly |
+| `/thinking` | `Ctrl+X H` | Cycle thinking display; `/thinking show`, `/thinking tail`, and `/thinking hide` set it directly |
 | `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
 | `/todo <title>` | | Add a todo item to the sidebar's Todo list |
@@ -81,6 +83,13 @@ context-switch to the slash key.
 - **Slash commands during streaming.** `/clear`, `/retry`, etc. fire
   immediately — they bypass the mid-stream queue that otherwise
   defers regular user prompts until after the current turn drains.
+- **Slash suggestions vs command palette.** `/` opens inline fuzzy
+  suggestions above the input. `Ctrl+P` opens the full modal command
+  palette.
+- **Model defaults.** Selecting a model from the picker, or setting one
+  with `/model <id>`, writes `[defaults].model` in `config.toml`; when
+  the picker selection changes provider, `[defaults].provider` is saved
+  too.
 - **Session manager.** `/switch` opens the same TUI manager as
   `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
   inactive sessions, or create a fresh session.
@@ -92,6 +101,9 @@ context-switch to the slash key.
   `stado-light`, and `stado-contrast` themes. Selecting one updates the
   current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the
   next run starts with the same theme.
+- **Thinking display.** `/thinking` and `Ctrl+X H` only affect the TUI
+  viewport. Thinking blocks remain captured and persisted even when the
+  current display mode is `hide` or `tail`.
 - **Unknown commands.** Typing `/notacommand` produces
   `unknown command: /notacommand (try /help)` as a system block
   rather than silently eating the input.

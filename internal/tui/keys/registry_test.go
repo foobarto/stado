@@ -37,6 +37,13 @@ func TestRegistryMatches(t *testing.T) {
 	if !r.Matches(msg3, HistoryPrevious) {
 		t.Errorf("Expected Ctrl+P to match HistoryPrevious")
 	}
+	if !r.Matches(msg3, CommandList) {
+		t.Errorf("Expected Ctrl+P to match CommandList")
+	}
+	msg4 := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	if r.Matches(msg4, CommandList) {
+		t.Errorf("Slash should open inline suggestions, not CommandList")
+	}
 }
 
 func TestRegistryPrefix(t *testing.T) {
@@ -105,6 +112,11 @@ func TestRegistryHelpKeys(t *testing.T) {
 	agentSwitch := r.HelpKeys(AgentSwitch)
 	if len(agentSwitch) != 1 || agentSwitch[0] != "ctrl+x a" {
 		t.Fatalf("AgentSwitch help keys = %v, want [ctrl+x a]", agentSwitch)
+	}
+
+	modelSwitch := r.HelpKeys(ModelSwitch)
+	if len(modelSwitch) != 1 || modelSwitch[0] != "ctrl+x m" {
+		t.Fatalf("ModelSwitch help keys = %v, want [ctrl+x m]", modelSwitch)
 	}
 
 	sidebarWider := r.HelpKeys(SidebarWider)

@@ -107,7 +107,11 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		} else {
 			old := m.model
 			m.model = parts[1]
-			m.appendBlock(block{kind: "system", body: "model: " + old + " → " + m.model})
+			body := "model: " + old + " → " + m.model
+			if err := m.persistDefaultModel(m.providerName, m.model); err != nil {
+				body += "\n" + err.Error()
+			}
+			m.appendBlock(block{kind: "system", body: body})
 		}
 	case "/theme":
 		if len(parts) < 2 {
@@ -127,6 +131,16 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/status":
 		m.showStatus = true
+	case "/thinking":
+		if len(parts) == 1 {
+			m.cycleThinkingDisplayMode()
+		} else if mode, ok := parseThinkingDisplayMode(parts[1]); ok {
+			m.setThinkingDisplayMode(mode)
+		} else {
+			m.appendBlock(block{kind: "system", body: "usage: /thinking [show|tail|hide]"})
+			break
+		}
+		m.announceThinkingDisplayMode()
 	case "/compact":
 		return m.startCompaction()
 	case "/context":

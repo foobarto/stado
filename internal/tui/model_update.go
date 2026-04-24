@@ -396,11 +396,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// textarea beneath the modal).
 			cmd, handled := m.slash.Update(msg)
 			if handled {
+				if !m.slash.Visible {
+					m.slashInline = false
+				}
 				return m, cmd
 			}
 			if m.keys.Matches(msg, keys.InputSubmit) {
 				if sel := m.slash.Selected(); sel != nil {
 					m.slash.Close()
+					m.slashInline = false
 					return m, m.handleSlash(sel.Name)
 				}
 			}
@@ -468,6 +472,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					body := "model: " + old + " → " + m.model + "  (" + sel.Origin + ")"
 					if providerSwitched {
 						body += "\nprovider: " + oldProvider + " → " + m.providerName
+					}
+					if err := m.persistDefaultModel(m.providerName, m.model); err != nil {
+						body += "\n" + err.Error()
 					}
 					m.appendBlock(block{kind: "system", body: body})
 					m.layout()
@@ -633,6 +640,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case keys.AgentSwitch:
 					m.openAgentPicker()
 					m.layout()
+				case keys.ModelSwitch:
+					m.openModelPicker()
+					m.layout()
 				case keys.SessionNew:
 					if err := m.createAndSwitchSession(); err != nil {
 						m.appendBlock(block{kind: "system", body: err.Error()})
@@ -643,6 +653,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.layout()
 				case keys.StatusView:
 					m.showStatus = true
+					m.layout()
+				case keys.ThinkingToggle:
+					m.cycleThinkingDisplayMode()
+					m.announceThinkingDisplayMode()
 					m.layout()
 				case keys.AppExit:
 					m.state = stateQuitConfirm
@@ -666,8 +680,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.keys.Matches(msg, keys.TipsToggle):
 			// Gate `?` to empty input so a literal question mark inside a
 			// prompt ("what's this?") inserts as text instead of popping
-			// the help overlay. Ctrl+P / slash palette are still reachable
-			// with content in the editor.
+			// the help overlay. Ctrl+P remains reachable with content in
+			// the editor; slash suggestions intentionally start from an
+			// empty prompt.
 			if m.input.Value() == "" {
 				m.showHelp = true
 				m.layout()
@@ -677,11 +692,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.keys.Matches(msg, keys.CommandList):
 			// Ctrl+P opens the command palette modal. The palette owns
 			// its own search input — the main textarea is untouched.
-			// `/` only opens the palette when the editor is empty so
-			// typing a slash mid-prompt inserts as text instead.
-			if msg.String() == "/" && m.input.Value() != "" {
-				break
-			}
+			m.slashInline = false
+			m.slash.Open()
+			m.layout()
+			return m, nil
+
+		case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '/' && m.input.Value() == "":
+			m.slashInline = true
 			m.slash.Open()
 			m.layout()
 			return m, nil
@@ -790,7 +807,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// (regular prompts) gets queued for after-drain.
 				if strings.HasPrefix(text, "/") {
 					m.input.Reset()
-					m.slash.Visible = false
+					m.slash.Close()
+					m.slashInline = false
 					return m, m.handleSlash(text)
 				}
 				m.queuedPrompt = text
@@ -802,7 +820,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if strings.HasPrefix(text, "/") {
 				m.input.Reset()
-				m.slash.Visible = false
+				m.slash.Close()
+				m.slashInline = false
 				return m, m.handleSlash(text)
 			}
 			// Budget hard-cap gate (same UX pattern as the context

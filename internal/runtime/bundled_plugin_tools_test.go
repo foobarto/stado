@@ -54,6 +54,8 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 		t.Fatalf("approval_demo type = %T, want *bundledPluginTool", got)
 	} else if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "ui:approval" {
 		t.Fatalf("approval_demo capabilities = %v, want [ui:approval]", pt.manifest.Capabilities)
+	} else if !strings.Contains(got.Description(), "Manual test tool only") {
+		t.Fatalf("approval_demo description should warn AI away, got %q", got.Description())
 	}
 }
 

@@ -147,6 +147,19 @@ func TestView_HiddenReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestInlineViewRendersCompactSuggestions(t *testing.T) {
+	m := New()
+	m.Open()
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("model")})
+
+	got := m.InlineView(80)
+	for _, want := range []string{"Slash commands", "/model"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("inline view missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestGroupMatches_StableOrder(t *testing.T) {
 	cmds := []Command{
 		{Name: "/a", Group: "Quick"},

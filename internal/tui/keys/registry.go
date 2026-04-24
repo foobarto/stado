@@ -238,10 +238,10 @@ func (r *Registry) ActionsByGroup() map[string][]Action {
 			AppExit, TipsToggle, CommandList,
 		},
 		"Session": {
-			SessionInterrupt, AgentSwitch, SessionSwitch, SessionNew, Approve, Deny, EditSummary,
+			SessionInterrupt, AgentSwitch, ModelSwitch, SessionSwitch, SessionNew, Approve, Deny, EditSummary,
 		},
 		"View": {
-			SidebarToggle, SidebarNarrower, SidebarWider,
+			SidebarToggle, SidebarNarrower, SidebarWider, ThinkingToggle,
 		},
 		"Input Navigation": {
 			InputMoveLeft, InputMoveRight, InputWordBackward, InputWordForward,

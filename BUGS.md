@@ -14,7 +14,7 @@
 ## RECENTLY FIXED
 
 - **`BUG-001: TUI freezes after LLM thinking response`** — stream deltas now drain through the shared tick-buffer path and are covered by `TestThinkingOnlyStreamDrainsAndReturnsToIdle`.
-- **`BUG-002: Slash command popup not working`** — `/` opens the slash palette again; covered by `TestUAT_SlashOpensPalette` and `TestSlashModelTypedFlow`.
+- **`BUG-002: Slash command popup not working`** — `/` opens inline slash suggestions above the input, while `Ctrl+P` remains the modal palette; covered by `TestUAT_SlashOpensInlineSuggestions` and `TestSlashModelTypedFlow`.
 - **`BUG-003: Prefix chord ctrl+x ctrl+b unresponsive`** — prefix chords now resolve reliably and display correctly in help.
 - **`Exit confirmation modal`** — shipped as the `stateQuitConfirm` popup in the TUI and covered by `TestQuitConfirmAcceptQuits`.
 - **`Ctrl+b collision`** — fixed by implementing `ctrl+x` prefix chord system.

@@ -30,10 +30,12 @@ const (
 	MessagesLast            Action = "messages_last"
 	CommandList             Action = "command_list"
 	AgentSwitch             Action = "agent_switch"
+	ModelSwitch             Action = "model_switch"
 	SessionSwitch           Action = "session_switch"
 	SessionNew              Action = "session_new"
 	ThemeSwitch             Action = "theme_switch"
 	StatusView              Action = "status_view"
+	ThinkingToggle          Action = "thinking_toggle"
 	TipsToggle              Action = "tips_toggle"
 	Approve                 Action = "approve"
 	Deny                    Action = "deny"
@@ -74,10 +76,12 @@ var ActionDescriptions = map[Action]string{
 	MessagesLast:            "Scroll to bottom",
 	CommandList:             "Command palette",
 	AgentSwitch:             "Switch agent",
+	ModelSwitch:             "Switch model",
 	SessionSwitch:           "Session manager",
 	SessionNew:              "New session",
 	ThemeSwitch:             "Switch theme",
 	StatusView:              "Status modal",
+	ThinkingToggle:          "Cycle thinking display",
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",

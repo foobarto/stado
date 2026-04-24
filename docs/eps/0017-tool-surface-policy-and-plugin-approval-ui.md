@@ -12,6 +12,10 @@ history:
     status: Implemented
     version: v0.1.0
     note: Records the shipped move from native bundled-tool approvals to tool filtering plus explicit plugin approval capability.
+  - date: 2026-04-24
+    status: Implemented
+    version: v0.12.0
+    note: approval_demo is documented in its tool spec as a manual test tool that models should not call unless a human explicitly requests approval UI testing.
 ---
 
 # EP-17: Tool Surface Policy and Plugin Approval UI
@@ -57,6 +61,10 @@ Allow/Deny result. The TUI renders that request as a dedicated approval
 card, supports keyboard approval/denial, and keeps the chat input
 editable while the approval is pending. Plugins without `ui:approval`
 cannot open the approval UI.
+
+The bundled `approval_demo` plugin exists to manually exercise this UI
+path. Its tool description tells models not to call it unless a human
+explicitly asks to test plugin approval behavior.
 
 The old `/approvals` slash command remains only as a compatibility hint
 that explains the current model. Existing config files with

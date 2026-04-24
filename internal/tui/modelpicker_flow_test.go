@@ -2,7 +2,9 @@ package tui
 
 import (
 	"net"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,6 +301,62 @@ func TestModelPickerCtrlFTogglesFavorite(t *testing.T) {
 	}
 	if favorites := m.modelFavorites(); len(favorites) != 0 {
 		t.Fatalf("favorite not removed: %+v", favorites)
+	}
+}
+
+func TestModelPickerSelectionPersistsDefaultModel(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	m.cfg = &config.Config{ConfigPath: cfgPath}
+	m.openModelPicker()
+	sel := m.modelPicker.Selected()
+	if sel == nil {
+		t.Fatal("model picker has no selection")
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	wantProvider := sel.ProviderName
+	if wantProvider == "" {
+		wantProvider = "anthropic"
+	}
+	for _, want := range []string{`provider = "` + wantProvider + `"`, `model = "` + sel.ID + `"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("persisted defaults missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestModelSlashPersistsDefaultModel(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	m.cfg = &config.Config{ConfigPath: cfgPath}
+
+	_ = m.handleSlash("/model claude-sonnet-4-6")
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	if !strings.Contains(body, `model = "claude-sonnet-4-6"`) {
+		t.Fatalf("persisted defaults missing model:\n%s", body)
+	}
+}
+
+func TestModelPickerShortcutOpensPicker(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+
+	if !m.modelPicker.Visible {
+		t.Fatal("ctrl+x m should open model picker")
 	}
 }
 

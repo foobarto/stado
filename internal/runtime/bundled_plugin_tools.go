@@ -54,7 +54,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 	}
 	r.Register(newBundledStaticTool(
 		"approval_demo",
-		"Request an interactive approval prompt and return approved or denied.",
+		"Manual test tool only. Do not use unless a human explicitly asks to test plugin approval UI.",
 		tool.ClassNonMutating,
 		map[string]any{
 			"type": "object",

@@ -139,7 +139,6 @@ func (e *Editor) Reset() {
 }
 
 // SetValue replaces the editor contents and places the cursor at the end.
-// Used to programmatically open the slash palette from Ctrl+P.
 func (e *Editor) SetValue(s string) {
 	e.Model.SetValue(s)
 	e.Model.CursorEnd()

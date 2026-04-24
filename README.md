@@ -163,6 +163,12 @@ The TUI opens with an input box. Type a request; stado streams the
 response, executes the configured tool surface, and commits every tool
 call to the session's audit log. Plugins that declare `ui:approval` can
 still request explicit Allow/Deny confirmation in the TUI.
+Use `Ctrl+X H` or `/thinking show|tail|hide` to control how much
+provider-native thinking is rendered without changing what stado
+captures in the transcript.
+Press `/` on an empty prompt for inline slash-command suggestions, or
+`Ctrl+P` for the full command palette. Use `Ctrl+X M` or `/model` to
+switch models; selections become the next startup default.
 
 ### Useful first commands
 

@@ -30,8 +30,8 @@
 #   smoke   — spawn, assert the input box renders, clean up.
 #   input   — type "hi", confirm it lands in the input box (not echoed
 #             to the terminal row below).
-#   slash   — press '/', confirm the palette opens.
-#   escape  — press Escape, confirm no hang + palette closes.
+#   slash   — press '/', confirm inline slash suggestions open.
+#   escape  — press Escape, confirm no hang + overlays close.
 #   sidebar — confirm the landing view stays sidebar-free, submit one
 #             message, then confirm the chat view shows and toggles the
 #             sidebar.
@@ -146,10 +146,10 @@ cmd_slash() {
   start_stado
   tmux send-keys -t "$SESSION" "/"
   sleep 0.3
-  assert_contains "Commands" "palette header"
+  assert_contains "Slash commands" "inline slash suggestions"
   tmux send-keys -t "$SESSION" "Escape"
   sleep 0.2
-  assert_not_contains "Commands" "palette after Esc"
+  assert_not_contains "Slash commands" "slash suggestions after Esc"
   stop_stado
 }
 
@@ -263,15 +263,15 @@ cmd_slash_palette_nav() {
   sleep 0.3
   tmux send-keys -t "$SESSION" Escape
   sleep 0.3
-  # After Esc, palette must close AND a subsequent keystroke must
-  # reach the input (not get swallowed by stale palette state).
+  # After Esc, suggestions must close AND a subsequent keystroke must
+  # reach the input (not get swallowed by stale suggestion state).
   tmux send-keys -t "$SESSION" "xy"
   sleep 0.3
   local frame; frame=$(capture)
   if ! grep -qF "│ xy" <<<"$frame"; then
-    fail "typing after palette-close was swallowed"
+    fail "typing after slash-suggestion close was swallowed"
   fi
-  log "OK: palette nav + close + resume typing"
+  log "OK: slash suggestions nav + close + resume typing"
   stop_stado
 }
 

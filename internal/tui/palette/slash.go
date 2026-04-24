@@ -1,6 +1,5 @@
-// Package palette renders the opencode-style command palette: a modal
-// popup with its own search input and a grouped, keybinding-annotated
-// list of commands. Opens on Ctrl+P, closes on Esc.
+// Package palette renders command discovery surfaces: a Ctrl+P modal
+// command palette and an inline slash-command suggestion box.
 package palette
 
 import (
@@ -34,7 +33,7 @@ var Commands = []Command{
 
 	// Session — state about this run.
 	{"/agents", "Open the agent picker for Do, Plan, and BTW", "ctrl+x a", "Session"},
-	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "", "Session"},
+	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "ctrl+x m", "Session"},
 	{"/status", "Open provider, tool, plugin, sandbox, and telemetry status", "ctrl+x s", "Session"},
 	{"/provider", "Show the current provider + capabilities", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
@@ -54,13 +53,14 @@ var Commands = []Command{
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar; resize with ctrl+x [ / ]", "ctrl+t", "View"},
 	{"/theme", "Open the theme picker or switch to a bundled theme (/theme <id>)", "ctrl+x t", "View"},
+	{"/thinking", "Cycle or set thinking display (show, tail, hide)", "ctrl+x h", "View"},
 	{"/debug", "Toggle sidebar diagnostics and log tail", "", "View"},
 	{"/split", "Split the chat into conversation + activity tail panes", "", "View"},
 	{"/todo", "Add a todo item (/todo <title>)", "", "View"},
 }
 
-// Model is the modal palette. Its own Query string feeds the fuzzy matcher
-// — Ctrl+P opens it without touching the main text input.
+// Model owns command fuzzy-search state. Ctrl+P renders it as a modal,
+// while an empty-prompt slash renders the same state inline above input.
 type Model struct {
 	Visible bool
 	Query   string
@@ -78,7 +78,7 @@ func New() *Model {
 	return m
 }
 
-// Open shows the palette with an empty query. Called from Ctrl+P.
+// Open resets command search with an empty query.
 func (m *Model) Open() {
 	m.Visible = true
 	m.Query = ""
@@ -199,6 +199,67 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	return lipgloss.Place(screenWidth, screenHeight,
 		lipgloss.Center, lipgloss.Center,
 		modal)
+}
+
+// InlineView renders slash-command suggestions anchored near the chat input.
+// It shares the same fuzzy state as the modal command palette but keeps the
+// surface compact enough to live above the textarea.
+func (m *Model) InlineView(maxWidth int) string {
+	if !m.Visible {
+		return ""
+	}
+	boxW := maxWidth
+	if boxW > 88 {
+		boxW = 88
+	}
+	if boxW < 24 {
+		boxW = 24
+	}
+	body := m.renderInlineBody(boxW - 4)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Border).
+		Background(theme.Background).
+		Padding(0, 1).
+		Width(boxW).
+		Render(body)
+}
+
+func (m *Model) renderInlineBody(innerW int) string {
+	var b strings.Builder
+	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Slash commands")
+	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("enter run  esc")
+	b.WriteString(rowTwoCol(innerW, title, hints))
+	b.WriteString("\n")
+
+	cursor := lipgloss.NewStyle().
+		Foreground(theme.Text).
+		Background(theme.Primary).
+		Render(" ")
+	query := lipgloss.NewStyle().Foreground(theme.Text).Render("/" + m.Query)
+	b.WriteString(query + cursor)
+	b.WriteString("\n")
+
+	if len(m.Matches) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no matches"))
+		return b.String()
+	}
+	limit := minInt(len(m.Matches), 6)
+	start := 0
+	if m.Cursor >= limit {
+		start = m.Cursor - limit + 1
+	}
+	if start+limit > len(m.Matches) {
+		start = len(m.Matches) - limit
+	}
+	for i := 0; i < limit; i++ {
+		idx := start + i
+		b.WriteString(renderRow(innerW, m.Matches[idx], idx == m.Cursor))
+		if i < limit-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // renderBody lays out:  header | blank | search line | blank | grouped list.
@@ -362,6 +423,13 @@ func clampInt(v, lo, hi int) int {
 
 func max(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

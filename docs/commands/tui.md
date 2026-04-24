@@ -138,12 +138,15 @@ memorising:
 | `Shift+Enter` | Newline in input (multi-line prompt) |
 | `@` | Open inline agent/file completion |
 | `Tab` | Toggle Plan / Do mode |
-| `Ctrl+P` / `/` | Open command palette |
+| `Ctrl+P` | Open command palette |
+| `/` | Open inline slash-command suggestions above the input |
 | `Ctrl+X A` | Open agent picker |
+| `Ctrl+X M` | Open model picker |
 | `Ctrl+X L` | Open session manager |
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+X T` | Open theme picker |
 | `Ctrl+X S` | Open status modal |
+| `Ctrl+X H` | Cycle thinking display: show, tail, hide |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
@@ -164,6 +167,9 @@ memorising:
   from the `TurnRequest.Tools`. The model naturally shifts to
   producing a plan / outline rather than executing.
 
+The input rail changes colour by mode so Do, Plan, and BTW are visible
+without reading the inline status row.
+
 `Ctrl+X A` or `/agents` opens a picker for all three agents. `Tab`
 still toggles the common Do/Plan path, and `/btw` or `Ctrl+X Ctrl+B`
 still toggles **BTW** mode for off-band side questions. BTW replies
@@ -182,23 +188,31 @@ Completed assistant responses include a compact muted footer with the
 agent, model/provider, elapsed time, tool count, token delta, and cost
 delta for that turn when the provider reports usage.
 
+Thinking blocks are display-controlled, not capture-controlled:
+`Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
+thinking. `/thinking show`, `/thinking tail`, and `/thinking hide` set a
+specific mode. The toggle only affects the TUI viewport; provider-native
+thinking blocks are still preserved in the session transcript.
+
 ## Slash commands
 
 See [features/slash-commands.md](../features/slash-commands.md) for
-the full list. Quick reference:
+the full list. `/` opens inline fuzzy suggestions above the input;
+`Ctrl+P` opens the full modal command palette. Quick reference:
 
 - `/help` — overlay with every keybind + slash command
 - `/clear` — wipe conversation; cancels any in-flight stream
 - `/compact` — summarise and replace conversation (y/n confirm)
 - `/retry` — regenerate the last assistant turn
-- `/model` — model picker; marks the current model and surfaces
-  favorites/recents first. Press `Ctrl+F` in the picker to toggle a
-  favorite.
+- `/model` — model picker (`Ctrl+X M`); marks the current model and
+  surfaces favorites/recents first. Press `Ctrl+F` in the picker to
+  toggle a favorite. Selecting a model saves it as the new default.
 - `/agents` — agent picker for Do, Plan, and BTW
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, and `stado-contrast`
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
   LSP readiness, OTel, sandbox, and context
+- `/thinking` — cycle thinking display; `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

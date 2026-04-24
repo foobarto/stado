@@ -20,6 +20,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -172,19 +173,33 @@ func TestUAT_QueueDrainStartsNextTurn(t *testing.T) {
 }
 
 // ============================================================
-// B. Slash palette
+// B. Slash suggestions
 // ============================================================
 
-// B1: `/` key opens the palette (bound as CommandList alias).
-func TestUAT_SlashOpensPalette(t *testing.T) {
+// B1: `/` key opens inline suggestions above the input.
+func TestUAT_SlashOpensInlineSuggestions(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
 	if m.slash.Visible {
-		t.Fatal("pre-condition: palette should start hidden")
+		t.Fatal("pre-condition: slash suggestions should start hidden")
 	}
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
-	if !m.slash.Visible {
-		t.Fatal("pressing / should open the slash palette")
+	if !m.slash.Visible || !m.slashInline {
+		t.Fatal("pressing / should open inline slash suggestions")
+	}
+	out := ansi.Strip(m.View())
+	if !strings.Contains(out, "Slash commands") || !strings.Contains(out, "Type a message") {
+		t.Fatalf("inline slash suggestions should render above input:\n%s", out)
+	}
+}
+
+func TestUAT_CtrlPOpensModalCommandPalette(t *testing.T) {
+	m := scenarioModel(t)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+
+	if !m.slash.Visible || m.slashInline {
+		t.Fatalf("ctrl+p should open modal command palette, visible=%v inline=%v", m.slash.Visible, m.slashInline)
 	}
 }
 
@@ -195,6 +210,21 @@ func TestUAT_PaletteEscCloses(t *testing.T) {
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.slash.Visible {
 		t.Error("Esc should close the palette")
+	}
+}
+
+func TestUAT_InputBorderToneTracksMode(t *testing.T) {
+	m := scenarioModel(t)
+	if got := m.inputBorderTone(); got != "role_user" {
+		t.Fatalf("do border tone = %q, want role_user", got)
+	}
+	m.mode = modePlan
+	if got := m.inputBorderTone(); got != "role_thinking" {
+		t.Fatalf("plan border tone = %q, want role_thinking", got)
+	}
+	m.mode = modeBTW
+	if got := m.inputBorderTone(); got != "accent" {
+		t.Fatalf("btw border tone = %q, want accent", got)
 	}
 }
 

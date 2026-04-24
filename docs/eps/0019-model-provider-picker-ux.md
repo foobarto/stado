@@ -10,6 +10,10 @@ history:
   - date: 2026-04-24
     status: Partial
     note: Current marker, recents, provider labels, and model favorites have shipped; provider connection actions remain future work.
+  - date: 2026-04-24
+    status: Partial
+    version: v0.12.0
+    note: Model selection gained a direct shortcut and now persists the chosen provider/model as the new config default.
 ---
 
 # EP-19: Model and Provider Picker UX
@@ -46,6 +50,10 @@ The first shipped slices are:
 - The current model is marked.
 - Recent model/provider selections are persisted under stado state and
   appear near the top.
+- `Ctrl+X M` opens the picker without going through `/model`.
+- Accepting a model row, or running `/model <id>`, updates
+  `[defaults].provider` and `[defaults].model` in config so the choice
+  becomes the next startup default.
 - `Ctrl+F` inside the picker toggles a persistent favorite; favorites
   appear before recents.
 

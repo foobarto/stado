@@ -48,6 +48,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0022 | [Theme Catalog and Picker](./0022-theme-catalog-and-picker.md) | Standards | Partial |
 | 0023 | [TUI Status Modal](./0023-status-modal.md) | Standards | Partial |
 | 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Partial |
+| 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
+| 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
