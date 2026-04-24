@@ -172,6 +172,10 @@ come first; accepting Do, Plan, or BTW switches the active agent and
 removes the mention from the draft. File rows still insert the selected
 repo-relative path into the prompt.
 
+Completed assistant responses include a compact muted footer with the
+agent, model/provider, elapsed time, tool count, token delta, and cost
+delta for that turn when the provider reports usage.
+
 ## Slash commands
 
 See [features/slash-commands.md](../features/slash-commands.md) for

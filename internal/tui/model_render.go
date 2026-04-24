@@ -1078,6 +1078,7 @@ func (m *Model) renderBlockCached(i, width int) string {
 	blk := &m.blocks[i]
 	if blk.cachedOut != "" &&
 		blk.cachedWidth == width &&
+		blk.cachedMeta == blk.meta &&
 		blk.cachedExpand == blk.expanded &&
 		blk.cachedResult == blk.toolResult {
 		return blk.cachedOut
@@ -1085,6 +1086,7 @@ func (m *Model) renderBlockCached(i, width int) string {
 	out, _ := m.renderBlock(*blk, width)
 	blk.cachedOut = out
 	blk.cachedWidth = width
+	blk.cachedMeta = blk.meta
 	blk.cachedExpand = blk.expanded
 	blk.cachedResult = blk.toolResult
 	return out
@@ -1112,11 +1114,18 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			"Queued": blk.queued,
 		})
 	case "assistant":
-		return m.renderer.Exec("message_assistant", map[string]any{
+		out, err := m.renderer.Exec("message_assistant", map[string]any{
 			"Body":  blk.body,
 			"Width": width,
 			"Model": m.model,
 		})
+		if err != nil || strings.TrimSpace(blk.meta) == "" {
+			return out, err
+		}
+		footer := lipgloss.NewStyle().
+			Foreground(m.theme.Fg("muted").GetForeground()).
+			Render("  " + blk.meta)
+		return strings.TrimRight(out, "\n") + "\n" + footer + "\n", nil
 	case "thinking":
 		return m.renderer.Exec("message_thinking", map[string]any{
 			"Body":  blk.body,

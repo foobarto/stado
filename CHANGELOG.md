@@ -11,6 +11,9 @@ Plugins / Infra / Fixes.
 - **Started unified `@` completion.** The inline `@` picker now shows
   Do, Plan, and BTW agents before repo files; accepting an agent switches
   the active agent and consumes the mention.
+- **Added assistant turn footers.** Completed assistant responses now
+  show compact metadata for the agent, model/provider, elapsed time,
+  tool count, token delta, and cost delta.
 
 ## v0.5.0 — 2026-04-24
 

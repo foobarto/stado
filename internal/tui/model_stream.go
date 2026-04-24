@@ -280,6 +280,9 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnThinking = ""
 	m.turnThinkSig = ""
 	m.turnToolCalls = nil
+	m.turnMode = m.mode
+	m.turnModel = m.model
+	m.turnProvider = m.providerDisplayName()
 
 	// Span ancestor is m.rootCtx (Background or a cross-process
 	// traceparent-enriched context — see Phase 9.4/9.5), so turns
@@ -449,6 +452,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			m.usage.OutputTokens += ev.Usage.OutputTokens
 			m.usage.CostUSD += ev.Usage.CostUSD
 		}
+		m.attachTurnFooter(ev.Usage)
 
 	case agent.EvTextDelta:
 		// Compaction streams go into the pending-summary buffer AND the
@@ -520,6 +524,52 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			}
 		}
 	}
+}
+
+func (m *Model) attachTurnFooter(usage *agent.Usage) {
+	footer := m.turnFooter(usage)
+	if footer == "" {
+		return
+	}
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind == "assistant" && strings.TrimSpace(m.blocks[i].body) != "" {
+			m.blocks[i].meta = footer
+			m.invalidateBlockCache(i)
+			return
+		}
+	}
+}
+
+func (m *Model) turnFooter(usage *agent.Usage) string {
+	agentName := m.turnMode.String()
+	if agentName == "" {
+		agentName = m.mode.String()
+	}
+	modelName := strings.TrimSpace(m.turnModel)
+	if modelName == "" {
+		modelName = "model unset"
+	}
+	providerName := strings.TrimSpace(m.turnProvider)
+	modelPart := modelName
+	if providerName != "" {
+		modelPart += " via " + providerName
+	}
+	parts := []string{agentName, modelPart}
+	if !m.turnStart.IsZero() {
+		if elapsed := sidebarDurationString(time.Since(m.turnStart)); elapsed != "" {
+			parts = append(parts, elapsed)
+		}
+	}
+	parts = append(parts, fmt.Sprintf("tools %d", len(m.turnToolCalls)))
+	if usage != nil {
+		if usage.InputTokens > 0 || usage.OutputTokens > 0 {
+			parts = append(parts, fmt.Sprintf("in %s out %s", humanize(usage.InputTokens), humanize(usage.OutputTokens)))
+		}
+		if usage.CostUSD > 0 {
+			parts = append(parts, fmt.Sprintf("+$%.4f", usage.CostUSD))
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // onTurnComplete is called when the provider's stream ends. It persists the

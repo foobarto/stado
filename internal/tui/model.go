@@ -35,6 +35,7 @@ import (
 type block struct {
 	kind string // "user" | "assistant" | "thinking" | "tool" | "system" | "btw"
 	body string
+	meta string
 
 	// queued: user message appended to the chat while a turn was in
 	// flight. The block renders with a muted "queued" tag until the
@@ -61,6 +62,7 @@ type block struct {
 	// block and invalidate on (body | width | expanded) change.
 	cachedWidth  int
 	cachedOut    string
+	cachedMeta   string
 	cachedExpand bool
 	cachedResult string
 }
@@ -356,6 +358,9 @@ type Model struct {
 	turnThinkSig  string
 	turnToolCalls []agent.ToolUseBlock
 	turnAllowed   map[string]struct{}
+	turnMode      inputMode
+	turnModel     string
+	turnProvider  string
 
 	// Tool queue: calls waiting for execution + the results already
 	// collected during this tool batch. When the queue drains we emit
