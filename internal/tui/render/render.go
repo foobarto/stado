@@ -102,6 +102,17 @@ func (r *Renderer) ExecTo(w io.Writer, name string, data any) error {
 // Theme returns the underlying theme so callers can access layout knobs.
 func (r *Renderer) Theme() *theme.Theme { return r.theme }
 
+// SetTheme swaps the active theme while preserving compiled templates.
+func (r *Renderer) SetTheme(th *theme.Theme) {
+	if th == nil {
+		return
+	}
+	r.theme = th
+	r.mdMu.Lock()
+	r.mdCache = map[int]*glamour.TermRenderer{}
+	r.mdMu.Unlock()
+}
+
 // funcMap exposes styling helpers to templates. Keep this list stable — it's
 // the public contract with anyone writing custom templates.
 func (r *Renderer) funcMap() template.FuncMap {

@@ -30,6 +30,7 @@ var Defaults = map[Action]string{
 	AgentSwitch:             "ctrl+x a",
 	SessionSwitch:           "ctrl+x l",
 	SessionNew:              "ctrl+x n",
+	ThemeSwitch:             "ctrl+x t",
 	TipsToggle:              "?",
 	Approve:                 "y,enter",
 	Deny:                    "n,esc",

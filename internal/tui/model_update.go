@@ -478,6 +478,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.themePick.Visible {
+			cmd, handled := m.themePick.Update(msg)
+			if handled {
+				return m, cmd
+			}
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				if sel := m.themePick.Selected(); sel != nil {
+					m.themePick.Close()
+					if err := m.applyNamedTheme(sel.ID); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+
 		// Filepicker popover owns navigation keys while visible so
 		// Up/Down don't scroll the textarea and Tab/Enter accept the
 		// highlighted path instead of inserting literal whitespace or
@@ -536,6 +554,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.appendBlock(block{kind: "system", body: err.Error()})
 						m.renderBlocks()
 					}
+				case keys.ThemeSwitch:
+					m.openThemePicker()
+					m.layout()
 				case keys.AppExit:
 					m.state = stateQuitConfirm
 					m.layout()

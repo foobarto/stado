@@ -6,7 +6,11 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Added a bundled theme picker.** `/theme` and `Ctrl+X T` now open a
+  picker for `stado-dark`, `stado-light`, and `stado-contrast`; picking
+  one updates the running TUI and persists it to `theme.toml`.
 
 ## v0.6.0 — 2026-04-24
 

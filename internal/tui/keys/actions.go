@@ -32,6 +32,7 @@ const (
 	AgentSwitch             Action = "agent_switch"
 	SessionSwitch           Action = "session_switch"
 	SessionNew              Action = "session_new"
+	ThemeSwitch             Action = "theme_switch"
 	TipsToggle              Action = "tips_toggle"
 	Approve                 Action = "approve"
 	Deny                    Action = "deny"
@@ -74,6 +75,7 @@ var ActionDescriptions = map[Action]string{
 	AgentSwitch:             "Switch agent",
 	SessionSwitch:           "Switch session",
 	SessionNew:              "New session",
+	ThemeSwitch:             "Switch theme",
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",

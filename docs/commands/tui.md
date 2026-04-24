@@ -77,7 +77,11 @@ human debugging, not a replacement for OTLP export.
 
 ## Theme and templates
 
+- Bundled themes: `stado-dark`, `stado-light`, and `stado-contrast`.
+- `/theme` or `Ctrl+X T` opens the theme picker. `/theme <id>` switches
+  directly.
 - Theme overrides live at `$XDG_CONFIG_HOME/stado/theme.toml`.
+  Selecting a bundled theme writes that file so the choice persists.
 - Template overrides live at `$XDG_CONFIG_HOME/stado/templates/*.tmpl`.
 - Missing template files fall back to the bundled defaults, so you can
   override a single widget without copying the entire template set.
@@ -138,6 +142,7 @@ memorising:
 | `Ctrl+X A` | Open agent picker |
 | `Ctrl+X L` | Open session switcher |
 | `Ctrl+X N` | Create and switch to a fresh session |
+| `Ctrl+X T` | Open theme picker |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
@@ -189,6 +194,8 @@ the full list. Quick reference:
   favorites/recents first. Press `Ctrl+F` in the picker to toggle a
   favorite.
 - `/agents` — agent picker for Do, Plan, and BTW
+- `/theme` — theme picker; bundled choices are `stado-dark`,
+  `stado-light`, and `stado-contrast`
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

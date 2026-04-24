@@ -24,6 +24,7 @@ Types a `/` and see them all:
 
                 View
                 Toggle the right-hand sidebar        /sidebar  ctrl+t
+                Open the theme picker                /theme    ctrl+x t
                 Split chat into activity+conversation /split
                 ...
 ```
@@ -68,6 +69,7 @@ context-switch to the slash key.
 | Command | Shortcut | What |
 |---------|----------|------|
 | `/sidebar` | `Ctrl+T` | Toggle the right-hand sidebar |
+| `/theme` | `Ctrl+X T` | Open the bundled theme picker; `/theme <id>` switches directly |
 | `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
 | `/todo <title>` | | Add a todo item to the sidebar's Todo list |
@@ -81,6 +83,10 @@ context-switch to the slash key.
   a draft, queued prompt, stream, approval, compaction, or tool is
   active, so prompts and writes do not silently land in the wrong
   session.
+- **Theme selection.** `/theme` offers the bundled `stado-dark`,
+  `stado-light`, and `stado-contrast` themes. Selecting one updates the
+  current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the
+  next run starts with the same theme.
 - **Unknown commands.** Typing `/notacommand` produces
   `unknown command: /notacommand (try /help)` as a system block
   rather than silently eating the input.

@@ -109,6 +109,12 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.model = parts[1]
 			m.appendBlock(block{kind: "system", body: "model: " + old + " → " + m.model})
 		}
+	case "/theme":
+		if len(parts) < 2 {
+			m.openThemePicker()
+		} else if err := m.applyNamedTheme(parts[1]); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
 	case "/provider":
 		name := m.providerDisplayName()
 		if m.provider != nil {

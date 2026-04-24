@@ -166,6 +166,11 @@ func (m *Model) View() string {
 		m.sessionPick.Height = m.height
 		return m.sessionPick.View(m.width, m.height)
 	}
+	if m.themePick.Visible {
+		m.themePick.Width = m.width
+		m.themePick.Height = m.height
+		return m.themePick.View(m.width, m.height)
+	}
 
 	// Quit confirmation popup — centred overlay with y/n options.
 	if m.state == stateQuitConfirm {

@@ -31,11 +31,7 @@ func New(reg *keys.Registry) *Editor {
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
 
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(theme.Primary)
-	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(theme.Text)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Primary)
-	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(theme.Primary)
+	applyThemeToTextArea(&ta)
 
 	ta.BlurredStyle = ta.FocusedStyle
 
@@ -66,6 +62,21 @@ func New(reg *keys.Registry) *Editor {
 		History: NewHistory(),
 		reg:     reg,
 	}
+}
+
+// ApplyTheme refreshes editor styles after theme.Apply has updated the
+// package-level theme colors.
+func (e *Editor) ApplyTheme() {
+	applyThemeToTextArea(&e.Model)
+	e.Model.BlurredStyle = e.Model.FocusedStyle
+}
+
+func applyThemeToTextArea(ta *textarea.Model) {
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(theme.Primary)
+	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(theme.Text)
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Primary)
+	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(theme.Primary)
 }
 
 func keysToStrings(bindings []key.Binding) []string {
