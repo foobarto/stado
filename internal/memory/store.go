@@ -174,15 +174,25 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		if ev.ID == "" || req.Item == nil {
 			return errors.New("memory update supersede: id and item are required")
 		}
-		if err := s.requireExisting(ev.ID); err != nil {
+		existing, err := s.requireExistingItem(ev.ID)
+		if err != nil {
 			return fmt.Errorf("memory update supersede: %w", err)
+		}
+		if existing.Confidence != "approved" {
+			return fmt.Errorf("memory update supersede: only approved memories can be superseded, got %q", existing.Confidence)
 		}
 		if req.Item.Confidence == "" {
 			req.Item.Confidence = "approved"
 		}
+		if req.Item.Confidence != "approved" {
+			return fmt.Errorf("memory update supersede: replacement confidence must be approved, got %q", req.Item.Confidence)
+		}
 		req.Item.Supersedes = append(req.Item.Supersedes, ev.ID)
 		if err := s.prepareItem(req.Item); err != nil {
 			return fmt.Errorf("memory update supersede: %w", err)
+		}
+		if req.Item.ID == ev.ID {
+			return errors.New("memory update supersede: replacement id must differ from superseded id")
 		}
 		ev.Item = req.Item
 	default:
@@ -343,7 +353,7 @@ func (s *Store) fold() (map[string]Item, error) {
 			continue
 		}
 		id := ev.ID
-		if ev.Item != nil && ev.Item.ID != "" {
+		if ev.Action != "supersede" && ev.Item != nil && ev.Item.ID != "" {
 			id = ev.Item.ID
 		}
 		if id == "" {

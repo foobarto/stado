@@ -183,6 +183,108 @@ func TestStoreEditReplacesItemAppendOnly(t *testing.T) {
 	}
 }
 
+func TestStoreSupersedeKeepsTombstoneAndQueriesReplacement(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+	item := Item{
+		ID:         "mem_supersede",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "Old memory summary",
+		Body:       "Keep the old wording.",
+		Confidence: "approved",
+	}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	store.Now = func() time.Time {
+		return now.Add(time.Hour)
+	}
+	replacement := Item{
+		ID:         "mem_supersede_next",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "New memory summary",
+		Body:       "Use the replacement wording.",
+		Confidence: "approved",
+	}
+	updateRaw, _ := json.Marshal(UpdateRequest{Action: "supersede", ID: "mem_supersede", Item: &replacement})
+	if err := store.Update(ctx, updateRaw); err != nil {
+		t.Fatalf("supersede: %v", err)
+	}
+
+	old, ok, err := store.Show(ctx, "mem_supersede")
+	if err != nil {
+		t.Fatalf("Show old: %v", err)
+	}
+	if !ok {
+		t.Fatal("superseded memory missing")
+	}
+	if old.Confidence != "superseded" {
+		t.Fatalf("old confidence = %q, want superseded", old.Confidence)
+	}
+
+	next, ok, err := store.Show(ctx, "mem_supersede_next")
+	if err != nil {
+		t.Fatalf("Show replacement: %v", err)
+	}
+	if !ok {
+		t.Fatal("replacement memory missing")
+	}
+	if next.Confidence != "approved" || next.Summary != "New memory summary" {
+		t.Fatalf("unexpected replacement: %+v", next)
+	}
+	if len(next.Supersedes) != 1 || next.Supersedes[0] != "mem_supersede" {
+		t.Fatalf("replacement supersedes = %#v", next.Supersedes)
+	}
+
+	got, err := store.Query(ctx, Query{Prompt: "memory summary replacement"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got.Items) != 1 || got.Items[0].Item.ID != "mem_supersede_next" {
+		t.Fatalf("query returned old or missing replacement: %+v", got.Items)
+	}
+
+	data, err := os.ReadFile(store.Path)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(data), `"action":"supersede"`) {
+		t.Fatalf("append log missing supersede event:\n%s", string(data))
+	}
+}
+
+func TestStoreSupersedeRequiresApprovedMemory(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+	item := Item{
+		ID:         "mem_candidate",
+		Scope:      "global",
+		Kind:       "fact",
+		Summary:    "Candidate memory",
+		Confidence: "candidate",
+	}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	replacement := Item{
+		Scope:   "global",
+		Kind:    "fact",
+		Summary: "Replacement memory",
+	}
+	updateRaw, _ := json.Marshal(UpdateRequest{Action: "supersede", ID: "mem_candidate", Item: &replacement})
+	err := store.Update(ctx, updateRaw)
+	if err == nil || !strings.Contains(err.Error(), "only approved memories can be superseded") {
+		t.Fatalf("expected approved-memory validation error, got %v", err)
+	}
+}
+
 func TestStoreRejectsInvalidScope(t *testing.T) {
 	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
 	raw, _ := json.Marshal(Item{ID: "mem_bad", Scope: "repo", Summary: "Missing repo"})

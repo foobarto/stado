@@ -31,6 +31,12 @@ history:
     note: >-
       Added append-only memory edit events and the CLI edit surface for
       reviewing candidates before approval.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added the CLI supersede surface for approved memories and fixed
+      folded supersession so replacement items keep the old id as an
+      audit tombstone.
 ---
 
 # EP-15: Memory System Plugin
@@ -182,7 +188,8 @@ The first shipped surface must include:
 - disable memory retrieval for the current session
 - export memory items as JSON for audit/recovery
 
-The CLI shape should be `stado memory list|show|edit|approve|reject|delete`
+The CLI shape should be
+`stado memory list|show|edit|approve|supersede|reject|delete|export`
 once the plugin API exists. TUI/headless surfaces may expose the same
 operations through commands/RPC.
 
@@ -222,11 +229,14 @@ plugins that explicitly declare `memory:propose`, `memory:read`, or
 `memory:write` are wired to a local append-only JSONL store, and the
 host enforces candidate-only proposes, approved-only retrieval, scope
 filtering, secret exclusion, and bounded query results. CLI review
-commands provide list/show/edit/approve/reject/delete/export, with
-edits recorded as append-only events that replace only the folded active
-view. Opt-in prompt injection is enabled with `[memory].enabled = true`;
-TUI, `stado run`, headless, and ACP inject the same bounded
-approved-memory block after identity/project instructions.
+commands provide list/show/edit/approve/supersede/reject/delete/export.
+Edits are recorded as append-only events that replace only the folded
+active view. Supersede events mark the old approved item as
+`superseded` in folded review/export output and add a new approved item
+that links back through `supersedes`. Opt-in prompt injection is enabled
+with `[memory].enabled = true`; TUI, `stado run`, headless, and ACP
+inject the same bounded approved-memory block after identity/project
+instructions.
 
 Remote or vector backends are later plugin choices, not required for the
 initial standard.

@@ -137,6 +137,28 @@ func newMemoryEditCmd() *cobra.Command {
 			return editMemory(cmd, args[0], opts)
 		},
 	}
+	addMemoryEditFlags(cmd, opts)
+	return cmd
+}
+
+func newMemorySupersedeCmd() *cobra.Command {
+	opts := &memoryEditOptions{}
+	cmd := &cobra.Command{
+		Use:   "supersede <id>",
+		Short: "Replace an approved memory with a new version",
+		Long: "Append a supersede event for an approved memory. The old memory\n" +
+			"stays visible as superseded in review/export surfaces while the\n" +
+			"replacement becomes the approved item returned by memory queries.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return supersedeMemory(cmd, args[0], opts)
+		},
+	}
+	addMemoryEditFlags(cmd, opts)
+	return cmd
+}
+
+func addMemoryEditFlags(cmd *cobra.Command, opts *memoryEditOptions) {
 	flags := cmd.Flags()
 	flags.StringVar(&opts.Summary, "summary", "", "Replacement summary")
 	flags.StringVar(&opts.Body, "body", "", "Replacement body")
@@ -150,10 +172,10 @@ func newMemoryEditCmd() *cobra.Command {
 	flags.BoolVar(&opts.ClearTags, "clear-tags", false, "Clear all tags")
 	flags.StringVar(&opts.ExpiresAt, "expires-at", "", "Replacement expiry as RFC3339 timestamp")
 	flags.BoolVar(&opts.ClearExpires, "clear-expires", false, "Clear expiry")
-	return cmd
 }
 
 var memoryEditCmd = newMemoryEditCmd()
+var memorySupersedeCmd = newMemorySupersedeCmd()
 
 var memoryExportCmd = &cobra.Command{
 	Use:   "export",
@@ -200,6 +222,66 @@ func editMemory(cmd *cobra.Command, id string, opts *memoryEditOptions) error {
 		return fmt.Errorf("memory %q not found", id)
 	}
 
+	changed, err := applyMemoryEditFlags(cmd, opts, &item, "memory edit")
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return errors.New("memory edit: at least one edit flag is required")
+	}
+	raw, err := json.Marshal(memory.UpdateRequest{Action: "edit", ID: id, Item: &item})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "memory %s edited\n", id)
+	return nil
+}
+
+func supersedeMemory(cmd *cobra.Command, id string, opts *memoryEditOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	item, ok, err := store.Show(cmd.Context(), id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("memory %q not found", id)
+	}
+	if item.Confidence != "approved" {
+		return fmt.Errorf("memory supersede: only approved memories can be superseded; got %q", item.Confidence)
+	}
+
+	replacement := item
+	replacement.ID = ""
+	replacement.CreatedAt = time.Time{}
+	replacement.UpdatedAt = time.Time{}
+	replacement.Source = memory.Source{}
+	replacement.Supersedes = nil
+	changed, err := applyMemoryEditFlags(cmd, opts, &replacement, "memory supersede")
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return errors.New("memory supersede: at least one replacement flag is required")
+	}
+
+	raw, err := json.Marshal(memory.UpdateRequest{Action: "supersede", ID: id, Item: &replacement})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "memory %s superseded\n", id)
+	return nil
+}
+
+func applyMemoryEditFlags(cmd *cobra.Command, opts *memoryEditOptions, item *memory.Item, context string) (bool, error) {
 	flags := cmd.Flags()
 	changed := false
 	if flags.Changed("summary") {
@@ -245,7 +327,7 @@ func editMemory(cmd *cobra.Command, id string, opts *memoryEditOptions) error {
 	if flags.Changed("expires-at") {
 		expiresAt, err := time.Parse(time.RFC3339, opts.ExpiresAt)
 		if err != nil {
-			return fmt.Errorf("memory edit: --expires-at must be RFC3339: %w", err)
+			return false, fmt.Errorf("%s: --expires-at must be RFC3339: %w", context, err)
 		}
 		item.ExpiresAt = expiresAt
 		changed = true
@@ -254,18 +336,7 @@ func editMemory(cmd *cobra.Command, id string, opts *memoryEditOptions) error {
 		item.ExpiresAt = time.Time{}
 		changed = true
 	}
-	if !changed {
-		return errors.New("memory edit: at least one edit flag is required")
-	}
-	raw, err := json.Marshal(memory.UpdateRequest{Action: "edit", ID: id, Item: &item})
-	if err != nil {
-		return err
-	}
-	if err := store.Update(cmd.Context(), raw); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stderr, "memory %s edited\n", id)
-	return nil
+	return changed, nil
 }
 
 func parseMemoryTags(s string) []string {
@@ -323,6 +394,6 @@ func shortMemory(s string, max int) string {
 
 func init() {
 	memoryListCmd.Flags().BoolVar(&memoryListJSON, "json", false, "Emit JSON instead of a table")
-	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memoryExportCmd)
+	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memorySupersedeCmd, memoryExportCmd)
 	rootCmd.AddCommand(memoryCmd)
 }

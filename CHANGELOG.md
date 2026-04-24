@@ -6,6 +6,20 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.18.0 — 2026-04-25
+
+### CLI
+
+- **Added append-only memory supersession.** `stado memory supersede
+  <id>` now replaces an approved memory with a new approved item while
+  preserving the original as a `superseded` folded audit tombstone.
+
+### Fixes
+
+- **Fixed folded memory supersede handling.** Supersede events now mark
+  the source memory as `superseded` instead of resolving the event
+  against the replacement id.
+
 ## v0.17.0 — 2026-04-25
 
 ### CLI

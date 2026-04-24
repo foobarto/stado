@@ -130,9 +130,10 @@ session's persisted conversation and worktree, so `session:read`,
 `session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
 declare `memory:propose`, `memory:read`, or `memory:write` are wired to
 the local append-only memory store under the stado state directory; use
-`stado memory list|show|edit|approve|reject|delete|export` to review
-that store. Approved memory only enters model prompts after enabling
-`[memory].enabled = true`; candidate memories remain review-only.
+`stado memory list|show|edit|approve|supersede|reject|delete|export`
+to review that store. Approved memory only enters model prompts after
+enabling `[memory].enabled = true`; candidate memories remain
+review-only.
 Without `--session`, the command stays a one-shot no-session path and
 session-aware capabilities see zeroed fields.
 

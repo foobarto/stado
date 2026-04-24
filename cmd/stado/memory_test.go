@@ -145,6 +145,86 @@ func TestMemoryCLI_EditCandidateBeforeApproval(t *testing.T) {
 	}
 }
 
+func TestMemoryCLI_SupersedeApprovedMemory(t *testing.T) {
+	store := setupMemoryEnv(t)
+	ctx := context.Background()
+	item := memory.Item{
+		ID:         "mem_supersede_cli",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "Old durable memory",
+		Body:       "Keep the old version.",
+		Confidence: "approved",
+	}
+	raw, _ := json.Marshal(memory.UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	supersedeCmd := newMemorySupersedeCmd()
+	if err := supersedeCmd.Flags().Set("summary", "Prefer append-only memory replacements"); err != nil {
+		t.Fatal(err)
+	}
+	if err := supersedeCmd.Flags().Set("body", "Approved memories should be superseded, not rewritten."); err != nil {
+		t.Fatal(err)
+	}
+	if err := supersedeCmd.Flags().Set("tags", "memory, audit"); err != nil {
+		t.Fatal(err)
+	}
+	if err := supersedeCmd.RunE(supersedeCmd, []string{"mem_supersede_cli"}); err != nil {
+		t.Fatalf("supersede: %v", err)
+	}
+
+	old, ok, err := store.Show(ctx, "mem_supersede_cli")
+	if err != nil {
+		t.Fatalf("Show old: %v", err)
+	}
+	if !ok {
+		t.Fatal("superseded memory missing")
+	}
+	if old.Confidence != "superseded" {
+		t.Fatalf("old confidence = %q, want superseded", old.Confidence)
+	}
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var replacement memory.Item
+	for _, item := range items {
+		if item.ID != "mem_supersede_cli" && memorySupersedes(item, "mem_supersede_cli") {
+			replacement = item
+			break
+		}
+	}
+	if replacement.ID == "" {
+		t.Fatalf("replacement memory missing from folded list: %+v", items)
+	}
+	if replacement.Confidence != "approved" || replacement.Summary != "Prefer append-only memory replacements" {
+		t.Fatalf("unexpected replacement: %+v", replacement)
+	}
+	if strings.Join(replacement.Tags, ",") != "memory,audit" {
+		t.Fatalf("tags = %#v", replacement.Tags)
+	}
+
+	result, err := store.Query(ctx, memory.Query{Prompt: "append-only replacements"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Item.ID != replacement.ID {
+		t.Fatalf("replacement not queryable: %+v", result)
+	}
+}
+
+func memorySupersedes(item memory.Item, id string) bool {
+	for _, supersededID := range item.Supersedes {
+		if supersededID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func setupMemoryEnv(t *testing.T) *memory.Store {
 	t.Helper()
 	root := t.TempDir()
