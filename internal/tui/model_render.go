@@ -799,7 +799,13 @@ func (m *Model) sidebarRiskLines() []sidebarLine {
 func (m *Model) sidebarContextLine() sidebarLine {
 	cap := m.providerCaps().MaxContextTokens
 	if cap <= 0 {
+		if !m.sidebarDebug {
+			return sidebarLine{}
+		}
 		return sidebarLine{Text: "ctx unknown until the provider reports a limit", Tone: "muted"}
+	}
+	if m.usage.InputTokens <= 0 && !m.sidebarDebug {
+		return sidebarLine{}
 	}
 	if m.usage.InputTokens <= 0 {
 		return sidebarLine{Text: fmt.Sprintf("ctx 0%% / hard %d%%", int(100*m.ctxHardThreshold)), Tone: "muted"}
@@ -820,6 +826,9 @@ func (m *Model) sidebarContextLine() sidebarLine {
 
 func (m *Model) sidebarBudgetLine() sidebarLine {
 	if m.budgetWarnUSD <= 0 && m.budgetHardUSD <= 0 {
+		if !m.sidebarDebug {
+			return sidebarLine{}
+		}
 		return sidebarLine{Text: "budget unbounded", Tone: "muted"}
 	}
 	limit := m.budgetHardUSD
@@ -844,6 +853,9 @@ func (m *Model) sidebarBudgetLine() sidebarLine {
 
 func (m *Model) sidebarSandboxLine() sidebarLine {
 	if m.executor == nil || m.executor.Runner == nil {
+		if !m.sidebarDebug {
+			return sidebarLine{}
+		}
 		return sidebarLine{Text: "sandbox unavailable", Tone: "muted"}
 	}
 	name := m.executor.Runner.Name()
@@ -853,6 +865,9 @@ func (m *Model) sidebarSandboxLine() sidebarLine {
 	tone := "text"
 	if name == "none" {
 		tone = "error"
+	}
+	if !m.sidebarDebug && tone != "error" {
+		return sidebarLine{}
 	}
 	return sidebarLine{Text: "sandbox: " + name, Tone: tone}
 }

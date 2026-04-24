@@ -316,6 +316,10 @@ type Model struct {
 	width       int
 	height      int
 	sidebarOpen bool
+	// sidebarDebug expands the right sidebar with operational details
+	// such as log tail, unknown context-provider state, and sandbox
+	// posture. Default false keeps the normal sidebar quiet.
+	sidebarDebug bool
 	// sidebarWidth is the user's preferred sidebar width for this TUI
 	// session. Zero means "use the theme default". The rendered width
 	// is still clamped per-frame to fit the current terminal.

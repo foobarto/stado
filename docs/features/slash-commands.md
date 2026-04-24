@@ -66,6 +66,7 @@ context-switch to the slash key.
 | Command | Shortcut | What |
 |---------|----------|------|
 | `/sidebar` | `Ctrl+T` | Toggle the right-hand sidebar |
+| `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
 | `/todo <title>` | | Add a todo item to the sidebar's Todo list |
 

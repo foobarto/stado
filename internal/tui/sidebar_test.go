@@ -18,6 +18,7 @@ func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 	_ = m.session.NextTurn()
 
 	m.provider = fakeCappedProvider{max: 100}
+	m.sidebarDebug = true
 	m.model = "qwen"
 	m.providerName = "ollama"
 	m.mode = modeDo
@@ -79,5 +80,23 @@ func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 	}
 	if strings.Contains(got, "· Do") {
 		t.Fatalf("sidebar session header should not include mode anymore\nfull output:\n%s", got)
+	}
+}
+
+func TestSidebar_DefaultHidesDebugNoise(t *testing.T) {
+	m := describeSlashModel(t)
+	m.recordLogLine("INFO auto-compact: threshold=10000 tokens plugin=auto-compact")
+
+	got := m.renderSidebar(40)
+	for _, unwanted := range []string{
+		"Risk",
+		"ctx unknown",
+		"budget unbounded",
+		"Logs",
+		"INFO auto-compact",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("default sidebar should hide %q\nfull output:\n%s", unwanted, got)
+		}
 	}
 }

@@ -15,6 +15,10 @@ Plugins / Infra / Fixes.
 - **Improved model picker continuity.** The picker now marks the
   current model and remembers recent model/provider selections under
   stado state so frequently used choices surface first.
+- **Calmed the default sidebar.** Debug-only diagnostics such as info
+  logs, unknown context limits, unbounded budgets, and normal sandbox
+  status now stay hidden unless `/debug` enables sidebar diagnostics
+  or warnings/errors need attention.
 - **Auto-title fresh sessions from the first prompt.** The TUI now writes
   a compact session description from the first user message when no
   manual `/describe` label exists, improving future session lists and

@@ -156,6 +156,9 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 	if len(m.logTail) == 0 {
 		return nil
 	}
+	if !m.sidebarDebug && m.state != stateError && !logTailHasWarning(m.logTail) {
+		return nil
+	}
 	out := make([]sidebarLine, 0, len(m.logTail))
 	for _, line := range m.logTail {
 		tone := "muted"
@@ -172,4 +175,14 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 		out = append(out, sidebarLine{Text: line, Tone: tone})
 	}
 	return out
+}
+
+func logTailHasWarning(lines []string) bool {
+	for _, line := range lines {
+		if strings.HasPrefix(line, "ERROR ") || strings.Contains(line, " ERROR ") ||
+			strings.HasPrefix(line, "WARN ") || strings.Contains(line, " WARN ") {
+			return true
+		}
+	}
+	return false
 }

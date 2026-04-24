@@ -110,6 +110,8 @@ human debugging, not a replacement for OTLP export.
 - **Status bar** — streaming state, elapsed-during-stream pill,
   tokens / context %, cost, keybind hint.
 - **Sidebar** — pinned metadata. Toggle with `Ctrl+T` or `/sidebar`.
+  Debug diagnostics and the info log tail are hidden by default; use
+  `/debug` to expand them when investigating runtime/provider issues.
 
 ### Split view
 
@@ -174,6 +176,7 @@ the full list. Quick reference:
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview
+- `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/btw` — off-band side-question mode
 

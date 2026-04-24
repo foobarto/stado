@@ -72,6 +72,13 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		return tea.Quit
 	case "/sidebar":
 		m.sidebarOpen = !m.sidebarOpen
+	case "/debug":
+		m.sidebarDebug = !m.sidebarDebug
+		if m.sidebarDebug {
+			m.appendBlock(block{kind: "system", body: "sidebar diagnostics: on"})
+		} else {
+			m.appendBlock(block{kind: "system", body: "sidebar diagnostics: off"})
+		}
 	case "/todo":
 		// Demo: quick way to test sidebar todo rendering.
 		if len(parts) > 1 {
