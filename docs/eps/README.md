@@ -39,7 +39,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Partial |
 | 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Partial |
 | 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Accepted |
-| 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Placeholder |
+| 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Accepted |
 | 0017 | [Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md) | Standards | Implemented |
 | 0018 | [Configurable System Prompt Template](./0018-configurable-system-prompt-template.md) | Standards | Implemented |
 | 0019 | [Model and Provider Picker UX](./0019-model-provider-picker-ux.md) | Standards | Partial |

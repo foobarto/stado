@@ -17,6 +17,9 @@ Plugins / Infra / Fixes.
 - **Accepted EP-15 memory-system design.** The memory plugin standard
   now defines item schema, scopes, host APIs, retrieval, review controls,
   storage, and prompt-injection defenses.
+- **Accepted EP-16 learning-plugin design.** The learning standard now
+  defines lesson candidates, approval, retrieval, invalidation, and its
+  relationship to the EP-15 memory substrate.
 
 ## v0.13.1 — 2026-04-24
 
