@@ -883,6 +883,9 @@ func (m *Model) sidebarAgentLines() []sidebarLine {
 		modelLine += " via " + provider
 	}
 	lines := []sidebarLine{{
+		Text: "agent: " + m.mode.String(),
+		Tone: "accent",
+	}, {
 		Text: modelLine,
 		Tone: "text",
 	}}

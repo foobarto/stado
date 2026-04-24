@@ -163,7 +163,8 @@ still toggles **BTW** mode for off-band side questions. BTW replies
 render in their own block and do not append to the main conversation
 history.
 
-Mode indicator shows in the input box's inline status row.
+The active agent shows in the input box's inline status row and in the
+sidebar Agent section once the chat view is active.
 
 ## Slash commands
 

@@ -59,6 +59,7 @@ func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 		"budget $0.17 / $2.00",
 		"sandbox: none",
 		"Agent",
+		"agent: Do",
 		"qwen via fake",
 		"instructions: AGENTS.md",
 		"1 skill loaded",

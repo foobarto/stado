@@ -11,6 +11,9 @@ Plugins / Infra / Fixes.
 - **Added a first-class agent picker.** `ctrl+x a` and `/agents` now
   open a modal for switching between Do, Plan, and BTW while preserving
   the existing `Tab` Do/Plan toggle and `ctrl+x ctrl+b` BTW shortcut.
+- **Made the active agent visible in the sidebar.** The Agent section now
+  shows the current Do, Plan, or BTW agent without restoring the old
+  noisy mode suffix in the session header.
 - **Added the first in-TUI multi-session workflow.** `ctrl+x l` opens a
   searchable session switcher and `ctrl+x n` creates/switches to a
   fresh session in the same TUI process. Switching is blocked while a
