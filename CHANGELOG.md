@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.10.0 — 2026-04-24
+
 ### TUI
 
 - **Improved footer density.** The chat status row now keeps compact cwd,
