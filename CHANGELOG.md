@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.5.0 — 2026-04-24
+
 ### TUI
 
 - **Added a first-class agent picker.** `ctrl+x a` and `/agents` now
