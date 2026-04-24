@@ -6,6 +6,12 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Infra
+
+- **Pinned CI and release tool versions.** GitHub workflows now opt into
+  Node 24 action execution and pin GoReleaser / golangci-lint versions
+  instead of relying on `latest`.
+
 ## v0.13.1 — 2026-04-24
 
 ### Fixes
