@@ -28,6 +28,8 @@ type Item struct {
 	Origin       string // human display — e.g. "anthropic", "lmstudio · detected"
 	ProviderName string // stado provider id — set when selecting should swap providers
 	Note         string // optional per-model hint (context window, etc.)
+	Current      bool
+	Recent       bool
 }
 
 // Model is the modal picker. Open populates Items; Update handles the
@@ -52,7 +54,10 @@ func New() *Model { return &Model{} }
 func (m *Model) Open(items []Item, current string) {
 	m.Visible = true
 	m.Query = ""
-	m.Items = items
+	m.Items = append([]Item(nil), items...)
+	for i := range m.Items {
+		m.Items[i].Current = m.Items[i].Current || m.Items[i].ID == current
+	}
 	m.refresh()
 	for i, it := range m.Matches {
 		if it.ID == current {
@@ -199,19 +204,26 @@ func (m *Model) renderBody(innerW int) string {
 	// List of matches.
 	for i, it := range m.Matches {
 		isSel := i == m.Cursor
+		left := it.ID
+		if it.Current {
+			left = "* " + left
+		}
 		right := it.Origin
 		if it.Note != "" {
 			right += "  " + it.Note
 		}
-		padded := rowTwoCol(innerW, it.ID, right)
+		if it.Recent {
+			right += "  recent"
+		}
+		padded := rowTwoCol(innerW, left, right)
 		if isSel {
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
 				Render(padded))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(it.ID) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(it.ID)-lipgloss.Width(right), 1)) +
+			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(left) +
+				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)) +
 				lipgloss.NewStyle().Foreground(theme.Muted).Render(right))
 		}
 		b.WriteString("\n")

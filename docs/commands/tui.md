@@ -169,7 +169,8 @@ the full list. Quick reference:
 - `/clear` — wipe conversation; cancels any in-flight stream
 - `/compact` — summarise and replace conversation (y/n confirm)
 - `/retry` — regenerate the last assistant turn
-- `/model` — model picker
+- `/model` — model picker; marks the current model and surfaces recent
+  model/provider selections first
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview

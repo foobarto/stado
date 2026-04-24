@@ -418,6 +418,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						providerSwitched = true
 					}
 
+					m.rememberModelSelection(*sel)
 					m.modelPicker.Close()
 					body := "model: " + old + " → " + m.model + "  (" + sel.Origin + ")"
 					if providerSwitched {

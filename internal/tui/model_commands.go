@@ -486,6 +486,7 @@ func (m *Model) openModelPicker() {
 			}
 		}
 	}
+	items = prependModelRecents(items, m.modelRecents())
 
 	if len(items) == 0 {
 		m.appendBlock(block{kind: "system",

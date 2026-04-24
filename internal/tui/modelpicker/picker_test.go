@@ -25,6 +25,12 @@ func TestOpenPreselectsCurrent(t *testing.T) {
 	if sel == nil || sel.ID != "gpt-5" {
 		t.Fatalf("expected cursor on gpt-5, got %+v", sel)
 	}
+	if !sel.Current {
+		t.Fatalf("selected current item should be marked Current")
+	}
+	if got := m.View(120, 40); !strings.Contains(got, "* gpt-5") {
+		t.Fatalf("rendered picker missing current marker: %q", got)
+	}
 }
 
 // TestOpenFallbackCursorZero covers the case where current isn't in

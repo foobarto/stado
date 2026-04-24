@@ -12,6 +12,9 @@ Plugins / Infra / Fixes.
   searchable session switcher and `ctrl+x n` creates/switches to a
   fresh session in the same TUI process. Switching is blocked while a
   draft, queued prompt, approval, compaction, stream, or tool is active.
+- **Improved model picker continuity.** The picker now marks the
+  current model and remembers recent model/provider selections under
+  stado state so frequently used choices surface first.
 - **Auto-title fresh sessions from the first prompt.** The TUI now writes
   a compact session description from the first user message when no
   manual `/describe` label exists, improving future session lists and

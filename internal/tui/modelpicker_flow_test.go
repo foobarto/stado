@@ -2,11 +2,13 @@ package tui
 
 import (
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -196,6 +198,37 @@ func TestModelPickerSameProviderNoSwitch(t *testing.T) {
 	last := m.blocks[len(m.blocks)-1]
 	if contains(last.body, "provider:") && contains(last.body, "→") {
 		t.Errorf("same-provider pick should not announce a provider swap: %q", last.body)
+	}
+}
+
+func TestModelPickerRemembersRecentSelection(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	m.rememberModelSelection(modelpicker.Item{
+		ID:           "claude-sonnet-4-5",
+		Origin:       "anthropic",
+		ProviderName: "anthropic",
+	})
+
+	recents := m.modelRecents()
+	if len(recents) != 1 || recents[0].ID != "claude-sonnet-4-5" || !recents[0].Recent {
+		t.Fatalf("recents not persisted/restored: %+v", recents)
+	}
+
+	m.model = "not-in-catalog"
+	m.openModelPicker()
+	sel := m.modelPicker.Selected()
+	if sel == nil || sel.ID != "claude-sonnet-4-5" || !sel.Recent {
+		t.Fatalf("recent model should be first selection, got %+v", sel)
 	}
 }
 
