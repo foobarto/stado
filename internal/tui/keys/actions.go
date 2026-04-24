@@ -74,7 +74,7 @@ var ActionDescriptions = map[Action]string{
 	MessagesLast:            "Scroll to bottom",
 	CommandList:             "Command palette",
 	AgentSwitch:             "Switch agent",
-	SessionSwitch:           "Switch session",
+	SessionSwitch:           "Session manager",
 	SessionNew:              "New session",
 	ThemeSwitch:             "Switch theme",
 	StatusView:              "Status modal",

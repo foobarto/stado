@@ -57,7 +57,7 @@ context-switch to the slash key.
 | `/context` | One-stop session state: session id, cost, budget caps, loaded instructions, skills, hook |
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp) |
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
-| `/switch` | Open the searchable session switcher (`Ctrl+X L`) |
+| `/switch` | Open the searchable session manager (`Ctrl+X L`) |
 | `/sessions` | Other resumable sessions for this repo (with switch/resume hints) |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
 | `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.) |
@@ -81,10 +81,13 @@ context-switch to the slash key.
 - **Slash commands during streaming.** `/clear`, `/retry`, etc. fire
   immediately — they bypass the mid-stream queue that otherwise
   defers regular user prompts until after the current turn drains.
-- **Session switching safety.** `/switch` and `/new` are blocked while
-  a draft, queued prompt, stream, approval, compaction, or tool is
-  active, so prompts and writes do not silently land in the wrong
-  session.
+- **Session manager.** `/switch` opens the same TUI manager as
+  `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
+  inactive sessions, or create a fresh session.
+- **Session switching safety.** Switch, new, and fork actions are
+  blocked while a draft, queued prompt, stream, approval, compaction, or
+  tool is active, so prompts and writes do not silently land in the
+  wrong session.
 - **Theme selection.** `/theme` offers the bundled `stado-dark`,
   `stado-light`, and `stado-contrast` themes. Selecting one updates the
   current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the

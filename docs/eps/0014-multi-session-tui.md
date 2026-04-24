@@ -13,6 +13,9 @@ history:
   - date: 2026-04-24
     status: Partial
     note: First TUI slice shipped: searchable switcher plus new-session action.
+  - date: 2026-04-24
+    status: Partial
+    note: Session overlay now supports switch/resume, new, rename, fork, and confirmed delete.
 ---
 
 # EP-14: Multi-Session TUI
@@ -42,13 +45,22 @@ delete, and switch sessions.
 
 ## Design
 
-The first shipped slice uses a command-palette style session switcher:
+The first shipped slice used a command-palette style session overlay:
 
 - `ctrl+x l` opens a searchable overlay of sessions for the current repo
 - `ctrl+x n` creates a fresh session and switches to it immediately
-- `/switch` opens the same switcher from slash/command-palette paths
+- `/switch` opens the same overlay from slash/command-palette paths
 - `/new` creates and switches to a fresh session from slash/command-palette paths
 - `/sessions` remains an informational list with CLI resume hints
+
+The second shipped slice turns the overlay into a session manager:
+
+- `Enter` switches/resumes the highlighted session
+- `Ctrl+N` creates and switches to a fresh session
+- `Ctrl+R` renames the highlighted session
+- `Ctrl+F` forks the highlighted session and switches to the child
+- `Ctrl+D` opens a delete confirmation for an inactive highlighted session
+- `Esc` closes the overlay or cancels the current rename/delete action
 
 For this slice, the TUI swaps one active model record rather than
 running multiple live tab models. Switching replaces the active
@@ -62,13 +74,13 @@ approval cards, compaction confirmation/editing, and running tools must
 finish or be cleared first. This avoids hidden background mutation and
 wrong-session sends until a fuller per-session state cache exists.
 
-Delete, rename, fork, and background-running inactive sessions remain
-future work.
+Background-running inactive sessions remain future work.
 
 ## Migration / rollout
 
-The first rollout includes list/switch/create. Add delete, rename, fork,
-and per-session cached scroll/draft state after safety checks are clear.
+The first rollout included list/switch/create. The second adds delete,
+rename, and fork. Add per-session cached scroll/draft state after
+safety checks are clear.
 
 ## Failure modes
 

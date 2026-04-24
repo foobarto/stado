@@ -155,6 +155,81 @@ func (m *Model) createAndSwitchSession() error {
 	return nil
 }
 
+func (m *Model) renameSession(id, label string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("session rename: no session selected")
+	}
+	if filepath.Base(id) != id {
+		return fmt.Errorf("session rename: invalid session id %q", id)
+	}
+	cfg, err := m.sessionActionConfig()
+	if err != nil {
+		return err
+	}
+	wt := filepath.Join(cfg.WorktreeDir(), id)
+	if err := runtime.WriteDescription(wt, label); err != nil {
+		return fmt.Errorf("session rename: %w", err)
+	}
+	return nil
+}
+
+func (m *Model) deleteSession(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("session delete: no session selected")
+	}
+	if m.session != nil && id == m.session.ID {
+		return fmt.Errorf("session delete: cannot delete the active session")
+	}
+	if filepath.Base(id) != id {
+		return fmt.Errorf("session delete: invalid session id %q", id)
+	}
+	cfg, err := m.sessionActionConfig()
+	if err != nil {
+		return err
+	}
+	sc := (*stadogit.Sidecar)(nil)
+	if m.session != nil {
+		sc = m.session.Sidecar
+	}
+	if sc == nil {
+		return fmt.Errorf("session delete: no live sidecar")
+	}
+	if err := sc.DeleteSessionRefs(id); err != nil {
+		return fmt.Errorf("session delete refs: %w", err)
+	}
+	if err := os.RemoveAll(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
+		return fmt.Errorf("session delete worktree: %w", err)
+	}
+	return nil
+}
+
+func (m *Model) forkAndSwitchSession(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("session fork: no session selected")
+	}
+	if err := m.ensureSessionSwitchAllowed(); err != nil {
+		return err
+	}
+	cfg, err := m.sessionActionConfig()
+	if err != nil {
+		return err
+	}
+	parent, err := runtime.OpenSessionByID(cfg, m.sessionActionCWD(), id)
+	if err != nil {
+		return fmt.Errorf("session fork: %w", err)
+	}
+	child, err := runtime.ForkSession(cfg, parent)
+	if err != nil {
+		return err
+	}
+	exec, err := runtime.BuildExecutor(child, cfg, "stado-tui")
+	if err != nil {
+		return fmt.Errorf("session fork tools: %w", err)
+	}
+	m.activateSession(child, exec)
+	return nil
+}
+
 func (m *Model) ensureSessionSwitchAllowed() error {
 	if strings.TrimSpace(m.input.Value()) != "" {
 		return fmt.Errorf("session switch: submit or clear the draft first")

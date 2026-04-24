@@ -140,7 +140,7 @@ memorising:
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` / `/` | Open command palette |
 | `Ctrl+X A` | Open agent picker |
-| `Ctrl+X L` | Open session switcher |
+| `Ctrl+X L` | Open session manager |
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+X T` | Open theme picker |
 | `Ctrl+X S` | Open status modal |
@@ -199,12 +199,30 @@ the full list. Quick reference:
   `stado-light`, and `stado-contrast`
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
   LSP readiness, OTel, sandbox, and context
-- `/switch` — session switcher
+- `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/btw` — off-band side-question mode
+
+## Multi-session Overlay
+
+`Ctrl+X L` or `/switch` opens the searchable session overlay. The
+overlay owns its own keys:
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Switch/resume the highlighted session |
+| `Ctrl+N` | Create and switch to a fresh session |
+| `Ctrl+R` | Rename the highlighted session |
+| `Ctrl+F` | Fork the highlighted session and switch to the child |
+| `Ctrl+D` | Confirmed delete of the highlighted inactive session |
+| `Esc` | Close or cancel the current overlay action |
+
+Deleting the active session is blocked. Switch, new, and fork keep the
+existing safety gate: submit or clear drafts, queued prompts, approval
+cards, compaction prompts, streams, and running tools first.
 
 ## Approvals
 

@@ -478,6 +478,73 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.sessionPick.Visible {
+			if m.sessionPick.Renaming() {
+				if m.keys.Matches(msg, keys.InputSubmit) {
+					target := m.sessionPick.Target()
+					if err := m.renameSession(target.ID, m.sessionPick.RenameValue()); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					m.sessionPick.CancelAction()
+					if err := m.openSessionPicker(); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					return m, nil
+				}
+				cmd, _ := m.sessionPick.Update(msg)
+				return m, cmd
+			}
+			if m.sessionPick.Deleting() {
+				if m.keys.Matches(msg, keys.InputSubmit) || yesKey(msg) {
+					target := m.sessionPick.Target()
+					if target.Current {
+						return m, nil
+					}
+					if err := m.deleteSession(target.ID); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					m.sessionPick.CancelAction()
+					if err := m.openSessionPicker(); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+					return m, nil
+				}
+				if noKey(msg) {
+					m.sessionPick.CancelAction()
+					return m, nil
+				}
+				cmd, _ := m.sessionPick.Update(msg)
+				return m, cmd
+			}
+			switch msg.Type {
+			case tea.KeyCtrlN:
+				m.sessionPick.Close()
+				if err := m.createAndSwitchSession(); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+				return m, nil
+			case tea.KeyCtrlR:
+				m.sessionPick.BeginRename()
+				m.layout()
+				return m, nil
+			case tea.KeyCtrlD:
+				m.sessionPick.BeginDelete()
+				m.layout()
+				return m, nil
+			case tea.KeyCtrlF:
+				if sel := m.sessionPick.Selected(); sel != nil {
+					m.sessionPick.Close()
+					if err := m.forkAndSwitchSession(sel.ID); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+				}
+				return m, nil
+			}
 			cmd, handled := m.sessionPick.Update(msg)
 			if handled {
 				return m, cmd
@@ -900,6 +967,20 @@ func (m *Model) updateFilePickerFromInput() {
 		m.filePicker.OpenWithItems(cwd, atPos, m.filePickerAgentItems())
 	}
 	m.filePicker.SetQuery(query)
+}
+
+func yesKey(msg tea.KeyMsg) bool {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+		return false
+	}
+	return msg.Runes[0] == 'y' || msg.Runes[0] == 'Y'
+}
+
+func noKey(msg tea.KeyMsg) bool {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+		return false
+	}
+	return msg.Runes[0] == 'n' || msg.Runes[0] == 'N'
 }
 
 // acceptFilePickerSelection replaces the @<query> fragment in the

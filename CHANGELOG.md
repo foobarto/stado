@@ -6,7 +6,11 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### TUI
+
+- **Expanded multi-session management.** The session overlay now supports
+  switch/resume, new, rename, fork, and confirmed delete actions without
+  leaving the TUI.
 
 ## v0.10.0 — 2026-04-24
 

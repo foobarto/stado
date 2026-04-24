@@ -35,7 +35,7 @@
 #   sidebar — confirm the landing view stays sidebar-free, submit one
 #             message, then confirm the chat view shows and toggles the
 #             sidebar.
-#   sessions — press ctrl+x l, confirm the session switcher opens.
+#   sessions — press ctrl+x l, confirm the session manager opens.
 #   agents  — press ctrl+x a, confirm the agent picker opens.
 #   all     — run every subcommand above.
 #
@@ -203,10 +203,11 @@ cmd_sessions() {
   start_stado
   tmux send-keys -t "$SESSION" C-x l
   sleep 0.3
-  assert_contains "Switch session" "session switcher header"
+  assert_contains "Sessions" "session manager header"
+  assert_contains "ctrl+r rename" "session manager action hints"
   tmux send-keys -t "$SESSION" Escape
   sleep 0.2
-  assert_not_contains "Switch session" "session switcher after Esc"
+  assert_not_contains "Sessions" "session manager after Esc"
   stop_stado
 }
 

@@ -42,7 +42,7 @@ var Commands = []Command{
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
-	{"/switch", "Open the session switcher", "ctrl+x l", "Session"},
+	{"/switch", "Open the session manager", "ctrl+x l", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},

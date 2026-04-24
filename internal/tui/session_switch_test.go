@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
@@ -120,6 +122,149 @@ func TestCreateAndSwitchSessionStartsLandingState(t *testing.T) {
 	}
 	if len(m.blocks) != 0 || len(m.msgs) != 0 {
 		t.Fatalf("new session should start empty; blocks=%d msgs=%d", len(m.blocks), len(m.msgs))
+	}
+}
+
+func TestRenameSessionUpdatesPickerLabel(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	if err := m.renameSession(ids.second, "renamed session"); err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.ReadDescription(filepath.Join(m.cfg.WorktreeDir(), ids.second)); got != "renamed session" {
+		t.Fatalf("description = %q, want renamed session", got)
+	}
+	items, err := m.sessionPickerItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saw bool
+	for _, it := range items {
+		if it.ID == ids.second && it.Label == "renamed session" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatalf("renamed session missing from picker: %+v", items)
+	}
+}
+
+func TestDeleteSessionRemovesInactiveSession(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	if err := m.deleteSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(m.cfg.WorktreeDir(), ids.second)); !os.IsNotExist(err) {
+		t.Fatalf("deleted worktree still exists or stat failed unexpectedly: %v", err)
+	}
+	items, err := m.sessionPickerItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.ID == ids.second {
+			t.Fatalf("deleted session still listed: %+v", items)
+		}
+	}
+}
+
+func TestDeleteSessionBlocksActiveSession(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	err := m.deleteSession(ids.first)
+	if err == nil || !strings.Contains(err.Error(), "active session") {
+		t.Fatalf("expected active-session delete error, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(m.cfg.WorktreeDir(), ids.first)); err != nil {
+		t.Fatalf("active worktree should remain: %v", err)
+	}
+}
+
+func TestForkAndSwitchSessionCreatesChild(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	if err := m.forkAndSwitchSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if m.session.ID == ids.first || m.session.ID == ids.second {
+		t.Fatalf("fork reused existing id: %s", m.session.ID)
+	}
+	if m.executor == nil || m.executor.Session == nil || m.executor.Session.ID != m.session.ID {
+		t.Fatalf("executor did not retarget to fork: %+v", m.executor)
+	}
+	if _, err := os.Stat(m.session.WorktreePath); err != nil {
+		t.Fatalf("fork worktree missing: %v", err)
+	}
+}
+
+func TestSessionPickerModalRenameFlow(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	if err := m.openSessionPicker(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !m.sessionPick.Renaming() {
+		t.Fatal("ctrl+r should enter rename mode")
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	for _, r := range "modal rename" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := runtime.ReadDescription(filepath.Join(m.cfg.WorktreeDir(), ids.second)); got != "modal rename" {
+		t.Fatalf("description = %q, want modal rename", got)
+	}
+}
+
+func TestSessionPickerRenameModeOwnsShortcuts(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	if err := m.openSessionPicker(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if !m.sessionPick.Renaming() {
+		t.Fatal("ctrl+n should not leave rename mode")
+	}
+	if got := m.session.ID; got != ids.first {
+		t.Fatalf("ctrl+n in rename mode changed session: %s", got)
+	}
+}
+
+func TestSessionPickerModalDeleteFlow(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	if err := m.openSessionPicker(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if !m.sessionPick.Deleting() {
+		t.Fatal("ctrl+d should enter delete mode")
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if _, err := os.Stat(filepath.Join(m.cfg.WorktreeDir(), ids.second)); !os.IsNotExist(err) {
+		t.Fatalf("deleted worktree still exists or stat failed unexpectedly: %v", err)
+	}
+	if !m.sessionPick.Visible || m.sessionPick.Deleting() {
+		t.Fatal("picker should reopen after delete")
+	}
+}
+
+func TestSessionPickerModalForkFlow(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	if err := m.openSessionPicker(); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	if m.session.ID == ids.first || m.session.ID == ids.second {
+		t.Fatalf("fork did not switch to a child session: %s", m.session.ID)
+	}
+	if m.sessionPick.Visible {
+		t.Fatal("picker should close after fork")
 	}
 }
 
