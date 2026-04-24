@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.8.0 — 2026-04-24
+
 ### TUI
 
 - **Added a status modal.** `/status` and `Ctrl+X S` now show a compact
