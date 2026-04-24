@@ -60,7 +60,9 @@ materialized in stado state, not in the user's branch checkout.
 The commit policy intentionally differs across those refs. Mutating
 tools write both `tree` and `trace`. Read-only calls write only
 `trace`. Exec calls write `trace` always and `tree` only when the
-materialized tree changed.
+materialized tree changed. Turn boundaries and accepted compactions may
+also write no-file-change commits on `tree` so fork points and
+history-shaping events are durable even in pure chat sessions.
 
 Fork and revert use child-session semantics. `session fork`, `session
 fork --at`, `session tree`, and `session revert` resolve an existing

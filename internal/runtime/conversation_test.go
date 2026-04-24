@@ -143,3 +143,71 @@ func TestConversation_FilePermissionsArePrivate(t *testing.T) {
 		t.Fatalf("conversation mode = %#o, want 0600", got)
 	}
 }
+
+func TestConversation_CompactionEventIsAppendOnlyAndFoldsView(t *testing.T) {
+	wt := t.TempDir()
+	for _, text := range []string{"turn 1", "turn 2", "turn 3"} {
+		if err := AppendMessage(wt, agent.Text(agent.RoleUser, text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := os.ReadFile(filepath.Join(wt, ConversationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSHA, err := ConversationLogSHA(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendCompaction(wt, ConversationCompaction{
+		Summary:    "summary of turns 1-3",
+		FromTurn:   0,
+		ToTurn:     3,
+		TurnsTotal: 3,
+		RawLogSHA:  rawSHA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadConversation(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("loaded messages = %d, want compacted view of 1", len(loaded))
+	}
+	if got := loaded[0].Content[0].Text.Text; !strings.Contains(got, "summary of turns 1-3") {
+		t.Fatalf("compacted view missing summary: %q", got)
+	}
+	after, err := os.ReadFile(filepath.Join(wt, ConversationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(after), string(before)) {
+		t.Fatal("conversation log was not append-only; original prefix changed")
+	}
+	if !strings.Contains(string(after), "turn 1") || !strings.Contains(string(after), `"type":"compaction"`) {
+		t.Fatalf("raw log should retain original turns and compaction event: %s", after)
+	}
+}
+
+func TestWriteConversationRefusesNonEmptyLog(t *testing.T) {
+	wt := t.TempDir()
+	if err := AppendMessage(wt, agent.Text(agent.RoleUser, "existing")); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteConversation(wt, []agent.Message{agent.Text(agent.RoleAssistant, "replacement")})
+	if err == nil {
+		t.Fatal("expected WriteConversation to refuse replacing a non-empty append-only log")
+	}
+	if !strings.Contains(err.Error(), "append-only") {
+		t.Fatalf("error should mention append-only log, got %v", err)
+	}
+	loaded, err := LoadConversation(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].Content[0].Text.Text != "existing" {
+		t.Fatalf("conversation was rewritten despite refusal: %+v", loaded)
+	}
+}

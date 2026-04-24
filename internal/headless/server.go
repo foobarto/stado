@@ -35,14 +35,15 @@ type Server struct {
 }
 
 type hSession struct {
-	id              string
-	mu              sync.Mutex
-	messages        []agent.Message
-	cancel          context.CancelFunc
-	workdir         string
-	gitSess         *stadogit.Session // lazy, set by ensureGitSession
-	lastInputTokens int               // most recent input-token observation
-	busy            bool
+	id               string
+	mu               sync.Mutex
+	messages         []agent.Message
+	cancel           context.CancelFunc
+	workdir          string
+	gitSess          *stadogit.Session // lazy, set by ensureGitSession
+	persistedViewLen int               // folded conversation messages persisted to conversation.jsonl
+	lastInputTokens  int               // most recent input-token observation
+	busy             bool
 }
 
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {

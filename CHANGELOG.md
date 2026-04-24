@@ -6,7 +6,16 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### Fixes
+
+- **Restored session compaction auditability.** TUI compaction now keeps
+  `.stado/conversation.jsonl` append-only, records raw-log digests on
+  compaction markers, and creates real turn-boundary refs for pure chat
+  and no-file-change turns. `stado run --session` also attaches to the
+  persisted session and records a turn boundary when tools are disabled;
+  headless and ACP git-backed prompts persist their transcripts before
+  later compaction; headless compaction now writes the same raw-log
+  audit marker when a git-backed session is attached.
 
 ## v0.13.0 — 2026-04-24
 

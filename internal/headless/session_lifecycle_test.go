@@ -5,11 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	stadoruntime "github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -185,6 +189,127 @@ func TestSessionCompactReplacesMessages(t *testing.T) {
 	client.Close()
 }
 
+func TestSessionPromptWithToolsPersistsConversationLog(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	_ = os.MkdirAll(cwd, 0o755)
+	restore := chdirHeadlessTest(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(cfg, scriptedCompactProvider{summary: "headless reply"})
+	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
+
+	res, err := srv.sessionNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.(sessionNewResult).SessionID
+	raw := json.RawMessage(`{"sessionId":"` + sessionID + `","prompt":"hi","tools":true}`)
+	if _, err := srv.sessionPrompt(context.Background(), raw); err != nil {
+		t.Fatalf("sessionPrompt: %v", err)
+	}
+
+	srv.mu.Lock()
+	sess := srv.sessions[sessionID]
+	srv.mu.Unlock()
+	sess.mu.Lock()
+	gs := sess.gitSess
+	persisted := sess.persistedViewLen
+	sess.mu.Unlock()
+	if gs == nil {
+		t.Fatal("git session was not created")
+	}
+	if persisted != 2 {
+		t.Fatalf("persistedViewLen = %d, want 2", persisted)
+	}
+
+	loaded, err := stadoruntime.LoadConversation(gs.WorktreePath)
+	if err != nil {
+		t.Fatalf("LoadConversation: %v", err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("persisted messages = %d, want 2", len(loaded))
+	}
+	if loaded[0].Role != agent.RoleUser || loaded[1].Role != agent.RoleAssistant {
+		t.Fatalf("persisted roles = %+v", loaded)
+	}
+}
+
+func TestSessionCompactGitSessionWritesAuditMarkers(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	_ = os.MkdirAll(cwd, 0o755)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs, err := stadoruntime.OpenSession(cfg, cwd)
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	msgs := []agent.Message{
+		agent.Text(agent.RoleUser, "task 1"),
+		agent.Text(agent.RoleAssistant, "reply 1"),
+	}
+	if err := gs.NextTurn(); err != nil {
+		t.Fatalf("NextTurn: %v", err)
+	}
+
+	srv := NewServer(cfg, scriptedCompactProvider{summary: "git backed summary"})
+	srv.sessions["h-1"] = &hSession{
+		id:       "h-1",
+		workdir:  cwd,
+		gitSess:  gs,
+		messages: msgs,
+	}
+
+	raw := json.RawMessage(`{"sessionId":"h-1"}`)
+	if _, err := srv.sessionCompact(context.Background(), raw); err != nil {
+		t.Fatalf("sessionCompact: %v", err)
+	}
+
+	markers, err := gs.Sidecar.ListCompactions(gs.ID)
+	if err != nil {
+		t.Fatalf("ListCompactions: %v", err)
+	}
+	if len(markers) != 1 {
+		t.Fatalf("compaction markers = %d, want 1", len(markers))
+	}
+	if markers[0].RawLogSHA == "" {
+		t.Fatal("compaction marker missing raw log digest")
+	}
+	if markers[0].ToTurn != 1 || markers[0].TurnsTotal != 1 {
+		t.Fatalf("marker range = %d..%d total=%d, want 0..1 total=1",
+			markers[0].FromTurn, markers[0].ToTurn, markers[0].TurnsTotal)
+	}
+
+	loaded, err := stadoruntime.LoadConversation(gs.WorktreePath)
+	if err != nil {
+		t.Fatalf("LoadConversation: %v", err)
+	}
+	if len(loaded) != 1 || !strings.Contains(loaded[0].Content[0].Text.Text, "git backed summary") {
+		t.Fatalf("loaded compacted conversation = %+v", loaded)
+	}
+	rawLog, err := os.ReadFile(filepath.Join(gs.WorktreePath, ".stado", "conversation.jsonl"))
+	if err != nil {
+		t.Fatalf("read raw conversation log: %v", err)
+	}
+	if !strings.Contains(string(rawLog), "task 1") || !strings.Contains(string(rawLog), `"type":"compaction"`) {
+		t.Fatalf("raw conversation log missing prior message or compaction event:\n%s", string(rawLog))
+	}
+}
+
 // TestMaybeEmitContextWarning_Fraction exercises the three regions
 // without going through the RPC surface (unit-test the policy).
 func TestMaybeEmitContextWarning_Fraction(t *testing.T) {
@@ -202,8 +327,8 @@ func TestMaybeEmitContextWarning_Fraction(t *testing.T) {
 		{50, 100, 0.70, 0.90, false, ""},
 		{80, 100, 0.70, 0.90, true, "soft"},
 		{95, 100, 0.70, 0.90, true, "hard"},
-		{0, 100, 0.70, 0.90, false, ""},   // zero tokens: no fire
-		{80, 0, 0.70, 0.90, false, ""},    // no MaxContextTokens: no fire
+		{0, 100, 0.70, 0.90, false, ""}, // zero tokens: no fire
+		{80, 0, 0.70, 0.90, false, ""},  // no MaxContextTokens: no fire
 	}
 	for _, tc := range cases {
 		frac := 0.0
@@ -233,7 +358,7 @@ type scriptedCompactProvider struct {
 	summary string
 }
 
-func (scriptedCompactProvider) Name() string                  { return "scripted" }
+func (scriptedCompactProvider) Name() string                     { return "scripted" }
 func (scriptedCompactProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 
 func (p scriptedCompactProvider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
@@ -248,3 +373,19 @@ func (p scriptedCompactProvider) StreamTurn(ctx context.Context, req agent.TurnR
 
 // Stop unused-bufio linter complaint if other tests drop bufio.
 var _ = bufio.NewReader
+
+func chdirHeadlessTest(t *testing.T, dir string) func() {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Chdir(old); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

@@ -8,6 +8,8 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -158,8 +160,74 @@ func (s *Server) sessionCompact(ctx context.Context, raw json.RawMessage) (any, 
 
 	sess.mu.Lock()
 	prior := len(sess.messages)
+	gs := sess.gitSess
+	persistedViewLen := sess.persistedViewLen
+	sess.mu.Unlock()
+	if gs != nil {
+		nextPersisted, err := runtime.AppendMessagesFrom(gs.WorktreePath, msgs, persistedViewLen)
+		sess.mu.Lock()
+		sess.persistedViewLen = nextPersisted
+		sess.mu.Unlock()
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+		}
+		rawLogSHA, err := runtime.ConversationLogSHA(gs.WorktreePath)
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+		}
+		fromTurn, toTurn, turnsTotal := headlessCompactionTurnRange(gs, prior)
+		treeSHA, traceSHA, err := gs.CommitCompaction(stadogit.CompactionMeta{
+			Title:      "headless session.compact",
+			Summary:    summary,
+			FromTurn:   fromTurn,
+			ToTurn:     toTurn,
+			TurnsTotal: turnsTotal,
+			ByAuthor:   "stado-headless",
+			RawLogSHA:  rawLogSHA,
+		})
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+		}
+		if err := runtime.AppendCompaction(gs.WorktreePath, runtime.ConversationCompaction{
+			Summary:    summary,
+			FromTurn:   fromTurn,
+			ToTurn:     toTurn,
+			TurnsTotal: turnsTotal,
+			By:         "stado-headless",
+			TreeSHA:    treeSHA.String(),
+			TraceSHA:   traceSHA.String(),
+			RawLogSHA:  rawLogSHA,
+		}); err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+		}
+	}
+	sess.mu.Lock()
 	sess.messages = compact.ReplaceMessages(summary)
+	if gs != nil {
+		sess.persistedViewLen = len(sess.messages)
+	}
 	post := len(sess.messages)
 	sess.mu.Unlock()
 	return sessionCompactResult{Summary: summary, PriorTurns: prior, PostTurns: post}, nil
+}
+
+func headlessCompactionTurnRange(gs *stadogit.Session, fallbackMessages int) (fromTurn, toTurn, turnsTotal int) {
+	if gs == nil {
+		return 0, 0, fallbackMessages
+	}
+	toTurn = gs.Turn()
+	if markers, err := gs.Sidecar.ListCompactions(gs.ID); err == nil && len(markers) > 0 {
+		fromTurn = markers[0].ToTurn + 1
+	}
+	switch {
+	case toTurn <= 0:
+		turnsTotal = fallbackMessages
+	case fromTurn == 0:
+		turnsTotal = toTurn
+	case toTurn >= fromTurn:
+		turnsTotal = toTurn - fromTurn + 1
+	default:
+		turnsTotal = fallbackMessages
+	}
+	return fromTurn, toTurn, turnsTotal
 }

@@ -19,42 +19,19 @@ func openPersistedSession(cfg *config.Config, id string) (*stadogit.Sidecar, *st
 		return nil, nil, err
 	}
 
-	var (
-		sc       *stadogit.Sidecar
-		userRepo string
-	)
-	if userRepo = runtime.ReadUserRepoPin(wt); userRepo != "" {
-		repoID, err := stadogit.RepoID(userRepo)
-		if err != nil {
-			return nil, nil, err
-		}
-		sc, err = stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
-		if err != nil {
-			return nil, nil, err
-		}
-	} else {
+	if runtime.ReadUserRepoPin(wt) == "" {
 		cwd, _ := os.Getwd()
-		userRepo = findRepoRoot(cwd)
-		repoID, err := stadogit.RepoID(userRepo)
-		if err != nil {
-			return nil, nil, err
-		}
-		sc, err = stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	sess, err := stadogit.OpenSession(sc, cfg.WorktreeDir(), id)
-	if err != nil {
-		return nil, nil, err
-	}
-	if userRepo != "" {
-		dir := filepath.Join(sess.WorktreePath, ".stado")
+		userRepo := findRepoRoot(cwd)
+		dir := filepath.Join(wt, ".stado")
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.WriteFile(filepath.Join(dir, "user-repo"), []byte(userRepo+"\n"), 0o644)
 	}
-	return sc, sess, nil
+
+	sess, err := runtime.OpenSessionByID(cfg, wt, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sess.Sidecar, sess, nil
 }
 
 func lastPersistedTurnRef(sc *stadogit.Sidecar, id string) string {

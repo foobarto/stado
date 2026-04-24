@@ -61,8 +61,10 @@ func ForkPluginSession(cfg *config.Config, parent *stadogit.Session, atTurnRef, 
 	}
 
 	if strings.TrimSpace(seed) != "" {
-		if err := WriteConversation(childSess.WorktreePath, compact.ReplaceMessages(strings.TrimSpace(seed))); err != nil {
-			return nil, fmt.Errorf("plugin fork: persist seed conversation: %w", err)
+		for _, msg := range compact.ReplaceMessages(strings.TrimSpace(seed)) {
+			if err := AppendMessage(childSess.WorktreePath, msg); err != nil {
+				return nil, fmt.Errorf("plugin fork: persist seed conversation: %w", err)
+			}
 		}
 	}
 

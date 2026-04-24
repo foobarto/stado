@@ -198,12 +198,21 @@ func TestTurnTag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Turn before any tree commit: no tag written.
+	// Turn before any tree commit: a no-file-change boundary commit is
+	// created so pure chat sessions still have forkable turn refs.
 	if err := sess.NextTurn(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sc.resolveRef(TurnTagRef("s3", 1)); err == nil {
-		t.Errorf("turn tag should not exist when tree head is zero")
+	first, err := sc.resolveRef(TurnTagRef("s3", 1))
+	if err != nil {
+		t.Fatalf("turn tag should exist for pure chat boundary: %v", err)
+	}
+	firstCommit, err := object.GetCommit(sc.repo.Storer, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstCommit.ParentHashes) != 0 {
+		t.Errorf("first turn boundary parents = %v, want none", firstCommit.ParentHashes)
 	}
 
 	// Make a tree commit so TreeHead is non-zero.
@@ -213,7 +222,8 @@ func TestTurnTag(t *testing.T) {
 	tree, _ := sess.BuildTreeFromDir(sess.WorktreePath)
 	head, _ := sess.CommitToTree(tree, CommitMeta{Tool: "write"})
 
-	// Next turn should tag current head.
+	// Next turn should commit a boundary with the current tree hash and
+	// tag that boundary commit.
 	if err := sess.NextTurn(); err != nil {
 		t.Fatal(err)
 	}
@@ -221,8 +231,27 @@ func TestTurnTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("turn tag lookup: %v", err)
 	}
-	if got != head {
-		t.Errorf("turn tag points to %s, want %s", HashString(got), HashString(head))
+	if got == head {
+		t.Errorf("turn tag should point at a boundary commit, not reuse the tool commit")
+	}
+	gotCommit, err := object.GetCommit(sc.repo.Storer, got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	headCommit, err := object.GetCommit(sc.repo.Storer, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCommit.TreeHash != headCommit.TreeHash {
+		t.Errorf("turn boundary tree = %s, want current tree %s", gotCommit.TreeHash, headCommit.TreeHash)
+	}
+
+	reopened, err := OpenSession(sc, wtRoot, "s3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Turn() != 2 {
+		t.Errorf("reopened turn counter = %d, want 2", reopened.Turn())
 	}
 }
 

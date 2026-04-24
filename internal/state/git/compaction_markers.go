@@ -19,6 +19,7 @@ type CompactionMarker struct {
 	TurnsTotal int
 	At         string // RFC3339 from Compaction-At trailer (raw)
 	By         string // Compaction-By trailer; may be empty
+	RawLogSHA  string // digest of conversation.jsonl before compaction; may be empty for old markers
 }
 
 // ListCompactions walks the tree ref's first-parent chain from HEAD
@@ -82,6 +83,9 @@ func parseCompactionCommit(msg string) (CompactionMarker, bool) {
 		}
 		if v := trailerValue(line, "Compaction-By: "); v != "" {
 			m.By = v
+		}
+		if v := trailerValue(line, "Compaction-Raw-Log-SHA: "); v != "" {
+			m.RawLogSHA = v
 		}
 	}
 	return m, true

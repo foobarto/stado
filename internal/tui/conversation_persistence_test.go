@@ -166,20 +166,32 @@ func TestMsgsToBlocks_FlattensMultimodal(t *testing.T) {
 	}
 }
 
-// TestCompaction_RewritesConversationFile: after compaction-accept,
-// the on-disk file should contain only the summary message, not the
-// original trail. Dual-ref tree/trace still preserves the raw turns
-// elsewhere; disk-side matches the in-memory post-compaction state.
-func TestCompaction_RewritesConversationFile(t *testing.T) {
+func TestOnTurnCompleteCreatesTurnRef(t *testing.T) {
+	m := newPersistTestModel(t)
+	m.turnText = "final answer"
+
+	cmd := m.onTurnComplete()
+	if cmd != nil {
+		t.Fatalf("onTurnComplete returned unexpected command")
+	}
+	if got := m.session.Turn(); got != 1 {
+		t.Fatalf("session turn = %d, want 1", got)
+	}
+	if _, err := m.session.Sidecar.ResolveRef(stadogit.TurnTagRef(m.session.ID, 1)); err != nil {
+		t.Fatalf("turn ref was not created: %v", err)
+	}
+}
+
+// TestCompaction_AppendsConversationEvent: after compaction-accept,
+// LoadConversation returns the compacted resume view, but the raw JSONL
+// file still retains the pre-compaction turns plus an append-only marker.
+func TestCompaction_AppendsConversationEvent(t *testing.T) {
 	m := newPersistTestModel(t)
 	m.appendUser("turn 1")
 	m.appendUser("turn 2")
 	m.appendUser("turn 3")
-
-	// Seed a tree ref for compaction to land on. Empty tree is fine —
-	// we're testing conversation persistence, not the commit graph.
-	emptyTree, _ := m.session.BuildTreeFromDir(m.session.WorktreePath)
-	if _, err := m.session.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write"}); err != nil {
+	before, err := os.ReadFile(filepath.Join(m.session.WorktreePath, runtime.ConversationFile))
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,21 +204,33 @@ func TestCompaction_RewritesConversationFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConversation: %v", err)
 	}
-	// After compaction, only the replacement-message should be on
-	// disk — not the original three user turns.
-	if len(loaded) >= 3 {
-		t.Errorf("expected <3 msgs after compaction (got %d)", len(loaded))
+	// The replay view is compacted.
+	if len(loaded) != 1 {
+		t.Errorf("expected 1 replay msg after compaction, got %d", len(loaded))
 	}
-	// At least one message should mention the summary text.
-	found := false
-	for _, msg := range loaded {
-		for _, b := range msg.Content {
-			if b.Text != nil && strings.Contains(b.Text.Text, "compacted summary") {
-				found = true
-			}
+	if got := loaded[0].Content[0].Text.Text; !strings.Contains(got, "compacted summary") {
+		t.Errorf("compacted summary not found in replay view: %q", got)
+	}
+	raw, err := os.ReadFile(filepath.Join(m.session.WorktreePath, runtime.ConversationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(raw), string(before)) {
+		t.Fatal("conversation log was rewritten instead of appended")
+	}
+	for _, want := range []string{"turn 1", "turn 2", "turn 3", `"type":"compaction"`, "compacted summary"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("raw conversation log missing %q: %s", want, raw)
 		}
 	}
-	if !found {
-		t.Errorf("compacted summary not found in persisted conversation: %+v", loaded)
+	markers, err := m.session.Sidecar.ListCompactions(m.session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(markers) != 1 {
+		t.Fatalf("compaction markers = %d, want 1", len(markers))
+	}
+	if markers[0].RawLogSHA == "" {
+		t.Fatal("compaction marker missing raw log digest")
 	}
 }

@@ -19,7 +19,8 @@ const (
 )
 
 // Session is one agent conversation. It owns one worktree directory and two
-// refs inside the sidecar: tree (mutations) and trace (every tool call).
+// refs inside the sidecar: tree (file state plus boundary markers) and trace
+// (every tool call).
 type Session struct {
 	ID           string
 	WorktreePath string
@@ -108,13 +109,15 @@ func OpenSession(sidecar *Sidecar, worktreeRoot, sessionID string) (*Session, er
 	if _, err := os.Stat(worktree); err != nil {
 		return nil, fmt.Errorf("open session %s: worktree missing: %w", sessionID, err)
 	}
-	return &Session{
+	s := &Session{
 		ID:           sessionID,
 		WorktreePath: worktree,
 		Sidecar:      sidecar,
 		Author:       DefaultAuthorName,
 		AuthorEmail:  DefaultAuthorEmail,
-	}, nil
+	}
+	s.restoreTurnCounter()
+	return s, nil
 }
 
 // TreeHead returns the current tree-ref hash or zero if unset.
@@ -138,21 +141,50 @@ func (s *Session) TraceHead() (plumbing.Hash, error) {
 // Turn returns the current turn number (zero-indexed). Increments via NextTurn.
 func (s *Session) Turn() int { return s.turn }
 
-// NextTurn advances the turn counter and creates a turn tag on the current
-// tree head. Called at each LLM-turn boundary.
-//
-// If TreeHead is unset, tagging is skipped — the tag will be written by the
-// first real tree commit that finalises the turn.
+func (s *Session) restoreTurnCounter() {
+	turns, err := s.Sidecar.ListTurnRefs(s.ID)
+	if err != nil || len(turns) == 0 {
+		return
+	}
+	s.turn = turns[len(turns)-1].Turn
+}
+
+// NextTurn advances the turn counter and creates a turn-boundary commit +
+// tag. The commit reuses the current tree hash, so executable file state is
+// unchanged; pure chat sessions get an empty-tree checkpoint instead of an
+// untagged turn.
 func (s *Session) NextTurn() error {
-	s.turn++
+	nextTurn := s.turn + 1
 	head, err := s.TreeHead()
 	if err != nil {
 		return err
 	}
+	var treeHash plumbing.Hash
 	if head.IsZero() {
-		return nil
+		treeHash, err = s.writeEmptyTree()
+		if err != nil {
+			return err
+		}
+	} else {
+		commit, err := object.GetCommit(s.Sidecar.repo.Storer, head)
+		if err != nil {
+			return err
+		}
+		treeHash = commit.TreeHash
 	}
-	return s.Sidecar.setRef(TurnTagRef(s.ID, s.turn), head)
+	head, err = s.commitOnRef(TreeRef(s.ID), treeHash, CommitMeta{
+		Tool:    "turn_boundary",
+		Summary: "completed turn",
+		Turn:    nextTurn,
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.Sidecar.setRef(TurnTagRef(s.ID, nextTurn), head); err != nil {
+		return err
+	}
+	s.turn = nextTurn
+	return nil
 }
 
 // signature builds a go-git signature for the session's bot identity.

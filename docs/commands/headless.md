@@ -50,8 +50,10 @@ Notifications use `session.update` with `kind` values such as `text`,
 
 ## Gotchas
 
-- Sessions are daemon-local and in-memory. Use `stado session` for
-  persisted sidecar sessions.
+- Sessions are daemon-local by default. When tools or session-aware
+  plugins attach a git-backed session, prompts are also appended to
+  that session's `.stado/conversation.jsonl` so later compaction and
+  resume paths see the same transcript.
 - `session.compact` applies immediately; unlike TUI `/compact`, it has
   no preview/edit/confirm loop.
 - `plugin.run` requires a live headless session because session-aware

@@ -2,6 +2,7 @@ package git
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -58,14 +59,24 @@ func (s *Session) CommitToTree(treeHash plumbing.Hash, meta CommitMeta) (plumbin
 // `stado session show`.
 func (s *Session) CommitCompaction(meta CompactionMeta) (treeSHA, traceSHA plumbing.Hash, err error) {
 	// Resolve the current tree-ref head so we can reuse its tree hash.
-	// Compaction on an empty session is a no-op — nothing to compact.
+	// A pure chat session may not have a tree ref yet; in that case we
+	// still write an empty-tree marker so the accepted compaction is
+	// auditable instead of silently applying only to the JSONL view.
 	treeHead, err := s.Sidecar.resolveRef(TreeRef(s.ID))
-	if err != nil {
-		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: no tree ref yet (session has no commits): %w", err)
-	}
-	headCommit, err := object.GetCommit(s.Sidecar.repo.Storer, treeHead)
-	if err != nil {
-		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: resolve tree head: %w", err)
+	var treeHash plumbing.Hash
+	if err == nil {
+		headCommit, err := object.GetCommit(s.Sidecar.repo.Storer, treeHead)
+		if err != nil {
+			return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: resolve tree head: %w", err)
+		}
+		treeHash = headCommit.TreeHash
+	} else if errors.Is(err, plumbing.ErrReferenceNotFound) {
+		treeHash, err = s.writeEmptyTree()
+		if err != nil {
+			return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: empty tree: %w", err)
+		}
+	} else {
+		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: resolve tree ref: %w", err)
 	}
 
 	// Synthetic CommitMeta lets us reuse commitOnRef (signing, OnCommit
@@ -76,7 +87,7 @@ func (s *Session) CommitCompaction(meta CompactionMeta) (treeSHA, traceSHA plumb
 	now := time.Now()
 	payload := meta.formatMessage(now)
 
-	treeSHA, err = s.commitOnRef(TreeRef(s.ID), headCommit.TreeHash, preformattedMeta(payload))
+	treeSHA, err = s.commitOnRef(TreeRef(s.ID), treeHash, preformattedMeta(payload))
 	if err != nil {
 		return plumbing.ZeroHash, plumbing.ZeroHash, fmt.Errorf("compaction: tree commit: %w", err)
 	}

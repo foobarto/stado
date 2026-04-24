@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -139,5 +140,15 @@ func TestServerToolSessionsReuseGitStateAcrossPrompts(t *testing.T) {
 	}
 	if sess.messages[1].Role != agent.RoleAssistant || sess.messages[3].Role != agent.RoleAssistant {
 		t.Fatalf("assistant turns were not persisted: %+v", sess.messages)
+	}
+	if sess.persistedViewLen != 4 {
+		t.Fatalf("persistedViewLen = %d, want 4", sess.persistedViewLen)
+	}
+	loaded, err := runtime.LoadConversation(sess.gitSess.WorktreePath)
+	if err != nil {
+		t.Fatalf("LoadConversation: %v", err)
+	}
+	if len(loaded) != 4 {
+		t.Fatalf("persisted conversation = %d messages, want 4", len(loaded))
 	}
 }

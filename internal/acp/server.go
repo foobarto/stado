@@ -39,13 +39,14 @@ type Server struct {
 }
 
 type acpSession struct {
-	id       string
-	mu       sync.Mutex
-	messages []agent.Message
-	cancel   context.CancelFunc
-	workdir  string
-	gitSess  *stadogit.Session
-	busy     bool
+	id               string
+	mu               sync.Mutex
+	messages         []agent.Message
+	cancel           context.CancelFunc
+	workdir          string
+	gitSess          *stadogit.Session
+	persistedViewLen int
+	busy             bool
 }
 
 // NewServer returns a configured ACP server. Provider can be nil; lazy-built
@@ -225,6 +226,19 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	text, msgs, err := runtime.AgentLoop(pctx, opts)
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
+	}
+	sess.mu.Lock()
+	gitSess := sess.gitSess
+	persistedViewLen := sess.persistedViewLen
+	sess.mu.Unlock()
+	if gitSess != nil {
+		nextPersisted, err := runtime.AppendMessagesFrom(gitSess.WorktreePath, msgs, persistedViewLen)
+		sess.mu.Lock()
+		sess.persistedViewLen = nextPersisted
+		sess.mu.Unlock()
+		if err != nil {
+			return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
+		}
 	}
 	sess.mu.Lock()
 	sess.messages = msgs

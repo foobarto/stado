@@ -41,7 +41,9 @@ The current server supports:
 
 When tools are enabled, tool-call notifications are sent as
 `session/update` events and tool execution is committed to the same
-sidecar `tree` and `trace` refs used by the TUI and `stado run`.
+sidecar `tree` and `trace` refs used by the TUI and `stado run`; the
+git-backed transcript is appended to `.stado/conversation.jsonl` as
+turns complete.
 
 ## Gotchas
 

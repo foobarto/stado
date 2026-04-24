@@ -92,17 +92,6 @@ func (m *Model) persistMessage(msg agent.Message) {
 	_ = runtime.AppendMessage(m.session.WorktreePath, msg)
 }
 
-// persistReplacement rewrites the conversation log with the current
-// m.msgs state. Called after compaction-accept — the compacted form
-// is what the user wants to resume, not the pre-compaction trail.
-// Same best-effort error handling as persistMessage.
-func (m *Model) persistReplacement() {
-	if m.session == nil {
-		return
-	}
-	_ = runtime.WriteConversation(m.session.WorktreePath, m.msgs)
-}
-
 // LoadPersistedConversation seeds m.msgs + m.blocks from whatever
 // `runtime.LoadConversation` finds under the session's worktree. No-op
 // when the conversation file is absent (fresh session) or the session
@@ -616,6 +605,11 @@ func (m *Model) onTurnComplete() tea.Cmd {
 	}
 
 	if len(m.turnToolCalls) == 0 {
+		if m.session != nil {
+			if err := m.session.NextTurn(); err != nil {
+				m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
+			}
+		}
 		m.state = stateIdle
 		// Drain any queued follow-up message the user typed while the
 		// previous turn was streaming. The block was already appended
@@ -1011,56 +1005,96 @@ func (m *Model) cancelSummaryEdit() {
 // DESIGN §"Compaction" invariant: `tree` commit keeps its parent's
 // tree hash (filesystem unchanged — compaction is conversation-scope,
 // not file-scope), so `git checkout refs/sessions/<id>/tree~1 -- …`
-// restores the pre-compaction state exactly. `trace` keeps the raw
-// turn commits so the audit trail is never rewritten.
+// restores the pre-compaction file state exactly. The raw conversation
+// JSONL is append-only; trace gets a parallel marker for audit.
 func (m *Model) resolveCompaction(accept bool) {
 	if m.state != stateCompactionPending {
 		return
 	}
 	if accept {
 		summary := m.pendingCompactionSummary
-		turnsTotal := len(m.msgs)
+		accepted := "compaction accepted — prior conversation replaced with summary."
+		if m.session != nil {
+			rawLogSHA, err := runtime.ConversationLogSHA(m.session.WorktreePath)
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: "compaction failed before applying summary: " + err.Error()})
+				m.pendingCompactionSummary = ""
+				m.state = stateIdle
+				return
+			}
+			fromTurn, toTurn, turnsTotal := m.compactionTurnRange(len(m.msgs))
+			title := compactionTitle(summary)
+			treeSHA, traceSHA, err := m.session.CommitCompaction(stadogit.CompactionMeta{
+				Title:      title,
+				Summary:    summary,
+				FromTurn:   fromTurn,
+				ToTurn:     toTurn,
+				TurnsTotal: turnsTotal,
+				ByAuthor:   m.providerDisplayName(),
+				RawLogSHA:  rawLogSHA,
+			})
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: "compaction failed before applying summary: " + err.Error()})
+				m.pendingCompactionSummary = ""
+				m.state = stateIdle
+				return
+			}
+			if err := runtime.AppendCompaction(m.session.WorktreePath, runtime.ConversationCompaction{
+				Summary:    summary,
+				FromTurn:   fromTurn,
+				ToTurn:     toTurn,
+				TurnsTotal: turnsTotal,
+				By:         m.providerDisplayName(),
+				TreeSHA:    treeSHA.String(),
+				TraceSHA:   traceSHA.String(),
+				RawLogSHA:  rawLogSHA,
+			}); err != nil {
+				m.appendBlock(block{kind: "system", body: "compaction audit marker written, but conversation log update failed; conversation left unchanged: " + err.Error()})
+				m.pendingCompactionSummary = ""
+				m.state = stateIdle
+				return
+			}
+			accepted += fmt.Sprintf("\ntree: %s  trace: %s",
+				treeSHA.String()[:12], traceSHA.String()[:12])
+		}
 		m.msgs = compactReplace(summary)
-		// Rewrite the on-disk conversation log to match the compacted
-		// state so a future resume sees the summary instead of the
-		// full pre-compaction trail. Dual-ref commit (tree + trace)
-		// preserves the raw turns separately on the trace ref for
-		// audit, so nothing is lost.
-		m.persistReplacement()
 
 		// Also clear the visual chat history so the user sees the
 		// replacement happen, not just read about it in a system note
 		// below the pre-compact turns. Without this the next user
 		// message pushes the old turns further up rather than starting
-		// fresh.
+		// fresh. The raw JSONL is append-only: it now contains the prior
+		// messages plus a compaction event, and LoadConversation folds
+		// that event into this compacted view on resume.
 		m.blocks = nil
 		m.appendBlock(block{kind: "assistant", body: summary})
-
-		accepted := "compaction accepted — prior conversation replaced with summary."
-		if m.session != nil {
-			toTurn := m.session.Turn()
-			title := compactionTitle(summary)
-			treeSHA, traceSHA, err := m.session.CommitCompaction(stadogit.CompactionMeta{
-				Title:      title,
-				Summary:    summary,
-				FromTurn:   0, // chained-compactions tracking lands in a follow-up
-				ToTurn:     toTurn,
-				TurnsTotal: turnsTotal,
-				ByAuthor:   m.providerDisplayName(),
-			})
-			if err != nil {
-				accepted += fmt.Sprintf("\n(tree/trace commit failed: %v — summary still replaced in-memory.)", err)
-			} else {
-				accepted += fmt.Sprintf("\ntree: %s  trace: %s",
-					treeSHA.String()[:12], traceSHA.String()[:12])
-			}
-		}
 		m.appendBlock(block{kind: "system", body: accepted})
 	} else {
 		m.appendBlock(block{kind: "system", body: "compaction declined — conversation unchanged."})
 	}
 	m.pendingCompactionSummary = ""
 	m.state = stateIdle
+}
+
+func (m *Model) compactionTurnRange(fallbackMessages int) (fromTurn, toTurn, turnsTotal int) {
+	if m.session == nil {
+		return 0, 0, fallbackMessages
+	}
+	toTurn = m.session.Turn()
+	if markers, err := m.session.Sidecar.ListCompactions(m.session.ID); err == nil && len(markers) > 0 {
+		fromTurn = markers[0].ToTurn + 1
+	}
+	switch {
+	case toTurn <= 0:
+		turnsTotal = fallbackMessages
+	case fromTurn == 0:
+		turnsTotal = toTurn
+	case toTurn >= fromTurn:
+		turnsTotal = toTurn - fromTurn + 1
+	default:
+		turnsTotal = fallbackMessages
+	}
+	return fromTurn, toTurn, turnsTotal
 }
 
 // compactionTitle derives a short subject line from the summary — the

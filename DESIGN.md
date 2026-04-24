@@ -157,7 +157,7 @@ sites.
 
 | Ref | What | Commit policy |
 |---|---|---|
-| `refs/sessions/<id>/tree` | executable history | mutating OR exec-with-diff |
+| `refs/sessions/<id>/tree` | executable history + boundary markers | mutating OR exec-with-diff OR no-file-change turn/compaction marker |
 | `refs/sessions/<id>/trace` | audit log | every tool call (empty tree) |
 | `refs/sessions/<id>/turns/<n>` | turn boundary tag | tagged via `Session.NextTurn` |
 
@@ -318,7 +318,9 @@ Per call, unconditionally:
 Then:
 - **trace ref**: always committed (even on failure; `Error:` trailer).
 - **tree ref**: committed iff `Mutating` (success) OR `Exec` AND
-  post-run tree hash differs from pre-run tree hash.
+  post-run tree hash differs from pre-run tree hash. Session turn
+  boundaries and accepted compactions may also add metadata commits with
+  the same tree hash so pure chat sessions remain forkable/auditable.
 
 ---
 
@@ -518,15 +520,19 @@ Invariants:
   commits on explicit confirmation. Headless `session.compact`
   compacts immediately, returns the summary/result payload, and does
   not have a built-in preview/confirm round-trip.
-- **Original turns survive on `trace`.** The `tree` ref receives a
-  compaction commit that replaces the conversation-view with the
-  summary; the `trace` ref keeps the raw turns unchanged. The
+- **Original turns survive in the append-only conversation log.** The
+  `tree` ref receives a compaction commit that records the
+  summary-replaces-turns event; the `trace` ref receives a parallel
+  marker for audit. The raw `.stado/conversation.jsonl` log is not
+  rewritten: it keeps the original turns and appends a compaction
+  marker that resume folds into the compacted conversation view. The
   compaction itself is a commit on both refs, so
   `git checkout refs/sessions/<id>/tree~1 -- …` recovers the
   pre-compaction state exactly. See §"Git-native state" for the
   ref model.
 - **Compaction marker.** The session's metadata (surfaced by
-  `stado session show`) records which turns were compacted and when.
+  `stado session show`) records which turns were compacted, when, and
+  the raw-log digest bound to the marker.
 
 ### Fork-from-point ergonomics
 

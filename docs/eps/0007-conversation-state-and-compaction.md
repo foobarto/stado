@@ -71,9 +71,12 @@ bundled default `auto-compact` background plugin follows that same
 fork-based path and the TUI now replays blocked hard-threshold prompts
 in the compacted child session it creates.
 Accepted compactions replace the current conversation view with the
-confirmed summary. The underlying compaction audit shape uses dual-ref
-compaction markers to distinguish the compacted conversation view from
-the preserved raw turn range where that state is recorded.
+confirmed summary, but they do not rewrite the raw conversation log.
+`conversation.jsonl` keeps the original message lines and appends a
+compaction event; resume folds that event into the compacted view. The
+underlying audit shape uses dual-ref compaction markers plus the raw-log
+digest to distinguish the compacted conversation view from the preserved
+raw turn range.
 
 Historical recovery uses child sessions instead of in-place rewrites.
 `session fork --at` and `session tree` expose the same primitive: pick a

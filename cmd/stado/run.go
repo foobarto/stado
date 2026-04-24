@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
@@ -77,13 +78,19 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			var priorMsgs []agent.Message
 			var continueSessID string
 			var continueWorktree string
+			var continueSession *stadogit.Session
 			if runSessionID != "" {
 				resolved, err := resolveSessionID(cfg, runSessionID)
 				if err != nil {
 					return fmt.Errorf("run: --session: %w", err)
 				}
+				_, sess, err := openPersistedSession(cfg, resolved)
+				if err != nil {
+					return fmt.Errorf("run: open session %s: %w", resolved, err)
+				}
 				continueSessID = resolved
-				continueWorktree = cfgWorktreeDirPath(cfg, resolved)
+				continueSession = sess
+				continueWorktree = sess.WorktreePath
 				priorMsgs, err = runtime.LoadConversation(continueWorktree)
 				if err != nil {
 					return fmt.Errorf("run: load conversation for %s: %w", resolved, err)
@@ -128,9 +135,13 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				if continueWorktree != "" {
 					toolWorktree = continueWorktree
 				}
-				sess, err := runtime.OpenSession(cfg, toolWorktree)
-				if err != nil {
-					return fmt.Errorf("session: %w", err)
+				sess := continueSession
+				if sess == nil {
+					var err error
+					sess, err = runtime.OpenSession(cfg, toolWorktree)
+					if err != nil {
+						return fmt.Errorf("session: %w", err)
+					}
 				}
 				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
 				if err != nil {
@@ -178,6 +189,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 						fmt.Fprintf(os.Stderr, "stado run: persist message %d: %v\n", i, err)
 					}
 				}
+				if continueSession != nil && opts.Executor == nil {
+					if err := continueSession.NextTurn(); err != nil {
+						return fmt.Errorf("run: turn boundary for %s: %w", continueSessID, err)
+					}
+				}
 			}
 			if !runJSON {
 				fmt.Fprintln(os.Stdout)
@@ -185,14 +201,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			return nil
 		})
 	},
-}
-
-// cfgWorktreeDirPath is a shorthand used only by run.go's session
-// continuation path. Inlined helper keeps the main command body
-// readable without pulling filepath into the import list here
-// (it's already in session.go).
-func cfgWorktreeDirPath(cfg *config.Config, id string) string {
-	return cfg.WorktreeDir() + "/" + id
 }
 
 // emitter returns an OnEvent callback that streams to out.

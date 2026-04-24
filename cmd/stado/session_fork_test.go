@@ -197,9 +197,9 @@ func writeWorkFile(t *testing.T, dir, name, body string) {
 }
 
 // commitAndTag builds a tree from the session worktree, commits to the
-// tree ref, and tags the resulting head as turns/<n>. Returns the commit
-// hash for assertions. Mirrors what the real turn-boundary flow does in
-// runtime.AgentLoop, minus the provider wiring.
+// tree ref, and tags the resulting boundary commit as turns/<n>. Returns
+// the turn-boundary commit hash for assertions. Mirrors what the real
+// turn-boundary flow does in runtime.AgentLoop, minus the provider wiring.
 func commitAndTag(t *testing.T, sess *stadogit.Session, n int) plumbing.Hash {
 	t.Helper()
 	tree, err := sess.BuildTreeFromDir(sess.WorktreePath)
@@ -216,7 +216,14 @@ func commitAndTag(t *testing.T, sess *stadogit.Session, n int) plumbing.Hash {
 	if err := sess.NextTurn(); err != nil {
 		t.Fatalf("NextTurn %d: %v", n, err)
 	}
-	return head
+	turnHead, err := sess.Sidecar.ResolveRef(stadogit.TurnTagRef(sess.ID, n))
+	if err != nil {
+		t.Fatalf("turn ref %d: %v", n, err)
+	}
+	if turnHead == head {
+		t.Fatalf("turn ref %d should point at boundary commit, not tool commit", n)
+	}
+	return turnHead
 }
 
 // chdir flips cwd and returns a function that restores it. Go's test

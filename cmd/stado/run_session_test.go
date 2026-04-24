@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +31,7 @@ func TestRun_SessionFlagResolvesPartialID(t *testing.T) {
 	defer func() { runSessionID = "" }()
 
 	// The resolve step is the part we can test without a provider.
-	// cfgWorktreeDirPath + LoadConversation should succeed when given
-	// the resolved id.
+	// LoadConversation should succeed when given the resolved id.
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -94,6 +94,92 @@ func TestRun_SessionPersistsNewMessages(t *testing.T) {
 	}
 	if all[3].Content[0].Text.Text != "follow-up reply" {
 		t.Errorf("appended assistant text wrong: %q", all[3].Content[0].Text.Text)
+	}
+}
+
+func TestRun_SessionCreatesTurnBoundaryWithoutTools(t *testing.T) {
+	oldLoadConfig := runLoadConfig
+	oldBuildProvider := runBuildProvider
+	oldAgentLoop := runAgentLoop
+	oldPrompt, oldSkill, oldSessionID := runPrompt, runSkill, runSessionID
+	oldMaxTurns, oldJSON, oldTools, oldSandboxFS := runMaxTurns, runJSON, runTools, runSandboxFS
+	defer func() {
+		runLoadConfig = oldLoadConfig
+		runBuildProvider = oldBuildProvider
+		runAgentLoop = oldAgentLoop
+		runPrompt, runSkill, runSessionID = oldPrompt, oldSkill, oldSessionID
+		runMaxTurns, runJSON, runTools, runSandboxFS = oldMaxTurns, oldJSON, oldTools, oldSandboxFS
+	}()
+
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	_ = os.MkdirAll(cwd, 0o755)
+	restore := chdir(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.MkdirAll(cfg.WorktreeDir(), 0o755)
+	sc, err := openSidecar(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), "run-turn-test", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runLoadConfig = func() (*config.Config, error) { return cfg, nil }
+	runBuildProvider = func(*config.Config) (agent.Provider, error) { return runHookProvider{}, nil }
+	runAgentLoop = func(_ context.Context, opts runtime.AgentLoopOptions) (string, []agent.Message, error) {
+		if opts.Executor != nil {
+			t.Fatal("no-tool run should not build an executor")
+		}
+		return "reply", append(opts.Messages, agent.Text(agent.RoleAssistant, "reply")), nil
+	}
+
+	runPrompt = "hi"
+	runSkill = ""
+	runSessionID = sess.ID
+	runMaxTurns = 1
+	runJSON = true
+	runTools = false
+	runSandboxFS = false
+
+	runCmd.SetContext(context.Background())
+	if err := runCmd.RunE(runCmd, nil); err != nil {
+		t.Fatalf("runCmd.RunE: %v", err)
+	}
+
+	msgs, err := runtime.LoadConversation(sess.WorktreePath)
+	if err != nil {
+		t.Fatalf("LoadConversation: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("conversation messages = %d, want 2", len(msgs))
+	}
+	turns, err := sc.ListTurnRefs(sess.ID)
+	if err != nil {
+		t.Fatalf("ListTurnRefs: %v", err)
+	}
+	if len(turns) != 1 || turns[0].Turn != 1 {
+		t.Fatalf("turn refs = %+v, want single turn 1", turns)
+	}
+	head, err := sc.ResolveRef(stadogit.TurnTagRef(sess.ID, 1))
+	if err != nil {
+		t.Fatalf("ResolveRef turn 1: %v", err)
+	}
+	commit, err := sc.Repo().CommitObject(head)
+	if err != nil {
+		t.Fatalf("CommitObject: %v", err)
+	}
+	if commit.PGPSignature == "" {
+		t.Fatal("turn boundary commit is unsigned")
 	}
 }
 

@@ -114,9 +114,8 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	// invalidates every downstream cache entry. We record a hash at each
 	// turn boundary and verify it survived the tool-execution interlude.
 	// Mismatch panics under `go test` (fail loudly in CI); in release it
-	// logs slog.Warn and continues — we cannot undo the mutation from here,
-	// but the session's prompt-cache hit ratio will visibly collapse and
-	// operators will see the warning line next to the metric.
+	// logs slog.Warn and aborts the loop because continuing would make the
+	// prompt-cache/audit trail silently diverge from the append-only model.
 	var priorHash string
 	var priorLen int
 
@@ -139,6 +138,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 					slog.String("expected_hash", priorHash),
 					slog.String("got_hash", got),
 				)
+				return finalText, msgs, errors.New(violationMsg)
 			}
 		}
 
@@ -236,6 +236,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
 		}
 		if len(calls) == 0 {
+			if opts.Executor != nil && opts.Executor.Session != nil {
+				if err := opts.Executor.Session.NextTurn(); err != nil {
+					turnSpan.RecordError(err)
+					turnSpan.SetStatus(codes.Error, err.Error())
+					turnSpan.End()
+					return finalText, msgs, fmt.Errorf("turn boundary: %w", err)
+				}
+			}
 			turnSpan.End()
 			return finalText, msgs, nil
 		}

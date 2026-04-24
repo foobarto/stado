@@ -54,6 +54,7 @@ func TestCommitCompaction_WritesOnBothRefs(t *testing.T) {
 		ToTurn:     2,
 		TurnsTotal: 3,
 		ByAuthor:   "stado-test",
+		RawLogSHA:  "sha256:abc123",
 	})
 	if err != nil {
 		t.Fatalf("CommitCompaction: %v", err)
@@ -106,23 +107,40 @@ func TestCommitCompaction_WritesOnBothRefs(t *testing.T) {
 		if !strings.Contains(c.Message, "Compaction-By: stado-test") {
 			t.Errorf("message missing author trailer: %q", c.Message)
 		}
+		if !strings.Contains(c.Message, "Compaction-Raw-Log-SHA: sha256:abc123") {
+			t.Errorf("message missing raw-log trailer: %q", c.Message)
+		}
 	}
 }
 
-// TestCommitCompaction_EmptySessionErrors — compaction on a session
-// with no tree-ref HEAD can't produce a meaningful parent tree hash,
-// so it errors cleanly rather than writing an orphan root commit.
-func TestCommitCompaction_EmptySessionErrors(t *testing.T) {
+// TestCommitCompaction_EmptySessionWritesEmptyTreeMarker covers pure chat
+// sessions: even with no prior tree ref, an accepted compaction still
+// lands on tree + trace so the history-shaping action is auditable.
+func TestCommitCompaction_EmptySessionWritesEmptyTreeMarker(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	sess, err := CreateSession(sc, filepath.Join(sc.Path, "..", "wt"), "s-empty", plumbing.ZeroHash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = sess.CommitCompaction(CompactionMeta{Title: "x", Summary: "y"})
-	if err == nil {
-		t.Fatal("expected error for empty-session compaction")
+	treeSHA, traceSHA, err := sess.CommitCompaction(CompactionMeta{Title: "x", Summary: "y"})
+	if err != nil {
+		t.Fatalf("CommitCompaction: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tree") {
-		t.Errorf("error should mention tree ref, got: %v", err)
+	if treeSHA == plumbing.ZeroHash || traceSHA == plumbing.ZeroHash {
+		t.Fatalf("expected tree + trace markers, got tree=%s trace=%s", treeSHA, traceSHA)
+	}
+	treeCommit, err := object.GetCommit(sc.repo.Storer, treeSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(treeCommit.ParentHashes) != 0 {
+		t.Fatalf("empty-session compaction should be root tree commit, got parents %v", treeCommit.ParentHashes)
+	}
+	emptyTree, err := sess.writeEmptyTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if treeCommit.TreeHash != emptyTree {
+		t.Errorf("tree hash = %s, want empty tree %s", treeCommit.TreeHash, emptyTree)
 	}
 }

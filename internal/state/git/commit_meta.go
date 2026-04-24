@@ -99,6 +99,7 @@ type CompactionMeta struct {
 	ToTurn     int    // last turn included
 	TurnsTotal int    // number of turns collapsed (for audit)
 	ByAuthor   string // who/what ran the compaction (usually the session's bot identity)
+	RawLogSHA  string // digest of conversation.jsonl before the compaction event
 }
 
 // formatCompactionMessage renders CompactionMeta into the structured
@@ -126,6 +127,9 @@ func (c CompactionMeta) formatMessage(ts time.Time) string {
 	}
 	if c.ByAuthor != "" {
 		trailers = append(trailers, struct{ k, v string }{"Compaction-By", c.ByAuthor})
+	}
+	if c.RawLogSHA != "" {
+		trailers = append(trailers, struct{ k, v string }{"Compaction-Raw-Log-SHA", c.RawLogSHA})
 	}
 	for _, t := range trailers {
 		if t.v == "" {

@@ -149,6 +149,10 @@ Headless mode (`stado headless`) honours the same thresholds, but its
 JSON event stream emits `session.update { kind: "context_warning",
 level: "soft" | "hard" }` when completed turns sit at or above the
 configured threshold. Headless does not block its callers on its own.
+When a headless session has a git-backed session attached, compaction
+first persists any in-memory transcript to the append-only conversation
+log, then records the same raw-log digest and dual-ref markers as the
+TUI path.
 
 ## Gotchas
 

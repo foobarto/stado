@@ -6,7 +6,7 @@ stado is a **sandboxed, git-native coding-agent runtime**:
 
 - Tight internal coding-agent interface (not an LLM abstraction); 4 direct implementations
 - User repo stays pristine; all agent state lives in an alternates-linked sidecar
-- Dual-ref model: `tree` (executable, mutations only) + `trace` (audit, every call)
+- Dual-ref model: `tree` (executable state plus turn/compaction markers) + `trace` (audit, every call)
 - Every tool call goes through an OS-level sandbox with a capability manifest
 - WASM plugins with capability-bound signed manifests
 - TUI + headless both; ACP server for editor integration; MCP client + `mcp-server` surface for tool interop
@@ -161,7 +161,7 @@ session at a historical commit/turn tag.
 
 | Ref | Purpose |
 |-----|---------|
-| `refs/sessions/<id>/tree` | Executable history — commits on mutations only |
+| `refs/sessions/<id>/tree` | Executable history plus no-file-change turn/compaction markers |
 | `refs/sessions/<id>/trace` | Audit log — one empty-tree commit per tool call |
 
 Parent chain at fork points shared by both refs.
@@ -593,8 +593,8 @@ not just documentation — DESIGN is the single source of truth for wording):
 | 11.3.2 | TUI action — command-palette entry + slash command (`/compact`). |
 | 11.3.3 | Summarisation call — uses the active provider, cheap-model preference where available (e.g. Anthropic haiku class). **Open question:** should summarisation be pinned to a separate `[context.compaction.model]` config? Deferred until we see real usage. |
 | 11.3.4 | Summary-preview-edit-confirm flow. User sees the proposed summary, can edit, can reject. No commit without explicit confirmation. |
-| 11.3.5 | Dual-ref compaction commit: `tree` gets the summary-replaces-turns commit, `trace` keeps raw turns unchanged. `checkout tree~1` restores pre-compaction state. |
-| 11.3.6 | Compaction-marker metadata surfaced by `stado session show` — which turns, when, summary SHA. |
+| 11.3.5 | Dual-ref compaction commit: `tree` gets the summary-replaces-turns marker, `trace` gets a parallel audit marker, and the append-only conversation log keeps raw turns plus a compaction event. `checkout tree~1` restores pre-compaction file state. |
+| 11.3.6 | Compaction-marker metadata surfaced by `stado session show` — which turns, when, summary/raw-log SHA. |
 
 ### 11.4 Tool-output curation + in-turn dedup
 
@@ -668,7 +668,7 @@ canonical shape — and PR K2 for the host imports that enable it.
 |----------|------------|
 | LLM abstraction | Tight internal `pkg/agent` interface (~200 LOC) — a coding-agent interface, not a generic LLM interface. 4 direct implementations: Anthropic, OpenAI, Google, OAI-compat HTTP. No third-party abstraction library. |
 | Session storage | Sidecar bare repo `${XDG_DATA_HOME}/stado/sessions/<repo-id>.git` with alternates to user's `.git/objects`. Worktrees at `${XDG_STATE_HOME}/stado/worktrees/<session-id>/`. User repo stays pristine. |
-| Commit granularity | Dual-ref: `tree` (mutations only, diff-then-commit for exec) + `trace` (every tool call, empty-tree commits). Turn boundaries as tags. |
+| Commit granularity | Dual-ref: `tree` records file-changing mutations plus no-file-change turn/compaction boundary commits; `trace` records every tool call as empty-tree commits. Turn boundaries are tagged. |
 | Signing | Releases: cosign keyless (primary) + minisign (airgap fallback), both on every release. Plugins: Ed25519 signed manifest envelope with capability binding, rollback protection, optional Rekor attestation. |
 | Context engine | Deleted. Replaced with ripgrep, ast-grep, LSP-backed tools, and `read_with_context`. |
 | TUI | Keep bubbletea TUI + add headless mode. |

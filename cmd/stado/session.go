@@ -534,6 +534,13 @@ var sessionShowCmd = &cobra.Command{
 				if title != "" {
 					fmt.Printf("             %s\n", title)
 				}
+				if m.RawLogSHA != "" {
+					raw := m.RawLogSHA
+					if len(raw) > 19 {
+						raw = raw[:19]
+					}
+					fmt.Printf("             raw-log %s\n", raw)
+				}
 			}
 		}
 		return nil

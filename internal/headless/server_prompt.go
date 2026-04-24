@@ -144,6 +144,20 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	}
 
 	sess.mu.Lock()
+	gs := sess.gitSess
+	persistedViewLen := sess.persistedViewLen
+	sess.mu.Unlock()
+	if gs != nil {
+		nextPersisted, err := runtime.AppendMessagesFrom(gs.WorktreePath, msgs, persistedViewLen)
+		sess.mu.Lock()
+		sess.persistedViewLen = nextPersisted
+		sess.mu.Unlock()
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+		}
+	}
+
+	sess.mu.Lock()
 	sess.messages = msgs
 	sess.mu.Unlock()
 
