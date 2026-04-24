@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.7.0 — 2026-04-24
+
 ### TUI
 
 - **Added a bundled theme picker.** `/theme` and `Ctrl+X T` now open a
