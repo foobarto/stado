@@ -12,6 +12,12 @@ Plugins / Infra / Fixes.
   Node 24 action execution and pin GoReleaser / golangci-lint versions
   instead of relying on `latest`.
 
+### Docs
+
+- **Accepted EP-15 memory-system design.** The memory plugin standard
+  now defines item schema, scopes, host APIs, retrieval, review controls,
+  storage, and prompt-injection defenses.
+
 ## v0.13.1 — 2026-04-24
 
 ### Fixes
