@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.11.0 — 2026-04-24
+
 ### TUI
 
 - **Expanded multi-session management.** The session overlay now supports
