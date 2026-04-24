@@ -12,6 +12,9 @@ history:
     status: Implemented
     version: v0.1.0
     note: Records the shipped editable system prompt template created under the stado config directory on first run.
+  - date: 2026-04-24
+    status: Implemented
+    note: Default template now follows foobarto/cairn's governing principles and workflow discipline while still preserving stado identity.
 ---
 
 # EP-18: Configurable System Prompt Template
@@ -64,11 +67,21 @@ rendering path: TUI, `stado run`, ACP, and headless. If
 `~`, loads it, validates it, and renders it instead of the default
 template.
 
+The compiled default template follows the cairn workflow defaults:
+think before coding, simplicity first, surgical changes, and
+goal-driven execution. It also tells the agent to honor cairn artefacts
+such as `docs/sessions`, `docs/todo.md`, `docs/project-profile.md`, and
+`docs/workflow` when they exist, without creating cairn scaffolding in a
+project that has not opted into it.
+
 ## Migration / rollout
 
 Existing users get the default template created automatically on the
-next config load. Users who want the previous behavior can edit that
-file or set `[agent].system_prompt_path` to a custom template.
+next config load. If an existing default-path `system-prompt.md`
+exactly matches a known generated template from an older release, stado
+updates it to the current compiled default. Customized templates are not
+overwritten. Users who want different behavior can edit that file or set
+`[agent].system_prompt_path` to a custom template.
 
 ## Failure modes
 

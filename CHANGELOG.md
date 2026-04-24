@@ -6,7 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-No notable changes yet.
+### Prompt
+
+- **Aligned the default system prompt with cairn.** New first-run
+  `system-prompt.md` templates now include cairn's governing
+  principles, six-phase workflow, session artefact discipline, and
+  autonomous-work safety rules while keeping stado identity fixed.
+  Untouched generated default templates from prior releases are updated
+  automatically; customized templates are left alone.
 
 ## v0.12.0 — 2026-04-24
 

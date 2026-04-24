@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -320,6 +321,7 @@ func Load() (*Config, error) {
 }
 
 const defaultSystemPromptFilename = "system-prompt.md"
+const legacyDefaultSystemPromptTemplateSHA256 = "e712fed3c1f394afa61cb4f078fe3bde7acee8a902e75ab5914753aafcf04188"
 
 func (c *Config) loadSystemPromptTemplate() error {
 	if strings.TrimSpace(c.Agent.SystemPromptPath) == "" {
@@ -342,10 +344,15 @@ func (c *Config) loadSystemPromptTemplate() error {
 }
 
 func ensureDefaultSystemPromptTemplate(path string) error {
-	if _, err := os.Stat(path); err == nil {
+	if data, err := os.ReadFile(path); err == nil {
+		if isLegacyDefaultSystemPromptTemplate(data) {
+			if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {
+				return fmt.Errorf("update default system prompt template: %w", err)
+			}
+		}
 		return nil
 	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat default system prompt template: %w", err)
+		return fmt.Errorf("read default system prompt template: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
@@ -354,6 +361,11 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 		return fmt.Errorf("write default system prompt template: %w", err)
 	}
 	return nil
+}
+
+func isLegacyDefaultSystemPromptTemplate(data []byte) bool {
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:]) == legacyDefaultSystemPromptTemplateSHA256
 }
 
 func expandHome(path string) string {

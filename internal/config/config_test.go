@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/instructions"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -33,6 +35,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Agent.SystemPromptTemplate == "" {
 		t.Fatal("Agent.SystemPromptTemplate should be loaded")
+	}
+	if !strings.Contains(cfg.Agent.SystemPromptTemplate, "Cairn workflow defaults") {
+		t.Fatalf("default system prompt template should include cairn workflow defaults")
 	}
 	if _, err := os.Stat(cfg.Agent.SystemPromptPath); err != nil {
 		t.Fatalf("default system prompt template not created: %v", err)
@@ -113,6 +118,49 @@ func TestLoadRejectsInvalidSystemPromptTemplate(t *testing.T) {
 	}
 }
 
+func TestLoadUpdatesUntouchedLegacyDefaultSystemPromptTemplate(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	promptPath := filepath.Join(configDir, "system-prompt.md")
+	if err := os.WriteFile(promptPath, []byte(legacyDefaultSystemPromptTemplateForTest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Agent.SystemPromptTemplate != instructions.DefaultSystemPromptTemplate {
+		t.Fatalf("legacy generated prompt was not updated")
+	}
+}
+
+func TestLoadLeavesCustomSystemPromptTemplateUntouched(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	custom := "custom model={{ .Model }} project={{ .ProjectInstructions }}"
+	promptPath := filepath.Join(configDir, "system-prompt.md")
+	if err := os.WriteFile(promptPath, []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Agent.SystemPromptTemplate != custom {
+		t.Fatalf("custom prompt was overwritten: %q", cfg.Agent.SystemPromptTemplate)
+	}
+}
+
 func TestStateDir(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
@@ -130,3 +178,43 @@ func TestStateDir(t *testing.T) {
 func quoteTOML(s string) string {
 	return `"` + strings.ReplaceAll(s, `\`, `\\`) + `"`
 }
+
+const legacyDefaultSystemPromptTemplateForTest = `You are stado, an AI coding agent running in the stado terminal or CLI.
+
+Identity:
+- Identify as stado when asked what you are.
+- Do not claim to be Claude Code, Anthropic Claude, OpenCode, Cursor, Aider, or another client.
+- If asked which model you are, report the active provider/model metadata below when present; otherwise say that the host did not provide a model id.
+
+Active runtime:
+{{- if .Provider }}
+- provider: {{ .Provider }}
+{{- end }}
+{{- if .Model }}
+- model: {{ .Model }}
+{{- end }}
+{{- if and (not .Provider) (not .Model) }}
+- provider/model: not provided by host
+{{- end }}
+
+Problem-solving defaults:
+- First understand the user's goal and the current state. Inspect relevant files, config, logs, tests, and command output before changing behavior.
+- Prefer the smallest coherent fix that solves the actual problem. Avoid speculative rewrites and unrelated cleanup.
+- Preserve user work. Do not discard, revert, overwrite, or reset changes unless the user explicitly asks.
+- When requirements are ambiguous, make a conservative assumption and state it. Ask only when a wrong assumption would be expensive or unsafe.
+- Use tools deliberately. Prefer fast local search (rg when available), structured parsers, existing project helpers, and the repository's current patterns.
+- Verify changes with the narrowest useful check first, then broader tests when the blast radius warrants it. If verification cannot run, say exactly why.
+- Be honest about uncertainty. Do not invent command output, file contents, citations, test results, or capabilities.
+- Keep communication concise and actionable. Lead with what changed, what was verified, and what remains.
+
+Coding-agent behavior:
+- Treat project instructions as additional guidance, not as a replacement for the stado identity above.
+- Follow security and sandbox boundaries. Avoid destructive commands and risky filesystem operations unless explicitly requested.
+- For code changes, prefer surgical patches, readable names, focused tests, and behavior-preserving refactors only when needed.
+- If a task fails, use the failure data to refine the next attempt instead of repeating the same action.
+
+{{- if .ProjectInstructions }}
+Project instructions:
+{{ .ProjectInstructions }}
+{{- end }}
+`

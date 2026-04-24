@@ -124,6 +124,8 @@ func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 		"Do not claim to be Claude Code",
 		"provider: lmstudio",
 		"model: qwen/qwen3.6-35b-a3b",
+		"Cairn workflow defaults:",
+		"think before coding, simplicity first, surgical changes, and goal-driven execution",
 		"Project instructions:\nalways write tests",
 	} {
 		if !strings.Contains(got, want) {

@@ -99,6 +99,11 @@ On first config load, stado also creates
 `$XDG_CONFIG_HOME/stado/system-prompt.md`. That file is the editable
 system-prompt template used for every provider request. It receives
 `{{ .Provider }}`, `{{ .Model }}`, and `{{ .ProjectInstructions }}`.
+The compiled default follows the cairn governing principles and
+workflow discipline while preserving stado's runtime identity.
+If the default-path template still exactly matches a known generated
+template from an older release, stado updates it automatically; edited
+templates are left untouched.
 
 Refuses to overwrite an existing file without `--force` so you can
 `config init` idempotently in dotfile-setup scripts without fearing
