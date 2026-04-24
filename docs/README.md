@@ -48,6 +48,10 @@ Shorter forms live in:
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |
 | Enhancement Proposals | [eps/README.md](eps/README.md) | Durable design records for major architectural decisions |
 
+## Reports
+
+- [opencode TUI UAT report — 2026-04-24](reports/2026-04-24-opencode-tui-uat.md)
+
 ## Status
 
 `stado <cmd> --help` remains authoritative for exact flag spelling, but
