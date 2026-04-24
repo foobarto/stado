@@ -44,6 +44,9 @@ type Host struct {
 	SessionRead     bool
 	SessionFork     bool
 	LLMInvokeBudget int
+	MemoryPropose   bool
+	MemoryRead      bool
+	MemoryWrite     bool
 
 	// SessionBridge wires the host-side session operations (read
 	// history, fork, LLM invoke, subscribe-to-events). Nil when the
@@ -52,6 +55,12 @@ type Host struct {
 	// an interface so TUI / headless / tests can plug in different
 	// backings.
 	SessionBridge SessionBridge
+
+	// MemoryBridge wires capability-gated memory operations for
+	// plugin-backed long-lived facts. Nil means memory is unavailable
+	// in this run context; host imports return -1 rather than falling
+	// back to ambient storage.
+	MemoryBridge MemoryBridge
 
 	// ApprovalBridge powers explicit plugin-requested human approval
 	// prompts. Unlike the old global tool gate, this is opt-in per
@@ -103,6 +112,14 @@ type SessionBridge interface {
 	// text and the number of tokens consumed (used to enforce the
 	// per-session budget).
 	InvokeLLM(ctx context.Context, prompt string) (reply string, tokensUsed int, err error)
+}
+
+// MemoryBridge is the capability-checked persistent-memory surface
+// exposed to plugins that declare `memory:*` capabilities.
+type MemoryBridge interface {
+	Propose(ctx context.Context, payload []byte) error
+	Query(ctx context.Context, payload []byte) ([]byte, error)
+	Update(ctx context.Context, payload []byte) error
 }
 
 // ApprovalBridge is the interactive UI hook plugins can call when they
@@ -178,6 +195,15 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 			}
 			h.LLMInvokeBudget = budget
+		case "memory":
+			switch parts[1] {
+			case "propose":
+				h.MemoryPropose = true
+			case "read":
+				h.MemoryRead = true
+			case "write":
+				h.MemoryWrite = true
+			}
 		case "exec":
 			switch parts[1] {
 			case "shallow_bash", "bash":
@@ -198,6 +224,10 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 		}
 	}
 	return h
+}
+
+func (h *Host) NeedsMemoryBridge() bool {
+	return h.MemoryPropose || h.MemoryRead || h.MemoryWrite
 }
 
 // allowRead / allowWrite perform the capability check. Current

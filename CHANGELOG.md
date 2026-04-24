@@ -6,6 +6,13 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugins
+
+- **Added the first memory host API slice.** Plugins can now declare
+  `memory:propose`, `memory:read`, and `memory:write` to use a
+  capability-gated local append-only memory store for candidate capture,
+  approved-memory retrieval, and explicit write mutations.
+
 ### Infra
 
 - **Pinned CI and release tool versions.** GitHub workflows now opt into

@@ -486,7 +486,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
+	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
 }
 
 // openModelPicker builds the item list for the current provider +

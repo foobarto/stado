@@ -90,8 +90,9 @@ Third-party stado plugins ship as wasm binaries, executed inside
 no raw syscalls), so the kernel layer is unnecessary. What plugins
 CAN do is expressed through host imports the stado runtime
 provides — `session:read`, `session:fork`, `fs:read`, `fs:write`,
-`llm:invoke`, `stado_log`. Each import is capability-gated against
-the plugin manifest.
+`llm:invoke`, `memory:propose`, `memory:read`, `memory:write`, and
+`stado_log`. Each import is capability-gated against the plugin
+manifest.
 
 The manifest is Ed25519-signed by the author. Installation checks
 the signature against the pinned trust store. Revocation is
@@ -112,6 +113,9 @@ manifests:
 | `net:deny` | — | Block all egress (default for unlisted) |
 | `exec:<binary>` | `exec:/usr/bin/git` | Invoke a specific binary |
 | `env:<VAR>` | `env:GITHUB_TOKEN` | Inherit an env var into the child |
+| `memory:propose` | — | Append a candidate memory for later review |
+| `memory:read` | — | Query approved scoped memories |
+| `memory:write` | — | Apply user-approved memory mutations |
 
 **Default deny, opt-in allow.** For wasm plugins, an empty capability
 list means "no host privileges." For stdio MCP servers, an empty

@@ -23,6 +23,7 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerFSImports(builder, host)
 	registerSessionImports(builder, host)
 	registerLLMImport(builder, host)
+	registerMemoryImports(builder, host)
 	installNativeToolImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {

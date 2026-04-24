@@ -23,6 +23,9 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 			"exec:search",
 			"exec:ast_grep",
 			"lsp:query",
+			"memory:propose",
+			"memory:read",
+			"memory:write",
 			"net:deny",  // skipped — plugin-level "deny" isn't a useful allow entry
 			"net:allow", // skipped — too permissive for plugins
 			"malformed", // no colon → skipped
@@ -49,6 +52,12 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	}
 	if !h.LSPQuery {
 		t.Error("LSPQuery should be enabled")
+	}
+	if !h.MemoryPropose || !h.MemoryRead || !h.MemoryWrite {
+		t.Errorf("memory caps not parsed: propose=%v read=%v write=%v", h.MemoryPropose, h.MemoryRead, h.MemoryWrite)
+	}
+	if !h.NeedsMemoryBridge() {
+		t.Error("NeedsMemoryBridge should be true when memory caps are declared")
 	}
 	if h.Logger == nil {
 		t.Error("Logger should default to slog.Default")

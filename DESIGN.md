@@ -604,8 +604,8 @@ and the invariants it must honour. The canonical motivating case is
 auto-compaction, but the surface is deliberately broader.
 
 **Capabilities a context-management plugin may request.** In addition
-to the existing `fs:*`, `net:*`, and `exec:*` capabilities, four
-session/LLM capabilities gate the host imports below:
+to the existing `fs:*`, `net:*`, and `exec:*` capabilities, session,
+LLM, and memory capabilities gate the host imports below:
 
 | Capability | Purpose | Host import |
 |---|---|---|
@@ -613,6 +613,9 @@ session/LLM capabilities gate the host imports below:
 | `session:read` | Read the current session's conversation history, token counts, and metadata. Read-only — no mutation. | `stado_session_read(field, buf, len) → n` |
 | `session:fork` | Initiate a fork-from-point programmatically, seeding the child session with a plugin-provided message (e.g. a summary). Returns the new session ID. | `stado_session_fork(at_turn_ref, seed_message, buf, len) → n` |
 | `llm:invoke` | Call an LLM with a prompt and receive the response. Uses the active provider by default; plugin manifest may declare a preferred backend. Subject to rate-limiting and budget caps set in plugin config. | `stado_llm_invoke(prompt_ptr, prompt_len, out_buf, out_len) → n` |
+| `memory:propose` | Append a candidate memory for later user review. Does not make the memory prompt-eligible. | `stado_memory_propose(json_ptr, json_len) → rc` |
+| `memory:read` | Query approved, scoped, non-secret memories from the local append-only memory store. | `stado_memory_query(json_ptr, json_len, buf, cap) → n` |
+| `memory:write` | Apply an explicit memory mutation such as approve, reject, delete, upsert, or supersede. Intended for user-approved flows. | `stado_memory_update(json_ptr, json_len) → rc` |
 
 > **ABI note.** The shipped observe surface is polling-based:
 > `stado_session_next_event` replaced the earlier callback-shaped

@@ -49,7 +49,7 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 
 	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
 	for _, id := range ids {
-		bp, note := m.loadOneBackground(ctx, rt, pluginsRoot, id)
+		bp, note := m.loadOneBackground(ctx, rt, cfg, pluginsRoot, id)
 		if note != "" {
 			if bp != nil {
 				slog.Info(note)
@@ -90,10 +90,11 @@ func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
 // Returns (plugin, advisory) — advisory is non-empty on load
 // failure OR on successful load so the user knows the plugin is
 // active. nil plugin signals "skip this one."
-func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) (*pluginRuntime.BackgroundPlugin, string) {
+func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, cfg *config.Config, pluginsRoot, id string) (*pluginRuntime.BackgroundPlugin, string) {
 	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
 		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
 		host.ApprovalBridge = tuiApprovalBridge{model: m}
+		attachMemoryBridge(cfg, host, bundled.Manifest.Name)
 		if bridge := m.buildPluginBridge(bundled.Manifest.Name); bridge != nil {
 			host.SessionBridge = bridge
 		}
@@ -113,7 +114,6 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
 		return nil, fmt.Sprintf("background plugin %s: digest mismatch: %v", id, err)
 	}
-	cfg, _ := config.Load()
 	if cfg != nil {
 		ts := plugins.NewTrustStore(cfg.StateDir())
 		if err := ts.VerifyManifest(mf, sig); err != nil {
@@ -126,6 +126,7 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 	}
 	host := pluginRuntime.NewHost(*mf, dir, nil)
 	host.ApprovalBridge = tuiApprovalBridge{model: m}
+	attachMemoryBridge(cfg, host, mf.Name)
 	if bridge := m.buildPluginBridge(mf.Name); bridge != nil {
 		host.SessionBridge = bridge
 	}
@@ -422,7 +423,7 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 // module under its capability-bound Host, invokes the tool, and posts
 // the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
 // runaway plugin can't wedge the TUI.
-func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
+func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -439,6 +440,7 @@ func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, 
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
 		host.ApprovalBridge = approval
+		attachMemoryBridge(cfg, host, mf.Name)
 		// Attach the session bridge only when the plugin declared at
 		// least one session/LLM capability AND the caller supplied a
 		// bridge. Keeps existing tool-only plugins (like the hello
@@ -472,6 +474,13 @@ func runPluginToolAsync(dir string, mf *plugins.Manifest, tdef plugins.ToolDef, 
 		}
 		return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, content: res.Content}
 	}
+}
+
+func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName string) {
+	if cfg == nil || host == nil || !host.NeedsMemoryBridge() {
+		return
+	}
+	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
 }
 
 // renderInstalledPluginList scans pluginsRoot and returns a human body

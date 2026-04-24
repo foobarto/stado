@@ -127,8 +127,10 @@ Installed plugin IDs match the directory names under the state dir, so
 
 `stado plugin run --session <id>` binds the plugin to the target
 session's persisted conversation and worktree, so `session:read`,
-`session:fork`, and `llm:invoke` work on the CLI path too. Without
-`--session`, the command stays a one-shot no-session path and
+`session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
+declare `memory:propose`, `memory:read`, or `memory:write` are wired to
+the local append-only memory store under the stado state directory.
+Without `--session`, the command stays a one-shot no-session path and
 session-aware capabilities see zeroed fields.
 
 ## Config

@@ -84,6 +84,7 @@ var pluginRunCmd = &cobra.Command{
 		defer func() { _ = rt.Close(ctx) }()
 
 		host := pluginRuntime.NewHost(*m, dir, nil)
+		attachPluginMemoryBridge(cfg, host, m.Name)
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {
 				bridge, note, err := buildPluginRunBridge(cmd.Context(), cfg, pluginRunSession, m.Name, host.LLMInvokeBudget > 0)
@@ -140,6 +141,13 @@ var pluginRunCmd = &cobra.Command{
 		fmt.Println(res.Content)
 		return nil
 	},
+}
+
+func attachPluginMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName string) {
+	if cfg == nil || host == nil || !host.NeedsMemoryBridge() {
+		return
+	}
+	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
 }
 
 func init() {

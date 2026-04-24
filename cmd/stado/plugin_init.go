@@ -57,11 +57,11 @@ var pluginInitCmd = &cobra.Command{
 		}
 
 		files := map[string]string{
-			"go.mod":                         renderGoMod(name),
-			"main.go":                        renderMainGo(name),
-			"plugin.manifest.template.json":  renderManifest(name),
-			"build.sh":                       renderBuildSh(name),
-			"README.md":                      renderReadme(name),
+			"go.mod":                        renderGoMod(name),
+			"main.go":                       renderMainGo(name),
+			"plugin.manifest.template.json": renderManifest(name),
+			"build.sh":                      renderBuildSh(name),
+			"README.md":                     renderReadme(name),
 		}
 		for f, body := range files {
 			path := filepath.Join(dir, f)
@@ -110,8 +110,8 @@ go 1.25
 
 func renderManifest(name string) string {
 	// Minimal manifest — same shape as hello-go's template. Users
-	// who need session capabilities add them to the capabilities
-	// array (see SECURITY.md + DESIGN.md for the set).
+	// who need session or memory capabilities add them to the
+	// capabilities array (see SECURITY.md + DESIGN.md for the set).
 	return `{
   "name": "` + name + `",
   "version": "0.1.0",
@@ -191,7 +191,8 @@ stado plugin run ` + name + `-0.1.0 greet '{"name":"world"}'
   ` + "`stado_free`" + `, ` + "`stado_tool_<name>`" + `) stays stable across tools.
 - Edit ` + "`plugin.manifest.template.json`" + ` to declare your tool's schema
   and any capabilities you need (` + "`fs:read:<path>`" + `, ` + "`session:read`" + `,
-  ` + "`llm:invoke:<budget>`" + `, etc. — see DESIGN.md for the full set).
+  ` + "`memory:propose`" + `, ` + "`llm:invoke:<budget>`" + `, etc. — see DESIGN.md for
+  the full set).
 - Bump the manifest's ` + "`version`" + ` when you change anything; stado's
   rollback guard rejects installs that go backwards.
 
