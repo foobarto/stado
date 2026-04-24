@@ -76,6 +76,17 @@ func TestEscapeCloses(t *testing.T) {
 	}
 }
 
+func TestFavoriteMarkerRenders(t *testing.T) {
+	m := New()
+	items := sampleItems()
+	items[1].Favorite = true
+	m.Open(items, "")
+	got := m.View(120, 40)
+	if !strings.Contains(got, "favorite") {
+		t.Fatalf("rendered picker missing favorite marker: %q", got)
+	}
+}
+
 // TestCatalogForKnownProviders returns something non-empty.
 func TestCatalogForKnownProviders(t *testing.T) {
 	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras"} {

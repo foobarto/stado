@@ -21,6 +21,9 @@ Plugins / Infra / Fixes.
 - **Improved model picker continuity.** The picker now marks the
   current model and remembers recent model/provider selections under
   stado state so frequently used choices surface first.
+- **Added model picker favorites.** Press `ctrl+f` in the model picker
+  to favorite or unfavorite the highlighted model; favorites persist in
+  stado state and appear before recents.
 - **Calmed the default sidebar.** Debug-only diagnostics such as info
   logs, unknown context limits, unbounded budgets, and normal sandbox
   status now stay hidden unless `/debug` enables sidebar diagnostics

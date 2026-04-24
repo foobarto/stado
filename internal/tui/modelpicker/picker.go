@@ -30,6 +30,7 @@ type Item struct {
 	Note         string // optional per-model hint (context window, etc.)
 	Current      bool
 	Recent       bool
+	Favorite     bool
 }
 
 // Model is the modal picker. Open populates Items; Update handles the
@@ -78,6 +79,19 @@ func (m *Model) Selected() *Item {
 		return nil
 	}
 	return &m.Matches[m.Cursor]
+}
+
+func (m *Model) SetFavorite(id, providerName string, favorite bool) {
+	m.updateFavorite(m.Items, id, providerName, favorite)
+	m.updateFavorite(m.Matches, id, providerName, favorite)
+}
+
+func (m *Model) updateFavorite(items []Item, id, providerName string, favorite bool) {
+	for i := range items {
+		if items[i].ID == id && items[i].ProviderName == providerName {
+			items[i].Favorite = favorite
+		}
+	}
 }
 
 // Update consumes a keypress while Visible. handled=true means the
@@ -178,8 +192,8 @@ func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
 
 	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select a model")
-	esc := lipgloss.NewStyle().Foreground(theme.Muted).Render("esc")
-	b.WriteString(rowTwoCol(innerW, title, esc))
+	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("ctrl+f favorite  esc")
+	b.WriteString(rowTwoCol(innerW, title, hints))
 	b.WriteString("\n\n")
 
 	// Search input line (same shape as palette).
@@ -211,6 +225,9 @@ func (m *Model) renderBody(innerW int) string {
 		right := it.Origin
 		if it.Note != "" {
 			right += "  " + it.Note
+		}
+		if it.Favorite {
+			right += "  favorite"
 		}
 		if it.Recent {
 			right += "  recent"

@@ -411,6 +411,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Model picker is modal too — same routing pattern as palette.
 		if m.modelPicker.Visible {
+			if msg.Type == tea.KeyCtrlF {
+				if sel := m.modelPicker.Selected(); sel != nil {
+					favorite := m.toggleModelFavorite(*sel)
+					m.modelPicker.SetFavorite(sel.ID, sel.ProviderName, favorite)
+					m.layout()
+				}
+				return m, nil
+			}
 			cmd, handled := m.modelPicker.Update(msg)
 			if handled {
 				return m, cmd

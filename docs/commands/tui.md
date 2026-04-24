@@ -175,8 +175,9 @@ the full list. Quick reference:
 - `/clear` — wipe conversation; cancels any in-flight stream
 - `/compact` — summarise and replace conversation (y/n confirm)
 - `/retry` — regenerate the last assistant turn
-- `/model` — model picker; marks the current model and surfaces recent
-  model/provider selections first
+- `/model` — model picker; marks the current model and surfaces
+  favorites/recents first. Press `Ctrl+F` in the picker to toggle a
+  favorite.
 - `/agents` — agent picker for Do, Plan, and BTW
 - `/switch` — session switcher
 - `/new` — create and switch to a fresh session

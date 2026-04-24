@@ -1,0 +1,69 @@
+---
+ep: 19
+title: Model and Provider Picker UX
+author: Bartosz Ptaszynski <foobarto@gmail.com>
+status: Partial
+type: Standards
+created: 2026-04-24
+see-also: [3, 10]
+history:
+  - date: 2026-04-24
+    status: Partial
+    note: Current marker, recents, provider labels, and model favorites have shipped; provider connection actions remain future work.
+---
+
+# EP-19: Model and Provider Picker UX
+
+## Problem
+
+The TUI can switch models, but model/provider choice is a high-frequency
+workflow and should be fast, searchable, and stateful. Users need a
+picker that keeps common models close, makes provider routing obvious,
+and offers clear next actions when credentials or local runners are not
+ready.
+
+## Goals
+
+- Show the current model/provider clearly.
+- Persist user intent with favorites and recent selections.
+- Surface provider labels so picking a local-runner model also switches
+  the backend users expect.
+- Leave room for provider connect/credential actions.
+
+## Non-goals
+
+- Replacing config-file defaults.
+- Hiding provider identity from advanced users.
+- Storing secrets in picker state.
+
+## Design
+
+The first shipped slices are:
+
+- `/model` with no args opens a fuzzy picker.
+- Catalog rows carry provider labels and switching provider-aware rows
+  updates the active backend.
+- The current model is marked.
+- Recent model/provider selections are persisted under stado state and
+  appear near the top.
+- `Ctrl+F` inside the picker toggles a persistent favorite; favorites
+  appear before recents.
+
+Future work should add provider connect/credential actions, richer empty
+states, and a clearer distinction between configured providers and
+detected local runners.
+
+## Test strategy
+
+- Unit tests for current/favorite/recent markers and ordering.
+- TUI update-flow tests for selection, provider switching, and favorite
+  toggling.
+- Real-PTY UAT once provider-empty states and connect actions exist.
+
+## Open questions
+
+- Should favorites live in config for syncability or state for
+  per-machine ergonomics?
+- Should provider credentials be launched from the picker or a separate
+  status modal?
+- How should favorites behave when the provider is unavailable?

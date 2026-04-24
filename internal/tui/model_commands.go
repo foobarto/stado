@@ -496,6 +496,7 @@ func (m *Model) openModelPicker() {
 		}
 	}
 	items = prependModelRecents(items, m.modelRecents())
+	items = prependModelFavorites(items, m.modelFavorites())
 
 	if len(items) == 0 {
 		m.appendBlock(block{kind: "system",

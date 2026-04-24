@@ -232,6 +232,76 @@ func TestModelPickerRemembersRecentSelection(t *testing.T) {
 	}
 }
 
+func TestModelPickerFavoritesPersistAndPrepend(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	favorite := m.toggleModelFavorite(modelpicker.Item{
+		ID:           "claude-sonnet-4-5",
+		Origin:       "anthropic",
+		ProviderName: "anthropic",
+	})
+	if !favorite {
+		t.Fatal("first toggle should add favorite")
+	}
+	favorites := m.modelFavorites()
+	if len(favorites) != 1 || favorites[0].ID != "claude-sonnet-4-5" || !favorites[0].Favorite {
+		t.Fatalf("favorites not persisted/restored: %+v", favorites)
+	}
+
+	m.model = "not-in-catalog"
+	m.openModelPicker()
+	sel := m.modelPicker.Selected()
+	if sel == nil || sel.ID != "claude-sonnet-4-5" || !sel.Favorite {
+		t.Fatalf("favorite model should be first selection, got %+v", sel)
+	}
+}
+
+func TestModelPickerCtrlFTogglesFavorite(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	m.openModelPicker()
+	sel := m.modelPicker.Selected()
+	if sel == nil {
+		t.Fatal("picker should have a selected model")
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	after := m.modelPicker.Selected()
+	if after == nil || !after.Favorite {
+		t.Fatalf("ctrl+f should mark selected model favorite, got %+v", after)
+	}
+	favorites := m.modelFavorites()
+	if len(favorites) != 1 || favorites[0].ID != sel.ID {
+		t.Fatalf("favorite not persisted: %+v", favorites)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	after = m.modelPicker.Selected()
+	if after == nil || after.Favorite {
+		t.Fatalf("second ctrl+f should unmark favorite, got %+v", after)
+	}
+	if favorites := m.modelFavorites(); len(favorites) != 0 {
+		t.Fatalf("favorite not removed: %+v", favorites)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

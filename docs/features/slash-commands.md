@@ -46,7 +46,7 @@ context-switch to the slash key.
 | Command | What |
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
-| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7` |
+| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+F` inside the picker toggles favorites |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |

@@ -42,6 +42,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Placeholder |
 | 0017 | [Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md) | Standards | Implemented |
 | 0018 | [Configurable System Prompt Template](./0018-configurable-system-prompt-template.md) | Standards | Implemented |
+| 0019 | [Model and Provider Picker UX](./0019-model-provider-picker-ux.md) | Standards | Partial |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
