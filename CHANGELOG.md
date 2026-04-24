@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.9.0 — 2026-04-24
+
 ### TUI
 
 - **Clarified LSP readiness.** The status modal now explains that LSP
