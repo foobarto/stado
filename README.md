@@ -71,7 +71,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.12.0
+  bash -s -- --dir /usr/local/bin --version v0.13.0
 ```
 
 ### Homebrew
@@ -231,7 +231,7 @@ Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
 ```sh
 # One-shot, exits after the agent finishes
-stado run --prompt "add a CHANGELOG entry for v0.12.0" --json
+stado run --prompt "add a CHANGELOG entry for v0.13.0" --json
 
 # Long-running daemon; drive from any JSON-RPC 2.0 client
 stado headless

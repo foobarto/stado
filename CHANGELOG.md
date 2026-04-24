@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+No notable changes yet.
+
+## v0.13.0 — 2026-04-24
+
 ### Prompt
 
 - **Aligned the default system prompt with cairn.** New first-run
