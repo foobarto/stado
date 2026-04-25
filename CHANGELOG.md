@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.6 — 2026-04-26
+
 ### Fixes
 
 - **Rooted task-store reads and writes.** Shared task data now opens,
