@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bufio"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -28,7 +29,7 @@ func (m *Model) filePickerSymbolItems() []filepicker.Item {
 	if root == "" {
 		return nil
 	}
-	symbols := scanGoSymbols(root)
+	symbols := scanSymbols(root)
 	out := make([]filepicker.Item, 0, len(symbols))
 	for _, sym := range symbols {
 		loc := fmt.Sprintf("%s:%d", sym.Path, sym.Line)
@@ -43,7 +44,7 @@ func (m *Model) filePickerSymbolItems() []filepicker.Item {
 	return out
 }
 
-func scanGoSymbols(root string) []symbolCandidate {
+func scanSymbols(root string) []symbolCandidate {
 	const limit = 300
 	fset := token.NewFileSet()
 	var out []symbolCandidate
@@ -63,23 +64,21 @@ func scanGoSymbols(root string) []symbolCandidate {
 		if len(out) >= limit {
 			return filepath.SkipAll
 		}
-		if !strings.HasSuffix(path, ".go") {
-			return nil
-		}
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if parseErr != nil {
+		switch filepath.Ext(path) {
+		case ".go":
+			out = append(out, scanGoFileSymbols(fset, rel, path, limit-len(out))...)
+		case ".py":
+			out = append(out, scanPythonFileSymbols(rel, path, limit-len(out))...)
+		default:
 			return nil
 		}
-		for _, decl := range file.Decls {
-			if len(out) >= limit {
-				return filepath.SkipAll
-			}
-			out = append(out, declarationSymbols(fset, rel, decl)...)
+		if len(out) >= limit {
+			return filepath.SkipAll
 		}
 		return nil
 	})
@@ -94,6 +93,24 @@ func scanGoSymbols(root string) []symbolCandidate {
 	})
 	if len(out) > limit {
 		return out[:limit]
+	}
+	return out
+}
+
+func scanGoFileSymbols(fset *token.FileSet, rel, path string, limit int) []symbolCandidate {
+	if limit <= 0 {
+		return nil
+	}
+	file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if parseErr != nil {
+		return nil
+	}
+	var out []symbolCandidate
+	for _, decl := range file.Decls {
+		out = append(out, declarationSymbols(fset, rel, decl)...)
+		if len(out) >= limit {
+			return out[:limit]
+		}
 	}
 	return out
 }
@@ -144,6 +161,70 @@ func declarationSymbols(fset *token.FileSet, rel string, decl ast.Decl) []symbol
 	}
 }
 
+func scanPythonFileSymbols(rel, path string, limit int) []symbolCandidate {
+	if limit <= 0 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var out []symbolCandidate
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	line := 0
+	for scanner.Scan() {
+		line++
+		text := scanner.Text()
+		trimmed := strings.TrimLeft(text, " \t")
+		if trimmed != text {
+			continue
+		}
+		if name, ok := pythonSymbolName(trimmed, "class "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: "python class", Path: rel, Line: line})
+		} else if name, ok := pythonSymbolName(trimmed, "def "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: "python func", Path: rel, Line: line})
+		} else if name, ok := pythonSymbolName(trimmed, "async def "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: "python func", Path: rel, Line: line})
+		}
+		if len(out) >= limit {
+			return out[:limit]
+		}
+	}
+	return out
+}
+
+func pythonSymbolName(line, prefix string) (string, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if rest == "" {
+		return "", false
+	}
+	end := 0
+	for end < len(rest) {
+		if isPythonIdentChar(rest[end], end) {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func isPythonIdentChar(ch byte, pos int) bool {
+	if ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
+		return true
+	}
+	return pos > 0 && ch >= '0' && ch <= '9'
+}
+
 func receiverName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -163,6 +244,9 @@ func skipSymbolDir(name string) bool {
 	return strings.HasPrefix(name, ".") ||
 		name == "node_modules" ||
 		name == "vendor" ||
+		name == "__pycache__" ||
+		name == ".venv" ||
+		name == "venv" ||
 		name == "dist" ||
 		name == "build" ||
 		name == "target"

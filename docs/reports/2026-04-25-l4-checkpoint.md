@@ -81,6 +81,9 @@ subagent slice.
   before ordinary file matches.
 - Inline `@` completion now groups top-level Go symbols before ordinary
   file matches and inserts `path:line` references.
+- Inline `@` completion now also groups top-level Python `class`, `def`,
+  and `async def` declarations as symbol rows that insert `path:line`
+  references.
 - Landing view now samples the large ANSI/plain banner down to a compact
   fixed-height mark, keeping the prompt primary on wide terminals and
   falling back to the plain wordmark in cramped terminals.
@@ -162,7 +165,7 @@ repo-compatible Go toolchain at
 - Branch: `main`
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
-  docs/symbol completion, landing-logo refinement, and direct
+  docs/Go/Python symbol completion, landing-logo refinement, and direct
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
   no-model remediation, theme-aware markdown rendering, and grouped

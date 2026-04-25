@@ -68,6 +68,9 @@ Plugins / Infra / Fixes.
 - **Made inactive-session policy visible.** `/sessions` now states that
   inactive sessions are parked and lists the active-work blockers that
   must clear before switching.
+- **Added Python symbols to inline `@` completion.** Top-level Python
+  `class`, `def`, and `async def` declarations now appear as symbol rows
+  that insert `path:line` locations.
 - **Added markdown style control for themes.** `theme.toml` can now set
   `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
   existing background-luminance detection.

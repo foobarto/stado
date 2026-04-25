@@ -10,6 +10,11 @@ history:
   - date: 2026-04-25
     status: Partial
     note: >
+      Python top-level class, def, and async def declarations now appear
+      as grouped @ picker symbol rows.
+  - date: 2026-04-25
+    status: Partial
+    note: >
       Root Markdown docs and docs/**/*.md now appear as grouped @ picker
       doc rows before ordinary file results.
   - date: 2026-04-25
@@ -90,10 +95,11 @@ slice indexes root Markdown/MDX files plus `docs/**/*.md` and
 row inserts the path, matching normal file-row behavior.
 
 Symbol rows appear after docs and before ordinary file rows. The first
-symbol slice indexes top-level Go declarations with `go/parser`, capped
-to keep the picker responsive. Accepting a symbol row inserts
-`path:line`, giving the model precise context without loading file
-contents.
+symbol slices index top-level Go declarations with `go/parser` and
+top-level Python `class`, `def`, and `async def` declarations with a
+bounded line scanner, capped to keep the picker responsive. Accepting a
+symbol row inserts `path:line`, giving the model precise context without
+loading file contents.
 
 ## Test strategy
 
@@ -103,4 +109,5 @@ contents.
 
 ## Open questions
 
-- How should symbol results be indexed without making `@` slow?
+- Which additional language symbol scanners should be added without
+  turning `@` into an unbounded indexer?

@@ -327,6 +327,28 @@ func TestFilePicker_SymbolAcceptInsertsLocation(t *testing.T) {
 	}
 }
 
+func TestFilePicker_PythonSymbolAcceptInsertsLocation(t *testing.T) {
+	m, _ := filePickerModel(t)
+	src := "class Widget:\n    pass\n\nasync def run_widget():\n    pass\n\ndef helper():\n    pass\n"
+	if err := os.WriteFile(filepath.Join(m.cwd, "tools.py"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range "@run_widget" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "symbol" || item.Display != "run_widget" || !strings.Contains(item.Meta, "python func") {
+		t.Fatalf("selected item = %+v, %v; want run_widget python symbol", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.input.Value(); !strings.Contains(got, "tools.py:4") {
+		t.Fatalf("python symbol accept should insert file location, got %q", got)
+	}
+}
+
 // TestFilePicker_TabAcceptsSelection: pressing Tab while the picker
 // has a selection must replace the @-fragment with the path.
 func TestFilePicker_TabAcceptsSelection(t *testing.T) {

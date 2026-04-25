@@ -196,9 +196,10 @@ session-only mention switches to that session, while accepting a session
 inside a longer prompt inserts `session:<id>`. Skill rows inject the
 selected skill body into the conversation and remove the mention from
 the draft. Doc rows surface root Markdown files and `docs/**/*.md`.
-Symbol rows surface top-level Go declarations with `path:line`
-locations. Accepting docs, symbols, or files inserts the selected
-repo-relative reference into the prompt.
+Symbol rows surface top-level Go declarations and top-level Python
+`class`, `def`, and `async def` declarations with `path:line` locations.
+Accepting docs, symbols, or files inserts the selected repo-relative
+reference into the prompt.
 
 Completed assistant responses include a compact muted footer with the
 agent, model/provider, elapsed time, tool count, token delta, and cost
