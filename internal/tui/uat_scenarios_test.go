@@ -414,6 +414,30 @@ func TestUAT_StatusRowIncludesCwdBranchAndVersion(t *testing.T) {
 	}
 }
 
+func TestUAT_StatusRowUsesRepoRelativeCwd(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+	repoRoot := m.cwd
+	if err := os.Mkdir(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.cwd = filepath.Join(repoRoot, "internal", "tui")
+	if err := os.MkdirAll(m.cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := m.renderStatus(160)
+	want := filepath.ToSlash(filepath.Join(filepath.Base(repoRoot), "internal", "tui"))
+	if !strings.Contains(got, want) {
+		t.Fatalf("status should use repo-relative cwd %q: %q", want, got)
+	}
+	if strings.Contains(got, filepath.Dir(repoRoot)) {
+		t.Fatalf("status should not show absolute parent path in repo cwd: %q", got)
+	}
+}
+
 func TestUAT_StatusRowMarksDirtyGitState(t *testing.T) {
 	if _, err := osexec.LookPath("git"); err != nil {
 		t.Skip("git unavailable")

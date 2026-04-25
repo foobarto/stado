@@ -2,11 +2,14 @@
 ep: 24
 title: TUI Footer Density
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [21, 23]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: Footer cwd now renders as repo-relative `repo/subdir` when the TUI is inside a git worktree, falling back to home-relative paths outside repos.
   - date: 2026-04-25
     status: Partial
     note: Chat status row now appends a cached `*` marker to the git ref when the worktree has uncommitted changes.
@@ -46,9 +49,10 @@ which reduces sidebar dependence and improves scan speed.
 
 The status row now has two segments:
 
-- Left: compact cwd, current branch or detached short SHA with `*` for
-  uncommitted worktree changes, active session label or short id, and
-  stado version.
+- Left: compact repo-relative cwd (`repo/subdir`) or home-relative cwd
+  outside a git worktree, current branch or detached short SHA with `*`
+  for uncommitted worktree changes, active session label or short id,
+  and stado version.
 - Right: busy/error/queue/budget state, tokens, cost, and `ctrl+p`
   command hint.
 
@@ -68,5 +72,4 @@ git on every frame.
 
 ## Open Questions
 
-- Should cwd be relative to the user repo root instead of absolute or
-  home-relative?
+- None.

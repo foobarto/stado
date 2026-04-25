@@ -702,6 +702,9 @@ func (m *Model) compactStatusGit() string {
 }
 
 func (m *Model) compactStatusCwd(width int) string {
+	if repoCwd := compactRepoCwd(m.cwd); repoCwd != "" {
+		return trimSeed(repoCwd, max(12, width))
+	}
 	cwd := filepath.Clean(m.cwd)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		if rel, ok := strings.CutPrefix(cwd, home); ok {
@@ -709,6 +712,26 @@ func (m *Model) compactStatusCwd(width int) string {
 		}
 	}
 	return trimSeed(cwd, max(12, width))
+}
+
+func compactRepoCwd(cwd string) string {
+	clean := filepath.Clean(cwd)
+	repo := runtime.FindRepoRoot(clean)
+	if repo == "" {
+		return ""
+	}
+	name := filepath.Base(repo)
+	if name == "." || name == string(filepath.Separator) {
+		return ""
+	}
+	rel, err := filepath.Rel(repo, clean)
+	if err != nil || rel == "." {
+		return name
+	}
+	if strings.HasPrefix(rel, "..") {
+		return name
+	}
+	return filepath.ToSlash(filepath.Join(name, rel))
 }
 
 func (m *Model) compactStatusSession() string {
