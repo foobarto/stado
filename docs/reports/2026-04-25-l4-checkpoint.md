@@ -163,6 +163,8 @@ subagent slice.
 - EP-20 now records inline context completion as implemented for the
   scoped surface: agents, sessions, skills, docs, files, and
   repo-shaped symbol scanners.
+- The EP README status table now matches implemented EP-14 and EP-24
+  frontmatter.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.

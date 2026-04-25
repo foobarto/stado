@@ -37,7 +37,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0011 | [Observability and Telemetry](./0011-observability-and-telemetry.md) | Standards | Implemented |
 | 0012 | [Release Integrity and Distribution](./0012-release-integrity-and-distribution.md) | Standards | Implemented |
 | 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Partial |
-| 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Partial |
+| 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Implemented |
 | 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Accepted |
 | 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Accepted |
 | 0017 | [Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md) | Standards | Implemented |
@@ -47,7 +47,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0021 | [Assistant Turn Metadata](./0021-assistant-turn-metadata.md) | Standards | Partial |
 | 0022 | [Theme Catalog and Picker](./0022-theme-catalog-and-picker.md) | Standards | Partial |
 | 0023 | [TUI Status Modal](./0023-status-modal.md) | Standards | Partial |
-| 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Partial |
+| 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Implemented |
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 

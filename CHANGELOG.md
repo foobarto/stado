@@ -74,6 +74,8 @@ Plugins / Infra / Fixes.
 - **Closed EP-20 inline context completion.** The scoped `@` surface now
   covers agents, sessions, skills, docs, files, and repo-shaped symbol
   scanners.
+- **Aligned implemented EP index rows.** EP-14 and EP-24 now show
+  `Implemented` in the EP README table, matching their frontmatter.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.
