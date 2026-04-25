@@ -37,6 +37,7 @@
 #             sidebar.
 #   sessions — press ctrl+x l, confirm the session manager opens.
 #   agents  — press ctrl+x a, confirm the agent picker opens.
+#   model   — press ctrl+x m, then ctrl+a for provider setup.
 #   all     — run every subcommand above.
 #
 # The script exits nonzero on the first failing assertion and prints
@@ -223,6 +224,26 @@ cmd_agents() {
   stop_stado
 }
 
+cmd_model_setup() {
+  local old_provider="$UAT_PROVIDER" old_model="$UAT_MODEL"
+  UAT_PROVIDER="anthropic"
+  UAT_MODEL="claude-sonnet-4-5"
+  start_stado
+  UAT_PROVIDER="$old_provider"
+  UAT_MODEL="$old_model"
+
+  tmux send-keys -t "$SESSION" C-x m
+  sleep 0.3
+  assert_contains "Select a model" "model picker header"
+  assert_contains "ctrl+a setup" "model picker setup hint"
+  tmux send-keys -t "$SESSION" C-a
+  sleep 0.3
+  assert_contains "provider setup: anthropic" "provider setup block"
+  assert_contains "ANTHROPIC_API_KEY" "provider setup env hint"
+  assert_not_contains "Select a model" "model picker after setup action"
+  stop_stado
+}
+
 cmd_banner() {
   start_stado
   # The startup banner renders only when m.blocks is empty. It's
@@ -344,6 +365,7 @@ cmd_all() {
   cmd_sidebar
   cmd_sessions
   cmd_agents
+  cmd_model_setup
   cmd_banner
   cmd_user_card
   cmd_slash_palette_nav
@@ -361,6 +383,7 @@ case "${1:-all}" in
   sidebar)     cmd_sidebar ;;
   sessions)    cmd_sessions ;;
   agents)      cmd_agents ;;
+  model)       cmd_model_setup ;;
   banner)      cmd_banner ;;
   card)        cmd_user_card ;;
   palette)     cmd_slash_palette_nav ;;
@@ -369,7 +392,7 @@ case "${1:-all}" in
   history)     cmd_input_history ;;
   all)         cmd_all ;;
   *)
-    echo "usage: $0 {smoke|input|slash|escape|sidebar|sessions|agents|banner|card|palette|help|mode|history|all}" >&2
+    echo "usage: $0 {smoke|input|slash|escape|sidebar|sessions|agents|model|banner|card|palette|help|mode|history|all}" >&2
     exit 2
     ;;
 esac

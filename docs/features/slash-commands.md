@@ -49,7 +49,7 @@ taking over the screen.
 | Command | What |
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
-| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker and `Ctrl+F` inside it toggles favorites |
+| `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker, `Ctrl+F` toggles favorites, and `Ctrl+A` shows provider setup for the selected row |
 | `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context (`Ctrl+X S`) |
 | `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
@@ -90,6 +90,10 @@ taking over the screen.
   with `/model <id>`, writes `[defaults].model` in `config.toml`; when
   the picker selection changes provider, `[defaults].provider` is saved
   too.
+- **Provider setup.** `Ctrl+A` inside the model picker closes the
+  picker and prints provider-specific setup: missing API-key env vars,
+  configured preset endpoints, or local-runner startup hints. Secrets
+  stay outside `config.toml`.
 - **Session manager.** `/switch` opens the same TUI manager as
   `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
   inactive sessions, or create a fresh session.

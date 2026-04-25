@@ -7,6 +7,10 @@ type: Standards
 created: 2026-04-24
 see-also: [3, 10]
 history:
+  - date: 2026-04-25
+    status: Partial
+    version: v0.22.0
+    note: Model picker gained Ctrl+A provider setup/remediation hints for selected rows; full provider connect/OAuth remains future work.
   - date: 2026-04-24
     status: Partial
     note: Current marker, recents, provider labels, and model favorites have shipped; provider connection actions remain future work.
@@ -56,10 +60,13 @@ The first shipped slices are:
   becomes the next startup default.
 - `Ctrl+F` inside the picker toggles a persistent favorite; favorites
   appear before recents.
+- `Ctrl+A` inside the picker shows provider-specific setup for the
+  selected row: missing API-key env vars, configured preset endpoints,
+  or local-runner startup hints. The picker does not store secrets.
 
-Future work should add provider connect/credential actions, richer empty
-states, and a clearer distinction between configured providers and
-detected local runners.
+Future work should add true provider connect/OAuth flows where
+providers support them, richer empty states, and a clearer distinction
+between configured providers and detected local runners.
 
 ## Test strategy
 

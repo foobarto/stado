@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.22.0 — 2026-04-25
+
+### TUI
+
+- **Added model-picker provider setup actions.** `Ctrl+A` inside the
+  model picker now closes the picker and prints selected-provider setup
+  guidance for API-key env vars, configured preset endpoints, or local
+  runner startup.
+
 ## v0.21.2 — 2026-04-25
 
 ### Docs

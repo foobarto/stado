@@ -192,7 +192,7 @@ func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
 
 	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select a model")
-	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("ctrl+f favorite  esc")
+	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("ctrl+a setup  ctrl+f favorite  esc")
 	b.WriteString(rowTwoCol(innerW, title, hints))
 	b.WriteString("\n\n")
 

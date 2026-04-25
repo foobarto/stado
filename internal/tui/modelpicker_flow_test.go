@@ -304,6 +304,59 @@ func TestModelPickerCtrlFTogglesFavorite(t *testing.T) {
 	}
 }
 
+func TestModelPickerCtrlAShowsProviderSetup(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	m := newPickerTestModel(t, "anthropic")
+	m.openModelPicker()
+	if !m.modelPicker.Visible {
+		t.Fatal("picker should be visible")
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+
+	if m.modelPicker.Visible {
+		t.Fatal("ctrl+a should close the picker after showing setup")
+	}
+	if m.model != "starter-model" {
+		t.Fatalf("provider setup should not change model, got %q", m.model)
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if last.kind != "system" ||
+		!contains(last.body, "provider setup: anthropic") ||
+		!contains(last.body, "ANTHROPIC_API_KEY") {
+		t.Fatalf("setup block missing provider credential hint: %+v", last)
+	}
+}
+
+func TestProviderSetupBodyLocalRunner(t *testing.T) {
+	m := newPickerTestModel(t, "lmstudio")
+	body := m.providerSetupBody("lmstudio")
+	for _, want := range []string{
+		"provider setup: lmstudio",
+		"bundled endpoint: http://localhost:1234/v1",
+		"LM Studio local server",
+	} {
+		if !contains(body, want) {
+			t.Fatalf("provider setup missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestProviderSetupBodyConfiguredPreset(t *testing.T) {
+	m := newPickerTestModel(t, "custom")
+	m.cfg = &config.Config{
+		Inference: config.Inference{
+			Presets: map[string]config.InferencePreset{
+				"custom": {Endpoint: "http://localhost:9999/v1"},
+			},
+		},
+	}
+	body := m.providerSetupBody("custom")
+	if !contains(body, "configured preset endpoint: http://localhost:9999/v1") {
+		t.Fatalf("provider setup should prefer configured preset:\n%s", body)
+	}
+}
+
 func TestModelPickerSelectionPersistsDefaultModel(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")

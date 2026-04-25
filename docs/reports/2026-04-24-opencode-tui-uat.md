@@ -45,11 +45,11 @@ deleted after the pass.
 Since the original `v0.4.2` comparison, stado has closed most of the
 visible TUI workflow gaps:
 
-| Area | stado `v0.21.1` status | Remaining gap |
+| Area | stado `v0.22.0` status | Remaining gap |
 |---|---|---|
 | Landing view | Implemented | Logo remains heavier than opencode's first screen. |
-| Command discovery | Implemented | Provider/connect actions still need a clearer command path. |
-| Model picker | Partial | Current marker, provider labels, recents, favorites, and default persistence exist; connect/credential actions remain. |
+| Command discovery | Implemented | Provider setup is available from the model picker; richer status-modal remediation remains. |
+| Model picker | Partial | Current marker, provider labels, recents, favorites, default persistence, and `Ctrl+A` setup exist; true provider connect/OAuth remains future work. |
 | Sessions | Partial | Switch, new, rename, fork, and delete are in the TUI; inactive background sessions and per-session draft/scroll caches remain future work. |
 | Agents | Partial | Do, Plan, and BTW are picker rows with status visibility; subagent/spawn workers are not implemented. |
 | Inline `@` completion | Partial | Agents, sessions, skills, and files are grouped; docs and symbols remain future work. |
@@ -98,8 +98,9 @@ opencode's model picker is notably stronger:
 - `ctrl+f` favorites a model
 
 stado now marks the current model, persists recents and favorites,
-shows provider labels, and saves model selections as new defaults.
-opencode still leads on provider connect/credential actions from the
+shows provider labels, saves model selections as new defaults, and uses
+`Ctrl+A` for provider-specific setup hints. opencode still leads on
+true provider connect flows for services that can authenticate from the
 picker itself.
 
 ### 4. Sessions Are A TUI Workflow, Not A CLI Detour
@@ -174,11 +175,7 @@ opencode still has a broader catalog and clearer light/dark shortcuts.
    an agent picker, but there is still no model-visible tool for bounded
    parallel agent work.
 
-2. **Add provider connect/credential actions.**
-   EP-0019 is close, but the picker/status surfaces should offer clear
-   next actions when a provider is unavailable or unauthenticated.
-
-3. **Complete multi-session state caching.**
+2. **Complete multi-session state caching.**
    EP-0014 covers switch/new/rename/fork/delete. The remaining work is
    preserving per-session draft, scroll, and inactive background state
    without hidden mutation.
@@ -227,7 +224,8 @@ opencode still has a broader catalog and clearer light/dark shortcuts.
 
 - Advance EP-0013 from placeholder/partial into an implementable
   subagent runtime design.
-- Extend EP-0019 with provider connect and credential remediation flows.
+- Extend EP-0019 from manual setup hints toward provider connect/OAuth
+  where providers support it.
 - Extend EP-0020 with docs/symbol result semantics and indexing limits.
 - Extend EP-0014 with per-session cached UI state and inactive-session
   execution policy.

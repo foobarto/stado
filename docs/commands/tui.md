@@ -141,7 +141,7 @@ memorising:
 | `Ctrl+P` | Open command palette |
 | `/` | Open inline slash-command suggestions above the input |
 | `Ctrl+X A` | Open agent picker |
-| `Ctrl+X M` | Open model picker |
+| `Ctrl+X M` | Open model picker (`Ctrl+A` setup, `Ctrl+F` favorite) |
 | `Ctrl+X L` | Open session manager |
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+X T` | Open theme picker |

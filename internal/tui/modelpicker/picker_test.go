@@ -87,6 +87,15 @@ func TestFavoriteMarkerRenders(t *testing.T) {
 	}
 }
 
+func TestSetupHintRenders(t *testing.T) {
+	m := New()
+	m.Open(sampleItems(), "")
+	got := m.View(120, 40)
+	if !strings.Contains(got, "ctrl+a setup") {
+		t.Fatalf("rendered picker missing setup hint: %q", got)
+	}
+}
+
 // TestCatalogForKnownProviders returns something non-empty.
 func TestCatalogForKnownProviders(t *testing.T) {
 	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras"} {
