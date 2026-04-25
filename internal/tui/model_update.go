@@ -299,6 +299,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case toolsExecutedMsg:
+		m.annotateLastAssistantToolResults(msg.results)
 		// Append a role=tool message with the accumulated tool results.
 		if len(msg.results) > 0 {
 			blocks := make([]agent.Block, 0, len(msg.results))

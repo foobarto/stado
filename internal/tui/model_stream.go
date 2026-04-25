@@ -644,6 +644,67 @@ func (m *Model) turnDetails(usage *agent.Usage) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *Model) annotateLastAssistantToolResults(results []agent.ToolResultBlock) {
+	if len(results) == 0 {
+		return
+	}
+	failed, rejected := toolResultErrorCounts(results)
+	if failed == 0 && rejected == 0 {
+		return
+	}
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind != "assistant" || strings.TrimSpace(m.blocks[i].meta) == "" {
+			continue
+		}
+		requested := len(results)
+		base := fmt.Sprintf("tools %d", requested)
+		if strings.Contains(m.blocks[i].meta, base+" (") {
+			return
+		}
+		if strings.Contains(m.blocks[i].meta, base) {
+			m.blocks[i].meta = strings.Replace(m.blocks[i].meta, base, base+" ("+toolResultErrorSummary(failed, rejected)+")", 1)
+		}
+		resultLine := fmt.Sprintf("tool results: %d ok, %d failed, %d rejected",
+			requested-failed-rejected, failed, rejected)
+		if strings.TrimSpace(m.blocks[i].details) == "" {
+			m.blocks[i].details = resultLine
+		} else if !strings.Contains(m.blocks[i].details, "tool results:") {
+			m.blocks[i].details += "\n" + resultLine
+		}
+		m.invalidateBlockCache(i)
+		return
+	}
+}
+
+func toolResultErrorCounts(results []agent.ToolResultBlock) (failed, rejected int) {
+	for _, result := range results {
+		if !result.IsError {
+			continue
+		}
+		if isUnavailableToolResult(result) {
+			rejected++
+			continue
+		}
+		failed++
+	}
+	return failed, rejected
+}
+
+func isUnavailableToolResult(result agent.ToolResultBlock) bool {
+	return strings.Contains(result.Content, " is not available for this turn")
+}
+
+func toolResultErrorSummary(failed, rejected int) string {
+	var parts []string
+	if failed > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", failed))
+	}
+	if rejected > 0 {
+		parts = append(parts, fmt.Sprintf("%d rejected", rejected))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // onTurnComplete is called when the provider's stream ends. It persists the
 // assistant turn into msgs; if the turn ended on tool calls, it starts the
 // approval queue so the user sees each tool before it runs.

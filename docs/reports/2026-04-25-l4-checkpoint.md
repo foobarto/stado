@@ -138,6 +138,8 @@ subagent slice.
   startup.
 - EP-26 now records that inline slash rows show command IDs and
   secondary keyboard shortcuts together, with regression coverage.
+- Assistant turn metadata now annotates requested tool counts with
+  failed/rejected result counts after tool execution finishes.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -197,7 +199,7 @@ repo-compatible Go toolchain at
   row, explicit markdown style selection for custom themes, and the
   `stado-rose` bundled theme, and the repo-relative footer
   dirty-state marker, persisted thinking display mode, and EP-26
-  shortcut-hint coverage.
+  shortcut-hint coverage, and failed/rejected tool-result metadata.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

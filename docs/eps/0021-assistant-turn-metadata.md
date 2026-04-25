@@ -9,6 +9,9 @@ see-also: [11, 13, 19]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Assistant turn details now annotate requested tool calls with failed and rejected result counts when tool execution finishes.
+  - date: 2026-04-25
+    status: Partial
     note: Assistant footers can now expand into token, cache, tool, and trace details.
   - date: 2026-04-24
     status: Partial
@@ -56,13 +59,13 @@ while a response is streaming do not rewrite the footer after the fact.
 
 `Shift+Tab` expands the latest assistant footer when turn details are
 available. Expanded details remain read-only and currently include token
-deltas, cache read/write deltas, requested tool names, and a session
-trace command hint when a git session is active. The same key still
-expands tool-call bodies.
+deltas, cache read/write deltas, requested tool names, failed/rejected
+tool result counts, and a session trace command hint when a git session
+is active. The same key still expands tool-call bodies.
 
 Future work should add a richer status modal for provider/plugin/MCP
-health and more exact failed-tool counts once the UI has a stable
-per-turn result accumulator.
+health and decide whether persisted transcripts should store footer
+metadata directly.
 
 ## Test strategy
 
@@ -73,6 +76,5 @@ per-turn result accumulator.
 
 ## Open questions
 
-- Should tool counts include failed or rejected calls separately?
 - Should persisted transcripts store footer metadata or reconstruct it
   from trace refs on resume?

@@ -78,6 +78,30 @@ func TestTurnDetailsIncludeCacheAndTools(t *testing.T) {
 	}
 }
 
+func TestToolResultsAnnotateAssistantDetailsWithFailures(t *testing.T) {
+	m := scenarioModel(t)
+	m.blocks = []block{{
+		kind:    "assistant",
+		body:    "checking",
+		meta:    "Do · qwen via lmstudio · tools 3",
+		details: "tools: 3 requested (read, write, bash)",
+	}}
+
+	m.annotateLastAssistantToolResults([]agent.ToolResultBlock{
+		{ToolUseID: "read-1", Content: "ok"},
+		{ToolUseID: "write-1", Content: unavailableToolContent("write"), IsError: true},
+		{ToolUseID: "bash-1", Content: "exit status 1", IsError: true},
+	})
+
+	got := m.blocks[0]
+	if !strings.Contains(got.meta, "tools 3 (1 failed, 1 rejected)") {
+		t.Fatalf("assistant meta missing failed/rejected counts: %q", got.meta)
+	}
+	if !strings.Contains(got.details, "tool results: 1 ok, 1 failed, 1 rejected") {
+		t.Fatalf("assistant details missing tool result counts: %q", got.details)
+	}
+}
+
 func TestAssistantBlockRendersFooter(t *testing.T) {
 	m := scenarioModel(t)
 	out, err := m.renderBlock(block{

@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Annotated failed tool results in assistant details.** Assistant turn
+  metadata now marks requested tool counts with failed/rejected result
+  counts after tool execution finishes.
 - **Persisted thinking display mode.** `/thinking` and `Ctrl+X H` now
   save the display-only thinking mode to `[tui].thinking_display`, and
   the TUI restores it on startup.
