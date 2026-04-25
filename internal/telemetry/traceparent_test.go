@@ -117,6 +117,34 @@ func TestRoundTrip_WriteThenLoad(t *testing.T) {
 	}
 }
 
+func TestWriteCurrentTraceparentRejectsSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "traceparent")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, TraceparentFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	sr := tracetest.NewSpanRecorder()
+	tp := newTestTracerProvider(sr)
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "fork")
+	defer span.End()
+
+	if err := WriteCurrentTraceparent(ctx, dir); err == nil {
+		t.Fatal("WriteCurrentTraceparent succeeded through a symlink escape")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside\n" {
+		t.Fatalf("outside traceparent was modified: %q", got)
+	}
+}
+
 // TestLoadParentTraceparent_Missing_IsNoOp: the common no-fork case.
 // No file → return the base context unchanged, signal false.
 func TestLoadParentTraceparent_Missing_IsNoOp(t *testing.T) {

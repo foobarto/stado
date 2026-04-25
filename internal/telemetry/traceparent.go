@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"go.opentelemetry.io/otel/propagation"
@@ -76,8 +75,12 @@ func WriteCurrentTraceparent(ctx context.Context, dir string) error {
 		return errors.New("traceparent: propagator returned empty traceparent")
 	}
 
-	path := filepath.Join(dir, TraceparentFile)
-	return os.WriteFile(path, []byte(tp+"\n"), 0o600)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return root.WriteFile(TraceparentFile, []byte(tp+"\n"), 0o600)
 }
 
 // LoadParentTraceparent looks for `<dir>/<TraceparentFile>` and, if
@@ -96,8 +99,12 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 	if dir == "" {
 		return ctx, false
 	}
-	path := filepath.Join(dir, TraceparentFile)
-	info, err := os.Lstat(path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return ctx, false
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(TraceparentFile)
 	if err != nil {
 		return ctx, false
 	}
@@ -107,7 +114,7 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 	if info.Size() <= 0 || info.Size() > maxTraceparentBytes {
 		return ctx, false
 	}
-	f, err := os.Open(path) // #nosec G304 -- traceparent path is fixed inside the session metadata directory.
+	f, err := root.Open(TraceparentFile)
 	if err != nil {
 		return ctx, false
 	}

@@ -19,6 +19,8 @@ Plugins / Infra / Fixes.
   and learning paths, rejecting `.stado` and metadata-file symlink escapes.
 - **Rooted session pid metadata.** `.stado-pid` reads and writes now stay
   scoped to the session worktree root, preventing pid-file symlink escapes.
+- **Rooted traceparent metadata.** Fork traceparent files now read and write
+  through the child worktree root, rejecting traceparent symlink escapes.
 
 ## v0.25.7 — 2026-04-26
 
