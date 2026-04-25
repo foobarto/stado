@@ -78,6 +78,9 @@ func renderConfigHuman(w interface {
 	write("  thinking_budget_tokens   %d\n", cfg.Agent.ThinkingBudgetTokens)
 	write("  system_prompt_path       %s\n\n", cfg.Agent.SystemPromptPath)
 
+	write("[tui]\n")
+	write("  thinking_display   %s\n\n", cfg.TUI.ThinkingDisplay)
+
 	write("[memory]\n")
 	write("  enabled        %v\n", cfg.Memory.Enabled)
 	write("  max_items      %d\n", cfg.Memory.EffectiveMaxItems())

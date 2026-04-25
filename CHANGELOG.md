@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Persisted thinking display mode.** `/thinking` and `Ctrl+X H` now
+  save the display-only thinking mode to `[tui].thinking_display`, and
+  the TUI restores it on startup.
 - **Finished footer repository density.** The compact status row now
   shows repo-relative cwd segments inside git worktrees and appends `*`
   to the branch or detached SHA when the worktree has uncommitted

@@ -133,6 +133,9 @@ subagent slice.
 - The compact TUI footer now shows repo-relative cwd segments inside
   git worktrees and appends `*` to the branch/detached SHA when a
   cached git status check sees uncommitted worktree changes.
+- `/thinking` and `Ctrl+X H` now persist the display-only thinking
+  viewport mode to `[tui].thinking_display` and restore it on TUI
+  startup.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -191,7 +194,7 @@ repo-compatible Go toolchain at
   suggestions, status-modal trace ids, the custom `theme.toml` picker
   row, explicit markdown style selection for custom themes, and the
   `stado-rose` bundled theme, and the repo-relative footer
-  dirty-state marker.
+  dirty-state marker, and persisted thinking display mode.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

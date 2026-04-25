@@ -8,6 +8,9 @@ created: 2026-04-24
 implemented-in: v0.12.0
 see-also: [3, 21]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: TUI thinking display mode now persists via `[tui].thinking_display` and is restored on startup.
   - date: 2026-04-24
     status: Implemented
     note: TUI thinking blocks can be shown fully, hidden, or rendered as a recent tail.
@@ -59,8 +62,10 @@ not split by UI feedback.
 
 ## Migration / rollout
 
-Default to `show`, matching prior behavior. No config migration is
-required.
+Default to `show`, matching prior behavior. Toggling `/thinking` or
+`Ctrl+X H` persists the selected mode to `[tui].thinking_display` in
+`config.toml`; existing configs without the key continue to load as
+`show`.
 
 ## Failure modes
 
@@ -79,7 +84,6 @@ required.
 
 ## Open questions
 
-- Should the selected display mode persist across TUI restarts?
 - Should resumed sessions reconstruct thinking blocks as separate
   viewport blocks instead of assistant placeholders?
 

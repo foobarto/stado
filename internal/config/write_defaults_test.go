@@ -45,3 +45,24 @@ func TestWriteDefaultsPreservesUnspecifiedProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteTUIThinkingDisplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[defaults]\nprovider = \"anthropic\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteTUIThinkingDisplay(path, "hide"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{`provider = "anthropic"`, `[tui]`, `thinking_display = "hide"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
+	}
+}

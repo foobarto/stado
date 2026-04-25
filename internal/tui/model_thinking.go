@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/foobarto/stado/internal/config"
+)
 
 const (
 	thinkingTailLines = 8
@@ -32,14 +36,14 @@ func parseThinkingDisplayMode(s string) (thinkingDisplayMode, bool) {
 }
 
 func (m *Model) cycleThinkingDisplayMode() {
+	next := thinkingShow
 	switch m.thinkingMode {
 	case thinkingShow:
-		m.thinkingMode = thinkingTail
+		next = thinkingTail
 	case thinkingTail:
-		m.thinkingMode = thinkingHide
-	default:
-		m.thinkingMode = thinkingShow
+		next = thinkingHide
 	}
+	m.setThinkingDisplayMode(next)
 }
 
 func (m *Model) thinkingModeStatus() string {
@@ -55,6 +59,33 @@ func (m *Model) thinkingModeStatus() string {
 
 func (m *Model) setThinkingDisplayMode(mode thinkingDisplayMode) {
 	m.thinkingMode = mode
+	m.persistThinkingDisplayMode()
+}
+
+func (m *Model) applyConfiguredThinkingDisplay(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if mode, ok := parseThinkingDisplayMode(cfg.TUI.ThinkingDisplay); ok {
+		m.thinkingMode = mode
+	}
+}
+
+func (m *Model) persistThinkingDisplayMode() {
+	if m.cfg == nil || strings.TrimSpace(m.cfg.ConfigPath) == "" {
+		return
+	}
+	value := m.thinkingMode.String()
+	if strings.EqualFold(strings.TrimSpace(m.cfg.TUI.ThinkingDisplay), value) {
+		return
+	}
+	if err := config.WriteTUIThinkingDisplay(m.cfg.ConfigPath, value); err != nil {
+		if m.state != stateStreaming && !m.compacting {
+			m.appendBlock(block{kind: "system", body: "thinking: save display mode: " + err.Error()})
+		}
+		return
+	}
+	m.cfg.TUI.ThinkingDisplay = value
 }
 
 func (m *Model) announceThinkingDisplayMode() {

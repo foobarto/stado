@@ -37,6 +37,7 @@ type Config struct {
 	Memory    Memory    `koanf:"memory"`
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
+	TUI       TUI       `koanf:"tui"`
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
 	Hooks     Hooks     `koanf:"hooks"`
@@ -157,6 +158,14 @@ type Agent struct {
 	// SystemPromptTemplate is loaded from SystemPromptPath after config +
 	// env resolution. It is intentionally not mapped back into koanf.
 	SystemPromptTemplate string `koanf:"-" json:"-"`
+}
+
+// TUI contains display-only preferences for the interactive terminal UI.
+// These settings do not change provider requests or persisted transcripts.
+type TUI struct {
+	// ThinkingDisplay controls how provider-native thinking blocks are
+	// rendered in the viewport: show, tail, or hide.
+	ThinkingDisplay string `koanf:"thinking_display"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage
@@ -325,6 +334,7 @@ func Load() (*Config, error) {
 	if cfg.Agent.ThinkingBudgetTokens == 0 {
 		cfg.Agent.ThinkingBudgetTokens = 16384
 	}
+	cfg.TUI.ThinkingDisplay = normalizeThinkingDisplay(cfg.TUI.ThinkingDisplay)
 	if cfg.Context.SoftThreshold == 0 {
 		cfg.Context.SoftThreshold = 0.70
 	}
@@ -344,6 +354,22 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+func normalizeThinkingDisplay(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "show", "full", "on":
+		return "show"
+	case "tail":
+		return "tail"
+	case "hide", "off":
+		return "hide"
+	default:
+		fmt.Fprintf(os.Stderr,
+			"stado: [tui] thinking_display=%q is invalid; using \"show\"\n",
+			value)
+		return "show"
+	}
 }
 
 const defaultSystemPromptFilename = "system-prompt.md"

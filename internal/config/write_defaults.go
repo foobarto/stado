@@ -15,7 +15,28 @@ func WriteDefaults(configPath, provider, model string) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		if provider = strings.TrimSpace(provider); provider != "" {
+			tree.SetPath([]string{"defaults", "provider"}, provider)
+		}
+		if model = strings.TrimSpace(model); model != "" {
+			tree.SetPath([]string{"defaults", "model"}, model)
+		}
+	})
+}
 
+// WriteTUIThinkingDisplay updates [tui].thinking_display in config.toml.
+func WriteTUIThinkingDisplay(configPath, mode string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	mode = normalizeThinkingDisplay(mode)
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		tree.SetPath([]string{"tui", "thinking_display"}, mode)
+	})
+}
+
+func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	var tree *toml.Tree
 	data, err := os.ReadFile(configPath)
 	switch {
@@ -33,12 +54,7 @@ func WriteDefaults(configPath, provider, model string) error {
 		return fmt.Errorf("read config: %w", err)
 	}
 
-	if provider = strings.TrimSpace(provider); provider != "" {
-		tree.SetPath([]string{"defaults", "provider"}, provider)
-	}
-	if model = strings.TrimSpace(model); model != "" {
-		tree.SetPath([]string{"defaults", "model"}, model)
-	}
+	mutate(tree)
 
 	out, err := tree.ToTomlString()
 	if err != nil {

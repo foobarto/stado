@@ -30,6 +30,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Approvals.Mode != "prompt" {
 		t.Errorf("Approvals.Mode = %q, want %q", cfg.Approvals.Mode, "prompt")
 	}
+	if cfg.TUI.ThinkingDisplay != "show" {
+		t.Errorf("TUI.ThinkingDisplay = %q, want show", cfg.TUI.ThinkingDisplay)
+	}
 	if cfg.Agent.SystemPromptPath == "" {
 		t.Fatal("Agent.SystemPromptPath should default to a config-dir template")
 	}
@@ -41,6 +44,26 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg.Agent.SystemPromptPath); err != nil {
 		t.Fatalf("default system prompt template not created: %v", err)
+	}
+}
+
+func TestLoadCustomTUIThinkingDisplay(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[tui]\nthinking_display = \"tail\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.TUI.ThinkingDisplay != "tail" {
+		t.Fatalf("TUI.ThinkingDisplay = %q, want tail", cfg.TUI.ThinkingDisplay)
 	}
 }
 

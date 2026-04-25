@@ -2,11 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func TestThinkingDisplayModesAffectRenderedBlocks(t *testing.T) {
@@ -65,6 +69,38 @@ func TestThinkingSlashSetsAndCyclesMode(t *testing.T) {
 	_ = m.handleSlash("/thinking")
 	if m.thinkingMode != thinkingTail {
 		t.Fatalf("mode = %s, want tail after cycle", m.thinkingMode)
+	}
+}
+
+func TestThinkingDisplayLoadsFromConfig(t *testing.T) {
+	m := scenarioModel(t)
+	m.applyConfiguredThinkingDisplay(&config.Config{
+		TUI: config.TUI{ThinkingDisplay: "tail"},
+	})
+	if m.thinkingMode != thinkingTail {
+		t.Fatalf("mode = %s, want tail", m.thinkingMode)
+	}
+}
+
+func TestThinkingDisplayPersistsToConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[defaults]\nmodel = \"m\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := scenarioModel(t)
+	m.cfg = &config.Config{ConfigPath: path}
+
+	m.setThinkingDisplayMode(thinkingHide)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{`model = "m"`, `[tui]`, `thinking_display = "hide"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
 	}
 }
 

@@ -33,6 +33,8 @@ func TestConfigShow_HumanOutputHasKeySections(t *testing.T) {
 		"[approvals]",
 		"mode",
 		"[agent]",
+		"[tui]",
+		"thinking_display",
 		"[memory]",
 		"budget_tokens",
 		"[context]",
@@ -100,7 +102,7 @@ func TestConfigShow_JSONShapeIsValid(t *testing.T) {
 	if err := json.Unmarshal(enc, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"Defaults", "Approvals", "Context", "Agent"} {
+	for _, key := range []string{"Defaults", "Approvals", "Context", "Agent", "TUI"} {
 		if _, ok := parsed[key]; !ok {
 			t.Errorf("JSON output missing key %q", key)
 		}

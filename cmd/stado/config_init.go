@@ -94,6 +94,14 @@ const defaultConfigTemplate = `# stado — config.toml
 # system_prompt_path = "~/.config/stado/system-prompt.md"
 
 # ---------------------------------------------------------------------------
+# [tui] — display-only terminal UI preferences.
+# thinking_display controls provider-native thinking blocks in the viewport;
+# it does not change provider requests or persisted transcripts.
+# ---------------------------------------------------------------------------
+# [tui]
+# thinking_display = "show"          # show | tail | hide
+
+# ---------------------------------------------------------------------------
 # [memory] — opt-in approved-memory prompt context.
 #
 # Plugins with memory:* capabilities can propose or update append-only
