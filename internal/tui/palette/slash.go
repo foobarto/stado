@@ -253,9 +253,25 @@ func (m *Model) renderInlineBody(innerW int) string {
 	if start+limit > len(m.Matches) {
 		start = len(m.Matches) - limit
 	}
+	lastGroup := ""
 	for i := 0; i < limit; i++ {
 		idx := start + i
-		b.WriteString(renderRow(innerW, m.Matches[idx], idx == m.Cursor))
+		cmd := m.Matches[idx]
+		group := cmd.Group
+		if group == "" {
+			group = "Commands"
+		}
+		if group != lastGroup {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(lipgloss.NewStyle().
+				Foreground(theme.Secondary).
+				Bold(true).
+				Render("  "+group) + "\n")
+			lastGroup = group
+		}
+		b.WriteString(renderRow(innerW, cmd, idx == m.Cursor))
 		if i < limit-1 {
 			b.WriteString("\n")
 		}

@@ -8,6 +8,9 @@ created: 2026-04-24
 implemented-in: v0.12.0
 see-also: [19, 20, 24, 25]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: Inline slash suggestions now retain command group labels from the modal palette.
   - date: 2026-04-24
     status: Implemented
     version: v0.12.0
@@ -46,6 +49,8 @@ surfaces:
 
 - `Ctrl+P` opens the modal command palette.
 - `/` at an empty prompt opens an inline suggestion box above the input.
+- Inline suggestions keep compact group labels so Quick, Session, and
+  View commands do not collapse into one undifferentiated list.
 - `/` in a non-empty prompt remains literal text.
 - `Enter` on a suggestion fills and runs the selected slash command.
 - `Esc` closes the active suggestion/palette surface and returns focus
@@ -68,7 +73,5 @@ The chat input rail color is mode-derived:
 
 ## Open Questions
 
-- Should inline slash suggestions show command groups or only ranked
-  matches?
 - Should the inline surface expose secondary shortcut hints for every
   command once the list grows?

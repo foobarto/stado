@@ -153,7 +153,7 @@ func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("model")})
 
 	got := m.InlineView(80)
-	for _, want := range []string{"Slash commands", "/model"} {
+	for _, want := range []string{"Slash commands", "Session", "/model"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("inline view missing %q: %q", want, got)
 		}

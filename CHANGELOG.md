@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Grouped inline slash suggestions.** The `/` suggestion surface now
+  shows compact Quick/Session/View group labels, matching the modal
+  command palette without leaving the input.
 - **Matched markdown rendering to light themes.** Assistant markdown now
   uses Glamour's light style when the active theme background is light,
   and falls back to the dark style for dark/contrast themes.

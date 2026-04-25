@@ -102,6 +102,9 @@ subagent slice.
 - Assistant markdown rendering now picks Glamour's light or dark style
   from the active theme background luminance and clears the markdown
   renderer cache on theme switch.
+- Inline slash suggestions now show compact command group labels,
+  matching the modal command palette while staying anchored to the
+  input.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -145,7 +148,8 @@ repo-compatible Go toolchain at
   docs/symbol completion, landing-logo refinement, and direct
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
-  no-model remediation, and theme-aware markdown rendering.
+  no-model remediation, theme-aware markdown rendering, and grouped
+  inline slash suggestions.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

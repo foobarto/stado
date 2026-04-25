@@ -3,7 +3,8 @@
 Every TUI command reachable with `/` or `Ctrl+P`. `/` opens compact
 inline fuzzy suggestions above the chat input; `Ctrl+P` opens the full
 modal command palette. Commands are grouped by intent — Quick /
-Session / View — so the list stays scannable as it grows.
+Session / View — in both surfaces so the list stays scannable as it
+grows.
 
 Press `Ctrl+P` to see them all in the modal palette:
 
