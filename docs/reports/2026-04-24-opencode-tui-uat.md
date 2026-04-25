@@ -1,18 +1,23 @@
 # opencode TUI UAT Report — 2026-04-24
 
+Updated: 2026-04-25 for stado `v0.21.1`.
+
 ## Scope
 
 This report compares the local opencode TUI against stado's current TUI
 and translates the stronger opencode interaction patterns into stado
 improvement work.
 
-Tested locally:
+Original opencode comparison tested locally:
 
 - opencode `1.14.22`
 - stado `v0.4.2`
 - terminal harness: `tmux 3.5a`, `200x50`
 - opencode command: `opencode --pure --model lmstudio/qwen/qwen3.6-35b-a3b`
 - model: LM Studio local `qwen/qwen3.6-35b-a3b`
+
+Follow-up status reviewed against stado `v0.21.1` source and the real
+PTY harness `hack/tmux-uat.sh all`.
 
 The opencode UAT created one temporary session titled `Greeting`; it was
 deleted after the pass.
@@ -35,6 +40,26 @@ deleted after the pass.
 | Theme picker (`ctrl+x t`) | Pass | Many built-in themes plus selected-state marker. |
 | CLI session/provider/agent listings | Pass | Session list, credentials list, and agent permission output are available outside TUI. |
 
+## Current stado Follow-up
+
+Since the original `v0.4.2` comparison, stado has closed most of the
+visible TUI workflow gaps:
+
+| Area | stado `v0.21.1` status | Remaining gap |
+|---|---|---|
+| Landing view | Implemented | Logo remains heavier than opencode's first screen. |
+| Command discovery | Implemented | Provider/connect actions still need a clearer command path. |
+| Model picker | Partial | Current marker, provider labels, recents, favorites, and default persistence exist; connect/credential actions remain. |
+| Sessions | Partial | Switch, new, rename, fork, and delete are in the TUI; inactive background sessions and per-session draft/scroll caches remain future work. |
+| Agents | Partial | Do, Plan, and BTW are picker rows with status visibility; subagent/spawn workers are not implemented. |
+| Inline `@` completion | Partial | Agents, sessions, skills, and files are grouped; docs and symbols remain future work. |
+| Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
+| Turn metadata | Implemented | Assistant turn footers show agent, model/provider, duration, tool count, token delta, and cost delta when available. |
+| Themes | Partial | Built-in theme picker exists; opencode still has a broader catalog and light/dark affordances. |
+| Status modal and LSP state | Partial | `/status` and `Ctrl+X S` show runtime health and LSP readiness; deeper provider/plugin health remains future work. |
+| Footer density | Implemented | Footer now includes cwd, branch, session identity, version, usage, cost, and command hint when width allows. |
+| tmux UAT harness | Implemented | Landing-view assertions are current and green. |
+
 ## What opencode Does Better
 
 ### 1. The First Screen Is Quieter
@@ -56,9 +81,10 @@ shortcuts inline:
 - Session: open editor, switch session, new session
 - System: plugins, status, theme, light mode
 
-stado has slash commands and a palette, but opencode's command surface
-does a better job of teaching the keyboard model. The shortcuts are not
-hidden in docs or a help overlay; they are next to the action.
+stado now has an inline `/` suggestion surface and a grouped `Ctrl+P`
+command palette with shortcut labels. opencode still feels more curated
+because provider connection, credentials, themes, sessions, and system
+status read as one command vocabulary.
 
 ### 3. Model Selection Has Memory And Provider Actions
 
@@ -71,9 +97,10 @@ opencode's model picker is notably stronger:
 - `ctrl+a` connects a provider
 - `ctrl+f` favorites a model
 
-stado's model picker is functional, but it should grow favorites,
-recents, provider connection status, and a direct credentials/connect
-path.
+stado now marks the current model, persists recents and favorites,
+shows provider labels, and saves model selections as new defaults.
+opencode still leads on provider connect/credential actions from the
+picker itself.
 
 ### 4. Sessions Are A TUI Workflow, Not A CLI Detour
 
@@ -81,10 +108,9 @@ opencode supports `ctrl+x l` for session search/switch and `ctrl+x n`
 for new session. The session picker also advertises delete and rename
 shortcuts.
 
-stado has strong session internals and CLI commands, but the TUI still
-treats session management mostly as something to do outside the running
-app. EP-0014 already points in the right direction; opencode validates
-that this should be a top-priority TUI feature.
+stado now has a searchable in-TUI session manager with switch, new,
+rename, fork, and confirmed delete. opencode still sets the target for
+background/inactive session handling and cached per-session UI state.
 
 ### 5. Agents Are First-Class UI Objects
 
@@ -92,9 +118,10 @@ opencode presents Build and Plan as agents. The active agent appears in
 the input status, `tab` changes it, and `opencode agent list` exposes
 agent permissions.
 
-stado has Do/Plan modes and planned subagent work, but the UI model is
-less coherent. Treating "Do", "Plan", future subagents, and plugin
-workers as selectable agents would make the model easier to understand.
+stado now exposes Do, Plan, and BTW through an agent picker and shows
+the active agent in the input and sidebar. The remaining gap is the
+actual subagent/spawn tool and a coherent permission UI for spawned or
+plugin-backed workers.
 
 ### 6. Inline `@` Completion Is Unified
 
@@ -102,9 +129,9 @@ Typing `@` in opencode shows agent options (`@explore`, `@general`) and
 then fuzzy file paths as the query narrows. The completion list remains
 visually attached to the input rather than becoming a separate modal.
 
-stado already has `@` file completion. The gap is breadth and grouping:
-opencode uses the same affordance for agents and files, making context
-injection feel like one workflow.
+stado now groups agents, sessions, skills, and files in the same inline
+`@` surface. opencode's remaining advantage is simplicity; stado's next
+steps are docs and symbols without making the picker slow or noisy.
 
 ### 7. The Post-Turn Sidebar Is Sparse And Useful
 
@@ -116,10 +143,9 @@ sidebar showing:
 - cost
 - LSP activation state
 
-stado's sidebar contains more operational detail: risk, agent, repo,
-logs, context/cost. That is useful during debugging, but opencode's
-default is easier to scan. stado should make logs/debug detail
-collapsible or secondary so the normal sidebar stays calm.
+stado now keeps logs, risk internals, sandbox details, and other debug
+diagnostics hidden until `/debug` is enabled. opencode is still a useful
+calmness reference for how little the normal sidebar should need to say.
 
 ### 8. Status Rows Teach What Happened
 
@@ -128,83 +154,60 @@ Each opencode response ends with a compact row like:
 `Plan · qwen/qwen3.6-35b-a3b · 896ms`
 
 That makes agent, model, and duration visible without opening logs.
-stado should add a similarly compact per-turn footer for model,
-provider, agent/mode, duration, and tool count.
+stado now renders compact assistant turn footers with agent,
+model/provider, duration, tool count, token delta, and cost delta when
+usage is available. Future work can make those footers expandable into
+trace detail.
 
 ### 9. Theme Switching Is In-App
 
 opencode exposes theme switching in the command palette and a dedicated
-theme picker. stado supports a TOML theme file, but it lacks a TUI
-picker and built-in theme catalog.
+theme picker. stado now has bundled themes and a TUI picker, but
+opencode still has a broader catalog and clearer light/dark shortcuts.
 
 ## Improvement Backlog For stado
 
 ### P0 — Product-Shape Gaps
 
-1. **Implement TUI multi-session management.**
-   Build EP-0014 as a searchable overlay with switch, new, rename,
-   delete, fork, and resume. `ctrl+x l` / `ctrl+x n` equivalents are
-   worth copying.
+1. **Implement the subagent/spawn tool.**
+   EP-0013 is now the biggest remaining product-shape gap. The TUI has
+   an agent picker, but there is still no model-visible tool for bounded
+   parallel agent work.
 
-2. **Promote modes/subagents into an agent picker.**
-   Fold Do/Plan, future subagents, and plugin workers into one
-   "agent" mental model. Show active agent in the input status and
-   sidebar. Extend EP-0013 with TUI affordances, not just a spawn tool.
+2. **Add provider connect/credential actions.**
+   EP-0019 is close, but the picker/status surfaces should offer clear
+   next actions when a provider is unavailable or unauthenticated.
 
-3. **Upgrade the model picker.**
-   Add favorites, recents, provider labels, current marker, and provider
-   connect/credential actions. Persist favorites in config/state.
-
-4. **Calm the default sidebar.**
-   Keep context/cost/session/agent visible, but move logs and risk
-   diagnostics behind a toggle or debug panel. The normal TUI should not
-   feel like a log console.
-
-5. **Refresh the tmux UAT harness for the new landing view.**
-   `hack/tmux-uat.sh all` currently fails because it expects the sidebar
-   on startup. That assertion is stale after the landing-view change.
+3. **Complete multi-session state caching.**
+   EP-0014 covers switch/new/rename/fork/delete. The remaining work is
+   preserving per-session draft, scroll, and inactive background state
+   without hidden mutation.
 
 ### P1 — UX Quality
 
-6. **Add an opencode-style command palette.**
-   Keep slash commands, but make `ctrl+p` the main command discovery
-   path with groups, fuzzy search, and shortcut labels beside each
-   command.
+4. **Extend inline `@` to docs and symbols.**
+   EP-0020 now covers agents, sessions, skills, and files. Docs and
+   symbols should be added only with bounded indexing and clear grouping.
 
-7. **Unify inline context insertion.**
-   Extend `@` completion beyond files: agents, sessions, symbols, and
-   possibly docs/skills. Use grouped results so users can learn one
-   insertion pattern.
+5. **Tone down the landing logo.**
+   The landing view works, but opencode still has better visual balance:
+   the input is the primary object and the logo does less work.
 
-8. **Add per-turn footer metadata.**
-   Render compact turn metadata after each assistant response: agent,
-   model, provider, duration, token delta, tool count, and cost delta.
-
-9. **Add session auto-title.**
-   opencode renames the UAT session to `Greeting` after a simple
-   greeting. stado has `/describe`, but automatic first-turn titles
-   would improve session lists and future multi-session switching.
-
-10. **Add theme catalog and TUI picker.**
-    Keep TOML overrides for power users, but ship several named themes
-    and expose them from the command palette. Include light/dark mode.
+6. **Broaden theme parity.**
+   EP-0022 has a catalog and picker. Add a wider built-in set and a
+   direct light/dark toggle if users keep reaching for it.
 
 ### P2 — Polish And Parity
 
-11. **Add a status modal.**
-    opencode's `ctrl+x s` modal gives a fast summary of MCP servers,
-    formatters, and plugins. stado could show providers, MCP/plugin
-    health, sandbox, OTel, and auto-compact status.
+7. **Make status modal rows actionable.**
+   EP-0023 shows status. The next slice should link rows to focused
+   commands or remediation, especially provider, plugin, MCP, and OTel
+   rows.
 
-12. **Make LSP state visible in plain language.**
-    opencode says "LSPs will activate as files are read." stado should
-    show similarly clear LSP/tool readiness rather than only low-level
-    details.
-
-13. **Improve footer density.**
-    opencode's bottom row packs cwd, branch, tokens, command hint, and
-    version into a quiet status line. stado's footer should aim for the
-    same scan speed.
+8. **Add expandable turn trace details.**
+   EP-0021 footers are implemented. An optional expansion could show
+   failed tools, cache deltas, and trace links without making the normal
+   transcript noisy.
 
 ## Do Not Copy Blindly
 
@@ -222,18 +225,19 @@ picker and built-in theme catalog.
 
 ## Recommended Next EP Work
 
-- Extend EP-0014 with concrete TUI session overlay behavior.
-- Extend EP-0013 with agent picker semantics and agent-permission UI.
-- Add a new EP for model/provider UX if we want favorites, recents, and
-  credential connection to be a tracked product decision.
-- Add a small testing task for the stale tmux landing assertion.
+- Advance EP-0013 from placeholder/partial into an implementable
+  subagent runtime design.
+- Extend EP-0019 with provider connect and credential remediation flows.
+- Extend EP-0020 with docs/symbol result semantics and indexing limits.
+- Extend EP-0014 with per-session cached UI state and inactive-session
+  execution policy.
 
 ## Verdict
 
-opencode's main advantage is not a single feature; it is product
-coherence. Startup, commands, model selection, agents, sessions, status,
-themes, and file mentions all feel like parts of one keyboard-first
-interface. stado has stronger safety/audit ambitions and many of the
-building blocks already exist, but the TUI still exposes too much of the
-implementation shape. The highest-value next work is to turn stado's
-existing capabilities into calm, searchable, in-app workflows.
+opencode's main advantage is product coherence. Startup, commands,
+model selection, agents, sessions, status, themes, and file mentions all
+feel like parts of one keyboard-first interface. stado has now copied
+many of the visible workflows while keeping its stronger safety/audit
+posture. The remaining work is less about adding another picker and more
+about closing the real runtime gaps: subagents, provider remediation,
+session state caching, and fast context discovery.

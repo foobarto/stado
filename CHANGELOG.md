@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.21.2 — 2026-04-25
+
+### Docs
+
+- **Refreshed the opencode TUI UAT report.** The report now separates
+  the original `v0.4.2` comparison from current `v0.21.1` status and
+  reprioritizes remaining work around subagents, provider remediation,
+  session state caching, and docs/symbol context completion.
+
 ## v0.21.1 — 2026-04-25
 
 ### TUI
