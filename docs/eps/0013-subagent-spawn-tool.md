@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Open questions were narrowed after worker changed-file/scope summaries, adoption commands, `/subagents`, and sidebar subagent activity shipped.
+  - date: 2026-04-25
+    status: Partial
     note: Added the /adopt TUI slash command for dry-running or explicitly applying recent worker child changes.
   - date: 2026-04-25
     status: Partial
@@ -265,7 +268,9 @@ Conflict and adoption contract:
 Review flow:
 
 - TUI: show the child notice with changed-file count and attach command;
-  do not switch sessions automatically.
+  do not switch sessions automatically. `/subagents` and the sidebar
+  activity section provide the dedicated recent-child overview, including
+  changed-file counts, scope violations, and adoption readiness.
 - Headless/ACP: include `forkTree`, `changedFiles`,
   `scopeViolations`, and `adoptionCommand` in the finished `subagent`
   notification when available.
@@ -300,9 +305,6 @@ Review flow:
 ## Open questions
 
 - How many children can run concurrently?
-- How are child results summarized without losing critical details?
-- Should TUI display a dedicated subagent activity view instead of only
-  the parent tool result plus attachable child-session notice?
 
 ## Decision log
 

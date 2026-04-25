@@ -149,6 +149,9 @@ subagent slice.
 - EP-14 now records the multi-session TUI policy and shape as
   implemented: active-session-only execution, confirmed full delete, and
   command-palette/session-overview management.
+- EP-13 open questions now reflect the shipped worker summaries,
+  adoption commands, `/subagents`, and sidebar activity; only child
+  concurrency policy remains open.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -206,7 +209,8 @@ repo-compatible Go toolchain at
   state, persisted thinking display mode, resumed thinking blocks,
   failed/rejected tool-result metadata, config-backed bundled theme
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
-  TUI policy docs are also closed.
+  TUI policy docs are also closed, and EP-13's subagent open questions
+  are narrowed to concurrency policy.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

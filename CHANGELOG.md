@@ -155,6 +155,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Narrowed the subagent EP open questions.** EP-13 now reflects the
+  shipped worker summaries, adoption commands, `/subagents`, and sidebar
+  subagent activity, leaving only concurrency policy open.
 - **Closed the multi-session TUI EP.** EP-14 now records the
   active-session-only policy, confirmed delete semantics, and
   command-palette/session-overview UI shape as implemented.
