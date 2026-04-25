@@ -1,9 +1,10 @@
 // Package localdetect probes the bundled local OAI-compat endpoints
 // (ollama, llamacpp, vllm, lmstudio) with a short-timeout GET on
-// /v1/models. The result tells stado which local runners are up right
-// now + what models they have loaded — so `stado doctor` can surface a
-// "you've got lmstudio running at localhost:1234 with llama-3.3:70b
-// loaded, want to use it?" row without requiring API-key setup.
+// /v1/models. For LM Studio, which lists installed models even when none
+// are loaded, it also probes the local API for loaded-state details. The
+// result tells stado which local runners are up right now + which models
+// are immediately runnable, so `stado doctor` can surface useful setup
+// rows without requiring API-key setup.
 //
 // Offline-safe: failures are probe timeouts, not errors bubbled up.
 // Probes run concurrently — total wall time stays under the per-probe
@@ -42,11 +43,13 @@ type Target struct {
 
 // Result is what a single probe produced.
 type Result struct {
-	Name      string
-	Endpoint  string
-	Reachable bool
-	Err       error    // populated when Reachable is false
-	Models    []string // sorted; empty when Reachable is false
+	Name           string
+	Endpoint       string
+	Reachable      bool
+	Err            error    // populated when Reachable is false
+	Models         []string // sorted; empty when Reachable is false
+	LoadStateKnown bool     // true when the runner reports loaded vs installed state
+	LoadedModels   []string // sorted; only populated when LoadStateKnown is true
 }
 
 // DefaultTimeout is the per-probe budget. A down server at localhost
@@ -175,5 +178,66 @@ func probeOne(ctx context.Context, t Target) Result {
 		}
 	}
 	sort.Strings(out.Models)
+	if strings.EqualFold(t.Name, "lmstudio") {
+		if loaded, ok := probeLMStudioLoadedModels(pctx, t.Endpoint); ok {
+			out.LoadStateKnown = true
+			out.LoadedModels = loaded
+		}
+	}
 	return out
+}
+
+// RunnableModels returns the model ids that are immediately usable for chat.
+// Most OAI-compatible runners expose only loaded/runnable models through
+// /v1/models. LM Studio exposes installed models there, so when its richer
+// API reports loaded state we use that narrower set.
+func (r Result) RunnableModels() []string {
+	if r.LoadStateKnown {
+		return r.LoadedModels
+	}
+	return r.Models
+}
+
+func probeLMStudioLoadedModels(ctx context.Context, endpoint string) ([]string, bool) {
+	req, err := http.NewRequestWithContext(ctx, "GET", lmStudioAPIBase(endpoint)+"/api/v0/models", nil)
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("User-Agent", "stado-localdetect")
+	resp, err := probeHTTPClient.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var body struct {
+		Data []struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, false
+	}
+	var loaded []string
+	for _, m := range body.Data {
+		if m.ID != "" && strings.EqualFold(m.State, "loaded") {
+			loaded = append(loaded, m.ID)
+		}
+	}
+	sort.Strings(loaded)
+	return loaded, true
+}
+
+func lmStudioAPIBase(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return strings.TrimRight(endpoint, "/")
+	}
+	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/v1")
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/")
 }

@@ -26,7 +26,7 @@ explains what it found:
 ✓ Landlock            available  (kernel ≥ 5.13)
 ✓ Context thresholds  soft=70% hard=90%  (ok)
 ✓ Budget caps         (unset — no cost guardrail)  (ok)
-✓ Local lmstudio      http://localhost:1234/v1  (running · 13 model(s): …)
+✓ Local lmstudio      http://localhost:1234/v1  (running · 13 installed model(s), none loaded — load one in LM Studio or run `lms load <model>`)
 
 all checks passed
 ```

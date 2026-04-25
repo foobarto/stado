@@ -307,11 +307,9 @@ func noProviderConfiguredError() error {
 
 // detectLocalFallback probes bundled local runners (+ user-configured
 // localhost presets) concurrently with a short budget. Returns the
-// first reachable OAI-compat provider — used when the default
-// "anthropic" provider is selected without an API key. Returns nil
-// when no local runner answers; the caller then falls through to the
-// original anthropic path so the user sees the canonical
-// "ANTHROPIC_API_KEY not set" error with no mysterious behaviour.
+// first reachable OAI-compat provider with at least one runnable model.
+// Returns nil when no local runner can accept a chat request; the caller
+// then reports the no-provider-configured setup error.
 func detectLocalFallback(ctx context.Context, cfg *config.Config) (agent.Provider, *localdetect.Result) {
 	done := tuiTraceCall("tui.detectLocalFallback")
 	defer done()
@@ -333,14 +331,15 @@ func detectLocalFallback(ctx context.Context, cfg *config.Config) (agent.Provide
 	if picked := pickLocalFallback(results); picked != nil {
 		p, err := oaicompat.New(picked.Endpoint, oaicompat.WithName(picked.Name))
 		if err == nil {
+			models := picked.RunnableModels()
 			tuiTrace("local fallback picked",
 				"provider", picked.Name,
 				"endpoint", picked.Endpoint,
-				"models", len(picked.Models))
+				"models", len(models))
 			span.SetAttributes(
 				attribute.String("provider.name", picked.Name),
 				attribute.String("provider.endpoint", picked.Endpoint),
-				attribute.Int("provider.models", len(picked.Models)),
+				attribute.Int("provider.models", len(models)),
 			)
 			return p, picked
 		}
@@ -377,20 +376,16 @@ func logLocalFallback(picked *localdetect.Result) {
 }
 
 func pickLocalFallback(results []localdetect.Result) *localdetect.Result {
-	var reachable *localdetect.Result
 	for i := range results {
 		r := &results[i]
 		if !r.Reachable {
 			continue
 		}
-		if len(r.Models) > 0 {
+		if len(r.RunnableModels()) > 0 {
 			return r
 		}
-		if reachable == nil {
-			reachable = r
-		}
 	}
-	return reachable
+	return nil
 }
 
 // builtinPreset returns (endpoint, api-key-env-var, ok) for bundled

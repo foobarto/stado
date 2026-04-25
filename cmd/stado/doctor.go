@@ -252,16 +252,21 @@ func checkLocalProviders(ctx context.Context, d *report, cfg *config.Config) {
 	results := localdetect.Detect(ctx, localdetect.MergeUserPresets(user))
 	for _, r := range results {
 		label := "Local " + r.Name
-		switch {
-		case !r.Reachable:
-			d.check(label, r.Endpoint, "not running (probe: "+sanitizeErr(r.Err)+")", true)
-		case len(r.Models) == 0:
-			d.check(label, r.Endpoint, "running · no models loaded", true)
-		default:
-			preview := modelPreview(r.Models)
-			detail := fmt.Sprintf("running · %d model(s): %s", len(r.Models), preview)
-			d.check(label, r.Endpoint, detail, true)
-		}
+		d.check(label, r.Endpoint, localProviderDetail(r), true)
+	}
+}
+
+func localProviderDetail(r localdetect.Result) string {
+	models := r.RunnableModels()
+	switch {
+	case !r.Reachable:
+		return "not running (probe: " + sanitizeErr(r.Err) + ")"
+	case r.LoadStateKnown && len(models) == 0:
+		return fmt.Sprintf("running · %d installed model(s), none loaded — load one in LM Studio or run `lms load <model>`", len(r.Models))
+	case len(models) == 0:
+		return "running · no models loaded"
+	default:
+		return fmt.Sprintf("running · %d model(s): %s", len(models), modelPreview(models))
 	}
 }
 

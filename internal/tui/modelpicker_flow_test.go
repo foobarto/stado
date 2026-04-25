@@ -361,6 +361,25 @@ func TestProvidersOverviewShowsNoModelRemediation(t *testing.T) {
 	}
 }
 
+func TestProvidersOverviewShowsLMStudioLoadedState(t *testing.T) {
+	m := newPickerTestModel(t, "lmstudio")
+	got := m.renderProvidersOverviewFromResults([]localdetect.Result{{
+		Name:           "lmstudio",
+		Endpoint:       "http://localhost:1234/v1",
+		Reachable:      true,
+		Models:         []string{"installed-only"},
+		LoadStateKnown: true,
+	}})
+	for _, want := range []string{
+		"running · 1 installed model(s), none loaded",
+		"lms load <model>",
+	} {
+		if !contains(got, want) {
+			t.Fatalf("providers overview missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestProvidersOverviewShowsCredentialHealth(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 	m := newPickerTestModel(t, "openai")

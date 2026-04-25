@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
 
@@ -62,5 +63,41 @@ func TestLoadTheme_ConfigThemeBeatsThemeTOML(t *testing.T) {
 	}
 	if th.Name != "stado-light" {
 		t.Fatalf("theme = %q, want stado-light", th.Name)
+	}
+}
+
+func TestPickLocalFallbackSkipsLMStudioWithNoLoadedModels(t *testing.T) {
+	picked := pickLocalFallback([]localdetect.Result{
+		{
+			Name:           "lmstudio",
+			Endpoint:       "http://localhost:1234/v1",
+			Reachable:      true,
+			Models:         []string{"installed-only"},
+			LoadStateKnown: true,
+		},
+		{
+			Name:      "ollama",
+			Endpoint:  "http://localhost:11434/v1",
+			Reachable: true,
+			Models:    []string{"llama3.2:8b"},
+		},
+	})
+	if picked == nil || picked.Name != "ollama" {
+		t.Fatalf("picked = %+v, want ollama", picked)
+	}
+}
+
+func TestPickLocalFallbackReturnsNilWhenNoRunnableModels(t *testing.T) {
+	picked := pickLocalFallback([]localdetect.Result{
+		{
+			Name:           "lmstudio",
+			Endpoint:       "http://localhost:1234/v1",
+			Reachable:      true,
+			Models:         []string{"installed-only"},
+			LoadStateKnown: true,
+		},
+	})
+	if picked != nil {
+		t.Fatalf("picked = %+v, want nil", picked)
 	}
 }

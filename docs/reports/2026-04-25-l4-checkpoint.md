@@ -152,6 +152,9 @@ subagent slice.
 - EP-13 open questions now reflect the shipped worker summaries,
   adoption commands, `/subagents`, and sidebar activity; only child
   concurrency policy remains open.
+- Local-runner detection now distinguishes LM Studio installed models
+  from loaded/runnable models, so fallback and picker rows avoid
+  unloaded models while doctor and `/providers` show remediation.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -210,10 +213,11 @@ repo-compatible Go toolchain at
   failed/rejected tool-result metadata, config-backed bundled theme
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
   TUI policy docs are also closed, and EP-13's subagent open questions
-  are narrowed to concurrency policy.
-- Live worker dogfood was attempted with local LM Studio auto-detect,
-  but the provider returned `No models loaded`; rerun after loading a
-  local model.
+  are narrowed to concurrency policy. LM Studio installed-vs-loaded
+  model detection is also fixed.
+- Live worker dogfood was attempted with local LM Studio auto-detect;
+  fallback now skips installed-but-unloaded LM Studio models and reports
+  the no-provider setup error until a local model is loaded.
 - No release tag has been cut for this slice.
 
 ## Next Candidates

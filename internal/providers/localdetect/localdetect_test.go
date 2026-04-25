@@ -50,6 +50,44 @@ func TestDetect_OAICompatServerUp(t *testing.T) {
 	}
 }
 
+func TestDetect_LMStudioUsesLoadedModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v1/models"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{"id": "installed-only"},
+					{"id": "ready"},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/api/v0/models"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{
+					{"id": "installed-only", "state": "not-loaded"},
+					{"id": "ready", "state": "loaded"},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	results := Detect(context.Background(), []Target{
+		{Name: "lmstudio", Endpoint: srv.URL + "/v1"},
+	})
+	r := results[0]
+	if !r.LoadStateKnown {
+		t.Fatal("expected LM Studio loaded-state probe")
+	}
+	if len(r.Models) != 2 {
+		t.Fatalf("installed models = %v, want 2", r.Models)
+	}
+	if got := r.RunnableModels(); len(got) != 1 || got[0] != "ready" {
+		t.Fatalf("runnable models = %v, want [ready]", got)
+	}
+}
+
 // TestDetect_Unreachable covers the down-server case. A port with
 // nothing listening should error fast (well under DefaultTimeout).
 func TestDetect_Unreachable(t *testing.T) {

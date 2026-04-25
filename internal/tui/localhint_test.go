@@ -58,6 +58,19 @@ func TestRenderLocalRunnerHint_NoModelsLoaded(t *testing.T) {
 	}
 }
 
+func TestRenderLocalRunnerHint_LMStudioInstalledButNotLoaded(t *testing.T) {
+	got := renderLocalRunnerHint([]localdetect.Result{{
+		Name:           "lmstudio",
+		Endpoint:       "http://localhost:1234/v1",
+		Reachable:      true,
+		Models:         []string{"installed-only"},
+		LoadStateKnown: true,
+	}})
+	if !strings.Contains(got, "1 installed, none loaded") {
+		t.Errorf("installed-but-not-loaded path missing advisory: %q", got)
+	}
+}
+
 // TestRenderLocalRunnerHint_SingleModel uses singular wording ("1 model")
 // — small UX detail but it reads wrong if it says "1 models".
 func TestRenderLocalRunnerHint_SingleModel(t *testing.T) {

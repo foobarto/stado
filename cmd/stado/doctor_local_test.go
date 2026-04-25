@@ -2,7 +2,10 @@ package main
 
 import (
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/providers/localdetect"
 )
 
 // TestSanitizeErr covers the three branches of the probe-error
@@ -23,6 +26,21 @@ func TestSanitizeErr(t *testing.T) {
 		got := sanitizeErr(c.in)
 		if got != c.want {
 			t.Errorf("sanitizeErr(%v) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestLocalProviderDetail_LMStudioInstalledButNotLoaded(t *testing.T) {
+	got := localProviderDetail(localdetect.Result{
+		Name:           "lmstudio",
+		Endpoint:       "http://localhost:1234/v1",
+		Reachable:      true,
+		Models:         []string{"installed-only", "ready-later"},
+		LoadStateKnown: true,
+	})
+	for _, want := range []string{"2 installed", "none loaded", "lms load <model>"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("detail missing %q: %q", want, got)
 		}
 	}
 }

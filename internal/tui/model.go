@@ -645,14 +645,17 @@ func renderLocalRunnerHint(results []localdetect.Result) string {
 	var b strings.Builder
 	b.WriteString("Detected running local provider(s) on this machine:\n")
 	for _, r := range running {
+		models := r.RunnableModels()
 		switch {
-		case len(r.Models) == 0:
+		case r.LoadStateKnown && len(models) == 0:
+			fmt.Fprintf(&b, "  %-9s %s  (%d installed, none loaded)\n", r.Name, r.Endpoint, len(r.Models))
+		case len(models) == 0:
 			fmt.Fprintf(&b, "  %-9s %s  (no models loaded)\n", r.Name, r.Endpoint)
-		case len(r.Models) == 1:
-			fmt.Fprintf(&b, "  %-9s %s  (1 model: %s)\n", r.Name, r.Endpoint, r.Models[0])
+		case len(models) == 1:
+			fmt.Fprintf(&b, "  %-9s %s  (1 model: %s)\n", r.Name, r.Endpoint, models[0])
 		default:
 			fmt.Fprintf(&b, "  %-9s %s  (%d models, e.g. %s)\n",
-				r.Name, r.Endpoint, len(r.Models), r.Models[0])
+				r.Name, r.Endpoint, len(models), models[0])
 		}
 	}
 	fmt.Fprintf(&b, "\nSwitch to one via `STADO_DEFAULTS_PROVIDER=<name> stado`,\n"+

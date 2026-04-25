@@ -61,6 +61,10 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Distinguished LM Studio installed vs loaded models.** Local
+  detection now uses LM Studio loaded-state data for auto-fallback and
+  picker rows, while doctor and `/providers` show installed-but-not-loaded
+  remediation.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

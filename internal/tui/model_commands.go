@@ -496,12 +496,13 @@ func (m *Model) openModelPicker() {
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	for _, r := range localdetect.DetectBundled(ctx) {
+		models := r.RunnableModels()
 		if r.Reachable && r.Name == m.providerName {
-			items = modelpicker.MergeLocal(items, r.Name, true, r.Models)
+			items = modelpicker.MergeLocal(items, r.Name, true, models)
 			continue
 		}
 		if r.Reachable {
-			for _, modelID := range r.Models {
+			for _, modelID := range models {
 				items = append(items, modelpicker.Item{
 					ID:           modelID,
 					Origin:       r.Name + " · detected",
@@ -616,10 +617,17 @@ func (m *Model) renderProvidersOverviewFromResults(results []localdetect.Result)
 	b.WriteString("\nlocal runners on this machine:\n")
 	any := false
 	for _, r := range results {
+		models := r.RunnableModels()
 		switch {
 		case !r.Reachable:
 			fmt.Fprintf(&b, "  %-9s %s  — not running\n", r.Name, r.Endpoint)
-		case len(r.Models) == 0:
+		case r.LoadStateKnown && len(models) == 0:
+			any = true
+			fmt.Fprintf(&b, "  %-9s %s  — running · %d installed model(s), none loaded\n", r.Name, r.Endpoint, len(r.Models))
+			if hint := localRunnerNoModelsHint(r.Name); hint != "" {
+				fmt.Fprintf(&b, "    next: %s\n", hint)
+			}
+		case len(models) == 0:
 			any = true
 			fmt.Fprintf(&b, "  %-9s %s  — running · no models loaded\n", r.Name, r.Endpoint)
 			if hint := localRunnerNoModelsHint(r.Name); hint != "" {
@@ -628,7 +636,7 @@ func (m *Model) renderProvidersOverviewFromResults(results []localdetect.Result)
 		default:
 			any = true
 			fmt.Fprintf(&b, "  %-9s %s  — running · %d model(s), e.g. %s\n",
-				r.Name, r.Endpoint, len(r.Models), r.Models[0])
+				r.Name, r.Endpoint, len(models), models[0])
 		}
 	}
 	if any {

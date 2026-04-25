@@ -9,6 +9,9 @@ see-also: [3, 10]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Local-runner detection now distinguishes LM Studio installed models from loaded/runnable models for fallback, doctor, and `/providers`.
+  - date: 2026-04-25
+    status: Partial
     note: /providers now includes active-provider credential env var health.
   - date: 2026-04-25
     status: Partial
@@ -75,6 +78,11 @@ The first shipped slices are:
 - `/providers` includes runner-specific next steps when a local endpoint
   is reachable but exposes no loaded models, for example LM Studio's
   developer page or `lms load <model>`.
+- LM Studio's OpenAI-compatible `/models` endpoint can list installed
+  models that are not loaded. Stado probes LM Studio's local API for
+  loaded state and uses only loaded models for automatic local fallback
+  and picker rows; doctor and `/providers` still report installed counts
+  with load guidance.
 
 Future work should add true provider connect/OAuth flows where
 providers support them, richer empty states, and a clearer distinction
