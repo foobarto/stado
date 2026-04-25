@@ -37,6 +37,7 @@ var Commands = []Command{
 	{"/status", "Open provider, tool, plugin, sandbox, and telemetry status", "ctrl+x s", "Session"},
 	{"/provider", "Show current provider capabilities or setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
+	{"/tasks", "Open the shared task manager", "ctrl+x k", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
@@ -59,7 +60,6 @@ var Commands = []Command{
 	{"/thinking", "Cycle or set thinking display (show, tail, hide)", "ctrl+x h", "View"},
 	{"/debug", "Toggle sidebar diagnostics and log tail", "", "View"},
 	{"/split", "Split the chat into conversation + activity tail panes", "", "View"},
-	{"/todo", "Add a todo item (/todo <title>)", "", "View"},
 }
 
 // Model owns command fuzzy-search state. Ctrl+P renders it as a modal,

@@ -31,6 +31,7 @@ var Defaults = map[Action]string{
 	ModelSwitch:             "ctrl+x m",
 	SessionSwitch:           "ctrl+x l",
 	SessionNew:              "ctrl+x n",
+	TaskView:                "ctrl+x k",
 	ThemeSwitch:             "ctrl+x t",
 	StatusView:              "ctrl+x s",
 	ThinkingToggle:          "ctrl+x h",

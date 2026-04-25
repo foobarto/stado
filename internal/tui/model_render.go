@@ -171,6 +171,11 @@ func (m *Model) View() string {
 		m.sessionPick.Height = m.height
 		return m.sessionPick.View(m.width, m.height)
 	}
+	if m.taskPick.Visible {
+		m.taskPick.Width = m.width
+		m.taskPick.Height = m.height
+		return m.taskPick.View(m.width, m.height)
+	}
 	if m.themePick.Visible {
 		m.themePick.Width = m.width
 		m.themePick.Height = m.height

@@ -588,6 +588,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.taskPick.Visible {
+			cmd, handled := m.taskPick.Update(msg)
+			if handled {
+				if err := m.applyTaskCommand(cmd); err != nil {
+					m.taskPick.SetNotice(err.Error())
+				}
+				m.layout()
+				return m, nil
+			}
+			return m, nil
+		}
+
 		if m.themePick.Visible {
 			cmd, handled := m.themePick.Update(msg)
 			if handled {
@@ -667,6 +679,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.layout()
 				case keys.SessionNew:
 					if err := m.createAndSwitchSession(); err != nil {
+						m.appendBlock(block{kind: "system", body: err.Error()})
+						m.renderBlocks()
+					}
+				case keys.TaskView:
+					if err := m.openTaskPicker(); err != nil {
 						m.appendBlock(block{kind: "system", body: err.Error()})
 						m.renderBlocks()
 					}

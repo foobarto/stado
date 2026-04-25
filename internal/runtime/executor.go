@@ -8,7 +8,9 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -86,6 +88,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 // also be trimmed.
 func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
 	reg := BuildDefaultRegistry()
+	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 
 	if len(cfg.MCP.Servers) > 0 {
 		if err := attachMCP(reg, cfg.MCP.Servers); err != nil {

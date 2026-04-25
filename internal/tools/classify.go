@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
+	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -28,6 +29,7 @@ var Classes = map[string]tool.Class{
 	(rg.Tool{}).Name():                  tool.ClassNonMutating,
 	(astgrep.Tool{}).Name():             tool.ClassExec,
 	(readctx.Tool{}).Name():             tool.ClassNonMutating,
+	(tasktool.Tool{}).Name():            tool.ClassMutating,
 	(&lspfind.FindDefinition{}).Name():  tool.ClassNonMutating,
 	(&lspfind.FindReferences{}).Name():  tool.ClassNonMutating,
 	(&lspfind.DocumentSymbols{}).Name(): tool.ClassNonMutating,

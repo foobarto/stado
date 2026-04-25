@@ -80,9 +80,24 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.appendBlock(block{kind: "system", body: "sidebar diagnostics: off"})
 		}
 	case "/todo":
-		// Demo: quick way to test sidebar todo rendering.
 		if len(parts) > 1 {
-			m.todos = append(m.todos, todo{Title: strings.Join(parts[1:], " "), Status: "open"})
+			title := strings.Join(parts[1:], " ")
+			m.todos = append(m.todos, todo{Title: title, Status: "open"})
+			if err := m.createTaskFromSlash(title); err != nil {
+				m.appendBlock(block{kind: "system", body: err.Error()})
+			}
+		} else if err := m.openTaskPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
+	case "/tasks", "/task":
+		if len(parts) > 2 && (parts[1] == "add" || parts[1] == "new") {
+			if err := m.createTaskFromSlash(strings.Join(parts[2:], " ")); err != nil {
+				m.appendBlock(block{kind: "system", body: err.Error()})
+			}
+		} else if len(parts) > 1 {
+			m.appendBlock(block{kind: "system", body: "usage: /tasks or /tasks add <title>"})
+		} else if err := m.openTaskPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/approvals":
 		m.appendBlock(block{kind: "system", body: "tool-call approvals were removed; plugins can request approval explicitly via the UI approval capability"})
