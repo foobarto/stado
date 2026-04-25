@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -232,11 +233,15 @@ func (r *Renderer) markdown(body string, width int) string {
 	gm, ok := r.mdCache[width]
 	if !ok {
 		var err error
+		style := styles.DarkStyle
+		if themeUsesLightMarkdown(r.theme) {
+			style = styles.LightStyle
+		}
 		gm, err = glamour.NewTermRenderer(
 			// Avoid WithAutoStyle in the TUI: it queries terminal
 			// background via OSC/CPR on first assistant markdown render,
 			// racing Bubble Tea's input reader and freezing the UI.
-			glamour.WithStandardStyle(styles.DarkStyle),
+			glamour.WithStandardStyle(style),
 			glamour.WithWordWrap(width),
 			glamour.WithPreservedNewLines(),
 		)
@@ -252,6 +257,25 @@ func (r *Renderer) markdown(body string, width int) string {
 		return body
 	}
 	return strings.TrimRight(out, "\n")
+}
+
+func themeUsesLightMarkdown(th *theme.Theme) bool {
+	if th == nil {
+		return false
+	}
+	bg := strings.TrimSpace(th.Colors.Background)
+	bg = strings.TrimPrefix(bg, "#")
+	if len(bg) != 6 {
+		return false
+	}
+	r, errR := strconv.ParseUint(bg[0:2], 16, 8)
+	g, errG := strconv.ParseUint(bg[2:4], 16, 8)
+	b, errB := strconv.ParseUint(bg[4:6], 16, 8)
+	if errR != nil || errG != nil || errB != nil {
+		return false
+	}
+	luma := 0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)
+	return luma >= 128
 }
 
 func wordWrap(s string, width int) string {

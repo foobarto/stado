@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Matched markdown rendering to light themes.** Assistant markdown now
+  uses Glamour's light style when the active theme background is light,
+  and falls back to the dark style for dark/contrast themes.
 - **Added local-runner no-model remediation.** `/providers` now shows
   runner-specific next steps when a reachable local backend has no
   models loaded, including the LM Studio `lms load <model>` path.

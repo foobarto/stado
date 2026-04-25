@@ -9,6 +9,9 @@ see-also: [19]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Markdown rendering now switches between dark and light Glamour styles based on theme background luminance.
+  - date: 2026-04-25
+    status: Partial
     note: Direct /theme light, /theme dark, and /theme toggle shortcuts shipped on top of the picker.
   - date: 2026-04-24
     status: Partial
@@ -57,6 +60,10 @@ The runtime applies the selected theme through the explicit renderer
 theme and the legacy package-level theme globals so existing picker and
 editor components move together.
 
+Markdown rendering uses dark or light Glamour styles based on the active
+theme background luminance, and the renderer clears its markdown cache
+when a theme is switched.
+
 ## Test Strategy
 
 - Unit tests load every bundled catalog entry.
@@ -70,5 +77,5 @@ editor components move together.
   `theme.toml` files?
 - Should custom `theme.toml` files appear as a `custom` row in the
   picker?
-- Should markdown rendering switch between dark and light Glamour
-  styles based on the selected theme?
+- Should custom `theme.toml` files be able to explicitly choose the
+  markdown style instead of relying on background luminance?

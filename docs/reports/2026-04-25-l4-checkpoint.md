@@ -99,6 +99,9 @@ subagent slice.
 - `/providers` now shows runner-specific remediation when a reachable
   local backend has no models loaded, including LM Studio's `lms load`
   path.
+- Assistant markdown rendering now picks Glamour's light or dark style
+  from the active theme background luminance and clears the markdown
+  renderer cache on theme switch.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -142,7 +145,7 @@ repo-compatible Go toolchain at
   docs/symbol completion, landing-logo refinement, and direct
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
-  no-model remediation.
+  no-model remediation, and theme-aware markdown rendering.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

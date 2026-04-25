@@ -46,6 +46,26 @@ func TestRenderer_MessageAssistantMarkdown(t *testing.T) {
 	}
 }
 
+func TestMarkdownStyleFollowsThemeBackground(t *testing.T) {
+	if themeUsesLightMarkdown(theme.Default()) {
+		t.Fatal("default dark theme should use dark markdown style")
+	}
+	light, err := theme.Named("stado-light")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !themeUsesLightMarkdown(light) {
+		t.Fatal("light theme should use light markdown style")
+	}
+	contrast, err := theme.Named("stado-contrast")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if themeUsesLightMarkdown(contrast) {
+		t.Fatal("contrast dark theme should use dark markdown style")
+	}
+}
+
 func TestRenderer_MessageThinking(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("message_thinking", map[string]any{
