@@ -244,6 +244,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   provider credential health, LSP readiness, OTel, sandbox, and context,
   with next-step hints such as `/model`, `/tools`, `/plugin`, and
   `config.toml`
+- `/provider [name]` — active provider capabilities, or setup guidance
+  for a named provider such as `lmstudio`, `openai`, or `anthropic`
 - `/providers` — active provider plus detected local runners, with
   load/start hints when a runner has no models ready
 - `/thinking` — cycle thinking display; `/thinking show|tail|hide`

@@ -35,7 +35,7 @@ var Commands = []Command{
 	{"/agents", "Open the agent picker for Do, Plan, and BTW", "ctrl+x a", "Session"},
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "ctrl+x m", "Session"},
 	{"/status", "Open provider, tool, plugin, sandbox, and telemetry status", "ctrl+x s", "Session"},
-	{"/provider", "Show the current provider + capabilities", "", "Session"},
+	{"/provider", "Show current provider capabilities or setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},

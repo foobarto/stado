@@ -52,7 +52,7 @@ taking over the screen.
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker, `Ctrl+F` toggles favorites, and `Ctrl+A` shows provider setup for the selected row |
 | `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context, with next-step hints (`Ctrl+X S`) |
-| `/provider` | Show active provider + capabilities (cache, thinking, vision, ctx size) |
+| `/provider [name]` | Show active provider capabilities, or setup/remediation hints for a named provider |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |
 | `/compact` | Summarise the conversation and replace prior turns (requires y/n confirmation) |

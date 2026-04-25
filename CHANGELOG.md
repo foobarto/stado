@@ -76,6 +76,9 @@ Plugins / Infra / Fixes.
 - **Surfaced provider credential health in status.** `/status` now
   reports whether the active provider's conventional API key env var is
   set, missing, or not required by a local preset.
+- **Added direct provider setup hints.** `/provider <name>` now prints
+  the same setup/remediation guidance available from `Ctrl+A` in the
+  model picker.
 - **Added markdown style control for themes.** `theme.toml` can now set
   `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
   existing background-luminance detection.

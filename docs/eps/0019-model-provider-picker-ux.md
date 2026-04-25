@@ -9,6 +9,9 @@ see-also: [3, 10]
 history:
   - date: 2026-04-25
     status: Partial
+    note: /provider <name> now prints provider setup and remediation guidance directly.
+  - date: 2026-04-25
+    status: Partial
     note: /providers now includes local-runner remediation when a reachable runner has no models loaded.
   - date: 2026-04-25
     status: Partial

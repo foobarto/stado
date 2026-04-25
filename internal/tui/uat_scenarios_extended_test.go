@@ -580,6 +580,17 @@ func TestUAT_ProviderShowsUninitialised(t *testing.T) {
 	}
 }
 
+func TestUAT_ProviderNamedShowsSetup(t *testing.T) {
+	m := scenarioModel(t)
+	m.handleSlash("/provider lmstudio")
+	last := m.blocks[len(m.blocks)-1]
+	for _, want := range []string{"provider setup: lmstudio", "bundled endpoint", "lms load <model>"} {
+		if last.kind != "system" || !strings.Contains(last.body, want) {
+			t.Fatalf("/provider <name> setup missing %q: %+v", want, last)
+		}
+	}
+}
+
 // H4: /tools lists the tools visible to the current mode.
 func TestUAT_ToolsListsVisibleForMode(t *testing.T) {
 	m := scenarioModel(t)

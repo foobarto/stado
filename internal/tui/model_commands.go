@@ -119,6 +119,10 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/provider":
+		if len(parts) > 1 {
+			m.appendBlock(block{kind: "system", body: m.providerSetupBody(parts[1])})
+			break
+		}
 		name := m.providerDisplayName()
 		if m.provider != nil {
 			caps := m.provider.Capabilities()

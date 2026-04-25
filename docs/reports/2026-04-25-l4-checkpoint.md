@@ -104,6 +104,8 @@ subagent slice.
 - `/providers` now shows runner-specific remediation when a reachable
   local backend has no models loaded, including LM Studio's `lms load`
   path.
+- `/provider <name>` now prints provider setup/remediation guidance
+  directly, mirroring the model picker's `Ctrl+A` path.
 - Assistant markdown rendering now picks Glamour's light or dark style
   from the active theme background luminance and clears the markdown
   renderer cache on theme switch.
