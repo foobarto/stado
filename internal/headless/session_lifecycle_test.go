@@ -2,6 +2,7 @@ package headless
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -18,6 +19,40 @@ import (
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+func TestEmitSubagentUpdateIncludesAdoptionCommand(t *testing.T) {
+	var out bytes.Buffer
+	srv := NewServer(&config.Config{}, nil)
+	srv.conn = acp.NewConn(strings.NewReader(""), &out)
+
+	srv.emitSubagentUpdate("h-1", stadoruntime.SubagentEvent{
+		Phase:           "finished",
+		ParentSession:   "parent-1",
+		ChildSession:    "child-1",
+		Worktree:        "/tmp/child-1",
+		Role:            "worker",
+		Mode:            "workspace_write",
+		Status:          "completed",
+		TimeoutSeconds:  180,
+		ForkTree:        "0123456789abcdef0123456789abcdef01234567",
+		ChangedFiles:    []string{"docs/a.md"},
+		ScopeViolations: []string{"blocked.txt: denied"},
+	})
+
+	var got struct {
+		Method string         `json:"method"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &got); err != nil {
+		t.Fatalf("notification json: %v\n%s", err, out.String())
+	}
+	if got.Method != "session.update" {
+		t.Fatalf("method = %q, want session.update", got.Method)
+	}
+	if got.Params["adoptionCommand"] != "stado session adopt parent-1 child-1 --fork-tree 0123456789abcdef0123456789abcdef01234567 --apply" {
+		t.Fatalf("adoptionCommand = %v", got.Params["adoptionCommand"])
+	}
+}
 
 // TestSessionDeleteRemovesSession verifies session.delete + that a
 // subsequent session.prompt against the deleted id returns invalid-params.

@@ -32,7 +32,7 @@ var headlessCmd = &cobra.Command{
 		"Notifications:\n" +
 		"  session.update      { sessionId, kind, text? | name? input? }\n" +
 		"                      kind: text | tool_call | subagent | plugin_fork | context_warning | system\n" +
-		"                      subagent: phase/status/child/childWorktree/role/mode/forkTree?/changedFiles?/scopeViolations?\n",
+		"                      subagent: phase/status/child/childWorktree/role/mode/forkTree?/changedFiles?/scopeViolations?/adoptionCommand?\n",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

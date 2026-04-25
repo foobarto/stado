@@ -55,13 +55,17 @@ Plugins / Infra / Fixes.
 - **Aligned ACP subagent notifications.** ACP `session/update`
   notifications now surface subagent lifecycle fields, including worker
   changed files and scope violations.
+- **Added subagent adoption commands to interop events.** Headless and
+  ACP finished-worker notifications now include an `adoptionCommand`
+  when child changes are available to review and apply.
 
 ### Docs
 
 - **Documented worker subagent update fields.** Headless/ACP docs and
   CLI help now describe `subagent` lifecycle payloads, worker
-  `forkTree` / `changedFiles` / `scopeViolations` fields, and the
-  explicit `stado session adopt` review flow.
+  `forkTree` / `changedFiles` / `scopeViolations` /
+  `adoptionCommand` fields, and the explicit `stado session adopt`
+  review flow.
 
 ## v0.23.1 — 2026-04-25
 

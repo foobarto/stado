@@ -50,8 +50,8 @@ Notifications use `session.update` with `kind` values such as `text`,
 `subagent` notifications report `phase` (`started` / `finished`),
 child session id, child worktree, parent session id, status, role, mode,
 and `timeout_seconds`. Finished worker notifications may also include
-`forkTree`, `changedFiles`, and `scopeViolations`. Child edits stay in
-the child session until explicitly adopted:
+`forkTree`, `changedFiles`, `scopeViolations`, and `adoptionCommand`.
+Child edits stay in the child session until explicitly adopted:
 
 ```sh
 stado session adopt <parent-session> <child-session> --fork-tree <forkTree> --apply

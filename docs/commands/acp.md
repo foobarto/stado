@@ -49,9 +49,9 @@ Subagent lifecycle notifications also use `session/update` with
 `kind: "subagent"`. The payload includes `phase`, `status`, `role`,
 `mode`, `child`, `childWorktree`, `parentSession`, and
 `timeout_seconds`. Finished worker notifications may also include
-`forkTree`, `changedFiles`, and `scopeViolations`; clients should treat
-those as visibility fields and use `stado session adopt` for explicit
-child-to-parent adoption.
+`forkTree`, `changedFiles`, `scopeViolations`, and `adoptionCommand`;
+clients should treat those as visibility fields and use
+`stado session adopt` for explicit child-to-parent adoption.
 
 ## Gotchas
 

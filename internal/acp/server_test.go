@@ -100,6 +100,9 @@ func TestServerEmitSubagentUpdateIncludesWorkerFields(t *testing.T) {
 			t.Fatalf("params missing %s: %#v", key, params)
 		}
 	}
+	if got := params["adoptionCommand"]; got != "stado session adopt parent-1 child-1 --fork-tree 0123456789abcdef0123456789abcdef01234567 --apply" {
+		t.Fatalf("adoptionCommand = %v", got)
+	}
 	if params["kind"] != "subagent" || params["child"] != "child-1" {
 		t.Fatalf("unexpected params: %#v", params)
 	}

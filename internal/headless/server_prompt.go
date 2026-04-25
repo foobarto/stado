@@ -203,6 +203,9 @@ func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) 
 	if len(ev.ScopeViolations) > 0 {
 		payload["scopeViolations"] = append([]string(nil), ev.ScopeViolations...)
 	}
+	if cmd := ev.AdoptionCommand(); cmd != "" {
+		payload["adoptionCommand"] = cmd
+	}
 	_ = s.conn.Notify("session.update", payload)
 }
 

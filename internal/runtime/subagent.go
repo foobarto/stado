@@ -54,6 +54,25 @@ type SubagentEvent struct {
 	Error           string
 }
 
+// AdoptionCommand returns a copy-pasteable command for applying child
+// changes into the parent session when the event contains adoptable output.
+func (ev SubagentEvent) AdoptionCommand() string {
+	if ev.ParentSession == "" || ev.ChildSession == "" || len(ev.ChangedFiles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("stado session adopt ")
+	b.WriteString(ev.ParentSession)
+	b.WriteString(" ")
+	b.WriteString(ev.ChildSession)
+	if ev.ForkTree != "" {
+		b.WriteString(" --fork-tree ")
+		b.WriteString(ev.ForkTree)
+	}
+	b.WriteString(" --apply")
+	return b.String()
+}
+
 func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
 	req, err := prepareSubagentRequest(req)
 	if err != nil {

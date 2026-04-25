@@ -67,6 +67,8 @@ subagent slice.
 - ACP `session/update` notifications now mirror the subagent lifecycle
   payload, including worker `forkTree`, `changedFiles`, and
   `scopeViolations`.
+- Headless and ACP finished-worker notifications now include
+  `adoptionCommand` when changed files are present.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -88,6 +90,7 @@ subagent slice.
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless`
   - `go test ./internal/acp`
   - `go test ./cmd/stado`
+  - `go test ./internal/runtime ./internal/headless ./internal/acp`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -101,6 +104,9 @@ repo-compatible Go toolchain at
 
 - Branch: `main`
 - Worktree contains the EP-13 scoped worker spawn/adoption changes.
+- Live worker dogfood was attempted with local LM Studio auto-detect,
+  but the provider returned `No models loaded`; rerun after loading a
+  local model.
 - No release tag has been cut for this slice.
 
 ## Next Candidates
