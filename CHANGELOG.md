@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Preserved per-session provider/model selection.** Switching TUI
+  sessions now restores each session's selected provider and model, and
+  invalidates the live provider when the restored provider differs.
 - **Added subagent activity to the sidebar.** TUI `spawn_agent` lifecycle
   events now populate a recent child-session activity section with
   running/completed status, changed-file counts, scope violations, and

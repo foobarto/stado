@@ -19,9 +19,14 @@ import (
 )
 
 type sessionUIState struct {
-	Draft           string
-	ViewportYOffset int
-	ActivityYOffset int
+	Draft               string
+	ViewportYOffset     int
+	ActivityYOffset     int
+	ProviderName        string
+	Model               string
+	TokenCounterChecked bool
+	TokenCounterPresent bool
+	HasProviderState    bool
 }
 
 func (m *Model) openSessionPicker() error {
@@ -321,9 +326,14 @@ func (m *Model) saveActiveSessionUIState() {
 		draft = m.input.Value()
 	}
 	m.sessionUIStates[m.session.ID] = sessionUIState{
-		Draft:           draft,
-		ViewportYOffset: m.vp.YOffset,
-		ActivityYOffset: m.activityVP.YOffset,
+		Draft:               draft,
+		ViewportYOffset:     m.vp.YOffset,
+		ActivityYOffset:     m.activityVP.YOffset,
+		ProviderName:        m.providerName,
+		Model:               m.model,
+		TokenCounterChecked: m.tokenCounterChecked,
+		TokenCounterPresent: m.tokenCounterPresent,
+		HasProviderState:    true,
 	}
 }
 
@@ -340,6 +350,24 @@ func (m *Model) restoreActiveSessionUIState() {
 	}
 	m.vp.SetYOffset(state.ViewportYOffset)
 	m.activityVP.SetYOffset(state.ActivityYOffset)
+	m.restoreSessionProviderState(state)
+}
+
+func (m *Model) restoreSessionProviderState(state sessionUIState) {
+	if !state.HasProviderState {
+		return
+	}
+	providerChanged := state.ProviderName != m.providerName
+	m.providerName = state.ProviderName
+	m.model = state.Model
+	if providerChanged {
+		m.provider = nil
+		m.tokenCounterChecked = false
+		m.tokenCounterPresent = false
+		return
+	}
+	m.tokenCounterChecked = state.TokenCounterChecked
+	m.tokenCounterPresent = state.TokenCounterPresent
 }
 
 func (m *Model) resetForSession(sess *stadogit.Session) {

@@ -72,13 +72,16 @@ subagent slice.
 - TUI subagent lifecycle events now populate a sidebar `Subagents`
   activity section with child status, changed-file counts, scope
   violations, and adoption readiness.
+- TUI session switching now preserves per-session provider/model
+  selection and resets provider probes when a restored session uses a
+  different provider.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
-- Updated EP-13 and `CHANGELOG.md` under Unreleased.
+- Updated EP-13, EP-14, and `CHANGELOG.md` under Unreleased.
 
 ## Verification
 
@@ -95,6 +98,8 @@ subagent slice.
   - `go test ./cmd/stado`
   - `go test ./internal/runtime ./internal/headless ./internal/acp`
   - `go test ./internal/tui ./internal/runtime ./internal/subagent`
+  - `go test ./internal/tui -run 'TestSwitchToSession'`
+  - `go test ./internal/tui`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:

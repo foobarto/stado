@@ -308,6 +308,46 @@ func TestSwitchToSessionPreservesDraftAndScroll(t *testing.T) {
 	}
 }
 
+func TestSwitchToSessionPreservesProviderAndModelState(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	m.providerName = "anthropic"
+	m.model = "claude-sonnet"
+	m.tokenCounterChecked = true
+	m.tokenCounterPresent = true
+
+	if err := m.switchToSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if m.providerName != "anthropic" || m.model != "claude-sonnet" {
+		t.Fatalf("new session should inherit current provider/model, got %s/%s", m.providerName, m.model)
+	}
+	m.providerName = "lmstudio"
+	m.model = "qwen3"
+	m.provider = scenarioStub{}
+	m.tokenCounterChecked = true
+	m.tokenCounterPresent = true
+
+	if err := m.switchToSession(ids.first); err != nil {
+		t.Fatal(err)
+	}
+	if m.providerName != "anthropic" || m.model != "claude-sonnet" {
+		t.Fatalf("first session provider/model = %s/%s", m.providerName, m.model)
+	}
+	if m.provider != nil {
+		t.Fatalf("provider should be invalidated after provider restore, got %#v", m.provider)
+	}
+	if m.tokenCounterChecked || m.tokenCounterPresent {
+		t.Fatalf("token counter probe should reset after provider restore")
+	}
+
+	if err := m.switchToSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if m.providerName != "lmstudio" || m.model != "qwen3" {
+		t.Fatalf("second session provider/model = %s/%s", m.providerName, m.model)
+	}
+}
+
 func TestSwitchToSessionBlocksQueuedPrompt(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
 	m.queuedPrompt = "queued"
