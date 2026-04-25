@@ -71,6 +71,9 @@ Plugins / Infra / Fixes.
 - **Added shell symbols to inline `@` completion.** Top-level
   `.sh`/`.bash` functions now appear as symbol rows that insert
   `path:line` locations.
+- **Closed EP-20 inline context completion.** The scoped `@` surface now
+  covers agents, sessions, skills, docs, files, and repo-shaped symbol
+  scanners.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

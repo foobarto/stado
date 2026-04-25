@@ -160,6 +160,9 @@ subagent slice.
 - Local-runner detection now distinguishes LM Studio installed models
   from loaded/runnable models, so fallback and picker rows avoid
   unloaded models while doctor and `/providers` show remediation.
+- EP-20 now records inline context completion as implemented for the
+  scoped surface: agents, sessions, skills, docs, files, and
+  repo-shaped symbol scanners.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -217,9 +220,9 @@ repo-compatible Go toolchain at
   state, persisted thinking display mode, resumed thinking blocks,
   failed/rejected tool-result metadata, config-backed bundled theme
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
-  TUI policy docs are also closed, and EP-13's subagent open questions
-  are narrowed to concurrency policy. LM Studio installed-vs-loaded
-  model detection is also fixed.
+  TUI policy docs and EP-20 inline context completion are also closed,
+  and EP-13's subagent open questions are narrowed to concurrency
+  policy. LM Studio installed-vs-loaded model detection is also fixed.
 - Live worker dogfood was attempted with local LM Studio auto-detect;
   fallback now skips installed-but-unloaded LM Studio models and reports
   the no-provider setup error until a local model is loaded.
@@ -234,5 +237,5 @@ repo-compatible Go toolchain at
    client consumes the subagent notification payload.
 3. Extend provider remediation toward real provider connect/OAuth only
    after deciding which providers support an in-app flow.
-4. Consider additional bounded symbol scanners or theme catalog entries
-   only where they serve a real repo shape.
+4. Consider additional theme catalog entries only where they serve a
+   real usage gap.

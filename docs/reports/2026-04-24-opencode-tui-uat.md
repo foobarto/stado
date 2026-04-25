@@ -53,7 +53,7 @@ visible TUI workflow gaps:
 | Model picker | Partial | Current marker, provider labels, recents, favorites, default persistence, `Ctrl+A` setup, and `/provider <name>` setup exist; true provider connect/OAuth remains future work. |
 | Sessions | Partial | Switch, new, rename, fork, delete, per-session draft/scroll caches, and per-session provider/model state are in the TUI; inactive background execution policy remains future work. |
 | Agents | Partial | Do, Plan, and BTW are picker rows; `spawn_agent` supports read-only and scoped worker children, CLI adoption, and `/adopt` in the TUI. Headless/ACP adoption affordances remain future work. |
-| Inline `@` completion | Partial | Agents, sessions, skills, docs, Go/Python/JS/TS/shell symbols, and files are grouped; broader language symbols and indexing policy remain future work. |
+| Inline `@` completion | Implemented | Agents, sessions, skills, docs, Go/Python/JS/TS/shell symbols, and files are grouped; future language scanners are incremental bounded slices. |
 | Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
 | Turn metadata | Implemented | Assistant turn footers show compact metadata and can expand into token, cache, tool, and trace details. |
 | Themes | Partial | Built-in picker, light/dark shortcuts, custom-theme rows, markdown style control, and a fourth bundled theme exist; broader catalog remains future work. |
@@ -134,9 +134,9 @@ then fuzzy file paths as the query narrows. The completion list remains
 visually attached to the input rather than becoming a separate modal.
 
 stado now groups agents, sessions, skills, docs, Go/Python/JS/TS/shell
-symbols, and files in the same inline `@` surface. opencode's remaining
-advantage is simplicity; stado's next steps are broader language symbols
-and indexing limits without making the picker slow or noisy.
+symbols, and files in the same inline `@` surface. The scoped EP-0020
+surface is complete; future languages should be added only as bounded
+repo-shaped scanners rather than as a broad indexer.
 
 ### 7. The Post-Turn Sidebar Is Sparse And Useful
 
@@ -190,7 +190,7 @@ broader catalog.
 
 ### P1 — UX Quality
 
-4. **Broaden inline symbol support carefully.**
+4. **Keep future symbol additions bounded.**
    EP-0020 now covers agents, sessions, skills, docs, Go/Python/JS/TS/shell
    symbols, and files. Additional languages should be added only with
    bounded indexing and clear grouping.
@@ -238,8 +238,8 @@ broader catalog.
   where providers support it.
 - Extend EP-0014 with provider-state handling and inactive-session
   execution policy.
-- Extend EP-0020 beyond Go/Python/JS/TS/shell symbols only after a bounded
-  indexing policy is clear.
+- Add future EP-0020 symbol languages only when a repo shape justifies a
+  bounded scanner.
 
 ## Verdict
 

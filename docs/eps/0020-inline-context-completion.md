@@ -2,11 +2,16 @@
 ep: 20
 title: Inline Context Completion
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [8, 13, 14]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: >
+      The scoped inline context surface now covers agents, sessions,
+      skills, docs, files, and repo-shaped symbol scanners.
   - date: 2026-04-25
     status: Partial
     note: >
@@ -122,5 +127,6 @@ loading file contents.
 
 ## Open questions
 
-- Which additional language symbol scanners should be added without
-  turning `@` into an unbounded indexer?
+- None for this EP. Future language scanners should be added only as
+  bounded, repo-shaped slices without turning `@` into an unbounded
+  indexer.
