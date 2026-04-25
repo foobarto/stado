@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.2 — 2026-04-25
+
+### Infra
+
+- **Updated the release cosign verifier to v3.** The release workflow now
+  installs `sigstore/cosign-installer@v4.1.1` and `cosign v3.0.6`, matching
+  `goreleaser/goreleaser-action@v7`'s checksum verification requirements.
+
 ## v0.25.1 — 2026-04-25
 
 ### Infra
