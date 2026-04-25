@@ -130,6 +130,8 @@ subagent slice.
   background-luminance behavior.
 - The bundled theme catalog now includes `stado-rose`, a dark neutral
   theme with rose and cyan accents.
+- The compact TUI footer now appends `*` to the branch/detached SHA
+  when a cached git status check sees uncommitted worktree changes.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -187,7 +189,7 @@ repo-compatible Go toolchain at
   hints, theme-aware markdown rendering, grouped inline slash
   suggestions, status-modal trace ids, the custom `theme.toml` picker
   row, explicit markdown style selection for custom themes, and the
-  `stado-rose` bundled theme.
+  `stado-rose` bundled theme, and the footer dirty-state marker.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

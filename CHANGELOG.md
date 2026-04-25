@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Marked dirty git state in the footer.** The compact status row now
+  appends `*` to the branch or detached SHA when the current worktree has
+  uncommitted changes, using a short cache to keep renders cheap.
 - **Added an in-TUI subagent adoption command.** `/adopt [child]
   [--apply]` now dry-runs the latest adoptable worker child by default
   and applies non-conflicting child changes only when `--apply` is

@@ -239,6 +239,11 @@ type Model struct {
 	// case tool calls are reported but not executed.
 	executor *tools.Executor
 	session  *stadogit.Session
+	// Cached footer VCS summary. Status rendering happens frequently, so
+	// avoid probing git on every frame.
+	statusGitCwd       string
+	statusGitSummary   string
+	statusGitCheckedAt time.Time
 	// sessionUIStates keeps lightweight view state for inactive sessions
 	// inside this TUI process.
 	sessionUIStates map[string]sessionUIState

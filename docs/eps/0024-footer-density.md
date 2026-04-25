@@ -7,6 +7,9 @@ type: Standards
 created: 2026-04-24
 see-also: [21, 23]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: Chat status row now appends a cached `*` marker to the git ref when the worktree has uncommitted changes.
   - date: 2026-04-24
     status: Partial
     note: Chat status row now combines compact cwd, branch, version, usage, cost, and command hints.
@@ -43,8 +46,9 @@ which reduces sidebar dependence and improves scan speed.
 
 The status row now has two segments:
 
-- Left: compact cwd, current branch or detached short SHA, active
-  session label or short id, and stado version.
+- Left: compact cwd, current branch or detached short SHA with `*` for
+  uncommitted worktree changes, active session label or short id, and
+  stado version.
 - Right: busy/error/queue/budget state, tokens, cost, and `ctrl+p`
   command hint.
 
@@ -59,8 +63,10 @@ left segment is omitted and the right segment remains right-aligned.
 - Existing status-row tests continue to cover streaming, error, queued,
   cache, and cost signals.
 
+Dirty-state checks are cached briefly so the renderer does not invoke
+git on every frame.
+
 ## Open Questions
 
-- Should dirty-state be shown later?
 - Should cwd be relative to the user repo root instead of absolute or
   home-relative?

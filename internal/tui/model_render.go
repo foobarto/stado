@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -671,8 +673,8 @@ func (m *Model) compactStatusLeft(maxW int) string {
 		return ""
 	}
 	parts := []string{m.compactStatusCwd(maxW)}
-	if branch := currentGitBranch(m.cwd); branch != "" {
-		parts = append(parts, branch)
+	if git := m.compactStatusGit(); git != "" {
+		parts = append(parts, git)
 	}
 	if session := m.compactStatusSession(); session != "" {
 		parts = append(parts, session)
@@ -681,6 +683,22 @@ func (m *Model) compactStatusLeft(maxW int) string {
 		parts = append(parts, version.Version)
 	}
 	return trimSeed(strings.Join(parts, " · "), maxW)
+}
+
+const statusGitCacheTTL = 5 * time.Second
+
+func (m *Model) compactStatusGit() string {
+	if m.statusGitCwd == m.cwd && !m.statusGitCheckedAt.IsZero() && time.Since(m.statusGitCheckedAt) < statusGitCacheTTL {
+		return m.statusGitSummary
+	}
+	summary := currentGitBranch(m.cwd)
+	if summary != "" && gitWorktreeDirty(m.cwd) {
+		summary += "*"
+	}
+	m.statusGitCwd = m.cwd
+	m.statusGitSummary = summary
+	m.statusGitCheckedAt = time.Now()
+	return summary
 }
 
 func (m *Model) compactStatusCwd(width int) string {
@@ -737,6 +755,22 @@ func currentGitBranch(cwd string) string {
 		return value[:7]
 	}
 	return value
+}
+
+func gitWorktreeDirty(cwd string) bool {
+	repo := runtime.FindRepoRoot(cwd)
+	if repo == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal")
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil || ctx.Err() != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
 }
 
 // tokenPctString renders the in-context-window fraction for the bottom

@@ -14,6 +14,7 @@ package tui
 import (
 	"context"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -410,6 +411,24 @@ func TestUAT_StatusRowIncludesCwdBranchAndVersion(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("status missing %q in dense footer: %q", want, got)
 		}
+	}
+}
+
+func TestUAT_StatusRowMarksDirtyGitState(t *testing.T) {
+	if _, err := osexec.LookPath("git"); err != nil {
+		t.Skip("git unavailable")
+	}
+	m := scenarioModel(t)
+	if err := osexec.Command("git", "-C", m.cwd, "init").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.cwd, "dirty.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := m.renderStatus(160)
+	if !strings.Contains(got, "*") {
+		t.Fatalf("status should mark dirty git state: %q", got)
 	}
 }
 
