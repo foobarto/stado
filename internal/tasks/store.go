@@ -321,26 +321,37 @@ func (s Store) acquireLock() (func(), error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	lockPath := s.Path + ".lock"
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	lockName := filepath.Base(s.Path) + ".lock"
+	lockPath := filepath.Join(dir, lockName)
 	deadline := time.Now().Add(lockWaitTimeout)
 	for {
-		f, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		f, err := root.OpenFile(lockName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			_, _ = fmt.Fprintf(f, "pid=%d\n", os.Getpid())
 			if closeErr := f.Close(); closeErr != nil {
-				_ = os.Remove(lockPath)
+				_ = root.Remove(lockName)
+				_ = root.Close()
 				return nil, closeErr
 			}
-			return func() { _ = os.Remove(lockPath) }, nil
+			return func() {
+				_ = root.Remove(lockName)
+				_ = root.Close()
+			}, nil
 		}
 		if !errors.Is(err, os.ErrExist) {
+			_ = root.Close()
 			return nil, err
 		}
-		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
-			_ = os.Remove(lockPath)
+		if info, statErr := root.Stat(lockName); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
+			_ = root.Remove(lockName)
 			continue
 		}
 		if time.Now().After(deadline) {
+			_ = root.Close()
 			return nil, fmt.Errorf("task store is locked: %s", lockPath)
 		}
 		time.Sleep(lockRetryDelay)

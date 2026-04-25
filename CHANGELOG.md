@@ -6,6 +6,13 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Fixes
+
+- **Rooted the shared task-store lock file.** The cross-process task
+  lock now opens, stats, and removes its lock file through `os.Root`
+  scoped to the task-store directory, clearing the remaining gosec path
+  warning without weakening the lock.
+
 ## v0.25.4 — 2026-04-25
 
 ### Infra
