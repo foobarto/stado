@@ -124,6 +124,9 @@ spawn/adoption slices and the local worker dogfood pass.
   evidence files and can mark them candidate for review with `--apply`.
 - `stado learning export` now emits folded lesson-only JSON for local
   audit and recovery.
+- EP-16 is now marked implemented for the shipped local learning
+  workflow; heavy rewrite analysis and signed cross-machine bundles are
+  future plugin/EP work.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

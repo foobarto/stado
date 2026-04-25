@@ -215,6 +215,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Closed EP-16 learning system.** The local learning workflow is now
+  documented as implemented after proposal, review, approval, retrieval,
+  document-elsewhere, stale-file review, and lesson-only export shipped.
 - **Closed EP-15 memory system.** The implemented standard now records
   the local JSONL baseline, review/edit/supersede/export surfaces, and
   session-local retrieval opt-out.

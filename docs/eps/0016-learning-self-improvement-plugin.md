@@ -2,7 +2,7 @@
 ep: 16
 title: Learning and Self-Improvement Plugin
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Accepted
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [2, 6, 9, 11, 15]
@@ -44,6 +44,12 @@ history:
     note: >-
       Added `stado learning export` as a lesson-only local JSON
       audit/recovery export; signed sync bundles remain future work.
+  - date: 2026-04-25
+    status: Implemented
+    note: >-
+      Closed the local EP-16 workflow as implemented: explicit proposal,
+      review, approval, retrieval, document-elsewhere, deleted-file stale
+      review, and lesson-only export are all shipped.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -272,9 +278,9 @@ automatic lesson capture is not shipped in this first release.
 
 ## Open questions
 
-- How should the plugin detect "heavily rewritten" files for
-  invalidation without expensive history analysis? Deleted evidence
-  files are handled by `stado learning stale`.
+None for the shipped local implementation. Heavy-rewrite detection
+beyond missing evidence files and signed cross-machine lesson bundles
+remain future plugin or EP work.
 
 ## Decision log
 
