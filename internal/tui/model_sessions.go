@@ -13,6 +13,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -80,6 +81,32 @@ func (m *Model) sessionPickerItems() ([]sessionpicker.Item, error) {
 		})
 	}
 	return items, nil
+}
+
+func (m *Model) filePickerSessionItems() []filepicker.Item {
+	items, err := m.sessionPickerItems()
+	if err != nil {
+		return nil
+	}
+	out := make([]filepicker.Item, 0, len(items))
+	for _, item := range items {
+		meta := item.Meta
+		if item.Current {
+			if meta != "" {
+				meta = "current  " + meta
+			} else {
+				meta = "current"
+			}
+		}
+		out = append(out, filepicker.Item{
+			Kind:    filepicker.KindSession,
+			ID:      item.ID,
+			Display: item.Label,
+			Meta:    meta,
+			Insert:  "session:" + item.ID,
+		})
+	}
+	return out
 }
 
 func listSessionIDs(worktreeRoot string, sc *stadogit.Sidecar) (map[string]struct{}, error) {

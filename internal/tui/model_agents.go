@@ -59,6 +59,12 @@ func (m *Model) filePickerAgentItems() []filepicker.Item {
 	return out
 }
 
+func (m *Model) filePickerContextItems() []filepicker.Item {
+	out := m.filePickerAgentItems()
+	out = append(out, m.filePickerSessionItems()...)
+	return out
+}
+
 func (m *Model) setAgentMode(id string) error {
 	switch id {
 	case "do":

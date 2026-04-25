@@ -76,6 +76,34 @@ func TestFilePicker_AtTriggerShowsAgentsFirst(t *testing.T) {
 	}
 }
 
+func TestFilePicker_AtTriggerShowsSessionsAfterAgents(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after typing '@'")
+	}
+	if len(m.filePicker.Matches) < 5 {
+		t.Fatalf("expected agents plus sessions, got %v", m.filePicker.Matches)
+	}
+	for i, want := range []string{"Do", "Plan", "BTW"} {
+		if m.filePicker.Matches[i] != want {
+			t.Fatalf("match %d = %q, want %q (all matches: %v)", i, m.filePicker.Matches[i], want, m.filePicker.Matches)
+		}
+	}
+	foundSecond := false
+	for _, match := range m.filePicker.Matches[3:] {
+		if match == "second label" {
+			foundSecond = true
+			break
+		}
+	}
+	if !foundSecond {
+		t.Fatalf("session label missing after agents: %v", m.filePicker.Matches)
+	}
+}
+
 func TestFilePicker_AgentAcceptSwitchesMode(t *testing.T) {
 	m, _ := filePickerModel(t)
 
@@ -99,6 +127,63 @@ func TestFilePicker_AgentAcceptSwitchesMode(t *testing.T) {
 	}
 	if strings.Contains(m.input.Value(), "@plan") {
 		t.Fatalf("agent mention should be consumed, input=%q", m.input.Value())
+	}
+}
+
+func TestFilePicker_SessionAcceptSwitchesWhenMentionIsDraft(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	for _, r := range "@second" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("@second should open picker")
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "session" || item.ID != ids.second {
+		t.Fatalf("selected item = %+v, %v; want second session", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.filePicker.Visible {
+		t.Fatal("session accept should close picker")
+	}
+	if m.session.ID != ids.second {
+		t.Fatalf("session id = %s, want %s", m.session.ID, ids.second)
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("session switch should consume draft mention, input=%q", m.input.Value())
+	}
+	if len(m.msgs) != 2 {
+		t.Fatalf("switched session should load persisted conversation, got %d messages", len(m.msgs))
+	}
+}
+
+func TestFilePicker_SessionAcceptInsidePromptInsertsReference(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+
+	for _, r := range "compare @second" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("@second should open picker")
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.filePicker.Visible {
+		t.Fatal("session accept should close picker")
+	}
+	if m.session.ID != ids.first {
+		t.Fatalf("mixed-prompt session mention should not switch, got %s", m.session.ID)
+	}
+	val := m.input.Value()
+	if strings.Contains(val, "@second") {
+		t.Fatalf("mention fragment should be replaced, input=%q", val)
+	}
+	if !strings.Contains(val, "session:"+ids.second) {
+		t.Fatalf("session reference missing, input=%q", val)
 	}
 }
 

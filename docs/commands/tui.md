@@ -136,7 +136,7 @@ memorising:
 |-----|--------|
 | `Enter` | Submit the current input |
 | `Shift+Enter` | Newline in input (multi-line prompt) |
-| `@` | Open inline agent/file completion |
+| `@` | Open inline agent/session/file completion |
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` | Open command palette |
 | `/` | Open inline slash-command suggestions above the input |
@@ -181,8 +181,10 @@ sidebar Agent section once the chat view is active.
 
 Typing `@` in the message editor opens inline completion. Agent rows
 come first; accepting Do, Plan, or BTW switches the active agent and
-removes the mention from the draft. File rows still insert the selected
-repo-relative path into the prompt.
+removes the mention from the draft. Session rows come next; accepting a
+session-only mention switches to that session, while accepting a session
+inside a longer prompt inserts `session:<id>`. File rows still insert
+the selected repo-relative path into the prompt.
 
 Completed assistant responses include a compact muted footer with the
 agent, model/provider, elapsed time, tool count, token delta, and cost

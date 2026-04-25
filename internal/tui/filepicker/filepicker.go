@@ -1,7 +1,8 @@
 // Package filepicker renders an inline @-completion popover triggered by
 // typing `@` in the main TUI input. Mirrors the patterns other
 // coding-agent TUIs (opencode, pi) use for @-mentions: fuzzy match
-// agents first, then repo files. Tab/Enter accepts the selected item.
+// agents first, then sessions, then repo files. Tab/Enter accepts the
+// selected item.
 package filepicker
 
 import (
@@ -22,8 +23,9 @@ import (
 const maxVisibleMatches = 10
 
 const (
-	KindAgent = "agent"
-	KindFile  = "file"
+	KindAgent   = "agent"
+	KindSession = "session"
+	KindFile    = "file"
 )
 
 type Item struct {
@@ -212,7 +214,7 @@ func (m *Model) View(maxWidth int) string {
 	}
 	var b strings.Builder
 	header := lipgloss.NewStyle().Foreground(theme.Muted).
-		Render("@ → agents + files · ↑/↓ navigate · tab/enter accept · esc cancel")
+		Render("@ → agents + sessions + files · ↑/↓ navigate · tab/enter accept · esc cancel")
 	b.WriteString(header)
 	b.WriteString("\n")
 	lastKind := ""
@@ -226,8 +228,9 @@ func (m *Model) View(maxWidth int) string {
 			lastKind = item.Kind
 		}
 		display := textutil.StripControlChars(item.Display)
-		if item.Meta != "" {
-			display += lipgloss.NewStyle().Foreground(theme.Muted).Render("  " + item.Meta)
+		meta := textutil.StripControlChars(item.Meta)
+		if meta != "" {
+			display += lipgloss.NewStyle().Foreground(theme.Muted).Render("  " + meta)
 		}
 		var row string
 		if i == m.Cursor {
@@ -255,6 +258,8 @@ func groupLabel(kind string) string {
 	switch kind {
 	case KindAgent:
 		return "Agents"
+	case KindSession:
+		return "Sessions"
 	case KindFile:
 		return "Files"
 	default:

@@ -10,6 +10,10 @@ history:
   - date: 2026-04-24
     status: Partial
     note: The TUI @ picker now groups built-in agents before repo files; sessions, symbols, docs, and skills remain future work.
+  - date: 2026-04-25
+    status: Partial
+    version: v0.20.0
+    note: Session rows now appear after agents; accepting a session-only mention switches sessions, and mixed-prompt mentions insert `session:<id>`.
 ---
 
 # EP-20: Inline Context Completion
@@ -56,8 +60,14 @@ Accepting an agent row switches the active agent and consumes the
 `@query` fragment from the draft. File rows still insert the selected
 repo-relative path plus a trailing space.
 
-Future rows should reuse the same typed candidate model for sessions,
-symbols, docs, and skills.
+Session rows appear after agents and before files. Accepting a session
+row when the mention is the whole draft switches the TUI to that
+session and consumes the mention. Accepting a session row inside a
+longer prompt inserts `session:<id>` instead of switching, so typed
+draft content is not silently moved to another session.
+
+Future rows should reuse the same typed candidate model for symbols,
+docs, and skills.
 
 ## Test strategy
 
@@ -67,6 +77,5 @@ symbols, docs, and skills.
 
 ## Open questions
 
-- Should session rows switch sessions immediately or insert a reference?
 - Should skill rows inject prompts immediately or insert a visible token?
 - How should symbol results be indexed without making `@` slow?

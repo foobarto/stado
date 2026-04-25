@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.20.0 — 2026-04-25
+
+### TUI
+
+- **Extended inline `@` completion to sessions.** The editor now shows
+  session rows after agents and before files; accepting a session-only
+  mention switches to that session, while accepting one inside a longer
+  prompt inserts an explicit `session:<id>` reference.
+
 ## v0.19.0 — 2026-04-25
 
 ### CLI

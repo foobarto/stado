@@ -70,15 +70,23 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "main.go"), "")
 
 	m := New()
-	m.OpenWithItems(dir, 0, []Item{{
-		Kind:    KindAgent,
-		ID:      "plan",
-		Display: "Plan",
-		Meta:    "read-only planning tools",
-	}})
+	m.OpenWithItems(dir, 0, []Item{
+		{
+			Kind:    KindAgent,
+			ID:      "plan",
+			Display: "Plan",
+			Meta:    "read-only planning tools",
+		},
+		{
+			Kind:    KindSession,
+			ID:      "sess_1",
+			Display: "Session one",
+			Meta:    "session metadata",
+		},
+	})
 
-	if len(m.Matches) < 2 {
-		t.Fatalf("expected agent + file matches, got %v", m.Matches)
+	if len(m.Matches) < 3 {
+		t.Fatalf("expected agent + session + file matches, got %v", m.Matches)
 	}
 	if m.Matches[0] != "Plan" {
 		t.Fatalf("first match = %q, want Plan", m.Matches[0])
@@ -86,6 +94,9 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 	item, ok := m.SelectedItem()
 	if !ok || item.Kind != KindAgent || item.ID != "plan" {
 		t.Fatalf("selected item = %+v, %v; want plan agent", item, ok)
+	}
+	if m.Matches[1] != "Session one" {
+		t.Fatalf("second match = %q, want Session one", m.Matches[1])
 	}
 }
 
@@ -193,7 +204,7 @@ func TestView_StripsControlCharsFromRenderedRows(t *testing.T) {
 	m.Visible = true
 	m.matchedItems = []Item{
 		{Kind: KindFile, Display: "safe.txt"},
-		{Kind: KindFile, Display: "bad\x1bname.txt"},
+		{Kind: KindFile, Display: "bad\x1bname.txt", Meta: "meta\x1bdata"},
 	}
 	m.refreshMatchStrings()
 	out := m.View(80)

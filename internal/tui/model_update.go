@@ -983,7 +983,7 @@ func (m *Model) updateFilePickerFromInput() {
 		if cwd == "" {
 			cwd, _ = os.Getwd()
 		}
-		m.filePicker.OpenWithItems(cwd, atPos, m.filePickerAgentItems())
+		m.filePicker.OpenWithItems(cwd, atPos, m.filePickerContextItems())
 	}
 	m.filePicker.SetQuery(query)
 }
@@ -1031,6 +1031,17 @@ func (m *Model) acceptFilePickerSelection() {
 			m.input.SetValue(before + after)
 			m.filePicker.Close()
 			m.layout()
+			return
+		}
+	}
+	if item.Kind == filepicker.KindSession {
+		if strings.TrimSpace(val[:anchor]) == "" && strings.TrimSpace(val[cursor:]) == "" {
+			m.input.SetValue("")
+			m.filePicker.Close()
+			if err := m.switchToSession(item.ID); err != nil {
+				m.appendBlock(block{kind: "system", body: err.Error()})
+				m.renderBlocks()
+			}
 			return
 		}
 	}
