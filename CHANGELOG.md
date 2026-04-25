@@ -148,6 +148,12 @@ Plugins / Infra / Fixes.
   `adoptionCommand` fields, and the explicit `stado session adopt`
   review flow.
 
+### Fixes
+
+- **Kept JS/TS symbol completion top-level only.** Indented nested
+  JavaScript and TypeScript declarations are no longer indexed as
+  top-level `@` symbol rows.
+
 ## v0.23.1 — 2026-04-25
 
 ### Docs

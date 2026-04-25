@@ -86,6 +86,8 @@ subagent slice.
   references.
 - Inline `@` completion now also groups top-level JavaScript and
   TypeScript class, function, and variable declarations as symbol rows.
+- The JavaScript/TypeScript symbol scanner skips indented nested
+  declarations so the `@` picker keeps its top-level-symbol contract.
 - Landing view now samples the large ANSI/plain banner down to a compact
   fixed-height mark, keeping the prompt primary on wide terminals and
   falling back to the plain wordmark in cramped terminals.

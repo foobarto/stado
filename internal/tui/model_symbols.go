@@ -248,7 +248,11 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 	line := 0
 	for scanner.Scan() {
 		line++
-		text := strings.TrimSpace(scanner.Text())
+		raw := scanner.Text()
+		if strings.TrimLeft(raw, " \t") != raw {
+			continue
+		}
+		text := strings.TrimSpace(raw)
 		if text == "" || strings.HasPrefix(text, "//") || strings.HasPrefix(text, "import ") {
 			continue
 		}

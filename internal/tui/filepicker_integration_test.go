@@ -371,6 +371,20 @@ func TestFilePicker_TypeScriptSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 }
 
+func TestScanScriptFileSymbolsSkipsIndentedDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested.ts")
+	src := "export function outer() {\n  function inner() {}\n  const localValue = 1\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	symbols := scanScriptFileSymbols("nested.ts", path, 10)
+	if len(symbols) != 1 || symbols[0].Name != "outer" {
+		t.Fatalf("symbols = %+v, want only outer", symbols)
+	}
+}
+
 // TestFilePicker_TabAcceptsSelection: pressing Tab while the picker
 // has a selection must replace the @-fragment with the path.
 func TestFilePicker_TabAcceptsSelection(t *testing.T) {
