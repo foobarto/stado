@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added action hints to the status modal.** Provider, model, tools,
+  plugin, MCP, OTel, budget, and context rows now show the focused
+  command or config file to open next.
 - **Added direct light/dark theme shortcuts.** `/theme light`,
   `/theme dark`, and `/theme toggle` now switch bundled themes without
   opening the theme picker.

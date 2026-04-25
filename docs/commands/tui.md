@@ -232,7 +232,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   `stado-light`, and `stado-contrast`; `/theme light`, `/theme dark`,
   and `/theme toggle` switch without opening the picker
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
-  LSP readiness, OTel, sandbox, and context
+  LSP readiness, OTel, sandbox, and context, with next-step hints such
+  as `/model`, `/tools`, `/plugin`, and `config.toml`
 - `/thinking` — cycle thinking display; `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session

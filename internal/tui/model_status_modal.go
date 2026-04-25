@@ -53,15 +53,19 @@ func (m *Model) writeStatusSection(b *strings.Builder, width int, title string, 
 	for _, row := range rows {
 		key := m.theme.Fg("muted").Render(row.Key)
 		value := m.theme.Fg(row.Tone).Render(row.Value)
+		if strings.TrimSpace(row.Action) != "" {
+			value += m.theme.Fg("muted").Render(" " + row.Action)
+		}
 		b.WriteString("  " + statusTwoCol(width-2, key, value) + "\n")
 	}
 	b.WriteString("\n")
 }
 
 type statusRow struct {
-	Key   string
-	Value string
-	Tone  string
+	Key    string
+	Value  string
+	Tone   string
+	Action string
 }
 
 func (m *Model) statusAgentRows() []statusRow {
@@ -76,15 +80,22 @@ func (m *Model) statusAgentRows() []statusRow {
 	caps := "not initialized"
 	if m.provider != nil {
 		c := m.providerCaps()
-		caps = fmt.Sprintf("ctx %d, cache %v, thinking %v, vision %v",
-			c.MaxContextTokens, c.SupportsPromptCache, c.SupportsThinking, c.SupportsVision)
+		caps = fmt.Sprintf("ctx %s, cache %s, think %s, vision %s",
+			humanize(c.MaxContextTokens), yesNo(c.SupportsPromptCache), yesNo(c.SupportsThinking), yesNo(c.SupportsVision))
 	}
 	return []statusRow{
-		{"agent", m.mode.String(), "text"},
-		{"model", model, "text"},
-		{"provider", provider, "text"},
-		{"capabilities", caps, "muted"},
+		{Key: "agent", Value: m.mode.String(), Tone: "text", Action: "tab"},
+		{Key: "model", Value: model, Tone: "text", Action: "/model"},
+		{Key: "provider", Value: provider, Tone: "text", Action: "/model"},
+		{Key: "capabilities", Value: caps, Tone: "muted", Action: "/provider"},
 	}
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
 }
 
 func (m *Model) statusRuntimeRows() []statusRow {
@@ -110,10 +121,10 @@ func (m *Model) statusRuntimeRows() []statusRow {
 		tools = fmt.Sprintf("%d visible / %d registered", len(m.visibleTools()), len(m.executor.Registry.All()))
 	}
 	return []statusRow{
-		{"session", session, "text"},
-		{"worktree", filepath.Base(worktree), "muted"},
-		{"sandbox", sandbox, sandboxTone},
-		{"tools", tools, "text"},
+		{Key: "session", Value: session, Tone: "text", Action: "/sessions"},
+		{Key: "worktree", Value: filepath.Base(worktree), Tone: "muted"},
+		{Key: "sandbox", Value: sandbox, Tone: sandboxTone, Action: "/tools"},
+		{Key: "tools", Value: tools, Tone: "text", Action: "/tools"},
 	}
 }
 
@@ -123,10 +134,10 @@ func (m *Model) statusContextRows() []statusRow {
 		budget = fmt.Sprintf("warn $%.2f, hard $%.2f", m.budgetWarnUSD, m.budgetHardUSD)
 	}
 	return []statusRow{
-		{"tokens", fmt.Sprintf("%s in / %s out", humanize(m.usage.InputTokens), humanize(m.usage.OutputTokens)), "text"},
-		{"cost", fmt.Sprintf("$%.4f", m.usage.CostUSD), "text"},
-		{"budget", budget, "muted"},
-		{"context", fmt.Sprintf("soft %.0f%%, hard %.0f%%", m.ctxSoftThreshold*100, m.ctxHardThreshold*100), "muted"},
+		{Key: "tokens", Value: fmt.Sprintf("%s in / %s out", humanize(m.usage.InputTokens), humanize(m.usage.OutputTokens)), Tone: "text", Action: "/context"},
+		{Key: "cost", Value: fmt.Sprintf("$%.4f", m.usage.CostUSD), Tone: "text", Action: "/budget"},
+		{Key: "budget", Value: budget, Tone: "muted", Action: "/budget"},
+		{Key: "context", Value: fmt.Sprintf("soft %.0f%%, hard %.0f%%", m.ctxSoftThreshold*100, m.ctxHardThreshold*100), Tone: "muted", Action: "/context"},
 	}
 }
 
@@ -151,11 +162,11 @@ func (m *Model) statusExtensionRows() []statusRow {
 		instructions = filepath.Base(m.systemPromptPath)
 	}
 	return []statusRow{
-		{"plugins", plugins, "text"},
-		{"mcp", mcp, "text"},
-		{"lsp", lspStatusSummary(), "muted"},
-		{"otel", otel, "muted"},
-		{"instructions", instructions, "muted"},
+		{Key: "plugins", Value: plugins, Tone: "text", Action: "/plugin"},
+		{Key: "mcp", Value: mcp, Tone: "text", Action: "config.toml"},
+		{Key: "lsp", Value: lspStatusSummary(), Tone: "muted"},
+		{Key: "otel", Value: otel, Tone: "muted", Action: "config.toml"},
+		{Key: "instructions", Value: instructions, Tone: "muted", Action: "/context"},
 	}
 }
 

@@ -7,6 +7,9 @@ type: Standards
 created: 2026-04-24
 see-also: [11, 17, 19, 22]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: Rows now include direct next-step hints for focused commands or config files.
   - date: 2026-04-24
     status: Partial
     note: First status modal shipped with provider, model, tools, plugins, MCP, OTel, sandbox, and context summaries.
@@ -56,7 +59,10 @@ activate when supported files are read and lists known language-server
 binaries found on `PATH`.
 
 The modal reads existing TUI state only; it does not probe providers or
-start MCP/plugin work while rendering.
+start MCP/plugin work while rendering. Rows may include a short
+next-step hint, such as `/model`, `/tools`, `/plugin`, `/context`, or
+`config.toml`, so the modal remains read-only while still pointing to
+the focused command or file that resolves the row.
 
 ## Test Strategy
 
@@ -67,8 +73,8 @@ start MCP/plugin work while rendering.
 
 ## Open Questions
 
-- Should each section link to a focused command, such as `/tools` or
-  `/providers`?
+- Should rows become keyboard-focusable actions, or are inline hints
+  enough?
 - Should plugin and MCP rows include health/error details once those
   subsystems expose stable status snapshots?
 - Should OTel show the current trace id for copy/paste?

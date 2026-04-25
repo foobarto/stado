@@ -87,6 +87,9 @@ subagent slice.
 - Theme switching now supports direct `/theme light`, `/theme dark`, and
   `/theme toggle` shortcuts in addition to the picker and explicit
   bundled theme IDs.
+- Status modal rows now show next-step hints for focused commands or
+  config files, including provider/model, tools, plugins, MCP, OTel,
+  budget, and context rows.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -128,7 +131,7 @@ repo-compatible Go toolchain at
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
   docs/symbol completion, landing-logo refinement, and direct
-  light/dark theme shortcuts.
+  light/dark theme shortcuts, and status-modal action hints.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

@@ -23,6 +23,17 @@ func TestStatusSlashOpensModal(t *testing.T) {
 	}
 }
 
+func TestStatusModalShowsActionHints(t *testing.T) {
+	m := scenarioModel(t)
+	out := m.renderStatusModal(120, 40)
+
+	for _, want := range []string{"/model", "/provider", "/tools", "/context", "/budget", "/plugin", "config.toml"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status modal missing action hint %q: %q", want, out)
+		}
+	}
+}
+
 func TestStatusKeybindOpensAndEscClosesModal(t *testing.T) {
 	m := scenarioModel(t)
 
