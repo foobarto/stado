@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.5 — 2026-04-26
+
 ### Fixes
 
 - **Rooted the shared task-store lock file.** The cross-process task
