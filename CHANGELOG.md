@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.1 — 2026-04-25
+
 ### Infra
 
 - **Updated the GoReleaser GitHub Action to Node 24.** Release builds now
