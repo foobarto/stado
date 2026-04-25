@@ -40,6 +40,9 @@ sidebar_min_width = 24
 border_style      = "normal"
 padding           = 1
 message_indent    = 2
+
+[markdown]
+style = "auto"
 `)
 
 var contrastTOML = []byte(`
@@ -72,6 +75,9 @@ sidebar_min_width = 24
 border_style      = "normal"
 padding           = 1
 message_indent    = 2
+
+[markdown]
+style = "auto"
 `)
 
 var catalog = []CatalogEntry{

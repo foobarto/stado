@@ -110,6 +110,9 @@ subagent slice.
 - `/theme` now appends the active custom `theme.toml` theme as the
   current row when it does not match a bundled catalog entry; selecting
   that row closes the picker without rewriting the override.
+- Custom `theme.toml` files can now choose markdown renderer style via
+  `[markdown].style = "auto" | "light" | "dark"`; `auto` preserves the
+  background-luminance behavior.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -154,8 +157,9 @@ repo-compatible Go toolchain at
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
   no-model remediation, theme-aware markdown rendering, and grouped
-  inline slash suggestions, status-modal trace ids, and the custom
-  `theme.toml` picker row.
+  inline slash suggestions, status-modal trace ids, the custom
+  `theme.toml` picker row, and explicit markdown style selection for
+  custom themes.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

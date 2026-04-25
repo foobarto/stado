@@ -84,7 +84,8 @@ human debugging, not a replacement for OTLP export.
 - Theme overrides live at `$XDG_CONFIG_HOME/stado/theme.toml`.
   Selecting a bundled theme writes that file so the choice persists. If
   the current override is a custom theme, the picker shows it as the
-  current custom row.
+  current custom row. Custom themes can set `[markdown].style` to
+  `auto`, `light`, or `dark`; `auto` follows background luminance.
 - Template overrides live at `$XDG_CONFIG_HOME/stado/templates/*.tmpl`.
 - Missing template files fall back to the bundled defaults, so you can
   override a single widget without copying the entire template set.

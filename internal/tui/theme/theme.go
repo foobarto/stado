@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pelletier/go-toml"
@@ -18,9 +19,10 @@ var defaultTOML []byte
 
 // Theme is the loaded palette + named style cache.
 type Theme struct {
-	Name   string `toml:"name"`
-	Colors Colors `toml:"colors"`
-	Layout Layout `toml:"layout"`
+	Name     string   `toml:"name"`
+	Colors   Colors   `toml:"colors"`
+	Layout   Layout   `toml:"layout"`
+	Markdown Markdown `toml:"markdown"`
 
 	styles map[string]lipgloss.Style
 }
@@ -58,6 +60,11 @@ type Layout struct {
 	MessageIndent   int    `toml:"message_indent"`    // gutter width for role marker
 }
 
+// Markdown controls markdown renderer style selection.
+type Markdown struct {
+	Style string `toml:"style"` // "auto" | "light" | "dark"
+}
+
 // Default returns the bundled theme.
 func Default() *Theme {
 	t, err := parse(defaultTOML)
@@ -81,6 +88,7 @@ func Load(path string) (*Theme, error) {
 	}
 	merge(&base.Colors, overlay.Colors)
 	mergeLayout(&base.Layout, overlay.Layout)
+	mergeMarkdown(&base.Markdown, overlay.Markdown)
 	if overlay.Name != "" {
 		base.Name = overlay.Name
 	}
@@ -179,6 +187,22 @@ func (t *Theme) Border() lipgloss.Border {
 	}
 }
 
+// MarkdownStyle returns the normalized markdown style preference. Empty and
+// invalid values mean "auto", preserving background-luminance detection.
+func (t *Theme) MarkdownStyle() string {
+	if t == nil {
+		return "auto"
+	}
+	switch strings.ToLower(strings.TrimSpace(t.Markdown.Style)) {
+	case "light":
+		return "light"
+	case "dark":
+		return "dark"
+	default:
+		return "auto"
+	}
+}
+
 // Pane returns a boxed pane style using the theme's border colour.
 func (t *Theme) Pane() lipgloss.Style {
 	return lipgloss.NewStyle().
@@ -238,5 +262,11 @@ func mergeLayout(dst *Layout, src Layout) {
 	}
 	if src.MessageIndent != 0 {
 		dst.MessageIndent = src.MessageIndent
+	}
+}
+
+func mergeMarkdown(dst *Markdown, src Markdown) {
+	if strings.TrimSpace(src.Style) != "" {
+		dst.Style = src.Style
 	}
 }

@@ -66,6 +66,28 @@ func TestMarkdownStyleFollowsThemeBackground(t *testing.T) {
 	}
 }
 
+func TestMarkdownStyleHonorsThemeOverride(t *testing.T) {
+	dark := theme.Default()
+	dark.Markdown.Style = "light"
+	if !themeUsesLightMarkdown(dark) {
+		t.Fatal("explicit light markdown style should override dark background")
+	}
+
+	light, err := theme.Named("stado-light")
+	if err != nil {
+		t.Fatal(err)
+	}
+	light.Markdown.Style = "dark"
+	if themeUsesLightMarkdown(light) {
+		t.Fatal("explicit dark markdown style should override light background")
+	}
+
+	light.Markdown.Style = "auto"
+	if !themeUsesLightMarkdown(light) {
+		t.Fatal("auto markdown style should fall back to light background")
+	}
+}
+
 func TestRenderer_MessageThinking(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("message_thinking", map[string]any{

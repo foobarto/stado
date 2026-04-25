@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added markdown style control for themes.** `theme.toml` can now set
+  `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
+  existing background-luminance detection.
 - **Showed custom themes in the picker.** When the current
   `theme.toml` does not match a bundled theme, `/theme` now shows it as
   the current custom row and selecting it closes the picker without

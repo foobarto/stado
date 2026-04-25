@@ -263,6 +263,12 @@ func themeUsesLightMarkdown(th *theme.Theme) bool {
 	if th == nil {
 		return false
 	}
+	switch th.MarkdownStyle() {
+	case "light":
+		return true
+	case "dark":
+		return false
+	}
 	bg := strings.TrimSpace(th.Colors.Background)
 	bg = strings.TrimPrefix(bg, "#")
 	if len(bg) != 6 {

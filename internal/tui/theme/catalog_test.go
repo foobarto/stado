@@ -1,6 +1,10 @@
 package theme
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestCatalogLoadsBundledThemes(t *testing.T) {
 	entries := Catalog()
@@ -37,5 +41,31 @@ func TestBuiltinTOMLReturnsCopy(t *testing.T) {
 	a[0] = '#'
 	if len(b) > 0 && b[0] == '#' {
 		t.Fatal("BuiltinTOML should return a copy")
+	}
+}
+
+func TestLoadMergesMarkdownStyle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "theme.toml")
+	if err := os.WriteFile(path, []byte(`
+name = "custom-theme"
+
+[markdown]
+style = "light"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	th, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Name != "custom-theme" {
+		t.Fatalf("theme name = %q, want custom-theme", th.Name)
+	}
+	if got := th.MarkdownStyle(); got != "light" {
+		t.Fatalf("markdown style = %q, want light", got)
+	}
+	if th.Colors.Background == "" {
+		t.Fatal("load should retain default color fallback")
 	}
 }

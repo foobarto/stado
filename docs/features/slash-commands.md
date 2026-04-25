@@ -110,7 +110,8 @@ taking over the screen.
   next run starts with the same theme. `/theme light`, `/theme dark`,
   and `/theme toggle` provide direct light/dark switching. If the
   current `theme.toml` is custom, the picker shows it as the current
-  custom row.
+  custom row. Custom themes can set `[markdown].style` to `auto`,
+  `light`, or `dark`.
 - **Thinking display.** `/thinking` and `Ctrl+X H` only affect the TUI
   viewport. Thinking blocks remain captured and persisted even when the
   current display mode is `hide` or `tail`.

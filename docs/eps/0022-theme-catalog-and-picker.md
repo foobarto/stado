@@ -9,6 +9,9 @@ see-also: [19]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Custom theme.toml files can now choose markdown renderer style with [markdown].style.
+  - date: 2026-04-25
+    status: Partial
     note: The theme picker now shows the currently loaded custom theme.toml row.
   - date: 2026-04-25
     status: Partial
@@ -63,9 +66,10 @@ The runtime applies the selected theme through the explicit renderer
 theme and the legacy package-level theme globals so existing picker and
 editor components move together.
 
-Markdown rendering uses dark or light Glamour styles based on the active
-theme background luminance, and the renderer clears its markdown cache
-when a theme is switched.
+Markdown rendering uses the `[markdown].style` setting from
+`theme.toml`. Supported values are `auto`, `light`, and `dark`; `auto`
+uses the active theme background luminance. The renderer clears its
+markdown cache when a theme is switched.
 
 If the loaded theme name does not match a bundled catalog entry, the
 picker appends it as the current custom `theme.toml` row. Selecting that
@@ -75,6 +79,7 @@ TOML into the durable theme override path.
 ## Test Strategy
 
 - Unit tests load every bundled catalog entry.
+- Theme tests cover custom `[markdown].style` loading and fallback merge.
 - Picker tests cover current marker and fuzzy filtering.
 - TUI tests cover `/theme`, `Ctrl+X T`, command-palette dispatch, block
   cache invalidation, and persisted `theme.toml` output.
@@ -83,5 +88,3 @@ TOML into the durable theme override path.
 
 - Should named themes be stored as config keys instead of materialized
   `theme.toml` files?
-- Should custom `theme.toml` files be able to explicitly choose the
-  markdown style instead of relying on background luminance?
