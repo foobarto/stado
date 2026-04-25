@@ -116,6 +116,9 @@ human debugging, not a replacement for OTLP export.
 - **Sidebar** — pinned metadata. Toggle with `Ctrl+T` or `/sidebar`.
   Debug diagnostics and the info log tail are hidden by default; use
   `/debug` to expand them when investigating runtime/provider issues.
+- **Subagents** — while `spawn_agent` runs, the sidebar shows recent
+  child session status, changed-file counts, scope violations, and
+  whether adoption is ready.
 
 ### Split view
 

@@ -812,6 +812,11 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 		System:               m.systemPrompt,
 		SystemTemplate:       m.systemPromptTemplate,
 		AgentName:            "stado-tui-subagent",
+		OnEvent: func(ev runtime.SubagentEvent) {
+			if m.program != nil {
+				m.program.Send(subagentEventMsg{ev: ev})
+			}
+		},
 	}
 	return runner.SpawnSubagent
 }

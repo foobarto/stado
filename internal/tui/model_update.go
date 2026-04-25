@@ -171,6 +171,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, nil
 
+	case subagentEventMsg:
+		m.recordSubagentEvent(msg.ev)
+		return m, nil
+
 	case toolResultMsg:
 		// Async tool call completed — result arrives here so the UI
 		// never blocks on long-running tools (e.g. bash sleep 30).
@@ -1018,6 +1022,7 @@ func (m *Model) appendSubagentNotice(content string) {
 	if err := json.Unmarshal([]byte(content), &res); err != nil || res.ChildSession == "" {
 		return
 	}
+	m.recordSubagentResult(res)
 	status := res.Status
 	if status == "" {
 		status = "completed"

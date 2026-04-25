@@ -752,6 +752,7 @@ func (m *Model) renderSidebar(width int) string {
 		"SessionLabel": sessionLabel,
 		"SessionMeta":  m.sidebarSessionMeta(),
 		"NowLines":     m.sidebarNowLines(),
+		"Subagents":    m.sidebarSubagentLines(),
 		"RiskLines":    m.sidebarRiskLines(),
 		"AgentLines":   m.sidebarAgentLines(),
 		"RepoLines":    m.sidebarRepoLines(),

@@ -15,6 +15,14 @@
 {{- end }}
 {{- end }}
 
+{{- if .Subagents }}
+
+{{ color "text" "Subagents" | bold }}
+{{- range .Subagents }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
+
 {{- if .RiskLines }}
 
 {{ color "text" "Risk" | bold }}

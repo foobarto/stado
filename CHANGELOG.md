@@ -59,6 +59,13 @@ Plugins / Infra / Fixes.
   ACP finished-worker notifications now include an `adoptionCommand`
   when child changes are available to review and apply.
 
+### TUI
+
+- **Added subagent activity to the sidebar.** TUI `spawn_agent` lifecycle
+  events now populate a recent child-session activity section with
+  running/completed status, changed-file counts, scope violations, and
+  adoption readiness.
+
 ### Docs
 
 - **Documented worker subagent update fields.** Headless/ACP docs and

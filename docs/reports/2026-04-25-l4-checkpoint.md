@@ -69,6 +69,9 @@ subagent slice.
   `scopeViolations`.
 - Headless and ACP finished-worker notifications now include
   `adoptionCommand` when changed files are present.
+- TUI subagent lifecycle events now populate a sidebar `Subagents`
+  activity section with child status, changed-file counts, scope
+  violations, and adoption readiness.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -91,6 +94,7 @@ subagent slice.
   - `go test ./internal/acp`
   - `go test ./cmd/stado`
   - `go test ./internal/runtime ./internal/headless ./internal/acp`
+  - `go test ./internal/tui ./internal/runtime ./internal/subagent`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:

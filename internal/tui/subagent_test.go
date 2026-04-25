@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -79,5 +80,56 @@ func TestSpawnAgentWorkerResultAddsAdoptionHint(t *testing.T) {
 		if !strings.Contains(last.body, want) {
 			t.Fatalf("notice missing %q:\n%s", want, last.body)
 		}
+	}
+}
+
+func TestSubagentEventsRenderSidebarActivity(t *testing.T) {
+	m := describeSlashModel(t)
+	child := "123456789abcdef"
+
+	_, _ = m.Update(subagentEventMsg{ev: runtime.SubagentEvent{
+		Phase:         "started",
+		ParentSession: m.session.ID,
+		ChildSession:  child,
+		Role:          "worker",
+		Mode:          "workspace_write",
+		Status:        "running",
+	}})
+
+	got := m.renderSidebar(70)
+	for _, want := range []string{
+		"Subagents",
+		"12345678 running worker/workspace_write",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sidebar missing %q:\n%s", want, got)
+		}
+	}
+
+	_, _ = m.Update(subagentEventMsg{ev: runtime.SubagentEvent{
+		Phase:           "finished",
+		ParentSession:   m.session.ID,
+		ChildSession:    child,
+		Role:            "worker",
+		Mode:            "workspace_write",
+		Status:          "completed",
+		ForkTree:        "0123456789abcdef0123456789abcdef01234567",
+		ChangedFiles:    []string{"docs/a.md", "docs/b.md"},
+		ScopeViolations: []string{"blocked.txt: outside write_scope"},
+	}})
+
+	got = m.renderSidebar(70)
+	for _, want := range []string{
+		"12345678 completed worker/workspace_write",
+		"2 changed",
+		"adopt ready",
+		"1 scope violation",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("sidebar missing %q:\n%s", want, got)
+		}
+	}
+	if len(m.subagents) != 1 || !strings.Contains(m.subagents[0].AdoptionCommand, "stado session adopt") {
+		t.Fatalf("adoption command not tracked: %#v", m.subagents)
 	}
 }

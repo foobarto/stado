@@ -262,9 +262,10 @@ type Model struct {
 	thinkingMode thinkingDisplayMode
 
 	// Conversation state
-	blocks []block
-	msgs   []agent.Message
-	todos  []todo
+	blocks    []block
+	msgs      []agent.Message
+	todos     []todo
+	subagents []subagentActivity
 
 	// Streaming
 	state        sessionState
