@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.0 — 2026-04-25
+
 ### TUI
 
 - **Added a shared task manager.** `/tasks` and `Ctrl+X K` open a
