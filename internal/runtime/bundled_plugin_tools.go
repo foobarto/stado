@@ -9,6 +9,7 @@ import (
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
@@ -65,6 +66,9 @@ func buildBundledPluginRegistry() *tools.Registry {
 		},
 		[]string{"ui:approval"},
 	))
+	// spawn_agent is native for now because it needs a live provider and
+	// forked Session orchestration, not only the plugin host imports.
+	r.Register(subagent.Tool{})
 	return r
 }
 

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
@@ -28,6 +29,7 @@ import (
 type AgentLoopOptions struct {
 	Provider agent.Provider
 	Executor *tools.Executor
+	Config   *config.Config
 	Model    string
 	Messages []agent.Message
 
@@ -105,7 +107,22 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			rlog = opts.Executor.ReadLog
 			runner = opts.Executor.Runner
 		}
-		opts.Host = autoApproveHost{workdir: workdir, readLog: rlog, runner: runner}
+		opts.Host = autoApproveHost{
+			workdir: workdir,
+			readLog: rlog,
+			runner:  runner,
+			spawn: buildLoopSubagentSpawner(SubagentRunner{
+				Config:               opts.Config,
+				Parent:               sessionFromExecutor(opts.Executor),
+				Provider:             opts.Provider,
+				Model:                opts.Model,
+				Thinking:             opts.Thinking,
+				ThinkingBudgetTokens: opts.ThinkingBudgetTokens,
+				System:               opts.System,
+				SystemTemplate:       opts.SystemTemplate,
+				AgentName:            "stado-subagent",
+			}),
+		}
 	}
 
 	msgs := opts.Messages

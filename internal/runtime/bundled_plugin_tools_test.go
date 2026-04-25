@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -56,6 +57,11 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 		t.Fatalf("approval_demo capabilities = %v, want [ui:approval]", pt.manifest.Capabilities)
 	} else if !strings.Contains(got.Description(), "Manual test tool only") {
 		t.Fatalf("approval_demo description should warn AI away, got %q", got.Description())
+	}
+	if got, ok := reg.Get(subagent.ToolName); !ok {
+		t.Fatal("spawn_agent tool missing")
+	} else if _, ok := got.(subagent.Tool); !ok {
+		t.Fatalf("spawn_agent type = %T, want subagent.Tool", got)
 	}
 }
 
@@ -121,5 +127,8 @@ func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 	}
 	if got := reg.ClassOf("approval_demo"); got != tool.ClassNonMutating {
 		t.Fatalf("ClassOf(approval_demo) = %v, want %v", got, tool.ClassNonMutating)
+	}
+	if got := reg.ClassOf(subagent.ToolName); got != tool.ClassNonMutating {
+		t.Fatalf("ClassOf(spawn_agent) = %v, want %v", got, tool.ClassNonMutating)
 	}
 }

@@ -7,6 +7,9 @@ type: Standards
 created: 2026-04-24
 see-also: [3, 4, 6, 10, 11]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: Added the first spawn_agent implementation: synchronous read-only child sessions with explicit child audit/conversation state.
   - date: 2026-04-24
     status: Placeholder
     note: Captures the request for parallel agent work through a spawn/subagent tool.
@@ -44,25 +47,73 @@ boundaries so they do not silently overwrite each other or the parent.
 
 ## Design
 
-The full spawn tool design still needs to define the tool schema, child
-session model, lifecycle, result format, cancellation, and merge
-semantics.
+The first runtime slice adds a native `spawn_agent` tool. It is native
+instead of WASM-backed because it needs the live provider, config, and
+session fork primitive rather than only the plugin host imports.
 
-The first shipped slice makes agent selection explicit inside the TUI:
-`Ctrl+X A` and `/agents` open a picker for the built-in Do, Plan, and
-BTW agents. This does not create child agents yet; it establishes the
-user-facing agent-selection surface that future subagents can extend.
+Tool request:
 
-The likely shape is a parent-visible tool that creates a child session
-rooted in the same repo/worktree context, with a prompt, ownership
-description, allowed tool class, and optional write scope. The child
-streams or records progress separately and returns a compact result to
-the parent.
+```json
+{
+  "prompt": "self-contained child task",
+  "role": "explorer",
+  "mode": "read_only",
+  "ownership": "optional file/module scope",
+  "max_turns": 6,
+  "timeout_seconds": 180
+}
+```
+
+Only `role=explorer` and `mode=read_only` are executable in this slice.
+`max_turns` defaults to 6 and is capped at 12. `timeout_seconds`
+defaults to 180 and is capped at 900; zero means the default, not
+unlimited. Unsupported roles or write modes are rejected before any
+child session is created.
+
+Execution model:
+
+- The parent tool call forks a normal child session from the parent tree
+  head.
+- The child conversation is seeded with the requested task plus explicit
+  read-only instructions.
+- The child runs synchronously inside the parent tool call. This avoids
+  parent-session re-entrancy and keeps the parent waiting for one
+  deterministic tool result.
+- The child runs under its own timeout derived from `timeout_seconds`.
+  Parent cancellation still cancels the child immediately.
+- The child executor removes mutating/exec tools and also removes
+  `spawn_agent`, so first-slice children cannot edit files, run shell
+  commands, or recursively spawn more children.
+- The child result is returned as JSON containing status, role, mode,
+  child session ID, worktree path, timeout, final text, message count,
+  and optional error. Child timeout returns `status: "timeout"` instead
+  of making the parent tool call fail, so the parent can reason about
+  partial or missing findings and decide what to do next.
+
+Audit and persistence:
+
+- The parent session records the `spawn_agent` tool call in its trace ref
+  through the normal executor path.
+- The child session records a `spawn_agent` trace marker before running.
+- Any child read/search/tool calls are committed to the child trace ref.
+- The child conversation log is written under the child worktree, so the
+  user can attach to the child session after the parent receives the
+  summary.
+
+Earlier TUI groundwork made agent selection explicit: `Ctrl+X A` and
+`/agents` open a picker for the built-in Do, Plan, and BTW agents. The
+runtime `spawn_agent` tool is separate from that picker for now. When a
+TUI parent receives a successful `spawn_agent` tool result, it also
+renders a system block with the child status, session ID, worktree, and
+attach command so the child is visible beyond the raw JSON tool result.
+Future UI work can surface child sessions in the same agent/session
+family.
 
 ## Migration / rollout
 
-Start behind an explicit feature flag or disabled tool entry. Land read-only
-children before write-capable children.
+The first executable rollout is read-only and synchronous. Write-capable
+children require a follow-up contract for ownership enforcement, conflict
+detection, result adoption, and cancellation.
 
 ## Failure modes
 
@@ -70,20 +121,26 @@ children before write-capable children.
 - Child agent runs too long or consumes too much budget.
 - Parent trusts a child result without enough provenance.
 - Tool-call audit becomes hard to follow across child sessions.
+- Provider implementations may not be safe for true concurrent
+  multi-stream use. The first slice avoids this by running children
+  synchronously after the parent stream has ended.
 
 ## Test strategy
 
 - Unit tests for spawn tool schema validation and rejected scopes.
-- Runtime tests for child session creation, cancellation, and lineage.
+- Runtime tests for child session creation, read-only tool filtering,
+  conversation persistence, and structured timeout results.
+- Future runtime tests for cancellation and write-scope rejection.
 - Integration tests for parent/child transcript persistence.
 
 ## Open questions
 
-- Is a child agent a normal session fork, a special session kind, or a
-  nested turn inside the parent trace?
-- How should write ownership be represented and enforced?
+- Write-capable children: how should write ownership be represented and
+  enforced?
 - How many children can run concurrently?
 - How are child results summarized without losing critical details?
+- Should TUI display a dedicated subagent activity view instead of only
+  the parent tool result plus attachable child-session notice?
 
 ## Decision log
 

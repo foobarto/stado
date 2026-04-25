@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -752,6 +753,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		approval: tuiApprovalBridge{
 			model: m,
 		},
+		spawn: m.buildSubagentSpawner(),
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -794,6 +796,24 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			IsError:   isErr,
 		}}
 	}
+}
+
+func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (subagent.Result, error) {
+	if m.cfg == nil || m.session == nil || m.provider == nil {
+		return nil
+	}
+	runner := runtime.SubagentRunner{
+		Config:               m.cfg,
+		Parent:               m.session,
+		Provider:             m.provider,
+		Model:                m.model,
+		Thinking:             m.cfg.Agent.Thinking,
+		ThinkingBudgetTokens: m.cfg.Agent.ThinkingBudgetTokens,
+		System:               m.systemPrompt,
+		SystemTemplate:       m.systemPromptTemplate,
+		AgentName:            "stado-tui-subagent",
+	}
+	return runner.SpawnSubagent
 }
 
 // toolDefs builds the tool-definition list for the current turn request. An

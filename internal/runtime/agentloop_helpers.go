@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
 	"log/slog"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -117,6 +120,7 @@ type autoApproveHost struct {
 	workdir string
 	readLog *tools.ReadLog
 	runner  sandbox.Runner
+	spawn   func(context.Context, subagent.Request) (subagent.Result, error)
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -125,6 +129,13 @@ func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.De
 
 func (h autoApproveHost) Workdir() string        { return h.workdir }
 func (h autoApproveHost) Runner() sandbox.Runner { return h.runner }
+
+func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
+	if h.spawn == nil {
+		return subagent.Result{}, errors.New("spawn_agent unavailable: current host does not support subagents")
+	}
+	return h.spawn(ctx, req)
+}
 
 func (h autoApproveHost) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
 	if h.readLog == nil {
@@ -138,4 +149,18 @@ func (h autoApproveHost) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 		return
 	}
 	h.readLog.RecordRead(key, info)
+}
+
+func sessionFromExecutor(exec *tools.Executor) *stadogit.Session {
+	if exec == nil {
+		return nil
+	}
+	return exec.Session
+}
+
+func buildLoopSubagentSpawner(r SubagentRunner) func(context.Context, subagent.Request) (subagent.Result, error) {
+	if r.Config == nil || r.Parent == nil || r.Provider == nil {
+		return nil
+	}
+	return r.SpawnSubagent
 }

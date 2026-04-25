@@ -22,6 +22,7 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -245,6 +246,7 @@ type hostAdapter struct {
 	readLog  *tools.ReadLog
 	runner   sandbox.Runner
 	approval tuiApprovalBridge
+	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -256,6 +258,13 @@ func (h hostAdapter) Runner() sandbox.Runner { return h.runner }
 
 func (h hostAdapter) RequestApproval(ctx context.Context, title, body string) (bool, error) {
 	return h.approval.RequestApproval(ctx, title, body)
+}
+
+func (h hostAdapter) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
+	if h.spawn == nil {
+		return subagent.Result{}, errors.New("spawn_agent unavailable: current host does not support subagents")
+	}
+	return h.spawn(ctx, req)
 }
 
 func (h hostAdapter) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {

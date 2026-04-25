@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/pkg/agent"
@@ -180,12 +182,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toolCancel = nil
 		m.toolMu.Unlock()
 		// Update the matching tool block with the result.
+		toolName := ""
 		for i := range m.blocks {
 			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
+				toolName = m.blocks[i].toolName
 				m.blocks[i].toolResult = msg.result.Content
 				m.invalidateBlockCache(i)
 				break
 			}
+		}
+		if toolName == subagent.ToolName && !msg.result.IsError {
+			m.appendSubagentNotice(msg.result.Content)
 		}
 		m.pendingResults = append(m.pendingResults, msg.result)
 		m.renderBlocks()
@@ -1004,6 +1011,26 @@ func noKey(msg tea.KeyMsg) bool {
 		return false
 	}
 	return msg.Runes[0] == 'n' || msg.Runes[0] == 'N'
+}
+
+func (m *Model) appendSubagentNotice(content string) {
+	var res subagent.Result
+	if err := json.Unmarshal([]byte(content), &res); err != nil || res.ChildSession == "" {
+		return
+	}
+	status := res.Status
+	if status == "" {
+		status = "completed"
+	}
+	body := fmt.Sprintf("spawn_agent %s → %s", status, res.ChildSession)
+	if res.Error != "" {
+		body += "\n  error: " + trimSeed(res.Error, 160)
+	}
+	if res.Worktree != "" {
+		body += "\n  worktree: " + res.Worktree
+	}
+	body += "\n  attach:  stado session attach " + res.ChildSession
+	m.appendBlock(block{kind: "system", body: body})
 }
 
 // acceptFilePickerSelection replaces the @<query> fragment in the

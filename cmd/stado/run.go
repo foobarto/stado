@@ -122,6 +122,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
+				Config:   cfg,
 				Model:    cfg.Defaults.Model,
 				Messages: append(priorMsgs, newUserMsg),
 				MaxTurns: runMaxTurns,

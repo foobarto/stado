@@ -84,6 +84,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 
 	opts := runtime.AgentLoopOptions{
 		Provider:             s.Provider,
+		Config:               s.Cfg,
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
 		MaxTurns:             10,

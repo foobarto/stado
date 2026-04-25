@@ -6,6 +6,19 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Agent
+
+- **Added a first read-only `spawn_agent` slice.** The parent model can
+  fork a bounded child session for read-only repo investigation; the
+  child gets only non-mutating tools, cannot recursively spawn, and
+  returns a structured result with the child session/worktree.
+- **Bounded spawned agents by wall-clock timeout.** `spawn_agent` now
+  accepts `timeout_seconds` with default/cap behavior and returns a
+  structured timeout result when the child exceeds its budget.
+- **Surfaced spawned children in the TUI.** Successful `spawn_agent`
+  tool results now add a system notice with child status, session ID,
+  worktree, and attach command.
+
 ## v0.23.1 — 2026-04-25
 
 ### Docs
