@@ -160,6 +160,19 @@ func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	}
 }
 
+func TestInlineViewShowsCommandShortcutHints(t *testing.T) {
+	m := New()
+	m.Open()
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("theme")})
+
+	got := m.InlineView(80)
+	for _, want := range []string{"/theme", "ctrl+x t"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("inline view missing shortcut hint %q: %q", want, got)
+		}
+	}
+}
+
 func TestGroupMatches_StableOrder(t *testing.T) {
 	cmds := []Command{
 		{Name: "/a", Group: "Quick"},

@@ -146,6 +146,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Closed the inline slash shortcut-hint question.** EP-26 now records
+  that inline slash rows show command IDs and secondary keyboard
+  shortcuts together, with regression coverage.
 - **Refreshed the opencode TUI UAT backlog.** The report now reflects
   the shipped L4 subagent, context completion, landing, status, turn
   metadata, and theme slices and narrows the remaining work.

@@ -136,6 +136,8 @@ subagent slice.
 - `/thinking` and `Ctrl+X H` now persist the display-only thinking
   viewport mode to `[tui].thinking_display` and restore it on TUI
   startup.
+- EP-26 now records that inline slash rows show command IDs and
+  secondary keyboard shortcuts together, with regression coverage.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -194,7 +196,8 @@ repo-compatible Go toolchain at
   suggestions, status-modal trace ids, the custom `theme.toml` picker
   row, explicit markdown style selection for custom themes, and the
   `stado-rose` bundled theme, and the repo-relative footer
-  dirty-state marker, and persisted thinking display mode.
+  dirty-state marker, persisted thinking display mode, and EP-26
+  shortcut-hint coverage.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

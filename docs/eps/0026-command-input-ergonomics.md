@@ -10,6 +10,9 @@ see-also: [19, 20, 24, 25]
 history:
   - date: 2026-04-25
     status: Implemented
+    note: Inline slash suggestion rows are now covered by tests that assert command IDs and secondary shortcut hints render together.
+  - date: 2026-04-25
+    status: Implemented
     note: Inline slash suggestions now retain command group labels from the modal palette.
   - date: 2026-04-24
     status: Implemented
@@ -51,6 +54,8 @@ surfaces:
 - `/` at an empty prompt opens an inline suggestion box above the input.
 - Inline suggestions keep compact group labels so Quick, Session, and
   View commands do not collapse into one undifferentiated list.
+- Rows show the slash command ID and any secondary keyboard shortcut
+  together so users can run a command either way.
 - `/` in a non-empty prompt remains literal text.
 - `Enter` on a suggestion fills and runs the selected slash command.
 - `Esc` closes the active suggestion/palette surface and returns focus
@@ -73,5 +78,4 @@ The chat input rail color is mode-derived:
 
 ## Open Questions
 
-- Should the inline surface expose secondary shortcut hints for every
-  command once the list grows?
+- None.
