@@ -111,6 +111,76 @@ func TestStoreRejectsOversizedLoadedTask(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsSymlinkEscapeOnLoad(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	raw, err := json.Marshal([]Task{{
+		ID:        "task-1",
+		Title:     "outside",
+		Status:    StatusOpen,
+		CreatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "tasks.json")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := (Store{Path: path}).Get("task-1"); err == nil {
+		t.Fatal("Get should reject a task store symlink that escapes its directory")
+	}
+}
+
+func TestStoreDoesNotFollowSymlinkEscapeOnSave(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	const outsideData = "outside data"
+	if err := os.WriteFile(outside, []byte(outsideData), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "tasks.json")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	task := Task{
+		ID:        "task-2",
+		Title:     "inside",
+		Status:    StatusOpen,
+		CreatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+	}
+	if err := (Store{Path: path}).save([]Task{task}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	gotOutside, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotOutside) != outsideData {
+		t.Fatalf("outside file was modified: %q", string(gotOutside))
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		t.Fatalf("store path mode = %v, want regular file", info.Mode())
+	}
+	got, err := (Store{Path: path}).Get(task.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Title != task.Title {
+		t.Fatalf("Get title = %q, want %q", got.Title, task.Title)
+	}
+}
+
 func TestStoreConcurrentCreatesPreserveAllTasks(t *testing.T) {
 	store := Store{Path: filepath.Join(t.TempDir(), "tasks.json")}
 	const workers = 24

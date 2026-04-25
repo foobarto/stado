@@ -220,10 +220,16 @@ func ParseStatus(value string) (Status, error) {
 }
 
 func (s Store) load() ([]Task, error) {
-	if strings.TrimSpace(s.Path) == "" {
-		return nil, errors.New("task store path is empty")
+	root, name, err := s.storeRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	f, err := os.Open(s.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -268,12 +274,12 @@ func (s Store) load() ([]Task, error) {
 }
 
 func (s Store) save(tasks []Task) error {
-	if strings.TrimSpace(s.Path) == "" {
-		return errors.New("task store path is empty")
-	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
+	root, name, err := s.storeRoot(true)
+	if err != nil {
 		return err
 	}
+	defer func() { _ = root.Close() }()
+
 	data, err := json.MarshalIndent(tasks, "", "  ")
 	if err != nil {
 		return err
@@ -282,12 +288,12 @@ func (s Store) save(tasks []Task) error {
 	if len(data) > MaxStoreBytes {
 		return fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".tasks-*.json")
+	tmpName := "." + name + "." + uuid.NewString() + ".tmp"
+	tmp, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
+	defer func() { _ = root.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
@@ -295,10 +301,7 @@ func (s Store) save(tasks []Task) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, s.Path)
+	return root.Rename(tmpName, name)
 }
 
 func (s Store) withLock(fn func() error) error {
@@ -314,18 +317,12 @@ func (s Store) withLock(fn func() error) error {
 }
 
 func (s Store) acquireLock() (func(), error) {
-	if strings.TrimSpace(s.Path) == "" {
-		return nil, errors.New("task store path is empty")
-	}
-	dir := filepath.Dir(s.Path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, err
-	}
-	root, err := os.OpenRoot(dir)
+	root, name, err := s.storeRoot(true)
 	if err != nil {
 		return nil, err
 	}
-	lockName := filepath.Base(s.Path) + ".lock"
+	dir := filepath.Dir(s.Path)
+	lockName := name + ".lock"
 	lockPath := filepath.Join(dir, lockName)
 	deadline := time.Now().Add(lockWaitTimeout)
 	for {
@@ -356,6 +353,27 @@ func (s Store) acquireLock() (func(), error) {
 		}
 		time.Sleep(lockRetryDelay)
 	}
+}
+
+func (s Store) storeRoot(createDir bool) (*os.Root, string, error) {
+	if strings.TrimSpace(s.Path) == "" {
+		return nil, "", errors.New("task store path is empty")
+	}
+	dir := filepath.Dir(s.Path)
+	name := filepath.Base(s.Path)
+	if name == "." || name == ".." || name == string(filepath.Separator) || strings.Contains(name, "\x00") {
+		return nil, "", fmt.Errorf("invalid task store path: %s", s.Path)
+	}
+	if createDir {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, "", err
+		}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, name, nil
 }
 
 func (s Store) now() time.Time {

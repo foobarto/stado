@@ -6,6 +6,12 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Fixes
+
+- **Rooted task-store reads and writes.** Shared task data now opens,
+  temp-writes, and renames through `os.Root` scoped to the task-store
+  directory, rejecting symlink escapes for the persisted store file.
+
 ## v0.25.5 — 2026-04-26
 
 ### Fixes
