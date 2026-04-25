@@ -401,6 +401,9 @@ func builtinPreset(name string) (string, string, bool) {
 }
 
 func loadTheme(cfg *config.Config) (*theme.Theme, error) {
+	if cfg != nil && strings.TrimSpace(cfg.TUI.Theme) != "" {
+		return theme.Named(cfg.TUI.Theme)
+	}
 	// Look for ~/.config/stado/theme.toml alongside config.toml.
 	themePath := filepath.Join(filepath.Dir(cfg.ConfigPath), "theme.toml")
 	if _, err := os.Stat(themePath); err == nil {

@@ -79,6 +79,7 @@ func renderConfigHuman(w interface {
 	write("  system_prompt_path       %s\n\n", cfg.Agent.SystemPromptPath)
 
 	write("[tui]\n")
+	write("  theme              %s\n", fallback(cfg.TUI.Theme, "(unset — uses theme.toml or bundled default)"))
 	write("  thinking_display   %s\n\n", cfg.TUI.ThinkingDisplay)
 
 	write("[memory]\n")

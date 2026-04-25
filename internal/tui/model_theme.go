@@ -2,10 +2,9 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
 )
@@ -139,16 +138,12 @@ func (m *Model) persistNamedTheme(id string) error {
 	if m == nil || m.cfg == nil || strings.TrimSpace(m.cfg.ConfigPath) == "" {
 		return nil
 	}
-	data, ok := theme.BuiltinTOML(id)
-	if !ok {
+	if _, ok := theme.BuiltinTOML(id); !ok {
 		return nil
 	}
-	path := filepath.Join(filepath.Dir(m.cfg.ConfigPath), "theme.toml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create theme dir: %w", err)
+	if err := config.WriteTUITheme(m.cfg.ConfigPath, id); err != nil {
+		return fmt.Errorf("save theme: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
+	m.cfg.TUI.Theme = id
 	return nil
 }

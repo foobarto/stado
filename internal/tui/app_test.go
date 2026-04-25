@@ -42,3 +42,25 @@ func TestLoadRenderer_UsesTemplateOverlay(t *testing.T) {
 		t.Fatalf("rendered assistant template = %q, want %q", out, "OVERRIDE hello\n")
 	}
 }
+
+func TestLoadTheme_ConfigThemeBeatsThemeTOML(t *testing.T) {
+	cfgDir := t.TempDir()
+	data, ok := theme.BuiltinTOML("stado-rose")
+	if !ok {
+		t.Fatal("stado-rose theme missing")
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "theme.toml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	th, err := loadTheme(&config.Config{
+		ConfigPath: filepath.Join(cfgDir, "config.toml"),
+		TUI:        config.TUI{Theme: "stado-light"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Name != "stado-light" {
+		t.Fatalf("theme = %q, want stado-light", th.Name)
+	}
+}

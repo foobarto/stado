@@ -66,3 +66,21 @@ func TestWriteTUIThinkingDisplay(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteTUITheme(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+
+	if err := WriteTUITheme(path, "stado-rose"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{`[tui]`, `theme = "stado-rose"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
+	}
+}

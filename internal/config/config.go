@@ -163,6 +163,9 @@ type Agent struct {
 // TUI contains display-only preferences for the interactive terminal UI.
 // These settings do not change provider requests or persisted transcripts.
 type TUI struct {
+	// Theme optionally pins a bundled theme id such as stado-dark,
+	// stado-light, stado-contrast, or stado-rose.
+	Theme string `koanf:"theme"`
 	// ThinkingDisplay controls how provider-native thinking blocks are
 	// rendered in the viewport: show, tail, or hide.
 	ThinkingDisplay string `koanf:"thinking_display"`

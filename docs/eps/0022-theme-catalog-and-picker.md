@@ -9,6 +9,9 @@ see-also: [19]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Bundled theme selections now persist as `[tui].theme` config keys while custom `theme.toml` remains the fallback override path.
+  - date: 2026-04-25
+    status: Partial
     note: Added stado-rose to the bundled theme catalog.
   - date: 2026-04-25
     status: Partial
@@ -62,9 +65,9 @@ The bundled catalog starts with:
 `/theme` and `Ctrl+X T` open a searchable picker. `/theme <id>` switches
 directly. `/theme light`, `/theme dark`, and `/theme toggle` are mode
 shortcuts for users who do not need the picker. Selecting a bundled
-theme updates the running TUI and writes the bundled TOML to
-`$XDG_CONFIG_HOME/stado/theme.toml`, preserving the existing load path
-on the next run.
+theme updates the running TUI and stores its bundled id in
+`[tui].theme`, preserving the selection on the next run without
+materializing bundled TOML.
 
 The runtime applies the selected theme through the explicit renderer
 theme and the legacy package-level theme globals so existing picker and
@@ -77,8 +80,9 @@ markdown cache when a theme is switched.
 
 If the loaded theme name does not match a bundled catalog entry, the
 picker appends it as the current custom `theme.toml` row. Selecting that
-row is a no-op; selecting a bundled row still materializes that bundled
-TOML into the durable theme override path.
+row is a no-op; selecting a bundled row writes `[tui].theme`. A
+user-authored `theme.toml` is still loaded when `[tui].theme` is unset,
+so custom theme authoring keeps the same file-based workflow.
 
 ## Test Strategy
 
@@ -86,9 +90,9 @@ TOML into the durable theme override path.
 - Theme tests cover custom `[markdown].style` loading and fallback merge.
 - Picker tests cover current marker and fuzzy filtering.
 - TUI tests cover `/theme`, `Ctrl+X T`, command-palette dispatch, block
-  cache invalidation, and persisted `theme.toml` output.
+  cache invalidation, persisted `[tui].theme`, and `theme.toml`
+  fallback output.
 
 ## Open Questions
 
-- Should named themes be stored as config keys instead of materialized
-  `theme.toml` files?
+- None.

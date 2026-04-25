@@ -36,6 +36,20 @@ func WriteTUIThinkingDisplay(configPath, mode string) error {
 	})
 }
 
+// WriteTUITheme updates [tui].theme in config.toml.
+func WriteTUITheme(configPath, themeID string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	themeID = strings.TrimSpace(themeID)
+	if themeID == "" {
+		return fmt.Errorf("theme id is empty")
+	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		tree.SetPath([]string{"tui", "theme"}, themeID)
+	})
+}
+
 func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	var tree *toml.Tree
 	data, err := os.ReadFile(configPath)

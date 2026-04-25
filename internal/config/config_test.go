@@ -33,6 +33,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.TUI.ThinkingDisplay != "show" {
 		t.Errorf("TUI.ThinkingDisplay = %q, want show", cfg.TUI.ThinkingDisplay)
 	}
+	if cfg.TUI.Theme != "" {
+		t.Errorf("TUI.Theme = %q, want empty", cfg.TUI.Theme)
+	}
 	if cfg.Agent.SystemPromptPath == "" {
 		t.Fatal("Agent.SystemPromptPath should default to a config-dir template")
 	}

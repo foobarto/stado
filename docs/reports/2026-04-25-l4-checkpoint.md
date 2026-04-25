@@ -143,6 +143,9 @@ subagent slice.
 - Resumed sessions now reconstruct persisted provider-native thinking as
   separate TUI thinking blocks so display modes still apply after
   restart.
+- Bundled theme selections now persist as `[tui].theme` config keys;
+  custom `theme.toml` remains the fallback path when no bundled theme is
+  pinned.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -203,7 +206,7 @@ repo-compatible Go toolchain at
   `stado-rose` bundled theme, and the repo-relative footer
   dirty-state marker, persisted thinking display mode, and EP-26
   shortcut-hint coverage, failed/rejected tool-result metadata, and
-  resumed thinking blocks.
+  resumed thinking blocks, and config-backed bundled theme selection.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

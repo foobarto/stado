@@ -99,12 +99,12 @@ func TestApplyNamedThemePersistsSelection(t *testing.T) {
 	if m.blocks[0].cachedOut == "stale" {
 		t.Fatal("theme switch should replace stale rendered block cache")
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "theme.toml"))
+	data, err := os.ReadFile(filepath.Join(dir, "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `name = "stado-light"`) {
-		t.Fatalf("persisted theme.toml missing light theme name: %s", data)
+	if !strings.Contains(string(data), `theme = "stado-light"`) {
+		t.Fatalf("persisted config missing theme id: %s", data)
 	}
 }
 

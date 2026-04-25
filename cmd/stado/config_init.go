@@ -99,6 +99,7 @@ const defaultConfigTemplate = `# stado — config.toml
 # it does not change provider requests or persisted transcripts.
 # ---------------------------------------------------------------------------
 # [tui]
+# theme = "stado-dark"                # bundled id; omit to use theme.toml/default
 # thinking_display = "show"          # show | tail | hide
 
 # ---------------------------------------------------------------------------

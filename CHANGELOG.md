@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Stored bundled theme selection in config.** `/theme` now persists
+  bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
+  fallback path when no bundled theme is pinned.
 - **Restored thinking blocks on session resume.** Persisted
   provider-native thinking now rehydrates as separate TUI thinking
   blocks so display modes still apply after restart.
