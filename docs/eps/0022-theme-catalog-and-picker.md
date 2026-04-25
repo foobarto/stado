@@ -2,11 +2,14 @@
 ep: 22
 title: Theme Catalog and Picker
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [19]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: The scoped theme catalog and picker goals are complete; future catalog entries are incremental.
   - date: 2026-04-25
     status: Partial
     note: Bundled theme selections now persist as `[tui].theme` config keys while custom `theme.toml` remains the fallback override path.

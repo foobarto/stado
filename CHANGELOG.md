@@ -76,6 +76,9 @@ Plugins / Infra / Fixes.
   scanners.
 - **Aligned implemented EP index rows.** EP-14 and EP-24 now show
   `Implemented` in the EP README table, matching their frontmatter.
+- **Closed EP-22 theme catalog and picker.** The scoped catalog,
+  picker, direct mode shortcuts, custom-theme row, markdown style, and
+  config persistence goals are documented as implemented.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

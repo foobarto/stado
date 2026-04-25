@@ -56,7 +56,7 @@ visible TUI workflow gaps:
 | Inline `@` completion | Implemented | Agents, sessions, skills, docs, Go/Python/JS/TS/shell symbols, and files are grouped; future language scanners are incremental bounded slices. |
 | Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
 | Turn metadata | Implemented | Assistant turn footers show compact metadata and can expand into token, cache, tool, and trace details. |
-| Themes | Partial | Built-in picker, light/dark shortcuts, custom-theme rows, markdown style control, and a fourth bundled theme exist; broader catalog remains future work. |
+| Themes | Implemented | Built-in picker, light/dark shortcuts, custom-theme rows, markdown style control, and a fourth bundled theme exist; future catalog entries are incremental. |
 | Status modal and LSP state | Partial | `/status` and `Ctrl+X S` show runtime health, provider credential health, configured MCP names, LSP readiness, action hints, and trace IDs; deeper live provider/plugin/MCP health remains future work. |
 | Footer density | Implemented | Footer now includes cwd, branch, session identity, version, usage, cost, and command hint when width allows. |
 | tmux UAT harness | Implemented | Landing-view assertions are current and green. |
@@ -170,8 +170,9 @@ rows noisier.
 opencode exposes theme switching in the command palette and a dedicated
 theme picker. stado now has bundled themes, a TUI picker, direct
 light/dark/toggle shortcuts, current custom-theme rows, custom markdown
-style control, and a fourth dark accent theme. opencode still has a
-broader catalog.
+style control, and a fourth dark accent theme. The scoped EP-0022 theme
+catalog and picker goals are complete; a broader catalog can grow
+incrementally from real usage gaps.
 
 ## Improvement Backlog For stado
 
@@ -200,9 +201,10 @@ broader catalog.
    the real tmux harness current as terminal sizes and banner art
    change.
 
-6. **Broaden theme parity.**
-   EP-0022 has a catalog and picker. Add a wider built-in set and a
-   direct light/dark toggle if users keep reaching for it.
+6. **Keep future theme additions usage-led.**
+   EP-0022 has a catalog, picker, direct mode shortcuts, custom-theme
+   rows, and markdown style control. Add bundled themes only where
+   there is a real usage gap.
 
 ### P2 — Polish And Parity
 
