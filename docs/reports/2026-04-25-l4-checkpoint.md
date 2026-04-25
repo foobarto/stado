@@ -1,7 +1,7 @@
 # L4 Checkpoint - 2026-04-25
 
-This note preserves the autonomous-loop state after the EP-13 read-only
-subagent slice.
+This note preserves the autonomous-loop state after the EP-13 subagent
+spawn/adoption slices and the local worker dogfood pass.
 
 ## Implemented
 
@@ -69,6 +69,10 @@ subagent slice.
   `scopeViolations`.
 - Headless and ACP finished-worker notifications now include
   `adoptionCommand` when changed files are present.
+- Worker `spawn_agent` tool results now include `adoption_command` when
+  changed files are present, so the parent model receives the exact
+  `stado session adopt ... --apply` command instead of deriving it from
+  child IDs.
 - TUI subagent lifecycle events now populate a sidebar `Subagents`
   activity section with child status, changed-file counts, scope
   violations, and adoption readiness.
@@ -212,10 +216,24 @@ subagent slice.
   - `go test ./internal/tui -run 'TestSwitchToSession'`
   - `go test ./internal/tui`
   - `go test ./internal/tui/filepicker ./internal/tui`
+  - `go test ./internal/runtime ./internal/subagent ./internal/headless ./internal/acp`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
   - `git diff --check`
+- Live local-provider smoke passed after loading
+  `qwen/qwen3.6-35b-a3b` in LM Studio:
+  - `stado doctor` detected LM Studio as running with one loaded model.
+  - `stado run --prompt 'Reply with exactly: stado-dogfood-ok'`
+    returned the expected text.
+  - `stado run --tools --json` successfully spawned a
+    `workspace_write` worker child, isolated the child write in the
+    child worktree, and reported the child session and changed file.
+  - `stado session adopt <parent> <child> --json` dry-ran the worker
+    adoption with `can_adopt: true`.
+  - `stado session adopt <parent> <child> --apply` applied
+    `docs/reports/live-worker-dogfood.md` into the parent session and
+    recorded `subagent_adopt` trace metadata.
 
 The local shell did not have `go`/`gofmt` on `PATH`; commands used the
 repo-compatible Go toolchain at
@@ -239,15 +257,16 @@ repo-compatible Go toolchain at
   catalog/picker are also closed, and EP-13's current concurrency policy
   is pinned while EP-23's remaining question is narrowed to status
   snapshots. LM Studio installed-vs-loaded model detection is also fixed.
-- Live worker dogfood was attempted with local LM Studio auto-detect;
-  fallback now skips installed-but-unloaded LM Studio models and reports
-  the no-provider setup error until a local model is loaded.
+- Live worker dogfood completed against LM Studio
+  `qwen/qwen3.6-35b-a3b`. The worker spawn, child isolation, CLI dry-run,
+  and CLI apply path worked end-to-end. The run also exposed that the
+  model-facing tool result needed the exact adoption command; that is now
+  included as `adoption_command`.
 - No release tag has been cut for this slice.
 
 ## Next Candidates
 
-1. Load a local LM Studio/Ollama model and dogfood the exposed worker
-   flow end-to-end, including `/subagents`, `/adopt`, and
-   `stado session adopt`.
+1. Dogfood the interactive TUI side of the worker flow with the loaded
+   local model, including `/subagents` and `/adopt`.
 2. Add richer adoption affordances to headless/ACP/editor clients once a
    client consumes the subagent notification payload.

@@ -57,6 +57,7 @@ type Result struct {
 	ForkTree        string   `json:"fork_tree,omitempty"`
 	ChangedFiles    []string `json:"changed_files,omitempty"`
 	ScopeViolations []string `json:"scope_violations,omitempty"`
+	AdoptionCommand string   `json:"adoption_command,omitempty"`
 	Error           string   `json:"error,omitempty"`
 }
 

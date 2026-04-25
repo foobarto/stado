@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Worker spawn_agent tool results now include an adoption_command when child changes are available.
+  - date: 2026-04-25
+    status: Partial
     note: Documented the current concurrency policy: one active child per parent session/tool queue; higher concurrency is future scheduler work.
   - date: 2026-04-25
     status: Partial
@@ -131,9 +134,11 @@ Execution model:
 - The child result is returned as JSON containing status, role, mode,
   child session ID, worktree path, timeout, final text, message count,
   optional worker `fork_tree`, `changed_files`, `scope_violations`, and
-  optional error. Child timeout returns `status: "timeout"` instead of
-  making the parent tool call fail, so the parent can reason about
-  partial or missing findings and decide what to do next.
+  `adoption_command`, plus optional error. `adoption_command` is
+  populated only when worker child changes are available to review and
+  apply. Child timeout returns `status: "timeout"` instead of making the
+  parent tool call fail, so the parent can reason about partial or
+  missing findings and decide what to do next.
 
 Audit and persistence:
 
@@ -241,7 +246,9 @@ Conflict and adoption contract:
 
 - A write-capable child returns a structured result with `status`,
   `child_session`, `worktree`, `summary`, `changed_files`, and
-  `scope_violations` if any were attempted.
+  `scope_violations` if any were attempted. When `changed_files` is
+  non-empty, it also returns `adoption_command`, a copy-pasteable
+  `stado session adopt ... --apply` command for the parent/child pair.
 - The internal worker path now populates `changed_files` from the child
   tree diff against the fork point, filtering session metadata such as
   `.stado/`, `.stado-pid`, and trace context files. Scope guard

@@ -57,17 +57,21 @@ type SubagentEvent struct {
 // AdoptionCommand returns a copy-pasteable command for applying child
 // changes into the parent session when the event contains adoptable output.
 func (ev SubagentEvent) AdoptionCommand() string {
-	if ev.ParentSession == "" || ev.ChildSession == "" || len(ev.ChangedFiles) == 0 {
+	return subagentAdoptionCommand(ev.ParentSession, ev.ChildSession, ev.ForkTree, ev.ChangedFiles)
+}
+
+func subagentAdoptionCommand(parentID, childID, forkTree string, changedFiles []string) string {
+	if parentID == "" || childID == "" || len(changedFiles) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("stado session adopt ")
-	b.WriteString(ev.ParentSession)
+	b.WriteString(parentID)
 	b.WriteString(" ")
-	b.WriteString(ev.ChildSession)
-	if ev.ForkTree != "" {
+	b.WriteString(childID)
+	if forkTree != "" {
 		b.WriteString(" --fork-tree ")
-		b.WriteString(ev.ForkTree)
+		b.WriteString(forkTree)
 	}
 	b.WriteString(" --apply")
 	return b.String()
@@ -156,6 +160,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			if detailErr := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); detailErr != nil {
 				result.Error += "; " + detailErr.Error()
 			}
+			r.attachWorkerAdoptionCommand(&result)
 			_, _ = child.CommitToTrace(stadogit.CommitMeta{
 				Tool:     subagent.ToolName,
 				ShortArg: "timeout",
@@ -179,6 +184,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
 		return subagent.Result{}, err
 	}
+	r.attachWorkerAdoptionCommand(&result)
 	r.emitSubagentResultEvent(req, child, result)
 	return result, nil
 }
@@ -256,6 +262,18 @@ func (r SubagentRunner) emitSubagentResultEvent(req subagent.Request, child *sta
 		ScopeViolations: append([]string(nil), result.ScopeViolations...),
 		Error:           result.Error,
 	})
+}
+
+func (r SubagentRunner) attachWorkerAdoptionCommand(result *subagent.Result) {
+	if result == nil || r.Parent == nil {
+		return
+	}
+	result.AdoptionCommand = subagentAdoptionCommand(
+		r.Parent.ID,
+		result.ChildSession,
+		result.ForkTree,
+		result.ChangedFiles,
+	)
 }
 
 func normalizeSubagentRequest(req subagent.Request) subagent.Request {

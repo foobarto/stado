@@ -121,6 +121,10 @@ func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	if want := []string{"allowed/new.txt"}; !reflect.DeepEqual(res.ChangedFiles, want) {
 		t.Fatalf("changed_files = %#v, want %#v", res.ChangedFiles, want)
 	}
+	wantAdoptionCommand := "stado session adopt " + parent.ID + " " + res.ChildSession + " --apply"
+	if res.AdoptionCommand != wantAdoptionCommand {
+		t.Fatalf("adoption_command = %q, want %q", res.AdoptionCommand, wantAdoptionCommand)
+	}
 	if _, err := os.Stat(filepath.Join(parent.WorktreePath, "allowed", "new.txt")); !os.IsNotExist(err) {
 		t.Fatalf("parent worktree was modified, stat err = %v", err)
 	}

@@ -58,6 +58,10 @@ Plugins / Infra / Fixes.
 - **Added subagent adoption commands to interop events.** Headless and
   ACP finished-worker notifications now include an `adoptionCommand`
   when child changes are available to review and apply.
+- **Added subagent adoption commands to tool results.** Worker
+  `spawn_agent` results now include `adoption_command` when child
+  changes are available, so the parent model sees the exact review/apply
+  command instead of inferring it from session IDs.
 
 ### TUI
 
