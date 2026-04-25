@@ -57,6 +57,33 @@ func TestStatusModalShowsTraceID(t *testing.T) {
 	}
 }
 
+func TestStatusModalShowsCredentialHealth(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	m := scenarioModel(t)
+	m.provider = nil
+	m.providerName = "openai"
+
+	out := m.renderStatusModal(140, 40)
+	for _, want := range []string{"credentials", "missing OPENAI_API_KEY", "/model Ctrl+A"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status modal missing credential health %q: %q", want, out)
+		}
+	}
+}
+
+func TestStatusModalShowsLocalCredentialNotRequired(t *testing.T) {
+	m := scenarioModel(t)
+	m.provider = nil
+	m.providerName = "lmstudio"
+
+	out := m.renderStatusModal(140, 40)
+	for _, want := range []string{"credentials", "not required by preset", "/providers"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status modal missing local credential hint %q: %q", want, out)
+		}
+	}
+}
+
 func TestStatusKeybindOpensAndEscClosesModal(t *testing.T) {
 	m := scenarioModel(t)
 

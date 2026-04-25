@@ -93,6 +93,8 @@ subagent slice.
 - Status modal rows now show next-step hints for focused commands or
   config files, including provider/model, tools, plugins, MCP, OTel,
   budget, and context rows.
+- `/status` now reports active-provider credential env var health as
+  missing, set, or not required by a local preset.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

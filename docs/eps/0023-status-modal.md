@@ -9,6 +9,9 @@ see-also: [11, 17, 19, 22]
 history:
   - date: 2026-04-25
     status: Partial
+    note: The modal now shows active-provider credential env var health.
+  - date: 2026-04-25
+    status: Partial
     note: The modal now shows the current OTel trace id when the TUI context carries one.
   - date: 2026-04-25
     status: Partial
@@ -35,7 +38,8 @@ sandbox, telemetry, and plugin model visible on demand.
 
 - Add a modal status surface available from keyboard and slash-command
   paths.
-- Show provider, model, current agent, and provider capabilities.
+- Show provider, model, current agent, provider capabilities, and
+  provider credential health.
 - Show session, sandbox, tool count, plugin, MCP, LSP readiness, OTel,
   budget, and context summaries.
 - Keep the default sidebar quiet.
@@ -66,6 +70,10 @@ start MCP/plugin work while rendering. Rows may include a short
 next-step hint, such as `/model`, `/tools`, `/plugin`, `/context`, or
 `config.toml`, so the modal remains read-only while still pointing to
 the focused command or file that resolves the row.
+
+The credentials row uses stado's conventional provider environment
+mapping. Remote providers show whether their API key variable is present
+or missing; local presets show that no key is required by default.
 
 When OTel is enabled and the TUI run context has a valid span context,
 the Extensions section includes the trace id for copy/paste into a

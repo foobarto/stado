@@ -2,12 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func (m *Model) renderStatusModal(screenWidth, screenHeight int) string {
@@ -88,8 +91,21 @@ func (m *Model) statusAgentRows() []statusRow {
 		{Key: "agent", Value: m.mode.String(), Tone: "text", Action: "tab"},
 		{Key: "model", Value: model, Tone: "text", Action: "/model"},
 		{Key: "provider", Value: provider, Tone: "text", Action: "/model"},
+		m.statusCredentialsRow(provider),
 		{Key: "capabilities", Value: caps, Tone: "muted", Action: "/provider"},
 	}
+}
+
+func (m *Model) statusCredentialsRow(provider string) statusRow {
+	provider = strings.TrimSpace(provider)
+	env := config.ProviderAPIKeyEnv(provider)
+	if env == "" {
+		return statusRow{Key: "credentials", Value: "not required by preset", Tone: "muted", Action: "/providers"}
+	}
+	if os.Getenv(env) == "" {
+		return statusRow{Key: "credentials", Value: "missing " + env, Tone: "warning", Action: "/model Ctrl+A"}
+	}
+	return statusRow{Key: "credentials", Value: env + " set", Tone: "text", Action: "/model Ctrl+A"}
 }
 
 func yesNo(v bool) string {
