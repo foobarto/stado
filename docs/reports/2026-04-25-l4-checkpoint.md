@@ -23,6 +23,9 @@ subagent slice.
 - Headless emits `session.update` notifications with `kind:
   "subagent"` for child start/finish, including child ID, child
   worktree, role, mode, status, and timeout.
+- Parent-triggered cancellation is covered at runtime and headless
+  boundaries: cancelling the parent cancels the child and emits a
+  finished/error subagent event.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -49,11 +52,9 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Add explicit cancellation tests for parent-triggered cancellation
-   across TUI/headless/run.
-2. Define the write-capable worker contract: ownership scopes, conflict
+1. Define the write-capable worker contract: ownership scopes, conflict
    checks, merge/adoption surface, and review flow.
-3. Consider a dedicated subagent activity view in the TUI if raw
+2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
-4. Consider ACP/editor-facing parity for the headless subagent
+3. Consider ACP/editor-facing parity for the headless subagent
    notification shape.

@@ -21,6 +21,9 @@ Plugins / Infra / Fixes.
 - **Added headless subagent lifecycle notifications.** Headless clients
   now receive `session.update { kind: "subagent", phase: "started" |
   "finished", ... }` when `spawn_agent` creates and completes a child.
+- **Pinned parent cancellation for spawned agents.** Runtime and
+  headless tests now assert that cancelling the parent operation cancels
+  the running child and emits a finished/error subagent event.
 
 ## v0.23.1 — 2026-04-25
 

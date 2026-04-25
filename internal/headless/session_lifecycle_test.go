@@ -332,6 +332,83 @@ func TestSessionPromptEmitsSubagentNotifications(t *testing.T) {
 	}
 }
 
+func TestSessionCancelCancelsSpawnedSubagent(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	_ = os.MkdirAll(cwd, 0o755)
+	restore := chdirHeadlessTest(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	srv := NewServer(cfg, &cancelSpawnProvider{})
+	srv.conn = acp.NewConn(server, server)
+
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(client)
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				return
+			}
+			lines <- line
+		}
+	}()
+
+	res, err := srv.sessionNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.(sessionNewResult).SessionID
+	raw := json.RawMessage(`{"sessionId":"` + sessionID + `","prompt":"inspect in child","tools":true}`)
+	done := make(chan error, 1)
+	go func() {
+		_, err := srv.sessionPrompt(context.Background(), raw)
+		done <- err
+	}()
+
+	started := waitForSubagentPhase(t, lines, "started")
+	if started["status"] != "running" {
+		t.Fatalf("started status = %v", started["status"])
+	}
+	cancelRes, err := srv.sessionCancel(json.RawMessage(`{"sessionId":"` + sessionID + `"}`))
+	if err != nil {
+		t.Fatalf("sessionCancel: %v", err)
+	}
+	if got := cancelRes.(struct {
+		Cancelled bool `json:"cancelled"`
+	}).Cancelled; !got {
+		t.Fatal("sessionCancel returned cancelled=false while child was running")
+	}
+
+	finished := waitForSubagentPhase(t, lines, "finished")
+	if finished["status"] != "error" {
+		t.Fatalf("finished status = %v, want error", finished["status"])
+	}
+	if errText, _ := finished["error"].(string); !strings.Contains(errText, "context canceled") {
+		t.Fatalf("finished error = %q", errText)
+	}
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("sessionPrompt error = %v, want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sessionPrompt did not return after cancel")
+	}
+}
+
 func TestSessionCompactGitSessionWritesAuditMarkers(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -506,6 +583,68 @@ func (p *spawnPromptProvider) StreamTurn(ctx context.Context, req agent.TurnRequ
 		}
 	}()
 	return ch, nil
+}
+
+type cancelSpawnProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *cancelSpawnProvider) Name() string {
+	return "spawn-cancel"
+}
+
+func (p *cancelSpawnProvider) Capabilities() agent.Capabilities {
+	return agent.Capabilities{}
+}
+
+func (p *cancelSpawnProvider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+	p.mu.Lock()
+	p.calls++
+	call := p.calls
+	p.mu.Unlock()
+
+	ch := make(chan agent.Event, 2)
+	go func() {
+		defer close(ch)
+		switch call {
+		case 1:
+			ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+				ID:    "spawn-cancel-1",
+				Name:  subagent.ToolName,
+				Input: json.RawMessage(`{"prompt":"block until cancelled","max_turns":1,"timeout_seconds":60}`),
+			}}
+			ch <- agent.Event{Kind: agent.EvDone}
+		default:
+			<-ctx.Done()
+			ch <- agent.Event{Kind: agent.EvError, Err: ctx.Err()}
+		}
+	}()
+	return ch, nil
+}
+
+func waitForSubagentPhase(t *testing.T, lines <-chan string, phase string) map[string]any {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case line := <-lines:
+			var payload struct {
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			}
+			if err := json.Unmarshal([]byte(line), &payload); err != nil {
+				t.Fatalf("parse notification: %v\n%s", err, line)
+			}
+			if payload.Method == "session.update" &&
+				payload.Params["kind"] == "subagent" &&
+				payload.Params["phase"] == phase {
+				return payload.Params
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for subagent phase %q", phase)
+		}
+	}
 }
 
 // Stop unused-bufio linter complaint if other tests drop bufio.

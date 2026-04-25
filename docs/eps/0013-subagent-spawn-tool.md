@@ -154,8 +154,11 @@ detection, result adoption, and cancellation.
 
 - Unit tests for spawn tool schema validation and rejected scopes.
 - Runtime tests for child session creation, read-only tool filtering,
-  conversation persistence, and structured timeout results.
-- Future runtime tests for cancellation and write-scope rejection.
+  conversation persistence, structured timeout results, and
+  parent-triggered cancellation.
+- Headless tests for `session.cancel` while a child is running, including
+  the finished/error subagent notification.
+- Future runtime tests for write-scope rejection.
 - Integration tests for parent/child transcript persistence.
 
 ## Open questions

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -98,6 +99,48 @@ func TestSubagentRunnerReturnsTimeoutResult(t *testing.T) {
 	}
 	if !strings.Contains(res.Error, "timed out after 1") {
 		t.Fatalf("error = %q", res.Error)
+	}
+}
+
+func TestSubagentRunnerPropagatesParentCancellation(t *testing.T) {
+	cfg, parent, _ := forkPluginEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	var events []SubagentEvent
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := (SubagentRunner{
+			Config:    cfg,
+			Parent:    parent,
+			Provider:  blockingSubagentProvider{},
+			Model:     "test-model",
+			AgentName: "test-subagent",
+			OnEvent: func(ev SubagentEvent) {
+				events = append(events, ev)
+			},
+		}).SpawnSubagent(ctx, subagent.Request{
+			Prompt:         "This child waits for parent cancellation.",
+			Role:           subagent.DefaultRole,
+			Mode:           subagent.DefaultMode,
+			MaxTurns:       1,
+			TimeoutSeconds: 60,
+		})
+		done <- err
+	}()
+
+	cancel()
+	err := <-done
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want started+finished: %+v", len(events), events)
+	}
+	if events[1].Phase != "finished" || events[1].Status != "error" {
+		t.Fatalf("finished event = %+v", events[1])
+	}
+	if !strings.Contains(events[1].Error, "context canceled") {
+		t.Fatalf("finished event error = %q", events[1].Error)
 	}
 }
 
