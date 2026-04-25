@@ -154,6 +154,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
 	case "/subagents":
 		m.appendBlock(block{kind: "system", body: m.renderSubagentsOverview()})
+	case "/adopt":
+		m.handleSubagentAdoptSlash(parts)
 	case "/new":
 		if err := m.createAndSwitchSession(); err != nil {
 			m.appendBlock(block{kind: "system", body: err.Error()})

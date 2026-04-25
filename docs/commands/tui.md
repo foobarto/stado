@@ -122,7 +122,9 @@ human debugging, not a replacement for OTLP export.
   `/debug` to expand them when investigating runtime/provider issues.
 - **Subagents** — while `spawn_agent` runs, the sidebar shows recent
   child session status, changed-file counts, scope violations, and
-  whether adoption is ready.
+  whether adoption is ready. `/adopt` dry-runs the latest adoptable
+  worker child; `/adopt <child> --apply` applies non-conflicting child
+  changes into the current parent session.
 
 ### Split view
 
@@ -247,6 +249,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/sessions` — textual session overview
 - `/subagents` — recent spawned child sessions with status, worktree,
   changed-file counts, scope violations, and adoption commands
+- `/adopt [child] [--apply]` — dry-run or explicitly apply worker
+  subagent changes into the current parent session
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/btw` — off-band side-question mode

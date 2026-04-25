@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -174,5 +178,112 @@ func TestSubagentsSlashEmpty(t *testing.T) {
 	got := m.renderSubagentsOverview()
 	if !strings.Contains(got, "no subagent activity yet") {
 		t.Fatalf("empty subagent overview = %q", got)
+	}
+}
+
+func TestSubagentAdoptSlashDryRunsLatestWorker(t *testing.T) {
+	m, cfg, _ := newSessionSwitchModel(t)
+	child, forkTree := makeAdoptableWorkerChild(t, cfg, m.session)
+	m.recordSubagentEvent(runtime.SubagentEvent{
+		Phase:         "finished",
+		ParentSession: m.session.ID,
+		ChildSession:  child.ID,
+		Role:          "worker",
+		Mode:          "workspace_write",
+		Status:        "completed",
+		ForkTree:      forkTree,
+		ChangedFiles:  []string{"child.txt"},
+	})
+
+	_ = m.handleSlash("/adopt")
+
+	last := m.blocks[len(m.blocks)-1]
+	for _, want := range []string{
+		"subagent adoption: ready",
+		"child: " + child.ID,
+		"changed_files:",
+		"child.txt",
+		"dry_run: true",
+		"rerun: /adopt " + shortSessionID(child.ID) + " --apply",
+	} {
+		if !strings.Contains(last.body, want) {
+			t.Fatalf("/adopt dry-run missing %q:\n%s", want, last.body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(m.session.WorktreePath, "child.txt")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run should not copy child.txt into parent, stat err=%v", err)
+	}
+}
+
+func TestSubagentAdoptSlashAppliesExplicitWorker(t *testing.T) {
+	m, cfg, _ := newSessionSwitchModel(t)
+	child, forkTree := makeAdoptableWorkerChild(t, cfg, m.session)
+	m.recordSubagentEvent(runtime.SubagentEvent{
+		Phase:         "finished",
+		ParentSession: m.session.ID,
+		ChildSession:  child.ID,
+		Role:          "worker",
+		Mode:          "workspace_write",
+		Status:        "completed",
+		ForkTree:      forkTree,
+		ChangedFiles:  []string{"child.txt"},
+	})
+
+	_ = m.handleSlash("/adopt " + child.ID + " --apply")
+
+	last := m.blocks[len(m.blocks)-1]
+	for _, want := range []string{
+		"subagent adoption: applied",
+		"adopted_files:",
+		"child.txt",
+	} {
+		if !strings.Contains(last.body, want) {
+			t.Fatalf("/adopt apply missing %q:\n%s", want, last.body)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(m.session.WorktreePath, "child.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "child" {
+		t.Fatalf("parent child.txt = %q, want child", data)
+	}
+	if len(m.subagents) != 1 || m.subagents[0].AdoptionCommand != "" {
+		t.Fatalf("applied adoption should clear ready command: %#v", m.subagents)
+	}
+}
+
+func makeAdoptableWorkerChild(t *testing.T, cfg *config.Config, parent *stadogit.Session) (*stadogit.Session, string) {
+	t.Helper()
+	writeTUITestTree(t, parent, "seed", map[string]string{"base.txt": "base"})
+	child, err := runtime.ForkSession(cfg, parent)
+	if err != nil {
+		t.Fatalf("ForkSession: %v", err)
+	}
+	forkTree, err := child.CurrentTree()
+	if err != nil {
+		t.Fatalf("CurrentTree: %v", err)
+	}
+	writeTUITestTree(t, child, "child", map[string]string{"child.txt": "child"})
+	return child, forkTree.String()
+}
+
+func writeTUITestTree(t *testing.T, sess *stadogit.Session, summary string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		full := filepath.Join(sess.WorktreePath, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tree, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatalf("BuildTreeFromDir: %v", err)
+	}
+	if _, err := sess.CommitToTree(tree, stadogit.CommitMeta{Tool: "write", Summary: summary}); err != nil {
+		t.Fatalf("CommitToTree: %v", err)
 	}
 }

@@ -62,6 +62,7 @@ taking over the screen.
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |
 | `/sessions` | Other resumable sessions for this repo (with switch/resume hints) |
 | `/subagents` | Recent spawned child sessions with status, worktree, changed-file counts, scope violations, and adoption commands |
+| `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
 | `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.) |
 | `/budget` | Show current cost + caps; `/budget ack` continues past the hard cap |

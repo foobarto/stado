@@ -120,6 +120,9 @@ subagent slice.
   current L4 slices so its backlog no longer lists already-shipped
   subagent, docs/symbol completion, landing, status, turn metadata, and
   theme work as missing.
+- `/adopt [child] [--apply]` now lets the TUI dry-run the latest
+  adoptable worker child by default and apply non-conflicting child
+  changes only when `--apply` is explicit.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.

@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added the /adopt TUI slash command for dry-running or explicitly applying recent worker child changes.
+  - date: 2026-04-25
+    status: Partial
     note: Exposed role=worker / mode=workspace_write through spawn_agent with required ownership and write_scope.
   - date: 2026-04-25
     status: Partial
@@ -165,8 +168,10 @@ runtime `spawn_agent` tool is separate from that picker for now. When a
 TUI parent receives a successful `spawn_agent` tool result, it also
 renders a system block with the child status, session ID, worktree,
 attach command, and, for worker children, changed-file counts and a
-`stado session adopt ... --apply` command. Future UI work can surface
-child sessions in the same agent/session family.
+`stado session adopt ... --apply` command. `/subagents` lists recent
+children, and `/adopt [child] [--apply]` can dry-run or explicitly apply
+non-conflicting worker changes without leaving the TUI. Future UI work
+can surface child sessions in the same agent/session family.
 
 ## Migration / rollout
 

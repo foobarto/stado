@@ -61,6 +61,10 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added an in-TUI subagent adoption command.** `/adopt [child]
+  [--apply]` now dry-runs the latest adoptable worker child by default
+  and applies non-conflicting child changes only when `--apply` is
+  explicit.
 - **Added markdown style control for themes.** `theme.toml` can now set
   `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
   existing background-luminance detection.
