@@ -20,6 +20,9 @@ subagent slice.
 - The TUI parses successful `spawn_agent` tool results and adds a
   visible child-session notice with status, worktree, and attach
   command.
+- Headless emits `session.update` notifications with `kind:
+  "subagent"` for child start/finish, including child ID, child
+  worktree, role, mode, status, and timeout.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -50,7 +53,7 @@ repo-compatible Go toolchain at
    across TUI/headless/run.
 2. Define the write-capable worker contract: ownership scopes, conflict
    checks, merge/adoption surface, and review flow.
-3. Add headless notification events for child spawn start/finish so
-   editor clients can show subagent progress.
-4. Consider a dedicated subagent activity view in the TUI if raw
+3. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
+4. Consider ACP/editor-facing parity for the headless subagent
+   notification shape.

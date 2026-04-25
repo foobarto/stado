@@ -46,7 +46,9 @@ Minimal flow:
 | `shutdown` | Drain in-flight calls, then close the daemon |
 
 Notifications use `session.update` with `kind` values such as `text`,
-`tool_call`, `plugin_fork`, `context_warning`, and `system`.
+`tool_call`, `subagent`, `plugin_fork`, `context_warning`, and `system`.
+`subagent` notifications report `phase` (`started` / `finished`),
+child session id, child worktree, status, role, mode, and timeout.
 
 ## Gotchas
 

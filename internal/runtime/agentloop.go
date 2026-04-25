@@ -44,6 +44,11 @@ type AgentLoopOptions struct {
 	// inspect the turn with the same pre-append turn index the TUI hook sees.
 	OnTurnComplete func(turnIndex int, text string, toolCalls []agent.ToolUseBlock, usage agent.Usage, duration time.Duration)
 
+	// OnSubagentEvent fires when spawn_agent creates or finishes a child
+	// session. It is best-effort user/client visibility; audit remains in
+	// the parent and child trace refs.
+	OnSubagentEvent func(SubagentEvent)
+
 	// Host implements tool.Host during tool execution. Defaults to an
 	// auto-approve host using Session.WorktreePath as workdir.
 	Host tool.Host
@@ -121,6 +126,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				System:               opts.System,
 				SystemTemplate:       opts.SystemTemplate,
 				AgentName:            "stado-subagent",
+				OnEvent:              opts.OnSubagentEvent,
 			}),
 		}
 	}

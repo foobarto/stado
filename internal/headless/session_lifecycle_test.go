@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
 	stadoruntime "github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -242,6 +244,94 @@ func TestSessionPromptWithToolsPersistsConversationLog(t *testing.T) {
 	}
 }
 
+func TestSessionPromptEmitsSubagentNotifications(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	_ = os.MkdirAll(cwd, 0o755)
+	restore := chdirHeadlessTest(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, server := newPair()
+	defer client.Close()
+	defer server.Close()
+
+	srv := NewServer(cfg, &spawnPromptProvider{})
+	srv.conn = acp.NewConn(server, server)
+
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(client)
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				return
+			}
+			lines <- line
+		}
+	}()
+
+	res, err := srv.sessionNew()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.(sessionNewResult).SessionID
+	raw := json.RawMessage(`{"sessionId":"` + sessionID + `","prompt":"inspect in child","tools":true}`)
+	if _, err := srv.sessionPrompt(context.Background(), raw); err != nil {
+		t.Fatalf("sessionPrompt: %v", err)
+	}
+
+	got := map[string]map[string]any{}
+	deadline := time.After(2 * time.Second)
+	for len(got) < 2 {
+		select {
+		case line := <-lines:
+			var payload struct {
+				Method string         `json:"method"`
+				Params map[string]any `json:"params"`
+			}
+			if err := json.Unmarshal([]byte(line), &payload); err != nil {
+				t.Fatalf("parse notification: %v\n%s", err, line)
+			}
+			if payload.Method != "session.update" || payload.Params["kind"] != "subagent" {
+				continue
+			}
+			phase, _ := payload.Params["phase"].(string)
+			got[phase] = payload.Params
+		case <-deadline:
+			t.Fatalf("timed out waiting for subagent notifications, got %#v", got)
+		}
+	}
+
+	started := got["started"]
+	if started["status"] != "running" {
+		t.Fatalf("started status = %v", started["status"])
+	}
+	finished := got["finished"]
+	if finished["status"] != "completed" {
+		t.Fatalf("finished status = %v", finished["status"])
+	}
+	if started["sessionId"] != sessionID || finished["sessionId"] != sessionID {
+		t.Fatalf("session ids = %v/%v, want %s", started["sessionId"], finished["sessionId"], sessionID)
+	}
+	child, ok := started["child"].(string)
+	if !ok || child == "" {
+		t.Fatalf("started child missing: %#v", started)
+	}
+	if finished["child"] != child {
+		t.Fatalf("finished child = %v, want %s", finished["child"], child)
+	}
+	if _, ok := finished["childWorktree"].(string); !ok {
+		t.Fatalf("finished childWorktree missing: %#v", finished)
+	}
+}
+
 func TestSessionCompactGitSessionWritesAuditMarkers(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -367,6 +457,53 @@ func (p scriptedCompactProvider) StreamTurn(ctx context.Context, req agent.TurnR
 		defer close(ch)
 		ch <- agent.Event{Kind: agent.EvTextDelta, Text: p.summary}
 		ch <- agent.Event{Kind: agent.EvDone}
+	}()
+	return ch, nil
+}
+
+type spawnPromptProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *spawnPromptProvider) Name() string {
+	return "spawn-scripted"
+}
+
+func (p *spawnPromptProvider) Capabilities() agent.Capabilities {
+	return agent.Capabilities{}
+}
+
+func (p *spawnPromptProvider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+	p.mu.Lock()
+	p.calls++
+	call := p.calls
+	p.mu.Unlock()
+
+	ch := make(chan agent.Event, 3)
+	go func() {
+		defer close(ch)
+		select {
+		case <-ctx.Done():
+			ch <- agent.Event{Kind: agent.EvError, Err: ctx.Err()}
+			return
+		default:
+		}
+		switch call {
+		case 1:
+			ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+				ID:    "spawn-1",
+				Name:  subagent.ToolName,
+				Input: json.RawMessage(`{"prompt":"inspect this repo","max_turns":1,"timeout_seconds":30}`),
+			}}
+			ch <- agent.Event{Kind: agent.EvDone}
+		case 2:
+			ch <- agent.Event{Kind: agent.EvTextDelta, Text: "child findings"}
+			ch <- agent.Event{Kind: agent.EvDone}
+		default:
+			ch <- agent.Event{Kind: agent.EvTextDelta, Text: "parent done"}
+			ch <- agent.Event{Kind: agent.EvDone}
+		}
 	}()
 	return ch, nil
 }

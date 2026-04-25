@@ -100,6 +100,31 @@ Audit and persistence:
   user can attach to the child session after the parent receives the
   summary.
 
+Surface notifications:
+
+- The runtime emits best-effort child lifecycle events when a child
+  starts and finishes.
+- Headless maps those to `session.update` notifications:
+
+```json
+{
+  "kind": "subagent",
+  "phase": "started",
+  "status": "running",
+  "child": "<child-session-id>",
+  "childWorktree": "<path>",
+  "parentSession": "<git-session-id>",
+  "role": "explorer",
+  "mode": "read_only",
+  "timeout_seconds": 180
+}
+```
+
+The `finished` notification keeps the same identity fields and reports
+`status` as `completed`, `timeout`, or `error`; `error` is included only
+when present. These notifications are visibility only. The authoritative
+record remains the parent and child trace refs.
+
 Earlier TUI groundwork made agent selection explicit: `Ctrl+X A` and
 `/agents` open a picker for the built-in Do, Plan, and BTW agents. The
 runtime `spawn_agent` tool is separate from that picker for now. When a

@@ -124,6 +124,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 			hookRunner.FirePostTurn(pctx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 		},
+		OnSubagentEvent: func(ev runtime.SubagentEvent) {
+			s.emitSubagentUpdate(p.SessionID, ev)
+		},
 	}
 
 	if p.Tools {
@@ -170,6 +173,28 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	s.tickBackgroundPlugins(pctx, sess)
 
 	return sessionPromptResult{Text: text}, nil
+}
+
+func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) {
+	if s == nil || s.conn == nil {
+		return
+	}
+	payload := map[string]any{
+		"sessionId":       sessionID,
+		"kind":            "subagent",
+		"phase":           ev.Phase,
+		"status":          ev.Status,
+		"role":            ev.Role,
+		"mode":            ev.Mode,
+		"child":           ev.ChildSession,
+		"childWorktree":   ev.Worktree,
+		"parentSession":   ev.ParentSession,
+		"timeout_seconds": ev.TimeoutSeconds,
+	}
+	if ev.Error != "" {
+		payload["error"] = ev.Error
+	}
+	_ = s.conn.Notify("session.update", payload)
 }
 
 // maybeEmitContextWarning fires a session.update{kind:"context_warning"}

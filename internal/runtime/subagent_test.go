@@ -12,6 +12,7 @@ import (
 func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	cfg, parent, _ := forkPluginEnv(t)
 	prov := &subagentCaptureProvider{}
+	var events []SubagentEvent
 
 	res, err := (SubagentRunner{
 		Config:    cfg,
@@ -19,6 +20,9 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 		Provider:  prov,
 		Model:     "test-model",
 		AgentName: "test-subagent",
+		OnEvent: func(ev SubagentEvent) {
+			events = append(events, ev)
+		},
 	}).SpawnSubagent(context.Background(), subagent.Request{
 		Prompt:   "Inspect runtime subagent code.",
 		Role:     subagent.DefaultRole,
@@ -52,6 +56,18 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	}
 	if len(msgs) == 0 || msgs[0].Role != agent.RoleUser {
 		t.Fatalf("seed message missing: %+v", msgs)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want started+finished: %+v", len(events), events)
+	}
+	if events[0].Phase != "started" || events[0].Status != "running" {
+		t.Fatalf("started event = %+v", events[0])
+	}
+	if events[1].Phase != "finished" || events[1].Status != "completed" {
+		t.Fatalf("finished event = %+v", events[1])
+	}
+	if events[0].ChildSession != res.ChildSession || events[1].ChildSession != res.ChildSession {
+		t.Fatalf("event child ids = %q/%q, result=%q", events[0].ChildSession, events[1].ChildSession, res.ChildSession)
 	}
 }
 

@@ -32,6 +32,21 @@ type SubagentRunner struct {
 	SystemTemplate       string
 
 	AgentName string
+	OnEvent   func(SubagentEvent)
+}
+
+// SubagentEvent is emitted at child lifecycle boundaries so outer
+// orchestration surfaces can notify users without parsing tool JSON.
+type SubagentEvent struct {
+	Phase          string
+	ParentSession  string
+	ChildSession   string
+	Worktree       string
+	Role           string
+	Mode           string
+	Status         string
+	TimeoutSeconds int
+	Error          string
 }
 
 func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
@@ -49,6 +64,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if err != nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: fork child session: %w", err)
 	}
+	r.emitSubagentEvent(req, child, "started", "running", "")
 
 	agentName := r.AgentName
 	if agentName == "" {
@@ -65,12 +81,16 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 
 	seed := []agent.Message{agent.Text(agent.RoleUser, renderSubagentPrompt(req))}
 	if err := WriteConversation(child.WorktreePath, seed); err != nil {
-		return subagent.Result{}, fmt.Errorf("spawn_agent: seed child conversation: %w", err)
+		err = fmt.Errorf("spawn_agent: seed child conversation: %w", err)
+		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		return subagent.Result{}, err
 	}
 
 	exec, err := BuildExecutor(child, r.Config, agentName)
 	if err != nil {
-		return subagent.Result{}, fmt.Errorf("spawn_agent: child tools: %w", err)
+		err = fmt.Errorf("spawn_agent: child tools: %w", err)
+		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		return subagent.Result{}, err
 	}
 	keepReadOnlyTools(exec.Registry)
 
@@ -105,12 +125,38 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 				Turn:     child.Turn(),
 				Error:    err.Error(),
 			})
+			r.emitSubagentEvent(req, child, "finished", result.Status, result.Error)
 			return result, nil
 		}
-		return subagent.Result{}, fmt.Errorf("spawn_agent: child %s: %w", child.ID, err)
+		err = fmt.Errorf("spawn_agent: child %s: %w", child.ID, err)
+		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		return subagent.Result{}, err
 	}
 
-	return subagentResult(req, child, text, msgs), nil
+	result := subagentResult(req, child, text, msgs)
+	r.emitSubagentEvent(req, child, "finished", result.Status, "")
+	return result, nil
+}
+
+func (r SubagentRunner) emitSubagentEvent(req subagent.Request, child *stadogit.Session, phase, status, errMsg string) {
+	if r.OnEvent == nil || child == nil {
+		return
+	}
+	parentID := ""
+	if r.Parent != nil {
+		parentID = r.Parent.ID
+	}
+	r.OnEvent(SubagentEvent{
+		Phase:          phase,
+		ParentSession:  parentID,
+		ChildSession:   child.ID,
+		Worktree:       child.WorktreePath,
+		Role:           req.Role,
+		Mode:           req.Mode,
+		Status:         status,
+		TimeoutSeconds: req.TimeoutSeconds,
+		Error:          errMsg,
+	})
 }
 
 func normalizeSubagentRequest(req subagent.Request) subagent.Request {

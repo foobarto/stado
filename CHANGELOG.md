@@ -18,6 +18,9 @@ Plugins / Infra / Fixes.
 - **Surfaced spawned children in the TUI.** Successful `spawn_agent`
   tool results now add a system notice with child status, session ID,
   worktree, and attach command.
+- **Added headless subagent lifecycle notifications.** Headless clients
+  now receive `session.update { kind: "subagent", phase: "started" |
+  "finished", ... }` when `spawn_agent` creates and completes a child.
 
 ## v0.23.1 — 2026-04-25
 
