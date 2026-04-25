@@ -74,6 +74,8 @@ func scanSymbols(root string) []symbolCandidate {
 			out = append(out, scanGoFileSymbols(fset, rel, path, limit-len(out))...)
 		case ".py":
 			out = append(out, scanPythonFileSymbols(rel, path, limit-len(out))...)
+		case ".js", ".jsx", ".ts", ".tsx":
+			out = append(out, scanScriptFileSymbols(rel, path, limit-len(out))...)
 		default:
 			return nil
 		}
@@ -220,6 +222,96 @@ func pythonSymbolName(line, prefix string) (string, bool) {
 
 func isPythonIdentChar(ch byte, pos int) bool {
 	if ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
+		return true
+	}
+	return pos > 0 && ch >= '0' && ch <= '9'
+}
+
+func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
+	if limit <= 0 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	lang := "js"
+	switch filepath.Ext(path) {
+	case ".ts", ".tsx":
+		lang = "ts"
+	}
+	var out []symbolCandidate
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	line := 0
+	for scanner.Scan() {
+		line++
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" || strings.HasPrefix(text, "//") || strings.HasPrefix(text, "import ") {
+			continue
+		}
+		text = stripScriptDeclarationPrefix(text)
+		if name, ok := scriptSymbolName(text, "class "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: lang + " class", Path: rel, Line: line})
+		} else if name, ok := scriptSymbolName(text, "function "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: lang + " func", Path: rel, Line: line})
+		} else if name, ok := scriptSymbolName(text, "const "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: lang + " const", Path: rel, Line: line})
+		} else if name, ok := scriptSymbolName(text, "let "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: lang + " let", Path: rel, Line: line})
+		} else if name, ok := scriptSymbolName(text, "var "); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: lang + " var", Path: rel, Line: line})
+		}
+		if len(out) >= limit {
+			return out[:limit]
+		}
+	}
+	return out
+}
+
+func stripScriptDeclarationPrefix(line string) string {
+	for {
+		switch {
+		case strings.HasPrefix(line, "export default "):
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export default "))
+		case strings.HasPrefix(line, "export "):
+			line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		case strings.HasPrefix(line, "declare "):
+			line = strings.TrimSpace(strings.TrimPrefix(line, "declare "))
+		case strings.HasPrefix(line, "async function "):
+			line = strings.TrimSpace(strings.TrimPrefix(line, "async "))
+		default:
+			return line
+		}
+	}
+}
+
+func scriptSymbolName(line, prefix string) (string, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if rest == "" {
+		return "", false
+	}
+	end := 0
+	for end < len(rest) {
+		if isScriptIdentChar(rest[end], end) {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func isScriptIdentChar(ch byte, pos int) bool {
+	if ch == '_' || ch == '$' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
 		return true
 	}
 	return pos > 0 && ch >= '0' && ch <= '9'

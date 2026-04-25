@@ -10,6 +10,11 @@ history:
   - date: 2026-04-25
     status: Partial
     note: >
+      JavaScript and TypeScript top-level class, function, and variable
+      declarations now appear as grouped @ picker symbol rows.
+  - date: 2026-04-25
+    status: Partial
+    note: >
       Python top-level class, def, and async def declarations now appear
       as grouped @ picker symbol rows.
   - date: 2026-04-25
@@ -97,9 +102,10 @@ row inserts the path, matching normal file-row behavior.
 Symbol rows appear after docs and before ordinary file rows. The first
 symbol slices index top-level Go declarations with `go/parser` and
 top-level Python `class`, `def`, and `async def` declarations with a
-bounded line scanner, capped to keep the picker responsive. Accepting a
-symbol row inserts `path:line`, giving the model precise context without
-loading file contents.
+bounded line scanner. JavaScript and TypeScript slices index top-level
+class, function, and variable declarations with the same bounded scanner.
+Accepting a symbol row inserts `path:line`, giving the model precise
+context without loading file contents.
 
 ## Test strategy
 

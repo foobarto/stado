@@ -349,6 +349,28 @@ func TestFilePicker_PythonSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 }
 
+func TestFilePicker_TypeScriptSymbolAcceptInsertsLocation(t *testing.T) {
+	m, _ := filePickerModel(t)
+	src := "export class Widget {}\n\nexport async function runWidget() {}\n\nconst helper = () => {}\n"
+	if err := os.WriteFile(filepath.Join(m.cwd, "ui.ts"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range "@runWidget" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "symbol" || item.Display != "runWidget" || !strings.Contains(item.Meta, "ts func") {
+		t.Fatalf("selected item = %+v, %v; want runWidget TypeScript symbol", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.input.Value(); !strings.Contains(got, "ui.ts:3") {
+		t.Fatalf("typescript symbol accept should insert file location, got %q", got)
+	}
+}
+
 // TestFilePicker_TabAcceptsSelection: pressing Tab while the picker
 // has a selection must replace the @-fragment with the path.
 func TestFilePicker_TabAcceptsSelection(t *testing.T) {

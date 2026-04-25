@@ -71,6 +71,9 @@ Plugins / Infra / Fixes.
 - **Added Python symbols to inline `@` completion.** Top-level Python
   `class`, `def`, and `async def` declarations now appear as symbol rows
   that insert `path:line` locations.
+- **Added JS/TS symbols to inline `@` completion.** Top-level
+  JavaScript and TypeScript class, function, and variable declarations
+  now appear as bounded symbol rows.
 - **Expanded the bundled theme catalog.** Added `stado-rose`, a dark
   neutral theme with rose and cyan accents.
 - **Surfaced provider credential health in status.** `/status` now
