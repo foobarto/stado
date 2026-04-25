@@ -21,6 +21,12 @@ history:
       First implementation slice added typed lesson items in the
       append-only memory store, explicit `stado learning propose/list/show`,
       and a separate approved-lesson prompt section.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added first-class `stado learning edit|approve|reject|delete|supersede`
+      review commands so lesson-specific fields can be revised before
+      approval and approved lessons can be replaced explicitly.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -210,9 +216,12 @@ only after the review path is reliable.
 The first implementation shares EP-15 local storage and retrieval with
 `memory_kind:"lesson"`, stricter required `lesson`, `trigger`, and
 evidence fields, and explicit `stado learning propose/list/show`
-commands. Approved lessons are retrieved through the same opt-in memory
-config but rendered in a separate "Operational lessons" prompt section.
-Global automatic lesson capture is not shipped in this first release.
+commands. The review surface now also includes `stado learning
+edit|approve|reject|delete|supersede`, including lesson-specific edits
+to guidance, trigger, rationale, tags, expiry, scope, and evidence.
+Approved lessons are retrieved through the same opt-in memory config but
+rendered in a separate "Operational lessons" prompt section. Global
+automatic lesson capture is not shipped in this first release.
 
 ## Failure modes
 
@@ -238,9 +247,6 @@ Global automatic lesson capture is not shipped in this first release.
 
 ## Open questions
 
-- Should lesson review be part of the post-turn hook surface, a plugin
-  command, or both?
-- Should lessons support severity/priority, or is trigger/rank enough?
 - How should the plugin detect "heavily rewritten" files for
   invalidation without expensive history analysis?
 - Should exported lessons be portable between machines by default, or
@@ -282,6 +288,24 @@ Global automatic lesson capture is not shipped in this first release.
   task or failed retry cycle.
 - **Why:** bad lessons are more dangerous than missing lessons because
   they systematically bias future sessions.
+
+### D5. Dedicated CLI review first
+
+- **Decided:** the first review surface is explicit CLI commands under
+  `stado learning`, with post-turn hooks left for later.
+- **Alternatives:** prompt for lesson review automatically after every
+  turn, commit, or release command.
+- **Why:** the storage and prompt contracts needed a reliable manual
+  review path before any background suggestion loop can be trusted.
+
+### D6. Trigger and rank before severity
+
+- **Decided:** lessons do not carry a separate severity or priority in
+  the first implementation; trigger text, scope, recency, and retrieval
+  rank are the control surface.
+- **Alternatives:** add priority/severity fields to the lesson schema.
+- **Why:** priority is easy to overfit and hard to calibrate. Triggered
+  relevance keeps the prompt budget tied to the active task.
 
 ## Related
 

@@ -38,6 +38,25 @@ type learningListOptions struct {
 	JSON bool
 }
 
+type learningEditOptions struct {
+	Summary      string
+	Lesson       string
+	Trigger      string
+	Rationale    string
+	Scope        string
+	RepoID       string
+	SessionID    string
+	Sensitivity  string
+	Tags         string
+	Evidence     string
+	Commits      []string
+	Files        []string
+	Tests        []string
+	ExpiresAt    string
+	ClearExpires bool
+	ClearTags    bool
+}
+
 var learningCmd = newLearningCmd()
 
 func newLearningCmd() *cobra.Command {
@@ -48,7 +67,16 @@ func newLearningCmd() *cobra.Command {
 			"Lessons are stored as candidate items in the append-only memory\n" +
 			"store and only affect prompts after explicit approval.",
 	}
-	cmd.AddCommand(newLearningProposeCmd(), newLearningListCmd(), newLearningShowCmd())
+	cmd.AddCommand(
+		newLearningProposeCmd(),
+		newLearningListCmd(),
+		newLearningShowCmd(),
+		newLearningEditCmd(),
+		newLearningActionCmd("approve", "Approve a lesson candidate"),
+		newLearningActionCmd("reject", "Reject a candidate or approved lesson"),
+		newLearningActionCmd("delete", "Delete a lesson from the active folded view"),
+		newLearningSupersedeCmd(),
+	)
 	return cmd
 }
 
@@ -115,6 +143,71 @@ func newLearningShowCmd() *cobra.Command {
 	}
 }
 
+func newLearningEditCmd() *cobra.Command {
+	opts := &learningEditOptions{}
+	cmd := &cobra.Command{
+		Use:   "edit <id>",
+		Short: "Edit a folded lesson item",
+		Long: "Append an edit event for a folded lesson item. This is intended\n" +
+			"for reviewing candidate lessons before approval, but can also update\n" +
+			"approved lessons explicitly.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return editLesson(cmd, args[0], opts)
+		},
+	}
+	addLearningEditFlags(cmd, opts)
+	return cmd
+}
+
+func newLearningSupersedeCmd() *cobra.Command {
+	opts := &learningEditOptions{}
+	cmd := &cobra.Command{
+		Use:   "supersede <id>",
+		Short: "Replace an approved lesson with a new version",
+		Long: "Append a supersede event for an approved lesson. The old lesson\n" +
+			"stays visible as superseded in review/export surfaces while the\n" +
+			"replacement becomes the approved lesson returned by retrieval.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return supersedeLesson(cmd, args[0], opts)
+		},
+	}
+	addLearningEditFlags(cmd, opts)
+	return cmd
+}
+
+func newLearningActionCmd(action, short string) *cobra.Command {
+	return &cobra.Command{
+		Use:   action + " <id>",
+		Short: short,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return updateLessonAction(cmd, args[0], action)
+		},
+	}
+}
+
+func addLearningEditFlags(cmd *cobra.Command, opts *learningEditOptions) {
+	flags := cmd.Flags()
+	flags.StringVar(&opts.Summary, "summary", "", "Replacement summary")
+	flags.StringVar(&opts.Lesson, "lesson", "", "Replacement lesson guidance")
+	flags.StringVar(&opts.Trigger, "trigger", "", "Replacement applicability trigger")
+	flags.StringVar(&opts.Rationale, "rationale", "", "Replacement rationale")
+	flags.StringVar(&opts.Scope, "scope", "", "Replacement scope: global, repo, or session")
+	flags.StringVar(&opts.RepoID, "repo-id", "", "Replacement repo id for repo-scoped lessons")
+	flags.StringVar(&opts.SessionID, "session-id", "", "Replacement session id for session-scoped lessons")
+	flags.StringVar(&opts.Sensitivity, "sensitivity", "", "Replacement sensitivity: normal, private, or secret")
+	flags.StringVar(&opts.Tags, "tags", "", "Comma-separated replacement tags")
+	flags.BoolVar(&opts.ClearTags, "clear-tags", false, "Clear all tags")
+	flags.StringVar(&opts.Evidence, "evidence", "", "Replacement evidence note")
+	flags.StringArrayVar(&opts.Commits, "commit", nil, "Replacement evidence commit SHA; repeatable")
+	flags.StringArrayVar(&opts.Files, "file", nil, "Replacement evidence file path; repeatable")
+	flags.StringArrayVar(&opts.Tests, "test", nil, "Replacement evidence test or verification command; repeatable")
+	flags.StringVar(&opts.ExpiresAt, "expires-at", "", "Replacement expiry as RFC3339 timestamp")
+	flags.BoolVar(&opts.ClearExpires, "clear-expires", false, "Clear expiry")
+}
+
 func proposeLesson(ctx context.Context, opts *learningProposeOptions) error {
 	if strings.TrimSpace(opts.Summary) == "" {
 		return errors.New("learning propose: --summary is required")
@@ -170,6 +263,212 @@ func proposeLesson(ctx context.Context, opts *learningProposeOptions) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "lesson proposed: %s\n", opts.Summary)
+	return nil
+}
+
+func editLesson(cmd *cobra.Command, id string, opts *learningEditOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	item, err := requireLesson(cmd, store, id)
+	if err != nil {
+		return err
+	}
+	changed, err := applyLearningEditFlags(cmd, opts, &item, "learning edit")
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return errors.New("learning edit: at least one edit flag is required")
+	}
+	raw, err := json.Marshal(memory.UpdateRequest{Action: "edit", ID: id, Item: &item})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "lesson %s edited\n", id)
+	return nil
+}
+
+func supersedeLesson(cmd *cobra.Command, id string, opts *learningEditOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	item, err := requireLesson(cmd, store, id)
+	if err != nil {
+		return err
+	}
+	if item.Confidence != "approved" {
+		return fmt.Errorf("learning supersede: only approved lessons can be superseded; got %q", item.Confidence)
+	}
+	replacement := item
+	replacement.ID = ""
+	replacement.CreatedAt = time.Time{}
+	replacement.UpdatedAt = time.Time{}
+	replacement.Source = memory.Source{}
+	replacement.Supersedes = nil
+
+	changed, err := applyLearningEditFlags(cmd, opts, &replacement, "learning supersede")
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return errors.New("learning supersede: at least one replacement flag is required")
+	}
+	raw, err := json.Marshal(memory.UpdateRequest{Action: "supersede", ID: id, Item: &replacement})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "lesson %s superseded\n", id)
+	return nil
+}
+
+func updateLessonAction(cmd *cobra.Command, id, action string) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	if _, err := requireLesson(cmd, store, id); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(memory.UpdateRequest{Action: action, ID: id})
+	if err != nil {
+		return err
+	}
+	if err := store.Update(cmd.Context(), raw); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "lesson %s %s\n", id, action)
+	return nil
+}
+
+func requireLesson(cmd *cobra.Command, store *memory.Store, id string) (memory.Item, error) {
+	item, ok, err := store.Show(cmd.Context(), id)
+	if err != nil {
+		return memory.Item{}, err
+	}
+	if !ok || !memory.IsLesson(item) {
+		return memory.Item{}, fmt.Errorf("lesson %q not found", id)
+	}
+	return item, nil
+}
+
+func applyLearningEditFlags(cmd *cobra.Command, opts *learningEditOptions, item *memory.Item, context string) (bool, error) {
+	flags := cmd.Flags()
+	changed := false
+	scopeChanged := false
+	if flags.Changed("summary") {
+		item.Summary = opts.Summary
+		changed = true
+	}
+	if flags.Changed("lesson") {
+		item.Lesson = opts.Lesson
+		item.Body = opts.Lesson
+		changed = true
+	}
+	if flags.Changed("trigger") {
+		item.Trigger = opts.Trigger
+		changed = true
+	}
+	if flags.Changed("rationale") {
+		item.Rationale = opts.Rationale
+		changed = true
+	}
+	if flags.Changed("scope") {
+		item.Scope = opts.Scope
+		changed = true
+		scopeChanged = true
+	}
+	if flags.Changed("repo-id") {
+		item.RepoID = opts.RepoID
+		changed = true
+		scopeChanged = true
+	}
+	if flags.Changed("session-id") {
+		item.SessionID = opts.SessionID
+		changed = true
+		scopeChanged = true
+	}
+	if flags.Changed("sensitivity") {
+		item.Sensitivity = opts.Sensitivity
+		changed = true
+	}
+	if flags.Changed("tags") {
+		item.Tags = parseMemoryTags(opts.Tags)
+		changed = true
+	}
+	if opts.ClearTags {
+		item.Tags = nil
+		changed = true
+	}
+	if flags.Changed("evidence") {
+		item.Evidence.Notes = opts.Evidence
+		changed = true
+	}
+	if flags.Changed("commit") {
+		item.Evidence.Commits = cleanStringList(opts.Commits)
+		changed = true
+	}
+	if flags.Changed("file") {
+		item.Evidence.Files = cleanStringList(opts.Files)
+		changed = true
+	}
+	if flags.Changed("test") {
+		item.Evidence.Tests = cleanStringList(opts.Tests)
+		changed = true
+	}
+	if flags.Changed("expires-at") {
+		expiresAt, err := time.Parse(time.RFC3339, opts.ExpiresAt)
+		if err != nil {
+			return false, fmt.Errorf("%s: --expires-at must be RFC3339: %w", context, err)
+		}
+		item.ExpiresAt = expiresAt
+		changed = true
+	}
+	if opts.ClearExpires {
+		item.ExpiresAt = time.Time{}
+		changed = true
+	}
+	if scopeChanged {
+		if err := normalizeLearningScope(item, context); err != nil {
+			return false, err
+		}
+	}
+	return changed, nil
+}
+
+func normalizeLearningScope(item *memory.Item, context string) error {
+	item.Scope = strings.TrimSpace(strings.ToLower(item.Scope))
+	switch item.Scope {
+	case "global":
+		item.RepoID = ""
+		item.SessionID = ""
+	case "repo":
+		item.SessionID = ""
+		item.RepoID = strings.TrimSpace(item.RepoID)
+		if item.RepoID == "" {
+			repoID, err := currentRepoID()
+			if err != nil {
+				return fmt.Errorf("%s: repo id: %w", context, err)
+			}
+			item.RepoID = repoID
+		}
+	case "session":
+		item.RepoID = ""
+		item.SessionID = strings.TrimSpace(item.SessionID)
+		if item.SessionID == "" {
+			return fmt.Errorf("%s: --session-id is required for session scope", context)
+		}
+	default:
+		return fmt.Errorf("%s: invalid scope %q", context, item.Scope)
+	}
 	return nil
 }
 

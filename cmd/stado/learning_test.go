@@ -206,6 +206,158 @@ func TestLearningCLI_MemoryEditUpdatesLessonBody(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_EditLessonFieldsAndApprove(t *testing.T) {
+	store := setupMemoryEnv(t)
+	ctx := context.Background()
+	lesson := proposeLearningTestLesson(t, store, "Keep lesson review explicit")
+
+	editCmd := newLearningEditCmd()
+	for name, value := range map[string]string{
+		"summary":   "Keep lesson review explicit before approval",
+		"lesson":    "Use `stado learning edit` to fix trigger, rationale, and evidence before approving.",
+		"trigger":   "When a lesson candidate is vague or missing provenance.",
+		"rationale": "Lesson prompt context is durable, so review metadata must be coherent.",
+		"evidence":  "The candidate was edited through the learning review command.",
+		"tags":      "learning, review",
+	} {
+		if err := editCmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := editCmd.Flags().Set("test", "go test ./cmd/stado"); err != nil {
+		t.Fatal(err)
+	}
+	if err := editCmd.RunE(editCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning edit: %v", err)
+	}
+
+	edited, ok, err := store.Show(ctx, lesson.ID)
+	if err != nil {
+		t.Fatalf("Show edited: %v", err)
+	}
+	if !ok {
+		t.Fatal("edited lesson missing")
+	}
+	if edited.Lesson != "Use `stado learning edit` to fix trigger, rationale, and evidence before approving." || edited.Body != edited.Lesson {
+		t.Fatalf("lesson/body not updated together: %+v", edited)
+	}
+	if edited.Trigger != "When a lesson candidate is vague or missing provenance." || edited.Rationale == "" {
+		t.Fatalf("lesson review metadata missing: %+v", edited)
+	}
+	if edited.Evidence.Notes == "" || strings.Join(edited.Evidence.Tests, ",") != "go test ./cmd/stado" {
+		t.Fatalf("lesson evidence not replaced: %+v", edited.Evidence)
+	}
+	if strings.Join(edited.Tags, ",") != "learning,review" {
+		t.Fatalf("tags = %#v", edited.Tags)
+	}
+
+	approveCmd := newLearningActionCmd("approve", "Approve a lesson candidate")
+	if err := approveCmd.RunE(approveCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning approve: %v", err)
+	}
+	result, err := store.Query(ctx, memory.Query{
+		RepoID:     edited.RepoID,
+		Prompt:     "vague lesson provenance",
+		MemoryKind: "lesson",
+	})
+	if err != nil {
+		t.Fatalf("lesson query: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Item.ID != lesson.ID {
+		t.Fatalf("approved edited lesson not queryable: %+v", result)
+	}
+}
+
+func TestLearningCLI_ActionsOnlyAffectLessons(t *testing.T) {
+	store := setupMemoryEnv(t)
+	item := memory.Item{
+		ID:         "mem_not_lesson",
+		Scope:      "global",
+		Kind:       "fact",
+		Summary:    "Ordinary memory",
+		Confidence: "candidate",
+	}
+	raw, _ := json.Marshal(memory.UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(context.Background(), raw); err != nil {
+		t.Fatalf("upsert ordinary memory: %v", err)
+	}
+
+	approveCmd := newLearningActionCmd("approve", "Approve a lesson candidate")
+	err := approveCmd.RunE(approveCmd, []string{item.ID})
+	if err == nil || !strings.Contains(err.Error(), "lesson") {
+		t.Fatalf("expected lesson-only validation error, got %v", err)
+	}
+}
+
+func TestLearningCLI_SupersedeApprovedLesson(t *testing.T) {
+	store := setupMemoryEnv(t)
+	ctx := context.Background()
+	lesson := proposeLearningTestLesson(t, store, "Refresh stale release lessons")
+
+	approveCmd := newLearningActionCmd("approve", "Approve a lesson candidate")
+	if err := approveCmd.RunE(approveCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning approve: %v", err)
+	}
+
+	supersedeCmd := newLearningSupersedeCmd()
+	for name, value := range map[string]string{
+		"summary":  "Verify releases with the current release checklist",
+		"lesson":   "Use the current release checklist before declaring a release complete.",
+		"trigger":  "When cutting or validating a release.",
+		"evidence": "The prior release lesson was stale.",
+	} {
+		if err := supersedeCmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := supersedeCmd.RunE(supersedeCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning supersede: %v", err)
+	}
+
+	old, ok, err := store.Show(ctx, lesson.ID)
+	if err != nil {
+		t.Fatalf("Show old: %v", err)
+	}
+	if !ok {
+		t.Fatal("superseded lesson missing")
+	}
+	if old.Confidence != "superseded" {
+		t.Fatalf("old confidence = %q, want superseded", old.Confidence)
+	}
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var replacement memory.Item
+	for _, item := range items {
+		if item.ID != lesson.ID && memorySupersedes(item, lesson.ID) {
+			replacement = item
+			break
+		}
+	}
+	if replacement.ID == "" {
+		t.Fatalf("replacement lesson missing from folded list: %+v", items)
+	}
+	if !memory.IsLesson(replacement) || replacement.Confidence != "approved" {
+		t.Fatalf("unexpected replacement lesson: %+v", replacement)
+	}
+	if replacement.Trigger != "When cutting or validating a release." || replacement.Evidence.Notes == "" {
+		t.Fatalf("replacement metadata missing: %+v", replacement)
+	}
+	result, err := store.Query(ctx, memory.Query{
+		RepoID:     replacement.RepoID,
+		Prompt:     "validate release checklist",
+		MemoryKind: "lesson",
+	})
+	if err != nil {
+		t.Fatalf("lesson query: %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Item.ID != replacement.ID {
+		t.Fatalf("replacement lesson not queryable: %+v", result)
+	}
+}
+
 func TestLearningCLI_ListStripsControlChars(t *testing.T) {
 	store := setupMemoryEnv(t)
 	item := memory.Item{
@@ -235,4 +387,33 @@ func TestLearningCLI_ListStripsControlChars(t *testing.T) {
 	if !strings.Contains(out, "Safe[2J summary") {
 		t.Fatalf("learning list missing sanitized summary:\n%s", out)
 	}
+}
+
+func proposeLearningTestLesson(t *testing.T, store *memory.Store, summary string) memory.Item {
+	t.Helper()
+	proposeCmd := newLearningProposeCmd()
+	for name, value := range map[string]string{
+		"summary":  summary,
+		"lesson":   "Use the explicit learning review flow before approval.",
+		"trigger":  "When reviewing operational lesson candidates.",
+		"evidence": "Unit test proposal.",
+	} {
+		if err := proposeCmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := proposeCmd.RunE(proposeCmd, nil); err != nil {
+		t.Fatalf("learning propose: %v", err)
+	}
+	items, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, item := range items {
+		if memory.IsLesson(item) && item.Summary == summary {
+			return item
+		}
+	}
+	t.Fatalf("lesson %q not found in %+v", summary, items)
+	return memory.Item{}
 }

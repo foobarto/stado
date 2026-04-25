@@ -198,6 +198,13 @@ Plugins / Infra / Fixes.
   running/completed status, changed-file counts, scope violations, and
   adoption readiness.
 
+### CLI
+
+- **Added lesson-specific review commands.** `stado learning
+  edit|approve|reject|delete|supersede` now wraps the append-only memory
+  review flow while preserving lesson fields such as trigger, rationale,
+  evidence, tags, scope, and expiry.
+
 ### Docs
 
 - **Closed EP-15 memory system.** The implemented standard now records
