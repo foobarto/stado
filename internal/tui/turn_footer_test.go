@@ -55,6 +55,29 @@ func TestAttachTurnFooterAnnotatesLastAssistantBlock(t *testing.T) {
 	}
 }
 
+func TestTurnDetailsIncludeCacheAndTools(t *testing.T) {
+	m := scenarioModel(t)
+	m.turnToolCalls = []agent.ToolUseBlock{{Name: "read"}}
+
+	got := m.turnDetails(&agent.Usage{
+		InputTokens:      1000,
+		OutputTokens:     50,
+		CacheReadTokens:  250,
+		CacheWriteTokens: 25,
+		CostUSD:          0.01,
+	})
+	for _, want := range []string{
+		"tokens: input 1.0K, output 50",
+		"cache: read 250, write 25",
+		"cost: +$0.0100",
+		"tools: 1 requested (read)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("turn details missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestAssistantBlockRendersFooter(t *testing.T) {
 	m := scenarioModel(t)
 	out, err := m.renderBlock(block{
@@ -67,5 +90,38 @@ func TestAssistantBlockRendersFooter(t *testing.T) {
 	}
 	if !strings.Contains(out, "done") || !strings.Contains(out, "tools 0") {
 		t.Fatalf("assistant block missing body/footer: %q", out)
+	}
+}
+
+func TestAssistantBlockRendersExpandedDetails(t *testing.T) {
+	m := scenarioModel(t)
+	blk := block{
+		kind:     "assistant",
+		body:     "done",
+		meta:     "Do · qwen via lmstudio · tools 0",
+		details:  "cache: read 250, write 25",
+		expanded: true,
+	}
+	out, err := m.renderBlock(blk, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "cache: read 250, write 25") {
+		t.Fatalf("expanded assistant details missing: %q", out)
+	}
+}
+
+func TestShiftTabTogglesLatestAssistantDetails(t *testing.T) {
+	m := scenarioModel(t)
+	m.blocks = []block{{kind: "assistant", body: "done", meta: "Do", details: "cache: read 250, write 25"}}
+
+	m.toggleLastToolExpand()
+	if !m.blocks[0].expanded {
+		t.Fatal("assistant details should expand")
+	}
+
+	m.toggleLastToolExpand()
+	if m.blocks[0].expanded {
+		t.Fatal("assistant details should collapse")
 	}
 }

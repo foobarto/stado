@@ -1213,6 +1213,7 @@ func (m *Model) renderBlockCached(i, width int) string {
 	if blk.cachedOut != "" &&
 		blk.cachedWidth == width &&
 		blk.cachedMeta == blk.meta &&
+		blk.cachedDetails == blk.details &&
 		blk.cachedExpand == blk.expanded &&
 		blk.cachedResult == blk.toolResult &&
 		thinkingCacheOK {
@@ -1222,12 +1223,23 @@ func (m *Model) renderBlockCached(i, width int) string {
 	blk.cachedOut = out
 	blk.cachedWidth = width
 	blk.cachedMeta = blk.meta
+	blk.cachedDetails = blk.details
 	blk.cachedExpand = blk.expanded
 	blk.cachedResult = blk.toolResult
 	if blk.kind == "thinking" {
 		blk.cachedThinkingMode = m.thinkingMode
 	}
 	return out
+}
+
+func (m *Model) renderAssistantDetails(details string) string {
+	lines := strings.Split(strings.TrimSpace(details), "\n")
+	for i, line := range lines {
+		lines[i] = "    " + line
+	}
+	return lipgloss.NewStyle().
+		Foreground(m.theme.Fg("muted").GetForeground()).
+		Render(strings.Join(lines, "\n")) + "\n"
 }
 
 // invalidateBlockCache forces a re-render of the given block next time
@@ -1263,7 +1275,11 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		footer := lipgloss.NewStyle().
 			Foreground(m.theme.Fg("muted").GetForeground()).
 			Render("  " + blk.meta)
-		return strings.TrimRight(out, "\n") + "\n" + footer + "\n", nil
+		rendered := strings.TrimRight(out, "\n") + "\n" + footer + "\n"
+		if blk.expanded && strings.TrimSpace(blk.details) != "" {
+			rendered += m.renderAssistantDetails(blk.details)
+		}
+		return rendered, nil
 	case "thinking":
 		return m.renderer.Exec("message_thinking", map[string]any{
 			"Body":  m.thinkingBlockBody(blk.body),

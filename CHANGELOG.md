@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added expandable assistant turn details.** `Shift+Tab` can now expand
+  the latest assistant footer to show token, cache, tool, and trace
+  details without making normal transcript rows noisier.
 - **Added action hints to the status modal.** Provider, model, tools,
   plugin, MCP, OTel, budget, and context rows now show the focused
   command or config file to open next.

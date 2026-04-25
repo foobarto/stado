@@ -567,9 +567,11 @@ func (m *Model) attachTurnFooter(usage *agent.Usage) {
 	if footer == "" {
 		return
 	}
+	details := m.turnDetails(usage)
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == "assistant" && strings.TrimSpace(m.blocks[i].body) != "" {
 			m.blocks[i].meta = footer
+			m.blocks[i].details = details
 			m.invalidateBlockCache(i)
 			return
 		}
@@ -606,6 +608,40 @@ func (m *Model) turnFooter(usage *agent.Usage) string {
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+func (m *Model) turnDetails(usage *agent.Usage) string {
+	var lines []string
+	if usage != nil {
+		if usage.InputTokens > 0 || usage.OutputTokens > 0 {
+			lines = append(lines, fmt.Sprintf("tokens: input %s, output %s",
+				humanize(usage.InputTokens), humanize(usage.OutputTokens)))
+		}
+		if usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0 {
+			lines = append(lines, fmt.Sprintf("cache: read %s, write %s",
+				humanize(usage.CacheReadTokens), humanize(usage.CacheWriteTokens)))
+		}
+		if usage.CostUSD > 0 {
+			lines = append(lines, fmt.Sprintf("cost: +$%.4f", usage.CostUSD))
+		}
+	}
+	if len(m.turnToolCalls) > 0 {
+		names := make([]string, 0, len(m.turnToolCalls))
+		for _, call := range m.turnToolCalls {
+			if strings.TrimSpace(call.Name) != "" {
+				names = append(names, call.Name)
+			}
+		}
+		summary := fmt.Sprintf("tools: %d requested", len(m.turnToolCalls))
+		if len(names) > 0 {
+			summary += " (" + strings.Join(names, ", ") + ")"
+		}
+		lines = append(lines, summary)
+	}
+	if m.session != nil && strings.TrimSpace(m.session.ID) != "" {
+		lines = append(lines, "trace: stado session tree "+m.session.ID)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // onTurnComplete is called when the provider's stream ends. It persists the

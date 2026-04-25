@@ -151,6 +151,7 @@ memorising:
 | `Ctrl+X T` | Open theme picker |
 | `Ctrl+X S` | Open status modal |
 | `Ctrl+X H` | Cycle thinking display: show, tail, hide |
+| `Shift+Tab` | Expand the latest tool call or assistant turn details |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |

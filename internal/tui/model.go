@@ -34,9 +34,10 @@ import (
 
 // block is the UI-level conversation unit. One conversation is a slice of these.
 type block struct {
-	kind string // "user" | "assistant" | "thinking" | "tool" | "system" | "btw"
-	body string
-	meta string
+	kind    string // "user" | "assistant" | "thinking" | "tool" | "system" | "btw"
+	body    string
+	meta    string
+	details string
 
 	// queued: user message appended to the chat while a turn was in
 	// flight. The block renders with a muted "queued" tag until the
@@ -52,7 +53,9 @@ type block struct {
 	toolResult string
 	startedAt  time.Time
 	endedAt    time.Time
-	expanded   bool
+
+	// expanded toggles tool call bodies and assistant turn details.
+	expanded bool
 
 	// Render cache: avoid re-running glamour/markdown on every frame.
 	// Streaming a long assistant message causes renderBlocks to fire
@@ -64,6 +67,7 @@ type block struct {
 	cachedWidth        int
 	cachedOut          string
 	cachedMeta         string
+	cachedDetails      string
 	cachedExpand       bool
 	cachedResult       string
 	cachedThinkingMode thinkingDisplayMode

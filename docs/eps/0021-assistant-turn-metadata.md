@@ -7,6 +7,9 @@ type: Standards
 created: 2026-04-24
 see-also: [11, 13, 19]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: Assistant footers can now expand into token, cache, tool, and trace details.
   - date: 2026-04-24
     status: Partial
     note: Assistant responses now render compact per-turn footers; richer tool/status drilldowns remain future work.
@@ -51,8 +54,15 @@ Completed assistant blocks receive a muted footer containing:
 The TUI captures model/provider/agent at stream start so toggles made
 while a response is streaming do not rewrite the footer after the fact.
 
+`Shift+Tab` expands the latest assistant footer when turn details are
+available. Expanded details remain read-only and currently include token
+deltas, cache read/write deltas, requested tool names, and a session
+trace command hint when a git session is active. The same key still
+expands tool-call bodies.
+
 Future work should add a richer status modal for provider/plugin/MCP
-health and possibly expandable per-turn trace details.
+health and more exact failed-tool counts once the UI has a stable
+per-turn result accumulator.
 
 ## Test strategy
 
@@ -64,6 +74,5 @@ health and possibly expandable per-turn trace details.
 ## Open questions
 
 - Should tool counts include failed or rejected calls separately?
-- Should footers show cache read/write deltas?
 - Should persisted transcripts store footer metadata or reconstruct it
   from trace refs on resume?

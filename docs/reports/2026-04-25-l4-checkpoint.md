@@ -90,6 +90,9 @@ subagent slice.
 - Status modal rows now show next-step hints for focused commands or
   config files, including provider/model, tools, plugins, MCP, OTel,
   budget, and context rows.
+- Assistant turn footers now have expandable details behind `Shift+Tab`,
+  covering token deltas, cache read/write deltas, requested tools, and
+  a session trace command hint when available.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -131,7 +134,8 @@ repo-compatible Go toolchain at
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
   docs/symbol completion, landing-logo refinement, and direct
-  light/dark theme shortcuts, and status-modal action hints.
+  light/dark theme shortcuts, status-modal action hints, and expandable
+  assistant turn details.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

@@ -926,7 +926,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) toggleLastToolExpand() {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
-		if m.blocks[i].kind == "tool" {
+		switch {
+		case m.blocks[i].kind == "assistant" && strings.TrimSpace(m.blocks[i].details) != "":
+			m.blocks[i].expanded = !m.blocks[i].expanded
+			return
+		case m.blocks[i].kind == "tool":
 			m.blocks[i].expanded = !m.blocks[i].expanded
 			return
 		}

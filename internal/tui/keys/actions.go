@@ -89,7 +89,7 @@ var ActionDescriptions = map[Action]string{
 	SidebarToggle:           "Toggle sidebar",
 	SidebarNarrower:         "Make sidebar narrower",
 	SidebarWider:            "Make sidebar wider",
-	ToolExpand:              "Expand tool call",
+	ToolExpand:              "Expand latest details",
 	ModeToggle:              "Toggle Plan/Do mode",
 	ModeToggleBtw:           "Toggle BTW mode",
 }
