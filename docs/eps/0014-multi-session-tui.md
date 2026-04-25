@@ -7,6 +7,10 @@ type: Standards
 created: 2026-04-24
 see-also: [4, 7, 10, 11]
 history:
+  - date: 2026-04-25
+    status: Partial
+    version: v0.23.0
+    note: In-process session switching now caches per-session editor drafts and chat scroll offsets.
   - date: 2026-04-24
     status: Placeholder
     note: Captures the request for creating, listing, deleting, and switching sessions in one TUI process.
@@ -69,18 +73,22 @@ state, and viewport content, then reloads persisted conversation JSONL
 from the target worktree.
 
 Switching is intentionally blocked while there is active work or
-unsubmitted user text: drafts, queued prompts, streaming turns,
-approval cards, compaction confirmation/editing, and running tools must
-finish or be cleared first. This avoids hidden background mutation and
-wrong-session sends until a fuller per-session state cache exists.
+queued prompts, streaming turns, approval cards, compaction
+confirmation/editing, and running tools must finish or be cleared first.
+This avoids hidden background mutation and wrong-session sends until
+inactive-session execution policy exists.
+
+The TUI keeps lightweight in-process UI state per session:
+unsubmitted editor draft and chat scroll offset are cached when a
+session becomes inactive and restored when switching back.
 
 Background-running inactive sessions remain future work.
 
 ## Migration / rollout
 
 The first rollout included list/switch/create. The second adds delete,
-rename, and fork. Add per-session cached scroll/draft state after
-safety checks are clear.
+rename, and fork. The third adds per-session cached scroll/draft state.
+Add inactive background execution only after safety checks are clear.
 
 ## Failure modes
 

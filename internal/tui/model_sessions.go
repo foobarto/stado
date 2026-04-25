@@ -18,6 +18,12 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+type sessionUIState struct {
+	Draft           string
+	ViewportYOffset int
+	ActivityYOffset int
+}
+
 func (m *Model) openSessionPicker() error {
 	if m.session == nil || m.session.Sidecar == nil {
 		return fmt.Errorf("session switch: no live session")
@@ -258,9 +264,6 @@ func (m *Model) forkAndSwitchSession(id string) error {
 }
 
 func (m *Model) ensureSessionSwitchAllowed() error {
-	if strings.TrimSpace(m.input.Value()) != "" {
-		return fmt.Errorf("session switch: submit or clear the draft first")
-	}
 	if m.queuedPrompt != "" {
 		return fmt.Errorf("session switch: wait for queued prompt to run or clear it")
 	}
@@ -301,8 +304,42 @@ func (m *Model) sessionActionCWD() string {
 }
 
 func (m *Model) activateSession(sess *stadogit.Session, exec *tools.Executor) {
+	m.saveActiveSessionUIState()
 	m.executor = exec
 	m.resetForSession(sess)
+}
+
+func (m *Model) saveActiveSessionUIState() {
+	if m.session == nil || strings.TrimSpace(m.session.ID) == "" {
+		return
+	}
+	if m.sessionUIStates == nil {
+		m.sessionUIStates = make(map[string]sessionUIState)
+	}
+	draft := ""
+	if m.input != nil {
+		draft = m.input.Value()
+	}
+	m.sessionUIStates[m.session.ID] = sessionUIState{
+		Draft:           draft,
+		ViewportYOffset: m.vp.YOffset,
+		ActivityYOffset: m.activityVP.YOffset,
+	}
+}
+
+func (m *Model) restoreActiveSessionUIState() {
+	if m.session == nil || m.sessionUIStates == nil {
+		return
+	}
+	state, ok := m.sessionUIStates[m.session.ID]
+	if !ok {
+		return
+	}
+	if m.input != nil {
+		m.input.SetValue(state.Draft)
+	}
+	m.vp.SetYOffset(state.ViewportYOffset)
+	m.activityVP.SetYOffset(state.ActivityYOffset)
 }
 
 func (m *Model) resetForSession(sess *stadogit.Session) {
@@ -340,4 +377,5 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.activityVP.SetContent("")
 	m.LoadPersistedConversation()
 	m.renderBlocks()
+	m.restoreActiveSessionUIState()
 }

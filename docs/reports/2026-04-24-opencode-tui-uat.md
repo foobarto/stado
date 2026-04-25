@@ -45,12 +45,12 @@ deleted after the pass.
 Since the original `v0.4.2` comparison, stado has closed most of the
 visible TUI workflow gaps:
 
-| Area | stado `v0.22.0` status | Remaining gap |
+| Area | stado `v0.23.0` status | Remaining gap |
 |---|---|---|
 | Landing view | Implemented | Logo remains heavier than opencode's first screen. |
 | Command discovery | Implemented | Provider setup is available from the model picker; richer status-modal remediation remains. |
 | Model picker | Partial | Current marker, provider labels, recents, favorites, default persistence, and `Ctrl+A` setup exist; true provider connect/OAuth remains future work. |
-| Sessions | Partial | Switch, new, rename, fork, and delete are in the TUI; inactive background sessions and per-session draft/scroll caches remain future work. |
+| Sessions | Partial | Switch, new, rename, fork, delete, and per-session draft/scroll caches are in the TUI; inactive background sessions and provider state remain future work. |
 | Agents | Partial | Do, Plan, and BTW are picker rows with status visibility; subagent/spawn workers are not implemented. |
 | Inline `@` completion | Partial | Agents, sessions, skills, and files are grouped; docs and symbols remain future work. |
 | Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
@@ -175,10 +175,10 @@ opencode still has a broader catalog and clearer light/dark shortcuts.
    an agent picker, but there is still no model-visible tool for bounded
    parallel agent work.
 
-2. **Complete multi-session state caching.**
-   EP-0014 covers switch/new/rename/fork/delete. The remaining work is
-   preserving per-session draft, scroll, and inactive background state
-   without hidden mutation.
+2. **Define inactive-session execution policy.**
+   EP-0014 covers switch/new/rename/fork/delete plus draft/scroll
+   restore. The remaining work is provider state and whether inactive
+   sessions can keep streaming without hidden mutation.
 
 ### P1 — UX Quality
 
@@ -227,7 +227,7 @@ opencode still has a broader catalog and clearer light/dark shortcuts.
 - Extend EP-0019 from manual setup hints toward provider connect/OAuth
   where providers support it.
 - Extend EP-0020 with docs/symbol result semantics and indexing limits.
-- Extend EP-0014 with per-session cached UI state and inactive-session
+- Extend EP-0014 with provider-state handling and inactive-session
   execution policy.
 
 ## Verdict

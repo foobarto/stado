@@ -235,6 +235,9 @@ type Model struct {
 	// case tool calls are reported but not executed.
 	executor *tools.Executor
 	session  *stadogit.Session
+	// sessionUIStates keeps lightweight view state for inactive sessions
+	// inside this TUI process.
+	sessionUIStates map[string]sessionUIState
 
 	// UI components
 	input       *input.Editor
@@ -452,6 +455,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		sessionPick:      sessionpicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
+		sessionUIStates:  make(map[string]sessionUIState),
 		vp:               viewport.New(0, 0),
 		activityVP:       viewport.New(0, 0),
 		sidebarOpen:      true,

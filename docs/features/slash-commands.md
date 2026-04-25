@@ -98,9 +98,10 @@ taking over the screen.
   `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
   inactive sessions, or create a fresh session.
 - **Session switching safety.** Switch, new, and fork actions are
-  blocked while a draft, queued prompt, stream, approval, compaction, or
-  tool is active, so prompts and writes do not silently land in the
-  wrong session.
+  blocked while a queued prompt, stream, approval, compaction, or tool
+  is active, so prompts and writes do not silently land in the wrong
+  session. Editor drafts and chat scroll position are cached per
+  session and restored when switching back.
 - **Theme selection.** `/theme` offers the bundled `stado-dark`,
   `stado-light`, and `stado-contrast` themes. Selecting one updates the
   current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the

@@ -197,6 +197,10 @@ session id, version, usage, cost, and command hints visible when there
 is enough width. On narrow terminals it drops the left context first and
 keeps the active state and usage side readable.
 
+Session switching caches the inactive session's editor draft and chat
+scroll position in memory. Switching is still blocked during queued
+prompts, streams, approvals, compaction, and running tools.
+
 Thinking blocks are display-controlled, not capture-controlled:
 `Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
 thinking. `/thinking show`, `/thinking tail`, and `/thinking hide` set a

@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.23.0 — 2026-04-25
+
+### TUI
+
+- **Preserved per-session draft and scroll state.** Switching sessions
+  in one TUI process now caches the inactive session's editor draft and
+  chat scroll offset, then restores them when switching back.
+
 ## v0.22.0 — 2026-04-25
 
 ### TUI

@@ -268,15 +268,55 @@ func TestSessionPickerModalForkFlow(t *testing.T) {
 	}
 }
 
-func TestSwitchToSessionBlocksDraft(t *testing.T) {
+func TestSwitchToSessionPreservesDraftAndScroll(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
-	m.input.SetValue("unsent draft")
+	if err := runtime.WriteConversation(m.session.WorktreePath, []agent.Message{
+		agent.Text(agent.RoleAssistant, strings.Repeat("first session line\n", 24)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m.vp.Width = 80
+	m.vp.Height = 5
+	m.LoadPersistedConversation()
+	m.renderBlocks()
+	m.vp.SetYOffset(3)
+	m.input.SetValue("draft for first")
+
+	if err := m.switchToSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("newly visited session should not inherit draft, got %q", got)
+	}
+	m.input.SetValue("draft for second")
+
+	if err := m.switchToSession(ids.first); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.input.Value(); got != "draft for first" {
+		t.Fatalf("first session draft = %q", got)
+	}
+	if got := m.vp.YOffset; got != 3 {
+		t.Fatalf("first session scroll offset = %d, want 3", got)
+	}
+
+	if err := m.switchToSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.input.Value(); got != "draft for second" {
+		t.Fatalf("second session draft = %q", got)
+	}
+}
+
+func TestSwitchToSessionBlocksQueuedPrompt(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	m.queuedPrompt = "queued"
 
 	err := m.switchToSession(ids.second)
-	if err == nil || !strings.Contains(err.Error(), "draft") {
-		t.Fatalf("expected draft safety error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "queued prompt") {
+		t.Fatalf("expected queued prompt safety error, got %v", err)
 	}
 	if got := m.session.ID; got != ids.first {
-		t.Fatalf("session changed despite draft: %s", got)
+		t.Fatalf("session changed despite queued prompt: %s", got)
 	}
 }
