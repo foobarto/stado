@@ -6,6 +6,12 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Infra
+
+- **Updated the GoReleaser GitHub Action to Node 24.** Release builds now
+  use `goreleaser/goreleaser-action@v7`, removing the Node 20 deprecation
+  annotation from tagged release runs.
+
 ## v0.25.0 — 2026-04-25
 
 ### TUI
