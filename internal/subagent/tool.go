@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/foobarto/stado/pkg/tool"
@@ -30,11 +31,12 @@ const (
 // can grow to write-scoped workers later without changing the user-facing
 // tool name.
 type Request struct {
-	Prompt    string `json:"prompt"`
-	Role      string `json:"role,omitempty"`
-	Mode      string `json:"mode,omitempty"`
-	Ownership string `json:"ownership,omitempty"`
-	MaxTurns  int    `json:"max_turns,omitempty"`
+	Prompt     string   `json:"prompt"`
+	Role       string   `json:"role,omitempty"`
+	Mode       string   `json:"mode,omitempty"`
+	Ownership  string   `json:"ownership,omitempty"`
+	WriteScope []string `json:"write_scope,omitempty"`
+	MaxTurns   int      `json:"max_turns,omitempty"`
 	// TimeoutSeconds is capped by MaxTimeoutSeconds. Zero means default,
 	// not unlimited.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
@@ -150,6 +152,11 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	if req.Prompt == "" {
 		return Request{}, errors.New("spawn_agent: prompt is required")
 	}
+	writeScope, err := NormalizeWriteScope(req.WriteScope)
+	if err != nil {
+		return Request{}, fmt.Errorf("spawn_agent: write_scope: %w", err)
+	}
+	req.WriteScope = writeScope
 	if req.Role == "" {
 		req.Role = DefaultRole
 	}
@@ -175,4 +182,61 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 		req.TimeoutSeconds = MaxTimeoutSeconds
 	}
 	return req, nil
+}
+
+// NormalizeWriteScope validates future worker-mode write scopes without
+// enabling workspace_write execution. Entries are repo-relative path or glob
+// patterns, deduplicated in request order.
+func NormalizeWriteScope(entries []string) ([]string, error) {
+	var normalized []string
+	seen := make(map[string]struct{}, len(entries))
+	for i, entry := range entries {
+		scope := strings.TrimSpace(entry)
+		if scope == "" {
+			return nil, fmt.Errorf("entry %d is empty", i)
+		}
+		if strings.Contains(scope, `\`) {
+			return nil, fmt.Errorf("entry %d %q uses backslashes; use slash-separated repo-relative paths", i, entry)
+		}
+		if path.IsAbs(scope) || isWindowsAbsolutePath(scope) {
+			return nil, fmt.Errorf("entry %d %q is absolute; use a repo-relative path", i, entry)
+		}
+		if hasPathSegment(scope, "..") {
+			return nil, fmt.Errorf("entry %d %q contains .. traversal", i, entry)
+		}
+		cleaned := path.Clean(scope)
+		if cleaned == "." {
+			return nil, fmt.Errorf("entry %d %q resolves to the repository root; use a narrower path", i, entry)
+		}
+		switch {
+		case hasPathSegment(cleaned, ".git"):
+			return nil, fmt.Errorf("entry %d %q targets .git metadata", i, entry)
+		case hasPathSegment(cleaned, ".stado"):
+			return nil, fmt.Errorf("entry %d %q targets .stado metadata", i, entry)
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		normalized = append(normalized, cleaned)
+	}
+	return normalized, nil
+}
+
+func hasPathSegment(p, segment string) bool {
+	for _, part := range strings.Split(p, "/") {
+		if part == segment {
+			return true
+		}
+	}
+	return false
+}
+
+func isWindowsAbsolutePath(p string) bool {
+	if len(p) < 3 {
+		return false
+	}
+	drive := p[0]
+	return ((drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')) &&
+		p[1] == ':' && p[2] == '/'
 }

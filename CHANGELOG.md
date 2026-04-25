@@ -27,6 +27,9 @@ Plugins / Infra / Fixes.
 - **Documented the write-capable subagent contract.** EP-13 now defines
   future worker-mode ownership scopes, write-scope enforcement, conflict
   checks, and explicit adoption semantics.
+- **Pinned subagent write-scope validation.** `spawn_agent` request
+  decoding now normalizes and rejects unsafe future `write_scope`
+  entries before worker mode is exposed.
 
 ## v0.23.1 — 2026-04-25
 

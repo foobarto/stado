@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added write-scope request validation helpers for the future workspace_write rollout.
+  - date: 2026-04-25
+    status: Partial
     note: Documented the write-capable worker contract: explicit ownership scopes, child-only writes, conflict checks, and no auto-adoption.
   - date: 2026-04-25
     status: Partial
@@ -167,6 +170,11 @@ Next write-capable worker contract:
   must stay inside the child worktree and must not target `.git`,
   `.stado`, the sidecar repository, or parent/session metadata outside
   the declared scope.
+- Request decoding already normalizes future `write_scope` entries
+  before any `workspace_write` mode is exposed: it trims entries,
+  normalizes slash-separated paths, deduplicates in request order, and
+  rejects empty entries, absolute paths, `..` traversal, backslash paths,
+  repository-root scopes, and `.git` / `.stado` metadata segments.
 - The child still forks from the parent tree head. Parent state is never
   modified while the child runs.
 - The first write-capable implementation should expose read/search tools

@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,6 +40,20 @@ func TestDecodeRequestCapsTimeout(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestNormalizesWriteScope(t *testing.T) {
+	req, err := DecodeRequest(json.RawMessage(`{
+		"prompt": "inspect",
+		"write_scope": [" internal/foo/** ", "docs/foo.md", "docs/foo.md", "*.md"]
+	}`))
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	want := []string{"internal/foo/**", "docs/foo.md", "*.md"}
+	if !reflect.DeepEqual(req.WriteScope, want) {
+		t.Fatalf("write_scope = %#v, want %#v", req.WriteScope, want)
+	}
+}
+
 func TestDecodeRequestRejectsWriteMode(t *testing.T) {
 	_, err := DecodeRequest(json.RawMessage(`{"prompt":"edit files","mode":"workspace"}`))
 	if err == nil {
@@ -46,6 +61,52 @@ func TestDecodeRequestRejectsWriteMode(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not supported yet") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestNormalizeWriteScopeAcceptsRepoRelativeGlobs(t *testing.T) {
+	got, err := NormalizeWriteScope([]string{
+		" internal/foo/** ",
+		"docs/foo.md",
+		"docs/foo.md",
+		"*.md",
+		"./cmd/stado",
+	})
+	if err != nil {
+		t.Fatalf("NormalizeWriteScope: %v", err)
+	}
+	want := []string{"internal/foo/**", "docs/foo.md", "*.md", "cmd/stado"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("scope = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeWriteScopeRejectsUnsafeEntries(t *testing.T) {
+	tests := []struct {
+		name    string
+		scope   string
+		wantErr string
+	}{
+		{name: "empty", scope: "", wantErr: "empty"},
+		{name: "absolute", scope: "/etc/passwd", wantErr: "absolute"},
+		{name: "windows absolute", scope: "C:/Users/foo", wantErr: "absolute"},
+		{name: "parent traversal", scope: "../x", wantErr: ".."},
+		{name: "interior traversal", scope: "foo/../bar", wantErr: ".."},
+		{name: "git metadata", scope: ".git/config", wantErr: ".git"},
+		{name: "stado metadata", scope: "foo/.stado/state", wantErr: ".stado"},
+		{name: "backslash", scope: `foo\bar`, wantErr: "backslashes"},
+		{name: "root", scope: ".", wantErr: "repository root"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NormalizeWriteScope([]string{tt.scope})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 

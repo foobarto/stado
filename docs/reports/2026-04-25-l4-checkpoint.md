@@ -29,6 +29,10 @@ subagent slice.
 - EP-13 now defines the future write-capable worker contract:
   `role=worker`, `mode=workspace_write`, required `write_scope`,
   child-only writes, conflict checks, and explicit adoption.
+- Added `write_scope` request normalization for the future worker mode:
+  repo-relative path/glob scopes are trimmed, normalized, deduplicated,
+  and rejected if they use absolute paths, traversal, backslashes,
+  repository-root scopes, or `.git` / `.stado` metadata segments.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -38,6 +42,7 @@ subagent slice.
 
 - Focused packages passed:
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless ./cmd/stado`
+  - `go test ./internal/subagent`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -55,8 +60,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Implement write-scope validation helpers and tests before exposing
-   `workspace_write`.
+1. Wire a scoped mutating-tool host for future `workspace_write` without
+   exposing the mode yet.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent
