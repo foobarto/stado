@@ -146,6 +146,9 @@ subagent slice.
 - Bundled theme selections now persist as `[tui].theme` config keys;
   custom `theme.toml` remains the fallback path when no bundled theme is
   pinned.
+- EP-14 now records the multi-session TUI policy and shape as
+  implemented: active-session-only execution, confirmed full delete, and
+  command-palette/session-overview management.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -195,18 +198,15 @@ repo-compatible Go toolchain at
 - Branch: `main`
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
-  docs/Go/Python/JS/TS symbol completion, landing-logo refinement, and
-  direct light/dark theme shortcuts, status-modal action hints,
-  provider credential health, configured MCP name summaries, expandable
-  assistant turn details, the `/subagents` overview, `/adopt`,
-  local-runner no-model remediation, direct `/provider <name>` setup
-  hints, theme-aware markdown rendering, grouped inline slash
-  suggestions, status-modal trace ids, the custom `theme.toml` picker
-  row, explicit markdown style selection for custom themes, and the
-  `stado-rose` bundled theme, and the repo-relative footer
-  dirty-state marker, persisted thinking display mode, and EP-26
-  shortcut-hint coverage, failed/rejected tool-result metadata, and
-  resumed thinking blocks, and config-backed bundled theme selection.
+  docs/Go/Python/JS/TS symbol completion, landing-logo refinement,
+  status-modal/provider/MCP details, expandable assistant turn details,
+  `/subagents`, `/adopt`, local-runner no-model remediation, grouped
+  inline slash suggestions, theme-aware markdown rendering, the custom
+  `theme.toml` picker row, `stado-rose`, repo-relative footer dirty
+  state, persisted thinking display mode, resumed thinking blocks,
+  failed/rejected tool-result metadata, config-backed bundled theme
+  selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
+  TUI policy docs are also closed.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

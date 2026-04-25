@@ -87,7 +87,8 @@ searchable session manager. It can switch/resume, rename, fork, delete
 inactive sessions, and create fresh sessions without leaving the
 process. Use `Ctrl+X N` or `/new` to create and switch to a fresh
 session directly. Switch, new, and fork refuse to run while a draft,
-queued prompt, stream, approval, compaction, or tool is active.
+queued prompt, stream, approval, compaction, tool, or background plugin
+tick is active.
 
 ### `session attach <id>`
 

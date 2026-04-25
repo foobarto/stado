@@ -155,6 +155,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Closed the multi-session TUI EP.** EP-14 now records the
+  active-session-only policy, confirmed delete semantics, and
+  command-palette/session-overview UI shape as implemented.
 - **Closed the inline slash shortcut-hint question.** EP-26 now records
   that inline slash rows show command IDs and secondary keyboard
   shortcuts together, with regression coverage.

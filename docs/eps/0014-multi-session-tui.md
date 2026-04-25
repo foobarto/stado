@@ -2,11 +2,14 @@
 ep: 14
 title: Multi-Session TUI
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [4, 7, 10, 11]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: EP-14 open questions were resolved around active-session-only execution, confirmed delete semantics, and command-palette/session-overview UI shape.
   - date: 2026-04-25
     status: Partial
     note: /sessions now states the active-session-only policy and the active-work blockers for switching.
@@ -101,9 +104,10 @@ restored when switching back. Restoring a different provider invalidates
 the live provider object so the next prompt rebuilds against the active
 session's provider.
 
-Background-running inactive sessions remain future work. The current
-policy is active-session-only: inactive sessions do not stream, run
-tools, or receive background plugin events inside the same TUI process.
+Background-running inactive sessions are out of scope for this EP. The
+current policy is active-session-only: inactive sessions do not stream,
+run tools, or receive background plugin events inside the same TUI
+process.
 `/sessions` states that policy and names the switch blockers so users
 know that inactive sessions are parked rather than running secretly.
 
@@ -111,13 +115,14 @@ know that inactive sessions are parked rather than running secretly.
 
 The first rollout included list/switch/create. The second adds delete,
 rename, and fork. The third adds per-session cached scroll/draft state.
-Add inactive background execution only after safety checks are clear.
+The final slice exposes the parked-session policy in `/sessions`.
 
 ## Failure modes
 
 - User sends a prompt to the wrong session.
 - Deleting a session with uncommitted/generated work causes data loss.
-- Background streams keep running after the user switches away.
+- A future policy change could let background streams mutate hidden
+  sessions; active-session-only execution avoids this for now.
 - Memory use grows with many loaded session models.
 
 ## Test strategy
@@ -129,14 +134,7 @@ Add inactive background execution only after safety checks are clear.
 
 ## Open questions
 
-- If the active-session-only policy changes later, should inactive
-  sessions continue streaming or pause/cancel?
-- Does delete mean hide from the list, remove sidecar refs, remove
-  worktree, or all of those with confirmation?
-- Should the UI be tab-like, command-palette based, or a dedicated
-  session pane?
-- Should the parked-session policy be exposed in a dedicated session pane
-  if the command-palette list grows beyond a simple overview?
+- None.
 
 ## Decision log
 
@@ -146,6 +144,24 @@ Add inactive background execution only after safety checks are clear.
 - **Alternatives:** fold it into EP-4 or track as a bug.
 - **Why:** EP-4 covers the session/audit substrate; this proposal changes
   the live TUI interaction model and safety contract.
+
+### D2. Keep inactive sessions parked
+
+- **Decided:** one TUI process has one active executing session.
+- **Alternatives:** keep inactive streams/tools running in hidden tabs.
+- **Why:** hidden mutation makes queued prompts, tool writes, background
+  plugin ticks, and provider state harder to reason about. Parking
+  inactive sessions keeps work visible and auditable.
+
+### D3. Delete means remove the session
+
+- **Decided:** confirmed delete removes sidecar refs, worktree, and the
+  conversation log for inactive highlighted sessions.
+- **Alternatives:** hide from list only, or keep the worktree as an
+  orphaned archive.
+- **Why:** the CLI `session delete` already uses full removal semantics;
+  the TUI mirrors it with confirmation instead of inventing a second
+  lifecycle.
 
 ## Related
 
