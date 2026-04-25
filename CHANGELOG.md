@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.23.1 — 2026-04-25
+
+### Docs
+
+- **Saved the L3 checkpoint for future sessions.** Added a dated
+  handoff report covering the `v0.21.2` through `v0.23.0` release loop,
+  verification state, and next candidate work.
+
 ## v0.23.0 — 2026-04-25
 
 ### TUI
