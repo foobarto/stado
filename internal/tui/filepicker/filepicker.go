@@ -1,8 +1,8 @@
 // Package filepicker renders an inline @-completion popover triggered by
 // typing `@` in the main TUI input. Mirrors the patterns other
 // coding-agent TUIs (opencode, pi) use for @-mentions: fuzzy match
-// agents first, then sessions, then repo files. Tab/Enter accepts the
-// selected item.
+// agents first, then sessions, then skills, then repo files. Tab/Enter
+// accepts the selected item.
 package filepicker
 
 import (
@@ -25,6 +25,7 @@ const maxVisibleMatches = 10
 const (
 	KindAgent   = "agent"
 	KindSession = "session"
+	KindSkill   = "skill"
 	KindFile    = "file"
 )
 
@@ -214,7 +215,7 @@ func (m *Model) View(maxWidth int) string {
 	}
 	var b strings.Builder
 	header := lipgloss.NewStyle().Foreground(theme.Muted).
-		Render("@ → agents + sessions + files · ↑/↓ navigate · tab/enter accept · esc cancel")
+		Render("@ → agents + sessions + skills + files · ↑/↓ navigate · tab/enter accept · esc cancel")
 	b.WriteString(header)
 	b.WriteString("\n")
 	lastKind := ""
@@ -260,6 +261,8 @@ func groupLabel(kind string) string {
 		return "Agents"
 	case KindSession:
 		return "Sessions"
+	case KindSkill:
+		return "Skills"
 	case KindFile:
 		return "Files"
 	default:

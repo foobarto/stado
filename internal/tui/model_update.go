@@ -1020,15 +1020,7 @@ func (m *Model) acceptFilePickerSelection() {
 	}
 	if item.Kind == filepicker.KindAgent {
 		if err := m.setAgentMode(item.ID); err == nil {
-			before := val[:anchor]
-			after := strings.TrimLeft(val[cursor:], " \t")
-			if strings.TrimSpace(before) == "" {
-				before = ""
-			}
-			if before != "" && after != "" && !strings.HasSuffix(before, " ") && !strings.HasSuffix(before, "\n") {
-				before += " "
-			}
-			m.input.SetValue(before + after)
+			m.input.SetValue(consumeMentionDraft(val, anchor, cursor))
 			m.filePicker.Close()
 			m.layout()
 			return
@@ -1044,6 +1036,17 @@ func (m *Model) acceptFilePickerSelection() {
 			}
 			return
 		}
+	}
+	if item.Kind == filepicker.KindSkill {
+		if err := m.injectSkill(item.ID); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+			m.renderBlocks()
+		} else {
+			m.input.SetValue(consumeMentionDraft(val, anchor, cursor))
+		}
+		m.filePicker.Close()
+		m.layout()
+		return
 	}
 	insert := item.Insert
 	if insert == "" {

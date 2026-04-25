@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.21.0 — 2026-04-25
+
+### TUI
+
+- **Extended inline `@` completion to skills.** Loaded project skills
+  now appear after agents and sessions; accepting a skill mention
+  injects that skill's prompt body into the conversation and removes
+  the mention from the draft.
+
 ## v0.20.0 — 2026-04-25
 
 ### TUI

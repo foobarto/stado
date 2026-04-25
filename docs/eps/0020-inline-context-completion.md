@@ -14,6 +14,10 @@ history:
     status: Partial
     version: v0.20.0
     note: Session rows now appear after agents; accepting a session-only mention switches sessions, and mixed-prompt mentions insert `session:<id>`.
+  - date: 2026-04-25
+    status: Partial
+    version: v0.21.0
+    note: Skill rows now appear after sessions; accepting a skill mention injects that skill's prompt body and removes the mention from the draft.
 ---
 
 # EP-20: Inline Context Completion
@@ -66,8 +70,12 @@ session and consumes the mention. Accepting a session row inside a
 longer prompt inserts `session:<id>` instead of switching, so typed
 draft content is not silently moved to another session.
 
-Future rows should reuse the same typed candidate model for symbols,
-docs, and skills.
+Skill rows appear after sessions and before files. Accepting a skill
+row injects the skill body using the same conversation behavior as
+`/skill:<name>`, then removes the `@query` fragment from the draft.
+
+Future rows should reuse the same typed candidate model for symbols and
+docs.
 
 ## Test strategy
 
@@ -77,5 +85,4 @@ docs, and skills.
 
 ## Open questions
 
-- Should skill rows inject prompts immediately or insert a visible token?
 - How should symbol results be indexed without making `@` slow?

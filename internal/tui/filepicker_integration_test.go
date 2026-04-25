@@ -187,6 +187,77 @@ func TestFilePicker_SessionAcceptInsidePromptInsertsReference(t *testing.T) {
 	}
 }
 
+func TestFilePicker_AtTriggerShowsSkillsAfterAgents(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "bugfix", "Reproduce first", "Reproduce the bug first, then fix.\n")
+	m := newSkillModel(t, root)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after typing '@'")
+	}
+	if len(m.filePicker.Matches) < 4 {
+		t.Fatalf("expected agents plus skill, got %v", m.filePicker.Matches)
+	}
+	for i, want := range []string{"Do", "Plan", "BTW"} {
+		if m.filePicker.Matches[i] != want {
+			t.Fatalf("match %d = %q, want %q (all matches: %v)", i, m.filePicker.Matches[i], want, m.filePicker.Matches)
+		}
+	}
+	if m.filePicker.Matches[3] != "bugfix" {
+		t.Fatalf("first non-agent match = %q, want bugfix (all matches: %v)", m.filePicker.Matches[3], m.filePicker.Matches)
+	}
+}
+
+func TestFilePicker_SkillAcceptInjectsPromptAndConsumesMention(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "bugfix", "Reproduce first", "Reproduce the bug first, then fix.\n")
+	m := newSkillModel(t, root)
+
+	for _, r := range "@bugfix" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "skill" || item.ID != "bugfix" {
+		t.Fatalf("selected item = %+v, %v; want bugfix skill", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if m.filePicker.Visible {
+		t.Fatal("skill accept should close picker")
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("skill-only mention should be consumed, input=%q", m.input.Value())
+	}
+	if len(m.msgs) != 1 || m.msgs[0].Role != agent.RoleUser {
+		t.Fatalf("skill should inject one user message, got %+v", m.msgs)
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].body, "Reproduce the bug first") {
+		t.Fatalf("skill body not rendered: %+v", m.blocks[len(m.blocks)-1])
+	}
+}
+
+func TestFilePicker_SkillAcceptInsidePromptPreservesDraftText(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "bugfix", "Reproduce first", "Reproduce the bug first, then fix.\n")
+	m := newSkillModel(t, root)
+
+	for _, r := range "please @bugfix" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if len(m.msgs) != 1 {
+		t.Fatalf("skill should inject one message, got %d", len(m.msgs))
+	}
+	if got := m.input.Value(); got != "please " {
+		t.Fatalf("draft after skill accept = %q, want %q", got, "please ")
+	}
+}
+
 // TestFilePicker_NarrowsAsYouType: typing '@util' should filter the
 // matches to something containing 'util'.
 func TestFilePicker_NarrowsAsYouType(t *testing.T) {
@@ -298,5 +369,17 @@ func TestFilePicker_EmailAtDoesNotTrigger(t *testing.T) {
 	}
 	if m.filePicker.Visible {
 		t.Errorf("email-style @ should not trigger picker; input=%q", m.input.Value())
+	}
+}
+
+func writeSkill(t *testing.T, root, name, desc, body string) {
+	t.Helper()
+	dir := filepath.Join(root, ".stado", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "---\nname: " + name + "\ndescription: " + desc + "\n---\n" + body
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

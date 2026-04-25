@@ -15,7 +15,6 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -328,24 +327,10 @@ func (m *Model) handleSkillSlash(parts []string) tea.Cmd {
 	}
 	// /skill:<name>
 	name := strings.TrimPrefix(parts[0], "/skill:")
-	var chosen *skills.Skill
-	for i := range m.skills {
-		if m.skills[i].Name == name {
-			chosen = &m.skills[i]
-			break
-		}
-	}
-	if chosen == nil {
+	if err := m.injectSkill(name); err != nil {
 		m.appendBlock(block{kind: "system",
-			body: fmt.Sprintf("skill %q not found — try /skill for the list", name)})
-		return nil
+			body: err.Error()})
 	}
-	// Inject as a user message. Append to m.msgs so the next
-	// StreamTurn sees it; also render a visible user block so the
-	// user knows what was sent.
-	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, chosen.Body))
-	m.appendBlock(block{kind: "user", body: chosen.Body})
-	m.renderBlocks()
 	return nil
 }
 

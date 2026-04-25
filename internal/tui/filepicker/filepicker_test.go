@@ -83,10 +83,16 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 			Display: "Session one",
 			Meta:    "session metadata",
 		},
+		{
+			Kind:    KindSkill,
+			ID:      "bugfix",
+			Display: "bugfix",
+			Meta:    "reproduce then fix",
+		},
 	})
 
-	if len(m.Matches) < 3 {
-		t.Fatalf("expected agent + session + file matches, got %v", m.Matches)
+	if len(m.Matches) < 4 {
+		t.Fatalf("expected agent + session + skill + file matches, got %v", m.Matches)
 	}
 	if m.Matches[0] != "Plan" {
 		t.Fatalf("first match = %q, want Plan", m.Matches[0])
@@ -97,6 +103,9 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 	}
 	if m.Matches[1] != "Session one" {
 		t.Fatalf("second match = %q, want Session one", m.Matches[1])
+	}
+	if m.Matches[2] != "bugfix" {
+		t.Fatalf("third match = %q, want bugfix", m.Matches[2])
 	}
 }
 
