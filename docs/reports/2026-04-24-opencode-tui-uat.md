@@ -49,8 +49,8 @@ visible TUI workflow gaps:
 | Area | stado `main` status | Remaining gap |
 |---|---|---|
 | Landing view | Implemented | Compact sampled banner keeps the prompt primary; remaining work is subjective polish. |
-| Command discovery | Implemented | Provider setup and credential remediation hints exist through `Ctrl+A`, `/provider <name>`, `/providers`, and `/status`; true provider connect/OAuth remains future work. |
-| Model picker | Partial | Current marker, provider labels, recents, favorites, default persistence, `Ctrl+A` setup, and `/provider <name>` setup exist; true provider connect/OAuth remains future work. |
+| Command discovery | Implemented | Provider setup and credential remediation hints exist through `Ctrl+A`, `/provider <name>`, `/providers`, and `/status`; true provider connect/OAuth is separate future provider-specific work. |
+| Model picker | Implemented | Current marker, provider labels, recents, favorites, default persistence, `Ctrl+A` setup, and `/provider <name>` setup exist; true provider connect/OAuth is separate future provider-specific work. |
 | Sessions | Partial | Switch, new, rename, fork, delete, per-session draft/scroll caches, and per-session provider/model state are in the TUI; inactive background execution policy remains future work. |
 | Agents | Partial | Do, Plan, and BTW are picker rows; `spawn_agent` supports read-only and scoped worker children, CLI adoption, and `/adopt` in the TUI. Headless/ACP adoption affordances remain future work. |
 | Inline `@` completion | Implemented | Agents, sessions, skills, docs, Go/Python/JS/TS/shell symbols, and files are grouped; future language scanners are incremental bounded slices. |
@@ -103,6 +103,10 @@ shows provider labels, saves model selections as new defaults, and uses
 `Ctrl+A` for provider-specific setup hints. opencode still leads on
 true provider connect flows for services that can authenticate from the
 picker itself.
+
+The scoped EP-0019 picker goals are complete. Favorites and recents stay
+in per-machine state; credentials stay outside picker state. True
+connect/OAuth should be added only as provider-specific product work.
 
 ### 4. Sessions Are A TUI Workflow, Not A CLI Detour
 
@@ -237,8 +241,8 @@ incrementally from real usage gaps.
 
 - Dogfood EP-0013 worker adoption with a loaded local model, then refine
   TUI/headless/ACP adoption affordances from the transcript.
-- Extend EP-0019 from manual setup hints toward provider connect/OAuth
-  where providers support it.
+- Add provider connect/OAuth only as provider-specific product work
+  where terminal auth is supported.
 - Extend EP-0014 with provider-state handling and inactive-session
   execution policy.
 - Add future EP-0020 symbol languages only when a repo shape justifies a

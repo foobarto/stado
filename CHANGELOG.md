@@ -88,6 +88,9 @@ Plugins / Infra / Fixes.
 - **Pinned EP-13 subagent concurrency policy.** The current L4 model is
   one active child per parent session/tool queue; higher child
   concurrency is future scheduler work.
+- **Closed EP-19 model/provider picker UX.** Favorites and recents stay
+  per-machine state, credentials stay outside picker state, and true
+  connect/OAuth is left as future provider-specific work.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

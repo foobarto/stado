@@ -172,6 +172,9 @@ subagent slice.
 - EP-13 now records the current concurrency policy: one active child per
   parent session/tool queue, with higher concurrency left for future
   scheduler work.
+- EP-19 now records the scoped model/provider picker work as
+  implemented; true connect/OAuth remains separate provider-specific
+  product work.
 - The EP README status table now matches implemented EP-14 and EP-24
   frontmatter.
 - Headless/ACP command docs and CLI help now document the `subagent`
@@ -231,11 +234,11 @@ repo-compatible Go toolchain at
   state, persisted thinking display mode, resumed thinking blocks,
   failed/rejected tool-result metadata, config-backed bundled theme
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
-  TUI policy docs, EP-20 inline context completion, EP-21 assistant turn
-  metadata, and EP-22 theme catalog/picker are also closed, and
-  EP-13's current concurrency policy is pinned and EP-23's remaining
-  question is narrowed to status snapshots. LM Studio
-  installed-vs-loaded model detection is also fixed.
+  TUI policy docs, EP-19 model/provider picker, EP-20 inline context
+  completion, EP-21 assistant turn metadata, and EP-22 theme
+  catalog/picker are also closed, and EP-13's current concurrency policy
+  is pinned while EP-23's remaining question is narrowed to status
+  snapshots. LM Studio installed-vs-loaded model detection is also fixed.
 - Live worker dogfood was attempted with local LM Studio auto-detect;
   fallback now skips installed-but-unloaded LM Studio models and reports
   the no-provider setup error until a local model is loaded.
@@ -248,5 +251,3 @@ repo-compatible Go toolchain at
    `stado session adopt`.
 2. Add richer adoption affordances to headless/ACP/editor clients once a
    client consumes the subagent notification payload.
-3. Extend provider remediation toward real provider connect/OAuth only
-   after deciding which providers support an in-app flow.

@@ -2,11 +2,16 @@
 ep: 19
 title: Model and Provider Picker UX
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [3, 10]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: >
+      The scoped model/provider picker goals are complete; true
+      provider connect/OAuth is future provider-specific product work.
   - date: 2026-04-25
     status: Partial
     note: Local-runner detection now distinguishes LM Studio installed models from loaded/runnable models for fallback, doctor, and `/providers`.
@@ -84,9 +89,17 @@ The first shipped slices are:
   and picker rows; doctor and `/providers` still report installed counts
   with load guidance.
 
-Future work should add true provider connect/OAuth flows where
-providers support them, richer empty states, and a clearer distinction
-between configured providers and detected local runners.
+Favorites and recents live in stado state rather than `config.toml` so
+they remain per-machine ergonomic history. Config remains reserved for
+explicit defaults and provider endpoints. Favorites for unavailable
+providers remain visible as user intent; provider setup and `/providers`
+explain missing credentials, local-runner load state, or startup steps
+without silently deleting the favorite.
+
+Provider credentials are not launched or stored by the picker. The
+picker and status surfaces show setup/remediation hints; true
+provider-specific connect/OAuth flows are future product work outside
+this scoped picker EP.
 
 ## Test strategy
 
@@ -97,8 +110,4 @@ between configured providers and detected local runners.
 
 ## Open questions
 
-- Should favorites live in config for syncability or state for
-  per-machine ergonomics?
-- Should provider credentials be launched from the picker or a separate
-  status modal?
-- How should favorites behave when the provider is unavailable?
+- None for the current manual setup model.
