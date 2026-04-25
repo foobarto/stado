@@ -10,6 +10,9 @@ see-also: [3, 21]
 history:
   - date: 2026-04-25
     status: Implemented
+    note: Resumed sessions now reconstruct persisted provider-native thinking as separate viewport blocks instead of assistant placeholders.
+  - date: 2026-04-25
+    status: Implemented
     note: TUI thinking display mode now persists via `[tui].thinking_display` and is restored on startup.
   - date: 2026-04-24
     status: Implemented
@@ -60,6 +63,11 @@ While a model is streaming, toggling does not append a system block to
 the transcript; it only re-renders the viewport so the current turn is
 not split by UI feedback.
 
+On session resume, persisted provider-native thinking blocks are
+reconstructed as TUI `thinking` blocks rather than folded into assistant
+placeholder text, so `show`, `tail`, and `hide` remain meaningful across
+restarts.
+
 ## Migration / rollout
 
 Default to `show`, matching prior behavior. Toggling `/thinking` or
@@ -84,8 +92,7 @@ Default to `show`, matching prior behavior. Toggling `/thinking` or
 
 ## Open questions
 
-- Should resumed sessions reconstruct thinking blocks as separate
-  viewport blocks instead of assistant placeholders?
+- None.
 
 ## Decision log
 

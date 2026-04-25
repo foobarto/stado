@@ -140,6 +140,9 @@ subagent slice.
   secondary keyboard shortcuts together, with regression coverage.
 - Assistant turn metadata now annotates requested tool counts with
   failed/rejected result counts after tool execution finishes.
+- Resumed sessions now reconstruct persisted provider-native thinking as
+  separate TUI thinking blocks so display modes still apply after
+  restart.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -199,7 +202,8 @@ repo-compatible Go toolchain at
   row, explicit markdown style selection for custom themes, and the
   `stado-rose` bundled theme, and the repo-relative footer
   dirty-state marker, persisted thinking display mode, and EP-26
-  shortcut-hint coverage, and failed/rejected tool-result metadata.
+  shortcut-hint coverage, failed/rejected tool-result metadata, and
+  resumed thinking blocks.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

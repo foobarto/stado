@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Restored thinking blocks on session resume.** Persisted
+  provider-native thinking now rehydrates as separate TUI thinking
+  blocks so display modes still apply after restart.
 - **Annotated failed tool results in assistant details.** Assistant turn
   metadata now marks requested tool counts with failed/rejected result
   counts after tool execution finishes.

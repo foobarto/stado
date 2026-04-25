@@ -145,13 +145,10 @@ func (m *Model) persistMessage(msg agent.Message) {
 // itself is nil (test harness). Callers invoke this once at TUI boot,
 // after the session is wired but before the first user input.
 //
-// Only text blocks are recreated faithfully. Tool-use / tool-result /
-// thinking / image blocks are summarised with placeholder tags since
-// the TUI's live-render pipeline for those is tied to in-flight
-// streaming events that aren't present on replay. A future iteration
-// could reconstruct them more fully; for now, the user sees enough to
-// know what the conversation was without losing the m.msgs LLM-side
-// prompt prefix.
+// Text and thinking blocks are recreated faithfully. Tool-use /
+// tool-result / image blocks are summarised with placeholder tags since
+// the live execution state is not present on replay. The user sees the
+// prior conversation without losing the m.msgs LLM-side prompt prefix.
 func (m *Model) LoadPersistedConversation() {
 	if m.session == nil {
 		return
@@ -169,31 +166,13 @@ func (m *Model) LoadPersistedConversation() {
 }
 
 // msgsToBlocks renders a persisted message slice into the TUI's
-// block model so the user sees the prior conversation on resume.
-// Multi-block messages collapse into one per role; non-text blocks
-// get short placeholder tags so the UI doesn't show blank
-// assistant turns for tool-heavy history.
+// block model so the user sees the prior conversation on resume. Text-like
+// content is grouped per role, while provider-native thinking is restored as
+// separate thinking blocks so display modes still apply after restart.
 func msgsToBlocks(msgs []agent.Message) []block {
 	out := make([]block, 0, len(msgs))
 	for _, msg := range msgs {
 		var body string
-		for _, b := range msg.Content {
-			switch {
-			case b.Text != nil:
-				if body != "" {
-					body += "\n"
-				}
-				body += b.Text.Text
-			case b.Thinking != nil:
-				body += "[thinking]"
-			case b.ToolUse != nil:
-				body += "[tool_use " + b.ToolUse.Name + "]"
-			case b.ToolResult != nil:
-				body += "[tool_result]"
-			case b.Image != nil:
-				body += "[image]"
-			}
-		}
 		kind := "assistant"
 		switch msg.Role {
 		case agent.RoleUser:
@@ -201,7 +180,39 @@ func msgsToBlocks(msgs []agent.Message) []block {
 		case agent.RoleTool:
 			kind = "tool"
 		}
-		out = append(out, block{kind: kind, body: body})
+		appendLine := func(s string) {
+			if body != "" {
+				body += "\n"
+			}
+			body += s
+		}
+		flush := func() {
+			if body == "" {
+				return
+			}
+			out = append(out, block{kind: kind, body: body})
+			body = ""
+		}
+		for _, b := range msg.Content {
+			switch {
+			case b.Text != nil:
+				appendLine(b.Text.Text)
+			case b.Thinking != nil:
+				flush()
+				thinking := b.Thinking.Text
+				if strings.TrimSpace(thinking) == "" {
+					thinking = "[thinking]"
+				}
+				out = append(out, block{kind: "thinking", body: thinking})
+			case b.ToolUse != nil:
+				appendLine("[tool_use " + b.ToolUse.Name + "]")
+			case b.ToolResult != nil:
+				appendLine("[tool_result]")
+			case b.Image != nil:
+				appendLine("[image]")
+			}
+		}
+		flush()
 	}
 	return out
 }

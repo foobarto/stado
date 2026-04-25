@@ -134,14 +134,13 @@ func TestLoadPersistedConversation_MissingFileIsNoOp(t *testing.T) {
 	}
 }
 
-// TestMsgsToBlocks_FlattensMultimodal: multimodal content (tool
-// use + thinking + text) collapses into a single block per message
-// with placeholder tags so the UI doesn't show blank turns for
-// tool-heavy history.
-func TestMsgsToBlocks_FlattensMultimodal(t *testing.T) {
+// TestMsgsToBlocks_ReconstructsThinkingBlocks: resumed thinking content
+// should stay in thinking blocks so display modes still apply after restart,
+// while tool-use/result history remains compact placeholder text.
+func TestMsgsToBlocks_ReconstructsThinkingBlocks(t *testing.T) {
 	msgs := []agent.Message{
 		{Role: agent.RoleAssistant, Content: []agent.Block{
-			{Thinking: &agent.ThinkingBlock{}},
+			{Thinking: &agent.ThinkingBlock{Text: "first inspect the failing test"}},
 			{Text: &agent.TextBlock{Text: "thought about it"}},
 			{ToolUse: &agent.ToolUseBlock{Name: "grep"}},
 		}},
@@ -150,19 +149,22 @@ func TestMsgsToBlocks_FlattensMultimodal(t *testing.T) {
 		}},
 	}
 	blocks := msgsToBlocks(msgs)
-	if len(blocks) != 2 {
-		t.Fatalf("got %d blocks, want 2", len(blocks))
+	if len(blocks) != 3 {
+		t.Fatalf("got %d blocks, want 3", len(blocks))
 	}
-	if blocks[0].kind != "assistant" {
-		t.Errorf("blocks[0].kind = %q, want assistant", blocks[0].kind)
+	if blocks[0].kind != "thinking" || !strings.Contains(blocks[0].body, "failing test") {
+		t.Errorf("blocks[0] = %+v, want thinking body", blocks[0])
 	}
-	for _, want := range []string{"[thinking]", "thought about it", "[tool_use grep]"} {
-		if !strings.Contains(blocks[0].body, want) {
-			t.Errorf("blocks[0] body missing %q: %q", want, blocks[0].body)
+	if blocks[1].kind != "assistant" {
+		t.Errorf("blocks[1].kind = %q, want assistant", blocks[1].kind)
+	}
+	for _, want := range []string{"thought about it", "[tool_use grep]"} {
+		if !strings.Contains(blocks[1].body, want) {
+			t.Errorf("blocks[1] body missing %q: %q", want, blocks[1].body)
 		}
 	}
-	if blocks[1].kind != "tool" || !strings.Contains(blocks[1].body, "[tool_result]") {
-		t.Errorf("blocks[1] = %+v", blocks[1])
+	if blocks[2].kind != "tool" || !strings.Contains(blocks[2].body, "[tool_result]") {
+		t.Errorf("blocks[2] = %+v", blocks[2])
 	}
 }
 
