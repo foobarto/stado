@@ -60,7 +60,7 @@ taking over the screen.
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp), including load/start hints when a runner has no models ready |
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |
-| `/sessions` | Other resumable sessions for this repo (with switch/resume hints) |
+| `/sessions` | Other resumable sessions for this repo, with switch/resume hints and inactive-session policy |
 | `/subagents` | Recent spawned child sessions with status, worktree, changed-file counts, scope violations, and adoption commands |
 | `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |

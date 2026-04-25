@@ -380,3 +380,17 @@ func TestSwitchToSessionBlocksBackgroundPluginTick(t *testing.T) {
 		t.Fatalf("expected queued background plugin safety error, got %v", err)
 	}
 }
+
+func TestSessionsOverviewStatesInactivePolicy(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+	out := m.renderSessionsOverview()
+	for _, want := range []string{
+		"Policy: inactive sessions are parked",
+		"queued prompt",
+		"background plugin tick",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("/sessions overview missing %q:\n%s", want, out)
+		}
+	}
+}

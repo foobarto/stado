@@ -65,6 +65,9 @@ Plugins / Infra / Fixes.
   [--apply]` now dry-runs the latest adoptable worker child by default
   and applies non-conflicting child changes only when `--apply` is
   explicit.
+- **Made inactive-session policy visible.** `/sessions` now states that
+  inactive sessions are parked and lists the active-work blockers that
+  must clear before switching.
 - **Added markdown style control for themes.** `theme.toml` can now set
   `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
   existing background-luminance detection.

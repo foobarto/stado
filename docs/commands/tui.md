@@ -246,7 +246,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/thinking` — cycle thinking display; `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session
-- `/sessions` — textual session overview
+- `/sessions` — textual session overview, including the
+  active-session-only policy for inactive sessions
 - `/subagents` — recent spawned child sessions with status, worktree,
   changed-file counts, scope violations, and adoption commands
 - `/adopt [child] [--apply]` — dry-run or explicitly apply worker

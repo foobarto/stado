@@ -546,6 +546,7 @@ func (m *Model) renderSessionsOverview() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Current session: %s  (turns %d · msgs %d)\n",
 		m.session.ID, m.session.Turn(), len(m.msgs))
+	b.WriteString("Policy: inactive sessions are parked; switch only when no turn, queued prompt, tool, compaction, or background plugin tick is active.\n")
 	if len(sorted) == 0 {
 		b.WriteString("\nNo other sessions for this repo.")
 		return b.String()

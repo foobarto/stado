@@ -123,6 +123,8 @@ subagent slice.
 - `/adopt [child] [--apply]` now lets the TUI dry-run the latest
   adoptable worker child by default and apply non-conflicting child
   changes only when `--apply` is explicit.
+- `/sessions` now states that inactive sessions are parked and names the
+  active-work blockers that must clear before switching.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.

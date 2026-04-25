@@ -9,6 +9,9 @@ see-also: [4, 7, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: /sessions now states the active-session-only policy and the active-work blockers for switching.
+  - date: 2026-04-25
+    status: Partial
     note: >
       Session switching now preserves each session's selected
       provider/model and resets provider capability probes when the
@@ -101,6 +104,8 @@ session's provider.
 Background-running inactive sessions remain future work. The current
 policy is active-session-only: inactive sessions do not stream, run
 tools, or receive background plugin events inside the same TUI process.
+`/sessions` states that policy and names the switch blockers so users
+know that inactive sessions are parked rather than running secretly.
 
 ## Migration / rollout
 
@@ -124,12 +129,14 @@ Add inactive background execution only after safety checks are clear.
 
 ## Open questions
 
-- Should inactive sessions continue streaming or pause/cancel?
+- If the active-session-only policy changes later, should inactive
+  sessions continue streaming or pause/cancel?
 - Does delete mean hide from the list, remove sidecar refs, remove
   worktree, or all of those with confirmation?
 - Should the UI be tab-like, command-palette based, or a dedicated
   session pane?
-- How should queued prompts behave when switching sessions?
+- Should the parked-session policy be exposed in a dedicated session pane
+  if the command-palette list grows beyond a simple overview?
 
 ## Decision log
 
