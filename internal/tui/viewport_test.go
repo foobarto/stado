@@ -113,6 +113,28 @@ func TestLandingView_UsesCenteredPromptWithoutSidebar(t *testing.T) {
 	}
 }
 
+func TestRenderLandingLogo_CondensesBanner(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	got := ansi.Strip(renderLandingLogo(120, 40))
+	lines := strings.Split(got, "\n")
+	if len(lines) != landingBannerMaxHeight {
+		t.Fatalf("landing logo height = %d, want %d\n%s", len(lines), landingBannerMaxHeight, got)
+	}
+	if !strings.ContainsAny(got, "░▒▓█") {
+		t.Fatalf("landing logo lost banner art:\n%s", got)
+	}
+}
+
+func TestRenderLandingLogo_UsesCompactWordmarkWhenShort(t *testing.T) {
+	got := ansi.Strip(renderLandingLogo(120, 3))
+	if strings.TrimSpace(got) != "stado" {
+		t.Fatalf("compact landing logo = %q, want stado", got)
+	}
+	if strings.ContainsAny(got, "░▒▓█") {
+		t.Fatalf("compact landing logo should not include dense banner art:\n%s", got)
+	}
+}
+
 func TestLandingInputWidth(t *testing.T) {
 	if got := landingInputWidth(120); got != 64 {
 		t.Fatalf("wide landing input width = %d, want 64", got)

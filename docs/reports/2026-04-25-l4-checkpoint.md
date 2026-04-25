@@ -81,6 +81,9 @@ subagent slice.
   before ordinary file matches.
 - Inline `@` completion now groups top-level Go symbols before ordinary
   file matches and inserts `path:line` references.
+- Landing view now samples the large ANSI/plain banner down to a compact
+  fixed-height mark, keeping the prompt primary on wide terminals and
+  falling back to the plain wordmark in cramped terminals.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -119,7 +122,9 @@ repo-compatible Go toolchain at
 ## Current State
 
 - Branch: `main`
-- Worktree contains the EP-13 scoped worker spawn/adoption changes.
+- Latest committed slices include the EP-13 scoped worker
+  spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
+  docs/symbol completion, and landing-logo refinement.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

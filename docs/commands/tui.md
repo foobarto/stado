@@ -298,7 +298,7 @@ relevant sections:
 - **The input starts taller than one line** so short multi-line prompts
   are visible without immediate growth. It still horizontally scrolls
   on long single lines; use `Shift+Enter` for explicit newlines.
-- **Landing view** — empty sessions start with the stado ANSI logo,
+- **Landing view** — empty sessions start with a compact stado logo,
   centered input, command hints, cwd, and version. Once the first block
   arrives, the normal chat layout takes over.
 

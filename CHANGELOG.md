@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Toned down the startup landing logo.** The empty-session landing
+  view now samples the embedded banner down to a compact fixed-height
+  mark so the prompt stays visually primary on large terminals.
 - **Added docs to inline `@` completion.** The TUI picker now groups root
   Markdown docs and `docs/**/*.md` before ordinary file matches.
 - **Added Go symbols to inline `@` completion.** Top-level Go

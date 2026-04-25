@@ -312,22 +312,50 @@ func (m *Model) renderLanding(width, height int) string {
 	return body + "\n" + m.renderLandingFooter(width)
 }
 
+const (
+	landingBannerMinHeight = 6
+	landingBannerMaxHeight = 8
+)
+
 func renderLandingLogo(width, maxH int) string {
-	if maxH < 4 {
-		return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
+	if maxH < landingBannerMinHeight {
+		return compactLandingLogo(width)
 	}
 	raw := bannerFor(width)
 	if raw == "" {
-		return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
+		return compactLandingLogo(width)
 	}
 	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
-	if maxH > 0 && len(lines) > maxH {
-		lines = lines[:maxH]
+	targetH := maxH
+	if targetH > landingBannerMaxHeight {
+		targetH = landingBannerMaxHeight
 	}
+	lines = sampleLandingLogoLines(lines, targetH)
 	for i, line := range lines {
 		lines[i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func compactLandingLogo(width int) string {
+	return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
+}
+
+func sampleLandingLogoLines(lines []string, target int) []string {
+	if target <= 0 || len(lines) <= target {
+		return lines
+	}
+	if target == 1 {
+		return lines[:1]
+	}
+	out := make([]string, 0, target)
+	last := len(lines) - 1
+	denom := target - 1
+	for i := 0; i < target; i++ {
+		idx := (i*last + denom/2) / denom
+		out = append(out, lines[idx])
+	}
+	return out
 }
 
 func landingHint(th *theme.Theme) string {
@@ -1359,10 +1387,9 @@ func modelOrPlaceholder(s string) string {
 	return s
 }
 
-// bannerFor returns the startup banner suitable for the given
-// chat-column width. Width under 90 cols returns "" so the banner
-// isn't truncated mid-line — narrow terminals just see the plain
-// empty chat area.
+// bannerFor returns the startup banner suitable for the given chat
+// column width. Width under 90 cols returns "" so the banner isn't
+// truncated mid-line; narrow terminals use the compact wordmark.
 //
 // We now write the banner directly into the left column (bypassing
 // bubbletea's viewport) so the 256-colour ANSI variant renders
