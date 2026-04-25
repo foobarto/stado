@@ -49,7 +49,7 @@ visible TUI workflow gaps:
 | Area | stado `main` status | Remaining gap |
 |---|---|---|
 | Landing view | Implemented | Compact sampled banner keeps the prompt primary; remaining work is subjective polish. |
-| Command discovery | Implemented | Provider setup and status remediation hints exist through `Ctrl+A`, `/provider <name>`, `/providers`, and `/status`; true provider connect/OAuth remains future work. |
+| Command discovery | Implemented | Provider setup and credential remediation hints exist through `Ctrl+A`, `/provider <name>`, `/providers`, and `/status`; true provider connect/OAuth remains future work. |
 | Model picker | Partial | Current marker, provider labels, recents, favorites, default persistence, `Ctrl+A` setup, and `/provider <name>` setup exist; true provider connect/OAuth remains future work. |
 | Sessions | Partial | Switch, new, rename, fork, delete, per-session draft/scroll caches, and per-session provider/model state are in the TUI; inactive background execution policy remains future work. |
 | Agents | Partial | Do, Plan, and BTW are picker rows; `spawn_agent` supports read-only and scoped worker children, CLI adoption, and `/adopt` in the TUI. Headless/ACP adoption affordances remain future work. |

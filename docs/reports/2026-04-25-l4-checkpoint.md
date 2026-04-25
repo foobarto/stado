@@ -106,6 +106,8 @@ subagent slice.
   path.
 - `/provider <name>` now prints provider setup/remediation guidance
   directly, mirroring the model picker's `Ctrl+A` path.
+- `/providers` now includes active-provider credential env var health in
+  addition to local-runner load/start hints.
 - Assistant markdown rendering now picks Glamour's light or dark style
   from the active theme background luminance and clears the markdown
   renderer cache on theme switch.

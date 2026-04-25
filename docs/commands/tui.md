@@ -246,8 +246,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   `config.toml`
 - `/provider [name]` — active provider capabilities, or setup guidance
   for a named provider such as `lmstudio`, `openai`, or `anthropic`
-- `/providers` — active provider plus detected local runners, with
-  load/start hints when a runner has no models ready
+- `/providers` — active provider credential health plus detected local
+  runners, with load/start hints when a runner has no models ready
 - `/thinking` — cycle thinking display; `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session

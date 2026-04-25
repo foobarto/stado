@@ -610,6 +610,8 @@ func (m *Model) renderProvidersOverviewFromResults(results []localdetect.Result)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("active provider: %s  (model: %s)\n",
 		m.providerDisplayName(), m.model))
+	credential, _, action := providerCredentialHealth(m.providerDisplayName())
+	fmt.Fprintf(&b, "credentials: %s  (%s)\n", credential, action)
 
 	b.WriteString("\nlocal runners on this machine:\n")
 	any := false

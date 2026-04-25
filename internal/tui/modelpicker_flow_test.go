@@ -361,6 +361,21 @@ func TestProvidersOverviewShowsNoModelRemediation(t *testing.T) {
 	}
 }
 
+func TestProvidersOverviewShowsCredentialHealth(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	m := newPickerTestModel(t, "openai")
+	got := m.renderProvidersOverviewFromResults(nil)
+	for _, want := range []string{
+		"active provider: openai",
+		"credentials: missing OPENAI_API_KEY",
+		"/model Ctrl+A",
+	} {
+		if !contains(got, want) {
+			t.Fatalf("providers overview missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestProviderSetupBodyConfiguredPreset(t *testing.T) {
 	m := newPickerTestModel(t, "custom")
 	m.cfg = &config.Config{

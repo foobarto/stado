@@ -47,6 +47,21 @@ func (m *Model) providerSetupBody(provider string) string {
 	return b.String()
 }
 
+func providerCredentialHealth(provider string) (value, tone, action string) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return "not configured", "muted", "/provider <name>"
+	}
+	env := config.ProviderAPIKeyEnv(provider)
+	if env == "" {
+		return "not required by preset", "muted", "/providers"
+	}
+	if os.Getenv(env) == "" {
+		return "missing " + env, "warning", "/model Ctrl+A"
+	}
+	return env + " set", "text", "/model Ctrl+A"
+}
+
 func (m *Model) configuredPresetEndpoint(provider string) (string, bool) {
 	if m.cfg == nil || m.cfg.Inference.Presets == nil {
 		return "", false
