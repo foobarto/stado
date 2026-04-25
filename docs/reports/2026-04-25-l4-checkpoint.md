@@ -234,6 +234,21 @@ spawn/adoption slices and the local worker dogfood pass.
   - `stado session adopt <parent> <child> --apply` applied
     `docs/reports/live-worker-dogfood.md` into the parent session and
     recorded `subagent_adopt` trace metadata.
+- Live TUI worker smoke passed with the same loaded LM Studio model:
+  - The TUI accepted a prompt that used `spawn_agent` with
+    `role=worker`, `mode=workspace_write`, and a single-file
+    `write_scope`.
+  - The sidebar showed the child moving from running to completed and
+    then marked adoption as ready.
+  - The parent conversation recorded the worker tool result with
+    `changed_files` and `adoption_command`.
+  - `/subagents` listed the child, worktree, changed-file count, and
+    adoption command.
+  - `/adopt` dry-ran the latest adoptable worker child and printed
+    `dry_run: true` plus the apply command.
+  - `/adopt eb1e9de5 --apply` applied
+    `docs/reports/live-tui-worker-dogfood.md` into the parent session
+    and recorded a `subagent_adopt` trace commit.
 
 The local shell did not have `go`/`gofmt` on `PATH`; commands used the
 repo-compatible Go toolchain at
@@ -262,11 +277,15 @@ repo-compatible Go toolchain at
   and CLI apply path worked end-to-end. The run also exposed that the
   model-facing tool result needed the exact adoption command; that is now
   included as `adoption_command`.
+- Live TUI worker dogfood also completed against the loaded LM Studio
+  model. The sidebar, `/subagents`, `/adopt` dry-run, and `/adopt
+  --apply` path all worked against an actual spawned worker child.
 - No release tag has been cut for this slice.
 
 ## Next Candidates
 
-1. Dogfood the interactive TUI side of the worker flow with the loaded
-   local model, including `/subagents` and `/adopt`.
-2. Add richer adoption affordances to headless/ACP/editor clients once a
+1. Add richer adoption affordances to headless/ACP/editor clients once a
    client consumes the subagent notification payload.
+2. Decide whether EP-13 should stay open only for future child
+   concurrency/scheduler work or be split so the synchronous worker
+   spawn/adoption contract can be marked implemented.
