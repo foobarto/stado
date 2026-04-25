@@ -920,7 +920,15 @@ func findCurrentRepoRoot(start string) string {
 }
 
 func readCurrentRepoPin(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, ".stado", "user-repo")) // #nosec G304 -- path is fixed metadata under the candidate repo root.
+	if strings.TrimSpace(dir) == "" {
+		return ""
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = root.Close() }()
+	data, err := root.ReadFile(filepath.Join(".stado", "user-repo"))
 	if err != nil {
 		return ""
 	}

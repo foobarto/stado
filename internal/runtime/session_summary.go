@@ -42,7 +42,7 @@ const DescriptionFile = ".stado/description"
 // unset. Missing file / read errors collapse to "" so callers can
 // always render *something* (fallback to the session id).
 func ReadDescription(worktreeDir string) string {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, DescriptionFile)) // #nosec G304 -- description path is fixed inside the session worktree.
+	data, err := readSessionMetadataFile(worktreeDir, DescriptionFile)
 	if err != nil {
 		return ""
 	}
@@ -52,26 +52,61 @@ func ReadDescription(worktreeDir string) string {
 // ReadUserRepoPin returns the worktree's pinned user-repo path, or ""
 // when unset.
 func ReadUserRepoPin(worktreeDir string) string {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, userRepoFile)) // #nosec G304 -- repo pin path is fixed inside the session worktree.
+	data, err := readSessionMetadataFile(worktreeDir, userRepoFile)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
 
+// WriteUserRepoPin stores the repo path a session worktree belongs to.
+// The path is rooted at the worktree so a hostile `.stado` path or file
+// symlink cannot redirect the write outside the session.
+func WriteUserRepoPin(worktreeDir, userRepo string) error {
+	if strings.TrimSpace(worktreeDir) == "" {
+		return nil
+	}
+	return writeSessionMetadataFile(worktreeDir, userRepoFile, []byte(strings.TrimSpace(userRepo)+"\n"), 0o600)
+}
+
 // WriteDescription replaces the description for a worktree. Creates
 // `.stado/` if absent. Empty text clears the description (writes an
 // empty file) so users can unset via `session describe <id> ""`.
 func WriteDescription(worktreeDir, text string) error {
-	if worktreeDir == "" {
+	if strings.TrimSpace(worktreeDir) == "" {
 		return nil
 	}
-	dir := filepath.Join(worktreeDir, ".stado")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	return writeSessionMetadataFile(worktreeDir, DescriptionFile, []byte(strings.TrimSpace(text)+"\n"), 0o600)
+}
+
+func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
+	if strings.TrimSpace(worktreeDir) == "" {
+		return nil, os.ErrNotExist
+	}
+	root, err := os.OpenRoot(worktreeDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(name)
+}
+
+func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.FileMode) error {
+	if strings.TrimSpace(worktreeDir) == "" {
+		return nil
+	}
+	root, err := os.OpenRoot(worktreeDir)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(worktreeDir, DescriptionFile),
-		[]byte(strings.TrimSpace(text)+"\n"), 0o600)
+	defer func() { _ = root.Close() }()
+	dir := filepath.Dir(name)
+	if dir != "." {
+		if err := root.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return root.WriteFile(name, data, perm)
 }
 
 // LastActiveFormatted renders LastActive compactly. Returns "never"

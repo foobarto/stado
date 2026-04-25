@@ -150,6 +150,61 @@ func TestReadDescription_StripsTerminalControlChars(t *testing.T) {
 	}
 }
 
+func TestWriteDescriptionRejectsSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, DescriptionFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := WriteDescription(dir, "escaped"); err == nil {
+		t.Fatal("WriteDescription succeeded through a symlink escape")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside\n" {
+		t.Fatalf("outside file was modified: %q", got)
+	}
+}
+
+func TestReadUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(dir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := ReadUserRepoPin(dir); got != "" {
+		t.Fatalf("ReadUserRepoPin followed .stado symlink escape: %q", got)
+	}
+}
+
+func TestWriteUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	dir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(dir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := WriteUserRepoPin(dir, "/outside/repo"); err == nil {
+		t.Fatal("WriteUserRepoPin succeeded through a .stado symlink escape")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, "user-repo")); !os.IsNotExist(err) {
+		t.Fatalf("outside user-repo should not exist, got %v", err)
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"

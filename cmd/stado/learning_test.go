@@ -194,6 +194,21 @@ func TestLearningCLI_ProposeUsesSessionWorktreeRepoPin(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_ReadCurrentRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := readCurrentRepoPin(workdir); got != "" {
+		t.Fatalf("readCurrentRepoPin followed .stado symlink escape: %q", got)
+	}
+}
+
 func TestLearningCLI_MemoryEditUpdatesLessonBody(t *testing.T) {
 	store := setupMemoryEnv(t)
 	ctx := context.Background()

@@ -14,6 +14,9 @@ Plugins / Infra / Fixes.
 - **Rooted conversation log access.** Session conversation reads, appends,
   rewrites, and raw-log hashing now stay confined to the session worktree's
   `.stado` directory, rejecting conversation-file and `.stado` symlink escapes.
+- **Rooted session metadata files.** Session descriptions and user-repo pins
+  now read and write through the session worktree root across runtime, memory,
+  and learning paths, rejecting `.stado` and metadata-file symlink escapes.
 
 ## v0.25.7 — 2026-04-26
 

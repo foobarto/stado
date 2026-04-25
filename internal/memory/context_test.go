@@ -367,3 +367,42 @@ func TestPromptContextUsesOriginalWorkdirOutsideGit(t *testing.T) {
 		t.Fatalf("memory context missing non-git item:\n%s", got)
 	}
 }
+
+func TestReadUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := readUserRepoPin(workdir); got != "" {
+		t.Fatalf("readUserRepoPin followed .stado symlink escape: %q", got)
+	}
+}
+
+func TestSessionControlRootIgnoresEscapingRepoPin(t *testing.T) {
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := filepath.Join(t.TempDir(), "session", "nested")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionRoot := filepath.Dir(workdir)
+	if err := os.Symlink(outsideDir, filepath.Join(sessionRoot, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	got := sessionControlRoot(workdir)
+	want, err := filepath.Abs(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("sessionControlRoot = %q, want original workdir %q", got, want)
+	}
+}

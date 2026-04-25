@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
@@ -22,9 +21,7 @@ func openPersistedSession(cfg *config.Config, id string) (*stadogit.Sidecar, *st
 	if runtime.ReadUserRepoPin(wt) == "" {
 		cwd, _ := os.Getwd()
 		userRepo := findRepoRoot(cwd)
-		dir := filepath.Join(wt, ".stado")
-		_ = os.MkdirAll(dir, 0o700)
-		_ = os.WriteFile(filepath.Join(dir, "user-repo"), []byte(userRepo+"\n"), 0o600)
+		_ = runtime.WriteUserRepoPin(wt, userRepo)
 	}
 
 	sess, err := runtime.OpenSessionByID(cfg, wt, id)

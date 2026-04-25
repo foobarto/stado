@@ -184,10 +184,7 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 	// here just degrades the resume path for this worktree; tool
 	// execution still works.
 	if userRepo != "" {
-		dir := filepath.Join(sess.WorktreePath, ".stado")
-		_ = os.MkdirAll(dir, 0o700)
-		_ = os.WriteFile(filepath.Join(sess.WorktreePath, userRepoFile),
-			[]byte(userRepo+"\n"), 0o600)
+		_ = WriteUserRepoPin(sess.WorktreePath, userRepo)
 	}
 
 	priv, err := audit.LoadOrCreateKey(SigningKeyPath(cfg))

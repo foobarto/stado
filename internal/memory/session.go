@@ -7,6 +7,7 @@ import (
 )
 
 const sessionMemoryDisabledFile = "memory-disabled"
+const userRepoPinFile = ".stado/user-repo"
 
 // SessionDisabled reports whether approved-memory retrieval is disabled
 // for the current worktree/session. The marker lives under .stado so it
@@ -50,7 +51,7 @@ func sessionControlRoot(workdir string) string {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 			return dir
 		}
-		if _, err := os.Stat(filepath.Join(dir, ".stado", "user-repo")); err == nil {
+		if hasUserRepoPin(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -59,4 +60,14 @@ func sessionControlRoot(workdir string) string {
 		}
 		dir = parent
 	}
+}
+
+func hasUserRepoPin(workdir string) bool {
+	root, err := os.OpenRoot(workdir)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = root.Close() }()
+	_, err = root.ReadFile(userRepoPinFile)
+	return err == nil
 }
