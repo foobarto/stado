@@ -117,3 +117,18 @@ func TestAgentsKill_RemovesWorktree(t *testing.T) {
 		t.Fatalf("expected kill confirmation in stderr, got:\n%s", stderr)
 	}
 }
+
+func TestReadPidFileRejectsSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "pid")
+	if err := os.WriteFile(outside, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	worktree := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(worktree, ".stado-pid")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := readPidFile(worktree); got != 0 {
+		t.Fatalf("readPidFile followed symlink escape: %d", got)
+	}
+}

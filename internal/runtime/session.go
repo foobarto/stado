@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -213,8 +212,7 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 	// Drop a pid file so `stado agents list` / `stado agents kill` can find
 	// this process. Best-effort: ignore write errors (worktree might be
 	// read-only or similar).
-	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
-	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o600)
+	_ = WriteSessionPID(sess.WorktreePath, os.Getpid())
 }
 
 // emitResumeSpan opens a short `stado.session.resume` span parented

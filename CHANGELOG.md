@@ -17,6 +17,8 @@ Plugins / Infra / Fixes.
 - **Rooted session metadata files.** Session descriptions and user-repo pins
   now read and write through the session worktree root across runtime, memory,
   and learning paths, rejecting `.stado` and metadata-file symlink escapes.
+- **Rooted session pid metadata.** `.stado-pid` reads and writes now stay
+  scoped to the session worktree root, preventing pid-file symlink escapes.
 
 ## v0.25.7 — 2026-04-26
 

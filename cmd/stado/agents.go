@@ -3,15 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -172,15 +170,7 @@ func init() {
 // or 0. stado TUI / stado run write their pid there on startup (wired in
 // a follow-up — this reader works without the writer).
 func readPidFile(worktree string) int {
-	data, err := os.ReadFile(filepath.Join(worktree, ".stado-pid")) // #nosec G304 -- pid file path is fixed inside a resolved session worktree.
-	if err != nil {
-		return 0
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0
-	}
-	return pid
+	return runtime.ReadSessionPID(worktree)
 }
 
 func shortHash(h plumbing.Hash) string {

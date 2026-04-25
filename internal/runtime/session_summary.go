@@ -37,6 +37,7 @@ type SessionSummary struct {
 // description lives. Plaintext, single line, no trailing newline
 // necessary (reader trims whitespace).
 const DescriptionFile = ".stado/description"
+const sessionPIDFile = ".stado-pid"
 
 // ReadDescription returns the description for a worktree, or "" when
 // unset. Missing file / read errors collapse to "" so callers can
@@ -77,6 +78,28 @@ func WriteDescription(worktreeDir, text string) error {
 		return nil
 	}
 	return writeSessionMetadataFile(worktreeDir, DescriptionFile, []byte(strings.TrimSpace(text)+"\n"), 0o600)
+}
+
+// ReadSessionPID returns the pid stored for a worktree, or 0 when unset,
+// invalid, or unreadable.
+func ReadSessionPID(worktreeDir string) int {
+	data, err := readSessionMetadataFile(worktreeDir, sessionPIDFile)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+// WriteSessionPID stores the process id associated with a worktree.
+func WriteSessionPID(worktreeDir string, pid int) error {
+	if strings.TrimSpace(worktreeDir) == "" || pid <= 0 {
+		return nil
+	}
+	return writeSessionMetadataFile(worktreeDir, sessionPIDFile, []byte(strconv.Itoa(pid)), 0o600)
 }
 
 func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
@@ -125,12 +148,8 @@ func (r SessionSummary) LastActiveFormatted() string {
 // session is idle (worktree exists but nobody's using it). Works on
 // unix-likes; Windows port would need OpenProcess() instead.
 func liveOwningPID(worktreeDir string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, ".stado-pid")) // #nosec G304 -- pid file path is fixed inside the session worktree.
-	if err != nil {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 {
+	pid := ReadSessionPID(worktreeDir)
+	if pid <= 0 {
 		return 0, false
 	}
 	proc, err := os.FindProcess(pid)

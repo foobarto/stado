@@ -122,9 +122,8 @@ func TestSummariseSession_LivePIDPromotesToLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
 	pid := os.Getpid()
-	if err := os.WriteFile(pidPath, []byte(itoa(pid)), 0o644); err != nil {
+	if err := WriteSessionPID(sess.WorktreePath, pid); err != nil {
 		t.Fatal(err)
 	}
 	r := SummariseSession(worktreeRoot, sc, sess.ID)
@@ -205,6 +204,43 @@ func TestWriteUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestReadSessionPIDRejectsSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "pid")
+	if err := os.WriteFile(outside, []byte(itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, sessionPIDFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := ReadSessionPID(dir); got != 0 {
+		t.Fatalf("ReadSessionPID followed symlink escape: %d", got)
+	}
+}
+
+func TestWriteSessionPIDRejectsSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "pid")
+	if err := os.WriteFile(outside, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, sessionPIDFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := WriteSessionPID(dir, os.Getpid()); err == nil {
+		t.Fatal("WriteSessionPID succeeded through a symlink escape")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "12345" {
+		t.Fatalf("outside pid file was modified: %q", got)
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"
@@ -216,8 +252,7 @@ func TestSummariseSession_StalePIDFallsBackToIdle(t *testing.T) {
 	_ = os.MkdirAll(worktreeRoot, 0o755)
 	sc, _ := stadogit.OpenOrInitSidecar(sidecarPath, base)
 	sess, _ := stadogit.CreateSession(sc, worktreeRoot, "s-stale", plumbing.ZeroHash)
-	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
-	_ = os.WriteFile(pidPath, []byte("2147483640"), 0o644)
+	_ = WriteSessionPID(sess.WorktreePath, 2147483640)
 	r := SummariseSession(worktreeRoot, sc, sess.ID)
 	if r.Status != "idle" {
 		t.Errorf("Status = %q, want idle (stale pid)", r.Status)
