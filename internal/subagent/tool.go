@@ -13,11 +13,13 @@ import (
 )
 
 const (
-	ToolName     = "spawn_agent"
-	DefaultRole  = "explorer"
-	DefaultMode  = "read_only"
-	DefaultTurns = 6
-	MaxTurns     = 12
+	ToolName           = "spawn_agent"
+	DefaultRole        = "explorer"
+	WorkerRole         = "worker"
+	DefaultMode        = "read_only"
+	WorkspaceWriteMode = "workspace_write"
+	DefaultTurns       = 6
+	MaxTurns           = 12
 	// Timeout bounds wall-clock time for the child loop. It is separate
 	// from MaxTurns because a single provider/tool call can still hang.
 	DefaultTimeoutSeconds = 180

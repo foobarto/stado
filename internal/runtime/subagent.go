@@ -50,7 +50,10 @@ type SubagentEvent struct {
 }
 
 func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
-	req = normalizeSubagentRequest(req)
+	req, err := prepareSubagentRequest(req)
+	if err != nil {
+		return subagent.Result{}, err
+	}
 	if r.Config == nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: config required")
 	}
@@ -92,7 +95,12 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
 		return subagent.Result{}, err
 	}
-	keepReadOnlyTools(exec.Registry)
+	childHost, err := configureSubagentTools(req, exec)
+	if err != nil {
+		err = fmt.Errorf("spawn_agent: child tools: %w", err)
+		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		return subagent.Result{}, err
+	}
 
 	childCtx, cancel := context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second)
 	defer cancel()
@@ -107,6 +115,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		ThinkingBudgetTokens: r.ThinkingBudgetTokens,
 		System:               r.System,
 		SystemTemplate:       r.SystemTemplate,
+		Host:                 childHost,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr
@@ -136,6 +145,36 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	result := subagentResult(req, child, text, msgs)
 	r.emitSubagentEvent(req, child, "finished", result.Status, "")
 	return result, nil
+}
+
+func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {
+	req.Prompt = strings.TrimSpace(req.Prompt)
+	req.Role = strings.TrimSpace(req.Role)
+	req.Mode = strings.TrimSpace(req.Mode)
+	req.Ownership = strings.TrimSpace(req.Ownership)
+	if req.Prompt == "" {
+		return subagent.Request{}, fmt.Errorf("spawn_agent: prompt is required")
+	}
+	req = normalizeSubagentRequest(req)
+	writeScope, err := subagent.NormalizeWriteScope(req.WriteScope)
+	if err != nil {
+		return subagent.Request{}, fmt.Errorf("spawn_agent: write_scope: %w", err)
+	}
+	req.WriteScope = writeScope
+	switch {
+	case req.Role == subagent.DefaultRole && req.Mode == subagent.DefaultMode:
+		return req, nil
+	case req.Role == subagent.WorkerRole && req.Mode == subagent.WorkspaceWriteMode:
+		if req.Ownership == "" {
+			return subagent.Request{}, fmt.Errorf("spawn_agent: ownership is required for %s", subagent.WorkspaceWriteMode)
+		}
+		if len(req.WriteScope) == 0 {
+			return subagent.Request{}, fmt.Errorf("spawn_agent: write_scope is required for %s", subagent.WorkspaceWriteMode)
+		}
+		return req, nil
+	default:
+		return subagent.Request{}, fmt.Errorf("spawn_agent: role %q with mode %q is not supported", req.Role, req.Mode)
+	}
 }
 
 func (r SubagentRunner) emitSubagentEvent(req subagent.Request, child *stadogit.Session, phase, status, errMsg string) {
@@ -194,6 +233,19 @@ func subagentResult(req subagent.Request, child *stadogit.Session, text string, 
 	}
 }
 
+func configureSubagentTools(req subagent.Request, exec *tools.Executor) (tool.Host, error) {
+	if req.Mode == subagent.WorkspaceWriteMode {
+		keepWorkspaceWriteTools(exec.Registry)
+		return subagent.NewScopedWriteHost(autoApproveHost{
+			workdir: exec.Session.WorktreePath,
+			readLog: exec.ReadLog,
+			runner:  exec.Runner,
+		}, req.WriteScope)
+	}
+	keepReadOnlyTools(exec.Registry)
+	return nil, nil
+}
+
 func keepReadOnlyTools(reg *tools.Registry) {
 	if reg == nil {
 		return
@@ -202,6 +254,30 @@ func keepReadOnlyTools(reg *tools.Registry) {
 		name := t.Name()
 		if name == subagent.ToolName || reg.ClassOf(name) != tool.ClassNonMutating {
 			reg.Unregister(name)
+		}
+	}
+}
+
+func keepWorkspaceWriteTools(reg *tools.Registry) {
+	if reg == nil {
+		return
+	}
+	allowed := map[string]struct{}{
+		"read":              {},
+		"glob":              {},
+		"grep":              {},
+		"ripgrep":           {},
+		"read_with_context": {},
+		"find_definition":   {},
+		"find_references":   {},
+		"document_symbols":  {},
+		"hover":             {},
+		"write":             {},
+		"edit":              {},
+	}
+	for _, t := range reg.All() {
+		if _, ok := allowed[t.Name()]; !ok {
+			reg.Unregister(t.Name())
 		}
 	}
 }
@@ -216,9 +292,15 @@ func appendSubagentMessages(worktree string, msgs []agent.Message, persisted int
 
 func renderSubagentPrompt(req subagent.Request) string {
 	var b strings.Builder
-	b.WriteString("You are a read-only sidecar agent spawned by a parent stado session.\n")
-	b.WriteString("Return concise findings for the parent. Include file paths, line numbers, and uncertainties when relevant.\n")
-	b.WriteString("Do not edit files, run mutating commands, or make recommendations that depend on changes you did not verify.\n\n")
+	if req.Mode == subagent.WorkspaceWriteMode {
+		b.WriteString("You are a scoped worker agent spawned by a parent stado session.\n")
+		b.WriteString("Make only the requested changes and keep your final response concise.\n")
+		b.WriteString("You may write only paths inside Write scope. Do not run shell commands or edit files outside scope.\n\n")
+	} else {
+		b.WriteString("You are a read-only sidecar agent spawned by a parent stado session.\n")
+		b.WriteString("Return concise findings for the parent. Include file paths, line numbers, and uncertainties when relevant.\n")
+		b.WriteString("Do not edit files, run mutating commands, or make recommendations that depend on changes you did not verify.\n\n")
+	}
 	b.WriteString("Role: ")
 	b.WriteString(req.Role)
 	b.WriteString("\nMode: ")
@@ -226,6 +308,13 @@ func renderSubagentPrompt(req subagent.Request) string {
 	if req.Ownership != "" {
 		b.WriteString("\nOwnership: ")
 		b.WriteString(req.Ownership)
+	}
+	if len(req.WriteScope) > 0 {
+		b.WriteString("\nWrite scope:")
+		for _, scope := range req.WriteScope {
+			b.WriteString("\n- ")
+			b.WriteString(scope)
+		}
 	}
 	b.WriteString("\n\nTask:\n")
 	b.WriteString(req.Prompt)

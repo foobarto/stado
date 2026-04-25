@@ -64,6 +64,22 @@ func TestDecodeRequestRejectsWriteMode(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestRejectsWorkspaceWriteUntilExposed(t *testing.T) {
+	_, err := DecodeRequest(json.RawMessage(`{
+		"prompt": "edit files",
+		"role": "worker",
+		"mode": "workspace_write",
+		"ownership": "docs only",
+		"write_scope": ["docs/**"]
+	}`))
+	if err == nil {
+		t.Fatal("expected unsupported role error")
+	}
+	if !strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestNormalizeWriteScopeAcceptsRepoRelativeGlobs(t *testing.T) {
 	got, err := NormalizeWriteScope([]string{
 		" internal/foo/** ",

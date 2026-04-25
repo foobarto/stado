@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added an internal worker-mode execution path with scoped write/edit tools, while keeping public decode rejection in place.
+  - date: 2026-04-25
+    status: Partial
     note: Added the scoped write host guard that future worker-mode write/edit tools must use.
   - date: 2026-04-25
     status: Partial
@@ -192,6 +195,12 @@ Next write-capable worker contract:
   should remain unavailable until there is a separate scoped exec policy;
   shell commands are too broad to enforce reliably through path checks
   alone.
+- The runtime now has an internal worker execution branch for this tool
+  set: read/search, LSP lookup, `write`, and `edit` are kept; shell,
+  `ast_grep`, network fetch, and recursive `spawn_agent` are removed.
+  This branch is reachable only by direct runtime calls while
+  `DecodeRequest` continues to reject `role=worker` /
+  `mode=workspace_write` from the public tool surface.
 - Runtime enforcement must happen below the model prompt: mutating tools
   must reject writes outside `write_scope`, even if the child prompt
   asks for them.

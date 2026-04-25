@@ -38,6 +38,10 @@ subagent slice.
   `subagent.ScopedWriteHost` checks normalized targets against
   `write_scope` while rejecting symlink escapes and `.git` / `.stado`
   metadata targets.
+- Built the internal runtime worker path behind the public decode
+  rejection: direct runtime tests can run a `role=worker`,
+  `mode=workspace_write` child with read/search plus scoped `write` and
+  `edit`, while `spawn_agent` tool decoding still rejects worker mode.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -49,6 +53,7 @@ subagent slice.
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless ./cmd/stado`
   - `go test ./internal/subagent`
   - `go test ./internal/subagent ./internal/tools/fs ./pkg/tool`
+  - `go test ./internal/runtime ./internal/subagent`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -66,9 +71,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Build the worker child executor path behind the existing
-   `workspace_write` rejection, so scoped write/edit can be integration
-   tested before exposure.
+1. Add worker changed-file reporting and scope-violation collection
+   before exposing `workspace_write`.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

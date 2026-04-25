@@ -33,6 +33,9 @@ Plugins / Infra / Fixes.
 - **Added a scoped write guard for future subagents.** Mutating file
   tools now honor an optional host-level write-path guard, and EP-13's
   future worker host has a tested `ScopedWriteHost` implementation.
+- **Built the internal worker subagent path.** Runtime tests now exercise
+  scoped `workspace_write` children with read/search plus `write`/`edit`,
+  while the public `spawn_agent` decoder still rejects worker mode.
 
 ## v0.23.1 — 2026-04-25
 

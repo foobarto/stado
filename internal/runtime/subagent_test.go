@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,6 +72,86 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	}
 	if events[0].ChildSession != res.ChildSession || events[1].ChildSession != res.ChildSession {
 		t.Fatalf("event child ids = %q/%q, result=%q", events[0].ChildSession, events[1].ChildSession, res.ChildSession)
+	}
+}
+
+func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
+	cfg, parent, _ := forkPluginEnv(t)
+	prov := &workerSubagentProvider{}
+
+	res, err := (SubagentRunner{
+		Config:    cfg,
+		Parent:    parent,
+		Provider:  prov,
+		Model:     "test-model",
+		AgentName: "test-worker",
+	}).SpawnSubagent(context.Background(), subagent.Request{
+		Prompt:     "Write the allowed file and report blocked attempts.",
+		Role:       subagent.WorkerRole,
+		Mode:       subagent.WorkspaceWriteMode,
+		Ownership:  "allowed directory only",
+		WriteScope: []string{"allowed/**"},
+		MaxTurns:   2,
+	})
+	if err != nil {
+		t.Fatalf("SpawnSubagent: %v", err)
+	}
+	if res.Status != "completed" || res.Mode != subagent.WorkspaceWriteMode {
+		t.Fatalf("bad result: %+v", res)
+	}
+	for _, want := range []string{"read", "write", "edit"} {
+		if !containsString(prov.toolNames, want) {
+			t.Fatalf("worker tools missing %q: %v", want, prov.toolNames)
+		}
+	}
+	for _, forbidden := range []string{"bash", "ast_grep", "webfetch", subagent.ToolName} {
+		if containsString(prov.toolNames, forbidden) {
+			t.Fatalf("worker tools exposed %q: %v", forbidden, prov.toolNames)
+		}
+	}
+	written := filepath.Join(res.Worktree, "allowed", "new.txt")
+	data, err := os.ReadFile(written)
+	if err != nil {
+		t.Fatalf("read child write: %v", err)
+	}
+	if string(data) != "child write" {
+		t.Fatalf("child write = %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(parent.WorktreePath, "allowed", "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("parent worktree was modified, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(res.Worktree, "blocked", "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("blocked write created file, stat err = %v", err)
+	}
+	if got := prov.toolResult("allow"); got == nil || got.IsError {
+		t.Fatalf("allow tool result = %+v", got)
+	}
+	blocked := prov.toolResult("block")
+	if blocked == nil || !blocked.IsError || !strings.Contains(blocked.Content, "outside write_scope") {
+		t.Fatalf("blocked tool result = %+v", blocked)
+	}
+}
+
+func TestSubagentRunnerRejectsWorkerWithoutScope(t *testing.T) {
+	cfg, parent, _ := forkPluginEnv(t)
+	_, err := (SubagentRunner{
+		Config:    cfg,
+		Parent:    parent,
+		Provider:  &subagentCaptureProvider{},
+		Model:     "test-model",
+		AgentName: "test-worker",
+	}).SpawnSubagent(context.Background(), subagent.Request{
+		Prompt:    "Write files.",
+		Role:      subagent.WorkerRole,
+		Mode:      subagent.WorkspaceWriteMode,
+		Ownership: "missing scope",
+		MaxTurns:  1,
+	})
+	if err == nil {
+		t.Fatal("expected missing write_scope error")
+	}
+	if !strings.Contains(err.Error(), "write_scope is required") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -166,6 +249,65 @@ func (p *subagentCaptureProvider) StreamTurn(_ context.Context, req agent.TurnRe
 	ch <- agent.Event{Kind: agent.EvDone}
 	close(ch)
 	return ch, nil
+}
+
+type workerSubagentProvider struct {
+	turn        int
+	toolNames   []string
+	toolResults []agent.ToolResultBlock
+}
+
+func (p *workerSubagentProvider) Name() string {
+	return "worker-capture"
+}
+
+func (p *workerSubagentProvider) Capabilities() agent.Capabilities {
+	return agent.Capabilities{}
+}
+
+func (p *workerSubagentProvider) StreamTurn(_ context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
+	if p.turn == 0 {
+		p.toolNames = p.toolNames[:0]
+		for _, def := range req.Tools {
+			p.toolNames = append(p.toolNames, def.Name)
+		}
+		p.turn++
+		ch := make(chan agent.Event, 3)
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+			ID:    "allow",
+			Name:  "write",
+			Input: json.RawMessage(`{"path":"allowed/new.txt","content":"child write"}`),
+		}}
+		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+			ID:    "block",
+			Name:  "write",
+			Input: json.RawMessage(`{"path":"blocked/new.txt","content":"should not land"}`),
+		}}
+		ch <- agent.Event{Kind: agent.EvDone}
+		close(ch)
+		return ch, nil
+	}
+	for _, msg := range req.Messages {
+		for _, block := range msg.Content {
+			if block.ToolResult != nil {
+				p.toolResults = append(p.toolResults, *block.ToolResult)
+			}
+		}
+	}
+	ch := make(chan agent.Event, 2)
+	ch <- agent.Event{Kind: agent.EvTextDelta, Text: "worker done"}
+	ch <- agent.Event{Kind: agent.EvDone}
+	close(ch)
+	return ch, nil
+}
+
+func (p *workerSubagentProvider) toolResult(id string) *agent.ToolResultBlock {
+	for i := range p.toolResults {
+		if p.toolResults[i].ToolUseID == id {
+			return &p.toolResults[i]
+		}
+	}
+	return nil
 }
 
 func containsString(haystack []string, needle string) bool {
