@@ -16,11 +16,10 @@ import (
 // TrustEntry is one pinned plugin signer.
 type TrustEntry struct {
 	Fingerprint string    `json:"fingerprint"`
-	Pubkey      string    `json:"pubkey"`   // hex
+	Pubkey      string    `json:"pubkey"` // hex
 	Author      string    `json:"author,omitempty"`
 	Pinned      time.Time `json:"pinned_at"`
-	// Rollback protection: the highest manifest version (string compare —
-	// callers should use semver-compatible strings like "1.2.3").
+	// Rollback protection: the highest semver-compatible manifest version.
 	LastVersion string `json:"last_version,omitempty"`
 }
 
@@ -114,9 +113,9 @@ func (s *TrustStore) Untrust(fingerprint string) error {
 
 // VerifyManifest checks a loaded manifest + its signature against the
 // TrustStore. Checks:
-//   1. Is the declared author pubkey pinned?
-//   2. Does the signature verify against that pubkey?
-//   3. Is manifest.Version >= LastVersion (rollback protection)?
+//  1. Is the declared author pubkey pinned?
+//  2. Does the signature verify against that pubkey?
+//  3. Is manifest.Version >= LastVersion (rollback protection)?
 //
 // On success, advances LastVersion to the manifest's version.
 func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
@@ -142,8 +141,17 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 	if err := m.Verify(ed25519.PublicKey(pub), sigB64); err != nil {
 		return err
 	}
-	if entry.LastVersion != "" && m.Version < entry.LastVersion {
-		return fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", m.Version, entry.LastVersion)
+	if err := ValidateVersion(m.Version); err != nil {
+		return fmt.Errorf("verify: manifest version %q is not semver-compatible: %w", m.Version, err)
+	}
+	if entry.LastVersion != "" {
+		less, err := VersionLess(m.Version, entry.LastVersion)
+		if err != nil {
+			return fmt.Errorf("verify: compare versions: %w", err)
+		}
+		if less {
+			return fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", m.Version, entry.LastVersion)
+		}
 	}
 	// Advance LastVersion on successful verification.
 	entry.LastVersion = m.Version

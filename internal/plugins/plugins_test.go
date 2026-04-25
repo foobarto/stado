@@ -116,6 +116,70 @@ func TestTrustStore_RollbackProtection(t *testing.T) {
 	}
 }
 
+func TestTrustStore_RollbackProtectionUsesSemverOrdering(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	_, _ = ts.Trust(hex.EncodeToString(pub), "alice")
+
+	mHigh := &Manifest{Name: "p", Version: "1.10.0", AuthorPubkeyFpr: Fingerprint(pub)}
+	sigHigh, _ := mHigh.Sign(priv)
+	if err := ts.VerifyManifest(mHigh, sigHigh); err != nil {
+		t.Fatal(err)
+	}
+
+	mLow := &Manifest{Name: "p", Version: "1.2.0", AuthorPubkeyFpr: Fingerprint(pub)}
+	sigLow, _ := mLow.Sign(priv)
+	err := ts.VerifyManifest(mLow, sigLow)
+	if err == nil {
+		t.Fatal("rollback 1.2.0 < 1.10.0 should be blocked")
+	}
+	if !strings.Contains(err.Error(), "rollback") {
+		t.Errorf("error should mention rollback: %v", err)
+	}
+}
+
+func TestTrustStore_VerifyRejectsInvalidSemverVersion(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	_, _ = ts.Trust(hex.EncodeToString(pub), "alice")
+
+	m := &Manifest{Name: "p", Version: "build-20260425", AuthorPubkeyFpr: Fingerprint(pub)}
+	sig, _ := m.Sign(priv)
+	err := ts.VerifyManifest(m, sig)
+	if err == nil {
+		t.Fatal("invalid semver manifest version should be rejected")
+	}
+	if !strings.Contains(err.Error(), "semver") {
+		t.Errorf("error should mention semver: %v", err)
+	}
+}
+
+func TestVersionLessSemverPrecedence(t *testing.T) {
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{name: "minor numeric ordering", a: "1.2.0", b: "1.10.0", want: true},
+		{name: "prerelease lower than release", a: "1.0.0-rc.1", b: "1.0.0", want: true},
+		{name: "build metadata ignored", a: "1.0.0+build.2", b: "1.0.0+build.1", want: false},
+		{name: "large numeric prerelease identifiers", a: "1.0.0-99999999999999999999", b: "1.0.0-100000000000000000000", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := VersionLess(tt.a, tt.b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("VersionLess(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestTrustStore_Untrust(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}

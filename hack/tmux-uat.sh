@@ -87,6 +87,7 @@ fail() {
 start_stado() {
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   tmux new-session -d -s "$SESSION" -x "$TMUX_W" -y "$TMUX_H"
+  sleep 0.2
   local cmd
   cmd="TERM=xterm-256color"
   cmd+=" XDG_CONFIG_HOME=$(quote "$UAT_ROOT/config")"
@@ -95,7 +96,8 @@ start_stado() {
   cmd+=" STADO_DEFAULTS_PROVIDER=$(quote "$UAT_PROVIDER")"
   cmd+=" STADO_DEFAULTS_MODEL=$(quote "$UAT_MODEL")"
   cmd+=" $(quote "$STADO_BIN")"
-  tmux send-keys -t "$SESSION" "$cmd" Enter
+  tmux send-keys -t "$SESSION" -l "$cmd"
+  tmux send-keys -t "$SESSION" Enter
   sleep "$WAIT"
 }
 stop_stado() {

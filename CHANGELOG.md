@@ -241,6 +241,12 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened plugin rollback checks.** Plugin trust verification now
+  compares semver precedence instead of raw strings, so versions like
+  `1.2.0` cannot pass after `1.10.0`.
+- **Stabilized tmux TUI UAT startup.** The real-PTY harness now waits for
+  the shell to initialize and sends the launch command literally before
+  pressing Enter.
 - **Kept JS/TS symbol completion top-level only.** Indented nested
   JavaScript and TypeScript declarations are no longer indexed as
   top-level `@` symbol rows.

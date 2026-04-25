@@ -162,8 +162,17 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 	if err := mf.Verify(pub, sig); err != nil {
 		return nil, err
 	}
-	if entry.LastVersion != "" && mf.Version < entry.LastVersion {
-		return nil, fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", mf.Version, entry.LastVersion)
+	if err := plugins.ValidateVersion(mf.Version); err != nil {
+		return nil, fmt.Errorf("verify: manifest version %q is not semver-compatible: %w", mf.Version, err)
+	}
+	if entry.LastVersion != "" {
+		less, err := plugins.VersionLess(mf.Version, entry.LastVersion)
+		if err != nil {
+			return nil, fmt.Errorf("verify: compare versions: %w", err)
+		}
+		if less {
+			return nil, fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", mf.Version, entry.LastVersion)
+		}
 	}
 	if err := consultOverrideCRL(cfg, mf); err != nil {
 		return nil, err
