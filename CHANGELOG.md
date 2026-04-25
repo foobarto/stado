@@ -68,6 +68,9 @@ Plugins / Infra / Fixes.
 - **Aligned TUI preference docs.** The TUI and slash-command docs now
   describe `[tui].theme`, `[tui].thinking_display`, and the custom
   `theme.toml` fallback accurately.
+- **Added shell symbols to inline `@` completion.** Top-level
+  `.sh`/`.bash` functions now appear as symbol rows that insert
+  `path:line` locations.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

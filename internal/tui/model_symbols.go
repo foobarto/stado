@@ -76,6 +76,8 @@ func scanSymbols(root string) []symbolCandidate {
 			out = append(out, scanPythonFileSymbols(rel, path, limit-len(out))...)
 		case ".js", ".jsx", ".ts", ".tsx":
 			out = append(out, scanScriptFileSymbols(rel, path, limit-len(out))...)
+		case ".sh", ".bash":
+			out = append(out, scanShellFileSymbols(rel, path, limit-len(out))...)
 		default:
 			return nil
 		}
@@ -319,6 +321,87 @@ func isScriptIdentChar(ch byte, pos int) bool {
 		return true
 	}
 	return pos > 0 && ch >= '0' && ch <= '9'
+}
+
+func scanShellFileSymbols(rel, path string, limit int) []symbolCandidate {
+	if limit <= 0 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var out []symbolCandidate
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	line := 0
+	for scanner.Scan() {
+		line++
+		raw := scanner.Text()
+		if strings.TrimLeft(raw, " \t") != raw {
+			continue
+		}
+		text := strings.TrimSpace(raw)
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		if name, ok := shellFunctionName(text); ok {
+			out = append(out, symbolCandidate{Name: name, Kind: "shell func", Path: rel, Line: line})
+		}
+		if len(out) >= limit {
+			return out[:limit]
+		}
+	}
+	return out
+}
+
+func shellFunctionName(line string) (string, bool) {
+	if strings.HasPrefix(line, "function ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "function "))
+		name, end := readShellName(rest)
+		if name == "" {
+			return "", false
+		}
+		tail := strings.TrimSpace(rest[end:])
+		if tail == "" || strings.HasPrefix(tail, "{") || strings.HasPrefix(tail, "(") {
+			return name, true
+		}
+		return "", false
+	}
+
+	name, end := readShellName(line)
+	if name == "" {
+		return "", false
+	}
+	tail := strings.TrimSpace(line[end:])
+	if strings.HasPrefix(tail, "()") {
+		return name, true
+	}
+	return "", false
+}
+
+func readShellName(line string) (string, int) {
+	end := 0
+	for end < len(line) {
+		if isShellNameChar(line[end], end) {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return "", 0
+	}
+	return line[:end], end
+}
+
+func isShellNameChar(ch byte, pos int) bool {
+	if ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
+		return true
+	}
+	return pos > 0 && (ch == '-' || ch >= '0' && ch <= '9')
 }
 
 func receiverName(expr ast.Expr) string {

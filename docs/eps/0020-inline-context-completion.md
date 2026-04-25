@@ -10,6 +10,11 @@ history:
   - date: 2026-04-25
     status: Partial
     note: >
+      Shell `.sh` and `.bash` top-level function declarations now appear
+      as grouped @ picker symbol rows.
+  - date: 2026-04-25
+    status: Partial
+    note: >
       JavaScript and TypeScript top-level class, function, and variable
       declarations now appear as grouped @ picker symbol rows.
   - date: 2026-04-25
@@ -104,8 +109,10 @@ symbol slices index top-level Go declarations with `go/parser` and
 top-level Python `class`, `def`, and `async def` declarations with a
 bounded line scanner. JavaScript and TypeScript slices index top-level
 class, function, and variable declarations with the same bounded scanner.
-Accepting a symbol row inserts `path:line`, giving the model precise
-context without loading file contents.
+Shell script slices index top-level `.sh` and `.bash` function
+declarations in `name() {}` and `function name {}` forms. Accepting a
+symbol row inserts `path:line`, giving the model precise context without
+loading file contents.
 
 ## Test strategy
 

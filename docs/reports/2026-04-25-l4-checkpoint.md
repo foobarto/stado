@@ -88,6 +88,8 @@ subagent slice.
   TypeScript class, function, and variable declarations as symbol rows.
 - The JavaScript/TypeScript symbol scanner skips indented nested
   declarations so the `@` picker keeps its top-level-symbol contract.
+- Inline `@` completion now also groups top-level `.sh`/`.bash`
+  functions as symbol rows.
 - Landing view now samples the large ANSI/plain banner down to a compact
   fixed-height mark, keeping the prompt primary on wide terminals and
   falling back to the plain wordmark in cramped terminals.
@@ -207,7 +209,7 @@ repo-compatible Go toolchain at
 - Branch: `main`
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
-  docs/Go/Python/JS/TS symbol completion, landing-logo refinement,
+  docs/Go/Python/JS/TS/shell symbol completion, landing-logo refinement,
   status-modal/provider/MCP details, expandable assistant turn details,
   `/subagents`, `/adopt`, local-runner no-model remediation, grouped
   inline slash suggestions, theme-aware markdown rendering, the custom

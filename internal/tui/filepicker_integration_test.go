@@ -371,6 +371,28 @@ func TestFilePicker_TypeScriptSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 }
 
+func TestFilePicker_ShellSymbolAcceptInsertsLocation(t *testing.T) {
+	m, _ := filePickerModel(t)
+	src := "deploy() {\n  helper_inner() { :; }\n}\n\nfunction build_image {\n  :\n}\n"
+	if err := os.WriteFile(filepath.Join(m.cwd, "build.sh"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range "@build_image" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "symbol" || item.Display != "build_image" || !strings.Contains(item.Meta, "shell func") {
+		t.Fatalf("selected item = %+v, %v; want build_image shell symbol", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.input.Value(); !strings.Contains(got, "build.sh:5") {
+		t.Fatalf("shell symbol accept should insert file location, got %q", got)
+	}
+}
+
 func TestScanScriptFileSymbolsSkipsIndentedDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested.ts")
@@ -382,6 +404,20 @@ func TestScanScriptFileSymbolsSkipsIndentedDeclarations(t *testing.T) {
 	symbols := scanScriptFileSymbols("nested.ts", path, 10)
 	if len(symbols) != 1 || symbols[0].Name != "outer" {
 		t.Fatalf("symbols = %+v, want only outer", symbols)
+	}
+}
+
+func TestScanShellFileSymbolsSkipsIndentedDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested.sh")
+	src := "outer() {\n  inner() { :; }\n}\nfunction next_step() {\n  :\n}\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	symbols := scanShellFileSymbols("nested.sh", path, 10)
+	if len(symbols) != 2 || symbols[0].Name != "outer" || symbols[1].Name != "next_step" {
+		t.Fatalf("symbols = %+v, want outer and next_step only", symbols)
 	}
 }
 
