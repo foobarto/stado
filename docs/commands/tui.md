@@ -250,7 +250,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   provider credential health, LSP readiness, OTel, sandbox, and context,
   with next-step hints such as `/model`, `/tools`, `/plugin`, and
   `config.toml`; configured MCP server names are summarized without
-  probing them
+  probing them, and cached plugin/MCP health is shown after lifecycle or
+  attach attempts have run
 - `/provider [name]` — active provider capabilities, or setup guidance
   for a named provider such as `lmstudio`, `openai`, or `anthropic`
 - `/providers` — active provider credential health plus detected local

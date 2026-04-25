@@ -86,9 +86,13 @@ Plugins / Infra / Fixes.
 - **Closed EP-22 theme catalog and picker.** The scoped catalog,
   picker, direct mode shortcuts, custom-theme row, markdown style, and
   config persistence goals are documented as implemented.
-- **Narrowed EP-23 status modal questions.** Status rows stay read-only
-  with inline action hints; live plugin/MCP health snapshots remain the
-  open status-modal question.
+- **Pinned EP-23 status rows read-only.** Status rows stay read-only
+  with inline action hints; active remediation remains in focused
+  commands and config files.
+- **Closed EP-23 status modal.** `/status` now keeps the modal read-only
+  while showing cached background-plugin lifecycle issues and cached MCP
+  attach health, including connected/tool counts and the latest attach
+  error.
 - **Closed EP-21 assistant turn metadata.** Footer metadata is
   documented as display-only while `conversation.jsonl` remains the
   provider-message transcript.

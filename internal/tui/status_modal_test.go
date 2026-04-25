@@ -9,6 +9,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	stadoruntime "github.com/foobarto/stado/internal/runtime"
 )
 
 func TestStatusSlashOpensModal(t *testing.T) {
@@ -105,6 +108,41 @@ func TestStatusModalMCPRowNamesConfiguredServers(t *testing.T) {
 	want := "4 configured: alpha, beta, gamma +1"
 	if got != want {
 		t.Fatalf("mcp status = %q, want %q", got, want)
+	}
+}
+
+func TestStatusModalShowsPluginHealthSnapshot(t *testing.T) {
+	m := scenarioModel(t)
+	m.backgroundPlugins = []*pluginRuntime.BackgroundPlugin{{
+		Manifest: plugins.Manifest{Name: "auto-compact"},
+	}}
+	m.backgroundTickRunning = true
+	m.backgroundTickQueued = true
+	m.recordBackgroundPluginIssue("auto-compact tick: boom")
+
+	out := m.renderStatusModal(160, 40)
+	for _, want := range []string{"plugins", "auto-compact", "ticking, queued", "last issue", "boom"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status modal missing plugin health %q: %q", want, out)
+		}
+	}
+}
+
+func TestStatusMCPLiveSummaryShowsErrorsAndToolCounts(t *testing.T) {
+	got, tone := statusMCPLiveSummary(
+		map[string]config.MCPServer{"alpha": {}, "beta": {}},
+		[]stadoruntime.MCPServerStatus{
+			{Name: "alpha", Connected: true, ToolCount: 2},
+			{Name: "beta", Error: "connect beta: boom"},
+		},
+	)
+	if tone != "error" {
+		t.Fatalf("tone = %q, want error", tone)
+	}
+	for _, want := range []string{"2 configured", "1 connected", "last error", "connect beta: boom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mcp live summary missing %q: %q", want, got)
+		}
 	}
 }
 

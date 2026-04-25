@@ -214,10 +214,11 @@ type Model struct {
 	// telemetry bridges, recorders) can react without needing an
 	// explicit user slash-command. See internal/plugins/runtime
 	// §BackgroundPlugin for the ABI contract.
-	backgroundPlugins     []*pluginRuntime.BackgroundPlugin
-	backgroundTickRunning bool
-	backgroundTickQueued  bool
-	backgroundTickPayload []byte
+	backgroundPlugins      []*pluginRuntime.BackgroundPlugin
+	backgroundTickRunning  bool
+	backgroundTickQueued   bool
+	backgroundTickPayload  []byte
+	backgroundPluginIssues []string
 	// pluginRuntime shared across all background plugins — each
 	// plugin's Module is separate, but the wazero Runtime is the
 	// container. Nil until LoadBackgroundPlugins runs.

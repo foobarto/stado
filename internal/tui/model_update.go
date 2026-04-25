@@ -138,6 +138,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case backgroundTickResultMsg:
 		m.backgroundPlugins = msg.survivors
 		m.backgroundTickRunning = false
+		for _, issue := range msg.issues {
+			m.recordBackgroundPluginIssue(issue)
+		}
 		var cmds []tea.Cmd
 		if m.recoveryPluginActive {
 			cmds = append(cmds, tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return recoveryTimeoutMsg{} }))

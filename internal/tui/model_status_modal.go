@@ -11,6 +11,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	stadoruntime "github.com/foobarto/stado/internal/runtime"
 )
 
 func (m *Model) renderStatusModal(screenWidth, screenHeight int) string {
@@ -153,14 +154,10 @@ func (m *Model) statusContextRows() []statusRow {
 }
 
 func (m *Model) statusExtensionRows() []statusRow {
-	plugins := "none active"
-	if summary := m.sidebarPluginSummary(); summary != "" {
-		plugins = summary
-	}
-	mcp := "0 configured"
+	plugins, pluginTone := m.statusPluginSummary()
+	mcp, mcpTone := m.statusMCPSummary()
 	otel := "disabled"
 	if m.cfg != nil {
-		mcp = statusMCPSummary(m.cfg.MCP.Servers)
 		if m.cfg.OTel.Enabled {
 			otel = strings.TrimSpace(m.cfg.OTel.Protocol + " " + m.cfg.OTel.Endpoint)
 			if otel == "" {
@@ -173,8 +170,8 @@ func (m *Model) statusExtensionRows() []statusRow {
 		instructions = filepath.Base(m.systemPromptPath)
 	}
 	rows := []statusRow{
-		{Key: "plugins", Value: plugins, Tone: "text", Action: "/plugin"},
-		{Key: "mcp", Value: mcp, Tone: "text", Action: "config.toml"},
+		{Key: "plugins", Value: plugins, Tone: pluginTone, Action: "/plugin"},
+		{Key: "mcp", Value: mcp, Tone: mcpTone, Action: "config.toml"},
 		{Key: "lsp", Value: lspStatusSummary(), Tone: "muted"},
 		{Key: "otel", Value: otel, Tone: "muted", Action: "config.toml"},
 	}
@@ -183,6 +180,43 @@ func (m *Model) statusExtensionRows() []statusRow {
 	}
 	rows = append(rows, statusRow{Key: "instructions", Value: instructions, Tone: "muted", Action: "/context"})
 	return rows
+}
+
+func (m *Model) statusPluginSummary() (string, string) {
+	summary := m.sidebarPluginSummary()
+	if summary == "" {
+		summary = "none active"
+	}
+	state := "healthy"
+	switch {
+	case m.backgroundTickRunning && m.backgroundTickQueued:
+		state = "ticking, queued"
+	case m.backgroundTickRunning:
+		state = "ticking"
+	case m.backgroundTickQueued:
+		state = "queued"
+	}
+	value := summary
+	if len(m.backgroundPlugins) > 0 || state != "healthy" {
+		value = fmt.Sprintf("%s (%s)", summary, state)
+	}
+	if len(m.backgroundPluginIssues) == 0 {
+		return value, "text"
+	}
+	last := trimSeed(m.backgroundPluginIssues[len(m.backgroundPluginIssues)-1], 96)
+	return fmt.Sprintf("%s; last issue: %s", value, last), "error"
+}
+
+func (m *Model) statusMCPSummary() (string, string) {
+	var servers map[string]config.MCPServer
+	if m.cfg != nil {
+		servers = m.cfg.MCP.Servers
+	}
+	statuses := stadoruntime.MCPStatusSnapshot()
+	if len(statuses) == 0 {
+		return statusMCPSummary(servers), "text"
+	}
+	return statusMCPLiveSummary(servers, statuses)
 }
 
 func statusMCPSummary(servers map[string]config.MCPServer) string {
@@ -202,6 +236,44 @@ func statusMCPSummary(servers map[string]config.MCPServer) string {
 		suffix = fmt.Sprintf(" +%d", len(names)-maxNames)
 	}
 	return fmt.Sprintf("%d configured: %s%s", len(names), strings.Join(shown, ", "), suffix)
+}
+
+func statusMCPLiveSummary(servers map[string]config.MCPServer, statuses []stadoruntime.MCPServerStatus) (string, string) {
+	if len(servers) == 0 && len(statuses) == 0 {
+		return "0 configured", "text"
+	}
+	configured := len(servers)
+	if configured == 0 {
+		configured = len(statuses)
+	}
+	allowed := map[string]struct{}{}
+	for name := range servers {
+		allowed[name] = struct{}{}
+	}
+	connected := 0
+	tools := 0
+	var firstErr string
+	for _, st := range statuses {
+		if len(allowed) > 0 {
+			if _, ok := allowed[st.Name]; !ok {
+				continue
+			}
+		}
+		if st.Connected {
+			connected++
+			tools += st.ToolCount
+		}
+		if firstErr == "" && strings.TrimSpace(st.Error) != "" {
+			firstErr = st.Error
+		}
+	}
+	if firstErr != "" {
+		return fmt.Sprintf("%d configured; %d connected; last error: %s", configured, connected, trimSeed(firstErr, 88)), "error"
+	}
+	if connected == 0 && configured > 0 {
+		return fmt.Sprintf("%d configured; 0 connected", configured), "muted"
+	}
+	return fmt.Sprintf("%d configured; %d connected; %d tools", configured, connected, tools), "text"
 }
 
 func (m *Model) statusTraceID() string {

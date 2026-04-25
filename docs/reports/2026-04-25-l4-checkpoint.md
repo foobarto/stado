@@ -107,6 +107,9 @@ spawn/adoption slices and the local worker dogfood pass.
   missing, set, or not required by a local preset.
 - `/status` now summarizes configured MCP server names without probing
   or starting MCP clients.
+- `/status` now also uses cached snapshots for background-plugin
+  lifecycle issues and MCP attach health, including connected/tool
+  counts and the latest attach error, without probing during render.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.
@@ -169,8 +172,9 @@ spawn/adoption slices and the local worker dogfood pass.
   repo-shaped symbol scanners.
 - EP-22 now records the scoped theme catalog and picker work as
   implemented; future theme additions should be usage-led.
-- EP-23 now keeps status rows read-only with inline action hints; only
-  live plugin/MCP health snapshots remain open for the status modal.
+- EP-23 now keeps status rows read-only with inline action hints and
+  cached plugin/MCP health snapshots; focusable row actions remain
+  future workflow-led work.
 - EP-21 now records assistant turn metadata as display-only while
   `conversation.jsonl` remains the provider-message transcript.
 - EP-13 now records the current concurrency policy as part of the
@@ -220,6 +224,7 @@ spawn/adoption slices and the local worker dogfood pass.
   - `go test ./internal/tui`
   - `go test ./internal/tui/filepicker ./internal/tui`
   - `go test ./internal/runtime ./internal/subagent ./internal/headless ./internal/acp`
+  - `go test ./internal/runtime ./internal/tui -run 'Test(AttachMCP|JoinErrors|Status)'`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -273,8 +278,8 @@ repo-compatible Go toolchain at
   subagent spawn/adoption contract, EP-14's multi-session TUI policy
   docs, EP-19 model/provider picker, EP-20 inline context completion,
   EP-21 assistant turn metadata, and EP-22 theme catalog/picker are also
-  closed; EP-23's remaining question is narrowed to status snapshots.
-  LM Studio installed-vs-loaded model detection is also fixed.
+  closed, as is EP-23's read-only status modal scope. LM Studio
+  installed-vs-loaded model detection is also fixed.
 - Live worker dogfood completed against LM Studio
   `qwen/qwen3.6-35b-a3b`. The worker spawn, child isolation, CLI dry-run,
   and CLI apply path worked end-to-end. The run also exposed that the
@@ -291,3 +296,6 @@ repo-compatible Go toolchain at
    client consumes the subagent notification payload.
 2. If true concurrent child execution becomes a priority, write a
    separate scheduler EP instead of extending EP-13 retroactively.
+3. Pick the next accepted-but-unimplemented Standards EP only when there
+   is a concrete user workflow to drive it; avoid speculative plugin or
+   provider product work.

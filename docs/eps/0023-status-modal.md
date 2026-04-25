@@ -2,11 +2,14 @@
 ep: 23
 title: TUI Status Modal
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [11, 17, 19, 22]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: Added cached plugin load/tick issue and MCP attach snapshots to close the read-only status modal scope.
   - date: 2026-04-25
     status: Partial
     note: Kept status rows read-only with inline action hints; focusable row actions are deferred until a concrete workflow needs them.
@@ -85,6 +88,16 @@ The MCP row summarizes configured server names from `config.toml`
 without connecting to them. It caps the displayed name list so the modal
 stays compact.
 
+After the runtime has attempted MCP attachment, the MCP row switches to
+the cached attach snapshot: configured count, connected count, attached
+tool count, and the latest attach error if one occurred. Rendering the
+modal never starts or reconnects MCP clients.
+
+The plugin row summarizes active background plugins and cached lifecycle
+state. It shows whether a background tick is running or queued and keeps
+the latest load/tick issue surfaced by the TUI plugin lifecycle. Rendering
+the modal never loads, ticks, or verifies plugins.
+
 When OTel is enabled and the TUI run context has a valid span context,
 the Extensions section includes the trace id for copy/paste into a
 collector or trace UI.
@@ -93,10 +106,14 @@ collector or trace UI.
 
 - Unit-style TUI tests cover slash opening, keybinding opening, closing,
   and expected rendered sections.
+- Unit-style TUI tests cover provider credential health, configured MCP
+  summaries, cached MCP live summaries, and cached plugin issue/tick
+  state.
+- Runtime tests cover MCP attach status snapshots for setup errors.
 - Existing tmux UAT continues to cover modal routing regressions around
   the shared command palette and help overlay.
 
 ## Open Questions
 
-- Should plugin and MCP rows include health/error details once those
-  subsystems expose stable status snapshots?
+- None for the read-only status modal. Focusable actions or live probes
+  should be designed separately when a concrete workflow needs them.

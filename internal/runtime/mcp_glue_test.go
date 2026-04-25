@@ -44,6 +44,21 @@ func TestAttachMCP_StdioRequiresCapabilities(t *testing.T) {
 	}
 }
 
+func TestAttachMCPStatusSnapshotRecordsErrors(t *testing.T) {
+	reg := tools.NewRegistry()
+	_ = attachMCP(reg, map[string]config.MCPServer{
+		"bogus": {Command: "/nonexistent/binary/should-fail"},
+	})
+
+	snap := MCPStatusSnapshot()
+	if len(snap) != 1 {
+		t.Fatalf("snapshot len = %d, want 1: %#v", len(snap), snap)
+	}
+	if snap[0].Name != "bogus" || snap[0].Connected || !strings.Contains(snap[0].Error, "capabilities are required") {
+		t.Fatalf("snapshot = %#v", snap[0])
+	}
+}
+
 func TestJoinErrors_FormatsMultiple(t *testing.T) {
 	errs := []error{errors.New("first"), errors.New("second")}
 	out := joinErrors(errs)

@@ -57,7 +57,7 @@ visible TUI workflow gaps:
 | Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
 | Turn metadata | Implemented | Assistant turn footers show compact metadata and can expand into token, cache, tool, and trace details. |
 | Themes | Implemented | Built-in picker, light/dark shortcuts, custom-theme rows, markdown style control, and a fourth bundled theme exist; future catalog entries are incremental. |
-| Status modal and LSP state | Partial | `/status` and `Ctrl+X S` show runtime health, provider credential health, configured MCP names, LSP readiness, action hints, and trace IDs; deeper live provider/plugin/MCP health remains future work. |
+| Status modal and LSP state | Implemented | `/status` and `Ctrl+X S` show runtime health, provider credential health, configured and cached-live MCP state, background-plugin lifecycle issues, LSP readiness, action hints, and trace IDs. |
 | Footer density | Implemented | Footer now includes cwd, branch, session identity, version, usage, cost, and command hint when width allows. |
 | tmux UAT harness | Implemented | Landing-view assertions are current and green. |
 
@@ -212,10 +212,10 @@ incrementally from real usage gaps.
 
 ### P2 — Polish And Parity
 
-7. **Add deeper live health details where snapshots expose them.**
-   EP-0023 now links rows to focused commands or remediation. Future
-   slices should add provider/plugin/MCP health detail once stable
-   snapshots expose it.
+7. **Keep status actions read-only until a workflow needs more.**
+   EP-0023 now includes cached plugin/MCP health snapshots while keeping
+   remediation in focused commands and config files. Add focusable row
+   actions only when a concrete workflow needs them.
 
 8. **Add trace-backed turn drilldowns separately if needed.**
    EP-0021 now treats assistant footer metadata as display-only and

@@ -55,6 +55,7 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 			if bp != nil {
 				slog.Info(note)
 			} else {
+				m.recordBackgroundPluginIssue(note)
 				m.appendBlock(block{kind: "system", body: note})
 			}
 		}
@@ -156,6 +157,7 @@ func (m *Model) tickBackgroundPluginsWithEvent(payload []byte) tea.Cmd {
 	active := m.backgroundPlugins
 	return func() tea.Msg {
 		survivors := active[:0:len(active)]
+		var issues []string
 		for _, bp := range active {
 			if bp.Host != nil {
 				if bridge := m.buildPluginBridge(bp.Name()); bridge != nil {
@@ -167,12 +169,21 @@ func (m *Model) tickBackgroundPluginsWithEvent(payload []byte) tea.Cmd {
 			unregister, err := bp.Tick(ctx)
 			cancel()
 			if err != nil || unregister {
+				name := "plugin"
+				if bp != nil && strings.TrimSpace(bp.Name()) != "" {
+					name = bp.Name()
+				}
+				if err != nil {
+					issues = append(issues, fmt.Sprintf("%s tick: %v", name, err))
+				} else {
+					issues = append(issues, fmt.Sprintf("%s unregistered itself during tick", name))
+				}
 				_ = bp.Close(context.Background())
 				continue
 			}
 			survivors = append(survivors, bp)
 		}
-		return backgroundTickResultMsg{survivors: survivors}
+		return backgroundTickResultMsg{survivors: survivors, issues: issues}
 	}
 }
 
@@ -192,6 +203,19 @@ func (m *Model) closeBackgroundPlugins(ctx context.Context) {
 // happens under the bubbletea event loop rather than racing with it.
 type backgroundTickResultMsg struct {
 	survivors []*pluginRuntime.BackgroundPlugin
+	issues    []string
+}
+
+func (m *Model) recordBackgroundPluginIssue(issue string) {
+	issue = strings.TrimSpace(issue)
+	if issue == "" {
+		return
+	}
+	m.backgroundPluginIssues = append(m.backgroundPluginIssues, issue)
+	const maxBackgroundPluginIssues = 3
+	if len(m.backgroundPluginIssues) > maxBackgroundPluginIssues {
+		m.backgroundPluginIssues = append([]string(nil), m.backgroundPluginIssues[len(m.backgroundPluginIssues)-maxBackgroundPluginIssues:]...)
+	}
 }
 
 type tuiApprovalBridge struct {
