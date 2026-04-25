@@ -77,13 +77,15 @@ subagent slice.
   different provider.
 - TUI session switching now blocks while background plugin ticks are
   running or queued, keeping in-process inactive sessions execution-free.
+- Inline `@` completion now groups root Markdown docs and `docs/**/*.md`
+  before ordinary file matches.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
-- Updated EP-13, EP-14, and `CHANGELOG.md` under Unreleased.
+- Updated EP-13, EP-14, EP-20, and `CHANGELOG.md` under Unreleased.
 
 ## Verification
 
@@ -102,6 +104,7 @@ subagent slice.
   - `go test ./internal/tui ./internal/runtime ./internal/subagent`
   - `go test ./internal/tui -run 'TestSwitchToSession'`
   - `go test ./internal/tui`
+  - `go test ./internal/tui/filepicker ./internal/tui`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:

@@ -61,6 +61,8 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added docs to inline `@` completion.** The TUI picker now groups root
+  Markdown docs and `docs/**/*.md` before ordinary file matches.
 - **Preserved per-session provider/model selection.** Switching TUI
   sessions now restores each session's selected provider and model, and
   invalidates the live provider when the restored provider differs.

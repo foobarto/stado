@@ -19,7 +19,7 @@ import (
 func filePickerModel(t *testing.T) (*Model, string) {
 	t.Helper()
 	dir := t.TempDir()
-	for _, p := range []string{"main.go", "pkg/util.go", "README.md"} {
+	for _, p := range []string{"main.go", "pkg/util.go", "README.md", "docs/guide.md"} {
 		full := filepath.Join(dir, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
@@ -207,6 +207,27 @@ func TestFilePicker_AtTriggerShowsSkillsAfterAgents(t *testing.T) {
 	}
 	if m.filePicker.Matches[3] != "bugfix" {
 		t.Fatalf("first non-agent match = %q, want bugfix (all matches: %v)", m.filePicker.Matches[3], m.filePicker.Matches)
+	}
+}
+
+func TestFilePicker_AtTriggerShowsDocsBeforeFiles(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be visible after typing '@'")
+	}
+	if len(m.filePicker.Matches) < 6 {
+		t.Fatalf("expected agents plus docs plus files, got %v", m.filePicker.Matches)
+	}
+	for i, want := range []string{"Do", "Plan", "BTW"} {
+		if m.filePicker.Matches[i] != want {
+			t.Fatalf("match %d = %q, want %q (all matches: %v)", i, m.filePicker.Matches[i], want, m.filePicker.Matches)
+		}
+	}
+	if m.filePicker.Matches[3] != "README.md" || m.filePicker.Matches[4] != "docs/guide.md" {
+		t.Fatalf("docs should appear after agents and before files: %v", m.filePicker.Matches)
 	}
 }
 

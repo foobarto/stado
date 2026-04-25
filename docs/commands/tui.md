@@ -188,8 +188,9 @@ removes the mention from the draft. Session rows come next; accepting a
 session-only mention switches to that session, while accepting a session
 inside a longer prompt inserts `session:<id>`. Skill rows inject the
 selected skill body into the conversation and remove the mention from
-the draft. File rows still insert the selected repo-relative path into
-the prompt.
+the draft. Doc rows surface root Markdown files and `docs/**/*.md`
+before ordinary files; accepting docs or files inserts the selected
+repo-relative path into the prompt.
 
 Completed assistant responses include a compact muted footer with the
 agent, model/provider, elapsed time, tool count, token delta, and cost

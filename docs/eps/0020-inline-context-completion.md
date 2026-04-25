@@ -7,6 +7,11 @@ type: Standards
 created: 2026-04-24
 see-also: [8, 13, 14]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: >
+      Root Markdown docs and docs/**/*.md now appear as grouped @ picker
+      doc rows before ordinary file results.
   - date: 2026-04-24
     status: Partial
     note: The TUI @ picker now groups built-in agents before repo files; sessions, symbols, docs, and skills remain future work.
@@ -70,12 +75,15 @@ session and consumes the mention. Accepting a session row inside a
 longer prompt inserts `session:<id>` instead of switching, so typed
 draft content is not silently moved to another session.
 
-Skill rows appear after sessions and before files. Accepting a skill
+Skill rows appear after sessions and before docs/files. Accepting a skill
 row injects the skill body using the same conversation behavior as
 `/skill:<name>`, then removes the `@query` fragment from the draft.
 
-Future rows should reuse the same typed candidate model for symbols and
-docs.
+Doc rows appear after skills and before ordinary file rows. The first
+docs slice indexes root Markdown/MDX files plus `docs/**/*.md` and
+`docs/**/*.mdx`, capped to keep the picker responsive. Accepting a doc
+row inserts the path, matching normal file-row behavior. Future symbol
+rows should reuse the same typed candidate model.
 
 ## Test strategy
 
