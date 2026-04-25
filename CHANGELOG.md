@@ -63,6 +63,9 @@ Plugins / Infra / Fixes.
 
 - **Added docs to inline `@` completion.** The TUI picker now groups root
   Markdown docs and `docs/**/*.md` before ordinary file matches.
+- **Added Go symbols to inline `@` completion.** Top-level Go
+  declarations now appear as symbol rows that insert `path:line`
+  references.
 - **Preserved per-session provider/model selection.** Switching TUI
   sessions now restores each session's selected provider and model, and
   invalidates the live provider when the restored provider differs.

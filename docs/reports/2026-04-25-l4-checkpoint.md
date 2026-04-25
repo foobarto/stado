@@ -79,6 +79,8 @@ subagent slice.
   running or queued, keeping in-process inactive sessions execution-free.
 - Inline `@` completion now groups root Markdown docs and `docs/**/*.md`
   before ordinary file matches.
+- Inline `@` completion now groups top-level Go symbols before ordinary
+  file matches and inserts `path:line` references.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.

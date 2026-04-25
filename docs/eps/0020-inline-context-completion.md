@@ -12,6 +12,11 @@ history:
     note: >
       Root Markdown docs and docs/**/*.md now appear as grouped @ picker
       doc rows before ordinary file results.
+  - date: 2026-04-25
+    status: Partial
+    note: >
+      Go top-level declarations now appear as grouped @ picker symbol rows
+      that insert file:line locations.
   - date: 2026-04-24
     status: Partial
     note: The TUI @ picker now groups built-in agents before repo files; sessions, symbols, docs, and skills remain future work.
@@ -79,11 +84,16 @@ Skill rows appear after sessions and before docs/files. Accepting a skill
 row injects the skill body using the same conversation behavior as
 `/skill:<name>`, then removes the `@query` fragment from the draft.
 
-Doc rows appear after skills and before ordinary file rows. The first
-docs slice indexes root Markdown/MDX files plus `docs/**/*.md` and
+Doc rows appear after skills and before symbol/file rows. The first docs
+slice indexes root Markdown/MDX files plus `docs/**/*.md` and
 `docs/**/*.mdx`, capped to keep the picker responsive. Accepting a doc
-row inserts the path, matching normal file-row behavior. Future symbol
-rows should reuse the same typed candidate model.
+row inserts the path, matching normal file-row behavior.
+
+Symbol rows appear after docs and before ordinary file rows. The first
+symbol slice indexes top-level Go declarations with `go/parser`, capped
+to keep the picker responsive. Accepting a symbol row inserts
+`path:line`, giving the model precise context without loading file
+contents.
 
 ## Test strategy
 

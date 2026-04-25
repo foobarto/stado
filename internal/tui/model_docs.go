@@ -32,7 +32,7 @@ func (m *Model) filePickerDocItems() []filepicker.Item {
 }
 
 func scanDocPaths(root string) []string {
-	const cap = 200
+	const limit = 200
 	var out []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -52,7 +52,7 @@ func scanDocPaths(root string) []string {
 			}
 			return nil
 		}
-		if len(out) >= cap {
+		if len(out) >= limit {
 			return filepath.SkipAll
 		}
 		rel, relErr := filepath.Rel(root, path)

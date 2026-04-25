@@ -95,10 +95,16 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 			Display: "docs/guide.md",
 			Meta:    "doc",
 		},
+		{
+			Kind:    KindSymbol,
+			ID:      "Run func main.go:3",
+			Display: "Run",
+			Meta:    "func  main.go:3",
+		},
 	})
 
 	if len(m.Matches) < 4 {
-		t.Fatalf("expected agent + session + skill + doc + file matches, got %v", m.Matches)
+		t.Fatalf("expected agent + session + skill + doc + symbol + file matches, got %v", m.Matches)
 	}
 	if m.Matches[0] != "Plan" {
 		t.Fatalf("first match = %q, want Plan", m.Matches[0])
@@ -115,6 +121,9 @@ func TestOpenWithItemsShowsAgentsBeforeFiles(t *testing.T) {
 	}
 	if m.Matches[3] != "docs/guide.md" {
 		t.Fatalf("fourth match = %q, want docs/guide.md", m.Matches[3])
+	}
+	if m.Matches[4] != "Run" {
+		t.Fatalf("fifth match = %q, want Run", m.Matches[4])
 	}
 }
 

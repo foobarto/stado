@@ -64,6 +64,7 @@ func (m *Model) filePickerContextItems() []filepicker.Item {
 	out = append(out, m.filePickerSessionItems()...)
 	out = append(out, m.filePickerSkillItems()...)
 	out = append(out, m.filePickerDocItems()...)
+	out = append(out, m.filePickerSymbolItems()...)
 	return out
 }
 

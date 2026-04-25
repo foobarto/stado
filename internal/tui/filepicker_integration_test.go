@@ -306,6 +306,27 @@ func TestFilePicker_NarrowsAsYouType(t *testing.T) {
 	}
 }
 
+func TestFilePicker_SymbolAcceptInsertsLocation(t *testing.T) {
+	m, _ := filePickerModel(t)
+	if err := os.WriteFile(filepath.Join(m.cwd, "symbols.go"), []byte("package x\n\nfunc Widget() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range "@Widget" {
+		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	item, ok := m.filePicker.SelectedItem()
+	if !ok || item.Kind != "symbol" || item.Display != "Widget" {
+		t.Fatalf("selected item = %+v, %v; want Widget symbol", item, ok)
+	}
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	if got := m.input.Value(); !strings.Contains(got, "symbols.go:3") {
+		t.Fatalf("symbol accept should insert file location, got %q", got)
+	}
+}
+
 // TestFilePicker_TabAcceptsSelection: pressing Tab while the picker
 // has a selection must replace the @-fragment with the path.
 func TestFilePicker_TabAcceptsSelection(t *testing.T) {
