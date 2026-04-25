@@ -92,7 +92,7 @@ var pluginInstallCmd = &cobra.Command{
 // copyDir copies files + regular dirs from src to dst. Symlinks and
 // specials are rejected — plugin packages should be plain files.
 func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0o750); err != nil {
+	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(src)
@@ -114,7 +114,7 @@ func copyDir(src, dst string) error {
 				return err
 			}
 		case info.Mode().IsRegular():
-			if err := copyPluginFile(from, to, info.Mode()); err != nil {
+			if err := copyPluginFile(from, to, installedPluginFileMode(info.Mode())); err != nil {
 				return err
 			}
 		default:
@@ -131,4 +131,13 @@ func copyPluginFile(src, dst string, mode os.FileMode) error {
 	}
 	defer func() { _ = in.Close() }()
 	return writeReaderToPath(dst, mode, in)
+}
+
+func installedPluginFileMode(mode os.FileMode) os.FileMode {
+	perm := mode.Perm() & 0o700
+	perm |= 0o600
+	if mode.Perm()&0o111 != 0 {
+		perm |= 0o100
+	}
+	return perm
 }

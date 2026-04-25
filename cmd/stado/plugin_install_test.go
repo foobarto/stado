@@ -108,6 +108,45 @@ func TestPluginInstall_WithSignerTOFU(t *testing.T) {
 	}
 }
 
+func TestPluginInstall_NormalizesInstalledPermissions(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPlugin(t, priv, pub, "demo", "1.0.0")
+	if err := os.Chmod(filepath.Join(src, "plugin.wasm"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	extraDir := filepath.Join(src, "bin")
+	if err := os.Mkdir(extraDir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extraDir, "helper.sh"), []byte("#!/bin/sh\n"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	pluginInstallSigner = hex.EncodeToString(pub)
+	defer func() { pluginInstallSigner = "" }()
+
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	dst := filepath.Join(cfg.StateDir(), "plugins", "demo-1.0.0")
+	assertPerm := func(path string, want os.FileMode) {
+		t.Helper()
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("%s mode = %04o, want %04o", path, got, want)
+		}
+	}
+	assertPerm(dst, 0o700)
+	assertPerm(filepath.Join(dst, "plugin.wasm"), 0o700)
+	assertPerm(filepath.Join(dst, "plugin.manifest.json"), 0o600)
+	assertPerm(filepath.Join(dst, "bin"), 0o700)
+	assertPerm(filepath.Join(dst, "bin", "helper.sh"), 0o700)
+}
+
 // TestPluginInstall_SignerMismatchRejected: provide a --signer whose
 // fingerprint doesn't match the manifest's author_pubkey_fpr.
 func TestPluginInstall_SignerMismatchRejected(t *testing.T) {

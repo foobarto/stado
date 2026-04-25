@@ -167,10 +167,14 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		return err
 	}
 	mode := info.Mode().Perm()
-	if mode == 0 {
-		mode = 0o644
+	return parentRoot.WriteFile(parentRel, data, adoptedFileMode(mode))
+}
+
+func adoptedFileMode(mode os.FileMode) os.FileMode {
+	if mode&0o111 != 0 {
+		return 0o755
 	}
-	return parentRoot.WriteFile(parentRel, data, mode)
+	return 0o644
 }
 
 func safeWorktreeRel(root, rel string) (string, error) {

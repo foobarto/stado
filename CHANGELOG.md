@@ -13,6 +13,13 @@ Plugins / Infra / Fixes.
   rooted helpers where practical, and intentional dynamic path/exec
   cases carry narrow `#nosec` justifications.
 
+### Fixes
+
+- **Normalized copied file permissions in trusted state transitions.**
+  Plugin installs now strip group/world permissions from package files,
+  and subagent adoption maps child file modes to git-style `0644` or
+  `0755` instead of preserving overly broad source modes.
+
 ## v0.24.0 — 2026-04-25
 
 ### Agent

@@ -229,6 +229,42 @@ func TestCopyChildChangeRejectsParentSymlinkSwap(t *testing.T) {
 	}
 }
 
+func TestCopyChildChangeNormalizesFileModes(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	if err := os.WriteFile(filepath.Join(child, "regular.txt"), []byte("regular"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(child, "regular.txt"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "script.sh"), []byte("#!/bin/sh\n"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(child, "script.sh"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyChildChange(parent, child, "regular.txt"); err != nil {
+		t.Fatalf("copy regular: %v", err)
+	}
+	if err := copyChildChange(parent, child, "script.sh"); err != nil {
+		t.Fatalf("copy executable: %v", err)
+	}
+	assertPerm := func(path string, want os.FileMode) {
+		t.Helper()
+		info, err := os.Stat(filepath.Join(parent, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("%s mode = %04o, want %04o", path, got, want)
+		}
+	}
+	assertPerm("regular.txt", 0o644)
+	assertPerm("script.sh", 0o755)
+}
+
 func commitCurrentTree(t *testing.T, sess *stadogit.Session, summary string) {
 	t.Helper()
 	tree, err := sess.BuildTreeFromDir(sess.WorktreePath)
