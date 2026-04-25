@@ -463,6 +463,82 @@ func TestStoreRejectsInvalidScope(t *testing.T) {
 	}
 }
 
+func TestStoreListRejectsLogSymlinkEscape(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	item := Item{
+		ID:         "mem_escape",
+		Scope:      "global",
+		Kind:       "fact",
+		Summary:    "Escaped memory",
+		Confidence: "approved",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	ev := event{
+		Type:      eventType,
+		Action:    "upsert",
+		ID:        item.ID,
+		Actor:     "test",
+		Timestamp: now,
+		Item:      &item,
+	}
+	raw, err := json.Marshal(ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "memory.jsonl")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	store := &Store{Path: path, Actor: "test"}
+	if _, err := store.List(context.Background()); err == nil {
+		t.Fatal("List should reject a memory log symlink that escapes its directory")
+	}
+}
+
+func TestStoreAppendRejectsLogSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	const outsideData = "outside\n"
+	if err := os.WriteFile(outside, []byte(outsideData), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "memory.jsonl")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	store := &Store{
+		Path:  path,
+		Actor: "test",
+		Now: func() time.Time {
+			return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+		},
+	}
+	raw, _ := json.Marshal(Item{
+		ID:      "mem_escape",
+		Scope:   "global",
+		Kind:    "fact",
+		Summary: "Escaped memory",
+	})
+	if err := store.Propose(context.Background(), raw); err == nil {
+		t.Fatal("Propose should reject a memory log symlink that escapes its directory")
+	}
+	gotOutside, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotOutside) != outsideData {
+		t.Fatalf("outside log was modified:\n%s", gotOutside)
+	}
+}
+
 func testStore(t *testing.T, now time.Time) *Store {
 	t.Helper()
 	return &Store{

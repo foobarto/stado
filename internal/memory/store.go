@@ -331,13 +331,13 @@ func (s *Store) Export(ctx context.Context) (Export, error) {
 }
 
 func (s *Store) append(ev event) error {
-	if s.Path == "" {
-		return errors.New("memory store path is empty")
+	root, name, err := s.storeRoot(true)
+	if err != nil {
+		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return fmt.Errorf("memory store: create dir: %w", err)
-	}
-	f, err := os.OpenFile(s.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	defer func() { _ = root.Close() }()
+
+	f, err := root.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("memory store: open append log: %w", err)
 	}
@@ -354,7 +354,16 @@ func (s *Store) append(ev event) error {
 
 func (s *Store) fold() (map[string]Item, error) {
 	items := make(map[string]Item)
-	f, err := os.Open(s.Path)
+	root, name, err := s.storeRoot(false)
+	if errors.Is(err, os.ErrNotExist) {
+		return items, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return items, nil
 	}
@@ -362,6 +371,11 @@ func (s *Store) fold() (map[string]Item, error) {
 		return nil, fmt.Errorf("memory store: open append log: %w", err)
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil {
+		return nil, fmt.Errorf("memory store: stat append log: %w", err)
+	} else if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("memory store is not a regular file: %s", s.Path)
+	}
 
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -426,6 +440,27 @@ func (s *Store) fold() (map[string]Item, error) {
 		return nil, fmt.Errorf("memory store: scan append log: %w", err)
 	}
 	return items, nil
+}
+
+func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
+	if strings.TrimSpace(s.Path) == "" {
+		return nil, "", errors.New("memory store path is empty")
+	}
+	dir := filepath.Dir(s.Path)
+	name := filepath.Base(s.Path)
+	if name == "." || name == ".." || name == string(filepath.Separator) || strings.Contains(name, "\x00") {
+		return nil, "", fmt.Errorf("invalid memory store path: %s", s.Path)
+	}
+	if createDir {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, "", fmt.Errorf("memory store: create dir: %w", err)
+		}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("memory store: open dir: %w", err)
+	}
+	return root, name, nil
 }
 
 func (s *Store) requireExisting(id string) error {

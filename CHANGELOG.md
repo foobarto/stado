@@ -6,6 +6,12 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Fixes
+
+- **Rooted memory log reads and appends.** Approved-memory storage now opens
+  its append log through `os.Root` scoped to the memory-store directory,
+  rejecting symlink escapes for read and append operations.
+
 ## v0.25.7 — 2026-04-26
 
 ### Infra
