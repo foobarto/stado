@@ -113,6 +113,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Refreshed the opencode TUI UAT backlog.** The report now reflects
+  the shipped L4 subagent, context completion, landing, status, turn
+  metadata, and theme slices and narrows the remaining work.
 - **Documented worker subagent update fields.** Headless/ACP docs and
   CLI help now describe `subagent` lifecycle payloads, worker
   `forkTree` / `changedFiles` / `scopeViolations` /

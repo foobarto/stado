@@ -116,6 +116,10 @@ subagent slice.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
+- The opencode TUI UAT follow-up report has been refreshed against the
+  current L4 slices so its backlog no longer lists already-shipped
+  subagent, docs/symbol completion, landing, status, turn metadata, and
+  theme work as missing.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
