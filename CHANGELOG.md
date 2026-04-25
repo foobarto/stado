@@ -82,6 +82,9 @@ Plugins / Infra / Fixes.
 - **Narrowed EP-23 status modal questions.** Status rows stay read-only
   with inline action hints; live plugin/MCP health snapshots remain the
   open status-modal question.
+- **Closed EP-21 assistant turn metadata.** Footer metadata is
+  documented as display-only while `conversation.jsonl` remains the
+  provider-message transcript.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

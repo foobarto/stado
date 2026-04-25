@@ -213,10 +213,11 @@ incrementally from real usage gaps.
    slices should add provider/plugin/MCP health detail once stable
    snapshots expose it.
 
-8. **Broaden expanded turn details from trace data.**
-   EP-0021 now has `Shift+Tab` expansion. Future slices can add richer
-   failed-tool summaries and external trace links when the telemetry
-   surface carries enough stable data.
+8. **Add trace-backed turn drilldowns separately if needed.**
+   EP-0021 now treats assistant footer metadata as display-only and
+   keeps `conversation.jsonl` as the provider-message transcript.
+   Future trace links or reconstructed metadata should live in a
+   separate audit/status feature.
 
 ## Do Not Copy Blindly
 

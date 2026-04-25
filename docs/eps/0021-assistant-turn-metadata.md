@@ -2,11 +2,14 @@
 ep: 21
 title: Assistant Turn Metadata
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [11, 13, 19]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: Footer metadata remains display-only and is not embedded in the provider-message transcript.
   - date: 2026-04-25
     status: Partial
     note: Assistant turn details now annotate requested tool calls with failed and rejected result counts when tool execution finishes.
@@ -63,9 +66,11 @@ deltas, cache read/write deltas, requested tool names, failed/rejected
 tool result counts, and a session trace command hint when a git session
 is active. The same key still expands tool-call bodies.
 
-Future work should add a richer status modal for provider/plugin/MCP
-health and decide whether persisted transcripts should store footer
-metadata directly.
+Footer metadata is display-only and is intentionally not embedded in
+`.stado/conversation.jsonl`, which remains the provider-message
+transcript used for prompt replay. Future trace-backed metadata
+reconstruction can be added as a separate audit/status feature without
+changing this EP's chat-log contract.
 
 ## Test strategy
 
@@ -76,5 +81,4 @@ metadata directly.
 
 ## Open questions
 
-- Should persisted transcripts store footer metadata or reconstruct it
-  from trace refs on resume?
+- None.

@@ -167,6 +167,8 @@ subagent slice.
   implemented; future theme additions should be usage-led.
 - EP-23 now keeps status rows read-only with inline action hints; only
   live plugin/MCP health snapshots remain open for the status modal.
+- EP-21 now records assistant turn metadata as display-only while
+  `conversation.jsonl` remains the provider-message transcript.
 - The EP README status table now matches implemented EP-14 and EP-24
   frontmatter.
 - Headless/ACP command docs and CLI help now document the `subagent`
@@ -226,10 +228,11 @@ repo-compatible Go toolchain at
   state, persisted thinking display mode, resumed thinking blocks,
   failed/rejected tool-result metadata, config-backed bundled theme
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
-  TUI policy docs, EP-20 inline context completion, and EP-22 theme
-  catalog/picker are also closed, and EP-13/EP-23 open questions are
-  narrowed to concrete runtime-policy/status-snapshot gaps. LM Studio
-  installed-vs-loaded model detection is also fixed.
+  TUI policy docs, EP-20 inline context completion, EP-21 assistant turn
+  metadata, and EP-22 theme catalog/picker are also closed, and
+  EP-13/EP-23 open questions are narrowed to concrete
+  runtime-policy/status-snapshot gaps. LM Studio installed-vs-loaded
+  model detection is also fixed.
 - Live worker dogfood was attempted with local LM Studio auto-detect;
   fallback now skips installed-but-unloaded LM Studio models and reports
   the no-provider setup error until a local model is loaded.
