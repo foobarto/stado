@@ -62,7 +62,7 @@ var agentsListCmd = &cobra.Command{
 				seen[id] = true
 			}
 			for _, e := range entries {
-				if e.IsDir() && !seen[e.Name()] {
+				if e.IsDir() && !seen[e.Name()] && stadogit.ValidateSessionID(e.Name()) == nil {
 					ids = append(ids, e.Name())
 				}
 			}

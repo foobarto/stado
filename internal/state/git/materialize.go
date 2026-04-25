@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
@@ -58,13 +59,17 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 
 func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]bool) error {
 	for _, e := range tree.Entries {
-		full := filepath.Join(dir, e.Name)
+		name, err := materializeTreeEntryName(e.Name)
+		if err != nil {
+			return err
+		}
+		full := filepath.Join(dir, name)
 		kept[full] = true
 		switch e.Mode {
 		case filemode.Dir:
 			sub, err := object.GetTree(s.Sidecar.repo.Storer, e.Hash)
 			if err != nil {
-				return fmt.Errorf("materialize: subtree %s: %w", e.Name, err)
+				return fmt.Errorf("materialize: subtree %s: %w", name, err)
 			}
 			if err := os.MkdirAll(full, 0o750); err != nil {
 				return err
@@ -97,6 +102,15 @@ func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]b
 	}
 	kept[dir] = true // keep the dir itself when pruning
 	return nil
+}
+
+func materializeTreeEntryName(name string) (string, error) {
+	if name == "" || name == "." || name == ".." ||
+		!filepath.IsLocal(name) || filepath.Base(name) != name ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("materialize: invalid tree entry name %q", name)
+	}
+	return name, nil
 }
 
 func (s *Session) readBlob(hash plumbing.Hash) ([]byte, error) {

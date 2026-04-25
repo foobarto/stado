@@ -82,6 +82,18 @@ func TestForkPluginSession_RejectsRawCommitHash(t *testing.T) {
 	}
 }
 
+func TestForkPluginSession_RejectsMalformedTurnRef(t *testing.T) {
+	cfg, parentA, _ := forkPluginEnv(t)
+
+	_, err := ForkPluginSession(cfg, parentA, "turns/../../tree", "summary", "auto-compact")
+	if err == nil {
+		t.Fatal("expected malformed turn ref to fail")
+	}
+	if !strings.Contains(err.Error(), "turns/<N>") {
+		t.Fatalf("expected turns/<N> validation error, got %v", err)
+	}
+}
+
 func TestForkPluginSession_AcceptsOwnTurnRef(t *testing.T) {
 	cfg, parentA, _ := forkPluginEnv(t)
 

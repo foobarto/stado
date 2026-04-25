@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 )
 
 func TestMaterialize_RoundTrip(t *testing.T) {
@@ -111,6 +112,37 @@ func TestMaterialize_Replacing_PreservesStadoInternal(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, ".stado-pid")); err != nil {
 		t.Errorf(".stado-pid should be preserved: %v", err)
+	}
+}
+
+func TestMaterialize_RejectsEscapingTreeEntryName(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-escape", plumbing.ZeroHash)
+
+	payload := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(payload, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := sess.writeBlob(payload, false)
+	if err != nil {
+		t.Fatalf("writeBlob: %v", err)
+	}
+	tree, err := sess.entriesToTree([]treeEntry{{
+		name: "../escape.txt",
+		hash: blob,
+		mode: filemode.Regular,
+	}})
+	if err != nil {
+		t.Fatalf("entriesToTree: %v", err)
+	}
+
+	root := t.TempDir()
+	dst := filepath.Join(root, "dst")
+	if err := sess.MaterializeTreeToDir(tree, dst); err == nil {
+		t.Fatal("MaterializeTreeToDir succeeded for escaping tree entry")
+	}
+	if _, err := os.Stat(filepath.Join(root, "escape.txt")); !os.IsNotExist(err) {
+		t.Fatalf("escaping tree entry wrote outside destination: %v", err)
 	}
 }
 

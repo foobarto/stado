@@ -176,6 +176,9 @@ type TurnEntry struct {
 // standalone `stado session tree` subcommand. Returns an empty slice
 // for sessions with no turn tags yet (not an error).
 func (s *Sidecar) ListTurnRefs(sessionID string) ([]TurnEntry, error) {
+	if err := ValidateSessionID(sessionID); err != nil {
+		return nil, err
+	}
 	prefix := "refs/sessions/" + sessionID + "/turns/"
 	iter, err := s.repo.References()
 	if err != nil {
@@ -229,6 +232,9 @@ func (s *Sidecar) ListTurnRefs(sessionID string) ([]TurnEntry, error) {
 // "really deleted something" from "idempotent no-op on an already-gone
 // session" without paying the cost of a second iter after the delete.
 func (s *Sidecar) SessionHasRefs(id string) (bool, error) {
+	if err := ValidateSessionID(id); err != nil {
+		return false, err
+	}
 	prefix := "refs/sessions/" + id + "/"
 	iter, err := s.repo.References()
 	if err != nil {
@@ -249,6 +255,9 @@ func (s *Sidecar) SessionHasRefs(id string) (bool, error) {
 // DeleteSessionRefs removes every ref under refs/sessions/<id>/. Idempotent —
 // missing refs are ignored.
 func (s *Sidecar) DeleteSessionRefs(id string) error {
+	if err := ValidateSessionID(id); err != nil {
+		return err
+	}
 	prefix := "refs/sessions/" + id + "/"
 	iter, err := s.repo.References()
 	if err != nil {

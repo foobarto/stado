@@ -28,6 +28,9 @@ type CompactionMarker struct {
 // are skipped. Returns an empty slice + nil error when the session
 // has no compactions (common).
 func (s *Sidecar) ListCompactions(sessionID string) ([]CompactionMarker, error) {
+	if err := ValidateSessionID(sessionID); err != nil {
+		return nil, err
+	}
 	head, err := s.ResolveRef(TreeRef(sessionID))
 	if err != nil {
 		return nil, nil

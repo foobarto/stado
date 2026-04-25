@@ -180,6 +180,12 @@ func TestResolveTurnRefRejectsBadInput(t *testing.T) {
 	if _, err := resolveTurnRef(sc, "whatever", "abc"); err == nil {
 		t.Error("expected error for short non-turns target")
 	}
+	if _, err := resolveTurnRef(sc, "whatever", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"); err == nil {
+		t.Error("expected error for malformed full hash")
+	}
+	if _, err := resolveTurnRef(sc, "whatever", "turns/../../tree"); err == nil {
+		t.Error("expected error for malformed turns target")
+	}
 
 	// turns/... on a session that doesn't exist → tag-not-found.
 	if _, err := resolveTurnRef(sc, "nonexistent-session", "turns/1"); err == nil {

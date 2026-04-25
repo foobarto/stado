@@ -135,14 +135,14 @@ func listSessionIDs(worktreeRoot string, sc *stadogit.Sidecar) (map[string]struc
 		}
 		rest := strings.TrimPrefix(name, prefix)
 		id := strings.Split(rest, "/")[0]
-		if id != "" {
+		if stadogit.ValidateSessionID(id) == nil {
 			ids[id] = struct{}{}
 		}
 		return nil
 	})
 	if entries, err := os.ReadDir(worktreeRoot); err == nil {
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() && stadogit.ValidateSessionID(e.Name()) == nil {
 				ids[e.Name()] = struct{}{}
 			}
 		}

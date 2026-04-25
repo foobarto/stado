@@ -77,7 +77,7 @@ var sessionListCmd = &cobra.Command{
 				seen[id] = true
 			}
 			for _, e := range entries {
-				if e.IsDir() && !seen[e.Name()] {
+				if e.IsDir() && !seen[e.Name()] && stadogit.ValidateSessionID(e.Name()) == nil {
 					ids = append(ids, e.Name())
 				}
 			}
@@ -181,6 +181,9 @@ var sessionGCCmd = &cobra.Command{
 			}
 			for _, e := range entries {
 				if e.IsDir() {
+					if stadogit.ValidateSessionID(e.Name()) != nil {
+						continue
+					}
 					if runtime.ReadUserRepoPin(filepath.Join(cfg.WorktreeDir(), e.Name())) != currentRepo {
 						continue
 					}
@@ -579,13 +582,27 @@ var sessionLandCmd = &cobra.Command{
 
 		// The sidecar alternates means objects for `head` are reachable in the
 		// user repo's object store too. We only need to create the ref.
-		refName := plumbing.ReferenceName("refs/heads/" + branch)
+		refName, err := branchRefName(branch)
+		if err != nil {
+			return err
+		}
 		if err := userRepo.Storer.SetReference(plumbing.NewHashReference(refName, head)); err != nil {
 			return fmt.Errorf("land: set %s: %w", refName, err)
 		}
 		fmt.Fprintf(os.Stderr, "landed %s → %s @ %s\n", id, refName, head.String()[:12])
 		return nil
 	},
+}
+
+func branchRefName(branch string) (plumbing.ReferenceName, error) {
+	if strings.TrimSpace(branch) == "" {
+		return "", fmt.Errorf("land: branch name required")
+	}
+	refName := plumbing.ReferenceName("refs/heads/" + branch)
+	if err := refName.Validate(); err != nil {
+		return "", fmt.Errorf("land: invalid branch name %q: %w", branch, err)
+	}
+	return refName, nil
 }
 
 func init() {

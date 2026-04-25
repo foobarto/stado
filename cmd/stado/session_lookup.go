@@ -42,6 +42,9 @@ func completeSessionIDs(cmd *cobra.Command, args []string, toComplete string) ([
 			continue
 		}
 		id := e.Name()
+		if stadogit.ValidateSessionID(id) != nil {
+			continue
+		}
 		if toComplete != "" && !strings.HasPrefix(id, toComplete) {
 			continue
 		}
@@ -86,7 +89,7 @@ func resolveSessionID(cfg *config.Config, q string) (string, error) {
 	}
 	var ids []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && stadogit.ValidateSessionID(e.Name()) == nil {
 			ids = append(ids, e.Name())
 		}
 	}
@@ -203,8 +206,8 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 }
 
 func worktreePathForID(root, id string) (string, error) {
-	if id == "" || !filepath.IsLocal(id) || filepath.Base(id) != id {
-		return "", fmt.Errorf("invalid session id %q", id)
+	if err := stadogit.ValidateSessionID(id); err != nil {
+		return "", err
 	}
 	wt := filepath.Join(root, id)
 	return wt, nil
@@ -242,6 +245,9 @@ func listSessions(sc *stadogit.Sidecar) ([]string, error) {
 		}
 		rest := strings.TrimPrefix(name, prefix)
 		id := strings.Split(rest, "/")[0]
+		if stadogit.ValidateSessionID(id) != nil {
+			return nil
+		}
 		seen[id] = struct{}{}
 		return nil
 	})

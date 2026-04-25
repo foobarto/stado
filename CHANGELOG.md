@@ -15,6 +15,14 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Rejected malformed tree entries during session materialization.**
+  Session fork/revert materialization now refuses raw Git tree entry
+  names that would escape the destination worktree before joining them
+  to filesystem paths.
+- **Tightened session and Git ref validation.** Session IDs from refs
+  and worktree listings are filtered before filesystem probes, turn-ref
+  lookups parse numeric `turns/<N>` targets, raw commit lookups require
+  valid 40-hex hashes, and `session land` rejects invalid branch names.
 - **Normalized copied file permissions in trusted state transitions.**
   Plugin installs now strip group/world permissions from package files,
   and subagent adoption maps child file modes to git-style `0644` or

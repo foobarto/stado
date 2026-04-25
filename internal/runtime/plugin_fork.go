@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -81,15 +82,26 @@ func ForkPluginSession(cfg *config.Config, parent *stadogit.Session, atTurnRef, 
 }
 
 func resolvePluginForkRef(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
+	if err := stadogit.ValidateSessionID(srcID); err != nil {
+		return plumbing.ZeroHash, err
+	}
 	sessionTurns := "refs/sessions/" + srcID + "/turns/"
 	switch {
 	case strings.HasPrefix(target, "refs/sessions/"):
 		if !strings.HasPrefix(target, sessionTurns) {
 			return plumbing.ZeroHash, fmt.Errorf("plugin fork refs must stay within session %s turn refs", srcID)
 		}
-		return sc.ResolveRef(plumbing.ReferenceName(target))
+		n, err := strconv.Atoi(strings.TrimPrefix(target, sessionTurns))
+		if err != nil || n < 1 {
+			return plumbing.ZeroHash, fmt.Errorf("pass refs/sessions/%s/turns/<N> with N >= 1, got %q", srcID, target)
+		}
+		return sc.ResolveRef(stadogit.TurnTagRef(srcID, n))
 	case strings.HasPrefix(target, "turns/"):
-		return sc.ResolveRef(plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target))
+		n, err := strconv.Atoi(strings.TrimPrefix(target, "turns/"))
+		if err != nil || n < 1 {
+			return plumbing.ZeroHash, fmt.Errorf("pass turns/<N> with N >= 1, got %q", target)
+		}
+		return sc.ResolveRef(stadogit.TurnTagRef(srcID, n))
 	default:
 		return plumbing.ZeroHash, fmt.Errorf("pass turns/<N> or refs/sessions/%s/turns/<N>, got %q", srcID, target)
 	}

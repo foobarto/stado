@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -220,7 +221,14 @@ func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash
 // canonical user-facing turn identifier syntax.
 func resolveTurnRef(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, error) {
 	if strings.HasPrefix(target, "turns/") {
-		ref := plumbing.ReferenceName("refs/sessions/" + srcID + "/" + target)
+		if err := stadogit.ValidateSessionID(srcID); err != nil {
+			return plumbing.ZeroHash, err
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(target, "turns/"))
+		if err != nil || n < 1 {
+			return plumbing.ZeroHash, fmt.Errorf("pass turns/<N> with N >= 1, got %q", target)
+		}
+		ref := stadogit.TurnTagRef(srcID, n)
 		h, err := sc.ResolveRef(ref)
 		if err != nil {
 			return plumbing.ZeroHash, fmt.Errorf("%s: tag not found in session %s: %w", target, srcID, err)
@@ -228,7 +236,7 @@ func resolveTurnRef(sc *stadogit.Sidecar, srcID, target string) (plumbing.Hash, 
 		return h, nil
 	}
 	// Treat as raw hash or prefix. v1: only accept full 40-char hashes.
-	if len(target) < 40 {
+	if !plumbing.IsHash(target) {
 		return plumbing.ZeroHash, fmt.Errorf("pass a full 40-char commit sha or turns/<N>, got %q", target)
 	}
 	return plumbing.NewHash(target), nil

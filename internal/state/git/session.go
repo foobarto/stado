@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -77,7 +78,7 @@ type CommitEvent struct {
 // parentTree: optional hash to initialise tree-ref at (e.g. a fork point). Zero
 // hash means start from no parent.
 func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree plumbing.Hash) (*Session, error) {
-	if err := validateSessionID(sessionID); err != nil {
+	if err := ValidateSessionID(sessionID); err != nil {
 		return nil, err
 	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
@@ -102,7 +103,7 @@ func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree 
 // OpenSession loads an existing session's state by ID. Worktree directory must
 // already exist; the refs may or may not exist yet.
 func OpenSession(sidecar *Sidecar, worktreeRoot, sessionID string) (*Session, error) {
-	if err := validateSessionID(sessionID); err != nil {
+	if err := ValidateSessionID(sessionID); err != nil {
 		return nil, err
 	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
@@ -196,11 +197,13 @@ func (s *Session) signature(when time.Time) object.Signature {
 	}
 }
 
-func validateSessionID(sessionID string) error {
+func ValidateSessionID(sessionID string) error {
 	if sessionID == "" {
 		return errors.New("git: session id required")
 	}
-	if sessionID == "." || sessionID == ".." || filepath.IsAbs(sessionID) || filepath.Base(sessionID) != sessionID {
+	if sessionID == "." || sessionID == ".." ||
+		!filepath.IsLocal(sessionID) || filepath.Base(sessionID) != sessionID ||
+		strings.ContainsAny(sessionID, `/\`) {
 		return fmt.Errorf("git: invalid session id %q", sessionID)
 	}
 	return nil

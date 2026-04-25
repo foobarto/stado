@@ -119,6 +119,9 @@ func liveOwningPID(worktreeDir string) (int, bool) {
 // refuse to render when one source is absent.
 func SummariseSession(worktreeRoot string, sc *stadogit.Sidecar, id string) SessionSummary {
 	r := SessionSummary{ID: id, Status: "detached"}
+	if err := stadogit.ValidateSessionID(id); err != nil {
+		return r
+	}
 	wt := filepath.Join(worktreeRoot, id)
 	if _, err := os.Stat(wt); err == nil {
 		r.Status = "idle"

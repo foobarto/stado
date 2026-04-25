@@ -53,6 +53,19 @@ func TestAgentsKill_RejectsTraversalID(t *testing.T) {
 	}
 }
 
+func TestSessionLand_RejectsInvalidBranchName(t *testing.T) {
+	for _, branch := range []string{"", "../escape", "bad..name", "bad\nname", `bad\name`} {
+		if _, err := branchRefName(branch); err == nil {
+			t.Fatalf("branchRefName(%q) succeeded, want error", branch)
+		}
+	}
+	if got, err := branchRefName("feature/hardening"); err != nil {
+		t.Fatalf("valid branch rejected: %v", err)
+	} else if string(got) != "refs/heads/feature/hardening" {
+		t.Fatalf("branch ref = %q", got)
+	}
+}
+
 func TestPluginRun_RejectsTraversalID(t *testing.T) {
 	_ = isolatedHome(t)
 	err := pluginRunCmd.RunE(pluginRunCmd, []string{"../escape", "compact"})

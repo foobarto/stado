@@ -88,6 +88,17 @@ func TestRefNames(t *testing.T) {
 	}
 }
 
+func TestValidateSessionIDRejectsPathLikeIDs(t *testing.T) {
+	for _, id := range []string{"", ".", "..", "../escape", "nested/id", `nested\id`} {
+		if err := ValidateSessionID(id); err == nil {
+			t.Fatalf("ValidateSessionID(%q) succeeded, want error", id)
+		}
+	}
+	if err := ValidateSessionID("session-123"); err != nil {
+		t.Fatalf("ValidateSessionID valid id: %v", err)
+	}
+}
+
 func TestCommitToTrace_EmptyTreeAndChain(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	sess, err := CreateSession(sc, filepath.Join(sc.Path, "..", "wt"), "s1", plumbing.ZeroHash)
