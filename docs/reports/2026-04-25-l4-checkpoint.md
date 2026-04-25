@@ -122,6 +122,8 @@ spawn/adoption slices and the local worker dogfood pass.
   retrieval.
 - `stado learning stale` now detects approved lessons with missing
   evidence files and can mark them candidate for review with `--apply`.
+- `stado learning export` now emits folded lesson-only JSON for local
+  audit and recovery.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

@@ -91,6 +91,7 @@ func newLearningCmd() *cobra.Command {
 		newLearningSupersedeCmd(),
 		newLearningDocumentCmd(),
 		newLearningStaleCmd(),
+		newLearningExportCmd(),
 	)
 	return cmd
 }
@@ -234,6 +235,24 @@ func newLearningStaleCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&opts.Apply, "apply", false, "Mark stale approved lessons candidate for review")
 	return cmd
+}
+
+func newLearningExportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export",
+		Short: "Export folded lesson items as JSON",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := openMemoryStore()
+			if err != nil {
+				return err
+			}
+			items, err := store.List(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), memory.Export{Items: filterLessons(items)})
+		},
+	}
 }
 
 func addLearningEditFlags(cmd *cobra.Command, opts *learningEditOptions) {

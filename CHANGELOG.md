@@ -210,6 +210,8 @@ Plugins / Infra / Fixes.
 - **Added stale lesson file checks.** `stado learning stale` now finds
   approved lessons that cite missing evidence files; `--apply` marks
   them candidate for review so they stop being retrieved.
+- **Added lesson-only export.** `stado learning export` now emits folded
+  lesson items as local JSON for audit and recovery workflows.
 
 ### Docs
 

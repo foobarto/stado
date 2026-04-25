@@ -108,6 +108,39 @@ func TestLearningCLI_ProposeRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_ExportJSONFiltersLessons(t *testing.T) {
+	store := setupMemoryEnv(t)
+	lesson := proposeLearningTestLesson(t, store, "Export only lesson items")
+	ordinary := memory.Item{
+		ID:         "mem_export_filter",
+		Scope:      "global",
+		Kind:       "fact",
+		Summary:    "Ordinary memory should not appear",
+		Confidence: "approved",
+	}
+	raw, _ := json.Marshal(memory.UpdateRequest{Action: "upsert", Item: &ordinary})
+	if err := store.Update(context.Background(), raw); err != nil {
+		t.Fatalf("upsert ordinary memory: %v", err)
+	}
+
+	exportCmd := newLearningExportCmd()
+	out := captureStdout(t, func() {
+		if err := exportCmd.RunE(exportCmd, nil); err != nil {
+			t.Fatalf("learning export: %v", err)
+		}
+	})
+	var exported memory.Export
+	if err := json.Unmarshal([]byte(out), &exported); err != nil {
+		t.Fatalf("export JSON: %v\n%s", err, out)
+	}
+	if len(exported.Items) != 1 || exported.Items[0].ID != lesson.ID {
+		t.Fatalf("unexpected learning export: %+v", exported)
+	}
+	if !memory.IsLesson(exported.Items[0]) {
+		t.Fatalf("exported non-lesson item: %+v", exported.Items[0])
+	}
+}
+
 func TestLearningCLI_ProposeUsesSessionWorktreeRepoPin(t *testing.T) {
 	store := setupMemoryEnv(t)
 	root := t.TempDir()

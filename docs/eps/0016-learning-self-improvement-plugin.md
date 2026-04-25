@@ -39,6 +39,11 @@ history:
       Added `stado learning stale` to find approved lessons that cite
       deleted evidence files and optionally mark them candidate for
       review.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added `stado learning export` as a lesson-only local JSON
+      audit/recovery export; signed sync bundles remain future work.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -236,6 +241,8 @@ writing a Markdown note under `.learnings/` and rejecting the lesson from
 retrieval.
 `stado learning stale` dry-runs deleted evidence-file detection and
 `--apply` marks affected approved lessons back to `candidate` review.
+`stado learning export` provides a lesson-only folded JSON export for
+local audit and recovery.
 
 Approved lessons are retrieved through the same opt-in memory config but
 rendered in a separate "Operational lessons" prompt section. Global
@@ -268,8 +275,6 @@ automatic lesson capture is not shipped in this first release.
 - How should the plugin detect "heavily rewritten" files for
   invalidation without expensive history analysis? Deleted evidence
   files are handled by `stado learning stale`.
-- Should exported lessons be portable between machines by default, or
-  require an explicit signed export bundle?
 
 ## Decision log
 
@@ -344,6 +349,15 @@ automatic lesson capture is not shipped in this first release.
   first implementation.
 - **Why:** deleted files are cheap and deterministic to detect. Heavy
   rewrite detection needs a separate threshold and history policy.
+
+### D9. Lesson export is local JSON first
+
+- **Decided:** `stado learning export` emits folded lesson items as
+  plain JSON for local audit/recovery.
+- **Alternatives:** define signed portable lesson bundles now.
+- **Why:** EP-15 already leaves signed sync bundles as future work. The
+  first learning export should stay consistent with the local memory
+  export and avoid promising cross-machine trust semantics.
 
 ## Related
 

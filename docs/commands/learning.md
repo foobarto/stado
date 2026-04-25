@@ -37,6 +37,7 @@ stado learning supersede lesson_... \
 stado learning document lesson_...
 stado learning stale
 stado learning stale --apply
+stado learning export > lessons.json
 ```
 
 Use `--scope global`, `--scope repo`, or `--scope session`. Repo scope
@@ -57,6 +58,7 @@ scope requires `--session-id`.
 | `stado learning delete <id>` | Remove a lesson from the folded active view |
 | `stado learning document <id>` | Write the lesson to `.learnings/` and reject it from prompt retrieval |
 | `stado learning stale [--apply]` | Find approved lessons that cite missing evidence files; `--apply` marks them candidate for review |
+| `stado learning export` | Export folded lesson items as JSON |
 
 ## Notes
 
@@ -75,3 +77,7 @@ retrieved for prompts.
 lessons whose evidence names repo-relative files that no longer exist in
 the current worktree. `--apply` marks those lessons `candidate` for
 review so they stop being retrieved until re-approved.
+
+`stado learning export` emits a lesson-only JSON export from the same
+folded store as `stado memory export`. It is a local audit/recovery
+format, not a signed sync bundle.
