@@ -144,6 +144,39 @@ func TestConversation_FilePermissionsArePrivate(t *testing.T) {
 	}
 }
 
+func TestConversationLoadRejectsLogSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte(`{"role":"user","content":[{"type":"text","text":"outside"}]}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wt, ".stado"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wt, ConversationFile)); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := LoadConversation(wt); err == nil {
+		t.Fatal("LoadConversation should reject a conversation log symlink that escapes the worktree")
+	}
+}
+
+func TestConversationAppendRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	wt := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(wt, ".stado")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := AppendMessage(wt, agent.Text(agent.RoleUser, "outside")); err == nil {
+		t.Fatal("AppendMessage should reject a .stado symlink that escapes the worktree")
+	}
+	if _, err := os.Stat(filepath.Join(outsideDir, filepath.Base(ConversationFile))); !os.IsNotExist(err) {
+		t.Fatalf("outside conversation log was created or stat failed unexpectedly: %v", err)
+	}
+}
+
 func TestConversation_CompactionEventIsAppendOnlyAndFoldsView(t *testing.T) {
 	wt := t.TempDir()
 	for _, text := range []string{"turn 1", "turn 2", "turn 3"} {

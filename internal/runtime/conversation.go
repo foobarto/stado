@@ -95,15 +95,13 @@ func AppendCompaction(worktree string, ev ConversationCompaction) error {
 }
 
 func appendConversationRecord(worktree string, v any) error {
-	if worktree == "" {
-		return errors.New("conversation: worktree required")
+	root, name, err := conversationRoot(worktree, true)
+	if err != nil {
+		return err
 	}
-	dir := filepath.Join(worktree, ".stado")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
-	}
+	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) // #nosec G304 -- conversation log path is fixed inside the session worktree.
+	f, err := root.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("conversation: open %s: %w", path, err)
 	}
@@ -127,8 +125,16 @@ func LoadConversation(worktree string) ([]agent.Message, error) {
 	if worktree == "" {
 		return nil, nil
 	}
+	root, name, err := conversationRoot(worktree, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := os.Open(path) // #nosec G304 -- conversation log path is fixed inside the session worktree.
+	f, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -150,21 +156,19 @@ func LoadConversation(worktree string) ([]agent.Message, error) {
 // truncated conversation. A missing `.stado/` dir is created on the
 // fly — symmetric with AppendMessage.
 func WriteConversation(worktree string, msgs []agent.Message) error {
-	if worktree == "" {
-		return errors.New("conversation: worktree required")
+	root, name, err := conversationRoot(worktree, true)
+	if err != nil {
+		return err
 	}
-	dir := filepath.Join(worktree, ".stado")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
-	}
+	defer func() { _ = root.Close() }()
 	final := filepath.Join(worktree, ConversationFile)
-	if info, err := os.Stat(final); err == nil && info.Size() > 0 {
+	if info, err := root.Stat(name); err == nil && info.Size() > 0 {
 		return fmt.Errorf("conversation: refusing to replace non-empty append-only log %s", final)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("conversation: stat %s: %w", final, err)
 	}
-	tmp := final + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- temporary conversation path is fixed inside the session worktree.
+	tmp := name + ".tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("conversation: open tmp: %w", err)
 	}
@@ -173,15 +177,15 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 	for i, m := range msgs {
 		if err := enc.Encode(m); err != nil {
 			_ = f.Close()
-			_ = os.Remove(tmp)
+			_ = root.Remove(tmp)
 			return fmt.Errorf("conversation: encode msg %d: %w", i, err)
 		}
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
+		_ = root.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, final)
+	return root.Rename(tmp, name)
 }
 
 // ConversationLogSHA returns a sha256 digest of the raw append-only JSONL
@@ -191,8 +195,17 @@ func ConversationLogSHA(worktree string) (string, error) {
 	if worktree == "" {
 		return "", errors.New("conversation: worktree required")
 	}
+	root, name, err := conversationRoot(worktree, false)
+	if errors.Is(err, os.ErrNotExist) {
+		sum := sha256.Sum256(nil)
+		return "sha256:" + hex.EncodeToString(sum[:]), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	data, err := os.ReadFile(path) // #nosec G304 -- conversation log path is fixed inside the session worktree.
+	data, err := root.ReadFile(name)
 	if errors.Is(err, os.ErrNotExist) {
 		data = nil
 	} else if err != nil {
@@ -200,6 +213,27 @@ func ConversationLogSHA(worktree string) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func conversationRoot(worktree string, createDir bool) (*os.Root, string, error) {
+	if worktree == "" {
+		return nil, "", errors.New("conversation: worktree required")
+	}
+	workRoot, err := os.OpenRoot(worktree)
+	if err != nil {
+		return nil, "", fmt.Errorf("conversation: open worktree %s: %w", worktree, err)
+	}
+	defer func() { _ = workRoot.Close() }()
+	if createDir {
+		if err := workRoot.MkdirAll(".stado", 0o700); err != nil {
+			return nil, "", fmt.Errorf("conversation: mkdir %s: %w", filepath.Join(worktree, ".stado"), err)
+		}
+	}
+	root, err := workRoot.OpenRoot(".stado")
+	if err != nil {
+		return nil, "", fmt.Errorf("conversation: open %s: %w", filepath.Join(worktree, ".stado"), err)
+	}
+	return root, filepath.Base(ConversationFile), nil
 }
 
 func decodeMessages(r io.Reader) ([]agent.Message, error) {
