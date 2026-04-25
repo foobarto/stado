@@ -26,6 +26,9 @@ subagent slice.
 - Parent-triggered cancellation is covered at runtime and headless
   boundaries: cancelling the parent cancels the child and emits a
   finished/error subagent event.
+- EP-13 now defines the future write-capable worker contract:
+  `role=worker`, `mode=workspace_write`, required `write_scope`,
+  child-only writes, conflict checks, and explicit adoption.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -52,8 +55,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Define the write-capable worker contract: ownership scopes, conflict
-   checks, merge/adoption surface, and review flow.
+1. Implement write-scope validation helpers and tests before exposing
+   `workspace_write`.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

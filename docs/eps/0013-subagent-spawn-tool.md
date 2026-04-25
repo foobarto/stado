@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Documented the write-capable worker contract: explicit ownership scopes, child-only writes, conflict checks, and no auto-adoption.
+  - date: 2026-04-25
+    status: Partial
     note: Added the first spawn_agent implementation: synchronous read-only child sessions with explicit child audit/conversation state.
   - date: 2026-04-24
     status: Placeholder
@@ -140,9 +143,75 @@ The first executable rollout is read-only and synchronous. Write-capable
 children require a follow-up contract for ownership enforcement, conflict
 detection, result adoption, and cancellation.
 
+Next write-capable worker contract:
+
+- Request shape extends the existing tool instead of adding a new tool:
+
+```json
+{
+  "prompt": "bounded implementation task",
+  "role": "worker",
+  "mode": "workspace_write",
+  "ownership": "human-readable responsibility statement",
+  "write_scope": ["internal/foo/**", "docs/foo.md"],
+  "max_turns": 6,
+  "timeout_seconds": 180
+}
+```
+
+- `role=worker` and `mode=workspace_write` are valid only when
+  `write_scope` is non-empty. Free-form `ownership` remains required
+  for the model-facing task summary, but enforcement uses
+  `write_scope`, not prose.
+- `write_scope` entries are repo-relative path or glob patterns. They
+  must stay inside the child worktree and must not target `.git`,
+  `.stado`, the sidecar repository, or parent/session metadata outside
+  the declared scope.
+- The child still forks from the parent tree head. Parent state is never
+  modified while the child runs.
+- The first write-capable implementation should expose read/search tools
+  plus scoped `write` / `edit` / structured code-mod tools. Shell/exec
+  should remain unavailable until there is a separate scoped exec policy;
+  shell commands are too broad to enforce reliably through path checks
+  alone.
+- Runtime enforcement must happen below the model prompt: mutating tools
+  must reject writes outside `write_scope`, even if the child prompt
+  asks for them.
+- Recursive `spawn_agent` remains disabled for write-capable children in
+  the first implementation.
+
+Conflict and adoption contract:
+
+- A write-capable child returns a structured result with `status`,
+  `child_session`, `worktree`, `summary`, `changed_files`, and
+  `scope_violations` if any were attempted.
+- The parent receives only the result. Child edits remain in the child
+  session until a separate user-visible adoption step.
+- There is no automatic merge into the parent session. Adoption should
+  be an explicit future command/tool that computes a diff from the
+  fork point and applies it only after conflict checks.
+- Adoption conflict check: if the parent tree changed a path touched by
+  the child since the fork point, adoption blocks and reports the path
+  list. The user can inspect the child session, fork again, or manually
+  land/rebase.
+- If a child attempts writes outside `write_scope`, the offending tool
+  call is rejected, recorded in the child trace, and reflected in
+  `scope_violations`. The child session itself remains valid.
+
+Review flow:
+
+- TUI: show the child notice with changed-file count and attach command;
+  do not switch sessions automatically.
+- Headless: include `changed_files` and `scope_violations` in the
+  finished `subagent` notification when available.
+- CLI/run: print the structured tool result; users inspect or land the
+  child through normal session commands.
+
 ## Failure modes
 
 - Child agent conflicts with parent or another child.
+- Write-capable worker writes outside its declared scope.
+- Parent adopts child changes over newer parent edits.
 - Child agent runs too long or consumes too much budget.
 - Parent trusts a child result without enough provenance.
 - Tool-call audit becomes hard to follow across child sessions.
@@ -160,11 +229,11 @@ detection, result adoption, and cancellation.
   the finished/error subagent notification.
 - Future runtime tests for write-scope rejection.
 - Integration tests for parent/child transcript persistence.
+- Future adoption tests that simulate parent/child edits to the same
+  path and assert adoption blocks with a conflict list.
 
 ## Open questions
 
-- Write-capable children: how should write ownership be represented and
-  enforced?
 - How many children can run concurrently?
 - How are child results summarized without losing critical details?
 - Should TUI display a dedicated subagent activity view instead of only

@@ -24,6 +24,9 @@ Plugins / Infra / Fixes.
 - **Pinned parent cancellation for spawned agents.** Runtime and
   headless tests now assert that cancelling the parent operation cancels
   the running child and emits a finished/error subagent event.
+- **Documented the write-capable subagent contract.** EP-13 now defines
+  future worker-mode ownership scopes, write-scope enforcement, conflict
+  checks, and explicit adoption semantics.
 
 ## v0.23.1 — 2026-04-25
 
