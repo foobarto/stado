@@ -65,6 +65,7 @@ signs:
       - "--output-certificate=${certificate}"
       - "--output-signature=${signature}"
       - "--new-bundle-format=false"
+      - "--use-signing-config=false"
       - "--yes"
       - "${artifact}"
     artifacts: checksum

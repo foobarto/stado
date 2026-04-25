@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.4 — 2026-04-25
+
+### Infra
+
+- **Disabled cosign v3's signing-config path for legacy checksum
+  signatures.** Release checksum signing now keeps the existing
+  `checksums.txt.sig` and `checksums.txt.cert` artifacts while using
+  cosign v3.
+
 ## v0.25.3 — 2026-04-25
 
 ### Infra
