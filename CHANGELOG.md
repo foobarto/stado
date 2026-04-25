@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.7 — 2026-04-26
+
 ### Infra
 
 - **Updated SLSA provenance generation to v2.1.0.** Release provenance now
