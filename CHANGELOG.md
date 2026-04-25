@@ -6,6 +6,8 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.24.0 — 2026-04-25
+
 ### Agent
 
 - **Added a first read-only `spawn_agent` slice.** The parent model can
