@@ -48,6 +48,10 @@ Plugins / Infra / Fixes.
 - **Exposed explicit session adoption.** `stado session adopt` now
   dry-runs child-to-parent adoption by default, supports `--apply`, and
   reports conflicts before mutating the parent.
+- **Exposed scoped worker subagents.** `spawn_agent` now accepts
+  `role=worker`, `mode=workspace_write`, required `ownership`, and
+  normalized `write_scope`; TUI/headless surfaces report worker changed
+  files and scope violations for explicit adoption.
 
 ## v0.23.1 — 2026-04-25
 

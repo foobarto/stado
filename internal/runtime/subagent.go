@@ -40,15 +40,18 @@ type SubagentRunner struct {
 // SubagentEvent is emitted at child lifecycle boundaries so outer
 // orchestration surfaces can notify users without parsing tool JSON.
 type SubagentEvent struct {
-	Phase          string
-	ParentSession  string
-	ChildSession   string
-	Worktree       string
-	Role           string
-	Mode           string
-	Status         string
-	TimeoutSeconds int
-	Error          string
+	Phase           string
+	ParentSession   string
+	ChildSession    string
+	Worktree        string
+	Role            string
+	Mode            string
+	Status          string
+	TimeoutSeconds  int
+	ForkTree        string
+	ChangedFiles    []string
+	ScopeViolations []string
+	Error           string
 }
 
 func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
@@ -143,7 +146,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 				Turn:     child.Turn(),
 				Error:    err.Error(),
 			})
-			r.emitSubagentEvent(req, child, "finished", result.Status, result.Error)
+			r.emitSubagentResultEvent(req, child, result)
 			return result, nil
 		}
 		err = fmt.Errorf("spawn_agent: child %s: %w", child.ID, err)
@@ -157,7 +160,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
 		return subagent.Result{}, err
 	}
-	r.emitSubagentEvent(req, child, "finished", result.Status, "")
+	r.emitSubagentResultEvent(req, child, result)
 	return result, nil
 }
 
@@ -209,6 +212,30 @@ func (r SubagentRunner) emitSubagentEvent(req subagent.Request, child *stadogit.
 		Status:         status,
 		TimeoutSeconds: req.TimeoutSeconds,
 		Error:          errMsg,
+	})
+}
+
+func (r SubagentRunner) emitSubagentResultEvent(req subagent.Request, child *stadogit.Session, result subagent.Result) {
+	if r.OnEvent == nil || child == nil {
+		return
+	}
+	parentID := ""
+	if r.Parent != nil {
+		parentID = r.Parent.ID
+	}
+	r.OnEvent(SubagentEvent{
+		Phase:           "finished",
+		ParentSession:   parentID,
+		ChildSession:    child.ID,
+		Worktree:        child.WorktreePath,
+		Role:            req.Role,
+		Mode:            req.Mode,
+		Status:          result.Status,
+		TimeoutSeconds:  req.TimeoutSeconds,
+		ForkTree:        result.ForkTree,
+		ChangedFiles:    append([]string(nil), result.ChangedFiles...),
+		ScopeViolations: append([]string(nil), result.ScopeViolations...),
+		Error:           result.Error,
 	})
 }
 

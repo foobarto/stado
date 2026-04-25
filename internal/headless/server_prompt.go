@@ -194,6 +194,15 @@ func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) 
 	if ev.Error != "" {
 		payload["error"] = ev.Error
 	}
+	if ev.ForkTree != "" {
+		payload["forkTree"] = ev.ForkTree
+	}
+	if len(ev.ChangedFiles) > 0 {
+		payload["changedFiles"] = append([]string(nil), ev.ChangedFiles...)
+	}
+	if len(ev.ScopeViolations) > 0 {
+		payload["scopeViolations"] = append([]string(nil), ev.ScopeViolations...)
+	}
 	_ = s.conn.Notify("session.update", payload)
 }
 

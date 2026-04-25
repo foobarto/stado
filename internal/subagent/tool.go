@@ -72,7 +72,7 @@ type Tool struct{}
 func (Tool) Name() string { return ToolName }
 
 func (Tool) Description() string {
-	return "Spawn a bounded read-only sidecar agent for parallel repo investigation. Returns the child session id and concise findings."
+	return "Spawn a bounded child agent for parallel repo work. Supports read-only explorers and scoped workspace_write workers whose changes stay in the child session until explicit adoption."
 }
 
 func (Tool) Schema() map[string]any {
@@ -87,19 +87,26 @@ func (Tool) Schema() map[string]any {
 			},
 			"role": map[string]any{
 				"type":        "string",
-				"description": "Child role. Only explorer is executable in this release.",
-				"enum":        []string{"explorer"},
+				"description": "Child role. Use explorer with read_only, or worker with workspace_write.",
+				"enum":        []string{DefaultRole, WorkerRole},
 				"default":     DefaultRole,
 			},
 			"mode": map[string]any{
 				"type":        "string",
-				"description": "Execution mode. Only read_only is executable in this release.",
-				"enum":        []string{DefaultMode},
+				"description": "Execution mode. workspace_write requires role=worker, ownership, and non-empty write_scope.",
+				"enum":        []string{DefaultMode, WorkspaceWriteMode},
 				"default":     DefaultMode,
 			},
 			"ownership": map[string]any{
 				"type":        "string",
-				"description": "Optional file/module scope the child owns for investigation.",
+				"description": "Human-readable file/module responsibility. Required for workspace_write workers.",
+			},
+			"write_scope": map[string]any{
+				"type":        "array",
+				"description": "Repo-relative path or glob scopes a workspace_write worker may edit. Required for workspace_write.",
+				"items": map[string]any{
+					"type": "string",
+				},
 			},
 			"max_turns": map[string]any{
 				"type":        "integer",
@@ -165,14 +172,21 @@ func DecodeRequest(raw json.RawMessage) (Request, error) {
 	if req.Role == "" {
 		req.Role = DefaultRole
 	}
-	if req.Role != DefaultRole {
-		return Request{}, fmt.Errorf("spawn_agent: role %q is not supported yet; use %q", req.Role, DefaultRole)
-	}
 	if req.Mode == "" {
 		req.Mode = DefaultMode
 	}
-	if req.Mode != DefaultMode {
-		return Request{}, fmt.Errorf("spawn_agent: mode %q is not supported yet; use %q", req.Mode, DefaultMode)
+	switch {
+	case req.Role == DefaultRole && req.Mode == DefaultMode:
+	case req.Role == WorkerRole && req.Mode == WorkspaceWriteMode:
+		if req.Ownership == "" {
+			return Request{}, fmt.Errorf("spawn_agent: ownership is required for %s", WorkspaceWriteMode)
+		}
+		if len(req.WriteScope) == 0 {
+			return Request{}, fmt.Errorf("spawn_agent: write_scope is required for %s", WorkspaceWriteMode)
+		}
+	default:
+		return Request{}, fmt.Errorf("spawn_agent: role %q with mode %q is not supported; use %s/%s or %s/%s",
+			req.Role, req.Mode, DefaultRole, DefaultMode, WorkerRole, WorkspaceWriteMode)
 	}
 	if req.MaxTurns <= 0 {
 		req.MaxTurns = DefaultTurns

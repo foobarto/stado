@@ -57,6 +57,13 @@ subagent slice.
   command. It dry-runs by default, accepts `--fork-tree` from the worker
   result, supports `--json`, and requires `--apply` before mutating the
   parent.
+- Exposed `role=worker`, `mode=workspace_write` in `spawn_agent` with
+  required `ownership` and normalized `write_scope`. Worker child writes
+  remain isolated in the child session until `stado session adopt`
+  applies them.
+- TUI worker notices now show changed-file and scope-violation counts plus
+  an adoption command. Headless finished subagent notifications include
+  `forkTree`, `changedFiles`, and `scopeViolations` when present.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -72,6 +79,7 @@ subagent slice.
   - `go test ./internal/subagent ./internal/runtime ./internal/state/git`
   - `go test ./internal/runtime`
   - `go test ./cmd/stado ./internal/runtime`
+  - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -89,8 +97,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Decide whether and how to expose `workspace_write` in `spawn_agent`
-   now that scoped execution and explicit adoption are available.
+1. Exercise the exposed worker flow in a manual dogfood run and refine
+   TUI/headless adoption ergonomics based on the transcript.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

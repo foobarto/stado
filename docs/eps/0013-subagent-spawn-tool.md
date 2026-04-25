@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Exposed role=worker / mode=workspace_write through spawn_agent with required ownership and write_scope.
+  - date: 2026-04-25
+    status: Partial
     note: Added the explicit session adopt command for dry-running or applying child changes.
   - date: 2026-04-25
     status: Partial
@@ -88,30 +91,34 @@ Tool request:
 }
 ```
 
-Only `role=explorer` and `mode=read_only` are executable in this slice.
-`max_turns` defaults to 6 and is capped at 12. `timeout_seconds`
-defaults to 180 and is capped at 900; zero means the default, not
-unlimited. Unsupported roles or write modes are rejected before any
-child session is created.
+`role=explorer` with `mode=read_only` runs a read-only child.
+`role=worker` with `mode=workspace_write` runs a scoped child that can
+use read/search plus `write` and `edit` inside `write_scope`. Worker
+mode requires non-empty `ownership` and `write_scope`. `max_turns`
+defaults to 6 and is capped at 12. `timeout_seconds` defaults to 180 and
+is capped at 900; zero means the default, not unlimited. Unsupported
+role/mode combinations are rejected before any child session is created.
 
 Execution model:
 
 - The parent tool call forks a normal child session from the parent tree
   head.
 - The child conversation is seeded with the requested task plus explicit
-  read-only instructions.
+  read-only or scoped-write instructions.
 - The child runs synchronously inside the parent tool call. This avoids
   parent-session re-entrancy and keeps the parent waiting for one
   deterministic tool result.
 - The child runs under its own timeout derived from `timeout_seconds`.
   Parent cancellation still cancels the child immediately.
-- The child executor removes mutating/exec tools and also removes
-  `spawn_agent`, so first-slice children cannot edit files, run shell
-  commands, or recursively spawn more children.
+- Read-only child executors remove mutating/exec tools and also remove
+  `spawn_agent`. Worker child executors keep read/search plus scoped
+  `write` and `edit`, and still remove shell/exec, network fetch, and
+  recursive `spawn_agent`.
 - The child result is returned as JSON containing status, role, mode,
   child session ID, worktree path, timeout, final text, message count,
-  and optional error. Child timeout returns `status: "timeout"` instead
-  of making the parent tool call fail, so the parent can reason about
+  optional worker `fork_tree`, `changed_files`, `scope_violations`, and
+  optional error. Child timeout returns `status: "timeout"` instead of
+  making the parent tool call fail, so the parent can reason about
   partial or missing findings and decide what to do next.
 
 Audit and persistence:
@@ -146,25 +153,27 @@ Surface notifications:
 
 The `finished` notification keeps the same identity fields and reports
 `status` as `completed`, `timeout`, or `error`; `error` is included only
-when present. These notifications are visibility only. The authoritative
-record remains the parent and child trace refs.
+when present. Worker finish notifications also include `forkTree`,
+`changedFiles`, and `scopeViolations` when available. These
+notifications are visibility only. The authoritative record remains the
+parent and child trace refs.
 
 Earlier TUI groundwork made agent selection explicit: `Ctrl+X A` and
 `/agents` open a picker for the built-in Do, Plan, and BTW agents. The
 runtime `spawn_agent` tool is separate from that picker for now. When a
 TUI parent receives a successful `spawn_agent` tool result, it also
-renders a system block with the child status, session ID, worktree, and
-attach command so the child is visible beyond the raw JSON tool result.
-Future UI work can surface child sessions in the same agent/session
-family.
+renders a system block with the child status, session ID, worktree,
+attach command, and, for worker children, changed-file counts and a
+`stado session adopt ... --apply` command. Future UI work can surface
+child sessions in the same agent/session family.
 
 ## Migration / rollout
 
-The first executable rollout is read-only and synchronous. Write-capable
-children require a follow-up contract for ownership enforcement, conflict
-detection, result adoption, and cancellation.
+The rollout started read-only and synchronous. The current write-capable
+worker rollout requires explicit ownership and write-scope enforcement,
+conflict detection, and explicit adoption.
 
-Next write-capable worker contract:
+Write-capable worker contract:
 
 - Request shape extends the existing tool instead of adding a new tool:
 
@@ -188,31 +197,23 @@ Next write-capable worker contract:
   must stay inside the child worktree and must not target `.git`,
   `.stado`, the sidecar repository, or parent/session metadata outside
   the declared scope.
-- Request decoding already normalizes future `write_scope` entries
-  before any `workspace_write` mode is exposed: it trims entries,
+- Request decoding normalizes `write_scope` entries: it trims entries,
   normalizes slash-separated paths, deduplicates in request order, and
   rejects empty entries, absolute paths, `..` traversal, backslash paths,
   repository-root scopes, and `.git` / `.stado` metadata segments.
 - The file mutating tools already honor an optional host-level
-  `WritePathGuard`. The future worker host wraps the normal tool host
-  with `ScopedWriteHost`, which resolves write targets through the
+  `WritePathGuard`. The worker host wraps the normal tool host with
+  `ScopedWriteHost`, which resolves write targets through the
   worktree boundary check, rejects symlink escapes and `.git` / `.stado`
   metadata targets, then matches the normalized target against
-  `write_scope`. This guard exists before `workspace_write` is exposed so
-  write enforcement is below prompt text and tool descriptions.
+  `write_scope`. Enforcement is below prompt text and tool descriptions.
 - The child still forks from the parent tree head. Parent state is never
   modified while the child runs.
-- The first write-capable implementation should expose read/search tools
-  plus scoped `write` / `edit` / structured code-mod tools. Shell/exec
-  should remain unavailable until there is a separate scoped exec policy;
-  shell commands are too broad to enforce reliably through path checks
-  alone.
-- The runtime now has an internal worker execution branch for this tool
-  set: read/search, LSP lookup, `write`, and `edit` are kept; shell,
-  `ast_grep`, network fetch, and recursive `spawn_agent` are removed.
-  This branch is reachable only by direct runtime calls while
-  `DecodeRequest` continues to reject `role=worker` /
-  `mode=workspace_write` from the public tool surface.
+- The write-capable implementation exposes read/search, LSP lookup,
+  `write`, and `edit`. Shell, `ast_grep`, network fetch, and recursive
+  `spawn_agent` are removed. Shell/exec should remain unavailable until
+  there is a separate scoped exec policy; shell commands are too broad
+  to enforce reliably through path checks alone.
 - Runtime enforcement must happen below the model prompt: mutating tools
   must reject writes outside `write_scope`, even if the child prompt
   asks for them.

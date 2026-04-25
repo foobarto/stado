@@ -1029,7 +1029,25 @@ func (m *Model) appendSubagentNotice(content string) {
 	if res.Worktree != "" {
 		body += "\n  worktree: " + res.Worktree
 	}
+	if len(res.ChangedFiles) > 0 {
+		body += fmt.Sprintf("\n  changed: %d file(s)", len(res.ChangedFiles))
+	}
+	if len(res.ScopeViolations) > 0 {
+		body += fmt.Sprintf("\n  scope violations: %d", len(res.ScopeViolations))
+	}
 	body += "\n  attach:  stado session attach " + res.ChildSession
+	if len(res.ChangedFiles) > 0 {
+		parentID := "<parent-session-id>"
+		if m.session != nil && m.session.ID != "" {
+			parentID = m.session.ID
+		}
+		adopt := "\n  adopt:   stado session adopt " + parentID + " " + res.ChildSession
+		if res.ForkTree != "" {
+			adopt += " --fork-tree " + res.ForkTree
+		}
+		adopt += " --apply"
+		body += adopt
+	}
 	m.appendBlock(block{kind: "system", body: body})
 }
 

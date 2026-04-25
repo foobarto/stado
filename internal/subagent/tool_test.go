@@ -59,23 +59,56 @@ func TestDecodeRequestRejectsWriteMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported mode error")
 	}
-	if !strings.Contains(err.Error(), "not supported yet") {
+	if !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("error = %v", err)
 	}
 }
 
-func TestDecodeRequestRejectsWorkspaceWriteUntilExposed(t *testing.T) {
-	_, err := DecodeRequest(json.RawMessage(`{
+func TestDecodeRequestAcceptsWorkspaceWriteWorker(t *testing.T) {
+	req, err := DecodeRequest(json.RawMessage(`{
 		"prompt": "edit files",
 		"role": "worker",
 		"mode": "workspace_write",
 		"ownership": "docs only",
+		"write_scope": [" docs/** ", "docs/**"]
+	}`))
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	if req.Role != WorkerRole || req.Mode != WorkspaceWriteMode {
+		t.Fatalf("role/mode = %s/%s", req.Role, req.Mode)
+	}
+	if want := []string{"docs/**"}; !reflect.DeepEqual(req.WriteScope, want) {
+		t.Fatalf("write_scope = %#v, want %#v", req.WriteScope, want)
+	}
+}
+
+func TestDecodeRequestRejectsWorkspaceWriteWithoutScope(t *testing.T) {
+	_, err := DecodeRequest(json.RawMessage(`{
+		"prompt": "edit files",
+		"role": "worker",
+		"mode": "workspace_write",
+		"ownership": "docs only"
+	}`))
+	if err == nil {
+		t.Fatal("expected missing write_scope error")
+	}
+	if !strings.Contains(err.Error(), "write_scope is required") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDecodeRequestRejectsWorkspaceWriteWithoutOwnership(t *testing.T) {
+	_, err := DecodeRequest(json.RawMessage(`{
+		"prompt": "edit files",
+		"role": "worker",
+		"mode": "workspace_write",
 		"write_scope": ["docs/**"]
 	}`))
 	if err == nil {
-		t.Fatal("expected unsupported role error")
+		t.Fatal("expected missing ownership error")
 	}
-	if !strings.Contains(err.Error(), "not supported yet") {
+	if !strings.Contains(err.Error(), "ownership is required") {
 		t.Fatalf("error = %v", err)
 	}
 }
