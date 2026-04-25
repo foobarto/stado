@@ -81,6 +81,12 @@ type Host interface {
 	RecordRead(key ReadKey, info PriorReadInfo)
 }
 
+// WritePathGuard is an optional host capability for mutating file tools.
+// Hosts that implement it can reject writes before the tool touches disk.
+type WritePathGuard interface {
+	CheckWritePath(path string) error
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes

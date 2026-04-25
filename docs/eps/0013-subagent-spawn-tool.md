@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added the scoped write host guard that future worker-mode write/edit tools must use.
+  - date: 2026-04-25
+    status: Partial
     note: Added write-scope request validation helpers for the future workspace_write rollout.
   - date: 2026-04-25
     status: Partial
@@ -175,6 +178,13 @@ Next write-capable worker contract:
   normalizes slash-separated paths, deduplicates in request order, and
   rejects empty entries, absolute paths, `..` traversal, backslash paths,
   repository-root scopes, and `.git` / `.stado` metadata segments.
+- The file mutating tools already honor an optional host-level
+  `WritePathGuard`. The future worker host wraps the normal tool host
+  with `ScopedWriteHost`, which resolves write targets through the
+  worktree boundary check, rejects symlink escapes and `.git` / `.stado`
+  metadata targets, then matches the normalized target against
+  `write_scope`. This guard exists before `workspace_write` is exposed so
+  write enforcement is below prompt text and tool descriptions.
 - The child still forks from the parent tree head. Parent state is never
   modified while the child runs.
 - The first write-capable implementation should expose read/search tools

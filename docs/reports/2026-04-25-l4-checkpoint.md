@@ -33,6 +33,11 @@ subagent slice.
   repo-relative path/glob scopes are trimmed, normalized, deduplicated,
   and rejected if they use absolute paths, traversal, backslashes,
   repository-root scopes, or `.git` / `.stado` metadata segments.
+- Added the host-level write-scope enforcement layer for future
+  `workspace_write`: `write` and `edit` honor `tool.WritePathGuard`, and
+  `subagent.ScopedWriteHost` checks normalized targets against
+  `write_scope` while rejecting symlink escapes and `.git` / `.stado`
+  metadata targets.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -43,6 +48,7 @@ subagent slice.
 - Focused packages passed:
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless ./cmd/stado`
   - `go test ./internal/subagent`
+  - `go test ./internal/subagent ./internal/tools/fs ./pkg/tool`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -60,8 +66,9 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Wire a scoped mutating-tool host for future `workspace_write` without
-   exposing the mode yet.
+1. Build the worker child executor path behind the existing
+   `workspace_write` rejection, so scoped write/edit can be integration
+   tested before exposure.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

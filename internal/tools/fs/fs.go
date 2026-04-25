@@ -174,6 +174,11 @@ func (WriteTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
+	if guard, ok := h.(tool.WritePathGuard); ok {
+		if err := guard.CheckWritePath(p.Path); err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
+	}
 	full, err := workdirpath.Resolve(h.Workdir(), p.Path, true)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -207,6 +212,11 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	var p EditArgs
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
+	}
+	if guard, ok := h.(tool.WritePathGuard); ok {
+		if err := guard.CheckWritePath(p.Path); err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
 	}
 	full, err := workdirpath.Resolve(h.Workdir(), p.Path, false)
 	if err != nil {

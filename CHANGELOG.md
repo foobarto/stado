@@ -30,6 +30,9 @@ Plugins / Infra / Fixes.
 - **Pinned subagent write-scope validation.** `spawn_agent` request
   decoding now normalizes and rejects unsafe future `write_scope`
   entries before worker mode is exposed.
+- **Added a scoped write guard for future subagents.** Mutating file
+  tools now honor an optional host-level write-path guard, and EP-13's
+  future worker host has a tested `ScopedWriteHost` implementation.
 
 ## v0.23.1 — 2026-04-25
 
