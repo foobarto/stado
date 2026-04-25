@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.21.1 — 2026-04-25
+
+### TUI
+
+- **Kept session identity visible in the footer.** The dense chat footer
+  now includes the active session label, or short session id when no
+  label exists, alongside cwd, branch, version, usage, cost, and command
+  hints.
+
 ## v0.21.0 — 2026-04-25
 
 ### TUI

@@ -10,6 +10,10 @@ history:
   - date: 2026-04-24
     status: Partial
     note: Chat status row now combines compact cwd, branch, version, usage, cost, and command hints.
+  - date: 2026-04-25
+    status: Partial
+    version: v0.21.1
+    note: Chat status row now includes the active session label, falling back to a short session id when unlabeled.
 ---
 
 # EP-24: TUI Footer Density
@@ -39,8 +43,8 @@ which reduces sidebar dependence and improves scan speed.
 
 The status row now has two segments:
 
-- Left: compact cwd, current branch or detached short SHA, and stado
-  version.
+- Left: compact cwd, current branch or detached short SHA, active
+  session label or short id, and stado version.
 - Right: busy/error/queue/budget state, tokens, cost, and `ctrl+p`
   command hint.
 
@@ -50,15 +54,13 @@ left segment is omitted and the right segment remains right-aligned.
 
 ## Test Strategy
 
-- UAT-style unit coverage asserts that cwd, branch, and command hints
-  coexist on a wide footer.
+- UAT-style unit coverage asserts that cwd, branch, session identity,
+  and command hints coexist on a wide footer.
 - Existing status-row tests continue to cover streaming, error, queued,
   cache, and cost signals.
 
 ## Open Questions
 
 - Should dirty-state be shown later?
-- Should the footer expose the active session label when it differs
-  from cwd?
 - Should cwd be relative to the user repo root instead of absolute or
   home-relative?

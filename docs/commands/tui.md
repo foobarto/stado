@@ -192,6 +192,11 @@ Completed assistant responses include a compact muted footer with the
 agent, model/provider, elapsed time, tool count, token delta, and cost
 delta for that turn when the provider reports usage.
 
+The bottom status row keeps cwd, branch, active session label or short
+session id, version, usage, cost, and command hints visible when there
+is enough width. On narrow terminals it drops the left context first and
+keeps the active state and usage side readable.
+
 Thinking blocks are display-controlled, not capture-controlled:
 `Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
 thinking. `/thinking show`, `/thinking tail`, and `/thinking hide` set a

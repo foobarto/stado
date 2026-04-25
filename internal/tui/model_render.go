@@ -646,6 +646,9 @@ func (m *Model) compactStatusLeft(maxW int) string {
 	if branch := currentGitBranch(m.cwd); branch != "" {
 		parts = append(parts, branch)
 	}
+	if session := m.compactStatusSession(); session != "" {
+		parts = append(parts, session)
+	}
 	if version.Version != "" {
 		parts = append(parts, version.Version)
 	}
@@ -660,6 +663,16 @@ func (m *Model) compactStatusCwd(width int) string {
 		}
 	}
 	return trimSeed(cwd, max(12, width))
+}
+
+func (m *Model) compactStatusSession() string {
+	if m.session == nil || m.session.ID == "" {
+		return ""
+	}
+	if label := runtime.ReadDescription(m.session.WorktreePath); label != "" {
+		return "sess " + label
+	}
+	return "sess " + shortSessionID(m.session.ID)
 }
 
 func currentGitBranch(cwd string) string {

@@ -22,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -393,16 +394,19 @@ func TestUAT_StatusRowRendersAllThreeSignalsTogether(t *testing.T) {
 }
 
 func TestUAT_StatusRowIncludesCwdBranchAndVersion(t *testing.T) {
-	m := scenarioModel(t)
+	m, _, _ := newSessionSwitchModel(t)
 	if err := os.Mkdir(filepath.Join(m.cwd, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(m.cwd, ".git", "HEAD"), []byte("ref: refs/heads/feature/status\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := runtime.WriteDescription(m.session.WorktreePath, "footer label"); err != nil {
+		t.Fatal(err)
+	}
 
 	got := m.renderStatus(160)
-	for _, want := range []string{filepath.Base(m.cwd), "feature/status", "ctrl+p"} {
+	for _, want := range []string{filepath.Base(m.cwd), "feature/status", "sess footer label", "ctrl+p"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("status missing %q in dense footer: %q", want, got)
 		}
