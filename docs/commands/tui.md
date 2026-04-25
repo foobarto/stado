@@ -82,11 +82,13 @@ human debugging, not a replacement for OTLP export.
 - `/theme` or `Ctrl+X T` opens the theme picker. `/theme <id>` switches
   directly. `/theme light`, `/theme dark`, and `/theme toggle` are
   shortcuts for quick mode changes.
-- Theme overrides live at `$XDG_CONFIG_HOME/stado/theme.toml`.
-  Selecting a bundled theme writes that file so the choice persists. If
-  the current override is a custom theme, the picker shows it as the
-  current custom row. Custom themes can set `[markdown].style` to
-  `auto`, `light`, or `dark`; `auto` follows background luminance.
+- Bundled theme selections persist as `[tui].theme` in
+  `$XDG_CONFIG_HOME/stado/config.toml`. Custom theme overrides still
+  live at `$XDG_CONFIG_HOME/stado/theme.toml` and are loaded when
+  `[tui].theme` is unset. If the current override is a custom theme, the
+  picker shows it as the current custom row. Custom themes can set
+  `[markdown].style` to `auto`, `light`, or `dark`; `auto` follows
+  background luminance.
 - Template overrides live at `$XDG_CONFIG_HOME/stado/templates/*.tmpl`.
 - Missing template files fall back to the bundled defaults, so you can
   override a single widget without copying the entire template set.
@@ -220,8 +222,9 @@ background plugin ticks.
 Thinking blocks are display-controlled, not capture-controlled:
 `Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
 thinking. `/thinking show`, `/thinking tail`, and `/thinking hide` set a
-specific mode. The toggle only affects the TUI viewport; provider-native
-thinking blocks are still preserved in the session transcript.
+specific mode and persist it to `[tui].thinking_display`. The toggle
+only affects the TUI viewport; provider-native thinking blocks are still
+preserved in the session transcript.
 
 ## Slash commands
 
@@ -240,7 +243,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, `stado-contrast`, and `stado-rose`; `/theme light`,
   `/theme dark`, and `/theme toggle` switch without opening the picker;
-  custom `theme.toml` overrides appear as the current custom row
+  bundled choices persist via `[tui].theme`; custom `theme.toml`
+  overrides appear as the current custom row
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
   provider credential health, LSP readiness, OTel, sandbox, and context,
   with next-step hints such as `/model`, `/tools`, `/plugin`, and
@@ -250,7 +254,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   for a named provider such as `lmstudio`, `openai`, or `anthropic`
 - `/providers` — active provider credential health plus detected local
   runners, with load/start hints when a runner has no models ready
-- `/thinking` — cycle thinking display; `/thinking show|tail|hide`
+- `/thinking` — cycle and persist thinking display;
+  `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview, including the

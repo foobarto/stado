@@ -146,6 +146,9 @@ subagent slice.
 - Bundled theme selections now persist as `[tui].theme` config keys;
   custom `theme.toml` remains the fallback path when no bundled theme is
   pinned.
+- TUI and slash-command docs now describe `[tui].theme`,
+  `[tui].thinking_display`, and custom `theme.toml` fallback behavior
+  consistently.
 - EP-14 now records the multi-session TUI policy and shape as
   implemented: active-session-only execution, confirmed full delete, and
   command-palette/session-overview management.
