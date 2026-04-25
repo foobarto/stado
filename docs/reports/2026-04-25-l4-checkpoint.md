@@ -49,6 +49,10 @@ subagent slice.
 - Added a dry-run adoption planner: `PlanSubagentAdoption` compares
   parent and child changed files against the fork tree, reports
   conflicts, and does not mutate either session.
+- Added internal adoption apply: `AdoptSubagentChanges` re-runs the
+  planner, refuses conflicts, copies only child changed files into the
+  parent worktree, supports child-side deletions, and commits
+  `subagent_adopt` trace/tree metadata.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -62,6 +66,7 @@ subagent slice.
   - `go test ./internal/subagent ./internal/tools/fs ./pkg/tool`
   - `go test ./internal/runtime ./internal/subagent`
   - `go test ./internal/subagent ./internal/runtime ./internal/state/git`
+  - `go test ./internal/runtime`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -79,8 +84,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Implement an explicit adoption apply path that copies non-conflicting
-   child changes into the parent and commits them with audit metadata.
+1. Add an explicit user-facing adoption command or gated tool surface for
+   worker child changes.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

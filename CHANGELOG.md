@@ -42,6 +42,9 @@ Plugins / Infra / Fixes.
 - **Added subagent adoption planning.** Runtime can now dry-run child
   adoption by comparing parent and child changes against the fork tree
   and reporting conflicts without mutating either session.
+- **Added internal subagent adoption apply.** Non-conflicting child
+  changes can now be copied into the parent worktree and recorded as
+  `subagent_adopt` trace/tree commits by an internal runtime helper.
 
 ## v0.23.1 — 2026-04-25
 

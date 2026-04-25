@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added an explicit runtime adoption apply helper for non-conflicting child changes.
+  - date: 2026-04-25
+    status: Partial
     note: Added a dry-run child adoption planner that reports parent/child conflicts before any apply step.
   - date: 2026-04-25
     status: Partial
@@ -236,6 +239,11 @@ Conflict and adoption contract:
   returns the child changed files, parent changed files, conflict list,
   and `can_adopt`, and does not mutate either session. This is the
   required gate before an apply/adopt command or tool is exposed.
+- The runtime also has `AdoptSubagentChanges`, which re-runs the plan,
+  refuses conflicts with a typed error, copies only the child changed
+  files into the parent worktree, supports child-side deletions, and
+  records `subagent_adopt` trace and tree commits on the parent. No
+  public command or tool invokes it yet.
 - If a child attempts writes outside `write_scope`, the offending tool
   call is rejected, recorded in the child trace, and reflected in
   `scope_violations`. The child session itself remains valid.

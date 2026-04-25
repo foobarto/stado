@@ -1,8 +1,12 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -13,13 +17,18 @@ import (
 // file changes back to its parent session.
 type SubagentAdoptionPlan struct {
 	CanAdopt           bool     `json:"can_adopt"`
+	Applied            bool     `json:"applied,omitempty"`
 	ForkTree           string   `json:"fork_tree,omitempty"`
 	ParentTree         string   `json:"parent_tree,omitempty"`
 	ChildTree          string   `json:"child_tree,omitempty"`
+	AdoptedTree        string   `json:"adopted_tree,omitempty"`
 	ChangedFiles       []string `json:"changed_files,omitempty"`
+	AdoptedFiles       []string `json:"adopted_files,omitempty"`
 	ParentChangedFiles []string `json:"parent_changed_files,omitempty"`
 	Conflicts          []string `json:"conflicts,omitempty"`
 }
+
+var ErrSubagentAdoptionConflict = errors.New("subagent adoption: conflicts")
 
 // PlanSubagentAdoption checks whether a child session's changed files can be
 // adopted into the parent without overwriting parent edits made since forkTree.
@@ -31,11 +40,11 @@ func PlanSubagentAdoption(parent, child *stadogit.Session, forkTree plumbing.Has
 	if child == nil || child.Sidecar == nil {
 		return SubagentAdoptionPlan{}, fmt.Errorf("subagent adoption: child session required")
 	}
-	parentTree, err := parent.CurrentTree()
+	parentTree, err := parent.BuildTreeFromDir(parent.WorktreePath)
 	if err != nil {
 		return SubagentAdoptionPlan{}, fmt.Errorf("subagent adoption: parent tree: %w", err)
 	}
-	childTree, err := child.CurrentTree()
+	childTree, err := child.BuildTreeFromDir(child.WorktreePath)
 	if err != nil {
 		return SubagentAdoptionPlan{}, fmt.Errorf("subagent adoption: child tree: %w", err)
 	}
@@ -61,6 +70,111 @@ func PlanSubagentAdoption(parent, child *stadogit.Session, forkTree plumbing.Has
 	}, nil
 }
 
+// AdoptSubagentChanges applies a conflict-free child adoption plan to the
+// parent worktree and records trace/tree commits. It never mutates the child.
+func AdoptSubagentChanges(parent, child *stadogit.Session, forkTree plumbing.Hash, agentName, model string) (SubagentAdoptionPlan, error) {
+	plan, err := PlanSubagentAdoption(parent, child, forkTree)
+	if err != nil {
+		return plan, err
+	}
+	if !plan.CanAdopt {
+		return plan, ErrSubagentAdoptionConflict
+	}
+	if len(plan.ChangedFiles) == 0 {
+		return plan, nil
+	}
+	for _, file := range plan.ChangedFiles {
+		if err := copyChildChange(parent.WorktreePath, child.WorktreePath, file); err != nil {
+			return plan, fmt.Errorf("subagent adoption: apply %s: %w", file, err)
+		}
+	}
+	adoptedTree, err := parent.BuildTreeFromDir(parent.WorktreePath)
+	if err != nil {
+		return plan, fmt.Errorf("subagent adoption: build adopted tree: %w", err)
+	}
+	if agentName == "" {
+		agentName = "stado-subagent-adopt"
+	}
+	meta := stadogit.CommitMeta{
+		Tool:     "subagent_adopt",
+		ShortArg: child.ID,
+		Summary:  fmt.Sprintf("adopt %d file(s) from child %s", len(plan.ChangedFiles), shortSessionID(child.ID)),
+		Model:    model,
+		Agent:    agentName,
+		Turn:     parent.Turn(),
+	}
+	if _, err := parent.CommitToTrace(meta); err != nil {
+		return plan, fmt.Errorf("subagent adoption: commit trace: %w", err)
+	}
+	if _, err := parent.CommitToTree(adoptedTree, meta); err != nil {
+		return plan, fmt.Errorf("subagent adoption: commit tree: %w", err)
+	}
+	plan.Applied = true
+	plan.AdoptedTree = hashString(adoptedTree)
+	plan.AdoptedFiles = append([]string(nil), plan.ChangedFiles...)
+	return plan, nil
+}
+
+func copyChildChange(parentWorktree, childWorktree, rel string) error {
+	parentPath, err := safeWorktreeRel(parentWorktree, rel)
+	if err != nil {
+		return err
+	}
+	childPath, err := safeWorktreeRel(childWorktree, rel)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(childPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if rmErr := os.RemoveAll(parentPath); rmErr != nil {
+			return rmErr
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("directories are not supported adoption targets")
+	}
+	if err := os.MkdirAll(filepath.Dir(parentPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(parentPath); err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(childPath)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, parentPath)
+	}
+	data, err := os.ReadFile(childPath)
+	if err != nil {
+		return err
+	}
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	return os.WriteFile(parentPath, data, mode)
+}
+
+func safeWorktreeRel(root, rel string) (string, error) {
+	if root == "" {
+		return "", fmt.Errorf("worktree root is required")
+	}
+	if rel == "" || rel == "." || filepath.IsAbs(rel) || strings.Contains(rel, "\x00") {
+		return "", fmt.Errorf("unsafe relative path %q", rel)
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsafe relative path %q", rel)
+	}
+	return filepath.Join(root, clean), nil
+}
+
 func intersectSorted(a, b []string) []string {
 	if len(a) == 0 || len(b) == 0 {
 		return nil
@@ -84,4 +198,11 @@ func hashString(hash plumbing.Hash) string {
 		return ""
 	}
 	return hash.String()
+}
+
+func shortSessionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
