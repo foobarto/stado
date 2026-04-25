@@ -59,3 +59,9 @@ event.
 Prompt retrieval is opt-in. Candidate, rejected, deleted, expired, and
 `secret` memories are never injected into prompts; they remain visible
 through review/export surfaces for auditability.
+
+Lesson items created by `stado learning` live in the same log with
+`memory_kind: "lesson"`. Approved lessons are retrieved separately from
+ordinary memory and rendered in an "Operational lessons" prompt section.
+Plain `memory:read` queries without `memory_kind` return ordinary memory
+only; callers must request `memory_kind: "lesson"` explicitly.

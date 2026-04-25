@@ -6,6 +6,20 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.19.0 — 2026-04-25
+
+### CLI
+
+- **Added explicit learning lesson capture.** `stado learning
+  propose/list/show` now records EP-16 lesson candidates in the
+  append-only memory store with required trigger and evidence metadata.
+
+### Prompt
+
+- **Separated approved lessons from ordinary memory.** Lessons with
+  `memory_kind: "lesson"` are retrieved through the opt-in memory path
+  and rendered under an "Operational lessons" prompt section.
+
 ## v0.18.0 — 2026-04-25
 
 ### CLI

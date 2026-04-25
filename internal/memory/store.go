@@ -19,12 +19,17 @@ const eventType = "memory"
 
 type Item struct {
 	ID          string    `json:"id"`
+	MemoryKind  string    `json:"memory_kind,omitempty"`
 	Scope       string    `json:"scope"`
 	RepoID      string    `json:"repo_id,omitempty"`
 	SessionID   string    `json:"session_id,omitempty"`
 	Kind        string    `json:"kind"`
 	Summary     string    `json:"summary"`
 	Body        string    `json:"body,omitempty"`
+	Lesson      string    `json:"lesson,omitempty"`
+	Trigger     string    `json:"trigger,omitempty"`
+	Rationale   string    `json:"rationale,omitempty"`
+	Evidence    Evidence  `json:"evidence,omitempty"`
 	Source      Source    `json:"source,omitempty"`
 	Confidence  string    `json:"confidence"`
 	Sensitivity string    `json:"sensitivity"`
@@ -33,6 +38,15 @@ type Item struct {
 	ExpiresAt   time.Time `json:"expires_at,omitempty"`
 	Supersedes  []string  `json:"supersedes,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+}
+
+type Evidence struct {
+	SessionID string   `json:"session_id,omitempty"`
+	Turns     []int    `json:"turns,omitempty"`
+	Commits   []string `json:"commits,omitempty"`
+	Tests     []string `json:"tests,omitempty"`
+	Files     []string `json:"files,omitempty"`
+	Notes     string   `json:"notes,omitempty"`
 }
 
 type Source struct {
@@ -55,6 +69,7 @@ type Query struct {
 	BudgetTokens  int      `json:"budget_tokens,omitempty"`
 	MaxItems      int      `json:"max_items,omitempty"`
 	AllowedScopes []string `json:"allowed_scopes,omitempty"`
+	MemoryKind    string   `json:"memory_kind,omitempty"`
 }
 
 type RankedItem struct {
@@ -218,8 +233,20 @@ func (s *Store) Query(_ context.Context, q Query) (QueryResult, error) {
 	}
 	candidates := make([]candidate, 0, len(items))
 	now := s.now()
+	memoryKind := strings.TrimSpace(strings.ToLower(q.MemoryKind))
+	if memoryKind == "" {
+		memoryKind = "memory"
+	}
+	switch memoryKind {
+	case "memory", "lesson":
+	default:
+		return QueryResult{}, fmt.Errorf("memory query: invalid memory_kind %q", q.MemoryKind)
+	}
 	for _, item := range items {
 		if item.Confidence != "approved" || item.Sensitivity == "secret" {
+			continue
+		}
+		if itemMemoryKind(item) != memoryKind {
 			continue
 		}
 		if !item.ExpiresAt.IsZero() && !item.ExpiresAt.After(now) {
@@ -420,8 +447,14 @@ func (s *Store) requireExistingItem(id string) (Item, error) {
 
 func (s *Store) prepareItem(item *Item) error {
 	now := s.now()
+	item.MemoryKind = strings.TrimSpace(strings.ToLower(item.MemoryKind))
+	switch item.MemoryKind {
+	case "", "memory", "lesson":
+	default:
+		return fmt.Errorf("invalid memory_kind %q", item.MemoryKind)
+	}
 	if item.ID == "" {
-		item.ID = newID(now)
+		item.ID = newID(now, itemIDPrefix(item.MemoryKind))
 	}
 	item.Scope = strings.TrimSpace(strings.ToLower(item.Scope))
 	if item.Scope == "" {
@@ -442,7 +475,11 @@ func (s *Store) prepareItem(item *Item) error {
 	}
 	item.Kind = strings.TrimSpace(strings.ToLower(item.Kind))
 	if item.Kind == "" {
-		item.Kind = "other"
+		if item.MemoryKind == "lesson" {
+			item.Kind = "lesson"
+		} else {
+			item.Kind = "other"
+		}
 	}
 	item.Confidence = strings.TrimSpace(strings.ToLower(item.Confidence))
 	switch item.Confidence {
@@ -462,6 +499,11 @@ func (s *Store) prepareItem(item *Item) error {
 	item.Summary = strings.TrimSpace(item.Summary)
 	if item.Summary == "" {
 		return errors.New("summary is required")
+	}
+	if item.MemoryKind == "lesson" {
+		if err := prepareLesson(item); err != nil {
+			return err
+		}
 	}
 	if item.CreatedAt.IsZero() {
 		item.CreatedAt = now
@@ -485,6 +527,49 @@ func (s *Store) actor() string {
 		return "stado"
 	}
 	return s.Actor
+}
+
+func prepareLesson(item *Item) error {
+	item.Body = strings.TrimSpace(item.Body)
+	item.Lesson = strings.TrimSpace(item.Lesson)
+	if item.Lesson == "" && item.Body != "" {
+		item.Lesson = item.Body
+	}
+	item.Trigger = strings.TrimSpace(item.Trigger)
+	item.Rationale = strings.TrimSpace(item.Rationale)
+	item.Evidence.Notes = strings.TrimSpace(item.Evidence.Notes)
+	if item.Lesson == "" {
+		return errors.New("lesson is required for lesson memory")
+	}
+	if item.Trigger == "" {
+		return errors.New("trigger is required for lesson memory")
+	}
+	item.Body = item.Lesson
+	if item.Evidence.empty() {
+		return errors.New("evidence is required for lesson memory")
+	}
+	return nil
+}
+
+func (e Evidence) empty() bool {
+	return e.SessionID == "" &&
+		len(e.Turns) == 0 &&
+		len(e.Commits) == 0 &&
+		len(e.Tests) == 0 &&
+		len(e.Files) == 0 &&
+		strings.TrimSpace(e.Notes) == ""
+}
+
+func IsLesson(item Item) bool {
+	return itemMemoryKind(item) == "lesson"
+}
+
+func itemMemoryKind(item Item) string {
+	switch strings.TrimSpace(strings.ToLower(item.MemoryKind)) {
+	case "lesson":
+		return "lesson"
+	}
+	return "memory"
 }
 
 func allowedScopes(scopes []string) map[string]bool {
@@ -519,7 +604,15 @@ func relevanceScore(item Item, prompt string) int {
 	if len(terms) == 0 {
 		return 0
 	}
-	haystack := strings.ToLower(item.Summary + "\n" + item.Body + "\n" + strings.Join(item.Tags, " "))
+	haystack := strings.ToLower(strings.Join([]string{
+		item.Summary,
+		item.Body,
+		item.Lesson,
+		item.Trigger,
+		item.Rationale,
+		strings.Join(item.Tags, " "),
+		evidenceText(item.Evidence),
+	}, "\n"))
 	score := 0
 	for _, term := range terms {
 		term = strings.Trim(term, ".,:;!?()[]{}\"'")
@@ -534,7 +627,16 @@ func relevanceScore(item Item, prompt string) int {
 }
 
 func estimateTokens(item Item) int {
-	n := len(item.Summary) + len(item.Body)
+	n := len(item.Summary)
+	if itemMemoryKind(item) == "lesson" {
+		lessonText := item.Lesson
+		if strings.TrimSpace(lessonText) == "" {
+			lessonText = item.Body
+		}
+		n += len(lessonText) + len(item.Trigger) + len(item.Rationale)
+	} else {
+		n += len(item.Body)
+	}
 	for _, tag := range item.Tags {
 		n += len(tag) + 1
 	}
@@ -544,10 +646,34 @@ func estimateTokens(item Item) int {
 	return (n + 3) / 4
 }
 
-func newID(now time.Time) string {
+func evidenceText(e Evidence) string {
+	var parts []string
+	if e.SessionID != "" {
+		parts = append(parts, e.SessionID)
+	}
+	for _, turn := range e.Turns {
+		parts = append(parts, fmt.Sprint(turn))
+	}
+	parts = append(parts, e.Commits...)
+	parts = append(parts, e.Tests...)
+	parts = append(parts, e.Files...)
+	if e.Notes != "" {
+		parts = append(parts, e.Notes)
+	}
+	return strings.Join(parts, " ")
+}
+
+func itemIDPrefix(memoryKind string) string {
+	if memoryKind == "lesson" {
+		return "lesson"
+	}
+	return "mem"
+}
+
+func newID(now time.Time, prefix string) string {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return fmt.Sprintf("mem_%d", now.UnixNano())
+		return fmt.Sprintf("%s_%d", prefix, now.UnixNano())
 	}
-	return fmt.Sprintf("mem_%d_%s", now.UnixNano(), hex.EncodeToString(b[:]))
+	return fmt.Sprintf("%s_%d_%s", prefix, now.UnixNano(), hex.EncodeToString(b[:]))
 }

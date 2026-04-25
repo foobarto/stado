@@ -285,6 +285,175 @@ func TestStoreSupersedeRequiresApprovedMemory(t *testing.T) {
 	}
 }
 
+func TestStoreLessonValidationAndQueryFilter(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+
+	invalid := Item{
+		MemoryKind: "lesson",
+		Scope:      "global",
+		Summary:    "Use pinned Go toolchain",
+		Lesson:     "Use the pinned toolchain path when go is absent from PATH.",
+	}
+	raw, _ := json.Marshal(invalid)
+	err := store.Propose(ctx, raw)
+	if err == nil || !strings.Contains(err.Error(), "trigger is required") {
+		t.Fatalf("expected trigger validation error, got %v", err)
+	}
+
+	invalid.Trigger = "When Go tooling is not on PATH"
+	invalid.Source = Source{SessionID: "source-session"}
+	raw, _ = json.Marshal(invalid)
+	err = store.Propose(ctx, raw)
+	if err == nil || !strings.Contains(err.Error(), "evidence is required") {
+		t.Fatalf("expected evidence validation error, got %v", err)
+	}
+	invalid.Source = Source{}
+
+	ordinary := Item{
+		ID:         "mem_ordinary",
+		Scope:      "global",
+		Kind:       "preference",
+		Summary:    "Prefer short diffs",
+		Confidence: "approved",
+	}
+	ordinaryRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &ordinary})
+	if err := store.Update(ctx, ordinaryRaw); err != nil {
+		t.Fatalf("ordinary upsert: %v", err)
+	}
+
+	lesson := Item{
+		MemoryKind: "lesson",
+		Scope:      "global",
+		Summary:    "Use pinned Go toolchain",
+		Lesson:     "Use the pinned toolchain path when go is absent from PATH.",
+		Trigger:    "When Go tooling is not on PATH",
+		Evidence:   Evidence{Tests: []string{"go test ./..."}},
+		Confidence: "approved",
+	}
+	lessonRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &lesson})
+	if err := store.Update(ctx, lessonRaw); err != nil {
+		t.Fatalf("lesson upsert: %v", err)
+	}
+
+	lessons, err := store.Query(ctx, Query{Prompt: "go tooling path", MemoryKind: "lesson"})
+	if err != nil {
+		t.Fatalf("lesson query: %v", err)
+	}
+	if len(lessons.Items) != 1 || !IsLesson(lessons.Items[0].Item) {
+		t.Fatalf("expected one lesson, got %+v", lessons.Items)
+	}
+	if !strings.HasPrefix(lessons.Items[0].Item.ID, "lesson_") {
+		t.Fatalf("generated lesson id = %q, want lesson_ prefix", lessons.Items[0].Item.ID)
+	}
+
+	lessonWithLargeEvidence := Item{
+		ID:         "lesson_budget",
+		MemoryKind: "lesson",
+		Scope:      "global",
+		Summary:    "Budget uses rendered lesson text",
+		Lesson:     "Short lesson that fits the prompt budget.",
+		Trigger:    "When estimating prompt memory",
+		Evidence:   Evidence{Notes: strings.Repeat("verbose evidence ", 80)},
+		Confidence: "approved",
+	}
+	lessonBudgetRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &lessonWithLargeEvidence})
+	if err := store.Update(ctx, lessonBudgetRaw); err != nil {
+		t.Fatalf("lesson budget upsert: %v", err)
+	}
+	budgetedLessons, err := store.Query(ctx, Query{Prompt: "budget rendered lesson", MemoryKind: "lesson", BudgetTokens: 40})
+	if err != nil {
+		t.Fatalf("budgeted lesson query: %v", err)
+	}
+	if !containsRankedItem(budgetedLessons.Items, lessonWithLargeEvidence.ID) {
+		t.Fatalf("rendered lesson should fit budget despite large evidence, got %+v", budgetedLessons.Items)
+	}
+
+	memories, err := store.Query(ctx, Query{Prompt: "short diffs", MemoryKind: "memory"})
+	if err != nil {
+		t.Fatalf("memory query: %v", err)
+	}
+	if len(memories.Items) != 1 || memories.Items[0].Item.ID != "mem_ordinary" {
+		t.Fatalf("expected ordinary memory only, got %+v", memories.Items)
+	}
+
+	defaultQuery, err := store.Query(ctx, Query{Prompt: "go tooling path"})
+	if err != nil {
+		t.Fatalf("default query: %v", err)
+	}
+	if len(defaultQuery.Items) != 1 || IsLesson(defaultQuery.Items[0].Item) {
+		t.Fatalf("default query should exclude lessons, got %+v", defaultQuery.Items)
+	}
+
+	explicitMemory := Item{
+		ID:          "mem_kind_lesson_label",
+		MemoryKind:  "memory",
+		Scope:       "global",
+		Kind:        "lesson",
+		Summary:     "Ordinary memory with a lesson label",
+		Confidence:  "approved",
+		Sensitivity: "normal",
+	}
+	explicitMemoryRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &explicitMemory})
+	if err := store.Update(ctx, explicitMemoryRaw); err != nil {
+		t.Fatalf("explicit memory upsert: %v", err)
+	}
+	memories, err = store.Query(ctx, Query{Prompt: "ordinary memory label", MemoryKind: "memory"})
+	if err != nil {
+		t.Fatalf("explicit memory query: %v", err)
+	}
+	if !containsRankedItem(memories.Items, explicitMemory.ID) {
+		t.Fatalf("explicit memory_kind=memory should stay ordinary, got %+v", memories.Items)
+	}
+	lessons, err = store.Query(ctx, Query{Prompt: "ordinary memory label", MemoryKind: "lesson"})
+	if err != nil {
+		t.Fatalf("lesson query after explicit memory: %v", err)
+	}
+	if containsRankedItem(lessons.Items, explicitMemory.ID) {
+		t.Fatalf("explicit memory_kind=memory leaked into lesson query: %+v", lessons.Items)
+	}
+
+	legacyKindMemory := Item{
+		ID:         "mem_legacy_lesson_kind",
+		Scope:      "global",
+		Kind:       "lesson",
+		Summary:    "Ordinary memory with no memory kind",
+		Confidence: "approved",
+	}
+	legacyKindRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &legacyKindMemory})
+	if err := store.Update(ctx, legacyKindRaw); err != nil {
+		t.Fatalf("legacy kind memory upsert: %v", err)
+	}
+	memories, err = store.Query(ctx, Query{Prompt: "ordinary memory kind", MemoryKind: "memory"})
+	if err != nil {
+		t.Fatalf("legacy kind memory query: %v", err)
+	}
+	if !containsRankedItem(memories.Items, legacyKindMemory.ID) {
+		t.Fatalf("kind=lesson without memory_kind should stay ordinary, got %+v", memories.Items)
+	}
+	lessons, err = store.Query(ctx, Query{Prompt: "ordinary memory kind", MemoryKind: "lesson"})
+	if err != nil {
+		t.Fatalf("lesson query after legacy kind memory: %v", err)
+	}
+	if containsRankedItem(lessons.Items, legacyKindMemory.ID) {
+		t.Fatalf("kind=lesson without memory_kind leaked into lesson query: %+v", lessons.Items)
+	}
+
+	_, err = store.Query(ctx, Query{MemoryKind: "unknown"})
+	if err == nil || !strings.Contains(err.Error(), "invalid memory_kind") {
+		t.Fatalf("expected invalid memory_kind error, got %v", err)
+	}
+}
+
+func containsRankedItem(items []RankedItem, id string) bool {
+	for _, item := range items {
+		if item.Item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestStoreRejectsInvalidScope(t *testing.T) {
 	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
 	raw, _ := json.Marshal(Item{ID: "mem_bad", Scope: "repo", Summary: "Missing repo"})

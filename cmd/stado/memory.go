@@ -290,10 +290,16 @@ func applyMemoryEditFlags(cmd *cobra.Command, opts *memoryEditOptions, item *mem
 	}
 	if flags.Changed("body") {
 		item.Body = opts.Body
+		if memory.IsLesson(*item) {
+			item.Lesson = opts.Body
+		}
 		changed = true
 	}
 	if opts.ClearBody {
 		item.Body = ""
+		if memory.IsLesson(*item) {
+			item.Lesson = ""
+		}
 		changed = true
 	}
 	if flags.Changed("kind") {

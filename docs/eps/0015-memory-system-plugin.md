@@ -143,9 +143,14 @@ approved items using a bounded query:
   "prompt": "current user prompt",
   "budget_tokens": 800,
   "max_items": 8,
-  "allowed_scopes": ["session", "repo", "global"]
+  "allowed_scopes": ["session", "repo", "global"],
+  "memory_kind": "memory"
 }
 ```
+
+If `memory_kind` is omitted, core treats the query as
+`"memory"` for ordinary EP-15 memories. EP-16 lessons require an
+explicit `"lesson"` query and are rendered in their own prompt section.
 
 The plugin returns ranked items with reasons. Core enforces:
 

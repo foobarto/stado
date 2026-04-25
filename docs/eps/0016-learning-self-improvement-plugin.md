@@ -15,6 +15,12 @@ history:
     note: >-
       Defined lesson candidates, approval flow, storage relationship
       to EP-15 memory, retrieval, invalidation, and prompt boundaries.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      First implementation slice added typed lesson items in the
+      append-only memory store, explicit `stado learning propose/list/show`,
+      and a separate approved-lesson prompt section.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -201,9 +207,12 @@ Start as an explicit command/plugin action that proposes lessons after a
 successful debugging session or release cycle. Add automatic suggestions
 only after the review path is reliable.
 
-The first implementation should share EP-15 local storage and retrieval,
-with `memory_kind:"lesson"` and stricter required fields. Do not ship
-global automatic lesson capture in the first release.
+The first implementation shares EP-15 local storage and retrieval with
+`memory_kind:"lesson"`, stricter required `lesson`, `trigger`, and
+evidence fields, and explicit `stado learning propose/list/show`
+commands. Approved lessons are retrieved through the same opt-in memory
+config but rendered in a separate "Operational lessons" prompt section.
+Global automatic lesson capture is not shipped in this first release.
 
 ## Failure modes
 

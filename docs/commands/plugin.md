@@ -133,7 +133,8 @@ the local append-only memory store under the stado state directory; use
 `stado memory list|show|edit|approve|supersede|reject|delete|export`
 to review that store. Approved memory only enters model prompts after
 enabling `[memory].enabled = true`; candidate memories remain
-review-only.
+review-only. `stado learning propose` stores stricter EP-16 lesson
+candidates in the same append-only store for explicit review.
 Without `--session`, the command stays a one-shot no-session path and
 session-aware capabilities see zeroed fields.
 
@@ -174,3 +175,4 @@ Relevant `config.toml` sections:
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog
 - [plugins/examples/README.md](../../plugins/examples/README.md) — concrete opt-in plugin examples
 - [memory.md](memory.md) — review plugin-proposed persistent memories
+- [learning.md](learning.md) — propose reviewable operational lessons
