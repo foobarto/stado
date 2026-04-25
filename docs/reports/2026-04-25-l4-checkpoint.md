@@ -120,6 +120,8 @@ spawn/adoption slices and the local worker dogfood pass.
 - `stado learning document` now implements the explicit
   `.learnings/` handoff and rejects the documented lesson from prompt
   retrieval.
+- `stado learning stale` now detects approved lessons with missing
+  evidence files and can mark them candidate for review with `--apply`.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

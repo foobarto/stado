@@ -449,6 +449,95 @@ func TestLearningCLI_DocumentRefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_StaleMarksMissingEvidenceFilesCandidate(t *testing.T) {
+	store := setupMemoryEnv(t)
+	ctx := context.Background()
+	proposeCmd := newLearningProposeCmd()
+	for name, value := range map[string]string{
+		"summary":  "Recheck missing file evidence",
+		"lesson":   "Review lessons again when their evidence files disappear.",
+		"trigger":  "When a lesson cites a deleted source file.",
+		"evidence": "The source file was deleted after approval.",
+	} {
+		if err := proposeCmd.Flags().Set(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := proposeCmd.Flags().Set("file", "missing.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := proposeCmd.RunE(proposeCmd, nil); err != nil {
+		t.Fatalf("learning propose: %v", err)
+	}
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	lessons := filterLessons(items)
+	if len(lessons) != 1 {
+		t.Fatalf("expected one lesson, got %+v", lessons)
+	}
+	lesson := lessons[0]
+	approveCmd := newLearningActionCmd("approve", "Approve a lesson candidate")
+	if err := approveCmd.RunE(approveCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning approve: %v", err)
+	}
+	result, err := store.Query(ctx, memory.Query{
+		RepoID:     lesson.RepoID,
+		Prompt:     "missing file evidence",
+		MemoryKind: "lesson",
+	})
+	if err != nil {
+		t.Fatalf("lesson query before stale apply: %v", err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("approved lesson should be queryable before stale apply: %+v", result)
+	}
+
+	staleCmd := newLearningStaleCmd()
+	out := captureStdout(t, func() {
+		if err := staleCmd.RunE(staleCmd, nil); err != nil {
+			t.Fatalf("learning stale dry-run: %v", err)
+		}
+	})
+	if !strings.Contains(out, shortMemory(lesson.ID, 20)) || !strings.Contains(out, "missing.go") {
+		t.Fatalf("stale dry-run missing lesson/file:\n%s", out)
+	}
+	stillApproved, ok, err := store.Show(ctx, lesson.ID)
+	if err != nil {
+		t.Fatalf("Show after dry-run: %v", err)
+	}
+	if !ok || stillApproved.Confidence != "approved" {
+		t.Fatalf("dry-run changed lesson: %+v", stillApproved)
+	}
+
+	applyCmd := newLearningStaleCmd()
+	if err := applyCmd.Flags().Set("apply", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCmd.RunE(applyCmd, nil); err != nil {
+		t.Fatalf("learning stale --apply: %v", err)
+	}
+	staleLesson, ok, err := store.Show(ctx, lesson.ID)
+	if err != nil {
+		t.Fatalf("Show after apply: %v", err)
+	}
+	if !ok || staleLesson.Confidence != "candidate" {
+		t.Fatalf("stale apply should mark candidate, got %+v", staleLesson)
+	}
+	result, err = store.Query(ctx, memory.Query{
+		RepoID:     lesson.RepoID,
+		Prompt:     "missing file evidence",
+		MemoryKind: "lesson",
+	})
+	if err != nil {
+		t.Fatalf("lesson query after stale apply: %v", err)
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("stale candidate lesson should not be queryable: %+v", result)
+	}
+}
+
 func TestLearningCLI_ListStripsControlChars(t *testing.T) {
 	store := setupMemoryEnv(t)
 	item := memory.Item{

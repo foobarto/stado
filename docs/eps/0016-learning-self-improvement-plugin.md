@@ -33,6 +33,12 @@ history:
       Added an explicit `stado learning document` path that writes a
       lesson to `.learnings/` without overwriting existing notes and
       rejects it from prompt retrieval.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added `stado learning stale` to find approved lessons that cite
+      deleted evidence files and optionally mark them candidate for
+      review.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -228,6 +234,8 @@ to guidance, trigger, rationale, tags, expiry, scope, and evidence.
 `stado learning document` implements the "document elsewhere" path by
 writing a Markdown note under `.learnings/` and rejecting the lesson from
 retrieval.
+`stado learning stale` dry-runs deleted evidence-file detection and
+`--apply` marks affected approved lessons back to `candidate` review.
 
 Approved lessons are retrieved through the same opt-in memory config but
 rendered in a separate "Operational lessons" prompt section. Global
@@ -258,7 +266,8 @@ automatic lesson capture is not shipped in this first release.
 ## Open questions
 
 - How should the plugin detect "heavily rewritten" files for
-  invalidation without expensive history analysis?
+  invalidation without expensive history analysis? Deleted evidence
+  files are handled by `stado learning stale`.
 - Should exported lessons be portable between machines by default, or
   require an explicit signed export bundle?
 
@@ -326,6 +335,15 @@ automatic lesson capture is not shipped in this first release.
   `.learnings/`, or keep "document elsewhere" as a UI-only status.
 - **Why:** `.learnings/` is repo-owned content. The runtime must not
   write to it unless the user asked for that handoff.
+
+### D8. Deleted-file stale check before rewrite analysis
+
+- **Decided:** the first staleness command detects missing evidence
+  files and can mark approved lessons back to candidate review.
+- **Alternatives:** attempt rewrite detection from git history in the
+  first implementation.
+- **Why:** deleted files are cheap and deterministic to detect. Heavy
+  rewrite detection needs a separate threshold and history policy.
 
 ## Related
 

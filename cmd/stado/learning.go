@@ -61,6 +61,15 @@ type learningDocumentOptions struct {
 	Path string
 }
 
+type learningStaleOptions struct {
+	Apply bool
+}
+
+type staleLesson struct {
+	Item    memory.Item
+	Missing []string
+}
+
 var learningCmd = newLearningCmd()
 
 func newLearningCmd() *cobra.Command {
@@ -81,6 +90,7 @@ func newLearningCmd() *cobra.Command {
 		newLearningActionCmd("delete", "Delete a lesson from the active folded view"),
 		newLearningSupersedeCmd(),
 		newLearningDocumentCmd(),
+		newLearningStaleCmd(),
 	)
 	return cmd
 }
@@ -207,6 +217,22 @@ func newLearningDocumentCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&opts.Path, "path", "", "Relative path under .learnings/ (default: generated from the lesson id)")
+	return cmd
+}
+
+func newLearningStaleCmd() *cobra.Command {
+	opts := &learningStaleOptions{}
+	cmd := &cobra.Command{
+		Use:   "stale",
+		Short: "Find approved lessons whose evidence files are missing",
+		Long: "Find approved lessons that cite evidence files which no longer\n" +
+			"exist in the current worktree. By default this is a dry-run; pass\n" +
+			"--apply to mark those lessons candidate for review.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return staleLessons(cmd, opts)
+		},
+	}
+	cmd.Flags().BoolVar(&opts.Apply, "apply", false, "Mark stale approved lessons candidate for review")
 	return cmd
 }
 
@@ -421,6 +447,55 @@ func documentLesson(cmd *cobra.Command, id string, opts *learningDocumentOptions
 	return nil
 }
 
+func staleLessons(cmd *cobra.Command, opts *learningStaleOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	items, err := store.List(cmd.Context())
+	if err != nil {
+		return err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	root := findCurrentWorktreeRoot(cwd)
+	stale := findStaleLessons(root, items)
+	if len(stale) == 0 {
+		fmt.Fprintln(os.Stderr, "(no stale file-linked lessons)")
+		return nil
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "ID                   MISSING_FILES  SUMMARY")
+	for _, entry := range stale {
+		fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-14d %s\n",
+			shortMemory(entry.Item.ID, 20),
+			len(entry.Missing),
+			shortMemory(textutil.StripControlChars(entry.Item.Summary), 80),
+		)
+		for _, missing := range entry.Missing {
+			fmt.Fprintf(cmd.OutOrStdout(), "  missing: %s\n", textutil.StripControlChars(missing))
+		}
+	}
+	if !opts.Apply {
+		fmt.Fprintln(os.Stderr, "dry-run: pass --apply to mark stale lessons candidate for review")
+		return nil
+	}
+	for _, entry := range stale {
+		item := entry.Item
+		item.Confidence = "candidate"
+		raw, err := json.Marshal(memory.UpdateRequest{Action: "edit", ID: item.ID, Item: &item})
+		if err != nil {
+			return err
+		}
+		if err := store.Update(cmd.Context(), raw); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "marked %d lesson(s) candidate for review\n", len(stale))
+	return nil
+}
+
 func requireLesson(cmd *cobra.Command, store *memory.Store, id string) (memory.Item, error) {
 	item, ok, err := store.Show(cmd.Context(), id)
 	if err != nil {
@@ -430,6 +505,42 @@ func requireLesson(cmd *cobra.Command, store *memory.Store, id string) (memory.I
 		return memory.Item{}, fmt.Errorf("lesson %q not found", id)
 	}
 	return item, nil
+}
+
+func findStaleLessons(root string, items []memory.Item) []staleLesson {
+	stale := make([]staleLesson, 0)
+	for _, item := range items {
+		if !memory.IsLesson(item) || item.Confidence != "approved" {
+			continue
+		}
+		missing := missingEvidenceFiles(root, item.Evidence.Files)
+		if len(missing) > 0 {
+			stale = append(stale, staleLesson{Item: item, Missing: missing})
+		}
+	}
+	return stale
+}
+
+func missingEvidenceFiles(root string, files []string) []string {
+	missing := make([]string, 0)
+	for _, file := range files {
+		file = strings.TrimSpace(file)
+		if file == "" {
+			continue
+		}
+		path := file
+		if !filepath.IsAbs(path) {
+			cleaned := filepath.Clean(path)
+			if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
+				continue
+			}
+			path = filepath.Join(root, cleaned)
+		}
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, file)
+		}
+	}
+	return missing
 }
 
 func learningDocumentPath(cwd string, item memory.Item, rawPath string) (string, error) {

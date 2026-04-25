@@ -207,6 +207,9 @@ Plugins / Infra / Fixes.
 - **Added learning document handoff.** `stado learning document <id>`
   now writes a lesson to `.learnings/` without overwriting existing
   notes and rejects the lesson from prompt retrieval.
+- **Added stale lesson file checks.** `stado learning stale` now finds
+  approved lessons that cite missing evidence files; `--apply` marks
+  them candidate for review so they stop being retrieved.
 
 ### Docs
 
