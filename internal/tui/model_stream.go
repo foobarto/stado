@@ -672,9 +672,7 @@ func (m *Model) annotateLastAssistantToolResults(results []agent.ToolResultBlock
 		if strings.Contains(m.blocks[i].meta, base+" (") {
 			return
 		}
-		if strings.Contains(m.blocks[i].meta, base) {
-			m.blocks[i].meta = strings.Replace(m.blocks[i].meta, base, base+" ("+toolResultErrorSummary(failed, rejected)+")", 1)
-		}
+		m.blocks[i].meta = strings.Replace(m.blocks[i].meta, base, base+" ("+toolResultErrorSummary(failed, rejected)+")", 1)
 		resultLine := fmt.Sprintf("tool results: %d ok, %d failed, %d rejected",
 			requested-failed-rejected, failed, rejected)
 		if strings.TrimSpace(m.blocks[i].details) == "" {
