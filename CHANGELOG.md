@@ -85,6 +85,9 @@ Plugins / Infra / Fixes.
 - **Closed EP-21 assistant turn metadata.** Footer metadata is
   documented as display-only while `conversation.jsonl` remains the
   provider-message transcript.
+- **Pinned EP-13 subagent concurrency policy.** The current L4 model is
+  one active child per parent session/tool queue; higher child
+  concurrency is future scheduler work.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

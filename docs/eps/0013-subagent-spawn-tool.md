@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Documented the current concurrency policy: one active child per parent session/tool queue; higher concurrency is future scheduler work.
+  - date: 2026-04-25
+    status: Partial
     note: Open questions were narrowed after worker changed-file/scope summaries, adoption commands, `/subagents`, and sidebar subagent activity shipped.
   - date: 2026-04-25
     status: Partial
@@ -114,6 +117,11 @@ Execution model:
 - The child runs synchronously inside the parent tool call. This avoids
   parent-session re-entrancy and keeps the parent waiting for one
   deterministic tool result.
+- Current L4 policy allows one active child at a time per parent
+  session/tool queue. If a provider emits multiple `spawn_agent` calls in
+  a turn, the existing tool queue executes them serially. Higher
+  concurrency needs an explicit scheduler, UI budget, and cancellation
+  policy before it is enabled.
 - The child runs under its own timeout derived from `timeout_seconds`.
   Parent cancellation still cancels the child immediately.
 - Read-only child executors remove mutating/exec tools and also remove
@@ -304,7 +312,8 @@ Review flow:
 
 ## Open questions
 
-- How many children can run concurrently?
+- None for the current synchronous tool-call model. Higher child
+  concurrency is future scheduler work, not implicit behavior.
 
 ## Decision log
 

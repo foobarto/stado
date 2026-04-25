@@ -169,6 +169,9 @@ subagent slice.
   live plugin/MCP health snapshots remain open for the status modal.
 - EP-21 now records assistant turn metadata as display-only while
   `conversation.jsonl` remains the provider-message transcript.
+- EP-13 now records the current concurrency policy: one active child per
+  parent session/tool queue, with higher concurrency left for future
+  scheduler work.
 - The EP README status table now matches implemented EP-14 and EP-24
   frontmatter.
 - Headless/ACP command docs and CLI help now document the `subagent`
@@ -230,9 +233,9 @@ repo-compatible Go toolchain at
   selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
   TUI policy docs, EP-20 inline context completion, EP-21 assistant turn
   metadata, and EP-22 theme catalog/picker are also closed, and
-  EP-13/EP-23 open questions are narrowed to concrete
-  runtime-policy/status-snapshot gaps. LM Studio installed-vs-loaded
-  model detection is also fixed.
+  EP-13's current concurrency policy is pinned and EP-23's remaining
+  question is narrowed to status snapshots. LM Studio
+  installed-vs-loaded model detection is also fixed.
 - Live worker dogfood was attempted with local LM Studio auto-detect;
   fallback now skips installed-but-unloaded LM Studio models and reports
   the no-provider setup error until a local model is loaded.
