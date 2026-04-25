@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added the explicit session adopt command for dry-running or applying child changes.
+  - date: 2026-04-25
+    status: Partial
     note: Added an explicit runtime adoption apply helper for non-conflicting child changes.
   - date: 2026-04-25
     status: Partial
@@ -243,7 +246,11 @@ Conflict and adoption contract:
   refuses conflicts with a typed error, copies only the child changed
   files into the parent worktree, supports child-side deletions, and
   records `subagent_adopt` trace and tree commits on the parent. No
-  public command or tool invokes it yet.
+  model-facing tool invokes it yet.
+- Users can run `stado session adopt <parent-id> <child-id> --fork-tree
+  <hash>` to inspect the plan. The command is dry-run by default and
+  requires `--apply` to mutate the parent. Conflicts block apply and are
+  printed in the plan. `--json` emits the same plan shape for scripts.
 - If a child attempts writes outside `write_scope`, the offending tool
   call is rejected, recorded in the child trace, and reflected in
   `scope_violations`. The child session itself remains valid.

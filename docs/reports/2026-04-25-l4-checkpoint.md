@@ -53,6 +53,10 @@ subagent slice.
   planner, refuses conflicts, copies only child changed files into the
   parent worktree, supports child-side deletions, and commits
   `subagent_adopt` trace/tree metadata.
+- Added the explicit `stado session adopt <parent-id> <child-id>`
+  command. It dry-runs by default, accepts `--fork-tree` from the worker
+  result, supports `--json`, and requires `--apply` before mutating the
+  parent.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -67,6 +71,7 @@ subagent slice.
   - `go test ./internal/runtime ./internal/subagent`
   - `go test ./internal/subagent ./internal/runtime ./internal/state/git`
   - `go test ./internal/runtime`
+  - `go test ./cmd/stado ./internal/runtime`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -84,8 +89,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Add an explicit user-facing adoption command or gated tool surface for
-   worker child changes.
+1. Decide whether and how to expose `workspace_write` in `spawn_agent`
+   now that scoped execution and explicit adoption are available.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

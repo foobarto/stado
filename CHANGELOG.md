@@ -45,6 +45,9 @@ Plugins / Infra / Fixes.
 - **Added internal subagent adoption apply.** Non-conflicting child
   changes can now be copied into the parent worktree and recorded as
   `subagent_adopt` trace/tree commits by an internal runtime helper.
+- **Exposed explicit session adoption.** `stado session adopt` now
+  dry-runs child-to-parent adoption by default, supports `--apply`, and
+  reports conflicts before mutating the parent.
 
 ## v0.23.1 — 2026-04-25
 
