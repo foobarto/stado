@@ -204,6 +204,9 @@ Plugins / Infra / Fixes.
   edit|approve|reject|delete|supersede` now wraps the append-only memory
   review flow while preserving lesson fields such as trigger, rationale,
   evidence, tags, scope, and expiry.
+- **Added learning document handoff.** `stado learning document <id>`
+  now writes a lesson to `.learnings/` without overwriting existing
+  notes and rejects the lesson from prompt retrieval.
 
 ### Docs
 

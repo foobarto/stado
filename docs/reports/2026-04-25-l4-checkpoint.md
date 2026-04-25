@@ -117,6 +117,9 @@ spawn/adoption slices and the local worker dogfood pass.
 - `stado learning` now owns the lesson review path directly with
   `edit|approve|reject|delete|supersede`, including lesson-specific
   trigger, rationale, evidence, tags, scope, and expiry edits.
+- `stado learning document` now implements the explicit
+  `.learnings/` handoff and rejects the documented lesson from prompt
+  retrieval.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

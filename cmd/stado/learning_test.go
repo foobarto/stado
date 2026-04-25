@@ -358,6 +358,97 @@ func TestLearningCLI_SupersedeApprovedLesson(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_DocumentWritesLearningNoteAndRejects(t *testing.T) {
+	store := setupMemoryEnv(t)
+	ctx := context.Background()
+	lesson := proposeLearningTestLesson(t, store, "Document durable repo guidance")
+
+	documentCmd := newLearningDocumentCmd()
+	if err := documentCmd.RunE(documentCmd, []string{lesson.ID}); err != nil {
+		t.Fatalf("learning document: %v", err)
+	}
+
+	files, err := filepath.Glob(filepath.Join(".learnings", "document-durable-repo-guidance-"+lesson.ID+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("documented lesson file missing, got %v", files)
+	}
+	body, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Document durable repo guidance",
+		"## Trigger",
+		"When reviewing operational lesson candidates.",
+		"## Lesson",
+		"Use the explicit learning review flow before approval.",
+		"## Evidence",
+		"Unit test proposal.",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("documented lesson missing %q:\n%s", want, string(body))
+		}
+	}
+
+	documented, ok, err := store.Show(ctx, lesson.ID)
+	if err != nil {
+		t.Fatalf("Show documented: %v", err)
+	}
+	if !ok {
+		t.Fatal("documented lesson missing from store")
+	}
+	if documented.Confidence != "rejected" {
+		t.Fatalf("documented lesson confidence = %q, want rejected", documented.Confidence)
+	}
+	result, err := store.Query(ctx, memory.Query{
+		RepoID:     lesson.RepoID,
+		Prompt:     "durable repo guidance",
+		MemoryKind: "lesson",
+	})
+	if err != nil {
+		t.Fatalf("lesson query: %v", err)
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("documented rejected lesson should not be queryable: %+v", result)
+	}
+}
+
+func TestLearningCLI_DocumentRefusesOverwrite(t *testing.T) {
+	store := setupMemoryEnv(t)
+	first := proposeLearningTestLesson(t, store, "Document first lesson")
+	second := proposeLearningTestLesson(t, store, "Document second lesson")
+
+	documentCmd := newLearningDocumentCmd()
+	if err := documentCmd.Flags().Set("path", "review-note.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := documentCmd.RunE(documentCmd, []string{first.ID}); err != nil {
+		t.Fatalf("learning document first: %v", err)
+	}
+
+	documentAgain := newLearningDocumentCmd()
+	if err := documentAgain.Flags().Set("path", "review-note.md"); err != nil {
+		t.Fatal(err)
+	}
+	err := documentAgain.RunE(documentAgain, []string{second.ID})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected overwrite refusal, got %v", err)
+	}
+	secondAfter, ok, err := store.Show(context.Background(), second.ID)
+	if err != nil {
+		t.Fatalf("Show second: %v", err)
+	}
+	if !ok {
+		t.Fatal("second lesson missing")
+	}
+	if secondAfter.Confidence != "candidate" {
+		t.Fatalf("failed document should leave second lesson candidate, got %q", secondAfter.Confidence)
+	}
+}
+
 func TestLearningCLI_ListStripsControlChars(t *testing.T) {
 	store := setupMemoryEnv(t)
 	item := memory.Item{

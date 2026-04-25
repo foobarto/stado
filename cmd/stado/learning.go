@@ -57,6 +57,10 @@ type learningEditOptions struct {
 	ClearTags    bool
 }
 
+type learningDocumentOptions struct {
+	Path string
+}
+
 var learningCmd = newLearningCmd()
 
 func newLearningCmd() *cobra.Command {
@@ -76,6 +80,7 @@ func newLearningCmd() *cobra.Command {
 		newLearningActionCmd("reject", "Reject a candidate or approved lesson"),
 		newLearningActionCmd("delete", "Delete a lesson from the active folded view"),
 		newLearningSupersedeCmd(),
+		newLearningDocumentCmd(),
 	)
 	return cmd
 }
@@ -186,6 +191,23 @@ func newLearningActionCmd(action, short string) *cobra.Command {
 			return updateLessonAction(cmd, args[0], action)
 		},
 	}
+}
+
+func newLearningDocumentCmd() *cobra.Command {
+	opts := &learningDocumentOptions{}
+	cmd := &cobra.Command{
+		Use:   "document <id>",
+		Short: "Write a lesson to .learnings and reject it from prompt retrieval",
+		Long: "Write a lesson into a Markdown note under .learnings/ and then\n" +
+			"mark the lesson rejected so it stays out of prompt retrieval. The\n" +
+			"command is explicit and refuses to overwrite an existing file.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return documentLesson(cmd, args[0], opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.Path, "path", "", "Relative path under .learnings/ (default: generated from the lesson id)")
+	return cmd
 }
 
 func addLearningEditFlags(cmd *cobra.Command, opts *learningEditOptions) {
@@ -349,6 +371,56 @@ func updateLessonAction(cmd *cobra.Command, id, action string) error {
 	return nil
 }
 
+func documentLesson(cmd *cobra.Command, id string, opts *learningDocumentOptions) error {
+	store, err := openMemoryStore()
+	if err != nil {
+		return err
+	}
+	item, err := requireLesson(cmd, store, id)
+	if err != nil {
+		return err
+	}
+	if item.Confidence == "superseded" {
+		return fmt.Errorf("learning document: superseded lesson %q is already inactive", id)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	path, err := learningDocumentPath(cwd, item, opts.Path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("learning document: mkdir: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("learning document: %s already exists", path)
+		}
+		return fmt.Errorf("learning document: write %s: %w", path, err)
+	}
+	if _, err := f.Write(lessonDocumentMarkdown(item)); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("learning document: write %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("learning document: write %s: %w", path, err)
+	}
+	if item.Confidence != "rejected" {
+		raw, err := json.Marshal(memory.UpdateRequest{Action: "reject", ID: id})
+		if err != nil {
+			return err
+		}
+		if err := store.Update(cmd.Context(), raw); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "lesson %s documented at %s\n", id, path)
+	return nil
+}
+
 func requireLesson(cmd *cobra.Command, store *memory.Store, id string) (memory.Item, error) {
 	item, ok, err := store.Show(cmd.Context(), id)
 	if err != nil {
@@ -358,6 +430,137 @@ func requireLesson(cmd *cobra.Command, store *memory.Store, id string) (memory.I
 		return memory.Item{}, fmt.Errorf("lesson %q not found", id)
 	}
 	return item, nil
+}
+
+func learningDocumentPath(cwd string, item memory.Item, rawPath string) (string, error) {
+	root := findCurrentWorktreeRoot(cwd)
+	rel := strings.TrimSpace(rawPath)
+	if rel == "" {
+		rel = filepath.Join(".learnings", lessonDocumentFilename(item))
+	} else {
+		rel = filepath.Clean(rel)
+		if filepath.IsAbs(rel) {
+			return "", errors.New("learning document: --path must be relative")
+		}
+		if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return "", errors.New("learning document: --path must stay under .learnings")
+		}
+		if rel == ".learnings" {
+			return "", errors.New("learning document: --path must name a file under .learnings")
+		}
+		if rel != ".learnings" && !strings.HasPrefix(rel, ".learnings"+string(os.PathSeparator)) {
+			rel = filepath.Join(".learnings", rel)
+		}
+	}
+	return filepath.Join(root, rel), nil
+}
+
+func findCurrentWorktreeRoot(start string) string {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return start
+	}
+	original := dir
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return original
+		}
+		dir = parent
+	}
+}
+
+func lessonDocumentFilename(item memory.Item) string {
+	slug := strings.ToLower(textutil.StripControlChars(item.Summary))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range slug {
+		allowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if allowed {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+		if b.Len() >= 48 {
+			break
+		}
+	}
+	name := strings.Trim(b.String(), "-")
+	if name == "" {
+		name = "lesson"
+	}
+	return name + "-" + item.ID + ".md"
+}
+
+func lessonDocumentMarkdown(item memory.Item) []byte {
+	lesson := item.Lesson
+	if strings.TrimSpace(lesson) == "" {
+		lesson = item.Body
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", oneLineMarkdown(item.Summary))
+	fmt.Fprintf(&b, "## Trigger\n%s\n\n", oneLineMarkdown(item.Trigger))
+	fmt.Fprintf(&b, "## Lesson\n%s\n\n", strings.TrimSpace(textutil.StripControlChars(lesson)))
+	if rationale := strings.TrimSpace(textutil.StripControlChars(item.Rationale)); rationale != "" {
+		fmt.Fprintf(&b, "## Rationale\n%s\n\n", rationale)
+	}
+	b.WriteString("## Evidence\n")
+	writeEvidenceMarkdown(&b, item.Evidence)
+	if len(item.Tags) > 0 {
+		b.WriteString("\n## Tags\n")
+		for _, tag := range item.Tags {
+			fmt.Fprintf(&b, "- %s\n", oneLineMarkdown(tag))
+		}
+	}
+	return []byte(b.String())
+}
+
+func writeEvidenceMarkdown(b *strings.Builder, evidence memory.Evidence) {
+	wrote := false
+	if evidence.SessionID != "" {
+		fmt.Fprintf(b, "- Session: `%s`\n", oneLineMarkdown(evidence.SessionID))
+		wrote = true
+	}
+	if len(evidence.Turns) > 0 {
+		parts := make([]string, 0, len(evidence.Turns))
+		for _, turn := range evidence.Turns {
+			parts = append(parts, fmt.Sprint(turn))
+		}
+		fmt.Fprintf(b, "- Turns: %s\n", strings.Join(parts, ", "))
+		wrote = true
+	}
+	writeEvidenceList(b, "Commits", evidence.Commits, &wrote)
+	writeEvidenceList(b, "Tests", evidence.Tests, &wrote)
+	writeEvidenceList(b, "Files", evidence.Files, &wrote)
+	if notes := strings.TrimSpace(textutil.StripControlChars(evidence.Notes)); notes != "" {
+		fmt.Fprintf(b, "- Notes: %s\n", notes)
+		wrote = true
+	}
+	if !wrote {
+		b.WriteString("- (none recorded)\n")
+	}
+}
+
+func writeEvidenceList(b *strings.Builder, label string, values []string, wrote *bool) {
+	if len(values) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "- %s:\n", label)
+	for _, value := range values {
+		fmt.Fprintf(b, "  - %s\n", oneLineMarkdown(value))
+	}
+	*wrote = true
+}
+
+func oneLineMarkdown(s string) string {
+	return strings.TrimSpace(strings.Join(strings.Fields(textutil.StripControlChars(s)), " "))
 }
 
 func applyLearningEditFlags(cmd *cobra.Command, opts *learningEditOptions, item *memory.Item, context string) (bool, error) {

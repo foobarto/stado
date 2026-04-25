@@ -27,6 +27,12 @@ history:
       Added first-class `stado learning edit|approve|reject|delete|supersede`
       review commands so lesson-specific fields can be revised before
       approval and approved lessons can be replaced explicitly.
+  - date: 2026-04-25
+    status: Accepted
+    note: >-
+      Added an explicit `stado learning document` path that writes a
+      lesson to `.learnings/` without overwriting existing notes and
+      rejects it from prompt retrieval.
 ---
 
 # EP-16: Learning and Self-Improvement Plugin
@@ -219,6 +225,10 @@ evidence fields, and explicit `stado learning propose/list/show`
 commands. The review surface now also includes `stado learning
 edit|approve|reject|delete|supersede`, including lesson-specific edits
 to guidance, trigger, rationale, tags, expiry, scope, and evidence.
+`stado learning document` implements the "document elsewhere" path by
+writing a Markdown note under `.learnings/` and rejecting the lesson from
+retrieval.
+
 Approved lessons are retrieved through the same opt-in memory config but
 rendered in a separate "Operational lessons" prompt section. Global
 automatic lesson capture is not shipped in this first release.
@@ -306,6 +316,16 @@ automatic lesson capture is not shipped in this first release.
 - **Alternatives:** add priority/severity fields to the lesson schema.
 - **Why:** priority is easy to overfit and hard to calibrate. Triggered
   relevance keeps the prompt budget tied to the active task.
+
+### D7. Explicit document-elsewhere handoff
+
+- **Decided:** documenting a lesson elsewhere is an explicit CLI command
+  that writes a `.learnings/` Markdown note and rejects the lesson from
+  retrieval.
+- **Alternatives:** silently mirror every rejected lesson into
+  `.learnings/`, or keep "document elsewhere" as a UI-only status.
+- **Why:** `.learnings/` is repo-owned content. The runtime must not
+  write to it unless the user asked for that handoff.
 
 ## Related
 

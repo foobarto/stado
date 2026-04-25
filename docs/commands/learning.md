@@ -34,6 +34,7 @@ stado learning supersede lesson_... \
   --lesson "Run the current release checklist before declaring a release complete." \
   --trigger "When cutting or validating a release." \
   --evidence "The prior release lesson was stale."
+stado learning document lesson_...
 ```
 
 Use `--scope global`, `--scope repo`, or `--scope session`. Repo scope
@@ -52,6 +53,7 @@ scope requires `--session-id`.
 | `stado learning supersede <id>` | Replace an approved lesson with a new approved lesson |
 | `stado learning reject <id>` | Mark a lesson rejected |
 | `stado learning delete <id>` | Remove a lesson from the folded active view |
+| `stado learning document <id>` | Write the lesson to `.learnings/` and reject it from prompt retrieval |
 
 ## Notes
 
@@ -60,3 +62,8 @@ messages, repo instructions, and the active task override them. Bad or
 stale lessons can be rejected, deleted, edited, or superseded with
 lesson-specific commands. The generic `stado memory` review commands
 still operate on the same append-only store for audit and recovery work.
+
+`stado learning document <id>` is the explicit "document elsewhere"
+path: it writes a Markdown note under `.learnings/`, refuses to
+overwrite an existing file, and marks the lesson rejected so it is not
+retrieved for prompts.
