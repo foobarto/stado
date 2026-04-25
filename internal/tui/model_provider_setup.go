@@ -89,7 +89,7 @@ func writeLocalRunnerSetup(b *strings.Builder, provider string) {
 	case "ollama":
 		fmt.Fprintf(b, "- start Ollama with `ollama serve`, pull a model, then reopen `/model`.\n")
 	case "lmstudio":
-		fmt.Fprintf(b, "- start the LM Studio local server, load a model, then reopen `/model`.\n")
+		fmt.Fprintf(b, "- start the LM Studio local server, load a model in the developer page or with `lms load <model>`, then reopen `/model`.\n")
 	case "llamacpp":
 		fmt.Fprintf(b, "- start llama.cpp with `llama-server -m <model>`, then reopen `/model`.\n")
 	case "vllm":

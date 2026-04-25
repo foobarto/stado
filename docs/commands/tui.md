@@ -235,6 +235,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
   LSP readiness, OTel, sandbox, and context, with next-step hints such
   as `/model`, `/tools`, `/plugin`, and `config.toml`
+- `/providers` — active provider plus detected local runners, with
+  load/start hints when a runner has no models ready
 - `/thinking` — cycle thinking display; `/thinking show|tail|hide`
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session

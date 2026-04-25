@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -335,9 +336,27 @@ func TestProviderSetupBodyLocalRunner(t *testing.T) {
 		"provider setup: lmstudio",
 		"bundled endpoint: http://localhost:1234/v1",
 		"LM Studio local server",
+		"lms load <model>",
 	} {
 		if !contains(body, want) {
 			t.Fatalf("provider setup missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestProvidersOverviewShowsNoModelRemediation(t *testing.T) {
+	m := newPickerTestModel(t, "lmstudio")
+	got := m.renderProvidersOverviewFromResults([]localdetect.Result{{
+		Name:      "lmstudio",
+		Endpoint:  "http://localhost:1234/v1",
+		Reachable: true,
+	}})
+	for _, want := range []string{
+		"running · no models loaded",
+		"lms load <model>",
+	} {
+		if !contains(got, want) {
+			t.Fatalf("providers overview missing %q:\n%s", want, got)
 		}
 	}
 }

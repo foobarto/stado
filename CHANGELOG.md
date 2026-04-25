@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added local-runner no-model remediation.** `/providers` now shows
+  runner-specific next steps when a reachable local backend has no
+  models loaded, including the LM Studio `lms load <model>` path.
 - **Added a subagent activity overview.** `/subagents` now lists recent
   spawned child sessions with status, worktree, changed-file counts,
   scope violations, and adoption commands.

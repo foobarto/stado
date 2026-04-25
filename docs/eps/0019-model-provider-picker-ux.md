@@ -9,6 +9,9 @@ see-also: [3, 10]
 history:
   - date: 2026-04-25
     status: Partial
+    note: /providers now includes local-runner remediation when a reachable runner has no models loaded.
+  - date: 2026-04-25
+    status: Partial
     version: v0.22.0
     note: Model picker gained Ctrl+A provider setup/remediation hints for selected rows; full provider connect/OAuth remains future work.
   - date: 2026-04-24
@@ -63,6 +66,9 @@ The first shipped slices are:
 - `Ctrl+A` inside the picker shows provider-specific setup for the
   selected row: missing API-key env vars, configured preset endpoints,
   or local-runner startup hints. The picker does not store secrets.
+- `/providers` includes runner-specific next steps when a local endpoint
+  is reachable but exposes no loaded models, for example LM Studio's
+  developer page or `lms load <model>`.
 
 Future work should add true provider connect/OAuth flows where
 providers support them, richer empty states, and a clearer distinction

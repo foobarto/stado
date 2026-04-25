@@ -96,6 +96,9 @@ subagent slice.
 - `/subagents` now renders a dedicated recent-child overview with full
   child IDs, worktrees, status, changed-file counts, scope violations,
   and adoption commands.
+- `/providers` now shows runner-specific remediation when a reachable
+  local backend has no models loaded, including LM Studio's `lms load`
+  path.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -138,7 +141,8 @@ repo-compatible Go toolchain at
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
   docs/symbol completion, landing-logo refinement, and direct
   light/dark theme shortcuts, status-modal action hints, and expandable
-  assistant turn details, and the `/subagents` overview.
+  assistant turn details, the `/subagents` overview, and local-runner
+  no-model remediation.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

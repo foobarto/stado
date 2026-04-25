@@ -594,13 +594,15 @@ func (m *Model) renderSessionsOverview() string {
 // model name. Re-probes on each invocation so the list reflects
 // right-now state (a user might have started LM Studio mid-session).
 func (m *Model) renderProvidersOverview() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	return m.renderProvidersOverviewFromResults(localdetect.DetectBundled(ctx))
+}
+
+func (m *Model) renderProvidersOverviewFromResults(results []localdetect.Result) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("active provider: %s  (model: %s)\n",
 		m.providerDisplayName(), m.model))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel()
-	results := localdetect.DetectBundled(ctx)
 
 	b.WriteString("\nlocal runners on this machine:\n")
 	any := false
@@ -611,6 +613,9 @@ func (m *Model) renderProvidersOverview() string {
 		case len(r.Models) == 0:
 			any = true
 			fmt.Fprintf(&b, "  %-9s %s  — running · no models loaded\n", r.Name, r.Endpoint)
+			if hint := localRunnerNoModelsHint(r.Name); hint != "" {
+				fmt.Fprintf(&b, "    next: %s\n", hint)
+			}
 		default:
 			any = true
 			fmt.Fprintf(&b, "  %-9s %s  — running · %d model(s), e.g. %s\n",
@@ -622,4 +627,19 @@ func (m *Model) renderProvidersOverview() string {
 		b.WriteString("`STADO_DEFAULTS_PROVIDER=<name>` on the next launch.")
 	}
 	return b.String()
+}
+
+func localRunnerNoModelsHint(provider string) string {
+	switch strings.TrimSpace(provider) {
+	case "ollama":
+		return "pull one with `ollama pull <model>`, then reopen `/model`"
+	case "lmstudio":
+		return "load a model in the LM Studio developer page or run `lms load <model>`"
+	case "llamacpp":
+		return "restart llama.cpp with `llama-server -m <model>`"
+	case "vllm":
+		return "restart vLLM with `vllm serve <model>`"
+	default:
+		return ""
+	}
 }
