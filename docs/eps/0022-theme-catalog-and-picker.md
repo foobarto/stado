@@ -9,6 +9,9 @@ see-also: [19]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added stado-rose to the bundled theme catalog.
+  - date: 2026-04-25
+    status: Partial
     note: Custom theme.toml files can now choose markdown renderer style with [markdown].style.
   - date: 2026-04-25
     status: Partial
@@ -54,6 +57,7 @@ The bundled catalog starts with:
 - `stado-dark`
 - `stado-light`
 - `stado-contrast`
+- `stado-rose`
 
 `/theme` and `Ctrl+X T` open a searchable picker. `/theme <id>` switches
 directly. `/theme light`, `/theme dark`, and `/theme toggle` are mode

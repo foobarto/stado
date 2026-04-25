@@ -8,10 +8,11 @@ import (
 
 func TestCatalogLoadsBundledThemes(t *testing.T) {
 	entries := Catalog()
-	if len(entries) < 3 {
-		t.Fatalf("catalog size = %d, want at least 3", len(entries))
+	if len(entries) < 4 {
+		t.Fatalf("catalog size = %d, want at least 4", len(entries))
 	}
 	seenLight := false
+	seenRose := false
 	for _, entry := range entries {
 		th, err := Named(entry.ID)
 		if err != nil {
@@ -23,9 +24,15 @@ func TestCatalogLoadsBundledThemes(t *testing.T) {
 		if entry.Mode == "light" {
 			seenLight = true
 		}
+		if entry.ID == "stado-rose" && th.Colors.Primary == "#f18fb3" {
+			seenRose = true
+		}
 	}
 	if !seenLight {
 		t.Fatal("catalog should include a light theme")
+	}
+	if !seenRose {
+		t.Fatal("catalog should include the rose theme")
 	}
 }
 

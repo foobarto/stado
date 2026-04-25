@@ -116,6 +116,8 @@ subagent slice.
 - Custom `theme.toml` files can now choose markdown renderer style via
   `[markdown].style = "auto" | "light" | "dark"`; `auto` preserves the
   background-luminance behavior.
+- The bundled theme catalog now includes `stado-rose`, a dark neutral
+  theme with rose and cyan accents.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -170,8 +172,8 @@ repo-compatible Go toolchain at
   assistant turn details, the `/subagents` overview, and local-runner
   no-model remediation, theme-aware markdown rendering, and grouped
   inline slash suggestions, status-modal trace ids, the custom
-  `theme.toml` picker row, and explicit markdown style selection for
-  custom themes.
+  `theme.toml` picker row, explicit markdown style selection for custom
+  themes, and the `stado-rose` bundled theme.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

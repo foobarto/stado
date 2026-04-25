@@ -80,10 +80,46 @@ message_indent    = 2
 style = "auto"
 `)
 
+var roseTOML = []byte(`
+name = "stado-rose"
+
+[colors]
+background      = "#101014"
+surface         = "#1a1a22"
+border          = "#30303a"
+primary         = "#f18fb3"
+accent          = "#62c7d8"
+muted           = "#8a8792"
+success         = "#8fd19e"
+warning         = "#e6c36a"
+error           = "#ff7a90"
+
+text            = "#f1edf3"
+text_dim        = "#9b96a3"
+text_secondary  = "#d6cedc"
+
+role_user       = "#62c7d8"
+role_assistant  = "#f1edf3"
+role_thinking   = "#d7a6bd"
+role_tool       = "#8fd19e"
+role_system     = "#ff7a90"
+
+[layout]
+sidebar_width     = 28
+sidebar_min_width = 24
+border_style      = "normal"
+padding           = 1
+message_indent    = 2
+
+[markdown]
+style = "auto"
+`)
+
 var catalog = []CatalogEntry{
 	{ID: "stado-dark", Name: "Stado Dark", Mode: "dark", Description: "Default dark theme"},
 	{ID: "stado-light", Name: "Stado Light", Mode: "light", Description: "Bright neutral theme"},
 	{ID: "stado-contrast", Name: "Stado Contrast", Mode: "dark", Description: "High-contrast dark theme"},
+	{ID: "stado-rose", Name: "Stado Rose", Mode: "dark", Description: "Dark neutral theme with rose and cyan accents"},
 }
 
 // Catalog returns the bundled themes in display order.
@@ -103,6 +139,8 @@ func BuiltinTOML(id string) ([]byte, bool) {
 		data = lightTOML
 	case "stado-contrast":
 		data = contrastTOML
+	case "stado-rose":
+		data = roseTOML
 	default:
 		return nil, false
 	}

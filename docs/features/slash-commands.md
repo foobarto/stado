@@ -106,13 +106,13 @@ taking over the screen.
   session. Editor drafts and chat scroll position are cached per
   session and restored when switching back.
 - **Theme selection.** `/theme` offers the bundled `stado-dark`,
-  `stado-light`, and `stado-contrast` themes. Selecting one updates the
-  current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the
-  next run starts with the same theme. `/theme light`, `/theme dark`,
-  and `/theme toggle` provide direct light/dark switching. If the
-  current `theme.toml` is custom, the picker shows it as the current
-  custom row. Custom themes can set `[markdown].style` to `auto`,
-  `light`, or `dark`.
+  `stado-light`, `stado-contrast`, and `stado-rose` themes. Selecting
+  one updates the current TUI and writes
+  `$XDG_CONFIG_HOME/stado/theme.toml` so the next run starts with the
+  same theme. `/theme light`, `/theme dark`, and `/theme toggle`
+  provide direct light/dark switching. If the current `theme.toml` is
+  custom, the picker shows it as the current custom row. Custom themes
+  can set `[markdown].style` to `auto`, `light`, or `dark`.
 - **Thinking display.** `/thinking` and `Ctrl+X H` only affect the TUI
   viewport. Thinking blocks remain captured and persisted even when the
   current display mode is `hide` or `tail`.

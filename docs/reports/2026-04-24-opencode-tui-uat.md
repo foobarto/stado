@@ -56,7 +56,7 @@ visible TUI workflow gaps:
 | Inline `@` completion | Partial | Agents, sessions, skills, docs, Go/Python symbols, and files are grouped; broader language symbols and indexing policy remain future work. |
 | Sidebar calmness | Implemented | Logs/risk/debug details are hidden until `/debug`; richer debug drilldown can still improve. |
 | Turn metadata | Implemented | Assistant turn footers show compact metadata and can expand into token, cache, tool, and trace details. |
-| Themes | Partial | Built-in picker, light/dark shortcuts, custom-theme rows, and markdown style control exist; broader bundled theme catalog remains future work. |
+| Themes | Partial | Built-in picker, light/dark shortcuts, custom-theme rows, markdown style control, and a fourth bundled theme exist; broader catalog remains future work. |
 | Status modal and LSP state | Partial | `/status` and `Ctrl+X S` show runtime health, LSP readiness, action hints, and trace IDs; deeper live provider/plugin/MCP health remains future work. |
 | Footer density | Implemented | Footer now includes cwd, branch, session identity, version, usage, cost, and command hint when width allows. |
 | tmux UAT harness | Implemented | Landing-view assertions are current and green. |
@@ -169,8 +169,9 @@ rows noisier.
 
 opencode exposes theme switching in the command palette and a dedicated
 theme picker. stado now has bundled themes, a TUI picker, direct
-light/dark/toggle shortcuts, current custom-theme rows, and custom
-markdown style control. opencode still has a broader catalog.
+light/dark/toggle shortcuts, current custom-theme rows, custom markdown
+style control, and a fourth dark accent theme. opencode still has a
+broader catalog.
 
 ## Improvement Backlog For stado
 
