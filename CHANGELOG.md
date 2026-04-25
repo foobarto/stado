@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Surfaced trace IDs in the status modal.** When the TUI has a valid
+  OTel span context, `/status` now shows the current trace id for
+  copy/paste into a collector UI.
 - **Grouped inline slash suggestions.** The `/` suggestion surface now
   shows compact Quick/Session/View group labels, matching the modal
   command palette without leaving the input.

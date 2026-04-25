@@ -105,6 +105,8 @@ subagent slice.
 - Inline slash suggestions now show compact command group labels,
   matching the modal command palette while staying anchored to the
   input.
+- `/status` now shows the current OTel trace id when the TUI root
+  context carries a valid span context.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -149,7 +151,7 @@ repo-compatible Go toolchain at
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
   no-model remediation, theme-aware markdown rendering, and grouped
-  inline slash suggestions.
+  inline slash suggestions, and status-modal trace ids.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

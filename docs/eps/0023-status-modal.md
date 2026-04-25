@@ -9,6 +9,9 @@ see-also: [11, 17, 19, 22]
 history:
   - date: 2026-04-25
     status: Partial
+    note: The modal now shows the current OTel trace id when the TUI context carries one.
+  - date: 2026-04-25
+    status: Partial
     note: Rows now include direct next-step hints for focused commands or config files.
   - date: 2026-04-24
     status: Partial
@@ -64,6 +67,10 @@ next-step hint, such as `/model`, `/tools`, `/plugin`, `/context`, or
 `config.toml`, so the modal remains read-only while still pointing to
 the focused command or file that resolves the row.
 
+When OTel is enabled and the TUI run context has a valid span context,
+the Extensions section includes the trace id for copy/paste into a
+collector or trace UI.
+
 ## Test Strategy
 
 - Unit-style TUI tests cover slash opening, keybinding opening, closing,
@@ -77,4 +84,3 @@ the focused command or file that resolves the row.
   enough?
 - Should plugin and MCP rows include health/error details once those
   subsystems expose stable status snapshots?
-- Should OTel show the current trace id for copy/paste?

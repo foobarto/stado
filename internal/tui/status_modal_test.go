@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestStatusSlashOpensModal(t *testing.T) {
@@ -30,6 +32,27 @@ func TestStatusModalShowsActionHints(t *testing.T) {
 	for _, want := range []string{"/model", "/provider", "/tools", "/context", "/budget", "/plugin", "config.toml"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status modal missing action hint %q: %q", want, out)
+		}
+	}
+}
+
+func TestStatusModalShowsTraceID(t *testing.T) {
+	m := scenarioModel(t)
+	tid, err := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := trace.SpanIDFromHex("0102030405060708")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: tid, SpanID: sid, TraceFlags: trace.FlagsSampled})
+	m.SetRootContext(trace.ContextWithSpanContext(context.Background(), sc))
+
+	out := m.renderStatusModal(140, 40)
+	for _, want := range []string{"trace", tid.String()} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status modal missing trace value %q: %q", want, out)
 		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func (m *Model) renderStatusModal(screenWidth, screenHeight int) string {
@@ -161,13 +162,28 @@ func (m *Model) statusExtensionRows() []statusRow {
 	if strings.TrimSpace(m.systemPromptPath) != "" {
 		instructions = filepath.Base(m.systemPromptPath)
 	}
-	return []statusRow{
+	rows := []statusRow{
 		{Key: "plugins", Value: plugins, Tone: "text", Action: "/plugin"},
 		{Key: "mcp", Value: mcp, Tone: "text", Action: "config.toml"},
 		{Key: "lsp", Value: lspStatusSummary(), Tone: "muted"},
 		{Key: "otel", Value: otel, Tone: "muted", Action: "config.toml"},
-		{Key: "instructions", Value: instructions, Tone: "muted", Action: "/context"},
 	}
+	if traceID := m.statusTraceID(); traceID != "" {
+		rows = append(rows, statusRow{Key: "trace", Value: traceID, Tone: "muted"})
+	}
+	rows = append(rows, statusRow{Key: "instructions", Value: instructions, Tone: "muted", Action: "/context"})
+	return rows
+}
+
+func (m *Model) statusTraceID() string {
+	if m == nil || m.rootCtx == nil {
+		return ""
+	}
+	sc := oteltrace.SpanContextFromContext(m.rootCtx)
+	if !sc.IsValid() || !sc.TraceID().IsValid() {
+		return ""
+	}
+	return sc.TraceID().String()
 }
 
 func lspStatusSummary() string {
