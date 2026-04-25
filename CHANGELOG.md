@@ -6,6 +6,12 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Infra
+
+- **Updated SLSA provenance generation to v2.1.0.** Release provenance now
+  uses the newer pinned generator workflow to avoid the Node 20 deprecation
+  path in future tagged releases.
+
 ## v0.25.6 — 2026-04-26
 
 ### Fixes
