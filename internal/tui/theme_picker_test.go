@@ -37,6 +37,47 @@ func TestThemePickerKeybindOpensPicker(t *testing.T) {
 	}
 }
 
+func TestThemePickerIncludesCurrentCustomTheme(t *testing.T) {
+	m := scenarioModel(t)
+	custom := theme.Default()
+	custom.Name = "my-custom"
+	m.theme = custom
+
+	items := m.themePickerItems()
+	found := false
+	for _, it := range items {
+		if it.ID == "my-custom" {
+			found = true
+			if !it.Current || it.Mode != "custom" || !strings.Contains(it.Desc, "theme.toml") {
+				t.Fatalf("custom theme item = %+v", it)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("custom theme row missing: %+v", items)
+	}
+}
+
+func TestThemePickerSelectingCurrentCustomThemeIsNoop(t *testing.T) {
+	m := scenarioModel(t)
+	custom := theme.Default()
+	custom.Name = "my-custom"
+	m.theme = custom
+	m.openThemePicker()
+
+	if sel := m.themePick.Selected(); sel == nil || sel.ID != "my-custom" {
+		t.Fatalf("selected = %+v, want current custom theme", sel)
+	}
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.themePick.Visible {
+		t.Fatal("enter should close theme picker")
+	}
+	if len(m.blocks) != 0 {
+		t.Fatalf("selecting current custom theme should not append errors: %+v", m.blocks)
+	}
+}
+
 func TestApplyNamedThemePersistsSelection(t *testing.T) {
 	defer theme.Apply(theme.Default())
 

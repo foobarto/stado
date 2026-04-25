@@ -18,13 +18,26 @@ func (m *Model) themePickerItems() []themepicker.Item {
 	catalog := theme.Catalog()
 	items := make([]themepicker.Item, 0, len(catalog))
 	current := m.currentThemeID()
+	currentBundled := false
 	for _, entry := range catalog {
+		if entry.ID == current {
+			currentBundled = true
+		}
 		items = append(items, themepicker.Item{
 			ID:      entry.ID,
 			Name:    entry.Name,
 			Mode:    entry.Mode,
 			Desc:    entry.Description,
 			Current: entry.ID == current,
+		})
+	}
+	if current != "" && !currentBundled {
+		items = append(items, themepicker.Item{
+			ID:      current,
+			Name:    current,
+			Mode:    "custom",
+			Desc:    "loaded theme.toml",
+			Current: true,
 		})
 	}
 	return items

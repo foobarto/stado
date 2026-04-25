@@ -107,6 +107,9 @@ subagent slice.
   input.
 - `/status` now shows the current OTel trace id when the TUI root
   context carries a valid span context.
+- `/theme` now appends the active custom `theme.toml` theme as the
+  current row when it does not match a bundled catalog entry; selecting
+  that row closes the picker without rewriting the override.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -151,7 +154,8 @@ repo-compatible Go toolchain at
   light/dark theme shortcuts, status-modal action hints, and expandable
   assistant turn details, the `/subagents` overview, and local-runner
   no-model remediation, theme-aware markdown rendering, and grouped
-  inline slash suggestions, and status-modal trace ids.
+  inline slash suggestions, status-modal trace ids, and the custom
+  `theme.toml` picker row.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

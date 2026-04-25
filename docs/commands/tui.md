@@ -82,7 +82,9 @@ human debugging, not a replacement for OTLP export.
   directly. `/theme light`, `/theme dark`, and `/theme toggle` are
   shortcuts for quick mode changes.
 - Theme overrides live at `$XDG_CONFIG_HOME/stado/theme.toml`.
-  Selecting a bundled theme writes that file so the choice persists.
+  Selecting a bundled theme writes that file so the choice persists. If
+  the current override is a custom theme, the picker shows it as the
+  current custom row.
 - Template overrides live at `$XDG_CONFIG_HOME/stado/templates/*.tmpl`.
 - Missing template files fall back to the bundled defaults, so you can
   override a single widget without copying the entire template set.
@@ -231,7 +233,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/agents` — agent picker for Do, Plan, and BTW
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, and `stado-contrast`; `/theme light`, `/theme dark`,
-  and `/theme toggle` switch without opening the picker
+  and `/theme toggle` switch without opening the picker; custom
+  `theme.toml` overrides appear as the current custom row
 - `/status` — modal summary of provider, model, tools, plugins, MCP,
   LSP readiness, OTel, sandbox, and context, with next-step hints such
   as `/model`, `/tools`, `/plugin`, and `config.toml`

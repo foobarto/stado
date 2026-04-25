@@ -61,6 +61,10 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Showed custom themes in the picker.** When the current
+  `theme.toml` does not match a bundled theme, `/theme` now shows it as
+  the current custom row and selecting it closes the picker without
+  rewriting the override.
 - **Surfaced trace IDs in the status modal.** When the TUI has a valid
   OTel span context, `/status` now shows the current trace id for
   copy/paste into a collector UI.

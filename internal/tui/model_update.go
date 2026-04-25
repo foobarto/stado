@@ -592,6 +592,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.keys.Matches(msg, keys.InputSubmit) {
 				if sel := m.themePick.Selected(); sel != nil {
 					m.themePick.Close()
+					if sel.Current && sel.Mode == "custom" {
+						return m, nil
+					}
 					if err := m.applyNamedTheme(sel.ID); err != nil {
 						m.appendBlock(block{kind: "system", body: err.Error()})
 						m.renderBlocks()
