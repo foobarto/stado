@@ -93,6 +93,9 @@ subagent slice.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.
+- `/subagents` now renders a dedicated recent-child overview with full
+  child IDs, worktrees, status, changed-file counts, scope violations,
+  and adoption commands.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -135,7 +138,7 @@ repo-compatible Go toolchain at
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
   docs/symbol completion, landing-logo refinement, and direct
   light/dark theme shortcuts, status-modal action hints, and expandable
-  assistant turn details.
+  assistant turn details, and the `/subagents` overview.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.
@@ -145,7 +148,5 @@ repo-compatible Go toolchain at
 
 1. Exercise the exposed worker flow in a manual dogfood run and refine
    TUI/headless adoption ergonomics based on the transcript.
-2. Consider a dedicated subagent activity view in the TUI if raw
-   notices are not enough during real use.
-3. Add richer adoption affordances to editor/ACP clients once a client
+2. Add richer adoption affordances to editor/ACP clients once a client
    consumes the new subagent notification payload.

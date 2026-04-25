@@ -166,6 +166,46 @@ func (m *Model) sidebarSubagentLines() []sidebarLine {
 	return out
 }
 
+func (m *Model) renderSubagentsOverview() string {
+	if len(m.subagents) == 0 {
+		return "/subagents: no subagent activity yet."
+	}
+	var b strings.Builder
+	b.WriteString("Subagents:\n")
+	for i := len(m.subagents) - 1; i >= 0; i-- {
+		act := m.subagents[i]
+		status := act.Status
+		if status == "" {
+			status = act.Phase
+		}
+		if status == "" {
+			status = "running"
+		}
+		fmt.Fprintf(&b, "\n- %s  %s", act.ChildSession, status)
+		if roleMode := subagentRoleMode(act); roleMode != "" {
+			fmt.Fprintf(&b, "  %s", roleMode)
+		}
+		if act.Worktree != "" {
+			fmt.Fprintf(&b, "\n  worktree: %s", act.Worktree)
+		}
+		if !act.StartedAt.IsZero() {
+			if elapsed := sidebarDurationString(time.Since(act.StartedAt)); elapsed != "" {
+				fmt.Fprintf(&b, "\n  started: %s ago", elapsed)
+			}
+		}
+		if act.ChangedFiles > 0 {
+			fmt.Fprintf(&b, "\n  changed files: %d", act.ChangedFiles)
+		}
+		if act.ScopeViolations > 0 {
+			fmt.Fprintf(&b, "\n  scope violations: %d", act.ScopeViolations)
+		}
+		if act.AdoptionCommand != "" {
+			fmt.Fprintf(&b, "\n  adopt: %s", act.AdoptionCommand)
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func subagentRoleMode(act subagentActivity) string {
 	role := strings.TrimSpace(act.Role)
 	mode := strings.TrimSpace(act.Mode)

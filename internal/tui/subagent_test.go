@@ -133,3 +133,46 @@ func TestSubagentEventsRenderSidebarActivity(t *testing.T) {
 		t.Fatalf("adoption command not tracked: %#v", m.subagents)
 	}
 }
+
+func TestSubagentsSlashRendersActivityOverview(t *testing.T) {
+	m := scenarioModel(t)
+	child := "123456789abcdef"
+
+	m.recordSubagentEvent(runtime.SubagentEvent{
+		Phase:           "finished",
+		ParentSession:   "parent-1",
+		ChildSession:    child,
+		Worktree:        "/tmp/stado-child",
+		Role:            "worker",
+		Mode:            "workspace_write",
+		Status:          "completed",
+		ForkTree:        "0123456789abcdef0123456789abcdef01234567",
+		ChangedFiles:    []string{"docs/a.md", "docs/b.md"},
+		ScopeViolations: []string{"blocked.txt: outside write_scope"},
+	})
+
+	_ = m.handleSlash("/subagents")
+	last := m.blocks[len(m.blocks)-1]
+	for _, want := range []string{
+		"Subagents:",
+		child,
+		"completed  worker/workspace_write",
+		"worktree: /tmp/stado-child",
+		"changed files: 2",
+		"scope violations: 1",
+		"stado session adopt parent-1 123456789abcdef",
+		"--fork-tree 0123456789abcdef0123456789abcdef01234567 --apply",
+	} {
+		if !strings.Contains(last.body, want) {
+			t.Fatalf("/subagents overview missing %q:\n%s", want, last.body)
+		}
+	}
+}
+
+func TestSubagentsSlashEmpty(t *testing.T) {
+	m := scenarioModel(t)
+	got := m.renderSubagentsOverview()
+	if !strings.Contains(got, "no subagent activity yet") {
+		t.Fatalf("empty subagent overview = %q", got)
+	}
+}

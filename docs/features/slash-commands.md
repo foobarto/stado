@@ -60,6 +60,7 @@ taking over the screen.
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |
 | `/sessions` | Other resumable sessions for this repo (with switch/resume hints) |
+| `/subagents` | Recent spawned child sessions with status, worktree, changed-file counts, scope violations, and adoption commands |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
 | `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.) |
 | `/budget` | Show current cost + caps; `/budget ack` continues past the hard cap |

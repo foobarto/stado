@@ -43,6 +43,7 @@ var Commands = []Command{
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
 	{"/switch", "Open the session manager", "ctrl+x l", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
+	{"/subagents", "List recent spawned child sessions, status, and adoption commands", "", "Session"},
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},
 	{"/budget", "Show the cost budget or /budget ack to continue past the hard cap", "", "Session"},

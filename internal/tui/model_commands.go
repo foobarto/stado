@@ -152,6 +152,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/sessions":
 		m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
+	case "/subagents":
+		m.appendBlock(block{kind: "system", body: m.renderSubagentsOverview()})
 	case "/new":
 		if err := m.createAndSwitchSession(); err != nil {
 			m.appendBlock(block{kind: "system", body: err.Error()})

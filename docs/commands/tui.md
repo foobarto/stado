@@ -239,6 +239,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/switch` — searchable session manager
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview
+- `/subagents` — recent spawned child sessions with status, worktree,
+  changed-file counts, scope violations, and adoption commands
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/btw` — off-band side-question mode

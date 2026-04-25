@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added a subagent activity overview.** `/subagents` now lists recent
+  spawned child sessions with status, worktree, changed-file counts,
+  scope violations, and adoption commands.
 - **Added expandable assistant turn details.** `Shift+Tab` can now expand
   the latest assistant footer to show token, cache, tool, and trace
   details without making normal transcript rows noisier.
