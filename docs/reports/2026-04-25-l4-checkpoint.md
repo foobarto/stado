@@ -67,6 +67,9 @@ subagent slice.
 - ACP `session/update` notifications now mirror the subagent lifecycle
   payload, including worker `forkTree`, `changedFiles`, and
   `scopeViolations`.
+- Headless/ACP command docs and CLI help now document the `subagent`
+  lifecycle payload, worker update fields, and explicit
+  `stado session adopt` review flow.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -84,6 +87,7 @@ subagent slice.
   - `go test ./cmd/stado ./internal/runtime`
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless`
   - `go test ./internal/acp`
+  - `go test ./cmd/stado`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -96,7 +100,7 @@ repo-compatible Go toolchain at
 ## Current State
 
 - Branch: `main`
-- Worktree contains the EP-13 read-only spawn changes.
+- Worktree contains the EP-13 scoped worker spawn/adoption changes.
 - No release tag has been cut for this slice.
 
 ## Next Candidates

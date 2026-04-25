@@ -31,7 +31,8 @@ var headlessCmd = &cobra.Command{
 		"  shutdown            → end the daemon (drains in-flight RPCs first).\n\n" +
 		"Notifications:\n" +
 		"  session.update      { sessionId, kind, text? | name? input? }\n" +
-		"                      kind: text | tool_call | plugin_fork | context_warning | system\n",
+		"                      kind: text | tool_call | subagent | plugin_fork | context_warning | system\n" +
+		"                      subagent: phase/status/child/childWorktree/role/mode/forkTree?/changedFiles?/scopeViolations?\n",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

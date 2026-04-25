@@ -45,6 +45,14 @@ sidecar `tree` and `trace` refs used by the TUI and `stado run`; the
 git-backed transcript is appended to `.stado/conversation.jsonl` as
 turns complete.
 
+Subagent lifecycle notifications also use `session/update` with
+`kind: "subagent"`. The payload includes `phase`, `status`, `role`,
+`mode`, `child`, `childWorktree`, `parentSession`, and
+`timeout_seconds`. Finished worker notifications may also include
+`forkTree`, `changedFiles`, and `scopeViolations`; clients should treat
+those as visibility fields and use `stado session adopt` for explicit
+child-to-parent adoption.
+
 ## Gotchas
 
 - ACP sessions are editor sessions, not the same as `stado session`

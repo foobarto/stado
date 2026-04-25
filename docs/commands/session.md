@@ -108,6 +108,27 @@ the fork points at the parent's `tree` HEAD; `--at turns/3` forks
 from the end of turn 3. Useful for "that answer went wrong, try
 again from before the bad tool call."
 
+### `session adopt <parent-id> <child-id> [--fork-tree <tree>] [--apply]`
+
+Plans or applies changed files from a child session into a parent
+session. The default is a dry run: it reports child changes, parent
+changes since the fork point, conflicts, and whether adoption is ready.
+Pass `--apply` to copy non-conflicting child changes into the parent and
+record `subagent_adopt` trace/tree commits.
+
+Use the `forkTree` value from a worker `spawn_agent` result or
+`subagent` notification:
+
+```sh
+stado session adopt parent-uuid child-uuid --fork-tree 0123...abcd
+stado session adopt parent-uuid child-uuid --fork-tree 0123...abcd --apply
+```
+
+Omit `--fork-tree` only when the worker result omitted it, which means
+the child forked from the empty tree. `--json` emits the same plan shape
+for scripts. Conflicts block `--apply`; inspect or land the child
+session manually if both parent and child changed the same path.
+
 ### `session revert <id>`
 
 Reset the session's worktree + tree ref to an earlier commit, on a

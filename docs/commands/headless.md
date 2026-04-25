@@ -48,7 +48,16 @@ Minimal flow:
 Notifications use `session.update` with `kind` values such as `text`,
 `tool_call`, `subagent`, `plugin_fork`, `context_warning`, and `system`.
 `subagent` notifications report `phase` (`started` / `finished`),
-child session id, child worktree, status, role, mode, and timeout.
+child session id, child worktree, parent session id, status, role, mode,
+and `timeout_seconds`. Finished worker notifications may also include
+`forkTree`, `changedFiles`, and `scopeViolations`. Child edits stay in
+the child session until explicitly adopted:
+
+```sh
+stado session adopt <parent-session> <child-session> --fork-tree <forkTree> --apply
+```
+
+Omit `--fork-tree` only when the notification has no `forkTree`.
 
 ## Gotchas
 

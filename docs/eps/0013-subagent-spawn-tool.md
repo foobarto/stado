@@ -261,8 +261,9 @@ Review flow:
 
 - TUI: show the child notice with changed-file count and attach command;
   do not switch sessions automatically.
-- Headless: include `changed_files` and `scope_violations` in the
-  finished `subagent` notification when available.
+- Headless/ACP: include `forkTree`, `changedFiles`, and
+  `scopeViolations` in the finished `subagent` notification when
+  available.
 - CLI/run: print the structured tool result; users inspect or land the
   child through normal session commands.
 
