@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -117,6 +118,9 @@ func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	if string(data) != "child write" {
 		t.Fatalf("child write = %q", data)
 	}
+	if want := []string{"allowed/new.txt"}; !reflect.DeepEqual(res.ChangedFiles, want) {
+		t.Fatalf("changed_files = %#v, want %#v", res.ChangedFiles, want)
+	}
 	if _, err := os.Stat(filepath.Join(parent.WorktreePath, "allowed", "new.txt")); !os.IsNotExist(err) {
 		t.Fatalf("parent worktree was modified, stat err = %v", err)
 	}
@@ -129,6 +133,9 @@ func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	blocked := prov.toolResult("block")
 	if blocked == nil || !blocked.IsError || !strings.Contains(blocked.Content, "outside write_scope") {
 		t.Fatalf("blocked tool result = %+v", blocked)
+	}
+	if len(res.ScopeViolations) != 1 || !strings.Contains(res.ScopeViolations[0], "blocked/new.txt") {
+		t.Fatalf("scope_violations = %#v, want blocked/new.txt", res.ScopeViolations)
 	}
 }
 

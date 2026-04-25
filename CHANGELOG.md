@@ -36,6 +36,9 @@ Plugins / Infra / Fixes.
 - **Built the internal worker subagent path.** Runtime tests now exercise
   scoped `workspace_write` children with read/search plus `write`/`edit`,
   while the public `spawn_agent` decoder still rejects worker mode.
+- **Reported internal worker outputs.** Worker subagent results now
+  include changed files from the child tree diff and collected
+  `scope_violations` for rejected scoped writes.
 
 ## v0.23.1 — 2026-04-25
 

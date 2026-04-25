@@ -79,6 +79,9 @@ func TestScopedWriteHostChecksPathAgainstScope(t *testing.T) {
 			t.Fatalf("CheckWritePath(%q) error = %v", target, err)
 		}
 	}
+	if got := host.ScopeViolations(); len(got) != len(denied) {
+		t.Fatalf("ScopeViolations = %#v, want %d entries", got, len(denied))
+	}
 }
 
 func TestScopedWriteHostRejectsMetadataTargets(t *testing.T) {
@@ -140,6 +143,9 @@ func TestScopedWriteHostGuardsWriteAndEditTools(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, "blocked", "new.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("blocked write created file, stat err = %v", statErr)
 	}
+	if got := host.ScopeViolations(); len(got) != 1 || !strings.Contains(got[0], "blocked/new.txt") {
+		t.Fatalf("ScopeViolations = %#v, want blocked/new.txt", got)
+	}
 
 	if err := os.WriteFile(filepath.Join(root, "allowed", "edit.txt"), []byte("before"), 0o644); err != nil {
 		t.Fatal(err)
@@ -158,4 +164,4 @@ func TestScopedWriteHostGuardsWriteAndEditTools(t *testing.T) {
 	}
 }
 
-var _ tool.WritePathGuard = ScopedWriteHost{}
+var _ tool.WritePathGuard = (*ScopedWriteHost)(nil)

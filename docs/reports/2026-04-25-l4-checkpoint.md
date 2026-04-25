@@ -42,6 +42,10 @@ subagent slice.
   rejection: direct runtime tests can run a `role=worker`,
   `mode=workspace_write` child with read/search plus scoped `write` and
   `edit`, while `spawn_agent` tool decoding still rejects worker mode.
+- Added internal worker result reporting: `changed_files` comes from the
+  child tree diff against the fork point with session metadata filtered
+  out, and `scope_violations` comes from deduplicated scoped-write guard
+  rejections.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -54,6 +58,7 @@ subagent slice.
   - `go test ./internal/subagent`
   - `go test ./internal/subagent ./internal/tools/fs ./pkg/tool`
   - `go test ./internal/runtime ./internal/subagent`
+  - `go test ./internal/subagent ./internal/runtime ./internal/state/git`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -71,7 +76,7 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Add worker changed-file reporting and scope-violation collection
+1. Design and implement explicit child-change adoption/conflict checks
    before exposing `workspace_write`.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.

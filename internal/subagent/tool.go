@@ -46,15 +46,17 @@ type Request struct {
 
 // Result is the structured payload returned to the parent model.
 type Result struct {
-	Status         string `json:"status"`
-	Role           string `json:"role"`
-	Mode           string `json:"mode"`
-	ChildSession   string `json:"child_session"`
-	Worktree       string `json:"worktree"`
-	Text           string `json:"text,omitempty"`
-	MessageCount   int    `json:"message_count,omitempty"`
-	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-	Error          string `json:"error,omitempty"`
+	Status          string   `json:"status"`
+	Role            string   `json:"role"`
+	Mode            string   `json:"mode"`
+	ChildSession    string   `json:"child_session"`
+	Worktree        string   `json:"worktree"`
+	Text            string   `json:"text,omitempty"`
+	MessageCount    int      `json:"message_count,omitempty"`
+	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
+	ChangedFiles    []string `json:"changed_files,omitempty"`
+	ScopeViolations []string `json:"scope_violations,omitempty"`
+	Error           string   `json:"error,omitempty"`
 }
 
 // Spawner is the host-side capability the runtime/TUI/headless surfaces

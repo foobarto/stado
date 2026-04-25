@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added worker changed-file reporting and scope-violation collection to the internal workspace_write path.
+  - date: 2026-04-25
+    status: Partial
     note: Added an internal worker-mode execution path with scoped write/edit tools, while keeping public decode rejection in place.
   - date: 2026-04-25
     status: Partial
@@ -212,6 +215,10 @@ Conflict and adoption contract:
 - A write-capable child returns a structured result with `status`,
   `child_session`, `worktree`, `summary`, `changed_files`, and
   `scope_violations` if any were attempted.
+- The internal worker path now populates `changed_files` from the child
+  tree diff against the fork point, filtering session metadata such as
+  `.stado/`, `.stado-pid`, and trace context files. Scope guard
+  rejections are deduplicated and returned as `scope_violations`.
 - The parent receives only the result. Child edits remain in the child
   session until a separate user-visible adoption step.
 - There is no automatic merge into the parent session. Adoption should

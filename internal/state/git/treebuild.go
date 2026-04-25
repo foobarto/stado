@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -130,4 +131,50 @@ func (s *Session) CurrentTree() (plumbing.Hash, error) {
 		return plumbing.ZeroHash, err
 	}
 	return s.TreeFromCommit(head)
+}
+
+// ChangedFilesBetween returns a sorted, deduplicated list of file paths that
+// differ between two tree hashes. Zero hashes are treated as empty trees.
+func (s *Session) ChangedFilesBetween(fromHash, toHash plumbing.Hash) ([]string, error) {
+	if fromHash == toHash {
+		return nil, nil
+	}
+	fromTree, err := s.treeOrEmpty(fromHash)
+	if err != nil {
+		return nil, err
+	}
+	toTree, err := s.treeOrEmpty(toHash)
+	if err != nil {
+		return nil, err
+	}
+	changes, err := fromTree.Diff(toTree)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(changes))
+	for _, change := range changes {
+		if change.From.Name != "" {
+			seen[change.From.Name] = struct{}{}
+		}
+		if change.To.Name != "" {
+			seen[change.To.Name] = struct{}{}
+		}
+	}
+	files := make([]string, 0, len(seen))
+	for file := range seen {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func (s *Session) treeOrEmpty(hash plumbing.Hash) (*object.Tree, error) {
+	if hash.IsZero() {
+		var err error
+		hash, err = s.writeEmptyTree()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return object.GetTree(s.Sidecar.repo.Storer, hash)
 }

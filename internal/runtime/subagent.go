@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
@@ -67,6 +69,10 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	if err != nil {
 		return subagent.Result{}, fmt.Errorf("spawn_agent: fork child session: %w", err)
 	}
+	baseTree, err := child.CurrentTree()
+	if err != nil {
+		return subagent.Result{}, fmt.Errorf("spawn_agent: child base tree: %w", err)
+	}
 	r.emitSubagentEvent(req, child, "started", "running", "")
 
 	agentName := r.AgentName
@@ -95,7 +101,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
 		return subagent.Result{}, err
 	}
-	childHost, err := configureSubagentTools(req, exec)
+	childHost, scopedHost, err := configureSubagentTools(req, exec)
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
@@ -125,6 +131,9 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			result := subagentResult(req, child, text, msgs)
 			result.Status = "timeout"
 			result.Error = fmt.Sprintf("child timed out after %d second(s)", req.TimeoutSeconds)
+			if detailErr := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); detailErr != nil {
+				result.Error += "; " + detailErr.Error()
+			}
 			_, _ = child.CommitToTrace(stadogit.CommitMeta{
 				Tool:     subagent.ToolName,
 				ShortArg: "timeout",
@@ -143,6 +152,11 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	}
 
 	result := subagentResult(req, child, text, msgs)
+	if err := attachWorkerResultDetails(&result, req, child, baseTree, scopedHost); err != nil {
+		err = fmt.Errorf("spawn_agent: worker result: %w", err)
+		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
+		return subagent.Result{}, err
+	}
 	r.emitSubagentEvent(req, child, "finished", result.Status, "")
 	return result, nil
 }
@@ -233,17 +247,57 @@ func subagentResult(req subagent.Request, child *stadogit.Session, text string, 
 	}
 }
 
-func configureSubagentTools(req subagent.Request, exec *tools.Executor) (tool.Host, error) {
+func configureSubagentTools(req subagent.Request, exec *tools.Executor) (tool.Host, *subagent.ScopedWriteHost, error) {
 	if req.Mode == subagent.WorkspaceWriteMode {
 		keepWorkspaceWriteTools(exec.Registry)
-		return subagent.NewScopedWriteHost(autoApproveHost{
+		scopedHost, err := subagent.NewScopedWriteHost(autoApproveHost{
 			workdir: exec.Session.WorktreePath,
 			readLog: exec.ReadLog,
 			runner:  exec.Runner,
 		}, req.WriteScope)
+		if err != nil {
+			return nil, nil, err
+		}
+		return scopedHost, scopedHost, nil
 	}
 	keepReadOnlyTools(exec.Registry)
-	return nil, nil
+	return nil, nil, nil
+}
+
+func attachWorkerResultDetails(result *subagent.Result, req subagent.Request, child *stadogit.Session, baseTree plumbing.Hash, scopedHost *subagent.ScopedWriteHost) error {
+	if req.Mode != subagent.WorkspaceWriteMode {
+		return nil
+	}
+	if scopedHost != nil {
+		result.ScopeViolations = scopedHost.ScopeViolations()
+	}
+	currentTree, err := child.CurrentTree()
+	if err != nil {
+		return err
+	}
+	changed, err := child.ChangedFilesBetween(baseTree, currentTree)
+	if err != nil {
+		return err
+	}
+	result.ChangedFiles = reportableWorkerChangedFiles(changed)
+	return nil
+}
+
+func reportableWorkerChangedFiles(files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		switch {
+		case file == ".stado-pid" || file == ".stado-span-context":
+			continue
+		case file == ".git" || strings.HasPrefix(file, ".git/"):
+			continue
+		case file == ".stado" || strings.HasPrefix(file, ".stado/"):
+			continue
+		default:
+			out = append(out, file)
+		}
+	}
+	return out
 }
 
 func keepReadOnlyTools(reg *tools.Registry) {

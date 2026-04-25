@@ -190,6 +190,34 @@ func TestBuildTreeAndCommit(t *testing.T) {
 	}
 }
 
+func TestChangedFilesBetween(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	sess, err := CreateSession(sc, t.TempDir(), "changed-files", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.WorktreePath, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, "sub", "b.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sess.BuildTreeFromDir(sess.WorktreePath)
+	if err != nil {
+		t.Fatalf("BuildTreeFromDir: %v", err)
+	}
+	files, err := sess.ChangedFilesBetween(plumbing.ZeroHash, tree)
+	if err != nil {
+		t.Fatalf("ChangedFilesBetween: %v", err)
+	}
+	if got, want := strings.Join(files, ","), "a.txt,sub/b.txt"; got != want {
+		t.Fatalf("changed files = %q, want %q", got, want)
+	}
+}
+
 func TestTurnTag(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	wtRoot := t.TempDir()
