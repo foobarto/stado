@@ -436,10 +436,10 @@ func documentLesson(cmd *cobra.Command, id string, opts *learningDocumentOptions
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("learning document: mkdir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // #nosec G302,G304 -- user-selected learning docs are shareable repo artifacts.
 	if err != nil {
 		if os.IsExist(err) {
 			return fmt.Errorf("learning document: %s already exists", path)
@@ -920,7 +920,7 @@ func findCurrentRepoRoot(start string) string {
 }
 
 func readCurrentRepoPin(dir string) string {
-	data, err := os.ReadFile(filepath.Join(dir, ".stado", "user-repo"))
+	data, err := os.ReadFile(filepath.Join(dir, ".stado", "user-repo")) // #nosec G304 -- path is fixed metadata under the candidate repo root.
 	if err != nil {
 		return ""
 	}

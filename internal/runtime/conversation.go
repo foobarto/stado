@@ -99,11 +99,11 @@ func appendConversationRecord(worktree string, v any) error {
 		return errors.New("conversation: worktree required")
 	}
 	dir := filepath.Join(worktree, ".stado")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
 	}
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) // #nosec G304 -- conversation log path is fixed inside the session worktree.
 	if err != nil {
 		return fmt.Errorf("conversation: open %s: %w", path, err)
 	}
@@ -128,7 +128,7 @@ func LoadConversation(worktree string) ([]agent.Message, error) {
 		return nil, nil
 	}
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- conversation log path is fixed inside the session worktree.
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -154,7 +154,7 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 		return errors.New("conversation: worktree required")
 	}
 	dir := filepath.Join(worktree, ".stado")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("conversation: mkdir %s: %w", dir, err)
 	}
 	final := filepath.Join(worktree, ConversationFile)
@@ -164,7 +164,7 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 		return fmt.Errorf("conversation: stat %s: %w", final, err)
 	}
 	tmp := final + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- temporary conversation path is fixed inside the session worktree.
 	if err != nil {
 		return fmt.Errorf("conversation: open tmp: %w", err)
 	}
@@ -192,7 +192,7 @@ func ConversationLogSHA(worktree string) (string, error) {
 		return "", errors.New("conversation: worktree required")
 	}
 	path := filepath.Join(worktree, ConversationFile)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- conversation log path is fixed inside the session worktree.
 	if errors.Is(err, os.ErrNotExist) {
 		data = nil
 	} else if err != nil {

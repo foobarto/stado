@@ -136,7 +136,7 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	}
 	args = append(args, "--max-count", fmt.Sprintf("%d", a.MaxMatches), "--", a.Pattern, searchPath)
 
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- trusted rg binary with fixed argument vector, no shell.
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

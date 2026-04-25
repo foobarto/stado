@@ -19,10 +19,10 @@ import (
 // version, wasm sha256) triple. Airgap users can import a signed CRL
 // manually; the on-disk cache lives next to the trust store.
 type CRL struct {
-	Version   int        `json:"version"`    // schema version; v1 is current
+	Version   int        `json:"version"` // schema version; v1 is current
 	IssuedAt  time.Time  `json:"issued_at"`
 	Entries   []CRLEntry `json:"entries"`
-	Signature string     `json:"signature"`  // base64 Ed25519 over JSON w/ Signature==""
+	Signature string     `json:"signature"` // base64 Ed25519 over JSON w/ Signature==""
 }
 
 // CRLEntry is one revocation record.
@@ -36,7 +36,7 @@ type CRLEntry struct {
 // LoadLocal reads a cached CRL from disk. Missing file returns (nil, nil)
 // — no CRL is not an error, just an advisory in the logs.
 func LoadLocal(path string) (*CRL, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- CRL cache path is derived from stado config state.
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

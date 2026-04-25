@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/foobarto/stado/internal/lsp"
@@ -62,7 +61,7 @@ func (h *Hover) Run(ctx context.Context, raw json.RawMessage, host tool.Host) (t
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	data, err := os.ReadFile(full)
+	data, err := workdirpath.ReadFile(host.Workdir(), a.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}

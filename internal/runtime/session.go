@@ -61,7 +61,7 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+	if err := os.MkdirAll(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +98,7 @@ func NewSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+	if err := os.MkdirAll(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
@@ -185,9 +185,9 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 	// execution still works.
 	if userRepo != "" {
 		dir := filepath.Join(sess.WorktreePath, ".stado")
-		_ = os.MkdirAll(dir, 0o755)
+		_ = os.MkdirAll(dir, 0o700)
 		_ = os.WriteFile(filepath.Join(sess.WorktreePath, userRepoFile),
-			[]byte(userRepo+"\n"), 0o644)
+			[]byte(userRepo+"\n"), 0o600)
 	}
 
 	priv, err := audit.LoadOrCreateKey(SigningKeyPath(cfg))
@@ -217,7 +217,7 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 	// this process. Best-effort: ignore write errors (worktree might be
 	// read-only or similar).
 	pidPath := filepath.Join(sess.WorktreePath, ".stado-pid")
-	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0o600)
 }
 
 // emitResumeSpan opens a short `stado.session.resume` span parented

@@ -122,7 +122,7 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 			return nil, fmt.Sprintf("background plugin %s: signature: %v", id, err)
 		}
 	}
-	wasmBytes, err := os.ReadFile(wasmPath)
+	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: read wasm: %v", id, err)
 	}
@@ -461,7 +461,7 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, td
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		wasmBytes, err := os.ReadFile(filepath.Join(dir, "plugin.wasm"))
+		wasmBytes, err := os.ReadFile(filepath.Join(dir, "plugin.wasm")) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 		if err != nil {
 			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: err.Error()}
 		}

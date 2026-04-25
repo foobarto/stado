@@ -77,7 +77,7 @@ func WriteCurrentTraceparent(ctx context.Context, dir string) error {
 	}
 
 	path := filepath.Join(dir, TraceparentFile)
-	return os.WriteFile(path, []byte(tp+"\n"), 0o644)
+	return os.WriteFile(path, []byte(tp+"\n"), 0o600)
 }
 
 // LoadParentTraceparent looks for `<dir>/<TraceparentFile>` and, if
@@ -107,11 +107,11 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 	if info.Size() <= 0 || info.Size() > maxTraceparentBytes {
 		return ctx, false
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- traceparent path is fixed inside the session metadata directory.
 	if err != nil {
 		return ctx, false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, maxTraceparentBytes+1))
 	if err != nil || len(data) == 0 || len(data) > maxTraceparentBytes {
 		return ctx, false

@@ -1,11 +1,11 @@
 // Package binext is a shared helper for tools that bundle a third-party
 // binary (ripgrep, ast-grep). It handles the first-use extract:
 //
-//   1. If no bundled bytes exist, return ErrNotBundled so the caller
-//      can fall back to a PATH lookup.
-//   2. Otherwise extract the bytes to $XDG_CACHE_HOME/stado/bin/<name>-<sha>,
-//      verify the sha256 against the declared digest, chmod +x, and
-//      return the absolute path.
+//  1. If no bundled bytes exist, return ErrNotBundled so the caller
+//     can fall back to a PATH lookup.
+//  2. Otherwise extract the bytes to $XDG_CACHE_HOME/stado/bin/<name>-<sha>,
+//     verify the sha256 against the declared digest, chmod +x, and
+//     return the absolute path.
 //
 // Second-and-later invocations short-circuit on the existing file when
 // its sha256 matches — no re-extraction, no re-verify.
@@ -40,7 +40,7 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	if len(bundled) == 0 {
 		return "", ErrNotBundled
 	}
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("binext: cache dir: %w", err)
 	}
 
@@ -64,7 +64,7 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	// Write atomically: tmp + rename so a concurrent call doesn't see
 	// a half-written file.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, bundled, 0o755); err != nil {
+	if err := os.WriteFile(tmp, bundled, 0o700); err != nil { // #nosec G306 -- cached tool extract must be executable.
 		return "", fmt.Errorf("binext: write %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -77,7 +77,7 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 // cacheHit reports whether path already exists + its sha256 matches
 // bundled. A different sha is NOT a hit (we'd rewrite).
 func cacheHit(path string, bundled []byte) (bool, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- cache path is derived from bundled tool name and digest.
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

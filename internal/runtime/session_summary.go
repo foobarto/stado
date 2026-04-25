@@ -42,7 +42,7 @@ const DescriptionFile = ".stado/description"
 // unset. Missing file / read errors collapse to "" so callers can
 // always render *something* (fallback to the session id).
 func ReadDescription(worktreeDir string) string {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, DescriptionFile))
+	data, err := os.ReadFile(filepath.Join(worktreeDir, DescriptionFile)) // #nosec G304 -- description path is fixed inside the session worktree.
 	if err != nil {
 		return ""
 	}
@@ -52,7 +52,7 @@ func ReadDescription(worktreeDir string) string {
 // ReadUserRepoPin returns the worktree's pinned user-repo path, or ""
 // when unset.
 func ReadUserRepoPin(worktreeDir string) string {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, userRepoFile))
+	data, err := os.ReadFile(filepath.Join(worktreeDir, userRepoFile)) // #nosec G304 -- repo pin path is fixed inside the session worktree.
 	if err != nil {
 		return ""
 	}
@@ -67,11 +67,11 @@ func WriteDescription(worktreeDir, text string) error {
 		return nil
 	}
 	dir := filepath.Join(worktreeDir, ".stado")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(worktreeDir, DescriptionFile),
-		[]byte(strings.TrimSpace(text)+"\n"), 0o644)
+		[]byte(strings.TrimSpace(text)+"\n"), 0o600)
 }
 
 // LastActiveFormatted renders LastActive compactly. Returns "never"
@@ -90,7 +90,7 @@ func (r SessionSummary) LastActiveFormatted() string {
 // session is idle (worktree exists but nobody's using it). Works on
 // unix-likes; Windows port would need OpenProcess() instead.
 func liveOwningPID(worktreeDir string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(worktreeDir, ".stado-pid"))
+	data, err := os.ReadFile(filepath.Join(worktreeDir, ".stado-pid")) // #nosec G304 -- pid file path is fixed inside the session worktree.
 	if err != nil {
 		return 0, false
 	}

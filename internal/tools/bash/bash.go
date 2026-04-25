@@ -88,7 +88,7 @@ type BashArgs struct {
 // sandboxed path.
 func BuildShellCommand(ctx context.Context, runner sandbox.Runner, workdir, command string) (*exec.Cmd, error) {
 	if runner == nil {
-		cmd := exec.CommandContext(ctx, "bash", "-c", command)
+		cmd := exec.CommandContext(ctx, "bash", "-c", command) // #nosec G204 -- bash tool intentionally runs user-supplied shell commands.
 		cmd.Dir = workdir
 		return cmd, nil
 	}

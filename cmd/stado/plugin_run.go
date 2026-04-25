@@ -71,7 +71,7 @@ var pluginRunCmd = &cobra.Command{
 			}
 		}
 
-		wasmBytes, err := os.ReadFile(wasmPath)
+		wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 		if err != nil {
 			return err
 		}

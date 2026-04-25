@@ -24,7 +24,7 @@ func copyAndCloseFile(out syncedWriteCloser, in io.Reader) error {
 }
 
 func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode) // #nosec G304 -- callers validate destination scope and pass the required mode.
 	if err != nil {
 		return err
 	}

@@ -185,7 +185,7 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 // dir, module path) or empty strings when none found.
 func findModuleRoot(dir string) (string, string) {
 	for {
-		data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+		data, err := os.ReadFile(filepath.Join(dir, "go.mod")) // #nosec G304 -- module probe walks parents of a workdir-confined file.
 		if err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
 				if strings.HasPrefix(line, "module ") {
@@ -203,7 +203,7 @@ func findModuleRoot(dir string) (string, string) {
 }
 
 func readBounded(path string, max int) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- caller passes a workdir-confined path.
 	if err != nil {
 		return "", err
 	}

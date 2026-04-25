@@ -169,7 +169,7 @@ func scanPythonFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
 	if err != nil {
 		return nil
 	}
@@ -233,7 +233,7 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
 	if err != nil {
 		return nil
 	}
@@ -327,7 +327,7 @@ func scanShellFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
 	if err != nil {
 		return nil
 	}

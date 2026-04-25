@@ -83,7 +83,7 @@ func (r *Runner) exec(ctx context.Context, shellCmd string, stdin []byte, label 
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cctx, "/bin/sh", "-c", shellCmd)
+	cmd := exec.CommandContext(cctx, "/bin/sh", "-c", shellCmd) // #nosec G204 -- hook commands are explicit user configuration.
 	cmd.Stdin = bytes.NewReader(stdin)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out

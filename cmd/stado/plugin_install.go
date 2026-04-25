@@ -92,7 +92,7 @@ var pluginInstallCmd = &cobra.Command{
 // copyDir copies files + regular dirs from src to dst. Symlinks and
 // specials are rejected — plugin packages should be plain files.
 func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(src)
@@ -125,10 +125,10 @@ func copyDir(src, dst string) error {
 }
 
 func copyPluginFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src)
+	in, err := os.Open(src) // #nosec G304 -- source is an already-validated plugin package file.
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	return writeReaderToPath(dst, mode, in)
 }

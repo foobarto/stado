@@ -131,7 +131,7 @@ func addPathBeneathRule(rulesetFD int, path string, access uint64) error {
 		Allowed_access: access,
 		Parent_fd:      parentFD32,
 	}
-	if err := landlockAddRule(rulesetFD, rulePathBeneath, unsafe.Pointer(&rule), 0); err != nil {
+	if err := landlockAddRule(rulesetFD, rulePathBeneath, unsafe.Pointer(&rule), 0); err != nil { // #nosec G103 -- required pointer conversion for Linux Landlock syscall ABI.
 		return fmt.Errorf("landlock: add rule for %s: %w", path, err)
 	}
 	return nil
@@ -144,7 +144,7 @@ const rulePathBeneath = 1 // LANDLOCK_RULE_PATH_BENEATH
 func landlockCreateRuleset(attr *unix.LandlockRulesetAttr, size uintptr, flags uint32) (int, error) {
 	fd, _, errno := syscall.Syscall(
 		unix.SYS_LANDLOCK_CREATE_RULESET,
-		uintptr(unsafe.Pointer(attr)),
+		uintptr(unsafe.Pointer(attr)), // #nosec G103 -- required pointer conversion for Linux Landlock syscall ABI.
 		size,
 		uintptr(flags),
 	)

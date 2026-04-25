@@ -43,7 +43,7 @@ func (NoneRunner) Command(ctx context.Context, p Policy, name string, args []str
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, full, args...)
+	cmd := exec.CommandContext(ctx, full, args...) // #nosec G204 -- command is resolved through sandbox policy before execution.
 	if p.CWD != "" {
 		cmd.Dir = p.CWD
 	}

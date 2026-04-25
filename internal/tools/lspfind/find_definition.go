@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -80,7 +79,7 @@ func (f *FindDefinition) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	data, err := os.ReadFile(full)
+	data, err := workdirpath.ReadFile(h.Workdir(), a.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}

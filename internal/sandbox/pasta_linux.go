@@ -22,7 +22,7 @@ func ensurePastaSpliceOnly() error {
 			pastaCheckErr = fmt.Errorf("sandbox: pasta not found; Linux net host allowlists require the `passt` package")
 			return
 		}
-		out, err := exec.Command(path, "--help").CombinedOutput()
+		out, err := exec.Command(path, "--help").CombinedOutput() // #nosec G204 -- fixed probe of the pasta binary found on PATH.
 		if err != nil && len(out) == 0 {
 			pastaCheckErr = fmt.Errorf("sandbox: probe pasta --help: %w", err)
 			return

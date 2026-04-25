@@ -21,10 +21,10 @@ func SessionDisabled(workdir string) bool {
 func SetSessionDisabled(workdir string, disabled bool) error {
 	path := sessionMemoryDisabledPath(workdir)
 	if disabled {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte("disabled\n"), 0o644)
+		return os.WriteFile(path, []byte("disabled\n"), 0o600)
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err

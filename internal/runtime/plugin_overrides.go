@@ -99,7 +99,7 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 	if _, err := verifyPluginOverride(context.Background(), cfg, pluginDir, mf, sig); err != nil {
 		return nil, fmt.Errorf("tool override %q: verify %s: %w", target, pluginID, err)
 	}
-	wasmBytes, err := os.ReadFile(wasmPath)
+	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: read %s wasm: %w", target, pluginID, err)
 	}

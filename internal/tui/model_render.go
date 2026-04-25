@@ -779,7 +779,7 @@ func gitWorktreeDirty(cwd string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal")
+	cmd := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal") // #nosec G204 -- fixed git status probe rooted at detected repository.
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
 	out, err := cmd.Output()
 	if err != nil || ctx.Err() != nil {

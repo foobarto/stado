@@ -38,7 +38,7 @@ func (m *Model) modelFavorites() []modelpicker.Item {
 }
 
 func readModelStateItems(path string, recent, favorite bool) []modelpicker.Item {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- model state path is derived from stado config state.
 	if err != nil {
 		return nil
 	}
@@ -100,7 +100,7 @@ func (m *Model) rememberModelSelection(item modelpicker.Item) {
 			break
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
 	data, err := json.MarshalIndent(next, "", "  ")
@@ -171,7 +171,7 @@ func (m *Model) toggleModelFavorite(item modelpicker.Item) bool {
 			Origin:       it.Origin,
 		})
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false
 	}
 	data, err := json.MarshalIndent(records, "", "  ")

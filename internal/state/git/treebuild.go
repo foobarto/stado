@@ -85,11 +85,11 @@ func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) 
 		r = strings.NewReader(target)
 		size = int64(len(target))
 	} else {
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G304 -- path comes from bounded worktree traversal.
 		if err != nil {
 			return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		info, err := f.Stat()
 		if err != nil {
 			return plumbing.ZeroHash, err

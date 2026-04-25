@@ -40,7 +40,7 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err != nil {
 		return fmt.Errorf("materialize: read tree %s: %w", treeHash, err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
 
@@ -66,7 +66,7 @@ func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]b
 			if err != nil {
 				return fmt.Errorf("materialize: subtree %s: %w", e.Name, err)
 			}
-			if err := os.MkdirAll(full, 0o755); err != nil {
+			if err := os.MkdirAll(full, 0o750); err != nil {
 				return err
 			}
 			if err := s.writeTreeInto(sub, full, kept); err != nil {

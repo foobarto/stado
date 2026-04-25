@@ -172,7 +172,7 @@ func init() {
 // or 0. stado TUI / stado run write their pid there on startup (wired in
 // a follow-up — this reader works without the writer).
 func readPidFile(worktree string) int {
-	data, err := os.ReadFile(filepath.Join(worktree, ".stado-pid"))
+	data, err := os.ReadFile(filepath.Join(worktree, ".stado-pid")) // #nosec G304 -- pid file path is fixed inside a resolved session worktree.
 	if err != nil {
 		return 0
 	}

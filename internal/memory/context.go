@@ -200,7 +200,7 @@ func findRepoRoot(start string) string {
 }
 
 func readUserRepoPin(workdir string) string {
-	data, err := os.ReadFile(filepath.Join(workdir, ".stado", "user-repo"))
+	data, err := os.ReadFile(filepath.Join(workdir, ".stado", "user-repo")) // #nosec G304 -- path is fixed metadata inside the session worktree.
 	if err != nil {
 		return ""
 	}

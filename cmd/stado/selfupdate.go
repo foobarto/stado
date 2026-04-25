@@ -265,7 +265,7 @@ func downloadAndVerify(url, wantHex string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download HTTP %d", resp.StatusCode)
 	}
@@ -277,24 +277,24 @@ func downloadAndVerify(url, wantHex string) (*os.File, error) {
 	h := sha256.New()
 	tee := io.TeeReader(resp.Body, h)
 	if _, err := io.Copy(tmp, tee); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return nil, err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return nil, err
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 	if got != wantHex {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return nil, fmt.Errorf("sha256 mismatch: got %s, want %s", got, wantHex)
 	}
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
 		return nil, err
 	}
 	return tmp, nil
@@ -307,23 +307,23 @@ func extractBinary(archivePath, assetName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tmp.Close()
+	_ = tmp.Close()
 	out := tmp.Name()
-	f, err := os.Open(archivePath)
+	f, err := os.Open(archivePath) // #nosec G304 -- archivePath is the checksum-verified self-update asset.
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if strings.HasSuffix(assetName, ".zip") {
 		if err := extractZipBinary(archivePath, out); err != nil {
-			os.Remove(out)
+			_ = os.Remove(out)
 			return "", err
 		}
 	} else {
 		gz, err := gzip.NewReader(f)
 		if err != nil {
-			os.Remove(out)
+			_ = os.Remove(out)
 			return "", err
 		}
 		defer func() { _ = gz.Close() }()
@@ -331,20 +331,20 @@ func extractBinary(archivePath, assetName string) (string, error) {
 		for {
 			hdr, err := tr.Next()
 			if err == io.EOF {
-				os.Remove(out)
+				_ = os.Remove(out)
 				return "", fmt.Errorf("stado binary not found in archive")
 			}
 			if err != nil {
-				os.Remove(out)
+				_ = os.Remove(out)
 				return "", err
 			}
 			base := filepath.Base(hdr.Name)
 			if base == "stado" || base == "stado.exe" {
-				if err := writeReaderToPath(out, 0o755, tr); err != nil {
-					os.Remove(out)
+				if err := writeReaderToPath(out, 0o755, tr); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
+					_ = os.Remove(out)
 					return "", err
 				}
-				if err := os.Chmod(out, 0o755); err != nil {
+				if err := os.Chmod(out, 0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
 					return "", err
 				}
 				return out, nil
@@ -367,11 +367,11 @@ func extractZipBinary(archivePath, outPath string) error {
 			if err != nil {
 				return err
 			}
-			defer rc.Close()
-			if err := writeReaderToPath(outPath, 0o755, rc); err != nil {
+			defer func() { _ = rc.Close() }()
+			if err := writeReaderToPath(outPath, 0o755, rc); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
 				return err
 			}
-			return os.Chmod(outPath, 0o755)
+			return os.Chmod(outPath, 0o755) // #nosec G302 -- extracted self-update payload must remain executable.
 		}
 	}
 	return fmt.Errorf("stado binary not found in zip")
@@ -398,16 +398,16 @@ func installBinary(newBin string) error {
 			return fmt.Errorf("install: %w (copy fallback: %v)", err, err2)
 		}
 	}
-	return os.Chmod(cur, 0o755)
+	return os.Chmod(cur, 0o755) // #nosec G302 -- installed command binary must remain executable.
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	in, err := os.Open(src) // #nosec G304 -- src is the extracted self-update binary being installed.
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	return writeReaderToPath(dst, 0o755, in)
+	defer func() { _ = in.Close() }()
+	return writeReaderToPath(dst, 0o755, in) // #nosec G302 -- installed command binary must remain executable.
 }
 
 func currentExe() string {

@@ -179,11 +179,11 @@ func (m *Manifest) Verify(pub ed25519.PublicKey, sigB64 string) error {
 // actual bytes at wasmPath. Fails loudly — callers should never execute a
 // plugin whose binary doesn't match the manifest.
 func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
-	f, err := os.Open(wasmPath)
+	f, err := os.Open(wasmPath) // #nosec G304 -- wasm path is fixed inside a plugin directory chosen by the caller.
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
@@ -200,7 +200,7 @@ func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
 // Manifest.AuthorPubkeyHex so trust errors can echo the full pubkey.
 // Returns (manifest, signature-base64) ready for Verify.
 func LoadFromDir(dir string) (*Manifest, string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.json")) // #nosec G304 -- manifest path is fixed inside the plugin directory.
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read manifest: %w", err)
 	}
@@ -208,11 +208,11 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, "", fmt.Errorf("plugin: parse manifest: %w", err)
 	}
-	sigBytes, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.sig"))
+	sigBytes, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.sig")) // #nosec G304 -- signature path is fixed inside the plugin directory.
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read sig: %w", err)
 	}
-	pubBytes, _ := os.ReadFile(filepath.Join(dir, "author.pubkey"))
+	pubBytes, _ := os.ReadFile(filepath.Join(dir, "author.pubkey")) // #nosec G304 -- public key path is fixed inside the plugin directory.
 	if len(bytes.TrimSpace(pubBytes)) == ed25519.PublicKeySize*2 {
 		m.AuthorPubkeyHex = string(bytes.TrimSpace(pubBytes))
 	}

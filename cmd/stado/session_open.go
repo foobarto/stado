@@ -23,8 +23,8 @@ func openPersistedSession(cfg *config.Config, id string) (*stadogit.Sidecar, *st
 		cwd, _ := os.Getwd()
 		userRepo := findRepoRoot(cwd)
 		dir := filepath.Join(wt, ".stado")
-		_ = os.MkdirAll(dir, 0o755)
-		_ = os.WriteFile(filepath.Join(dir, "user-repo"), []byte(userRepo+"\n"), 0o644)
+		_ = os.MkdirAll(dir, 0o700)
+		_ = os.WriteFile(filepath.Join(dir, "user-repo"), []byte(userRepo+"\n"), 0o600)
 	}
 
 	sess, err := runtime.OpenSessionByID(cfg, wt, id)

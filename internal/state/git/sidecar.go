@@ -41,8 +41,8 @@ func RepoID(userRepoRoot string) (string, error) {
 
 // Sidecar is the bare repo that holds all session refs for one user repo.
 type Sidecar struct {
-	Path         string    // absolute path to the bare repo
-	UserRepoRoot string    // absolute path to the user's repo root (or cwd)
+	Path         string // absolute path to the bare repo
+	UserRepoRoot string // absolute path to the user's repo root (or cwd)
 	repo         *git.Repository
 }
 
@@ -66,7 +66,7 @@ func OpenOrInitSidecar(sidecarPath, userRepoRoot string) (*Sidecar, error) {
 	case err == nil:
 		// already exists
 	case errors.Is(err, git.ErrRepositoryNotExists):
-		if err := os.MkdirAll(absSidecar, 0o755); err != nil {
+		if err := os.MkdirAll(absSidecar, 0o700); err != nil {
 			return nil, fmt.Errorf("sidecar: mkdir: %w", err)
 		}
 		repo, err = git.PlainInit(absSidecar, true) // bare
@@ -99,16 +99,16 @@ func (s *Sidecar) ensureAlternates() error {
 	}
 
 	altDir := filepath.Join(s.Path, "objects", "info")
-	if err := os.MkdirAll(altDir, 0o755); err != nil {
+	if err := os.MkdirAll(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
 	altPath := filepath.Join(altDir, "alternates")
 
-	existing, err := os.ReadFile(altPath)
+	existing, err := os.ReadFile(altPath) // #nosec G304 -- alternates path is fixed inside the sidecar repository.
 	if err == nil && string(existing) == userObjects+"\n" {
 		return nil
 	}
-	if err := os.WriteFile(altPath, []byte(userObjects+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(altPath, []byte(userObjects+"\n"), 0o600); err != nil {
 		return fmt.Errorf("sidecar: write alternates: %w", err)
 	}
 	return nil
@@ -272,5 +272,3 @@ func (s *Sidecar) DeleteSessionRefs(id string) error {
 	}
 	return nil
 }
-
-

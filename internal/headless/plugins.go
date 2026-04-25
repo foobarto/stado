@@ -161,7 +161,7 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	wasmBytes, err := os.ReadFile(wasmPath)
+	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "read wasm: " + err.Error()}
 	}
@@ -401,7 +401,7 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 	if err := ts.VerifyManifest(mf, sig); err != nil {
 		return nil
 	}
-	wasmBytes, err := os.ReadFile(wasmPath)
+	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
 	if err != nil {
 		return nil
 	}

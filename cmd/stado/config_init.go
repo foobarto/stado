@@ -29,7 +29,7 @@ var configInitCmd = &cobra.Command{
 		if _, err := os.Stat(path); err == nil && !configInitForce {
 			return fmt.Errorf("config already exists at %s (use --force to overwrite)", path)
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
 		if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0o600); err != nil {

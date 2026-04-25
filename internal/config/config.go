@@ -294,7 +294,7 @@ func Load() (*Config, error) {
 	k := koanf.New(".")
 
 	configPath := defaultConfigPath()
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 
@@ -387,7 +387,7 @@ func (c *Config) loadSystemPromptTemplate() error {
 	} else {
 		c.Agent.SystemPromptPath = expandHome(c.Agent.SystemPromptPath)
 	}
-	body, err := os.ReadFile(c.Agent.SystemPromptPath)
+	body, err := os.ReadFile(c.Agent.SystemPromptPath) // #nosec G304 -- system prompt path is explicit user configuration.
 	if err != nil {
 		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
 	}
@@ -399,7 +399,7 @@ func (c *Config) loadSystemPromptTemplate() error {
 }
 
 func ensureDefaultSystemPromptTemplate(path string) error {
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := os.ReadFile(path); err == nil { // #nosec G304 -- default system prompt path is derived from stado config.
 		if isLegacyDefaultSystemPromptTemplate(data) {
 			if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {
 				return fmt.Errorf("update default system prompt template: %w", err)
@@ -409,7 +409,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("read default system prompt template: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {

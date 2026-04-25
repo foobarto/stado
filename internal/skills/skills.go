@@ -102,7 +102,7 @@ func Load(start string) ([]Skill, error) {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 				continue
 			}
-			body, readErr := os.ReadFile(path)
+			body, readErr := os.ReadFile(path) // #nosec G304 -- skill file was lstat-checked as regular and non-symlink.
 			if readErr != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)

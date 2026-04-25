@@ -6,6 +6,13 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Infra
+
+- **Cleared the gosec backlog.** Runtime state, config, cache, and
+  session metadata now use tighter file modes, workdir reads prefer
+  rooted helpers where practical, and intentional dynamic path/exec
+  cases carry narrow `#nosec` justifications.
+
 ## v0.24.0 — 2026-04-25
 
 ### Agent

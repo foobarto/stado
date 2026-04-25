@@ -57,7 +57,7 @@ func Launch(ctx context.Context, server, projectRoot string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lsp: %s not on PATH — install %s", server, installHint(server))
 	}
-	cmd := exec.CommandContext(ctx, bin)
+	cmd := exec.CommandContext(ctx, bin) // #nosec G204 -- language server binary is resolved with LookPath from user-selected server.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

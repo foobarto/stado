@@ -185,8 +185,8 @@ func compileHostMatch(p NetPolicy) func(string) bool {
 
 func tunnel(a, b net.Conn) {
 	done := make(chan struct{}, 2)
-	go func() { io.Copy(a, b); done <- struct{}{} }()
-	go func() { io.Copy(b, a); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(a, b); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(b, a); done <- struct{}{} }()
 	<-done
 }
 

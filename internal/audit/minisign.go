@@ -156,11 +156,11 @@ func trimPrefixI(s, prefix string) (string, bool) {
 // MinisignSignFile is the convenient path-based version of MinisignSign.
 // Reads `path`, signs the contents, and writes `path.minisig`.
 func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComment, trustedComment string) error {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- caller supplies the artifact path to sign.
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	body, err := io.ReadAll(f)
 	if err != nil {
 		return err
@@ -169,5 +169,5 @@ func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComm
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".minisig", sig, 0o644)
+	return os.WriteFile(path+".minisig", sig, 0o644) // #nosec G306 -- minisign signatures are intentionally shareable sidecars.
 }

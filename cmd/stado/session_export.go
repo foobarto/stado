@@ -71,7 +71,7 @@ var sessionExportCmd = &cobra.Command{
 		case "md", "":
 			body = renderMarkdown(id, msgs)
 		case "jsonl":
-			raw, rerr := os.ReadFile(filepath.Join(wt, runtime.ConversationFile))
+			raw, rerr := os.ReadFile(filepath.Join(wt, runtime.ConversationFile)) // #nosec G304 -- conversation path is fixed within a resolved session worktree.
 			if rerr != nil {
 				return fmt.Errorf("session export: read jsonl: %w", rerr)
 			}
@@ -85,11 +85,11 @@ var sessionExportCmd = &cobra.Command{
 			return err
 		}
 		if dir := filepath.Dir(exportOutput); dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return fmt.Errorf("session export: mkdir %s: %w", dir, err)
 			}
 		}
-		if err := os.WriteFile(exportOutput, body, 0o644); err != nil {
+		if err := os.WriteFile(exportOutput, body, 0o644); err != nil { // #nosec G306 -- session export is an explicit user-selected artifact.
 			return fmt.Errorf("session export: write %s: %w", exportOutput, err)
 		}
 		fmt.Fprintf(os.Stderr, "wrote %d message(s) to %s\n", len(msgs), exportOutput)

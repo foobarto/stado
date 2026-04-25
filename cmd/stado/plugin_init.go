@@ -52,7 +52,7 @@ var pluginInitCmd = &cobra.Command{
 		if _, err := os.Stat(dir); err == nil && !pluginInitForce {
 			return fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
 		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("init: mkdir %s: %w", dir, err)
 		}
 
@@ -65,12 +65,12 @@ var pluginInitCmd = &cobra.Command{
 		}
 		for f, body := range files {
 			path := filepath.Join(dir, f)
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil { // #nosec G306 -- scaffolded plugin source files are shareable project artifacts.
 				return fmt.Errorf("init: write %s: %w", path, err)
 			}
 		}
 		// build.sh needs to be executable.
-		_ = os.Chmod(filepath.Join(dir, "build.sh"), 0o755)
+		_ = os.Chmod(filepath.Join(dir, "build.sh"), 0o755) // #nosec G302 -- scaffolded build script must be executable.
 
 		fmt.Fprintf(os.Stderr, "scaffolded plugin %q at %s\n", name, dir)
 		fmt.Fprintln(os.Stderr, "next steps:")

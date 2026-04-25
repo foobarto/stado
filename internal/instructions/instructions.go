@@ -182,7 +182,7 @@ func Load(start string) (Result, error) {
 				// reason.
 				continue
 			}
-			body, readErr := os.ReadFile(candidate)
+			body, readErr := os.ReadFile(candidate) // #nosec G304 -- candidate was lstat-checked as a regular non-symlink instructions file.
 			if readErr != nil {
 				return Result{}, fmt.Errorf("instructions: read %s: %w", candidate, readErr)
 			}

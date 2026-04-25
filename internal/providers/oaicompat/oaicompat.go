@@ -41,9 +41,9 @@ type Provider struct {
 
 type Option func(*Provider)
 
-func WithAPIKey(k string) Option                 { return func(p *Provider) { p.apiKey = k } }
-func WithHTTPClient(c *http.Client) Option       { return func(p *Provider) { p.httpClient = c } }
-func WithName(n string) Option                   { return func(p *Provider) { p.name = n } }
+func WithAPIKey(k string) Option                   { return func(p *Provider) { p.apiKey = k } }
+func WithHTTPClient(c *http.Client) Option         { return func(p *Provider) { p.httpClient = c } }
+func WithName(n string) Option                     { return func(p *Provider) { p.name = n } }
 func WithCapabilities(c agent.Capabilities) Option { return func(p *Provider) { p.caps = c } }
 
 // New returns a provider pointing at endpoint. Endpoint should include the
@@ -69,7 +69,7 @@ func New(endpoint string, opts ...Option) (*Provider, error) {
 	return p, nil
 }
 
-func (p *Provider) Name() string                   { return p.name }
+func (p *Provider) Name() string                     { return p.name }
 func (p *Provider) Capabilities() agent.Capabilities { return p.caps }
 
 // Probe hits /v1/models and updates capabilities where the server exposes
@@ -152,7 +152,7 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 	}
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		serr := httpStatusError(resp.StatusCode, b, p.endpoint)
 		span.RecordError(serr)
 		span.SetStatus(codes.Error, serr.Error())
@@ -487,4 +487,3 @@ func snippet(b []byte) string {
 	}
 	return s
 }
-
