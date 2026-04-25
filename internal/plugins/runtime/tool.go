@@ -150,7 +150,10 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	}
 
 	argsBytes := []byte(args)
-	argsLen := uint32(len(argsBytes))
+	argsLen, err := wasmBufferLen(argsBytes)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	// 1. Allocate args buffer.
 	argsPtr, err := callAlloc(ctx, alloc, argsLen)

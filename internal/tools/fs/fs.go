@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,15 +45,10 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	full, err := workdirpath.Resolve(h.Workdir(), p.Path, false)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-
 	// Resolve ranged-read slice. Canonical form for the ReadKey.Range:
 	// "" when no start/end were passed, "<start>:<end>" otherwise (EOF
 	// preserved as -1 so the key survives file growth).
-	raw, err := os.ReadFile(full)
+	raw, err := workdirpath.ReadFile(h.Workdir(), p.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -179,14 +175,7 @@ func (WriteTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 			return tool.Result{Error: err.Error()}, err
 		}
 	}
-	full, err := workdirpath.Resolve(h.Workdir(), p.Path, true)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	if err := os.WriteFile(full, []byte(p.Content), 0644); err != nil {
+	if err := workdirpath.WriteFile(h.Workdir(), p.Path, []byte(p.Content), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return tool.Result{Content: fmt.Sprintf("Wrote %d bytes to %s", len(p.Content), p.Path)}, nil
@@ -218,11 +207,7 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 			return tool.Result{Error: err.Error()}, err
 		}
 	}
-	full, err := workdirpath.Resolve(h.Workdir(), p.Path, false)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	data, err := os.ReadFile(full)
+	data, err := workdirpath.ReadFile(h.Workdir(), p.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -232,7 +217,7 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 		return tool.Result{Error: fmt.Sprintf("text not found in %s", p.Path)}, nil
 	}
 	newContent := content[:idx] + p.New + content[idx+len(p.Old):]
-	if err := os.WriteFile(full, []byte(newContent), 0644); err != nil {
+	if err := workdirpath.WriteFile(h.Workdir(), p.Path, []byte(newContent), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return tool.Result{Content: fmt.Sprintf("Applied edit to %s", p.Path)}, nil
@@ -291,41 +276,43 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	var searchPath string
+	searchArg := p.Path
 	if p.Path == "" {
-		var err error
-		searchPath, err = workdirpath.Resolve(h.Workdir(), ".", false)
-		if err != nil {
-			return tool.Result{Error: err.Error()}, err
-		}
-	} else {
-		var err error
-		searchPath, err = workdirpath.Resolve(h.Workdir(), p.Path, false)
-		if err != nil {
-			return tool.Result{Error: err.Error()}, err
-		}
+		searchArg = "."
 	}
+	rootPath, searchRel, err := workdirpath.RootRel(h.Workdir(), searchArg, false)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	defer func() { _ = root.Close() }()
+
 	var results []string
-	err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+	err = iofs.WalkDir(root.FS(), filepath.ToSlash(searchRel), func(path string, d iofs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || info.IsDir() || info.Size() > 1024*1024 {
+		if d.Type()&os.ModeSymlink != 0 || d.IsDir() {
 			return err
 		}
-		resolved, err := workdirpath.Resolve(h.Workdir(), path, false)
+		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-		data, err := os.ReadFile(resolved)
+		if info.Size() > 1024*1024 {
+			return nil
+		}
+		data, err := root.ReadFile(filepath.FromSlash(path))
 		if err != nil {
 			return nil
 		}
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			if strings.Contains(line, p.Pattern) {
-				rel, _ := filepath.Rel(h.Workdir(), resolved)
-				results = append(results, fmt.Sprintf("%s:%d:%s", rel, i+1, line))
+				results = append(results, fmt.Sprintf("%s:%d:%s", path, i+1, line))
 			}
 		}
 		return nil

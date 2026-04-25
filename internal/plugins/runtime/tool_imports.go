@@ -86,7 +86,7 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 					return
 				}
 				content := []byte(res.Content)
-				if uint32(len(content)) > resultCap {
+				if byteLenExceedsCap(content, resultCap) {
 					msg := []byte(fmt.Sprintf("%s: result %d exceeds %d-byte cap", spec.exportName, len(content), resultCap))
 					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
 					return

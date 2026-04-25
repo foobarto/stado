@@ -51,8 +51,22 @@ func WriteTUITheme(configPath, themeID string) error {
 }
 
 func updateConfig(configPath string, mutate func(*toml.Tree)) error {
+	dir := filepath.Dir(configPath)
+	name := filepath.Base(configPath)
+	if name == "." || name == ".." || strings.Contains(name, "\x00") {
+		return fmt.Errorf("invalid config path %q", configPath)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open config dir: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
 	var tree *toml.Tree
-	data, err := os.ReadFile(configPath)
+	data, err := root.ReadFile(name)
 	switch {
 	case err == nil:
 		tree, err = toml.LoadBytes(data)
@@ -74,10 +88,7 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	if err != nil {
 		return fmt.Errorf("render config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	if err := os.WriteFile(configPath, []byte(out), 0o600); err != nil {
+	if err := root.WriteFile(name, []byte(out), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil

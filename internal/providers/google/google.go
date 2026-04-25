@@ -96,7 +96,10 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 		model.Temperature = &v
 	}
 	if req.MaxTokens > 0 {
-		v := int32(req.MaxTokens)
+		if req.MaxTokens > 1<<31-1 {
+			return nil, fmt.Errorf("google: max_tokens %d exceeds int32", req.MaxTokens)
+		}
+		v := int32(req.MaxTokens) // #nosec G115 -- checked above.
 		model.MaxOutputTokens = &v
 	}
 	if len(req.Tools) > 0 {

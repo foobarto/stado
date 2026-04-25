@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -44,13 +45,13 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			data, err := os.ReadFile(abs)
+			data, err := readAllowedFile(abs, host.FSRead)
 			if err != nil {
 				host.Logger.Warn("stado_fs_read failed", slog.String("path", abs), slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			if uint32(len(data)) > bufCap {
+			if uint64(len(data)) > uint64(bufCap) {
 				host.Logger.Warn("stado_fs_read truncation",
 					slog.String("path", abs),
 					slog.Int("data_bytes", len(data)),
@@ -96,17 +97,17 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-				host.Logger.Warn("stado_fs_write mkdir", slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
-				return
-			}
-			if err := os.WriteFile(abs, data, 0o644); err != nil {
+			if err := writeAllowedFile(abs, host.FSWrite, data, 0o644); err != nil {
 				host.Logger.Warn("stado_fs_write failed", slog.String("path", abs), slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			stack[0] = api.EncodeI32(int32(len(data)))
+			encoded, ok := encodeI32Length(len(data))
+			if !ok {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = encoded
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_fs_write")
@@ -168,4 +169,76 @@ func realPath(workdir, path string) (string, error) {
 	}
 	result := filepath.Join(resolvedDir, base)
 	return filepath.Clean(result), nil
+}
+
+func readAllowedFile(abs string, allow []string) ([]byte, error) {
+	root, rel, err := openAllowedRoot(abs, allow, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(rel)
+}
+
+func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode) error {
+	root, rel, err := openAllowedRoot(abs, allow, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if dir := filepath.Dir(rel); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return root.WriteFile(rel, data, perm)
+}
+
+func openAllowedRoot(abs string, allow []string, allowMissing bool) (*os.Root, string, error) {
+	abs = filepath.Clean(abs)
+	for _, allowed := range allow {
+		allowed = filepath.Clean(allowed)
+		if !pathAllowed(abs, []string{allowed}) {
+			continue
+		}
+		rootPath, err := rootedAllowedPath(allowed, allowMissing)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(rootPath, abs)
+		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		root, err := os.OpenRoot(rootPath)
+		if err != nil {
+			return nil, "", err
+		}
+		return root, rel, nil
+	}
+	return nil, "", os.ErrPermission
+}
+
+func rootedAllowedPath(allowed string, allowMissing bool) (string, error) {
+	resolved, err := filepath.EvalSymlinks(allowed)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if !allowMissing || !os.IsNotExist(err) {
+		return "", err
+	}
+	dir := filepath.Clean(allowed)
+	for dir != string(filepath.Separator) && dir != "." {
+		if _, statErr := os.Stat(dir); statErr == nil {
+			return filepath.EvalSymlinks(dir)
+		}
+		dir = filepath.Dir(dir)
+	}
+	return filepath.EvalSymlinks(dir)
+}
+
+func encodeI32Length(n int) (uint64, bool) {
+	if n > maxInt32ResultInt {
+		return 0, false
+	}
+	return api.EncodeI32(int32(n)), true // #nosec G115 -- checked against maxInt32Result.
 }

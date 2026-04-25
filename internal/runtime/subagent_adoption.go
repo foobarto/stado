@@ -11,6 +11,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // SubagentAdoptionPlan is a dry-run summary for applying a child worker's
@@ -116,17 +117,23 @@ func AdoptSubagentChanges(parent, child *stadogit.Session, forkTree plumbing.Has
 }
 
 func copyChildChange(parentWorktree, childWorktree, rel string) error {
-	parentPath, err := safeWorktreeRel(parentWorktree, rel)
+	parentRootPath, parentRel, err := workdirpath.RootRel(parentWorktree, rel, true)
 	if err != nil {
 		return err
 	}
+	parentRoot, err := os.OpenRoot(parentRootPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parentRoot.Close() }()
+
 	childPath, err := safeWorktreeRel(childWorktree, rel)
 	if err != nil {
 		return err
 	}
 	info, err := os.Lstat(childPath)
 	if errors.Is(err, os.ErrNotExist) {
-		if rmErr := os.RemoveAll(parentPath); rmErr != nil {
+		if rmErr := parentRoot.RemoveAll(parentRel); rmErr != nil {
 			return rmErr
 		}
 		return nil
@@ -137,10 +144,12 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 	if info.IsDir() {
 		return fmt.Errorf("directories are not supported adoption targets")
 	}
-	if err := os.MkdirAll(filepath.Dir(parentPath), 0o755); err != nil {
-		return err
+	if dir := filepath.Dir(parentRel); dir != "." {
+		if err := parentRoot.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
 	}
-	if err := os.RemoveAll(parentPath); err != nil {
+	if err := parentRoot.RemoveAll(parentRel); err != nil {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
@@ -148,9 +157,12 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		if err != nil {
 			return err
 		}
-		return os.Symlink(target, parentPath)
+		if !safeAdoptionSymlinkTarget(parentRel, target) {
+			return fmt.Errorf("unsafe symlink target %q for %q", target, rel)
+		}
+		return parentRoot.Symlink(target, parentRel)
 	}
-	data, err := os.ReadFile(childPath)
+	data, err := workdirpath.ReadFile(childWorktree, rel)
 	if err != nil {
 		return err
 	}
@@ -158,7 +170,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 	if mode == 0 {
 		mode = 0o644
 	}
-	return os.WriteFile(parentPath, data, mode)
+	return parentRoot.WriteFile(parentRel, data, mode)
 }
 
 func safeWorktreeRel(root, rel string) (string, error) {
@@ -173,6 +185,15 @@ func safeWorktreeRel(root, rel string) (string, error) {
 		return "", fmt.Errorf("unsafe relative path %q", rel)
 	}
 	return filepath.Join(root, clean), nil
+}
+
+func safeAdoptionSymlinkTarget(linkRel, target string) bool {
+	if target == "" || filepath.IsAbs(target) || strings.Contains(target, "\x00") {
+		return false
+	}
+	linkDir := filepath.Dir(filepath.FromSlash(linkRel))
+	cleanTarget := filepath.Clean(filepath.Join(linkDir, filepath.FromSlash(target)))
+	return cleanTarget != "." && cleanTarget != ".." && !strings.HasPrefix(cleanTarget, ".."+string(filepath.Separator))
 }
 
 func intersectSorted(a, b []string) []string {

@@ -59,7 +59,7 @@ func registerSessionReadImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			if uint32(len(data)) > bufCap {
+			if byteLenExceedsCap(data, bufCap) {
 				// Don't silently truncate session data — a plugin that
 				// asks for "history" and gets half of it would produce
 				// nonsense. Signal error; plugin can re-request with a
@@ -109,7 +109,7 @@ func registerSessionObserveImport(builder wazero.HostModuleBuilder, host *Host) 
 				stack[0] = api.EncodeI32(0)
 				return
 			}
-			if uint32(len(ev)) > bufCap {
+			if byteLenExceedsCap(ev, bufCap) {
 				// Oversize event — surface as truncation-denied so the
 				// plugin can retry with a bigger buffer rather than
 				// receive half an event.
@@ -168,7 +168,7 @@ func registerSessionForkImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 			data := []byte(newID)
-			if uint32(len(data)) > outCap {
+			if byteLenExceedsCap(data, outCap) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}

@@ -749,24 +749,16 @@ func currentGitBranch(cwd string) string {
 	if repo == "" {
 		return ""
 	}
-	gitDir := filepath.Join(repo, ".git")
-	if info, err := os.Stat(gitDir); err == nil && !info.IsDir() {
-		data, err := os.ReadFile(gitDir)
-		if err != nil {
-			return ""
-		}
-		line := strings.TrimSpace(string(data))
-		target, ok := strings.CutPrefix(line, "gitdir:")
-		if !ok {
-			return ""
-		}
-		target = strings.TrimSpace(target)
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(repo, target)
-		}
-		gitDir = target
+
+	root, err := os.OpenRoot(repo)
+	if err != nil {
+		return ""
 	}
-	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	defer func() { _ = root.Close() }()
+	if info, err := root.Stat(".git"); err != nil || !info.IsDir() {
+		return ""
+	}
+	head, err := root.ReadFile(filepath.Join(".git", "HEAD"))
 	if err != nil {
 		return ""
 	}

@@ -186,6 +186,49 @@ func TestPlanSubagentAdoptionBlocksConflictingChanges(t *testing.T) {
 	}
 }
 
+func TestCopyChildChangeRejectsSymlinkEscape(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(child, "link.txt")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := copyChildChange(parent, child, "link.txt")
+	if err == nil {
+		t.Fatal("copyChildChange should reject symlink escapes")
+	}
+	if _, statErr := os.Lstat(filepath.Join(parent, "link.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("unsafe link adopted, stat err = %v", statErr)
+	}
+}
+
+func TestCopyChildChangeRejectsParentSymlinkSwap(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(child, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(child, "dir", "file.txt"), []byte("child"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(parent, "dir")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := copyChildChange(parent, child, filepath.Join("dir", "file.txt"))
+	if err == nil {
+		t.Fatal("copyChildChange should reject parent symlink escapes")
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "file.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("outside write occurred, stat err = %v", statErr)
+	}
+}
+
 func commitCurrentTree(t *testing.T, sess *stadogit.Session, summary string) {
 	t.Helper()
 	tree, err := sess.BuildTreeFromDir(sess.WorktreePath)

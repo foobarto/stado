@@ -163,6 +163,52 @@ func TestRealPath_SymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestReadAllowedFileRejectsSymlinkSwapEscape(t *testing.T) {
+	tmp := t.TempDir()
+	allowed := filepath.Join(tmp, "allowed")
+	forbidden := filepath.Join(tmp, "forbidden")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(forbidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(forbidden, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(forbidden, filepath.Join(allowed, "swapped")); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	_, err := readAllowedFile(filepath.Join(allowed, "swapped", "secret.txt"), []string{allowed})
+	if err == nil {
+		t.Fatal("readAllowedFile should reject symlink escape under allowed root")
+	}
+}
+
+func TestWriteAllowedFileRejectsSymlinkSwapEscape(t *testing.T) {
+	tmp := t.TempDir()
+	allowed := filepath.Join(tmp, "allowed")
+	forbidden := filepath.Join(tmp, "forbidden")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(forbidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(forbidden, filepath.Join(allowed, "swapped")); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	err := writeAllowedFile(filepath.Join(allowed, "swapped", "out.txt"), []string{allowed}, []byte("pwned"), 0o644)
+	if err == nil {
+		t.Fatal("writeAllowedFile should reject symlink escape under allowed root")
+	}
+	if _, statErr := os.Stat(filepath.Join(forbidden, "out.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("outside write occurred, stat err = %v", statErr)
+	}
+}
+
 // TestInstallHostImports_Smoke: registering the stado module succeeds
 // even without a plugin wasm to consume it. Catches signature drift
 // in wazero's HostModuleBuilder API.

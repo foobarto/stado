@@ -179,7 +179,10 @@ func sshEd25519Signature(sig []byte) []byte {
 // writeSSHString emits an SSH length-prefixed string: u32 big-endian
 // length followed by the raw bytes. Nil/empty slice encodes as length 0.
 func writeSSHString(w *bytes.Buffer, s []byte) {
-	_ = binary.Write(w, binary.BigEndian, uint32(len(s)))
+	if uint64(len(s)) > uint64(1<<32-1) { // #nosec G115 -- byte slice length is non-negative.
+		panic("sshsig: string too large")
+	}
+	_ = binary.Write(w, binary.BigEndian, uint32(len(s))) // #nosec G115 -- checked above.
 	w.Write(s)
 }
 
@@ -282,4 +285,3 @@ func Ed25519PubFromSSHSIG(sshsigPEM string) (ed25519.PublicKey, error) {
 	pub, _, _, _, err := parseSSHSIGBlob(block.Bytes)
 	return pub, err
 }
-

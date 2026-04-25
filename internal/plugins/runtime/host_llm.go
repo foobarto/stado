@@ -70,7 +70,7 @@ func registerLLMImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			atomic.AddInt64(&host.llmTokensUsed, int64(tokens))
 			data := []byte(reply)
-			if uint32(len(data)) > outCap {
+			if byteLenExceedsCap(data, outCap) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}

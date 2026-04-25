@@ -241,6 +241,10 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Closed rooted file-access security findings.** Native fs tools, plugin
+  fs imports, config writes, and subagent adoption now use rooted file
+  operations for symlink-safe confinement; gosec no longer reports G703,
+  G122, or HIGH findings.
 - **Hardened plugin rollback checks.** Plugin trust verification now
   compares semver precedence instead of raw strings, so versions like
   `1.2.0` cannot pass after `1.10.0`.

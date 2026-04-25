@@ -81,7 +81,7 @@ func registerMemoryQueryImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			if uint32(len(result)) > bufCap {
+			if byteLenExceedsCap(result, bufCap) {
 				host.Logger.Warn("stado_memory_query result larger than buf_cap",
 					slog.Int("result_bytes", len(result)),
 					slog.Uint64("buf_cap", uint64(bufCap)))

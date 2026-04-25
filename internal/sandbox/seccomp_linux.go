@@ -34,21 +34,21 @@ import (
 // unix package wraps these in unix.BPF_* but some are not exported —
 // re-declare the subset we build with.
 const (
-	bpfLD   = 0x00
-	bpfJMP  = 0x05
-	bpfRET  = 0x06
-	bpfW    = 0x00
-	bpfABS  = 0x20
-	bpfIMM  = 0x00
-	bpfK    = 0x00
-	bpfJEQ  = 0x10
+	bpfLD  = 0x00
+	bpfJMP = 0x05
+	bpfRET = 0x06
+	bpfW   = 0x00
+	bpfABS = 0x20
+	bpfIMM = 0x00
+	bpfK   = 0x00
+	bpfJEQ = 0x10
 
 	// seccomp return values — see linux/seccomp.h.
-	seccompRetAllow        = 0x7fff0000
-	seccompRetKillProcess  = 0x80000000
-	seccompRetKillThread   = 0x00000000
-	seccompRetTrap         = 0x00030000
-	seccompRetErrnoEACCES  = 0x00050000 | 0x000d // EACCES=13
+	seccompRetAllow       = 0x7fff0000
+	seccompRetKillProcess = 0x80000000
+	seccompRetKillThread  = 0x00000000
+	seccompRetTrap        = 0x00030000
+	seccompRetErrnoEACCES = 0x00050000 | 0x000d // EACCES=13
 )
 
 // DefaultKillSyscalls is the curated list of syscalls stado's seccomp
@@ -167,7 +167,11 @@ func CompileDenyList(killNames []string) ([]byte, error) {
 	// offset is the number of instructions AFTER the JEQ itself, so
 	// jt = killIdx - i - 1. JF stays 0 (fall through to next JEQ).
 	for i := jeqStart; i < jeqStart+len(nrs); i++ {
-		filter[i].JT = uint8(killIdx - i - 1)
+		jump := killIdx - i - 1
+		if jump < 0 || jump > 1<<8-1 {
+			return nil, fmt.Errorf("seccomp: jump offset %d out of uint8 range", jump)
+		}
+		filter[i].JT = uint8(jump) // #nosec G115 -- checked above.
 	}
 
 	// Serialise little-endian. struct sock_filter is {u16 code, u8 jt,

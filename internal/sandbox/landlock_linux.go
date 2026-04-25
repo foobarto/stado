@@ -122,10 +122,14 @@ func addPathBeneathRule(rulesetFD int, path string, access uint64) error {
 		return fmt.Errorf("landlock: open %s: %w", path, err)
 	}
 	defer func() { _ = unix.Close(parentFD) }()
+	parentFD32, err := fdInt32(parentFD)
+	if err != nil {
+		return err
+	}
 
 	rule := unix.LandlockPathBeneathAttr{
 		Allowed_access: access,
-		Parent_fd:      int32(parentFD),
+		Parent_fd:      parentFD32,
 	}
 	if err := landlockAddRule(rulesetFD, rulePathBeneath, unsafe.Pointer(&rule), 0); err != nil {
 		return fmt.Errorf("landlock: add rule for %s: %w", path, err)
@@ -147,13 +151,16 @@ func landlockCreateRuleset(attr *unix.LandlockRulesetAttr, size uintptr, flags u
 	if errno != 0 {
 		return -1, errno
 	}
-	return int(fd), nil
+	return int(fd), nil // #nosec G115 -- Linux file descriptors fit Go int on supported targets.
 }
 
 func landlockAddRule(rulesetFD int, ruleType uint32, ruleAttr unsafe.Pointer, flags uint32) error {
+	if rulesetFD < 0 {
+		return syscall.EBADF
+	}
 	_, _, errno := syscall.Syscall6(
 		unix.SYS_LANDLOCK_ADD_RULE,
-		uintptr(rulesetFD),
+		uintptr(rulesetFD), // #nosec G115 -- checked non-negative above; fd originated from syscall.
 		uintptr(ruleType),
 		uintptr(ruleAttr),
 		uintptr(flags),
@@ -166,9 +173,12 @@ func landlockAddRule(rulesetFD int, ruleType uint32, ruleAttr unsafe.Pointer, fl
 }
 
 func landlockRestrictSelf(rulesetFD int, flags uint32) error {
+	if rulesetFD < 0 {
+		return syscall.EBADF
+	}
 	_, _, errno := syscall.Syscall(
 		unix.SYS_LANDLOCK_RESTRICT_SELF,
-		uintptr(rulesetFD),
+		uintptr(rulesetFD), // #nosec G115 -- checked non-negative above; fd originated from syscall.
 		uintptr(flags),
 		0,
 	)
@@ -176,4 +186,11 @@ func landlockRestrictSelf(rulesetFD int, flags uint32) error {
 		return errno
 	}
 	return nil
+}
+
+func fdInt32(fd int) (int32, error) {
+	if fd < 0 || fd > 1<<31-1 {
+		return 0, fmt.Errorf("landlock: fd %d out of int32 range", fd)
+	}
+	return int32(fd), nil // #nosec G115 -- bounded above.
 }

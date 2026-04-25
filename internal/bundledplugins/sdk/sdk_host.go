@@ -44,19 +44,23 @@ func Bytes(ptr, size int32) []byte {
 		return nil
 	}
 	buf := bufAny.([]byte)
-	if int(size) > len(buf) {
+	sizeInt := int(size) // #nosec G115 -- size is checked positive and int32 fits int on supported host builds.
+	if sizeInt > len(buf) {
 		return nil
 	}
-	return buf[:size]
+	return buf[:sizeInt]
 }
 
 func Write(ptr int32, src []byte) int32 {
 	if len(src) == 0 {
 		return 0
 	}
-	dst := Bytes(ptr, int32(len(src)))
+	if len(src) > 1<<31-1 {
+		return 0
+	}
+	dst := Bytes(ptr, int32(len(src))) // #nosec G115 -- checked above.
 	if len(dst) == 0 {
 		return 0
 	}
-	return int32(copy(dst, src))
+	return int32(copy(dst, src)) // #nosec G115 -- copy count is bounded by len(src) above.
 }
