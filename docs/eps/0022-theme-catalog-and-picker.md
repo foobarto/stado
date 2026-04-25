@@ -7,6 +7,9 @@ type: Standards
 created: 2026-04-24
 see-also: [19]
 history:
+  - date: 2026-04-25
+    status: Partial
+    note: Direct /theme light, /theme dark, and /theme toggle shortcuts shipped on top of the picker.
   - date: 2026-04-24
     status: Partial
     note: Bundled dark, light, and contrast themes plus a TUI picker shipped; richer theme authoring remains future work.
@@ -44,9 +47,11 @@ The bundled catalog starts with:
 - `stado-contrast`
 
 `/theme` and `Ctrl+X T` open a searchable picker. `/theme <id>` switches
-directly. Selecting a bundled theme updates the running TUI and writes
-the bundled TOML to `$XDG_CONFIG_HOME/stado/theme.toml`, preserving the
-existing load path on the next run.
+directly. `/theme light`, `/theme dark`, and `/theme toggle` are mode
+shortcuts for users who do not need the picker. Selecting a bundled
+theme updates the running TUI and writes the bundled TOML to
+`$XDG_CONFIG_HOME/stado/theme.toml`, preserving the existing load path
+on the next run.
 
 The runtime applies the selected theme through the explicit renderer
 theme and the legacy package-level theme globals so existing picker and

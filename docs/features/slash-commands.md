@@ -72,7 +72,7 @@ taking over the screen.
 | Command | Shortcut | What |
 |---------|----------|------|
 | `/sidebar` | `Ctrl+T` | Toggle the right-hand sidebar |
-| `/theme` | `Ctrl+X T` | Open the bundled theme picker; `/theme <id>` switches directly |
+| `/theme` | `Ctrl+X T` | Open the bundled theme picker; `/theme <id>`, `/theme light`, `/theme dark`, and `/theme toggle` switch directly |
 | `/thinking` | `Ctrl+X H` | Cycle thinking display; `/thinking show`, `/thinking tail`, and `/thinking hide` set it directly |
 | `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
@@ -105,7 +105,8 @@ taking over the screen.
 - **Theme selection.** `/theme` offers the bundled `stado-dark`,
   `stado-light`, and `stado-contrast` themes. Selecting one updates the
   current TUI and writes `$XDG_CONFIG_HOME/stado/theme.toml` so the
-  next run starts with the same theme.
+  next run starts with the same theme. `/theme light`, `/theme dark`,
+  and `/theme toggle` provide direct light/dark switching.
 - **Thinking display.** `/thinking` and `Ctrl+X H` only affect the TUI
   viewport. Thinking blocks remain captured and persisted even when the
   current display mode is `hide` or `tail`.

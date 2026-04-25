@@ -37,6 +37,53 @@ func (m *Model) currentThemeID() string {
 	return strings.TrimSpace(m.theme.Name)
 }
 
+func (m *Model) applyThemeSelection(selection string) error {
+	id, err := m.resolveThemeSelection(selection)
+	if err != nil {
+		return err
+	}
+	return m.applyNamedTheme(id)
+}
+
+func (m *Model) resolveThemeSelection(selection string) (string, error) {
+	selection = strings.TrimSpace(selection)
+	if selection == "" {
+		return "", fmt.Errorf("theme: missing theme id")
+	}
+	switch strings.ToLower(selection) {
+	case "light", "dark":
+		return bundledThemeIDForMode(selection)
+	case "toggle":
+		mode := "light"
+		if m.currentThemeMode() == "light" {
+			mode = "dark"
+		}
+		return bundledThemeIDForMode(mode)
+	default:
+		return selection, nil
+	}
+}
+
+func (m *Model) currentThemeMode() string {
+	current := m.currentThemeID()
+	for _, entry := range theme.Catalog() {
+		if entry.ID == current {
+			return entry.Mode
+		}
+	}
+	return ""
+}
+
+func bundledThemeIDForMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	for _, entry := range theme.Catalog() {
+		if strings.ToLower(entry.Mode) == mode {
+			return entry.ID, nil
+		}
+	}
+	return "", fmt.Errorf("theme: no bundled %s theme", mode)
+}
+
 func (m *Model) applyNamedTheme(id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {

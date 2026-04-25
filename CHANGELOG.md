@@ -61,6 +61,9 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added direct light/dark theme shortcuts.** `/theme light`,
+  `/theme dark`, and `/theme toggle` now switch bundled themes without
+  opening the theme picker.
 - **Toned down the startup landing logo.** The empty-session landing
   view now samples the embedded banner down to a compact fixed-height
   mark so the prompt stays visually primary on large terminals.

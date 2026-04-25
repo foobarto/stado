@@ -115,7 +115,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	case "/theme":
 		if len(parts) < 2 {
 			m.openThemePicker()
-		} else if err := m.applyNamedTheme(parts[1]); err != nil {
+		} else if err := m.applyThemeSelection(parts[1]); err != nil {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/provider":

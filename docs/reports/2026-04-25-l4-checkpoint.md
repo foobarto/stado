@@ -84,6 +84,9 @@ subagent slice.
 - Landing view now samples the large ANSI/plain banner down to a compact
   fixed-height mark, keeping the prompt primary on wide terminals and
   falling back to the plain wordmark in cramped terminals.
+- Theme switching now supports direct `/theme light`, `/theme dark`, and
+  `/theme toggle` shortcuts in addition to the picker and explicit
+  bundled theme IDs.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -124,7 +127,8 @@ repo-compatible Go toolchain at
 - Branch: `main`
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
-  docs/symbol completion, and landing-logo refinement.
+  docs/symbol completion, landing-logo refinement, and direct
+  light/dark theme shortcuts.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.

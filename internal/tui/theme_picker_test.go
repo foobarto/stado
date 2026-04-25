@@ -67,6 +67,41 @@ func TestApplyNamedThemePersistsSelection(t *testing.T) {
 	}
 }
 
+func TestThemeCommandSupportsLightDarkAliases(t *testing.T) {
+	defer theme.Apply(theme.Default())
+
+	m := scenarioModel(t)
+
+	_ = m.handleSlash("/theme light")
+	if got := m.theme.Name; got != "stado-light" {
+		t.Fatalf("/theme light selected %q, want stado-light", got)
+	}
+
+	_ = m.handleSlash("/theme dark")
+	if got := m.theme.Name; got != "stado-dark" {
+		t.Fatalf("/theme dark selected %q, want stado-dark", got)
+	}
+}
+
+func TestThemeCommandToggleSwitchesLightAndDark(t *testing.T) {
+	defer theme.Apply(theme.Default())
+
+	m := scenarioModel(t)
+	if err := m.applyNamedTheme("stado-light"); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = m.handleSlash("/theme toggle")
+	if got := m.theme.Name; got != "stado-dark" {
+		t.Fatalf("toggle from light selected %q, want stado-dark", got)
+	}
+
+	_ = m.handleSlash("/theme toggle")
+	if got := m.theme.Name; got != "stado-light" {
+		t.Fatalf("toggle from dark selected %q, want stado-light", got)
+	}
+}
+
 func TestThemeCommandInPalette(t *testing.T) {
 	m := scenarioModel(t)
 	m.slash.Open()
