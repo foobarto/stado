@@ -22,6 +22,8 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -29,7 +31,7 @@ var mcpServerCmd = &cobra.Command{
 	Use:   "mcp-server",
 	Short: "Expose stado's bundled tools as an MCP server over stdio",
 	Long: "Run stado as an MCP v1 server on stdio. Every bundled stado tool\n" +
-		"(read, grep, ripgrep, ast-grep, bash, webfetch, file ops, LSP-find)\n" +
+		"(read, grep, ripgrep, ast-grep, bash, webfetch, tasks, file ops, LSP-find)\n" +
 		"is registered with the server and callable via MCP tools/call.\n\n" +
 		"[tools].enabled / [tools].disabled in config.toml trim the exposed set\n" +
 		"same as the TUI and run paths — an MCP client only sees the tools\n" +
@@ -45,6 +47,7 @@ var mcpServerCmd = &cobra.Command{
 		}
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
 			reg := runtime.BuildDefaultRegistry()
+			reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())

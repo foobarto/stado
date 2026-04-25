@@ -57,7 +57,7 @@ type ToolDef struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Class is the tool's mutation class:
-	//   "NonMutating" (default), "Mutating", or "Exec".
+	//   "NonMutating" (default), "StateMutating", "Mutating", or "Exec".
 	// Parsed case-insensitively so manifests can use a looser style
 	// without changing the semantic value.
 	Class string `json:"class,omitempty"`
@@ -77,6 +77,8 @@ func (t ToolDef) ClassValue() (tool.Class, error) {
 	switch strings.ToLower(strings.TrimSpace(t.Class)) {
 	case "", "nonmutating", "non-mutating", "non_mutating":
 		return tool.ClassNonMutating, nil
+	case "statemutating", "state-mutating", "state_mutating":
+		return tool.ClassStateMutating, nil
 	case "mutating":
 		return tool.ClassMutating, nil
 	case "exec":

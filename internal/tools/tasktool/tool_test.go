@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -61,9 +62,66 @@ func (testHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 }
 func (testHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
-func TestToolClassIsMutating(t *testing.T) {
-	if got := (Tool{}).Class(); got != tool.ClassMutating {
-		t.Fatalf("Class() = %v, want mutating", got)
+func TestToolClassIsStateMutating(t *testing.T) {
+	if got := (Tool{}).Class(); got != tool.ClassStateMutating {
+		t.Fatalf("Class() = %v, want state-mutating", got)
+	}
+}
+
+func TestToolListReturnsSummariesAndCapsOutput(t *testing.T) {
+	tl := Tool{Path: filepath.Join(t.TempDir(), "tasks.json")}
+	host := testHost{}
+	body := strings.Repeat("detail ", 40)
+	for i := 0; i < maxListItems+1; i++ {
+		raw := map[string]any{
+			"action": "create",
+			"title":  "task",
+			"body":   body,
+		}
+		args, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := tl.Run(context.Background(), args, host)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if res.Error != "" {
+			t.Fatalf("create error: %s", res.Error)
+		}
+	}
+	res, err := tl.Run(context.Background(), json.RawMessage(`{"action":"list"}`), host)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if strings.Contains(res.Content, body) {
+		t.Fatalf("list should not include full task bodies: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, `"truncated": true`) {
+		t.Fatalf("list should report truncation: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, `"count": 51`) {
+		t.Fatalf("list should report full count: %s", res.Content)
+	}
+}
+
+func TestToolRejectsOversizedBody(t *testing.T) {
+	tl := Tool{Path: filepath.Join(t.TempDir(), "tasks.json")}
+	raw := map[string]any{
+		"action": "create",
+		"title":  "too much",
+		"body":   strings.Repeat("x", tasks.MaxBodyBytes+1),
+	}
+	args, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := tl.Run(context.Background(), args, testHost{})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if !strings.Contains(res.Error, "task body exceeds") {
+		t.Fatalf("error = %q, want body limit", res.Error)
 	}
 }
 

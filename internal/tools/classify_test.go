@@ -8,6 +8,7 @@ import (
 
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -20,6 +21,7 @@ func TestClassOf_BuiltIns(t *testing.T) {
 	r.Register(fs.EditTool{})
 	r.Register(fs.GlobTool{})
 	r.Register(fs.GrepTool{})
+	r.Register(tasktool.Tool{})
 	r.Register(webfetch.WebFetchTool{})
 
 	cases := map[string]tool.Class{
@@ -29,6 +31,7 @@ func TestClassOf_BuiltIns(t *testing.T) {
 		"edit":     tool.ClassMutating,
 		"glob":     tool.ClassNonMutating,
 		"grep":     tool.ClassNonMutating,
+		"tasks":    tool.ClassStateMutating,
 		"webfetch": tool.ClassNonMutating,
 	}
 	for name, want := range cases {
@@ -48,9 +51,9 @@ func TestClassOf_UnknownTool(t *testing.T) {
 // Custom tool implementing Classifier takes precedence over the name map.
 type customTool struct{}
 
-func (customTool) Name() string                                                { return "custom" }
-func (customTool) Description() string                                         { return "" }
-func (customTool) Schema() map[string]any                                      { return nil }
+func (customTool) Name() string           { return "custom" }
+func (customTool) Description() string    { return "" }
+func (customTool) Schema() map[string]any { return nil }
 func (customTool) Run(context.Context, json.RawMessage, tool.Host) (tool.Result, error) {
 	return tool.Result{}, nil
 }
@@ -67,6 +70,9 @@ func TestClassOf_ClassifierInterface(t *testing.T) {
 func TestClass_String(t *testing.T) {
 	if tool.ClassMutating.String() != "mutating" {
 		t.Errorf("string mutation class wrong: %q", tool.ClassMutating.String())
+	}
+	if tool.ClassStateMutating.String() != "state-mutating" {
+		t.Errorf("string state mutation class wrong: %q", tool.ClassStateMutating.String())
 	}
 	if tool.ClassExec.String() != "exec" {
 		t.Errorf("string exec class wrong: %q", tool.ClassExec.String())

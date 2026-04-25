@@ -26,6 +26,10 @@ const (
 	WebfetchBytes = 16 * 1024
 	// BashBytes is the combined stdout+stderr cap for `bash`. ≈ 8K tokens.
 	BashBytes = 32 * 1024
+	// TasksBytes caps JSON returned by the shared task tool. The store
+	// itself enforces per-field limits, but list/read responses still need
+	// a hard ceiling before they enter model context.
+	TasksBytes = 64 * 1024
 	// GrepMatches is the maximum line-matches retained by the in-process
 	// `grep` tool. Stateless list-cut; no per-line token math.
 	GrepMatches = 100

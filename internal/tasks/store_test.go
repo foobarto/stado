@@ -1,7 +1,12 @@
 package tasks
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -73,5 +78,64 @@ func TestStoreValidation(t *testing.T) {
 	}
 	if _, err := store.Create("x", "", Status("blocked")); err == nil {
 		t.Fatal("Create with invalid status should fail")
+	}
+	if _, err := store.Create(strings.Repeat("x", MaxTitleBytes+1), "", ""); err == nil {
+		t.Fatal("Create with oversized title should fail")
+	}
+	if _, err := store.Create("x", strings.Repeat("x", MaxBodyBytes+1), ""); err == nil {
+		t.Fatal("Create with oversized body should fail")
+	}
+	if _, err := store.Get(strings.Repeat("x", MaxIDBytes+1)); err == nil {
+		t.Fatal("Get with oversized id should fail")
+	}
+}
+
+func TestStoreRejectsOversizedLoadedTask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	raw, err := json.Marshal([]Task{{
+		ID:        "task-1",
+		Title:     "loaded",
+		Body:      strings.Repeat("x", MaxBodyBytes+1),
+		Status:    StatusOpen,
+		CreatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Store{Path: path}).Get("task-1"); err == nil {
+		t.Fatal("Get should reject persisted tasks that exceed body limit")
+	}
+}
+
+func TestStoreConcurrentCreatesPreserveAllTasks(t *testing.T) {
+	store := Store{Path: filepath.Join(t.TempDir(), "tasks.json")}
+	const workers = 24
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := store.Create("task "+strconv.Itoa(i), "", StatusOpen)
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	list, err := store.List("")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != workers {
+		t.Fatalf("tasks = %d, want %d: %+v", len(list), workers, list)
 	}
 }

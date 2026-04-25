@@ -172,6 +172,8 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 
 func pluginClassName(class tool.Class) string {
 	switch class {
+	case tool.ClassStateMutating:
+		return "StateMutating"
 	case tool.ClassMutating:
 		return "Mutating"
 	case tool.ClassExec:

@@ -8,7 +8,10 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -38,6 +41,18 @@ func TestMCPServer_ToolsExposedWithSchemas(t *testing.T) {
 		if _, ok := decoded["type"]; !ok {
 			t.Errorf("tool %s: schema missing 'type' key: %s", tl.Name(), raw)
 		}
+	}
+}
+
+func TestMCPServer_ExposesTasksTool(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg := &config.Config{}
+	reg := runtime.BuildDefaultRegistry()
+	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
+	runtime.ApplyToolFilter(reg, cfg)
+
+	if _, ok := reg.Get("tasks"); !ok {
+		t.Fatal("tasks tool missing from MCP registry")
 	}
 }
 

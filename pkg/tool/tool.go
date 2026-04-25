@@ -18,6 +18,7 @@ type Tool interface {
 //
 // Class drives the tree-vs-trace commit policy (PLAN.md §2.4):
 //   - NonMutating (grep/glob/read) → trace-only
+//   - StateMutating (tasks/memory) → trace-only, hidden in Plan mode
 //   - Mutating (write/edit)        → trace + tree commit
 //   - Exec (bash/shell)            → trace + tree-if-diff-nonempty
 type Classifier interface {
@@ -29,6 +30,7 @@ type Class int
 
 const (
 	ClassNonMutating Class = iota
+	ClassStateMutating
 	ClassMutating
 	ClassExec
 )
@@ -36,6 +38,8 @@ const (
 // String renders a class for logs / commit-message metadata.
 func (c Class) String() string {
 	switch c {
+	case ClassStateMutating:
+		return "state-mutating"
 	case ClassMutating:
 		return "mutating"
 	case ClassExec:

@@ -252,6 +252,7 @@ func TestToolDef_ClassValue(t *testing.T) {
 	}{
 		{"", tool.ClassNonMutating, true},
 		{"NonMutating", tool.ClassNonMutating, true},
+		{"StateMutating", tool.ClassStateMutating, true},
 		{"Mutating", tool.ClassMutating, true},
 		{"Exec", tool.ClassExec, true},
 		{"weird", tool.ClassNonMutating, false},

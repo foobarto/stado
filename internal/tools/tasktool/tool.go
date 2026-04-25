@@ -7,7 +7,13 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
+)
+
+const (
+	maxListItems     = 50
+	bodyPreviewBytes = 160
 )
 
 type Tool struct {
@@ -46,12 +52,16 @@ func (Tool) Schema() map[string]any {
 				"description": "Task status. Defaults to open on create and filters list when provided.",
 				"enum":        []string{"open", "in_progress", "done"},
 			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"description": "Maximum list items to return, capped at 50.",
+			},
 		},
 		"required": []string{"action"},
 	}
 }
 
-func (Tool) Class() tool.Class { return tool.ClassMutating }
+func (Tool) Class() tool.Class { return tool.ClassStateMutating }
 
 type args struct {
 	Action string  `json:"action"`
@@ -59,6 +69,7 @@ type args struct {
 	Title  *string `json:"title"`
 	Body   *string `json:"body"`
 	Status *string `json:"status"`
+	Limit  *int    `json:"limit"`
 }
 
 func (t Tool) Run(_ context.Context, raw json.RawMessage, _ tool.Host) (tool.Result, error) {
@@ -89,7 +100,12 @@ func (t Tool) Run(_ context.Context, raw json.RawMessage, _ tool.Host) (tool.Res
 			return tool.Result{Error: err.Error()}, nil
 		}
 		list, err := store.List(status)
-		return jsonResult(map[string]any{"tasks": list}, err)
+		limit := listLimit(in.Limit)
+		return jsonResult(map[string]any{
+			"tasks":     summarizeTasks(list, limit),
+			"count":     len(list),
+			"truncated": len(list) > limit,
+		}, err)
 	case "read":
 		task, err := store.Get(in.ID)
 		return jsonResult(map[string]any{"task": task}, err)
@@ -146,5 +162,60 @@ func jsonResult(value any, err error) (tool.Result, error) {
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	return tool.Result{Content: string(data)}, nil
+	content := budget.TruncateBytes(string(data), budget.TasksBytes, "use tasks read with id=<task-id> to inspect one task")
+	return tool.Result{Content: content}, nil
+}
+
+type taskSummary struct {
+	ID          string       `json:"id"`
+	Title       string       `json:"title"`
+	Status      tasks.Status `json:"status"`
+	BodyPreview string       `json:"body_preview,omitempty"`
+	CreatedAt   string       `json:"created_at"`
+	UpdatedAt   string       `json:"updated_at"`
+}
+
+func summarizeTasks(list []tasks.Task, limit int) []taskSummary {
+	if len(list) < limit {
+		limit = len(list)
+	}
+	out := make([]taskSummary, 0, limit)
+	for _, task := range list[:limit] {
+		out = append(out, taskSummary{
+			ID:          task.ID,
+			Title:       task.Title,
+			Status:      task.Status,
+			BodyPreview: preview(task.Body, bodyPreviewBytes),
+			CreatedAt:   task.CreatedAt.Format(timeFormat),
+			UpdatedAt:   task.UpdatedAt.Format(timeFormat),
+		})
+	}
+	return out
+}
+
+func listLimit(limit *int) int {
+	if limit == nil || *limit <= 0 || *limit > maxListItems {
+		return maxListItems
+	}
+	return *limit
+}
+
+const timeFormat = "2006-01-02T15:04:05Z07:00"
+
+func preview(s string, maxBytes int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := 0
+	for i := range s {
+		if i > maxBytes {
+			break
+		}
+		cut = i
+	}
+	if cut <= 0 {
+		cut = maxBytes
+	}
+	return s[:cut] + "..."
 }

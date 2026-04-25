@@ -32,10 +32,10 @@ type stubTool struct {
 	effect func(worktree string) (tool.Result, error)
 }
 
-func (s stubTool) Name() string         { return s.name }
-func (s stubTool) Description() string  { return "stub" }
+func (s stubTool) Name() string           { return s.name }
+func (s stubTool) Description() string    { return "stub" }
 func (s stubTool) Schema() map[string]any { return map[string]any{"type": "object"} }
-func (s stubTool) Class() tool.Class    { return s.class }
+func (s stubTool) Class() tool.Class      { return s.class }
 func (s stubTool) Run(ctx context.Context, _ json.RawMessage, h tool.Host) (tool.Result, error) {
 	return s.effect(h.Workdir())
 }
@@ -86,6 +86,31 @@ func TestExecutor_NonMutating_OnlyTraceCommit(t *testing.T) {
 	tree, _ := sess.TreeHead()
 	if !tree.IsZero() {
 		t.Errorf("tree ref should NOT be set for non-mutating tool, got %s", tree)
+	}
+}
+
+func TestExecutor_StateMutating_OnlyTraceCommit(t *testing.T) {
+	ex, sess, wt := newExecutorFixture(t)
+	ex.Registry.Register(stubTool{
+		name:  "stubstate",
+		class: tool.ClassStateMutating,
+		effect: func(string) (tool.Result, error) {
+			return tool.Result{Content: "state updated"}, nil
+		},
+	})
+
+	_, err := ex.Run(context.Background(), "stubstate", json.RawMessage(`{"action":"create"}`), stubHost{workdir: wt})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	trace, err := sess.TraceHead()
+	if err != nil || trace.IsZero() {
+		t.Errorf("trace ref should be set: %v head=%s", err, trace)
+	}
+	tree, _ := sess.TreeHead()
+	if !tree.IsZero() {
+		t.Errorf("tree ref should NOT be set for state-mutating tool, got %s", tree)
 	}
 }
 

@@ -1,13 +1,16 @@
 package tasks
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +23,20 @@ const (
 	StatusInProgress Status = "in_progress"
 	StatusDone       Status = "done"
 )
+
+const (
+	MaxIDBytes    = 128
+	MaxTitleBytes = 256
+	MaxBodyBytes  = 16 * 1024
+	MaxTasks      = 1000
+	MaxStoreBytes = 128 * 1024 * 1024
+
+	lockWaitTimeout = 5 * time.Second
+	lockStaleAfter  = 2 * time.Minute
+	lockRetryDelay  = 25 * time.Millisecond
+)
+
+var processLock sync.Mutex
 
 type Task struct {
 	ID        string    `json:"id"`
@@ -73,9 +90,9 @@ func (s Store) List(status Status) ([]Task, error) {
 }
 
 func (s Store) Get(id string) (Task, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return Task{}, errors.New("task id is required")
+	id, err := normalizeID(id)
+	if err != nil {
+		return Task{}, err
 	}
 	tasks, err := s.load()
 	if err != nil {
@@ -90,10 +107,9 @@ func (s Store) Get(id string) (Task, error) {
 }
 
 func (s Store) Create(title, body string, status Status) (Task, error) {
-	title = strings.TrimSpace(title)
-	body = strings.TrimSpace(body)
-	if title == "" {
-		return Task{}, errors.New("task title is required")
+	title, body, err := normalizeText(title, body)
+	if err != nil {
+		return Task{}, err
 	}
 	if status == "" {
 		status = StatusOpen
@@ -101,80 +117,95 @@ func (s Store) Create(title, body string, status Status) (Task, error) {
 	if err := validateStatus(status); err != nil {
 		return Task{}, err
 	}
-	tasks, err := s.load()
-	if err != nil {
-		return Task{}, err
-	}
-	now := s.now()
-	task := Task{
-		ID:        s.newID(),
-		Title:     title,
-		Body:      body,
-		Status:    status,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	tasks = append(tasks, task)
-	if err := s.save(tasks); err != nil {
-		return Task{}, err
-	}
-	return task, nil
+	var task Task
+	err = s.withLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
+		}
+		if len(tasks) >= MaxTasks {
+			return fmt.Errorf("task limit reached (%d)", MaxTasks)
+		}
+		now := s.now()
+		task = Task{
+			ID:        s.newID(),
+			Title:     title,
+			Body:      body,
+			Status:    status,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		tasks = append(tasks, task)
+		return s.save(tasks)
+	})
+	return task, err
 }
 
 func (s Store) Update(id string, patch Patch) (Task, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return Task{}, errors.New("task id is required")
-	}
-	tasks, err := s.load()
+	id, err := normalizeID(id)
 	if err != nil {
 		return Task{}, err
 	}
-	for i := range tasks {
-		if tasks[i].ID != id {
-			continue
+	var task Task
+	err = s.withLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
 		}
-		if patch.Title != nil {
-			title := strings.TrimSpace(*patch.Title)
-			if title == "" {
-				return Task{}, errors.New("task title is required")
+		for i := range tasks {
+			if tasks[i].ID != id {
+				continue
 			}
-			tasks[i].Title = title
-		}
-		if patch.Body != nil {
-			tasks[i].Body = strings.TrimSpace(*patch.Body)
-		}
-		if patch.Status != nil {
-			if err := validateStatus(*patch.Status); err != nil {
-				return Task{}, err
+			if patch.Title != nil {
+				title := strings.TrimSpace(*patch.Title)
+				if err := validateTitle(title); err != nil {
+					return err
+				}
+				tasks[i].Title = title
 			}
-			tasks[i].Status = *patch.Status
+			if patch.Body != nil {
+				body := strings.TrimSpace(*patch.Body)
+				if err := validateBody(body); err != nil {
+					return err
+				}
+				tasks[i].Body = body
+			}
+			if patch.Status != nil {
+				if err := validateStatus(*patch.Status); err != nil {
+					return err
+				}
+				tasks[i].Status = *patch.Status
+			}
+			tasks[i].UpdatedAt = s.now()
+			if err := s.save(tasks); err != nil {
+				return err
+			}
+			task = tasks[i]
+			return nil
 		}
-		tasks[i].UpdatedAt = s.now()
-		if err := s.save(tasks); err != nil {
-			return Task{}, err
-		}
-		return tasks[i], nil
-	}
-	return Task{}, fmt.Errorf("task %q not found", id)
+		return fmt.Errorf("task %q not found", id)
+	})
+	return task, err
 }
 
 func (s Store) Delete(id string) error {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return errors.New("task id is required")
-	}
-	tasks, err := s.load()
+	id, err := normalizeID(id)
 	if err != nil {
 		return err
 	}
-	for i := range tasks {
-		if tasks[i].ID == id {
-			tasks = append(tasks[:i], tasks[i+1:]...)
-			return s.save(tasks)
+	return s.withLock(func() error {
+		tasks, err := s.load()
+		if err != nil {
+			return err
 		}
-	}
-	return fmt.Errorf("task %q not found", id)
+		for i := range tasks {
+			if tasks[i].ID == id {
+				tasks = append(tasks[:i], tasks[i+1:]...)
+				return s.save(tasks)
+			}
+		}
+		return fmt.Errorf("task %q not found", id)
+	})
 }
 
 func ParseStatus(value string) (Status, error) {
@@ -192,14 +223,33 @@ func (s Store) load() ([]Task, error) {
 	if strings.TrimSpace(s.Path) == "" {
 		return nil, errors.New("task store path is empty")
 	}
-	data, err := os.ReadFile(s.Path)
+	f, err := os.Open(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if len(strings.TrimSpace(string(data))) == 0 {
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("task store is not a regular file: %s", s.Path)
+	}
+	if info.Size() > MaxStoreBytes {
+		return nil, fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, MaxStoreBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxStoreBytes {
+		return nil, fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil
 	}
 	var tasks []Task
@@ -210,6 +260,9 @@ func (s Store) load() ([]Task, error) {
 		if tasks[i].Status == "" {
 			tasks[i].Status = StatusOpen
 		}
+	}
+	if err := validateLoadedTasks(tasks); err != nil {
+		return nil, err
 	}
 	return tasks, nil
 }
@@ -226,6 +279,9 @@ func (s Store) save(tasks []Task) error {
 		return err
 	}
 	data = append(data, '\n')
+	if len(data) > MaxStoreBytes {
+		return fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".tasks-*.json")
 	if err != nil {
 		return err
@@ -245,6 +301,52 @@ func (s Store) save(tasks []Task) error {
 	return os.Rename(tmpName, s.Path)
 }
 
+func (s Store) withLock(fn func() error) error {
+	processLock.Lock()
+	defer processLock.Unlock()
+
+	release, err := s.acquireLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+func (s Store) acquireLock() (func(), error) {
+	if strings.TrimSpace(s.Path) == "" {
+		return nil, errors.New("task store path is empty")
+	}
+	dir := filepath.Dir(s.Path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	lockPath := s.Path + ".lock"
+	deadline := time.Now().Add(lockWaitTimeout)
+	for {
+		f, err := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(f, "pid=%d\n", os.Getpid())
+			if closeErr := f.Close(); closeErr != nil {
+				_ = os.Remove(lockPath)
+				return nil, closeErr
+			}
+			return func() { _ = os.Remove(lockPath) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
+			_ = os.Remove(lockPath)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("task store is locked: %s", lockPath)
+		}
+		time.Sleep(lockRetryDelay)
+	}
+}
+
 func (s Store) now() time.Time {
 	if s.Now != nil {
 		return s.Now().UTC()
@@ -259,6 +361,71 @@ func (s Store) newID() string {
 		}
 	}
 	return uuid.NewString()
+}
+
+func normalizeID(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", errors.New("task id is required")
+	}
+	if len(id) > MaxIDBytes {
+		return "", fmt.Errorf("task id exceeds %d bytes", MaxIDBytes)
+	}
+	return id, nil
+}
+
+func normalizeText(title, body string) (string, string, error) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if err := validateTitle(title); err != nil {
+		return "", "", err
+	}
+	if err := validateBody(body); err != nil {
+		return "", "", err
+	}
+	return title, body, nil
+}
+
+func validateTitle(title string) error {
+	if title == "" {
+		return errors.New("task title is required")
+	}
+	if len(title) > MaxTitleBytes {
+		return fmt.Errorf("task title exceeds %d bytes", MaxTitleBytes)
+	}
+	return nil
+}
+
+func validateBody(body string) error {
+	if len(body) > MaxBodyBytes {
+		return fmt.Errorf("task body exceeds %d bytes", MaxBodyBytes)
+	}
+	return nil
+}
+
+func validateLoadedTasks(tasks []Task) error {
+	if len(tasks) > MaxTasks {
+		return fmt.Errorf("task count exceeds %d", MaxTasks)
+	}
+	for i := range tasks {
+		id, err := normalizeID(tasks[i].ID)
+		if err != nil {
+			return fmt.Errorf("task %d: %w", i, err)
+		}
+		tasks[i].ID = id
+		tasks[i].Title = strings.TrimSpace(tasks[i].Title)
+		tasks[i].Body = strings.TrimSpace(tasks[i].Body)
+		if err := validateTitle(tasks[i].Title); err != nil {
+			return fmt.Errorf("task %d: %w", i, err)
+		}
+		if err := validateBody(tasks[i].Body); err != nil {
+			return fmt.Errorf("task %d: %w", i, err)
+		}
+		if err := validateStatus(tasks[i].Status); err != nil {
+			return fmt.Errorf("task %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 func validateStatus(status Status) error {
