@@ -79,6 +79,9 @@ Plugins / Infra / Fixes.
 - **Closed EP-22 theme catalog and picker.** The scoped catalog,
   picker, direct mode shortcuts, custom-theme row, markdown style, and
   config persistence goals are documented as implemented.
+- **Narrowed EP-23 status modal questions.** Status rows stay read-only
+  with inline action hints; live plugin/MCP health snapshots remain the
+  open status-modal question.
 - **Stored bundled theme selection in config.** `/theme` now persists
   bundled theme ids as `[tui].theme`; custom `theme.toml` remains the
   fallback path when no bundled theme is pinned.

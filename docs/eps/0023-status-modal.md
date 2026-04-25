@@ -9,6 +9,9 @@ see-also: [11, 17, 19, 22]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Kept status rows read-only with inline action hints; focusable row actions are deferred until a concrete workflow needs them.
+  - date: 2026-04-25
+    status: Partial
     note: The modal now includes a compact configured MCP server-name summary.
   - date: 2026-04-25
     status: Partial
@@ -95,7 +98,5 @@ collector or trace UI.
 
 ## Open Questions
 
-- Should rows become keyboard-focusable actions, or are inline hints
-  enough?
 - Should plugin and MCP rows include health/error details once those
   subsystems expose stable status snapshots?
