@@ -170,6 +170,16 @@ Press `/` on an empty prompt for inline slash-command suggestions, or
 `Ctrl+P` for the full command palette. Use `Ctrl+X M` or `/model` to
 switch models; selections become the next startup default.
 
+### TUI screenshots
+
+| Landing view | Command palette |
+| --- | --- |
+| ![stado TUI landing view](assets/screenshots/tui-landing.png) | ![stado TUI command palette](assets/screenshots/tui-command-palette.png) |
+
+| Status modal | Model picker | Theme picker |
+| --- | --- | --- |
+| ![stado TUI status modal](assets/screenshots/tui-status.png) | ![stado TUI model picker](assets/screenshots/tui-model-picker.png) | ![stado TUI theme picker](assets/screenshots/tui-theme-picker.png) |
+
 ### Useful first commands
 
 Core session workflow:
