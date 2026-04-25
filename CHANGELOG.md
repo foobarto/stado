@@ -6,6 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.25.3 — 2026-04-25
+
+### Infra
+
+- **Kept release checksum signing on the documented sig/cert artifacts.**
+  Cosign v3 signing now disables the new bundle format so releases continue
+  publishing `checksums.txt.sig` and `checksums.txt.cert` for `install.sh`
+  and documented manual verification.
+
 ## v0.25.2 — 2026-04-25
 
 ### Infra
