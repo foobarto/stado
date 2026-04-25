@@ -27,6 +27,8 @@ stado memory approve mem_...
 stado memory supersede mem_... --summary "Prefer reviewable replacements"
 stado memory reject mem_...
 stado memory delete mem_...
+stado memory session off
+stado memory session on
 stado memory export > memories.json
 ```
 
@@ -43,6 +45,7 @@ Use `stado memory list --json` for scripts.
 | `stado memory supersede <id>` | Replace an approved memory with a new approved item |
 | `stado memory reject <id>` | Mark a memory rejected |
 | `stado memory delete <id>` | Remove a memory from the folded active view |
+| `stado memory session [on|off|status]` | Toggle approved-memory retrieval for the current session/worktree |
 | `stado memory export` | Export folded items as JSON |
 
 ## Notes
@@ -56,9 +59,11 @@ Supersede operations append a new approved item and mark the old item
 `superseded` in the folded view instead of rewriting the original
 event.
 
-Prompt retrieval is opt-in. Candidate, rejected, deleted, expired, and
-`secret` memories are never injected into prompts; they remain visible
-through review/export surfaces for auditability.
+Prompt retrieval is opt-in. `stado memory session off` creates a
+`.stado/memory-disabled` marker in the current session/worktree, and
+`stado memory session on` removes it. Candidate, rejected, deleted,
+expired, and `secret` memories are never injected into prompts; they
+remain visible through review/export surfaces for auditability.
 
 Lesson items created by `stado learning` live in the same log with
 `memory_kind: "lesson"`. Approved lessons are retrieved separately from

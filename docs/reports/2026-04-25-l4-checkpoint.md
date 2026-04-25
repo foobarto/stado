@@ -110,6 +110,10 @@ spawn/adoption slices and the local worker dogfood pass.
 - `/status` now also uses cached snapshots for background-plugin
   lifecycle issues and MCP attach health, including connected/tool
   counts and the latest attach error, without probing during render.
+- Approved-memory retrieval can now be disabled for the current
+  session/worktree with `/memory off` or `stado memory session off`;
+  the shared prompt context honors the marker across TUI, `stado run`,
+  headless, and ACP.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

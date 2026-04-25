@@ -268,6 +268,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   subagent changes into the current parent session
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
+- `/memory [on|off|status]` — show or toggle approved-memory retrieval
+  for this session
 - `/btw` — off-band side-question mode
 
 ## Multi-session Overlay

@@ -32,6 +32,9 @@ func PromptContext(ctx context.Context, opts PromptContextOptions) (string, erro
 	if workdir == "" {
 		workdir = "."
 	}
+	if SessionDisabled(workdir) {
+		return "", nil
+	}
 	repoRoot := findRepoRoot(workdir)
 	repoID, err := stadogit.RepoID(repoRoot)
 	if err != nil {

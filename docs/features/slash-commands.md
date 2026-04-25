@@ -57,6 +57,7 @@ taking over the screen.
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |
 | `/compact` | Summarise the conversation and replace prior turns (requires y/n confirmation) |
 | `/context` | One-stop session state: session id, cost, budget caps, loaded instructions, skills, hook |
+| `/memory [on\|off\|status]` | Show or toggle approved-memory retrieval for this session |
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp), including load/start hints when a runner has no models ready |
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |

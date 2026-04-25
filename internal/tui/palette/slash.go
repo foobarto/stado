@@ -39,6 +39,7 @@ var Commands = []Command{
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
+	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
 	{"/switch", "Open the session manager", "ctrl+x l", "Session"},

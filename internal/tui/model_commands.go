@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
@@ -148,6 +149,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		return m.startCompaction()
 	case "/context":
 		m.appendBlock(block{kind: "system", body: m.renderContextStatus()})
+	case "/memory":
+		m.handleMemorySlash(parts)
 	case "/providers":
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/switch":
@@ -203,6 +206,36 @@ func (m *Model) handleSessionSlash() {
 		sb.WriteString(fmt.Sprintf("\nlabel:    %s", desc))
 	}
 	m.appendBlock(block{kind: "system", body: sb.String()})
+}
+
+func (m *Model) handleMemorySlash(parts []string) {
+	action := "status"
+	if len(parts) > 1 {
+		action = strings.ToLower(parts[1])
+	}
+	workdir := m.sessionActionCWD()
+	switch action {
+	case "off", "disable", "disabled":
+		if err := memory.SetSessionDisabled(workdir, true); err != nil {
+			m.appendBlock(block{kind: "system", body: "/memory: " + err.Error()})
+			return
+		}
+		m.appendBlock(block{kind: "system", body: "memory retrieval: disabled for this session"})
+	case "on", "enable", "enabled":
+		if err := memory.SetSessionDisabled(workdir, false); err != nil {
+			m.appendBlock(block{kind: "system", body: "/memory: " + err.Error()})
+			return
+		}
+		m.appendBlock(block{kind: "system", body: "memory retrieval: allowed for this session (requires [memory].enabled = true)"})
+	case "status":
+		if memory.SessionDisabled(workdir) {
+			m.appendBlock(block{kind: "system", body: "memory retrieval: disabled for this session"})
+		} else {
+			m.appendBlock(block{kind: "system", body: "memory retrieval: allowed for this session (requires [memory].enabled = true)"})
+		}
+	default:
+		m.appendBlock(block{kind: "system", body: "usage: /memory [on|off|status]"})
+	}
 }
 
 // handleRetrySlash re-generates the last assistant turn without the

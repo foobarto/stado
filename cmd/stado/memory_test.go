@@ -87,6 +87,49 @@ func TestMemoryCLI_ExportJSON(t *testing.T) {
 	}
 }
 
+func TestMemoryCLI_SessionTogglesRetrieval(t *testing.T) {
+	root := t.TempDir()
+	workdir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := chdir(t, workdir)
+	defer restore()
+
+	out := captureStdout(t, func() {
+		if err := memorySessionCmd.RunE(memorySessionCmd, []string{"off"}); err != nil {
+			t.Fatalf("memory session off: %v", err)
+		}
+	})
+	if !strings.Contains(out, "disabled for this session") {
+		t.Fatalf("unexpected disable output: %q", out)
+	}
+	if !memory.SessionDisabled(workdir) {
+		t.Fatal("memory session off did not create disabled marker")
+	}
+
+	out = captureStdout(t, func() {
+		if err := memorySessionCmd.RunE(memorySessionCmd, []string{"status"}); err != nil {
+			t.Fatalf("memory session status: %v", err)
+		}
+	})
+	if !strings.Contains(out, "disabled for this session") {
+		t.Fatalf("unexpected status output: %q", out)
+	}
+
+	out = captureStdout(t, func() {
+		if err := memorySessionCmd.RunE(memorySessionCmd, []string{"on"}); err != nil {
+			t.Fatalf("memory session on: %v", err)
+		}
+	})
+	if !strings.Contains(out, "allowed for this session") {
+		t.Fatalf("unexpected enable output: %q", out)
+	}
+	if memory.SessionDisabled(workdir) {
+		t.Fatal("memory session on did not remove disabled marker")
+	}
+}
+
 func TestMemoryCLI_EditCandidateBeforeApproval(t *testing.T) {
 	store := setupMemoryEnv(t)
 	ctx := context.Background()

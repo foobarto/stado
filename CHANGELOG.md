@@ -68,6 +68,10 @@ Plugins / Infra / Fixes.
 
 ### TUI
 
+- **Added session memory opt-out.** `/memory off` and `stado memory
+  session off` now disable approved-memory prompt retrieval for the
+  current session/worktree; `/memory on` and `stado memory session on`
+  re-enable it while leaving `[memory].enabled` as the global gate.
 - **Distinguished LM Studio installed vs loaded models.** Local
   detection now uses LM Studio loaded-state data for auto-fallback and
   picker rows, while doctor and `/providers` show installed-but-not-loaded
@@ -196,6 +200,9 @@ Plugins / Infra / Fixes.
 
 ### Docs
 
+- **Closed EP-15 memory system.** The implemented standard now records
+  the local JSONL baseline, review/edit/supersede/export surfaces, and
+  session-local retrieval opt-out.
 - **Narrowed the subagent EP open questions.** EP-13 now reflects the
   shipped worker summaries, adoption commands, `/subagents`, and sidebar
   subagent activity, leaving only concurrency policy open.

@@ -193,6 +193,43 @@ var memoryExportCmd = &cobra.Command{
 	},
 }
 
+var memorySessionCmd = &cobra.Command{
+	Use:   "session [on|off|status]",
+	Short: "Manage prompt-memory retrieval for the current session",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		action := "status"
+		if len(args) == 1 {
+			action = strings.ToLower(args[0])
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		switch action {
+		case "off", "disable", "disabled":
+			if err := memory.SetSessionDisabled(cwd, true); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "memory retrieval: disabled for this session")
+		case "on", "enable", "enabled":
+			if err := memory.SetSessionDisabled(cwd, false); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "memory retrieval: allowed for this session (requires [memory].enabled = true)")
+		case "status":
+			if memory.SessionDisabled(cwd) {
+				fmt.Fprintln(cmd.OutOrStdout(), "memory retrieval: disabled for this session")
+			} else {
+				fmt.Fprintln(cmd.OutOrStdout(), "memory retrieval: allowed for this session (requires [memory].enabled = true)")
+			}
+		default:
+			return fmt.Errorf("memory session: unknown action %q (use on, off, or status)", action)
+		}
+		return nil
+	},
+}
+
 func updateMemory(cmd *cobra.Command, id, action string) error {
 	store, err := openMemoryStore()
 	if err != nil {
@@ -400,6 +437,6 @@ func shortMemory(s string, max int) string {
 
 func init() {
 	memoryListCmd.Flags().BoolVar(&memoryListJSON, "json", false, "Emit JSON instead of a table")
-	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memorySupersedeCmd, memoryExportCmd)
+	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memorySupersedeCmd, memoryExportCmd, memorySessionCmd)
 	rootCmd.AddCommand(memoryCmd)
 }

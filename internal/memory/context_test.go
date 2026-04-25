@@ -21,6 +21,93 @@ func TestPromptContextDisabled(t *testing.T) {
 	}
 }
 
+func TestPromptContextSessionDisabled(t *testing.T) {
+	root := t.TempDir()
+	workdir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repoID, err := stadogit.RepoID(workdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := Store{Path: filepath.Join(root, "state", "memory", "memory.jsonl"), Actor: "test"}
+	item := Item{
+		ID:         "mem_disabled_session",
+		Scope:      "repo",
+		RepoID:     repoID,
+		Kind:       "preference",
+		Summary:    "Prefer visible opt-outs",
+		Confidence: "approved",
+	}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(context.Background(), raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	subdir := filepath.Join(workdir, "internal")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetSessionDisabled(subdir, true); err != nil {
+		t.Fatalf("disable session memory: %v", err)
+	}
+	got, err := PromptContext(context.Background(), PromptContextOptions{
+		Enabled:      true,
+		StateDir:     filepath.Join(root, "state"),
+		Workdir:      subdir,
+		Prompt:       "visible opt-outs",
+		MaxItems:     4,
+		BudgetTokens: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("session-disabled memory context = %q, want empty", got)
+	}
+
+	if err := SetSessionDisabled(subdir, false); err != nil {
+		t.Fatalf("enable session memory: %v", err)
+	}
+	got, err = PromptContext(context.Background(), PromptContextOptions{
+		Enabled:      true,
+		StateDir:     filepath.Join(root, "state"),
+		Workdir:      subdir,
+		Prompt:       "visible opt-outs",
+		MaxItems:     4,
+		BudgetTokens: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "[repo/preference mem_disabled_session] Prefer visible opt-outs") {
+		t.Fatalf("memory context missing re-enabled memory:\n%s", got)
+	}
+}
+
+func TestSetSessionDisabledRoundTrip(t *testing.T) {
+	workdir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if SessionDisabled(workdir) {
+		t.Fatal("new workdir should not have memory disabled")
+	}
+	if err := SetSessionDisabled(workdir, true); err != nil {
+		t.Fatal(err)
+	}
+	if !SessionDisabled(filepath.Join(workdir, "subdir")) {
+		t.Fatal("subdir should inherit session memory disabled marker")
+	}
+	if err := SetSessionDisabled(workdir, false); err != nil {
+		t.Fatal(err)
+	}
+	if SessionDisabled(workdir) {
+		t.Fatal("memory disabled marker should be removed")
+	}
+}
+
 func TestPromptContextFormatsApprovedScopedMemories(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")

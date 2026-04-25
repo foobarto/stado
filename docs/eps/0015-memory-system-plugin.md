@@ -2,7 +2,7 @@
 ep: 15
 title: Memory System Plugin
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Accepted
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [2, 6, 7, 8, 9, 11]
@@ -37,6 +37,12 @@ history:
       Added the CLI supersede surface for approved memories and fixed
       folded supersession so replacement items keep the old id as an
       audit tombstone.
+  - date: 2026-04-25
+    status: Implemented
+    note: >-
+      Added session-local retrieval opt-out controls for TUI and CLI;
+      the shared prompt context now honors the same marker across TUI,
+      run, headless, and ACP.
 ---
 
 # EP-15: Memory System Plugin
@@ -194,7 +200,7 @@ The first shipped surface must include:
 - export memory items as JSON for audit/recovery
 
 The CLI shape should be
-`stado memory list|show|edit|approve|supersede|reject|delete|export`
+`stado memory list|show|edit|approve|supersede|reject|delete|session|export`
 once the plugin API exists. TUI/headless surfaces may expose the same
 operations through commands/RPC.
 
@@ -234,7 +240,7 @@ plugins that explicitly declare `memory:propose`, `memory:read`, or
 `memory:write` are wired to a local append-only JSONL store, and the
 host enforces candidate-only proposes, approved-only retrieval, scope
 filtering, secret exclusion, and bounded query results. CLI review
-commands provide list/show/edit/approve/supersede/reject/delete/export.
+commands provide list/show/edit/approve/supersede/reject/delete/session/export.
 Edits are recorded as append-only events that replace only the folded
 active view. Supersede events mark the old approved item as
 `superseded` in folded review/export output and add a new approved item
@@ -242,6 +248,10 @@ that links back through `supersedes`. Opt-in prompt injection is enabled
 with `[memory].enabled = true`; TUI, `stado run`, headless, and ACP
 inject the same bounded approved-memory block after identity/project
 instructions.
+
+Session-local retrieval opt-out is stored as
+`.stado/memory-disabled` in the active worktree/session and is honored
+by the shared prompt context before any memory lookup.
 
 Remote or vector backends are later plugin choices, not required for the
 initial standard.
@@ -268,14 +278,8 @@ initial standard.
 
 ## Open questions
 
-- Should the default local store be JSONL-only for auditability or pair
-  JSONL with SQLite/FTS indexes from the first implementation?
-- Should global user-profile memories live in the same plugin as repo
-  memories or use a separate built-in profile plugin?
-- Should the core expose token estimates to memory plugins or enforce
-  budgets only after retrieval?
-- How should memory imports/exports be signed if users sync them across
-  machines?
+None for the shipped local implementation. Vector indexes, remote sync,
+and signed import/export bundles remain future plugin or EP work.
 
 ## Decision log
 
@@ -314,6 +318,15 @@ initial standard.
 - **Alternatives:** require a core keyword or vector retrieval engine.
 - **Why:** the security boundary is scope and approval. Retrieval
   quality can evolve without changing the host contract.
+
+### D5. Local JSONL baseline
+
+- **Decided:** the built-in store is append-only JSONL, with derived
+  indexes left for later.
+- **Alternatives:** ship SQLite/FTS in the first memory slice.
+- **Why:** auditability and reversible review flows were the first
+  standardization target; better ranking can layer on without changing
+  the permission or prompt contract.
 
 ## Related
 
