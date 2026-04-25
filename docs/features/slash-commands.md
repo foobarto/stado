@@ -64,6 +64,7 @@ taking over the screen.
 | `/sessions` | Other resumable sessions for this repo, with switch/resume hints and inactive-session policy |
 | `/subagents` | Recent spawned child sessions with status, worktree, changed-file counts, scope violations, and adoption commands |
 | `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
+| `/tasks` | Open the shared task manager (`Ctrl+X K`); `/tasks add <title>` creates a quick task |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
 | `/describe <text>` | Label the current session (visible in `session list`, sidebar, etc.) |
 | `/budget` | Show current cost + caps; `/budget ack` continues past the hard cap |
@@ -101,6 +102,10 @@ taking over the screen.
 - **Session manager.** `/switch` opens the same TUI manager as
   `Ctrl+X L`: search, switch/resume, rename, fork, confirmed delete of
   inactive sessions, or create a fresh session.
+- **Task manager.** `/tasks` opens the same shared task browser as
+  `Ctrl+X K`. It edits the state-backed task store used by the model's
+  `tasks` tool in Do mode. `/tasks add <title>` creates an open task
+  without opening the browser.
 - **Session switching safety.** Switch, new, and fork actions are
   blocked while a queued prompt, stream, approval, compaction, or tool
   is active, so prompts and writes do not silently land in the wrong
@@ -150,5 +155,6 @@ place).
 ## See also
 
 - [features/budget.md](./budget.md) — the `/budget` gate
+- [features/tasks.md](./tasks.md) — shared user/agent task store
 - [features/skills.md](./skills.md) — `/skill` loader
 - [commands/session.md](../commands/session.md) — every session subcommand mirrors a slash-or-not variant

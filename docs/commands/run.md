@@ -58,12 +58,16 @@ stado run --tools --prompt "find every TODO in this repo"
 
 With `--tools`, the model can call `read` / `grep` / `ripgrep` /
 `bash` / `webfetch` / `read_with_context` / `ast_grep` / `edit` /
-`write` / `glob` / LSP-backed symbol tools. Each call lands in the
-session's audit log.
+`write` / `glob` / `tasks` / LSP-backed symbol tools. Each call lands
+in the session's audit log.
 
 Tool execution uses the auto-approve host — there's no interactive
 y/n in run mode. Scope it via `[tools]` in `config.toml` if that's
 too broad.
+
+The `tasks` tool stores work items in stado state rather than the
+session worktree. It is audited as state-mutating trace metadata, but it
+does not create a tree commit.
 
 ### Continue a prior session
 
@@ -145,5 +149,6 @@ Relevant `config.toml` sections:
 
 - [session.md](session.md) — what `--session` operates on
 - [features/skills.md](../features/skills.md) — the `--skill` flag
+- [features/tasks.md](../features/tasks.md) — the shared `tasks` tool
 - [features/budget.md](../features/budget.md) — the cost gate
 - [features/instructions.md](../features/instructions.md) — AGENTS.md loader

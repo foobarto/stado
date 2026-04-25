@@ -159,6 +159,7 @@ memorising:
 | `Ctrl+X T` | Open theme picker |
 | `Ctrl+X S` | Open status modal |
 | `Ctrl+X H` | Cycle thinking display: show, tail, hide |
+| `Ctrl+X K` | Open shared task manager |
 | `Shift+Tab` | Expand the latest tool call or assistant turn details |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
@@ -266,6 +267,8 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   changed-file counts, scope violations, and adoption commands
 - `/adopt [child] [--apply]` — dry-run or explicitly apply worker
   subagent changes into the current parent session
+- `/tasks` — shared task manager for user/agent work items;
+  `/tasks add <title>` creates a quick open task
 - `/debug` — toggle sidebar diagnostics/log tail
 - `/context` — session state (tokens, cost, budget, instructions, skills)
 - `/memory [on|off|status]` — show or toggle approved-memory retrieval
@@ -339,5 +342,6 @@ relevant sections:
 
 - [session.md](session.md) — session management
 - [features/slash-commands.md](../features/slash-commands.md)
+- [features/tasks.md](../features/tasks.md)
 - [features/sandboxing.md](../features/sandboxing.md)
 - [features/budget.md](../features/budget.md)

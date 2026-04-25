@@ -10,6 +10,8 @@ Expose stado's configured tool registry as an MCP server over stdio.
 surfaces before exposing tools to the client.
 
 This mode is tools-only: no MCP resources, prompts, or sampling.
+The bundled `tasks` tool is exposed here too, so MCP clients can store,
+list, read, update, and delete the same shared tasks visible in the TUI.
 
 ## Usage
 
@@ -35,6 +37,9 @@ stado sandbox runner, and tool visibility still follows `[tools]`.
 - Start the server from the directory you want tools to treat as cwd.
 - `read` deduplication is disabled because single MCP calls do not have
   a live stado conversation/session.
+- `tasks` persists to stado state, not the current cwd. Use
+  `[tools].disabled = ["tasks"]` if a client should not write shared
+  task state.
 - This command exposes stado as an MCP server. Configured
   `[mcp.servers.*]` entries are the opposite direction: external MCP
   servers consumed by stado.
@@ -43,4 +48,6 @@ stado sandbox runner, and tool visibility still follows `[tools]`.
 
 - [../features/sandboxing.md](../features/sandboxing.md) — MCP server
   capability sandboxing when stado is the MCP client.
+- [../features/tasks.md](../features/tasks.md) — shared task store and
+  tool bounds.
 - [../eps/0010-interop-surfaces-mcp-acp-headless.md](../eps/0010-interop-surfaces-mcp-acp-headless.md)

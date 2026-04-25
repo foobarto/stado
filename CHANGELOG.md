@@ -6,12 +6,27 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### TUI
+
+- **Added a shared task manager.** `/tasks` and `Ctrl+X K` open a
+  persistent task browser/editor, while `/tasks add <title>` creates an
+  open task directly from the input.
+
+### Agent
+
+- **Added the `tasks` tool.** Tool-enabled agents, `stado run --tools`,
+  headless/ACP, and MCP server clients can store, list, read, edit, and
+  delete shared tasks outside the repo worktree.
+
 ### Infra
 
 - **Cleared the gosec backlog.** Runtime state, config, cache, and
   session metadata now use tighter file modes, workdir reads prefer
   rooted helpers where practical, and intentional dynamic path/exec
   cases carry narrow `#nosec` justifications.
+- **Hardened shared task state.** The task store now uses cross-process
+  locking, validates persisted task files on load, enforces size/count
+  limits, and caps model-facing task output before it enters context.
 
 ### Fixes
 

@@ -168,7 +168,9 @@ provider-native thinking is rendered without changing what stado
 captures in the transcript.
 Press `/` on an empty prompt for inline slash-command suggestions, or
 `Ctrl+P` for the full command palette. Use `Ctrl+X M` or `/model` to
-switch models; selections become the next startup default.
+switch models; selections become the next startup default. Use
+`Ctrl+X K` or `/tasks` to open the shared task manager that both you
+and the agent can update.
 
 ### TUI screenshots
 
@@ -211,6 +213,7 @@ stado stats                             # cost + token dashboard (past 7 days)
 stado stats --json | jq                 # same, for scripting
 stado config show                       # resolved effective config (file + env + defaults)
 stado memory list                       # review plugin-proposed/approved memories
+stado run --tools --prompt "create tasks for the release checklist"
 stado doctor                            # env diagnostic (runners, sandbox, binaries)
 stado doctor --json | jq                # newline-delimited JSON, one check per line
 ```
@@ -267,10 +270,11 @@ surface itself is shipped and stable enough to wire into Zed today.
 
 - **Providers.** Anthropic, OpenAI, Google, and OpenAI-compatible
   backends with provider-native reasoning/thinking features preserved.
-- **Tools.** 14 bundled tools, MCP tool registration, and signed WASM
+- **Tools.** Bundled tools, MCP tool registration, and signed WASM
   plugin overrides all flow through the same runtime.
 - **State.** Git-native sidecar sessions with signed `tree` + `trace`
-  refs, plus resume/fork/land/export/search tooling.
+  refs, shared user/agent tasks, plus resume/fork/land/export/search
+  tooling.
 - **Surfaces.** Terminal TUI, `stado run`, headless JSON-RPC, ACP, and
   MCP server mode all compose the same core runtime.
 - **Ops.** Strict manifest-based self-update, OpenTelemetry, context
