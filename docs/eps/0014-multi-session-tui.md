@@ -15,6 +15,12 @@ history:
       restored provider changes.
   - date: 2026-04-25
     status: Partial
+    note: >
+      Session switching now waits for running or queued background plugin
+      ticks so session-aware plugin events cannot cross into a different
+      active session.
+  - date: 2026-04-25
+    status: Partial
     version: v0.23.0
     note: In-process session switching now caches per-session editor drafts and chat scroll offsets.
   - date: 2026-04-24
@@ -78,11 +84,12 @@ running multiple live tab models. Switching replaces the active
 state, and viewport content, then reloads persisted conversation JSONL
 from the target worktree.
 
-Switching is intentionally blocked while there is active work or
-queued prompts, streaming turns, approval cards, compaction
-confirmation/editing, and running tools must finish or be cleared first.
-This avoids hidden background mutation and wrong-session sends until
-inactive-session execution policy exists.
+Switching is intentionally blocked while there is active work: queued
+prompts, streaming turns, approval cards, compaction confirmation/editing,
+running tools, and running or queued background plugin ticks must finish
+or be cleared first. This avoids hidden background mutation and
+wrong-session sends until inactive-session execution policy expands
+beyond active-session-only execution.
 
 The TUI keeps lightweight in-process UI state per session: unsubmitted
 editor draft, chat scroll offset, selected provider/model, and provider
@@ -91,7 +98,9 @@ restored when switching back. Restoring a different provider invalidates
 the live provider object so the next prompt rebuilds against the active
 session's provider.
 
-Background-running inactive sessions remain future work.
+Background-running inactive sessions remain future work. The current
+policy is active-session-only: inactive sessions do not stream, run
+tools, or receive background plugin events inside the same TUI process.
 
 ## Migration / rollout
 

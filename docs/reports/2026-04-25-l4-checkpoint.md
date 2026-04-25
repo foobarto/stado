@@ -75,6 +75,8 @@ subagent slice.
 - TUI session switching now preserves per-session provider/model
   selection and resets provider probes when a restored session uses a
   different provider.
+- TUI session switching now blocks while background plugin ticks are
+  running or queued, keeping in-process inactive sessions execution-free.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.

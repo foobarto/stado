@@ -281,6 +281,9 @@ func (m *Model) ensureSessionSwitchAllowed() error {
 	if m.state == stateCompactionPending || m.state == stateCompactionEditing {
 		return fmt.Errorf("session switch: resolve compaction first")
 	}
+	if m.backgroundTickRunning || m.backgroundTickQueued {
+		return fmt.Errorf("session switch: wait for background plugins to finish")
+	}
 	m.toolMu.Lock()
 	defer m.toolMu.Unlock()
 	if m.toolCancel != nil {

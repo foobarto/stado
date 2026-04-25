@@ -200,9 +200,10 @@ session id, version, usage, cost, and command hints visible when there
 is enough width. On narrow terminals it drops the left context first and
 keeps the active state and usage side readable.
 
-Session switching caches the inactive session's editor draft and chat
-scroll position in memory. Switching is still blocked during queued
-prompts, streams, approvals, compaction, and running tools.
+Session switching caches the inactive session's editor draft, chat scroll
+position, and selected provider/model in memory. Switching is blocked
+during queued prompts, streams, approvals, compaction, running tools, and
+background plugin ticks.
 
 Thinking blocks are display-controlled, not capture-controlled:
 `Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
@@ -251,8 +252,9 @@ overlay owns its own keys:
 | `Esc` | Close or cancel the current overlay action |
 
 Deleting the active session is blocked. Switch, new, and fork keep the
-existing safety gate: submit or clear drafts, queued prompts, approval
-cards, compaction prompts, streams, and running tools first.
+existing safety gate: submit or clear queued prompts, approval cards,
+compaction prompts, streams, running tools, and background plugin ticks
+first.
 
 ## Approvals
 

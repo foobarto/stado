@@ -360,3 +360,23 @@ func TestSwitchToSessionBlocksQueuedPrompt(t *testing.T) {
 		t.Fatalf("session changed despite queued prompt: %s", got)
 	}
 }
+
+func TestSwitchToSessionBlocksBackgroundPluginTick(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	m.backgroundTickRunning = true
+
+	err := m.switchToSession(ids.second)
+	if err == nil || !strings.Contains(err.Error(), "background plugins") {
+		t.Fatalf("expected background plugin safety error, got %v", err)
+	}
+	if got := m.session.ID; got != ids.first {
+		t.Fatalf("session changed despite background plugin tick: %s", got)
+	}
+
+	m.backgroundTickRunning = false
+	m.backgroundTickQueued = true
+	err = m.switchToSession(ids.second)
+	if err == nil || !strings.Contains(err.Error(), "background plugins") {
+		t.Fatalf("expected queued background plugin safety error, got %v", err)
+	}
+}
