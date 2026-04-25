@@ -52,6 +52,9 @@ Plugins / Infra / Fixes.
   `role=worker`, `mode=workspace_write`, required `ownership`, and
   normalized `write_scope`; TUI/headless surfaces report worker changed
   files and scope violations for explicit adoption.
+- **Aligned ACP subagent notifications.** ACP `session/update`
+  notifications now surface subagent lifecycle fields, including worker
+  changed files and scope violations.
 
 ## v0.23.1 — 2026-04-25
 

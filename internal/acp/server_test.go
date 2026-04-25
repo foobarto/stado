@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -62,6 +63,46 @@ func isolatedACPConfig(t *testing.T) *config.Config {
 		t.Fatal(err)
 	}
 	return cfg
+}
+
+func TestServerEmitSubagentUpdateIncludesWorkerFields(t *testing.T) {
+	var out bytes.Buffer
+	srv := NewServer(&config.Config{}, scriptedProvider{text: "ok"})
+	srv.conn = NewConn(strings.NewReader(""), &out)
+
+	srv.emitSubagentUpdate("session-1", runtime.SubagentEvent{
+		Phase:           "finished",
+		ParentSession:   "parent-1",
+		ChildSession:    "child-1",
+		Worktree:        "/tmp/child-1",
+		Role:            "worker",
+		Mode:            "workspace_write",
+		Status:          "completed",
+		TimeoutSeconds:  180,
+		ForkTree:        "0123456789abcdef0123456789abcdef01234567",
+		ChangedFiles:    []string{"docs/a.md"},
+		ScopeViolations: []string{"blocked.txt: denied"},
+	})
+
+	var got Notification
+	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &got); err != nil {
+		t.Fatalf("notification json: %v\n%s", err, out.String())
+	}
+	if got.Method != "session/update" {
+		t.Fatalf("method = %q, want session/update", got.Method)
+	}
+	params, ok := got.Params.(map[string]any)
+	if !ok {
+		t.Fatalf("params type = %T", got.Params)
+	}
+	for _, key := range []string{"forkTree", "changedFiles", "scopeViolations"} {
+		if _, ok := params[key]; !ok {
+			t.Fatalf("params missing %s: %#v", key, params)
+		}
+	}
+	if params["kind"] != "subagent" || params["child"] != "child-1" {
+		t.Fatalf("unexpected params: %#v", params)
+	}
 }
 
 func TestServerRejectsOverlappingSessionPrompt(t *testing.T) {

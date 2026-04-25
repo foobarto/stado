@@ -64,6 +64,9 @@ subagent slice.
 - TUI worker notices now show changed-file and scope-violation counts plus
   an adoption command. Headless finished subagent notifications include
   `forkTree`, `changedFiles`, and `scopeViolations` when present.
+- ACP `session/update` notifications now mirror the subagent lifecycle
+  payload, including worker `forkTree`, `changedFiles`, and
+  `scopeViolations`.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -80,6 +83,7 @@ subagent slice.
   - `go test ./internal/runtime`
   - `go test ./cmd/stado ./internal/runtime`
   - `go test ./internal/subagent ./internal/runtime ./internal/tui ./internal/headless`
+  - `go test ./internal/acp`
 - Full suite passed:
   - `go test ./...`
 - Whitespace check passed:
@@ -101,5 +105,5 @@ repo-compatible Go toolchain at
    TUI/headless adoption ergonomics based on the transcript.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
-3. Consider ACP/editor-facing parity for the headless subagent
-   notification shape.
+3. Add richer adoption affordances to editor/ACP clients once a client
+   consumes the new subagent notification payload.

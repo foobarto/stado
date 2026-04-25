@@ -190,6 +190,9 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		System:               sysPrompt,
 		SystemTemplate:       s.Cfg.Agent.SystemPromptTemplate,
 		MemoryContext:        s.memoryPromptContext(pctx, workdir, p.SessionID, p.Prompt),
+		OnSubagentEvent: func(ev runtime.SubagentEvent) {
+			s.emitSubagentUpdate(p.SessionID, ev)
+		},
 		OnEvent: func(ev agent.Event) {
 			switch ev.Kind {
 			case agent.EvTextDelta:
@@ -245,6 +248,37 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	sess.messages = msgs
 	sess.mu.Unlock()
 	return sessionPromptResult{Text: text}, nil
+}
+
+func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) {
+	if s == nil || s.conn == nil {
+		return
+	}
+	payload := map[string]any{
+		"sessionId":       sessionID,
+		"kind":            "subagent",
+		"phase":           ev.Phase,
+		"status":          ev.Status,
+		"role":            ev.Role,
+		"mode":            ev.Mode,
+		"child":           ev.ChildSession,
+		"childWorktree":   ev.Worktree,
+		"parentSession":   ev.ParentSession,
+		"timeout_seconds": ev.TimeoutSeconds,
+	}
+	if ev.Error != "" {
+		payload["error"] = ev.Error
+	}
+	if ev.ForkTree != "" {
+		payload["forkTree"] = ev.ForkTree
+	}
+	if len(ev.ChangedFiles) > 0 {
+		payload["changedFiles"] = append([]string(nil), ev.ChangedFiles...)
+	}
+	if len(ev.ScopeViolations) > 0 {
+		payload["scopeViolations"] = append([]string(nil), ev.ScopeViolations...)
+	}
+	_ = s.conn.Notify("session/update", payload)
 }
 
 type sessionCancelParams struct {

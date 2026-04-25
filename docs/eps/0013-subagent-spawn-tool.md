@@ -157,6 +157,7 @@ when present. Worker finish notifications also include `forkTree`,
 `changedFiles`, and `scopeViolations` when available. These
 notifications are visibility only. The authoritative record remains the
 parent and child trace refs.
+ACP mirrors the same payload under `session/update` for editor clients.
 
 Earlier TUI groundwork made agent selection explicit: `Ctrl+X A` and
 `/agents` open a picker for the built-in Do, Plan, and BTW agents. The
