@@ -54,6 +54,7 @@ type Result struct {
 	Text            string   `json:"text,omitempty"`
 	MessageCount    int      `json:"message_count,omitempty"`
 	TimeoutSeconds  int      `json:"timeout_seconds,omitempty"`
+	ForkTree        string   `json:"fork_tree,omitempty"`
 	ChangedFiles    []string `json:"changed_files,omitempty"`
 	ScopeViolations []string `json:"scope_violations,omitempty"`
 	Error           string   `json:"error,omitempty"`

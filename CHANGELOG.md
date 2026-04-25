@@ -39,6 +39,9 @@ Plugins / Infra / Fixes.
 - **Reported internal worker outputs.** Worker subagent results now
   include changed files from the child tree diff and collected
   `scope_violations` for rejected scoped writes.
+- **Added subagent adoption planning.** Runtime can now dry-run child
+  adoption by comparing parent and child changes against the fork tree
+  and reporting conflicts without mutating either session.
 
 ## v0.23.1 — 2026-04-25
 

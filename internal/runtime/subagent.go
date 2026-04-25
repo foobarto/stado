@@ -268,6 +268,7 @@ func attachWorkerResultDetails(result *subagent.Result, req subagent.Request, ch
 	if req.Mode != subagent.WorkspaceWriteMode {
 		return nil
 	}
+	result.ForkTree = hashString(baseTree)
 	if scopedHost != nil {
 		result.ScopeViolations = scopedHost.ScopeViolations()
 	}

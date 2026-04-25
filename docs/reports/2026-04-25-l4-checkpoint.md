@@ -46,6 +46,9 @@ subagent slice.
   child tree diff against the fork point with session metadata filtered
   out, and `scope_violations` comes from deduplicated scoped-write guard
   rejections.
+- Added a dry-run adoption planner: `PlanSubagentAdoption` compares
+  parent and child changed files against the fork tree, reports
+  conflicts, and does not mutate either session.
 - Enabled spawn support in TUI, `stado run --tools`, and headless
   `session.prompt` when a live provider, config, and parent session are
   present.
@@ -76,8 +79,8 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Design and implement explicit child-change adoption/conflict checks
-   before exposing `workspace_write`.
+1. Implement an explicit adoption apply path that copies non-conflicting
+   child changes into the parent and commits them with audit metadata.
 2. Consider a dedicated subagent activity view in the TUI if raw
    notices are not enough during real use.
 3. Consider ACP/editor-facing parity for the headless subagent

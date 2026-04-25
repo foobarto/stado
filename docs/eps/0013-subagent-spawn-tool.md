@@ -9,6 +9,9 @@ see-also: [3, 4, 6, 10, 11]
 history:
   - date: 2026-04-25
     status: Partial
+    note: Added a dry-run child adoption planner that reports parent/child conflicts before any apply step.
+  - date: 2026-04-25
+    status: Partial
     note: Added worker changed-file reporting and scope-violation collection to the internal workspace_write path.
   - date: 2026-04-25
     status: Partial
@@ -228,6 +231,11 @@ Conflict and adoption contract:
   the child since the fork point, adoption blocks and reports the path
   list. The user can inspect the child session, fork again, or manually
   land/rebase.
+- The runtime now has a dry-run `PlanSubagentAdoption` helper that
+  compares parent and child tree changes against an explicit fork tree,
+  returns the child changed files, parent changed files, conflict list,
+  and `can_adopt`, and does not mutate either session. This is the
+  required gate before an apply/adopt command or tool is exposed.
 - If a child attempts writes outside `write_scope`, the offending tool
   call is rejected, recorded in the child trace, and reflected in
   `scope_violations`. The child session itself remains valid.
