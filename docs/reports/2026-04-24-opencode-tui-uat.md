@@ -239,8 +239,9 @@ incrementally from real usage gaps.
 
 ## Recommended Next EP Work
 
-- Dogfood EP-0013 worker adoption with a loaded local model, then refine
-  TUI/headless/ACP adoption affordances from the transcript.
+- Use the EP-0013 live worker-adoption dogfood transcript to refine
+  headless/ACP/editor adoption affordances once a client consumes the
+  notification payload.
 - Add provider connect/OAuth only as provider-specific product work
   where terminal auth is supported.
 - Extend EP-0014 with provider-state handling and inactive-session

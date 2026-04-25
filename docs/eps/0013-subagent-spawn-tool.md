@@ -2,11 +2,14 @@
 ep: 13
 title: Subagent Spawn Tool
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-24
 see-also: [3, 4, 6, 10, 11]
 history:
+  - date: 2026-04-25
+    status: Implemented
+    note: Closed the synchronous spawn_agent contract after scoped worker spawn, explicit adoption, TUI/headless/ACP surfaces, and live local-provider dogfood shipped.
   - date: 2026-04-25
     status: Partial
     note: Worker spawn_agent tool results now include an adoption_command when child changes are available.
@@ -86,9 +89,10 @@ boundaries so they do not silently overwrite each other or the parent.
 
 ## Design
 
-The first runtime slice adds a native `spawn_agent` tool. It is native
-instead of WASM-backed because it needs the live provider, config, and
-session fork primitive rather than only the plugin host imports.
+The implemented runtime contract adds a native `spawn_agent` tool. It
+is native instead of WASM-backed because it needs the live provider,
+config, and session fork primitive rather than only the plugin host
+imports.
 
 Tool request:
 
@@ -240,7 +244,7 @@ Write-capable worker contract:
   must reject writes outside `write_scope`, even if the child prompt
   asks for them.
 - Recursive `spawn_agent` remains disabled for write-capable children in
-  the first implementation.
+  the current implementation.
 
 Conflict and adoption contract:
 
@@ -255,8 +259,8 @@ Conflict and adoption contract:
   rejections are deduplicated and returned as `scope_violations`.
 - The parent receives only the result. Child edits remain in the child
   session until a separate user-visible adoption step.
-- There is no automatic merge into the parent session. Adoption should
-  be an explicit future command/tool that computes a diff from the
+- There is no automatic merge into the parent session. Adoption is an
+  explicit command or TUI slash command that computes a diff from the
   fork point and applies it only after conflict checks.
 - Adoption conflict check: if the parent tree changed a path touched by
   the child since the fork point, adoption blocks and reports the path
@@ -270,8 +274,7 @@ Conflict and adoption contract:
 - The runtime also has `AdoptSubagentChanges`, which re-runs the plan,
   refuses conflicts with a typed error, copies only the child changed
   files into the parent worktree, supports child-side deletions, and
-  records `subagent_adopt` trace and tree commits on the parent. No
-  model-facing tool invokes it yet.
+  records `subagent_adopt` trace and tree commits on the parent.
 - Users can run `stado session adopt <parent-id> <child-id> --fork-tree
   <hash>` to inspect the plan. The command is dry-run by default and
   requires `--apply` to mutate the parent. Conflicts block apply and are
@@ -301,8 +304,8 @@ Review flow:
 - Parent trusts a child result without enough provenance.
 - Tool-call audit becomes hard to follow across child sessions.
 - Provider implementations may not be safe for true concurrent
-  multi-stream use. The first slice avoids this by running children
-  synchronously after the parent stream has ended.
+  multi-stream use. The implemented contract avoids this by running
+  children synchronously after the parent stream has ended.
 
 ## Test strategy
 
@@ -312,15 +315,20 @@ Review flow:
   parent-triggered cancellation.
 - Headless tests for `session.cancel` while a child is running, including
   the finished/error subagent notification.
-- Future runtime tests for write-scope rejection.
+- Runtime tests for worker write-scope rejection and changed-file
+  reporting.
 - Integration tests for parent/child transcript persistence.
-- Future adoption tests that simulate parent/child edits to the same
-  path and assert adoption blocks with a conflict list.
+- Adoption tests that simulate parent/child edits to the same path and
+  assert adoption blocks with a conflict list.
+- Live dogfood with a loaded local LM Studio model for `stado run`,
+  worker `spawn_agent`, CLI adoption, and TUI `/subagents` plus
+  `/adopt`.
 
 ## Open questions
 
 - None for the current synchronous tool-call model. Higher child
-  concurrency is future scheduler work, not implicit behavior.
+  concurrency is future scheduler work and should be designed outside
+  this implemented contract.
 
 ## Decision log
 

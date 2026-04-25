@@ -25,14 +25,14 @@ Plugins / Infra / Fixes.
   headless tests now assert that cancelling the parent operation cancels
   the running child and emits a finished/error subagent event.
 - **Documented the write-capable subagent contract.** EP-13 now defines
-  future worker-mode ownership scopes, write-scope enforcement, conflict
+  worker-mode ownership scopes, write-scope enforcement, conflict
   checks, and explicit adoption semantics.
 - **Pinned subagent write-scope validation.** `spawn_agent` request
   decoding now normalizes and rejects unsafe future `write_scope`
   entries before worker mode is exposed.
-- **Added a scoped write guard for future subagents.** Mutating file
-  tools now honor an optional host-level write-path guard, and EP-13's
-  future worker host has a tested `ScopedWriteHost` implementation.
+- **Added a scoped write guard for subagents.** Mutating file tools now
+  honor an optional host-level write-path guard, and EP-13's worker host
+  has a tested `ScopedWriteHost` implementation.
 - **Built the internal worker subagent path.** Runtime tests now exercise
   scoped `workspace_write` children with read/search plus `write`/`edit`,
   while the public `spawn_agent` decoder still rejects worker mode.
@@ -62,6 +62,9 @@ Plugins / Infra / Fixes.
   `spawn_agent` results now include `adoption_command` when child
   changes are available, so the parent model sees the exact review/apply
   command instead of inferring it from session IDs.
+- **Closed EP-13 subagent spawn.** The synchronous read-only and scoped
+  worker `spawn_agent` contract is now documented as implemented after
+  CLI/TUI adoption surfaces and live local-provider dogfood.
 
 ### TUI
 

@@ -26,14 +26,14 @@ spawn/adoption slices and the local worker dogfood pass.
 - Parent-triggered cancellation is covered at runtime and headless
   boundaries: cancelling the parent cancels the child and emits a
   finished/error subagent event.
-- EP-13 now defines the future write-capable worker contract:
+- EP-13 now defines the write-capable worker contract:
   `role=worker`, `mode=workspace_write`, required `write_scope`,
   child-only writes, conflict checks, and explicit adoption.
-- Added `write_scope` request normalization for the future worker mode:
+- Added `write_scope` request normalization for worker mode:
   repo-relative path/glob scopes are trimmed, normalized, deduplicated,
   and rejected if they use absolute paths, traversal, backslashes,
   repository-root scopes, or `.git` / `.stado` metadata segments.
-- Added the host-level write-scope enforcement layer for future
+- Added the host-level write-scope enforcement layer for
   `workspace_write`: `write` and `edit` honor `tool.WritePathGuard`, and
   `subagent.ScopedWriteHost` checks normalized targets against
   `write_scope` while rejecting symlink escapes and `.git` / `.stado`
@@ -158,9 +158,9 @@ spawn/adoption slices and the local worker dogfood pass.
 - EP-14 now records the multi-session TUI policy and shape as
   implemented: active-session-only execution, confirmed full delete, and
   command-palette/session-overview management.
-- EP-13 open questions now reflect the shipped worker summaries,
-  adoption commands, `/subagents`, and sidebar activity; only child
-  concurrency policy remains open.
+- EP-13 now records the synchronous worker spawn/adoption contract as
+  implemented; higher child concurrency is future scheduler work outside
+  that contract.
 - Local-runner detection now distinguishes LM Studio installed models
   from loaded/runnable models, so fallback and picker rows avoid
   unloaded models while doctor and `/providers` show remediation.
@@ -173,14 +173,15 @@ spawn/adoption slices and the local worker dogfood pass.
   live plugin/MCP health snapshots remain open for the status modal.
 - EP-21 now records assistant turn metadata as display-only while
   `conversation.jsonl` remains the provider-message transcript.
-- EP-13 now records the current concurrency policy: one active child per
-  parent session/tool queue, with higher concurrency left for future
-  scheduler work.
+- EP-13 now records the current concurrency policy as part of the
+  implemented synchronous contract: one active child per parent
+  session/tool queue, with higher concurrency left for future scheduler
+  work.
 - EP-19 now records the scoped model/provider picker work as
   implemented; true connect/OAuth remains separate provider-specific
   product work.
-- The EP README status table now matches implemented EP-14 and EP-24
-  frontmatter.
+- The EP README status table now matches implemented EP-13, EP-14, and
+  EP-24 frontmatter.
 - Headless/ACP command docs and CLI help now document the `subagent`
   lifecycle payload, worker update fields, and explicit
   `stado session adopt` review flow.
@@ -197,6 +198,8 @@ spawn/adoption slices and the local worker dogfood pass.
   `session.prompt` when a live provider, config, and parent session are
   present.
 - Updated EP-13, EP-14, EP-20, and `CHANGELOG.md` under Unreleased.
+- EP-13 and the EP README now mark the synchronous subagent spawn and
+  adoption contract as implemented after live local-provider dogfood.
 
 ## Verification
 
@@ -266,12 +269,12 @@ repo-compatible Go toolchain at
   `theme.toml` picker row, `stado-rose`, repo-relative footer dirty
   state, persisted thinking display mode, resumed thinking blocks,
   failed/rejected tool-result metadata, config-backed bundled theme
-  selection, and EP-26 shortcut-hint coverage. EP-14's multi-session
-  TUI policy docs, EP-19 model/provider picker, EP-20 inline context
-  completion, EP-21 assistant turn metadata, and EP-22 theme
-  catalog/picker are also closed, and EP-13's current concurrency policy
-  is pinned while EP-23's remaining question is narrowed to status
-  snapshots. LM Studio installed-vs-loaded model detection is also fixed.
+  selection, and EP-26 shortcut-hint coverage. EP-13's synchronous
+  subagent spawn/adoption contract, EP-14's multi-session TUI policy
+  docs, EP-19 model/provider picker, EP-20 inline context completion,
+  EP-21 assistant turn metadata, and EP-22 theme catalog/picker are also
+  closed; EP-23's remaining question is narrowed to status snapshots.
+  LM Studio installed-vs-loaded model detection is also fixed.
 - Live worker dogfood completed against LM Studio
   `qwen/qwen3.6-35b-a3b`. The worker spawn, child isolation, CLI dry-run,
   and CLI apply path worked end-to-end. The run also exposed that the
@@ -286,6 +289,5 @@ repo-compatible Go toolchain at
 
 1. Add richer adoption affordances to headless/ACP/editor clients once a
    client consumes the subagent notification payload.
-2. Decide whether EP-13 should stay open only for future child
-   concurrency/scheduler work or be split so the synchronous worker
-   spawn/adoption contract can be marked implemented.
+2. If true concurrent child execution becomes a priority, write a
+   separate scheduler EP instead of extending EP-13 retroactively.
