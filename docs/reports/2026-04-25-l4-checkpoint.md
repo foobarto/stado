@@ -180,12 +180,14 @@ repo-compatible Go toolchain at
 - Latest committed slices include the EP-13 scoped worker
   spawn/adoption flow, EP-14 provider/session policy fixes, EP-20
   docs/Go/Python/JS/TS symbol completion, landing-logo refinement, and
-  direct light/dark theme shortcuts, status-modal action hints, and expandable
-  assistant turn details, the `/subagents` overview, and local-runner
-  no-model remediation, theme-aware markdown rendering, and grouped
-  inline slash suggestions, status-modal trace ids, the custom
-  `theme.toml` picker row, explicit markdown style selection for custom
-  themes, and the `stado-rose` bundled theme.
+  direct light/dark theme shortcuts, status-modal action hints,
+  provider credential health, configured MCP name summaries, expandable
+  assistant turn details, the `/subagents` overview, `/adopt`,
+  local-runner no-model remediation, direct `/provider <name>` setup
+  hints, theme-aware markdown rendering, grouped inline slash
+  suggestions, status-modal trace ids, the custom `theme.toml` picker
+  row, explicit markdown style selection for custom themes, and the
+  `stado-rose` bundled theme.
 - Live worker dogfood was attempted with local LM Studio auto-detect,
   but the provider returned `No models loaded`; rerun after loading a
   local model.
@@ -193,7 +195,12 @@ repo-compatible Go toolchain at
 
 ## Next Candidates
 
-1. Exercise the exposed worker flow in a manual dogfood run and refine
-   TUI/headless adoption ergonomics based on the transcript.
-2. Add richer adoption affordances to editor/ACP clients once a client
-   consumes the new subagent notification payload.
+1. Load a local LM Studio/Ollama model and dogfood the exposed worker
+   flow end-to-end, including `/subagents`, `/adopt`, and
+   `stado session adopt`.
+2. Add richer adoption affordances to headless/ACP/editor clients once a
+   client consumes the subagent notification payload.
+3. Extend provider remediation toward real provider connect/OAuth only
+   after deciding which providers support an in-app flow.
+4. Consider additional bounded symbol scanners or theme catalog entries
+   only where they serve a real repo shape.
