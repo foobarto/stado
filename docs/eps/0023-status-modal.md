@@ -9,6 +9,9 @@ see-also: [11, 17, 19, 22]
 history:
   - date: 2026-04-25
     status: Partial
+    note: The modal now includes a compact configured MCP server-name summary.
+  - date: 2026-04-25
+    status: Partial
     note: The modal now shows active-provider credential env var health.
   - date: 2026-04-25
     status: Partial
@@ -74,6 +77,10 @@ the focused command or file that resolves the row.
 The credentials row uses stado's conventional provider environment
 mapping. Remote providers show whether their API key variable is present
 or missing; local presets show that no key is required by default.
+
+The MCP row summarizes configured server names from `config.toml`
+without connecting to them. It caps the displayed name list so the modal
+stays compact.
 
 When OTel is enabled and the TUI run context has a valid span context,
 the Extensions section includes the trace id for copy/paste into a

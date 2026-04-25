@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func TestStatusSlashOpensModal(t *testing.T) {
@@ -81,6 +83,28 @@ func TestStatusModalShowsLocalCredentialNotRequired(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("status modal missing local credential hint %q: %q", want, out)
 		}
+	}
+}
+
+func TestStatusModalMCPRowNamesConfiguredServers(t *testing.T) {
+	m := scenarioModel(t)
+	m.cfg = &config.Config{MCP: config.MCP{Servers: map[string]config.MCPServer{
+		"zeta":  {},
+		"alpha": {},
+		"beta":  {},
+		"gamma": {},
+	}}}
+
+	var got string
+	for _, row := range m.statusExtensionRows() {
+		if row.Key == "mcp" {
+			got = row.Value
+			break
+		}
+	}
+	want := "4 configured: alpha, beta, gamma +1"
+	if got != want {
+		t.Fatalf("mcp status = %q, want %q", got, want)
 	}
 }
 

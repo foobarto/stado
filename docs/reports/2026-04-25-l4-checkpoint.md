@@ -95,6 +95,8 @@ subagent slice.
   budget, and context rows.
 - `/status` now reports active-provider credential env var health as
   missing, set, or not required by a local preset.
+- `/status` now summarizes configured MCP server names without probing
+  or starting MCP clients.
 - Assistant turn footers now have expandable details behind `Shift+Tab`,
   covering token deltas, cache read/write deltas, requested tools, and
   a session trace command hint when available.

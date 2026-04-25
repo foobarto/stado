@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func (m *Model) renderStatusModal(screenWidth, screenHeight int) string {
@@ -157,7 +160,7 @@ func (m *Model) statusExtensionRows() []statusRow {
 	mcp := "0 configured"
 	otel := "disabled"
 	if m.cfg != nil {
-		mcp = fmt.Sprintf("%d configured", len(m.cfg.MCP.Servers))
+		mcp = statusMCPSummary(m.cfg.MCP.Servers)
 		if m.cfg.OTel.Enabled {
 			otel = strings.TrimSpace(m.cfg.OTel.Protocol + " " + m.cfg.OTel.Endpoint)
 			if otel == "" {
@@ -180,6 +183,25 @@ func (m *Model) statusExtensionRows() []statusRow {
 	}
 	rows = append(rows, statusRow{Key: "instructions", Value: instructions, Tone: "muted", Action: "/context"})
 	return rows
+}
+
+func statusMCPSummary(servers map[string]config.MCPServer) string {
+	if len(servers) == 0 {
+		return "0 configured"
+	}
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	const maxNames = 3
+	shown := names
+	suffix := ""
+	if len(names) > maxNames {
+		shown = names[:maxNames]
+		suffix = fmt.Sprintf(" +%d", len(names)-maxNames)
+	}
+	return fmt.Sprintf("%d configured: %s%s", len(names), strings.Join(shown, ", "), suffix)
 }
 
 func (m *Model) statusTraceID() string {

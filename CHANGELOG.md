@@ -82,6 +82,8 @@ Plugins / Infra / Fixes.
 - **Added credential health to providers overview.** `/providers` now
   shows whether the active provider's conventional API key env var is
   missing, set, or not required.
+- **Named configured MCP servers in status.** `/status` now summarizes
+  configured MCP server names without starting or probing them.
 - **Added markdown style control for themes.** `theme.toml` can now set
   `[markdown].style` to `auto`, `light`, or `dark`; `auto` keeps the
   existing background-luminance detection.
