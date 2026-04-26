@@ -32,19 +32,12 @@ func completeSessionIDs(cmd *cobra.Command, args []string, toComplete string) ([
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
 	}
-	entries, err := os.ReadDir(cfg.WorktreeDir())
+	ids, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	var completions []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		id := e.Name()
-		if stadogit.ValidateSessionID(id) != nil {
-			continue
-		}
+	for _, id := range ids {
 		if toComplete != "" && !strings.HasPrefix(id, toComplete) {
 			continue
 		}
@@ -76,7 +69,7 @@ func resolveSessionID(cfg *config.Config, q string) (string, error) {
 	if q == "" {
 		return "", fmt.Errorf("empty lookup")
 	}
-	entries, err := os.ReadDir(cfg.WorktreeDir())
+	ids, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir())
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No worktree dir means no sessions exist yet. Keep the
@@ -86,12 +79,6 @@ func resolveSessionID(cfg *config.Config, q string) (string, error) {
 			return "", fmt.Errorf("no worktree dir — no sessions exist yet (looked for %q)", q)
 		}
 		return "", err
-	}
-	var ids []string
-	for _, e := range entries {
-		if e.IsDir() && stadogit.ValidateSessionID(e.Name()) == nil {
-			ids = append(ids, e.Name())
-		}
 	}
 	// Exact match short-circuit.
 	for _, id := range ids {

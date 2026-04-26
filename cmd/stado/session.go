@@ -72,14 +72,14 @@ var sessionListCmd = &cobra.Command{
 		// Augment with worktree dirs — a session can exist before it has
 		// committed anything, so worktree presence is the authoritative "I
 		// exist" signal while refs capture progress.
-		if entries, err := os.ReadDir(cfg.WorktreeDir()); err == nil {
+		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
 			seen := map[string]bool{}
 			for _, id := range ids {
 				seen[id] = true
 			}
-			for _, e := range entries {
-				if e.IsDir() && !seen[e.Name()] && stadogit.ValidateSessionID(e.Name()) == nil {
-					ids = append(ids, e.Name())
+			for _, id := range worktreeIDs {
+				if !seen[id] {
+					ids = append(ids, id)
 				}
 			}
 			sort.Strings(ids)
@@ -173,24 +173,19 @@ var sessionGCCmd = &cobra.Command{
 		// Also scan the worktree dir for UUID-looking directories the
 		// sidecar may not know about — dogfood showed `run --prompt`
 		// can leave a worktree without a trace ref.
-		if entries, err := os.ReadDir(cfg.WorktreeDir()); err == nil {
+		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
 			seen := map[string]struct{}{}
 			cwd, _ := os.Getwd()
 			currentRepo := findRepoRoot(cwd)
 			for _, id := range ids {
 				seen[id] = struct{}{}
 			}
-			for _, e := range entries {
-				if e.IsDir() {
-					if stadogit.ValidateSessionID(e.Name()) != nil {
-						continue
-					}
-					if runtime.ReadUserRepoPin(filepath.Join(cfg.WorktreeDir(), e.Name())) != currentRepo {
-						continue
-					}
-					if _, ok := seen[e.Name()]; !ok {
-						ids = append(ids, e.Name())
-					}
+			for _, id := range worktreeIDs {
+				if runtime.ReadUserRepoPin(filepath.Join(cfg.WorktreeDir(), id)) != currentRepo {
+					continue
+				}
+				if _, ok := seen[id]; !ok {
+					ids = append(ids, id)
 				}
 			}
 			sort.Strings(ids)

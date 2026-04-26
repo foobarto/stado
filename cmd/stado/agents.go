@@ -55,14 +55,14 @@ var agentsListCmd = &cobra.Command{
 			return err
 		}
 		// Also pick up sessions that have a worktree but no commits yet.
-		if entries, err := os.ReadDir(cfg.WorktreeDir()); err == nil {
+		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
 			seen := map[string]bool{}
 			for _, id := range ids {
 				seen[id] = true
 			}
-			for _, e := range entries {
-				if e.IsDir() && !seen[e.Name()] && stadogit.ValidateSessionID(e.Name()) == nil {
-					ids = append(ids, e.Name())
+			for _, id := range worktreeIDs {
+				if !seen[id] {
+					ids = append(ids, id)
 				}
 			}
 			sort.Strings(ids)

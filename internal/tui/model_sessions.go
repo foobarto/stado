@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -141,11 +140,9 @@ func listSessionIDs(worktreeRoot string, sc *stadogit.Sidecar) (map[string]struc
 		}
 		return nil
 	})
-	if entries, err := os.ReadDir(worktreeRoot); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && stadogit.ValidateSessionID(e.Name()) == nil {
-				ids[e.Name()] = struct{}{}
-			}
+	if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(worktreeRoot); err == nil {
+		for _, id := range worktreeIDs {
+			ids[id] = struct{}{}
 		}
 	}
 	return ids, nil

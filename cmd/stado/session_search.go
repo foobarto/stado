@@ -19,13 +19,13 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -75,7 +75,7 @@ var sessionSearchCmd = &cobra.Command{
 		if searchSession != "" {
 			ids = []string{searchSession}
 		} else {
-			entries, err := os.ReadDir(cfg.WorktreeDir())
+			ids, err = stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir())
 			if err != nil {
 				if os.IsNotExist(err) {
 					fmt.Fprintln(os.Stderr, "(no worktrees — no sessions to search)")
@@ -83,12 +83,6 @@ var sessionSearchCmd = &cobra.Command{
 				}
 				return fmt.Errorf("search: read worktrees: %w", err)
 			}
-			for _, e := range entries {
-				if e.IsDir() {
-					ids = append(ids, e.Name())
-				}
-			}
-			sort.Strings(ids)
 		}
 
 		total := 0
