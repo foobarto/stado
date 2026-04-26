@@ -98,6 +98,9 @@ Plugins / Infra / Fixes.
 - **Hardened self-update replacement writes.** Self-update now rejects
   symlinked binary replacement paths and uses rooted temp+rename writes for
   copy fallback installation.
+- **Hardened release-helper writes.** Bundled release asset refreshes now save
+  fetched binaries, generated embed files, and manifests through rooted atomic
+  writes instead of following output-path symlinks.
 
 ## v0.25.7 — 2026-04-26
 

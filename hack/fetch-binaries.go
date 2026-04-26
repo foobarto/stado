@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 
 	"github.com/foobarto/stado/internal/releaseassets"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 const (
@@ -88,9 +89,6 @@ func main() {
 
 func fetchRipgrep(version string) error {
 	out := filepath.Join("internal", "tools", "rg", "bundled")
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		return err
-	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
 
 	for _, t := range matrix {
@@ -108,7 +106,7 @@ func fetchRipgrep(version string) error {
 		if t.GOOS == "windows" {
 			dst += ".exe"
 		}
-		if err := os.WriteFile(dst, b, 0o755); err != nil {
+		if err := writeRepoFileAtomic(dst, b, 0o755); err != nil {
 			return err
 		}
 		sha := sha256hex(b)
@@ -147,9 +145,6 @@ func ripgrepAsset(v string, t target) (string, string, string) {
 
 func fetchAstGrep(version string) error {
 	out := filepath.Join("internal", "tools", "astgrep", "bundled")
-	if err := os.MkdirAll(out, 0o755); err != nil {
-		return err
-	}
 	m := manifest{Version: version, SHA256: map[string]string{}}
 	digests, err := fetchGitHubExpandedAssetDigests("ast-grep/ast-grep", version)
 	if err != nil {
@@ -171,7 +166,7 @@ func fetchAstGrep(version string) error {
 		if t.GOOS == "windows" {
 			dst += ".exe"
 		}
-		if err := os.WriteFile(dst, b, 0o755); err != nil {
+		if err := writeRepoFileAtomic(dst, b, 0o755); err != nil {
 			return err
 		}
 		sha := sha256hex(b)
@@ -368,17 +363,35 @@ var bundledSHA256 = %q
 func isWindows() bool { return runtime.GOOS == "windows" }
 `, goos, goarch, binBase, goos, goarch, pkgName, binFile, sha)
 	fname := fmt.Sprintf("bundled_%s_%s.go", goos, goarch)
-	return os.WriteFile(filepath.Join(pkgDir, fname), []byte(content), 0o644)
+	return writeRepoFileAtomic(filepath.Join(pkgDir, fname), []byte(content), 0o644)
 }
 
 // --- misc ---
+
+func writeRepoFileAtomic(path string, data []byte, perm os.FileMode) error {
+	rootPath, rel, err := workdirpath.RootRelForWrite(".", path)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if dir := filepath.Dir(rel); dir != "." {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return workdirpath.WriteRootFileAtomicExactMode(root, rel, data, perm)
+}
 
 func writeManifest(path string, m manifest) error {
 	b, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	return writeRepoFileAtomic(path, append(b, '\n'), 0o644)
 }
 
 func sha256hex(b []byte) string {
