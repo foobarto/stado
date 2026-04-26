@@ -77,6 +77,9 @@ Plugins / Infra / Fixes.
 - **Hardened model picker state writes.** Recent and favorite model state now
   reads regular files only and saves through rooted random temp files instead
   of following state-file symlinks.
+- **Hardened private key creation.** Audit signing keys and plugin signing
+  seeds now create with exclusive rooted file handles and refuse to overwrite
+  existing or symlinked key paths.
 
 ## v0.25.7 — 2026-04-26
 

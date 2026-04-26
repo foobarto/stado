@@ -18,6 +18,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -35,6 +36,10 @@ const (
 func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 	if key, err := loadKey(path); err == nil {
 		return key, nil
+	} else if exists, statErr := keyPathExists(path); statErr != nil {
+		return nil, statErr
+	} else if exists {
+		return nil, err
 	}
 	return createKey(path)
 }
@@ -58,18 +63,70 @@ func loadKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func createKey(path string) (ed25519.PrivateKey, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("audit: mkdir key dir: %w", err)
-	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("audit: generate key: %w", err)
 	}
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: pemType, Bytes: priv})
-	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+	if err := WritePrivateKeyFile(path, pemBytes); err != nil {
 		return nil, fmt.Errorf("audit: write key: %w", err)
 	}
 	return priv, nil
+}
+
+func keyPathExists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+// WritePrivateKeyFile creates a new private-key file with 0600 permissions
+// without following or overwriting an existing final path.
+func WritePrivateKeyFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("mkdir key dir: %w", err)
+	}
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	if name == "." || name == string(filepath.Separator) {
+		return fmt.Errorf("invalid key path: %s", path)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("private key file is a symlink: %s", path)
+		}
+		return fmt.Errorf("private key file already exists: %s", path)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // Fingerprint returns a short, stable identifier for a public key — the

@@ -43,6 +43,47 @@ func TestLoadOrCreateKey_ReusesExistingKey(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateKeyRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	decoy := filepath.Join(dir, "decoy")
+	if err := os.WriteFile(decoy, []byte("not a key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "key")
+	if err := os.Symlink("decoy", path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := LoadOrCreateKey(path); err == nil {
+		t.Fatal("LoadOrCreateKey should reject symlinked key path")
+	}
+	data, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "not a key" {
+		t.Fatalf("symlink target modified: %q", data)
+	}
+}
+
+func TestLoadOrCreateKeyDoesNotOverwriteMalformedExistingKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("not a key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadOrCreateKey(path); err == nil {
+		t.Fatal("LoadOrCreateKey should reject malformed existing key")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "not a key" {
+		t.Fatalf("malformed key was overwritten: %q", data)
+	}
+}
+
 func TestSignAndVerify_RoundTrip(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	signer := NewSigner(priv)

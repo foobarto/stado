@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/plugins"
 )
 
@@ -48,7 +49,7 @@ var pluginGenKeyCmd = &cobra.Command{
 			return fmt.Errorf("gen-key: %w", err)
 		}
 		seed := priv.Seed()
-		if err := os.WriteFile(args[0], seed, 0o600); err != nil {
+		if err := audit.WritePrivateKeyFile(args[0], seed); err != nil {
 			return fmt.Errorf("gen-key: write seed: %w", err)
 		}
 		fmt.Printf("pubkey (hex):   %s\n", hex.EncodeToString(pub))
