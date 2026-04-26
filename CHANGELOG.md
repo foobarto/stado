@@ -31,6 +31,9 @@ Plugins / Infra / Fixes.
 - **Capped self-update fallback copies.** Cross-device self-update installs
   now reject oversized replacement binaries before streaming through the
   atomic copy fallback.
+- **Capped sidecar tree materialization writes.** Materialization now rejects
+  oversized regular blobs before writing them back to a worktree and removes
+  partial files if a blob stream exceeds the write ceiling.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

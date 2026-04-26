@@ -14,7 +14,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-const maxMaterializedSymlinkTargetBytes int64 = 4 << 10
+const (
+	maxMaterializedBlobBytes          int64 = maxTreeBlobBytes
+	maxMaterializedSymlinkTargetBytes int64 = 4 << 10
+)
 
 // MaterializeTreeToDir writes every blob in the given tree into dir, creating
 // subdirectories as needed. Symlinks are recreated. Existing files that
@@ -102,7 +105,7 @@ func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir s
 				return fmt.Errorf("materialize: symlink %s: %w", full, err)
 			}
 		case filemode.Executable, filemode.Regular:
-			r, err := s.openBlobReader(e.Hash)
+			r, err := s.openBlobReaderLimited(e.Hash, maxMaterializedBlobBytes)
 			if err != nil {
 				return err
 			}
@@ -110,7 +113,7 @@ func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir s
 			if e.Mode == filemode.Executable {
 				perm = 0o755
 			}
-			if err := writeMaterializedFile(root, rel, r, perm); err != nil {
+			if err := writeMaterializedFile(root, rel, r, perm, maxMaterializedBlobBytes); err != nil {
 				_ = r.Close()
 				return err
 			}
@@ -150,7 +153,7 @@ func prepareMaterializeDir(root *os.Root, rel string) error {
 	return workdirpath.MkdirAllRootNoSymlink(root, rel, 0o750)
 }
 
-func writeMaterializedFile(root *os.Root, rel string, r io.Reader, perm os.FileMode) error {
+func writeMaterializedFile(root *os.Root, rel string, r io.Reader, perm os.FileMode, maxBytes int64) error {
 	if info, err := root.Lstat(rel); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			if err := root.Remove(rel); err != nil {
@@ -164,8 +167,26 @@ func writeMaterializedFile(root *os.Root, rel string, r io.Reader, perm os.FileM
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
+	if maxBytes < 0 {
 		_ = f.Close()
+		_ = root.Remove(rel)
+		return fmt.Errorf("materialize: negative file size limit")
+	}
+	if _, err := io.Copy(f, io.LimitReader(r, maxBytes)); err != nil {
+		_ = f.Close()
+		_ = root.Remove(rel)
+		return err
+	}
+	var probe [1]byte
+	n, err := io.ReadFull(r, probe[:])
+	if n > 0 {
+		_ = f.Close()
+		_ = root.Remove(rel)
+		return fmt.Errorf("materialize: blob exceeds %d bytes: %s", maxBytes, rel)
+	}
+	if err != nil && err != io.EOF {
+		_ = f.Close()
+		_ = root.Remove(rel)
 		return err
 	}
 	return f.Close()
@@ -180,10 +201,13 @@ func materializeTreeEntryName(name string) (string, error) {
 	return name, nil
 }
 
-func (s *Session) openBlobReader(hash plumbing.Hash) (io.ReadCloser, error) {
+func (s *Session) openBlobReaderLimited(hash plumbing.Hash, maxBytes int64) (io.ReadCloser, error) {
 	blob, err := object.GetBlob(s.Sidecar.repo.Storer, hash)
 	if err != nil {
 		return nil, err
+	}
+	if blob.Size > maxBytes {
+		return nil, fmt.Errorf("blob exceeds %d bytes: %s", maxBytes, hash)
 	}
 	return blob.Reader()
 }

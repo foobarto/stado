@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 func TestMaterialize_RoundTrip(t *testing.T) {
@@ -277,6 +279,41 @@ func TestMaterialize_RejectsOversizedSymlinkBlob(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(filepath.Join(dst, "link")); !os.IsNotExist(statErr) {
 		t.Fatalf("oversized symlink was materialized, stat err = %v", statErr)
+	}
+}
+
+func TestOpenBlobReaderLimitedRejectsOversizedBlob(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-large-blob", plumbing.ZeroHash)
+	blob := writeRawBlobForTest(t, sess, "hello")
+
+	r, err := sess.openBlobReaderLimited(blob, 4)
+	if err == nil {
+		_ = r.Close()
+		t.Fatal("openBlobReaderLimited succeeded for oversized blob")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("openBlobReaderLimited error = %v, want size cap", err)
+	}
+}
+
+func TestWriteMaterializedFileRejectsOversizedReader(t *testing.T) {
+	dir := t.TempDir()
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	err = writeMaterializedFile(root, "large.txt", strings.NewReader("hello"), 0o644, 4)
+	if err == nil {
+		t.Fatal("writeMaterializedFile succeeded for oversized reader")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("writeMaterializedFile error = %v, want size cap", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "large.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("oversized materialized file remained, stat err = %v", statErr)
 	}
 }
 
