@@ -24,6 +24,9 @@ Plugins / Infra / Fixes.
 - **Hardened tree blob reads.** Session sidecar tree snapshots now open
   regular file blobs through the no-symlink opener, while preserving symlink
   entries as symlink blobs.
+- **Hardened self-update source reads.** Self-update archive extraction and
+  cross-device copy fallback now reject symlinked source paths before reading
+  release payloads or replacement binaries.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the

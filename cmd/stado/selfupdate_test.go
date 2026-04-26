@@ -122,6 +122,26 @@ func TestExtractBinary_TarRejectsSymlinkEntry(t *testing.T) {
 	}
 }
 
+func TestExtractBinary_RejectsSymlinkedArchivePath(t *testing.T) {
+	archivePath := writeSelfUpdateTar(t, tarEntry{
+		name: "stado",
+		mode: 0o755,
+		body: "binary",
+	})
+	link := filepath.Join(t.TempDir(), "stado.tar.gz")
+	if err := os.Symlink(archivePath, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	_, err := extractBinary(link, "stado_1.0_linux_amd64.tar.gz")
+	if err == nil {
+		t.Fatal("expected symlinked archive path to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
 func TestExtractBinary_ZipRejectsSymlinkEntry(t *testing.T) {
 	archivePath := filepath.Join(t.TempDir(), "stado.zip")
 	f, err := os.Create(archivePath)
@@ -250,6 +270,30 @@ func TestCopyFileRejectsSymlinkDestination(t *testing.T) {
 	}
 	if string(body) != "old" {
 		t.Fatalf("symlink target modified: %q", body)
+	}
+}
+
+func TestCopyFileRejectsSymlinkSource(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "src")
+	if err := os.Symlink("target", src); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	dst := filepath.Join(dir, "dst")
+
+	err := copyFile(src, dst)
+	if err == nil {
+		t.Fatal("copyFile should reject symlinked source")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("destination exists after rejected source: %v", statErr)
 	}
 }
 

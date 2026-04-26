@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/audit"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 var (
@@ -312,7 +313,7 @@ func extractBinary(archivePath, assetName string) (string, error) {
 		_ = tmp.Close()
 		_ = os.Remove(out)
 	}
-	f, err := os.Open(archivePath) // #nosec G304 -- archivePath is the checksum-verified self-update asset.
+	f, err := workdirpath.OpenRegularFileNoSymlink(archivePath)
 	if err != nil {
 		cleanup()
 		return "", err
@@ -320,7 +321,7 @@ func extractBinary(archivePath, assetName string) (string, error) {
 	defer func() { _ = f.Close() }()
 
 	if strings.HasSuffix(assetName, ".zip") {
-		if err := extractZipBinary(archivePath, tmp); err != nil {
+		if err := extractZipBinary(f, tmp); err != nil {
 			cleanup()
 			return "", err
 		}
@@ -375,12 +376,15 @@ func extractBinary(archivePath, assetName string) (string, error) {
 	return out, nil
 }
 
-func extractZipBinary(archivePath string, out *os.File) error {
-	r, err := zip.OpenReader(archivePath)
+func extractZipBinary(archive *os.File, out *os.File) error {
+	info, err := archive.Stat()
 	if err != nil {
 		return err
 	}
-	defer func() { _ = r.Close() }()
+	r, err := zip.NewReader(archive, info.Size())
+	if err != nil {
+		return err
+	}
 	for _, zf := range r.File {
 		base := filepath.Base(zf.Name)
 		if base == "stado" || base == "stado.exe" {
@@ -465,7 +469,7 @@ func prepareInstallBinary(path string) error {
 }
 
 func copyFile(src, dst string) error {
-	in, err := os.Open(src) // #nosec G304 -- src is the extracted self-update binary being installed.
+	in, err := workdirpath.OpenRegularFileNoSymlink(src)
 	if err != nil {
 		return err
 	}
