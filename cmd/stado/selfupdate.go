@@ -307,23 +307,27 @@ func extractBinary(archivePath, assetName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_ = tmp.Close()
 	out := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(out)
+	}
 	f, err := os.Open(archivePath) // #nosec G304 -- archivePath is the checksum-verified self-update asset.
 	if err != nil {
+		cleanup()
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
 
 	if strings.HasSuffix(assetName, ".zip") {
-		if err := extractZipBinary(archivePath, out); err != nil {
-			_ = os.Remove(out)
+		if err := extractZipBinary(archivePath, tmp); err != nil {
+			cleanup()
 			return "", err
 		}
 	} else {
 		gz, err := gzip.NewReader(f)
 		if err != nil {
-			_ = os.Remove(out)
+			cleanup()
 			return "", err
 		}
 		defer func() { _ = gz.Close() }()
@@ -331,30 +335,47 @@ func extractBinary(archivePath, assetName string) (string, error) {
 		for {
 			hdr, err := tr.Next()
 			if err == io.EOF {
-				_ = os.Remove(out)
+				cleanup()
 				return "", fmt.Errorf("stado binary not found in archive")
 			}
 			if err != nil {
-				_ = os.Remove(out)
+				cleanup()
 				return "", err
 			}
 			base := filepath.Base(hdr.Name)
 			if base == "stado" || base == "stado.exe" {
-				if err := writeReaderToPath(out, 0o755, tr); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
-					_ = os.Remove(out)
+				if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != 0 {
+					cleanup()
+					return "", fmt.Errorf("archive entry %s is not a regular file", hdr.Name)
+				}
+				if err := writeSelfUpdatePayload(tmp, tr); err != nil {
+					cleanup()
 					return "", err
 				}
-				if err := os.Chmod(out, 0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
+				if err := tmp.Chmod(0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
+					cleanup()
+					return "", err
+				}
+				if err := tmp.Close(); err != nil {
+					_ = os.Remove(out)
 					return "", err
 				}
 				return out, nil
 			}
 		}
 	}
+	if err := tmp.Chmod(0o755); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
+		cleanup()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(out)
+		return "", err
+	}
 	return out, nil
 }
 
-func extractZipBinary(archivePath, outPath string) error {
+func extractZipBinary(archivePath string, out *os.File) error {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
@@ -363,18 +384,31 @@ func extractZipBinary(archivePath, outPath string) error {
 	for _, zf := range r.File {
 		base := filepath.Base(zf.Name)
 		if base == "stado" || base == "stado.exe" {
+			if !zf.FileInfo().Mode().IsRegular() {
+				return fmt.Errorf("zip entry %s is not a regular file", zf.Name)
+			}
 			rc, err := zf.Open()
 			if err != nil {
 				return err
 			}
 			defer func() { _ = rc.Close() }()
-			if err := writeReaderToPath(outPath, 0o755, rc); err != nil { // #nosec G302 -- extracted self-update payload must remain executable.
-				return err
-			}
-			return os.Chmod(outPath, 0o755) // #nosec G302 -- extracted self-update payload must remain executable.
+			return writeSelfUpdatePayload(out, rc)
 		}
 	}
 	return fmt.Errorf("stado binary not found in zip")
+}
+
+func writeSelfUpdatePayload(out *os.File, in io.Reader) error {
+	if err := out.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := out.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }
 
 // installBinary moves the new binary over the current one, saving the

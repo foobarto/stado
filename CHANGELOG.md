@@ -41,6 +41,9 @@ Plugins / Infra / Fixes.
   contents through rooted source/destination handles, reject destination
   symlinks, and re-check the installed manifest/signature/WASM digest after
   copy so package swaps cannot land unverified bytes.
+- **Hardened self-update extraction.** Self-update now writes the release
+  binary into its already-open temp file instead of reopening by path and
+  rejects tar/zip entries named like the binary unless they are regular files.
 
 ## v0.25.7 — 2026-04-26
 
