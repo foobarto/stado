@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/spf13/cobra"
 )
 
@@ -49,28 +50,34 @@ var pluginInitCmd = &cobra.Command{
 		if dir == "" {
 			dir = name
 		}
-		if _, err := os.Stat(dir); err == nil && !pluginInitForce {
-			return fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
+		root, err := openPluginInitRoot(dir, pluginInitForce)
+		if err != nil {
+			return err
 		}
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("init: mkdir %s: %w", dir, err)
-		}
+		defer func() { _ = root.Close() }()
 
-		files := map[string]string{
-			"go.mod":                        renderGoMod(name),
-			"main.go":                       renderMainGo(name),
-			"plugin.manifest.template.json": renderManifest(name),
-			"build.sh":                      renderBuildSh(name),
-			"README.md":                     renderReadme(name),
+		files := []struct {
+			name      string
+			body      string
+			mode      os.FileMode
+			exactMode bool
+		}{
+			{name: "go.mod", body: renderGoMod(name), mode: 0o644},
+			{name: "main.go", body: renderMainGo(name), mode: 0o644},
+			{name: "plugin.manifest.template.json", body: renderManifest(name), mode: 0o644},
+			{name: "build.sh", body: renderBuildSh(name), mode: 0o755, exactMode: true},
+			{name: "README.md", body: renderReadme(name), mode: 0o644},
 		}
-		for f, body := range files {
-			path := filepath.Join(dir, f)
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil { // #nosec G306 -- scaffolded plugin source files are shareable project artifacts.
+		for _, f := range files {
+			write := workdirpath.WriteRootFileAtomic
+			if f.exactMode {
+				write = workdirpath.WriteRootFileAtomicExactMode
+			}
+			path := filepath.Join(dir, f.name)
+			if err := write(root, f.name, []byte(f.body), f.mode); err != nil {
 				return fmt.Errorf("init: write %s: %w", path, err)
 			}
 		}
-		// build.sh needs to be executable.
-		_ = os.Chmod(filepath.Join(dir, "build.sh"), 0o755) // #nosec G302 -- scaffolded build script must be executable.
 
 		fmt.Fprintf(os.Stderr, "scaffolded plugin %q at %s\n", name, dir)
 		fmt.Fprintln(os.Stderr, "next steps:")
@@ -79,6 +86,70 @@ var pluginInitCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr, "  ./build.sh")
 		return nil
 	},
+}
+
+func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
+	if strings.TrimSpace(dir) == "" {
+		return nil, fmt.Errorf("init: output dir is empty")
+	}
+	cleanDir := filepath.Clean(dir)
+	if cleanDir == "." {
+		info, err := os.Lstat(cleanDir)
+		if err != nil {
+			return nil, fmt.Errorf("init: stat %s: %w", dir, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("init: output dir is a symlink: %s", dir)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("init: output path is not a directory: %s", dir)
+		}
+		if !force {
+			return nil, fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
+		}
+		root, err := os.OpenRoot(cleanDir)
+		if err != nil {
+			return nil, fmt.Errorf("init: open %s: %w", dir, err)
+		}
+		return root, nil
+	}
+
+	parent := filepath.Dir(cleanDir)
+	name := filepath.Base(cleanDir)
+	if !filepath.IsLocal(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." || strings.Contains(name, "\x00") {
+		return nil, fmt.Errorf("init: invalid output dir %q", dir)
+	}
+	if err := os.MkdirAll(parent, 0o750); err != nil {
+		return nil, fmt.Errorf("init: mkdir %s: %w", parent, err)
+	}
+	parentRoot, err := os.OpenRoot(parent)
+	if err != nil {
+		return nil, fmt.Errorf("init: open %s: %w", parent, err)
+	}
+	defer func() { _ = parentRoot.Close() }()
+
+	info, err := parentRoot.Lstat(name)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return nil, fmt.Errorf("init: output dir is a symlink: %s", dir)
+	case err == nil && !info.IsDir():
+		return nil, fmt.Errorf("init: output path is not a directory: %s", dir)
+	case err == nil && !force:
+		return nil, fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
+	case err == nil:
+	case os.IsNotExist(err):
+		if err := parentRoot.Mkdir(name, 0o750); err != nil {
+			return nil, fmt.Errorf("init: mkdir %s: %w", dir, err)
+		}
+	default:
+		return nil, fmt.Errorf("init: stat %s: %w", dir, err)
+	}
+
+	root, err := parentRoot.OpenRoot(name)
+	if err != nil {
+		return nil, fmt.Errorf("init: open %s: %w", dir, err)
+	}
+	return root, nil
 }
 
 // validPluginName enforces the charset used in directory names,

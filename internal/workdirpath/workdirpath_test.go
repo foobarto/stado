@@ -143,6 +143,30 @@ func TestWriteFilePreservesExistingMode(t *testing.T) {
 	}
 }
 
+func TestWriteRootFileAtomicExactModeReplacesExistingMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	if err := WriteRootFileAtomicExactMode(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
+		t.Fatalf("WriteRootFileAtomicExactMode: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("mode = %04o, want 0755", got)
+	}
+}
+
 func TestGlob_RejectsEscapePattern(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Glob(root, "../*"); err == nil {

@@ -168,6 +168,16 @@ func RootRelForWrite(workdir, path string) (root, rel string, err error) {
 // same-directory random temp file and renames it over the final path. Existing
 // symlink and non-regular final paths are rejected instead of being followed.
 func WriteRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	return writeRootFileAtomic(root, name, data, perm, true)
+}
+
+// WriteRootFileAtomicExactMode is like WriteRootFileAtomic, but always applies
+// perm to the replacement file instead of preserving an existing file's mode.
+func WriteRootFileAtomicExactMode(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	return writeRootFileAtomic(root, name, data, perm, false)
+}
+
+func writeRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode, preserveExistingMode bool) error {
 	if root == nil {
 		return errors.New("root unavailable")
 	}
@@ -179,7 +189,9 @@ func WriteRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMo
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("file is not regular: %s", name)
 		}
-		writePerm = info.Mode().Perm()
+		if preserveExistingMode {
+			writePerm = info.Mode().Perm()
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}

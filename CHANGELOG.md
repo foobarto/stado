@@ -89,6 +89,9 @@ Plugins / Infra / Fixes.
 - **Hardened session export writes.** `stado session export -o` now saves
   through rooted random temp files and refuses final symlink/non-regular
   output paths.
+- **Hardened plugin scaffold writes.** `stado plugin init --force` now refuses
+  symlinked scaffold directories/files and writes generated scripts with the
+  intended executable mode through rooted atomic replacement.
 
 ## v0.25.7 — 2026-04-26
 

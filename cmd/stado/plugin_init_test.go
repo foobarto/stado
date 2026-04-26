@@ -108,3 +108,58 @@ func TestPluginInit_RefusesExistingWithoutForce(t *testing.T) {
 		t.Errorf("error should mention existing dir: %v", err)
 	}
 }
+
+func TestPluginInitRejectsSymlinkDirWithForce(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	pluginInitDir = link
+	pluginInitForce = true
+	defer func() { pluginInitDir = ""; pluginInitForce = false }()
+
+	err := pluginInitCmd.RunE(pluginInitCmd, []string{"pl"})
+	if err == nil {
+		t.Fatal("init should reject symlinked output dir")
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "main.go")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
+func TestPluginInitRejectsScaffoldFileSymlinkWithForce(t *testing.T) {
+	base := t.TempDir()
+	out := filepath.Join(base, "plugin")
+	if err := os.Mkdir(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(out, "decoy.sh")
+	if err := os.WriteFile(decoy, []byte("do not replace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy.sh", filepath.Join(out, "build.sh")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	pluginInitDir = out
+	pluginInitForce = true
+	defer func() { pluginInitDir = ""; pluginInitForce = false }()
+
+	err := pluginInitCmd.RunE(pluginInitCmd, []string{"pl"})
+	if err == nil {
+		t.Fatal("init should reject symlinked scaffold file")
+	}
+	data, readErr := os.ReadFile(decoy)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "do not replace" {
+		t.Fatalf("symlink target modified: %q", data)
+	}
+}
