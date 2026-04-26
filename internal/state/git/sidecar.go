@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/google/uuid"
 )
 
 // RepoID is a stable 16-hex-char identifier derived from the absolute path of
@@ -102,15 +104,72 @@ func (s *Sidecar) ensureAlternates() error {
 	if err := os.MkdirAll(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
-	altPath := filepath.Join(altDir, "alternates")
-
-	existing, err := os.ReadFile(altPath) // #nosec G304 -- alternates path is fixed inside the sidecar repository.
-	if err == nil && string(existing) == userObjects+"\n" {
-		return nil
+	if info, err := os.Lstat(altDir); err != nil {
+		return fmt.Errorf("sidecar: stat alternates dir: %w", err)
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("sidecar: alternates dir is not a directory: %s", altDir)
 	}
-	if err := os.WriteFile(altPath, []byte(userObjects+"\n"), 0o600); err != nil {
+	root, err := os.OpenRoot(altDir)
+	if err != nil {
+		return fmt.Errorf("sidecar: open alternates dir: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
+	const altName = "alternates"
+	if info, err := root.Lstat(altName); err == nil {
+		if info.Mode().IsRegular() {
+			existing, err := root.ReadFile(altName)
+			if err != nil {
+				return fmt.Errorf("sidecar: read alternates: %w", err)
+			}
+			if string(existing) == userObjects+"\n" {
+				return nil
+			}
+		} else if info.Mode()&os.ModeSymlink == 0 {
+			return fmt.Errorf("sidecar: alternates is not a regular file: %s", filepath.Join(altDir, altName))
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("sidecar: stat alternates: %w", err)
+	}
+
+	if err := writeSidecarFileAtomic(root, altName, []byte(userObjects+"\n"), 0o600); err != nil {
 		return fmt.Errorf("sidecar: write alternates: %w", err)
 	}
+	return nil
+}
+
+func writeSidecarFileAtomic(root *os.Root, name string, data []byte, mode os.FileMode) error {
+	tmpName := "." + name + "." + uuid.NewString() + ".tmp"
+	f, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmpName)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmpName, name); err != nil {
+		return err
+	}
+	keepTmp = true
 	return nil
 }
 

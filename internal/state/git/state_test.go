@@ -67,6 +67,52 @@ func TestAlternates_PointsAtUserObjects(t *testing.T) {
 	}
 }
 
+func TestAlternatesWriteReplacesSymlink(t *testing.T) {
+	userRepo := t.TempDir()
+	if _, err := gogit.PlainInit(userRepo, false); err != nil {
+		t.Fatal(err)
+	}
+	sc := tempSidecar(t, userRepo)
+	alt := filepath.Join(sc.Path, "objects", "info", "alternates")
+	if err := os.Remove(alt); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside-alternates")
+	if err := os.WriteFile(outside, []byte("do not replace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, alt); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := OpenOrInitSidecar(sc.Path, userRepo); err != nil {
+		t.Fatalf("OpenOrInitSidecar: %v", err)
+	}
+
+	outsideData, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(outsideData) != "do not replace\n" {
+		t.Fatalf("alternates write followed symlink target: %q", outsideData)
+	}
+	info, err := os.Lstat(alt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("alternates remained a symlink")
+	}
+	data, err := os.ReadFile(alt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(userRepo, ".git", "objects") + "\n"
+	if string(data) != expected {
+		t.Fatalf("alternates = %q, want %q", data, expected)
+	}
+}
+
 func TestAlternates_SkippedWhenNotGitRepo(t *testing.T) {
 	userRepo := t.TempDir() // no .git inside
 	sc := tempSidecar(t, userRepo)

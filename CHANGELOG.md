@@ -56,6 +56,9 @@ Plugins / Infra / Fixes.
 - **Hardened default prompt template writes.** The automatically managed
   default `system-prompt.md` now creates and upgrades through rooted file
   handles and avoids rewriting legacy defaults through symlinks.
+- **Hardened sidecar alternates writes.** Sidecar Git alternates metadata now
+  updates through rooted, exclusive random temp files and replaces alternates
+  symlinks instead of following them.
 
 ## v0.25.7 — 2026-04-26
 
