@@ -147,6 +147,69 @@ func TestPluginSignRejectsWASMSymlink(t *testing.T) {
 	}
 }
 
+func TestPluginSignRejectsOversizedManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "plugin.manifest.json")
+	if err := os.WriteFile(manifestPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(manifestPath, maxPluginSignManifestBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	seedPath := filepath.Join(dir, "plugin.seed")
+	if err := os.WriteFile(seedPath, seed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldKeyPath, oldWasm := pluginSignKeyPath, pluginSignWasm
+	pluginSignKeyPath, pluginSignWasm = seedPath, ""
+	defer func() {
+		pluginSignKeyPath, pluginSignWasm = oldKeyPath, oldWasm
+	}()
+
+	err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("plugin sign error = %v, want size rejection", err)
+	}
+}
+
+func TestPluginSignRejectsOversizedWASM(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), []byte(renderManifest("demo")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wasmPath := filepath.Join(dir, "plugin.wasm")
+	if err := os.WriteFile(wasmPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(wasmPath, maxPluginSignWASMBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = byte(i + 1)
+	}
+	seedPath := filepath.Join(dir, "plugin.seed")
+	if err := os.WriteFile(seedPath, seed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldKeyPath, oldWasm := pluginSignKeyPath, pluginSignWasm
+	pluginSignKeyPath, pluginSignWasm = seedPath, ""
+	defer func() {
+		pluginSignKeyPath, pluginSignWasm = oldKeyPath, oldWasm
+	}()
+
+	err := pluginSignCmd.RunE(pluginSignCmd, []string{filepath.Join(dir, "plugin.manifest.json")})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("plugin sign error = %v, want size rejection", err)
+	}
+}
+
 func TestPluginDigestRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.wasm")
@@ -164,5 +227,21 @@ func TestPluginDigestRejectsSymlink(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestPluginDigestRejectsOversizedWASM(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plugin.wasm")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxPluginSignWASMBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	err := pluginDigestCmd.RunE(pluginDigestCmd, []string{path})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("plugin digest error = %v, want size rejection", err)
 	}
 }

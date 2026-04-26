@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -21,19 +22,19 @@ var pluginDigestCmd = &cobra.Command{
 	Short: "Print the sha256 of a wasm blob (useful for manifest authoring)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		f, err := workdirpath.OpenRegularFileNoSymlink(args[0])
+		digest, err := sha256RegularFileNoSymlinkMax(args[0], maxPluginSignWASMBytes)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = f.Close() }()
-		h := sha256.New()
-		if _, err := io.Copy(h, f); err != nil {
-			return err
-		}
-		fmt.Println(hex.EncodeToString(h.Sum(nil)))
+		fmt.Println(digest)
 		return nil
 	},
 }
+
+const (
+	maxPluginSignManifestBytes int64 = 1 << 20
+	maxPluginSignWASMBytes     int64 = 64 << 20
+)
 
 var pluginGenKeyCmd = &cobra.Command{
 	Use:   "gen-key <path>",
@@ -84,7 +85,7 @@ var pluginSignCmd = &cobra.Command{
 		if pluginSignKeyPath == "" {
 			return fmt.Errorf("sign: --key required")
 		}
-		seed, err := workdirpath.ReadRegularFileNoSymlink(pluginSignKeyPath)
+		seed, err := readRegularFileNoSymlinkMax(pluginSignKeyPath, ed25519.SeedSize)
 		if err != nil {
 			return fmt.Errorf("sign: read key: %w", err)
 		}
@@ -95,7 +96,7 @@ var pluginSignCmd = &cobra.Command{
 		priv := ed25519.NewKeyFromSeed(seed)
 		pub := priv.Public().(ed25519.PublicKey)
 
-		raw, err := workdirpath.ReadRegularFileNoSymlink(manifestPath)
+		raw, err := readRegularFileNoSymlinkMax(manifestPath, maxPluginSignManifestBytes)
 		if err != nil {
 			return fmt.Errorf("sign: read manifest: %w", err)
 		}
@@ -108,12 +109,11 @@ var pluginSignCmd = &cobra.Command{
 		if wasmPath == "" {
 			wasmPath = filepath.Join(dir, "plugin.wasm")
 		}
-		wasm, err := workdirpath.ReadRegularFileNoSymlink(wasmPath)
+		wasmHash, err := sha256RegularFileNoSymlinkMax(wasmPath, maxPluginSignWASMBytes)
 		if err != nil {
 			return fmt.Errorf("sign: read wasm: %w", err)
 		}
-		wasmHash := sha256.Sum256(wasm)
-		m.WASMSHA256 = hex.EncodeToString(wasmHash[:])
+		m.WASMSHA256 = wasmHash
 		m.AuthorPubkeyFpr = plugins.Fingerprint(pub)
 
 		// Re-emit the manifest with the computed fields. This is the
@@ -151,4 +151,54 @@ var pluginSignCmd = &cobra.Command{
 		fmt.Printf("author.pubkey:  %s\n", pubkeyPath)
 		return nil
 	},
+}
+
+func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
+	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	if err := rejectOversizedRegularFile(f, path, maxBytes); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes: %s", maxBytes, path)
+	}
+	return data, nil
+}
+
+func sha256RegularFileNoSymlinkMax(path string, maxBytes int64) (string, error) {
+	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	if err := rejectOversizedRegularFile(f, path, maxBytes); err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if n > maxBytes {
+		return "", fmt.Errorf("file exceeds %d bytes: %s", maxBytes, path)
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func rejectOversizedRegularFile(f *os.File, path string, maxBytes int64) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxBytes {
+		return fmt.Errorf("file exceeds %d bytes: %s", maxBytes, path)
+	}
+	return nil
 }
