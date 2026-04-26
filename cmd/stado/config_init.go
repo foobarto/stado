@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -26,13 +25,7 @@ var configInitCmd = &cobra.Command{
 			return err
 		}
 		path := cfg.ConfigPath
-		if _, err := os.Stat(path); err == nil && !configInitForce {
-			return fmt.Errorf("config already exists at %s (use --force to overwrite)", path)
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0o600); err != nil {
+		if err := config.WriteTemplate(path, []byte(defaultConfigTemplate), configInitForce); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s\n", path)

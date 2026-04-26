@@ -80,6 +80,9 @@ Plugins / Infra / Fixes.
 - **Hardened private key creation.** Audit signing keys and plugin signing
   seeds now create with exclusive rooted file handles and refuse to overwrite
   existing or symlinked key paths.
+- **Hardened config init writes.** `stado config init` now creates config
+  templates through rooted exclusive handles and refuses symlinked or
+  non-regular config paths, including when `--force` is set.
 
 ## v0.25.7 — 2026-04-26
 
