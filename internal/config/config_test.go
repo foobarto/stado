@@ -186,7 +186,7 @@ func TestLoadUpdatesUntouchedLegacyDefaultSystemPromptTemplate(t *testing.T) {
 	}
 }
 
-func TestLoadDoesNotRewriteDefaultSystemPromptSymlink(t *testing.T) {
+func TestLoadRejectsDefaultSystemPromptSymlink(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
 	configDir := filepath.Join(cfgHome, "stado")
@@ -201,12 +201,9 @@ func TestLoadDoesNotRewriteDefaultSystemPromptSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if cfg.Agent.SystemPromptTemplate != legacyDefaultSystemPromptTemplateForTest {
-		t.Fatalf("symlinked default prompt should load without being auto-updated")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "default system prompt template is a symlink") {
+		t.Fatalf("expected default system prompt symlink rejection, got %v", err)
 	}
 	data, err := os.ReadFile(outsidePrompt)
 	if err != nil {

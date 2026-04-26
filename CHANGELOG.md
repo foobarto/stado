@@ -18,6 +18,9 @@ Plugins / Infra / Fixes.
 - **Hardened audit key loads.** Existing audit signing keys are now read
   through the no-symlink opener, matching the existing protected key creation
   path.
+- **Hardened default system prompt reads.** Auto-managed system prompt
+  templates now reject symlinked default files before validation or legacy
+  upgrades.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the

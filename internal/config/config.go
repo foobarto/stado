@@ -383,7 +383,8 @@ const defaultSystemPromptFilename = "system-prompt.md"
 const legacyDefaultSystemPromptTemplateSHA256 = "e712fed3c1f394afa61cb4f078fe3bde7acee8a902e75ab5914753aafcf04188"
 
 func (c *Config) loadSystemPromptTemplate() error {
-	if strings.TrimSpace(c.Agent.SystemPromptPath) == "" {
+	explicitPath := strings.TrimSpace(c.Agent.SystemPromptPath) != ""
+	if !explicitPath {
 		c.Agent.SystemPromptPath = filepath.Join(filepath.Dir(c.ConfigPath), defaultSystemPromptFilename)
 		if err := ensureDefaultSystemPromptTemplate(c.Agent.SystemPromptPath); err != nil {
 			return err
@@ -391,7 +392,13 @@ func (c *Config) loadSystemPromptTemplate() error {
 	} else {
 		c.Agent.SystemPromptPath = expandHome(c.Agent.SystemPromptPath)
 	}
-	body, err := os.ReadFile(c.Agent.SystemPromptPath) // #nosec G304 -- system prompt path is explicit user configuration.
+	var body []byte
+	var err error
+	if explicitPath {
+		body, err = os.ReadFile(c.Agent.SystemPromptPath) // #nosec G304 -- system prompt path is explicit user configuration.
+	} else {
+		body, err = workdirpath.ReadRegularFileNoSymlink(c.Agent.SystemPromptPath)
+	}
 	if err != nil {
 		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
 	}
@@ -405,12 +412,12 @@ func (c *Config) loadSystemPromptTemplate() error {
 func ensureDefaultSystemPromptTemplate(path string) error {
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
+			return fmt.Errorf("default system prompt template is a symlink: %s", path)
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("default system prompt template is not a regular file: %s", path)
 		}
-		data, err := os.ReadFile(path) // #nosec G304 -- default system prompt path is derived from stado config.
+		data, err := workdirpath.ReadRegularFileNoSymlink(path)
 		if err != nil {
 			return fmt.Errorf("read default system prompt template: %w", err)
 		}
