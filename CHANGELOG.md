@@ -108,6 +108,8 @@ Plugins / Infra / Fixes.
   memory.
 - **Capped TUI prompt input.** The main prompt editor now enforces a byte
   ceiling before oversized pasted input can grow draft and history buffers.
+- **Capped memory append logs.** Persistent memory payloads, events, and log
+  files now enforce byte ceilings before append or replay.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

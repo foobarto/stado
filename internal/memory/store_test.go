@@ -463,6 +463,62 @@ func TestStoreRejectsInvalidScope(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsOversizedPayloads(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	raw := []byte(strings.Repeat(" ", MaxPayloadBytes+1))
+
+	err := store.Propose(context.Background(), raw)
+	if err == nil || !strings.Contains(err.Error(), "payload exceeds") {
+		t.Fatalf("expected propose payload cap error, got %v", err)
+	}
+	err = store.Update(context.Background(), raw)
+	if err == nil || !strings.Contains(err.Error(), "payload exceeds") {
+		t.Fatalf("expected update payload cap error, got %v", err)
+	}
+}
+
+func TestStoreListRejectsOversizedLog(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	if err := os.WriteFile(store.Path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(store.Path, MaxStoreBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.List(context.Background()); err == nil || !strings.Contains(err.Error(), "memory store exceeds") {
+		t.Fatalf("expected oversized memory store error, got %v", err)
+	}
+}
+
+func TestStoreAppendRejectsOversizedLog(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	if err := os.WriteFile(store.Path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(store.Path, MaxStoreBytes-4); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(Item{
+		ID:      "mem_full",
+		Scope:   "global",
+		Kind:    "fact",
+		Summary: "Full memory log",
+	})
+
+	err := store.Propose(context.Background(), raw)
+	if err == nil || !strings.Contains(err.Error(), "memory store exceeds") {
+		t.Fatalf("expected append memory store cap error, got %v", err)
+	}
+	info, statErr := os.Stat(store.Path)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Size() != MaxStoreBytes-4 {
+		t.Fatalf("memory store size = %d, want %d", info.Size(), MaxStoreBytes-4)
+	}
+}
+
 func TestStoreListRejectsLogSymlinkEscape(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	item := Item{

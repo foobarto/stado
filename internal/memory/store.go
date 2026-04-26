@@ -17,7 +17,12 @@ import (
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
-const eventType = "memory"
+const (
+	eventType       = "memory"
+	MaxPayloadBytes = 1 << 20
+	MaxEventBytes   = 2 << 20
+	MaxStoreBytes   = 128 << 20
+)
 
 type Item struct {
 	ID          string    `json:"id"`
@@ -104,6 +109,9 @@ type event struct {
 }
 
 func (s *Store) Propose(_ context.Context, raw []byte) error {
+	if err := checkMemoryPayloadBytes("memory propose", len(raw)); err != nil {
+		return err
+	}
 	var item Item
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return fmt.Errorf("memory propose: parse item: %w", err)
@@ -128,6 +136,9 @@ func (s *Store) Propose(_ context.Context, raw []byte) error {
 }
 
 func (s *Store) Update(_ context.Context, raw []byte) error {
+	if err := checkMemoryPayloadBytes("memory update", len(raw)); err != nil {
+		return err
+	}
 	var req UpdateRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return fmt.Errorf("memory update: parse request: %w", err)
@@ -339,16 +350,23 @@ func (s *Store) append(ev event) error {
 	}
 	defer func() { _ = root.Close() }()
 
-	f, err := root.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("memory store: open append log: %w", err)
-	}
-	defer f.Close()
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("memory store: encode event: %w", err)
 	}
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	appendBytes := int64(len(data) + 1)
+	if appendBytes > MaxEventBytes {
+		return fmt.Errorf("memory store event exceeds %d bytes", MaxEventBytes)
+	}
+	f, err := openMemoryAppendFile(root, name, appendBytes)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("memory store: append event: %w", err)
+	}
+	if _, err := f.Write([]byte{'\n'}); err != nil {
 		return fmt.Errorf("memory store: append event: %w", err)
 	}
 	return nil
@@ -365,22 +383,43 @@ func (s *Store) fold() (map[string]Item, error) {
 	}
 	defer func() { _ = root.Close() }()
 
-	f, err := root.Open(name)
+	info, err := root.Lstat(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return items, nil
 	}
 	if err != nil {
+		return nil, fmt.Errorf("memory store: stat append log: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("memory store is a symlink: %s", s.Path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("memory store is not a regular file: %s", s.Path)
+	}
+	if info.Size() > MaxStoreBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, s.Path)
+	}
+	f, err := root.Open(name)
+	if err != nil {
 		return nil, fmt.Errorf("memory store: open append log: %w", err)
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err != nil {
+	openedInfo, err := f.Stat()
+	if err != nil {
 		return nil, fmt.Errorf("memory store: stat append log: %w", err)
-	} else if !info.Mode().IsRegular() {
+	}
+	if !openedInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("memory store is not a regular file: %s", s.Path)
+	}
+	if !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("memory store changed while opening: %s", s.Path)
+	}
+	if openedInfo.Size() > MaxStoreBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, s.Path)
 	}
 
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), MaxEventBytes)
 	line := 0
 	for sc.Scan() {
 		line++
@@ -442,6 +481,67 @@ func (s *Store) fold() (map[string]Item, error) {
 		return nil, fmt.Errorf("memory store: scan append log: %w", err)
 	}
 	return items, nil
+}
+
+func checkMemoryPayloadBytes(op string, n int) error {
+	if n > MaxPayloadBytes {
+		return fmt.Errorf("%s payload exceeds %d bytes", op, MaxPayloadBytes)
+	}
+	return nil
+}
+
+func openMemoryAppendFile(root *os.Root, name string, appendBytes int64) (*os.File, error) {
+	if appendBytes > MaxStoreBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+	}
+	for range 2 {
+		info, err := root.Lstat(name)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_APPEND|os.O_WRONLY, 0o600)
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("memory store: open append log: %w", err)
+			}
+			return f, nil
+		case err != nil:
+			return nil, fmt.Errorf("memory store: stat append log: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("memory store is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("memory store is not a regular file: %s", name)
+		}
+		if info.Size()+appendBytes > MaxStoreBytes {
+			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+		}
+		f, err := root.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("memory store: open append log: %w", err)
+		}
+		openedInfo, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("memory store: stat append log: %w", err)
+		}
+		if !openedInfo.Mode().IsRegular() {
+			_ = f.Close()
+			return nil, fmt.Errorf("memory store is not a regular file: %s", name)
+		}
+		if !os.SameFile(info, openedInfo) {
+			_ = f.Close()
+			return nil, fmt.Errorf("memory store changed while opening: %s", name)
+		}
+		if openedInfo.Size()+appendBytes > MaxStoreBytes {
+			_ = f.Close()
+			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+		}
+		return f, nil
+	}
+	return nil, fmt.Errorf("memory store changed while opening: %s", name)
 }
 
 func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
