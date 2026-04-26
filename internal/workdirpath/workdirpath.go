@@ -102,7 +102,7 @@ func ReadFile(workdir, path string) ([]byte, error) {
 // ReadRegularFileNoSymlink reads an absolute or relative filesystem path while
 // rejecting symlinked directory components and symlinked final paths.
 func ReadRegularFileNoSymlink(path string) ([]byte, error) {
-	f, err := openRegularFileNoSymlink(path)
+	f, err := OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,9 @@ func ReadRegularFileNoSymlink(path string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-func openRegularFileNoSymlink(path string) (*os.File, error) {
+// OpenRegularFileNoSymlink opens an absolute or relative filesystem path while
+// rejecting symlinked directory components and symlinked final paths.
+func OpenRegularFileNoSymlink(path string) (*os.File, error) {
 	if strings.Contains(path, "\x00") {
 		return nil, fmt.Errorf("invalid file path %q", path)
 	}

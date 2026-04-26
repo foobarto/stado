@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -85,7 +86,7 @@ func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) 
 		r = strings.NewReader(target)
 		size = int64(len(target))
 	} else {
-		f, err := os.Open(path) // #nosec G304 -- path comes from bounded worktree traversal.
+		f, err := workdirpath.OpenRegularFileNoSymlink(path)
 		if err != nil {
 			return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
 		}

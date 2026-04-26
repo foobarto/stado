@@ -418,3 +418,47 @@ func TestBuildTreeFromDir_DoesNotFollowSymlinkedDirectories(t *testing.T) {
 		t.Fatalf("entry mode = %v, want symlink", tree.Entries[0].Mode)
 	}
 }
+
+func TestWriteBlobRejectsFinalSymlinkWhenExpectingRegularFile(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	sess, err := CreateSession(sc, t.TempDir(), "s-blob-link", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(sess.WorktreePath, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sess.WorktreePath, "link.txt")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := sess.writeBlob(link, false); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("writeBlob error = %v, want symlink rejection", err)
+	}
+}
+
+func TestWriteBlobRejectsParentSymlinkWhenExpectingRegularFile(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	base := t.TempDir()
+	targetDir := filepath.Join(base, "target")
+	if err := os.Mkdir(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(base, "link")
+	if err := os.Symlink("target", linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	sess, err := CreateSession(sc, t.TempDir(), "s-blob-parent-link", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := sess.writeBlob(filepath.Join(linkDir, "secret.txt"), false); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("writeBlob error = %v, want symlink rejection", err)
+	}
+}

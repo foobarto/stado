@@ -21,6 +21,9 @@ Plugins / Infra / Fixes.
 - **Hardened default system prompt reads.** Auto-managed system prompt
   templates now reject symlinked default files before validation or legacy
   upgrades.
+- **Hardened tree blob reads.** Session sidecar tree snapshots now open
+  regular file blobs through the no-symlink opener, while preserving symlink
+  entries as symlink blobs.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the
