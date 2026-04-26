@@ -8,6 +8,7 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/toolinput"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -193,5 +194,15 @@ func TestPluginToolRejectsOversizedArgsBeforeABI(t *testing.T) {
 	_, err := pt.Run(context.Background(), json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)), nil)
 	if err == nil {
 		t.Fatal("expected oversized args error")
+	}
+}
+
+func TestTruncatePluginOutputCapsResult(t *testing.T) {
+	got := truncatePluginOutput(strings.Repeat("x", budget.PluginBytes+1))
+	if len(got) > budget.PluginBytes+256 {
+		t.Fatalf("content length = %d, want near cap", len(got))
+	}
+	if !strings.Contains(got, "[truncated:") {
+		t.Fatalf("truncation marker missing")
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/toolinput"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -134,8 +135,9 @@ func (p *PluginTool) Class() tool.Class { return p.class }
 //  5. mem.Read(resultPtr, n) → result
 //  6. free both buffers
 //
-// resultCap defaults to 1 MiB which comfortably covers the JSON size
-// most tool responses reach. Can be made tunable later.
+// resultCap defaults to 1 MiB for the wasm ABI buffer. Successful and
+// tool-side-error text is still output-budgeted before it becomes a tool
+// result in model context.
 func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host) (tool.Result, error) {
 	const resultCap = 1 << 20 // 1 MiB
 	if err := toolinput.CheckLen(len(args)); err != nil {
@@ -196,7 +198,7 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	if n < 0 {
 		msg, ok := readToolSideError(p.mod.wasmMod, resultPtr, n, resultCap)
 		if ok {
-			return tool.Result{Error: msg}, nil
+			return tool.Result{Error: truncatePluginOutput(msg)}, nil
 		}
 		return tool.Result{Error: fmt.Sprintf("plugin %s %s: tool-side error",
 			p.mod.Name, p.def.Name)}, nil
@@ -213,7 +215,11 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	// Defensive copy — wasm memory can be reused between calls.
 	out := make([]byte, len(result))
 	copy(out, result)
-	return tool.Result{Content: string(out)}, nil
+	return tool.Result{Content: truncatePluginOutput(string(out))}, nil
+}
+
+func truncatePluginOutput(s string) string {
+	return budget.TruncateBytes(s, budget.PluginBytes, "reduce plugin result size")
 }
 
 // LoadPluginTools walks the manifest's ToolDefs and builds an adapter
