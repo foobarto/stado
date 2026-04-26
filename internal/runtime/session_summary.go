@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/google/uuid"
 )
 
 // SessionSummary is the per-session metadata both `stado session list`
@@ -129,7 +132,57 @@ func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.Fil
 			return err
 		}
 	}
-	return root.WriteFile(name, data, perm)
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("session metadata file is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("session metadata file is not regular: %s", name)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return writeSessionMetadataFileAtomic(root, name, data, perm)
+}
+
+func writeSessionMetadataFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(name)
+	base := filepath.Base(name)
+	tmp := "." + base + "." + uuid.NewString() + ".tmp"
+	if dir != "." {
+		tmp = filepath.Join(dir, tmp)
+	}
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmp)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
 }
 
 // LastActiveFormatted renders LastActive compactly. Returns "never"

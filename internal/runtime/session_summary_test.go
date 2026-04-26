@@ -174,6 +174,32 @@ func TestWriteDescriptionRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestWriteDescriptionRejectsInRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	stadoDir := filepath.Join(dir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(stadoDir, "decoy")
+	if err := os.WriteFile(decoy, []byte("do not replace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy", filepath.Join(dir, DescriptionFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := WriteDescription(dir, "escaped"); err == nil {
+		t.Fatal("WriteDescription succeeded through an in-root symlink")
+	}
+	got, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "do not replace\n" {
+		t.Fatalf("in-root symlink target was modified: %q", got)
+	}
+}
+
 func TestReadUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
 	outsideDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {

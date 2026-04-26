@@ -59,6 +59,9 @@ Plugins / Infra / Fixes.
 - **Hardened sidecar alternates writes.** Sidecar Git alternates metadata now
   updates through rooted, exclusive random temp files and replaces alternates
   symlinks instead of following them.
+- **Hardened session metadata writes.** Session descriptions, repo pins, and
+  pid markers now replace through rooted random temp files and reject final
+  metadata symlinks instead of following them.
 
 ## v0.25.7 — 2026-04-26
 
