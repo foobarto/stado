@@ -32,6 +32,7 @@ var (
 )
 
 const (
+	maxSelfUpdateReleaseBytes   int64 = 1 << 20
 	maxSelfUpdateChecksumsBytes int64 = 64 << 10
 	maxSelfUpdateMinisigBytes   int64 = 16 << 10
 	maxSelfUpdateArchiveBytes   int64 = 128 << 20
@@ -140,7 +141,10 @@ type ghAsset struct {
 
 func fetchLatestRelease(repo string) (*ghRelease, error) {
 	url := "https://api.github.com/repos/" + repo + "/releases/latest"
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("github api request: %w", err)
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "stado-self-update")
 	resp, err := selfUpdateAPIClient.Do(req)
@@ -152,8 +156,15 @@ func fetchLatestRelease(repo string) (*ghRelease, error) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("github api HTTP %d: %s", resp.StatusCode, body)
 	}
+	if resp.ContentLength > maxSelfUpdateReleaseBytes {
+		return nil, fmt.Errorf("github release metadata exceeds %d bytes", maxSelfUpdateReleaseBytes)
+	}
+	data, err := readLimitedSelfUpdateBody(resp.Body, "github release metadata", maxSelfUpdateReleaseBytes)
+	if err != nil {
+		return nil, err
+	}
 	var rel ghRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.Unmarshal(data, &rel); err != nil {
 		return nil, err
 	}
 	return &rel, nil

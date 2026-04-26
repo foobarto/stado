@@ -71,6 +71,8 @@ Plugins / Infra / Fixes.
 - **Capped model-list decoding.** Local provider detection and
   OpenAI-compatible capability probes now reject oversized model-list
   responses before decoding JSON.
+- **Capped self-update release metadata.** Self-update now rejects oversized
+  GitHub release API responses before decoding release JSON.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

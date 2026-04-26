@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,12 @@ import (
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestPickAsset_MatchesGOOSGOARCH(t *testing.T) {
 	osName := runtime.GOOS
@@ -88,6 +95,26 @@ func TestFetchBytesRejectsOversizedBody(t *testing.T) {
 	_, err := fetchBytes(srv.URL, "checksums.txt", 4)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("fetchBytes error = %v, want size rejection", err)
+	}
+}
+
+func TestFetchLatestReleaseRejectsOversizedMetadata(t *testing.T) {
+	prev := selfUpdateAPIClient
+	selfUpdateAPIClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(strings.Repeat("x", int(maxSelfUpdateReleaseBytes)+1))),
+				Request:    req,
+			}, nil
+		}),
+	}
+	t.Cleanup(func() { selfUpdateAPIClient = prev })
+
+	_, err := fetchLatestRelease("foobarto/stado")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("fetchLatestRelease error = %v, want size rejection", err)
 	}
 }
 
