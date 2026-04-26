@@ -110,6 +110,8 @@ Plugins / Infra / Fixes.
   ceiling before oversized pasted input can grow draft and history buffers.
 - **Capped memory append logs.** Persistent memory payloads, events, and log
   files now enforce byte ceilings before append or replay.
+- **Capped TUI picker inputs.** Agent, model, session, theme, and slash-command
+  pickers now bound pasted query and rename input before fuzzy matching.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

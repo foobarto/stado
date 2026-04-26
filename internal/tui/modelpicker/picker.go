@@ -14,9 +14,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
 )
+
+const maxQueryBytes = 1024
 
 // Item is one model entry surfaced in the picker. Origin is the
 // human-readable tag ("lmstudio · detected"); ProviderName is the
@@ -116,7 +119,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	case tea.KeyBackspace:
 		if len(m.Query) > 0 {
-			m.Query = m.Query[:len(m.Query)-1]
+			m.Query = textutil.TrimLastRune(m.Query)
 			m.refresh()
 		}
 		return nil, true
@@ -125,11 +128,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 		m.refresh()
 		return nil, true
 	case tea.KeyRunes:
-		m.Query += string(km.Runes)
+		m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
 		m.refresh()
 		return nil, true
 	case tea.KeySpace:
-		m.Query += " "
+		m.Query = textutil.AppendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
 		return nil, true
 	}

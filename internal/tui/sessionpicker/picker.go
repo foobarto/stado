@@ -7,8 +7,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
+)
+
+const (
+	maxQueryBytes  = 1024
+	maxRenameBytes = 64*1024 - 1
 )
 
 type Item struct {
@@ -75,7 +81,7 @@ func (m *Model) BeginRename() bool {
 	m.target = *sel
 	m.Query = ""
 	if !strings.HasPrefix(sel.Label, sel.ID[:minInt(len(sel.ID), len(sel.Label))]) {
-		m.Query = sel.Label
+		m.Query = textutil.AppendWithinBytes("", sel.Label, maxRenameBytes)
 	}
 	return true
 }
@@ -119,17 +125,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 			return nil, true
 		case tea.KeyBackspace:
 			if len(m.Query) > 0 {
-				m.Query = trimLastRune(m.Query)
+				m.Query = textutil.TrimLastRune(m.Query)
 			}
 			return nil, true
 		case tea.KeyCtrlU:
 			m.Query = ""
 			return nil, true
 		case tea.KeyRunes:
-			m.Query += string(km.Runes)
+			m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxRenameBytes)
 			return nil, true
 		case tea.KeySpace:
-			m.Query += " "
+			m.Query = textutil.AppendWithinBytes(m.Query, " ", maxRenameBytes)
 			return nil, true
 		case tea.KeyUp, tea.KeyDown, tea.KeyTab:
 			return nil, true
@@ -158,7 +164,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	case tea.KeyBackspace:
 		if len(m.Query) > 0 {
-			m.Query = trimLastRune(m.Query)
+			m.Query = textutil.TrimLastRune(m.Query)
 			m.refresh()
 		}
 		return nil, true
@@ -167,11 +173,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 		m.refresh()
 		return nil, true
 	case tea.KeyRunes:
-		m.Query += string(km.Runes)
+		m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
 		m.refresh()
 		return nil, true
 	case tea.KeySpace:
-		m.Query += " "
+		m.Query = textutil.AppendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
 		return nil, true
 	}
@@ -398,12 +404,4 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func trimLastRune(s string) string {
-	runes := []rune(s)
-	if len(runes) == 0 {
-		return ""
-	}
-	return string(runes[:len(runes)-1])
 }

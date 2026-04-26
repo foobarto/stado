@@ -41,6 +41,21 @@ func TestUpdate_RunesBuildQuery(t *testing.T) {
 	}
 }
 
+func TestUpdate_QueryCapsBytes(t *testing.T) {
+	m := New()
+	m.Open()
+
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	if got := len(m.Query); got != maxQueryBytes {
+		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
+	}
+	m.Query = strings.Repeat("x", maxQueryBytes-1)
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	if got := len(m.Query); got != maxQueryBytes-1 {
+		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
+	}
+}
+
 func TestUpdate_BackspaceShrinksQuery(t *testing.T) {
 	m := New()
 	m.Open()

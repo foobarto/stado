@@ -63,6 +63,21 @@ func TestFuzzyFiltersAndCursorClamps(t *testing.T) {
 	}
 }
 
+func TestQueryCapsBytes(t *testing.T) {
+	m := New()
+	m.Open(sampleItems(), "")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	if got := len(m.Query); got != maxQueryBytes {
+		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
+	}
+	m.Query = strings.Repeat("x", maxQueryBytes-1)
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	if got := len(m.Query); got != maxQueryBytes-1 {
+		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
+	}
+}
+
 // TestEscapeCloses covers dismiss-without-select.
 func TestEscapeCloses(t *testing.T) {
 	m := New()

@@ -38,3 +38,18 @@ func TestFilterMatchesModeAndDescription(t *testing.T) {
 		t.Fatal("view should include filtered theme")
 	}
 }
+
+func TestQueryCapsBytes(t *testing.T) {
+	p := New()
+	p.Open([]Item{{ID: "stado-dark", Name: "Stado Dark"}}, "")
+
+	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	if got := len(p.Query); got != maxQueryBytes {
+		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
+	}
+	p.Query = strings.Repeat("x", maxQueryBytes-1)
+	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	if got := len(p.Query); got != maxQueryBytes-1 {
+		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
+	}
+}

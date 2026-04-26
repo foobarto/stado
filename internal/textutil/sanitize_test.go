@@ -17,3 +17,24 @@ func TestHasControlChars(t *testing.T) {
 		t.Fatal("control sequence should be detected")
 	}
 }
+
+func TestTrimLastRune(t *testing.T) {
+	if got := TrimLastRune("zaż"); got != "za" {
+		t.Fatalf("TrimLastRune = %q, want za", got)
+	}
+	if got := TrimLastRune(""); got != "" {
+		t.Fatalf("TrimLastRune empty = %q, want empty", got)
+	}
+}
+
+func TestAppendWithinBytesCapsAtRuneBoundary(t *testing.T) {
+	if got := AppendWithinBytes("xx", "abc", 4); got != "xxab" {
+		t.Fatalf("AppendWithinBytes ASCII = %q, want xxab", got)
+	}
+	if got := AppendWithinBytes("xx", "é", 3); got != "xx" {
+		t.Fatalf("AppendWithinBytes split rune = %q, want xx", got)
+	}
+	if got := AppendWithinBytes("xx", "é", 4); got != "xxé" {
+		t.Fatalf("AppendWithinBytes full rune = %q, want xxé", got)
+	}
+}
