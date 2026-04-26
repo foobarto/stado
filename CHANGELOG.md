@@ -125,6 +125,9 @@ Plugins / Infra / Fixes.
   directories.
 - **Validated background plugin IDs.** TUI background-plugin config entries now
   use the installed-plugin path guard before manifest loading.
+- **Preserved plugin rollback pins.** Re-trusting an existing plugin signer now
+  keeps its last verified version so inline `plugin install --signer` cannot
+  reset rollback protection.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

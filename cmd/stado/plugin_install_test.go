@@ -406,3 +406,21 @@ func TestPluginInstall_Idempotent(t *testing.T) {
 		t.Fatalf("reinstall should not warn on stderr, got %q", errBuf.String())
 	}
 }
+
+func TestPluginInstall_SignerDoesNotResetRollbackState(t *testing.T) {
+	_ = isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pluginInstallSigner = hex.EncodeToString(pub)
+	defer func() { pluginInstallSigner = "" }()
+
+	srcHigh := buildTestPlugin(t, priv, pub, "demo", "2.0.0")
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{srcHigh}); err != nil {
+		t.Fatalf("install high version: %v", err)
+	}
+
+	srcLow := buildTestPlugin(t, priv, pub, "demo", "1.0.0")
+	err := pluginInstallCmd.RunE(pluginInstallCmd, []string{srcLow})
+	if err == nil || !strings.Contains(err.Error(), "rollback") {
+		t.Fatalf("install low version with --signer = %v, want rollback rejection", err)
+	}
+}

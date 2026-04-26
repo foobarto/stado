@@ -78,11 +78,22 @@ func (s *TrustStore) Trust(key string, author string) (TrustEntry, error) {
 	if err != nil {
 		return TrustEntry{}, err
 	}
+	fpr := Fingerprint(pub)
+	now := time.Now().UTC()
 	entry := TrustEntry{
-		Fingerprint: Fingerprint(pub),
+		Fingerprint: fpr,
 		Pubkey:      hex.EncodeToString(pub),
 		Author:      author,
-		Pinned:      time.Now().UTC(),
+		Pinned:      now,
+	}
+	if prev, ok := store[fpr]; ok {
+		entry.LastVersion = prev.LastVersion
+		if author == "" {
+			entry.Author = prev.Author
+		}
+		if !prev.Pinned.IsZero() {
+			entry.Pinned = prev.Pinned
+		}
 	}
 	store[entry.Fingerprint] = entry
 	if err := s.Save(store); err != nil {

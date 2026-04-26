@@ -148,6 +148,38 @@ func TestTrustStore_RollbackProtection(t *testing.T) {
 	}
 }
 
+func TestTrustStore_TrustPreservesRollbackState(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	entry, err := ts.Trust(hex.EncodeToString(pub), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mHigh := &Manifest{Name: "p", Version: "2.0.0", AuthorPubkeyFpr: entry.Fingerprint}
+	sigHigh, _ := mHigh.Sign(priv)
+	if err := ts.VerifyManifest(mHigh, sigHigh); err != nil {
+		t.Fatal(err)
+	}
+	retrusted, err := ts.Trust(hex.EncodeToString(pub), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrusted.LastVersion != "2.0.0" {
+		t.Fatalf("re-trust LastVersion = %q, want 2.0.0", retrusted.LastVersion)
+	}
+	if retrusted.Author != "alice" {
+		t.Fatalf("re-trust Author = %q, want alice", retrusted.Author)
+	}
+
+	mLow := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: entry.Fingerprint}
+	sigLow, _ := mLow.Sign(priv)
+	err = ts.VerifyManifest(mLow, sigLow)
+	if err == nil || !strings.Contains(err.Error(), "rollback") {
+		t.Fatalf("VerifyManifest after re-trust = %v, want rollback rejection", err)
+	}
+}
+
 func TestTrustStore_RollbackProtectionUsesSemverOrdering(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
