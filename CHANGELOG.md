@@ -128,6 +128,9 @@ Plugins / Infra / Fixes.
 - **Preserved plugin rollback pins.** Re-trusting an existing plugin signer now
   keeps its last verified version so inline `plugin install --signer` cannot
   reset rollback protection.
+- **Made plugin TOFU pinning atomic.** Inline plugin signer pins are now saved
+  only after the signer matches and verifies the manifest, avoiding trust-store
+  pollution on failed installs.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

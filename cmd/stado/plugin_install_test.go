@@ -351,7 +351,7 @@ func TestVerifyInstalledPluginCopyRejectsWASMSwap(t *testing.T) {
 // TestPluginInstall_SignerMismatchRejected: provide a --signer whose
 // fingerprint doesn't match the manifest's author_pubkey_fpr.
 func TestPluginInstall_SignerMismatchRejected(t *testing.T) {
-	_ = isolatedHome(t)
+	cfg := isolatedHome(t)
 	pub1, priv1, _ := ed25519.GenerateKey(rand.Reader)
 	pub2, _, _ := ed25519.GenerateKey(rand.Reader)
 	src := buildTestPlugin(t, priv1, pub1, "demo", "1.0.0")
@@ -366,6 +366,13 @@ func TestPluginInstall_SignerMismatchRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not match manifest") {
 		t.Errorf("error should call out manifest mismatch: %v", err)
+	}
+	store, loadErr := plugins.NewTrustStore(cfg.StateDir()).Load()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if len(store) != 0 {
+		t.Fatalf("mismatched signer should not be pinned, got %+v", store)
 	}
 }
 

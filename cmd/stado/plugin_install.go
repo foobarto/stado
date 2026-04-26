@@ -54,24 +54,18 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("install: %w", err)
 		}
 
-		// Optional TOFU path: pin the caller-provided pubkey before the
-		// trust-store check. If the pubkey's fingerprint doesn't match
-		// the manifest's author_pubkey_fpr, VerifyManifest will fail
-		// in the next step — the pin alone doesn't authorise a mismatch.
+		// Optional TOFU path: pin the caller-provided pubkey only after it
+		// matches and verifies the manifest, so failed installs do not leave
+		// unintended trust-store entries behind.
 		ts := plugins.NewTrustStore(cfg.StateDir())
 		if pluginInstallSigner != "" {
-			entry, err := ts.Trust(pluginInstallSigner, m.Author)
+			entry, err := ts.TrustVerified(pluginInstallSigner, m.Author, m, sig)
 			if err != nil {
 				return fmt.Errorf("install: --signer: %w", err)
 			}
-			if entry.Fingerprint != m.AuthorPubkeyFpr {
-				return fmt.Errorf("install: --signer fingerprint %s does not match manifest author_pubkey_fpr %s",
-					entry.Fingerprint, m.AuthorPubkeyFpr)
-			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "install: pinned signer %s (author=%s)\n",
 				entry.Fingerprint, m.Author)
-		}
-		if err := ts.VerifyManifest(m, sig); err != nil {
+		} else if err := ts.VerifyManifest(m, sig); err != nil {
 			return fmt.Errorf("install: %w", err)
 		}
 		if cfg.Plugins.CRLURL != "" {

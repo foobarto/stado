@@ -180,6 +180,44 @@ func TestTrustStore_TrustPreservesRollbackState(t *testing.T) {
 	}
 }
 
+func TestTrustStore_TrustVerifiedDoesNotPinMismatchedSigner(t *testing.T) {
+	pub1, priv1, _ := ed25519.GenerateKey(rand.Reader)
+	pub2, _, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub1)}
+	sig, _ := m.Sign(priv1)
+
+	_, err := ts.TrustVerified(hex.EncodeToString(pub2), "mallory", m, sig)
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("TrustVerified mismatch error = %v", err)
+	}
+	store, err := ts.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store) != 0 {
+		t.Fatalf("mismatched signer was pinned: %+v", store)
+	}
+}
+
+func TestTrustStore_TrustVerifiedDoesNotPinInvalidSignature(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: Fingerprint(pub)}
+
+	_, err := ts.TrustVerified(hex.EncodeToString(pub), "alice", m, strings.Repeat("A", 88))
+	if err == nil {
+		t.Fatal("TrustVerified should reject invalid signature")
+	}
+	store, err := ts.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store) != 0 {
+		t.Fatalf("invalid signature signer was pinned: %+v", store)
+	}
+}
+
 func TestTrustStore_RollbackProtectionUsesSemverOrdering(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}

@@ -70,13 +70,51 @@ func (s *TrustStore) Save(entries map[string]TrustEntry) error {
 // Trust adds a signer. Key may be passed as hex (64 chars) or base64 (44
 // chars with padding). Author is optional but recommended for UIs.
 func (s *TrustStore) Trust(key string, author string) (TrustEntry, error) {
-	pub, err := parsePubkey(key)
+	entry, _, store, err := s.entryForKey(key, author)
 	if err != nil {
 		return TrustEntry{}, err
 	}
-	store, err := s.Load()
+	store[entry.Fingerprint] = entry
+	if err := s.Save(store); err != nil {
+		return TrustEntry{}, err
+	}
+	return entry, nil
+}
+
+// TrustVerified pins key only after it matches m.AuthorPubkeyFpr and verifies
+// the manifest signature + rollback checks. This keeps TOFU install paths from
+// leaving behind trust-store entries after failed verification.
+func (s *TrustStore) TrustVerified(key string, author string, m *Manifest, sigB64 string) (TrustEntry, error) {
+	if m == nil {
+		return TrustEntry{}, fmt.Errorf("verify: nil manifest")
+	}
+	entry, pub, store, err := s.entryForKey(key, author)
 	if err != nil {
 		return TrustEntry{}, err
+	}
+	if entry.Fingerprint != m.AuthorPubkeyFpr {
+		return TrustEntry{}, fmt.Errorf("verify: signer fingerprint %s does not match manifest author_pubkey_fpr %s",
+			entry.Fingerprint, m.AuthorPubkeyFpr)
+	}
+	if err := verifyManifestWithPub(m, sigB64, pub, entry.LastVersion); err != nil {
+		return TrustEntry{}, err
+	}
+	entry.LastVersion = m.Version
+	store[entry.Fingerprint] = entry
+	if err := s.Save(store); err != nil {
+		return TrustEntry{}, err
+	}
+	return entry, nil
+}
+
+func (s *TrustStore) entryForKey(key string, author string) (TrustEntry, ed25519.PublicKey, map[string]TrustEntry, error) {
+	pub, err := parsePubkey(key)
+	if err != nil {
+		return TrustEntry{}, nil, nil, err
+	}
+	store, err := s.Load()
+	if err != nil {
+		return TrustEntry{}, nil, nil, err
 	}
 	fpr := Fingerprint(pub)
 	now := time.Now().UTC()
@@ -95,11 +133,7 @@ func (s *TrustStore) Trust(key string, author string) (TrustEntry, error) {
 			entry.Pinned = prev.Pinned
 		}
 	}
-	store[entry.Fingerprint] = entry
-	if err := s.Save(store); err != nil {
-		return TrustEntry{}, err
-	}
-	return entry, nil
+	return entry, pub, store, nil
 }
 
 // Untrust removes the signer with the given fingerprint.
@@ -142,25 +176,32 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("verify: trust-store pubkey malformed")
 	}
-	if err := m.Verify(ed25519.PublicKey(pub), sigB64); err != nil {
+	if err := verifyManifestWithPub(m, sigB64, ed25519.PublicKey(pub), entry.LastVersion); err != nil {
 		return err
-	}
-	if err := ValidateVersion(m.Version); err != nil {
-		return fmt.Errorf("verify: manifest version %q is not semver-compatible: %w", m.Version, err)
-	}
-	if entry.LastVersion != "" {
-		less, err := VersionLess(m.Version, entry.LastVersion)
-		if err != nil {
-			return fmt.Errorf("verify: compare versions: %w", err)
-		}
-		if less {
-			return fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", m.Version, entry.LastVersion)
-		}
 	}
 	// Advance LastVersion on successful verification.
 	entry.LastVersion = m.Version
 	store[entry.Fingerprint] = entry
 	return s.Save(store)
+}
+
+func verifyManifestWithPub(m *Manifest, sigB64 string, pub ed25519.PublicKey, lastVersion string) error {
+	if err := m.Verify(pub, sigB64); err != nil {
+		return err
+	}
+	if err := ValidateVersion(m.Version); err != nil {
+		return fmt.Errorf("verify: manifest version %q is not semver-compatible: %w", m.Version, err)
+	}
+	if lastVersion != "" {
+		less, err := VersionLess(m.Version, lastVersion)
+		if err != nil {
+			return fmt.Errorf("verify: compare versions: %w", err)
+		}
+		if less {
+			return fmt.Errorf("verify: rollback detected — manifest %s < last seen %s", m.Version, lastVersion)
+		}
+	}
+	return nil
 }
 
 // parsePubkey accepts hex (64 chars) or standard-encoded base64 (44 chars
