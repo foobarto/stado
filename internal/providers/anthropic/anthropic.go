@@ -150,13 +150,10 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span t
 	defer span.End()
 
 	type pending struct {
-		kind      string // "text" | "thinking" | "tool_use" | "redacted_thinking"
-		id        string
-		name      string
-		args      []byte
-		thinkText string
-		signature string
-		redacted  string
+		kind string // "text" | "thinking" | "tool_use" | "redacted_thinking"
+		id   string
+		name string
+		args []byte
 	}
 	blocks := map[int64]*pending{}
 
@@ -184,8 +181,6 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span t
 					Kind:     agent.EvToolCallStart,
 					ToolCall: &agent.ToolUseBlock{ID: cb.ID, Name: cb.Name},
 				}
-			case "redacted_thinking":
-				p.redacted = cb.Data
 			}
 
 		case "content_block_delta":
@@ -198,10 +193,8 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span t
 			case "text_delta":
 				ch <- agent.Event{Kind: agent.EvTextDelta, Text: d.Text}
 			case "thinking_delta":
-				p.thinkText += d.Thinking
 				ch <- agent.Event{Kind: agent.EvThinkingDelta, Text: d.Thinking}
 			case "signature_delta":
-				p.signature += d.Signature
 				ch <- agent.Event{Kind: agent.EvThinkingDelta, ThinkingSig: d.Signature}
 			case "input_json_delta":
 				if err := toolinput.CheckAppend(len(p.args), len(d.PartialJSON)); err != nil {
