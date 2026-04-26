@@ -104,6 +104,10 @@ Plugins / Infra / Fixes.
 - **Hardened CLI output directory creation.** Session exports, plugin
   scaffolding, and plugin installs now reject symlinked output parent
   directories before creating missing write targets.
+- **Hardened state/config directory creation.** Config defaults, default
+  prompts, plugin state, task/memory stores, audit keys, model picker state,
+  bundled tool caches, and plugin filesystem writes now reject symlinked
+  parent directories before creating missing write roots.
 
 ## v0.25.7 — 2026-04-26
 

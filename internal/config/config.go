@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
@@ -297,7 +298,7 @@ func Load() (*Config, error) {
 	k := koanf.New(".")
 
 	configPath := defaultConfigPath()
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(configPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 
@@ -422,7 +423,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat default system prompt template: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
 	}
 	if err := createDefaultSystemPromptTemplate(path); err != nil {

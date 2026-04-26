@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
 
@@ -365,7 +366,7 @@ func (s Store) storeRoot(createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("invalid task store path: %s", s.Path)
 	}
 	if createDir {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
 			return nil, "", err
 		}
 	}

@@ -130,3 +130,23 @@ func TestWriteDefaultsRejectsInRootConfigSymlink(t *testing.T) {
 		t.Fatalf("in-root symlink target was modified:\n%s", data)
 	}
 }
+
+func TestWriteDefaultsRejectsConfigParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "config-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	path := filepath.Join(link, "config.toml")
+
+	if err := WriteDefaults(path, "openai", "gpt-test"); err == nil {
+		t.Fatal("WriteDefaults should reject symlinked config parent dirs")
+	}
+	if _, err := os.Stat(filepath.Join(target, "config.toml")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}

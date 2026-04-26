@@ -12,6 +12,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 var pluginInstallSigner string
@@ -124,7 +125,7 @@ func copyDir(src, dst string) error {
 	if !filepath.IsLocal(dstName) || strings.ContainsAny(dstName, `/\`) || dstName == "." || dstName == ".." {
 		return fmt.Errorf("invalid destination directory name: %q", dstName)
 	}
-	if err := mkdirAllNoSymlink(dstParent, 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(dstParent, 0o700); err != nil {
 		return err
 	}
 	dstParentRoot, err := os.OpenRoot(dstParent)

@@ -120,6 +120,28 @@ func TestExtract_ReplacesExistingCacheSymlink(t *testing.T) {
 	}
 }
 
+func TestExtractRejectsCacheDirParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "cache-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	blob := []byte("binary-bytes")
+
+	if _, err := Extract(link, "tool", blob, shaOf(blob)); err == nil {
+		t.Fatal("Extract should reject symlinked cache dirs")
+	}
+	if entries, err := os.ReadDir(target); err != nil {
+		t.Fatal(err)
+	} else if len(entries) != 0 {
+		t.Fatalf("symlink target was modified with %d entries", len(entries))
+	}
+}
+
 func TestExtract_CacheHitSkipsRewrite(t *testing.T) {
 	dir := t.TempDir()
 	blob := []byte("binary-bytes")

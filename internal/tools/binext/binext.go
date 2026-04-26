@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
 
@@ -46,7 +47,7 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	if err := validateToolName(name); err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("binext: cache dir: %w", err)
 	}
 	root, err := os.OpenRoot(cacheDir)

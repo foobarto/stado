@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 const eventType = "memory"
@@ -452,7 +454,7 @@ func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("invalid memory store path: %s", s.Path)
 	}
 	if createDir {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
 			return nil, "", fmt.Errorf("memory store: create dir: %w", err)
 		}
 	}

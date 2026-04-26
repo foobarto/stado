@@ -539,6 +539,38 @@ func TestStoreAppendRejectsLogSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestStoreAppendRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "memory-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	store := &Store{
+		Path:  filepath.Join(link, "memory.jsonl"),
+		Actor: "test",
+		Now: func() time.Time {
+			return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+		},
+	}
+	raw, _ := json.Marshal(Item{
+		ID:      "mem_parent_escape",
+		Scope:   "global",
+		Kind:    "fact",
+		Summary: "Escaped memory",
+	})
+
+	if err := store.Propose(context.Background(), raw); err == nil {
+		t.Fatal("Propose should reject symlinked memory store parent dirs")
+	}
+	if _, err := os.Stat(filepath.Join(target, "memory.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}
+
 func testStore(t *testing.T, now time.Time) *Store {
 	t.Helper()
 	return &Store{

@@ -1,0 +1,27 @@
+package plugins
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestWritePluginStateFileRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "state-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := writePluginStateFileAtomic(filepath.Join(link, "trusted_keys.json"), []byte("[]\n"), 0o600)
+	if err == nil {
+		t.Fatal("writePluginStateFileAtomic should reject symlinked parent dirs")
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "trusted_keys.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}

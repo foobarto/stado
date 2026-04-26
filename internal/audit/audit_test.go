@@ -66,6 +66,25 @@ func TestLoadOrCreateKeyRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateKeyRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "keys-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := LoadOrCreateKey(filepath.Join(link, "agent.ed25519")); err == nil {
+		t.Fatal("LoadOrCreateKey should reject symlinked key parent dirs")
+	}
+	if _, err := os.Stat(filepath.Join(target, "agent.ed25519")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}
+
 func TestLoadOrCreateKeyDoesNotOverwriteMalformedExistingKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "key")
 	if err := os.WriteFile(path, []byte("not a key"), 0o600); err != nil {

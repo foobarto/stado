@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
 
@@ -99,7 +100,7 @@ func pluginStateRoot(path string, createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("invalid plugin state path: %s", path)
 	}
 	if createDir {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
 			return nil, "", err
 		}
 	}

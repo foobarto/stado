@@ -112,11 +112,122 @@ func WriteFile(workdir, path string, data []byte, perm os.FileMode) error {
 	}
 	defer func() { _ = root.Close() }()
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
+		if err := MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
 			return err
 		}
 	}
 	return WriteRootFileAtomic(root, rel, data, perm)
+}
+
+// MkdirAllNoSymlink creates path like os.MkdirAll, but rejects any existing
+// symlink component instead of following it while preparing a write root.
+func MkdirAllNoSymlink(path string, perm os.FileMode) error {
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("invalid directory path %q", path)
+	}
+	clean := filepath.Clean(path)
+	if clean == "." {
+		return nil
+	}
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return err
+	}
+	rootPath, rel := splitAbsoluteRoot(abs)
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return MkdirAllRootNoSymlink(root, rel, perm)
+}
+
+// MkdirAllRootNoSymlink creates a directory tree relative to root while
+// rejecting any existing symlink component.
+func MkdirAllRootNoSymlink(root *os.Root, path string, perm os.FileMode) error {
+	if root == nil {
+		return errors.New("root unavailable")
+	}
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("invalid directory path %q", path)
+	}
+	clean := filepath.Clean(path)
+	if clean == "." {
+		return nil
+	}
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid directory path %q", path)
+	}
+	cur := root
+	closeCur := false
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			if closeCur {
+				_ = cur.Close()
+			}
+			return fmt.Errorf("invalid directory path %q", path)
+		}
+		info, err := cur.Lstat(part)
+		switch {
+		case err == nil && info.Mode()&os.ModeSymlink != 0:
+			if closeCur {
+				_ = cur.Close()
+			}
+			return fmt.Errorf("directory component is a symlink: %s", part)
+		case err == nil && !info.IsDir():
+			if closeCur {
+				_ = cur.Close()
+			}
+			return fmt.Errorf("directory component is not a directory: %s", part)
+		case err == nil:
+		case os.IsNotExist(err):
+			if err := cur.Mkdir(part, perm); err != nil {
+				if closeCur {
+					_ = cur.Close()
+				}
+				return err
+			}
+		default:
+			if closeCur {
+				_ = cur.Close()
+			}
+			return err
+		}
+		next, err := cur.OpenRoot(part)
+		if err != nil {
+			if closeCur {
+				_ = cur.Close()
+			}
+			return err
+		}
+		if closeCur {
+			_ = cur.Close()
+		}
+		cur = next
+		closeCur = true
+	}
+	if closeCur {
+		return cur.Close()
+	}
+	return nil
+}
+
+func splitAbsoluteRoot(path string) (root, rel string) {
+	volume := filepath.VolumeName(path)
+	rest := strings.TrimPrefix(path, volume)
+	sep := string(filepath.Separator)
+	root = volume
+	if strings.HasPrefix(rest, sep) {
+		root += sep
+		rest = strings.TrimLeft(rest, sep)
+	}
+	if root == "" {
+		root = "."
+	}
+	return root, rest
 }
 
 // RootRelForWrite returns a root-relative write target after resolving parent

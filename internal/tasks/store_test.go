@@ -181,6 +181,29 @@ func TestStoreDoesNotFollowSymlinkEscapeOnSave(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsParentSymlinkOnCreate(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "tasks-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	store := Store{Path: filepath.Join(link, "tasks.json")}
+
+	if _, err := store.Create("inside", "", ""); err == nil {
+		t.Fatal("Create should reject symlinked task store parent dirs")
+	}
+	if _, err := os.Stat(filepath.Join(target, "tasks.json")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "tasks.json.lock")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target lock was modified, stat err = %v", err)
+	}
+}
+
 func TestStoreConcurrentCreatesPreserveAllTasks(t *testing.T) {
 	store := Store{Path: filepath.Join(t.TempDir(), "tasks.json")}
 	const workers = 24

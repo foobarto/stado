@@ -191,7 +191,7 @@ func readModelStateFile(path string) ([]byte, error) {
 }
 
 func writeModelStateRecords(path string, records []modelRecentRecord) bool {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(path), 0o700); err != nil {
 		return false
 	}
 	data, err := json.MarshalIndent(records, "", "  ")

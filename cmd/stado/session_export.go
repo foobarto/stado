@@ -26,6 +26,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -85,7 +86,7 @@ var sessionExportCmd = &cobra.Command{
 			return err
 		}
 		if dir := filepath.Dir(exportOutput); dir != "" && dir != "." {
-			if err := mkdirAllNoSymlink(dir, 0o750); err != nil {
+			if err := workdirpath.MkdirAllNoSymlink(dir, 0o750); err != nil {
 				return fmt.Errorf("session export: mkdir %s: %w", dir, err)
 			}
 		}

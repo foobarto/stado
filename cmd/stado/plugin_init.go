@@ -119,7 +119,7 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 	if !filepath.IsLocal(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return nil, fmt.Errorf("init: invalid output dir %q", dir)
 	}
-	if err := mkdirAllNoSymlink(parent, 0o750); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(parent, 0o750); err != nil {
 		return nil, fmt.Errorf("init: mkdir %s: %w", parent, err)
 	}
 	parentRoot, err := os.OpenRoot(parent)

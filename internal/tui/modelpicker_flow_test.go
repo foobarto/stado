@@ -275,6 +275,39 @@ func TestModelPickerRecentsRejectStateSymlink(t *testing.T) {
 	}
 }
 
+func TestModelPickerRecentsRejectStateParentSymlink(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataHome := filepath.Join(root, "data")
+	if err := os.MkdirAll(dataHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../target", filepath.Join(dataHome, "stado")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	m.rememberModelSelection(modelpicker.Item{
+		ID:           "claude-sonnet-4-5",
+		Origin:       "anthropic",
+		ProviderName: "anthropic",
+	})
+	if _, err := os.Stat(filepath.Join(target, modelRecentsFile)); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}
+
 func TestModelPickerFavoritesPersistAndPrepend(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))

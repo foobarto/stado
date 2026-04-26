@@ -99,6 +99,27 @@ func TestConfigPath(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsSymlinkedConfigDir(t *testing.T) {
+	cfgHome := t.TempDir()
+	target := filepath.Join(cfgHome, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(cfgHome, "stado")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load should reject symlinked config dir")
+	}
+	if _, statErr := os.Stat(filepath.Join(target, defaultSystemPromptFilename)); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
 func TestLoadCustomSystemPromptPath(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)

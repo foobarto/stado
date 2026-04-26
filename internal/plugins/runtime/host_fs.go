@@ -200,7 +200,7 @@ func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode)
 	}
 	defer func() { _ = root.Close() }()
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
 			return err
 		}
 	}

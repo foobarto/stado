@@ -21,6 +21,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 const (
@@ -88,7 +90,7 @@ func keyPathExists(path string) (bool, error) {
 // WritePrivateKeyFile creates a new private-key file with 0600 permissions
 // without following or overwriting an existing final path.
 func WritePrivateKeyFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("mkdir key dir: %w", err)
 	}
 	dir := filepath.Dir(path)

@@ -121,6 +121,44 @@ func TestWriteFileCreatesNestedMissingPathInsideWorkdir(t *testing.T) {
 	}
 }
 
+func TestMkdirAllNoSymlinkRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := MkdirAllNoSymlink(filepath.Join(link, "child"), 0o755)
+	if err == nil {
+		t.Fatal("MkdirAllNoSymlink should reject symlinked parent dirs")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "child")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
+func TestMkdirAllNoSymlinkCreatesNestedDirs(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "a", "b", "c")
+	if err := MkdirAllNoSymlink(path, 0o755); err != nil {
+		t.Fatalf("MkdirAllNoSymlink: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a dir", path)
+	}
+}
+
 func TestWriteFilePreservesExistingMode(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "script.sh")
