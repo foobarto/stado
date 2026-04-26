@@ -34,6 +34,7 @@ import (
 
 	"github.com/foobarto/stado/internal/compact"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/google/uuid"
 )
 
 // ConversationFile is the per-worktree conversation log path
@@ -192,25 +193,37 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("conversation: stat %s: %w", final, err)
 	}
-	tmp := name + ".tmp"
-	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	tmp := "." + name + "." + uuid.NewString() + ".tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("conversation: open tmp: %w", err)
 	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmp)
+		}
+	}()
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	for i, m := range msgs {
 		if err := enc.Encode(m); err != nil {
 			_ = f.Close()
-			_ = root.Remove(tmp)
 			return fmt.Errorf("conversation: encode msg %d: %w", i, err)
 		}
 	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("conversation: sync tmp: %w", err)
+	}
 	if err := f.Close(); err != nil {
-		_ = root.Remove(tmp)
 		return err
 	}
-	return root.Rename(tmp, name)
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
 }
 
 // ConversationLogSHA returns a sha256 digest of the raw append-only JSONL

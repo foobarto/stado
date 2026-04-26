@@ -50,6 +50,9 @@ Plugins / Infra / Fixes.
 - **Hardened bundled tool cache extraction.** Bundled binary extraction now
   rejects path-like tool names, writes through rooted random temp files, and
   replaces cache symlinks instead of treating them as valid cache hits.
+- **Hardened conversation seeding.** Fresh child-session conversation logs now
+  seed through rooted, exclusive random temp files so pre-created predictable
+  temp symlinks cannot redirect the rewrite.
 
 ## v0.25.7 — 2026-04-26
 

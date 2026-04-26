@@ -262,3 +262,44 @@ func TestWriteConversationRefusesNonEmptyLog(t *testing.T) {
 		t.Fatalf("conversation was rewritten despite refusal: %+v", loaded)
 	}
 }
+
+func TestWriteConversationDoesNotFollowPredictableTempSymlink(t *testing.T) {
+	wt := t.TempDir()
+	stadoDir := filepath.Join(wt, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(stadoDir, "decoy.jsonl")
+	if err := os.WriteFile(decoy, []byte("do not replace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy.jsonl", filepath.Join(stadoDir, filepath.Base(ConversationFile)+".tmp")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := WriteConversation(wt, []agent.Message{agent.Text(agent.RoleUser, "seeded")}); err != nil {
+		t.Fatalf("WriteConversation: %v", err)
+	}
+
+	decoyData, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(decoyData) != "do not replace\n" {
+		t.Fatalf("predictable temp symlink target was modified: %q", decoyData)
+	}
+	info, err := os.Lstat(filepath.Join(wt, ConversationFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("conversation log was replaced by the pre-created temp symlink")
+	}
+	loaded, err := LoadConversation(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].Content[0].Text.Text != "seeded" {
+		t.Fatalf("seeded conversation not loaded: %+v", loaded)
+	}
+}
