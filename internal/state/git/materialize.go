@@ -3,7 +3,6 @@ package git
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +18,7 @@ const (
 	maxMaterializedSymlinkTargetBytes int64 = 4 << 10
 	maxMaterializedTreeEntries              = maxTreeEntries
 	maxMaterializedTreeDepth                = maxTreeDepth
+	maxMaterializedCleanupEntries           = maxTreeEntries
 )
 
 // MaterializeTreeToDir writes every blob in the given tree into dir, creating
@@ -264,39 +264,78 @@ func (s *Session) readBlobString(hash plumbing.Hash) (string, error) {
 // path is in the `kept` set or is a descendant of a kept directory that was
 // listed.
 func pruneExtras(root *os.Root, dir string, kept map[string]bool) error {
-	var toRemove []string
-	err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+	state := &materializeCleanupState{maxEntries: maxMaterializedCleanupEntries, maxDepth: maxMaterializedTreeDepth}
+	if err := collectPruneExtras(root, ".", dir, kept, state, 0); err != nil {
+		return err
+	}
+	for _, p := range state.removals {
+		if err := root.RemoveAll(p); err != nil {
 			return err
 		}
-		if path == "." {
-			return nil
-		}
-		rel := filepath.FromSlash(path)
-		full := filepath.Join(dir, rel)
-		if kept[full] {
-			return nil
-		}
-		// Skip stado-internal files we never want to touch on revert.
-		base := filepath.Base(rel)
-		if base == ".stado-pid" || base == ".stado" || base == ".git" {
-			if d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		toRemove = append(toRemove, rel)
-		if d.IsDir() {
-			return fs.SkipDir // RemoveAll handles contents below
-		}
-		return nil
-	})
+	}
+	return nil
+}
+
+type materializeCleanupState struct {
+	entries    int
+	maxEntries int
+	maxDepth   int
+	removals   []string
+}
+
+func collectPruneExtras(root *os.Root, rel, rootDir string, kept map[string]bool, state *materializeCleanupState, depth int) error {
+	if state == nil {
+		state = &materializeCleanupState{maxEntries: maxMaterializedCleanupEntries, maxDepth: maxMaterializedTreeDepth}
+	}
+	if depth > state.maxDepth {
+		return fmt.Errorf("materialize: cleanup nesting exceeds %d: %s", state.maxDepth, rel)
+	}
+	dir, err := root.Open(rel)
 	if err != nil {
 		return err
 	}
-	for _, p := range toRemove {
-		if err := root.RemoveAll(p); err != nil {
-			return err
+	defer func() { _ = dir.Close() }()
+	for {
+		entries, readErr := dir.ReadDir(128)
+		for _, e := range entries {
+			state.entries++
+			if state.entries > state.maxEntries {
+				return fmt.Errorf("materialize: cleanup contains more than %d entries", state.maxEntries)
+			}
+			name := e.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return fmt.Errorf("materialize: invalid cleanup entry name %q", name)
+			}
+			childRel := name
+			if rel != "." {
+				childRel = filepath.Join(rel, name)
+			}
+			info, err := root.Lstat(childRel)
+			if err != nil {
+				return err
+			}
+			isDir := info.IsDir() && info.Mode()&os.ModeSymlink == 0
+			full := filepath.Join(rootDir, childRel)
+			if kept[full] {
+				if isDir {
+					if err := collectPruneExtras(root, childRel, rootDir, kept, state, depth+1); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			// Skip stado-internal files we never want to touch on revert.
+			base := filepath.Base(childRel)
+			if base == ".stado-pid" || base == ".stado" || base == ".git" {
+				continue
+			}
+			state.removals = append(state.removals, childRel)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
 		}
 	}
 	return nil
@@ -312,17 +351,48 @@ func wipeDir(dir string) error {
 }
 
 func wipeRoot(root *os.Root) error {
-	entries, err := fs.ReadDir(root.FS(), ".")
+	toRemove, err := collectWipeRootEntries(root, maxMaterializedCleanupEntries)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		if e.Name() == ".stado-pid" || e.Name() == ".stado" || e.Name() == ".git" {
-			continue
-		}
-		if err := root.RemoveAll(e.Name()); err != nil {
+	for _, name := range toRemove {
+		if err := root.RemoveAll(name); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func collectWipeRootEntries(root *os.Root, maxEntries int) ([]string, error) {
+	dir, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	var toRemove []string
+	entriesSeen := 0
+	for {
+		entries, readErr := dir.ReadDir(128)
+		for _, e := range entries {
+			entriesSeen++
+			if entriesSeen > maxEntries {
+				return nil, fmt.Errorf("materialize: wipe contains more than %d entries", maxEntries)
+			}
+			name := e.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return nil, fmt.Errorf("materialize: invalid wipe entry name %q", name)
+			}
+			if name == ".stado-pid" || name == ".stado" || name == ".git" {
+				continue
+			}
+			toRemove = append(toRemove, name)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	return toRemove, nil
 }

@@ -43,6 +43,9 @@ Plugins / Infra / Fixes.
 - **Bounded sidecar tree materialization walks.** Materialization now rejects
   sidecar trees that exceed entry-count or nesting-depth limits before the
   restore path can grow unbounded worktree state.
+- **Bounded sidecar materialization cleanup walks.** Replacing or zero-tree
+  materialization now streams cleanup discovery in batches and fails before
+  deletion if stale worktree traversal exceeds entry-count or depth limits.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

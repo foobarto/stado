@@ -225,6 +225,80 @@ func TestMaterialize_Replacing_PreservesStadoInternal(t *testing.T) {
 	}
 }
 
+func TestPruneExtrasRejectsTooManyEntriesBeforeRemoving(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	err = collectPruneExtras(root, ".", dir, map[string]bool{}, &materializeCleanupState{maxEntries: 2, maxDepth: maxMaterializedTreeDepth}, 0)
+	if err == nil {
+		t.Fatal("collectPruneExtras succeeded with too many entries")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("collectPruneExtras error = %v, want entry count rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "a.txt")); statErr != nil {
+		t.Fatalf("cleanup collection removed a file before failing: %v", statErr)
+	}
+}
+
+func TestPruneExtrasRejectsTooDeepCleanup(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	kept := map[string]bool{
+		filepath.Join(dir, "a"):      true,
+		filepath.Join(dir, "a", "b"): true,
+	}
+
+	err = collectPruneExtras(root, ".", dir, kept, &materializeCleanupState{maxEntries: maxMaterializedCleanupEntries, maxDepth: 1}, 0)
+	if err == nil {
+		t.Fatal("collectPruneExtras succeeded for too deep cleanup")
+	}
+	if !strings.Contains(err.Error(), "nesting") {
+		t.Fatalf("collectPruneExtras error = %v, want depth rejection", err)
+	}
+}
+
+func TestWipeRootRejectsTooManyEntriesBeforeRemoving(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = collectWipeRootEntries(root, 2)
+	if err == nil {
+		t.Fatal("collectWipeRootEntries succeeded with too many entries")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("collectWipeRootEntries error = %v, want entry count rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "a.txt")); statErr != nil {
+		t.Fatalf("wipe collection removed a file before failing: %v", statErr)
+	}
+}
+
 func TestMaterialize_RejectsEscapingTreeEntryName(t *testing.T) {
 	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
 	sess, _ := CreateSession(sc, t.TempDir(), "mat-escape", plumbing.ZeroHash)
