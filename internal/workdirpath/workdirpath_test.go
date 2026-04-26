@@ -122,6 +122,44 @@ func TestReadRegularFileNoSymlinkReadsRegularFile(t *testing.T) {
 	}
 }
 
+func TestReadRootRegularFileLimitedRejectsFinalSymlink(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "target.txt"), []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(dir, "link.txt")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	root, err := OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = ReadRootRegularFileLimited(root, "link.txt", 1024)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ReadRootRegularFileLimited error = %v, want symlink rejection", err)
+	}
+}
+
+func TestReadRootRegularFileLimitedRejectsOversizedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.bin")
+	if err := os.WriteFile(path, []byte("abcd"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, err := OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = ReadRootRegularFileLimited(root, "large.bin", 3)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("ReadRootRegularFileLimited error = %v, want size rejection", err)
+	}
+}
+
 func TestWriteFileRejectsSymlinkParentEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

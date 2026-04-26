@@ -306,6 +306,8 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 
 type GrepTool struct{}
 
+const maxGrepFileBytes int64 = 1 << 20
+
 func (GrepTool) Name() string        { return "grep" }
 func (GrepTool) Description() string { return "Search file contents with regex" }
 func (GrepTool) Schema() map[string]any {
@@ -350,10 +352,10 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 		if err != nil {
 			return nil
 		}
-		if info.Size() > 1024*1024 {
+		if info.Size() > maxGrepFileBytes {
 			return nil
 		}
-		data, err := root.ReadFile(filepath.FromSlash(path))
+		data, err := workdirpath.ReadRootRegularFileLimited(root, filepath.FromSlash(path), maxGrepFileBytes)
 		if err != nil {
 			return nil
 		}

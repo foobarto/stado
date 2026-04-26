@@ -164,7 +164,7 @@ func RawConversationLog(worktree string) ([]byte, error) {
 	}
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	data, err := readRootRegularFileLimited(root, name, maxConversationLogBytes)
+	data, err := workdirpath.ReadRootRegularFileLimited(root, name, maxConversationLogBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

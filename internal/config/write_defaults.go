@@ -12,6 +12,8 @@ import (
 	"github.com/pelletier/go-toml"
 )
 
+const maxConfigFileBytes int64 = 1 << 20
+
 // WriteDefaults updates [defaults] in config.toml. Empty values are ignored so
 // callers can persist only the setting they know.
 func WriteDefaults(configPath, provider, model string) error {
@@ -114,7 +116,7 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	case err == nil && !info.Mode().IsRegular():
 		return fmt.Errorf("config file is not regular: %s", name)
 	case err == nil:
-		data, err := root.ReadFile(name)
+		data, err := workdirpath.ReadRootRegularFileLimited(root, name, maxConfigFileBytes)
 		if err != nil {
 			return fmt.Errorf("read config: %w", err)
 		}

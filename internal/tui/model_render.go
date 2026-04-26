@@ -23,6 +23,8 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+const maxGitHeadFileBytes int64 = 4 << 10
+
 func (m *Model) View() string {
 	if m.showHelp {
 		return overlays.RenderHelp(m.keys, m.width)
@@ -764,7 +766,7 @@ func currentGitBranch(cwd string) string {
 	if info, err := root.Stat(".git"); err != nil || !info.IsDir() {
 		return ""
 	}
-	head, err := root.ReadFile(filepath.Join(".git", "HEAD"))
+	head, err := workdirpath.ReadRootRegularFileLimited(root, filepath.Join(".git", "HEAD"), maxGitHeadFileBytes)
 	if err != nil {
 		return ""
 	}

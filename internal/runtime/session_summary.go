@@ -116,7 +116,7 @@ func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return readRootRegularFileLimited(root, name, maxSessionMetadataFileBytes)
+	return workdirpath.ReadRootRegularFileLimited(root, name, maxSessionMetadataFileBytes)
 }
 
 func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.FileMode) error {

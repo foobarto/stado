@@ -11,8 +11,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const sessionMemoryDisabledFile = "memory-disabled"
-const userRepoPinFile = ".stado/user-repo"
+const (
+	sessionMemoryDisabledFile = "memory-disabled"
+	userRepoPinFile           = ".stado/user-repo"
+	maxUserRepoPinFileBytes   = 64 << 10
+)
 
 // SessionDisabled reports whether approved-memory retrieval is disabled
 // for the current worktree/session. The marker lives under .stado so it
@@ -133,6 +136,6 @@ func hasUserRepoPin(workdir string) bool {
 		return false
 	}
 	defer func() { _ = root.Close() }()
-	_, err = root.ReadFile(userRepoPinFile)
+	_, err = workdirpath.ReadRootRegularFileLimited(root, userRepoPinFile, maxUserRepoPinFileBytes)
 	return err == nil
 }

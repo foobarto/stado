@@ -15,6 +15,7 @@ import (
 const modelRecentsFile = "model-recents.json"
 const modelFavoritesFile = "model-favorites.json"
 const modelRecentsLimit = 8
+const maxModelStateFileBytes int64 = 256 << 10
 
 type modelRecentRecord struct {
 	ID           string `json:"id"`
@@ -187,7 +188,7 @@ func readModelStateFile(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("model state file is not regular: %s", name)
 	}
-	return root.ReadFile(name)
+	return workdirpath.ReadRootRegularFileLimited(root, name, maxModelStateFileBytes)
 }
 
 func writeModelStateRecords(path string, records []modelRecentRecord) bool {

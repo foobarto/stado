@@ -209,7 +209,7 @@ func readUserRepoPin(workdir string) string {
 		return ""
 	}
 	defer func() { _ = root.Close() }()
-	data, err := root.ReadFile(userRepoPinFile)
+	data, err := workdirpath.ReadRootRegularFileLimited(root, userRepoPinFile, maxUserRepoPinFileBytes)
 	if err != nil {
 		return ""
 	}

@@ -49,6 +49,8 @@ type Sidecar struct {
 	repo         *git.Repository
 }
 
+const maxAlternatesFileBytes int64 = 64 << 10
+
 // OpenOrInitSidecar opens (or creates) the sidecar bare repo at sidecarPath
 // and ensures its alternates file points at the user repo's .git/objects.
 //
@@ -114,7 +116,7 @@ func (s *Sidecar) ensureAlternates() error {
 	const altName = "alternates"
 	if info, err := root.Lstat(altName); err == nil {
 		if info.Mode().IsRegular() {
-			existing, err := root.ReadFile(altName)
+			existing, err := workdirpath.ReadRootRegularFileLimited(root, altName, maxAlternatesFileBytes)
 			if err != nil {
 				return fmt.Errorf("sidecar: read alternates: %w", err)
 			}

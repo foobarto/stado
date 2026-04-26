@@ -69,6 +69,9 @@ Plugins / Infra / Fixes.
 - **Capped runtime state reads.** Session metadata and raw conversation log
   reads now verify regular files and enforce byte ceilings before loading
   worktree state into memory.
+- **Capped remaining rooted state reads.** Repo pin, config, sidecar
+  alternates, TUI model state, git HEAD, and grep reads now use bounded
+  regular-file opens instead of direct whole-file root reads.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

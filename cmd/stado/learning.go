@@ -999,6 +999,8 @@ func findCurrentRepoRoot(start string) string {
 	}
 }
 
+const maxLearningRepoPinFileBytes int64 = 64 << 10
+
 func readCurrentRepoPin(dir string) string {
 	if strings.TrimSpace(dir) == "" {
 		return ""
@@ -1008,7 +1010,7 @@ func readCurrentRepoPin(dir string) string {
 		return ""
 	}
 	defer func() { _ = root.Close() }()
-	data, err := root.ReadFile(filepath.Join(".stado", "user-repo"))
+	data, err := workdirpath.ReadRootRegularFileLimited(root, filepath.Join(".stado", "user-repo"), maxLearningRepoPinFileBytes)
 	if err != nil {
 		return ""
 	}
