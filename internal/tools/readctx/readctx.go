@@ -32,6 +32,8 @@ const (
 	maxReadctxFileBytes           = 1 << 20
 	maxReadctxImportScanBytes     = 1 << 20
 	maxReadctxGoModBytes          = 1 << 20
+	maxReadctxPackageEntries      = 4096
+	readctxReadDirBatch           = 128
 )
 
 func (Tool) Name() string { return "read_with_context" }
@@ -165,18 +167,9 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 			continue
 		}
 
-		// Pick one representative file per package — prefer <pkgname>.go, else
-		// the first non-test .go file.
-		entries, _ := os.ReadDir(pkgDir)
-		var candidate string
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
-				continue
-			}
-			candidate = filepath.Join(pkgDir, e.Name())
-			if strings.HasPrefix(e.Name(), filepath.Base(pkgDir)+".") {
-				break // prefer <pkgname>.go
-			}
+		candidate, err := selectGoPackageFile(pkgDir, maxReadctxPackageEntries)
+		if err != nil {
+			continue
 		}
 		if candidate == "" {
 			continue
@@ -194,6 +187,78 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out, nil
+}
+
+// selectGoPackageFile picks one representative file per package — prefer
+// <pkgname>.go, else the first non-test .go file. Directory entries are read
+// in bounded batches so large local packages cannot force unbounded listings.
+func selectGoPackageFile(pkgDir string, maxEntries int) (string, error) {
+	root, err := workdirpath.OpenRootNoSymlink(pkgDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+
+	names, err := readPackageDirEntryNames(root, maxEntries)
+	if err != nil {
+		return "", err
+	}
+
+	var candidate string
+	preferredPrefix := filepath.Base(pkgDir) + "."
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		info, err := root.Lstat(name)
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+		if candidate == "" {
+			candidate = filepath.Join(pkgDir, name)
+		}
+		if strings.HasPrefix(name, preferredPrefix) {
+			candidate = filepath.Join(pkgDir, name)
+			break
+		}
+	}
+	return candidate, nil
+}
+
+func readPackageDirEntryNames(root *os.Root, maxEntries int) ([]string, error) {
+	dir, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+
+	var names []string
+	entriesSeen := 0
+	for {
+		entries, readErr := dir.ReadDir(readctxReadDirBatch)
+		for _, e := range entries {
+			entriesSeen++
+			if entriesSeen > maxEntries {
+				return nil, fmt.Errorf("readctx package directory contains more than %d entries", maxEntries)
+			}
+			name := e.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return nil, fmt.Errorf("invalid readctx package directory entry name %q", name)
+			}
+			names = append(names, name)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // findModuleRoot walks up from dir until it sees a go.mod inside workdir.

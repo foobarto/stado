@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -205,6 +206,25 @@ func main() { _ = util.Secret }
 	}
 	if strings.Contains(res.Content, "=== util/util.go ===") || strings.Contains(res.Content, "const Secret") {
 		t.Fatalf("symlinked outside import should not be included:\n%s", res.Content)
+	}
+}
+
+func TestReadPackageDirEntryNamesRejectsTooManyEntries(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(filepath.Join(root, strings.Repeat("a", i+1)+".go"), []byte("package demo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dirRoot, err := workdirpath.OpenRootNoSymlink(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dirRoot.Close() }()
+
+	_, err = readPackageDirEntryNames(dirRoot, 2)
+	if err == nil || !strings.Contains(err.Error(), "more than 2 entries") {
+		t.Fatalf("readPackageDirEntryNames error = %v, want entry cap rejection", err)
 	}
 }
 

@@ -58,6 +58,9 @@ Plugins / Infra / Fixes.
 - **Bounded skill discovery.** Project skill loading now streams `.stado/skills`
   directory entries through rooted no-symlink handles and rejects oversized
   skill directories before parsing files.
+- **Bounded read-context package discovery.** The `read_with_context` tool now
+  streams local Go package directory entries in batches and skips import
+  packages that exceed the package-entry cap.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.
