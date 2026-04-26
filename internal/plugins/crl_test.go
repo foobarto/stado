@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,6 +124,35 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Entries) != 1 || loaded.Entries[0].AuthorFingerprint != "abc" {
 		t.Errorf("round-trip mismatch: %+v", loaded)
+	}
+}
+
+func TestSaveLocalDoesNotFollowPredictableTempSymlink(t *testing.T) {
+	c, _ := newSignedCRL(t, []CRLEntry{
+		{AuthorFingerprint: "abc", Version: "1.0.0"},
+	})
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "crl.json")
+	if err := os.Symlink(outside, path+".tmp"); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if err := SaveLocal(c, path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside" {
+		t.Fatalf("outside target was modified: %q", got)
+	}
+	if loaded, err := LoadLocal(path); err != nil || loaded == nil {
+		t.Fatalf("load saved CRL: loaded=%v err=%v", loaded, err)
 	}
 }
 

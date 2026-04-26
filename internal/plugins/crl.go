@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -36,7 +35,7 @@ type CRLEntry struct {
 // LoadLocal reads a cached CRL from disk. Missing file returns (nil, nil)
 // — no CRL is not an error, just an advisory in the logs.
 func LoadLocal(path string) (*CRL, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- CRL cache path is derived from stado config state.
+	data, err := readPluginStateFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -52,18 +51,11 @@ func LoadLocal(path string) (*CRL, error) {
 
 // SaveLocal writes a CRL to disk atomically (0600, tmp+rename).
 func SaveLocal(c *CRL, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writePluginStateFileAtomic(path, data, 0o600)
 }
 
 // Fetch lives in crl_online.go (`!airgap`) and crl_airgap.go (`airgap`).

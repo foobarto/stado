@@ -44,6 +44,9 @@ Plugins / Infra / Fixes.
 - **Hardened self-update extraction.** Self-update now writes the release
   binary into its already-open temp file instead of reopening by path and
   rejects tar/zip entries named like the binary unless they are regular files.
+- **Hardened plugin state writes.** Plugin CRL and trust-store saves now use
+  rooted, exclusive random temp files and reject non-regular state files so
+  pre-created temp symlinks cannot redirect writes outside the state directory.
 
 ## v0.25.7 — 2026-04-26
 

@@ -35,7 +35,7 @@ func NewTrustStore(stateDir string) *TrustStore {
 
 // Load reads the store from disk. Missing file = empty store (first run).
 func (s *TrustStore) Load() (map[string]TrustEntry, error) {
-	data, err := os.ReadFile(s.Path)
+	data, err := readPluginStateFile(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		return map[string]TrustEntry{}, nil
 	}
@@ -55,9 +55,6 @@ func (s *TrustStore) Load() (map[string]TrustEntry, error) {
 
 // Save writes entries back to disk (0600, atomically via rename).
 func (s *TrustStore) Save(entries map[string]TrustEntry) error {
-	if err := os.MkdirAll(filepath.Dir(s.Path), 0o700); err != nil {
-		return err
-	}
 	list := make([]TrustEntry, 0, len(entries))
 	for _, e := range entries {
 		list = append(list, e)
@@ -67,11 +64,7 @@ func (s *TrustStore) Save(entries map[string]TrustEntry) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.Path)
+	return writePluginStateFileAtomic(s.Path, data, 0o600)
 }
 
 // Trust adds a signer. Key may be passed as hex (64 chars) or base64 (44

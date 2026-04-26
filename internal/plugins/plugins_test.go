@@ -79,6 +79,38 @@ func TestTrustStore_TrustAndVerify(t *testing.T) {
 	}
 }
 
+func TestTrustStoreSaveDoesNotFollowPredictableTempSymlink(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "trust.json")
+	if err := os.Symlink(outside, path+".tmp"); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	ts := &TrustStore{Path: path}
+
+	if _, err := ts.Trust(hex.EncodeToString(pub), "alice"); err != nil {
+		t.Fatalf("trust: %v", err)
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside" {
+		t.Fatalf("outside target was modified: %q", got)
+	}
+	store, err := ts.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(store) != 1 {
+		t.Fatalf("trust store entries = %d, want 1", len(store))
+	}
+}
+
 func TestTrustStore_VerifyRejectsUnpinned(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
