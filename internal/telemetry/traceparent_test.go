@@ -145,6 +145,34 @@ func TestWriteCurrentTraceparentRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestWriteCurrentTraceparentRejectsInRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	decoy := filepath.Join(dir, "decoy-traceparent")
+	if err := os.WriteFile(decoy, []byte("do not replace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy-traceparent", filepath.Join(dir, TraceparentFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	sr := tracetest.NewSpanRecorder()
+	tp := newTestTracerProvider(sr)
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "fork")
+	defer span.End()
+
+	if err := WriteCurrentTraceparent(ctx, dir); err == nil {
+		t.Fatal("WriteCurrentTraceparent succeeded through an in-root symlink")
+	}
+	got, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "do not replace\n" {
+		t.Fatalf("in-root traceparent target was modified: %q", got)
+	}
+}
+
 // TestLoadParentTraceparent_Missing_IsNoOp: the common no-fork case.
 // No file → return the base context unchanged, signal false.
 func TestLoadParentTraceparent_Missing_IsNoOp(t *testing.T) {

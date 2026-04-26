@@ -31,6 +31,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -80,7 +81,53 @@ func WriteCurrentTraceparent(ctx context.Context, dir string) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return root.WriteFile(TraceparentFile, []byte(tp+"\n"), 0o600)
+	return writeTraceparentFile(root, TraceparentFile, []byte(tp+"\n"), 0o600)
+}
+
+func writeTraceparentFile(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("traceparent file is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("traceparent file is not regular: %s", name)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	tmp := name + "." + uuid.NewString() + ".tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmp)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
 }
 
 // LoadParentTraceparent looks for `<dir>/<TraceparentFile>` and, if

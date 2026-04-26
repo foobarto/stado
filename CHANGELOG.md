@@ -65,6 +65,9 @@ Plugins / Infra / Fixes.
 - **Hardened session memory opt-out writes.** The per-session
   memory-disabled marker now writes through rooted random temp files and
   rejects marker symlinks instead of following them.
+- **Hardened traceparent writes.** Fork traceparent metadata now writes
+  through rooted random temp files and rejects traceparent symlinks instead
+  of following them.
 
 ## v0.25.7 — 2026-04-26
 
