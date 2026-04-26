@@ -81,6 +81,8 @@ Plugins / Infra / Fixes.
   unbounded in-memory buffers.
 - **Capped command probe captures.** TUI git status checks and Linux pasta
   capability probes now avoid unbounded `Output`/`CombinedOutput` captures.
+- **Capped LSP frame reads.** LSP message framing now rejects oversized header
+  lines, header blocks, and message bodies before allocation.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

@@ -67,6 +67,22 @@ func TestReadMessage_MissingHeaderErrors(t *testing.T) {
 	}
 }
 
+func TestReadMessage_RejectsOversizedBody(t *testing.T) {
+	frame := "Content-Length: " + itoa(maxLSPMessageBytes+1) + "\r\n\r\n"
+	err := ReadMessage(bufio.NewReader(strings.NewReader(frame)), &struct{}{})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("ReadMessage error = %v, want body size rejection", err)
+	}
+}
+
+func TestReadMessage_RejectsOversizedHeaderLine(t *testing.T) {
+	frame := "X-Test: " + strings.Repeat("x", maxLSPHeaderLineBytes+1) + "\r\n\r\n"
+	err := ReadMessage(bufio.NewReader(strings.NewReader(frame)), &struct{}{})
+	if err == nil || !strings.Contains(err.Error(), "header line exceeds") {
+		t.Fatalf("ReadMessage error = %v, want header line size rejection", err)
+	}
+}
+
 func TestWriteMessage_HonorsJSONEncoding(t *testing.T) {
 	var buf bytes.Buffer
 	type req struct {

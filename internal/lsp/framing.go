@@ -15,10 +15,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+)
+
+const (
+	maxLSPMessageBytes    = 8 << 20
+	maxLSPHeaderLineBytes = 8 << 10
+	maxLSPHeaderBytes     = 64 << 10
 )
 
 // WriteMessage serialises a JSON-RPC message with LSP's Content-Length frame.
@@ -41,6 +48,9 @@ func ReadMessage(r *bufio.Reader, dst any) error {
 	if err != nil {
 		return err
 	}
+	if length > maxLSPMessageBytes {
+		return fmt.Errorf("lsp: message body exceeds %d bytes", maxLSPMessageBytes)
+	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
 		return fmt.Errorf("lsp: read body: %w", err)
@@ -52,10 +62,15 @@ func ReadMessage(r *bufio.Reader, dst any) error {
 // Content-Type) and returns the body length. Skips empty lines.
 func readFrameHeader(r *bufio.Reader) (int, error) {
 	length := -1
+	headerBytes := 0
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readHeaderLine(r)
 		if err != nil {
 			return 0, err
+		}
+		headerBytes += len(line)
+		if headerBytes > maxLSPHeaderBytes {
+			return 0, fmt.Errorf("lsp: header block exceeds %d bytes", maxLSPHeaderBytes)
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
@@ -76,5 +91,28 @@ func readFrameHeader(r *bufio.Reader) (int, error) {
 	if length < 0 {
 		return 0, fmt.Errorf("lsp: missing Content-Length header")
 	}
+	if length > maxLSPMessageBytes {
+		return 0, fmt.Errorf("lsp: content-length exceeds %d bytes", maxLSPMessageBytes)
+	}
 	return length, nil
+}
+
+func readHeaderLine(r *bufio.Reader) (string, error) {
+	var out []byte
+	for {
+		frag, err := r.ReadSlice('\n')
+		out = append(out, frag...)
+		if len(out) > maxLSPHeaderLineBytes {
+			for errors.Is(err, bufio.ErrBufferFull) {
+				_, err = r.ReadSlice('\n')
+			}
+			return "", fmt.Errorf("lsp: header line exceeds %d bytes", maxLSPHeaderLineBytes)
+		}
+		if err == nil {
+			return string(out), nil
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return "", err
+		}
+	}
 }
