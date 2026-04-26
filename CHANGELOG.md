@@ -66,6 +66,9 @@ Plugins / Infra / Fixes.
 - **Capped plugin host import memory reads.** Runtime host imports now reject
   oversized plugin-controlled strings and byte payloads before copying them
   out of Wasm memory.
+- **Capped runtime state reads.** Session metadata and raw conversation log
+  reads now verify regular files and enforce byte ceilings before loading
+  worktree state into memory.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

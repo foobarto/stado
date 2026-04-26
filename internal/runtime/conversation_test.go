@@ -180,6 +180,27 @@ func TestRawConversationLogRejectsLogSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRawConversationLogRejectsOversizedLog(t *testing.T) {
+	wt := t.TempDir()
+	stadoDir := filepath.Join(wt, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(wt, ConversationFile)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxConversationLogBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := RawConversationLog(wt); err == nil {
+		t.Fatal("RawConversationLog should reject oversized logs")
+	} else if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size limit", err)
+	}
+}
+
 func TestConversationAppendRejectsStadoDirSymlinkEscape(t *testing.T) {
 	outsideDir := t.TempDir()
 	wt := t.TempDir()

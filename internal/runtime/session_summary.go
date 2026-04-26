@@ -42,6 +42,7 @@ type SessionSummary struct {
 // necessary (reader trims whitespace).
 const DescriptionFile = ".stado/description"
 const sessionPIDFile = ".stado-pid"
+const maxSessionMetadataFileBytes int64 = 64 << 10
 
 // ReadDescription returns the description for a worktree, or "" when
 // unset. Missing file / read errors collapse to "" so callers can
@@ -115,12 +116,15 @@ func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return root.ReadFile(name)
+	return readRootRegularFileLimited(root, name, maxSessionMetadataFileBytes)
 }
 
 func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.FileMode) error {
 	if strings.TrimSpace(worktreeDir) == "" {
 		return nil
+	}
+	if int64(len(data)) > maxSessionMetadataFileBytes {
+		return fmt.Errorf("session metadata exceeds %d bytes: %s", maxSessionMetadataFileBytes, name)
 	}
 	root, err := workdirpath.OpenRootNoSymlink(worktreeDir)
 	if err != nil {

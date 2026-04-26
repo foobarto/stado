@@ -149,6 +149,39 @@ func TestReadDescription_StripsTerminalControlChars(t *testing.T) {
 	}
 }
 
+func TestReadDescriptionRejectsOversizedMetadata(t *testing.T) {
+	dir := t.TempDir()
+	stadoDir := filepath.Join(dir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, DescriptionFile)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxSessionMetadataFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ReadDescription(dir); got != "" {
+		t.Fatalf("ReadDescription should drop oversized metadata, got %q", got)
+	}
+}
+
+func TestWriteDescriptionRejectsOversizedMetadata(t *testing.T) {
+	dir := t.TempDir()
+	text := strings.Repeat("x", int(maxSessionMetadataFileBytes)+1)
+
+	if err := WriteDescription(dir, text); err == nil {
+		t.Fatal("WriteDescription should reject oversized metadata")
+	} else if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size limit", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, DescriptionFile)); !os.IsNotExist(err) {
+		t.Fatalf("oversized metadata should not create description, stat err = %v", err)
+	}
+}
+
 func TestWriteDescriptionRejectsSymlinkEscape(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "outside.txt")
 	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {

@@ -42,6 +42,7 @@ import (
 // (relative to the worktree root). Readable by `stado session show`
 // for debugging + by runtime.OpenSession when resuming.
 const ConversationFile = ".stado/conversation.jsonl"
+const maxConversationLogBytes int64 = 64 << 20
 
 // ConversationCompaction is an append-only log event recording that
 // subsequent resumes should use a compacted conversation view. The raw
@@ -163,7 +164,7 @@ func RawConversationLog(worktree string) ([]byte, error) {
 	}
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	data, err := root.ReadFile(name)
+	data, err := readRootRegularFileLimited(root, name, maxConversationLogBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
