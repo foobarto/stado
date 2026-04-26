@@ -66,6 +66,22 @@ func TestLoadOrCreateKeyRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateKeyRejectsValidKeySymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target-key")
+	if _, err := LoadOrCreateKey(target); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "key")
+	if err := os.Symlink("target-key", path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := LoadOrCreateKey(path); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("LoadOrCreateKey error = %v, want symlink rejection", err)
+	}
+}
+
 func TestLoadOrCreateKeyRejectsParentSymlink(t *testing.T) {
 	base := t.TempDir()
 	target := filepath.Join(base, "target")

@@ -47,7 +47,7 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func loadKey(path string) (ed25519.PrivateKey, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- audit key path is derived from stado config state.
+	data, err := workdirpath.ReadRegularFileNoSymlink(path)
 	if err != nil {
 		return nil, err
 	}

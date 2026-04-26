@@ -15,6 +15,9 @@ Plugins / Infra / Fixes.
 - **Rooted read-context module discovery.** The `read_with_context` tool now
   reads target/import files through workdir-rooted handles and stops Go module
   probing at the tool workdir boundary.
+- **Hardened audit key loads.** Existing audit signing keys are now read
+  through the no-symlink opener, matching the existing protected key creation
+  path.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the
