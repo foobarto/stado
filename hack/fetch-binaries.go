@@ -379,7 +379,7 @@ func writeRepoFileAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 	defer func() { _ = root.Close() }()
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
 			return err
 		}
 	}

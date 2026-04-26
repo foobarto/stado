@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened release helper writes.** The bundled-binary fetch helper now
+  creates generated source and asset parent directories through rooted
+  no-symlink directory creation.
 - **Hardened plugin package verification reads.** Plugin manifest,
   signature, author-pubkey sidecar, and WASM digest reads now reject
   symlinked plugin directory components and package files before
