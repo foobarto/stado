@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -108,6 +109,54 @@ func TestStoreRejectsOversizedLoadedTask(t *testing.T) {
 	}
 	if _, err := (Store{Path: path}).Get("task-1"); err == nil {
 		t.Fatal("Get should reject persisted tasks that exceed body limit")
+	}
+}
+
+func TestDecodeTasksHandlesEmptyStore(t *testing.T) {
+	tasks, err := decodeTasks(strings.NewReader(" \n\t "), 8)
+	if err != nil {
+		t.Fatalf("decodeTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want empty", tasks)
+	}
+}
+
+func TestDecodeTasksRejectsOversizedWhitespace(t *testing.T) {
+	_, err := decodeTasks(strings.NewReader(strings.Repeat(" ", 9)), 8)
+	if err == nil {
+		t.Fatal("expected oversized whitespace store to fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds 8 bytes") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDecodeTasksRejectsTrailingJSONValue(t *testing.T) {
+	_, err := decodeTasks(strings.NewReader(`[] []`), 32)
+	if err == nil {
+		t.Fatal("expected trailing JSON value to fail")
+	}
+	if !strings.Contains(err.Error(), "single JSON array") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestEncodeTasksRejectsOversizedOutput(t *testing.T) {
+	var buf bytes.Buffer
+	err := encodeTasks(&buf, []Task{{
+		ID:     "task-1",
+		Title:  "loaded",
+		Status: StatusOpen,
+	}}, 8)
+	if err == nil {
+		t.Fatal("expected oversized encoded task store to fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds 8 bytes") {
+		t.Fatalf("error = %v", err)
+	}
+	if buf.Len() > 8 {
+		t.Fatalf("buffer length = %d, want capped at 8", buf.Len())
 	}
 }
 

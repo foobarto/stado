@@ -106,6 +106,9 @@ Plugins / Infra / Fixes.
 - **Capped task picker input buffers.** Task search, title, and body editing
   now stop at bounded byte limits before oversized pasted input can grow TUI
   memory.
+- **Streamed task store JSON I/O.** Task store loading and saving now decode
+  and encode through the store byte ceiling instead of staging the whole JSON
+  document in memory.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

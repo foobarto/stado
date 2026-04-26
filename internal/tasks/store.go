@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -249,19 +248,9 @@ func (s Store) load() ([]Task, error) {
 	if info.Size() > MaxStoreBytes {
 		return nil, fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
 	}
-	data, err := io.ReadAll(io.LimitReader(f, MaxStoreBytes+1))
+	tasks, err := decodeTasks(f, MaxStoreBytes)
 	if err != nil {
 		return nil, err
-	}
-	if len(data) > MaxStoreBytes {
-		return nil, fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
-	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return nil, nil
-	}
-	var tasks []Task
-	if err := json.Unmarshal(data, &tasks); err != nil {
-		return nil, fmt.Errorf("read tasks: %w", err)
 	}
 	for i := range tasks {
 		if tasks[i].Status == "" {
@@ -281,21 +270,13 @@ func (s Store) save(tasks []Task) error {
 	}
 	defer func() { _ = root.Close() }()
 
-	data, err := json.MarshalIndent(tasks, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if len(data) > MaxStoreBytes {
-		return fmt.Errorf("task store exceeds %d bytes", MaxStoreBytes)
-	}
 	tmpName := "." + name + "." + uuid.NewString() + ".tmp"
 	tmp, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
+	if err := encodeTasks(tmp, tasks, MaxStoreBytes); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -303,6 +284,66 @@ func (s Store) save(tasks []Task) error {
 		return err
 	}
 	return root.Rename(tmpName, name)
+}
+
+func decodeTasks(r io.Reader, maxBytes int64) ([]Task, error) {
+	limited := &io.LimitedReader{R: r, N: maxBytes + 1}
+	dec := json.NewDecoder(limited)
+	var tasks []Task
+	if err := dec.Decode(&tasks); err != nil {
+		if errors.Is(err, io.EOF) {
+			if limited.N <= 0 {
+				return nil, taskStoreExceedsError(maxBytes)
+			}
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read tasks: %w", err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err == nil {
+		return nil, errors.New("read tasks: expected a single JSON array")
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("read tasks: %w", err)
+	}
+	if limited.N <= 0 {
+		return nil, taskStoreExceedsError(maxBytes)
+	}
+	return tasks, nil
+}
+
+func encodeTasks(w io.Writer, tasks []Task, maxBytes int64) error {
+	capped := &cappedWriter{w: w, maxBytes: maxBytes}
+	enc := json.NewEncoder(capped)
+	enc.SetIndent("", "  ")
+	return enc.Encode(tasks)
+}
+
+type cappedWriter struct {
+	w        io.Writer
+	maxBytes int64
+	written  int64
+}
+
+func (w *cappedWriter) Write(p []byte) (int, error) {
+	remaining := w.maxBytes - w.written
+	if remaining <= 0 {
+		return 0, taskStoreExceedsError(w.maxBytes)
+	}
+	if int64(len(p)) > remaining {
+		n, err := w.w.Write(p[:remaining])
+		w.written += int64(n)
+		if err != nil {
+			return n, err
+		}
+		return n, taskStoreExceedsError(w.maxBytes)
+	}
+	n, err := w.w.Write(p)
+	w.written += int64(n)
+	return n, err
+}
+
+func taskStoreExceedsError(maxBytes int64) error {
+	return fmt.Errorf("task store exceeds %d bytes", maxBytes)
 }
 
 func (s Store) withLock(fn func() error) error {
