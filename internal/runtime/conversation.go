@@ -243,7 +243,7 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 	if worktree == "" {
 		return nil, "", errors.New("conversation: worktree required")
 	}
-	workRoot, err := os.OpenRoot(worktree)
+	workRoot, err := workdirpath.OpenRootNoSymlink(worktree)
 	if err != nil {
 		return nil, "", fmt.Errorf("conversation: open worktree %s: %w", worktree, err)
 	}

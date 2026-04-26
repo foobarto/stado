@@ -110,7 +110,7 @@ func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
 	if strings.TrimSpace(worktreeDir) == "" {
 		return nil, os.ErrNotExist
 	}
-	root, err := os.OpenRoot(worktreeDir)
+	root, err := workdirpath.OpenRootNoSymlink(worktreeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.Fil
 	if strings.TrimSpace(worktreeDir) == "" {
 		return nil
 	}
-	root, err := os.OpenRoot(worktreeDir)
+	root, err := workdirpath.OpenRootNoSymlink(worktreeDir)
 	if err != nil {
 		return err
 	}

@@ -173,6 +173,43 @@ func TestWriteCurrentTraceparentRejectsInRootSymlink(t *testing.T) {
 	}
 }
 
+func TestTraceparentRejectsWorktreeRootSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tracePath := filepath.Join(target, TraceparentFile)
+	const rawTraceparent = "00-0102030405060708090a0b0c0d0e0f10-1112131415161718-01\n"
+	if err := os.WriteFile(tracePath, []byte(rawTraceparent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "worktree-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if _, ok := LoadParentTraceparent(context.Background(), link); ok {
+		t.Fatal("LoadParentTraceparent followed a symlinked worktree root")
+	}
+
+	sr := tracetest.NewSpanRecorder()
+	tp := newTestTracerProvider(sr)
+	tracer := tp.Tracer("test")
+	ctx, span := tracer.Start(context.Background(), "fork")
+	defer span.End()
+	if err := WriteCurrentTraceparent(ctx, link); err == nil {
+		t.Fatal("WriteCurrentTraceparent wrote through a symlinked worktree root")
+	}
+	got, err := os.ReadFile(tracePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != rawTraceparent {
+		t.Fatalf("symlink target traceparent was modified: %q", got)
+	}
+}
+
 // TestLoadParentTraceparent_Missing_IsNoOp: the common no-fork case.
 // No file → return the base context unchanged, signal false.
 func TestLoadParentTraceparent_Missing_IsNoOp(t *testing.T) {

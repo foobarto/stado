@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened worktree metadata roots.** Session memory toggles, user-repo pins,
+  descriptions, pid files, conversation logs, and traceparent files now reject
+  symlinked worktree roots before reading or writing session metadata.
 - **Hardened rooted state/cache opens.** Task, memory, plugin-state, model
   state, config, sidecar, bundled-tool cache, plugin scaffolding/install, and
   tree-materialization roots now reopen directories with no-symlink checks.

@@ -200,6 +200,37 @@ func TestWriteDescriptionRejectsInRootSymlink(t *testing.T) {
 	}
 }
 
+func TestSessionMetadataRejectsWorktreeRootSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	stadoDir := filepath.Join(target, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	desc := filepath.Join(stadoDir, "description")
+	if err := os.WriteFile(desc, []byte("target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "worktree-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := ReadDescription(link); got != "" {
+		t.Fatalf("ReadDescription followed a symlinked worktree root: %q", got)
+	}
+	if err := WriteDescription(link, "new"); err == nil {
+		t.Fatal("WriteDescription wrote through a symlinked worktree root")
+	}
+	got, err := os.ReadFile(desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "target\n" {
+		t.Fatalf("symlink target description was modified: %q", got)
+	}
+}
+
 func TestReadUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
 	outsideDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {

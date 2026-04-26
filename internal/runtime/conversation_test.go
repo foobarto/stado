@@ -195,6 +195,25 @@ func TestConversationAppendRejectsStadoDirSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestConversationWorktreeRootSymlinkRejected(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "worktree-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := AppendMessage(link, agent.Text(agent.RoleUser, "escape")); err == nil {
+		t.Fatal("AppendMessage should reject a symlinked worktree root")
+	}
+	if _, err := os.Stat(filepath.Join(target, ConversationFile)); !os.IsNotExist(err) {
+		t.Fatalf("symlink target conversation log was modified, stat err = %v", err)
+	}
+}
+
 func TestConversation_CompactionEventIsAppendOnlyAndFoldsView(t *testing.T) {
 	wt := t.TempDir()
 	for _, text := range []string{"turn 1", "turn 2", "turn 3"} {

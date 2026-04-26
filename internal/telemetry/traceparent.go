@@ -31,6 +31,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -76,7 +77,7 @@ func WriteCurrentTraceparent(ctx context.Context, dir string) error {
 		return errors.New("traceparent: propagator returned empty traceparent")
 	}
 
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}
@@ -146,7 +147,7 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 	if dir == "" {
 		return ctx, false
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return ctx, false
 	}

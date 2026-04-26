@@ -210,6 +210,40 @@ func TestSetSessionEnabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestSessionDisabledRejectsWorktreeRootSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.MkdirAll(filepath.Join(target, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stadoDir := filepath.Join(target, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(stadoDir, sessionMemoryDisabledFile)
+	if err := os.WriteFile(marker, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "worktree-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if SessionDisabled(link) {
+		t.Fatal("SessionDisabled followed a symlinked worktree root")
+	}
+	if err := SetSessionDisabled(link, true); err == nil {
+		t.Fatal("SetSessionDisabled wrote through a symlinked worktree root")
+	}
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside\n" {
+		t.Fatalf("symlink target marker was modified: %q", got)
+	}
+}
+
 func TestPromptContextFormatsApprovedScopedMemories(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")

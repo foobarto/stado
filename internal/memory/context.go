@@ -9,6 +9,7 @@ import (
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 type PromptContextOptions struct {
@@ -203,7 +204,7 @@ func readUserRepoPin(workdir string) string {
 	if strings.TrimSpace(workdir) == "" {
 		return ""
 	}
-	root, err := os.OpenRoot(workdir)
+	root, err := workdirpath.OpenRootNoSymlink(workdir)
 	if err != nil {
 		return ""
 	}
