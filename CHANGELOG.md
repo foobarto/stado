@@ -10,7 +10,8 @@ Plugins / Infra / Fixes.
 
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
-  rendering, and release helper writes now use the shared no-symlink root opener.
+  rendering, release helper writes, and shared workdir file helpers now use the
+  no-symlink root opener; direct `os.OpenRoot` use is isolated to that primitive.
 - **Hardened explicit output and learning roots.** CLI file-output helpers,
   minisign artifact signing, learning document writes, and learning repo-pin
   reads now reject symlinked parent/root directories before reading or writing.

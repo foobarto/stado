@@ -91,7 +91,7 @@ func ReadFile(workdir, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := os.OpenRoot(rootPath)
+	root, err := OpenRootNoSymlink(rootPath)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func WriteFile(workdir, path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(rootPath)
+	root, err := OpenRootNoSymlink(rootPath)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func MkdirAllNoSymlink(path string, perm os.FileMode) error {
 		return err
 	}
 	rootPath, rel := splitAbsoluteRoot(abs)
-	root, err := os.OpenRoot(rootPath)
+	root, err := OpenRootNoSymlink(rootPath)
 	if err != nil {
 		return err
 	}
