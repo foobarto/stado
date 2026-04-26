@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -19,6 +21,31 @@ import (
 )
 
 const maxResponseBytes = 512 * 1024
+
+var webFetchDialContext = guardedWebFetchDialContext
+
+var blockedWebFetchPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("ff00::/8"),
+	netip.MustParsePrefix("2001:db8::/32"),
+}
 
 func (WebFetchTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
 	var p Args
@@ -38,8 +65,12 @@ func (WebFetchTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) 
 	}
 	req.Header.Set("User-Agent", "stado/0.1.0")
 
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = webFetchDialContext
 	client := &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout:   15 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("webfetch: stopped after %d redirects", len(via))
@@ -73,6 +104,63 @@ func (WebFetchTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) 
 		"narrow the URL path or target a specific page section")
 
 	return tool.Result{Content: content}, nil
+}
+
+func guardedWebFetchDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := resolveWebFetchHost(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		if !isPublicWebFetchIP(ip) {
+			return nil, fmt.Errorf("webfetch: private network address %s for host %q denied", ip, host)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("webfetch: no address records for host %q", host)
+	}
+	dialer := &net.Dialer{}
+	var lastErr error
+	for _, ip := range ips {
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func resolveWebFetchHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		return []netip.Addr{ip.Unmap()}, nil
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]netip.Addr, 0, len(addrs))
+	for _, ip := range addrs {
+		out = append(out, ip.Unmap())
+	}
+	return out, nil
+}
+
+func isPublicWebFetchIP(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	for _, prefix := range blockedWebFetchPrefixes {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateFetchURL(raw string) (*url.URL, error) {

@@ -412,6 +412,11 @@ disabled = ["webfetch", "bash"]
 
 Unknown names warn on stderr and are ignored.
 
+`webfetch` only supports `http` and `https`, refuses cross-host redirects, and
+blocks loopback, private, link-local, and reserved IP targets when opening the
+connection. Use `[tools].disabled = ["webfetch"]` for stricter offline or
+no-network profiles.
+
 ### Tool approvals
 
 The old bundled-tool approval loop is gone. Use `[tools].enabled` /

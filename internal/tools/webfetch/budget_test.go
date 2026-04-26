@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -27,9 +29,18 @@ func (nullHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 }
 func (nullHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
+func allowLocalWebfetch(t *testing.T) {
+	t.Helper()
+	old := webFetchDialContext
+	webFetchDialContext = (&net.Dialer{}).DialContext
+	t.Cleanup(func() { webFetchDialContext = old })
+}
+
 // TestWebfetchTruncatesLargeBody serves a very long plaintext page and
 // asserts the output is capped with a marker.
 func TestWebfetchTruncatesLargeBody(t *testing.T) {
+	allowLocalWebfetch(t)
+
 	body := strings.Repeat("word ", budget.WebfetchBytes)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -52,6 +63,8 @@ func TestWebfetchTruncatesLargeBody(t *testing.T) {
 
 // TestWebfetchNoTruncationSmallBody covers the no-op path.
 func TestWebfetchNoTruncationSmallBody(t *testing.T) {
+	allowLocalWebfetch(t)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintln(w, "hello from webfetch")
 	}))
@@ -65,6 +78,8 @@ func TestWebfetchNoTruncationSmallBody(t *testing.T) {
 }
 
 func TestWebfetchCapsRawResponseBody(t *testing.T) {
+	allowLocalWebfetch(t)
+
 	body := strings.Repeat("x", maxResponseBytes+4096)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -86,6 +101,8 @@ func TestWebfetchCapsRawResponseBody(t *testing.T) {
 }
 
 func TestWebfetchAllowsSameHostRedirect(t *testing.T) {
+	allowLocalWebfetch(t)
+
 	srv := httptest.NewServer(nil)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/start", func(w http.ResponseWriter, r *http.Request) {
@@ -108,6 +125,8 @@ func TestWebfetchAllowsSameHostRedirect(t *testing.T) {
 }
 
 func TestWebfetchRejectsCrossHostRedirect(t *testing.T) {
+	allowLocalWebfetch(t)
+
 	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://example.invalid/target", http.StatusFound)
 	}))
@@ -120,6 +139,38 @@ func TestWebfetchRejectsCrossHostRedirect(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "redirect to different host") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWebfetchRejectsPrivateAddressDial(t *testing.T) {
+	_, err := guardedWebFetchDialContext(context.Background(), "tcp", "127.0.0.1:80")
+	if err == nil || !strings.Contains(err.Error(), "private network address") {
+		t.Fatalf("guardedWebFetchDialContext error = %v, want private network rejection", err)
+	}
+}
+
+func TestWebfetchPublicIPClassifier(t *testing.T) {
+	cases := []struct {
+		ip   string
+		want bool
+	}{
+		{"8.8.8.8", true},
+		{"127.0.0.1", false},
+		{"10.0.0.1", false},
+		{"100.64.0.1", false},
+		{"169.254.169.254", false},
+		{"192.168.1.1", false},
+		{"::ffff:127.0.0.1", false},
+		{"::1", false},
+		{"fc00::1", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ip, func(t *testing.T) {
+			got := isPublicWebFetchIP(netip.MustParseAddr(tc.ip))
+			if got != tc.want {
+				t.Fatalf("isPublicWebFetchIP(%s) = %v, want %v", tc.ip, got, tc.want)
+			}
+		})
 	}
 }
 
