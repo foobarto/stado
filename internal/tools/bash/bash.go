@@ -1,17 +1,20 @@
 package bash
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/limitedio"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
+
+const maxBashCapturedOutputBytes = budget.BashBytes * 2
 
 type BashTool struct {
 	Timeout time.Duration
@@ -52,21 +55,22 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := limitedio.NewBuffer(maxBashCapturedOutputBytes)
+	stderr := limitedio.NewBuffer(maxBashCapturedOutputBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	err = cmd.Run()
 
 	var out strings.Builder
-	if stdout.Len() > 0 {
-		out.WriteString(stdout.String())
+	if stdout.Len() > 0 || stdout.Truncated() {
+		appendCommandOutput(&out, stdout, "stdout")
 	}
-	if stderr.Len() > 0 {
+	if stderr.Len() > 0 || stderr.Truncated() {
 		if out.Len() > 0 {
 			out.WriteString("\n")
 		}
-		out.WriteString(stderr.String())
+		appendCommandOutput(&out, stderr, "stderr")
 	}
 	if err != nil {
 		if out.Len() > 0 {
@@ -76,6 +80,16 @@ func (t BashTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (t
 	}
 
 	return tool.Result{Content: budget.TruncateBashOutput(out.String(), budget.BashBytes)}, nil
+}
+
+func appendCommandOutput(out *strings.Builder, buf *limitedio.Buffer, label string) {
+	out.WriteString(buf.String())
+	if buf.Truncated() {
+		if out.Len() > 0 && !strings.HasSuffix(out.String(), "\n") {
+			out.WriteString("\n")
+		}
+		out.WriteString(fmt.Sprintf("[truncated: command %s exceeded %d bytes]\n", label, maxBashCapturedOutputBytes))
+	}
 }
 
 type BashArgs struct {

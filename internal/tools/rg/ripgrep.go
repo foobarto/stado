@@ -19,9 +19,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/limitedio"
 	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
+)
+
+const (
+	maxRipgrepOutputBytes = 1 << 20
+	maxRipgrepErrorBytes  = 64 << 10
 )
 
 // Tool is the ripgrep code-search tool exposed to models.
@@ -137,9 +143,10 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	args = append(args, "--max-count", fmt.Sprintf("%d", a.MaxMatches), "--", a.Pattern, searchPath)
 
 	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- trusted rg binary with fixed argument vector, no shell.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := limitedio.NewBuffer(maxRipgrepOutputBytes)
+	stderr := limitedio.NewBuffer(maxRipgrepErrorBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	runErr := cmd.Run()
 
 	// ripgrep exit codes: 0 = matches, 1 = no matches, 2 = error.
@@ -147,10 +154,15 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		if code := ee.ExitCode(); code == 1 {
 			return tool.Result{Content: "No matches found"}, nil
 		} else if code == 2 {
-			return tool.Result{Error: strings.TrimSpace(stderr.String())}, fmt.Errorf("rg: exit 2: %s", stderr.String())
+			errText := commandOutputString(stderr, "rg stderr", maxRipgrepErrorBytes)
+			return tool.Result{Error: strings.TrimSpace(errText)}, fmt.Errorf("rg: exit 2: %s", errText)
 		}
 	} else if runErr != nil {
 		return tool.Result{Error: runErr.Error()}, runErr
+	}
+	if stdout.Truncated() {
+		err := fmt.Errorf("rg output exceeds %d bytes", maxRipgrepOutputBytes)
+		return tool.Result{Error: err.Error()}, err
 	}
 
 	matches, err := parseJSON(stdout.Bytes(), h.Workdir(), a.MaxMatches)
@@ -169,6 +181,17 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		joined += fmt.Sprintf("\n[truncated: capped at %d matches — narrow the pattern or raise max_matches]", a.MaxMatches)
 	}
 	return tool.Result{Content: joined}, nil
+}
+
+func commandOutputString(buf *limitedio.Buffer, label string, maxBytes int) string {
+	s := buf.String()
+	if buf.Truncated() {
+		if s != "" && !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		s += fmt.Sprintf("[truncated: %s exceeded %d bytes]\n", label, maxBytes)
+	}
+	return s
 }
 
 // ResolveBinary picks the rg binary to use. Precedence:

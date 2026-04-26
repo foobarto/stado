@@ -25,7 +25,11 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/foobarto/stado/internal/limitedio"
 )
+
+const maxHookOutputBytes = 16 << 10
 
 // PostTurnPayload is the JSON body piped to a post_turn hook. The
 // shape is intentionally stable so user scripts can parse with jq.
@@ -85,9 +89,10 @@ func (r *Runner) exec(ctx context.Context, shellCmd string, stdin []byte, label 
 
 	cmd := exec.CommandContext(cctx, "/bin/sh", "-c", shellCmd) // #nosec G204 -- hook commands are explicit user configuration.
 	cmd.Stdin = bytes.NewReader(stdin)
-	var out, errBuf bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
+	out := limitedio.NewBuffer(maxHookOutputBytes)
+	errBuf := limitedio.NewBuffer(maxHookOutputBytes)
+	cmd.Stdout = out
+	cmd.Stderr = errBuf
 	// WaitDelay forces cmd.Run to return promptly after the context
 	// is cancelled, even when a grand-child (e.g. /bin/sh's child
 	// process) keeps the output pipes open. Without this, a hook
@@ -105,15 +110,26 @@ func (r *Runner) exec(ctx context.Context, shellCmd string, stdin []byte, label 
 	// for stado's own output in a shared terminal. A human looking
 	// at stderr can tell "stado[hook:post_turn]" from stado's own
 	// warnings.
-	if out.Len() > 0 {
-		fmt.Fprintf(r.writer(), "stado[hook:%s] stdout: %s", label, trimTail(out.String()))
+	if out.Len() > 0 || out.Truncated() {
+		fmt.Fprintf(r.writer(), "stado[hook:%s] stdout: %s", label, hookOutputString(out, "stdout"))
 	}
-	if errBuf.Len() > 0 {
-		fmt.Fprintf(r.writer(), "stado[hook:%s] stderr: %s", label, trimTail(errBuf.String()))
+	if errBuf.Len() > 0 || errBuf.Truncated() {
+		fmt.Fprintf(r.writer(), "stado[hook:%s] stderr: %s", label, hookOutputString(errBuf, "stderr"))
 	}
 	if runErr != nil {
 		r.log("hook %s exited after %dms with err: %v", label, dur, runErr)
 	}
+}
+
+func hookOutputString(buf *limitedio.Buffer, label string) string {
+	s := buf.String()
+	if buf.Truncated() {
+		if s != "" {
+			s = trimTail(s)
+		}
+		s += fmt.Sprintf("[truncated: hook %s exceeded %d bytes]\n", label, maxHookOutputBytes)
+	}
+	return trimTail(s)
 }
 
 func (r *Runner) writer() io.Writer {

@@ -93,6 +93,22 @@ func TestFirePostTurn_Timeout(t *testing.T) {
 	}
 }
 
+func TestFirePostTurn_CapsHookOutput(t *testing.T) {
+	var log bytes.Buffer
+	r := &Runner{
+		PostTurnCmd: "yes x | head -c 20000",
+		Logger:      &log,
+	}
+	r.FirePostTurn(context.Background(), PostTurnPayload{Event: "post_turn"})
+	got := log.String()
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("expected hook output truncation marker, got %q", got[max0(len(got)-200):])
+	}
+	if len(got) > maxHookOutputBytes+512 {
+		t.Fatalf("hook log length = %d, want bounded", len(got))
+	}
+}
+
 func TestNewPostTurnPayload_NormalizesFields(t *testing.T) {
 	p := NewPostTurnPayload(7, agent.Usage{
 		InputTokens:  123,
@@ -112,6 +128,13 @@ func TestNewPostTurnPayload_NormalizesFields(t *testing.T) {
 	if p.DurationMS != 1250 {
 		t.Fatalf("duration = %d, want 1250", p.DurationMS)
 	}
+}
+
+func max0(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
 }
 
 func TestDisabledByToolConfig(t *testing.T) {

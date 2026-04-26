@@ -3,6 +3,7 @@ package rg
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -144,6 +145,23 @@ func TestRun_RejectsEscapingPath(t *testing.T) {
 	}
 	if !strings.Contains(res.Error, "escapes workdir") {
 		t.Fatalf("unexpected error: %q", res.Error)
+	}
+}
+
+func TestRun_RejectsOversizedOutput(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "fake-rg")
+	body := fmt.Sprintf("#!/bin/sh\nyes x | head -c %d\n", maxRipgrepOutputBytes+1)
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"pattern": "x"})
+	res, err := (Tool{Binary: script}).Run(context.Background(), args, stubHost{wd: dir})
+	if err == nil {
+		t.Fatal("expected oversized output error")
+	}
+	if !strings.Contains(res.Error, "exceeds") {
+		t.Fatalf("error = %q, want size rejection", res.Error)
 	}
 }
 

@@ -76,6 +76,9 @@ func TestBashTruncatesLargeOutput(t *testing.T) {
 		t.Errorf("bash middle-elide marker missing: %q",
 			res.Content[max0(len(res.Content)-400):])
 	}
+	if !strings.Contains(res.Content, "command stdout exceeded") {
+		t.Errorf("bash capture-limit marker missing: %q", res.Content[max0(len(res.Content)-400):])
+	}
 	// Head+tail shape — the start and end of the output should both
 	// carry content ("y"s) rather than one end being lost.
 	if !strings.HasPrefix(res.Content, "y") {

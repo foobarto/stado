@@ -15,8 +15,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/limitedio"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
+)
+
+const (
+	maxASTGrepOutputBytes = 1 << 20
+	maxASTGrepErrorBytes  = 64 << 10
 )
 
 type Tool struct {
@@ -88,9 +94,10 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 	args = append(args, searchPath)
 
 	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- trusted ast-grep binary with fixed argument vector, no shell.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdout := limitedio.NewBuffer(maxASTGrepOutputBytes)
+	stderr := limitedio.NewBuffer(maxASTGrepErrorBytes)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	runErr := cmd.Run()
 	if runErr != nil {
 		if _, ok := runErr.(*exec.ExitError); ok {
@@ -103,15 +110,30 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 			return tool.Result{Error: runErr.Error()}, runErr
 		}
 	}
+	if stdout.Truncated() {
+		err := fmt.Errorf("ast_grep output exceeds %d bytes", maxASTGrepOutputBytes)
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	matches, err := parseMatches(stdout.Bytes(), h.Workdir())
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	if len(matches) == 0 {
-		return tool.Result{Content: strings.TrimSpace(stderr.String())}, nil
+		return tool.Result{Content: strings.TrimSpace(astGrepOutputString(stderr, "ast_grep stderr", maxASTGrepErrorBytes))}, nil
 	}
 	return tool.Result{Content: strings.Join(matches, "\n")}, nil
+}
+
+func astGrepOutputString(buf *limitedio.Buffer, label string, maxBytes int) string {
+	s := buf.String()
+	if buf.Truncated() {
+		if s != "" && !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		s += fmt.Sprintf("[truncated: %s exceeded %d bytes]\n", label, maxBytes)
+	}
+	return s
 }
 
 // ResolveBinary picks an ast-grep binary. Precedence:
