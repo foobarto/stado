@@ -16,6 +16,9 @@ Plugins / Infra / Fixes.
   skills, system prompt templates, theme files, TUI template overlays, symbol
   scans, and audit key loads now reject oversized regular files before
   parsing.
+- **Capped config loads.** `config.toml` now loads through a bounded
+  no-symlink reader instead of the koanf file provider, rejecting oversized or
+  symlinked user config files before TOML parsing.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

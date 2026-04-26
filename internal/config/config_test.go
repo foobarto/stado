@@ -120,6 +120,47 @@ func TestLoadRejectsSymlinkedConfigDir(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsSymlinkedConfigFile(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outsideConfig := filepath.Join(t.TempDir(), "outside-config.toml")
+	if err := os.WriteFile(outsideConfig, []byte("[tui]\nthinking_display = \"hide\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideConfig, filepath.Join(configDir, "config.toml")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "file is a symlink") {
+		t.Fatalf("expected config symlink rejection, got %v", err)
+	}
+}
+
+func TestLoadRejectsOversizedConfigFile(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Repeat("x", int(maxConfigBytes)+1)
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized config error, got %v", err)
+	}
+}
+
 func TestLoadCustomSystemPromptPath(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)

@@ -14,11 +14,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
-	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 )
 
 const appName = "stado"
+const maxConfigBytes int64 = 1 << 20
 const maxSystemPromptTemplateBytes int64 = 1 << 20
 
 // Config is the top-level stado configuration.
@@ -303,10 +303,16 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 
-	if _, err := os.Stat(configPath); err == nil {
-		if err := k.Load(file.Provider(configPath), toml.Parser()); err != nil {
+	if _, err := os.Lstat(configPath); err == nil {
+		data, err := workdirpath.ReadRegularFileNoSymlinkLimited(configPath, maxConfigBytes)
+		if err != nil {
 			return nil, fmt.Errorf("load config: %w", err)
 		}
+		if err := k.Load(staticBytesProvider(data), toml.Parser()); err != nil {
+			return nil, fmt.Errorf("load config: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat config: %w", err)
 	}
 
 	if err := k.Load(env.Provider("STADO_", ".", func(s string) string {
@@ -362,6 +368,18 @@ func Load() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+type staticBytesProvider []byte
+
+func (p staticBytesProvider) ReadBytes() ([]byte, error) {
+	out := make([]byte, len(p))
+	copy(out, p)
+	return out, nil
+}
+
+func (p staticBytesProvider) Read() (map[string]any, error) {
+	return nil, errors.New("static bytes provider does not support parsed reads")
 }
 
 func normalizeThinkingDisplay(value string) string {
