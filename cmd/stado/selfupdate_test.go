@@ -6,6 +6,8 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -77,6 +79,37 @@ malformed line without two fields
 	}
 }
 
+func TestFetchBytesRejectsOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("12345"))
+	}))
+	defer srv.Close()
+
+	_, err := fetchBytes(srv.URL, "checksums.txt", 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("fetchBytes error = %v, want size rejection", err)
+	}
+}
+
+func TestDownloadAndVerifyRejectsOversizedAdvertisedArchive(t *testing.T) {
+	_, err := downloadAndVerifyLimited("http://127.0.0.1/unused", strings.Repeat("0", 64), 5, 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("downloadAndVerifyLimited error = %v, want size rejection", err)
+	}
+}
+
+func TestDownloadAndVerifyRejectsOversizedArchiveStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("12345"))
+	}))
+	defer srv.Close()
+
+	_, err := downloadAndVerifyLimited(srv.URL, strings.Repeat("0", 64), 0, 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("downloadAndVerifyLimited error = %v, want size rejection", err)
+	}
+}
+
 func TestExtractBinary_TarRegularEntry(t *testing.T) {
 	archivePath := writeSelfUpdateTar(t, tarEntry{
 		name: "stado_1.0_linux_amd64/stado",
@@ -102,6 +135,22 @@ func TestExtractBinary_TarRegularEntry(t *testing.T) {
 	}
 	if info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("extracted binary is not executable: %v", info.Mode())
+	}
+}
+
+func TestWriteSelfUpdatePayloadRejectsOversizedPayload(t *testing.T) {
+	tmp, err := os.CreateTemp("", "stado-payload-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	err = writeSelfUpdatePayloadLimited(tmp, strings.NewReader("12345"), 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("writeSelfUpdatePayloadLimited error = %v, want size rejection", err)
 	}
 }
 

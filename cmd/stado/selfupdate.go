@@ -31,6 +31,13 @@ var (
 	selfUpdateDownloadClient = &http.Client{Timeout: 5 * time.Minute}
 )
 
+const (
+	maxSelfUpdateChecksumsBytes int64 = 64 << 10
+	maxSelfUpdateMinisigBytes   int64 = 16 << 10
+	maxSelfUpdateArchiveBytes   int64 = 128 << 20
+	maxSelfUpdateBinaryBytes    int64 = 256 << 20
+)
+
 var (
 	selfUpdateDryRun bool
 	selfUpdateForce  bool
@@ -97,7 +104,7 @@ func runSelfUpdate() error {
 		return nil
 	}
 
-	body, err := downloadAndVerify(asset.BrowserDownloadURL, want)
+	body, err := downloadAndVerify(asset.BrowserDownloadURL, want, asset.Size)
 	if err != nil {
 		return err
 	}
@@ -193,7 +200,7 @@ func fetchChecksums(assets []ghAsset) (map[string]string, error) {
 	}
 
 	// Download checksums.txt.
-	data, err := fetchBytes(checksumsURL, "checksums.txt")
+	data, err := fetchBytes(checksumsURL, "checksums.txt", maxSelfUpdateChecksumsBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +223,8 @@ func fetchChecksums(assets []ghAsset) (map[string]string, error) {
 	return out, nil
 }
 
-// fetchBytes is a thin GET helper that reads the whole body.
-func fetchBytes(url, label string) ([]byte, error) {
+// fetchBytes is a thin GET helper that reads a bounded response body.
+func fetchBytes(url, label string, maxBytes int64) ([]byte, error) {
 	resp, err := selfUpdateAPIClient.Get(url)
 	if err != nil {
 		return nil, err
@@ -226,7 +233,21 @@ func fetchBytes(url, label string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s HTTP %d", label, resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, maxBytes)
+	}
+	return readLimitedSelfUpdateBody(resp.Body, label, maxBytes)
+}
+
+func readLimitedSelfUpdateBody(r io.Reader, label string, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, maxBytes)
+	}
+	return data, nil
 }
 
 // verifyChecksumsMinisig enforces the release trust root for self-update.
@@ -246,7 +267,7 @@ func verifyChecksumsMinisig(checksums []byte, minisigURL string) error {
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("self-update: embedded minisign pubkey malformed: %w", err)
 	}
-	sigBytes, err := fetchBytes(minisigURL, "checksums.txt.minisig")
+	sigBytes, err := fetchBytes(minisigURL, "checksums.txt.minisig", maxSelfUpdateMinisigBytes)
 	if err != nil {
 		return err
 	}
@@ -261,7 +282,14 @@ func verifyChecksumsMinisig(checksums []byte, minisigURL string) error {
 // downloadAndVerify streams url to a temp file, computing sha256 as it goes.
 // Returns the temp file (caller must remove) or an error if the digest doesn't
 // match wantHex.
-func downloadAndVerify(url, wantHex string) (*os.File, error) {
+func downloadAndVerify(url, wantHex string, advertisedSize int64) (*os.File, error) {
+	return downloadAndVerifyLimited(url, wantHex, advertisedSize, maxSelfUpdateArchiveBytes)
+}
+
+func downloadAndVerifyLimited(url, wantHex string, advertisedSize, maxBytes int64) (*os.File, error) {
+	if advertisedSize > maxBytes {
+		return nil, fmt.Errorf("download exceeds %d bytes", maxBytes)
+	}
 	resp, err := selfUpdateDownloadClient.Get(url)
 	if err != nil {
 		return nil, err
@@ -270,17 +298,26 @@ func downloadAndVerify(url, wantHex string) (*os.File, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download HTTP %d", resp.StatusCode)
 	}
+	if resp.ContentLength > maxBytes {
+		return nil, fmt.Errorf("download exceeds %d bytes", maxBytes)
+	}
 
 	tmp, err := os.CreateTemp("", "stado-selfupdate-*.tar.gz")
 	if err != nil {
 		return nil, err
 	}
 	h := sha256.New()
-	tee := io.TeeReader(resp.Body, h)
-	if _, err := io.Copy(tmp, tee); err != nil {
+	tee := io.TeeReader(io.LimitReader(resp.Body, maxBytes+1), h)
+	n, err := io.Copy(tmp, tee)
+	if err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 		return nil, err
+	}
+	if n > maxBytes {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return nil, fmt.Errorf("download exceeds %d bytes", maxBytes)
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
@@ -349,6 +386,10 @@ func extractBinary(archivePath, assetName string) (string, error) {
 					cleanup()
 					return "", fmt.Errorf("archive entry %s is not a regular file", hdr.Name)
 				}
+				if hdr.Size > maxSelfUpdateBinaryBytes {
+					cleanup()
+					return "", fmt.Errorf("archive entry %s exceeds %d bytes", hdr.Name, maxSelfUpdateBinaryBytes)
+				}
 				if err := writeSelfUpdatePayload(tmp, tr); err != nil {
 					cleanup()
 					return "", err
@@ -391,6 +432,9 @@ func extractZipBinary(archive *os.File, out *os.File) error {
 			if !zf.FileInfo().Mode().IsRegular() {
 				return fmt.Errorf("zip entry %s is not a regular file", zf.Name)
 			}
+			if zf.UncompressedSize64 > uint64(maxSelfUpdateBinaryBytes) {
+				return fmt.Errorf("zip entry %s exceeds %d bytes", zf.Name, maxSelfUpdateBinaryBytes)
+			}
 			rc, err := zf.Open()
 			if err != nil {
 				return err
@@ -403,14 +447,22 @@ func extractZipBinary(archive *os.File, out *os.File) error {
 }
 
 func writeSelfUpdatePayload(out *os.File, in io.Reader) error {
+	return writeSelfUpdatePayloadLimited(out, in, maxSelfUpdateBinaryBytes)
+}
+
+func writeSelfUpdatePayloadLimited(out *os.File, in io.Reader, maxBytes int64) error {
 	if err := out.Truncate(0); err != nil {
 		return err
 	}
 	if _, err := out.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	n, err := io.Copy(out, io.LimitReader(in, maxBytes+1))
+	if err != nil {
 		return err
+	}
+	if n > maxBytes {
+		return fmt.Errorf("self-update payload exceeds %d bytes", maxBytes)
 	}
 	return out.Sync()
 }

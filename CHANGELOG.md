@@ -27,6 +27,9 @@ Plugins / Infra / Fixes.
 - **Hardened self-update source reads.** Self-update archive extraction and
   cross-device copy fallback now reject symlinked source paths before reading
   release payloads or replacement binaries.
+- **Capped self-update downloads.** Self-update checksum manifests, minisig
+  signatures, release archives, and extracted binaries now reject oversized
+  inputs before unbounded reads or writes.
 - **Hardened plugin signing inputs.** Plugin digest and signing commands now
   reject symlinked key, manifest, and WASM source paths before hashing or
   signing plugin artifacts.
