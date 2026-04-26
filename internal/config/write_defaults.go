@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/pelletier/go-toml"
 )
 
@@ -66,9 +68,17 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	defer func() { _ = root.Close() }()
 
 	var tree *toml.Tree
-	data, err := root.ReadFile(name)
+	info, err := root.Lstat(name)
 	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("config file is a symlink: %s", name)
+	case err == nil && !info.Mode().IsRegular():
+		return fmt.Errorf("config file is not regular: %s", name)
 	case err == nil:
+		data, err := root.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read config: %w", err)
+		}
 		tree, err = toml.LoadBytes(data)
 		if err != nil {
 			return fmt.Errorf("parse config: %w", err)
@@ -88,8 +98,54 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	if err != nil {
 		return fmt.Errorf("render config: %w", err)
 	}
-	if err := root.WriteFile(name, []byte(out), 0o600); err != nil {
+	if err := writeConfigFileAtomic(root, name, []byte(out), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
+	return nil
+}
+
+func writeConfigFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("config file is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("config file is not regular: %s", name)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	tmp := "." + name + "." + uuid.NewString() + ".tmp"
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmp)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	keepTmp = true
 	return nil
 }

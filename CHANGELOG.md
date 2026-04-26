@@ -68,6 +68,9 @@ Plugins / Infra / Fixes.
 - **Hardened traceparent writes.** Fork traceparent metadata now writes
   through rooted random temp files and rejects traceparent symlinks instead
   of following them.
+- **Hardened config defaults writes.** TUI model, theme, and thinking-display
+  preference updates now reject config-file symlinks and save through rooted
+  random temp files.
 
 ## v0.25.7 — 2026-04-26
 

@@ -107,3 +107,26 @@ func TestWriteDefaultsRejectsConfigSymlinkEscape(t *testing.T) {
 		t.Fatalf("outside config was modified:\n%s", data)
 	}
 }
+
+func TestWriteDefaultsRejectsInRootConfigSymlink(t *testing.T) {
+	dir := t.TempDir()
+	decoy := filepath.Join(dir, "decoy.toml")
+	if err := os.WriteFile(decoy, []byte("[defaults]\nprovider = \"old\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.Symlink("decoy.toml", path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := WriteDefaults(path, "openai", "gpt-test"); err == nil {
+		t.Fatal("WriteDefaults should reject in-root config symlink")
+	}
+	data, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "openai") {
+		t.Fatalf("in-root symlink target was modified:\n%s", data)
+	}
+}
