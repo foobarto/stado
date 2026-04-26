@@ -25,6 +25,9 @@ Plugins / Infra / Fixes.
 - **Capped plugin install copies.** Plugin installs now reject oversized
   package files during rooted directory copies and remove partial destinations
   if a source grows past the copy ceiling.
+- **Bounded plugin install package walks.** Plugin installs now stream package
+  directory entries in batches and reject packages that exceed entry-count or
+  nesting-depth limits.
 - **Capped sidecar tree blob writes.** Session tree snapshots now reject
   oversized worktree files and detect regular files that change size while
   being streamed into sidecar git objects.

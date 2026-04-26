@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/fs"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +18,11 @@ import (
 var pluginInstallSigner string
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
-const maxPluginInstallFileBytes int64 = 64 << 20
+const (
+	maxPluginInstallFileBytes int64 = 64 << 20
+	maxPluginInstallEntries         = 4096
+	maxPluginInstallDepth           = 64
+)
 
 var pluginInstallCmd = &cobra.Command{
 	Use:   "install <plugin-dir>",
@@ -152,7 +156,7 @@ func copyDir(src, dst string) error {
 		_ = dstParentRoot.RemoveAll(dstName)
 		return err
 	}
-	err = copyRootDir(srcRoot, dstRoot, ".")
+	err = copyRootDir(srcRoot, dstRoot, ".", &pluginInstallCopyState{})
 	closeErr := dstRoot.Close()
 	if err != nil {
 		_ = dstParentRoot.RemoveAll(dstName)
@@ -165,40 +169,68 @@ func copyDir(src, dst string) error {
 	return nil
 }
 
-func copyRootDir(srcRoot, dstRoot *os.Root, rel string) error {
-	entries, err := fs.ReadDir(srcRoot.FS(), filepath.ToSlash(rel))
+type pluginInstallCopyState struct {
+	entries int
+}
+
+func copyRootDir(srcRoot, dstRoot *os.Root, rel string, state *pluginInstallCopyState) error {
+	if state == nil {
+		state = &pluginInstallCopyState{}
+	}
+	return copyRootDirDepth(srcRoot, dstRoot, rel, state, 0)
+}
+
+func copyRootDirDepth(srcRoot, dstRoot *os.Root, rel string, state *pluginInstallCopyState, depth int) error {
+	if depth > maxPluginInstallDepth {
+		return fmt.Errorf("plugin package nesting exceeds %d directories: %s", maxPluginInstallDepth, rel)
+	}
+	dir, err := srcRoot.Open(rel)
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		name := e.Name()
-		if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
-			return fmt.Errorf("invalid plugin package entry name: %q", name)
-		}
-		childRel := name
-		if rel != "." {
-			childRel = filepath.Join(rel, name)
-		}
-		info, err := srcRoot.Lstat(childRel)
-		if err != nil {
-			return err
-		}
-		switch {
-		case info.Mode()&os.ModeSymlink != 0:
-			return fmt.Errorf("symlink not allowed: %s", childRel)
-		case info.IsDir():
-			if err := dstRoot.Mkdir(childRel, 0o700); err != nil {
+	defer func() { _ = dir.Close() }()
+	for {
+		entries, readErr := dir.ReadDir(128)
+		for _, e := range entries {
+			state.entries++
+			if state.entries > maxPluginInstallEntries {
+				return fmt.Errorf("plugin package contains more than %d entries", maxPluginInstallEntries)
+			}
+			name := e.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return fmt.Errorf("invalid plugin package entry name: %q", name)
+			}
+			childRel := name
+			if rel != "." {
+				childRel = filepath.Join(rel, name)
+			}
+			info, err := srcRoot.Lstat(childRel)
+			if err != nil {
 				return err
 			}
-			if err := copyRootDir(srcRoot, dstRoot, childRel); err != nil {
-				return err
+			switch {
+			case info.Mode()&os.ModeSymlink != 0:
+				return fmt.Errorf("symlink not allowed: %s", childRel)
+			case info.IsDir():
+				if err := dstRoot.Mkdir(childRel, 0o700); err != nil {
+					return err
+				}
+				if err := copyRootDirDepth(srcRoot, dstRoot, childRel, state, depth+1); err != nil {
+					return err
+				}
+			case info.Mode().IsRegular():
+				if err := copyPluginFile(srcRoot, dstRoot, childRel, installedPluginFileMode(info.Mode())); err != nil {
+					return err
+				}
+			default:
+				return fmt.Errorf("unsupported file mode for %s: %v", childRel, info.Mode())
 			}
-		case info.Mode().IsRegular():
-			if err := copyPluginFile(srcRoot, dstRoot, childRel, installedPluginFileMode(info.Mode())); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("unsupported file mode for %s: %v", childRel, info.Mode())
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
 		}
 	}
 	return nil

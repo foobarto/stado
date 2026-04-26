@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,6 +273,51 @@ func TestCopyDirRejectsDestinationParentSymlink(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(outside, "installed")); !os.IsNotExist(statErr) {
 		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
+func TestCopyDirRejectsTooManyEntries(t *testing.T) {
+	src := t.TempDir()
+	for i := 0; i <= maxPluginInstallEntries; i++ {
+		if err := os.WriteFile(filepath.Join(src, fmt.Sprintf("%04d.txt", i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dst := filepath.Join(t.TempDir(), "installed")
+
+	err := copyDir(src, dst)
+	if err == nil {
+		t.Fatal("expected oversized plugin package entry count to be rejected")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("expected entry count rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("failed copy left destination behind, stat err = %v", statErr)
+	}
+}
+
+func TestCopyDirRejectsTooDeepPackage(t *testing.T) {
+	src := t.TempDir()
+	rel := "."
+	for i := 0; i <= maxPluginInstallDepth; i++ {
+		name := fmt.Sprintf("d%02d", i)
+		rel = filepath.Join(rel, name)
+		if err := os.Mkdir(filepath.Join(src, rel), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dst := filepath.Join(t.TempDir(), "installed")
+
+	err := copyDir(src, dst)
+	if err == nil {
+		t.Fatal("expected deeply nested plugin package to be rejected")
+	}
+	if !strings.Contains(err.Error(), "nesting") {
+		t.Fatalf("expected depth rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("failed copy left destination behind, stat err = %v", statErr)
 	}
 }
 
