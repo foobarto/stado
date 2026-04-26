@@ -36,6 +36,8 @@ Plugins / Infra / Fixes.
 - **Hardened webfetch redirects and reads.** Webfetch now rejects redirects
   that leave the original host and caps raw response reads before markdown
   conversion so plugin host grants cannot be bypassed via cross-host redirects.
+- **Capped online plugin metadata responses.** CRL fetches and Rekor online
+  checks now reject oversized success bodies before parsing them.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the

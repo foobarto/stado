@@ -136,3 +136,32 @@ func TestFetchEntry_404SurfacesError(t *testing.T) {
 		t.Fatal("expected error on 404")
 	}
 }
+
+func TestParseEntriesResponseRejectsOversizedBody(t *testing.T) {
+	body := strings.Repeat("x", int(maxOnlinePluginResponseBytes)+1)
+	_, err := parseEntriesResponse(strings.NewReader(body))
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if !strings.Contains(err.Error(), "rekor response exceeds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSearchByHashRejectsOversizedIndexResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/index/retrieve" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxOnlinePluginResponseBytes)+1)))
+	}))
+	defer srv.Close()
+
+	_, err := SearchByHash(context.Background(), srv.URL, []byte("manifest"))
+	if err == nil {
+		t.Fatal("expected oversized index response error")
+	}
+	if !strings.Contains(err.Error(), "rekor index response exceeds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

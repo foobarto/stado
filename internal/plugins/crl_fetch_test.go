@@ -54,3 +54,19 @@ func TestFetchHTTPErrorSurfacesReason(t *testing.T) {
 		t.Errorf("expected 404 in error, got %q", err)
 	}
 }
+
+func TestFetchRejectsOversizedCRLResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxOnlinePluginResponseBytes)+1)))
+	}))
+	defer srv.Close()
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+
+	_, err := Fetch(srv.URL, pub)
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if !strings.Contains(err.Error(), "crl response exceeds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

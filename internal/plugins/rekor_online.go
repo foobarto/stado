@@ -91,8 +91,12 @@ func SearchByHash(ctx context.Context, rekorURL string, manifestBytes []byte) (*
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("rekor: index HTTP %d: %s", resp.StatusCode, b)
 	}
+	raw, err := readOnlinePluginBody(resp.Body, "rekor index response")
+	if err != nil {
+		return nil, err
+	}
 	var uuids []string
-	if err := json.NewDecoder(resp.Body).Decode(&uuids); err != nil {
+	if err := json.Unmarshal(raw, &uuids); err != nil {
 		return nil, fmt.Errorf("rekor: decode index: %w", err)
 	}
 	if len(uuids) == 0 {
@@ -129,7 +133,7 @@ func FetchEntry(ctx context.Context, rekorURL, uuid string) (*RekorEntry, error)
 // map-shaped response into a RekorEntry. Works for both GET-by-UUID
 // and POST-new-entry, which share the envelope.
 func parseEntriesResponse(r io.Reader) (*RekorEntry, error) {
-	raw, err := io.ReadAll(r)
+	raw, err := readOnlinePluginBody(r, "rekor response")
 	if err != nil {
 		return nil, err
 	}

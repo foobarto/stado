@@ -37,7 +37,7 @@ func Fetch(url string, issuerPubkey ed25519.PublicKey) (*CRL, error) {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("crl: fetch %s: HTTP %d: %s", url, resp.StatusCode, b)
 	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := readOnlinePluginBody(resp.Body, "crl response")
 	if err != nil {
 		return nil, err
 	}
