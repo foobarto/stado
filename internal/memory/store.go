@@ -458,7 +458,7 @@ func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
 			return nil, "", fmt.Errorf("memory store: create dir: %w", err)
 		}
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return nil, "", fmt.Errorf("memory store: open dir: %w", err)
 	}

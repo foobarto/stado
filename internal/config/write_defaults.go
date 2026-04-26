@@ -68,7 +68,7 @@ func WriteTemplate(configPath string, data []byte, force bool) error {
 	if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}
@@ -100,7 +100,7 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}

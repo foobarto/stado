@@ -25,3 +25,22 @@ func TestWritePluginStateFileRejectsParentSymlink(t *testing.T) {
 		t.Fatalf("symlink target was modified, stat err = %v", statErr)
 	}
 }
+
+func TestReadPluginStateFileRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target", "state")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "trusted_keys.json"), []byte("[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "state-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := readPluginStateFile(filepath.Join(link, "state", "trusted_keys.json")); err == nil {
+		t.Fatal("readPluginStateFile should reject symlinked parent dirs")
+	}
+}

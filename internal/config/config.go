@@ -501,7 +501,7 @@ func systemPromptTemplateRoot(path string) (*os.Root, string, error) {
 	if name == "." || name == string(filepath.Separator) {
 		return nil, "", fmt.Errorf("invalid system prompt template path: %s", path)
 	}
-	root, err := os.OpenRoot(filepath.Dir(path))
+	root, err := workdirpath.OpenRootNoSymlink(filepath.Dir(path))
 	if err != nil {
 		return nil, "", err
 	}

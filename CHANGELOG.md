@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened rooted state/cache opens.** Task, memory, plugin-state, model
+  state, config, sidecar, bundled-tool cache, plugin scaffolding/install, and
+  tree-materialization roots now reopen directories with no-symlink checks.
 - **Hardened release helper writes.** The bundled-binary fetch helper now
   creates generated source and asset parent directories through rooted
   no-symlink directory creation.

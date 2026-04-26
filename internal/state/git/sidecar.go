@@ -105,12 +105,7 @@ func (s *Sidecar) ensureAlternates() error {
 	if err := workdirpath.MkdirAllNoSymlink(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
-	if info, err := os.Lstat(altDir); err != nil {
-		return fmt.Errorf("sidecar: stat alternates dir: %w", err)
-	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("sidecar: alternates dir is not a directory: %s", altDir)
-	}
-	root, err := os.OpenRoot(altDir)
+	root, err := workdirpath.OpenRootNoSymlink(altDir)
 	if err != nil {
 		return fmt.Errorf("sidecar: open alternates dir: %w", err)
 	}

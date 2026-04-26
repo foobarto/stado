@@ -104,14 +104,7 @@ func pluginStateRoot(path string, createDir bool) (*os.Root, string, error) {
 			return nil, "", err
 		}
 	}
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return nil, "", err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return nil, "", fmt.Errorf("plugin state dir is not a directory: %s", dir)
-	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return nil, "", err
 	}

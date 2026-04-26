@@ -46,7 +46,7 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err := workdirpath.MkdirAllNoSymlink(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return fmt.Errorf("materialize: root %s: %w", dir, err)
 	}

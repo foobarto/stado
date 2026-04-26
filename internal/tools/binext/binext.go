@@ -50,7 +50,7 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	if err := workdirpath.MkdirAllNoSymlink(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("binext: cache dir: %w", err)
 	}
-	root, err := os.OpenRoot(cacheDir)
+	root, err := workdirpath.OpenRootNoSymlink(cacheDir)
 	if err != nil {
 		return "", fmt.Errorf("binext: open cache dir: %w", err)
 	}

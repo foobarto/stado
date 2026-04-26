@@ -136,6 +136,35 @@ func TestStoreRejectsSymlinkEscapeOnLoad(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsParentSymlinkOnLoad(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal([]Task{{
+		ID:        "task-1",
+		Title:     "target",
+		Status:    StatusOpen,
+		CreatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "tasks.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "tasks-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if _, err := (Store{Path: filepath.Join(link, "tasks.json")}).Get("task-1"); err == nil {
+		t.Fatal("Get should reject symlinked task store parent dirs")
+	}
+}
+
 func TestStoreDoesNotFollowSymlinkEscapeOnSave(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.json")

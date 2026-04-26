@@ -502,6 +502,26 @@ func TestStoreListRejectsLogSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestStoreListRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "memory.jsonl"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "memory-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	store := &Store{Path: filepath.Join(link, "memory.jsonl"), Actor: "test"}
+	if _, err := store.List(context.Background()); err == nil {
+		t.Fatal("List should reject symlinked memory store parent dirs")
+	}
+}
+
 func TestStoreAppendRejectsLogSymlinkEscape(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "outside.jsonl")
 	const outsideData = "outside\n"

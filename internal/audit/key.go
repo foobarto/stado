@@ -98,7 +98,7 @@ func WritePrivateKeyFile(path string, data []byte) error {
 	if name == "." || name == string(filepath.Separator) {
 		return fmt.Errorf("invalid key path: %s", path)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}

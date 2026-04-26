@@ -370,7 +370,7 @@ func (s Store) storeRoot(createDir bool) (*os.Root, string, error) {
 			return nil, "", err
 		}
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return nil, "", err
 	}
