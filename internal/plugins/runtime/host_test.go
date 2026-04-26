@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -200,9 +201,44 @@ func TestReadAllowedFileRejectsSymlinkSwapEscape(t *testing.T) {
 		t.Skipf("symlink not supported in this environment: %v", err)
 	}
 
-	_, err := readAllowedFile(filepath.Join(allowed, "swapped", "secret.txt"), []string{allowed})
+	_, err := readAllowedFile(filepath.Join(allowed, "swapped", "secret.txt"), []string{allowed}, maxPluginRuntimeFSFileBytes)
 	if err == nil {
 		t.Fatal("readAllowedFile should reject symlink escape under allowed root")
+	}
+}
+
+func TestReadAllowedFileRejectsOversizedFile(t *testing.T) {
+	allowed := t.TempDir()
+	path := filepath.Join(allowed, "large.bin")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxPluginRuntimeFSFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := readAllowedFile(path, []string{allowed}, maxPluginRuntimeFSFileBytes)
+	if err == nil {
+		t.Fatal("readAllowedFile should reject oversized files")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size limit", err)
+	}
+}
+
+func TestReadAllowedFileRejectsBufferLimit(t *testing.T) {
+	allowed := t.TempDir()
+	path := filepath.Join(allowed, "small.txt")
+	if err := os.WriteFile(path, []byte("ab"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := readAllowedFile(path, []string{allowed}, 1)
+	if err == nil {
+		t.Fatal("readAllowedFile should reject reads larger than the caller buffer limit")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size limit", err)
 	}
 }
 
@@ -249,6 +285,23 @@ func TestWriteAllowedFileRejectsInAllowedFinalSymlink(t *testing.T) {
 	}
 	if string(data) != "target" {
 		t.Fatalf("symlink target modified: %q", data)
+	}
+}
+
+func TestWriteAllowedFileRejectsOversizedData(t *testing.T) {
+	allowed := t.TempDir()
+	path := filepath.Join(allowed, "large.bin")
+	data := make([]byte, maxPluginRuntimeFSFileBytes+1)
+
+	err := writeAllowedFile(path, []string{allowed}, data, 0o644)
+	if err == nil {
+		t.Fatal("writeAllowedFile should reject oversized payloads")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size limit", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("oversized write created file, stat err = %v", statErr)
 	}
 }
 

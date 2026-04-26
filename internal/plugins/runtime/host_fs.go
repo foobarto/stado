@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,6 +13,11 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/workdirpath"
+)
+
+const (
+	maxPluginRuntimeFSPathBytes uint32 = 4 << 10
+	maxPluginRuntimeFSFileBytes int64  = 16 << 20
 )
 
 func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
@@ -31,6 +38,11 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 			pathLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufCap := api.DecodeU32(stack[3])
+			if pathLen > maxPluginRuntimeFSPathBytes {
+				host.Logger.Warn("stado_fs_read denied — path too large", slog.Uint64("path_len", uint64(pathLen)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			path, err := readString(mod, pathPtr, pathLen)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
@@ -47,7 +59,7 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			data, err := readAllowedFile(abs, host.FSRead)
+			data, err := readAllowedFile(abs, host.FSRead, pluginFSReadLimit(bufCap))
 			if err != nil {
 				host.Logger.Warn("stado_fs_read failed", slog.String("path", abs), slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(-1)
@@ -78,6 +90,16 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 			pathLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufLen := api.DecodeU32(stack[3])
+			if pathLen > maxPluginRuntimeFSPathBytes {
+				host.Logger.Warn("stado_fs_write denied — path too large", slog.Uint64("path_len", uint64(pathLen)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if int64(bufLen) > maxPluginRuntimeFSFileBytes {
+				host.Logger.Warn("stado_fs_write denied — payload too large", slog.Uint64("buf_len", uint64(bufLen)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			path, err := readString(mod, pathPtr, pathLen)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
@@ -184,16 +206,47 @@ func realPathForWrite(workdir, path string) (string, error) {
 	return filepath.Clean(filepath.Join(resolvedParent, base)), nil
 }
 
-func readAllowedFile(abs string, allow []string) ([]byte, error) {
+func readAllowedFile(abs string, allow []string, maxBytes int64) ([]byte, error) {
 	root, rel, err := openAllowedRoot(abs, allow, false)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return root.ReadFile(rel)
+	if maxBytes > maxPluginRuntimeFSFileBytes {
+		maxBytes = maxPluginRuntimeFSFileBytes
+	}
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	f, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("plugin fs read target is not a regular file: %s", abs)
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("plugin fs read exceeds %d bytes: %s", maxBytes, abs)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("plugin fs read exceeds %d bytes: %s", maxBytes, abs)
+	}
+	return data, nil
 }
 
 func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode) error {
+	if int64(len(data)) > maxPluginRuntimeFSFileBytes {
+		return fmt.Errorf("plugin fs write exceeds %d bytes: %s", maxPluginRuntimeFSFileBytes, abs)
+	}
 	root, rel, err := openAllowedRoot(abs, allow, true)
 	if err != nil {
 		return err
@@ -205,6 +258,14 @@ func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode)
 		}
 	}
 	return workdirpath.WriteRootFileAtomic(root, rel, data, perm)
+}
+
+func pluginFSReadLimit(bufCap uint32) int64 {
+	limit := int64(bufCap)
+	if limit > maxPluginRuntimeFSFileBytes {
+		return maxPluginRuntimeFSFileBytes
+	}
+	return limit
 }
 
 func openAllowedRoot(abs string, allow []string, allowMissing bool) (*os.Root, string, error) {

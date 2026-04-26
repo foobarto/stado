@@ -60,6 +60,9 @@ Plugins / Infra / Fixes.
 - **Streamed subagent adoption copies.** Worker adoption now validates child
   file inputs before removing parent targets and streams regular files through
   a capped atomic copy.
+- **Capped plugin runtime FS I/O.** Host `fs_read` and `fs_write` now enforce
+  path and payload ceilings and read allowed files through bounded
+  regular-file reads.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.
