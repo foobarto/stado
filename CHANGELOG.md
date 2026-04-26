@@ -95,6 +95,9 @@ Plugins / Infra / Fixes.
 - **Hardened minisign sidecar writes.** Release `.minisig` files now save
   through rooted random temp files and refuse final symlink/non-regular
   sidecar paths.
+- **Hardened self-update replacement writes.** Self-update now rejects
+  symlinked binary replacement paths and uses rooted temp+rename writes for
+  copy fallback installation.
 
 ## v0.25.7 — 2026-04-26
 

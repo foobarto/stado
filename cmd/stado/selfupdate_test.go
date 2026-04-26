@@ -160,6 +160,99 @@ func TestCurrentExe_ReturnsPath(t *testing.T) {
 	}
 }
 
+func TestInstallBinaryAtSetsExecutableMode(t *testing.T) {
+	dir := t.TempDir()
+	cur := filepath.Join(dir, "stado")
+	if err := os.WriteFile(cur, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newBin := filepath.Join(dir, "new-stado")
+	if err := os.WriteFile(newBin, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installBinaryAt(newBin, cur); err != nil {
+		t.Fatalf("installBinaryAt: %v", err)
+	}
+	body, err := os.ReadFile(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "new" {
+		t.Fatalf("current body = %q, want new", body)
+	}
+	info, err := os.Stat(cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("installed binary is not executable: %v", info.Mode())
+	}
+	prev, err := os.ReadFile(cur + ".prev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(prev) != "old" {
+		t.Fatalf("previous body = %q, want old", prev)
+	}
+}
+
+func TestInstallBinaryAtRejectsCurrentSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cur := filepath.Join(dir, "stado")
+	if err := os.Symlink("target", cur); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	newBin := filepath.Join(dir, "new-stado")
+	if err := os.WriteFile(newBin, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := installBinaryAt(newBin, cur)
+	if err == nil {
+		t.Fatal("installBinaryAt should reject symlinked current binary")
+	}
+	body, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "old" {
+		t.Fatalf("symlink target modified: %q", body)
+	}
+}
+
+func TestCopyFileRejectsSymlinkDestination(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte("new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(dir, "decoy")
+	if err := os.WriteFile(decoy, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "dst")
+	if err := os.Symlink("decoy", dst); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := copyFile(src, dst)
+	if err == nil {
+		t.Fatal("copyFile should reject symlinked destination")
+	}
+	body, readErr := os.ReadFile(decoy)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != "old" {
+		t.Fatalf("symlink target modified: %q", body)
+	}
+}
+
 type tarEntry struct {
 	name     string
 	typeflag byte

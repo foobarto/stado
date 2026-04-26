@@ -418,11 +418,26 @@ func installBinary(newBin string) error {
 	if cur == "" {
 		return fmt.Errorf("cannot locate current executable")
 	}
+	return installBinaryAt(newBin, cur)
+}
+
+func installBinaryAt(newBin, cur string) error {
+	if err := prepareInstallBinary(newBin); err != nil {
+		return err
+	}
 	prev := cur + ".prev"
-	if _, err := os.Stat(cur); err == nil {
+	if info, err := os.Lstat(cur); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("current binary is a symlink: %s", cur)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("current binary is not regular: %s", cur)
+		}
 		if err := os.Rename(cur, prev); err != nil {
 			return fmt.Errorf("save previous binary: %w", err)
 		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat current binary: %w", err)
 	}
 	if err := os.Rename(newBin, cur); err != nil {
 		// Try copy fallback (cross-device rename).
@@ -432,7 +447,21 @@ func installBinary(newBin string) error {
 			return fmt.Errorf("install: %w (copy fallback: %v)", err, err2)
 		}
 	}
-	return os.Chmod(cur, 0o755) // #nosec G302 -- installed command binary must remain executable.
+	return nil
+}
+
+func prepareInstallBinary(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat new binary: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("new binary is a symlink: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("new binary is not regular: %s", path)
+	}
+	return os.Chmod(path, 0o755) // #nosec G302 -- installed command binary must remain executable.
 }
 
 func copyFile(src, dst string) error {
