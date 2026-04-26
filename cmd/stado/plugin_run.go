@@ -12,6 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -37,17 +38,20 @@ var pluginRunCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		toolName := args[1]
+		argsJSON := "{}"
+		if len(args) >= 3 {
+			argsJSON = args[2]
+		}
+		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
+			return err
+		}
 		dir, err := plugins.InstalledDir(filepath.Join(cfg.StateDir(), "plugins"), args[0])
 		if err != nil {
 			return err
 		}
 		if _, err := os.Stat(dir); err != nil {
 			return fmt.Errorf("plugin %s not installed (run `stado plugin install <plugin-dir>` after building + signing it)", args[0])
-		}
-		toolName := args[1]
-		argsJSON := "{}"
-		if len(args) >= 3 {
-			argsJSON = args[2]
 		}
 
 		// Load + verify manifest (signature + wasm sha256 + rollback).

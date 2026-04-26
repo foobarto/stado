@@ -30,6 +30,9 @@ const (
 	// itself enforces per-field limits, but list/read responses still need
 	// a hard ceiling before they enter model context.
 	TasksBytes = 64 * 1024
+	// MCPBytes caps text returned by external MCP tools before their output
+	// is added to model context.
+	MCPBytes = 64 * 1024
 	// GrepMatches is the maximum line-matches retained by the in-process
 	// `grep` tool. Stateless list-cut; no per-line token math.
 	GrepMatches = 100

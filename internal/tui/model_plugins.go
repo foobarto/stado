@@ -21,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -455,6 +456,10 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, td
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+
+		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
+			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: err.Error()}
+		}
 
 		rt, err := pluginRuntime.New(ctx)
 		if err != nil {

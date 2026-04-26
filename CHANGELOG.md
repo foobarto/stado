@@ -93,6 +93,9 @@ Plugins / Infra / Fixes.
   an error state instead of letting partial assistant turns complete normally.
 - **Capped direct tool dispatch inputs.** Registry, MCP-server, and plugin
   adapter paths now share the tool-call input ceiling before dispatch.
+- **Capped MCP bridge and plugin-run payloads.** Remote MCP tool text is now
+  output-budgeted before entering model context, and one-shot plugin runs
+  reject oversized JSON arguments before starting a wasm runtime.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

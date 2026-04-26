@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/foobarto/stado/internal/mcp"
+	"github.com/foobarto/stado/internal/toolinput"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
@@ -38,6 +41,10 @@ func (t MCPTool) Schema() map[string]any {
 func (t MCPTool) Class() tool.Class { return tool.ClassExec }
 
 func (t MCPTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+
 	var input map[string]any
 	if err := json.Unmarshal(args, &input); err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -52,12 +59,51 @@ func (t MCPTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	var content string
-	for _, c := range result.Content {
-		if textContent, ok := c.(mcpgo.TextContent); ok {
-			content += textContent.Text + "\n"
+	return tool.Result{Content: renderTextContent(result.Content, budget.MCPBytes)}, nil
+}
+
+func renderTextContent(contents []mcpgo.Content, maxBytes int) string {
+	var b strings.Builder
+	total := 0
+	for _, c := range contents {
+		textContent, ok := c.(mcpgo.TextContent)
+		if !ok {
+			continue
+		}
+		total += len(textContent.Text) + 1
+		writeBounded(&b, textContent.Text, maxBytes)
+		writeBounded(&b, "\n", maxBytes)
+	}
+	if total <= maxBytes {
+		return b.String()
+	}
+	return truncateKnownTotal(b.String(), total, maxBytes,
+		"narrow the MCP tool request")
+}
+
+func writeBounded(b *strings.Builder, s string, maxBytes int) {
+	if maxBytes <= 0 || b.Len() >= maxBytes {
+		return
+	}
+	remaining := maxBytes - b.Len()
+	if len(s) > remaining {
+		s = s[:remaining]
+	}
+	b.WriteString(s)
+}
+
+func truncateKnownTotal(head string, total, maxBytes int, hint string) string {
+	if len(head) > maxBytes {
+		head = head[:maxBytes]
+		if i := strings.LastIndexByte(head, '\n'); i > 0 && i > maxBytes-256 {
+			head = head[:i]
 		}
 	}
-	
-	return tool.Result{Content: content}, nil
+	marker := fmt.Sprintf("\n[truncated: %d of %d bytes elided",
+		total-len(head), total)
+	if hint != "" {
+		marker += " - " + hint
+	}
+	marker += "]"
+	return head + marker
 }
