@@ -162,6 +162,24 @@ func TestConversationLoadRejectsLogSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRawConversationLogRejectsLogSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte(`{"role":"user","content":[{"type":"text","text":"outside"}]}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wt, ".stado"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wt, ConversationFile)); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := RawConversationLog(wt); err == nil {
+		t.Fatal("RawConversationLog should reject a conversation log symlink that escapes the worktree")
+	}
+}
+
 func TestConversationAppendRejectsStadoDirSymlinkEscape(t *testing.T) {
 	outsideDir := t.TempDir()
 	wt := t.TempDir()

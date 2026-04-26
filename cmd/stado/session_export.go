@@ -71,7 +71,7 @@ var sessionExportCmd = &cobra.Command{
 		case "md", "":
 			body = renderMarkdown(id, msgs)
 		case "jsonl":
-			raw, rerr := os.ReadFile(filepath.Join(wt, runtime.ConversationFile)) // #nosec G304 -- conversation path is fixed within a resolved session worktree.
+			raw, rerr := runtime.RawConversationLog(wt)
 			if rerr != nil {
 				return fmt.Errorf("session export: read jsonl: %w", rerr)
 			}

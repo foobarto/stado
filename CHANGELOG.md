@@ -24,6 +24,9 @@ Plugins / Infra / Fixes.
 - **Rooted session memory opt-out metadata.** The per-session memory-disabled
   marker now reads, writes, and removes through the session root, rejecting
   `.stado` symlink escapes.
+- **Rooted raw conversation exports.** `stado session export --format jsonl`
+  now reads raw logs through the runtime conversation root instead of a direct
+  worktree path read.
 
 ## v0.25.7 — 2026-04-26
 

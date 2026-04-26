@@ -146,6 +146,31 @@ func LoadConversation(worktree string) ([]agent.Message, error) {
 	return decodeMessages(f)
 }
 
+// RawConversationLog returns the raw append-only JSONL bytes. It opens the log
+// through the worktree root so raw export paths stay confined to `.stado`.
+func RawConversationLog(worktree string) ([]byte, error) {
+	if worktree == "" {
+		return nil, errors.New("conversation: worktree required")
+	}
+	root, name, err := conversationRoot(worktree, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	path := filepath.Join(worktree, ConversationFile)
+	data, err := root.ReadFile(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("conversation: read %s: %w", path, err)
+	}
+	return data, nil
+}
+
 // WriteConversation replaces the on-disk conversation log atomically
 // with the given message slice only when the log is absent or empty.
 // Live sessions must use AppendMessage / AppendCompaction so the raw
@@ -192,24 +217,9 @@ func WriteConversation(worktree string, msgs []agent.Message) error {
 // bytes. Missing conversation logs hash as the empty byte sequence so a
 // compaction marker can still bind "nothing before this event" precisely.
 func ConversationLogSHA(worktree string) (string, error) {
-	if worktree == "" {
-		return "", errors.New("conversation: worktree required")
-	}
-	root, name, err := conversationRoot(worktree, false)
-	if errors.Is(err, os.ErrNotExist) {
-		sum := sha256.Sum256(nil)
-		return "sha256:" + hex.EncodeToString(sum[:]), nil
-	}
+	data, err := RawConversationLog(worktree)
 	if err != nil {
 		return "", err
-	}
-	defer func() { _ = root.Close() }()
-	path := filepath.Join(worktree, ConversationFile)
-	data, err := root.ReadFile(name)
-	if errors.Is(err, os.ErrNotExist) {
-		data = nil
-	} else if err != nil {
-		return "", fmt.Errorf("conversation: read %s: %w", path, err)
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
