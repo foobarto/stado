@@ -53,6 +53,9 @@ Plugins / Infra / Fixes.
 - **Hardened conversation seeding.** Fresh child-session conversation logs now
   seed through rooted, exclusive random temp files so pre-created predictable
   temp symlinks cannot redirect the rewrite.
+- **Hardened default prompt template writes.** The automatically managed
+  default `system-prompt.md` now creates and upgrades through rooted file
+  handles and avoids rewriting legacy defaults through symlinks.
 
 ## v0.25.7 — 2026-04-26
 

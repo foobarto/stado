@@ -2,12 +2,15 @@ package config
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/google/uuid"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
@@ -399,23 +402,109 @@ func (c *Config) loadSystemPromptTemplate() error {
 }
 
 func ensureDefaultSystemPromptTemplate(path string) error {
-	if data, err := os.ReadFile(path); err == nil { // #nosec G304 -- default system prompt path is derived from stado config.
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("default system prompt template is not a regular file: %s", path)
+		}
+		data, err := os.ReadFile(path) // #nosec G304 -- default system prompt path is derived from stado config.
+		if err != nil {
+			return fmt.Errorf("read default system prompt template: %w", err)
+		}
 		if isLegacyDefaultSystemPromptTemplate(data) {
-			if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {
+			if err := replaceDefaultSystemPromptTemplate(path); err != nil {
 				return fmt.Errorf("update default system prompt template: %w", err)
 			}
 		}
 		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("read default system prompt template: %w", err)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat default system prompt template: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(instructions.DefaultSystemPromptTemplate), 0o600); err != nil {
+	if err := createDefaultSystemPromptTemplate(path); err != nil {
 		return fmt.Errorf("write default system prompt template: %w", err)
 	}
 	return nil
+}
+
+func createDefaultSystemPromptTemplate(path string) error {
+	root, name, err := systemPromptTemplateRoot(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := writeSystemPromptTemplateFile(f); err != nil {
+		_ = f.Close()
+		_ = root.Remove(name)
+		return err
+	}
+	return nil
+}
+
+func replaceDefaultSystemPromptTemplate(path string) error {
+	root, name, err := systemPromptTemplateRoot(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	tmpName := "." + name + "." + uuid.NewString() + ".tmp"
+	f, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmpName)
+		}
+	}()
+	if err := writeSystemPromptTemplateFile(f); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := root.Rename(tmpName, name); err != nil {
+		return err
+	}
+	keepTmp = true
+	return nil
+}
+
+func writeSystemPromptTemplateFile(f *os.File) error {
+	body := []byte(instructions.DefaultSystemPromptTemplate)
+	n, err := f.Write(body)
+	if err != nil {
+		return err
+	}
+	if n != len(body) {
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+func systemPromptTemplateRoot(path string) (*os.Root, string, error) {
+	name := filepath.Base(path)
+	if name == "." || name == string(filepath.Separator) {
+		return nil, "", fmt.Errorf("invalid system prompt template path: %s", path)
+	}
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, "", err
+	}
+	return root, name, nil
 }
 
 func isLegacyDefaultSystemPromptTemplate(data []byte) bool {
