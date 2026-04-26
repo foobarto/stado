@@ -8,6 +8,10 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened prompt and symbol reads.** Project instruction files, project
+  skill files, and TUI symbol scans now read regular files through the
+  no-symlink opener so repo-controlled symlinks cannot redirect prompt or
+  symbol discovery.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the

@@ -393,6 +393,23 @@ func TestFilePicker_ShellSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 }
 
+func TestScanSymbolsSkipsSymlinkFiles(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.py"), []byte("def leaked_secret():\n    pass\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.py"), filepath.Join(root, "secret.py")); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	for _, sym := range scanSymbols(root) {
+		if sym.Name == "leaked_secret" {
+			t.Fatalf("scanSymbols followed symlinked file: %+v", sym)
+		}
+	}
+}
+
 func TestScanScriptFileSymbolsSkipsIndentedDeclarations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested.ts")

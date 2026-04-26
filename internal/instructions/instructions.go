@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // Names is the resolution order within a directory. First hit wins;
@@ -163,6 +165,10 @@ func Load(start string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("instructions: abs %s: %w", start, err)
 	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return Result{}, fmt.Errorf("instructions: resolve %s: %w", start, err)
+	}
 	// Walk: start, parent, parent-of-parent, ... stop at filesystem root.
 	dir := abs
 	for {
@@ -182,7 +188,7 @@ func Load(start string) (Result, error) {
 				// reason.
 				continue
 			}
-			body, readErr := os.ReadFile(candidate) // #nosec G304 -- candidate was lstat-checked as a regular non-symlink instructions file.
+			body, readErr := workdirpath.ReadRegularFileNoSymlink(candidate)
 			if readErr != nil {
 				return Result{}, fmt.Errorf("instructions: read %s: %w", candidate, readErr)
 			}

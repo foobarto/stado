@@ -69,6 +69,59 @@ func TestReadFileRejectsSymlinkEscapeAtOpen(t *testing.T) {
 	}
 }
 
+func TestReadRegularFileNoSymlinkRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	_, err := ReadRegularFileNoSymlink(filepath.Join(link, "secret.txt"))
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ReadRegularFileNoSymlink error = %v, want symlink rejection", err)
+	}
+}
+
+func TestReadRegularFileNoSymlinkRejectsFinalSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	_, err := ReadRegularFileNoSymlink(link)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ReadRegularFileNoSymlink error = %v, want symlink rejection", err)
+	}
+}
+
+func TestReadRegularFileNoSymlinkReadsRegularFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ok.txt")
+	if err := os.WriteFile(path, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := ReadRegularFileNoSymlink(path)
+	if err != nil {
+		t.Fatalf("ReadRegularFileNoSymlink: %v", err)
+	}
+	if string(data) != "ok" {
+		t.Fatalf("content = %q, want ok", data)
+	}
+}
+
 func TestWriteFileRejectsSymlinkParentEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

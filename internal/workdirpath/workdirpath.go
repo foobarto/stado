@@ -99,6 +99,62 @@ func ReadFile(workdir, path string) ([]byte, error) {
 	return root.ReadFile(rel)
 }
 
+// ReadRegularFileNoSymlink reads an absolute or relative filesystem path while
+// rejecting symlinked directory components and symlinked final paths.
+func ReadRegularFileNoSymlink(path string) ([]byte, error) {
+	f, err := openRegularFileNoSymlink(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
+func openRegularFileNoSymlink(path string) (*os.File, error) {
+	if strings.Contains(path, "\x00") {
+		return nil, fmt.Errorf("invalid file path %q", path)
+	}
+	clean := filepath.Clean(path)
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return nil, err
+	}
+	base := filepath.Base(abs)
+	if base == "." || base == string(filepath.Separator) {
+		return nil, fmt.Errorf("invalid file path %q", path)
+	}
+	root, err := OpenRootNoSymlink(filepath.Dir(abs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Lstat(base)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("file is a symlink: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	f, err := root.Open(base)
+	if err != nil {
+		return nil, err
+	}
+	info, err = f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	return f, nil
+}
+
 // WriteFile writes path through os.Root so create/truncate cannot escape the
 // workdir via a concurrently swapped symlink.
 func WriteFile(workdir, path string, data []byte, perm os.FileMode) error {

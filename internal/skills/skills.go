@@ -32,6 +32,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // Skill is one parsed skill file.
@@ -55,6 +57,10 @@ func Load(start string) ([]Skill, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
 		return nil, fmt.Errorf("skills: abs %s: %w", start, err)
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, fmt.Errorf("skills: resolve %s: %w", start, err)
 	}
 
 	// Walk cwd → parents, collecting skill directories bottom-up.
@@ -102,7 +108,7 @@ func Load(start string) ([]Skill, error) {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 				continue
 			}
-			body, readErr := os.ReadFile(path) // #nosec G304 -- skill file was lstat-checked as regular and non-symlink.
+			body, readErr := workdirpath.ReadRegularFileNoSymlink(path)
 			if readErr != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)

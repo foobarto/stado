@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/tui/filepicker"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 type symbolCandidate struct {
@@ -61,6 +63,9 @@ func scanSymbols(root string) []symbolCandidate {
 			}
 			return nil
 		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
 		if len(out) >= limit {
 			return filepath.SkipAll
 		}
@@ -105,7 +110,11 @@ func scanGoFileSymbols(fset *token.FileSet, rel, path string, limit int) []symbo
 	if limit <= 0 {
 		return nil
 	}
-	file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	if err != nil {
+		return nil
+	}
+	file, parseErr := parser.ParseFile(fset, path, data, parser.SkipObjectResolution)
 	if parseErr != nil {
 		return nil
 	}
@@ -169,14 +178,13 @@ func scanPythonFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
+	data, err := workdirpath.ReadRegularFileNoSymlink(path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
 
 	var out []symbolCandidate
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	line := 0
 	for scanner.Scan() {
@@ -233,11 +241,10 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
+	data, err := workdirpath.ReadRegularFileNoSymlink(path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
 
 	lang := "js"
 	switch filepath.Ext(path) {
@@ -245,7 +252,7 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 		lang = "ts"
 	}
 	var out []symbolCandidate
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	line := 0
 	for scanner.Scan() {
@@ -327,14 +334,13 @@ func scanShellFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	f, err := os.Open(path) // #nosec G304 -- symbol scan path comes from bounded project traversal.
+	data, err := workdirpath.ReadRegularFileNoSymlink(path)
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
 
 	var out []symbolCandidate
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 1024), 1024*1024)
 	line := 0
 	for scanner.Scan() {
