@@ -419,6 +419,30 @@ func TestBuildTreeFromDir_DoesNotFollowSymlinkedDirectories(t *testing.T) {
 	}
 }
 
+func TestBuildTreeFromDirRejectsOversizedRegularFile(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	wtRoot := t.TempDir()
+	sess, err := CreateSession(sc, wtRoot, "s-large-tree-file", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(sess.WorktreePath, "large.bin")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxTreeBlobBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sess.BuildTreeFromDir(sess.WorktreePath)
+	if err == nil {
+		t.Fatal("BuildTreeFromDir should reject oversized regular files")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("BuildTreeFromDir error = %v, want size rejection", err)
+	}
+}
+
 func TestWriteBlobRejectsFinalSymlinkWhenExpectingRegularFile(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	sess, err := CreateSession(sc, t.TempDir(), "s-blob-link", plumbing.ZeroHash)

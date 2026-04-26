@@ -14,6 +14,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+const maxTreeBlobBytes int64 = 256 << 20
+
 // BuildTreeFromDir recursively walks dir and writes blob + tree objects into
 // the sidecar, returning the root tree hash. Hidden files starting with "." in
 // the top level ARE included (matches `git add`). Caller's responsibility to
@@ -75,30 +77,30 @@ func (s *Session) buildTree(dir string) (plumbing.Hash, error) {
 // writeBlob stores the contents of path (or symlink target) as a blob object
 // and returns its hash.
 func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) {
-	var r io.Reader
-	var size int64
-
 	if isSymlink {
 		target, err := os.Readlink(path)
 		if err != nil {
 			return plumbing.ZeroHash, fmt.Errorf("readlink %s: %w", path, err)
 		}
-		r = strings.NewReader(target)
-		size = int64(len(target))
-	} else {
-		f, err := workdirpath.OpenRegularFileNoSymlink(path)
-		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
-		}
-		defer func() { _ = f.Close() }()
-		info, err := f.Stat()
-		if err != nil {
-			return plumbing.ZeroHash, err
-		}
-		r = f
-		size = info.Size()
+		return s.writeBlobReader(path, strings.NewReader(target), int64(len(target)))
 	}
 
+	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	if err != nil {
+		return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	if info.Size() > maxTreeBlobBytes {
+		return plumbing.ZeroHash, fmt.Errorf("build tree: file exceeds %d bytes: %s", maxTreeBlobBytes, path)
+	}
+	return s.writeRegularBlob(path, f, info.Size())
+}
+
+func (s *Session) writeBlobReader(path string, r io.Reader, size int64) (plumbing.Hash, error) {
 	obj := s.Sidecar.repo.Storer.NewEncodedObject()
 	obj.SetType(plumbing.BlobObject)
 	obj.SetSize(size)
@@ -106,7 +108,46 @@ func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) 
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
-	if _, err := io.Copy(w, r); err != nil {
+	n, err := io.Copy(w, r)
+	if err != nil {
+		_ = w.Close()
+		return plumbing.ZeroHash, err
+	}
+	if n != size {
+		_ = w.Close()
+		return plumbing.ZeroHash, fmt.Errorf("build tree: file changed while reading: %s", path)
+	}
+	if err := w.Close(); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	return s.Sidecar.repo.Storer.SetEncodedObject(obj)
+}
+
+func (s *Session) writeRegularBlob(path string, f *os.File, size int64) (plumbing.Hash, error) {
+	obj := s.Sidecar.repo.Storer.NewEncodedObject()
+	obj.SetType(plumbing.BlobObject)
+	obj.SetSize(size)
+	w, err := obj.Writer()
+	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	n, err := io.Copy(w, io.LimitReader(f, size))
+	if err != nil {
+		_ = w.Close()
+		return plumbing.ZeroHash, err
+	}
+	if n != size {
+		_ = w.Close()
+		return plumbing.ZeroHash, fmt.Errorf("build tree: file changed while reading: %s", path)
+	}
+	var probe [1]byte
+	extra, err := io.ReadFull(f, probe[:])
+	if extra > 0 {
+		_ = w.Close()
+		return plumbing.ZeroHash, fmt.Errorf("build tree: file changed while reading: %s", path)
+	}
+	if err != nil && err != io.EOF {
+		_ = w.Close()
 		return plumbing.ZeroHash, err
 	}
 	if err := w.Close(); err != nil {
