@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/foobarto/stado/internal/lsp"
 	"github.com/foobarto/stado/internal/workdirpath"
@@ -85,11 +84,9 @@ func (f *FindReferences) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 	if len(locs) == 0 {
 		return tool.Result{Content: "No references found"}, nil
 	}
-	var b strings.Builder
-	for _, l := range locs {
-		path := lsp.URIToPath(l.URI)
-		rel, _ := filepath.Rel(h.Workdir(), path)
-		fmt.Fprintf(&b, "%s:%d:%d\n", rel, l.Range.Start.Line+1, l.Range.Start.Character+1)
+	out := formatWorkdirLocations(h.Workdir(), locs)
+	if out == "" {
+		return tool.Result{Content: "No references found"}, nil
 	}
-	return tool.Result{Content: truncateLSPOutput(b.String())}, nil
+	return tool.Result{Content: out}, nil
 }

@@ -118,6 +118,8 @@ Plugins / Infra / Fixes.
   reject final symlinks before opening cached JSON.
 - **Blocked private webfetch targets.** The `webfetch` tool now denies
   loopback, private, link-local, and reserved IP targets at dial time.
+- **Filtered external LSP locations.** LSP definition/reference results now
+  drop paths outside the active workdir before rendering tool output.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

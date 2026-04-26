@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/lsp"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -77,6 +78,61 @@ func TestRun_RejectsEscapingPath(t *testing.T) {
 	}
 	if !strings.Contains(res.Error, "escapes workdir") {
 		t.Fatalf("unexpected error: %q", res.Error)
+	}
+}
+
+func TestFormatWorkdirLocationsFiltersEscapes(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "main.go")
+	outside := filepath.Join(t.TempDir(), "secret.go")
+	if err := os.WriteFile(inside, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("package secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := formatWorkdirLocations(root, []lsp.Location{
+		{
+			URI: "file://" + outside,
+			Range: lsp.Range{
+				Start: lsp.Position{Line: 0, Character: 0},
+			},
+		},
+		{
+			URI: "file://" + inside,
+			Range: lsp.Range{
+				Start: lsp.Position{Line: 2, Character: 4},
+			},
+		},
+	})
+	if strings.Contains(got, "secret.go") || strings.Contains(got, "..") {
+		t.Fatalf("escaped LSP location leaked into output: %q", got)
+	}
+	if strings.TrimSpace(got) != "main.go:3:5" {
+		t.Fatalf("filtered locations = %q, want main.go:3:5", got)
+	}
+}
+
+func TestFormatWorkdirLocationsRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.go")
+	if err := os.WriteFile(outside, []byte("package secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.go")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	got := formatWorkdirLocations(root, []lsp.Location{{
+		URI: "file://" + link,
+		Range: lsp.Range{
+			Start: lsp.Position{Line: 0, Character: 0},
+		},
+	}})
+	if got != "" {
+		t.Fatalf("symlink escape LSP location should be filtered, got %q", got)
 	}
 }
 

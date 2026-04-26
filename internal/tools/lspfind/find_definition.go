@@ -96,13 +96,26 @@ func (f *FindDefinition) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 	if len(locs) == 0 {
 		return tool.Result{Content: "No definition found"}, nil
 	}
+	out := formatWorkdirLocations(h.Workdir(), locs)
+	if out == "" {
+		return tool.Result{Content: "No definition found"}, nil
+	}
+	return tool.Result{Content: out}, nil
+}
+
+func formatWorkdirLocations(workdir string, locs []lsp.Location) string {
 	var b strings.Builder
 	for _, l := range locs {
-		path := lsp.URIToPath(l.URI)
-		rel, _ := filepath.Rel(h.Workdir(), path)
-		fmt.Fprintf(&b, "%s:%d:%d\n", rel, l.Range.Start.Line+1, l.Range.Start.Character+1)
+		_, rel, err := workdirpath.RootRel(workdir, lsp.URIToPath(l.URI), false)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s:%d:%d\n", filepath.ToSlash(rel), l.Range.Start.Line+1, l.Range.Start.Character+1)
 	}
-	return tool.Result{Content: truncateLSPOutput(b.String())}, nil
+	if b.Len() == 0 {
+		return ""
+	}
+	return truncateLSPOutput(b.String())
 }
 
 // Close shuts down every cached LSP client. Call on session teardown.
