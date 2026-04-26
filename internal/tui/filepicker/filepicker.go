@@ -287,41 +287,33 @@ func groupLabel(kind string) string {
 func scanPaths(cwd string) []string {
 	const cap = 5000
 	var out []string
-	walk := func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries silently
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if path == cwd {
-				return nil
+	_ = walkRepoFiles(cwd, maxRepoFileScanEntries, maxRepoFileScanDepth, func(rel string, info os.FileInfo) repoFileWalkDecision {
+		if info.IsDir() {
+			if rel == "." {
+				return repoFileWalkContinue
 			}
+			name := filepath.Base(rel)
 			if strings.HasPrefix(name, ".") ||
 				name == "node_modules" ||
 				name == "vendor" ||
 				name == "dist" ||
 				name == "build" ||
 				name == "target" {
-				return filepath.SkipDir
+				return repoFileWalkSkipDir
 			}
-			return nil
+			return repoFileWalkContinue
 		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(cwd, path)
-		if err != nil {
-			return nil
+		if !info.Mode().IsRegular() {
+			return repoFileWalkContinue
 		}
 		if textutil.HasControlChars(rel) {
-			return nil
+			return repoFileWalkContinue
 		}
 		out = append(out, rel)
 		if len(out) >= cap {
-			return filepath.SkipAll
+			return repoFileWalkStop
 		}
-		return nil
-	}
-	_ = filepath.WalkDir(cwd, walk)
+		return repoFileWalkContinue
+	})
 	return out
 }

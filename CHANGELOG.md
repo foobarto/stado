@@ -63,6 +63,8 @@ Plugins / Infra / Fixes.
   packages that exceed the package-entry cap.
 - **Bounded TUI repo scans.** TUI document and symbol pickers now stream repo
   traversal in batches and stop on entry-count or nesting-depth limits.
+- **Bounded TUI file picker scans.** The `@` file picker now streams repo file
+  discovery in batches and stops on traversal entry-count or depth limits.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.
