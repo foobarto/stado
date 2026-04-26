@@ -55,6 +55,9 @@ Plugins / Infra / Fixes.
 - **Bounded grep tool walks.** The in-process grep tool now streams rooted
   directory traversal in batches and rejects oversized walk depth or entry
   counts before scanning files.
+- **Bounded skill discovery.** Project skill loading now streams `.stado/skills`
+  directory entries through rooted no-symlink handles and rejects oversized
+  skill directories before parsing files.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

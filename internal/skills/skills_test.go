@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 func TestLoad_SkipsSymlinkedSkillFiles(t *testing.T) {
@@ -47,5 +49,28 @@ func TestLoad_RejectsOversizedSkillFiles(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected oversized skill to be skipped, got %+v", got)
+	}
+}
+
+func TestReadSkillDirEntriesRejectsTooManyEntries(t *testing.T) {
+	root := t.TempDir()
+	skillsDir := filepath.Join(root, ".stado", "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(filepath.Join(skillsDir, strings.Repeat("a", i+1)+".md"), []byte("body"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dirRoot, err := workdirpath.OpenRootNoSymlink(skillsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dirRoot.Close() }()
+
+	_, err = readSkillDirEntries(dirRoot, 2)
+	if err == nil || !strings.Contains(err.Error(), "more than 2 entries") {
+		t.Fatalf("readSkillDirEntries error = %v, want entry cap rejection", err)
 	}
 }

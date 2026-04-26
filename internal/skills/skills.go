@@ -28,6 +28,7 @@ package skills
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,7 +45,11 @@ type Skill struct {
 	Path        string // absolute path on disk (for error messages)
 }
 
-const maxSkillFileBytes int64 = 1 << 20
+const (
+	maxSkillFileBytes  int64 = 1 << 20
+	maxSkillDirEntries       = 4096
+	skillReadDirBatch        = 128
+)
 
 // Load walks from `start` upward and gathers every `.stado/skills/*.md`
 // it finds. Nearest-wins when two levels define a skill with the same
@@ -88,50 +93,101 @@ func Load(start string) ([]Skill, error) {
 	var out []Skill
 	var firstErr error
 	for _, d := range dirs {
-		entries, readErr := os.ReadDir(d)
-		if readErr != nil {
+		loaded, loadErr := loadSkillDir(d, seen)
+		if loadErr != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("skills: read dir %s: %w", d, readErr)
+				firstErr = loadErr
 			}
-			continue
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			path := filepath.Join(d, e.Name())
-			info, statErr := os.Lstat(path)
-			if statErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("skills: lstat %s: %w", path, statErr)
-				}
-				continue
-			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-				continue
-			}
-			body, readErr := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSkillFileBytes)
-			if readErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)
-				}
-				continue
-			}
-			sk := parse(string(body))
-			sk.Path = path
-			if sk.Name == "" {
-				// Fall back to the filename stem.
-				sk.Name = strings.TrimSuffix(e.Name(), ".md")
-			}
-			if seen[sk.Name] {
-				continue // nearer dir already claimed this name
-			}
-			seen[sk.Name] = true
-			out = append(out, sk)
-		}
+		out = append(out, loaded...)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, firstErr
+}
+
+func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
+	root, err := workdirpath.OpenRootNoSymlink(d)
+	if err != nil {
+		return nil, fmt.Errorf("skills: open dir %s: %w", d, err)
+	}
+	defer func() { _ = root.Close() }()
+
+	entries, err := readSkillDirEntries(root, maxSkillDirEntries)
+	if err != nil {
+		return nil, fmt.Errorf("skills: read dir %s: %w", d, err)
+	}
+
+	var out []Skill
+	var firstErr error
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		path := filepath.Join(d, name)
+		info, statErr := root.Lstat(name)
+		if statErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("skills: lstat %s: %w", path, statErr)
+			}
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			continue
+		}
+		body, readErr := workdirpath.ReadRootRegularFileLimited(root, name, maxSkillFileBytes)
+		if readErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)
+			}
+			continue
+		}
+		sk := parse(string(body))
+		sk.Path = path
+		if sk.Name == "" {
+			// Fall back to the filename stem.
+			sk.Name = strings.TrimSuffix(name, ".md")
+		}
+		if seen[sk.Name] {
+			continue // nearer dir already claimed this name
+		}
+		seen[sk.Name] = true
+		out = append(out, sk)
+	}
+	return out, firstErr
+}
+
+func readSkillDirEntries(root *os.Root, maxEntries int) ([]os.DirEntry, error) {
+	dir, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+
+	var out []os.DirEntry
+	entriesSeen := 0
+	for {
+		entries, readErr := dir.ReadDir(skillReadDirBatch)
+		for _, e := range entries {
+			entriesSeen++
+			if entriesSeen > maxEntries {
+				return nil, fmt.Errorf("skill directory contains more than %d entries", maxEntries)
+			}
+			name := e.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return nil, fmt.Errorf("invalid skill directory entry name %q", name)
+			}
+			out = append(out, e)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	return out, nil
 }
 
 // parse strips the optional `---`-bounded YAML frontmatter off a skill
