@@ -30,6 +30,9 @@ Plugins / Infra / Fixes.
 - **Capped self-update downloads.** Self-update checksum manifests, minisig
   signatures, release archives, and extracted binaries now reject oversized
   inputs before unbounded reads or writes.
+- **Hardened sandbox proxy CONNECT handling.** The sandbox network proxy now
+  rejects malformed CONNECT targets before dialing, applies request-header and
+  dial timeouts, and keeps user-controlled text out of status lines.
 - **Hardened plugin signing inputs.** Plugin digest and signing commands now
   reject symlinked key, manifest, and WASM source paths before hashing or
   signing plugin artifacts.

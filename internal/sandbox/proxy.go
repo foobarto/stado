@@ -7,9 +7,14 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	proxyRequestHeaderTimeout = 10 * time.Second
+	proxyDialTimeout          = 10 * time.Second
 )
 
 // Proxy is a minimal HTTPS-tunneling (CONNECT) proxy that enforces a host
@@ -96,34 +101,38 @@ func (p *Proxy) serve() {
 
 func (p *Proxy) handle(cli net.Conn) {
 	defer cli.Close()
+	_ = cli.SetReadDeadline(time.Now().Add(proxyRequestHeaderTimeout))
 	br := bufio.NewReader(cli)
 	req, err := http.ReadRequest(br)
+	_ = cli.SetReadDeadline(time.Time{})
 	if err != nil {
 		return
 	}
 
 	if req.Method != http.MethodConnect {
 		// Refuse plain HTTP — proxy only mediates HTTPS tunnels.
-		writeStatus(cli, http.StatusMethodNotAllowed, "stado proxy: CONNECT only")
+		writeStatus(cli, http.StatusMethodNotAllowed)
 		return
 	}
 
-	host := hostOnly(req.URL.Host)
-	if host == "" {
-		host = hostOnly(req.Host)
+	target, host, err := connectTarget(req)
+	if err != nil {
+		writeStatus(cli, http.StatusBadRequest)
+		return
 	}
 	if !p.allows(host) {
-		writeStatus(cli, http.StatusForbidden, fmt.Sprintf("stado proxy: denied %q by net policy", host))
+		writeStatus(cli, http.StatusForbidden)
 		return
 	}
 
-	upstream, err := net.Dial("tcp", req.URL.Host)
+	dialer := net.Dialer{Timeout: proxyDialTimeout, KeepAlive: 30 * time.Second}
+	upstream, err := dialer.Dial("tcp", target)
 	if err != nil {
-		writeStatus(cli, http.StatusBadGateway, "stado proxy: dial: "+err.Error())
+		writeStatus(cli, http.StatusBadGateway)
 		return
 	}
 	defer upstream.Close()
-	writeStatus(cli, http.StatusOK, "Connection established")
+	writeStatus(cli, http.StatusOK)
 	tunnel(cli, upstream)
 }
 
@@ -190,20 +199,28 @@ func tunnel(a, b net.Conn) {
 	<-done
 }
 
-func writeStatus(w net.Conn, code int, reason string) {
+func writeStatus(w net.Conn, code int) {
+	reason := http.StatusText(code)
+	if reason == "" {
+		reason = "Status"
+	}
 	_, _ = w.Write([]byte(fmt.Sprintf("HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", code, reason)))
 }
 
-// hostOnly strips an optional :port from host.
-func hostOnly(s string) string {
-	if h, _, err := net.SplitHostPort(s); err == nil {
-		return h
+func connectTarget(req *http.Request) (target, host string, err error) {
+	target = req.URL.Host
+	if target == "" {
+		target = req.Host
 	}
-	return s
+	if target == "" || strings.ContainsAny(target, "/\\\x00") {
+		return "", "", fmt.Errorf("invalid CONNECT target")
+	}
+	host, port, err := net.SplitHostPort(target)
+	if err != nil || host == "" || port == "" {
+		return "", "", fmt.Errorf("invalid CONNECT target")
+	}
+	return net.JoinHostPort(host, port), host, nil
 }
-
-// guard against an "unused" warning on url.URL if compileHostMatch changes.
-var _ = url.URL{}
 
 // EnvForProxy returns HTTP_PROXY / HTTPS_PROXY env assignments pointing at
 // the given proxy — the typical shape for handing to BwrapRunner or any

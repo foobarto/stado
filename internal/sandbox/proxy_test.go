@@ -63,6 +63,23 @@ func TestCompileHostMatch_DenyAllAndAllowAll(t *testing.T) {
 	}
 }
 
+func TestConnectTargetRequiresHostPort(t *testing.T) {
+	target, host, err := connectTarget(&http.Request{URL: &url.URL{Host: "example.com:443"}})
+	if err != nil {
+		t.Fatalf("connectTarget: %v", err)
+	}
+	if target != "example.com:443" || host != "example.com" {
+		t.Fatalf("target=%q host=%q, want example.com:443/example.com", target, host)
+	}
+
+	for _, raw := range []string{"example.com", "example.com:443/path", "bad\\host:443"} {
+		_, _, err := connectTarget(&http.Request{URL: &url.URL{Host: raw}})
+		if err == nil {
+			t.Fatalf("connectTarget(%q) succeeded, want rejection", raw)
+		}
+	}
+}
+
 func TestProxy_CONNECT_Allowed(t *testing.T) {
 	// Upstream HTTPS-ish server (actually plain TCP echoing a banner; enough
 	// to prove the tunnel works).
@@ -125,6 +142,27 @@ func TestProxy_CONNECT_Allowed(t *testing.T) {
 	}
 	if !strings.Contains(got, "upstream-banner") {
 		t.Errorf("never saw upstream banner through the tunnel (got %q)", got)
+	}
+}
+
+func TestProxy_CONNECT_MalformedTargetRejected(t *testing.T) {
+	proxy, err := ListenLoopback(NetPolicy{Kind: NetAllowAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxy.Close()
+
+	conn, err := net.Dial("tcp", proxy.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_, _ = fmt.Fprintf(conn, "CONNECT example.com HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	buf := make([]byte, 1024)
+	n, _ := conn.Read(buf)
+	if !strings.Contains(string(buf[:n]), "400") {
+		t.Errorf("expected 400 for malformed CONNECT target, got %q", string(buf[:n]))
 	}
 }
 
