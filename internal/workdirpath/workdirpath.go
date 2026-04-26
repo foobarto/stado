@@ -87,6 +87,18 @@ func RootRel(workdir, path string, allowMissing bool) (root, rel string, err err
 // ReadFile opens path through os.Root so the final open remains confined even
 // if symlinks are swapped after path resolution.
 func ReadFile(workdir, path string) ([]byte, error) {
+	f, err := OpenReadFile(workdir, path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
+// OpenReadFile opens path through os.Root so the final open remains confined
+// even if symlinks are swapped after path resolution. The returned file must
+// be closed by the caller.
+func OpenReadFile(workdir, path string) (*os.File, error) {
 	rootPath, rel, err := RootRel(workdir, path, false)
 	if err != nil {
 		return nil, err
@@ -96,7 +108,7 @@ func ReadFile(workdir, path string) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return root.ReadFile(rel)
+	return root.Open(rel)
 }
 
 // ReadRegularFileNoSymlink reads an absolute or relative filesystem path while

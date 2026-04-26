@@ -39,6 +39,30 @@ func TestReadTruncatesLargeFile(t *testing.T) {
 	}
 }
 
+func TestReadSparseLargeFileIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sparse.bin")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Truncate(path, int64(budget.ReadBytes)*1024); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	h := newRecordingHost(dir)
+
+	raw, _ := json.Marshal(map[string]any{"path": "sparse.bin"})
+	res, err := ReadTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(res.Content) > budget.ReadBytes+256 {
+		t.Errorf("result exceeds budget: %d > %d", len(res.Content), budget.ReadBytes+256)
+	}
+	if !strings.Contains(res.Content, "[truncated:") {
+		t.Errorf("truncation marker missing for sparse file")
+	}
+}
+
 // TestReadNoTruncationUnderBudget is the negative: small files pass
 // through unchanged.
 func TestReadNoTruncationUnderBudget(t *testing.T) {

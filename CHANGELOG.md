@@ -45,6 +45,9 @@ Plugins / Infra / Fixes.
 - **Capped bundled-binary fetch inputs.** The release helper now uses explicit
   HTTP timeouts and rejects oversized checksum sidecars, release metadata,
   archives, and extracted tool binaries.
+- **Bounded file-read tool memory.** The `read` tool now streams full-file and
+  ranged reads into the existing output budget instead of loading the whole
+  file before truncating.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

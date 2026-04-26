@@ -48,23 +48,18 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	// Resolve ranged-read slice. Canonical form for the ReadKey.Range:
 	// "" when no start/end were passed, "<start>:<end>" otherwise (EOF
 	// preserved as -1 so the key survives file growth).
-	raw, err := workdirpath.ReadFile(h.Workdir(), p.Path)
+	raw, err := readToolContent(h.Workdir(), p.Path, p.Start, p.End)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 
 	rangeKey := canonicalRange(p.Start, p.End)
-	content := raw
-	if rangeKey != "" {
-		start, end := resolveBounds(p.Start, p.End)
-		content = sliceLines(raw, start, end)
-	}
 
 	// Apply the per-tool output budget BEFORE hashing. Hash scope is
 	// "the bytes returned to the model" (DESIGN §"Tool-output curation"),
 	// so an identical re-truncation hashes identically → dedup still
 	// works for large-file re-reads.
-	rendered := budget.TruncateBytes(string(content), budget.ReadBytes,
+	rendered := budget.TruncateBytes(string(raw), budget.ReadBytes,
 		fmt.Sprintf("call %s with start=<N> end=<M> to request a specific range", p.Path))
 
 	// Hash the bytes we'd surface to the model. sha256 is pinned for
@@ -86,6 +81,53 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	// Fresh read: record + return the bytes.
 	h.RecordRead(key, tool.PriorReadInfo{ContentHash: contentHash})
 	return tool.Result{Content: rendered}, nil
+}
+
+func readToolContent(workdir, path string, start, end *int) ([]byte, error) {
+	f, err := workdirpath.OpenReadFile(workdir, path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	const maxReadBytes = budget.ReadBytes + 1
+	if start == nil && end == nil {
+		return io.ReadAll(io.LimitReader(f, int64(maxReadBytes)))
+	}
+	s, e := resolveBounds(start, end)
+	return readLineRangeLimited(f, s, e, maxReadBytes)
+}
+
+func readLineRangeLimited(r io.Reader, start, end, maxBytes int) ([]byte, error) {
+	buf := make([]byte, 32*1024)
+	out := make([]byte, 0, min(maxBytes, budget.ReadBytes))
+	line := 1
+	for {
+		n, err := r.Read(buf)
+		for _, b := range buf[:n] {
+			selected := line >= start && (end == -1 || line <= end)
+			if b == '\n' {
+				if selected && !(end != -1 && line == end) {
+					out = append(out, b)
+				}
+				if end != -1 && line >= end {
+					return out, nil
+				}
+				line++
+			} else if selected {
+				out = append(out, b)
+			}
+			if len(out) >= maxBytes {
+				return out, nil
+			}
+		}
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 // canonicalRange returns "" for full-file, "<start>:<end>" for ranged.
@@ -121,22 +163,6 @@ func resolveBounds(start, end *int) (int, int) {
 		s = 1
 	}
 	return s, e
-}
-
-// sliceLines returns the lines of data from start through end (1-indexed,
-// both inclusive). end == -1 means EOF. Out-of-range returns empty.
-func sliceLines(data []byte, start, end int) []byte {
-	lines := strings.Split(string(data), "\n")
-	if start > len(lines) {
-		return nil
-	}
-	if end == -1 || end > len(lines) {
-		end = len(lines)
-	}
-	if end < start {
-		return nil
-	}
-	return []byte(strings.Join(lines[start-1:end], "\n"))
 }
 
 // referenceResponse is the terse citation returned on a dedup hit. Matches
