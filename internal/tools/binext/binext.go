@@ -126,6 +126,9 @@ func cacheHit(root *os.Root, name string, bundled []byte) (bool, error) {
 	if !info.Mode().IsRegular() {
 		return false, fmt.Errorf("binext: cache entry is not a regular file: %s", name)
 	}
+	if info.Size() != int64(len(bundled)) {
+		return false, nil
+	}
 	f, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -136,8 +139,12 @@ func cacheHit(root *os.Root, name string, bundled []byte) (bool, error) {
 	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	n, err := io.Copy(h, io.LimitReader(f, int64(len(bundled))+1))
+	if err != nil {
 		return false, err
+	}
+	if n != int64(len(bundled)) {
+		return false, nil
 	}
 	return hex.EncodeToString(h.Sum(nil)) == hashBytes(bundled), nil
 }

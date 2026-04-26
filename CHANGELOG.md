@@ -19,6 +19,9 @@ Plugins / Infra / Fixes.
 - **Capped config loads.** `config.toml` now loads through a bounded
   no-symlink reader instead of the koanf file provider, rejecting oversized or
   symlinked user config files before TOML parsing.
+- **Capped bundled binary cache verification.** Bundled tool cache hits now
+  require an exact byte-size match and hash through a bounded reader before
+  reusing an existing executable.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

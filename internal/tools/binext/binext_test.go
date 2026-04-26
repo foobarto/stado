@@ -162,6 +162,30 @@ func TestExtract_CacheHitSkipsRewrite(t *testing.T) {
 	}
 }
 
+func TestExtract_RewritesWrongSizedCacheEntry(t *testing.T) {
+	dir := t.TempDir()
+	blob := []byte("binary-bytes")
+	path := filepath.Join(dir, "tool-"+shaOf(blob)[:12])
+	if err := os.WriteFile(path, append(blob, 'x'), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	gotPath, err := Extract(dir, "tool", blob, shaOf(blob))
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(blob) {
+		t.Fatalf("cache entry was not rewritten: %q", got)
+	}
+}
+
 func TestExtract_DigestMismatchRejected(t *testing.T) {
 	dir := t.TempDir()
 	blob := []byte("one thing")
