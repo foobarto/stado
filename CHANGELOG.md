@@ -120,6 +120,9 @@ Plugins / Infra / Fixes.
   loopback, private, link-local, and reserved IP targets at dial time.
 - **Filtered external LSP locations.** LSP definition/reference results now
   drop paths outside the active workdir before rendering tool output.
+- **Validated plugin run IDs.** TUI `/plugin:<id>` invocations and tool
+  override plugin references now reject traversal before resolving plugin
+  directories.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

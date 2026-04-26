@@ -105,6 +105,16 @@ func TestApplyToolOverrides_RejectsUnknownTarget(t *testing.T) {
 	}
 }
 
+func TestApplyToolOverrides_RejectsEscapingPluginID(t *testing.T) {
+	cfg := isolatedRuntimeConfig(t)
+	cfg.Tools.Overrides = map[string]string{"read": "../corp-read-1.0.0"}
+	reg := BuildDefaultRegistry()
+	err := ApplyToolOverrides(reg, cfg)
+	if err == nil || !strings.Contains(err.Error(), "invalid plugin id") {
+		t.Fatalf("ApplyToolOverrides error = %v, want invalid plugin id", err)
+	}
+}
+
 func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)

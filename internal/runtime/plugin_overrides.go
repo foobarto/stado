@@ -94,7 +94,10 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 	if pluginID == "" {
 		return nil, fmt.Errorf("tool override %q: empty plugin id", target)
 	}
-	pluginDir := filepath.Join(cfg.StateDir(), "plugins", pluginID)
+	pluginDir, err := plugins.InstalledDir(filepath.Join(cfg.StateDir(), "plugins"), pluginID)
+	if err != nil {
+		return nil, fmt.Errorf("tool override %q: %w", target, err)
+	}
 	mf, sig, err := plugins.LoadFromDir(pluginDir)
 	if err != nil {
 		return nil, fmt.Errorf("tool override %q: load %s: %w", target, pluginID, err)

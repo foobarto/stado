@@ -62,6 +62,21 @@ func TestPluginSlash_NotInstalledReportsCleanly(t *testing.T) {
 	}
 }
 
+func TestPluginSlash_RejectsEscapingPluginID(t *testing.T) {
+	m := newPluginTestModel(t)
+	outside := filepath.Join(os.Getenv("XDG_DATA_HOME"), "stado", "escape")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m.handleSlash("/plugin:../escape greet")
+
+	body := m.blocks[len(m.blocks)-1].body
+	if !strings.Contains(body, "invalid plugin id") {
+		t.Fatalf("expected invalid plugin id advisory, got %q", body)
+	}
+}
+
 // TestPluginSlash_ListsInstalled: a plugin directory with a valid
 // manifest shows up under `/plugin` and its tools are enumerated.
 func TestPluginSlash_ListsInstalled(t *testing.T) {

@@ -19,7 +19,7 @@ func TestInstalledDir(t *testing.T) {
 
 func TestInstalledDir_RejectsTraversal(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "tmp", "plugins")
-	for _, id := range []string{"", "../demo", "demo/../x", "demo/x", "/abs"} {
+	for _, id := range []string{"", ".", "..", "../demo", "demo/../x", "demo/x", `demo\x`, "/abs"} {
 		if _, err := InstalledDir(root, id); err == nil {
 			t.Fatalf("InstalledDir(%q) unexpectedly succeeded", id)
 		}

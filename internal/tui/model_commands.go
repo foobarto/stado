@@ -469,7 +469,11 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		return nil
 	}
 
-	pluginDir := filepath.Join(pluginsRoot, nameVer)
+	pluginDir, err := plugins.InstalledDir(pluginsRoot, nameVer)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "plugin: " + err.Error()})
+		return nil
+	}
 	if _, err := os.Stat(pluginDir); err != nil {
 		m.appendBlock(block{
 			kind: "system",
