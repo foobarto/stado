@@ -98,6 +98,8 @@ Plugins / Infra / Fixes.
   reject oversized JSON arguments before starting a wasm runtime.
 - **Capped plugin tool results.** External plugin tool content and tool-side
   errors now share a model-context output budget after the wasm ABI call.
+- **Capped streamed assistant output.** Runtime and TUI streams now reject
+  oversized assistant text or thinking deltas before unbounded accumulation.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

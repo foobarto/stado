@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
@@ -276,6 +277,10 @@ func (m *Model) startBtw(question string) tea.Cmd {
 		for ev := range ch {
 			switch ev.Kind {
 			case agent.EvTextDelta:
+				if err := streambudget.CheckAppend("btw reply", reply.Len(), len(ev.Text), streambudget.MaxAssistantTextBytes); err != nil {
+					m.sendMsg(btwResultMsg{question: question, errMsg: err.Error()})
+					return
+				}
 				reply.WriteString(ev.Text)
 			case agent.EvError:
 				if ev.Err != nil {
@@ -379,10 +384,26 @@ func (m *Model) startStream() tea.Cmd {
 			return
 		}
 		first := true
+		var textBytes int
+		var thinkingBytes int
 		for ev := range ch {
 			if first {
 				first = false
 				tuiTrace("provider stream first event", "kind", int(ev.Kind))
+			}
+			switch ev.Kind {
+			case agent.EvTextDelta:
+				if err := streambudget.CheckAppend("assistant text", textBytes, len(ev.Text), streambudget.MaxAssistantTextBytes); err != nil {
+					m.sendMsg(streamErrorMsg{err: err})
+					return
+				}
+				textBytes += len(ev.Text)
+			case agent.EvThinkingDelta:
+				if err := streambudget.CheckAppend("assistant thinking", thinkingBytes, len(ev.Text), streambudget.MaxThinkingTextBytes); err != nil {
+					m.sendMsg(streamErrorMsg{err: err})
+					return
+				}
+				thinkingBytes += len(ev.Text)
 			}
 			m.streamBufMu.Lock()
 			m.streamBuf = append(m.streamBuf, ev)
@@ -514,6 +535,14 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		// assistant block the caller pre-appended — the user sees the
 		// summary materialise, and resolveCompaction has the full text
 		// when they accept.
+		currentTextBytes := len(m.turnText)
+		if m.compacting {
+			currentTextBytes = len(m.pendingCompactionSummary)
+		}
+		if err := streambudget.CheckAppend("assistant text", currentTextBytes, len(ev.Text), streambudget.MaxAssistantTextBytes); err != nil {
+			m.failStreamBudget(err)
+			return
+		}
 		if m.compacting {
 			m.pendingCompactionSummary += ev.Text
 			if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == "assistant" {
@@ -532,6 +561,10 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		m.invalidateBlockCache(last)
 
 	case agent.EvThinkingDelta:
+		if err := streambudget.CheckAppend("assistant thinking", len(m.turnThinking), len(ev.Text), streambudget.MaxThinkingTextBytes); err != nil {
+			m.failStreamBudget(err)
+			return
+		}
 		m.turnThinking += ev.Text
 		m.turnThinkSig += ev.ThinkingSig
 		if ev.Text != "" {
@@ -836,6 +869,19 @@ func (m *Model) rejectUnavailableTool(call agent.ToolUseBlock) {
 		Content:   content,
 		IsError:   true,
 	})
+}
+
+func (m *Model) failStreamBudget(err error) {
+	if err == nil || m.state == stateError {
+		return
+	}
+	if m.streamCancel != nil {
+		m.streamCancel()
+		m.streamCancel = nil
+	}
+	m.state = stateError
+	m.errorMsg = err.Error()
+	m.appendBlock(block{kind: "system", body: "error: " + err.Error()})
 }
 
 func unavailableToolContent(name string) string {

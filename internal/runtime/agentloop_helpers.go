@@ -10,6 +10,7 @@ import (
 
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
@@ -94,7 +95,19 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 	var text string
 	var calls []agent.ToolUseBlock
 	var usage agent.Usage
+	var thinkingBytes int
 	for ev := range ch {
+		switch ev.Kind {
+		case agent.EvTextDelta:
+			if err := streambudget.CheckAppend("assistant text", len(text), len(ev.Text), streambudget.MaxAssistantTextBytes); err != nil {
+				return text, calls, usage, err
+			}
+		case agent.EvThinkingDelta:
+			if err := streambudget.CheckAppend("assistant thinking", thinkingBytes, len(ev.Text), streambudget.MaxThinkingTextBytes); err != nil {
+				return text, calls, usage, err
+			}
+			thinkingBytes += len(ev.Text)
+		}
 		if onEvent != nil {
 			onEvent(ev)
 		}

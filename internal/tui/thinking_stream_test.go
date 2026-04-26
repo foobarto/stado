@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -93,6 +94,25 @@ func TestProviderEventErrorStopsTurnCompletion(t *testing.T) {
 	}
 	if m.state != stateError {
 		t.Fatalf("state after streamDone = %v, want stateError", m.state)
+	}
+}
+
+func TestStreamRejectsOversizedAssistantText(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+
+	m.handleStreamEvent(agent.Event{
+		Kind: agent.EvTextDelta,
+		Text: strings.Repeat("x", streambudget.MaxAssistantTextBytes+1),
+	})
+	if m.state != stateError {
+		t.Fatalf("state = %v, want stateError", m.state)
+	}
+	if !strings.Contains(m.errorMsg, "assistant text exceeds") {
+		t.Fatalf("errorMsg = %q", m.errorMsg)
+	}
+	if len(m.msgs) != 0 {
+		t.Fatalf("oversized partial turn should not persist messages: %+v", m.msgs)
 	}
 }
 
