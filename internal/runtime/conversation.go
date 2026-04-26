@@ -22,6 +22,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -42,7 +43,11 @@ import (
 // (relative to the worktree root). Readable by `stado session show`
 // for debugging + by runtime.OpenSession when resuming.
 const ConversationFile = ".stado/conversation.jsonl"
-const maxConversationLogBytes int64 = 64 << 20
+
+const (
+	maxConversationLogBytes    int64 = 64 << 20
+	maxConversationRecordBytes int64 = 8 << 20
+)
 
 // ConversationCompaction is an append-only log event recording that
 // subsequent resumes should use a compacted conversation view. The raw
@@ -104,18 +109,83 @@ func appendConversationRecord(worktree string, v any) error {
 	}
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	f, err := root.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("conversation: open %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
 
-	enc := json.NewEncoder(f)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false) // preserve HTML/tags in message bodies verbatim
 	if err := enc.Encode(v); err != nil {
 		return fmt.Errorf("conversation: encode: %w", err)
 	}
+	recordBytes := int64(buf.Len())
+	if recordBytes > maxConversationRecordBytes {
+		return fmt.Errorf("conversation: record exceeds %d bytes: %s", maxConversationRecordBytes, path)
+	}
+
+	f, err := openConversationAppendFile(root, name, recordBytes, path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	if n, err := f.Write(buf.Bytes()); err != nil {
+		return fmt.Errorf("conversation: append %s: %w", path, err)
+	} else if n != buf.Len() {
+		return fmt.Errorf("conversation: append %s: %w", path, io.ErrShortWrite)
+	}
 	return nil
+}
+
+func openConversationAppendFile(root *os.Root, name string, appendBytes int64, displayPath string) (*os.File, error) {
+	if appendBytes > maxConversationLogBytes {
+		return nil, fmt.Errorf("conversation log exceeds %d bytes: %s", maxConversationLogBytes, displayPath)
+	}
+	for range 2 {
+		info, err := root.Lstat(name)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_APPEND|os.O_WRONLY, 0o600)
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("conversation: open %s: %w", displayPath, err)
+			}
+			return f, nil
+		case err != nil:
+			return nil, fmt.Errorf("conversation: stat %s: %w", displayPath, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("conversation log is a symlink: %s", displayPath)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("conversation log is not a regular file: %s", displayPath)
+		}
+		if info.Size()+appendBytes > maxConversationLogBytes {
+			return nil, fmt.Errorf("conversation log exceeds %d bytes: %s", maxConversationLogBytes, displayPath)
+		}
+		f, err := root.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("conversation: open %s: %w", displayPath, err)
+		}
+		openedInfo, err := f.Stat()
+		if err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("conversation: stat %s: %w", displayPath, err)
+		}
+		if !openedInfo.Mode().IsRegular() {
+			_ = f.Close()
+			return nil, fmt.Errorf("conversation log is not a regular file: %s", displayPath)
+		}
+		if !os.SameFile(info, openedInfo) {
+			_ = f.Close()
+			return nil, fmt.Errorf("conversation log changed while opening: %s", displayPath)
+		}
+		if openedInfo.Size()+appendBytes > maxConversationLogBytes {
+			_ = f.Close()
+			return nil, fmt.Errorf("conversation log exceeds %d bytes: %s", maxConversationLogBytes, displayPath)
+		}
+		return f, nil
+	}
+	return nil, fmt.Errorf("conversation log changed while opening: %s", displayPath)
 }
 
 // LoadConversation reads every message from worktree's conversation
@@ -264,10 +334,7 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 func decodeMessages(r io.Reader) ([]agent.Message, error) {
 	var msgs []agent.Message
 	scanner := bufio.NewScanner(r)
-	// Allow up to 1 MiB per message — generous for typical assistant
-	// replies; DESIGN §"Tool-output curation" caps individual tool
-	// outputs well below this, and user messages don't approach it.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	scanner.Buffer(make([]byte, 0, 64*1024), int(maxConversationRecordBytes))
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {

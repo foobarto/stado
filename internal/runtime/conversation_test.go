@@ -144,6 +144,70 @@ func TestConversation_FilePermissionsArePrivate(t *testing.T) {
 	}
 }
 
+func TestConversationAppendRejectsOversizedRecord(t *testing.T) {
+	wt := t.TempDir()
+	err := AppendMessage(wt, agent.Text(agent.RoleUser, strings.Repeat("x", int(maxConversationRecordBytes)+1)))
+	if err == nil || !strings.Contains(err.Error(), "record exceeds") {
+		t.Fatalf("expected oversized record error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(wt, ConversationFile)); !os.IsNotExist(statErr) {
+		t.Fatalf("conversation log should not be created for oversized record, stat err = %v", statErr)
+	}
+}
+
+func TestConversationAppendRejectsOversizedLog(t *testing.T) {
+	wt := t.TempDir()
+	stadoDir := filepath.Join(wt, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(wt, ConversationFile)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxConversationLogBytes-4); err != nil {
+		t.Fatal(err)
+	}
+
+	err := AppendMessage(wt, agent.Text(agent.RoleUser, "full"))
+	if err == nil || !strings.Contains(err.Error(), "conversation log exceeds") {
+		t.Fatalf("expected oversized log error, got %v", err)
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Size() != maxConversationLogBytes-4 {
+		t.Fatalf("conversation log size = %d, want %d", info.Size(), maxConversationLogBytes-4)
+	}
+}
+
+func TestConversationAppendRejectsLogSymlinkEscape(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte("do not touch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wt, ".stado"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wt, ConversationFile)); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := AppendMessage(wt, agent.Text(agent.RoleUser, "outside"))
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected conversation log symlink error, got %v", err)
+	}
+	got, readErr := os.ReadFile(outside)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != "do not touch\n" {
+		t.Fatalf("outside conversation log was modified: %q", got)
+	}
+}
+
 func TestConversationLoadRejectsLogSymlinkEscape(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "outside.jsonl")
 	if err := os.WriteFile(outside, []byte(`{"role":"user","content":[{"type":"text","text":"outside"}]}`+"\n"), 0o600); err != nil {
