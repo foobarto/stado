@@ -146,6 +146,117 @@ func TestMaterialize_RejectsEscapingTreeEntryName(t *testing.T) {
 	}
 }
 
+func TestMaterialize_ReplacesDestinationFileSymlink(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-file-symlink", plumbing.ZeroHash)
+
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("tree"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sess.BuildTreeFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dst, "a.txt")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := sess.MaterializeTreeToDir(tree, dst); err != nil {
+		t.Fatal(err)
+	}
+	outsideBody, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(outsideBody) != "outside" {
+		t.Fatalf("materialize wrote through destination file symlink: %q", outsideBody)
+	}
+	info, err := os.Lstat(filepath.Join(dst, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("destination symlink should be replaced by a regular file")
+	}
+	body, err := os.ReadFile(filepath.Join(dst, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "tree" {
+		t.Fatalf("materialized file = %q, want tree", body)
+	}
+}
+
+func TestMaterialize_ReplacesDestinationDirSymlink(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-dir-symlink", plumbing.ZeroHash)
+
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.txt"), []byte("tree"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sess.BuildTreeFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "b.txt"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dst, "sub")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := sess.MaterializeTreeToDir(tree, dst); err != nil {
+		t.Fatal(err)
+	}
+	outsideBody, err := os.ReadFile(filepath.Join(outside, "b.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(outsideBody) != "outside" {
+		t.Fatalf("materialize wrote through destination dir symlink: %q", outsideBody)
+	}
+	info, err := os.Lstat(filepath.Join(dst, "sub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("destination symlink should be replaced by a directory, mode=%v", info.Mode())
+	}
+	body, err := os.ReadFile(filepath.Join(dst, "sub", "b.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "tree" {
+		t.Fatalf("materialized nested file = %q, want tree", body)
+	}
+}
+
 func TestMaterialize_ZeroTreeEmptyDir(t *testing.T) {
 	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
 	sess, _ := CreateSession(sc, t.TempDir(), "mat-4", plumbing.ZeroHash)

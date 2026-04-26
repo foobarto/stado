@@ -33,6 +33,9 @@ Plugins / Infra / Fixes.
 - **Rooted learning document writes.** `stado learning document` now writes
   Markdown notes through rooted `.learnings` handles, rejecting symlink escapes
   before documenting and rejecting a lesson.
+- **Rooted session tree materialization.** Fork/revert materialization now
+  writes files and directories through a destination root and replaces stale
+  destination symlinks instead of following them.
 
 ## v0.25.7 — 2026-04-26
 

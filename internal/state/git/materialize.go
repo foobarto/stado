@@ -44,10 +44,15 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("materialize: root %s: %w", dir, err)
+	}
+	defer func() { _ = root.Close() }()
 
 	// Track which paths we wrote so we can prune stale files when replacing.
 	kept := map[string]bool{}
-	if err := s.writeTreeInto(tree, dir, kept); err != nil {
+	if err := s.writeTreeInto(tree, root, dir, dir, kept); err != nil {
 		return err
 	}
 
@@ -57,13 +62,17 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	return nil
 }
 
-func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]bool) error {
+func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir string, kept map[string]bool) error {
 	for _, e := range tree.Entries {
 		name, err := materializeTreeEntryName(e.Name)
 		if err != nil {
 			return err
 		}
 		full := filepath.Join(dir, name)
+		rel, err := materializeRootRel(rootDir, full)
+		if err != nil {
+			return err
+		}
 		kept[full] = true
 		switch e.Mode {
 		case filemode.Dir:
@@ -71,10 +80,10 @@ func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]b
 			if err != nil {
 				return fmt.Errorf("materialize: subtree %s: %w", name, err)
 			}
-			if err := os.MkdirAll(full, 0o750); err != nil {
+			if err := prepareMaterializeDir(root, rel); err != nil {
 				return err
 			}
-			if err := s.writeTreeInto(sub, full, kept); err != nil {
+			if err := s.writeTreeInto(sub, root, rootDir, full, kept); err != nil {
 				return err
 			}
 		case filemode.Symlink:
@@ -82,8 +91,10 @@ func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]b
 			if err != nil {
 				return err
 			}
-			_ = os.Remove(full)
-			if err := os.Symlink(blob, full); err != nil {
+			if err := root.Remove(rel); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err := root.Symlink(blob, rel); err != nil {
 				return fmt.Errorf("materialize: symlink %s: %w", full, err)
 			}
 		case filemode.Executable, filemode.Regular:
@@ -95,13 +106,61 @@ func (s *Session) writeTreeInto(tree *object.Tree, dir string, kept map[string]b
 			if e.Mode == filemode.Executable {
 				perm = 0o755
 			}
-			if err := os.WriteFile(full, data, perm); err != nil {
+			if err := writeMaterializedFile(root, rel, data, perm); err != nil {
 				return err
 			}
 		}
 	}
 	kept[dir] = true // keep the dir itself when pruning
 	return nil
+}
+
+func materializeRootRel(rootDir, path string) (string, error) {
+	rel, err := filepath.Rel(rootDir, path)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || filepath.IsAbs(rel) ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("materialize: path %q escapes destination", path)
+	}
+	return rel, nil
+}
+
+func prepareMaterializeDir(root *os.Root, rel string) error {
+	if info, err := root.Lstat(rel); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := root.Remove(rel); err != nil {
+				return err
+			}
+		} else if !info.IsDir() {
+			return fmt.Errorf("materialize: %q is not a directory", rel)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return root.MkdirAll(rel, 0o750)
+}
+
+func writeMaterializedFile(root *os.Root, rel string, data []byte, perm os.FileMode) error {
+	if info, err := root.Lstat(rel); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := root.Remove(rel); err != nil {
+				return err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func materializeTreeEntryName(name string) (string, error) {
