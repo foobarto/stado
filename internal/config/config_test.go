@@ -148,6 +148,29 @@ func TestLoadCustomSystemPromptPath(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsOversizedSystemPromptTemplate(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	customPath := filepath.Join(cfgHome, "huge-system.md")
+	body := strings.Repeat("x", int(maxSystemPromptTemplateBytes)+1)
+	if err := os.WriteFile(customPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte("agent.system_prompt_path = "+quoteTOML(customPath)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized system prompt error, got %v", err)
+	}
+}
+
 func TestLoadRejectsInvalidSystemPromptTemplate(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)

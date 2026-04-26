@@ -114,6 +114,17 @@ func TestLoad_SkipsSymlinkedInstructions(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsOversizedInstructions(t *testing.T) {
+	dir := t.TempDir()
+	body := strings.Repeat("x", int(maxInstructionsFileBytes)+1)
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), body)
+
+	_, err := Load(dir)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized instructions error, got %v", err)
+	}
+}
+
 func TestComposeSystemPrompt_AddsStadoIdentityAndRuntime(t *testing.T) {
 	got := ComposeSystemPrompt(DefaultSystemPromptTemplate, "always write tests", RuntimeContext{
 		Provider: "lmstudio",

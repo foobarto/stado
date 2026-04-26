@@ -3,6 +3,7 @@ package theme
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +75,19 @@ style = "light"
 	}
 	if th.Colors.Background == "" {
 		t.Fatal("load should retain default color fallback")
+	}
+}
+
+func TestLoadRejectsOversizedThemeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "theme.toml")
+	body := strings.Repeat("x", int(maxThemeFileBytes)+1)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized theme error, got %v", err)
 	}
 }

@@ -44,6 +44,8 @@ type Skill struct {
 	Path        string // absolute path on disk (for error messages)
 }
 
+const maxSkillFileBytes int64 = 1 << 20
+
 // Load walks from `start` upward and gathers every `.stado/skills/*.md`
 // it finds. Nearest-wins when two levels define a skill with the same
 // name — a module-local skill.md overrides a repo-root one, same as
@@ -108,7 +110,7 @@ func Load(start string) ([]Skill, error) {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 				continue
 			}
-			body, readErr := workdirpath.ReadRegularFileNoSymlink(path)
+			body, readErr := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSkillFileBytes)
 			if readErr != nil {
 				if firstErr == nil {
 					firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)

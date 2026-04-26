@@ -1,6 +1,8 @@
 package render
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -85,6 +87,35 @@ func TestMarkdownStyleHonorsThemeOverride(t *testing.T) {
 	light.Markdown.Style = "auto"
 	if !themeUsesLightMarkdown(light) {
 		t.Fatal("auto markdown style should fall back to light background")
+	}
+}
+
+func TestRendererOverlayRejectsSymlinkTemplate(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.tmpl")
+	if err := os.WriteFile(target, []byte("OVERRIDE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "message_assistant.tmpl")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	_, err := NewWithOverlay(theme.Default(), dir)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink overlay rejection, got %v", err)
+	}
+}
+
+func TestRendererOverlayRejectsOversizedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	body := strings.Repeat("x", int(maxTemplateFileBytes)+1)
+	if err := os.WriteFile(filepath.Join(dir, "message_assistant.tmpl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewWithOverlay(theme.Default(), dir)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized overlay rejection, got %v", err)
 	}
 }
 

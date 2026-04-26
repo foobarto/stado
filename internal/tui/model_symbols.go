@@ -23,6 +23,8 @@ type symbolCandidate struct {
 	Line int
 }
 
+const maxSymbolSourceFileBytes int64 = 1 << 20
+
 func (m *Model) filePickerSymbolItems() []filepicker.Item {
 	root := m.sidebarRepoRoot()
 	if root == "" {
@@ -110,7 +112,7 @@ func scanGoFileSymbols(fset *token.FileSet, rel, path string, limit int) []symbo
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -178,7 +180,7 @@ func scanPythonFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -241,7 +243,7 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -334,7 +336,7 @@ func scanShellFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}

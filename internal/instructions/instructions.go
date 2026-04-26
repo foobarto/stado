@@ -29,6 +29,8 @@ import (
 // fallback candidates.
 var Names = []string{"AGENTS.md", "CLAUDE.md"}
 
+const maxInstructionsFileBytes int64 = 1 << 20
+
 // Result reports what Load resolved. Content is empty iff no file was
 // found; callers can safely pass Result.Content into their system
 // prompt without a nil check.
@@ -188,7 +190,7 @@ func Load(start string) (Result, error) {
 				// reason.
 				continue
 			}
-			body, readErr := workdirpath.ReadRegularFileNoSymlink(candidate)
+			body, readErr := workdirpath.ReadRegularFileNoSymlinkLimited(candidate, maxInstructionsFileBytes)
 			if readErr != nil {
 				return Result{}, fmt.Errorf("instructions: read %s: %w", candidate, readErr)
 			}

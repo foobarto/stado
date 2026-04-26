@@ -31,6 +31,8 @@ const (
 	KeyFileName = "agent.ed25519"
 
 	pemType = "STADO ED25519 PRIVATE KEY"
+
+	maxPrivateKeyFileBytes int64 = 16 << 10
 )
 
 // LoadOrCreateKey opens an existing key file or generates a fresh one with
@@ -47,7 +49,7 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func loadKey(path string) (ed25519.PrivateKey, error) {
-	data, err := workdirpath.ReadRegularFileNoSymlink(path)
+	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxPrivateKeyFileBytes)
 	if err != nil {
 		return nil, err
 	}

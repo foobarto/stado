@@ -23,10 +23,13 @@ import (
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/foobarto/stado/internal/tui/theme"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 //go:embed templates/*.tmpl
 var defaultTemplates embed.FS
+
+const maxTemplateFileBytes int64 = 256 << 10
 
 // Renderer renders UI elements using loaded templates and a theme.
 type Renderer struct {
@@ -57,8 +60,7 @@ func NewWithOverlay(th *theme.Theme, overlayDir string) (*Renderer, error) {
 		return nil, err
 	}
 	if overlayDir != "" {
-		overlay := os.DirFS(overlayDir)
-		if err := walkTemplates(root, overlay, "."); err != nil {
+		if err := walkOverlayTemplates(root, overlayDir); err != nil {
 			return nil, fmt.Errorf("render: overlay %s: %w", overlayDir, err)
 		}
 	}
@@ -78,12 +80,48 @@ func walkTemplates(root *template.Template, fsys fs.FS, base string) error {
 		if err != nil {
 			return err
 		}
-		name := strings.TrimSuffix(filepath.Base(path), ".tmpl")
-		if _, err := root.New(name).Parse(string(data)); err != nil {
-			return fmt.Errorf("render: parse %s: %w", path, err)
-		}
-		return nil
+		return parseTemplateFile(root, path, data)
 	})
+}
+
+func walkOverlayTemplates(root *template.Template, overlayDir string) error {
+	overlayRoot, err := workdirpath.OpenRootNoSymlink(overlayDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = overlayRoot.Close() }()
+	entries, err := fs.ReadDir(overlayRoot.FS(), ".")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if filepath.Ext(name) != ".tmpl" {
+			continue
+		}
+		if entry.IsDir() {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("template is a symlink: %s", name)
+		}
+		data, err := workdirpath.ReadRootRegularFileLimited(overlayRoot, name, maxTemplateFileBytes)
+		if err != nil {
+			return err
+		}
+		if err := parseTemplateFile(root, name, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseTemplateFile(root *template.Template, path string, data []byte) error {
+	name := strings.TrimSuffix(filepath.Base(path), ".tmpl")
+	if _, err := root.New(name).Parse(string(data)); err != nil {
+		return fmt.Errorf("render: parse %s: %w", path, err)
+	}
+	return nil
 }
 
 // Exec runs the named template with the given data.

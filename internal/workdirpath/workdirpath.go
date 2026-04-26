@@ -84,17 +84,6 @@ func RootRel(workdir, path string, allowMissing bool) (root, rel string, err err
 	return root, rel, nil
 }
 
-// ReadFile opens path through os.Root so the final open remains confined even
-// if symlinks are swapped after path resolution.
-func ReadFile(workdir, path string) ([]byte, error) {
-	f, err := OpenReadFile(workdir, path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
-}
-
 // OpenReadFile opens path through os.Root so the final open remains confined
 // even if symlinks are swapped after path resolution. The returned file must
 // be closed by the caller.
@@ -111,15 +100,33 @@ func OpenReadFile(workdir, path string) (*os.File, error) {
 	return root.Open(rel)
 }
 
-// ReadRegularFileNoSymlink reads an absolute or relative filesystem path while
-// rejecting symlinked directory components and symlinked final paths.
-func ReadRegularFileNoSymlink(path string) ([]byte, error) {
+// ReadRegularFileNoSymlinkLimited reads an absolute or relative filesystem path
+// while rejecting symlinked directory components, symlinked final paths, and
+// files larger than maxBytes.
+func ReadRegularFileNoSymlinkLimited(path string, maxBytes int64) ([]byte, error) {
 	f, err := OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes: %s", maxBytes, path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes: %s", maxBytes, path)
+	}
+	return data, nil
 }
 
 // ReadRootRegularFileLimited opens a regular file relative to root, rejects

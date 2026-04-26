@@ -19,6 +19,7 @@ import (
 )
 
 const appName = "stado"
+const maxSystemPromptTemplateBytes int64 = 1 << 20
 
 // Config is the top-level stado configuration.
 //
@@ -394,11 +395,7 @@ func (c *Config) loadSystemPromptTemplate() error {
 	}
 	var body []byte
 	var err error
-	if explicitPath {
-		body, err = os.ReadFile(c.Agent.SystemPromptPath) // #nosec G304 -- system prompt path is explicit user configuration.
-	} else {
-		body, err = workdirpath.ReadRegularFileNoSymlink(c.Agent.SystemPromptPath)
-	}
+	body, err = workdirpath.ReadRegularFileNoSymlinkLimited(c.Agent.SystemPromptPath, maxSystemPromptTemplateBytes)
 	if err != nil {
 		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
 	}
@@ -417,7 +414,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("default system prompt template is not a regular file: %s", path)
 		}
-		data, err := workdirpath.ReadRegularFileNoSymlink(path)
+		data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSystemPromptTemplateBytes)
 		if err != nil {
 			return fmt.Errorf("read default system prompt template: %w", err)
 		}
