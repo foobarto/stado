@@ -30,6 +30,9 @@ Plugins / Infra / Fixes.
 - **Validated TUI session metadata actions.** Session rename and delete actions
   now use the shared session ID validator, preventing special local IDs from
   writing metadata outside an actual session worktree.
+- **Rooted learning document writes.** `stado learning document` now writes
+  Markdown notes through rooted `.learnings` handles, rejecting symlink escapes
+  before documenting and rejecting a lesson.
 
 ## v0.25.7 — 2026-04-26
 

@@ -432,25 +432,15 @@ func documentLesson(cmd *cobra.Command, id string, opts *learningDocumentOptions
 	if err != nil {
 		return err
 	}
-	path, err := learningDocumentPath(cwd, item, opts.Path)
+	root, rel, err := learningDocumentTarget(cwd, item, opts.Path)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("learning document: mkdir: %w", err)
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) // #nosec G302,G304 -- user-selected learning docs are shareable repo artifacts.
-	if err != nil {
-		if os.IsExist(err) {
+	path := filepath.Join(root, rel)
+	if err := writeLearningDocument(root, rel, lessonDocumentMarkdown(item)); err != nil {
+		if errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("learning document: %s already exists", path)
 		}
-		return fmt.Errorf("learning document: write %s: %w", path, err)
-	}
-	if _, err := f.Write(lessonDocumentMarkdown(item)); err != nil {
-		_ = f.Close()
-		return fmt.Errorf("learning document: write %s: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
 		return fmt.Errorf("learning document: write %s: %w", path, err)
 	}
 	if item.Confidence != "rejected" {
@@ -562,7 +552,7 @@ func missingEvidenceFiles(root string, files []string) []string {
 	return missing
 }
 
-func learningDocumentPath(cwd string, item memory.Item, rawPath string) (string, error) {
+func learningDocumentTarget(cwd string, item memory.Item, rawPath string) (string, string, error) {
 	root := findCurrentWorktreeRoot(cwd)
 	rel := strings.TrimSpace(rawPath)
 	if rel == "" {
@@ -570,19 +560,108 @@ func learningDocumentPath(cwd string, item memory.Item, rawPath string) (string,
 	} else {
 		rel = filepath.Clean(rel)
 		if filepath.IsAbs(rel) {
-			return "", errors.New("learning document: --path must be relative")
+			return "", "", errors.New("learning document: --path must be relative")
 		}
 		if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-			return "", errors.New("learning document: --path must stay under .learnings")
+			return "", "", errors.New("learning document: --path must stay under .learnings")
 		}
 		if rel == ".learnings" {
-			return "", errors.New("learning document: --path must name a file under .learnings")
+			return "", "", errors.New("learning document: --path must name a file under .learnings")
 		}
 		if rel != ".learnings" && !strings.HasPrefix(rel, ".learnings"+string(os.PathSeparator)) {
 			rel = filepath.Join(".learnings", rel)
 		}
 	}
-	return filepath.Join(root, rel), nil
+	return root, rel, nil
+}
+
+func writeLearningDocument(repoRoot, rel string, data []byte) error {
+	rel = filepath.Clean(rel)
+	if rel == ".learnings" || !strings.HasPrefix(rel, ".learnings"+string(os.PathSeparator)) {
+		return errors.New("document path must stay under .learnings")
+	}
+	root, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if info, err := root.Lstat(".learnings"); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New(".learnings must not be a symlink")
+		}
+		if !info.IsDir() {
+			return errors.New(".learnings is not a directory")
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		if err := root.Mkdir(".learnings", 0o750); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	} else {
+		return err
+	}
+	learningRoot, err := root.OpenRoot(".learnings")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = learningRoot.Close() }()
+	learningRel, err := filepath.Rel(".learnings", rel)
+	if err != nil {
+		return err
+	}
+	if learningRel == "." || filepath.IsAbs(learningRel) ||
+		learningRel == ".." || strings.HasPrefix(learningRel, ".."+string(os.PathSeparator)) {
+		return errors.New("document path must stay under .learnings")
+	}
+	if dir := filepath.Dir(learningRel); dir != "." {
+		if err := rejectLearningSymlinkDirs(learningRoot, dir); err != nil {
+			return err
+		}
+		if err := learningRoot.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+	}
+	f, err := learningRoot.OpenFile(learningRel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func rejectLearningSymlinkDirs(root *os.Root, dir string) error {
+	dir = filepath.Clean(dir)
+	if dir == "." {
+		return nil
+	}
+	parts := strings.Split(dir, string(os.PathSeparator))
+	current := ""
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if current == "" {
+			current = part
+		} else {
+			current = filepath.Join(current, part)
+		}
+		info, err := root.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink directory %q is not allowed", current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%q is not a directory", current)
+		}
+	}
+	return nil
 }
 
 func findCurrentWorktreeRoot(start string) string {

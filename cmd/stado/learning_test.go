@@ -464,6 +464,70 @@ func TestLearningCLI_DocumentWritesLearningNoteAndRejects(t *testing.T) {
 	}
 }
 
+func TestLearningCLI_DocumentRejectsLearningsDirSymlinkEscape(t *testing.T) {
+	store := setupMemoryEnv(t)
+	lesson := proposeLearningTestLesson(t, store, "Reject symlinked learning docs")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(cwd, ".learnings")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	documentCmd := newLearningDocumentCmd()
+	err = documentCmd.RunE(documentCmd, []string{lesson.ID})
+	if err == nil || !strings.Contains(err.Error(), ".learnings") {
+		t.Fatalf("expected .learnings symlink rejection, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, lessonDocumentFilename(lesson))); !os.IsNotExist(err) {
+		t.Fatalf("document write escaped through .learnings symlink: %v", err)
+	}
+	after, ok, err := store.Show(context.Background(), lesson.ID)
+	if err != nil {
+		t.Fatalf("Show after failed document: %v", err)
+	}
+	if !ok || after.Confidence != "candidate" {
+		t.Fatalf("failed document should leave lesson candidate, got %+v", after)
+	}
+}
+
+func TestLearningCLI_DocumentRejectsNestedSymlinkEscape(t *testing.T) {
+	store := setupMemoryEnv(t)
+	lesson := proposeLearningTestLesson(t, store, "Reject nested learning symlinks")
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cwd, ".learnings"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(cwd, ".learnings", "escape")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	documentCmd := newLearningDocumentCmd()
+	if err := documentCmd.Flags().Set("path", "escape/review-note.md"); err != nil {
+		t.Fatal(err)
+	}
+	err = documentCmd.RunE(documentCmd, []string{lesson.ID})
+	if err == nil || !strings.Contains(err.Error(), "write") {
+		t.Fatalf("expected nested symlink rejection, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "review-note.md")); !os.IsNotExist(err) {
+		t.Fatalf("document write escaped through nested symlink: %v", err)
+	}
+	after, ok, err := store.Show(context.Background(), lesson.ID)
+	if err != nil {
+		t.Fatalf("Show after failed document: %v", err)
+	}
+	if !ok || after.Confidence != "candidate" {
+		t.Fatalf("failed document should leave lesson candidate, got %+v", after)
+	}
+}
+
 func TestLearningCLI_DocumentRefusesOverwrite(t *testing.T) {
 	store := setupMemoryEnv(t)
 	first := proposeLearningTestLesson(t, store, "Document first lesson")
