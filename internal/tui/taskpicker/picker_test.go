@@ -1,6 +1,7 @@
 package taskpicker
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -42,5 +43,33 @@ func TestPickerDetailAndDeleteCommand(t *testing.T) {
 	cmd, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if cmd.Type != CommandDelete || cmd.ID != "task-1" {
 		t.Fatalf("delete cmd = %+v", cmd)
+	}
+}
+
+func TestPickerCapsSearchQuery(t *testing.T) {
+	m := New()
+	m.Open(nil, "")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	if len(m.Query) != maxQueryBytes {
+		t.Fatalf("query length = %d, want %d", len(m.Query), maxQueryBytes)
+	}
+}
+
+func TestPickerCapsFormTitleAndBody(t *testing.T) {
+	m := New()
+	m.Open(nil, "")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", tasks.MaxTitleBytes+128))})
+	if len(m.formTitle) != tasks.MaxTitleBytes {
+		t.Fatalf("title length = %d, want %d", len(m.formTitle), tasks.MaxTitleBytes)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", tasks.MaxBodyBytes+128))})
+	if len(m.formBody) != tasks.MaxBodyBytes {
+		t.Fatalf("body length = %d, want %d", len(m.formBody), tasks.MaxBodyBytes)
 	}
 }

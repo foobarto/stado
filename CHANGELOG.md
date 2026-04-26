@@ -103,6 +103,9 @@ Plugins / Infra / Fixes.
 - **Capped subagent and LSP tool results.** `spawn_agent` results and LSP
   lookup output now share explicit model-context budgets before being returned
   to the parent model.
+- **Capped task picker input buffers.** Task search, title, and body editing
+  now stop at bounded byte limits before oversized pasted input can grow TUI
+  memory.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

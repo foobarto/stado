@@ -12,6 +12,8 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+const maxQueryBytes = 1024
+
 type CommandType int
 
 const (
@@ -148,10 +150,10 @@ func (m *Model) updateList(km tea.KeyMsg) Command {
 		m.Query = ""
 		m.refresh()
 	case tea.KeyRunes:
-		m.Query += string(km.Runes)
+		m.Query = appendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
 		m.refresh()
 	case tea.KeySpace:
-		m.Query += " "
+		m.Query = appendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
 	}
 	return Command{}
@@ -303,9 +305,9 @@ func (m *Model) beginDeleteTarget(task tasks.Task) {
 func (m *Model) appendToForm(s string) {
 	switch m.formField {
 	case 0:
-		m.formTitle += s
+		m.formTitle = appendWithinBytes(m.formTitle, s, tasks.MaxTitleBytes)
 	case 2:
-		m.formBody += s
+		m.formBody = appendWithinBytes(m.formBody, s, tasks.MaxBodyBytes)
 	}
 }
 
@@ -672,4 +674,26 @@ func trimLastRune(s string) string {
 		return ""
 	}
 	return string(runes[:len(runes)-1])
+}
+
+func appendWithinBytes(current, addition string, maxBytes int) string {
+	if maxBytes <= 0 || len(current) >= maxBytes || addition == "" {
+		return current
+	}
+	room := maxBytes - len(current)
+	if len(addition) <= room {
+		return current + addition
+	}
+	end := 0
+	for i, r := range addition {
+		next := i + len(string(r))
+		if next > room {
+			break
+		}
+		end = next
+	}
+	if end == 0 {
+		return current
+	}
+	return current + addition[:end]
 }
