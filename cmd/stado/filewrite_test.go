@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +43,19 @@ func TestCopyAndCloseFile_PropagatesSyncError(t *testing.T) {
 	}
 	if !out.closed {
 		t.Fatal("copyAndCloseFile did not close writer after sync failure")
+	}
+}
+
+func TestCopyAndCloseFileLimitedRejectsOversizedReader(t *testing.T) {
+	out := &fakeSyncedWriteCloser{}
+	err := copyAndCloseFileLimited(out, bytes.NewBufferString("hello"), 4)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") {
+		t.Fatalf("copyAndCloseFileLimited err = %v, want size rejection", err)
+	}
+	if !out.closed {
+		t.Fatal("copyAndCloseFileLimited did not close writer after size rejection")
+	}
+	if got := out.buf.String(); got != "hell" {
+		t.Fatalf("copied bytes = %q, want capped prefix", got)
 	}
 }

@@ -29,6 +29,32 @@ func copyAndCloseFile(out syncedWriteCloser, in io.Reader) error {
 	return out.Close()
 }
 
+func copyAndCloseFileLimited(out syncedWriteCloser, in io.Reader, maxBytes int64) error {
+	if maxBytes < 0 {
+		_ = out.Close()
+		return fmt.Errorf("copy limit must be non-negative")
+	}
+	if _, err := io.Copy(out, io.LimitReader(in, maxBytes)); err != nil {
+		_ = out.Close()
+		return err
+	}
+	var probe [1]byte
+	n, err := io.ReadFull(in, probe[:])
+	if n > 0 {
+		_ = out.Close()
+		return fmt.Errorf("file exceeds %d bytes", maxBytes)
+	}
+	if err != nil && err != io.EOF {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
 	dir := filepath.Dir(dst)
 	name := filepath.Base(dst)

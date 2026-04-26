@@ -17,6 +17,9 @@ import (
 
 var pluginInstallSigner string
 
+// Keep plugin install copies aligned with the maximum signed WASM payload.
+const maxPluginInstallFileBytes int64 = 64 << 20
+
 var pluginInstallCmd = &cobra.Command{
 	Use:   "install <plugin-dir>",
 	Short: "Verify and install a plugin into stado's plugin directory",
@@ -227,11 +230,18 @@ func copyPluginFile(srcRoot, dstRoot *os.Root, rel string, mode os.FileMode) err
 	if !os.SameFile(sourceInfo, openedInfo) {
 		return fmt.Errorf("source file changed while opening: %s", rel)
 	}
+	if openedInfo.Size() > maxPluginInstallFileBytes {
+		return fmt.Errorf("plugin package file exceeds %d bytes: %s", maxPluginInstallFileBytes, rel)
+	}
 	out, err := dstRoot.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
-	return copyAndCloseFile(out, in)
+	if err := copyAndCloseFileLimited(out, in, maxPluginInstallFileBytes); err != nil {
+		_ = dstRoot.Remove(rel)
+		return fmt.Errorf("%s: %w", rel, err)
+	}
+	return nil
 }
 
 func verifyInstalledPluginCopy(dst string, want *plugins.Manifest, sig string) error {

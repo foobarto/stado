@@ -22,6 +22,9 @@ Plugins / Infra / Fixes.
 - **Capped bundled binary cache verification.** Bundled tool cache hits now
   require an exact byte-size match and hash through a bounded reader before
   reusing an existing executable.
+- **Capped plugin install copies.** Plugin installs now reject oversized
+  package files during rooted directory copies and remove partial destinations
+  if a source grows past the copy ceiling.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

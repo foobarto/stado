@@ -14,6 +14,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // buildTestPlugin writes a minimal plugin dir (wasm + manifest + sig)
@@ -145,6 +146,67 @@ func TestPluginInstall_NormalizesInstalledPermissions(t *testing.T) {
 	assertPerm(filepath.Join(dst, "plugin.manifest.json"), 0o600)
 	assertPerm(filepath.Join(dst, "bin"), 0o700)
 	assertPerm(filepath.Join(dst, "bin", "helper.sh"), 0o700)
+}
+
+func TestPluginInstallRejectsOversizedAuxiliaryFile(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPlugin(t, priv, pub, "demo", "1.0.0")
+	extraPath := filepath.Join(src, "extra.bin")
+	if err := os.WriteFile(extraPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(extraPath, maxPluginInstallFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	pluginInstallSigner = hex.EncodeToString(pub)
+	defer func() { pluginInstallSigner = "" }()
+
+	err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src})
+	if err == nil {
+		t.Fatal("expected oversized auxiliary plugin file to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size rejection, got %v", err)
+	}
+	dst := filepath.Join(cfg.StateDir(), "plugins", "demo-1.0.0")
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("failed install left destination behind, stat err = %v", statErr)
+	}
+}
+
+func TestCopyPluginFileRejectsOversizedFile(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	extraPath := filepath.Join(src, "extra.bin")
+	if err := os.WriteFile(extraPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(extraPath, maxPluginInstallFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	srcRoot, err := workdirpath.OpenRootNoSymlink(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srcRoot.Close() }()
+	dstRoot, err := workdirpath.OpenRootNoSymlink(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dstRoot.Close() }()
+
+	err = copyPluginFile(srcRoot, dstRoot, "extra.bin", 0o600)
+	if err == nil {
+		t.Fatal("expected oversized plugin file to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dst, "extra.bin")); !os.IsNotExist(statErr) {
+		t.Fatalf("copy left destination file behind, stat err = %v", statErr)
+	}
 }
 
 func TestCopyDirRejectsSourceSymlinkEscape(t *testing.T) {
