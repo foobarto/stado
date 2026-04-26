@@ -52,6 +52,9 @@ Plugins / Infra / Fixes.
 - **Bounded worktree session listing.** CLI and TUI session enumeration now
   stream worktree-root entries in batches and reject oversized session state
   directories.
+- **Bounded grep tool walks.** The in-process grep tool now streams rooted
+  directory traversal in batches and rejects oversized walk depth or entry
+  counts before scanning files.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

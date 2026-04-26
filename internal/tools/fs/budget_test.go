@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/tools/budget"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -116,6 +117,78 @@ func TestGrepTruncatesMatchList(t *testing.T) {
 
 	if !strings.Contains(res.Content, "[truncated:") {
 		t.Errorf("grep truncation marker missing: tail=%q", res.Content[max0(len(res.Content)-200):])
+	}
+}
+
+func TestGrepRejectsTooManyWalkEntries(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		writeTempFile(t, dir, fmt.Sprintf("f%d.txt", i), "needle\n")
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = grepRoot(root, ".", "needle", grepWalkLimits{
+		maxEntries:  2,
+		maxDepth:    maxGrepWalkDepth,
+		maxMatches:  budget.GrepMatches,
+		maxFileSize: maxGrepFileBytes,
+	})
+	if err == nil || !strings.Contains(err.Error(), "more than 2 entries") {
+		t.Fatalf("grepRoot error = %v, want entry cap rejection", err)
+	}
+}
+
+func TestGrepRejectsTooDeepWalk(t *testing.T) {
+	dir := t.TempDir()
+	deep := filepath.Join(dir, "a", "b")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTempFile(t, deep, "target.txt", "needle\n")
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = grepRoot(root, ".", "needle", grepWalkLimits{
+		maxEntries:  10,
+		maxDepth:    1,
+		maxMatches:  budget.GrepMatches,
+		maxFileSize: maxGrepFileBytes,
+	})
+	if err == nil || !strings.Contains(err.Error(), "nesting exceeds 1") {
+		t.Fatalf("grepRoot error = %v, want depth cap rejection", err)
+	}
+}
+
+func TestGrepStoresOnlyBudgetedMatches(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "a.txt", strings.Repeat("needle\n", 5))
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	results, err := grepRoot(root, ".", "needle", grepWalkLimits{
+		maxEntries:  10,
+		maxDepth:    maxGrepWalkDepth,
+		maxMatches:  3,
+		maxFileSize: maxGrepFileBytes,
+	})
+	if err != nil {
+		t.Fatalf("grepRoot error = %v", err)
+	}
+	if results.matches != 5 || len(results.lines) != 3 {
+		t.Fatalf("matches=%d stored=%d, want matches=5 stored=3", results.matches, len(results.lines))
+	}
+	if got := formatGrepResults(results); !strings.Contains(got, "[truncated: 3 of 5 matches shown") {
+		t.Fatalf("truncation marker missing from %q", got)
 	}
 }
 

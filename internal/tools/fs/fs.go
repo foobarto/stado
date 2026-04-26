@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -306,7 +305,12 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 
 type GrepTool struct{}
 
-const maxGrepFileBytes int64 = 1 << 20
+const (
+	maxGrepFileBytes   int64 = 1 << 20
+	maxGrepWalkEntries       = 200000
+	maxGrepWalkDepth         = 128
+	grepReadDirBatch         = 128
+)
 
 func (GrepTool) Name() string        { return "grep" }
 func (GrepTool) Description() string { return "Search file contents with regex" }
@@ -340,42 +344,154 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	}
 	defer func() { _ = root.Close() }()
 
-	var results []string
-	err = iofs.WalkDir(root.FS(), filepath.ToSlash(searchRel), func(path string, d iofs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.Type()&os.ModeSymlink != 0 || d.IsDir() {
-			return err
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if info.Size() > maxGrepFileBytes {
-			return nil
-		}
-		data, err := workdirpath.ReadRootRegularFileLimited(root, filepath.FromSlash(path), maxGrepFileBytes)
-		if err != nil {
-			return nil
-		}
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			if strings.Contains(line, p.Pattern) {
-				results = append(results, fmt.Sprintf("%s:%d:%s", path, i+1, line))
-			}
-		}
-		return nil
-	})
+	results, err := grepRoot(root, searchRel, p.Pattern, defaultGrepWalkLimits())
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	if len(results) == 0 {
-		return tool.Result{Content: "No matches found"}, nil
+	return tool.Result{Content: formatGrepResults(results)}, nil
+}
+
+type grepWalkLimits struct {
+	maxEntries  int
+	maxDepth    int
+	maxMatches  int
+	maxFileSize int64
+}
+
+type grepResults struct {
+	lines   []string
+	matches int
+}
+
+type grepWalkState struct {
+	grepWalkLimits
+	entries int
+	results grepResults
+}
+
+func defaultGrepWalkLimits() grepWalkLimits {
+	return grepWalkLimits{
+		maxEntries:  maxGrepWalkEntries,
+		maxDepth:    maxGrepWalkDepth,
+		maxMatches:  budget.GrepMatches,
+		maxFileSize: maxGrepFileBytes,
 	}
-	joined := strings.Join(results, "\n")
-	return tool.Result{Content: budget.TruncateLines(joined, budget.GrepMatches,
-		"narrow the pattern or path to reduce matches")}, nil
+}
+
+func grepRoot(root *os.Root, searchRel, pattern string, limits grepWalkLimits) (grepResults, error) {
+	if root == nil {
+		return grepResults{}, fmt.Errorf("grep root unavailable")
+	}
+	searchRel = filepath.Clean(searchRel)
+	if searchRel == "" {
+		searchRel = "."
+	}
+	state := &grepWalkState{grepWalkLimits: limits}
+	if err := grepWalkPath(root, searchRel, pattern, state, 0); err != nil {
+		return grepResults{}, err
+	}
+	return state.results, nil
+}
+
+func grepWalkPath(root *os.Root, rel, pattern string, state *grepWalkState, depth int) error {
+	if depth > state.maxDepth {
+		return fmt.Errorf("grep walk nesting exceeds %d: %s", state.maxDepth, filepath.ToSlash(rel))
+	}
+	state.entries++
+	if state.entries > state.maxEntries {
+		return fmt.Errorf("grep walk contains more than %d entries", state.maxEntries)
+	}
+
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if info.IsDir() {
+		return grepWalkDir(root, rel, pattern, state, depth)
+	}
+	if !info.Mode().IsRegular() || info.Size() > state.maxFileSize {
+		return nil
+	}
+	return grepFile(root, rel, pattern, state)
+}
+
+func grepWalkDir(root *os.Root, rel, pattern string, state *grepWalkState, depth int) error {
+	dir, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	openedInfo, err := dir.Stat()
+	if err != nil {
+		return err
+	}
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || !openedInfo.IsDir() {
+		return nil
+	}
+	if !os.SameFile(info, openedInfo) {
+		return fmt.Errorf("grep walk directory changed while opening: %s", filepath.ToSlash(rel))
+	}
+
+	for {
+		entries, readErr := dir.ReadDir(grepReadDirBatch)
+		for _, entry := range entries {
+			name := entry.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return fmt.Errorf("grep walk invalid entry name %q", name)
+			}
+			childRel := name
+			if rel != "." {
+				childRel = filepath.Join(rel, name)
+			}
+			if err := grepWalkPath(root, childRel, pattern, state, depth+1); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+	return nil
+}
+
+func grepFile(root *os.Root, rel, pattern string, state *grepWalkState) error {
+	data, err := workdirpath.ReadRootRegularFileLimited(root, rel, state.maxFileSize)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if strings.Contains(line, pattern) {
+			state.results.matches++
+			if len(state.results.lines) < state.maxMatches {
+				state.results.lines = append(state.results.lines, fmt.Sprintf("%s:%d:%s", filepath.ToSlash(rel), i+1, line))
+			}
+		}
+	}
+	return nil
+}
+
+func formatGrepResults(results grepResults) string {
+	if results.matches == 0 {
+		return "No matches found"
+	}
+	if results.matches <= len(results.lines) {
+		return strings.Join(results.lines, "\n")
+	}
+	lines := append([]string(nil), results.lines...)
+	lines = append(lines, fmt.Sprintf("[truncated: %d of %d matches shown — narrow the pattern or path to reduce matches]",
+		len(results.lines), results.matches))
+	return strings.Join(lines, "\n")
 }
 
 // ReadArgs is the input to ReadTool. Start/End are 1-indexed, inclusive.
