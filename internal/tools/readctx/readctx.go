@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,13 @@ import (
 )
 
 type Tool struct{}
+
+const (
+	defaultReadctxMaxBytesPerFile = 64 * 1024
+	maxReadctxFileBytes           = 1 << 20
+	maxReadctxImportScanBytes     = 1 << 20
+	maxReadctxGoModBytes          = 1 << 20
+)
 
 func (Tool) Name() string { return "read_with_context" }
 func (Tool) Description() string {
@@ -67,7 +75,10 @@ func (t Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.R
 		return tool.Result{Error: "path required"}, errors.New("readctx: path required")
 	}
 	if a.MaxBytesPerFile <= 0 {
-		a.MaxBytesPerFile = 64 * 1024
+		a.MaxBytesPerFile = defaultReadctxMaxBytesPerFile
+	}
+	if a.MaxBytesPerFile > maxReadctxFileBytes {
+		a.MaxBytesPerFile = maxReadctxFileBytes
 	}
 
 	target, err := workdirpath.Resolve(h.Workdir(), a.Path, false)
@@ -118,7 +129,7 @@ func gather(target, workdir string, maxBytes int) ([]filePair, error) {
 // per package. Limits: in-repo packages only (no GOPATH/module cache reads).
 func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error) {
 	fset := token.NewFileSet()
-	source, err := workdirpath.ReadFile(workdir, filePath)
+	source, _, err := readBoundedBytes(workdir, filePath, maxReadctxImportScanBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +211,7 @@ func findModuleRoot(dir, workdir string) (string, string) {
 		if !pathWithin(root, dir) {
 			return "", ""
 		}
-		data, err := workdirpath.ReadFile(root, filepath.Join(dir, "go.mod"))
+		data, _, err := readBoundedBytes(root, filepath.Join(dir, "go.mod"), maxReadctxGoModBytes)
 		if err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
 				if strings.HasPrefix(line, "module ") {
@@ -229,14 +240,33 @@ func pathWithin(root, path string) bool {
 }
 
 func readBounded(workdir, path string, max int) (string, error) {
-	data, err := workdirpath.ReadFile(workdir, path)
+	data, truncated, err := readBoundedBytes(workdir, path, max)
 	if err != nil {
 		return "", err
 	}
-	if len(data) > max {
-		return string(data[:max]) + "\n…[truncated]", nil
+	if truncated {
+		return string(data) + "\n…[truncated]", nil
 	}
 	return string(data), nil
+}
+
+func readBoundedBytes(workdir, path string, max int) ([]byte, bool, error) {
+	if max < 0 {
+		max = 0
+	}
+	f, err := workdirpath.OpenReadFile(workdir, path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > max {
+		return data[:max], true, nil
+	}
+	return data, false, nil
 }
 
 func format(pairs []filePair) string {

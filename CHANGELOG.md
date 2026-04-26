@@ -48,6 +48,9 @@ Plugins / Infra / Fixes.
 - **Bounded file-read tool memory.** The `read` tool now streams full-file and
   ranged reads into the existing output budget instead of loading the whole
   file before truncating.
+- **Bounded read-context inputs.** The `read_with_context` tool now enforces a
+  hard per-file read ceiling and caps Go import-scan and `go.mod` reads before
+  parsing.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

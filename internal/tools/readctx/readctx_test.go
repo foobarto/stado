@@ -132,6 +132,31 @@ func TestRun_TruncatesLargeFiles(t *testing.T) {
 	}
 }
 
+func TestRun_CapsRequestedMaxBytesPerFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sparse.txt")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, int64(maxReadctxFileBytes)+1024); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{
+		"path":               "sparse.txt",
+		"max_bytes_per_file": maxReadctxFileBytes * 4,
+	})
+	res, err := (Tool{}).Run(context.Background(), args, stubHost{wd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Content, "[truncated]") {
+		t.Errorf("truncation marker missing:\n%s", res.Content)
+	}
+	if len(res.Content) > maxReadctxFileBytes+512 {
+		t.Errorf("response exceeds hard cap allowance: %d", len(res.Content))
+	}
+}
+
 func TestRun_RejectsEscapingPath(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "secret.txt")
