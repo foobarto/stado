@@ -125,6 +125,34 @@ func TestSessionExport_JSONLFormat(t *testing.T) {
 	}
 }
 
+func TestSessionExportRejectsOutputSymlink(t *testing.T) {
+	id, _, restore := exportEnv(t)
+	defer restore()
+
+	out := t.TempDir()
+	decoy := filepath.Join(out, "decoy.md")
+	if err := os.WriteFile(decoy, []byte("do not replace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exportFormat = "md"
+	exportOutput = filepath.Join(out, "out.md")
+	defer func() { exportFormat = "md"; exportOutput = "" }()
+	if err := os.Symlink("decoy.md", exportOutput); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := sessionExportCmd.RunE(sessionExportCmd, []string{id}); err == nil {
+		t.Fatal("session export should reject symlinked output path")
+	}
+	data, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "do not replace" {
+		t.Fatalf("symlink target modified: %q", data)
+	}
+}
+
 // TestSessionExport_StdoutWhenNoOutput: empty --output (or "-")
 // writes to stdout rather than a file.
 func TestSessionExport_StdoutWhenNoOutput(t *testing.T) {

@@ -86,6 +86,9 @@ Plugins / Infra / Fixes.
 - **Hardened plugin signing artifact writes.** `stado plugin sign` now writes
   manifests, signatures, and author pubkey sidecars through rooted random temp
   files and rejects final symlink/non-regular targets.
+- **Hardened session export writes.** `stado session export -o` now saves
+  through rooted random temp files and refuses final symlink/non-regular
+  output paths.
 
 ## v0.25.7 — 2026-04-26
 
