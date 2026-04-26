@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,24 @@ func TestHasAutoCompactBackgroundPlugin_DetectsLoadedPlugin(t *testing.T) {
 	}}
 	if !m.hasAutoCompactBackgroundPlugin() {
 		t.Fatal("auto-compact background plugin should have been detected")
+	}
+}
+
+func TestLoadOneBackgroundRejectsEscapingPluginID(t *testing.T) {
+	rnd, _ := render.New(theme.Default())
+	m := NewModel("/tmp", "m", "p",
+		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
+	pluginsRoot := filepath.Join(t.TempDir(), "plugins")
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(pluginsRoot), "escape"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	bp, note := m.loadOneBackground(context.TODO(), nil, &config.Config{}, pluginsRoot, "../escape")
+	if bp != nil {
+		t.Fatal("escaping background plugin id unexpectedly loaded")
+	}
+	if !strings.Contains(note, "invalid plugin id") {
+		t.Fatalf("background plugin note = %q, want invalid plugin id", note)
 	}
 }
 

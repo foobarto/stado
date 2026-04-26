@@ -123,6 +123,8 @@ Plugins / Infra / Fixes.
 - **Validated plugin run IDs.** TUI `/plugin:<id>` invocations and tool
   override plugin references now reject traversal before resolving plugin
   directories.
+- **Validated background plugin IDs.** TUI background-plugin config entries now
+  use the installed-plugin path guard before manifest loading.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

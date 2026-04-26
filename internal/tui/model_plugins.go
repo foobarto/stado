@@ -106,7 +106,10 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		return bp, fmt.Sprintf("background plugin %s loaded (bundled default)", bundled.ID)
 	}
 
-	dir := filepath.Join(pluginsRoot, id)
+	dir, err := plugins.InstalledDir(pluginsRoot, id)
+	if err != nil {
+		return nil, fmt.Sprintf("background plugin %s: %v", id, err)
+	}
 	mf, sig, err := plugins.LoadFromDir(dir)
 	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: manifest load failed: %v", id, err)
