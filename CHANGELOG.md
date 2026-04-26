@@ -42,6 +42,9 @@ Plugins / Infra / Fixes.
 - **Streamed minisign artifact signing.** Release artifact signing now hashes
   files incrementally before writing `.minisig` sidecars instead of reading
   whole artifacts into memory.
+- **Capped bundled-binary fetch inputs.** The release helper now uses explicit
+  HTTP timeouts and rejects oversized checksum sidecars, release metadata,
+  archives, and extracted tool binaries.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

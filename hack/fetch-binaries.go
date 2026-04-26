@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/foobarto/stado/internal/releaseassets"
 	"github.com/foobarto/stado/internal/workdirpath"
@@ -47,7 +48,15 @@ import (
 const (
 	defaultRipgrepVersion = "14.1.1"
 	defaultAstGrepVersion = "0.38.7"
+
+	maxFetchSidecarBytes  int64 = 64 << 10
+	maxFetchMetadataBytes int64 = 1 << 20
+	maxFetchArchiveBytes  int64 = 128 << 20
+	maxFetchBinaryBytes   int64 = 256 << 20
+	fetchHTTPTimeout            = 30 * time.Second
 )
+
+var fetchHTTPClient = &http.Client{Timeout: fetchHTTPTimeout}
 
 type target struct {
 	GOOS, GOARCH string
@@ -204,15 +213,7 @@ func downloadArchiveFile(url, kind, inner, wantDigest string) ([]byte, error) {
 	if url == "" {
 		return nil, fmt.Errorf("no asset URL for this target")
 	}
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
+	body, err := fetchURLLimited(url, filepath.Base(url), maxFetchArchiveBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +227,7 @@ func downloadArchiveFile(url, kind, inner, wantDigest string) ([]byte, error) {
 	case "tar.gz":
 		return readFromTarGz(bytes.NewReader(body), inner)
 	case "zip":
-		return readFromZip(bytes.NewReader(body), inner)
+		return readFromZip(body, inner)
 	}
 	return nil, fmt.Errorf("unknown archive kind %q", kind)
 }
@@ -251,71 +252,73 @@ func readFromTarGz(r io.Reader, inner string) ([]byte, error) {
 			continue
 		}
 		if h.Name == inner || filepath.Base(h.Name) == base {
-			return io.ReadAll(tr)
+			if h.Size < 0 {
+				return nil, fmt.Errorf("tar entry %s has invalid size %d", h.Name, h.Size)
+			}
+			if h.Size > maxFetchBinaryBytes {
+				return nil, fmt.Errorf("tar entry %s exceeds %d bytes", h.Name, maxFetchBinaryBytes)
+			}
+			return readLimitedFetchBody(tr, "tar entry "+h.Name, maxFetchBinaryBytes)
 		}
 	}
 	return nil, fmt.Errorf("entry %q not found in tar.gz", inner)
 }
 
-func readFromZip(r io.Reader, inner string) ([]byte, error) {
-	buf, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	zr, err := zip.NewReader(bytesReaderAt(buf), int64(len(buf)))
+func readFromZip(body []byte, inner string) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		return nil, err
 	}
 	base := filepath.Base(inner)
 	for _, f := range zr.File {
 		if f.Name == inner || filepath.Base(f.Name) == base {
+			if f.UncompressedSize64 > uint64(maxFetchBinaryBytes) {
+				return nil, fmt.Errorf("zip entry %s exceeds %d bytes", f.Name, maxFetchBinaryBytes)
+			}
 			rc, err := f.Open()
 			if err != nil {
 				return nil, err
 			}
 			defer func() { _ = rc.Close() }()
-			return io.ReadAll(rc)
+			return readLimitedFetchBody(rc, "zip entry "+f.Name, maxFetchBinaryBytes)
 		}
 	}
 	return nil, fmt.Errorf("entry %q not found in zip", inner)
 }
 
-// bytesReaderAt is a thin adapter to satisfy zip.NewReader's io.ReaderAt
-// requirement without pulling in bytes.Reader's whole surface.
-type readerAtBytes []byte
-
-func (r readerAtBytes) ReadAt(p []byte, off int64) (int, error) {
-	if off >= int64(len(r)) {
-		return 0, io.EOF
-	}
-	n := copy(p, r[off:])
-	if n < len(p) {
-		return n, io.EOF
-	}
-	return n, nil
-}
-
-func bytesReaderAt(b []byte) readerAtBytes { return readerAtBytes(b) }
-
-func fetchURL(url string) ([]byte, error) {
+func fetchURLLimited(url, label string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "stado-fetch-binaries")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fetchHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("%s HTTP %d", label, resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, maxBytes)
+	}
+	return readLimitedFetchBody(resp.Body, label, maxBytes)
+}
+
+func readLimitedFetchBody(r io.Reader, label string, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, maxBytes)
+	}
+	return data, nil
 }
 
 func fetchSHA256Sidecar(url, assetName string) (string, error) {
-	body, err := fetchURL(url)
+	body, err := fetchURLLimited(url, filepath.Base(url), maxFetchSidecarBytes)
 	if err != nil {
 		return "", err
 	}
@@ -323,7 +326,7 @@ func fetchSHA256Sidecar(url, assetName string) (string, error) {
 }
 
 func fetchGitHubExpandedAssetDigests(repo, tag string) (map[string]string, error) {
-	body, err := fetchURL("https://github.com/" + repo + "/releases/expanded_assets/" + tag)
+	body, err := fetchURLLimited("https://github.com/"+repo+"/releases/expanded_assets/"+tag, "expanded assets", maxFetchMetadataBytes)
 	if err != nil {
 		return nil, err
 	}
