@@ -73,6 +73,9 @@ Plugins / Infra / Fixes.
   responses before decoding JSON.
 - **Capped self-update release metadata.** Self-update now rejects oversized
   GitHub release API responses before decoding release JSON.
+- **Bounded glob tool expansion.** The in-process glob tool now walks through
+  rooted bounded traversal, skips symlink directory traversal, and stores only
+  the output-budgeted matches while counting total matches.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

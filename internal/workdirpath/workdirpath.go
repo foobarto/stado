@@ -6,9 +6,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
+)
+
+const (
+	maxGlobWalkEntries = 200000
+	maxGlobWalkDepth   = 128
+	maxGlobStored      = 10000
+	globReadDirBatch   = 128
 )
 
 // Resolve returns a canonical absolute path confined to workdir.
@@ -553,18 +561,165 @@ func writeRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMo
 	return nil
 }
 
-// Glob returns filepath.Glob matches for a workdir-relative pattern
-// after rejecting absolute paths and leading `..` escapes.
+// Glob returns bounded matches for a workdir-relative pattern after rejecting
+// absolute paths and leading `..` escapes.
 func Glob(workdir, pattern string) ([]string, error) {
+	matches, _, err := GlobLimited(workdir, pattern, maxGlobStored)
+	return matches, err
+}
+
+// GlobLimited returns at most maxStored matches plus the total match count.
+// Traversal is rooted, skips symlinked directories, and fails if the worktree
+// exceeds the glob entry or depth budget.
+func GlobLimited(workdir, pattern string, maxStored int) ([]string, int, error) {
+	return globLimited(workdir, pattern, maxStored, defaultGlobLimits())
+}
+
+type globLimits struct {
+	maxEntries int
+	maxDepth   int
+}
+
+type globState struct {
+	rootPath  string
+	pattern   string
+	maxStored int
+	globLimits
+	entries int
+	matches []string
+	total   int
+}
+
+func defaultGlobLimits() globLimits {
+	return globLimits{maxEntries: maxGlobWalkEntries, maxDepth: maxGlobWalkDepth}
+}
+
+func globLimited(workdir, pattern string, maxStored int, limits globLimits) ([]string, int, error) {
 	if workdir == "" {
-		return nil, errors.New("workdir unavailable")
+		return nil, 0, errors.New("workdir unavailable")
+	}
+	if maxStored < 0 {
+		maxStored = 0
 	}
 	if filepath.IsAbs(pattern) {
-		return nil, fmt.Errorf("path %q escapes workdir", pattern)
+		return nil, 0, fmt.Errorf("path %q escapes workdir", pattern)
+	}
+	if strings.Contains(pattern, "\x00") {
+		return nil, 0, fmt.Errorf("invalid glob pattern %q", pattern)
 	}
 	clean := filepath.Clean(pattern)
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("path %q escapes workdir", pattern)
+		return nil, 0, fmt.Errorf("path %q escapes workdir", pattern)
 	}
-	return filepath.Glob(filepath.Join(workdir, pattern))
+	if _, err := filepath.Match(clean, ""); err != nil {
+		return nil, 0, err
+	}
+	rootPath, err := filepath.EvalSymlinks(workdir)
+	if err != nil {
+		return nil, 0, err
+	}
+	root, err := OpenRootNoSymlink(rootPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = root.Close() }()
+
+	state := &globState{
+		rootPath:   rootPath,
+		pattern:    clean,
+		maxStored:  maxStored,
+		globLimits: limits,
+		matches:    make([]string, 0, min(maxStored, 64)),
+	}
+	if err := walkGlobDir(root, ".", state, 0); err != nil {
+		return nil, 0, err
+	}
+	return state.matches, state.total, nil
+}
+
+func walkGlobDir(root *os.Root, rel string, state *globState, depth int) error {
+	if depth > state.maxDepth {
+		return fmt.Errorf("glob walk exceeded max depth %d", state.maxDepth)
+	}
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil
+	}
+	dir, err := root.Open(rel)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	openedInfo, err := dir.Stat()
+	if err != nil {
+		return err
+	}
+	if !openedInfo.IsDir() {
+		return fmt.Errorf("glob walk path is not a directory: %s", filepath.ToSlash(rel))
+	}
+	if !os.SameFile(info, openedInfo) {
+		return fmt.Errorf("glob walk directory changed while opening: %s", filepath.ToSlash(rel))
+	}
+	names, err := readGlobDirNames(dir, state)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		childRel := name
+		if rel != "." {
+			childRel = filepath.Join(rel, name)
+		}
+		if err := visitGlobPath(root, childRel, state, depth+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readGlobDirNames(dir *os.File, state *globState) ([]string, error) {
+	var names []string
+	for {
+		entries, readErr := dir.ReadDir(globReadDirBatch)
+		for _, entry := range entries {
+			state.entries++
+			if state.entries > state.maxEntries {
+				return nil, fmt.Errorf("glob walk contains more than %d entries", state.maxEntries)
+			}
+			name := entry.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return nil, fmt.Errorf("glob walk invalid entry name %q", name)
+			}
+			names = append(names, name)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func visitGlobPath(root *os.Root, rel string, state *globState, depth int) error {
+	info, err := root.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if ok, err := filepath.Match(state.pattern, rel); err != nil {
+		return err
+	} else if ok {
+		state.total++
+		if len(state.matches) < state.maxStored {
+			state.matches = append(state.matches, filepath.Join(state.rootPath, rel))
+		}
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil
+	}
+	return walkGlobDir(root, rel, state, depth)
 }

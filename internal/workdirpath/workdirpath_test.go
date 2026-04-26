@@ -405,3 +405,53 @@ func TestGlob_RejectsEscapePattern(t *testing.T) {
 		t.Fatal("expected escape pattern to fail")
 	}
 }
+
+func TestGlobLimitedCountsTotalWithStoredCap(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	matches, total, err := GlobLimited(root, "*.txt", 2)
+	if err != nil {
+		t.Fatalf("GlobLimited: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("total = %d, want 3", total)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("stored matches = %d, want 2: %v", len(matches), matches)
+	}
+}
+
+func TestGlobLimitedRejectsTooManyEntries(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, err := globLimited(root, "*", 10, globLimits{maxEntries: 1, maxDepth: maxGlobWalkDepth})
+	if err == nil || !strings.Contains(err.Error(), "more than 1 entries") {
+		t.Fatalf("globLimited error = %v, want entry cap", err)
+	}
+}
+
+func TestGlobLimitedSkipsSymlinkDirectoryTraversal(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linkdir")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	matches, total, err := GlobLimited(root, "linkdir/*.txt", 10)
+	if err != nil {
+		t.Fatalf("GlobLimited: %v", err)
+	}
+	if total != 0 || len(matches) != 0 {
+		t.Fatalf("symlink directory was traversed: total=%d matches=%v", total, matches)
+	}
+}

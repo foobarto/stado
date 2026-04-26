@@ -289,18 +289,27 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	matches, err := workdirpath.Glob(h.Workdir(), p.Pattern)
+	matches, total, err := workdirpath.GlobLimited(h.Workdir(), p.Pattern, budget.GlobEntries)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
+	rootPath, err := filepath.EvalSymlinks(h.Workdir())
+	if err != nil {
+		rootPath = h.Workdir()
+	}
 	rel := make([]string, len(matches))
 	for i, match := range matches {
-		r, _ := filepath.Rel(h.Workdir(), match)
+		r, _ := filepath.Rel(rootPath, match)
 		rel[i] = r
 	}
 	joined := strings.Join(rel, "\n")
-	return tool.Result{Content: budget.TruncateLines(joined, budget.GlobEntries,
-		"narrow the pattern to reduce matches")}, nil
+	if total > len(rel) {
+		if joined != "" {
+			joined += "\n"
+		}
+		joined += fmt.Sprintf("[truncated: %d of %d matches shown — narrow the pattern to reduce matches]", len(rel), total)
+	}
+	return tool.Result{Content: joined}, nil
 }
 
 type GrepTool struct{}
