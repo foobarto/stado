@@ -74,6 +74,9 @@ Plugins / Infra / Fixes.
 - **Hardened worktree rooted writes.** File tools, plugin filesystem writes,
   and subagent adoption now save through rooted random temp files while
   rejecting final symlink/non-regular write targets.
+- **Hardened model picker state writes.** Recent and favorite model state now
+  reads regular files only and saves through rooted random temp files instead
+  of following state-file symlinks.
 
 ## v0.25.7 — 2026-04-26
 

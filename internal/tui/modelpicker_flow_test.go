@@ -235,6 +235,46 @@ func TestModelPickerRemembersRecentSelection(t *testing.T) {
 	}
 }
 
+func TestModelPickerRecentsRejectStateSymlink(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(cfg.StateDir(), "decoy.json")
+	if err := os.WriteFile(decoy, []byte(`[{"id":"old"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy.json", filepath.Join(cfg.StateDir(), modelRecentsFile)); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	m.rememberModelSelection(modelpicker.Item{
+		ID:           "claude-sonnet-4-5",
+		Origin:       "anthropic",
+		ProviderName: "anthropic",
+	})
+
+	data, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `[{"id":"old"}]` {
+		t.Fatalf("model recents symlink target modified: %s", data)
+	}
+	if recents := m.modelRecents(); len(recents) != 0 {
+		t.Fatalf("symlinked recents should be ignored, got %+v", recents)
+	}
+}
+
 func TestModelPickerFavoritesPersistAndPrepend(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
@@ -265,6 +305,45 @@ func TestModelPickerFavoritesPersistAndPrepend(t *testing.T) {
 	sel := m.modelPicker.Selected()
 	if sel == nil || sel.ID != "claude-sonnet-4-5" || !sel.Favorite {
 		t.Fatalf("favorite model should be first selection, got %+v", sel)
+	}
+}
+
+func TestModelPickerFavoritesRejectStateSymlink(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(cfg.StateDir(), "favorites-decoy.json")
+	if err := os.WriteFile(decoy, []byte(`[{"id":"old"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("favorites-decoy.json", filepath.Join(cfg.StateDir(), modelFavoritesFile)); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	m := newPickerTestModel(t, "anthropic")
+	m.cfg = cfg
+	favorite := m.toggleModelFavorite(modelpicker.Item{
+		ID:           "claude-sonnet-4-5",
+		Origin:       "anthropic",
+		ProviderName: "anthropic",
+	})
+	if favorite {
+		t.Fatal("favorite toggle should report failure for symlinked state file")
+	}
+	data, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `[{"id":"old"}]` {
+		t.Fatalf("model favorites symlink target modified: %s", data)
 	}
 }
 

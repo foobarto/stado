@@ -9,6 +9,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 const modelRecentsFile = "model-recents.json"
@@ -38,7 +39,7 @@ func (m *Model) modelFavorites() []modelpicker.Item {
 }
 
 func readModelStateItems(path string, recent, favorite bool) []modelpicker.Item {
-	data, err := os.ReadFile(path) // #nosec G304 -- model state path is derived from stado config state.
+	data, err := readModelStateFile(path)
 	if err != nil {
 		return nil
 	}
@@ -100,14 +101,7 @@ func (m *Model) rememberModelSelection(item modelpicker.Item) {
 			break
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
-	}
-	data, err := json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(path, append(data, '\n'), 0o600)
+	_ = writeModelStateRecords(path, next)
 }
 
 func (m *Model) persistDefaultModel(provider, model string) error {
@@ -171,6 +165,32 @@ func (m *Model) toggleModelFavorite(item modelpicker.Item) bool {
 			Origin:       it.Origin,
 		})
 	}
+	if !writeModelStateRecords(path, records) {
+		return false
+	}
+	return nextFavorite
+}
+
+func readModelStateFile(path string) ([]byte, error) {
+	root, name, err := modelStateRoot(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("model state file is a symlink: %s", name)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("model state file is not regular: %s", name)
+	}
+	return root.ReadFile(name)
+}
+
+func writeModelStateRecords(path string, records []modelRecentRecord) bool {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false
 	}
@@ -178,8 +198,25 @@ func (m *Model) toggleModelFavorite(item modelpicker.Item) bool {
 	if err != nil {
 		return false
 	}
-	_ = os.WriteFile(path, append(data, '\n'), 0o600)
-	return nextFavorite
+	root, name, err := modelStateRoot(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = root.Close() }()
+	return workdirpath.WriteRootFileAtomic(root, name, append(data, '\n'), 0o600) == nil
+}
+
+func modelStateRoot(path string) (*os.Root, string, error) {
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	if name == "." || name == string(filepath.Separator) {
+		return nil, "", fmt.Errorf("invalid model state path: %s", path)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, name, nil
 }
 
 func (m *Model) modelStatePath(name string) (string, bool) {
