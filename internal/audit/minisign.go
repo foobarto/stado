@@ -25,8 +25,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -169,5 +171,19 @@ func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComm
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".minisig", sig, 0o644) // #nosec G306 -- minisign signatures are intentionally shareable sidecars.
+	return writeShareableSidecar(path+".minisig", sig)
+}
+
+func writeShareableSidecar(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	if name == "." || name == ".." || strings.Contains(name, "\x00") {
+		return fmt.Errorf("invalid sidecar path: %s", path)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return workdirpath.WriteRootFileAtomic(root, name, data, 0o644)
 }

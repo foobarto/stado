@@ -65,7 +65,9 @@ func TestMinisign_SignFile(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "artifact.tar.gz")
-	os.WriteFile(src, bytes.Repeat([]byte{0xaa}, 1024), 0o644)
+	if err := os.WriteFile(src, bytes.Repeat([]byte{0xaa}, 1024), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := MinisignSignFile(priv, 0x1234, src, "stado release", "stado v1.0.0"); err != nil {
 		t.Fatal(err)
@@ -81,6 +83,34 @@ func TestMinisign_SignFile(t *testing.T) {
 	}
 	if trusted != "stado v1.0.0" {
 		t.Errorf("trusted = %q", trusted)
+	}
+}
+
+func TestMinisignSignFileRejectsSidecarSymlink(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "artifact.tar.gz")
+	if err := os.WriteFile(src, []byte("artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(dir, "decoy.minisig")
+	if err := os.WriteFile(decoy, []byte("do not replace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy.minisig", src+".minisig"); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := MinisignSignFile(priv, 0x1234, src, "stado release", "stado v1.0.0")
+	if err == nil {
+		t.Fatal("MinisignSignFile should reject symlinked sidecar path")
+	}
+	data, readErr := os.ReadFile(decoy)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "do not replace" {
+		t.Fatalf("symlink target modified: %q", data)
 	}
 }
 

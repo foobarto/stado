@@ -92,6 +92,9 @@ Plugins / Infra / Fixes.
 - **Hardened plugin scaffold writes.** `stado plugin init --force` now refuses
   symlinked scaffold directories/files and writes generated scripts with the
   intended executable mode through rooted atomic replacement.
+- **Hardened minisign sidecar writes.** Release `.minisig` files now save
+  through rooted random temp files and refuse final symlink/non-regular
+  sidecar paths.
 
 ## v0.25.7 — 2026-04-26
 
