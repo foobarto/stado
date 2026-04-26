@@ -13,28 +13,34 @@ const userRepoPinFile = ".stado/user-repo"
 // for the current worktree/session. The marker lives under .stado so it
 // stays local to the checked-out session and is ignored by git.
 func SessionDisabled(workdir string) bool {
-	_, err := os.Stat(sessionMemoryDisabledPath(workdir))
+	root, err := os.OpenRoot(sessionControlRoot(workdir))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = root.Close() }()
+	_, err = root.Stat(filepath.Join(".stado", sessionMemoryDisabledFile))
 	return err == nil
 }
 
 // SetSessionDisabled toggles the current worktree/session marker used by
 // PromptContext to skip approved-memory retrieval.
 func SetSessionDisabled(workdir string, disabled bool) error {
-	path := sessionMemoryDisabledPath(workdir)
+	root, err := os.OpenRoot(sessionControlRoot(workdir))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	path := filepath.Join(".stado", sessionMemoryDisabledFile)
 	if disabled {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		if err := root.MkdirAll(".stado", 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte("disabled\n"), 0o600)
+		return root.WriteFile(path, []byte("disabled\n"), 0o600)
 	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := root.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
-}
-
-func sessionMemoryDisabledPath(workdir string) string {
-	return filepath.Join(sessionControlRoot(workdir), ".stado", sessionMemoryDisabledFile)
 }
 
 func sessionControlRoot(workdir string) string {

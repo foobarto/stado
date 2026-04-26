@@ -108,6 +108,76 @@ func TestSetSessionDisabledRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, sessionMemoryDisabledFile), []byte("disabled\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if SessionDisabled(workdir) {
+		t.Fatal("SessionDisabled followed .stado symlink escape")
+	}
+}
+
+func TestSetSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	outsideMarker := filepath.Join(outsideDir, sessionMemoryDisabledFile)
+	if err := os.WriteFile(outsideMarker, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := SetSessionDisabled(workdir, true); err == nil {
+		t.Fatal("SetSessionDisabled enabled memory marker through a .stado symlink escape")
+	}
+	got, err := os.ReadFile(outsideMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside\n" {
+		t.Fatalf("outside memory marker was modified: %q", got)
+	}
+}
+
+func TestSetSessionEnabledRejectsStadoDirSymlinkEscape(t *testing.T) {
+	outsideDir := t.TempDir()
+	outsideMarker := filepath.Join(outsideDir, sessionMemoryDisabledFile)
+	if err := os.WriteFile(outsideMarker, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workdir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := SetSessionDisabled(workdir, false); err == nil {
+		t.Fatal("SetSessionDisabled removed memory marker through a .stado symlink escape")
+	}
+	got, err := os.ReadFile(outsideMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "outside\n" {
+		t.Fatalf("outside memory marker was modified: %q", got)
+	}
+}
+
 func TestPromptContextFormatsApprovedScopedMemories(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
