@@ -187,7 +187,7 @@ func TestFindModuleRoot(t *testing.T) {
 	root := t.TempDir()
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x.y/z\n"), 0o644)
 	os.MkdirAll(filepath.Join(root, "a", "b"), 0o755)
-	gotRoot, gotPath := findModuleRoot(filepath.Join(root, "a", "b"))
+	gotRoot, gotPath := findModuleRoot(filepath.Join(root, "a", "b"), root)
 	if gotRoot != root {
 		t.Errorf("module root = %q, want %q", gotRoot, root)
 	}
@@ -198,8 +198,25 @@ func TestFindModuleRoot(t *testing.T) {
 
 func TestFindModuleRoot_None(t *testing.T) {
 	root := t.TempDir()
-	gotRoot, gotPath := findModuleRoot(root)
+	gotRoot, gotPath := findModuleRoot(root, root)
 	if gotRoot != "" || gotPath != "" {
 		t.Errorf("expected empty results, got (%q,%q)", gotRoot, gotPath)
+	}
+}
+
+func TestFindModuleRoot_StopsAtWorkdir(t *testing.T) {
+	parent := t.TempDir()
+	if err := os.WriteFile(filepath.Join(parent, "go.mod"), []byte("module outside.example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workdir := filepath.Join(parent, "work")
+	nested := filepath.Join(workdir, "a", "b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	gotRoot, gotPath := findModuleRoot(nested, workdir)
+	if gotRoot != "" || gotPath != "" {
+		t.Fatalf("module root crossed workdir boundary: (%q,%q)", gotRoot, gotPath)
 	}
 }

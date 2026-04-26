@@ -97,7 +97,7 @@ type filePair struct {
 // gather reads the target file and any directly-imported files (Go-aware).
 // Other languages return just the target.
 func gather(target, workdir string, maxBytes int) ([]filePair, error) {
-	data, err := readBounded(target, maxBytes)
+	data, err := readBounded(workdir, target, maxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,11 @@ func gather(target, workdir string, maxBytes int) ([]filePair, error) {
 // per package. Limits: in-repo packages only (no GOPATH/module cache reads).
 func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error) {
 	fset := token.NewFileSet()
-	af, err := parser.ParseFile(fset, filePath, nil, parser.ImportsOnly)
+	source, err := workdirpath.ReadFile(workdir, filePath)
+	if err != nil {
+		return nil, err
+	}
+	af, err := parser.ParseFile(fset, filePath, source, parser.ImportsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +130,8 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 	seen := map[string]bool{}
 	var out []filePair
 
-	// Locate the module root: walk up from filePath until a go.mod is found.
-	_, modPath := findModuleRoot(filepath.Dir(filePath))
+	// Locate the module root inside the tool workdir.
+	_, modPath := findModuleRoot(filepath.Dir(filePath), workdir)
 
 	for _, imp := range af.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
@@ -170,7 +174,7 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 		if err != nil {
 			continue
 		}
-		body, err := readBounded(candidate, maxBytes)
+		body, err := readBounded(workdir, candidate, maxBytes)
 		if err != nil {
 			continue
 		}
@@ -181,11 +185,22 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 	return out, nil
 }
 
-// findModuleRoot walks up from dir until it sees a go.mod. Returns (root
-// dir, module path) or empty strings when none found.
-func findModuleRoot(dir string) (string, string) {
+// findModuleRoot walks up from dir until it sees a go.mod inside workdir.
+// Returns (root dir, module path) or empty strings when none found.
+func findModuleRoot(dir, workdir string) (string, string) {
+	root, err := filepath.EvalSymlinks(workdir)
+	if err != nil {
+		return "", ""
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", ""
+	}
 	for {
-		data, err := os.ReadFile(filepath.Join(dir, "go.mod")) // #nosec G304 -- module probe walks parents of a workdir-confined file.
+		if !pathWithin(root, dir) {
+			return "", ""
+		}
+		data, err := workdirpath.ReadFile(root, filepath.Join(dir, "go.mod"))
 		if err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
 				if strings.HasPrefix(line, "module ") {
@@ -193,6 +208,9 @@ func findModuleRoot(dir string) (string, string) {
 				}
 			}
 			return dir, ""
+		}
+		if dir == root {
+			return "", ""
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -202,8 +220,16 @@ func findModuleRoot(dir string) (string, string) {
 	}
 }
 
-func readBounded(path string, max int) (string, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- caller passes a workdir-confined path.
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func readBounded(workdir, path string, max int) (string, error) {
+	data, err := workdirpath.ReadFile(workdir, path)
 	if err != nil {
 		return "", err
 	}
