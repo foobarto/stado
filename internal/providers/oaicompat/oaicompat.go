@@ -55,8 +55,18 @@ func New(endpoint string, opts ...Option) (*Provider, error) {
 	if endpoint == "" {
 		return nil, errors.New("oaicompat: endpoint required")
 	}
-	if _, err := url.Parse(endpoint); err != nil {
+	u, err := url.Parse(endpoint)
+	if err != nil {
 		return nil, fmt.Errorf("oaicompat: invalid endpoint %q: %w", endpoint, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("oaicompat: endpoint must use http or https")
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("oaicompat: endpoint must include a host")
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("oaicompat: endpoint must not include credentials")
 	}
 	p := &Provider{
 		endpoint:   strings.TrimRight(endpoint, "/"),

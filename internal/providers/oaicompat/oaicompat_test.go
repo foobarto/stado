@@ -309,6 +309,16 @@ func TestNew_ValidatesEndpoint(t *testing.T) {
 	if _, err := New(""); err == nil {
 		t.Error("New(\"\") should error")
 	}
+	for _, endpoint := range []string{
+		"localhost:8080/v1",
+		"ftp://example.com/v1",
+		"http:///v1",
+		"https://user:pass@example.com/v1",
+	} {
+		if _, err := New(endpoint); err == nil {
+			t.Errorf("New(%q) should error", endpoint)
+		}
+	}
 	// Trailing slashes are normalised away.
 	p, err := New("http://localhost:8080/v1/")
 	if err != nil {

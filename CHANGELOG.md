@@ -11,6 +11,8 @@ Plugins / Infra / Fixes.
 - **Validated pinned plugin pubkeys.** Manifest verification now re-derives
   the stored signer pubkey fingerprint before trusting a pinned entry, so
   malformed trust-store records cannot authorize the wrong key.
+- **Validated OpenAI-compatible endpoints.** Custom OAI-compatible endpoints
+  now must use HTTP(S), include a host, and avoid URL-embedded credentials.
 - **Hardened prompt and symbol reads.** Project instruction files, project
   skill files, and TUI symbol scans now read regular files through the
   no-symlink opener so repo-controlled symlinks cannot redirect prompt or
