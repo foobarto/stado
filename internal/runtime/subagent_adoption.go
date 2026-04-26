@@ -3,12 +3,14 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/google/uuid"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/workdirpath"
@@ -30,6 +32,8 @@ type SubagentAdoptionPlan struct {
 }
 
 var ErrSubagentAdoptionConflict = errors.New("subagent adoption: conflicts")
+
+const maxSubagentAdoptionFileBytes int64 = 64 << 20
 
 // PlanSubagentAdoption checks whether a child session's changed files can be
 // adopted into the parent without overwriting parent edits made since forkTree.
@@ -144,14 +148,6 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 	if info.IsDir() {
 		return fmt.Errorf("directories are not supported adoption targets")
 	}
-	if dir := filepath.Dir(parentRel); dir != "." {
-		if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
-			return err
-		}
-	}
-	if err := parentRoot.RemoveAll(parentRel); err != nil {
-		return err
-	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		target, err := os.Readlink(childPath)
 		if err != nil {
@@ -160,14 +156,77 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		if !safeAdoptionSymlinkTarget(parentRel, target) {
 			return fmt.Errorf("unsafe symlink target %q for %q", target, rel)
 		}
+		if dir := filepath.Dir(parentRel); dir != "." {
+			if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
+				return err
+			}
+		}
+		if err := parentRoot.RemoveAll(parentRel); err != nil {
+			return err
+		}
 		return parentRoot.Symlink(target, parentRel)
 	}
-	data, err := workdirpath.ReadFile(childWorktree, rel)
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("file is not regular: %s", rel)
+	}
+	if dir := filepath.Dir(parentRel); dir != "." {
+		if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return copyRegularChildFileAtomic(parentRoot, parentRel, childPath)
+}
+
+func copyRegularChildFileAtomic(parentRoot *os.Root, parentRel, childPath string) error {
+	src, err := workdirpath.OpenRegularFileNoSymlink(childPath)
 	if err != nil {
 		return err
 	}
-	mode := info.Mode().Perm()
-	return workdirpath.WriteRootFileAtomic(parentRoot, parentRel, data, adoptedFileMode(mode))
+	defer func() { _ = src.Close() }()
+	info, err := src.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxSubagentAdoptionFileBytes {
+		return fmt.Errorf("adoption file exceeds %d bytes: %s", maxSubagentAdoptionFileBytes, childPath)
+	}
+
+	dir, base := filepath.Split(parentRel)
+	tmp := filepath.Join(dir, "."+base+"."+uuid.NewString()+".tmp")
+	dst, err := parentRoot.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, adoptedFileMode(info.Mode().Perm()))
+	if err != nil {
+		return err
+	}
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = parentRoot.Remove(tmp)
+		}
+	}()
+	n, err := io.Copy(dst, io.LimitReader(src, maxSubagentAdoptionFileBytes+1))
+	if err != nil {
+		_ = dst.Close()
+		return err
+	}
+	if n > maxSubagentAdoptionFileBytes {
+		_ = dst.Close()
+		return fmt.Errorf("adoption file exceeds %d bytes: %s", maxSubagentAdoptionFileBytes, childPath)
+	}
+	if err := dst.Sync(); err != nil {
+		_ = dst.Close()
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		return err
+	}
+	if err := parentRoot.RemoveAll(parentRel); err != nil {
+		return err
+	}
+	if err := parentRoot.Rename(tmp, parentRel); err != nil {
+		return err
+	}
+	renamed = true
+	return nil
 }
 
 func adoptedFileMode(mode os.FileMode) os.FileMode {

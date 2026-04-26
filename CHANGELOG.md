@@ -57,6 +57,9 @@ Plugins / Infra / Fixes.
 - **Capped edit-tool file loads.** Search/replace edits now reject oversized
   source files and replacement results before loading or writing unbounded
   content.
+- **Streamed subagent adoption copies.** Worker adoption now validates child
+  file inputs before removing parent targets and streams regular files through
+  a capped atomic copy.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

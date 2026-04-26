@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -203,6 +204,60 @@ func TestCopyChildChangeRejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(filepath.Join(parent, "link.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("unsafe link adopted, stat err = %v", statErr)
+	}
+}
+
+func TestCopyChildChangeRejectsUnsafeSymlinkWithoutRemovingParent(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "link.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(child, "link.txt")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := copyChildChange(parent, child, "link.txt")
+	if err == nil || !strings.Contains(err.Error(), "unsafe symlink") {
+		t.Fatalf("copyChildChange error = %v, want unsafe symlink rejection", err)
+	}
+	data, readErr := os.ReadFile(filepath.Join(parent, "link.txt"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("parent file modified after rejected symlink: %q", data)
+	}
+}
+
+func TestCopyChildChangeRejectsOversizedRegularFileWithoutRemovingParent(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	if err := os.WriteFile(filepath.Join(parent, "huge.bin"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	childPath := filepath.Join(child, "huge.bin")
+	if err := os.WriteFile(childPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(childPath, maxSubagentAdoptionFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	err := copyChildChange(parent, child, "huge.bin")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("copyChildChange error = %v, want size rejection", err)
+	}
+	data, readErr := os.ReadFile(filepath.Join(parent, "huge.bin"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("parent file modified after oversized child: %q", data)
 	}
 }
 
