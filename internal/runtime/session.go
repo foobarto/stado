@@ -16,6 +16,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // RootContext returns the base context.Context callers should use as
@@ -60,7 +61,7 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +98,7 @@ func NewSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.WorktreeDir(), 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)

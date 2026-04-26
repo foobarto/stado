@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/google/uuid"
@@ -68,7 +69,7 @@ func OpenOrInitSidecar(sidecarPath, userRepoRoot string) (*Sidecar, error) {
 	case err == nil:
 		// already exists
 	case errors.Is(err, git.ErrRepositoryNotExists):
-		if err := os.MkdirAll(absSidecar, 0o700); err != nil {
+		if err := workdirpath.MkdirAllNoSymlink(absSidecar, 0o700); err != nil {
 			return nil, fmt.Errorf("sidecar: mkdir: %w", err)
 		}
 		repo, err = git.PlainInit(absSidecar, true) // bare
@@ -101,7 +102,7 @@ func (s *Sidecar) ensureAlternates() error {
 	}
 
 	altDir := filepath.Join(s.Path, "objects", "info")
-	if err := os.MkdirAll(altDir, 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
 	if info, err := os.Lstat(altDir); err != nil {

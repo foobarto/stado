@@ -108,6 +108,10 @@ Plugins / Infra / Fixes.
   prompts, plugin state, task/memory stores, audit keys, model picker state,
   bundled tool caches, and plugin filesystem writes now reject symlinked
   parent directories before creating missing write roots.
+- **Hardened session/worktree directory creation.** Session worktree roots,
+  sidecar repositories, materialized trees, `.stado` metadata directories,
+  learning documents, and subagent adoption paths now reject symlinked
+  directory components before creating missing write targets.
 
 ## v0.25.7 — 2026-04-26
 

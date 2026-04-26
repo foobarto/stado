@@ -48,6 +48,25 @@ func TestOpenOrInitSidecar_CreatesBare(t *testing.T) {
 	}
 }
 
+func TestOpenOrInitSidecarRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "state-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := OpenOrInitSidecar(filepath.Join(link, "sessions.git"), t.TempDir()); err == nil {
+		t.Fatal("OpenOrInitSidecar should reject symlinked sidecar parent dirs")
+	}
+	if _, err := os.Stat(filepath.Join(target, "sessions.git")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}
+
 func TestAlternates_PointsAtUserObjects(t *testing.T) {
 	// Set up a user repo with a .git/objects dir.
 	userRepo := t.TempDir()
@@ -344,6 +363,26 @@ func TestCreateSession_RejectsPathTraversalID(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	if _, err := CreateSession(sc, t.TempDir(), "../escape", plumbing.ZeroHash); err == nil {
 		t.Fatal("expected invalid session id to be rejected")
+	}
+}
+
+func TestCreateSessionRejectsWorktreeRootSymlink(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "worktrees-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := CreateSession(sc, link, "s-parent-symlink", plumbing.ZeroHash); err == nil {
+		t.Fatal("CreateSession should reject symlinked worktree roots")
+	}
+	if _, err := os.Stat(filepath.Join(target, "s-parent-symlink")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
 	}
 }
 

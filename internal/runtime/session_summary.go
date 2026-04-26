@@ -12,6 +12,7 @@ import (
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
 
@@ -128,7 +129,7 @@ func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.Fil
 	defer func() { _ = root.Close() }()
 	dir := filepath.Dir(name)
 	if dir != "." {
-		if err := root.MkdirAll(dir, 0o700); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o700); err != nil {
 			return err
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -42,7 +43,7 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err != nil {
 		return fmt.Errorf("materialize: read tree %s: %w", treeHash, err)
 	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
 	root, err := os.OpenRoot(dir)
@@ -140,7 +141,7 @@ func prepareMaterializeDir(root *os.Root, rel string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	return root.MkdirAll(rel, 0o750)
+	return workdirpath.MkdirAllRootNoSymlink(root, rel, 0o750)
 }
 
 func writeMaterializedFile(root *os.Root, rel string, data []byte, perm os.FileMode) error {

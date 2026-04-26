@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/memory"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 type learningProposeOptions struct {
@@ -616,7 +617,7 @@ func writeLearningDocument(repoRoot, rel string, data []byte) error {
 		if err := rejectLearningSymlinkDirs(learningRoot, dir); err != nil {
 			return err
 		}
-		if err := learningRoot.MkdirAll(dir, 0o750); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(learningRoot, dir, 0o750); err != nil {
 			return err
 		}
 	}

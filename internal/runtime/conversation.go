@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/google/uuid"
 )
@@ -248,7 +249,7 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 	}
 	defer func() { _ = workRoot.Close() }()
 	if createDir {
-		if err := workRoot.MkdirAll(".stado", 0o700); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(workRoot, ".stado", 0o700); err != nil {
 			return nil, "", fmt.Errorf("conversation: mkdir %s: %w", filepath.Join(worktree, ".stado"), err)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -82,7 +83,7 @@ func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree 
 		return nil, err
 	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
-	if err := os.MkdirAll(worktree, 0o700); err != nil {
+	if err := workdirpath.MkdirAllNoSymlink(worktree, 0o700); err != nil {
 		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 	s := &Session{

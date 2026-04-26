@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/google/uuid"
 )
 
@@ -39,7 +40,7 @@ func SetSessionDisabled(workdir string, disabled bool) error {
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(".stado", sessionMemoryDisabledFile)
 	if disabled {
-		if err := root.MkdirAll(".stado", 0o700); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(root, ".stado", 0o700); err != nil {
 			return err
 		}
 		return writeSessionControlFile(root, path, []byte("disabled\n"), 0o600)

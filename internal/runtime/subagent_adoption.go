@@ -145,7 +145,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		return fmt.Errorf("directories are not supported adoption targets")
 	}
 	if dir := filepath.Dir(parentRel); dir != "." {
-		if err := parentRoot.MkdirAll(dir, 0o755); err != nil {
+		if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
 			return err
 		}
 	}
