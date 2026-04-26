@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -48,6 +49,9 @@ type Executor struct {
 // trailers for audit. If the tool isn't registered, returns an error without
 // touching refs.
 func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	t, ok := e.Registry.Get(name)
 	if !ok {
 		return tool.Result{Error: "unknown tool"}, fmt.Errorf("unknown tool: %s", name)

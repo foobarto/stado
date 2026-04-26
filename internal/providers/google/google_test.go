@@ -2,8 +2,10 @@ package google
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/google/generative-ai-go/genai"
 )
@@ -97,6 +99,15 @@ func TestConvertContent_FunctionCallAndResult(t *testing.T) {
 	}
 	if fr.Name != "search" || fr.Response["result"] != "result" {
 		t.Errorf("function response = %+v", fr)
+	}
+}
+
+func TestConvertContent_RejectsOversizedToolInput(t *testing.T) {
+	_, err := convertContent([]agent.Block{
+		{ToolUse: &agent.ToolUseBlock{Name: "search", Input: json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1))}},
+	}, agent.RoleAssistant)
+	if err == nil {
+		t.Fatal("expected oversized tool input error")
 	}
 }
 

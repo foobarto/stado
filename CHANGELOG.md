@@ -83,6 +83,9 @@ Plugins / Infra / Fixes.
   capability probes now avoid unbounded `Output`/`CombinedOutput` captures.
 - **Capped LSP frame reads.** LSP message framing now rejects oversized header
   lines, header blocks, and message bodies before allocation.
+- **Capped tool-call inputs.** Providers and the tool executor now reject
+  oversized function-call argument payloads before accumulating or replaying
+  them into tool execution.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

@@ -22,6 +22,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -197,6 +198,9 @@ func convertContent(blocks []agent.Block, role agent.Role) ([]genai.Part, error)
 		case b.Image != nil:
 			parts = append(parts, genai.ImageData(mediaSubtype(b.Image.MediaType), b.Image.Data))
 		case b.ToolUse != nil:
+			if err := toolinput.CheckLen(len(b.ToolUse.Input)); err != nil {
+				return nil, fmt.Errorf("google: tool_use input: %w", err)
+			}
 			var args map[string]any
 			if len(b.ToolUse.Input) > 0 {
 				if err := json.Unmarshal(b.ToolUse.Input, &args); err != nil {
@@ -277,7 +281,15 @@ func streamSession(ctx context.Context, session *genai.ChatSession, parts []gena
 				case genai.Text:
 					ch <- agent.Event{Kind: agent.EvTextDelta, Text: string(p)}
 				case genai.FunctionCall:
-					args, _ := json.Marshal(p.Args)
+					args, err := json.Marshal(p.Args)
+					if err != nil {
+						streamError(ch, span, "google", err)
+						return
+					}
+					if err := toolinput.CheckLen(len(args)); err != nil {
+						streamError(ch, span, "google", err)
+						return
+					}
 					tc := &agent.ToolUseBlock{
 						ID:    p.Name, // Gemini doesn't emit call ids; reuse name
 						Name:  p.Name,
@@ -298,6 +310,12 @@ func streamSession(ctx context.Context, session *genai.ChatSession, parts []gena
 		)
 	}
 	ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
+}
+
+func streamError(ch chan<- agent.Event, span trace.Span, provider string, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("%s: %w", provider, err)}
 }
 
 // jsonSchemaToGenai converts a JSON Schema object to Gemini's schema. Only

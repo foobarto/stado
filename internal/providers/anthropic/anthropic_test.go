@@ -3,9 +3,11 @@ package anthropic
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -86,6 +88,22 @@ func TestBuildMessages_ThinkingRoundTrip(t *testing.T) {
 	}
 	if th.Thinking != "let me think..." {
 		t.Errorf("thinking text = %q, want preserved", th.Thinking)
+	}
+}
+
+func TestBuildMessages_RejectsOversizedToolInput(t *testing.T) {
+	req := agent.TurnRequest{
+		Messages: []agent.Message{{
+			Role: agent.RoleAssistant,
+			Content: []agent.Block{{ToolUse: &agent.ToolUseBlock{
+				ID:    "tool_1",
+				Name:  "glob",
+				Input: json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)),
+			}}},
+		}},
+	}
+	if _, err := buildMessages(req); err == nil {
+		t.Fatal("expected oversized tool input error")
 	}
 }
 

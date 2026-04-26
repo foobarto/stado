@@ -2,8 +2,10 @@ package openai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -75,6 +77,20 @@ func TestBuildParams_ToolsAndParallelFlag(t *testing.T) {
 	}
 	if !params.ParallelToolCalls.Valid() || !params.ParallelToolCalls.Value {
 		t.Errorf("parallel_tool_calls not enabled")
+	}
+}
+
+func TestConvertMessages_RejectsOversizedToolInput(t *testing.T) {
+	_, err := convertMessages("", []agent.Message{{
+		Role: agent.RoleAssistant,
+		Content: []agent.Block{{ToolUse: &agent.ToolUseBlock{
+			ID:    "call_1",
+			Name:  "read_file",
+			Input: json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)),
+		}}},
+	}})
+	if err == nil {
+		t.Fatal("expected oversized tool input error")
 	}
 }
 

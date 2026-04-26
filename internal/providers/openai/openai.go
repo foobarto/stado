@@ -24,6 +24,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -133,6 +134,10 @@ func streamChunks(s *chunkStream, ch chan<- agent.Event, span trace.Span) {
 					}
 				}
 				if tc.Function.Arguments != "" {
+					if err := toolinput.CheckAppend(p.args.Len(), len(tc.Function.Arguments)); err != nil {
+						streamError(ch, span, "openai", err)
+						return
+					}
 					p.args.WriteString(tc.Function.Arguments)
 					ch <- agent.Event{Kind: agent.EvToolCallArgsDelta, ToolArgsDelta: tc.Function.Arguments}
 				}
@@ -176,6 +181,12 @@ func streamChunks(s *chunkStream, ch chan<- agent.Event, span trace.Span) {
 	}
 	recordUsageAttrs(span, usage)
 	ch <- agent.Event{Kind: agent.EvDone, Usage: usage}
+}
+
+func streamError(ch chan<- agent.Event, span trace.Span, provider string, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("%s: %w", provider, err)}
 }
 
 func recordUsageAttrs(span trace.Span, u *agent.Usage) {
@@ -242,7 +253,11 @@ func convertMessages(system string, msgs []agent.Message) ([]sdk.ChatCompletionM
 			out = append(out, msg)
 
 		case agent.RoleAssistant:
-			out = append(out, convertAssistant(m.Content))
+			msg, err := convertAssistant(m.Content)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, msg)
 
 		case agent.RoleTool:
 			for _, b := range m.Content {
@@ -276,7 +291,7 @@ func convertUser(blocks []agent.Block) (sdk.ChatCompletionMessageParamUnion, err
 	return sdk.UserMessage(parts), nil
 }
 
-func convertAssistant(blocks []agent.Block) sdk.ChatCompletionMessageParamUnion {
+func convertAssistant(blocks []agent.Block) (sdk.ChatCompletionMessageParamUnion, error) {
 	assistant := sdk.ChatCompletionAssistantMessageParam{}
 	var textBuf strings.Builder
 	for _, b := range blocks {
@@ -284,6 +299,9 @@ func convertAssistant(blocks []agent.Block) sdk.ChatCompletionMessageParamUnion 
 		case b.Text != nil:
 			textBuf.WriteString(b.Text.Text)
 		case b.ToolUse != nil:
+			if err := toolinput.CheckLen(len(b.ToolUse.Input)); err != nil {
+				return sdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("openai: tool_use input: %w", err)
+			}
 			assistant.ToolCalls = append(assistant.ToolCalls, sdk.ChatCompletionMessageToolCallParam{
 				ID: b.ToolUse.ID,
 				Function: sdk.ChatCompletionMessageToolCallFunctionParam{
@@ -298,5 +316,5 @@ func convertAssistant(blocks []agent.Block) sdk.ChatCompletionMessageParamUnion 
 	if textBuf.Len() > 0 {
 		assistant.Content.OfString = sdk.String(textBuf.String())
 	}
-	return sdk.ChatCompletionMessageParamUnion{OfAssistant: &assistant}
+	return sdk.ChatCompletionMessageParamUnion{OfAssistant: &assistant}, nil
 }

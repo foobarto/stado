@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -143,6 +144,38 @@ func TestStreamTurn_ToolCall(t *testing.T) {
 	if end == nil || string(end.Input) != `{"path":"foo.go"}` {
 		t.Errorf("end = %+v", end)
 	}
+}
+
+func TestStreamTurn_RejectsOversizedToolArgs(t *testing.T) {
+	idx0 := 0
+	first := strings.Repeat("a", toolinput.MaxBytes/2)
+	second := strings.Repeat("b", toolinput.MaxBytes-len(first)+1)
+	chunk1, _ := json.Marshal(chatChunk{Choices: []chunkChoice{{
+		Delta: chunkDelta{ToolCalls: []chatToolCall{{
+			Index: &idx0, ID: "call_1", Type: "function",
+			Function: chatFunctionCall{Name: "read_file", Arguments: first},
+		}}},
+	}}})
+	chunk2, _ := json.Marshal(chatChunk{Choices: []chunkChoice{{
+		Delta: chunkDelta{ToolCalls: []chatToolCall{{
+			Index:    &idx0,
+			Function: chatFunctionCall{Arguments: second},
+		}}},
+	}}})
+	srv := sseServer(t, "POST", "/v1/chat/completions", []string{string(chunk1), string(chunk2)})
+	p, _ := New(srv.URL + "/v1")
+
+	ch, err := p.StreamTurn(context.Background(), agent.TurnRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(t, ch)
+	for _, ev := range evs {
+		if ev.Kind == agent.EvError && ev.Err != nil && strings.Contains(ev.Err.Error(), "tool input exceeds") {
+			return
+		}
+	}
+	t.Fatalf("missing oversized tool input error in events: %+v", evs)
 }
 
 func TestStreamTurn_ParallelToolCalls(t *testing.T) {

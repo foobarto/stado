@@ -13,6 +13,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -236,5 +237,26 @@ func TestExecutor_UnknownToolReturnsError(t *testing.T) {
 	_, err := ex.Run(context.Background(), "nope", nil, stubHost{})
 	if err == nil {
 		t.Error("expected error for unknown tool")
+	}
+}
+
+func TestExecutor_RejectsOversizedArgsBeforeToolRun(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ran := false
+	ex.Registry.Register(stubTool{
+		name:  "stubread",
+		class: tool.ClassNonMutating,
+		effect: func(string) (tool.Result, error) {
+			ran = true
+			return tool.Result{Content: "unexpected"}, nil
+		},
+	})
+
+	_, err := ex.Run(context.Background(), "stubread", json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)), stubHost{workdir: wt})
+	if err == nil {
+		t.Fatal("expected oversized args error")
+	}
+	if ran {
+		t.Fatal("tool ran after oversized args")
 	}
 }

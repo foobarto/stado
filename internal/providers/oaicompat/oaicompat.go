@@ -27,6 +27,7 @@ import (
 
 	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -240,6 +241,9 @@ func convertMessages(system string, msgs []agent.Message) ([]chatMessage, error)
 				case b.Text != nil:
 					textBuf.WriteString(b.Text.Text)
 				case b.ToolUse != nil:
+					if err := toolinput.CheckLen(len(b.ToolUse.Input)); err != nil {
+						return nil, fmt.Errorf("oaicompat: tool_use input: %w", err)
+					}
 					asst.ToolCalls = append(asst.ToolCalls, chatToolCall{
 						ID:   b.ToolUse.ID,
 						Type: "function",
@@ -395,6 +399,10 @@ func parseSSE(r io.ReadCloser, ch chan<- agent.Event, span trace.Span) {
 					}
 				}
 				if tc.Function.Arguments != "" {
+					if err := toolinput.CheckAppend(p.args.Len(), len(tc.Function.Arguments)); err != nil {
+						streamError(ch, span, "oaicompat", err)
+						return
+					}
 					p.args.WriteString(tc.Function.Arguments)
 					ch <- agent.Event{
 						Kind:          agent.EvToolCallArgsDelta,
@@ -440,6 +448,12 @@ func parseSSE(r io.ReadCloser, ch chan<- agent.Event, span trace.Span) {
 	}
 	recordUsageSpan(span, lastUsage)
 	ch <- agent.Event{Kind: agent.EvDone, Usage: lastUsage}
+}
+
+func streamError(ch chan<- agent.Event, span trace.Span, provider string, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("%s: %w", provider, err)}
 }
 
 func recordUsageSpan(span trace.Span, u *agent.Usage) {

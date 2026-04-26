@@ -21,6 +21,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -203,6 +204,10 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span t
 				p.signature += d.Signature
 				ch <- agent.Event{Kind: agent.EvThinkingDelta, ThinkingSig: d.Signature}
 			case "input_json_delta":
+				if err := toolinput.CheckAppend(len(p.args), len(d.PartialJSON)); err != nil {
+					streamError(ch, span, "anthropic", err)
+					return
+				}
 				p.args = append(p.args, d.PartialJSON...)
 				ch <- agent.Event{Kind: agent.EvToolCallArgsDelta, ToolArgsDelta: d.PartialJSON}
 			}
@@ -249,6 +254,12 @@ func stream(_ context.Context, s *streamingResult, ch chan<- agent.Event, span t
 	ch <- agent.Event{Kind: agent.EvDone, Usage: finalUsage}
 }
 
+func streamError(ch chan<- agent.Event, span trace.Span, provider string, err error) {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	ch <- agent.Event{Kind: agent.EvError, Err: fmt.Errorf("%s: %w", provider, err)}
+}
+
 type streamingResult = ssestream.Stream[sdk.MessageStreamEventUnion]
 
 // buildMessages translates agent messages to MessageParam. Cache breakpoints
@@ -291,6 +302,9 @@ func convertBlocks(blocks []agent.Block, role agent.Role) ([]sdk.ContentBlockPar
 		case b.Text != nil:
 			out = append(out, sdk.NewTextBlock(b.Text.Text))
 		case b.ToolUse != nil:
+			if err := toolinput.CheckLen(len(b.ToolUse.Input)); err != nil {
+				return nil, fmt.Errorf("anthropic: tool_use input: %w", err)
+			}
 			var input any
 			if len(b.ToolUse.Input) > 0 {
 				if err := json.Unmarshal(b.ToolUse.Input, &input); err != nil {
