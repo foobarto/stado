@@ -75,6 +75,33 @@ func TestCommit_PGPSignatureIsSSHSIGWhenSignerImplements(t *testing.T) {
 	}
 }
 
+func TestReadEncodedObjectRejectsOversizedObject(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	obj := sc.repo.Storer.NewEncodedObject()
+	body := strings.Repeat("x", int(maxEncodedCommitBytes)+1)
+	obj.SetType(plumbing.CommitObject)
+	obj.SetSize(int64(len(body)))
+	w, err := obj.Writer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(body)); err != nil {
+		_ = w.Close()
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = readEncodedObject(obj)
+	if err == nil {
+		t.Fatal("readEncodedObject succeeded for oversized object")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("readEncodedObject error = %v, want size cap", err)
+	}
+}
+
 // TestCommit_NoPGPSignatureWhenNoSigner — the gpgsig path is opt-in via
 // the Signer field; Sessions without a Signer produce plain commits.
 func TestCommit_NoPGPSignatureWhenNoSigner(t *testing.T) {

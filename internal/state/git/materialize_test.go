@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -252,6 +253,33 @@ func TestMaterialize_RejectsEscapingTreeEntryName(t *testing.T) {
 	}
 }
 
+func TestMaterialize_RejectsOversizedSymlinkBlob(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-large-symlink", plumbing.ZeroHash)
+
+	blob := writeRawBlobForTest(t, sess, strings.Repeat("x", int(maxMaterializedSymlinkTargetBytes)+1))
+	tree, err := sess.entriesToTree([]treeEntry{{
+		name: "link",
+		hash: blob,
+		mode: filemode.Symlink,
+	}})
+	if err != nil {
+		t.Fatalf("entriesToTree: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "dst")
+	err = sess.MaterializeTreeToDir(tree, dst)
+	if err == nil {
+		t.Fatal("MaterializeTreeToDir succeeded for oversized symlink blob")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("MaterializeTreeToDir error = %v, want size cap", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(dst, "link")); !os.IsNotExist(statErr) {
+		t.Fatalf("oversized symlink was materialized, stat err = %v", statErr)
+	}
+}
+
 func TestMaterialize_ReplacesDestinationFileSymlink(t *testing.T) {
 	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
 	sess, _ := CreateSession(sc, t.TempDir(), "mat-file-symlink", plumbing.ZeroHash)
@@ -417,4 +445,27 @@ func TestMaterialize_ZeroTreeWipesSymlinkWithoutTouchingTarget(t *testing.T) {
 	if string(body) != "outside" {
 		t.Fatalf("zero-tree wipe removed through stale symlink target: %q", body)
 	}
+}
+
+func writeRawBlobForTest(t *testing.T, sess *Session, body string) plumbing.Hash {
+	t.Helper()
+	obj := sess.Sidecar.repo.Storer.NewEncodedObject()
+	obj.SetType(plumbing.BlobObject)
+	obj.SetSize(int64(len(body)))
+	w, err := obj.Writer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(body)); err != nil {
+		_ = w.Close()
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := sess.Sidecar.repo.Storer.SetEncodedObject(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }

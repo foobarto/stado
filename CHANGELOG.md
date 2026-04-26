@@ -16,6 +16,9 @@ Plugins / Infra / Fixes.
   skills, system prompt templates, theme files, TUI template overlays, symbol
   scans, and audit key loads now reject oversized regular files before
   parsing.
+- **Streamed git tree materialization.** Session tree materialization now
+  streams regular blob contents to destination files, caps symlink blob reads,
+  and bounds encoded commit bytes used for SSH signing.
 - **Rooted read-context module discovery.** The `read_with_context` tool now
   reads target/import files through workdir-rooted handles and stops Go module
   probing at the tool workdir boundary.

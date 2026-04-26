@@ -14,6 +14,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+const maxMaterializedSymlinkTargetBytes int64 = 4 << 10
+
 // MaterializeTreeToDir writes every blob in the given tree into dir, creating
 // subdirectories as needed. Symlinks are recreated. Existing files that
 // aren't in the tree are left alone (non-destructive by default); call
@@ -100,7 +102,7 @@ func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir s
 				return fmt.Errorf("materialize: symlink %s: %w", full, err)
 			}
 		case filemode.Executable, filemode.Regular:
-			data, err := s.readBlob(e.Hash)
+			r, err := s.openBlobReader(e.Hash)
 			if err != nil {
 				return err
 			}
@@ -108,7 +110,11 @@ func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir s
 			if e.Mode == filemode.Executable {
 				perm = 0o755
 			}
-			if err := writeMaterializedFile(root, rel, data, perm); err != nil {
+			if err := writeMaterializedFile(root, rel, r, perm); err != nil {
+				_ = r.Close()
+				return err
+			}
+			if err := r.Close(); err != nil {
 				return err
 			}
 		}
@@ -144,7 +150,7 @@ func prepareMaterializeDir(root *os.Root, rel string) error {
 	return workdirpath.MkdirAllRootNoSymlink(root, rel, 0o750)
 }
 
-func writeMaterializedFile(root *os.Root, rel string, data []byte, perm os.FileMode) error {
+func writeMaterializedFile(root *os.Root, rel string, r io.Reader, perm os.FileMode) error {
 	if info, err := root.Lstat(rel); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			if err := root.Remove(rel); err != nil {
@@ -158,7 +164,7 @@ func writeMaterializedFile(root *os.Root, rel string, data []byte, perm os.FileM
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
+	if _, err := io.Copy(f, r); err != nil {
 		_ = f.Close()
 		return err
 	}
@@ -174,21 +180,39 @@ func materializeTreeEntryName(name string) (string, error) {
 	return name, nil
 }
 
-func (s *Session) readBlob(hash plumbing.Hash) ([]byte, error) {
+func (s *Session) openBlobReader(hash plumbing.Hash) (io.ReadCloser, error) {
 	blob, err := object.GetBlob(s.Sidecar.repo.Storer, hash)
 	if err != nil {
 		return nil, err
+	}
+	return blob.Reader()
+}
+
+func (s *Session) readBlobLimited(hash plumbing.Hash, maxBytes int64) ([]byte, error) {
+	blob, err := object.GetBlob(s.Sidecar.repo.Storer, hash)
+	if err != nil {
+		return nil, err
+	}
+	if blob.Size > maxBytes {
+		return nil, fmt.Errorf("blob exceeds %d bytes: %s", maxBytes, hash)
 	}
 	r, err := blob.Reader()
 	if err != nil {
 		return nil, err
 	}
 	defer r.Close()
-	return io.ReadAll(r)
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("blob exceeds %d bytes: %s", maxBytes, hash)
+	}
+	return data, nil
 }
 
 func (s *Session) readBlobString(hash plumbing.Hash) (string, error) {
-	data, err := s.readBlob(hash)
+	data, err := s.readBlobLimited(hash, maxMaterializedSymlinkTargetBytes)
 	return string(data), err
 }
 

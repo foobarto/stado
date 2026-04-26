@@ -14,16 +14,28 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+const maxEncodedCommitBytes int64 = 1 << 20
+
 // readEncodedObject drains an EncodedObject's Reader and returns its
 // bytes. Used to recover the canonical git bytes after Encode so the
 // SSH signer can sign exactly what git signs.
 func readEncodedObject(obj plumbing.EncodedObject) ([]byte, error) {
+	if obj.Size() > maxEncodedCommitBytes {
+		return nil, fmt.Errorf("encoded object exceeds %d bytes", maxEncodedCommitBytes)
+	}
 	r, err := obj.Reader()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = r.Close() }()
-	return io.ReadAll(r)
+	data, err := io.ReadAll(io.LimitReader(r, maxEncodedCommitBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxEncodedCommitBytes {
+		return nil, fmt.Errorf("encoded object exceeds %d bytes", maxEncodedCommitBytes)
+	}
+	return data, nil
 }
 
 // CommitToTrace writes an empty-tree commit (metadata only) on trace ref.
