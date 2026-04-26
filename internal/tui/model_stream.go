@@ -501,6 +501,14 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		}
 		m.attachTurnFooter(ev.Usage)
 
+	case agent.EvError:
+		if ev.Err == nil {
+			return
+		}
+		m.state = stateError
+		m.errorMsg = ev.Err.Error()
+		m.appendBlock(block{kind: "system", body: "error: " + ev.Err.Error()})
+
 	case agent.EvTextDelta:
 		// Compaction streams go into the pending-summary buffer AND the
 		// assistant block the caller pre-appended — the user sees the

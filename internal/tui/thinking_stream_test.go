@@ -68,6 +68,34 @@ func TestStreamErrorStopsTickLoop(t *testing.T) {
 	}
 }
 
+func TestProviderEventErrorStopsTurnCompletion(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.streamBuf = append(m.streamBuf,
+		agent.Event{Kind: agent.EvTextDelta, Text: "partial"},
+		agent.Event{Kind: agent.EvError, Err: errors.New("tool input exceeds limit")},
+	)
+	m.streamBufClosed = true
+
+	_, cmd := m.Update(streamTickMsg{})
+	if m.state != stateError {
+		t.Fatalf("state = %v, want stateError", m.state)
+	}
+	if !strings.Contains(m.errorMsg, "tool input exceeds") {
+		t.Fatalf("errorMsg = %q", m.errorMsg)
+	}
+	if cmd == nil {
+		t.Fatal("closed stream should schedule streamDoneMsg")
+	}
+	_, _ = m.Update(cmd())
+	if len(m.msgs) != 0 {
+		t.Fatalf("provider error should not persist partial assistant turn: %+v", m.msgs)
+	}
+	if m.state != stateError {
+		t.Fatalf("state after streamDone = %v, want stateError", m.state)
+	}
+}
+
 func TestToolTickStopsWhenNoToolIsRunning(t *testing.T) {
 	m := scenarioModel(t)
 	_, cmd := m.Update(toolTickMsg{})

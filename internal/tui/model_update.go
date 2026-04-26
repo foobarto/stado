@@ -125,6 +125,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamDoneMsg:
 		m.streamCancel = nil
+		if m.state == stateError {
+			return m, nil
+		}
 		// Budget warn-once check: m.usage.CostUSD was updated inside
 		// the stream goroutine before sendMsg(streamDoneMsg), so by
 		// the time we're here it reflects the just-finished turn.
