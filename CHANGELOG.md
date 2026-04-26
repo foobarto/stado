@@ -91,6 +91,8 @@ Plugins / Infra / Fixes.
   buffers.
 - **Hardened TUI stream errors.** Provider stream errors now put the TUI into
   an error state instead of letting partial assistant turns complete normally.
+- **Capped direct tool dispatch inputs.** Registry, MCP-server, and plugin
+  adapter paths now share the tool-call input ceiling before dispatch.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

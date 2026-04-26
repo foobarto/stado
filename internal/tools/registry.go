@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -61,6 +62,9 @@ func (r *Registry) All() []tool.Tool {
 }
 
 func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	t, ok := r.Get(name)
 	if !ok {
 		return tool.Result{Error: fmt.Sprintf("unknown tool: %s", name)}, fmt.Errorf("unknown tool: %s", name)
@@ -69,9 +73,9 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage, h
 }
 
 // ClassOf returns the mutation class for a registered tool. Lookup order:
-//   1. tool.Classifier interface (per-instance)
-//   2. Classes static map (per-name, for bundled tools)
-//   3. ClassExec default
+//  1. tool.Classifier interface (per-instance)
+//  2. Classes static map (per-name, for bundled tools)
+//  3. ClassExec default
 func (r *Registry) ClassOf(name string) tool.Class {
 	t, ok := r.Get(name)
 	if ok {

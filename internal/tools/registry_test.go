@@ -1,10 +1,13 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"math/rand"
+	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -89,6 +92,27 @@ func TestToolDefsStableAcrossRuns(t *testing.T) {
 			t.Fatalf("iter %d: serialised bytes diverged\n  first: %s\n  got:   %s",
 				iter, canonical, buf)
 		}
+	}
+}
+
+func TestRegistryRunRejectsOversizedArgsBeforeToolRun(t *testing.T) {
+	r := NewRegistry()
+	ran := false
+	r.Register(stubTool{
+		name:  "stubread",
+		class: tool.ClassNonMutating,
+		effect: func(string) (tool.Result, error) {
+			ran = true
+			return tool.Result{Content: "unexpected"}, nil
+		},
+	})
+
+	_, err := r.Run(context.Background(), "stubread", json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)), stubHost{})
+	if err == nil {
+		t.Fatal("expected oversized args error")
+	}
+	if ran {
+		t.Fatal("tool ran after oversized args")
 	}
 }
 

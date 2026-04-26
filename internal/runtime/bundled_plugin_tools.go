@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
@@ -143,6 +144,9 @@ func (p *bundledPluginTool) Schema() map[string]any {
 func (p *bundledPluginTool) Class() tool.Class { return p.class }
 
 func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	rt, err := pluginRuntime.New(ctx)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: runtime: %w", p.def.Name, err)

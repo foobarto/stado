@@ -9,6 +9,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -137,6 +138,9 @@ func (p *PluginTool) Class() tool.Class { return p.class }
 // most tool responses reach. Can be made tunable later.
 func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host) (tool.Result, error) {
 	const resultCap = 1 << 20 // 1 MiB
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 
 	alloc := p.mod.wasmMod.ExportedFunction("stado_alloc")
 	freeFn := p.mod.wasmMod.ExportedFunction("stado_free")

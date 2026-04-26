@@ -23,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -72,6 +73,9 @@ func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost) {
 		argsJSON, err := json.Marshal(req.GetArguments())
 		if err != nil {
 			return mcp.NewToolResultErrorFromErr("encoding args", err), nil
+		}
+		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
 		res, err := t.Run(ctx, argsJSON, host)
 		if err != nil {

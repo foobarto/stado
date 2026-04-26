@@ -1,9 +1,13 @@
 package runtime
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -181,5 +185,13 @@ func TestValidateResultLength(t *testing.T) {
 	}
 	if err := validateResultLength(2048, 1024, "demo", "fetch"); err == nil {
 		t.Fatal("expected over-cap result to fail")
+	}
+}
+
+func TestPluginToolRejectsOversizedArgsBeforeABI(t *testing.T) {
+	pt := &PluginTool{}
+	_, err := pt.Run(context.Background(), json.RawMessage(strings.Repeat("x", toolinput.MaxBytes+1)), nil)
+	if err == nil {
+		t.Fatal("expected oversized args error")
 	}
 }

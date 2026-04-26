@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -47,6 +48,9 @@ func (p *pluginOverrideTool) Schema() map[string]any {
 func (p *pluginOverrideTool) Class() tool.Class { return p.class }
 
 func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	if err := toolinput.CheckLen(len(args)); err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
 	rt, err := pluginRuntime.New(ctx)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("plugin %s: runtime: %w", p.pluginID, err)
