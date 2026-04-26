@@ -284,7 +284,7 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	root, err := os.OpenRoot(rootPath)
+	root, err := workdirpath.OpenRootNoSymlink(rootPath)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}

@@ -121,7 +121,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 	if err != nil {
 		return err
 	}
-	parentRoot, err := os.OpenRoot(parentRootPath)
+	parentRoot, err := workdirpath.OpenRootNoSymlink(parentRootPath)
 	if err != nil {
 		return err
 	}

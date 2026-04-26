@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Centralized rooted directory reopening.** Plugin capability file access,
+  builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
+  rendering, and release helper writes now use the shared no-symlink root opener.
 - **Hardened explicit output and learning roots.** CLI file-output helpers,
   minisign artifact signing, learning document writes, and learning repo-pin
   reads now reject symlinked parent/root directories before reading or writing.

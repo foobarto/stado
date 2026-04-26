@@ -222,7 +222,7 @@ func openAllowedRoot(abs string, allow []string, allowMissing bool) (*os.Root, s
 		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		root, err := os.OpenRoot(rootPath)
+		root, err := workdirpath.OpenRootNoSymlink(rootPath)
 		if err != nil {
 			return nil, "", err
 		}

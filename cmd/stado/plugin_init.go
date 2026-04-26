@@ -107,7 +107,7 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 		if !force {
 			return nil, fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
 		}
-		root, err := os.OpenRoot(cleanDir)
+		root, err := workdirpath.OpenRootNoSymlink(cleanDir)
 		if err != nil {
 			return nil, fmt.Errorf("init: open %s: %w", dir, err)
 		}

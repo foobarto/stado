@@ -373,7 +373,7 @@ func writeRepoFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(rootPath)
+	root, err := workdirpath.OpenRootNoSymlink(rootPath)
 	if err != nil {
 		return err
 	}

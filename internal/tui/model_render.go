@@ -19,6 +19,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/overlays"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/version"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -755,7 +756,7 @@ func currentGitBranch(cwd string) string {
 		return ""
 	}
 
-	root, err := os.OpenRoot(repo)
+	root, err := workdirpath.OpenRootNoSymlink(repo)
 	if err != nil {
 		return ""
 	}
