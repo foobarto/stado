@@ -100,6 +100,9 @@ Plugins / Infra / Fixes.
   errors now share a model-context output budget after the wasm ABI call.
 - **Capped streamed assistant output.** Runtime and TUI streams now reject
   oversized assistant text or thinking deltas before unbounded accumulation.
+- **Capped subagent and LSP tool results.** `spawn_agent` results and LSP
+  lookup output now share explicit model-context budgets before being returned
+  to the parent model.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

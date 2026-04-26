@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -147,7 +148,8 @@ func (Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.Res
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	return tool.Result{Content: string(data)}, nil
+	content := budget.TruncateBytes(string(data), budget.SubagentBytes, "open the child session or use a narrower subagent task")
+	return tool.Result{Content: content}, nil
 }
 
 // DecodeRequest validates and normalises a spawn_agent request.

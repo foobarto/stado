@@ -73,7 +73,7 @@ func (d *DocumentSymbols) Run(ctx context.Context, raw json.RawMessage, h tool.H
 	}
 	var b strings.Builder
 	renderSymbols(&b, syms, 0)
-	return tool.Result{Content: strings.TrimRight(b.String(), "\n")}, nil
+	return tool.Result{Content: truncateLSPOutput(b.String())}, nil
 }
 
 // renderSymbols prints a hierarchical outline: function/class lines with

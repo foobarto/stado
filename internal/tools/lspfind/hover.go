@@ -74,5 +74,5 @@ func (h *Hover) Run(ctx context.Context, raw json.RawMessage, host tool.Host) (t
 	if text == "" {
 		return tool.Result{Content: "No hover information"}, nil
 	}
-	return tool.Result{Content: text}, nil
+	return tool.Result{Content: truncateLSPOutput(text)}, nil
 }

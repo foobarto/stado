@@ -91,5 +91,5 @@ func (f *FindReferences) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 		rel, _ := filepath.Rel(h.Workdir(), path)
 		fmt.Fprintf(&b, "%s:%d:%d\n", rel, l.Range.Start.Line+1, l.Range.Start.Character+1)
 	}
-	return tool.Result{Content: strings.TrimRight(b.String(), "\n")}, nil
+	return tool.Result{Content: truncateLSPOutput(b.String())}, nil
 }

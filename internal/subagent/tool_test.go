@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -166,6 +167,37 @@ func TestToolRequiresSpawnerHost(t *testing.T) {
 	}
 	if res.Error == "" || !strings.Contains(res.Error, "does not support subagents") {
 		t.Fatalf("result error = %q", res.Error)
+	}
+}
+
+type spawnerHost struct {
+	tools.NullHost
+	res Result
+	err error
+}
+
+func (s spawnerHost) SpawnSubagent(context.Context, Request) (Result, error) {
+	return s.res, s.err
+}
+
+func TestToolCapsSubagentResultContent(t *testing.T) {
+	oversized := strings.Repeat("x", budget.SubagentBytes+2048)
+	res, err := (Tool{}).Run(context.Background(), json.RawMessage(`{"prompt":"inspect"}`), spawnerHost{
+		res: Result{
+			Status: "ok",
+			Role:   DefaultRole,
+			Mode:   DefaultMode,
+			Text:   oversized,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Content) >= len(oversized) {
+		t.Fatalf("content was not capped: got %d bytes for %d-byte text", len(res.Content), len(oversized))
+	}
+	if !strings.Contains(res.Content, "[truncated:") {
+		t.Fatalf("content missing truncation marker: %q", res.Content[len(res.Content)-128:])
 	}
 }
 
