@@ -21,28 +21,28 @@ func (f *fakeSyncedWriteCloser) Close() error {
 	return f.closeErr
 }
 
-func TestCopyAndCloseFile_PropagatesCloseError(t *testing.T) {
+func TestCopyAndCloseFileLimited_PropagatesCloseError(t *testing.T) {
 	out := &fakeSyncedWriteCloser{closeErr: errors.New("close failed")}
-	err := copyAndCloseFile(out, bytes.NewBufferString("hello"))
+	err := copyAndCloseFileLimited(out, bytes.NewBufferString("hello"), 5)
 	if err == nil || err.Error() != "close failed" {
-		t.Fatalf("copyAndCloseFile close err = %v, want close failed", err)
+		t.Fatalf("copyAndCloseFileLimited close err = %v, want close failed", err)
 	}
 	if !out.closed {
-		t.Fatal("copyAndCloseFile did not close writer")
+		t.Fatal("copyAndCloseFileLimited did not close writer")
 	}
 	if got := out.buf.String(); got != "hello" {
 		t.Fatalf("copied bytes = %q, want hello", got)
 	}
 }
 
-func TestCopyAndCloseFile_PropagatesSyncError(t *testing.T) {
+func TestCopyAndCloseFileLimited_PropagatesSyncError(t *testing.T) {
 	out := &fakeSyncedWriteCloser{syncErr: errors.New("sync failed")}
-	err := copyAndCloseFile(out, bytes.NewBufferString("hello"))
+	err := copyAndCloseFileLimited(out, bytes.NewBufferString("hello"), 5)
 	if err == nil || err.Error() != "sync failed" {
-		t.Fatalf("copyAndCloseFile sync err = %v, want sync failed", err)
+		t.Fatalf("copyAndCloseFileLimited sync err = %v, want sync failed", err)
 	}
 	if !out.closed {
-		t.Fatal("copyAndCloseFile did not close writer after sync failure")
+		t.Fatal("copyAndCloseFileLimited did not close writer after sync failure")
 	}
 }
 

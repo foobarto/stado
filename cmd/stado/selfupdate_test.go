@@ -346,6 +346,29 @@ func TestCopyFileRejectsSymlinkSource(t *testing.T) {
 	}
 }
 
+func TestCopyFileRejectsOversizedSource(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(src, maxSelfUpdateBinaryBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "dst")
+
+	err := copyFile(src, dst)
+	if err == nil {
+		t.Fatal("copyFile should reject oversized source")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected size rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(dst); !os.IsNotExist(statErr) {
+		t.Fatalf("destination exists after rejected source: %v", statErr)
+	}
+}
+
 type tarEntry struct {
 	name     string
 	typeflag byte

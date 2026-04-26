@@ -28,6 +28,9 @@ Plugins / Infra / Fixes.
 - **Capped sidecar tree blob writes.** Session tree snapshots now reject
   oversized worktree files and detect regular files that change size while
   being streamed into sidecar git objects.
+- **Capped self-update fallback copies.** Cross-device self-update installs
+  now reject oversized replacement binaries before streaming through the
+  atomic copy fallback.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

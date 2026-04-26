@@ -17,18 +17,6 @@ type syncedWriteCloser interface {
 	Close() error
 }
 
-func copyAndCloseFile(out syncedWriteCloser, in io.Reader) error {
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
-}
-
 func copyAndCloseFileLimited(out syncedWriteCloser, in io.Reader, maxBytes int64) error {
 	if maxBytes < 0 {
 		_ = out.Close()
@@ -55,7 +43,7 @@ func copyAndCloseFileLimited(out syncedWriteCloser, in io.Reader, maxBytes int64
 	return out.Close()
 }
 
-func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
+func writeReaderToPath(dst string, mode os.FileMode, in io.Reader, maxBytes int64) error {
 	dir := filepath.Dir(dst)
 	name := filepath.Base(dst)
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
@@ -66,10 +54,10 @@ func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return writeRootReaderFileAtomic(root, name, mode, in)
+	return writeRootReaderFileAtomic(root, name, mode, in, maxBytes)
 }
 
-func writeRootReaderFileAtomic(root *os.Root, name string, mode os.FileMode, in io.Reader) error {
+func writeRootReaderFileAtomic(root *os.Root, name string, mode os.FileMode, in io.Reader, maxBytes int64) error {
 	if root == nil {
 		return fmt.Errorf("root unavailable")
 	}
@@ -96,7 +84,7 @@ func writeRootReaderFileAtomic(root *os.Root, name string, mode os.FileMode, in 
 			_ = root.Remove(tmp)
 		}
 	}()
-	if err := copyAndCloseFile(out, in); err != nil {
+	if err := copyAndCloseFileLimited(out, in, maxBytes); err != nil {
 		return err
 	}
 	if err := root.Rename(tmp, name); err != nil {

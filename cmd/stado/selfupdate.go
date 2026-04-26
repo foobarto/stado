@@ -526,7 +526,14 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	return writeReaderToPath(dst, 0o755, in) // #nosec G302 -- installed command binary must remain executable.
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxSelfUpdateBinaryBytes {
+		return fmt.Errorf("self-update binary exceeds %d bytes: %s", maxSelfUpdateBinaryBytes, src)
+	}
+	return writeReaderToPath(dst, 0o755, in, maxSelfUpdateBinaryBytes) // #nosec G302 -- installed command binary must remain executable.
 }
 
 func currentExe() string {
