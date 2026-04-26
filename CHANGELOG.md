@@ -27,6 +27,9 @@ Plugins / Infra / Fixes.
 - **Rooted raw conversation exports.** `stado session export --format jsonl`
   now reads raw logs through the runtime conversation root instead of a direct
   worktree path read.
+- **Validated TUI session metadata actions.** Session rename and delete actions
+  now use the shared session ID validator, preventing special local IDs from
+  writing metadata outside an actual session worktree.
 
 ## v0.25.7 — 2026-04-26
 

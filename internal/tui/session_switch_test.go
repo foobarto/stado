@@ -149,6 +149,19 @@ func TestRenameSessionUpdatesPickerLabel(t *testing.T) {
 	}
 }
 
+func TestRenameSessionRejectsSpecialLocalID(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+
+	err := m.renameSession("..", "escaped")
+	if err == nil || !strings.Contains(err.Error(), "invalid session id") {
+		t.Fatalf("expected invalid session id error, got %v", err)
+	}
+	parentDescription := filepath.Join(filepath.Dir(m.cfg.WorktreeDir()), ".stado", "description")
+	if _, err := os.Stat(parentDescription); !os.IsNotExist(err) {
+		t.Fatalf("rename touched parent metadata path: %v", err)
+	}
+}
+
 func TestDeleteSessionRemovesInactiveSession(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
 
@@ -166,6 +179,18 @@ func TestDeleteSessionRemovesInactiveSession(t *testing.T) {
 		if it.ID == ids.second {
 			t.Fatalf("deleted session still listed: %+v", items)
 		}
+	}
+}
+
+func TestDeleteSessionRejectsSpecialLocalID(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+
+	err := m.deleteSession(".")
+	if err == nil || !strings.Contains(err.Error(), "invalid session id") {
+		t.Fatalf("expected invalid session id error, got %v", err)
+	}
+	if _, err := os.Stat(m.cfg.WorktreeDir()); err != nil {
+		t.Fatalf("worktree root should remain after invalid delete: %v", err)
 	}
 }
 

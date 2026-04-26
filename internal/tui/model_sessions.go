@@ -197,8 +197,8 @@ func (m *Model) renameSession(id, label string) error {
 	if strings.TrimSpace(id) == "" {
 		return fmt.Errorf("session rename: no session selected")
 	}
-	if filepath.Base(id) != id {
-		return fmt.Errorf("session rename: invalid session id %q", id)
+	if err := stadogit.ValidateSessionID(id); err != nil {
+		return fmt.Errorf("session rename: %w", err)
 	}
 	cfg, err := m.sessionActionConfig()
 	if err != nil {
@@ -218,8 +218,8 @@ func (m *Model) deleteSession(id string) error {
 	if m.session != nil && id == m.session.ID {
 		return fmt.Errorf("session delete: cannot delete the active session")
 	}
-	if filepath.Base(id) != id {
-		return fmt.Errorf("session delete: invalid session id %q", id)
+	if err := stadogit.ValidateSessionID(id); err != nil {
+		return fmt.Errorf("session delete: %w", err)
 	}
 	cfg, err := m.sessionActionConfig()
 	if err != nil {
