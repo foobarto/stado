@@ -1,8 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 type syncedWriteCloser interface {
@@ -29,4 +34,18 @@ func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
 		return err
 	}
 	return copyAndCloseFile(out, in)
+}
+
+func writeRegularFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	if name == "." || name == ".." || strings.Contains(name, "\x00") {
+		return fmt.Errorf("invalid output path %q", path)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return workdirpath.WriteRootFileAtomic(root, name, data, mode)
 }

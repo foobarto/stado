@@ -124,7 +124,7 @@ var pluginSignCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("sign: marshal: %w", err)
 		}
-		if err := os.WriteFile(manifestPath, append(out, '\n'), 0o644); err != nil { // #nosec G306 -- signed manifest is a shareable plugin artifact.
+		if err := writeRegularFileAtomic(manifestPath, append(out, '\n'), 0o644); err != nil {
 			return fmt.Errorf("sign: write manifest: %w", err)
 		}
 
@@ -133,7 +133,7 @@ var pluginSignCmd = &cobra.Command{
 			return fmt.Errorf("sign: %w", err)
 		}
 		sigPath := filepath.Join(dir, "plugin.manifest.sig")
-		if err := os.WriteFile(sigPath, []byte(sigB64), 0o644); err != nil { // #nosec G306 -- signature is a shareable plugin artifact.
+		if err := writeRegularFileAtomic(sigPath, []byte(sigB64), 0o644); err != nil {
 			return fmt.Errorf("sign: write sig: %w", err)
 		}
 
@@ -145,7 +145,7 @@ var pluginSignCmd = &cobra.Command{
 		// Write author.pubkey sidecar so `stado plugin verify` can echo
 		// the full pubkey in its "not pinned" error (dogfood #8).
 		pubkeyPath := filepath.Join(dir, "author.pubkey")
-		if err := os.WriteFile(pubkeyPath, []byte(hex.EncodeToString(pub)+"\n"), 0o644); err != nil { // #nosec G306 -- public key sidecar is intentionally shareable.
+		if err := writeRegularFileAtomic(pubkeyPath, []byte(hex.EncodeToString(pub)+"\n"), 0o644); err != nil {
 			return fmt.Errorf("sign: write author.pubkey: %w", err)
 		}
 		fmt.Printf("author.pubkey:  %s\n", pubkeyPath)
