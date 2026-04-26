@@ -15,6 +15,10 @@ import (
 )
 
 const maxTreeBlobBytes int64 = 256 << 20
+const (
+	maxTreeEntries = 200000
+	maxTreeDepth   = 128
+)
 
 // BuildTreeFromDir recursively walks dir and writes blob + tree objects into
 // the sidecar, returning the root tree hash. Hidden files starting with "." in
@@ -25,46 +29,81 @@ func (s *Session) BuildTreeFromDir(dir string) (plumbing.Hash, error) {
 }
 
 func (s *Session) buildTree(dir string) (plumbing.Hash, error) {
-	entries, err := os.ReadDir(dir)
+	return s.buildTreeDir(dir, &buildTreeState{maxEntries: maxTreeEntries, maxDepth: maxTreeDepth}, 0)
+}
+
+type buildTreeState struct {
+	entries    int
+	maxEntries int
+	maxDepth   int
+}
+
+func (s *Session) buildTreeDir(dir string, state *buildTreeState, depth int) (plumbing.Hash, error) {
+	if state == nil {
+		state = &buildTreeState{maxEntries: maxTreeEntries, maxDepth: maxTreeDepth}
+	}
+	if depth > state.maxDepth {
+		return plumbing.ZeroHash, fmt.Errorf("build tree: directory nesting exceeds %d: %s", state.maxDepth, dir)
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("build tree: read %s: %w", dir, err)
 	}
+	defer func() { _ = root.Close() }()
+	handle, err := root.Open(".")
+	if err != nil {
+		return plumbing.ZeroHash, fmt.Errorf("build tree: read %s: %w", dir, err)
+	}
+	defer func() { _ = handle.Close() }()
 	var te []treeEntry
-	for _, d := range entries {
-		name := d.Name()
-		// Skip common junk and VCS dirs that would bloat the tree ref.
-		if name == ".git" || name == ".stado" {
-			continue
-		}
-		full := filepath.Join(dir, name)
+	for {
+		entries, readErr := handle.ReadDir(128)
+		for _, d := range entries {
+			name := d.Name()
+			state.entries++
+			if state.entries > state.maxEntries {
+				return plumbing.ZeroHash, fmt.Errorf("build tree: tree contains more than %d entries", state.maxEntries)
+			}
+			// Skip common junk and VCS dirs that would bloat the tree ref.
+			if name == ".git" || name == ".stado" {
+				continue
+			}
+			full := filepath.Join(dir, name)
 
-		info, err := os.Lstat(full)
-		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("build tree: stat %s: %w", full, err)
-		}
-		if info.IsDir() {
-			sub, err := s.buildTree(full)
+			info, err := os.Lstat(full)
+			if err != nil {
+				return plumbing.ZeroHash, fmt.Errorf("build tree: stat %s: %w", full, err)
+			}
+			if info.IsDir() {
+				sub, err := s.buildTreeDir(full, state, depth+1)
+				if err != nil {
+					return plumbing.ZeroHash, err
+				}
+				if sub.IsZero() {
+					continue
+				}
+				te = append(te, treeEntry{name: name, hash: sub, mode: filemode.Dir})
+				continue
+			}
+			mode := filemode.Regular
+			if info.Mode()&os.ModeSymlink != 0 {
+				mode = filemode.Symlink
+			} else if info.Mode()&0o111 != 0 {
+				mode = filemode.Executable
+			}
+
+			blobHash, err := s.writeBlob(full, mode == filemode.Symlink)
 			if err != nil {
 				return plumbing.ZeroHash, err
 			}
-			if sub.IsZero() {
-				continue
-			}
-			te = append(te, treeEntry{name: name, hash: sub, mode: filemode.Dir})
-			continue
+			te = append(te, treeEntry{name: name, hash: blobHash, mode: mode})
 		}
-		mode := filemode.Regular
-		if info.Mode()&os.ModeSymlink != 0 {
-			mode = filemode.Symlink
-		} else if info.Mode()&0o111 != 0 {
-			mode = filemode.Executable
+		if readErr == io.EOF {
+			break
 		}
-
-		blobHash, err := s.writeBlob(full, mode == filemode.Symlink)
-		if err != nil {
-			return plumbing.ZeroHash, err
+		if readErr != nil {
+			return plumbing.ZeroHash, fmt.Errorf("build tree: read %s: %w", dir, readErr)
 		}
-		te = append(te, treeEntry{name: name, hash: blobHash, mode: mode})
 	}
 	if len(te) == 0 {
 		// Empty directory; represent as no entry (git has no empty trees at

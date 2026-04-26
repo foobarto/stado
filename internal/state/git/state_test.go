@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -440,6 +441,48 @@ func TestBuildTreeFromDirRejectsOversizedRegularFile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("BuildTreeFromDir error = %v, want size rejection", err)
+	}
+}
+
+func TestBuildTreeFromDirRejectsTooManyEntries(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	wtRoot := t.TempDir()
+	sess, err := CreateSession(sc, wtRoot, "s-many-tree-entries", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := os.WriteFile(filepath.Join(sess.WorktreePath, fmt.Sprintf("f%d.txt", i)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err = sess.buildTreeDir(sess.WorktreePath, &buildTreeState{maxEntries: 2, maxDepth: maxTreeDepth}, 0)
+	if err == nil {
+		t.Fatal("BuildTreeFromDir should reject too many entries")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("BuildTreeFromDir error = %v, want entry count rejection", err)
+	}
+}
+
+func TestBuildTreeFromDirRejectsTooDeepTree(t *testing.T) {
+	sc := tempSidecar(t, t.TempDir())
+	wtRoot := t.TempDir()
+	sess, err := CreateSession(sc, wtRoot, "s-deep-tree", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sess.WorktreePath, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sess.buildTreeDir(sess.WorktreePath, &buildTreeState{maxEntries: maxTreeEntries, maxDepth: 1}, 0)
+	if err == nil {
+		t.Fatal("BuildTreeFromDir should reject deep trees")
+	}
+	if !strings.Contains(err.Error(), "nesting") {
+		t.Fatalf("BuildTreeFromDir error = %v, want depth rejection", err)
 	}
 }
 

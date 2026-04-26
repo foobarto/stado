@@ -31,6 +31,9 @@ Plugins / Infra / Fixes.
 - **Capped sidecar tree blob writes.** Session tree snapshots now reject
   oversized worktree files and detect regular files that change size while
   being streamed into sidecar git objects.
+- **Bounded sidecar tree snapshot walks.** Session tree snapshots now stream
+  directory entries in batches and reject worktrees that exceed entry-count or
+  nesting-depth limits.
 - **Capped self-update fallback copies.** Cross-device self-update installs
   now reject oversized replacement binaries before streaming through the
   atomic copy fallback.
