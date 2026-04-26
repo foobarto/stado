@@ -117,7 +117,7 @@ func AdoptSubagentChanges(parent, child *stadogit.Session, forkTree plumbing.Has
 }
 
 func copyChildChange(parentWorktree, childWorktree, rel string) error {
-	parentRootPath, parentRel, err := workdirpath.RootRel(parentWorktree, rel, true)
+	parentRootPath, parentRel, err := workdirpath.RootRelForWrite(parentWorktree, rel)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		return err
 	}
 	mode := info.Mode().Perm()
-	return parentRoot.WriteFile(parentRel, data, adoptedFileMode(mode))
+	return workdirpath.WriteRootFileAtomic(parentRoot, parentRel, data, adoptedFileMode(mode))
 }
 
 func adoptedFileMode(mode os.FileMode) os.FileMode {

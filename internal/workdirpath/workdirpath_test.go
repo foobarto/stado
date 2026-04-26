@@ -84,6 +84,65 @@ func TestWriteFileRejectsSymlinkParentEscape(t *testing.T) {
 	}
 }
 
+func TestWriteFileRejectsInRootFinalSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(root, "link.txt")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := WriteFile(root, "link.txt", []byte("pwned"), 0o644)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("WriteFile error = %v, want symlink rejection", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "target" {
+		t.Fatalf("symlink target modified: %q", data)
+	}
+}
+
+func TestWriteFileCreatesNestedMissingPathInsideWorkdir(t *testing.T) {
+	root := t.TempDir()
+	if err := WriteFile(root, filepath.Join("sub", "new", "file.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "sub", "new", "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "ok" {
+		t.Fatalf("file content = %q, want ok", data)
+	}
+}
+
+func TestWriteFilePreservesExistingMode(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "script.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteFile(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("mode = %04o, want 0755", got)
+	}
+}
+
 func TestGlob_RejectsEscapePattern(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Glob(root, "../*"); err == nil {

@@ -71,6 +71,9 @@ Plugins / Infra / Fixes.
 - **Hardened config defaults writes.** TUI model, theme, and thinking-display
   preference updates now reject config-file symlinks and save through rooted
   random temp files.
+- **Hardened worktree rooted writes.** File tools, plugin filesystem writes,
+  and subagent adoption now save through rooted random temp files while
+  rejecting final symlink/non-regular write targets.
 
 ## v0.25.7 — 2026-04-26
 

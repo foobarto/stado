@@ -229,6 +229,46 @@ func TestCopyChildChangeRejectsParentSymlinkSwap(t *testing.T) {
 	}
 }
 
+func TestCopyChildChangeReplacesParentFinalSymlink(t *testing.T) {
+	parent := t.TempDir()
+	child := t.TempDir()
+	if err := os.WriteFile(filepath.Join(child, "link.txt"), []byte("child"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(parent, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(parent, "link.txt")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if err := copyChildChange(parent, child, "link.txt"); err != nil {
+		t.Fatalf("copyChildChange: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "target" {
+		t.Fatalf("parent symlink target modified: %q", data)
+	}
+	info, err := os.Lstat(filepath.Join(parent, "link.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("parent final symlink was not replaced")
+	}
+	linkData, err := os.ReadFile(filepath.Join(parent, "link.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(linkData); got != "child" {
+		t.Fatalf("parent link.txt = %q, want child", got)
+	}
+}
+
 func TestCopyChildChangeNormalizesFileModes(t *testing.T) {
 	parent := t.TempDir()
 	child := t.TempDir()

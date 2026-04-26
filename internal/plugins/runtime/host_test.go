@@ -163,6 +163,26 @@ func TestRealPath_SymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRealPathForWritePreservesFinalSymlink(t *testing.T) {
+	allowed := t.TempDir()
+	target := filepath.Join(allowed, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(allowed, "link.txt")
+	if err := os.Symlink("target.txt", link); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	resolved, err := realPathForWrite("", link)
+	if err != nil {
+		t.Fatalf("realPathForWrite: %v", err)
+	}
+	if resolved != link {
+		t.Fatalf("realPathForWrite = %q, want final symlink path %q", resolved, link)
+	}
+}
+
 func TestReadAllowedFileRejectsSymlinkSwapEscape(t *testing.T) {
 	tmp := t.TempDir()
 	allowed := filepath.Join(tmp, "allowed")
@@ -206,6 +226,29 @@ func TestWriteAllowedFileRejectsSymlinkSwapEscape(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(forbidden, "out.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("outside write occurred, stat err = %v", statErr)
+	}
+}
+
+func TestWriteAllowedFileRejectsInAllowedFinalSymlink(t *testing.T) {
+	allowed := t.TempDir()
+	target := filepath.Join(allowed, "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(allowed, "link.txt")); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	err := writeAllowedFile(filepath.Join(allowed, "link.txt"), []string{allowed}, []byte("pwned"), 0o644)
+	if err == nil {
+		t.Fatal("writeAllowedFile should reject final symlink under allowed root")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "target" {
+		t.Fatalf("symlink target modified: %q", data)
 	}
 }
 

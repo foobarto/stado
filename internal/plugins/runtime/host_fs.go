@@ -9,6 +9,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
@@ -81,7 +83,7 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			abs, err := realPath(host.Workdir, path)
+			abs, err := realPathForWrite(host.Workdir, path)
 			if err != nil {
 				host.Logger.Warn("stado_fs_write denied — symlink resolution failed", slog.String("path", path), slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(-1)
@@ -171,6 +173,17 @@ func realPath(workdir, path string) (string, error) {
 	return filepath.Clean(result), nil
 }
 
+func realPathForWrite(workdir, path string) (string, error) {
+	abs := resolveAbs(workdir, path)
+	parent := filepath.Dir(abs)
+	base := filepath.Base(abs)
+	resolvedParent, err := realPath(workdir, parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(filepath.Join(resolvedParent, base)), nil
+}
+
 func readAllowedFile(abs string, allow []string) ([]byte, error) {
 	root, rel, err := openAllowedRoot(abs, allow, false)
 	if err != nil {
@@ -191,7 +204,7 @@ func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode)
 			return err
 		}
 	}
-	return root.WriteFile(rel, data, perm)
+	return workdirpath.WriteRootFileAtomic(root, rel, data, perm)
 }
 
 func openAllowedRoot(abs string, allow []string, allowMissing bool) (*os.Root, string, error) {

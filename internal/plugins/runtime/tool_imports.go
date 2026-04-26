@@ -125,11 +125,15 @@ func preflightEditPath(h *Host, raw json.RawMessage) error {
 			return err
 		}
 	}
-	full, err := realPath(h.Workdir, args.Path)
+	readFull, err := realPath(h.Workdir, args.Path)
 	if err != nil {
 		return err
 	}
-	if !h.allowRead(full) || !h.allowWrite(full) {
+	writeFull, err := realPathForWrite(h.Workdir, args.Path)
+	if err != nil {
+		return err
+	}
+	if !h.allowRead(readFull) || !h.allowWrite(writeFull) {
 		return fmt.Errorf("edit path %q denied by manifest", args.Path)
 	}
 	return nil
@@ -142,7 +146,7 @@ func preflightWritePath(h *Host, raw json.RawMessage) error {
 			return err
 		}
 	}
-	full, err := realPath(h.Workdir, args.Path)
+	full, err := realPathForWrite(h.Workdir, args.Path)
 	if err != nil {
 		return err
 	}
