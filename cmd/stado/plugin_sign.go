@@ -7,13 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 var pluginDigestCmd = &cobra.Command{
@@ -21,7 +21,7 @@ var pluginDigestCmd = &cobra.Command{
 	Short: "Print the sha256 of a wasm blob (useful for manifest authoring)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		f, err := os.Open(args[0]) // #nosec G304 -- digest reads an explicit CLI path.
+		f, err := workdirpath.OpenRegularFileNoSymlink(args[0])
 		if err != nil {
 			return err
 		}
@@ -84,7 +84,7 @@ var pluginSignCmd = &cobra.Command{
 		if pluginSignKeyPath == "" {
 			return fmt.Errorf("sign: --key required")
 		}
-		seed, err := os.ReadFile(pluginSignKeyPath) // #nosec G304 -- signing key path is explicit CLI input.
+		seed, err := workdirpath.ReadRegularFileNoSymlink(pluginSignKeyPath)
 		if err != nil {
 			return fmt.Errorf("sign: read key: %w", err)
 		}
@@ -95,7 +95,7 @@ var pluginSignCmd = &cobra.Command{
 		priv := ed25519.NewKeyFromSeed(seed)
 		pub := priv.Public().(ed25519.PublicKey)
 
-		raw, err := os.ReadFile(manifestPath) // #nosec G304 -- manifest path is explicit CLI input.
+		raw, err := workdirpath.ReadRegularFileNoSymlink(manifestPath)
 		if err != nil {
 			return fmt.Errorf("sign: read manifest: %w", err)
 		}
@@ -108,7 +108,7 @@ var pluginSignCmd = &cobra.Command{
 		if wasmPath == "" {
 			wasmPath = filepath.Join(dir, "plugin.wasm")
 		}
-		wasm, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is explicit CLI input or beside the manifest.
+		wasm, err := workdirpath.ReadRegularFileNoSymlink(wasmPath)
 		if err != nil {
 			return fmt.Errorf("sign: read wasm: %w", err)
 		}

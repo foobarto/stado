@@ -27,6 +27,9 @@ Plugins / Infra / Fixes.
 - **Hardened self-update source reads.** Self-update archive extraction and
   cross-device copy fallback now reject symlinked source paths before reading
   release payloads or replacement binaries.
+- **Hardened plugin signing inputs.** Plugin digest and signing commands now
+  reject symlinked key, manifest, and WASM source paths before hashing or
+  signing plugin artifacts.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the
