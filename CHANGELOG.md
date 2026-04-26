@@ -40,6 +40,9 @@ Plugins / Infra / Fixes.
 - **Capped sidecar tree materialization writes.** Materialization now rejects
   oversized regular blobs before writing them back to a worktree and removes
   partial files if a blob stream exceeds the write ceiling.
+- **Bounded sidecar tree materialization walks.** Materialization now rejects
+  sidecar trees that exceed entry-count or nesting-depth limits before the
+  restore path can grow unbounded worktree state.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

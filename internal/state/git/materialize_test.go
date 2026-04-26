@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/foobarto/stado/internal/workdirpath"
 )
@@ -314,6 +315,73 @@ func TestWriteMaterializedFileRejectsOversizedReader(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "large.txt")); !os.IsNotExist(statErr) {
 		t.Fatalf("oversized materialized file remained, stat err = %v", statErr)
+	}
+}
+
+func TestMaterializeRejectsTooManyTreeEntries(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-many-entries", plumbing.ZeroHash)
+	blob := writeRawBlobForTest(t, sess, "x")
+	treeHash, err := sess.entriesToTree([]treeEntry{
+		{name: "a.txt", hash: blob, mode: filemode.Regular},
+		{name: "b.txt", hash: blob, mode: filemode.Regular},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := object.GetTree(sc.repo.Storer, treeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	root, err := workdirpath.OpenRootNoSymlink(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	err = sess.writeTreeInto(tree, root, dst, dst, map[string]bool{}, &materializeState{maxEntries: 1, maxDepth: maxMaterializedTreeDepth}, 0)
+	if err == nil {
+		t.Fatal("writeTreeInto succeeded for too many tree entries")
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("writeTreeInto error = %v, want entry count rejection", err)
+	}
+}
+
+func TestMaterializeRejectsTooDeepTree(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-deep-tree", plumbing.ZeroHash)
+	blob := writeRawBlobForTest(t, sess, "x")
+	leaf, err := sess.entriesToTree([]treeEntry{{name: "leaf.txt", hash: blob, mode: filemode.Regular}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid, err := sess.entriesToTree([]treeEntry{{name: "b", hash: leaf, mode: filemode.Dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeHash, err := sess.entriesToTree([]treeEntry{{name: "a", hash: mid, mode: filemode.Dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := object.GetTree(sc.repo.Storer, treeHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	root, err := workdirpath.OpenRootNoSymlink(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	err = sess.writeTreeInto(tree, root, dst, dst, map[string]bool{}, &materializeState{maxEntries: maxMaterializedTreeEntries, maxDepth: 1}, 0)
+	if err == nil {
+		t.Fatal("writeTreeInto succeeded for too deep tree")
+	}
+	if !strings.Contains(err.Error(), "nesting") {
+		t.Fatalf("writeTreeInto error = %v, want depth rejection", err)
 	}
 }
 

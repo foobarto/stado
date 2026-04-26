@@ -17,6 +17,8 @@ import (
 const (
 	maxMaterializedBlobBytes          int64 = maxTreeBlobBytes
 	maxMaterializedSymlinkTargetBytes int64 = 4 << 10
+	maxMaterializedTreeEntries              = maxTreeEntries
+	maxMaterializedTreeDepth                = maxTreeDepth
 )
 
 // MaterializeTreeToDir writes every blob in the given tree into dir, creating
@@ -59,7 +61,8 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 
 	// Track which paths we wrote so we can prune stale files when replacing.
 	kept := map[string]bool{}
-	if err := s.writeTreeInto(tree, root, dir, dir, kept); err != nil {
+	state := &materializeState{maxEntries: maxMaterializedTreeEntries, maxDepth: maxMaterializedTreeDepth}
+	if err := s.writeTreeInto(tree, root, dir, dir, kept, state, 0); err != nil {
 		return err
 	}
 
@@ -69,8 +72,24 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	return nil
 }
 
-func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir string, kept map[string]bool) error {
+type materializeState struct {
+	entries    int
+	maxEntries int
+	maxDepth   int
+}
+
+func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir string, kept map[string]bool, state *materializeState, depth int) error {
+	if state == nil {
+		state = &materializeState{maxEntries: maxMaterializedTreeEntries, maxDepth: maxMaterializedTreeDepth}
+	}
+	if depth > state.maxDepth {
+		return fmt.Errorf("materialize: directory nesting exceeds %d: %s", state.maxDepth, dir)
+	}
 	for _, e := range tree.Entries {
+		state.entries++
+		if state.entries > state.maxEntries {
+			return fmt.Errorf("materialize: tree contains more than %d entries", state.maxEntries)
+		}
 		name, err := materializeTreeEntryName(e.Name)
 		if err != nil {
 			return err
@@ -90,7 +109,7 @@ func (s *Session) writeTreeInto(tree *object.Tree, root *os.Root, rootDir, dir s
 			if err := prepareMaterializeDir(root, rel); err != nil {
 				return err
 			}
-			if err := s.writeTreeInto(sub, root, rootDir, full, kept); err != nil {
+			if err := s.writeTreeInto(sub, root, rootDir, full, kept, state, depth+1); err != nil {
 				return err
 			}
 		case filemode.Symlink:
