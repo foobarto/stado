@@ -1,9 +1,13 @@
 package memory
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const sessionMemoryDisabledFile = "memory-disabled"
@@ -18,8 +22,11 @@ func SessionDisabled(workdir string) bool {
 		return false
 	}
 	defer func() { _ = root.Close() }()
-	_, err = root.Stat(filepath.Join(".stado", sessionMemoryDisabledFile))
-	return err == nil
+	info, err := root.Lstat(filepath.Join(".stado", sessionMemoryDisabledFile))
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
 }
 
 // SetSessionDisabled toggles the current worktree/session marker used by
@@ -35,11 +42,62 @@ func SetSessionDisabled(workdir string, disabled bool) error {
 		if err := root.MkdirAll(".stado", 0o700); err != nil {
 			return err
 		}
-		return root.WriteFile(path, []byte("disabled\n"), 0o600)
+		return writeSessionControlFile(root, path, []byte("disabled\n"), 0o600)
 	}
 	if err := root.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	return nil
+}
+
+func writeSessionControlFile(root *os.Root, name string, data []byte, perm os.FileMode) error {
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("session control file is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("session control file is not regular: %s", name)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	dir := filepath.Dir(name)
+	base := filepath.Base(name)
+	tmp := "." + base + "." + uuid.NewString() + ".tmp"
+	if dir != "." {
+		tmp = filepath.Join(dir, tmp)
+	}
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmp)
+		}
+	}()
+	n, err := f.Write(data)
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if n != len(data) {
+		_ = f.Close()
+		return io.ErrShortWrite
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return err
+	}
+	keepTmp = true
 	return nil
 }
 

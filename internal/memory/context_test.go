@@ -152,6 +152,38 @@ func TestSetSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestSetSessionDisabledRejectsInRootMarkerSymlink(t *testing.T) {
+	workdir := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stadoDir := filepath.Join(workdir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(stadoDir, "decoy")
+	if err := os.WriteFile(decoy, []byte("do not replace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("decoy", filepath.Join(stadoDir, sessionMemoryDisabledFile)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if SessionDisabled(workdir) {
+		t.Fatal("SessionDisabled accepted an in-root marker symlink")
+	}
+	if err := SetSessionDisabled(workdir, true); err == nil {
+		t.Fatal("SetSessionDisabled enabled memory marker through an in-root symlink")
+	}
+	got, err := os.ReadFile(decoy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "do not replace\n" {
+		t.Fatalf("in-root memory marker target was modified: %q", got)
+	}
+}
+
 func TestSetSessionEnabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 	outsideDir := t.TempDir()
 	outsideMarker := filepath.Join(outsideDir, sessionMemoryDisabledFile)

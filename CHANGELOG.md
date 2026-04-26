@@ -62,6 +62,9 @@ Plugins / Infra / Fixes.
 - **Hardened session metadata writes.** Session descriptions, repo pins, and
   pid markers now replace through rooted random temp files and reject final
   metadata symlinks instead of following them.
+- **Hardened session memory opt-out writes.** The per-session
+  memory-disabled marker now writes through rooted random temp files and
+  rejects marker symlinks instead of following them.
 
 ## v0.25.7 — 2026-04-26
 
