@@ -106,6 +106,8 @@ Plugins / Infra / Fixes.
 - **Capped task picker input buffers.** Task search, title, and body editing
   now stop at bounded byte limits before oversized pasted input can grow TUI
   memory.
+- **Capped TUI prompt input.** The main prompt editor now enforces a byte
+  ceiling before oversized pasted input can grow draft and history buffers.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

@@ -1,6 +1,8 @@
 package input
 
 import (
+	"unicode/utf8"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,6 +20,7 @@ type Editor struct {
 const (
 	ExtraVisibleRows   = 3
 	DefaultVisibleRows = 1 + ExtraVisibleRows
+	MaxValueBytes      = 1 << 20
 )
 
 func New(reg *keys.Registry) *Editor {
@@ -28,7 +31,7 @@ func New(reg *keys.Registry) *Editor {
 	// indicator in the inline status line below the text area conveys
 	// "Plan/Do" without needing a gutter glyph.
 	ta.Prompt = ""
-	ta.CharLimit = 0
+	ta.CharLimit = MaxValueBytes
 	ta.ShowLineNumbers = false
 
 	applyThemeToTextArea(&ta)
@@ -105,23 +108,39 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, bool) {
 
 		case e.reg.Matches(msg, keys.HistoryPrevious):
 			if val, ok := e.History.Prev(e.Value()); ok {
-				e.Model.SetValue(val)
-				e.Model.CursorEnd()
+				e.SetValue(val)
 			}
 			handled = true
 
 		case e.reg.Matches(msg, keys.HistoryNext):
 			if val, ok := e.History.Next(); ok {
-				e.Model.SetValue(val)
-				e.Model.CursorEnd()
+				e.SetValue(val)
 			}
 			handled = true
+		}
+
+		if !handled && msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+			remaining := MaxValueBytes - len(e.Model.Value())
+			if remaining <= 0 {
+				return nil, true
+			}
+			runes := runesWithinBytes(msg.Runes, remaining)
+			if len(runes) < len(msg.Runes) {
+				if len(runes) == 0 {
+					return nil, true
+				}
+				msg.Runes = runes
+				e.Model, cmd = e.Model.Update(msg)
+				e.enforceByteLimit()
+				return cmd, true
+			}
 		}
 	}
 
 	if !handled {
 		e.Model, cmd = e.Model.Update(msg)
 	}
+	e.enforceByteLimit()
 	return cmd, handled
 }
 
@@ -140,7 +159,7 @@ func (e *Editor) Reset() {
 
 // SetValue replaces the editor contents and places the cursor at the end.
 func (e *Editor) SetValue(s string) {
-	e.Model.SetValue(s)
+	e.Model.SetValue(truncateStringBytes(s, MaxValueBytes))
 	e.Model.CursorEnd()
 }
 
@@ -171,4 +190,46 @@ func (e *Editor) CursorOffset() int {
 		off = len(val)
 	}
 	return off
+}
+
+func (e *Editor) enforceByteLimit() {
+	if len(e.Model.Value()) <= MaxValueBytes {
+		return
+	}
+	e.SetValue(e.Model.Value())
+}
+
+func runesWithinBytes(runes []rune, maxBytes int) []rune {
+	if maxBytes <= 0 {
+		return nil
+	}
+	used := 0
+	for i, r := range runes {
+		n := utf8.RuneLen(r)
+		if n < 0 {
+			n = len(string(r))
+		}
+		if used+n > maxBytes {
+			return runes[:i]
+		}
+		used += n
+	}
+	return runes
+}
+
+func truncateStringBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	end := 0
+	for i := range s {
+		if i > maxBytes {
+			return s[:end]
+		}
+		end = i
+	}
+	return s[:end]
 }
