@@ -92,6 +92,49 @@ func TestMaterialize_Replacing_RemovesExtras(t *testing.T) {
 	}
 }
 
+func TestMaterialize_Replacing_PrunesStaleSymlinkWithoutTouchingTarget(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-prune-symlink", plumbing.ZeroHash)
+
+	src := filepath.Join(t.TempDir(), "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := sess.BuildTreeFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dst, "stale-link")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := sess.MaterializeTreeReplacing(tree, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "stale-link")); !os.IsNotExist(err) {
+		t.Fatalf("stale symlink should have been pruned, got %v", err)
+	}
+	body, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "outside" {
+		t.Fatalf("prune removed through stale symlink target: %q", body)
+	}
+}
+
 func TestMaterialize_Replacing_PreservesStadoInternal(t *testing.T) {
 	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
 	wt := t.TempDir()
@@ -279,5 +322,36 @@ func TestMaterialize_ZeroTreeEmptyDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dst, "stuff")); err == nil {
 		t.Error("replacing zero-tree should have wiped content")
+	}
+}
+
+func TestMaterialize_ZeroTreeWipesSymlinkWithoutTouchingTarget(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-zero-symlink", plumbing.ZeroHash)
+
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "dst")
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dst, "stale-link")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := sess.MaterializeTreeReplacing(plumbing.ZeroHash, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "stale-link")); !os.IsNotExist(err) {
+		t.Fatalf("stale symlink should have been wiped, got %v", err)
+	}
+	body, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "outside" {
+		t.Fatalf("zero-tree wipe removed through stale symlink target: %q", body)
 	}
 }

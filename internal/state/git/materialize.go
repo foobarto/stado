@@ -3,6 +3,7 @@ package git
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,7 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	}
 
 	if replacing {
-		return pruneExtras(dir, kept)
+		return pruneExtras(root, dir, kept)
 	}
 	return nil
 }
@@ -194,29 +195,31 @@ func (s *Session) readBlobString(hash plumbing.Hash) (string, error) {
 // the materialisation. Walks the worktree; a file/dir is kept iff its full
 // path is in the `kept` set or is a descendant of a kept directory that was
 // listed.
-func pruneExtras(dir string, kept map[string]bool) error {
+func pruneExtras(root *os.Root, dir string, kept map[string]bool) error {
 	var toRemove []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if path == dir {
+		if path == "." {
 			return nil
 		}
-		if kept[path] {
+		rel := filepath.FromSlash(path)
+		full := filepath.Join(dir, rel)
+		if kept[full] {
 			return nil
 		}
 		// Skip stado-internal files we never want to touch on revert.
-		base := filepath.Base(path)
+		base := filepath.Base(rel)
 		if base == ".stado-pid" || base == ".stado" || base == ".git" {
-			if info.IsDir() {
-				return filepath.SkipDir
+			if d.IsDir() {
+				return fs.SkipDir
 			}
 			return nil
 		}
-		toRemove = append(toRemove, path)
-		if info.IsDir() {
-			return filepath.SkipDir // RemoveAll handles contents below
+		toRemove = append(toRemove, rel)
+		if d.IsDir() {
+			return fs.SkipDir // RemoveAll handles contents below
 		}
 		return nil
 	})
@@ -224,7 +227,7 @@ func pruneExtras(dir string, kept map[string]bool) error {
 		return err
 	}
 	for _, p := range toRemove {
-		if err := os.RemoveAll(p); err != nil {
+		if err := root.RemoveAll(p); err != nil {
 			return err
 		}
 	}
@@ -232,7 +235,16 @@ func pruneExtras(dir string, kept map[string]bool) error {
 }
 
 func wipeDir(dir string) error {
-	entries, err := os.ReadDir(dir)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return wipeRoot(root)
+}
+
+func wipeRoot(root *os.Root) error {
+	entries, err := fs.ReadDir(root.FS(), ".")
 	if err != nil {
 		return err
 	}
@@ -240,7 +252,7 @@ func wipeDir(dir string) error {
 		if e.Name() == ".stado-pid" || e.Name() == ".stado" || e.Name() == ".git" {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+		if err := root.RemoveAll(e.Name()); err != nil {
 			return err
 		}
 	}

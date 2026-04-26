@@ -35,7 +35,8 @@ Plugins / Infra / Fixes.
   before documenting and rejecting a lesson.
 - **Rooted session tree materialization.** Fork/revert materialization now
   writes files and directories through a destination root and replaces stale
-  destination symlinks instead of following them.
+  destination symlinks instead of following them. Destructive prune/wipe
+  cleanup now removes stale paths through the same destination root.
 - **Hardened plugin install copies.** Plugin installs now copy package
   contents through rooted source/destination handles, reject destination
   symlinks, and re-check the installed manifest/signature/WASM digest after
