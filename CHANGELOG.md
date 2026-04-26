@@ -61,6 +61,8 @@ Plugins / Infra / Fixes.
 - **Bounded read-context package discovery.** The `read_with_context` tool now
   streams local Go package directory entries in batches and skips import
   packages that exceed the package-entry cap.
+- **Bounded TUI repo scans.** TUI document and symbol pickers now stream repo
+  traversal in batches and stop on entry-count or nesting-depth limits.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

@@ -34,36 +34,25 @@ func (m *Model) filePickerDocItems() []filepicker.Item {
 func scanDocPaths(root string) []string {
 	const limit = 200
 	var out []string
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if path == root {
-				return nil
+	_ = walkTUIRepo(root, maxTUIRepoScanEntries, maxTUIRepoScanDepth, func(rel string, info os.FileInfo) tuiRepoWalkDecision {
+		if info.IsDir() {
+			if rel == "." {
+				return tuiRepoWalkContinue
 			}
-			rel, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return filepath.SkipDir
+			slashRel := filepath.ToSlash(rel)
+			if skipDocDir(slashRel, filepath.Base(rel)) {
+				return tuiRepoWalkSkipDir
 			}
-			rel = filepath.ToSlash(rel)
-			if skipDocDir(rel, d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
+			return tuiRepoWalkContinue
 		}
 		if len(out) >= limit {
-			return filepath.SkipAll
+			return tuiRepoWalkStop
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
+		slashRel := filepath.ToSlash(rel)
+		if isDocPath(slashRel) {
+			out = append(out, slashRel)
 		}
-		rel = filepath.ToSlash(rel)
-		if isDocPath(rel) {
-			out = append(out, rel)
-		}
-		return nil
+		return tuiRepoWalkContinue
 	})
 	sort.Strings(out)
 	return out

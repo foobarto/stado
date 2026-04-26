@@ -52,46 +52,37 @@ func scanSymbols(root string) []symbolCandidate {
 	const limit = 300
 	fset := token.NewFileSet()
 	var out []symbolCandidate
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			if path == root {
-				return nil
+	_ = walkTUIRepo(root, maxTUIRepoScanEntries, maxTUIRepoScanDepth, func(rel string, info os.FileInfo) tuiRepoWalkDecision {
+		if info.IsDir() {
+			if rel == "." {
+				return tuiRepoWalkContinue
 			}
-			if skipSymbolDir(d.Name()) {
-				return filepath.SkipDir
+			if skipSymbolDir(filepath.Base(rel)) {
+				return tuiRepoWalkSkipDir
 			}
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
+			return tuiRepoWalkContinue
 		}
 		if len(out) >= limit {
-			return filepath.SkipAll
+			return tuiRepoWalkStop
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
+		path := filepath.Join(root, rel)
+		slashRel := filepath.ToSlash(rel)
 		switch filepath.Ext(path) {
 		case ".go":
-			out = append(out, scanGoFileSymbols(fset, rel, path, limit-len(out))...)
+			out = append(out, scanGoFileSymbols(fset, slashRel, path, limit-len(out))...)
 		case ".py":
-			out = append(out, scanPythonFileSymbols(rel, path, limit-len(out))...)
+			out = append(out, scanPythonFileSymbols(slashRel, path, limit-len(out))...)
 		case ".js", ".jsx", ".ts", ".tsx":
-			out = append(out, scanScriptFileSymbols(rel, path, limit-len(out))...)
+			out = append(out, scanScriptFileSymbols(slashRel, path, limit-len(out))...)
 		case ".sh", ".bash":
-			out = append(out, scanShellFileSymbols(rel, path, limit-len(out))...)
+			out = append(out, scanShellFileSymbols(slashRel, path, limit-len(out))...)
 		default:
-			return nil
+			return tuiRepoWalkContinue
 		}
 		if len(out) >= limit {
-			return filepath.SkipAll
+			return tuiRepoWalkStop
 		}
-		return nil
+		return tuiRepoWalkContinue
 	})
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Name != out[j].Name {
