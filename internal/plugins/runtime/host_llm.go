@@ -41,7 +41,7 @@ func registerLLMImport(builder wazero.HostModuleBuilder, host *Host) {
 			promptLen := api.DecodeU32(stack[1])
 			outPtr := api.DecodeU32(stack[2])
 			outCap := api.DecodeU32(stack[3])
-			prompt, err := readString(mod, promptPtr, promptLen)
+			prompt, err := readStringLimited(mod, promptPtr, promptLen, maxPluginRuntimeLLMPromptBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return

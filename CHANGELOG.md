@@ -63,6 +63,9 @@ Plugins / Infra / Fixes.
 - **Capped plugin runtime FS I/O.** Host `fs_read` and `fs_write` now enforce
   path and payload ceilings and read allowed files through bounded
   regular-file reads.
+- **Capped plugin host import memory reads.** Runtime host imports now reject
+  oversized plugin-controlled strings and byte payloads before copying them
+  out of Wasm memory.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

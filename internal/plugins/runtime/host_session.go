@@ -47,7 +47,7 @@ func registerSessionReadImport(builder wazero.HostModuleBuilder, host *Host) {
 			fieldLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufCap := api.DecodeU32(stack[3])
-			field, err := readString(mod, fieldPtr, fieldLen)
+			field, err := readStringLimited(mod, fieldPtr, fieldLen, maxPluginRuntimeSessionFieldBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -150,12 +150,12 @@ func registerSessionForkImport(builder wazero.HostModuleBuilder, host *Host) {
 			seedLen := api.DecodeU32(stack[3])
 			outPtr := api.DecodeU32(stack[4])
 			outCap := api.DecodeU32(stack[5])
-			atRef, err := readString(mod, atPtr, atLen)
+			atRef, err := readStringLimited(mod, atPtr, atLen, maxPluginRuntimeSessionForkRefBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			seed, err := readString(mod, seedPtr, seedLen)
+			seed, err := readStringLimited(mod, seedPtr, seedLen, maxPluginRuntimeSessionForkSeedBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return

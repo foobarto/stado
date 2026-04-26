@@ -43,7 +43,7 @@ func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			path, err := readString(mod, pathPtr, pathLen)
+			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -100,7 +100,7 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			path, err := readString(mod, pathPtr, pathLen)
+			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -116,7 +116,7 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			data, err := readBytes(mod, bufPtr, bufLen)
+			data, err := readBytesLimited(mod, bufPtr, bufLen, uint32(maxPluginRuntimeFSFileBytes))
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return

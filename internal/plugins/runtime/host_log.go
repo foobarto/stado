@@ -16,11 +16,11 @@ func registerLogImport(builder wazero.HostModuleBuilder, host *Host) {
 			levelLen := api.DecodeU32(stack[1])
 			msgPtr := api.DecodeU32(stack[2])
 			msgLen := api.DecodeU32(stack[3])
-			level, err := readString(mod, levelPtr, levelLen)
+			level, err := readStringLimited(mod, levelPtr, levelLen, maxPluginRuntimeLogLevelBytes)
 			if err != nil {
 				return
 			}
-			msg, err := readString(mod, msgPtr, msgLen)
+			msg, err := readStringLimited(mod, msgPtr, msgLen, maxPluginRuntimeLogMessageBytes)
 			if err != nil {
 				return
 			}

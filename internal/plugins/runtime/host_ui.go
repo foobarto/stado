@@ -20,12 +20,12 @@ func registerUIApprovalImport(builder wazero.HostModuleBuilder, host *Host) {
 			titleLen := api.DecodeU32(stack[1])
 			bodyPtr := api.DecodeU32(stack[2])
 			bodyLen := api.DecodeU32(stack[3])
-			title, err := readString(mod, titlePtr, titleLen)
+			title, err := readStringLimited(mod, titlePtr, titleLen, maxPluginRuntimeUIApprovalTitleBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			body, err := readString(mod, bodyPtr, bodyLen)
+			body, err := readStringLimited(mod, bodyPtr, bodyLen, maxPluginRuntimeUIApprovalBodyBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return

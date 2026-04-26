@@ -62,7 +62,7 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
 					return
 				}
-				argsBytes, err := readBytes(mod, argsPtr, argsLen)
+				argsBytes, err := readBytesLimited(mod, argsPtr, argsLen, maxPluginRuntimeToolArgsBytes)
 				if err != nil {
 					host.Logger.Warn(spec.exportName+" args read failed", slog.String("err", err.Error()))
 					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, []byte(err.Error())))

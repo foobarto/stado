@@ -10,6 +10,18 @@ const (
 	maxInt32Result    = uint64(1<<31 - 1)
 	maxInt32ResultInt = 1<<31 - 1
 	maxUint32Result   = uint64(1<<32 - 1)
+
+	maxPluginRuntimeImportBytes          uint32 = 16 << 20
+	maxPluginRuntimeLogLevelBytes        uint32 = 32
+	maxPluginRuntimeLogMessageBytes      uint32 = 64 << 10
+	maxPluginRuntimeUIApprovalTitleBytes uint32 = 4 << 10
+	maxPluginRuntimeUIApprovalBodyBytes  uint32 = 1 << 20
+	maxPluginRuntimeMemoryPayloadBytes   uint32 = 1 << 20
+	maxPluginRuntimeToolArgsBytes        uint32 = 1 << 20
+	maxPluginRuntimeLLMPromptBytes       uint32 = 1 << 20
+	maxPluginRuntimeSessionFieldBytes    uint32 = 128
+	maxPluginRuntimeSessionForkRefBytes  uint32 = 4 << 10
+	maxPluginRuntimeSessionForkSeedBytes uint32 = 1 << 20
 )
 
 // readBytes reads `length` bytes from mod's linear memory at `ptr`.
@@ -20,6 +32,16 @@ const (
 // — wazero's Memory.Read already returns ok=false in that case, but we
 // surface it as a Go error for the capability-deny path.
 func readBytes(mod api.Module, ptr, length uint32) ([]byte, error) {
+	return readBytesLimited(mod, ptr, length, maxPluginRuntimeImportBytes)
+}
+
+func readBytesLimited(mod api.Module, ptr, length, maxLength uint32) ([]byte, error) {
+	if maxLength > maxPluginRuntimeImportBytes {
+		maxLength = maxPluginRuntimeImportBytes
+	}
+	if length > maxLength {
+		return nil, fmt.Errorf("wasm memory: read length %d exceeds %d-byte cap", length, maxLength)
+	}
 	buf, ok := mod.Memory().Read(ptr, length)
 	if !ok {
 		return nil, fmt.Errorf("wasm memory: read out-of-bounds (ptr=%d len=%d)", ptr, length)
@@ -29,10 +51,8 @@ func readBytes(mod api.Module, ptr, length uint32) ([]byte, error) {
 	return out, nil
 }
 
-// readString is readBytes converted to string. Convenience wrapper for
-// path / method / url arguments.
-func readString(mod api.Module, ptr, length uint32) (string, error) {
-	b, err := readBytes(mod, ptr, length)
+func readStringLimited(mod api.Module, ptr, length, maxLength uint32) (string, error) {
+	b, err := readBytesLimited(mod, ptr, length, maxLength)
 	if err != nil {
 		return "", err
 	}

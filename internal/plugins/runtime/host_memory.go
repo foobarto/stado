@@ -34,7 +34,7 @@ func registerMemoryProposeImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			ptr := api.DecodeU32(stack[0])
 			length := api.DecodeU32(stack[1])
-			payload, err := readBytes(mod, ptr, length)
+			payload, err := readBytesLimited(mod, ptr, length, maxPluginRuntimeMemoryPayloadBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -70,7 +70,7 @@ func registerMemoryQueryImport(builder wazero.HostModuleBuilder, host *Host) {
 			queryLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufCap := api.DecodeU32(stack[3])
-			payload, err := readBytes(mod, queryPtr, queryLen)
+			payload, err := readBytesLimited(mod, queryPtr, queryLen, maxPluginRuntimeMemoryPayloadBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -113,7 +113,7 @@ func registerMemoryUpdateImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			ptr := api.DecodeU32(stack[0])
 			length := api.DecodeU32(stack[1])
-			payload, err := readBytes(mod, ptr, length)
+			payload, err := readBytesLimited(mod, ptr, length, maxPluginRuntimeMemoryPayloadBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
