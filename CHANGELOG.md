@@ -65,6 +65,9 @@ Plugins / Infra / Fixes.
   traversal in batches and stop on entry-count or nesting-depth limits.
 - **Bounded TUI file picker scans.** The `@` file picker now streams repo file
   discovery in batches and stops on traversal entry-count or depth limits.
+- **Bounded TUI template discovery.** Bundled and overlay template discovery
+  now reads template directories in batches and rejects oversized template
+  entry sets before parsing.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.

@@ -13,7 +13,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +31,12 @@ import (
 //go:embed templates/*.tmpl
 var defaultTemplates embed.FS
 
-const maxTemplateFileBytes int64 = 256 << 10
+const (
+	maxTemplateFileBytes int64 = 256 << 10
+	maxTemplateEntries         = 256
+	maxTemplateDepth           = 8
+	templateReadDirBatch       = 128
+)
 
 // Renderer renders UI elements using loaded templates and a theme.
 type Renderer struct {
@@ -69,19 +76,87 @@ func NewWithOverlay(th *theme.Theme, overlayDir string) (*Renderer, error) {
 }
 
 func walkTemplates(root *template.Template, fsys fs.FS, base string) error {
-	return fs.WalkDir(fsys, base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
+	return walkTemplatesLimited(root, fsys, base, maxTemplateEntries, maxTemplateDepth)
+}
+
+func walkTemplatesLimited(root *template.Template, fsys fs.FS, base string, maxEntries, maxDepth int) error {
+	state := &templateWalkState{entries: 1, maxEntries: maxEntries, maxDepth: maxDepth}
+	if state.entries > state.maxEntries {
+		return fmt.Errorf("template directory contains more than %d entries", state.maxEntries)
+	}
+	return walkTemplateFSDir(root, fsys, path.Clean(filepath.ToSlash(base)), state, 0)
+}
+
+type templateWalkState struct {
+	entries    int
+	maxEntries int
+	maxDepth   int
+}
+
+func walkTemplateFSDir(root *template.Template, fsys fs.FS, dirPath string, state *templateWalkState, depth int) error {
+	if depth > state.maxDepth {
+		return fmt.Errorf("template directory nesting exceeds %d: %s", state.maxDepth, dirPath)
+	}
+	entries, err := readFSTemplateDirEntries(fsys, dirPath, state)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !fs.ValidPath(name) || path.Base(name) != name || strings.ContainsAny(name, `/\`) {
+			return fmt.Errorf("invalid template entry name %q", name)
 		}
-		if filepath.Ext(path) != ".tmpl" {
-			return nil
+		childPath := path.Join(dirPath, name)
+		if entry.IsDir() {
+			if err := walkTemplateFSDir(root, fsys, childPath, state, depth+1); err != nil {
+				return err
+			}
+			continue
 		}
-		data, err := fs.ReadFile(fsys, path)
+		if path.Ext(childPath) != ".tmpl" {
+			continue
+		}
+		data, err := fs.ReadFile(fsys, childPath)
 		if err != nil {
 			return err
 		}
-		return parseTemplateFile(root, path, data)
-	})
+		if err := parseTemplateFile(root, childPath, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readFSTemplateDirEntries(fsys fs.FS, dirPath string, state *templateWalkState) ([]fs.DirEntry, error) {
+	f, err := fsys.Open(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	dir, ok := f.(fs.ReadDirFile)
+	if !ok {
+		return nil, fmt.Errorf("template path is not a directory: %s", dirPath)
+	}
+
+	var out []fs.DirEntry
+	for {
+		entries, readErr := dir.ReadDir(templateReadDirBatch)
+		for _, entry := range entries {
+			state.entries++
+			if state.entries > state.maxEntries {
+				return nil, fmt.Errorf("template directory contains more than %d entries", state.maxEntries)
+			}
+			out = append(out, entry)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
+	return out, nil
 }
 
 func walkOverlayTemplates(root *template.Template, overlayDir string) error {
@@ -90,20 +165,26 @@ func walkOverlayTemplates(root *template.Template, overlayDir string) error {
 		return err
 	}
 	defer func() { _ = overlayRoot.Close() }()
-	entries, err := fs.ReadDir(overlayRoot.FS(), ".")
+	entries, err := readRootTemplateDirEntries(overlayRoot, maxTemplateEntries)
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		name := entry.Name()
+	for _, name := range entries {
 		if filepath.Ext(name) != ".tmpl" {
 			continue
 		}
-		if entry.IsDir() {
+		info, err := overlayRoot.Lstat(name)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			continue
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
+		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("template is a symlink: %s", name)
+		}
+		if !info.Mode().IsRegular() {
+			continue
 		}
 		data, err := workdirpath.ReadRootRegularFileLimited(overlayRoot, name, maxTemplateFileBytes)
 		if err != nil {
@@ -114,6 +195,39 @@ func walkOverlayTemplates(root *template.Template, overlayDir string) error {
 		}
 	}
 	return nil
+}
+
+func readRootTemplateDirEntries(root *os.Root, maxEntries int) ([]string, error) {
+	dir, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+
+	var names []string
+	entriesSeen := 0
+	for {
+		entries, readErr := dir.ReadDir(templateReadDirBatch)
+		for _, entry := range entries {
+			entriesSeen++
+			if entriesSeen > maxEntries {
+				return nil, fmt.Errorf("template overlay contains more than %d entries", maxEntries)
+			}
+			name := entry.Name()
+			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+				return nil, fmt.Errorf("invalid template overlay entry name %q", name)
+			}
+			names = append(names, name)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func parseTemplateFile(root *template.Template, path string, data []byte) error {

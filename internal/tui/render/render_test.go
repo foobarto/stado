@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"text/template"
 
 	"github.com/foobarto/stado/internal/tui/theme"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 func newRenderer(t *testing.T) *Renderer {
@@ -116,6 +119,37 @@ func TestRendererOverlayRejectsOversizedTemplate(t *testing.T) {
 	_, err := NewWithOverlay(theme.Default(), dir)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("expected oversized overlay rejection, got %v", err)
+	}
+}
+
+func TestWalkTemplatesRejectsTooManyEntries(t *testing.T) {
+	fsys := fstest.MapFS{
+		"templates/a.tmpl": {Data: []byte("a")},
+		"templates/b.tmpl": {Data: []byte("b")},
+		"templates/c.tmpl": {Data: []byte("c")},
+	}
+	err := walkTemplatesLimited(template.New("test"), fsys, "templates", 2, maxTemplateDepth)
+	if err == nil || !strings.Contains(err.Error(), "more than 2 entries") {
+		t.Fatalf("walkTemplatesLimited error = %v, want entry cap rejection", err)
+	}
+}
+
+func TestReadRootTemplateDirEntriesRejectsTooManyEntries(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.tmpl", "b.tmpl", "c.tmpl"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("body"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	_, err = readRootTemplateDirEntries(root, 2)
+	if err == nil || !strings.Contains(err.Error(), "more than 2 entries") {
+		t.Fatalf("readRootTemplateDirEntries error = %v, want entry cap rejection", err)
 	}
 }
 
