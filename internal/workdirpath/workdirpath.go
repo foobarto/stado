@@ -142,6 +142,88 @@ func MkdirAllNoSymlink(path string, perm os.FileMode) error {
 	return MkdirAllRootNoSymlink(root, rel, perm)
 }
 
+// OpenRootNoSymlink opens an existing directory while rejecting any symlink
+// component in the directory path.
+func OpenRootNoSymlink(path string) (*os.Root, error) {
+	if strings.Contains(path, "\x00") {
+		return nil, fmt.Errorf("invalid directory path %q", path)
+	}
+	clean := filepath.Clean(path)
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return nil, err
+	}
+	rootPath, rel := splitAbsoluteRoot(abs)
+	cur, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			_ = cur.Close()
+			return nil, fmt.Errorf("invalid directory path %q", path)
+		}
+		info, err := cur.Lstat(part)
+		if err != nil {
+			_ = cur.Close()
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			_ = cur.Close()
+			return nil, fmt.Errorf("directory component is a symlink: %s", part)
+		}
+		if !info.IsDir() {
+			_ = cur.Close()
+			return nil, fmt.Errorf("directory component is not a directory: %s", part)
+		}
+		next, err := cur.OpenRoot(part)
+		if err != nil {
+			_ = cur.Close()
+			return nil, err
+		}
+		_ = cur.Close()
+		cur = next
+	}
+	return cur, nil
+}
+
+// RemoveAllNoSymlink removes path without following symlinked directory
+// components. A final symlink is rejected instead of being removed silently.
+func RemoveAllNoSymlink(path string) error {
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("invalid remove path %q", path)
+	}
+	clean := filepath.Clean(path)
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(abs)
+	if name == "." || name == string(filepath.Separator) {
+		return fmt.Errorf("invalid remove path %q", path)
+	}
+	parent := filepath.Dir(abs)
+	root, err := OpenRootNoSymlink(parent)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Lstat(name)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("remove path is a symlink: %s", path)
+	case err == nil:
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return err
+	}
+	return root.RemoveAll(name)
+}
+
 // MkdirAllRootNoSymlink creates a directory tree relative to root while
 // rejecting any existing symlink component.
 func MkdirAllRootNoSymlink(root *os.Root, path string, perm os.FileMode) error {

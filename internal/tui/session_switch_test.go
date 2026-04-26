@@ -194,6 +194,34 @@ func TestDeleteSessionRejectsSpecialLocalID(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionRejectsSymlinkedWorktreeRoot(t *testing.T) {
+	m, _, _ := newSessionSwitchModel(t)
+
+	const id = "tui-root-symlink"
+	worktreeParent := filepath.Dir(m.cfg.WorktreeDir())
+	if err := os.RemoveAll(worktreeParent); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(filepath.Join(outside, "worktrees", id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "worktrees", id, "keep.txt"), []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, worktreeParent); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := m.deleteSession(id)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("deleteSession error = %v, want symlink rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "worktrees", id, "keep.txt")); err != nil {
+		t.Fatalf("symlink target was modified: %v", err)
+	}
+}
+
 func TestDeleteSessionBlocksActiveSession(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
 

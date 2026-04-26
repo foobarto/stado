@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -235,7 +236,7 @@ func (m *Model) deleteSession(id string) error {
 	if err := sc.DeleteSessionRefs(id); err != nil {
 		return fmt.Errorf("session delete refs: %w", err)
 	}
-	if err := os.RemoveAll(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
+	if err := workdirpath.RemoveAllNoSymlink(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
 		return fmt.Errorf("session delete worktree: %w", err)
 	}
 	return nil

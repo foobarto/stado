@@ -17,6 +17,7 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui"
+	"github.com/foobarto/stado/internal/workdirpath"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -250,7 +251,7 @@ var sessionGCCmd = &cobra.Command{
 				errs++
 				continue
 			}
-			if err := os.RemoveAll(wt); err != nil {
+			if err := workdirpath.RemoveAllNoSymlink(wt); err != nil {
 				fmt.Fprintf(os.Stderr, "remove worktree %s: %v\n", id, err)
 				errs++
 				continue
@@ -295,7 +296,7 @@ var sessionDeleteCmd = &cobra.Command{
 		if err := sc.DeleteSessionRefs(id); err != nil {
 			return fmt.Errorf("delete refs: %w", err)
 		}
-		if err := os.RemoveAll(wt); err != nil {
+		if err := workdirpath.RemoveAllNoSymlink(wt); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
 		switch {

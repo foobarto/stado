@@ -93,7 +93,7 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("install: copy: %w", err)
 		}
 		if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
-			_ = os.RemoveAll(dst)
+			_ = workdirpath.RemoveAllNoSymlink(dst)
 			return fmt.Errorf("install: verify installed copy: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)

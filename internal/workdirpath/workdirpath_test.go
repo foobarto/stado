@@ -159,6 +159,93 @@ func TestMkdirAllNoSymlinkCreatesNestedDirs(t *testing.T) {
 	}
 }
 
+func TestOpenRootNoSymlinkRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	root, err := OpenRootNoSymlink(filepath.Join(link, "child"))
+	if err == nil {
+		_ = root.Close()
+		t.Fatal("OpenRootNoSymlink should reject symlinked parent dirs")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestRemoveAllNoSymlinkRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.MkdirAll(filepath.Join(target, "victim"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "victim", "keep.txt"), []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := RemoveAllNoSymlink(filepath.Join(link, "victim"))
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("RemoveAllNoSymlink error = %v, want symlink rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "victim", "keep.txt")); statErr != nil {
+		t.Fatalf("symlink target was modified: %v", statErr)
+	}
+}
+
+func TestRemoveAllNoSymlinkRejectsFinalSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep.txt"), []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := RemoveAllNoSymlink(link)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("RemoveAllNoSymlink error = %v, want symlink rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "keep.txt")); statErr != nil {
+		t.Fatalf("symlink target was modified: %v", statErr)
+	}
+	if _, statErr := os.Lstat(link); statErr != nil {
+		t.Fatalf("final symlink should remain after rejection: %v", statErr)
+	}
+}
+
+func TestRemoveAllNoSymlinkRemovesDirectoryTree(t *testing.T) {
+	root := t.TempDir()
+	victim := filepath.Join(root, "victim")
+	if err := os.MkdirAll(filepath.Join(victim, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(victim, "nested", "file.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveAllNoSymlink(victim); err != nil {
+		t.Fatalf("RemoveAllNoSymlink: %v", err)
+	}
+	if _, err := os.Stat(victim); !os.IsNotExist(err) {
+		t.Fatalf("victim should be removed, stat err = %v", err)
+	}
+}
+
 func TestWriteFilePreservesExistingMode(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "script.sh")

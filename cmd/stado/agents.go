@@ -11,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // Phase 9.4/9.5 — parallel-agent CLI.
@@ -130,7 +131,7 @@ var agentsKillCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
 			}
 		}
-		if err := os.RemoveAll(wt); err != nil {
+		if err := workdirpath.RemoveAllNoSymlink(wt); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
 		fmt.Fprintln(os.Stderr, "killed", id)

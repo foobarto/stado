@@ -91,6 +91,35 @@ func TestMaterializeRejectsDestinationRootSymlink(t *testing.T) {
 	}
 }
 
+func TestMaterializeZeroTreeRejectsDestinationRootSymlink(t *testing.T) {
+	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
+	sess, _ := CreateSession(sc, t.TempDir(), "mat-zero-root-symlink", plumbing.ZeroHash)
+
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep.txt"), []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "dst-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := sess.MaterializeTreeReplacing(plumbing.ZeroHash, link); err == nil {
+		t.Fatal("MaterializeTreeReplacing should reject symlinked destination roots")
+	}
+	data, err := os.ReadFile(filepath.Join(target, "keep.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "safe" {
+		t.Fatalf("symlink target was modified: %q", data)
+	}
+}
+
 func TestMaterialize_Replacing_RemovesExtras(t *testing.T) {
 	sc, _ := OpenOrInitSidecar(filepath.Join(t.TempDir(), "sc.git"), t.TempDir())
 	wt := t.TempDir()

@@ -53,6 +53,37 @@ func TestAgentsKill_RejectsTraversalID(t *testing.T) {
 	}
 }
 
+func TestAgentsKill_RejectsSymlinkedWorktreeRoot(t *testing.T) {
+	root := t.TempDir()
+	stateHome := filepath.Join(root, "state")
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	const id = "agent-root-symlink"
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(filepath.Join(outside, "worktrees", id), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "worktrees", id, "keep.txt"), []byte("safe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(stateHome, "stado")); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := agentsKillCmd.RunE(agentsKillCmd, []string{id})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("agents kill error = %v, want symlink rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "worktrees", id, "keep.txt")); err != nil {
+		t.Fatalf("symlink target was modified: %v", err)
+	}
+}
+
 func TestSessionLand_RejectsInvalidBranchName(t *testing.T) {
 	for _, branch := range []string{"", "../escape", "bad..name", "bad\nname", `bad\name`} {
 		if _, err := branchRefName(branch); err == nil {

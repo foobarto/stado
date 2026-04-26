@@ -236,7 +236,7 @@ func pruneExtras(root *os.Root, dir string, kept map[string]bool) error {
 }
 
 func wipeDir(dir string) error {
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}

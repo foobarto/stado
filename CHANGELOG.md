@@ -8,6 +8,10 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened destructive directory cleanup.** Session and agent worktree
+  deletion, TUI session deletion, failed plugin-install cleanup, and
+  zero-tree materialization wipes now reject symlinked directory components
+  before removing recursive paths.
 - **Rooted memory log reads and appends.** Approved-memory storage now opens
   its append log through `os.Root` scoped to the memory-store directory,
   rejecting symlink escapes for read and append operations.
