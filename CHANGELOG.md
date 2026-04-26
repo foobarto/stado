@@ -47,6 +47,9 @@ Plugins / Infra / Fixes.
 - **Hardened plugin state writes.** Plugin CRL and trust-store saves now use
   rooted, exclusive random temp files and reject non-regular state files so
   pre-created temp symlinks cannot redirect writes outside the state directory.
+- **Hardened bundled tool cache extraction.** Bundled binary extraction now
+  rejects path-like tool names, writes through rooted random temp files, and
+  replaces cache symlinks instead of treating them as valid cache hits.
 
 ## v0.25.7 — 2026-04-26
 

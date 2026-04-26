@@ -19,6 +19,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/google/uuid"
 )
 
 // ErrNotBundled is returned by Extract when the bundled byte slice is
@@ -40,9 +43,17 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	if len(bundled) == 0 {
 		return "", ErrNotBundled
 	}
+	if err := validateToolName(name); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("binext: cache dir: %w", err)
 	}
+	root, err := os.OpenRoot(cacheDir)
+	if err != nil {
+		return "", fmt.Errorf("binext: open cache dir: %w", err)
+	}
+	defer func() { _ = root.Close() }()
 
 	actualSHA := hashBytes(bundled)
 	if expectedSHA != "" && actualSHA != expectedSHA {
@@ -53,9 +64,10 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	// Path includes a 12-char sha prefix so a mismatch causes a
 	// brand-new file rather than overwriting a divergent cached copy.
 	suffix := actualSHA[:12]
-	path := filepath.Join(cacheDir, name+"-"+suffix)
+	fileName := name + "-" + suffix
+	path := filepath.Join(cacheDir, fileName)
 
-	if ok, err := cacheHit(path, bundled); err != nil {
+	if ok, err := cacheHit(root, fileName, bundled); err != nil {
 		return "", err
 	} else if ok {
 		return path, nil
@@ -63,21 +75,57 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 
 	// Write atomically: tmp + rename so a concurrent call doesn't see
 	// a half-written file.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, bundled, 0o700); err != nil { // #nosec G306 -- cached tool extract must be executable.
-		return "", fmt.Errorf("binext: write %s: %w", tmp, err)
+	tmpName := "." + fileName + "." + uuid.NewString() + ".tmp"
+	tmp, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
+	if err != nil {
+		return "", fmt.Errorf("binext: create %s: %w", tmpName, err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	keepTmp := false
+	defer func() {
+		if !keepTmp {
+			_ = root.Remove(tmpName)
+		}
+	}()
+	n, err := tmp.Write(bundled)
+	if err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("binext: write %s: %w", tmpName, err)
+	}
+	if n != len(bundled) {
+		_ = tmp.Close()
+		return "", fmt.Errorf("binext: write %s: %w", tmpName, io.ErrShortWrite)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("binext: sync %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("binext: close %s: %w", tmpName, err)
+	}
+	if err := root.Rename(tmpName, fileName); err != nil {
 		return "", fmt.Errorf("binext: rename %s: %w", path, err)
 	}
+	keepTmp = true
 	return path, nil
 }
 
 // cacheHit reports whether path already exists + its sha256 matches
 // bundled. A different sha is NOT a hit (we'd rewrite).
-func cacheHit(path string, bundled []byte) (bool, error) {
-	f, err := os.Open(path) // #nosec G304 -- cache path is derived from bundled tool name and digest.
+func cacheHit(root *os.Root, name string, bundled []byte) (bool, error) {
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("binext: cache entry is not a regular file: %s", name)
+	}
+	f, err := root.Open(name)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -91,6 +139,16 @@ func cacheHit(path string, bundled []byte) (bool, error) {
 		return false, err
 	}
 	return hex.EncodeToString(h.Sum(nil)) == hashBytes(bundled), nil
+}
+
+func validateToolName(name string) error {
+	if strings.TrimSpace(name) == "" || strings.Contains(name, "\x00") || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("binext: invalid tool name %q", name)
+	}
+	if filepath.Base(name) != name || !filepath.IsLocal(name) {
+		return fmt.Errorf("binext: invalid tool name %q", name)
+	}
+	return nil
 }
 
 func hashBytes(b []byte) string {

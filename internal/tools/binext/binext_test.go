@@ -50,6 +50,76 @@ func TestExtract_HappyPathWritesExecutable(t *testing.T) {
 	}
 }
 
+func TestExtract_RejectsPathLikeToolName(t *testing.T) {
+	_, err := Extract(t.TempDir(), "../tool", []byte("bytes"), "")
+	if err == nil {
+		t.Fatal("expected path-like tool name to be rejected")
+	}
+	if !strings.Contains(err.Error(), "invalid tool name") {
+		t.Fatalf("expected invalid tool name error, got %v", err)
+	}
+}
+
+func TestExtract_DoesNotFollowPredictableTempSymlink(t *testing.T) {
+	dir := t.TempDir()
+	blob := []byte("binary-bytes")
+	suffix := shaOf(blob)[:12]
+	path := filepath.Join(dir, "tool-"+suffix)
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path+".tmp"); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	gotPath, err := Extract(dir, "tool", blob, shaOf(blob))
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	target, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(target) != "outside" {
+		t.Fatalf("outside target was modified: %q", target)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(blob) {
+		t.Fatalf("cache content = %q, want %q", got, blob)
+	}
+}
+
+func TestExtract_ReplacesExistingCacheSymlink(t *testing.T) {
+	dir := t.TempDir()
+	blob := []byte("binary-bytes")
+	path := filepath.Join(dir, "tool-"+shaOf(blob)[:12])
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, blob, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if _, err := Extract(dir, "tool", blob, shaOf(blob)); err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("cache path is still a symlink: %v", info.Mode())
+	}
+}
+
 func TestExtract_CacheHitSkipsRewrite(t *testing.T) {
 	dir := t.TempDir()
 	blob := []byte("binary-bytes")
