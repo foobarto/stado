@@ -61,11 +61,11 @@ func (h *Hover) Run(ctx context.Context, raw json.RawMessage, host tool.Host) (t
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	data, err := workdirpath.ReadFile(host.Workdir(), a.Path)
+	docText, err := readLSPDocumentText(host.Workdir(), a.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	_ = cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), string(data))
+	_ = cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), docText)
 
 	text, err := cli.Hover(ctx, full, lsp.Position{Line: a.Line - 1, Character: a.Column - 1})
 	if err != nil {

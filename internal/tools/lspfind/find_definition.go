@@ -79,11 +79,11 @@ func (f *FindDefinition) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 		return tool.Result{Error: err.Error()}, err
 	}
 
-	data, err := workdirpath.ReadFile(h.Workdir(), a.Path)
+	text, err := readLSPDocumentText(h.Workdir(), a.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	if err := cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), string(data)); err != nil {
+	if err := cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), text); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 

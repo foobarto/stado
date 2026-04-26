@@ -68,11 +68,11 @@ func (f *FindReferences) Run(ctx context.Context, raw json.RawMessage, h tool.Ho
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	data, err := workdirpath.ReadFile(h.Workdir(), a.Path)
+	text, err := readLSPDocumentText(h.Workdir(), a.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	_ = cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), string(data))
+	_ = cli.DidOpen(full, languageIDFor(filepath.Ext(a.Path)), text)
 
 	include := true
 	if a.IncludeDeclaration != nil {

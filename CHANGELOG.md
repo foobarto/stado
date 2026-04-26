@@ -51,6 +51,9 @@ Plugins / Infra / Fixes.
 - **Bounded read-context inputs.** The `read_with_context` tool now enforces a
   hard per-file read ceiling and caps Go import-scan and `go.mod` reads before
   parsing.
+- **Capped LSP document opens.** Definition, references, hover, and document
+  symbol tools now reject oversized source files before sending document text
+  to a language server.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.
