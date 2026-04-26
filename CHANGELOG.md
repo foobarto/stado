@@ -101,6 +101,9 @@ Plugins / Infra / Fixes.
 - **Hardened release-helper writes.** Bundled release asset refreshes now save
   fetched binaries, generated embed files, and manifests through rooted atomic
   writes instead of following output-path symlinks.
+- **Hardened CLI output directory creation.** Session exports, plugin
+  scaffolding, and plugin installs now reject symlinked output parent
+  directories before creating missing write targets.
 
 ## v0.25.7 — 2026-04-26
 

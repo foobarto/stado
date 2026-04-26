@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +45,28 @@ func TestCopyAndCloseFile_PropagatesSyncError(t *testing.T) {
 	}
 	if !out.closed {
 		t.Fatal("copyAndCloseFile did not close writer after sync failure")
+	}
+}
+
+func TestMkdirAllNoSymlinkRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := mkdirAllNoSymlink(filepath.Join(link, "child"), 0o755)
+	if err == nil {
+		t.Fatal("mkdirAllNoSymlink should reject symlinked parent dirs")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "child")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
 	}
 }

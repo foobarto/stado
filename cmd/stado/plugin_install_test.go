@@ -186,6 +186,33 @@ func TestCopyDirRejectsDestinationSymlink(t *testing.T) {
 	}
 }
 
+func TestCopyDirRejectsDestinationParentSymlink(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "plugin.wasm"), []byte("wasm"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "plugins")
+	if err := os.Symlink("outside", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := copyDir(src, filepath.Join(link, "installed"))
+	if err == nil {
+		t.Fatal("expected destination parent symlink to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "installed")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
 func TestVerifyInstalledPluginCopyRejectsWASMSwap(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	src := buildTestPlugin(t, priv, pub, "demo", "1.0.0")

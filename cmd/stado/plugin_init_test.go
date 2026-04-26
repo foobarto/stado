@@ -133,6 +133,30 @@ func TestPluginInitRejectsSymlinkDirWithForce(t *testing.T) {
 	}
 }
 
+func TestPluginInitRejectsSymlinkParentDir(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	pluginInitDir = filepath.Join(link, "plugin")
+	pluginInitForce = false
+	defer func() { pluginInitDir = ""; pluginInitForce = false }()
+
+	err := pluginInitCmd.RunE(pluginInitCmd, []string{"pl"})
+	if err == nil {
+		t.Fatal("init should reject symlinked output parent dir")
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "plugin")); !os.IsNotExist(statErr) {
+		t.Fatalf("symlink target was modified, stat err = %v", statErr)
+	}
+}
+
 func TestPluginInitRejectsScaffoldFileSymlinkWithForce(t *testing.T) {
 	base := t.TempDir()
 	out := filepath.Join(base, "plugin")

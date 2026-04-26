@@ -153,6 +153,31 @@ func TestSessionExportRejectsOutputSymlink(t *testing.T) {
 	}
 }
 
+func TestSessionExportRejectsOutputParentSymlink(t *testing.T) {
+	id, _, restore := exportEnv(t)
+	defer restore()
+
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("outside", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	exportFormat = "md"
+	exportOutput = filepath.Join(link, "out.md")
+	defer func() { exportFormat = "md"; exportOutput = "" }()
+
+	if err := sessionExportCmd.RunE(sessionExportCmd, []string{id}); err == nil {
+		t.Fatal("session export should reject symlinked output parent")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "out.md")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was modified, stat err = %v", err)
+	}
+}
+
 // TestSessionExport_StdoutWhenNoOutput: empty --output (or "-")
 // writes to stdout rather than a file.
 func TestSessionExport_StdoutWhenNoOutput(t *testing.T) {
