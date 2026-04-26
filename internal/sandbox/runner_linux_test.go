@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,22 @@ func TestBwrapRunnerCommand_AllowHostsSetsProxyEnv(t *testing.T) {
 	proxyPort := proxyPortFromEnv(t, setenv["HTTPS_PROXY"])
 	if !containsAdjacentArg(cmd.Args, "-T", proxyPort) {
 		t.Fatalf("args missing pasta forwarded proxy port %q: %v", proxyPort, cmd.Args)
+	}
+}
+
+func TestProbePastaSpliceOnlyRejectsOversizedHelp(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "pasta")
+	body := fmt.Sprintf("#!/bin/sh\nyes x | head -c %d\n", maxPastaHelpOutputBytes+1)
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := probePastaSpliceOnly(script)
+	if err == nil {
+		t.Fatal("expected oversized help output error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want size rejection", err)
 	}
 }
 

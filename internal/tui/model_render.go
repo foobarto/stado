@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/foobarto/stado/internal/limitedio"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/banner"
 	"github.com/foobarto/stado/internal/tui/input"
@@ -23,7 +24,11 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-const maxGitHeadFileBytes int64 = 4 << 10
+const (
+	maxGitHeadFileBytes         int64 = 4 << 10
+	maxGitStatusProbeBytes            = 1
+	maxGitStatusProbeErrorBytes       = 4 << 10
+)
 
 func (m *Model) View() string {
 	if m.showHelp {
@@ -789,11 +794,15 @@ func gitWorktreeDirty(cwd string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal") // #nosec G204 -- fixed git status probe rooted at detected repository.
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
-	out, err := cmd.Output()
+	out := limitedio.NewBuffer(maxGitStatusProbeBytes)
+	errBuf := limitedio.NewBuffer(maxGitStatusProbeErrorBytes)
+	cmd.Stdout = out
+	cmd.Stderr = errBuf
+	err := cmd.Run()
 	if err != nil || ctx.Err() != nil {
 		return false
 	}
-	return strings.TrimSpace(string(out)) != ""
+	return out.Len() > 0 || out.Truncated()
 }
 
 // tokenPctString renders the in-context-window fraction for the bottom

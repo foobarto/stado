@@ -79,6 +79,8 @@ Plugins / Infra / Fixes.
 - **Capped command output capture.** Hooks, bash, ripgrep, and ast-grep now
   capture child-process stdout and stderr through bounded buffers instead of
   unbounded in-memory buffers.
+- **Capped command probe captures.** TUI git status checks and Linux pasta
+  capability probes now avoid unbounded `Output`/`CombinedOutput` captures.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.
