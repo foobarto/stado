@@ -289,3 +289,66 @@ func TestEditRejectsSymlinkEscape(t *testing.T) {
 		t.Fatalf("EditTool.Run error = %v, want symlink escape rejection", err)
 	}
 }
+
+func TestEditAppliesSmallFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "a.txt", "hello\nworld\n")
+
+	h := newRecordingHost(dir)
+	raw, _ := json.Marshal(map[string]any{"path": "a.txt", "old": "world", "new": "stado"})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("EditTool.Run error = %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("EditTool.Run result error = %q", res.Error)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello\nstado\n" {
+		t.Fatalf("edited file = %q", got)
+	}
+}
+
+func TestEditRejectsOversizedSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.txt")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxEditFileBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newRecordingHost(dir)
+	raw, _ := json.Marshal(map[string]any{"path": "huge.txt", "old": "x", "new": "y"})
+	_, err := EditTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("EditTool.Run error = %v, want size rejection", err)
+	}
+}
+
+func TestEditRejectsOversizedResult(t *testing.T) {
+	dir := t.TempDir()
+	writeTempFile(t, dir, "a.txt", "x")
+
+	h := newRecordingHost(dir)
+	raw, _ := json.Marshal(map[string]any{
+		"path": "a.txt",
+		"old":  "x",
+		"new":  strings.Repeat("y", int(maxEditFileBytes)+1),
+	})
+	_, err := EditTool{}.Run(context.Background(), raw, h)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("EditTool.Run error = %v, want result size rejection", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "x" {
+		t.Fatalf("file should be unchanged, got %q", got)
+	}
+}

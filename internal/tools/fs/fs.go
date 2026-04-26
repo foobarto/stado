@@ -209,6 +209,8 @@ func (WriteTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 
 type EditTool struct{}
 
+const maxEditFileBytes int64 = 4 << 20
+
 func (EditTool) Name() string        { return "edit" }
 func (EditTool) Description() string { return "Apply a search/replace edit to a file" }
 func (EditTool) Schema() map[string]any {
@@ -233,20 +235,40 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 			return tool.Result{Error: err.Error()}, err
 		}
 	}
-	data, err := workdirpath.ReadFile(h.Workdir(), p.Path)
+	content, err := readEditContent(h.Workdir(), p.Path)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	content := string(data)
 	idx := strings.Index(content, p.Old)
 	if idx < 0 {
 		return tool.Result{Error: fmt.Sprintf("text not found in %s", p.Path)}, nil
+	}
+	editedLen := int64(len(content)-len(p.Old)) + int64(len(p.New))
+	if editedLen > maxEditFileBytes {
+		err := fmt.Errorf("edited content exceeds %d bytes: %s", maxEditFileBytes, p.Path)
+		return tool.Result{Error: err.Error()}, err
 	}
 	newContent := content[:idx] + p.New + content[idx+len(p.Old):]
 	if err := workdirpath.WriteFile(h.Workdir(), p.Path, []byte(newContent), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return tool.Result{Content: fmt.Sprintf("Applied edit to %s", p.Path)}, nil
+}
+
+func readEditContent(workdir, path string) (string, error) {
+	f, err := workdirpath.OpenReadFile(workdir, path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxEditFileBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > maxEditFileBytes {
+		return "", fmt.Errorf("edit file exceeds %d bytes: %s", maxEditFileBytes, path)
+	}
+	return string(data), nil
 }
 
 type GlobTool struct{}

@@ -54,6 +54,9 @@ Plugins / Infra / Fixes.
 - **Capped LSP document opens.** Definition, references, hover, and document
   symbol tools now reject oversized source files before sending document text
   to a language server.
+- **Capped edit-tool file loads.** Search/replace edits now reject oversized
+  source files and replacement results before loading or writing unbounded
+  content.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.
