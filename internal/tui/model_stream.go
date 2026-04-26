@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/memory"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
@@ -1302,17 +1302,17 @@ func (m *Model) installedAutoCompact() string {
 	if err != nil {
 		return ""
 	}
-	entries, err := os.ReadDir(filepath.Join(cfg.StateDir(), "plugins"))
+	entries, err := plugins.ListInstalledDirs(filepath.Join(cfg.StateDir(), "plugins"))
 	if err != nil {
 		return ""
 	}
 	latest := ""
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "auto-compact-") {
+	for _, name := range entries {
+		if !strings.HasPrefix(name, "auto-compact-") {
 			continue
 		}
-		if e.Name() > latest {
-			latest = e.Name()
+		if name > latest {
+			latest = name
 		}
 	}
 	return latest

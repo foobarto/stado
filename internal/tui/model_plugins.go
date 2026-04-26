@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -513,20 +511,10 @@ func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName
 // enumerating each installed plugin with the tools it declares. Helpful
 // discovery block for the bare `/plugin` command.
 func renderInstalledPluginList(pluginsRoot string) string {
-	entries, err := os.ReadDir(pluginsRoot)
-	if err != nil || len(entries) == 0 {
+	dirs, err := plugins.ListInstalledDirs(pluginsRoot)
+	if err != nil || len(dirs) == 0 {
 		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see plugins/examples/hello/."
 	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, e.Name())
-		}
-	}
-	if len(dirs) == 0 {
-		return "No plugins installed."
-	}
-	sort.Strings(dirs)
 
 	var sb strings.Builder
 	sb.WriteString("Installed plugins:")

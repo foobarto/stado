@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/spf13/cobra"
 
@@ -94,7 +93,7 @@ var pluginInstalledCmd = &cobra.Command{
 			return err
 		}
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		entries, err := os.ReadDir(pluginsDir)
+		ids, err := plugins.ListInstalledDirs(pluginsDir)
 		if err != nil {
 			if os.IsNotExist(err) {
 				fmt.Fprintln(os.Stderr, "(no plugins installed)")
@@ -102,17 +101,10 @@ var pluginInstalledCmd = &cobra.Command{
 			}
 			return fmt.Errorf("read plugins dir: %w", err)
 		}
-		var ids []string
-		for _, e := range entries {
-			if e.IsDir() {
-				ids = append(ids, e.Name())
-			}
-		}
 		if len(ids) == 0 {
 			fmt.Fprintln(os.Stderr, "(no plugins installed)")
 			return nil
 		}
-		sort.Strings(ids)
 		for _, id := range ids {
 			mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsDir, id))
 			if err != nil {

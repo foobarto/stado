@@ -28,6 +28,9 @@ Plugins / Infra / Fixes.
 - **Bounded plugin install package walks.** Plugin installs now stream package
   directory entries in batches and reject packages that exceed entry-count or
   nesting-depth limits.
+- **Bounded installed-plugin listing.** CLI, headless, and TUI plugin listing
+  now stream installed-plugin directory entries in batches and reject oversized
+  state directories.
 - **Capped sidecar tree blob writes.** Session tree snapshots now reject
   oversized worktree files and detect regular files that change size while
   being streamed into sidecar git objects.

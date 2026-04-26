@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -53,17 +52,10 @@ type pluginListResult struct {
 // shouldn't run it.
 func (s *Server) pluginList() pluginListResult {
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
-	entries, err := os.ReadDir(pluginsRoot)
+	dirs, err := plugins.ListInstalledDirs(pluginsRoot)
 	if err != nil {
 		return pluginListResult{Plugins: []pluginInfo{}}
 	}
-	var dirs []string
-	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, e.Name())
-		}
-	}
-	sort.Strings(dirs)
 
 	out := make([]pluginInfo, 0, len(dirs))
 	for _, name := range dirs {
