@@ -114,6 +114,51 @@ func TestMinisignSignFileRejectsSidecarSymlink(t *testing.T) {
 	}
 }
 
+func TestMinisignSignFileRejectsArtifactSymlink(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	dir := t.TempDir()
+	artifact := filepath.Join(dir, "artifact.tar.gz")
+	real := filepath.Join(dir, "real.tar.gz")
+	if err := os.WriteFile(real, []byte("artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.tar.gz", artifact); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := MinisignSignFile(priv, 0x1234, artifact, "stado release", "stado v1.0.0")
+	if err == nil {
+		t.Fatal("MinisignSignFile should reject symlinked artifact path")
+	}
+	if _, err := os.Stat(artifact + ".minisig"); !os.IsNotExist(err) {
+		t.Fatalf("minisig was written for symlinked artifact, stat err = %v", err)
+	}
+}
+
+func TestMinisignSignFileRejectsArtifactParentSymlink(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	base := t.TempDir()
+	outside := filepath.Join(base, "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "artifact.tar.gz"), []byte("artifact"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("outside", link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	err := MinisignSignFile(priv, 0x1234, filepath.Join(link, "artifact.tar.gz"), "stado release", "stado v1.0.0")
+	if err == nil {
+		t.Fatal("MinisignSignFile should reject symlinked artifact parent")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "artifact.tar.gz.minisig")); !os.IsNotExist(err) {
+		t.Fatalf("sidecar was written through symlinked parent, stat err = %v", err)
+	}
+}
+
 func TestMinisign_FormatShape(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	sig, _ := MinisignSign(priv, 0, []byte("x"), "top", "bottom")

@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened explicit output and learning roots.** CLI file-output helpers,
+  minisign artifact signing, learning document writes, and learning repo-pin
+  reads now reject symlinked parent/root directories before reading or writing.
 - **Hardened worktree metadata roots.** Session memory toggles, user-repo pins,
   descriptions, pid files, conversation logs, and traceparent files now reject
   symlinked worktree roots before reading or writing session metadata.

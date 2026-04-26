@@ -581,7 +581,7 @@ func writeLearningDocument(repoRoot, rel string, data []byte) error {
 	if rel == ".learnings" || !strings.HasPrefix(rel, ".learnings"+string(os.PathSeparator)) {
 		return errors.New("document path must stay under .learnings")
 	}
-	root, err := os.OpenRoot(repoRoot)
+	root, err := workdirpath.OpenRootNoSymlink(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -1003,7 +1003,7 @@ func readCurrentRepoPin(dir string) string {
 	if strings.TrimSpace(dir) == "" {
 		return ""
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return ""
 	}

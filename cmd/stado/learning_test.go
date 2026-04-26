@@ -209,6 +209,25 @@ func TestLearningCLI_ReadCurrentRepoPinRejectsStadoDirSymlinkEscape(t *testing.T
 	}
 }
 
+func TestLearningCLI_ReadCurrentRepoPinRejectsWorkdirSymlink(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(filepath.Join(real, ".stado"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, ".stado", "user-repo"), []byte(real+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("real", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if got := readCurrentRepoPin(link); got != "" {
+		t.Fatalf("readCurrentRepoPin followed workdir symlink: %q", got)
+	}
+}
+
 func TestLearningCLI_MemoryEditUpdatesLessonBody(t *testing.T) {
 	store := setupMemoryEnv(t)
 	ctx := context.Background()
@@ -490,6 +509,26 @@ func TestLearningCLI_DocumentRejectsLearningsDirSymlinkEscape(t *testing.T) {
 	}
 	if !ok || after.Confidence != "candidate" {
 		t.Fatalf("failed document should leave lesson candidate, got %+v", after)
+	}
+}
+
+func TestLearningCLI_DocumentRejectsRepoRootSymlink(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink("real", link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	err := writeLearningDocument(link, filepath.Join(".learnings", "review-note.md"), []byte("lesson"))
+	if err == nil {
+		t.Fatal("writeLearningDocument should reject symlinked repo root")
+	}
+	if _, err := os.Stat(filepath.Join(real, ".learnings", "review-note.md")); !os.IsNotExist(err) {
+		t.Fatalf("document write escaped through repo root symlink: %v", err)
 	}
 }
 

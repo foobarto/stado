@@ -35,7 +35,7 @@ func writeReaderToPath(dst string, mode os.FileMode, in io.Reader) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid output path %q", dst)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func writeRegularFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid output path %q", path)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}

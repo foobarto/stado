@@ -158,7 +158,27 @@ func trimPrefixI(s, prefix string) (string, bool) {
 // MinisignSignFile is the convenient path-based version of MinisignSign.
 // Reads `path`, signs the contents, and writes `path.minisig`.
 func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComment, trustedComment string) error {
-	f, err := os.Open(path) // #nosec G304 -- caller supplies the artifact path to sign.
+	dir := filepath.Dir(path)
+	name := filepath.Base(path)
+	if name == "." || name == ".." || strings.Contains(name, "\x00") {
+		return fmt.Errorf("invalid artifact path: %s", path)
+	}
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if info, err := root.Lstat(name); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("artifact path is a symlink: %s", path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("artifact path is not regular: %s", path)
+		}
+	} else {
+		return err
+	}
+	f, err := root.Open(name)
 	if err != nil {
 		return err
 	}
@@ -180,7 +200,7 @@ func writeShareableSidecar(path string, data []byte) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid sidecar path: %s", path)
 	}
-	root, err := os.OpenRoot(dir)
+	root, err := workdirpath.OpenRootNoSymlink(dir)
 	if err != nil {
 		return err
 	}
