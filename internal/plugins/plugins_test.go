@@ -125,6 +125,33 @@ func TestTrustStore_VerifyRejectsUnpinned(t *testing.T) {
 	}
 }
 
+func TestTrustStore_VerifyRejectsPubkeyFingerprintMismatch(t *testing.T) {
+	trustedPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	attackerPub, attackerPriv, _ := ed25519.GenerateKey(rand.Reader)
+	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}
+	trustedFPR := Fingerprint(trustedPub)
+	if err := ts.Save(map[string]TrustEntry{
+		trustedFPR: {
+			Fingerprint: trustedFPR,
+			Pubkey:      hex.EncodeToString(attackerPub),
+			Author:      "mallory",
+			Pinned:      time.Now().UTC(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &Manifest{Name: "p", Version: "1.0.0", AuthorPubkeyFpr: trustedFPR}
+	sig, _ := m.Sign(attackerPriv)
+	err := ts.VerifyManifest(m, sig)
+	if err == nil {
+		t.Fatal("VerifyManifest should reject a pubkey stored under the wrong fingerprint")
+	}
+	if !strings.Contains(err.Error(), "pubkey fingerprint mismatch") {
+		t.Fatalf("VerifyManifest error = %v, want fingerprint mismatch", err)
+	}
+}
+
 func TestTrustStore_RollbackProtection(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	ts := &TrustStore{Path: filepath.Join(t.TempDir(), "trust.json")}

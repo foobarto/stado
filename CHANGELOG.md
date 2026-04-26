@@ -8,6 +8,9 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Validated pinned plugin pubkeys.** Manifest verification now re-derives
+  the stored signer pubkey fingerprint before trusting a pinned entry, so
+  malformed trust-store records cannot authorize the wrong key.
 - **Hardened prompt and symbol reads.** Project instruction files, project
   skill files, and TUI symbol scans now read regular files through the
   no-symlink opener so repo-controlled symlinks cannot redirect prompt or

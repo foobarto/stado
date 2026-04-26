@@ -157,6 +157,9 @@ func (s *TrustStore) Untrust(fingerprint string) error {
 //
 // On success, advances LastVersion to the manifest's version.
 func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
+	if m == nil {
+		return fmt.Errorf("verify: nil manifest")
+	}
 	store, err := s.Load()
 	if err != nil {
 		return err
@@ -172,9 +175,17 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 		// flag on install/verify, which the user must provide themselves.
 		return fmt.Errorf("verify: author fingerprint %s not pinned — obtain the author's pubkey out-of-band and run `stado plugin trust <pubkey>`, or retry with `stado plugin verify . --signer <pubkey>` to pin on first use (TOFU)", m.AuthorPubkeyFpr)
 	}
+	if entry.Fingerprint != m.AuthorPubkeyFpr {
+		return fmt.Errorf("verify: trust-store fingerprint mismatch: entry %s for manifest %s",
+			entry.Fingerprint, m.AuthorPubkeyFpr)
+	}
 	pub, err := hex.DecodeString(entry.Pubkey)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("verify: trust-store pubkey malformed")
+	}
+	if got := Fingerprint(ed25519.PublicKey(pub)); got != entry.Fingerprint {
+		return fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
+			got, entry.Fingerprint)
 	}
 	if err := verifyManifestWithPub(m, sigB64, ed25519.PublicKey(pub), entry.LastVersion); err != nil {
 		return err
