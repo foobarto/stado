@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,13 +78,22 @@ var pluginInstallCmd = &cobra.Command{
 		}
 
 		dst := filepath.Join(cfg.StateDir(), "plugins", m.Name+"-"+m.Version)
-		if _, err := os.Stat(dst); err == nil {
+		if info, err := os.Lstat(dst); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("install: destination is a symlink: %s", dst)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "skipped: %s v%s already installed at %s\n",
 				m.Name, m.Version, dst)
 			return nil
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("install: stat destination %s: %w", dst, err)
 		}
 		if err := copyDir(src, dst); err != nil {
 			return fmt.Errorf("install: copy: %w", err)
+		}
+		if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
+			_ = os.RemoveAll(dst)
+			return fmt.Errorf("install: verify installed copy: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
 		return nil
@@ -92,45 +103,143 @@ var pluginInstallCmd = &cobra.Command{
 // copyDir copies files + regular dirs from src to dst. Symlinks and
 // specials are rejected — plugin packages should be plain files.
 func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0o700); err != nil {
+	info, err := os.Lstat(src)
+	if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(src)
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source root symlink not allowed: %s", src)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("source is not a directory: %s", src)
+	}
+	srcRoot, err := os.OpenRoot(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = srcRoot.Close() }()
+
+	dstParent := filepath.Dir(dst)
+	dstName := filepath.Base(dst)
+	if !filepath.IsLocal(dstName) || strings.ContainsAny(dstName, `/\`) || dstName == "." || dstName == ".." {
+		return fmt.Errorf("invalid destination directory name: %q", dstName)
+	}
+	if err := os.MkdirAll(dstParent, 0o700); err != nil {
+		return err
+	}
+	dstParentRoot, err := os.OpenRoot(dstParent)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dstParentRoot.Close() }()
+	if info, err := dstParentRoot.Lstat(dstName); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("destination symlink not allowed: %s", dst)
+		}
+		return fmt.Errorf("destination already exists: %s", dst)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := dstParentRoot.Mkdir(dstName, 0o700); err != nil {
+		return err
+	}
+	dstRoot, err := dstParentRoot.OpenRoot(dstName)
+	if err != nil {
+		_ = dstParentRoot.RemoveAll(dstName)
+		return err
+	}
+	err = copyRootDir(srcRoot, dstRoot, ".")
+	closeErr := dstRoot.Close()
+	if err != nil {
+		_ = dstParentRoot.RemoveAll(dstName)
+		return err
+	}
+	if closeErr != nil {
+		_ = dstParentRoot.RemoveAll(dstName)
+		return closeErr
+	}
+	return nil
+}
+
+func copyRootDir(srcRoot, dstRoot *os.Root, rel string) error {
+	entries, err := fs.ReadDir(srcRoot.FS(), filepath.ToSlash(rel))
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		from := filepath.Join(src, e.Name())
-		to := filepath.Join(dst, e.Name())
-		info, err := e.Info()
+		name := e.Name()
+		if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+			return fmt.Errorf("invalid plugin package entry name: %q", name)
+		}
+		childRel := name
+		if rel != "." {
+			childRel = filepath.Join(rel, name)
+		}
+		info, err := srcRoot.Lstat(childRel)
 		if err != nil {
 			return err
 		}
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
-			return fmt.Errorf("symlink not allowed: %s", from)
+			return fmt.Errorf("symlink not allowed: %s", childRel)
 		case info.IsDir():
-			if err := copyDir(from, to); err != nil {
+			if err := dstRoot.Mkdir(childRel, 0o700); err != nil {
+				return err
+			}
+			if err := copyRootDir(srcRoot, dstRoot, childRel); err != nil {
 				return err
 			}
 		case info.Mode().IsRegular():
-			if err := copyPluginFile(from, to, installedPluginFileMode(info.Mode())); err != nil {
+			if err := copyPluginFile(srcRoot, dstRoot, childRel, installedPluginFileMode(info.Mode())); err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("unsupported file mode for %s: %v", from, info.Mode())
+			return fmt.Errorf("unsupported file mode for %s: %v", childRel, info.Mode())
 		}
 	}
 	return nil
 }
 
-func copyPluginFile(src, dst string, mode os.FileMode) error {
-	in, err := os.Open(src) // #nosec G304 -- source is an already-validated plugin package file.
+func copyPluginFile(srcRoot, dstRoot *os.Root, rel string, mode os.FileMode) error {
+	in, err := srcRoot.Open(rel)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	return writeReaderToPath(dst, mode, in)
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %s", rel)
+	}
+	out, err := dstRoot.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	return copyAndCloseFile(out, in)
+}
+
+func verifyInstalledPluginCopy(dst string, want *plugins.Manifest, sig string) error {
+	got, gotSig, err := plugins.LoadFromDir(dst)
+	if err != nil {
+		return err
+	}
+	wantCanonical, err := want.Canonical()
+	if err != nil {
+		return err
+	}
+	gotCanonical, err := got.Canonical()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(gotCanonical, wantCanonical) || gotSig != sig {
+		return fmt.Errorf("copied manifest/signature changed during install")
+	}
+	if err := plugins.VerifyWASMDigest(want.WASMSHA256, filepath.Join(dst, "plugin.wasm")); err != nil {
+		return err
+	}
+	return nil
 }
 
 func installedPluginFileMode(mode os.FileMode) os.FileMode {

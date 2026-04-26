@@ -147,6 +147,72 @@ func TestPluginInstall_NormalizesInstalledPermissions(t *testing.T) {
 	assertPerm(filepath.Join(dst, "bin", "helper.sh"), 0o700)
 }
 
+func TestCopyDirRejectsSourceSymlinkEscape(t *testing.T) {
+	src := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(src, "escape.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	err := copyDir(src, filepath.Join(t.TempDir(), "installed"))
+	if err == nil {
+		t.Fatal("expected symlink source entry to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestCopyDirRejectsDestinationSymlink(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "plugin.wasm"), []byte("wasm"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	dst := filepath.Join(t.TempDir(), "installed")
+	if err := os.Symlink(outside, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	err := copyDir(src, dst)
+	if err == nil {
+		t.Fatal("expected destination symlink to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestVerifyInstalledPluginCopyRejectsWASMSwap(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPlugin(t, priv, pub, "demo", "1.0.0")
+	m, sig, err := plugins.LoadFromDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "installed")
+	if err := copyDir(src, dst); err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
+		t.Fatalf("initial verify: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "plugin.wasm"), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err = verifyInstalledPluginCopy(dst, m, sig)
+	if err == nil {
+		t.Fatal("expected tampered installed wasm to be rejected")
+	}
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("expected digest mismatch, got %v", err)
+	}
+}
+
 // TestPluginInstall_SignerMismatchRejected: provide a --signer whose
 // fingerprint doesn't match the manifest's author_pubkey_fpr.
 func TestPluginInstall_SignerMismatchRejected(t *testing.T) {

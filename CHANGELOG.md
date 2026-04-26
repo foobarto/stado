@@ -36,6 +36,10 @@ Plugins / Infra / Fixes.
 - **Rooted session tree materialization.** Fork/revert materialization now
   writes files and directories through a destination root and replaces stale
   destination symlinks instead of following them.
+- **Hardened plugin install copies.** Plugin installs now copy package
+  contents through rooted source/destination handles, reject destination
+  symlinks, and re-check the installed manifest/signature/WASM digest after
+  copy so package swaps cannot land unverified bytes.
 
 ## v0.25.7 — 2026-04-26
 
