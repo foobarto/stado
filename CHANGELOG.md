@@ -30,6 +30,9 @@ Plugins / Infra / Fixes.
 - **Hardened plugin signing inputs.** Plugin digest and signing commands now
   reject symlinked key, manifest, and WASM source paths before hashing or
   signing plugin artifacts.
+- **Hardened regular-file open races.** Shared no-symlink regular-file opens
+  and plugin package copy reads now verify the opened file still matches the
+  pre-open `Lstat` result.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the

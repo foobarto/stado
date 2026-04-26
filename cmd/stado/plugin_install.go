@@ -202,17 +202,30 @@ func copyRootDir(srcRoot, dstRoot *os.Root, rel string) error {
 }
 
 func copyPluginFile(srcRoot, dstRoot *os.Root, rel string, mode os.FileMode) error {
+	sourceInfo, err := srcRoot.Lstat(rel)
+	if err != nil {
+		return err
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symlink not allowed: %s", rel)
+	}
+	if !sourceInfo.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %s", rel)
+	}
 	in, err := srcRoot.Open(rel)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	info, err := in.Stat()
+	openedInfo, err := in.Stat()
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() {
+	if !openedInfo.Mode().IsRegular() {
 		return fmt.Errorf("not a regular file: %s", rel)
+	}
+	if !os.SameFile(sourceInfo, openedInfo) {
+		return fmt.Errorf("source file changed while opening: %s", rel)
 	}
 	out, err := dstRoot.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {

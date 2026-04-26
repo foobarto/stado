@@ -145,14 +145,18 @@ func OpenRegularFileNoSymlink(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err = f.Stat()
+	openedInfo, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
+	if !openedInfo.Mode().IsRegular() {
 		_ = f.Close()
 		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	if !os.SameFile(info, openedInfo) {
+		_ = f.Close()
+		return nil, fmt.Errorf("file changed while opening: %s", path)
 	}
 	return f, nil
 }
