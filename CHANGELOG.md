@@ -39,6 +39,9 @@ Plugins / Infra / Fixes.
 - **Capped plugin signing inputs.** Plugin signing now rejects oversized
   manifests and WASM files before hashing or rewriting signed metadata, and
   `plugin digest` applies the same WASM size limit as package verification.
+- **Streamed minisign artifact signing.** Release artifact signing now hashes
+  files incrementally before writing `.minisig` sidecars instead of reading
+  whole artifacts into memory.
 - **Hardened regular-file open races.** Shared no-symlink regular-file opens
   and plugin package copy reads now verify the opened file still matches the
   pre-open `Lstat` result.

@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,6 +43,11 @@ const (
 // priv, tagged with key_id. trustedComment is the line that appears to the
 // user when `minisign -V` reports success.
 func MinisignSign(priv ed25519.PrivateKey, keyID uint64, message []byte, untrustedComment, trustedComment string) ([]byte, error) {
+	hash := blake2b.Sum512(message)
+	return minisignSignPrehashed(priv, keyID, hash, untrustedComment, trustedComment)
+}
+
+func minisignSignPrehashed(priv ed25519.PrivateKey, keyID uint64, hash [64]byte, untrustedComment, trustedComment string) ([]byte, error) {
 	if len(priv) != ed25519.PrivateKeySize {
 		return nil, errors.New("minisign: wrong key size")
 	}
@@ -55,7 +59,6 @@ func MinisignSign(priv ed25519.PrivateKey, keyID uint64, message []byte, untrust
 	}
 
 	// Prehashed signature body: alg("ED") + key_id + Ed25519(BLAKE2b(msg)).
-	hash := blake2b.Sum512(message)
 	sig := ed25519.Sign(priv, hash[:])
 
 	body := make([]byte, 0, minisignSigSize)
@@ -156,42 +159,35 @@ func trimPrefixI(s, prefix string) (string, bool) {
 }
 
 // MinisignSignFile is the convenient path-based version of MinisignSign.
-// Reads `path`, signs the contents, and writes `path.minisig`.
+// Streams `path`, signs the contents, and writes `path.minisig`.
 func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComment, trustedComment string) error {
-	dir := filepath.Dir(path)
-	name := filepath.Base(path)
-	if name == "." || name == ".." || strings.Contains(name, "\x00") {
-		return fmt.Errorf("invalid artifact path: %s", path)
-	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = root.Close() }()
-	if info, err := root.Lstat(name); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("artifact path is a symlink: %s", path)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("artifact path is not regular: %s", path)
-		}
-	} else {
-		return err
-	}
-	f, err := root.Open(name)
+	f, err := workdirpath.OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	body, err := io.ReadAll(f)
+	hash, err := blake2bSum512Reader(f)
 	if err != nil {
 		return err
 	}
-	sig, err := MinisignSign(priv, keyID, body, untrustedComment, trustedComment)
+	sig, err := minisignSignPrehashed(priv, keyID, hash, untrustedComment, trustedComment)
 	if err != nil {
 		return err
 	}
 	return writeShareableSidecar(path+".minisig", sig)
+}
+
+func blake2bSum512Reader(r io.Reader) ([64]byte, error) {
+	var out [64]byte
+	h, err := blake2b.New512(nil)
+	if err != nil {
+		return out, err
+	}
+	if _, err := io.Copy(h, r); err != nil {
+		return out, err
+	}
+	copy(out[:], h.Sum(nil))
+	return out, nil
 }
 
 func writeShareableSidecar(path string, data []byte) error {
