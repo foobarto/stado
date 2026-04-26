@@ -285,6 +285,22 @@ func TestVerifyWASMDigestRejectsParentSymlink(t *testing.T) {
 	}
 }
 
+func TestReadVerifiedWASMRejectsOversizedWASM(t *testing.T) {
+	dir := t.TempDir()
+	wasmPath := filepath.Join(dir, "plugin.wasm")
+	if err := os.WriteFile(wasmPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(wasmPath, maxPluginWASMBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadVerifiedWASM(strings.Repeat("0", 64), wasmPath)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("ReadVerifiedWASM error = %v, want size rejection", err)
+	}
+}
+
 func TestLoadFromDir(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	m := &Manifest{
@@ -313,6 +329,25 @@ func TestLoadFromDir(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirRejectsOversizedManifest(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "plugin.manifest.json")
+	if err := os.WriteFile(manifestPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(manifestPath, maxPluginManifestBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("sig"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadFromDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("LoadFromDir error = %v, want size rejection", err)
+	}
+}
+
 func TestLoadFromDirRejectsManifestSymlink(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.json")
@@ -329,6 +364,39 @@ func TestLoadFromDirRejectsManifestSymlink(t *testing.T) {
 	_, _, err := LoadFromDir(dir)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("LoadFromDir error = %v, want symlink rejection", err)
+	}
+}
+
+func TestLoadFromDirRejectsOversizedAuthorPubkey(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	m := &Manifest{
+		Name:            "demo",
+		Version:         "1.0.0",
+		Author:          "alice",
+		AuthorPubkeyFpr: Fingerprint(pub),
+		WASMSHA256:      "00",
+		TimestampUTC:    time.Now().UTC().Format(time.RFC3339),
+	}
+	canonical, _ := m.Canonical()
+	sig, _ := m.Sign(priv)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pubkeyPath := filepath.Join(dir, "author.pubkey")
+	if err := os.WriteFile(pubkeyPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(pubkeyPath, maxPluginAuthorPubkeyBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadFromDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("LoadFromDir error = %v, want size rejection", err)
 	}
 }
 

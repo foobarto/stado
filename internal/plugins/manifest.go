@@ -30,6 +30,13 @@ import (
 	"github.com/foobarto/stado/pkg/tool"
 )
 
+const (
+	maxPluginManifestBytes     int64 = 1 << 20
+	maxPluginSignatureBytes    int64 = 16 << 10
+	maxPluginAuthorPubkeyBytes int64 = 4 << 10
+	maxPluginWASMBytes         int64 = 64 << 20
+)
+
 // Manifest describes one plugin. The bytes that are signed are the
 // canonicalised JSON (object keys sorted, compact encoding, UTF-8).
 type Manifest struct {
@@ -199,7 +206,7 @@ func ReadVerifiedWASM(manifestSHA256Hex string, wasmPath string) ([]byte, error)
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(f)
+	data, err := readLimitedPackageFile(f, filepath.Base(wasmPath), maxPluginWASMBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +229,7 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	}
 	defer func() { _ = root.Close() }()
 
-	data, err := readRootPackageFile(root, "plugin.manifest.json")
+	data, err := readRootPackageFile(root, "plugin.manifest.json", maxPluginManifestBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read manifest: %w", err)
 	}
@@ -230,11 +237,11 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, "", fmt.Errorf("plugin: parse manifest: %w", err)
 	}
-	sigBytes, err := readRootPackageFile(root, "plugin.manifest.sig")
+	sigBytes, err := readRootPackageFile(root, "plugin.manifest.sig", maxPluginSignatureBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read sig: %w", err)
 	}
-	pubBytes, _, err := readOptionalRootPackageFile(root, "author.pubkey")
+	pubBytes, _, err := readOptionalRootPackageFile(root, "author.pubkey", maxPluginAuthorPubkeyBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read author pubkey: %w", err)
 	}
@@ -244,16 +251,16 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	return &m, string(sigBytes), nil
 }
 
-func readRootPackageFile(root *os.Root, name string) ([]byte, error) {
+func readRootPackageFile(root *os.Root, name string, maxBytes int64) ([]byte, error) {
 	f, err := openRootRegularPackageFile(root, name)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
+	return readLimitedPackageFile(f, name, maxBytes)
 }
 
-func readOptionalRootPackageFile(root *os.Root, name string) ([]byte, bool, error) {
+func readOptionalRootPackageFile(root *os.Root, name string, maxBytes int64) ([]byte, bool, error) {
 	f, err := openRootRegularPackageFile(root, name)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -262,8 +269,26 @@ func readOptionalRootPackageFile(root *os.Root, name string) ([]byte, bool, erro
 		return nil, false, err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(f)
+	data, err := readLimitedPackageFile(f, name, maxBytes)
 	return data, true, err
+}
+
+func readLimitedPackageFile(f *os.File, name string, maxBytes int64) ([]byte, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("plugin package file exceeds %d bytes: %s", maxBytes, name)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("plugin package file exceeds %d bytes: %s", maxBytes, name)
+	}
+	return data, nil
 }
 
 func openRootRegularPackageFile(root *os.Root, name string) (*os.File, error) {
@@ -280,7 +305,24 @@ func openRootRegularPackageFile(root *os.Root, name string) (*os.File, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("plugin package file is not regular: %s", name)
 	}
-	return root.Open(name)
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	openedInfo, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("plugin package file is not regular: %s", name)
+	}
+	if !os.SameFile(info, openedInfo) {
+		_ = f.Close()
+		return nil, fmt.Errorf("plugin package file changed while opening: %s", name)
+	}
+	return f, nil
 }
 
 // Fingerprint returns a short hex fingerprint of an Ed25519 public key —

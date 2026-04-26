@@ -38,6 +38,9 @@ Plugins / Infra / Fixes.
   conversion so plugin host grants cannot be bypassed via cross-host redirects.
 - **Capped online plugin metadata responses.** CRL fetches and Rekor online
   checks now reject oversized success bodies before parsing them.
+- **Capped plugin package reads.** Plugin manifest, signature, author pubkey,
+  and WASM package reads now enforce size limits and verify the opened file
+  still matches the pre-open `Lstat` result.
 - **Centralized rooted directory reopening.** Plugin capability file access,
   builtin grep traversal, subagent adoption, plugin scaffolding, branch-status
   rendering, release helper writes, and shared workdir file helpers now use the
