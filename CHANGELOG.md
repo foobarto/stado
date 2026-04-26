@@ -114,6 +114,8 @@ Plugins / Infra / Fixes.
   pickers now bound pasted query and rename input before fuzzy matching.
 - **Capped conversation append logs.** Conversation JSONL records and total log
   size are checked before append, with final symlink/non-regular files rejected.
+- **Hardened plugin state reads.** Plugin trust and revocation state files now
+  reject final symlinks before opening cached JSON.
 - **Streamed task store JSON I/O.** Task store loading and saving now decode
   and encode through the store byte ceiling instead of staging the whole JSON
   document in memory.

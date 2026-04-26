@@ -20,20 +20,36 @@ func readPluginStateFile(path string) ([]byte, error) {
 	}
 	defer func() { _ = root.Close() }()
 
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("plugin state file is a symlink: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("plugin state file is not a regular file: %s", path)
+	}
+	if info.Size() > maxPluginStateFileBytes {
+		return nil, fmt.Errorf("plugin state file exceeds %d bytes: %s", maxPluginStateFileBytes, path)
+	}
 	f, err := root.Open(name)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
-	info, err := f.Stat()
+	openedInfo, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
+	if !openedInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("plugin state file is not a regular file: %s", path)
 	}
-	if info.Size() > maxPluginStateFileBytes {
+	if !os.SameFile(info, openedInfo) {
+		return nil, fmt.Errorf("plugin state file changed while opening: %s", path)
+	}
+	if openedInfo.Size() > maxPluginStateFileBytes {
 		return nil, fmt.Errorf("plugin state file exceeds %d bytes: %s", maxPluginStateFileBytes, path)
 	}
 	data, err := io.ReadAll(io.LimitReader(f, maxPluginStateFileBytes+1))

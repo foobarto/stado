@@ -44,3 +44,19 @@ func TestReadPluginStateFileRejectsParentSymlink(t *testing.T) {
 		t.Fatal("readPluginStateFile should reject symlinked parent dirs")
 	}
 }
+
+func TestReadPluginStateFileRejectsFinalSymlink(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte("[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "trusted_keys.json")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	if _, err := readPluginStateFile(path); err == nil {
+		t.Fatal("readPluginStateFile should reject final symlinks")
+	}
+}
