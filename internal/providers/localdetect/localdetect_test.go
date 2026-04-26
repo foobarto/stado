@@ -132,6 +132,49 @@ func TestDetect_Non200Response(t *testing.T) {
 	}
 }
 
+func TestDetect_RejectsOversizedModelList(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxModelListResponseBytes)+1)))
+	}))
+	defer srv.Close()
+
+	results := Detect(context.Background(), []Target{
+		{Name: "oversized", Endpoint: srv.URL},
+	})
+	if results[0].Reachable {
+		t.Fatal("oversized model list should not count as reachable")
+	}
+	if results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want response size rejection", results[0].Err)
+	}
+}
+
+func TestDetect_LMStudioRejectsOversizedLoadedState(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v1/models"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{{"id": "installed"}},
+			})
+		case strings.HasSuffix(r.URL.Path, "/api/v0/models"):
+			_, _ = w.Write([]byte(strings.Repeat("x", int(maxModelListResponseBytes)+1)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	results := Detect(context.Background(), []Target{
+		{Name: "lmstudio", Endpoint: srv.URL + "/v1"},
+	})
+	if !results[0].Reachable {
+		t.Fatalf("installed model list should remain reachable: %v", results[0].Err)
+	}
+	if results[0].LoadStateKnown {
+		t.Fatal("oversized LM Studio loaded-state response should not be trusted")
+	}
+}
+
 // TestDetect_TimeoutIsBounded ensures a slow server doesn't hang the
 // probe. We serve after 2× DefaultTimeout to force the ctx cancel path.
 func TestDetect_TimeoutIsBounded(t *testing.T) {

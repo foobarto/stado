@@ -39,6 +39,8 @@ type Provider struct {
 	caps       agent.Capabilities
 }
 
+const maxModelListResponseBytes int64 = 1 << 20
+
 type Option func(*Provider)
 
 func WithAPIKey(k string) Option                   { return func(p *Provider) { p.apiKey = k } }
@@ -97,7 +99,7 @@ func (p *Provider) Probe(ctx context.Context) error {
 		return fmt.Errorf("oaicompat: probe HTTP %d: %s", resp.StatusCode, string(b))
 	}
 	var list modelsList
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+	if err := decodeModelListJSON(resp.Body, &list); err != nil {
 		return fmt.Errorf("oaicompat: decode models list: %w", err)
 	}
 	for _, m := range list.Data {
@@ -169,6 +171,17 @@ func (p *Provider) setAuth(req *http.Request) {
 	if p.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
+}
+
+func decodeModelListJSON(r io.Reader, v any) error {
+	data, err := io.ReadAll(io.LimitReader(r, maxModelListResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxModelListResponseBytes {
+		return fmt.Errorf("model list response exceeds %d bytes", maxModelListResponseBytes)
+	}
+	return json.Unmarshal(data, v)
 }
 
 // buildRequest translates an agent.TurnRequest to the OAI chat-completions JSON.

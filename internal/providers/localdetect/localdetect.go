@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -56,6 +57,8 @@ type Result struct {
 // should fail within ~100ms; a real running server responds in ~10ms.
 // 1s gives slack for slow loopback + cold caches.
 const DefaultTimeout = 1 * time.Second
+
+const maxModelListResponseBytes int64 = 1 << 20
 
 // Detect runs every Target concurrently and returns their Results in
 // the same order as the input. Unreachable targets are included so
@@ -166,7 +169,7 @@ func probeOne(ctx context.Context, t Target) Result {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := decodeModelListJSON(resp.Body, &body); err != nil {
 		out.Err = fmt.Errorf("decode: %w", err)
 		return out
 	}
@@ -218,7 +221,7 @@ func probeLMStudioLoadedModels(ctx context.Context, endpoint string) ([]string, 
 			State string `json:"state"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := decodeModelListJSON(resp.Body, &body); err != nil {
 		return nil, false
 	}
 	var loaded []string
@@ -229,6 +232,17 @@ func probeLMStudioLoadedModels(ctx context.Context, endpoint string) ([]string, 
 	}
 	sort.Strings(loaded)
 	return loaded, true
+}
+
+func decodeModelListJSON(r io.Reader, v any) error {
+	data, err := io.ReadAll(io.LimitReader(r, maxModelListResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxModelListResponseBytes {
+		return fmt.Errorf("model list response exceeds %d bytes", maxModelListResponseBytes)
+	}
+	return json.Unmarshal(data, v)
 }
 
 func lmStudioAPIBase(endpoint string) string {

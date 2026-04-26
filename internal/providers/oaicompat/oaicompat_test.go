@@ -303,3 +303,22 @@ func TestProbe_ModelList(t *testing.T) {
 		t.Errorf("MaxContextTokens = %d, want 32768", p.Capabilities().MaxContextTokens)
 	}
 }
+
+func TestProbe_RejectsOversizedModelList(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxModelListResponseBytes)+1)))
+	}))
+	defer srv.Close()
+
+	p, _ := New(srv.URL + "/v1")
+	err := p.Probe(context.Background())
+	if err == nil {
+		t.Fatal("expected oversized response error")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("error = %v, want response size rejection", err)
+	}
+}

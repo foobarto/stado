@@ -68,6 +68,9 @@ Plugins / Infra / Fixes.
 - **Bounded TUI template discovery.** Bundled and overlay template discovery
   now reads template directories in batches and rejects oversized template
   entry sets before parsing.
+- **Capped model-list decoding.** Local provider detection and
+  OpenAI-compatible capability probes now reject oversized model-list
+  responses before decoding JSON.
 - **Streamed git tree materialization.** Session tree materialization now
   streams regular blob contents to destination files, caps symlink blob reads,
   and bounds encoded commit bytes used for SSH signing.
