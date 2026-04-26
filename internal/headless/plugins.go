@@ -133,7 +133,8 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin load: " + err.Error()}
 	}
 	wasmPath := filepath.Join(dir, "plugin.wasm")
-	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
+	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "plugin digest: " + err.Error()}
 	}
 	ts := plugins.NewTrustStore(s.Cfg.StateDir())
@@ -161,10 +162,6 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
-	if err != nil {
-		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "read wasm: " + err.Error()}
-	}
 	rt, err := pluginRuntime.New(runCtx)
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "runtime: " + err.Error()}
@@ -394,15 +391,12 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 		return nil
 	}
 	wasmPath := filepath.Join(dir, "plugin.wasm")
-	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
+	if err != nil {
 		return nil
 	}
 	ts := plugins.NewTrustStore(s.Cfg.StateDir())
 	if err := ts.VerifyManifest(mf, sig); err != nil {
-		return nil
-	}
-	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
-	if err != nil {
 		return nil
 	}
 	host := pluginRuntime.NewHost(*mf, dir, nil)

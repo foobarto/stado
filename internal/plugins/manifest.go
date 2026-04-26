@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -181,20 +182,33 @@ func (m *Manifest) Verify(pub ed25519.PublicKey, sigB64 string) error {
 // actual bytes at wasmPath. Fails loudly — callers should never execute a
 // plugin whose binary doesn't match the manifest.
 func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
-	f, err := os.Open(wasmPath) // #nosec G304 -- wasm path is fixed inside a plugin directory chosen by the caller.
+	_, err := ReadVerifiedWASM(manifestSHA256Hex, wasmPath)
+	return err
+}
+
+// ReadVerifiedWASM reads a plugin WASM file through the same handle used to
+// verify its manifest-declared SHA256 digest.
+func ReadVerifiedWASM(manifestSHA256Hex string, wasmPath string) ([]byte, error) {
+	root, err := workdirpath.OpenRootNoSymlink(filepath.Dir(wasmPath))
 	if err != nil {
-		return err
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := openRootRegularPackageFile(root, filepath.Base(wasmPath))
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, err
 	}
-	got := hex.EncodeToString(h.Sum(nil))
+	sum := sha256.Sum256(data)
+	got := hex.EncodeToString(sum[:])
 	if got != manifestSHA256Hex {
-		return fmt.Errorf("plugin: wasm digest mismatch: %s vs %s", got, manifestSHA256Hex)
+		return nil, fmt.Errorf("plugin: wasm digest mismatch: %s vs %s", got, manifestSHA256Hex)
 	}
-	return nil
+	return data, nil
 }
 
 // LoadFromDir reads dir/plugin.manifest.json + dir/plugin.manifest.sig.
@@ -202,7 +216,13 @@ func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
 // Manifest.AuthorPubkeyHex so trust errors can echo the full pubkey.
 // Returns (manifest, signature-base64) ready for Verify.
 func LoadFromDir(dir string) (*Manifest, string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.json")) // #nosec G304 -- manifest path is fixed inside the plugin directory.
+	root, err := workdirpath.OpenRootNoSymlink(dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("plugin: open dir: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+
+	data, err := readRootPackageFile(root, "plugin.manifest.json")
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read manifest: %w", err)
 	}
@@ -210,15 +230,57 @@ func LoadFromDir(dir string) (*Manifest, string, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, "", fmt.Errorf("plugin: parse manifest: %w", err)
 	}
-	sigBytes, err := os.ReadFile(filepath.Join(dir, "plugin.manifest.sig")) // #nosec G304 -- signature path is fixed inside the plugin directory.
+	sigBytes, err := readRootPackageFile(root, "plugin.manifest.sig")
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: read sig: %w", err)
 	}
-	pubBytes, _ := os.ReadFile(filepath.Join(dir, "author.pubkey")) // #nosec G304 -- public key path is fixed inside the plugin directory.
+	pubBytes, _, err := readOptionalRootPackageFile(root, "author.pubkey")
+	if err != nil {
+		return nil, "", fmt.Errorf("plugin: read author pubkey: %w", err)
+	}
 	if len(bytes.TrimSpace(pubBytes)) == ed25519.PublicKeySize*2 {
 		m.AuthorPubkeyHex = string(bytes.TrimSpace(pubBytes))
 	}
 	return &m, string(sigBytes), nil
+}
+
+func readRootPackageFile(root *os.Root, name string) ([]byte, error) {
+	f, err := openRootRegularPackageFile(root, name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
+func readOptionalRootPackageFile(root *os.Root, name string) ([]byte, bool, error) {
+	f, err := openRootRegularPackageFile(root, name)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(f)
+	return data, true, err
+}
+
+func openRootRegularPackageFile(root *os.Root, name string) (*os.File, error) {
+	if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return nil, fmt.Errorf("invalid plugin package file name: %q", name)
+	}
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("plugin package file is a symlink: %s", name)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("plugin package file is not regular: %s", name)
+	}
+	return root.Open(name)
 }
 
 // Fingerprint returns a short hex fingerprint of an Ed25519 public key —

@@ -8,6 +8,10 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Hardened plugin package verification reads.** Plugin manifest,
+  signature, author-pubkey sidecar, and WASM digest reads now reject
+  symlinked plugin directory components and package files before
+  verification.
 - **Hardened destructive directory cleanup.** Session and agent worktree
   deletion, TUI session deletion, failed plugin-install cleanup, and
   zero-tree materialization wipes now reject symlinked directory components

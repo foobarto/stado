@@ -113,7 +113,8 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		return nil, fmt.Sprintf("background plugin %s: manifest load failed: %v", id, err)
 	}
 	wasmPath := filepath.Join(dir, "plugin.wasm")
-	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
+	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: digest mismatch: %v", id, err)
 	}
 	if cfg != nil {
@@ -121,10 +122,6 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		if err := ts.VerifyManifest(mf, sig); err != nil {
 			return nil, fmt.Sprintf("background plugin %s: signature: %v", id, err)
 		}
-	}
-	wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
-	if err != nil {
-		return nil, fmt.Sprintf("background plugin %s: read wasm: %v", id, err)
 	}
 	host := pluginRuntime.NewHost(*mf, dir, nil)
 	host.ApprovalBridge = tuiApprovalBridge{model: m}
@@ -456,15 +453,11 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 // module under its capability-bound Host, invokes the tool, and posts
 // the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
 // runaway plugin can't wedge the TUI.
-func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
+func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, wasmBytes []byte, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		wasmBytes, err := os.ReadFile(filepath.Join(dir, "plugin.wasm")) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
-		if err != nil {
-			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: err.Error()}
-		}
 		rt, err := pluginRuntime.New(ctx)
 		if err != nil {
 			return pluginRunResultMsg{plugin: pluginID, tool: tdef.Name, errMsg: "runtime: " + err.Error()}

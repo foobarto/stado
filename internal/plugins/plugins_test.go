@@ -248,6 +248,43 @@ func TestVerifyWASMDigest(t *testing.T) {
 	}
 }
 
+func TestVerifyWASMDigestRejectsFinalSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.wasm")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wasmPath := filepath.Join(dir, "plugin.wasm")
+	if err := os.Symlink(outside, wasmPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	err := VerifyWASMDigest(strings.Repeat("0", 64), wasmPath)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("VerifyWASMDigest error = %v, want symlink rejection", err)
+	}
+}
+
+func TestVerifyWASMDigestRejectsParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "plugin.wasm"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "plugin-link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	err := VerifyWASMDigest(strings.Repeat("0", 64), filepath.Join(link, "plugin.wasm"))
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("VerifyWASMDigest error = %v, want symlink rejection", err)
+	}
+}
+
 func TestLoadFromDir(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	m := &Manifest{
@@ -273,6 +310,58 @@ func TestLoadFromDir(t *testing.T) {
 	}
 	if gotSig != sig {
 		t.Errorf("sig mismatch")
+	}
+}
+
+func TestLoadFromDirRejectsManifestSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte(`{"name":"outside"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "plugin.manifest.json")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte("sig"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := LoadFromDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("LoadFromDir error = %v, want symlink rejection", err)
+	}
+}
+
+func TestLoadFromDirRejectsAuthorPubkeySymlink(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	m := &Manifest{
+		Name:            "demo",
+		Version:         "1.0.0",
+		Author:          "alice",
+		AuthorPubkeyFpr: Fingerprint(pub),
+		WASMSHA256:      "00",
+		TimestampUTC:    time.Now().UTC().Format(time.RFC3339),
+	}
+	canonical, _ := m.Canonical()
+	sig, _ := m.Sign(priv)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "author.pubkey")
+	if err := os.WriteFile(outside, []byte(hex.EncodeToString(pub)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "author.pubkey")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, _, err := LoadFromDir(dir)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("LoadFromDir error = %v, want symlink rejection", err)
 	}
 }
 

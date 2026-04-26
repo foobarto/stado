@@ -58,7 +58,8 @@ var pluginRunCmd = &cobra.Command{
 			return err
 		}
 		wasmPath := filepath.Join(dir, "plugin.wasm")
-		if err := plugins.VerifyWASMDigest(m.WASMSHA256, wasmPath); err != nil {
+		wasmBytes, err := plugins.ReadVerifiedWASM(m.WASMSHA256, wasmPath)
+		if err != nil {
 			return fmt.Errorf("verify: %w", err)
 		}
 		ts := plugins.NewTrustStore(cfg.StateDir())
@@ -69,11 +70,6 @@ var pluginRunCmd = &cobra.Command{
 			if err := consultCRL(cfg, m); err != nil {
 				return fmt.Errorf("run: %w", err)
 			}
-		}
-
-		wasmBytes, err := os.ReadFile(wasmPath) // #nosec G304 -- wasm path is fixed inside the verified plugin directory.
-		if err != nil {
-			return err
 		}
 
 		ctx := cmd.Context()

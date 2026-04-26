@@ -484,7 +484,8 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		return nil
 	}
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
-	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+	wasmBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
+	if err != nil {
 		m.appendBlock(block{kind: "system", body: "plugin digest: " + err.Error()})
 		return nil
 	}
@@ -527,7 +528,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
+	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
 }
 
 // openModelPicker builds the item list for the current provider +
