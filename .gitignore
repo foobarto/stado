@@ -2,6 +2,11 @@
 *.db
 *.log
 .stado/
+
+# Agent assistant config — local development tooling for AI coding
+# assistants (Codex, Claude Code, etc). Not stado source.
+/AGENTS.md
+/CLAUDE.md
 .claude/
 
 # Binary blobs fetched by `go run hack/fetch-binaries.go` + the per-
