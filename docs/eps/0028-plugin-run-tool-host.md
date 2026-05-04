@@ -331,6 +331,57 @@ green because their fixture paths fall outside any trust anchor.
   on the same systems. Sweeping is the same code change repeated;
   the per-site review confirmed each is HOME-rooted (no surprises).
 
+### D5. Multi-probe regression test, not single `--version` smoke
+
+- **Decided:** `hack/test-on-fedora-atomic.sh` fans out across
+  multiple boot-touching commands inside a `bwrap` namespace that
+  simulates `/home → /var/home`. Adding a probe is one line in a
+  `PROBES=()` array.
+- **Alternatives:** smoke-test only `stado --version` (what
+  v0.26.0 release verified manually, prior to the test existing);
+  defer the test until a CI matrix can run it on a real Atomic VM.
+- **Why:** D4's "swept 13 sites" claim was true for *the patch
+  series*, not for the codebase as a whole. The first regression
+  test only ran `--version`, which prints from a Cobra hook before
+  any FS work — so it passed even with the bug present, and the
+  v0.26.0 release shipped with most boot paths still broken. v0.26.1
+  switched the probe to `config-path` (config.Load triggers
+  MkdirAll), which uncovered the system-prompt-template tree
+  (4 missed call sites). v0.26.2 fanned out to `doctor / session
+  list / audit verify` which uncovered the audit-key + sidecar
+  tree (2 more files). v0.26.3 then statically audited every
+  remaining strict-from-/ caller, classified each by path source,
+  and migrated the 11 boot-time HOME-rooted ones in a single
+  commit. The lesson — codified into the test itself — is that
+  every introduction of a new safety primitive must be backed by
+  a test that exercises **the actual boot surface**, not the
+  cheapest possible invocation. New boot-touching subcommands
+  added in the future should add a corresponding `PROBES=()` entry
+  the same iteration.
+
+### D6. Wrappers (named `*UnderUserConfig`), not composed `Expand + Strict`
+
+- **Decided:** keep the wrapper API surface
+  (`MkdirAllUnderUserConfig`, `OpenRootUnderUserConfig`,
+  `ReadRegularFileUnderUserConfigLimited`) instead of exposing a
+  single `ExpandOperatorLayout(path) → realPath` helper that
+  callers compose with the strict primitives.
+- **Alternatives:** a single `ExpandOperatorLayout` helper +
+  call-site composition (`real, _ := Expand(p); MkdirAllNoSymlink(real)`).
+- **Why:** internally the wrappers ARE composed shape — they call
+  `os.OpenRoot(anchor)` (which OS-resolves operator-layout
+  symlinks like `/home → /var/home` via path resolution) and then
+  `MkdirAllNoSymlinkUnder` / `OpenRootNoSymlinkUnder` for the
+  strict walk under the anchor. With ~25+ call sites across
+  config/runtime/audit/plugins/memory/state/git/tasks/tui/...,
+  the wrapper shape pays for itself: the name encodes the threat
+  model in the call site, and a developer can't accidentally skip
+  the expand step (the failure mode of the composed shape) and
+  silently re-introduce the boot bug. The composed shape would be
+  preferable if the trust-model decision varied per call site or
+  if mix-and-match (sometimes resolve, sometimes not) was needed —
+  here the call pattern is uniform.
+
 ## Related
 
 - EP-0005: capability-based sandboxing — defines the
