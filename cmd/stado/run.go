@@ -62,9 +62,10 @@ For scripted use, two modes strip the noise:
              just don't print. Use when you want the answer body with no
              extra lines.
 
-When --tools is set the model can call stado's bundled toolset, and every
-call is committed to the session's git-native audit log regardless of the
-output mode.
+By default the model has stado's bundled toolset (read/write/bash/grep/
+glob/edit/etc.), and every tool call is committed to the session's git-
+native audit log regardless of the output mode. Pass --tools=false for
+pure-chat mode (no tools, no session, no audit — just LLM in/out).
 
 Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -298,7 +299,7 @@ func init() {
 		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Useful for long-running multi-step tasks where the cap is the wrong control surface (use --budget hard_usd or context timeout instead).")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
-	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable the bundled toolset with git-native audit")
+	runCmd.Flags().BoolVar(&runTools, "tools", true, "Enable the bundled toolset with git-native audit (default true; pass --tools=false for pure-chat mode)")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
