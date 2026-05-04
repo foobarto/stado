@@ -121,7 +121,13 @@ func MergeUserPresets(userPresets map[string]string) []Target {
 	return out
 }
 
-func isLocalEndpoint(ep string) bool {
+func isLocalEndpoint(ep string) bool { return IsLocalEndpoint(ep) }
+
+// IsLocalEndpoint reports whether ep names a host on the local machine
+// (localhost / 127.x.y.z / 0.0.0.0 / [::1]). Used by the doctor command
+// to decide whether to skip the local-runner probe when the user has
+// pinned a remote provider in [defaults].provider.
+func IsLocalEndpoint(ep string) bool {
 	u, err := url.Parse(ep)
 	if err != nil || u.Host == "" {
 		return false

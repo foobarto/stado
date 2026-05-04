@@ -218,3 +218,134 @@ func TestBuildDoctorReport_NoLocalSkipsLocalProbe(t *testing.T) {
 		t.Fatalf("expected no-local report build to skip local provider probe, called=%d", called)
 	}
 }
+
+func TestShouldSkipLocalProbe(t *testing.T) {
+	cases := []struct {
+		name     string
+		cfg      *config.Config
+		wantSkip bool
+	}{
+		{
+			name:     "empty cfg → don't skip (probe is informational)",
+			cfg:      &config.Config{},
+			wantSkip: false,
+		},
+		{
+			name: "anthropic pinned → skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "anthropic"},
+			},
+			wantSkip: true,
+		},
+		{
+			name: "openai pinned → skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "openai"},
+			},
+			wantSkip: true,
+		},
+		{
+			name: "ollama pinned → don't skip (it IS local)",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "ollama"},
+			},
+			wantSkip: false,
+		},
+		{
+			name: "litellm with default localhost endpoint → don't skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "litellm"},
+			},
+			wantSkip: false,
+		},
+		{
+			name: "litellm overridden to remote → skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "litellm"},
+				Inference: config.Inference{
+					Presets: map[string]config.InferencePreset{
+						"litellm": {Endpoint: "https://ollama.com/v1"},
+					},
+				},
+			},
+			wantSkip: true,
+		},
+		{
+			name: "custom preset pointing at remote → skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "ollama-cloud"},
+				Inference: config.Inference{
+					Presets: map[string]config.InferencePreset{
+						"ollama-cloud": {Endpoint: "https://ollama.com/v1"},
+					},
+				},
+			},
+			wantSkip: true,
+		},
+		{
+			name: "custom preset pointing at localhost → don't skip",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "my-local"},
+				Inference: config.Inference{
+					Presets: map[string]config.InferencePreset{
+						"my-local": {Endpoint: "http://localhost:9999/v1"},
+					},
+				},
+			},
+			wantSkip: false,
+		},
+		{
+			name: "unknown preset, no override → don't skip (let probe surface what's there)",
+			cfg: &config.Config{
+				Defaults: config.Defaults{Provider: "made-up-name"},
+			},
+			wantSkip: false,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotSkip, gotReason := shouldSkipLocalProbe(c.cfg)
+			if gotSkip != c.wantSkip {
+				t.Errorf("shouldSkipLocalProbe = (%v, %q), want skip=%v",
+					gotSkip, gotReason, c.wantSkip)
+			}
+			if gotSkip && gotReason == "" {
+				t.Errorf("expected non-empty reason when skipping, got empty")
+			}
+		})
+	}
+}
+
+func TestBuildDoctorReport_PinnedRemoteSkipsLocalProbe(t *testing.T) {
+	prev := checkLocalProvidersFn
+	defer func() { checkLocalProvidersFn = prev }()
+
+	called := 0
+	checkLocalProvidersFn = func(ctx context.Context, d *report, cfg *config.Config) {
+		called++
+	}
+
+	cfg := &config.Config{Defaults: config.Defaults{Provider: "anthropic"}}
+	d := buildDoctorReport(context.Background(), cfg, doctorOptions{})
+
+	if called != 0 {
+		t.Fatalf("expected pinned-remote provider to skip local probe, called=%d", called)
+	}
+
+	// And a "Local probe: skipped" annotation row should be emitted so
+	// the operator can see why the probe didn't run.
+	found := false
+	for _, row := range d.rows {
+		if row.label == "Local probe" && row.value == "skipped" {
+			found = true
+			if !strings.Contains(row.detail, "anthropic") {
+				t.Errorf("expected skip reason to mention provider name, got %q", row.detail)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a 'Local probe: skipped' annotation row, none found")
+	}
+}

@@ -115,11 +115,67 @@ func buildDoctorReport(ctx context.Context, cfg *config.Config, opts doctorOptio
 	// loaded" without requiring them to set up a provider first.
 	// Merges in user-configured presets at local-looking endpoints
 	// so custom ports get probed too.
-	if !opts.noLocal {
+	//
+	// Skip the probe when the user has pinned [defaults].provider
+	// to a remote provider (anthropic, openai, gemini, or an OAI-compat
+	// preset whose resolved endpoint is non-local). Saves the ~4s of
+	// TCP timeouts on machines with no local runners — dogfood note
+	// from htb-writeups workflow integration. Explicit --no-local still
+	// works as before.
+	skipLocal, skipReason := shouldSkipLocalProbe(cfg)
+	switch {
+	case opts.noLocal:
+		// honour the explicit flag without annotation
+	case skipLocal:
+		d.check("Local probe", "skipped", skipReason, true)
+	default:
 		checkLocalProvidersFn(ctx, &d, cfg)
 	}
 
 	return d
+}
+
+// shouldSkipLocalProbe reports whether buildDoctorReport should skip
+// the local-runner probe based on the configured [defaults].provider.
+// Returns (true, reason) when the configured provider points away from
+// any localhost endpoint. Empty provider, local-runner names, and
+// presets whose endpoint resolves to localhost return (false, "").
+func shouldSkipLocalProbe(cfg *config.Config) (bool, string) {
+	if cfg == nil {
+		return false, ""
+	}
+	name := strings.TrimSpace(cfg.Defaults.Provider)
+	if name == "" {
+		return false, ""
+	}
+
+	// Provider-direct names — always remote.
+	switch strings.ToLower(name) {
+	case "anthropic", "openai", "google", "gemini":
+		return true, "[defaults].provider=" + name + " is a remote provider"
+	}
+
+	// OAI-compat preset: resolve user override first, then builtin default.
+	endpoint := ""
+	if cfg.Inference.Presets != nil {
+		if p, ok := cfg.Inference.Presets[name]; ok {
+			endpoint = p.Endpoint
+		}
+	}
+	if endpoint == "" {
+		if ep, _, ok := config.BuiltinInferencePreset(name); ok {
+			endpoint = ep
+		}
+	}
+	if endpoint == "" {
+		// Unknown preset — leave the probe on so the user sees
+		// any local runners that might match later config.
+		return false, ""
+	}
+	if localdetect.IsLocalEndpoint(endpoint) {
+		return false, ""
+	}
+	return true, "[defaults].provider=" + name + " (endpoint " + endpoint + ") is non-local"
 }
 
 type reportRow struct {

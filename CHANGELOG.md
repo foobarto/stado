@@ -8,6 +8,17 @@ Plugins / Infra / Fixes.
 
 ### CLI
 
+- **`stado doctor` auto-skips local-runner probe when `[defaults].provider`
+  pins a remote provider.** Probing four `localhost:*` ports each with
+  a 1s TCP timeout adds ~4s on machines without any local runners; the
+  probe is informational, not a blocker, so when the user has explicitly
+  pinned `provider = "anthropic"` (or any other remote provider, including
+  an OAI-compat preset whose endpoint resolves non-local), `doctor` now
+  skips the probe and prints a `Local probe: skipped (...)` annotation
+  row instead. Explicit `--no-local` still works as before; `provider = ""`
+  (auto-detect mode) still triggers the probe. Dogfood-note item from
+  the htb-writeups workflow integration.
+
 - **Added `stado --version`.** The `stado version` subcommand has long
   printed `collectBuildInfo().Version`; cobra's standard `--version`
   global flag is now wired to the same source so both surfaces agree.
