@@ -24,6 +24,7 @@ import (
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
 	"github.com/foobarto/stado/internal/providers/localdetect"
+	"github.com/foobarto/stado/internal/providers/mcpwrap"
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
 	"github.com/foobarto/stado/internal/runtime"
@@ -319,6 +320,29 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 				}
 			}
 			return acpwrap.New(ac)
+		}
+	}
+
+	// MCP-wrapped agent providers (`[mcp.providers.<name>]` in
+	// config.toml). For coding-agent CLIs that don't expose stdio
+	// ACP-agent mode but DO expose themselves via MCP — codex being
+	// the canonical example. Picked before inference-preset lookup
+	// so a wrapper-named provider doesn't get shadowed by a same-
+	// named OAI-compat preset.
+	if cfg.MCP.Providers != nil {
+		if p, ok := cfg.MCP.Providers[name]; ok && p.Binary != "" {
+			return mcpwrap.New(mcpwrap.Config{
+				Name:              name,
+				Binary:            p.Binary,
+				Args:              p.Args,
+				CallTool:          p.CallTool,
+				ContinueTool:      p.ContinueTool,
+				PromptArgKey:      p.PromptArgKey,
+				ThreadIDArgKey:    p.ThreadIDArgKey,
+				ContentResultKey:  p.ContentResultKey,
+				ThreadIDResultKey: p.ThreadIDResultKey,
+				CallToolOverrides: p.CallToolOverrides,
+			})
 		}
 	}
 

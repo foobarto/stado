@@ -229,6 +229,18 @@ type Approvals struct {
 type MCP struct {
 	ConfigPath string               `koanf:"config_path"`
 	Servers    map[string]MCPServer `koanf:"servers"`
+
+	// Providers wraps coding-agent CLIs that expose themselves as
+	// MCP servers (e.g. `codex mcp-server`) as stado agent.Providers
+	// — analogous to ACP.Providers but for agents that don't expose
+	// a stdio ACP-agent mode.
+	//
+	//	[mcp.providers.codex-mcp]
+	//	binary        = "codex"
+	//	args          = ["mcp-server"]
+	//	call_tool     = "codex"
+	//	continue_tool = "codex-reply"
+	Providers map[string]MCPProviderWrapped `koanf:"providers"`
 }
 
 // MCPServer is one entry under [mcp.servers.<name>] in config.toml.
@@ -314,6 +326,56 @@ type OTel struct {
 // tool registry via ACP method calls.
 type ACP struct {
 	Providers map[string]ACPProvider `koanf:"providers"`
+}
+
+// MCPProviderWrapped is `[mcp.providers.<name>]` — wraps a CLI that
+// exposes itself as an MCP server (e.g. `codex mcp-server`) as a
+// stado agent.Provider. Distinct from MCP-clients-mounted-into-LLM
+// (which are configured separately at runtime); this is "use CLI X
+// as the LLM-driver via MCP transport" — the analogue of ACPProvider
+// for MCP-only agents like codex.
+//
+// Example codex entry:
+//
+//	[mcp.providers.codex-mcp]
+//	binary           = "codex"
+//	args             = ["mcp-server"]
+//	call_tool        = "codex"
+//	continue_tool    = "codex-reply"
+//	# Optional pinning of model/sandbox/etc:
+//	# [mcp.providers.codex-mcp.call_tool_overrides]
+//	# model = "gpt-5.2"
+//	# sandbox = "workspace-write"
+type MCPProviderWrapped struct {
+	// Binary is the absolute path to or PATH-resolvable name of the
+	// wrapped agent's executable. Required.
+	Binary string `koanf:"binary"`
+	// Args is the argv passed to Binary to launch its MCP server
+	// mode (e.g. ["mcp-server"] for codex).
+	Args []string `koanf:"args"`
+	// CallTool is the MCP tool name for the FIRST turn in a session
+	// (no thread id captured yet). Required.
+	CallTool string `koanf:"call_tool"`
+	// ContinueTool is the MCP tool name for SUBSEQUENT turns. When
+	// empty the wrapped agent is treated as stateless — every turn
+	// calls CallTool fresh.
+	ContinueTool string `koanf:"continue_tool"`
+	// PromptArgKey overrides the input field name for the user
+	// prompt (default "prompt").
+	PromptArgKey string `koanf:"prompt_arg_key"`
+	// ThreadIDArgKey overrides the input field name for the thread
+	// id on continuation calls (default "threadId").
+	ThreadIDArgKey string `koanf:"thread_id_arg_key"`
+	// ContentResultKey overrides the output field name for the
+	// assistant text (default "content").
+	ContentResultKey string `koanf:"content_result_key"`
+	// ThreadIDResultKey overrides the output field name for the
+	// captured thread id (default "threadId").
+	ThreadIDResultKey string `koanf:"thread_id_result_key"`
+	// CallToolOverrides is merged into every tools/call's arguments
+	// — pin model, sandbox, approval-policy, etc. The prompt key is
+	// always supplied by stado and cannot be overridden here.
+	CallToolOverrides map[string]any `koanf:"call_tool_overrides"`
 }
 
 // ACPProvider declares one wrapped-agent provider. Binary is the

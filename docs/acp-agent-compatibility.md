@@ -12,10 +12,10 @@ capabilities AND mount itself as an MCP server via `session/new.mcpServers`
 |-------------|-----------|--------------|----------------------------------|-------------------------------------------------------------------------------|
 | **opencode**| `opencode`| `["acp"]`    | ✅ Yes                           | None — works out of the box.                                                  |
 | **gemini**  | `gemini`  | `["--acp"]`  | ❌ No                            | Register stado as MCP server in gemini config + trust the working folder.     |
-| **codex**   | `codex`   | (none — no stdio ACP-agent mode) | n/a    | Not currently invocable as ACP agent over stdio (`codex` exposes `codex mcp-server` for the inverse direction only). |
+| **codex**   | `codex`   | (none — no stdio ACP-agent mode) | n/a    | Not invocable as ACP agent over stdio. **WRAP via MCP** instead: see `[mcp.providers.codex-mcp]` below. |
 | **claude**  | `claude`  | (none — no stdio ACP-agent mode) | n/a    | Same as codex; claude-cli's ACP role is being-the-agent for Zed-as-client, not exposing stdio for stado-as-client. |
 | **zed**     | `zed`     | n/a          | ✅ (per spec) when wrapped       | Editor, not a stdio CLI agent — out of scope for `acpwrap`.                   |
-| **hermes**  | `hermes`  | depends      | unknown                          | Currently broken on test host (`hermes_cli` module missing); not verified.    |
+| **hermes**  | `~/.hermes/hermes-agent/hermes` | conditional | needs Python extras  | ACP/MCP both work *if* the user installs Python extras: `pip install 'agent-client-protocol>=0.9'` (ACP) or `pip install 'mcp>=1.2'` (MCP). `~/.local/bin/hermes` is a separate broken entry-point — use the agent path.|
 
 ## Per-agent setup instructions
 
@@ -74,23 +74,41 @@ toolhost auto-approves with the agent's most-permissive
 The user's opt-in is `tools = "stado"` itself; per-call approval is
 intentionally bypassed.
 
-### codex
+### codex (via MCP wrap)
 
-`codex` does **not** currently expose a stdio-ACP-agent mode that
-stado's `acpwrap` can wrap. It has `codex mcp-server` (codex as MCP
-server, the inverse direction) and `codex mcp` (manage external MCP
-servers it consumes), but no `codex --acp` or `codex acp` analogue
-to gemini's or opencode's.
+codex does NOT expose a stdio-ACP-agent mode. **Use the new
+`mcpwrap` provider** — `codex mcp-server` advertises two MCP tools
+(`codex` for first turn, `codex-reply` for continuation) that stado
+calls via MCP `tools/call`. Smoke-tested working end-to-end.
 
-If a future codex revision adds a stdio ACP-agent mode, registering
-stado would use:
+```toml
+[mcp.providers.codex-mcp]
+binary        = "codex"
+args          = ["mcp-server"]
+call_tool     = "codex"
+continue_tool = "codex-reply"
 
+# Optional pinning of model/sandbox/etc — passed verbatim to every
+# tools/call's arguments map:
+[mcp.providers.codex-mcp.call_tool_overrides]
+model           = "gpt-5.2"
+sandbox         = "read-only"
+approval-policy = "never"
 ```
-codex mcp add stado -- <absolute-path-to-stado> mcp-server
-```
 
-(Note the `--` separator: codex's `add` requires `<NAME>` followed by
-either `--url <URL>` or `-- <COMMAND>...`.)
+No setup needed beyond `codex login` (handled by codex itself).
+Stado spawns `codex mcp-server`, runs MCP `initialize`, then on each
+StreamTurn calls `codex` (first turn) or `codex-reply` (subsequent,
+threaded by the captured `threadId`). The tool's
+`{threadId, content}` result becomes the assistant turn — single
+EvTextDelta, no progressive streaming (codex's MCP server returns
+whole-turn synchronously).
+
+Caveat: the same approach would work for any agent that exposes a
+"run-a-session" tool via MCP. The `[mcp.providers]` schema is
+generic — `prompt_arg_key`, `thread_id_arg_key`,
+`content_result_key`, `thread_id_result_key` all override defaults
+to match agents whose MCP tools use different field names.
 
 ### claude (Anthropic Claude Code CLI)
 
@@ -112,6 +130,37 @@ claude mcp add stado <absolute-path-to-stado> mcp-server
 Zed is the editor; it consumes ACP agents (it's the canonical
 `session/new.mcpServers` honorer per the spec). Out of scope for
 `acpwrap` which wraps stdio CLIs.
+
+### hermes
+
+Hermes is the only surveyed agent supporting **both** ACP-agent
+mode (`hermes acp`) and MCP-server mode (`hermes mcp serve`). Both
+require Python extras that hermes-agent doesn't bundle by default:
+
+```
+# For ACP wrap:
+pip install 'agent-client-protocol>=0.9'
+
+# For MCP wrap:
+pip install 'mcp>=1.2'
+```
+
+(Adjust to your hermes Python environment — pipx, venv, or
+system-pip depending on how hermes was installed. The hermes
+source at `~/.hermes/hermes-agent/pyproject.toml` lists `acp` and
+similar extras under `[project.optional-dependencies]`; running
+`pip install -e '~/.hermes/hermes-agent[acp]'` installs them
+in-place.)
+
+**Path note:** the working binary is
+`~/.hermes/hermes-agent/hermes`. Some installs leave a separate
+`~/.local/bin/hermes` Python entry-point that's broken (raises
+`ModuleNotFoundError: hermes_cli`). Always point provider configs
+at the agent path.
+
+Once the extras are installed, hermes wraps either way — config
+follows the gemini-acp pattern for ACP or the codex-mcp pattern
+for MCP.
 
 ## Auto-registration — current state
 
