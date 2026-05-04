@@ -552,6 +552,19 @@ var catalogProviders = []string{
 	"mistral", "xai", "cerebras",
 }
 
+// bundledHostedPresets is the set of builtin hosted-API preset names
+// that the picker should attempt to live-fetch /v1/models from when
+// the user has the corresponding API-key env var set. Distinct from
+// catalogProviders (which carry hardcoded model lists): these
+// providers' model rosters change frequently enough that hardcoding
+// is wrong, and they don't have a dedicated SDK provider — they're
+// reached over the OAI-compat builtin preset path. Source of truth
+// for endpoint + apiKeyEnv is config.BuiltinInferencePreset.
+var bundledHostedPresets = []string{
+	"ollama-cloud",
+	"openrouter",
+}
+
 func (m *Model) openModelPicker() {
 	// Start with the active provider's catalog so its entries lead the
 	// list (the picker preserves order; recents/favorites prepend
@@ -602,27 +615,56 @@ func (m *Model) openModelPicker() {
 		}
 	}
 
-	// Live-fetch /v1/models for hosted OAI-compat presets (ollama-cloud,
-	// openrouter, groq when configured as preset, etc.). localdetect
-	// only probes localhost endpoints; without this branch, hosted
-	// presets show no models in the picker even when the user has
-	// configured + authenticated them. See
-	// internal/providers/localdetect/localdetect.go MergeUserPresets's
-	// "Skip remote endpoints" branch.
+	// Live-fetch /v1/models for hosted OAI-compat presets — both
+	// user-configured ones (`[inference.presets.<name>]`) and
+	// BUILTIN ones whose API key is in the environment (ollama-cloud,
+	// openrouter, etc.). localdetect only probes localhost endpoints;
+	// without this branch, hosted presets show no models in the
+	// picker even when the user has authenticated them.
 	if m.cfg != nil {
+		seenPreset := map[string]bool{}
+		// User-configured presets first (override builtin endpoints
+		// with the same name).
 		for name, preset := range m.cfg.Inference.Presets {
 			if preset.Endpoint == "" {
 				continue
 			}
+			seenPreset[name] = true
 			if isLocalEndpoint(preset.Endpoint) {
-				continue // already handled by localdetect above
+				continue // localdetect already handled localhost ones
 			}
 			ids := fetchPresetModelIDs(ctx, preset.Endpoint, config.ResolvePresetAPIKey(name, preset))
 			for _, id := range ids {
 				items = append(items, modelpicker.Item{
-					ID:           id,
-					Origin:       name + " · live",
-					ProviderName: name,
+					ID: id, Origin: name + " · live", ProviderName: name,
+				})
+			}
+		}
+		// Builtin hosted presets (ollama-cloud, openrouter, litellm
+		// when at non-localhost). Use BuiltinInferencePreset to
+		// resolve endpoint + apiKeyEnv. Only fetch when the env var
+		// is actually set — no point hitting the API without auth
+		// since /v1/chat/completions will 401 once the user picks a
+		// model anyway.
+		for _, name := range bundledHostedPresets {
+			if seenPreset[name] {
+				continue
+			}
+			endpoint, apiKeyEnv, ok := config.BuiltinInferencePreset(name)
+			if !ok || endpoint == "" || isLocalEndpoint(endpoint) {
+				continue
+			}
+			apiKey := ""
+			if apiKeyEnv != "" {
+				apiKey = os.Getenv(apiKeyEnv)
+			}
+			if apiKey == "" {
+				continue // no auth → skip silently; UI shows other providers
+			}
+			ids := fetchPresetModelIDs(ctx, endpoint, apiKey)
+			for _, id := range ids {
+				items = append(items, modelpicker.Item{
+					ID: id, Origin: name + " · live", ProviderName: name,
 				})
 			}
 		}
