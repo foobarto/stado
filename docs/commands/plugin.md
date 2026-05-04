@@ -116,6 +116,7 @@ Installed plugin IDs match the directory names under the state dir, so
 | `stado plugin install <dir>` | Verify, then copy into the state dir |
 | `stado plugin run [--session <id>] [--workdir <path>] [--with-tool-host] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
 | `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
+| `stado plugin doctor <plugin-id>` | Inspect manifest + emit per-surface compatibility table with the exact flags to pass |
 
 ## Using plugins from the TUI
 
@@ -186,9 +187,14 @@ Relevant `config.toml` sections:
   preserve per (signer, name) group. Trust-store entries and
   rollback pins are not touched, so a freshly-deleted older version
   still cannot be reinstalled by accident.
+- **When in doubt, run `plugin doctor <id>`.** It parses the
+  plugin's manifest and prints which surfaces / flags it needs.
+  Faster than reading the source for "why does my plugin fail with
+  `stado_http_get returned -1`?" and friends.
 
 ## See also
 
+- [docs/features/plugin-authoring.md](../features/plugin-authoring.md) — end-to-end walkthrough for first-time plugin authors
 - [README.md](../../README.md) — install channels and high-level plugin summary
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog

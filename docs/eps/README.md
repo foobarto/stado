@@ -50,6 +50,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Implemented |
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
+| 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
+| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

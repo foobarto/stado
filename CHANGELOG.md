@@ -36,6 +36,14 @@ Plugins / Infra / Fixes.
   still cannot be reinstalled. Solves the "`plugin installed` shows
   `htb-cve-lookup-0.1.0`, `-0.2.0`, `-0.3.0` after enough iteration"
   authoring-loop pain.
+- **Added `stado plugin doctor <id>`.** Inspects an installed
+  plugin's manifest, classifies each declared capability, and prints
+  a per-surface compatibility table with the exact `plugin run`
+  flag combination needed (or "use the TUI / `stado run`" when the
+  plugin requires the full agent loop). Closes the
+  "`stado_http_get returned -1` — now what?" first-time-author
+  loop: doctor explains which knob to flip without making the
+  operator read the source.
 
 ### Plugins
 
