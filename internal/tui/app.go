@@ -281,34 +281,34 @@ func buildIntegrationFallback(cfg *config.Config, name string) (agent.Provider, 
 
 	dets := integrations.DetectInstalled(context.Background())
 	for _, d := range dets {
-		if d.Integration.Name != base {
+		if d.Name != base {
 			continue
 		}
 		if d.BinaryPath == "" {
 			return nil, fmt.Errorf("provider %q: %s detected via config but no runnable binary found", name, base), true
 		}
 		if isMCP {
-			tools := d.Integration.MCPWrapTools
+			tools := d.MCPWrapTools
 			if tools[0] == "" {
 				return nil, fmt.Errorf("provider %q: %s does not have an MCP-wrap profile (no MCPWrapTools defined)", name, base), true
 			}
 			p, err := mcpwrap.New(mcpwrap.Config{
 				Name:         name,
 				Binary:       d.BinaryPath,
-				Args:         d.Integration.MCPWrapServerArgs,
+				Args:         d.MCPWrapServerArgs,
 				CallTool:     tools[0],
 				ContinueTool: tools[1],
 			})
 			return p, err, true
 		}
 		// ACP path.
-		if len(d.Integration.ACPArgs) == 0 {
+		if len(d.ACPArgs) == 0 {
 			return nil, fmt.Errorf("provider %q: %s does not expose a stdio ACP-agent mode (try %s-mcp if available)", name, base, base), true
 		}
 		p, err := acpwrap.New(acpwrap.Config{
 			Name:   name,
 			Binary: d.BinaryPath,
-			Args:   d.Integration.ACPArgs,
+			Args:   d.ACPArgs,
 		})
 		return p, err, true
 	}

@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/providers/localdetect"
@@ -667,6 +668,31 @@ func (m *Model) openModelPicker() {
 					ID: id, Origin: name + " · live", ProviderName: name,
 				})
 			}
+		}
+	}
+
+	// ACP/MCP wrap providers — one entry per detected wrap-capable
+	// agent so the user can switch to gemini-acp / opencode-acp /
+	// codex-mcp / hermes-acp etc. directly from the picker. Wrapped
+	// agents pick their own model internally; the entry's ID is just
+	// a label hint so search ("gemini", "opencode") finds it.
+	for _, d := range integrations.DetectInstalled(ctx) {
+		if d.BinaryPath == "" {
+			continue
+		}
+		if len(d.ACPArgs) > 0 {
+			items = append(items, modelpicker.Item{
+				ID:           d.Name,
+				ProviderName: d.Name + "-acp",
+				Origin:       d.Name + " · ACP wrap",
+			})
+		}
+		if d.MCPWrapTools[0] != "" {
+			items = append(items, modelpicker.Item{
+				ID:           d.Name,
+				ProviderName: d.Name + "-mcp",
+				Origin:       d.Name + " · MCP wrap",
+			})
 		}
 	}
 

@@ -178,7 +178,15 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 		return ""
 	}
 	modalW := clampInt(screenWidth/2, 56, 96)
-	body := m.renderBody(modalW - 4)
+	// Compute the row budget for the match list: total screen minus
+	// modal chrome (border 2 + padding 0 + title row 1 + blank 1 +
+	// search row 1 + blank 1 + truncation indicators ~2 = 8). Leave
+	// at least 5 rows visible even on tiny terminals.
+	maxRows := screenHeight - 8
+	if maxRows < 5 {
+		maxRows = 5
+	}
+	body := m.renderBody(modalW-4, maxRows)
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
@@ -191,7 +199,7 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 		modal)
 }
 
-func (m *Model) renderBody(innerW int) string {
+func (m *Model) renderBody(innerW, maxRows int) string {
 	var b strings.Builder
 
 	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select a model")
@@ -218,8 +226,35 @@ func (m *Model) renderBody(innerW int) string {
 		return b.String()
 	}
 
-	// List of matches.
-	for i, it := range m.Matches {
+	// Compute a scroll window around the cursor that fits in maxRows.
+	// When matches > maxRows, show "↑ N more" / "↓ N more" indicators
+	// so the user knows there's content off-screen.
+	total := len(m.Matches)
+	start, end := 0, total
+	if maxRows > 0 && total > maxRows {
+		// Center the cursor in the visible window where possible.
+		half := maxRows / 2
+		start = m.Cursor - half
+		if start < 0 {
+			start = 0
+		}
+		end = start + maxRows
+		if end > total {
+			end = total
+			start = end - maxRows
+			if start < 0 {
+				start = 0
+			}
+		}
+	}
+
+	if start > 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+			Render(fmt.Sprintf("↑ %d more above", start)))
+		b.WriteString("\n")
+	}
+	for i := start; i < end; i++ {
+		it := m.Matches[i]
 		isSel := i == m.Cursor
 		left := it.ID
 		if it.Current {
@@ -246,6 +281,11 @@ func (m *Model) renderBody(innerW int) string {
 				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)) +
 				lipgloss.NewStyle().Foreground(theme.Muted).Render(right))
 		}
+		b.WriteString("\n")
+	}
+	if end < total {
+		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+			Render(fmt.Sprintf("↓ %d more below", total-end)))
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
