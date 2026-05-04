@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress CI runs on the same ref when a newer commit
+# arrives. Per-ref grouping means a PR getting two pushes in quick
+# succession only runs CI once on the latest sha; same for a series
+# of main-branch merges. Doesn't affect release.yml — tag-build
+# cancellation could leave half-uploaded signed artefacts.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
