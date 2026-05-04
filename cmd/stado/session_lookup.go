@@ -12,6 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
@@ -164,17 +165,7 @@ func countCommits(sc *stadogit.Sidecar, ref plumbing.ReferenceName) (int, error)
 }
 
 func findRepoRootForLand(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
+	return workdirpath.FindRepoRootOrEmpty(start)
 }
 
 // refMakerSession mirrors TreeRef/TraceRef's signature within this file.
@@ -200,20 +191,12 @@ func worktreePathForID(root, id string) (string, error) {
 	return wt, nil
 }
 
-// findRepoRoot walks up from start looking for a .git dir. Falls back to the
-// starting cwd if none found (so sessions still work outside repos).
+// findRepoRoot walks up from start looking for a git working tree.
+// Falls back to start (canonicalised) if none found, so sessions still
+// work outside repos. The working-tree predicate is shared with the
+// other 5 places in the codebase via workdirpath.LooksLikeRepoRoot.
 func findRepoRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return start
-		}
-		dir = parent
-	}
+	return workdirpath.FindRepoRoot(start)
 }
 
 // listSessions returns session IDs found under refs/sessions/*.

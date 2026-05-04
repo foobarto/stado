@@ -6,8 +6,43 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### CLI
+
+- **Added `stado --version`.** The `stado version` subcommand has long
+  printed `collectBuildInfo().Version`; cobra's standard `--version`
+  global flag is now wired to the same source so both surfaces agree.
+- **Added `stado plugin run --workdir <path>`.** Lets the operator
+  override the plugin's `host.Workdir` (the path that `fs:read:.` /
+  `fs:write:.` capabilities and relative file paths resolve against).
+  Default unchanged: install dir, for backward compatibility. Pass
+  `--workdir=$PWD` when the plugin is meant to read files from the
+  operator's repo (the common case for project-specific plugins).
+  EP-0027 documents the rationale.
+
+### Plugins
+
+- **`internal/workdirpath` exports `LooksLikeRepoRoot`,
+  `FindRepoRoot`, `FindRepoRootOrEmpty`** as the single source of
+  truth for "what counts as a git working tree". The predicate now
+  rejects empty `.git/` directories (which previously fooled the
+  walker into returning the wrong repo root); every git tree must
+  have a HEAD file or a gitfile pointer to be accepted. The 6 inline
+  walkers across `cmd/stado/`, `internal/runtime/`, and
+  `internal/memory/` now delegate to the shared helper. EP-0027.
+
 ### Fixes
 
+- **Empty `/tmp/.git/` no longer fools session GC + lesson document
+  paths.** A stray empty `.git/` directory in any parent of CWD was
+  enough to make `findRepoRoot` (and its 5 cousins) return the wrong
+  path, silently re-pinning sessions and lesson document target dirs
+  to that bogus parent. Production code path observed: a user who
+  ran `stado run --prompt …` from `/tmp/myproject` (no real `.git`)
+  would get sessions pinned to `/tmp` if anything else had previously
+  created `/tmp/.git/`. Test impact: this fixed
+  `TestSessionGC_ApplyActuallyDeletes` and four `TestLearningCLI_*`
+  tests that had been failing on `main` in any CI/dev environment
+  with `/tmp/.git/` pollution.
 - **Validated pinned plugin pubkeys.** Manifest verification now re-derives
   the stored signer pubkey fingerprint before trusting a pinned entry, so
   malformed trust-store records cannot authorize the wrong key.

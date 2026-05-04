@@ -282,17 +282,10 @@ func SigningKeyPath(cfg *config.Config) string {
 	return filepath.Join(cfg.StateDir(), "keys", audit.KeyFileName)
 }
 
-// FindRepoRoot walks up from start looking for a .git dir; falls back to start.
+// FindRepoRoot walks up from start looking for a git working tree;
+// falls back to start when none found. Delegates the working-tree
+// predicate to workdirpath so all 5 callers in the codebase stay in
+// agreement on what counts (an empty `.git/` dir does NOT count).
 func FindRepoRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return start
-		}
-		dir = parent
-	}
+	return workdirpath.FindRepoRoot(start)
 }

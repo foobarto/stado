@@ -666,21 +666,7 @@ func rejectLearningSymlinkDirs(root *os.Root, dir string) error {
 }
 
 func findCurrentWorktreeRoot(start string) string {
-	dir, err := filepath.Abs(start)
-	if err != nil {
-		return start
-	}
-	original := dir
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return original
-		}
-		dir = parent
-	}
+	return workdirpath.FindRepoRoot(start)
 }
 
 func lessonDocumentFilename(item memory.Item) string {
@@ -988,7 +974,7 @@ func findCurrentRepoRoot(start string) string {
 		if pinned := readCurrentRepoPin(dir); pinned != "" {
 			return pinned
 		}
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if workdirpath.LooksLikeRepoRoot(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)

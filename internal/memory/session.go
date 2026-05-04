@@ -116,7 +116,7 @@ func sessionControlRoot(workdir string) string {
 	}
 	original := dir
 	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if workdirpath.LooksLikeRepoRoot(dir) {
 			return dir
 		}
 		if hasUserRepoPin(dir) {

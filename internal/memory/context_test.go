@@ -11,6 +11,20 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
+// makeFakeRepo creates a minimal .git/ that workdirpath.LooksLikeRepoRoot
+// will accept (empty .git/ no longer counts — see repodisco.go).
+// Tests that need findRepoRoot to stop at workdir use this.
+func makeFakeRepo(t *testing.T, workdir string) {
+	t.Helper()
+	gitDir := filepath.Join(workdir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPromptContextDisabled(t *testing.T) {
 	got, err := PromptContext(context.Background(), PromptContextOptions{Enabled: false, StateDir: t.TempDir()})
 	if err != nil {
@@ -24,9 +38,7 @@ func TestPromptContextDisabled(t *testing.T) {
 func TestPromptContextSessionDisabled(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	repoID, err := stadogit.RepoID(workdir)
 	if err != nil {
 		t.Fatal(err)
@@ -88,9 +100,7 @@ func TestPromptContextSessionDisabled(t *testing.T) {
 
 func TestSetSessionDisabledRoundTrip(t *testing.T) {
 	workdir := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	if SessionDisabled(workdir) {
 		t.Fatal("new workdir should not have memory disabled")
 	}
@@ -114,9 +124,7 @@ func TestSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	workdir := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
@@ -133,9 +141,7 @@ func TestSetSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	workdir := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
@@ -154,9 +160,7 @@ func TestSetSessionDisabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 
 func TestSetSessionDisabledRejectsInRootMarkerSymlink(t *testing.T) {
 	workdir := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	stadoDir := filepath.Join(workdir, ".stado")
 	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -191,9 +195,7 @@ func TestSetSessionEnabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	workdir := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	if err := os.Symlink(outsideDir, filepath.Join(workdir, ".stado")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
@@ -213,9 +215,7 @@ func TestSetSessionEnabledRejectsStadoDirSymlinkEscape(t *testing.T) {
 func TestSessionDisabledRejectsWorktreeRootSymlink(t *testing.T) {
 	base := t.TempDir()
 	target := filepath.Join(base, "target")
-	if err := os.MkdirAll(filepath.Join(target, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, target)
 	stadoDir := filepath.Join(target, ".stado")
 	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -247,9 +247,7 @@ func TestSessionDisabledRejectsWorktreeRootSymlink(t *testing.T) {
 func TestPromptContextFormatsApprovedScopedMemories(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	repoID, err := stadogit.RepoID(workdir)
 	if err != nil {
 		t.Fatal(err)
@@ -294,9 +292,7 @@ func TestPromptContextFormatsApprovedScopedMemories(t *testing.T) {
 func TestPromptContextSeparatesApprovedLessons(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	repoID, err := stadogit.RepoID(workdir)
 	if err != nil {
 		t.Fatal(err)
@@ -356,9 +352,7 @@ func TestPromptContextSeparatesApprovedLessons(t *testing.T) {
 func TestPromptContextUsesEditedCanonicalLesson(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	repoID, err := stadogit.RepoID(workdir)
 	if err != nil {
 		t.Fatal(err)
@@ -412,9 +406,7 @@ func TestPromptContextUsesEditedCanonicalLesson(t *testing.T) {
 func TestPromptContextAppliesCombinedItemCap(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "repo")
-	if err := os.MkdirAll(filepath.Join(workdir, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	makeFakeRepo(t, workdir)
 	repoID, err := stadogit.RepoID(workdir)
 	if err != nil {
 		t.Fatal(err)

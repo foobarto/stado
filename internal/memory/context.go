@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -189,7 +188,7 @@ func findRepoRoot(start string) string {
 		if pinned := readUserRepoPin(dir); pinned != "" {
 			return pinned
 		}
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if workdirpath.LooksLikeRepoRoot(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)

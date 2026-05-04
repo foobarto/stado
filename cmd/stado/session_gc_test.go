@@ -10,6 +10,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -49,8 +50,15 @@ func createZeroTurnSession(t *testing.T, cfg *config.Config, sc *stadogit.Sideca
 	if err := os.MkdirAll(filepath.Join(wt, ".stado"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Mirror production write semantics: the GC's worktree-walk filters
+	// by user-repo pin matching findRepoRoot(cwd), so the test must
+	// write the SAME value production does — not the literal cwd. With
+	// just `cwd` the test is fragile under any stray `.git` dir up the
+	// parent chain (e.g. /tmp/.git as a leftover from a prior run);
+	// findRepoRoot walks past cwd up to that .git and the pin no longer
+	// matches. See cmd/stado/session_open.go for the production write.
 	cwd, _ := os.Getwd()
-	if err := os.WriteFile(filepath.Join(wt, ".stado", "user-repo"), []byte(cwd+"\n"), 0o644); err != nil {
+	if err := runtime.WriteUserRepoPin(wt, findRepoRoot(cwd)); err != nil {
 		t.Fatal(err)
 	}
 	past := time.Now().Add(-age)
@@ -138,7 +146,7 @@ func TestSessionGC_SkipsSessionsWithWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	cwd, _ := os.Getwd()
-	if err := os.WriteFile(filepath.Join(sess.WorktreePath, ".stado", "user-repo"), []byte(cwd+"\n"), 0o644); err != nil {
+	if err := runtime.WriteUserRepoPin(sess.WorktreePath, findRepoRoot(cwd)); err != nil {
 		t.Fatal(err)
 	}
 	// Produce a turn by committing something + tagging.
