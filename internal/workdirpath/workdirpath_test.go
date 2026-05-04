@@ -37,6 +37,59 @@ func TestResolve_AllowsNestedMissingPathInsideWorkdir(t *testing.T) {
 	}
 }
 
+// TestResolve_RelativeWorkdirIsNotEscape regresses the v0.26.0
+// release-build failure: Go 1.25+ filepath.EvalSymlinks(".") returns
+// "." (preserves relative-input shape) instead of the absolute
+// canonical path earlier Go versions returned. Resolve / RootRel
+// / RootRelForWrite then misidentified relative resolved paths as
+// "escapes workdir" because the prefix-confinement check assumed
+// root was absolute. Pre-Abs was added to all three to fix.
+//
+// fetch-binaries.go calls Resolve via RootRelForWrite with workdir="."
+// — that's the operator-facing reproduction. This test exercises
+// the same shape directly.
+func TestResolve_RelativeWorkdirIsNotEscape(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+
+	got, err := Resolve(".", filepath.Join("sub", "new", "file.txt"), true)
+	if err != nil {
+		t.Fatalf("Resolve(.,…): %v", err)
+	}
+	want := filepath.Join(root, "sub", "new", "file.txt")
+	wantResolved, _ := filepath.EvalSymlinks(root)
+	if wantResolved != "" {
+		want = filepath.Join(wantResolved, "sub", "new", "file.txt")
+	}
+	if got != want {
+		t.Errorf("Resolve(.,…) = %q, want %q", got, want)
+	}
+}
+
+// TestRootRelForWrite_RelativeWorkdir is the same regression scoped
+// to the call site fetch-binaries.go actually uses.
+func TestRootRelForWrite_RelativeWorkdir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "sub", "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+
+	gotRoot, gotRel, err := RootRelForWrite(".", filepath.Join("sub", "nested", "file.bin"))
+	if err != nil {
+		t.Fatalf("RootRelForWrite(.,…): %v", err)
+	}
+	if !filepath.IsAbs(gotRoot) {
+		t.Errorf("expected absolute root, got %q", gotRoot)
+	}
+	if gotRel != filepath.Join("sub", "nested", "file.bin") {
+		t.Errorf("rel = %q, want sub/nested/file.bin", gotRel)
+	}
+}
+
 func TestRootRel_ReturnsConfinedRelativePath(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {

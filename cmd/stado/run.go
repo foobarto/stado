@@ -28,6 +28,7 @@ var (
 	runPrompt    string
 	runMaxTurns  int
 	runJSON      bool
+	runQuiet     bool
 	runTools     bool
 	runSandboxFS bool
 	runSessionID string
@@ -45,9 +46,23 @@ var runCmd = &cobra.Command{
 	Short: "Non-interactive: run a prompt through the agent loop to completion",
 	Long: `Execute a prompt through the configured provider without opening the TUI.
 
-Text streams to stdout (or JSON lines with --json). When --tools is set the
-model can call stado's bundled toolset, and every call
-is committed to the session's git-native audit log.
+By default, agent text streams to stdout and tool-call previews
+("▸ tool(...)" lines) interleave with it. INFO log lines like
+"stado.commit ref=..." go to stderr.
+
+For scripted use, two modes strip the noise:
+
+  --json     One JSON object per line on stdout (text / thinking / tool_call).
+             The canonical scripted-parse mode — preferred for piping into
+             jq, awk, or any structured consumer.
+  --quiet    Plain text only on stdout — tool-call previews are suppressed.
+             Tools still run and are still committed to the audit log; they
+             just don't print. Use when you want the answer body with no
+             extra lines.
+
+When --tools is set the model can call stado's bundled toolset, and every
+call is committed to the session's git-native audit log regardless of the
+output mode.
 
 Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -135,7 +150,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				Model:    cfg.Defaults.Model,
 				Messages: append(priorMsgs, newUserMsg),
 				MaxTurns: runMaxTurns,
-				OnEvent:  emitter(runJSON, os.Stdout),
+				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 				},
@@ -221,7 +236,14 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 }
 
 // emitter returns an OnEvent callback that streams to out.
-func emitter(jsonOut bool, out io.Writer) func(agent.Event) {
+//
+// jsonOut: emit one JSON object per event (text/thinking/tool_call).
+// quiet: in non-JSON mode, suppress the "▸ tool(args)" tool-call preview
+// lines so stdout carries only agent text. Has no effect under jsonOut —
+// JSON output is already structured and machine-parseable. Tools still
+// fire and still commit to the audit log; only the stdout preview is
+// elided.
+func emitter(jsonOut, quiet bool, out io.Writer) func(agent.Event) {
 	return func(ev agent.Event) {
 		switch ev.Kind {
 		case agent.EvTextDelta:
@@ -237,14 +259,17 @@ func emitter(jsonOut bool, out io.Writer) func(agent.Event) {
 				fmt.Fprintln(out, string(enc))
 			}
 		case agent.EvToolCallEnd:
-			if ev.ToolCall != nil && jsonOut {
+			if ev.ToolCall == nil {
+				return
+			}
+			if jsonOut {
 				enc, _ := json.Marshal(map[string]any{
 					"type":  "tool_call",
 					"name":  ev.ToolCall.Name,
 					"input": string(ev.ToolCall.Input),
 				})
 				fmt.Fprintln(out, string(enc))
-			} else if ev.ToolCall != nil {
+			} else if !quiet {
 				fmt.Fprintf(out, "\n▸ %s(%s)\n", ev.ToolCall.Name, string(ev.ToolCall.Input))
 			}
 		}
@@ -257,6 +282,7 @@ func init() {
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
+	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable the bundled toolset with git-native audit")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",

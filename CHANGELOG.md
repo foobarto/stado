@@ -8,6 +8,19 @@ Plugins / Infra / Fixes.
 
 ### CLI
 
+- **Added `stado run --quiet`.** Suppresses `▸ tool(args)` preview lines
+  on stdout in non-JSON mode. Tools still execute and still commit to
+  the audit log; only the inline preview is elided. Pairs with `--json`
+  for scripted use: `--json` for structured event-per-line output, or
+  `--quiet` for plain text-only stdout. Dogfood-note item from the
+  htb-writeups workflow integration: `stado run --tools` interleaved
+  agent text with tool-call previews and INFO log lines, making it
+  hard to pipe to `jq` or post-process.
+- **Updated `stado run --help` body** to explicitly call out `--json`
+  (preferred for scripted use) and `--quiet` (suppress tool-call
+  previews). Same dogfood note: `--json` was discoverable via flag
+  description but not the command's `Long` description body, so users
+  who only read the body missed the canonical scripted-parse mode.
 - **`stado doctor` auto-skips local-runner probe when `[defaults].provider`
   pins a remote provider.** Probing four `localhost:*` ports each with
   a 1s TCP timeout adds ~4s on machines without any local runners; the
@@ -16,8 +29,7 @@ Plugins / Infra / Fixes.
   an OAI-compat preset whose endpoint resolves non-local), `doctor` now
   skips the probe and prints a `Local probe: skipped (...)` annotation
   row instead. Explicit `--no-local` still works as before; `provider = ""`
-  (auto-detect mode) still triggers the probe. Dogfood-note item from
-  the htb-writeups workflow integration.
+  (auto-detect mode) still triggers the probe. Dogfood-note item.
 
 - **Added `stado --version`.** The `stado version` subcommand has long
   printed `collectBuildInfo().Version`; cobra's standard `--version`
