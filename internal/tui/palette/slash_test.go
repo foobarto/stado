@@ -168,10 +168,41 @@ func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("model")})
 
 	got := m.InlineView(80)
-	for _, want := range []string{"Slash commands", "Session", "/model"} {
+	// While filtering, group headers ("Session") are dropped — they're
+	// pure clutter when the user is searching. The flat list renders
+	// only matching commands.
+	for _, want := range []string{"Slash commands", "/model"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("inline view missing %q: %q", want, got)
 		}
+	}
+	if strings.Contains(got, "Session") || strings.Contains(got, "Quick") || strings.Contains(got, "View") {
+		t.Errorf("inline view should NOT show group headers while filtering: %q", got)
+	}
+}
+
+// TestInlineViewShowsGroupsWhenBrowsing — empty query (browse mode)
+// keeps the categories visible because they help orient first-time
+// users navigating the full list.
+func TestInlineViewShowsGroupsWhenBrowsing(t *testing.T) {
+	m := New()
+	m.Open()
+	// No query → browse mode.
+
+	got := m.InlineView(80)
+	for _, want := range []string{"Slash commands"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("inline view missing %q: %q", want, got)
+		}
+	}
+	// At least one group label should appear in browse mode. We don't
+	// assert WHICH group because the inline view shows a sliding window
+	// (default 6 rows) — the visible group depends on the cursor.
+	hasAnyGroup := strings.Contains(got, "Quick") ||
+		strings.Contains(got, "Session") ||
+		strings.Contains(got, "View")
+	if !hasAnyGroup {
+		t.Errorf("expected at least one group header in browse mode: %q", got)
 	}
 }
 

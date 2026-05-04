@@ -111,3 +111,88 @@ func ResolvePresetAPIKey(name string, preset InferencePreset) string {
 	}
 	return os.Getenv(env)
 }
+
+// ProviderKind classifies a known provider by how stado talks to it.
+type ProviderKind int
+
+const (
+	// ProviderKindNative — stado uses the vendor's first-party SDK
+	// (anthropic-sdk-go, openai-go, generative-ai-go). No
+	// [inference.presets.X] block is needed; setting the conventional
+	// API-key env var is enough.
+	ProviderKindNative ProviderKind = iota
+	// ProviderKindOAICompatCloud — hosted endpoint speaking
+	// OpenAI-compatible JSON. Needs an [inference.presets.X] block
+	// (or matches a builtin name) plus the configured API key.
+	ProviderKindOAICompatCloud
+	// ProviderKindOAICompatLocal — local-runner endpoint speaking
+	// OpenAI-compatible JSON (Ollama, llama.cpp, vLLM, LMStudio).
+	// Usually needs no API key; just confirm the endpoint is reachable.
+	ProviderKindOAICompatLocal
+)
+
+func (k ProviderKind) String() string {
+	switch k {
+	case ProviderKindNative:
+		return "native"
+	case ProviderKindOAICompatCloud:
+		return "oai-compat-cloud"
+	case ProviderKindOAICompatLocal:
+		return "oai-compat-local"
+	default:
+		return "unknown"
+	}
+}
+
+// KnownProvider is one entry in the bundled provider registry. UI and
+// CLI surfaces should iterate KnownProviders() rather than hard-coding
+// names so adding a new provider means touching one place.
+type KnownProvider struct {
+	Name      string
+	Kind      ProviderKind
+	Endpoint  string // empty for native providers
+	APIKeyEnv string // empty for local-runner OAI-compat presets
+	// HelpURL is a short hint for where to get an API key for this
+	// provider. Optional.
+	HelpURL string
+}
+
+// KnownProviders returns the bundled provider catalogue in display
+// order: native first (most-used), then OAI-compat cloud (alpha),
+// then OAI-compat local. Source of truth for `stado config
+// providers` listings, doctor output, and any future TUI picker.
+func KnownProviders() []KnownProvider {
+	return []KnownProvider{
+		// Native — first-party SDK
+		{Name: "anthropic", Kind: ProviderKindNative, APIKeyEnv: "ANTHROPIC_API_KEY", HelpURL: "https://console.anthropic.com/"},
+		{Name: "openai", Kind: ProviderKindNative, APIKeyEnv: "OPENAI_API_KEY", HelpURL: "https://platform.openai.com/api-keys"},
+		{Name: "google", Kind: ProviderKindNative, APIKeyEnv: "GEMINI_API_KEY", HelpURL: "https://aistudio.google.com/apikey"},
+
+		// OAI-compat cloud (alpha by name)
+		{Name: "cerebras", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.cerebras.ai/v1", APIKeyEnv: "CEREBRAS_API_KEY", HelpURL: "https://cloud.cerebras.ai/platform/"},
+		{Name: "deepseek", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.deepseek.com/v1", APIKeyEnv: "DEEPSEEK_API_KEY", HelpURL: "https://platform.deepseek.com/api_keys"},
+		{Name: "groq", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.groq.com/openai/v1", APIKeyEnv: "GROQ_API_KEY", HelpURL: "https://console.groq.com/keys"},
+		{Name: "litellm", Kind: ProviderKindOAICompatCloud, Endpoint: "http://localhost:4000/v1", APIKeyEnv: "LITELLM_API_KEY", HelpURL: "https://docs.litellm.ai/"},
+		{Name: "mistral", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.mistral.ai/v1", APIKeyEnv: "MISTRAL_API_KEY", HelpURL: "https://console.mistral.ai/api-keys"},
+		{Name: "ollama-cloud", Kind: ProviderKindOAICompatCloud, Endpoint: "https://ollama.com/v1", APIKeyEnv: "OLLAMA_CLOUD_API_KEY", HelpURL: "https://ollama.com/settings/keys"},
+		{Name: "openrouter", Kind: ProviderKindOAICompatCloud, Endpoint: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY", HelpURL: "https://openrouter.ai/keys"},
+		{Name: "xai", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.x.ai/v1", APIKeyEnv: "XAI_API_KEY", HelpURL: "https://console.x.ai/"},
+
+		// OAI-compat local — no key needed
+		{Name: "llamacpp", Kind: ProviderKindOAICompatLocal, Endpoint: "http://localhost:8080/v1"},
+		{Name: "lmstudio", Kind: ProviderKindOAICompatLocal, Endpoint: "http://localhost:1234/v1"},
+		{Name: "ollama", Kind: ProviderKindOAICompatLocal, Endpoint: "http://localhost:11434/v1"},
+		{Name: "vllm", Kind: ProviderKindOAICompatLocal, Endpoint: "http://localhost:8000/v1"},
+	}
+}
+
+// LookupKnownProvider returns the catalogue entry for name, case-insensitively.
+func LookupKnownProvider(name string) (KnownProvider, bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	for _, p := range KnownProviders() {
+		if p.Name == want {
+			return p, true
+		}
+	}
+	return KnownProvider{}, false
+}

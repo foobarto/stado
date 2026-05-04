@@ -268,6 +268,11 @@ func (m *Model) renderInlineBody(innerW int) string {
 	if start+limit > len(m.Matches) {
 		start = len(m.Matches) - limit
 	}
+	// Group headers are useful when browsing (empty query — the
+	// categories help orient the user). When filtering, headers are
+	// pure clutter — the user wants matches, not section labels —
+	// so render a flat list. Operator-feedback cleanup.
+	showGroups := strings.TrimSpace(m.Query) == ""
 	lastGroup := ""
 	for i := 0; i < limit; i++ {
 		idx := start + i
@@ -276,7 +281,7 @@ func (m *Model) renderInlineBody(innerW int) string {
 		if group == "" {
 			group = "Commands"
 		}
-		if group != lastGroup {
+		if showGroups && group != lastGroup {
 			if i > 0 {
 				b.WriteString("\n")
 			}
@@ -321,6 +326,19 @@ func (m *Model) renderBody(innerW int) string {
 	if len(m.Matches) == 0 {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
 			Render("no matches"))
+		return b.String()
+	}
+
+	// Flat-list when filtering (categories add clutter to a search-result
+	// view); keep grouped headers when browsing (empty query — they help
+	// orient first-time users).
+	if strings.TrimSpace(m.Query) != "" {
+		for i, c := range m.Matches {
+			b.WriteString(renderRow(innerW, c, i == m.Cursor))
+			if i < len(m.Matches)-1 {
+				b.WriteString("\n")
+			}
+		}
 		return b.String()
 	}
 

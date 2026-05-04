@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -25,14 +26,15 @@ import (
 )
 
 var (
-	runPrompt    string
-	runMaxTurns  int
-	runJSON      bool
-	runQuiet     bool
-	runTools     bool
-	runSandboxFS bool
-	runSessionID string
-	runSkill     string
+	runPrompt      string
+	runMaxTurns    int
+	runNoTurnLimit bool
+	runJSON        bool
+	runQuiet       bool
+	runTools       bool
+	runSandboxFS   bool
+	runSessionID   string
+	runSkill       string
 )
 
 var (
@@ -144,12 +146,20 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}
 			memoryContext := buildMemoryPromptContext(cmd.Context(), cfg, promptWorkdir, continueSessID, runPrompt)
 
+			maxTurns := runMaxTurns
+			if runNoTurnLimit {
+				// math.MaxInt32 is "effectively unlimited" without
+				// risking overflow in the loop counter or downstream
+				// arithmetic. Real termination still relies on
+				// no-tool-calls-remain or context cancellation.
+				maxTurns = math.MaxInt32
+			}
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
 				Config:   cfg,
 				Model:    cfg.Defaults.Model,
 				Messages: append(priorMsgs, newUserMsg),
-				MaxTurns: runMaxTurns,
+				MaxTurns: maxTurns,
 				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
@@ -281,6 +291,8 @@ func init() {
 	runCmd.Flags().StringVar(&runSkill, "skill", "",
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
+	runCmd.Flags().BoolVar(&runNoTurnLimit, "no-turn-limit", false,
+		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Useful for long-running multi-step tasks where the cap is the wrong control surface (use --budget hard_usd or context timeout instead).")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable the bundled toolset with git-native audit")

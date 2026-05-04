@@ -14,6 +14,30 @@ import (
 
 const maxConfigFileBytes int64 = 1 << 20
 
+// WriteInferencePreset adds (or overwrites) [inference.presets.<name>]
+// in config.toml with the given endpoint + api_key_env. Used by
+// `stado config providers setup --write` so users don't have to
+// hand-edit TOML for known providers.
+func WriteInferencePreset(configPath, name, endpoint, apiKeyEnv string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("preset name is empty")
+	}
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return fmt.Errorf("preset endpoint is empty")
+	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		tree.SetPath([]string{"inference", "presets", name, "endpoint"}, endpoint)
+		if apiKeyEnv = strings.TrimSpace(apiKeyEnv); apiKeyEnv != "" {
+			tree.SetPath([]string{"inference", "presets", name, "api_key_env"}, apiKeyEnv)
+		}
+	})
+}
+
 // WriteDefaults updates [defaults] in config.toml. Empty values are ignored so
 // callers can persist only the setting they know.
 func WriteDefaults(configPath, provider, model string) error {

@@ -6,6 +6,38 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### CLI
+
+- **Added `stado config providers`** — list the bundled provider
+  catalogue (3 native + 7 OAI-compat cloud + 4 OAI-compat local)
+  with per-provider API-key status (✓ set / ✗ unset) and the
+  endpoint each preset points at. `stado config providers setup
+  <name>` prints copy-pasteable setup steps; `--write` adds the
+  `[inference.presets.<name>]` block to config.toml. Reuses the
+  existing `internal/config/provider_registry.go` so adding a new
+  provider is a one-place change. Operator request.
+
+- **Added `stado run --no-turn-limit`** — disables the max-turn
+  cap so the agent loop runs until no tool calls remain or the
+  context is cancelled. Useful for long-running multi-step tasks
+  where the turn cap is the wrong control surface (prefer budget
+  caps or context timeouts). Beats `--max-turns` when both set.
+  Operator request.
+
+### TUI
+
+- **Wider command palette** so long descriptions don't wrap as the
+  user moves through the list. Modal scales to 2/3 of screen,
+  clamped [64, 110] cols (was [48, 80]); inline cap raised 88 →
+  110. Operator-feedback report.
+
+- **Drop category headers from the slash-command popup while
+  filtering.** Categories ("Quick", "Session", "View") help
+  orient when browsing the full list (empty query) but add
+  clutter when the user is searching for a specific command.
+  Now: filtered → flat list of matches; browsing → grouped by
+  category. Operator-feedback report.
+
 ### Plugins
 
 - **`stado plugin run --with-tool-host` now supports `exec:bash`
