@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/pkg/tool"
@@ -65,6 +66,8 @@ func BuildRequestHandler(cfg ToolHostConfig) acp.RequestHandler {
 			return handleReadTextFile(ctx, cfg, params)
 		case "fs/write_text_file":
 			return handleWriteTextFile(ctx, cfg, params)
+		case "session/request_permission":
+			return handleRequestPermission(params)
 		default:
 			return nil, &acp.RPCError{
 				Code:    acp.CodeMethodNotFound,
@@ -72,6 +75,84 @@ func BuildRequestHandler(cfg ToolHostConfig) acp.RequestHandler {
 			}
 		}
 	}
+}
+
+// acpPermissionParams matches session/request_permission params:
+// `{sessionId, toolCall: {toolCallId, ...}, options: [{optionId, name, kind}]}`.
+type acpPermissionParams struct {
+	SessionID string                   `json:"sessionId"`
+	ToolCall  map[string]any           `json:"toolCall"`
+	Options   []acpPermissionOption    `json:"options"`
+}
+
+type acpPermissionOption struct {
+	OptionID string `json:"optionId"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+}
+
+// acpPermissionResult is the canonical response wrapping the chosen
+// option in an outer "outcome" object — `{outcome: {outcome:
+// "selected", optionId: "..."}}`. The double-nested "outcome" is
+// intentional per the spec: the inner discriminates between
+// "selected" (option chosen) and "cancelled" (prompt-turn
+// interrupted).
+type acpPermissionResult struct {
+	Outcome acpPermissionOutcome `json:"outcome"`
+}
+
+type acpPermissionOutcome struct {
+	Outcome  string `json:"outcome"`
+	OptionID string `json:"optionId,omitempty"`
+}
+
+// handleRequestPermission auto-approves with the most-permissive
+// "allow_always_server" / "allow_always" / "allow_once" option in
+// that priority order — stado's policy convention is auto-approve at
+// the Host layer (TUI's hostAdapter, runtime's autoApproveHost,
+// mcp-server's stadoMCPHost all do the same). The wrapped agent's
+// trust boundary is the user opting into `tools = "stado"`; once
+// they've done that, asking again per-call would defeat the
+// always-on automation goal of the integration.
+//
+// Falls back to "cancelled" if the agent didn't supply any allow-
+// shaped options (unusual but handled rather than panic).
+func handleRequestPermission(raw json.RawMessage) (any, error) {
+	var p acpPermissionParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, &acp.RPCError{
+			Code:    acp.CodeInvalidParams,
+			Message: "session/request_permission: " + err.Error(),
+		}
+	}
+
+	// Pick by kind in priority order — agents may name options
+	// differently (proceed_always_server vs allow_always vs
+	// allow-always), so kind is the stable selector.
+	preferenceOrder := []string{"allow_always", "allow_once"}
+	for _, kind := range preferenceOrder {
+		for _, opt := range p.Options {
+			if opt.Kind == kind {
+				return acpPermissionResult{Outcome: acpPermissionOutcome{
+					Outcome: "selected", OptionID: opt.OptionID,
+				}}, nil
+			}
+		}
+	}
+	// Some agents (gemini-cli observed) include a non-standard
+	// "allow_always_server" kind in addition to the canonical
+	// "allow_always". Match either via prefix.
+	for _, opt := range p.Options {
+		if strings.HasPrefix(opt.Kind, "allow_") {
+			return acpPermissionResult{Outcome: acpPermissionOutcome{
+				Outcome: "selected", OptionID: opt.OptionID,
+			}}, nil
+		}
+	}
+
+	// No allow option offered — return cancelled rather than
+	// guessing.
+	return acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}}, nil
 }
 
 // acpReadParams matches the canonical ACP fs/read_text_file shape:

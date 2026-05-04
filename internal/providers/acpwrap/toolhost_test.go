@@ -267,6 +267,104 @@ func TestHandlers_NilToolOrHost_InternalError(t *testing.T) {
 	}
 }
 
+func TestRequestPermission_PrefersAllowAlways(t *testing.T) {
+	h := BuildRequestHandler(ToolHostConfig{
+		ReadTool:  &fakeTool{},
+		WriteTool: &fakeTool{},
+		Host:      &stubHost{},
+	})
+	// Spec-canonical option set. Auto-approver must select an
+	// allow_always option (most permissive) over allow_once.
+	params := json.RawMessage(`{
+		"sessionId":"s1",
+		"toolCall":{"toolCallId":"c1"},
+		"options":[
+			{"optionId":"once","name":"Allow once","kind":"allow_once"},
+			{"optionId":"always","name":"Allow always","kind":"allow_always"},
+			{"optionId":"reject","name":"Reject","kind":"reject_once"}
+		]
+	}`)
+	got, err := h(context.Background(), "session/request_permission", params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	res, ok := got.(acpPermissionResult)
+	if !ok {
+		t.Fatalf("expected acpPermissionResult, got %T", got)
+	}
+	if res.Outcome.Outcome != "selected" {
+		t.Errorf("outcome.outcome = %q, want %q", res.Outcome.Outcome, "selected")
+	}
+	if res.Outcome.OptionID != "always" {
+		t.Errorf("optionId = %q, want %q (must prefer allow_always over allow_once)", res.Outcome.OptionID, "always")
+	}
+}
+
+func TestRequestPermission_FallsBackToAllowOnce(t *testing.T) {
+	h := BuildRequestHandler(ToolHostConfig{
+		ReadTool:  &fakeTool{},
+		WriteTool: &fakeTool{},
+		Host:      &stubHost{},
+	})
+	params := json.RawMessage(`{
+		"sessionId":"s1",
+		"toolCall":{"toolCallId":"c1"},
+		"options":[
+			{"optionId":"once","name":"Allow once","kind":"allow_once"},
+			{"optionId":"reject","name":"Reject","kind":"reject_once"}
+		]
+	}`)
+	got, _ := h(context.Background(), "session/request_permission", params)
+	res := got.(acpPermissionResult)
+	if res.Outcome.OptionID != "once" {
+		t.Errorf("optionId = %q, want %q", res.Outcome.OptionID, "once")
+	}
+}
+
+func TestRequestPermission_AcceptsNonStandardAllowKind(t *testing.T) {
+	// gemini-cli observed emitting non-canonical kinds like
+	// "allow_always_server". Ensure the prefix-fallback catches them
+	// rather than returning cancelled.
+	h := BuildRequestHandler(ToolHostConfig{
+		ReadTool:  &fakeTool{},
+		WriteTool: &fakeTool{},
+		Host:      &stubHost{},
+	})
+	params := json.RawMessage(`{
+		"sessionId":"s1",
+		"toolCall":{"toolCallId":"c1"},
+		"options":[
+			{"optionId":"server","name":"Allow all","kind":"allow_always_server"},
+			{"optionId":"reject","name":"Reject","kind":"reject_once"}
+		]
+	}`)
+	got, _ := h(context.Background(), "session/request_permission", params)
+	res := got.(acpPermissionResult)
+	if res.Outcome.OptionID != "server" {
+		t.Errorf("optionId = %q, want %q (prefix-match should catch allow_always_server)", res.Outcome.OptionID, "server")
+	}
+}
+
+func TestRequestPermission_NoAllowOption_ReturnsCancelled(t *testing.T) {
+	h := BuildRequestHandler(ToolHostConfig{
+		ReadTool:  &fakeTool{},
+		WriteTool: &fakeTool{},
+		Host:      &stubHost{},
+	})
+	params := json.RawMessage(`{
+		"sessionId":"s1",
+		"toolCall":{"toolCallId":"c1"},
+		"options":[
+			{"optionId":"reject","name":"Reject","kind":"reject_once"}
+		]
+	}`)
+	got, _ := h(context.Background(), "session/request_permission", params)
+	res := got.(acpPermissionResult)
+	if res.Outcome.Outcome != "cancelled" {
+		t.Errorf("outcome = %q, want %q (should refuse to invent an allow when none offered)", res.Outcome.Outcome, "cancelled")
+	}
+}
+
 func TestReadTextFile_HostPassedThrough(t *testing.T) {
 	// The translation layer must pass the configured Host through
 	// to the underlying tool unchanged — this is where the
