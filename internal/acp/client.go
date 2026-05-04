@@ -40,18 +40,31 @@ import (
 // should buffer or post to a channel.
 type SessionUpdateHandler func(sessionID string, update json.RawMessage)
 
+// RequestHandler is invoked when the wrapped agent sends an inbound
+// JSON-RPC request to stado-as-client. The handler runs on its own
+// goroutine — slow handlers do NOT block the client's read loop. The
+// returned `result` is JSON-marshalled into the response; returning a
+// non-nil error produces a JSON-RPC error response (use *RPCError to
+// pick the code, otherwise CodeInternalError is used).
+//
+// Phase B of EP-0032 wires this to dispatch fs.readTextFile,
+// fs.writeTextFile, terminal/* method families to stado's tool
+// registry. See `internal/acp/toolhost.go`.
+type RequestHandler func(ctx context.Context, method string, params json.RawMessage) (any, error)
+
 // Client is a JSON-RPC 2.0 client speaking the Zed-canonical ACP
 // dialect to a wrapped agent's stdio.
 type Client struct {
 	w  io.Writer
 	br *bufio.Reader
 
-	mu       sync.Mutex
-	nextID   atomic.Int64
-	pending  map[int64]chan rpcReply
-	handler  SessionUpdateHandler
-	closed   atomic.Bool
-	closeErr error
+	mu         sync.Mutex
+	nextID     atomic.Int64
+	pending    map[int64]chan rpcReply
+	handler    SessionUpdateHandler
+	reqHandler RequestHandler
+	closed     atomic.Bool
+	closeErr   error
 }
 
 type rpcReply struct {
@@ -71,6 +84,18 @@ func NewClient(r io.Reader, w io.Writer, onUpdate SessionUpdateHandler) *Client 
 	}
 	go c.readLoop()
 	return c
+}
+
+// SetRequestHandler installs a handler for inbound requests from the
+// wrapped agent. Must be called before the agent starts sending
+// requests (i.e. before Initialize). After the handler is set, any
+// inbound request whose method+id are both populated is dispatched
+// to it on a fresh goroutine; requests received with no handler set
+// receive a CodeMethodNotFound error response.
+func (c *Client) SetRequestHandler(h RequestHandler) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reqHandler = h
 }
 
 // Close stops the read loop and rejects any pending requests with
@@ -122,6 +147,13 @@ func (c *Client) readLoop() {
 			c.dispatchNotification(probe.Method, probe.Params)
 			continue
 		}
+		if probe.Method != "" && probe.ID != nil {
+			// Inbound request from the wrapped agent. Dispatch on a
+			// fresh goroutine so a slow handler doesn't block the
+			// read loop (the agent may pipeline requests).
+			c.dispatchRequest(*probe.ID, probe.Method, probe.Params)
+			continue
+		}
 		if probe.ID != nil {
 			c.mu.Lock()
 			ch, ok := c.pending[*probe.ID]
@@ -132,6 +164,32 @@ func (c *Client) readLoop() {
 			}
 		}
 	}
+}
+
+func (c *Client) dispatchRequest(id int64, method string, params json.RawMessage) {
+	c.mu.Lock()
+	h := c.reqHandler
+	c.mu.Unlock()
+	if h == nil {
+		c.writeResponse(id, nil, &RPCError{
+			Code:    CodeMethodNotFound,
+			Message: "no inbound request handler registered",
+		})
+		return
+	}
+	go func() {
+		result, err := h(context.Background(), method, params)
+		if err != nil {
+			var rpcErr *RPCError
+			if errors.As(err, &rpcErr) {
+				c.writeResponse(id, nil, rpcErr)
+			} else {
+				c.writeResponse(id, nil, &RPCError{Code: CodeInternalError, Message: err.Error()})
+			}
+			return
+		}
+		c.writeResponse(id, result, nil)
+	}()
 }
 
 func (c *Client) dispatchNotification(method string, params json.RawMessage) {
@@ -190,6 +248,34 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 		}
 		return reply.result, nil
 	}
+}
+
+// writeResponse sends a JSON-RPC 2.0 response for an inbound request
+// — used by dispatchRequest only. Exactly one of result or rpcErr is
+// non-nil. A nil result on success serialises as `"result": null`,
+// which is required by the spec when the operation succeeded but
+// produced no value.
+func (c *Client) writeResponse(id int64, result any, rpcErr *RPCError) {
+	if c.closed.Load() {
+		return
+	}
+	resp := struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      int64           `json:"id"`
+		Result  json.RawMessage `json:"result,omitempty"`
+		Error   *RPCError       `json:"error,omitempty"`
+	}{JSONRPC: "2.0", ID: id}
+	if rpcErr != nil {
+		resp.Error = rpcErr
+	} else {
+		buf, err := json.Marshal(result)
+		if err != nil {
+			resp.Error = &RPCError{Code: CodeInternalError, Message: "marshal result: " + err.Error()}
+		} else {
+			resp.Result = buf
+		}
+	}
+	_ = c.writeMessage(resp)
 }
 
 func (c *Client) writeMessage(v any) error {
