@@ -52,6 +52,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 | 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
 | 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Implemented |
+| 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
+| 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Placeholder |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

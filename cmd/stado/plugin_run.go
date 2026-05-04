@@ -100,6 +100,12 @@ var pluginRunCmd = &cobra.Command{
 			workdir = abs
 		}
 		host := pluginRuntime.NewHost(*m, workdir, nil)
+		// EP-0029: populate StateDir so plugins declaring `cfg:state_dir`
+		// get the operator's stado state-dir path back from
+		// stado_cfg_state_dir. Cheap unconditional set — the host
+		// import is only registered when the manifest declares the
+		// capability, so this is a no-op for plugins that don't.
+		host.StateDir = cfg.StateDir()
 
 		// EP-0028: refuse `exec:bash` under --with-tool-host BEFORE
 		// constructing the wasm runtime, so the user gets a clean

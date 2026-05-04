@@ -64,6 +64,18 @@ Plugins / Infra / Fixes.
   and `[tools].overrides` for transparent bundled-tool replacement.
   Solves the "Anthropic WebFetch hard-codes a 15-min TTL" friction
   documented in the round-1 dogfood notes.
+- **New `cfg:*` capability vocabulary — first concrete capability
+  `cfg:state_dir`.** Introduces a read-only configuration-introspection
+  surface for plugins. The `cfg:state_dir` capability gates the
+  `stado_cfg_state_dir(buf, cap) → int32` host import, which writes
+  the operator's stado state-dir path (`$XDG_DATA_HOME/stado/` or
+  fallback) into the caller's buffer. Unblocks the lean-core
+  migration of operator-tooling commands (`plugin doctor`,
+  `plugin gc`, future `plugin info`) from `cmd/stado/` to bundled
+  plugins under `plugins/default/` — those tools all need to learn
+  the install dir at `<state-dir>/plugins/`. EP-0029 documents the
+  capability vocabulary; future `cfg:config_dir`, `cfg:worktree_dir`,
+  etc. follow the same per-field opt-in pattern (no globs).
 
 ### Fixes
 

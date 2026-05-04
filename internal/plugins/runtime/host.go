@@ -82,6 +82,24 @@ type Host struct {
 	ExecASTGrep bool
 	LSPQuery    bool
 	UIApproval  bool
+	// CfgStateDir is set by the `cfg:state_dir` capability and gates
+	// the `stado_cfg_state_dir` host import. EP-0029. Operator-tooling
+	// plugins (doctor, gc, info — currently in core, candidates for
+	// migration) need to learn the install dir at
+	// `<state-dir>/plugins/`; without this, those tools cannot exist
+	// outside core. The capability is read-only; combined with
+	// `fs:read:<returned-path>` it lets a plugin enumerate other
+	// installed plugins. Operator opts in by trusting the signer.
+	CfgStateDir bool
+
+	// StateDir is the actual path returned to the plugin via
+	// `stado_cfg_state_dir` when CfgStateDir is true. Populated by
+	// the host caller (cmd/stado/plugin_run.go from cfg.StateDir(),
+	// the bundled-tool wrappers from their runtime context) before
+	// InstallHostImports. Empty string is valid; the host import
+	// returns "" to the plugin and the plugin can fall back to
+	// whatever degraded path it has.
+	StateDir string
 
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
@@ -220,6 +238,13 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 		case "ui":
 			if parts[1] == "approval" {
 				h.UIApproval = true
+			}
+		case "cfg":
+			// Read-only configuration introspection. EP-0029. Each
+			// `cfg:<name>` entry maps to one Host bool that gates one
+			// host import returning the named string.
+			if parts[1] == "state_dir" {
+				h.CfgStateDir = true
 			}
 		}
 	}

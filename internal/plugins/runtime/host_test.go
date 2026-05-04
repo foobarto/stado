@@ -27,6 +27,7 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 			"memory:propose",
 			"memory:read",
 			"memory:write",
+			"cfg:state_dir",
 			"net:deny",  // skipped — plugin-level "deny" isn't a useful allow entry
 			"net:allow", // skipped — too permissive for plugins
 			"malformed", // no colon → skipped
@@ -56,6 +57,9 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	}
 	if !h.MemoryPropose || !h.MemoryRead || !h.MemoryWrite {
 		t.Errorf("memory caps not parsed: propose=%v read=%v write=%v", h.MemoryPropose, h.MemoryRead, h.MemoryWrite)
+	}
+	if !h.CfgStateDir {
+		t.Error("CfgStateDir should be enabled by `cfg:state_dir`")
 	}
 	if !h.NeedsMemoryBridge() {
 		t.Error("NeedsMemoryBridge should be true when memory caps are declared")
