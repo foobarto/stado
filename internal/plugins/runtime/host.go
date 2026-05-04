@@ -168,7 +168,19 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			if len(parts) != 3 {
 				continue
 			}
-			scope := normaliseCapabilityPath(workdir, parts[2])
+			path := parts[2]
+			var scope string
+			if strings.HasPrefix(path, "cfg:") {
+				// Path-template prefix; resolution is deferred to
+				// allowRead/allowWrite because the host caller may
+				// populate the cfg field (h.StateDir, etc.) AFTER
+				// NewHost. Stored as-is; expansion happens at the
+				// allow-list check via h.expandFSEntry. EP-0029
+				// §"Future capabilities".
+				scope = path
+			} else {
+				scope = normaliseCapabilityPath(workdir, path)
+			}
 			switch parts[1] {
 			case "read":
 				h.FSRead = append(h.FSRead, scope)
@@ -259,8 +271,60 @@ func (h *Host) NeedsMemoryBridge() bool {
 // matching is prefix-based on absolute paths — a manifest entry of
 // `/home/user/projects` allows any file under that tree. Glob support
 // can be added later if real plugins ask for it.
-func (h *Host) allowRead(abs string) bool  { return pathAllowed(abs, h.FSRead) }
-func (h *Host) allowWrite(abs string) bool { return pathAllowed(abs, h.FSWrite) }
+func (h *Host) allowRead(abs string) bool  { return h.pathAllowedExpanded(abs, h.FSRead) }
+func (h *Host) allowWrite(abs string) bool { return h.pathAllowedExpanded(abs, h.FSWrite) }
+
+// pathAllowedExpanded is pathAllowed plus on-the-fly expansion of
+// cfg:* path-template entries against h's populated cfg fields.
+// Entries that fail to expand (cfg cap not declared, value not
+// populated, unknown cfg name) are silently filtered — the plugin
+// sees the same denied result as if the entry weren't in the
+// allow-list. EP-0029 §"Future capabilities".
+func (h *Host) pathAllowedExpanded(abs string, allow []string) bool {
+	for _, a := range allow {
+		expanded := h.expandFSEntry(a)
+		if expanded == "" {
+			continue
+		}
+		if expanded == abs || strings.HasPrefix(abs, strings.TrimRight(expanded, "/")+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// expandFSEntry resolves a `cfg:<name>[/<sub-path>]` path-template
+// entry against h's populated cfg fields. Entries without the cfg:
+// prefix are returned as-is. Returns "" when expansion isn't
+// possible (cap not declared, value empty, unknown name) — the
+// caller treats that as "no match".
+//
+// Supported names (extends as new cfg:* capabilities ship):
+//   - state_dir → h.StateDir (requires cfg:state_dir cap)
+func (h *Host) expandFSEntry(raw string) string {
+	if !strings.HasPrefix(raw, "cfg:") {
+		return raw
+	}
+	rest := raw[len("cfg:"):]
+	name, sub, _ := strings.Cut(rest, "/")
+	var value string
+	switch name {
+	case "state_dir":
+		if !h.CfgStateDir {
+			return ""
+		}
+		value = h.StateDir
+	default:
+		return ""
+	}
+	if value == "" {
+		return ""
+	}
+	if sub == "" {
+		return value
+	}
+	return filepath.Clean(value + "/" + sub)
+}
 
 func pathAllowed(abs string, allow []string) bool {
 	for _, a := range allow {
