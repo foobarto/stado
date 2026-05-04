@@ -9,6 +9,12 @@ history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Phase A landed in v0.27.0 with `gemini --acp` end-to-end working through stado's TUI/run.
+  - date: 2026-05-04
+    status: Draft
+    note: Phase B design locked at A+C (ACP fs capabilities + MCP server mount). Decision log D6/D7 added.
+  - date: 2026-05-04
+    status: Draft
+    note: Phase B implementation v1 landed across 5 commits (c1f235d, cd18daa, 73bc1f1, edc854e, cdd4938) — inbound dispatch, fs/* translator, universal mcp-server upgrade (Executor + sandbox), MCP mount builder, provider wiring under Tools="stado". Terminal/* ACP methods deferred (MCP-mounted bash covers shell routing). End-to-end smoke against a real wrapped agent pending dogfood.
 see-also: [0005, 0006]
 ---
 
