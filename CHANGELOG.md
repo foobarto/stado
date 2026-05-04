@@ -28,6 +28,14 @@ Plugins / Infra / Fixes.
   agent loop normally provides is not available here — those need to
   run via `stado run` (EP-0005 forbids substituting human approval
   for runtime policy). EP-0028 walks through the design.
+- **Added `stado plugin gc [--keep N] [--apply]`.** Sweeps older
+  installed plugin versions per (signer fingerprint, manifest name)
+  group, keeping the `--keep` newest (default 1). Dry-run by default;
+  `--apply` actually deletes. Trust-store entries and rollback pins
+  are deliberately untouched, so a freshly-deleted older version
+  still cannot be reinstalled. Solves the "`plugin installed` shows
+  `htb-cve-lookup-0.1.0`, `-0.2.0`, `-0.3.0` after enough iteration"
+  authoring-loop pain.
 
 ### Plugins
 

@@ -114,7 +114,8 @@ Installed plugin IDs match the directory names under the state dir, so
 | `stado plugin installed` | Show installed plugin IDs |
 | `stado plugin verify <dir>` | Verify a plugin directory in place |
 | `stado plugin install <dir>` | Verify, then copy into the state dir |
-| `stado plugin run [--session <id>] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
+| `stado plugin run [--session <id>] [--workdir <path>] [--with-tool-host] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
+| `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
 
 ## Using plugins from the TUI
 
@@ -167,6 +168,24 @@ Relevant `config.toml` sections:
 - **`plugin run` without `--session` is not a live session.** If a
   plugin needs `session:*` or `llm:invoke`, either pass `--session <id>`
   or run it from the TUI/headless surfaces.
+- **`plugin run` without `--with-tool-host` can't invoke bundled tool
+  imports.** Plugins that import `stado_http_get`, `stado_fs_tool_*`,
+  `stado_lsp_*`, or `stado_search_*` see a "plugin host has no tool
+  runtime context" error unless `--with-tool-host` is passed. The
+  flag is opt-in because it widens the host import surface; it
+  refuses plugins that declare `exec:bash` (no `sandbox.Runner` is
+  available — use `stado run` for those). EP-0028.
+- **`plugin run --workdir` defaults to the plugin's install dir, not
+  the operator's CWD.** Plugins that scope `fs:read:.` to project
+  files (htb-cve-lookup-style lookups against the operator's repo)
+  need `--workdir=$PWD` to resolve relative paths against the
+  operator's environment instead of `<state-dir>/plugins/<id>/`.
+  EP-0027.
+- **`plugin gc` is dry-run by default.** Pass `--apply` to actually
+  delete. `--keep` (default 1) controls how many newest versions to
+  preserve per (signer, name) group. Trust-store entries and
+  rollback pins are not touched, so a freshly-deleted older version
+  still cannot be reinstalled by accident.
 
 ## See also
 

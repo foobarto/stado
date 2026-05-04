@@ -25,6 +25,7 @@ func init() {
 	pluginSignCmd.Flags().StringVar(&pluginSignWasm, "wasm", "",
 		"Path to the plugin wasm binary (default: <manifest-dir>/plugin.wasm)")
 	pluginCmd.AddCommand(pluginTrustCmd, pluginUntrustCmd, pluginListCmd, pluginInstalledCmd, pluginVerifyCmd,
-		pluginDigestCmd, pluginInstallCmd, pluginRunCmd, pluginGenKeyCmd, pluginSignCmd)
+		pluginDigestCmd, pluginInstallCmd, pluginRunCmd, pluginGenKeyCmd, pluginSignCmd,
+		pluginGCCmd)
 	rootCmd.AddCommand(pluginCmd)
 }
