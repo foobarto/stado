@@ -16,6 +16,14 @@ import (
 // Must be called BEFORE Instantiate(wasmBytes, ...) so the plugin can
 // resolve the imports at link time.
 func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
+	// Wire runtime-scoped resources onto the per-instantiation host.
+	// PTY registry is shared across plugin instances (so a session
+	// created in one tool call survives the wasm instance freshness
+	// and is reachable from later calls).
+	if host.ExecPTY && host.PTYManager == nil {
+		host.PTYManager = r.pty
+	}
+
 	builder := r.rt.NewHostModuleBuilder(NamespaceStado)
 
 	registerLogImport(builder, host)
@@ -25,6 +33,7 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerLLMImport(builder, host)
 	registerMemoryImports(builder, host)
 	registerCfgImports(builder, host)
+	registerPTYImports(builder, host)
 	installNativeToolImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {

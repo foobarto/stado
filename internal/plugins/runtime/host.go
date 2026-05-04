@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -80,8 +81,15 @@ type Host struct {
 	ExecBash    bool
 	ExecSearch  bool
 	ExecASTGrep bool
+	ExecPTY     bool
 	LSPQuery    bool
 	UIApproval  bool
+
+	// PTYManager is the runtime-shared registry of PTY-backed
+	// processes; survives plugin instantiation freshness so a session
+	// created in one tool call can be driven from later calls.
+	// Wired by the runtime when ExecPTY is granted; nil otherwise.
+	PTYManager *pty.Manager
 	// CfgStateDir is set by the `cfg:state_dir` capability and gates
 	// the `stado_cfg_state_dir` host import. EP-0029. Operator-tooling
 	// plugins (doctor, gc, info — currently in core, candidates for
@@ -242,6 +250,8 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.ExecSearch = true
 			case "ast_grep":
 				h.ExecASTGrep = true
+			case "pty":
+				h.ExecPTY = true
 			}
 		case "lsp":
 			if parts[1] == "query" {

@@ -6,6 +6,34 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugins
+
+- **`exec:pty` capability + nine new host imports for persistent
+  shell sessions.** `stado_pty_create / list / attach / detach /
+  write / read / signal / resize / destroy` expose a runtime-shared
+  PTY registry (`internal/plugins/runtime/pty/Manager`) that survives
+  plugin instantiation freshness — sessions created in one tool call
+  remain reachable from later calls. Per-session ring buffer (default
+  64 KiB, configurable 4 KiB-4 MiB, terminal-scrollback semantics)
+  captures output while detached so reattach replays the backlog.
+  Single-attach-at-a-time per session with `force=true` recovery
+  path for "previous attacher crashed without detaching". Reaper hook
+  on `Runtime.Close` cleans up orphans.
+
+- **New example plugin: `persistent-shell-0.1.0`.** Wraps the
+  `exec:pty` host imports as nine plugin tools (`shell_create`,
+  `shell_list`, `shell_attach`, `shell_detach`, `shell_write`,
+  `shell_read`, `shell_signal`, `shell_resize`, `shell_destroy`).
+  Replaces the fresh-process-per-call shape of `stado_exec_bash` for
+  workflows that need interactive stdin/stdout across tool calls —
+  driving `ssh` sessions, watching `nc` listeners, running
+  `msfconsole` step-by-step, attaching to long-running TUIs.
+  Base64-or-string data wire format supports both UTF-8 commands and
+  raw bytes (Ctrl-C, terminal escape sequences). Minimal Go-→-wasm
+  plugin modeled after `webfetch-cached`. See
+  `plugins/examples/persistent-shell/README.md` for workflow
+  patterns.
+
 ### Providers
 
 - **ACP client — wrap external coding-agent CLIs as stado providers

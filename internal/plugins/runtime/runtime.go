@@ -31,6 +31,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 )
 
 // Runtime is the process-lifetime wazero host. Safe for concurrent Use
@@ -41,6 +42,12 @@ type Runtime struct {
 	closed  bool
 	mu      sync.Mutex
 	modules map[string]*Module // keyed by manifest.Name + "-" + manifest.Version
+
+	// pty is the runtime-shared registry of PTY-backed processes
+	// driven by the persistent-shell plugin. One per Runtime, lifetime
+	// = Runtime; CloseAll runs on Close to reap any orphans the
+	// plugin didn't destroy explicitly.
+	pty *pty.Manager
 }
 
 // New allocates a fresh wazero runtime with WASI preview 1 preloaded.
@@ -58,8 +65,14 @@ func New(ctx context.Context) (*Runtime, error) {
 	return &Runtime{
 		rt:      rt,
 		modules: make(map[string]*Module),
+		pty:     pty.NewManager(),
 	}, nil
 }
+
+// PTYManager exposes the runtime's PTY registry. Returns nil only on
+// a runtime constructed by tests that bypassed New(); production
+// callers can rely on it being non-nil.
+func (r *Runtime) PTYManager() *pty.Manager { return r.pty }
 
 // Close terminates the runtime + every instantiated module. Safe to
 // call more than once.
@@ -76,6 +89,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 		_ = m.Close(ctx)
 	}
 	r.modules = nil
+	if r.pty != nil {
+		r.pty.CloseAll()
+	}
 	return r.rt.Close(ctx)
 }
 

@@ -1,0 +1,60 @@
+{
+  "name": "persistent-shell",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "exec:pty"
+  ],
+  "tools": [
+    {
+      "name": "shell_create",
+      "description": "Create a new PTY-backed shell session and return its id. Session starts detached; output is captured in a per-session ring buffer (default 64 KiB) until someone attaches and reads. Pass either argv (preferred — no shell-quoting hazard) or cmd (passed to /bin/sh -c).",
+      "schema": "{\"type\":\"object\",\"properties\":{\"argv\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"argv vector. argv[0] is the executable.\"},\"cmd\":{\"type\":\"string\",\"description\":\"shell command line. Used only if argv is unset; runs under /bin/sh -c.\"},\"env\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"NAME=value pairs. Replaces, doesn't extend, the host environment.\"},\"cwd\":{\"type\":\"string\"},\"cols\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":65535},\"rows\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":65535},\"buffer_bytes\":{\"type\":\"integer\",\"description\":\"Per-session output ring capacity (4 KiB-4 MiB; default 64 KiB).\"}}}"
+    },
+    {
+      "name": "shell_list",
+      "description": "List all live sessions in the runtime's PTY registry. Each entry has id, cmd, alive, attached, started_at, buffered (bytes ready to read), dropped (bytes lost to ring overflow), and exit_code if the session has ended.",
+      "schema": "{\"type\":\"object\",\"properties\":{}}"
+    },
+    {
+      "name": "shell_attach",
+      "description": "Claim a session for read/write. Single-attach-at-a-time; fails with 'already attached' unless force=true. Force is the recovery path for 'previous attacher crashed without detaching'.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"force\":{\"type\":\"boolean\"}},\"required\":[\"id\"]}"
+    },
+    {
+      "name": "shell_detach",
+      "description": "Release the attach lock. Session keeps running, output keeps buffering up to ring capacity. Re-attach later replays the buffered bytes.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}"
+    },
+    {
+      "name": "shell_write",
+      "description": "Write bytes to the session's stdin. Caller must be attached. Provide either data (UTF-8 string, newlines preserved) or data_b64 (base64 for raw bytes — Ctrl-C, escape sequences, binary).",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"data\":{\"type\":\"string\"},\"data_b64\":{\"type\":\"string\"}},\"required\":[\"id\"]}"
+    },
+    {
+      "name": "shell_read",
+      "description": "Read up to max_bytes from the session, blocking up to timeout_ms for new bytes. Returns the buffered ring contents first then live bytes. Returns eof:true when the session is dead and the ring is drained. data_b64 is always populated; data is populated when the bytes look like plain text.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"max_bytes\":{\"type\":\"integer\"},\"timeout_ms\":{\"type\":\"integer\"}},\"required\":[\"id\"]}"
+    },
+    {
+      "name": "shell_signal",
+      "description": "Send a POSIX signal to the session's child process. Common values: 2=SIGINT (Ctrl-C), 9=SIGKILL, 15=SIGTERM (default). Doesn't require attach — Ctrl-C is out-of-band.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"sig\":{\"type\":\"integer\",\"description\":\"POSIX signal number; default 15 (SIGTERM).\"}},\"required\":[\"id\"]}"
+    },
+    {
+      "name": "shell_resize",
+      "description": "Set the PTY's window size. Needed for full-screen TUIs (vim, htop, less) to render correctly. Doesn't require attach.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"},\"cols\":{\"type\":\"integer\"},\"rows\":{\"type\":\"integer\"}},\"required\":[\"id\",\"cols\",\"rows\"]}"
+    },
+    {
+      "name": "shell_destroy",
+      "description": "Terminate the session: SIGTERM, 2-second grace, then SIGKILL. Drops it from the registry. Idempotent.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"integer\"}},\"required\":[\"id\"]}"
+    }
+  ],
+  "min_stado_version": "0.27.0",
+  "timestamp_utc": "2026-05-04T19:30:00Z",
+  "nonce": "persistent-shell-demo-001"
+}
