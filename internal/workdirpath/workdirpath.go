@@ -28,7 +28,16 @@ func Resolve(workdir, path string, allowMissing bool) (string, error) {
 	if workdir == "" {
 		return "", errors.New("workdir unavailable")
 	}
-	root, err := filepath.EvalSymlinks(workdir)
+	// Canonicalise to absolute BEFORE EvalSymlinks. Go 1.25+
+	// changed EvalSymlinks to preserve relative-input shape on
+	// output; the prefix-confinement check below assumes root is
+	// absolute, otherwise a relative resolved path that's truly
+	// under workdir gets misidentified as an escape.
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.EvalSymlinks(absWorkdir)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +80,13 @@ func RootRel(workdir, path string, allowMissing bool) (root, rel string, err err
 	if workdir == "" {
 		return "", "", errors.New("workdir unavailable")
 	}
-	root, err = filepath.EvalSymlinks(workdir)
+	// See Resolve — Go 1.25+ preserves EvalSymlinks input shape;
+	// canonicalise to absolute first so the Rel below works.
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return "", "", err
+	}
+	root, err = filepath.EvalSymlinks(absWorkdir)
 	if err != nil {
 		return "", "", err
 	}
@@ -643,7 +658,13 @@ func RootRelForWrite(workdir, path string) (root, rel string, err error) {
 	if strings.Contains(path, "\x00") {
 		return "", "", fmt.Errorf("path %q contains NUL", path)
 	}
-	root, err = filepath.EvalSymlinks(workdir)
+	// See Resolve — Go 1.25+ preserves EvalSymlinks input shape;
+	// canonicalise to absolute first so the Rel below works.
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return "", "", err
+	}
+	root, err = filepath.EvalSymlinks(absWorkdir)
 	if err != nil {
 		return "", "", err
 	}
