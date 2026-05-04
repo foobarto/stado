@@ -38,12 +38,23 @@ func (d Detection) Installed() bool {
 // returns a Detection per entry, in registry order. Honors ctx for
 // cancellation; per-binary version probes use a fixed 2s sub-timeout
 // so a hung CLI doesn't stall the whole detection sweep.
+//
+// Binary lookup order: WellKnownPaths first (they're typically the
+// canonical install location for agents that install outside PATH),
+// then PATH via exec.LookPath. This order matters when the user has
+// a broken shim on PATH that shadows a working install — hermes is
+// the prototypical case (~/.local/bin/hermes is sometimes a stale
+// Python wrapper while ~/.hermes/hermes-agent/hermes is the real
+// binary).
 func Detect(ctx context.Context) []Detection {
 	known := KnownIntegrations()
 	out := make([]Detection, 0, len(known))
 	for _, in := range known {
 		d := Detection{Integration: in}
-		d.BinaryPath = lookupFirstBinary(in.Binaries)
+		d.BinaryPath = lookupFirstWellKnown(in.WellKnownPaths)
+		if d.BinaryPath == "" {
+			d.BinaryPath = lookupFirstBinary(in.Binaries)
+		}
 		d.ConfigPathsFound = findExistingConfigPaths(in.ConfigPaths)
 		if d.BinaryPath != "" && in.VersionArg != "" {
 			d.Version = probeVersion(ctx, d.BinaryPath, in.VersionArg)
@@ -51,6 +62,33 @@ func Detect(ctx context.Context) []Detection {
 		out = append(out, d)
 	}
 	return out
+}
+
+func lookupFirstWellKnown(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+	for _, p := range paths {
+		if strings.HasPrefix(p, "~/") && home != "" {
+			p = filepath.Join(home, p[2:])
+		}
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		// Must be a regular file with at least one execute bit set.
+		// Symlinks are followed by os.Stat which is what we want for
+		// "the install can be a symlink to the real binary".
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			continue
+		}
+		return p
+	}
+	return ""
 }
 
 // DetectInstalled is a convenience filter that returns only the

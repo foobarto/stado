@@ -40,6 +40,14 @@ type Integration struct {
 	// for Windows-friendly detection (we still only test exec.LookPath).
 	Binaries []string
 
+	// WellKnownPaths lists absolute paths (with `~/` prefix-expansion)
+	// where this agent's binary commonly lives even when not on PATH.
+	// Hermes installs at ~/.hermes/hermes-agent/hermes; opencode at
+	// ~/.opencode/bin/opencode; etc. Detection checks these BEFORE
+	// PATH so a broken shim on PATH (we've seen Python wrappers with
+	// ModuleNotFoundError) doesn't shadow a working install.
+	WellKnownPaths []string
+
 	// ConfigPaths lists XDG-style relative paths under HOME / XDG_CONFIG_HOME
 	// that, if present, indicate the agent is installed and configured.
 	// Used for detection signal even when the binary isn't on PATH (e.g.
@@ -109,6 +117,16 @@ func KnownIntegrations() []Integration {
 			Protocols:   []Protocol{ProtocolACP},
 			HelpURL:     "https://zed.dev/",
 			VersionArg:  "--version",
+		},
+		{
+			Name:           "hermes",
+			DisplayName:    "Hermes Agent",
+			Binaries:       []string{"hermes"},
+			WellKnownPaths: []string{"~/.hermes/hermes-agent/hermes"},
+			ConfigPaths:    []string{".hermes", ".config/hermes"},
+			Protocols:      []Protocol{ProtocolACP},
+			HelpURL:        "https://hermes.run/",
+			VersionArg:     "--version",
 		},
 		{
 			Name:        "aider",
