@@ -66,6 +66,33 @@ type Config struct {
 	// the parent's PATH/HOME/etc by default; explicit entries here
 	// override.
 	Env []string
+
+	// Tools selects the tool-host policy. Values:
+	//   "agent" (default) — wrapped agent uses its own tool stack;
+	//                       stado audits at the prompt boundary only
+	//                       (phase A, EP-0032 D1).
+	//   "stado"           — stado advertises fs.readTextFile and
+	//                       fs.writeTextFile via initialize, AND
+	//                       mounts a stado-as-MCP-server in
+	//                       session/new.mcpServers. The wrapped
+	//                       agent's calls through these channels
+	//                       route through stado's Executor (audit +
+	//                       sandbox); see EP-0032 phase B / D6 / D7.
+	//
+	// Tools = "stado" is opt-in. The wrapped agent retains its own
+	// built-in tools unless its CLI is invoked with built-in-
+	// disabling flags (e.g. `--tool-policy=external-only`); see
+	// EP-0032 phase B "Tool-call routing semantics".
+	Tools string
+
+	// ToolHostCfg supplies the read/write tools and Host that
+	// inbound fs/* ACP requests dispatch to. Required when
+	// Tools = "stado"; ignored otherwise. Caller (the higher-level
+	// wiring in internal/runtime or similar) builds this with the
+	// real ReadTool, WriteTool, and a Host that exposes the sandbox
+	// runner so bash gets confined when the wrapped agent reaches
+	// the MCP-mounted bash tool through Executor.Run.
+	ToolHostCfg ToolHostConfig
 }
 
 // Provider is the agent.Provider implementation.
@@ -229,17 +256,53 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 
 	client := acp.NewClient(stdout, stdin, p.handleUpdate)
 
-	initRes, err := client.Initialize(ctx, acp.ClientInitializeParams{
+	// Tools = "stado": install the inbound RequestHandler BEFORE
+	// initialize so any inbound requests the wrapped agent issues
+	// during handshake are dispatched, not rejected with
+	// MethodNotFound. Then advertise fs.readTextFile and
+	// fs.writeTextFile in clientCapabilities so spec-compliant
+	// agents know they may emit fs/* requests against us.
+	initParams := acp.ClientInitializeParams{
 		ProtocolVersion: 1,
 		ClientInfo:      &acp.ClientInfo{Name: "stado", Version: "0.27.0"},
-	})
+	}
+	if p.cfg.Tools == "stado" {
+		client.SetRequestHandler(BuildRequestHandler(p.cfg.ToolHostCfg))
+		initParams.ClientCapabilities = acp.ClientCapabilities{
+			FS: &acp.ClientFSCapabilities{
+				ReadTextFile:  true,
+				WriteTextFile: true,
+			},
+		}
+	}
+
+	initRes, err := client.Initialize(ctx, initParams)
 	if err != nil {
 		_ = client.Close(err)
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("acpwrap: initialize: %w", err)
 	}
 
-	sessionID, err := client.SessionNew(ctx, cwd)
+	// Tools = "stado": mount stado-as-MCP-server in session/new so the
+	// wrapped agent's LLM sees stado's full registry as MCP-callable
+	// tools (the C in EP-0032 phase B's A+C design).
+	var mcpServers []any
+	if p.cfg.Tools == "stado" {
+		mount, mountErr := BuildStadoMCPMount(nil)
+		if mountErr != nil {
+			_ = client.Close(mountErr)
+			_ = cmd.Process.Kill()
+			return fmt.Errorf("acpwrap: build mcp mount: %w", mountErr)
+		}
+		if validateErr := validateMount(mount); validateErr != nil {
+			_ = client.Close(validateErr)
+			_ = cmd.Process.Kill()
+			return fmt.Errorf("acpwrap: validate mcp mount: %w", validateErr)
+		}
+		mcpServers = []any{mount}
+	}
+
+	sessionID, err := client.SessionNewWithMCPServers(ctx, cwd, mcpServers)
 	if err != nil {
 		_ = client.Close(err)
 		_ = cmd.Process.Kill()

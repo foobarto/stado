@@ -304,10 +304,28 @@ type ClientInitializeParams struct {
 }
 
 type ClientCapabilities struct {
-	// Empty for the proof-of-concept — stado-as-client doesn't yet
-	// advertise any tool-host capabilities back to the wrapped agent.
-	// Phase B (per the user's plan) will populate this so wrapped
-	// agents can call stado's tool registry via ACP.
+	// FS advertises filesystem capabilities to the wrapped agent.
+	// When set, the agent may emit fs/read_text_file and
+	// fs/write_text_file requests; stado dispatches them to its tool
+	// registry through the configured RequestHandler. Spec:
+	// https://agentclientprotocol.com/protocol/file-system
+	FS *ClientFSCapabilities `json:"fs,omitempty"`
+
+	// Terminal advertises shell-execution capability. Reserved for a
+	// later phase B revision; today stado does NOT advertise terminal
+	// (wrapped agent uses its built-in shell or stado's bash via the
+	// MCP-mounted registry).
+	Terminal bool `json:"terminal,omitempty"`
+}
+
+// ClientFSCapabilities is the shape spec-compliant agents check at
+// initialize time before emitting fs/* requests. Both flags must
+// match a corresponding RequestHandler entry — advertising
+// readTextFile=true while having no fs/read_text_file dispatcher
+// would cause the agent to call into a void.
+type ClientFSCapabilities struct {
+	ReadTextFile  bool `json:"readTextFile,omitempty"`
+	WriteTextFile bool `json:"writeTextFile,omitempty"`
 }
 
 type ClientInfo struct {
@@ -364,9 +382,28 @@ type SessionNewResult struct {
 	SessionID string `json:"sessionId"`
 }
 
-// SessionNew creates a new session on the wrapped agent.
+// SessionNew creates a new session on the wrapped agent. Equivalent
+// to SessionNewWithMCPServers(ctx, cwd, nil) — the agent gets an
+// empty mcpServers array (required by spec; gemini-cli zod schema
+// rejects undefined).
 func (c *Client) SessionNew(ctx context.Context, cwd string) (string, error) {
-	raw, err := c.Call(ctx, "session/new", SessionNewParams{CWD: cwd, MCPServers: []any{}})
+	return c.SessionNewWithMCPServers(ctx, cwd, nil)
+}
+
+// SessionNewWithMCPServers creates a new session and mounts the
+// supplied MCP server descriptors on it. Each entry in mcpServers
+// must marshal to a canonical Zed-spec stdio descriptor
+// ({name, command, args, env}) — see EP-0032 phase B (D6) and
+// internal/providers/acpwrap/mcpmount.go for the helper that
+// produces a stado-as-MCP-server entry.
+//
+// nil/empty slice produces the same wire as SessionNew (mcpServers
+// = []), preserving back-compat for phase A callers.
+func (c *Client) SessionNewWithMCPServers(ctx context.Context, cwd string, mcpServers []any) (string, error) {
+	if mcpServers == nil {
+		mcpServers = []any{}
+	}
+	raw, err := c.Call(ctx, "session/new", SessionNewParams{CWD: cwd, MCPServers: mcpServers})
 	if err != nil {
 		return "", err
 	}

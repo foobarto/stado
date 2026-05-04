@@ -149,3 +149,38 @@ func TestProviderShape(t *testing.T) {
 	// Smoke test: Provider satisfies agent.Provider at compile-time.
 	var _ agent.Provider = &Provider{}
 }
+
+// TestNew_AcceptsToolsStadoConfig: the EP-0032 phase B opt-in field
+// must round-trip cleanly through New() without surprising defaults
+// or rejection. The actual wiring (ClientCapabilities advertisement,
+// session/new mcpServers) lands at provider.ensureLaunched time and
+// is exercised by chunk 5's integration test against a wrapped agent.
+func TestNew_AcceptsToolsStadoConfig(t *testing.T) {
+	p, err := New(Config{
+		Name:   "test-acp-stado",
+		Binary: "/bin/true",
+		Tools:  "stado",
+	})
+	if err != nil {
+		t.Fatalf("New with Tools=stado: %v", err)
+	}
+	if p.cfg.Tools != "stado" {
+		t.Errorf("Tools field lost: got %q", p.cfg.Tools)
+	}
+}
+
+// TestNew_DefaultToolsIsAgent: when Tools is unspecified, the
+// provider preserves phase A behaviour (wrapped-agent-owns-tools).
+// The empty-string default is canonical "agent" — we don't normalise
+// at New() time so the zero value travels through to ensureLaunched
+// where the explicit `Tools == "stado"` check decides whether to
+// advertise capabilities. Empty != "stado" so phase A is preserved.
+func TestNew_DefaultToolsIsAgent(t *testing.T) {
+	p, err := New(Config{Name: "test-default", Binary: "/bin/true"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if p.cfg.Tools == "stado" {
+		t.Errorf("default Tools should not be %q (would silently enable phase B)", "stado")
+	}
+}
