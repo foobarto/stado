@@ -193,7 +193,14 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	if !m.Visible {
 		return ""
 	}
-	modalW := clampInt(screenWidth/2, 48, 80)
+	// Width budget: longest rendered row is ~`desc + 2 + name + 2 + shortcut`.
+	// Several "Session"-group descriptions land at 65–70 chars; add the
+	// right column (~20 chars) and a single-space minimum gap and the
+	// natural floor is ~92 chars + border/padding. Cap at 110 for
+	// ultra-wide terminals so the modal doesn't fly off into useless
+	// whitespace; floor at 64 so narrow terminals still render the whole
+	// command name without truncation.
+	modalW := clampInt(screenWidth*2/3, 64, 110)
 	body := m.renderBody(modalW - 4) // -4 for border+padding
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -215,8 +222,11 @@ func (m *Model) InlineView(maxWidth int) string {
 		return ""
 	}
 	boxW := maxWidth
-	if boxW > 88 {
-		boxW = 88
+	// Same width budget as the modal — see View. Inline gets a slightly
+	// higher cap because it's anchored above the textarea (no centring
+	// whitespace) and benefits from showing the full description.
+	if boxW > 110 {
+		boxW = 110
 	}
 	if boxW < 24 {
 		boxW = 24
