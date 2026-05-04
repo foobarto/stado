@@ -26,6 +26,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layout()
 		return m, nil
 
+	case titleTickMsg:
+		// Animated terminal-tab title — see title_spinner.go.
+		return m, m.handleTitleTick()
+
 	case streamEventMsg:
 		m.handleStreamEvent(msg.ev)
 		m.renderBlocks()

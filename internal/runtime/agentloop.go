@@ -83,6 +83,15 @@ type AgentLoopOptions struct {
 	// (text, msgs, err) tuple so callers can persist what the model
 	// already produced.
 	CostCapUSD float64
+
+	// TokenCap is the optional cumulative-token ceiling for this loop
+	// (sum of InputTokens + OutputTokens across all turns). Zero
+	// disables. Useful for local-runner setups where CostUSD is always
+	// zero — there the meaningful budget is throughput, not dollars.
+	// When both CostCapUSD and TokenCap are set, whichever fires first
+	// aborts the loop; the returned error names the specific cap
+	// crossed so callers can distinguish.
+	TokenCap int
 }
 
 // ErrCostCapExceeded is returned by AgentLoop when the cumulative
@@ -90,6 +99,11 @@ type AgentLoopOptions struct {
 // it to a non-zero exit code so CI / scripting pipelines can gate on
 // cost overruns.
 var ErrCostCapExceeded = errors.New("runtime: cost cap exceeded")
+
+// ErrTokenCapExceeded is returned by AgentLoop when the cumulative
+// input+output token count has crossed opts.TokenCap. Mirror of
+// ErrCostCapExceeded for the dollars-zero local-runner case.
+var ErrTokenCapExceeded = errors.New("runtime: token cap exceeded")
 
 // AgentLoop runs the headless multi-turn loop. Returns the final assistant
 // text (concatenated across turns) and the final accumulated message
@@ -134,6 +148,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	msgs := opts.Messages
 	var finalText string
 	var totalCostUSD float64
+	var totalTokens int
 
 	// Append-only guardrail (DESIGN §"Context management" → "Append-only
 	// history"). Prior messages are the cached prefix; any in-place mutation
@@ -233,11 +248,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			return finalText, msgs, err
 		}
 		totalCostUSD += usage.CostUSD
+		totalTokens += usage.InputTokens + usage.OutputTokens
 		turnSpan.SetAttributes(
 			attribute.Int("turn.text_bytes", len(text)),
 			attribute.Int("turn.tool_calls", len(calls)),
 			attribute.Float64("turn.cost_usd", usage.CostUSD),
 			attribute.Float64("loop.cumulative_cost_usd", totalCostUSD),
+			attribute.Int("turn.tokens_total", usage.InputTokens+usage.OutputTokens),
+			attribute.Int("loop.cumulative_tokens", totalTokens),
 		)
 		if opts.OnTurnComplete != nil {
 			opts.OnTurnComplete(len(msgs), text, calls, usage, time.Since(turnStart))
@@ -261,6 +279,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			turnSpan.End()
 			return finalText, msgs,
 				fmt.Errorf("%w: spent $%.4f of $%.2f cap", ErrCostCapExceeded, totalCostUSD, opts.CostCapUSD)
+		}
+		if opts.TokenCap > 0 && totalTokens >= opts.TokenCap {
+			turnSpan.End()
+			return finalText, msgs,
+				fmt.Errorf("%w: used %d of %d cap", ErrTokenCapExceeded, totalTokens, opts.TokenCap)
 		}
 		if len(calls) == 0 {
 			if opts.Executor != nil && opts.Executor.Session != nil {

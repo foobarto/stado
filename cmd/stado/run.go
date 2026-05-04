@@ -170,6 +170,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				SystemTemplate:       cfg.Agent.SystemPromptTemplate,
 				MemoryContext:        memoryContext,
 				CostCapUSD:           cfg.Budget.HardUSD,
+				TokenCap:             cfg.Budget.HardTokens,
 			}
 			if runTools {
 				cwd, _ := os.Getwd()

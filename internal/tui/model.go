@@ -321,10 +321,12 @@ type Model struct {
 	//   blocked with an actionable hint; session acks to unblock via
 	//   `/budget ack` which sets budgetAcked for the rest of the
 	//   session.
-	budgetWarnUSD float64
-	budgetHardUSD float64
-	budgetWarned  bool
-	budgetAcked   bool
+	budgetWarnUSD    float64
+	budgetHardUSD    float64
+	budgetWarnTokens int
+	budgetHardTokens int
+	budgetWarned     bool
+	budgetAcked      bool
 
 	// tokenCounterChecked is set once we've probed the provider for
 	// agent.TokenCounter. tokenCounterPresent records the result so
@@ -348,6 +350,13 @@ type Model struct {
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
 	compacting bool
+
+	// titleSpinIdx + lastTitle drive the animated terminal-tab title
+	// (see title_spinner.go). titleSpinIdx is the spinner-frame
+	// counter; lastTitle dedups OSC 0/2 emissions so we don't spam
+	// the terminal when the title hasn't changed.
+	titleSpinIdx int
+	lastTitle    string
 
 	// Layout
 	width       int
@@ -536,7 +545,7 @@ func (m *Model) SetHooks(postTurn string) {
 // explicitly through the plugin host when they declare the UI capability.
 func (m *Model) SetApprovals(_ string, _ []string) {}
 
-// SetBudget propagates [budget] config into the TUI. Both args are
+// SetBudget propagates [budget] config into the TUI. All args are
 // optional (zero = "no cap"); a negative value is a no-op. Sanity
 // check (hard > warn) is enforced upstream in config.Load.
 func (m *Model) SetBudget(warnUSD, hardUSD float64) {
@@ -548,28 +557,80 @@ func (m *Model) SetBudget(warnUSD, hardUSD float64) {
 	}
 }
 
-// budgetExceeded reports whether the cumulative session cost has
-// crossed the configured hard cap. budgetAcked lets the user continue
-// past the cap for the rest of the session after confirming.
-func (m *Model) budgetExceeded() bool {
-	if m.budgetAcked || m.budgetHardUSD <= 0 {
-		return false
+// SetBudgetTokens is the token-equivalent of SetBudget. Useful for
+// local-runner setups (Ollama / LM Studio / vLLM) where CostUSD is
+// always 0 — there the meaningful budget is throughput, not dollars.
+// Either USD or token guards (or both, or neither) can be configured;
+// they fire independently.
+func (m *Model) SetBudgetTokens(warnTokens, hardTokens int) {
+	if warnTokens >= 0 {
+		m.budgetWarnTokens = warnTokens
 	}
-	return m.usage.CostUSD >= m.budgetHardUSD
+	if hardTokens >= 0 {
+		m.budgetHardTokens = hardTokens
+	}
 }
 
-// budgetWarning returns a short status-bar pill ("budget $X / $Y") when
-// cumulative cost has crossed warn but not hard. Empty when no warn cap
-// is configured or cost is still below it.
+// budgetExceeded reports whether the cumulative session cost or
+// token count has crossed the configured hard cap. budgetAcked lets
+// the user continue past either cap for the rest of the session
+// after confirming.
+func (m *Model) budgetExceeded() bool {
+	if m.budgetAcked {
+		return false
+	}
+	if m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD {
+		return true
+	}
+	if m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens {
+		return true
+	}
+	return false
+}
+
+// totalTokens is the cumulative input+output token count for the
+// session (Usage.InputTokens + Usage.OutputTokens). Hidden behind a
+// helper so cache-read/cache-write tokens can be added later without
+// changing every caller.
+func (m *Model) totalTokens() int {
+	return m.usage.InputTokens + m.usage.OutputTokens
+}
+
+// budgetWarning returns a short status-bar pill when cumulative cost
+// or token count has crossed the warn threshold. USD pill takes
+// precedence (most users have USD configured); token pill renders
+// otherwise. Empty when nothing's crossed.
 func (m *Model) budgetWarning() string {
-	if m.budgetWarnUSD <= 0 || m.usage.CostUSD < m.budgetWarnUSD {
-		return ""
+	if m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD {
+		cap := m.budgetWarnUSD
+		if m.budgetHardUSD > 0 {
+			cap = m.budgetHardUSD
+		}
+		return fmt.Sprintf("budget $%.2f/$%.2f", m.usage.CostUSD, cap)
 	}
-	cap := m.budgetWarnUSD
-	if m.budgetHardUSD > 0 {
-		cap = m.budgetHardUSD
+	if m.budgetWarnTokens > 0 && m.totalTokens() >= m.budgetWarnTokens {
+		cap := m.budgetWarnTokens
+		if m.budgetHardTokens > 0 {
+			cap = m.budgetHardTokens
+		}
+		return fmt.Sprintf("budget %s/%s tok", formatTokenCount(m.totalTokens()), formatTokenCount(cap))
 	}
-	return fmt.Sprintf("budget $%.2f/$%.2f", m.usage.CostUSD, cap)
+	return ""
+}
+
+// formatTokenCount produces a compact human-readable token count
+// (e.g. 12300 → "12.3k", 1500000 → "1.5M"). Pure helper, used by
+// the budget pill so a 6-digit count doesn't break status-bar
+// layout.
+func formatTokenCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 // ensureProvider lazy-builds the provider on first use. On failure sets the
@@ -714,4 +775,14 @@ func (m *Model) providerCaps() agent.Capabilities {
 // Attach wires the tea.Program so the streaming goroutine can post messages.
 func (m *Model) Attach(p *tea.Program) { m.program = p }
 
-func (m *Model) Init() tea.Cmd { return nil }
+func (m *Model) Init() tea.Cmd {
+	// Kick the title-spinner tick chain (see title_spinner.go).
+	// The chain is self-perpetuating: every titleTickMsg returns a
+	// fresh tick command. We also set the initial idle title so
+	// terminals that render the tab strip have something to show
+	// before the first tick fires.
+	return tea.Batch(
+		tea.SetWindowTitle("stado"),
+		titleTickCmd(),
+	)
+}

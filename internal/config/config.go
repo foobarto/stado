@@ -74,23 +74,35 @@ type Hooks struct {
 	PostTurn string `koanf:"post_turn"`
 }
 
-// Budget is the [budget] config section — per-session cost guardrails.
-// Stado already tracks CostUSD on every provider turn; this adds two
-// thresholds to surface a warning and (optionally) hard-block new
-// turns. Both default to 0, meaning "no limit" — the guardrail is
-// opt-in so cost-insensitive local-runner users don't see a pill for
-// nothing.
+// Budget is the [budget] config section — per-session guardrails on
+// cost (USD) and/or token usage. Stado already tracks both on every
+// provider turn; this adds thresholds to surface a warning and
+// (optionally) hard-block new turns. All four default to 0, meaning
+// "no limit" — the guardrails are opt-in so cost-insensitive
+// local-runner users don't see pills for nothing.
+//
+// Cost (USD) guards apply when the provider reports a per-turn cost
+// (Anthropic, OpenAI, Google, paid OAI-compat presets). Token guards
+// apply universally, including local runners where USD is always 0;
+// useful when running on Ollama / LM Studio / vLLM where the meaningful
+// budget is throughput, not dollars.
 //
 //	[budget]
-//	warn_usd = 1.00   # status-bar pill + one-time system block when crossed
-//	hard_usd = 5.00   # block further turns pending user ack
+//	warn_usd    = 1.00     # status-bar pill + one-time system block when crossed
+//	hard_usd    = 5.00     # block further turns pending user ack
+//	warn_tokens = 100000   # token-equivalent warn pill (input + output, cumulative)
+//	hard_tokens = 500000   # token-equivalent hard gate
 //
-// Fractional dollars allowed. A hard_usd below warn_usd is a config
-// error and is ignored with a stderr warning — the guard would never
-// warn before blocking.
+// Fractional dollars allowed; tokens are integers. Either pair is
+// independent — set just USD, just tokens, both, or neither. A hard
+// threshold below the corresponding warn threshold is a config error
+// and is ignored with a stderr warning (the guard would never warn
+// before blocking).
 type Budget struct {
-	WarnUSD float64 `koanf:"warn_usd"`
-	HardUSD float64 `koanf:"hard_usd"`
+	WarnUSD    float64 `koanf:"warn_usd"`
+	HardUSD    float64 `koanf:"hard_usd"`
+	WarnTokens int     `koanf:"warn_tokens"`
+	HardTokens int     `koanf:"hard_tokens"`
 }
 
 type Memory struct {

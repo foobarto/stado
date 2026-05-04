@@ -17,6 +17,16 @@ Plugins / Infra / Fixes.
   existing `internal/config/provider_registry.go` so adding a new
   provider is a one-place change. Operator request.
 
+- **`[budget]` accepts token thresholds**: `warn_tokens` and
+  `hard_tokens` mirror the existing `warn_usd` / `hard_usd`. The
+  agent loop returns `ErrTokenCapExceeded` once cumulative
+  input+output tokens cross `hard_tokens`; the TUI status pill
+  shows `budget 12.3k/100k tok` while between warn and hard.
+  Both pairs are independent — set USD-only, tokens-only, both,
+  or neither. Useful for local-runner setups (Ollama / LM Studio
+  / vLLM) where CostUSD is always zero and the meaningful budget
+  is throughput, not dollars. Operator request.
+
 - **Added `stado run --no-turn-limit`** — disables the max-turn
   cap so the agent loop runs until no tool calls remain or the
   context is cancelled. Useful for long-running multi-step tasks
@@ -25,6 +35,16 @@ Plugins / Infra / Fixes.
   Operator request.
 
 ### TUI
+
+- **Animated terminal-tab title.** While the agent is busy
+  (streaming or compacting) the OSC 0/2 window title cycles a
+  braille spinner glyph: `⠋ stado` → `⠙ stado` → ...; idle
+  resets to `stado`. Many emulators (kitty, alacritty, iTerm,
+  Ghostty, Windows Terminal, GNOME Terminal) render the title in
+  the tab strip, so users get visual "I'm working on it" feedback
+  even when they've switched windows. Polled at 5fps via
+  `tea.SetWindowTitle`; OSC sequences are deduped so we don't
+  spam the terminal when nothing's changed. Operator request.
 
 - **Wider command palette** so long descriptions don't wrap as the
   user moves through the list. Modal scales to 2/3 of screen,
