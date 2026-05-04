@@ -20,6 +20,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/providers/acpwrap"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
@@ -251,6 +252,69 @@ func isOSCColorReplyTail(s string) bool {
 // switch, for use by `stado run` and other headless surfaces.
 func BuildProvider(cfg *config.Config) (agent.Provider, error) { return buildProvider(cfg) }
 
+// buildIntegrationFallback synthesises an ACP/MCP-wrapped provider
+// from the integrations registry when no matching config entry
+// exists. Returns (provider, nil, true) on success; (nil, err, true)
+// when we matched an integration but couldn't build the provider
+// (e.g. binary not detected on this host); (nil, nil, false) when
+// the name doesn't look like an integration auto-fallback target.
+//
+// The trailing-bool form lets the caller distinguish "tried and
+// failed" from "didn't try" — failed lookups cascade to the
+// inference-preset path so a misnamed provider gets the standard
+// "unknown provider" error rather than a confusing integrations-
+// specific message.
+func buildIntegrationFallback(cfg *config.Config, name string) (agent.Provider, error, bool) {
+	var (
+		base     string
+		isMCP    bool
+	)
+	switch {
+	case strings.HasSuffix(name, "-acp"):
+		base = strings.TrimSuffix(name, "-acp")
+	case strings.HasSuffix(name, "-mcp"):
+		base = strings.TrimSuffix(name, "-mcp")
+		isMCP = true
+	default:
+		return nil, nil, false
+	}
+
+	dets := integrations.DetectInstalled(context.Background())
+	for _, d := range dets {
+		if d.Integration.Name != base {
+			continue
+		}
+		if d.BinaryPath == "" {
+			return nil, fmt.Errorf("provider %q: %s detected via config but no runnable binary found", name, base), true
+		}
+		if isMCP {
+			tools := d.Integration.MCPWrapTools
+			if tools[0] == "" {
+				return nil, fmt.Errorf("provider %q: %s does not have an MCP-wrap profile (no MCPWrapTools defined)", name, base), true
+			}
+			p, err := mcpwrap.New(mcpwrap.Config{
+				Name:         name,
+				Binary:       d.BinaryPath,
+				Args:         d.Integration.MCPWrapServerArgs,
+				CallTool:     tools[0],
+				ContinueTool: tools[1],
+			})
+			return p, err, true
+		}
+		// ACP path.
+		if len(d.Integration.ACPArgs) == 0 {
+			return nil, fmt.Errorf("provider %q: %s does not expose a stdio ACP-agent mode (try %s-mcp if available)", name, base, base), true
+		}
+		p, err := acpwrap.New(acpwrap.Config{
+			Name:   name,
+			Binary: d.BinaryPath,
+			Args:   d.Integration.ACPArgs,
+		})
+		return p, err, true
+	}
+	return nil, fmt.Errorf("provider %q: agent %q not detected on this host (run `stado integrations` to see what's installed)", name, base), true
+}
+
 func buildProvider(cfg *config.Config) (agent.Provider, error) {
 	return buildProviderByName(cfg, cfg.Defaults.Provider)
 }
@@ -344,6 +408,18 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 				CallToolOverrides: p.CallToolOverrides,
 			})
 		}
+	}
+
+	// Integrations auto-fallback: when the user requests a provider
+	// like "<agent>-acp" or "<agent>-mcp" without a matching config
+	// entry, look it up in the integrations registry. If the agent
+	// is detected on PATH (or at a known well-known path like
+	// hermes's venv binary), synthesize an acpwrap/mcpwrap provider
+	// on the fly. Saves users from having to write
+	// [acp.providers.gemini-acp] etc. for every agent stado already
+	// knows about.
+	if p, err, ok := buildIntegrationFallback(cfg, name); ok {
+		return p, err
 	}
 
 	// User-defined preset wins over the bundled default of the same name

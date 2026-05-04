@@ -66,6 +66,29 @@ type Integration struct {
 	// "--version", "version"). Used for the version probe in Detect()
 	// when the binary is found.
 	VersionArg string
+
+	// ACPArgs is the argv passed to the binary to launch its stdio
+	// ACP-agent server mode (e.g. ["--acp"] for gemini, ["acp"] for
+	// opencode and hermes). Empty when the agent doesn't expose a
+	// stdio ACP-agent mode (codex, claude — they only act as ACP
+	// agents through other transports). Used by the auto-provider
+	// fallback in `buildProviderByName` when a `<name>-acp` provider
+	// is requested without a matching `[acp.providers.<name>-acp]`
+	// config entry.
+	ACPArgs []string
+
+	// MCPWrapTools is the (CallTool, ContinueTool) pair used by the
+	// mcpwrap provider to drive this agent via its MCP-server mode
+	// (e.g. codex exposes a `codex` tool for new sessions and a
+	// `codex-reply` tool for continuations). Empty when the agent
+	// can't be wrapped via MCP. Used by the auto-provider fallback
+	// for `<name>-mcp` provider names.
+	MCPWrapTools [2]string
+
+	// MCPWrapServerArgs is the argv to launch the agent's MCP server
+	// (e.g. ["mcp-server"] for codex). Required when MCPWrapTools is
+	// non-empty.
+	MCPWrapServerArgs []string
 }
 
 // KnownIntegrations returns the bundled integration catalogue in
@@ -90,15 +113,20 @@ func KnownIntegrations() []Integration {
 			Protocols:   []Protocol{ProtocolACP},
 			HelpURL:     "https://github.com/google-gemini/gemini-cli",
 			VersionArg:  "--version",
+			ACPArgs:     []string{"--acp"},
 		},
 		{
-			Name:        "codex",
-			DisplayName: "Codex CLI (OpenAI)",
-			Binaries:    []string{"codex"},
-			ConfigPaths: []string{".codex", ".config/codex"},
-			Protocols:   []Protocol{ProtocolACP},
-			HelpURL:     "https://github.com/openai/codex",
-			VersionArg:  "--version",
+			Name:              "codex",
+			DisplayName:       "Codex CLI (OpenAI)",
+			Binaries:          []string{"codex"},
+			ConfigPaths:       []string{".codex", ".config/codex"},
+			Protocols:         []Protocol{ProtocolACP, ProtocolMCP}, // ACP listed for parity but unimplemented; MCP is the wrap path
+			HelpURL:           "https://github.com/openai/codex",
+			VersionArg:        "--version",
+			// codex doesn't expose a stdio ACP-agent mode; ACPArgs left empty
+			// so the auto-fallback won't synthesize a broken acp provider.
+			MCPWrapTools:      [2]string{"codex", "codex-reply"},
+			MCPWrapServerArgs: []string{"mcp-server"},
 		},
 		{
 			Name:        "opencode",
@@ -108,6 +136,7 @@ func KnownIntegrations() []Integration {
 			Protocols:   []Protocol{ProtocolACP},
 			HelpURL:     "https://opencode.ai/",
 			VersionArg:  "--version",
+			ACPArgs:     []string{"acp"},
 		},
 		{
 			Name:        "zed",
@@ -117,16 +146,25 @@ func KnownIntegrations() []Integration {
 			Protocols:   []Protocol{ProtocolACP},
 			HelpURL:     "https://zed.dev/",
 			VersionArg:  "--version",
+			// Zed is an editor — no stdio ACP-agent mode to wrap.
 		},
 		{
-			Name:           "hermes",
-			DisplayName:    "Hermes Agent",
-			Binaries:       []string{"hermes"},
-			WellKnownPaths: []string{"~/.hermes/hermes-agent/hermes"},
-			ConfigPaths:    []string{".hermes", ".config/hermes"},
-			Protocols:      []Protocol{ProtocolACP},
-			HelpURL:        "https://hermes.run/",
-			VersionArg:     "--version",
+			Name:        "hermes",
+			DisplayName: "Hermes Agent",
+			Binaries:    []string{"hermes"},
+			// Prefer the venv binary — the root ~/.hermes/hermes-agent/hermes
+			// is a system-python launcher that fails with
+			// `ModuleNotFoundError: hermes_cli`. The venv's hermes has the
+			// agent_client_protocol extra installed and ACP works.
+			WellKnownPaths: []string{
+				"~/.hermes/hermes-agent/venv/bin/hermes",
+				"~/.hermes/hermes-agent/hermes",
+			},
+			ConfigPaths: []string{".hermes", ".config/hermes"},
+			Protocols:   []Protocol{ProtocolACP},
+			HelpURL:     "https://hermes.run/",
+			VersionArg:  "--version",
+			ACPArgs:     []string{"acp"},
 		},
 		{
 			Name:        "aider",
