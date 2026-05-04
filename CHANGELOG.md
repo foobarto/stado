@@ -44,6 +44,12 @@ Plugins / Infra / Fixes.
   "`stado_http_get returned -1` — now what?" first-time-author
   loop: doctor explains which knob to flip without making the
   operator read the source.
+- **`--provider` and `--model` flags on every command.** Pass
+  `stado --provider ollama-cloud --model kimi-k2.6` (or any subcommand)
+  to override `[defaults].provider` / `[defaults].model` for one
+  invocation without editing config.toml or pre-exporting
+  `STADO_DEFAULTS_*`. Shipped as persistent root flags so `stado run`,
+  `stado` (TUI), and other subcommands all honour them.
 
 ### Plugins
 
@@ -76,6 +82,42 @@ Plugins / Infra / Fixes.
   the install dir at `<state-dir>/plugins/`. EP-0029 documents the
   capability vocabulary; future `cfg:config_dir`, `cfg:worktree_dir`,
   etc. follow the same per-field opt-in pattern (no globs).
+- **`fs:read:cfg:state_dir/...` path-templating in fs caps.**
+  Direct extension of the `cfg:*` vocabulary: manifest fs caps
+  can now reference cfg values inline as
+  `fs:read:cfg:state_dir/plugins`, `fs:write:cfg:state_dir/scratch`,
+  etc. Resolution is at-check time against `host.StateDir`. The
+  matching `cfg:state_dir` cap MUST also be declared — missing
+  cap, empty value, or unknown cfg name all fail-closed (silently
+  filter to no-match → access denied). Unblocks portable plugin
+  manifests for any operator-tooling that reads under the state
+  dir; before this, plugins had to either hardcode an absolute
+  path per-operator or shift the resolution onto the `--workdir`
+  invocation flag. EP-0031 walks through the templating shape
+  and fail-closed semantics. New bundled examples
+  (`plugins/examples/state-dir-info/`,
+  `plugins/examples/webfetch-cached/`) demonstrate the cfg:* +
+  workdir-rooted patterns.
+
+### Inference
+
+- **Custom OAI-compat presets can now declare an API-key env var.**
+  `[inference.presets.<name>].api_key_env = "FOO_API_KEY"` plumbs the
+  named env var through the OAI-compat client. When unset, custom
+  preset names fall back to `STADO_PRESET_<UPPER>_API_KEY` (hyphens
+  normalized to underscores). Previously only the hardcoded list of
+  builtin preset names (litellm, groq, etc.) could pick up a key, so
+  user-defined presets like `ollama-cloud` would 401.
+- **`ollama-cloud` is now a builtin preset.** `[defaults].provider =
+  "ollama-cloud"` resolves to `https://ollama.com/v1` with
+  `OLLAMA_CLOUD_API_KEY` as the default credential env. No more
+  litellm-aliasing workaround required.
+- **Anthropic auto-raises `max_tokens` when thinking is enabled.**
+  Anthropic enforces `max_tokens > thinking.budget_tokens`. The default
+  thinking budget (16K) used to exceed the default `max_tokens` (8K)
+  and surface as a 400 from the provider. Stado now widens
+  `max_tokens` to `budget + 1024` whenever the caller's ceiling is
+  smaller, while never lowering an explicit larger ceiling.
 
 ### Fixes
 
@@ -103,6 +145,14 @@ Plugins / Infra / Fixes.
   `TestSessionGC_ApplyActuallyDeletes` and four `TestLearningCLI_*`
   tests that had been failing on `main` in any CI/dev environment
   with `/tmp/.git/` pollution.
+- **Warn when a stale `system-prompt.md` template drops
+  `{{ .ProjectInstructions }}`.** When `AGENTS.md` / `CLAUDE.md` is
+  loaded but the active template doesn't reference the
+  `ProjectInstructions` field, stado now prints a stderr advisory
+  pointing at both files so the user can re-add the block (or delete
+  the template to regenerate the default). Without this, project rules
+  could silently fail to reach the model on installs predating the
+  template's `ProjectInstructions` hook.
 - **Validated pinned plugin pubkeys.** Manifest verification now re-derives
   the stored signer pubkey fingerprint before trusting a pinned entry, so
   malformed trust-store records cannot authorize the wrong key.

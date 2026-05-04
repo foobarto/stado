@@ -1,6 +1,8 @@
 package config
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestProviderAPIKeyEnv(t *testing.T) {
 	cases := map[string]string{
@@ -61,5 +63,67 @@ func TestBuiltinInferencePreset(t *testing.T) {
 	}
 	if _, _, ok := BuiltinInferencePreset("not-a-real-provider-xyzzy"); ok {
 		t.Error("unknown provider should return ok=false")
+	}
+}
+
+func TestBuiltinInferencePresetOllamaCloud(t *testing.T) {
+	ep, env, ok := BuiltinInferencePreset("ollama-cloud")
+	if !ok {
+		t.Fatal("ollama-cloud should be a builtin preset")
+	}
+	if ep != "https://ollama.com/v1" {
+		t.Errorf("ollama-cloud endpoint = %q, want https://ollama.com/v1", ep)
+	}
+	if env != "OLLAMA_CLOUD_API_KEY" {
+		t.Errorf("ollama-cloud env = %q, want OLLAMA_CLOUD_API_KEY", env)
+	}
+}
+
+func TestPresetAPIKeyEnv(t *testing.T) {
+	cases := []struct {
+		desc   string
+		name   string
+		preset InferencePreset
+		want   string
+	}{
+		{"explicit field wins for unknown name",
+			"custom-thing", InferencePreset{APIKeyEnv: "MY_KEY"}, "MY_KEY"},
+		{"explicit field beats builtin convention",
+			"litellm", InferencePreset{APIKeyEnv: "OVERRIDE_KEY"}, "OVERRIDE_KEY"},
+		{"builtin preset uses convention env",
+			"litellm", InferencePreset{}, "LITELLM_API_KEY"},
+		{"ollama-cloud builtin preset",
+			"ollama-cloud", InferencePreset{}, "OLLAMA_CLOUD_API_KEY"},
+		{"unknown preset falls back to STADO_PRESET_<UPPER>_API_KEY",
+			"ollama-cloud-byo", InferencePreset{}, "STADO_PRESET_OLLAMA_CLOUD_BYO_API_KEY"},
+		{"local-only builtin returns empty",
+			"ollama", InferencePreset{}, ""},
+		{"trims whitespace in field",
+			"anything", InferencePreset{APIKeyEnv: "  TRIMMED_KEY  "}, "TRIMMED_KEY"},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			got := PresetAPIKeyEnv(c.name, c.preset)
+			if got != c.want {
+				t.Errorf("PresetAPIKeyEnv(%q, %+v) = %q, want %q", c.name, c.preset, got, c.want)
+			}
+		})
+	}
+}
+
+func TestResolvePresetAPIKey_ReadsEnv(t *testing.T) {
+	t.Setenv("STADO_PRESET_OLLAMA_CLOUD_BYO_API_KEY", "abc123")
+	got := ResolvePresetAPIKey("ollama-cloud-byo", InferencePreset{})
+	if got != "abc123" {
+		t.Errorf("ResolvePresetAPIKey custom = %q, want abc123", got)
+	}
+	t.Setenv("MY_PINNED_ENV", "pinned-key")
+	got = ResolvePresetAPIKey("anything", InferencePreset{APIKeyEnv: "MY_PINNED_ENV"})
+	if got != "pinned-key" {
+		t.Errorf("ResolvePresetAPIKey pinned = %q, want pinned-key", got)
+	}
+	got = ResolvePresetAPIKey("ollama", InferencePreset{})
+	if got != "" {
+		t.Errorf("ResolvePresetAPIKey ollama = %q, want empty (no key env defined)", got)
 	}
 }

@@ -65,6 +65,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		if err != nil {
 			return err
 		}
+		// Root --provider/--model are persistent flags; honour them
+		// here too so `stado run --provider ollama-cloud --model
+		// kimi-k2.6 --prompt …` works without editing config.toml.
+		applyRootProviderOverrides(cfg)
 		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context) error {
 			prov, err := runBuildProvider(cfg)
 			if err != nil {
@@ -113,6 +117,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				} else if res.Path != "" {
 					sysPrompt = res.Content
 					fmt.Fprintf(os.Stderr, "stado run: loaded %s\n", res.Path)
+					if !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
+						fmt.Fprintf(os.Stderr,
+							"stado run: warning — system prompt template at %s does not include {{ .ProjectInstructions }}; project rules from %s will not reach the model. Add the block or delete the file to regenerate the default.\n",
+							cfg.Agent.SystemPromptPath, res.Path)
+					}
 				}
 			}
 			if continueWorktree != "" {
@@ -247,7 +256,7 @@ func init() {
 	runCmd.Flags().StringVar(&runSkill, "skill", "",
 		"Load a .stado/skills/<name>.md body as (part of) the prompt — combines with --prompt if both set")
 	runCmd.Flags().IntVar(&runMaxTurns, "max-turns", 20, "Maximum agent turns before giving up")
-	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text")
+	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runTools, "tools", false, "Enable the bundled toolset with git-native audit")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false, "Apply landlock: confine writes to the session worktree + /tmp (Linux only)")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",

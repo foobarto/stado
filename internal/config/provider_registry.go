@@ -49,6 +49,8 @@ func BuiltinInferencePreset(name string) (endpoint, apiKeyEnv string, ok bool) {
 	switch strings.ToLower(name) {
 	case "ollama":
 		return "http://localhost:11434/v1", "", true
+	case "ollama-cloud":
+		return "https://ollama.com/v1", "OLLAMA_CLOUD_API_KEY", true
 	case "llamacpp":
 		return "http://localhost:8080/v1", "", true
 	case "vllm":
@@ -72,4 +74,40 @@ func BuiltinInferencePreset(name string) (endpoint, apiKeyEnv string, ok bool) {
 	default:
 		return "", "", false
 	}
+}
+
+// PresetAPIKeyEnv reports the env var stado will read for an OAI-compat
+// preset, in priority order:
+//
+//  1. preset.APIKeyEnv when set (explicit user opt-in).
+//  2. The builtin convention env var when name matches a bundled preset.
+//  3. STADO_PRESET_<UPPER>_API_KEY as a default for custom preset names,
+//     with hyphens normalized to underscores so `ollama-cloud` maps to
+//     `STADO_PRESET_OLLAMA_CLOUD_API_KEY`.
+//
+// Returns "" only when nothing matches — e.g. a builtin local-runner
+// preset that doesn't expect a key.
+func PresetAPIKeyEnv(name string, preset InferencePreset) string {
+	if env := strings.TrimSpace(preset.APIKeyEnv); env != "" {
+		return env
+	}
+	if _, env, ok := BuiltinInferencePreset(name); ok {
+		return env
+	}
+	norm := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(name)), "-", "_")
+	if norm == "" {
+		return ""
+	}
+	return "STADO_PRESET_" + norm + "_API_KEY"
+}
+
+// ResolvePresetAPIKey returns the configured API key for the given
+// preset by consulting PresetAPIKeyEnv. Empty means "no credentials
+// found" — caller decides whether that's fatal.
+func ResolvePresetAPIKey(name string, preset InferencePreset) string {
+	env := PresetAPIKeyEnv(name, preset)
+	if env == "" {
+		return ""
+	}
+	return os.Getenv(env)
 }

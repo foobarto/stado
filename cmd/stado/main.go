@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -13,6 +14,14 @@ import (
 )
 
 var version = "0.0.0-dev"
+
+// rootProvider / rootModel mirror --provider / --model on the root
+// command. Subcommands inherit them as persistent flags; values are
+// applied to cfg.Defaults after load via applyRootProviderOverrides.
+var (
+	rootProvider string
+	rootModel    string
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "stado",
@@ -34,10 +43,26 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
+		applyRootProviderOverrides(cfg)
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
 			return tui.Run(cfg)
 		})
 	},
+}
+
+// applyRootProviderOverrides honours --provider / --model passed on the
+// root command (or any subcommand inheriting the persistent flag). It
+// runs after config.Load so the override is the final word.
+func applyRootProviderOverrides(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if p := strings.TrimSpace(rootProvider); p != "" {
+		cfg.Defaults.Provider = p
+	}
+	if m := strings.TrimSpace(rootModel); m != "" {
+		cfg.Defaults.Model = m
+	}
 }
 
 var versionCmd = &cobra.Command{
@@ -65,6 +90,10 @@ var configPathCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&rootProvider, "provider", "",
+		"Provider override (anthropic, openai, google, ollama-cloud, litellm, or any configured preset). Beats defaults.provider in config.toml for this invocation.")
+	rootCmd.PersistentFlags().StringVar(&rootModel, "model", "",
+		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
 	rootCmd.AddCommand(versionCmd, configPathCmd)
 	// Set Version so cobra wires up the standard `--version` global
 	// flag (alongside the `stado version` subcommand). Same source

@@ -173,6 +173,32 @@ func TestCapabilities(t *testing.T) {
 	}
 }
 
+func TestResolveMaxTokens_RaisesForThinkingBudget(t *testing.T) {
+	cases := []struct {
+		name           string
+		reqMax, budget int
+		want           int
+	}{
+		{"no thinking, default ceiling", 0, 0, defaultMaxTokens},
+		{"no thinking, caller pinned ceiling", 32000, 0, 32000},
+		{"thinking budget below default ceiling stays put", 0, 4096, defaultMaxTokens},
+		{"thinking budget exceeds default — raised with headroom", 0, 16384, 16384 + thinkingHeadroomTokens},
+		{"thinking budget below caller ceiling stays put", 32000, 16384, 32000},
+		{"thinking budget exceeds caller ceiling — raised", 8000, 12000, 12000 + thinkingHeadroomTokens},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := resolveMaxTokens(c.reqMax, c.budget)
+			if got != c.want {
+				t.Errorf("resolveMaxTokens(%d, %d) = %d, want %d", c.reqMax, c.budget, got, c.want)
+			}
+			if c.budget > 0 && got <= c.budget {
+				t.Errorf("max_tokens=%d must be > thinking.budget_tokens=%d", got, c.budget)
+			}
+		})
+	}
+}
+
 func TestImageBlock_Base64EncodesBytes(t *testing.T) {
 	img := &agent.ImageBlock{
 		MediaType: "image/png",

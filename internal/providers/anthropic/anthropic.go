@@ -25,7 +25,15 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-const defaultMaxTokens = 8192
+const (
+	defaultMaxTokens = 8192
+	// thinkingHeadroomTokens is the slack stado leaves between
+	// thinking.budget_tokens and max_tokens. Anthropic only requires
+	// max_tokens > budget; 1024 is generous enough for short
+	// post-thinking text replies without turning a request into a
+	// 64K-token bomb when budgets are large.
+	thinkingHeadroomTokens = 1024
+)
 
 type Provider struct {
 	client sdk.Client
@@ -112,9 +120,14 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 		return nil, err
 	}
 
+	thinkingBudget := 0
+	if req.Thinking != nil {
+		thinkingBudget = req.Thinking.BudgetTokens
+	}
+	mt := resolveMaxTokens(req.MaxTokens, thinkingBudget)
 	params := sdk.MessageNewParams{
 		Model:     sdk.Model(req.Model),
-		MaxTokens: int64(maxTokens(req.MaxTokens)),
+		MaxTokens: int64(mt),
 		Messages:  messages,
 		Tools:     tools,
 	}
@@ -389,6 +402,22 @@ func maxTokens(n int) int {
 		return defaultMaxTokens
 	}
 	return n
+}
+
+// resolveMaxTokens returns the max_tokens value stado will send to
+// Anthropic. Anthropic enforces max_tokens > thinking.budget_tokens; if
+// the caller's ceiling doesn't leave room for the requested thinking
+// budget, raise it to budget + thinkingHeadroomTokens. Never lower a
+// caller-provided ceiling.
+func resolveMaxTokens(reqMaxTokens, thinkingBudget int) int {
+	mt := maxTokens(reqMaxTokens)
+	if thinkingBudget > 0 {
+		needed := thinkingBudget + thinkingHeadroomTokens
+		if mt < needed {
+			mt = needed
+		}
+	}
+	return mt
 }
 
 func strSlice(v any) []string {

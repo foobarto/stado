@@ -137,6 +137,15 @@ func ValidateSystemPromptTemplate(templateText string) error {
 	return err
 }
 
+// TemplateInjectsProjectInstructions reports whether the template
+// references the .ProjectInstructions field. Used by callers that load
+// AGENTS.md / CLAUDE.md so they can warn the user when the template
+// silently drops the project guidance — a common upgrade footgun where
+// the system-prompt.md file pre-dates the ProjectInstructions hook.
+func TemplateInjectsProjectInstructions(templateText string) bool {
+	return strings.Contains(templateText, ".ProjectInstructions")
+}
+
 func executeSystemPromptTemplate(templateText, project string, ctx RuntimeContext) (string, error) {
 	tpl, err := template.New("system-prompt").Option("missingkey=error").Parse(templateText)
 	if err != nil {

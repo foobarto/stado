@@ -19,6 +19,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
 	"github.com/foobarto/stado/internal/providers/localdetect"
@@ -75,6 +76,11 @@ func Run(cfg *config.Config) error {
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
 	m.applyConfiguredThinkingDisplay(cfg)
+	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
+		fmt.Fprintf(os.Stderr,
+			"stado: warning — system prompt template at %s does not include {{ .ProjectInstructions }}; project rules from %s will not reach the model. Add the block or delete the file to regenerate the default.\n",
+			cfg.Agent.SystemPromptPath, m.systemPromptPath)
+	}
 	m.SetRootContext(runCtx)
 	var localFallback *prewarmedLocalFallback
 	if cfg.Defaults.Provider == "" {
@@ -279,7 +285,7 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	if cfg.Inference.Presets != nil {
 		if preset, ok := cfg.Inference.Presets[name]; ok && preset.Endpoint != "" {
 			opts := []oaicompat.Option{oaicompat.WithName(name)}
-			if key := config.ResolveProviderAPIKey(name); key != "" {
+			if key := config.ResolvePresetAPIKey(name, preset); key != "" {
 				opts = append(opts, oaicompat.WithAPIKey(key))
 			}
 			return oaicompat.New(preset.Endpoint, opts...)
@@ -287,16 +293,16 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	}
 
 	// Bundled OAI-compat presets — known endpoints so users don't have to
-	// write them out by hand. API key env var is picked up by oaicompat's
-	// WithAPIKey option from the matching STADO_*_API_KEY.
+	// write them out by hand. API key env var follows the builtin
+	// convention (LITELLM_API_KEY, OLLAMA_CLOUD_API_KEY, etc.).
 	if ep, _, ok := builtinPreset(name); ok {
 		opts := []oaicompat.Option{oaicompat.WithName(name)}
-		if key := config.ResolveProviderAPIKey(name); key != "" {
+		if key := config.ResolvePresetAPIKey(name, config.InferencePreset{}); key != "" {
 			opts = append(opts, oaicompat.WithAPIKey(key))
 		}
 		return oaicompat.New(ep, opts...)
 	}
-	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
+	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, ollama-cloud, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, litellm, lmstudio, or a configured preset)", name)
 }
 
 func noProviderConfiguredError() error {

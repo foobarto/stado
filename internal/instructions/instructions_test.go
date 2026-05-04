@@ -189,6 +189,18 @@ func TestValidateSystemPromptTemplateRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestTemplateInjectsProjectInstructions(t *testing.T) {
+	if !TemplateInjectsProjectInstructions(DefaultSystemPromptTemplate) {
+		t.Fatal("default template should reference .ProjectInstructions")
+	}
+	if TemplateInjectsProjectInstructions("identity-only template, no project block") {
+		t.Fatal("template without .ProjectInstructions should report false")
+	}
+	if !TemplateInjectsProjectInstructions(`{{ if .ProjectInstructions }}x{{ end }}`) {
+		t.Fatal("template with .ProjectInstructions should report true")
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

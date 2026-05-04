@@ -26,9 +26,10 @@ func (m *Model) providerSetupBody(provider string) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "provider setup: %s\n", provider)
-	if endpoint, ok := m.configuredPresetEndpoint(provider); ok {
+	if preset, endpoint, ok := m.configuredPresetEntry(provider); ok {
 		fmt.Fprintf(&b, "- configured preset endpoint: %s\n", endpoint)
-		writeAPIKeySetup(&b, provider, endpoint)
+		env := config.PresetAPIKeyEnv(provider, preset)
+		writePresetAPIKeySetup(&b, provider, endpoint, env, preset.APIKeyEnv != "")
 		return strings.TrimRight(b.String(), "\n")
 	}
 	if endpoint, _, ok := config.BuiltinInferencePreset(provider); ok {
@@ -62,24 +63,32 @@ func providerCredentialHealth(provider string) (value, tone, action string) {
 	return env + " set", "text", "/model Ctrl+A"
 }
 
-func (m *Model) configuredPresetEndpoint(provider string) (string, bool) {
+func (m *Model) configuredPresetEntry(provider string) (config.InferencePreset, string, bool) {
 	if m.cfg == nil || m.cfg.Inference.Presets == nil {
-		return "", false
+		return config.InferencePreset{}, "", false
 	}
 	preset, ok := m.cfg.Inference.Presets[provider]
 	if !ok || strings.TrimSpace(preset.Endpoint) == "" {
-		return "", false
+		return config.InferencePreset{}, "", false
 	}
-	return preset.Endpoint, true
+	return preset, preset.Endpoint, true
 }
 
 func writeAPIKeySetup(b *strings.Builder, provider, endpoint string) {
-	env := config.ProviderAPIKeyEnv(provider)
+	writePresetAPIKeySetup(b, provider, endpoint, config.ProviderAPIKeyEnv(provider), false)
+}
+
+// writePresetAPIKeySetup is the underlying writer used by both the
+// provider-level help (no preset object) and the preset-level help
+// (preset.APIKeyEnv may pin a non-conventional env var). When env is
+// empty and the endpoint is non-local, the message tells the user how
+// to opt into authenticated access.
+func writePresetAPIKeySetup(b *strings.Builder, provider, endpoint, env string, explicit bool) {
 	if env == "" {
 		if isLocalEndpoint(endpoint) {
 			fmt.Fprintf(b, "- no API key is expected by default.\n")
 		} else {
-			fmt.Fprintf(b, "- if this endpoint requires auth, expose credentials through the provider-compatible server or proxy.\n")
+			fmt.Fprintf(b, "- if this endpoint requires auth, set `[inference.presets.%s].api_key_env = \"<NAME>\"` and export that env var.\n", provider)
 		}
 		return
 	}
@@ -95,6 +104,9 @@ func writeAPIKeySetup(b *strings.Builder, provider, endpoint string) {
 		fmt.Fprintf(b, "- missing credentials: export `%s=...` before starting stado.\n", env)
 	} else {
 		fmt.Fprintf(b, "- credentials: `%s` is set in this process.\n", env)
+	}
+	if explicit {
+		fmt.Fprintf(b, "- env var pinned via `[inference.presets.%s].api_key_env`.\n", provider)
 	}
 	fmt.Fprintf(b, "- keep secrets in your shell, OS keychain, or service manager, not config.toml.\n")
 }

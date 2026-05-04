@@ -240,6 +240,13 @@ type Inference struct {
 
 type InferencePreset struct {
 	Endpoint string `koanf:"endpoint"`
+	// APIKeyEnv names the environment variable that holds the API key
+	// for this preset. Required for custom (non-builtin) preset names —
+	// without it, stado has no way to send credentials to the
+	// configured endpoint. Builtin preset names (litellm, groq, etc.)
+	// keep their conventional env var when this is empty. When set, it
+	// always wins over the builtin convention.
+	APIKeyEnv string `koanf:"api_key_env"`
 }
 
 // Sandbox is Phase 3's [sandbox] section — placeholder.

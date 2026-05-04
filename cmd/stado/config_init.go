@@ -139,10 +139,19 @@ const defaultConfigTemplate = `# stado — config.toml
 # port. A user-defined preset with the same name as a bundled one wins.
 # ---------------------------------------------------------------------------
 # [inference.presets.my-proxy]
-# endpoint = "https://my-proxy.example.com/v1"
+# endpoint    = "https://my-proxy.example.com/v1"
+# api_key_env = "MY_PROXY_API_KEY"   # env var holding the bearer token
 #
 # [inference.presets.lmstudio]    # override the bundled http://localhost:1234
 # endpoint = "http://localhost:1235/v1"
+#
+# [inference.presets.ollama-cloud]   # bundled — listed for reference
+# endpoint    = "https://ollama.com/v1"
+# api_key_env = "OLLAMA_CLOUD_API_KEY"
+#
+# Custom (non-builtin) preset names without api_key_env fall back to
+# STADO_PRESET_<UPPER>_API_KEY (hyphens → underscores), so a preset
+# named "ollama-cloud-byo" picks up STADO_PRESET_OLLAMA_CLOUD_BYO_API_KEY.
 
 # ---------------------------------------------------------------------------
 # [mcp.servers] — MCP tool servers to auto-attach.
