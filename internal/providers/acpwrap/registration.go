@@ -120,10 +120,7 @@ var agentChecksByBinary = map[string]agentMCPCheck{
 	},
 	"hermes": {
 		Name:   "hermes",
-		Honors: false,
-		// hermes-cli's MCP shape is unverified on the test host;
-		// no register command wired yet — falls into the warning
-		// branch in CheckMCPRegistration.
+		Honors: true, // honors session/new.mcpServers; stado-tools land via the wire
 	},
 }
 

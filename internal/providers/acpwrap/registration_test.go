@@ -14,11 +14,13 @@ func TestLookupAgentCheck_KnownAgents(t *testing.T) {
 	}{
 		// Honors=true cases — no setup needed.
 		{"opencode", "opencode", true},
-		{"/home/foobarto/.opencode/bin/opencode", "opencode", true},
+		{"/usr/local/bin/opencode", "opencode", true},
 		{"zed", "zed", true},
+		{"hermes", "hermes", true},
+		{"/opt/hermes/venv/bin/hermes", "hermes", true},
 		// Honors=false cases — registration required.
 		{"gemini", "gemini", false},
-		{"/home/foobarto/.nvm/versions/node/v24.14.1/bin/gemini", "gemini", false},
+		{"/opt/node/bin/gemini", "gemini", false},
 		{"claude", "claude", false},
 		{"codex", "codex", false},
 		// Case-insensitive normalisation.

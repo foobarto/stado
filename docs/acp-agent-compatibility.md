@@ -15,7 +15,7 @@ capabilities AND mount itself as an MCP server via `session/new.mcpServers`
 | **codex**   | `codex`   | (none — no stdio ACP-agent mode) | n/a    | Not invocable as ACP agent over stdio. **WRAP via MCP** instead: see `[mcp.providers.codex-mcp]` below. |
 | **claude**  | `claude`  | (none — no stdio ACP-agent mode) | n/a    | Same as codex; claude-cli's ACP role is being-the-agent for Zed-as-client, not exposing stdio for stado-as-client. |
 | **zed**     | `zed`     | n/a          | ✅ (per spec) when wrapped       | Editor, not a stdio CLI agent — out of scope for `acpwrap`.                   |
-| **hermes**  | `~/.hermes/hermes-agent/hermes` | conditional | needs Python extras  | ACP/MCP both work *if* the user installs Python extras: `pip install 'agent-client-protocol>=0.9'` (ACP) or `pip install 'mcp>=1.2'` (MCP). `~/.local/bin/hermes` is a separate broken entry-point — use the agent path.|
+| **hermes**  | `~/.hermes/hermes-agent/venv/bin/hermes` | ✅ Yes (verified) | None — venv binary already has ACP extras | Use the **venv binary**, not `~/.hermes/hermes-agent/hermes` (system-python launcher) and not `~/.local/bin/hermes` (separate broken entry-point). 46 stado tools land via session/new.mcpServers. MCP-serve mode requires `pip install 'mcp'` in the venv. |
 
 ## Per-agent setup instructions
 
@@ -133,34 +133,45 @@ Zed is the editor; it consumes ACP agents (it's the canonical
 
 ### hermes
 
-Hermes is the only surveyed agent supporting **both** ACP-agent
-mode (`hermes acp`) and MCP-server mode (`hermes mcp serve`). Both
-require Python extras that hermes-agent doesn't bundle by default:
+Hermes supports **both** ACP-agent mode (`hermes acp`) and
+MCP-server mode (`hermes mcp serve`). Use the **venv binary** at
+`~/.hermes/hermes-agent/venv/bin/hermes` — this path has the ACP
+Python extras already installed in most hermes installations.
+
+```toml
+[acp.providers.hermes-acp-stado]
+binary = "/home/foobarto/.hermes/hermes-agent/venv/bin/hermes"
+args   = ["acp"]
+tools  = "stado"
+```
+
+No additional setup needed for ACP. Hermes honors
+`session/new.mcpServers` directly — verified end-to-end: stado
+sends the mount, hermes spawns `stado mcp-server`, and hermes's
+LLM picks up all 46 stado tools (visible in hermes stderr:
+"refreshed tool surface after ACP MCP registration (46 tools)").
+
+**Three different binary paths exist; only one works correctly:**
+
+- `~/.hermes/hermes-agent/venv/bin/hermes` — **use this one**.
+  Real binary in the hermes venv with all extras.
+- `~/.hermes/hermes-agent/hermes` — system-python launcher;
+  fails with `hermes acp` because it can't import
+  `agent_client_protocol` (system python lacks the extra).
+- `~/.local/bin/hermes` — broken Python entry-point in some
+  installs (`ModuleNotFoundError: hermes_cli`). Different package.
+
+For MCP-wrap mode (`hermes mcp serve`), hermes needs the `mcp`
+Python package installed in its venv:
 
 ```
-# For ACP wrap:
-pip install 'agent-client-protocol>=0.9'
-
-# For MCP wrap:
-pip install 'mcp>=1.2'
+~/.hermes/hermes-agent/venv/bin/pip install 'mcp>=1.2'
 ```
 
-(Adjust to your hermes Python environment — pipx, venv, or
-system-pip depending on how hermes was installed. The hermes
-source at `~/.hermes/hermes-agent/pyproject.toml` lists `acp` and
-similar extras under `[project.optional-dependencies]`; running
-`pip install -e '~/.hermes/hermes-agent[acp]'` installs them
-in-place.)
-
-**Path note:** the working binary is
-`~/.hermes/hermes-agent/hermes`. Some installs leave a separate
-`~/.local/bin/hermes` Python entry-point that's broken (raises
-`ModuleNotFoundError: hermes_cli`). Always point provider configs
-at the agent path.
-
-Once the extras are installed, hermes wraps either way — config
-follows the gemini-acp pattern for ACP or the codex-mcp pattern
-for MCP.
+(If that pip isn't present, hermes was installed via uv/pipx —
+use the matching install command. The hermes source's
+pyproject.toml lists `mcp` under `[project.optional-dependencies]`
+in the `dev` extra, so installing dev-extras pulls it in.)
 
 ## Auto-registration — current state
 
