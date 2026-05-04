@@ -8,8 +8,14 @@ bug reports, and one-line corrections are all welcome.
 ```sh
 git clone https://github.com/foobarto/stado
 cd stado
-go build -o stado ./cmd/stado
+make            # → ./stado (default target — wraps `go build -buildvcs=false`)
 ```
+
+`make help` lists the rest: `test`, `lint` (matches CI's golangci
+config), `check` (lint + test — the local pre-push gate),
+`fetch-binaries` (mirrors goreleaser's before-hook), `clean`,
+`install`. Plain `go build -o stado ./cmd/stado` still works if you
+prefer.
 
 Dev builds don't embed `ripgrep` / `ast-grep`; they fall back to the
 PATH copies. `stado doctor` will tell you what's missing.

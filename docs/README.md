@@ -48,12 +48,15 @@ Shorter forms live in:
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
+| Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `--with-tool-host` / `[tools].overrides` patterns |
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |
 | Enhancement Proposals | [eps/README.md](eps/README.md) | Durable design records for major architectural decisions |
 
 ## Reports
 
 - [opencode TUI UAT report — 2026-04-24](reports/2026-04-24-opencode-tui-uat.md)
+- [v0.26.0 release notes — 2026-05-04](reports/2026-05-04-v0.26.0-release-notes.md)
+- [First-time-user feedback — Bazzite + LMStudio — 2026-05-04](reports/2026-05-04-first-time-user-bazzite.md)
 
 ## Status
 

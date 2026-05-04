@@ -124,14 +124,18 @@ For the fully manual airgapped minisign flow, see
 
 ```sh
 go install github.com/foobarto/stado/cmd/stado@latest
+# or, from a clone:
+git clone https://github.com/foobarto/stado && cd stado && make
 ```
 
 Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps — official
 release binaries bundle `rg` and `ast-grep` via `go:embed` (extracted
 on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified). Source
-builds (`go install`) skip the embed and fall back to the system PATH;
-`gopls` is optional and always resolved via PATH. Dev/source builds do
-not pin the release minisign roots unless you pass the release ldflags.
+builds (`go install` / `make`) skip the embed and fall back to the
+system PATH; `gopls` is optional and always resolved via PATH.
+Dev/source builds do not pin the release minisign roots unless you
+pass the release ldflags. `make help` lists the dev-loop targets
+(`test`, `lint`, `check`, etc.).
 
 ---
 
@@ -282,6 +286,28 @@ surface itself is shipped and stable enough to wire into Zed today.
 - **Recovery.** Bundled `auto-compact` is enabled by default as a
   background plugin; when the TUI hits the hard context threshold it
   forks a compacted child session and replays the blocked prompt there.
+
+### Recent in v0.26.0
+
+- Five new CLI flags: top-level `--version`, `--provider`/`--model`
+  global overrides, `plugin run --workdir <path>`, `plugin run
+  --with-tool-host`. Three new plugin subcommands: `plugin gc`,
+  `plugin doctor`, `plugin info`.
+- New `cfg:*` capability vocabulary for read-only configuration
+  introspection (`cfg:state_dir` ships first); `fs:read` /
+  `fs:write` caps now support `cfg:state_dir/...` path-templating
+  with strict cap-pairing.
+- Boots correctly on Fedora Atomic / Silverblue / Bazzite (the
+  `/home → /var/home` symlink no longer triggers
+  `Error: config: create config dir: directory component is a
+  symlink: home`).
+- Two new bundled examples — [`plugins/examples/webfetch-cached/`](plugins/examples/webfetch-cached/)
+  and [`plugins/examples/state-dir-info/`](plugins/examples/state-dir-info/)
+  — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
+- See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
+  for the full rollup, EP-0027/0028/0029/0031 references, and the
+  EP-0030 placeholder for the security-research default-harness
+  direction.
 
 For the full as-built detail, see [docs/README.md](docs/README.md),
 [DESIGN.md](DESIGN.md), and [PLAN.md](PLAN.md).
@@ -477,8 +503,10 @@ Third-party tools ship as signed wasm binaries, verified against an
 Ed25519 trust store (`stado plugin trust <pubkey>`). Capabilities are
 declared in the manifest, enforced by the `wazero` runtime — no
 kernel-level sandbox needed because wasm already is one. See
-[docs/commands/plugin.md](docs/commands/plugin.md) for the operator
-workflow and [SECURITY.md](SECURITY.md) for the publish/signing model.
+[docs/features/plugin-authoring.md](docs/features/plugin-authoring.md)
+for the first-time-author walkthrough,
+[docs/commands/plugin.md](docs/commands/plugin.md) for the per-command
+reference, and [SECURITY.md](SECURITY.md) for the publish/signing model.
 
 The default bundled plugin is `auto-compact`: it is loaded as a
 background plugin automatically in the TUI and headless server. Extra
@@ -495,7 +523,11 @@ not a replacement for that default.
 - [docs/commands/session.md](docs/commands/session.md) — session
   lifecycle, fork/land flow, and export/search/logging
 - [docs/commands/plugin.md](docs/commands/plugin.md) — scaffold → sign
-  → trust → verify → install → run for WASM plugins
+  → trust → verify → install → run for WASM plugins (per-command
+  reference)
+- [docs/features/plugin-authoring.md](docs/features/plugin-authoring.md) —
+  end-to-end first-time-author walkthrough (lifecycle, capability
+  table, common patterns, common errors)
 - [docs/features/instructions.md](docs/features/instructions.md) —
   `AGENTS.md` / `CLAUDE.md` resolution and loading rules
 - [docs/eps/README.md](docs/eps/README.md) — enhancement proposals and
