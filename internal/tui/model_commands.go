@@ -2,7 +2,10 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -538,8 +541,42 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 // openModelPicker builds the item list for the current provider +
 // any reachable local runners, then opens the modal picker. See
 // internal/tui/modelpicker for the picker itself.
+// catalogProviders is the static list of provider names that
+// modelpicker.CatalogFor knows about. Kept here so openModelPicker
+// can fan out across all of them rather than only the currently-
+// active provider — without that, picking up a new model from
+// anthropic / openai / google etc. requires switching provider
+// FIRST, which defeats the picker's purpose.
+var catalogProviders = []string{
+	"anthropic", "openai", "google", "groq", "deepseek",
+	"mistral", "xai", "cerebras",
+}
+
 func (m *Model) openModelPicker() {
+	// Start with the active provider's catalog so its entries lead the
+	// list (the picker preserves order; recents/favorites prepend
+	// later).
 	items := modelpicker.CatalogFor(m.providerName)
+	seenIDs := map[string]bool{}
+	for _, it := range items {
+		seenIDs[it.ID] = true
+	}
+
+	// Add catalogs for OTHER known hosted providers — so the user can
+	// switch provider+model in one selection. Skip the active one
+	// (already added above) and skip ids we've already seen.
+	for _, name := range catalogProviders {
+		if name == m.providerName {
+			continue
+		}
+		for _, it := range modelpicker.CatalogFor(name) {
+			if seenIDs[it.ID] {
+				continue
+			}
+			seenIDs[it.ID] = true
+			items = append(items, it)
+		}
+	}
 
 	// Overlay detected local runners — if the active provider matches
 	// a probed runner's name, the catalog entries get retagged
@@ -564,6 +601,33 @@ func (m *Model) openModelPicker() {
 			}
 		}
 	}
+
+	// Live-fetch /v1/models for hosted OAI-compat presets (ollama-cloud,
+	// openrouter, groq when configured as preset, etc.). localdetect
+	// only probes localhost endpoints; without this branch, hosted
+	// presets show no models in the picker even when the user has
+	// configured + authenticated them. See
+	// internal/providers/localdetect/localdetect.go MergeUserPresets's
+	// "Skip remote endpoints" branch.
+	if m.cfg != nil {
+		for name, preset := range m.cfg.Inference.Presets {
+			if preset.Endpoint == "" {
+				continue
+			}
+			if isLocalEndpoint(preset.Endpoint) {
+				continue // already handled by localdetect above
+			}
+			ids := fetchPresetModelIDs(ctx, preset.Endpoint, config.ResolvePresetAPIKey(name, preset))
+			for _, id := range ids {
+				items = append(items, modelpicker.Item{
+					ID:           id,
+					Origin:       name + " · live",
+					ProviderName: name,
+				})
+			}
+		}
+	}
+
 	items = prependModelRecents(items, m.modelRecents())
 	items = prependModelFavorites(items, m.modelFavorites())
 
@@ -575,6 +639,58 @@ func (m *Model) openModelPicker() {
 	}
 	m.modelPicker.Open(items, m.model)
 	m.layout()
+}
+
+// fetchPresetModelIDs calls <endpoint>/models with optional Bearer
+// auth and returns the ids OAI-compat servers list under .data[].id.
+// Best-effort: any failure (timeout, non-200, malformed JSON) yields
+// an empty slice. The picker degrades gracefully — the preset just
+// shows no models, same as before this fetch existed.
+//
+// Endpoint may include the trailing /v1; we don't append it. Auth
+// header is omitted entirely when apiKey is empty (some servers
+// like ollama.com expose /v1/models without auth, even though chat
+// completions require it).
+func fetchPresetModelIDs(ctx context.Context, endpoint, apiKey string) []string {
+	endpoint = strings.TrimRight(endpoint, "/")
+	if endpoint == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/models", nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	cli := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil
+	}
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(parsed.Data))
+	for _, d := range parsed.Data {
+		if d.ID != "" {
+			out = append(out, d.ID)
+		}
+	}
+	return out
 }
 
 // renderSessionsOverview is the backing formatter for the `/sessions`

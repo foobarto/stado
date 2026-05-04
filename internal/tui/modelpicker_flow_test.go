@@ -57,28 +57,33 @@ func TestOpenModelPicker_Anthropic(t *testing.T) {
 }
 
 // TestOpenModelPicker_UnknownProviderAdvisory: no catalog AND no
-// running local runners → system block, picker stays hidden.
-//
-// This test is skipped when the host has any bundled local runner up,
-// because localdetect will populate the picker with the runner's
-// live model list and the advisory path doesn't trigger. A CI runner
-// shouldn't have those up, so the check exercises where it matters.
-func TestOpenModelPicker_UnknownProviderAdvisory(t *testing.T) {
-	// Fail-open: if localhost has a runner up, skip this test.
+// TestOpenModelPicker_UnknownProviderShowsOtherCatalogs:
+// even when the active provider has no static catalog and no
+// local runner, the picker fans out across the other known
+// hosted-provider catalogs (anthropic, openai, google, etc.) so
+// the user can pick a model + switch provider in one selection.
+// Replaces the old "unknown provider → advisory" invariant which
+// no longer holds after the catalog-fan-out fix.
+func TestOpenModelPicker_UnknownProviderShowsOtherCatalogs(t *testing.T) {
 	if hasAnyLocalRunner(t) {
-		t.Skip("host has a local runner running; advisory-path test assumes clean env")
+		t.Skip("host has a local runner running; mixes local entries with catalog ones")
 	}
 	m := newPickerTestModel(t, "some-custom-preset")
 	m.openModelPicker()
-	if m.modelPicker.Visible {
-		t.Error("unknown provider should NOT open the picker")
+	if !m.modelPicker.Visible {
+		t.Error("expected picker to open with other-provider catalog entries")
 	}
-	if len(m.blocks) == 0 {
-		t.Fatal("expected advisory block")
+	// Spot-check at least one canonical hosted-provider model surfaced.
+	items := m.modelPicker.Items
+	found := false
+	for _, it := range items {
+		if it.ProviderName == "anthropic" || it.ProviderName == "openai" {
+			found = true
+			break
+		}
 	}
-	last := m.blocks[len(m.blocks)-1]
-	if last.kind != "system" || !contains(last.body, "no known models") {
-		t.Errorf("expected 'no known models' advisory, got %+v", last)
+	if !found {
+		t.Errorf("expected at least one anthropic/openai catalog entry; got %d items", len(items))
 	}
 }
 
