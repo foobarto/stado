@@ -27,7 +27,9 @@ import (
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -287,13 +289,36 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// OAI-compat preset of the same name. EP-0032 phase A.
 	if cfg.ACP.Providers != nil {
 		if p, ok := cfg.ACP.Providers[name]; ok && p.Binary != "" {
-			return acpwrap.New(acpwrap.Config{
+			ac := acpwrap.Config{
 				Name:   name,
 				Binary: p.Binary,
 				Args:   p.Args,
 				CWD:    p.CWD,
 				Env:    p.Env,
-			})
+				Tools:  p.Tools,
+			}
+			// EP-0032 phase B: when tools = "stado" the provider
+			// needs a ToolHostConfig to dispatch inbound fs/* ACP
+			// requests through stado's read/write tools. Build a
+			// default Host (auto-approve + sandbox.Detect()
+			// runner) and wire the bundled fs tools. Custom dispatch
+			// (different tool implementations, alternate Host) can
+			// be supplied by future call sites that build the Config
+			// directly — here we use the bundled defaults.
+			if p.Tools == "stado" {
+				cwd := p.CWD
+				if cwd == "" {
+					if c, err := os.Getwd(); err == nil {
+						cwd = c
+					}
+				}
+				ac.ToolHostCfg = acpwrap.ToolHostConfig{
+					ReadTool:  fs.ReadTool{},
+					WriteTool: fs.WriteTool{},
+					Host:      acpwrap.NewDefaultHost(cwd, sandbox.Detect()),
+				}
+			}
+			return acpwrap.New(ac)
 		}
 	}
 

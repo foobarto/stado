@@ -15,10 +15,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/pkg/tool"
 )
+
+// toolhostDebug returns true when STADO_ACP_TOOLHOST_DEBUG is set
+// to any non-empty value. Used to log dispatched method names to
+// stderr during smoke tests / dogfood — the `stado mcp-server` side
+// already emits otel spans, but those go to the configured exporter
+// (off by default in dev). Stderr lets a smoke-test operator see in
+// real time what the wrapped agent is calling without setting up
+// telemetry.
+func toolhostDebug() bool {
+	return os.Getenv("STADO_ACP_TOOLHOST_DEBUG") != ""
+}
 
 // ToolHostConfig configures the inbound-request handler that
 // translates ACP method calls into stado tool invocations.
@@ -45,6 +57,9 @@ type ToolHostConfig struct {
 // surface the gap to the user) cleanly.
 func BuildRequestHandler(cfg ToolHostConfig) acp.RequestHandler {
 	return func(ctx context.Context, method string, params json.RawMessage) (any, error) {
+		if toolhostDebug() {
+			fmt.Fprintf(os.Stderr, "[acpwrap toolhost] dispatch %s params=%s\n", method, string(params))
+		}
 		switch method {
 		case "fs/read_text_file":
 			return handleReadTextFile(ctx, cfg, params)

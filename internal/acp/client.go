@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"sync/atomic"
 )
@@ -141,6 +142,9 @@ func (c *Client) readLoop() {
 		if err := json.Unmarshal(line, &probe); err != nil {
 			// malformed — ignore (some agents print non-JSON greetings)
 			continue
+		}
+		if os.Getenv("STADO_ACP_WIRE_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "[acp wire IN ] %s\n", line)
 		}
 		if probe.Method != "" && probe.ID == nil {
 			// Notification.
@@ -282,6 +286,9 @@ func (c *Client) writeMessage(v any) error {
 	buf, err := json.Marshal(v)
 	if err != nil {
 		return err
+	}
+	if os.Getenv("STADO_ACP_WIRE_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "[acp wire OUT] %s\n", buf)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

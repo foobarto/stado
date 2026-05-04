@@ -331,6 +331,14 @@ type ACPProvider struct {
 	// Env adds entries to the wrapped agent's environment (parent
 	// PATH/HOME/etc inherit by default).
 	Env []string `koanf:"env"`
+	// Tools selects the tool-host policy (EP-0032 phase B).
+	//   "" / "agent" — default; wrapped agent uses its own tools.
+	//   "stado"      — stado advertises fs.read/write capabilities
+	//                  AND mounts itself as MCP server in
+	//                  session/new.mcpServers; the wrapped agent's
+	//                  tool calls through these channels route
+	//                  through stado's Executor + sandbox runner.
+	Tools string `koanf:"tools"`
 }
 
 // Plugins is Phase 7's [plugins] section. CRL fields are Phase 7.6 —
