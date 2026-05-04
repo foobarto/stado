@@ -152,25 +152,89 @@ args   = ["--acp"]
 tools  = "stado"   # default: "agent" (phase A)
 ```
 
-When set, stado advertises its bundled tool registry as
-ACP-callable capabilities during `initialize`. The wrapped agent
-can call stado's `bash`, `read`, `write`, `grep`, etc. via ACP
-method calls instead of its own tool stack.
+When set, stado advertises tools to the wrapped agent through
+**both** standard ACP channels — the bounded
+`fs.readTextFile`/`fs.writeTextFile`/`terminal` client
+capabilities at `initialize`, AND a stado-hosted in-process MCP
+server mounted via `session/new.mcpServers` exposing the full
+stado tool registry. Two channels means full audit granularity
+without the capability cliff that fs/terminal-only would impose.
 
-Implementation hooks:
-- `ClientCapabilities` in `client.go` grows `toolHost` capability
-  + tool definitions (mirrors how stado's MCP server exposes
-  tools).
-- `acp.Client` adds inbound RPC handler dispatching tool/call
-  requests from the wrapped agent into stado's tool registry +
-  routing back the result.
-- Audit gains per-tool-call granularity for these sessions
-  because stado is now the tool runner.
+### Why both channels (D6)
 
-Open question: does the wrapped agent USE stado's tools when
-they're advertised, or does it stick with its built-in stack?
-Per the canonical spec it's a per-call agent decision; we'll see
-in practice once phase B ships.
+ACP defines two distinct mechanisms for client-side tool exposure:
+
+1. **`initialize.clientCapabilities`** — fixed capability flags
+   (`fs.readTextFile`, `fs.writeTextFile`, `terminal`) advertised
+   at session start. Spec-compliant agents prefer these when
+   advertised because the spec positions them as the canonical
+   "trusted client filesystem/shell" path. Bounded surface; every
+   ACP-compliant agent supports them.
+2. **`session/new.mcpServers`** — per-session array of MCP server
+   descriptors. Wrapped agent connects, calls MCP `tools/list`,
+   gets full tool definitions (name, description, JSON schema)
+   that flow into the LLM's system prompt as standard MCP tools.
+   Tool calls flow over MCP, not ACP.
+
+Channel 1 covers the canonical fs+shell path with audit. Channel 2
+covers everything else stado offers (grep, glob, edit, web fetch,
+project-aware tools) so a wrapped agent forced to use only
+stado-routed tools has a useful surface, not three primitives.
+
+### Tool-call routing semantics
+
+ACP-mounted capabilities and MCP-mounted tools are **additive,
+not exclusive** — the wrapped agent's built-in tools remain
+available unless its CLI is invoked with built-in-disabling flags.
+The agent's LLM sees its built-ins PLUS stado's advertised
+capabilities PLUS stado's MCP-mounted tools, and decides per-call
+which to use. Spec-compliant agents bias toward calling ACP
+capabilities (canonical client-trusted path); MCP tools are
+treated as parity with built-ins.
+
+Phase B does **not** force the wrapped agent to route through
+stado. To achieve "all tool calls audited through stado," the
+user adds the wrapped agent's own built-in-disabling flag to the
+`[acp.providers.<name>] args` array (gemini, claude, opencode all
+expose such a flag in their CLI; the exact form is per-agent and
+out of stado's control). With built-ins disabled, the agent has
+only the ACP+MCP channels stado provides — every tool call is
+audited.
+
+### Implementation hooks
+
+- `ClientCapabilities` in `internal/acp/client.go:220` grows
+  `fs.readTextFile`, `fs.writeTextFile`, `terminal` capability
+  fields. Populated at `initialize` when `tools = "stado"`.
+- `acp.Client.readLoop` (`client.go:95`) currently handles
+  inbound responses (matched to pending Calls) and inbound
+  notifications (`session/update`). Phase B adds a third case:
+  inbound **requests** (method + id set), dispatched to a tool
+  handler that returns a JSON-RPC response with the same id. The
+  handler routes by method:
+  - `fs/read_text_file` → stado's read tool
+  - `fs/write_text_file` → stado's write tool
+  - `terminal/create` + lifecycle (`terminal/output`,
+    `terminal/release`) → stado's bash/process-execution tool
+- New `internal/acp/toolhost.go` packages the stado-tool-side
+  dispatch, reusing the inverse-direction logic already in
+  `internal/acp/server.go` where applicable. Stado was always
+  going to be both an ACP server (Zed-as-client → stado-as-agent)
+  and now an ACP client with capabilities (wrapped-agent → stado);
+  the dispatch logic is symmetric.
+- A stado-internal MCP server (reuses EP-0010's MCP server
+  infrastructure) starts when `tools = "stado"` is set on a
+  provider, exposing the full tool registry. Its connection
+  descriptor populates `session/new.mcpServers`.
+- Tool calls flowing through either channel pass through stado's
+  existing permission/sandbox stack: capability rules
+  (`Bash(...)` allowlist, `Edit(...)` paths), sandbox detection,
+  audit log emission. The wrapped agent is treated as an untrusted
+  caller — same policy semantics as a remote MCP client of stado.
+- Audit gains per-tool-call granularity for the calls that DO
+  route through stado. Calls the wrapped agent makes via its own
+  built-ins remain opaque (D1's trust boundary still applies for
+  the agent's own internal stack).
 
 ## Phase C (planned) — per-call hybrid
 
@@ -278,6 +342,47 @@ is genuinely useful or just confusing.
   Forwarding direct is the lowest-friction-for-operator option;
   later we can add a `--quiet-wrapped-stderr` flag if the
   noise becomes a real problem.
+
+### D6. Phase B uses both ACP capability advertisement AND MCP server mount
+
+- **Decided:** when `tools = "stado"`, advertise standard ACP
+  client capabilities (`fs.readTextFile`, `fs.writeTextFile`,
+  `terminal`) at `initialize` AND mount a stado-hosted MCP server
+  exposing the full tool registry via `session/new.mcpServers`.
+- **Alternatives:** ACP capabilities only (bounded fs+shell
+  surface; agents forced to use only stado-routed tools have
+  3 primitives — capability cliff); MCP mount only (loses the
+  spec's bias toward client-trusted fs/terminal path); custom
+  ACP extension methods (non-standard, agents won't know about
+  them, the wrapped LLM doesn't see the tools).
+- **Why:** the user goal is "all tool calls audited through
+  stado" with the option to force the wrapped agent into that
+  mode (via the agent's own built-in-disabling CLI flag). ACP
+  capabilities alone make that mode useless — the agent has only
+  fs/shell, no grep/glob/edit/web. MCP-mount fills the gap with a
+  standard mechanism every spec-compliant agent supports. Doing
+  both takes the canonical fs/terminal-trust-bias path AND keeps
+  the broader registry available, so forcing-stado-only doesn't
+  cripple the agent.
+
+### D7. Wrapped agent treated as untrusted caller; stado permission stack applies
+
+- **Decided:** every tool call routed through stado (via either
+  ACP capabilities or the MCP-mounted server) passes through
+  stado's existing permission/sandbox stack — capability rules,
+  Bash/Edit allowlists, sandbox detection, audit emission.
+- **Alternatives:** trust the wrapped agent implicitly because
+  the user opted into `tools = "stado"`; lighter-weight
+  permission scope just for ACP-routed calls.
+- **Why:** the wrapped agent is a third-party process whose
+  decisions stado cannot audit at the LLM level. Trusting it
+  to bypass stado's sandbox/permission model would defeat the
+  audit goal that motivated phase B in the first place. Same
+  policy semantics as a remote MCP client of stado — the
+  permission stack is provider-neutral. If the user wants the
+  wrapped agent to operate with broader rights, that's an
+  explicit permission rule (e.g. `Bash(git *)` allowlist), not
+  an ambient trust grant.
 
 ## Related
 
