@@ -19,6 +19,7 @@ matches the toolchain you already have.
 | [`session-inspect/`](session-inspect/)         | Go       | ~3 MB     | Phase 7.1b capability demo — declares `session:read` / `session:fork` / `llm:invoke`, exercises the first |
 | [`session-recorder/`](session-recorder/)       | Go       | ~3 MB     | Phase 7.1b second validator — `session:read` + `fs:read`/`fs:write` + `stado_plugin_tick`. Appends a JSONL line per turn to `.stado/session-recordings.jsonl`. Different capability mix from auto-compact, same ABI — proves the surface is general-purpose |
 | [`webfetch-cached/`](webfetch-cached/)         | Go       | ~3.5 MB   | v0.26.0 surface demo — wraps the bundled `stado_http_get` host import behind a SHA-256-keyed disk cache. Showcases `--with-tool-host`, workdir-rooted fs caps, and `[tools].overrides` for transparent bundled-tool replacement |
+| [`state-dir-info/`](state-dir-info/)           | Go       | ~3 MB     | EP-0029 `cfg:state_dir` capability example — minimal plugin that calls `stado_cfg_state_dir` and returns the resolved path. Copy as a starting template for plugins that need to compose paths under stado's state directory |
 
 Both implement the same tool contract so you can diff them:
 
