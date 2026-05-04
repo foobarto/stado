@@ -113,15 +113,33 @@ func TestLandingView_UsesCenteredPromptWithoutSidebar(t *testing.T) {
 	}
 }
 
-func TestRenderLandingLogo_CondensesBanner(t *testing.T) {
+func TestRenderLandingLogo_RendersFullBannerWhenSpaceAllows(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	got := ansi.Strip(renderLandingLogo(120, 40))
 	lines := strings.Split(got, "\n")
-	if len(lines) != landingBannerMaxHeight {
-		t.Fatalf("landing logo height = %d, want %d\n%s", len(lines), landingBannerMaxHeight, got)
+	// landingBannerMaxHeight is sized to fit the full asset; with
+	// ample maxH the banner renders at its natural row count, not
+	// downsampled. Plain banner is 26 rows; ANSI is 34. Either way
+	// we want > landingBannerMinHeight and ≤ landingBannerMaxHeight.
+	if len(lines) <= landingBannerMinHeight || len(lines) > landingBannerMaxHeight {
+		t.Fatalf("landing logo height = %d, want (%d, %d]\n%s",
+			len(lines), landingBannerMinHeight, landingBannerMaxHeight, got)
 	}
 	if !strings.ContainsAny(got, "░▒▓█") {
 		t.Fatalf("landing logo lost banner art:\n%s", got)
+	}
+}
+
+func TestRenderLandingLogo_DownsamplesWhenSpaceIsTight(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	// maxH below the asset's natural height triggers sampling.
+	got := ansi.Strip(renderLandingLogo(120, 12))
+	lines := strings.Split(got, "\n")
+	if len(lines) != 12 {
+		t.Fatalf("landing logo height = %d under tight maxH, want 12\n%s", len(lines), got)
+	}
+	if !strings.ContainsAny(got, "░▒▓█") {
+		t.Fatalf("downsampled banner lost block art:\n%s", got)
 	}
 }
 

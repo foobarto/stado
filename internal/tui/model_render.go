@@ -337,7 +337,15 @@ func (m *Model) renderLanding(width, height int) string {
 
 const (
 	landingBannerMinHeight = 6
-	landingBannerMaxHeight = 8
+	// landingBannerMaxHeight is sized to comfortably fit BOTH banner
+	// asset variants (banner.txt is 26 rows, banner.ansi is 34 rows
+	// of chafa-rendered block art). The previous value of 8 forced
+	// sampleLandingLogoLines to downsample to ~3:1, vertically
+	// squashing the sheep into an unrecognisable oval. With this
+	// ceiling, sampling only kicks in when the chat area is
+	// genuinely small; on typical terminals the asset renders at its
+	// natural aspect.
+	landingBannerMaxHeight = 36
 )
 
 func renderLandingLogo(width, maxH int) string {
