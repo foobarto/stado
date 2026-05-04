@@ -87,6 +87,22 @@ func (m *Model) Selected() *Item {
 func (m *Model) SetFavorite(id, providerName string, favorite bool) {
 	m.updateFavorite(m.Items, id, providerName, favorite)
 	m.updateFavorite(m.Matches, id, providerName, favorite)
+	// Re-sort so favorites lead. Without this, the user toggling
+	// ctrl+f on an item leaves it in its in-place position with a
+	// "favorite" tag — the HR separator emitted by renderBody fires
+	// at the wrong transition (mid-list, not after the favorites
+	// header) and the user has to close + reopen the picker to see
+	// the favorite move.
+	m.Items = partitionFavoritesFirst(m.Items)
+	m.Matches = partitionFavoritesFirst(m.Matches)
+	// Cursor may now point at a different item — keep it on the one
+	// the user just toggled so they can chain ctrl+f operations.
+	for i, it := range m.Matches {
+		if it.ID == id && it.ProviderName == providerName {
+			m.Cursor = i
+			break
+		}
+	}
 }
 
 func (m *Model) updateFavorite(items []Item, id, providerName string, favorite bool) {
@@ -95,6 +111,28 @@ func (m *Model) updateFavorite(items []Item, id, providerName string, favorite b
 			items[i].Favorite = favorite
 		}
 	}
+}
+
+// partitionFavoritesFirst returns items with all Favorite=true
+// entries moved to the front, preserving their relative order. Used
+// after SetFavorite so a freshly-favorited item visibly moves to
+// the top of the picker without requiring a close+reopen.
+func partitionFavoritesFirst(items []Item) []Item {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if it.Favorite {
+			out = append(out, it)
+		}
+	}
+	for _, it := range items {
+		if !it.Favorite {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // Update consumes a keypress while Visible. handled=true means the
