@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -48,21 +47,6 @@ func newCompactTestModel(t *testing.T, p agent.Provider) *Model {
 	// zero-width terminal.
 	m.width, m.height = 80, 24
 	return m
-}
-
-// waitForState polls until m.state == want or timeout. Lets async stream
-// events (delivered via tea.Program.Send when attached, or directly in
-// these tests) propagate before we assert.
-func waitForState(t *testing.T, m *Model, want sessionState, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if m.state == want {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("state=%d, want %d after %s", m.state, want, timeout)
 }
 
 // TestCompactEmptyConversation: /compact on an empty msgs list should

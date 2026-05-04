@@ -7,15 +7,6 @@ import (
 	"github.com/foobarto/stado/internal/config"
 )
 
-// names returns a sorted slice of tool names for comparison.
-func toolNames(r interface {
-	All() []interface {
-		Name() string
-	}
-}) []string {
-	return nil
-}
-
 // TestApplyToolFilter_DefaultKeepsEverything: no config values →
 // registry unchanged.
 func TestApplyToolFilter_DefaultKeepsEverything(t *testing.T) {
