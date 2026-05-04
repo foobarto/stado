@@ -1,0 +1,18 @@
+{
+  "name": "encode-zig",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [],
+  "tools": [
+    {
+      "name": "encode",
+      "description": "Encode or decode data between common formats. Formats: base64 (standard RFC 4648 with padding), base64url (URL-safe alphabet, no padding), hex (lowercase), url (percent-encoding, RFC 3986 unreserved chars pass through), html (HTML entity escaping — encode only). Pass direction='decode' to reverse (not supported for html). This is the Zig SDK proof plugin — compare its ~3 KB wasm to the ~3.5 MB Go equivalent.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"data\":{\"type\":\"string\",\"description\":\"input string to encode or decode\"},\"format\":{\"type\":\"string\",\"enum\":[\"base64\",\"base64url\",\"hex\",\"url\",\"html\"]},\"direction\":{\"type\":\"string\",\"enum\":[\"encode\",\"decode\"],\"description\":\"defaults to encode\"}},\"required\":[\"data\",\"format\"]}"
+    }
+  ],
+  "min_stado_version": "0.30.0",
+  "timestamp_utc": "2026-05-05T02:00:00Z",
+  "nonce": "encode-zig-001"
+}
