@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/textutil"
@@ -132,7 +133,27 @@ func buildDoctorReport(ctx context.Context, cfg *config.Config, opts doctorOptio
 		checkLocalProvidersFn(ctx, &d, cfg)
 	}
 
+	// External-agent detection — surface installed sibling agents
+	// (claude / gemini / codex / opencode / zed / aider) in the
+	// doctor report so the operator can confirm what's available
+	// for ACP/MCP interop. See `stado integrations` for the full
+	// listing + JSON form.
+	checkExternalAgents(ctx, &d)
+
 	return d
+}
+
+func checkExternalAgents(ctx context.Context, d *report) {
+	for _, det := range integrations.Detect(ctx) {
+		if !det.Installed() {
+			continue
+		}
+		value := det.Version
+		if value == "" {
+			value = det.BinaryPath
+		}
+		d.check("Agent: "+det.Name, value, "installed", true)
+	}
 }
 
 // shouldSkipLocalProbe reports whether buildDoctorReport should skip

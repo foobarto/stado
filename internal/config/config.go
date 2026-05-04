@@ -77,7 +77,7 @@ type Hooks struct {
 // Budget is the [budget] config section — per-session guardrails on
 // cost (USD) and/or token usage. Stado already tracks both on every
 // provider turn; this adds thresholds to surface a warning and
-// (optionally) hard-block new turns. All four default to 0, meaning
+// (optionally) hard-block new turns. All fields default to 0, meaning
 // "no limit" — the guardrails are opt-in so cost-insensitive
 // local-runner users don't see pills for nothing.
 //
@@ -88,21 +88,37 @@ type Hooks struct {
 // budget is throughput, not dollars.
 //
 //	[budget]
-//	warn_usd    = 1.00     # status-bar pill + one-time system block when crossed
-//	hard_usd    = 5.00     # block further turns pending user ack
-//	warn_tokens = 100000   # token-equivalent warn pill (input + output, cumulative)
-//	hard_tokens = 500000   # token-equivalent hard gate
+//	warn_usd           = 1.00    # status-bar pill + one-time system block when crossed
+//	hard_usd           = 5.00    # block further turns pending user ack
+//	warn_tokens        = 100000  # combined input+output cumulative cap (warn)
+//	hard_tokens        = 500000  # combined input+output cumulative cap (hard)
+//	warn_input_tokens  = 0       # power-user: separate input-only cap (warn)
+//	hard_input_tokens  = 0       # ... (hard)
+//	warn_output_tokens = 0       # power-user: separate output-only cap (warn)
+//	hard_output_tokens = 0       # ... (hard)
 //
-// Fractional dollars allowed; tokens are integers. Either pair is
-// independent — set just USD, just tokens, both, or neither. A hard
-// threshold below the corresponding warn threshold is a config error
-// and is ignored with a stderr warning (the guard would never warn
-// before blocking).
+// Fractional dollars allowed; tokens are integers. Every cap is
+// independent and any one firing aborts the loop / triggers the gate.
+// Most users want the combined `*_tokens` (covers context-window
+// growth + generation length together); the per-direction caps are
+// for power users who want to bound output length without capping
+// how much input context the model gets, or vice versa. Output
+// tokens are 3–5× more expensive than input on most paid providers,
+// so an output-only cap is the cheap-ish way to constrain spend
+// without restricting context.
+//
+// A hard threshold below its corresponding warn threshold is a
+// config error — the guard would never warn before blocking — and
+// is ignored with a stderr warning at config-load time.
 type Budget struct {
-	WarnUSD    float64 `koanf:"warn_usd"`
-	HardUSD    float64 `koanf:"hard_usd"`
-	WarnTokens int     `koanf:"warn_tokens"`
-	HardTokens int     `koanf:"hard_tokens"`
+	WarnUSD          float64 `koanf:"warn_usd"`
+	HardUSD          float64 `koanf:"hard_usd"`
+	WarnTokens       int     `koanf:"warn_tokens"`
+	HardTokens       int     `koanf:"hard_tokens"`
+	WarnInputTokens  int     `koanf:"warn_input_tokens"`
+	HardInputTokens  int     `koanf:"hard_input_tokens"`
+	WarnOutputTokens int     `koanf:"warn_output_tokens"`
+	HardOutputTokens int     `koanf:"hard_output_tokens"`
 }
 
 type Memory struct {

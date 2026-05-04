@@ -321,12 +321,16 @@ type Model struct {
 	//   blocked with an actionable hint; session acks to unblock via
 	//   `/budget ack` which sets budgetAcked for the rest of the
 	//   session.
-	budgetWarnUSD    float64
-	budgetHardUSD    float64
-	budgetWarnTokens int
-	budgetHardTokens int
-	budgetWarned     bool
-	budgetAcked      bool
+	budgetWarnUSD          float64
+	budgetHardUSD          float64
+	budgetWarnTokens       int
+	budgetHardTokens       int
+	budgetWarnInputTokens  int
+	budgetHardInputTokens  int
+	budgetWarnOutputTokens int
+	budgetHardOutputTokens int
+	budgetWarned           bool
+	budgetAcked            bool
 
 	// tokenCounterChecked is set once we've probed the provider for
 	// agent.TokenCounter. tokenCounterPresent records the result so
@@ -557,11 +561,10 @@ func (m *Model) SetBudget(warnUSD, hardUSD float64) {
 	}
 }
 
-// SetBudgetTokens is the token-equivalent of SetBudget. Useful for
-// local-runner setups (Ollama / LM Studio / vLLM) where CostUSD is
-// always 0 — there the meaningful budget is throughput, not dollars.
-// Either USD or token guards (or both, or neither) can be configured;
-// they fire independently.
+// SetBudgetTokens is the token-equivalent of SetBudget for the
+// combined (input+output) cap. Useful for local-runner setups
+// (Ollama / LM Studio / vLLM) where CostUSD is always 0 — there the
+// meaningful budget is throughput, not dollars.
 func (m *Model) SetBudgetTokens(warnTokens, hardTokens int) {
 	if warnTokens >= 0 {
 		m.budgetWarnTokens = warnTokens
@@ -571,9 +574,30 @@ func (m *Model) SetBudgetTokens(warnTokens, hardTokens int) {
 	}
 }
 
-// budgetExceeded reports whether the cumulative session cost or
-// token count has crossed the configured hard cap. budgetAcked lets
-// the user continue past either cap for the rest of the session
+// SetBudgetTokensSplit configures per-direction (input-only and
+// output-only) caps. Power-user knob: output tokens are 3–5×
+// pricier than input on most paid providers, so an output-only cap
+// is the cheap way to constrain spend without restricting context.
+// Input-only caps bound context-window growth without limiting
+// generation length.
+func (m *Model) SetBudgetTokensSplit(warnIn, hardIn, warnOut, hardOut int) {
+	if warnIn >= 0 {
+		m.budgetWarnInputTokens = warnIn
+	}
+	if hardIn >= 0 {
+		m.budgetHardInputTokens = hardIn
+	}
+	if warnOut >= 0 {
+		m.budgetWarnOutputTokens = warnOut
+	}
+	if hardOut >= 0 {
+		m.budgetHardOutputTokens = hardOut
+	}
+}
+
+// budgetExceeded reports whether the cumulative session cost or any
+// configured token cap has crossed its hard threshold. budgetAcked
+// lets the user continue past every cap for the rest of the session
 // after confirming.
 func (m *Model) budgetExceeded() bool {
 	if m.budgetAcked {
@@ -583,6 +607,12 @@ func (m *Model) budgetExceeded() bool {
 		return true
 	}
 	if m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens {
+		return true
+	}
+	if m.budgetHardInputTokens > 0 && m.usage.InputTokens >= m.budgetHardInputTokens {
+		return true
+	}
+	if m.budgetHardOutputTokens > 0 && m.usage.OutputTokens >= m.budgetHardOutputTokens {
 		return true
 	}
 	return false
@@ -598,8 +628,8 @@ func (m *Model) totalTokens() int {
 
 // budgetWarning returns a short status-bar pill when cumulative cost
 // or token count has crossed the warn threshold. USD pill takes
-// precedence (most users have USD configured); token pill renders
-// otherwise. Empty when nothing's crossed.
+// precedence (most users have USD configured); combined-token pill
+// next; per-direction pills last. Empty when nothing's crossed.
 func (m *Model) budgetWarning() string {
 	if m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD {
 		cap := m.budgetWarnUSD
@@ -614,6 +644,20 @@ func (m *Model) budgetWarning() string {
 			cap = m.budgetHardTokens
 		}
 		return fmt.Sprintf("budget %s/%s tok", formatTokenCount(m.totalTokens()), formatTokenCount(cap))
+	}
+	if m.budgetWarnInputTokens > 0 && m.usage.InputTokens >= m.budgetWarnInputTokens {
+		cap := m.budgetWarnInputTokens
+		if m.budgetHardInputTokens > 0 {
+			cap = m.budgetHardInputTokens
+		}
+		return fmt.Sprintf("budget in %s/%s tok", formatTokenCount(m.usage.InputTokens), formatTokenCount(cap))
+	}
+	if m.budgetWarnOutputTokens > 0 && m.usage.OutputTokens >= m.budgetWarnOutputTokens {
+		cap := m.budgetWarnOutputTokens
+		if m.budgetHardOutputTokens > 0 {
+			cap = m.budgetHardOutputTokens
+		}
+		return fmt.Sprintf("budget out %s/%s tok", formatTokenCount(m.usage.OutputTokens), formatTokenCount(cap))
 	}
 	return ""
 }

@@ -112,6 +112,7 @@ func Run(cfg *config.Config) error {
 	m.SetContextThresholds(cfg.Context.SoftThreshold, cfg.Context.HardThreshold)
 	m.SetBudget(cfg.Budget.WarnUSD, cfg.Budget.HardUSD)
 	m.SetBudgetTokens(cfg.Budget.WarnTokens, cfg.Budget.HardTokens)
+	m.SetBudgetTokensSplit(cfg.Budget.WarnInputTokens, cfg.Budget.HardInputTokens, cfg.Budget.WarnOutputTokens, cfg.Budget.HardOutputTokens)
 	m.SetHooks(cfg.Hooks.PostTurn)
 	if exec != nil {
 		_, bashEnabled := exec.Registry.Get("bash")

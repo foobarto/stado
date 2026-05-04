@@ -8,6 +8,32 @@ Plugins / Infra / Fixes.
 
 ### CLI
 
+- **Added `stado integrations`** — detect external coding-agent CLIs
+  (claude / gemini / codex / opencode / zed / aider) installed on the
+  current host and report what protocols each speaks (ACP / MCP).
+  Scans PATH for known binaries + HOME / XDG_*_HOME for config dirs;
+  per-agent version probe with a 2s sub-timeout so a hung CLI doesn't
+  stall the whole sweep. `--json` emits structured output for piping
+  to `jq`. Backed by a new `internal/integrations/` registry — adding
+  a new known agent is a one-place change. Same registry surfaces
+  detected agents under "Agent: <name>" rows in `stado doctor`.
+  Foundation for the future ACP-client-driven dispatch features.
+  Operator request.
+
+- **Per-direction token budgets.** `[budget]` accepts the new
+  `warn_input_tokens` / `hard_input_tokens` / `warn_output_tokens` /
+  `hard_output_tokens` alongside the just-introduced combined
+  `warn_tokens` / `hard_tokens`. Output tokens are 3–5× pricier
+  than input on most paid providers — an output-only cap is the
+  cheap way to constrain spend without restricting context;
+  conversely an input-only cap bounds context-window growth without
+  limiting generation length. Every cap fires independently;
+  whichever crosses first aborts. Agent loop emits per-direction
+  telemetry (`turn.tokens_in`, `turn.tokens_out`,
+  `loop.cumulative_tokens_in/out`). TUI status pill prefers USD →
+  combined → input → output. Operator request — refines the
+  combined-cap addition from the same iteration.
+
 - **Added `stado config providers`** — list the bundled provider
   catalogue (3 native + 7 OAI-compat cloud + 4 OAI-compat local)
   with per-provider API-key status (✓ set / ✗ unset) and the
