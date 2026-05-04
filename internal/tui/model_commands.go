@@ -74,6 +74,49 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/exit", "/quit":
 		return tea.Quit
+	case "/cancel", "/stop":
+		// Cancel the in-flight turn (if any). The stream goroutine
+		// observes ctx.Done and unwinds; the buffered events still
+		// flush to the transcript so partial output isn't lost. Any
+		// queued prompt is preserved — it'll fire when the current
+		// turn's cleanup completes, exactly as if the turn had ended
+		// normally.
+		m.streamMu.Lock()
+		hadStream := m.streamCancel != nil
+		if hadStream {
+			m.streamCancel()
+		}
+		m.streamMu.Unlock()
+		if hadStream {
+			m.appendBlock(block{kind: "system", body: "cancel: in-flight turn cancelled (queued prompt, if any, will run next)"})
+		} else if m.queuedPrompt != "" {
+			m.queuedPrompt = ""
+			m.appendBlock(block{kind: "system", body: "cancel: cleared queued prompt"})
+		} else {
+			m.appendBlock(block{kind: "system", body: "cancel: no in-flight turn or queued prompt"})
+		}
+	case "/queue-now", "/force":
+		// Force the queued prompt to fire NOW: cancel the current
+		// turn (its cleanup will drain the queue and start the
+		// queued prompt). Useful when the user typed something
+		// after the current turn was already mid-tool-call and
+		// wants to skip the rest of the current turn to get to
+		// their new request.
+		if m.queuedPrompt == "" {
+			m.appendBlock(block{kind: "system", body: "queue-now: no queued prompt to force"})
+		} else {
+			m.streamMu.Lock()
+			hadStream := m.streamCancel != nil
+			if hadStream {
+				m.streamCancel()
+			}
+			m.streamMu.Unlock()
+			if hadStream {
+				m.appendBlock(block{kind: "system", body: "queue-now: in-flight turn cancelled; queued prompt will run on cleanup"})
+			} else {
+				m.appendBlock(block{kind: "system", body: "queue-now: no in-flight turn — queued prompt will run on next dispatch"})
+			}
+		}
 	case "/sidebar":
 		m.sidebarOpen = !m.sidebarOpen
 	case "/debug":
@@ -566,21 +609,57 @@ var bundledHostedPresets = []string{
 	"openrouter",
 }
 
+// wrapAgentCatalogs maps an integrations agent name → the catalog
+// provider whose model list reflects what that agent can run. When
+// the picker fans out across detected ACP/MCP wrap-capable agents,
+// each entry gets the wrapped agent's models tagged with
+// ProviderName = "<agent>-acp" / "-mcp", so picking a specific model
+// (e.g. gemini-2.5-flash via gemini-acp) is one-step. Agents without
+// a clean static catalog (opencode is a multi-provider router,
+// hermes ditto) get a single generic entry instead — set to "".
+var wrapAgentCatalogs = map[string]string{
+	"gemini": "google",    // gemini-cli wraps Google's gemini-* models
+	"claude": "anthropic", // claude-cli wraps Anthropic models
+	"codex":  "openai",    // codex CLI wraps OpenAI models
+	// opencode/zed/hermes route across multiple providers — fall back
+	// to a single generic entry so the user can switch + then pick a
+	// model via the agent's own /model command.
+}
+
 func (m *Model) openModelPicker() {
-	// Start with the active provider's catalog so its entries lead the
-	// list (the picker preserves order; recents/favorites prepend
-	// later).
+	// Helper: only fan out a hosted provider's static catalog when
+	// stado has the auth in env. Skips listing claude-opus-* /
+	// gpt-5 / gemini-2.5-* etc. when ANTHROPIC_API_KEY /
+	// OPENAI_API_KEY / GEMINI_API_KEY (etc.) aren't set — listing
+	// models the user can't actually use is misleading.
+	hasNativeAuth := func(name string) bool {
+		envName := config.ProviderAPIKeyEnv(name)
+		if envName == "" {
+			return true // unknown / no-auth-required → assume yes
+		}
+		return os.Getenv(envName) != ""
+	}
+
+	// Start with the active provider's catalog so its entries lead
+	// the list (the picker preserves order; recents/favorites
+	// prepend later). Active-provider catalog is always shown so the
+	// user can see their current option even mid-config.
 	items := modelpicker.CatalogFor(m.providerName)
 	seenIDs := map[string]bool{}
 	for _, it := range items {
 		seenIDs[it.ID] = true
 	}
 
-	// Add catalogs for OTHER known hosted providers — so the user can
-	// switch provider+model in one selection. Skip the active one
-	// (already added above) and skip ids we've already seen.
+	// Add catalogs for OTHER known hosted providers — so the user
+	// can switch provider+model in one selection. Skip the active
+	// one (already added above) and skip ids we've already seen.
+	// Skip whole catalogs when the provider's API key env var is
+	// unset.
 	for _, name := range catalogProviders {
 		if name == m.providerName {
+			continue
+		}
+		if !hasNativeAuth(name) {
 			continue
 		}
 		for _, it := range modelpicker.CatalogFor(name) {
@@ -671,28 +750,49 @@ func (m *Model) openModelPicker() {
 		}
 	}
 
-	// ACP/MCP wrap providers — one entry per detected wrap-capable
-	// agent so the user can switch to gemini-acp / opencode-acp /
-	// codex-mcp / hermes-acp etc. directly from the picker. Wrapped
-	// agents pick their own model internally; the entry's ID is just
-	// a label hint so search ("gemini", "opencode") finds it.
+	// ACP/MCP wrap providers — fan out the wrapped agent's underlying
+	// model catalog tagged with the wrap provider name, so picking
+	// e.g. gemini-2.5-flash via gemini-acp is one selection. Agents
+	// without a clean static catalog (opencode/zed/hermes are
+	// multi-provider routers) get a single generic entry instead.
 	for _, d := range integrations.DetectInstalled(ctx) {
 		if d.BinaryPath == "" {
 			continue
 		}
+		catalogName, hasCatalog := wrapAgentCatalogs[d.Name]
+		var underlying []modelpicker.Item
+		if hasCatalog && catalogName != "" {
+			underlying = modelpicker.CatalogFor(catalogName)
+		}
 		if len(d.ACPArgs) > 0 {
-			items = append(items, modelpicker.Item{
-				ID:           d.Name,
-				ProviderName: d.Name + "-acp",
-				Origin:       d.Name + " · ACP wrap",
-			})
+			wrapName := d.Name + "-acp"
+			if len(underlying) > 0 {
+				for _, it := range underlying {
+					it.ProviderName = wrapName
+					it.Origin = d.Name + "-acp · " + it.Origin
+					items = append(items, it)
+				}
+			} else {
+				items = append(items, modelpicker.Item{
+					ID: d.Name, ProviderName: wrapName,
+					Origin: d.Name + " · ACP wrap (agent picks model)",
+				})
+			}
 		}
 		if d.MCPWrapTools[0] != "" {
-			items = append(items, modelpicker.Item{
-				ID:           d.Name,
-				ProviderName: d.Name + "-mcp",
-				Origin:       d.Name + " · MCP wrap",
-			})
+			wrapName := d.Name + "-mcp"
+			if len(underlying) > 0 {
+				for _, it := range underlying {
+					it.ProviderName = wrapName
+					it.Origin = d.Name + "-mcp · " + it.Origin
+					items = append(items, it)
+				}
+			} else {
+				items = append(items, modelpicker.Item{
+					ID: d.Name, ProviderName: wrapName,
+					Origin: d.Name + " · MCP wrap (agent picks model)",
+				})
+			}
 		}
 	}
 

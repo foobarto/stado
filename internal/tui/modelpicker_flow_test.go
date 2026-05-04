@@ -68,6 +68,11 @@ func TestOpenModelPicker_UnknownProviderShowsOtherCatalogs(t *testing.T) {
 	if hasAnyLocalRunner(t) {
 		t.Skip("host has a local runner running; mixes local entries with catalog ones")
 	}
+	// Catalog fan-out for native providers now requires the
+	// provider's API-key env var to be set (so the picker doesn't
+	// mislead the user with models they can't authenticate to).
+	// Set ANTHROPIC_API_KEY here so the assertion below holds.
+	t.Setenv("ANTHROPIC_API_KEY", "test-key-not-used-just-presence-check")
 	m := newPickerTestModel(t, "some-custom-preset")
 	m.openModelPicker()
 	if !m.modelPicker.Visible {

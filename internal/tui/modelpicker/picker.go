@@ -253,8 +253,22 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 			Render(fmt.Sprintf("↑ %d more above", start)))
 		b.WriteString("\n")
 	}
+	// Track when we cross from the favorites section into the rest
+	// of the list so we can emit a horizontal separator. Favorites
+	// are guaranteed to lead the matches list because
+	// prependModelFavorites runs before the picker opens.
+	prevWasFav := false
 	for i := start; i < end; i++ {
 		it := m.Matches[i]
+		// Insert a horizontal rule the first time we transition from
+		// favorite → non-favorite within the visible window.
+		if prevWasFav && !it.Favorite {
+			b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+				Render(strings.Repeat("─", maxInt(innerW, 1))))
+			b.WriteString("\n")
+		}
+		prevWasFav = it.Favorite
+
 		isSel := i == m.Cursor
 		left := it.ID
 		if it.Current {
