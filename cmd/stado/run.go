@@ -217,8 +217,17 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				// also applies landlock for defense-in-depth).
 				if !runSandboxFS {
 					opts.Executor.Runner = sandbox.NoneRunner{}
+					// Tools see the user's launch cwd, not the per-
+					// session scratch worktree. Without this override,
+					// `ls` in `stado run` lands in an empty directory
+					// because the loop defaults to Session.WorktreePath.
+					opts.Workdir = cwd
 				}
-				fmt.Fprintf(os.Stderr, "stado run: session %s (worktree %s)\n", sess.ID, sess.WorktreePath)
+				if runSandboxFS {
+					fmt.Fprintf(os.Stderr, "stado run: session %s (sandbox worktree %s)\n", sess.ID, sess.WorktreePath)
+				} else {
+					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s)\n", sess.ID, cwd, sess.WorktreePath)
+				}
 
 				if runSandboxFS {
 					if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(sess.WorktreePath)); err != nil {

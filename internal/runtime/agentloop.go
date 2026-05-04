@@ -50,8 +50,16 @@ type AgentLoopOptions struct {
 	OnSubagentEvent func(SubagentEvent)
 
 	// Host implements tool.Host during tool execution. Defaults to an
-	// auto-approve host using Session.WorktreePath as workdir.
+	// auto-approve host using Workdir below (or Session.WorktreePath
+	// when Workdir is empty).
 	Host tool.Host
+
+	// Workdir overrides the cwd that tools see during this loop. When
+	// empty, the loop falls back to Executor.Session.WorktreePath
+	// (sandboxed mode). `stado run` sets this to os.Getwd() when
+	// `--sandbox-fs` is off so bash/fs/glob operate on the user's
+	// actual project rather than the per-session scratch worktree.
+	Workdir string
 
 	// Thinking controls extended-thinking injection. Values mirror
 	// cfg.Agent.Thinking: "auto" / "on" / "off" / "" (same as auto).
@@ -123,11 +131,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		opts.MaxTurns = 20
 	}
 	if opts.Host == nil {
-		workdir := ""
+		workdir := opts.Workdir
 		var runner sandbox.Runner
 		var rlog *tools.ReadLog
 		if opts.Executor != nil {
-			if opts.Executor.Session != nil {
+			if workdir == "" && opts.Executor.Session != nil {
 				workdir = opts.Executor.Session.WorktreePath
 			}
 			rlog = opts.Executor.ReadLog
