@@ -107,6 +107,12 @@ type AgentLoopOptions struct {
 	// crossed so callers can distinguish.
 	InputTokenCap  int
 	OutputTokenCap int
+
+	// Sampling overrides. Nil/zero = use provider default. These map
+	// to TurnRequest.Temperature/TopP/TopK on every turn. EP-0036.
+	Temperature *float64
+	TopP        *float64
+	TopK        *int
 }
 
 // ErrCostCapExceeded is returned by AgentLoop when the cumulative
@@ -216,6 +222,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				Model:    opts.Model,
 				Memory:   opts.MemoryContext,
 			}),
+			// EP-0036: sampling overrides from config or --temperature / --top-p / --top-k.
+			Temperature: opts.Temperature,
+			TopP:        opts.TopP,
+			TopK:        opts.TopK,
 		}
 		if opts.Executor != nil {
 			req.Tools = ToolDefs(opts.Executor.Registry)

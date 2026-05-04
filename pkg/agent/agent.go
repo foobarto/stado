@@ -59,6 +59,8 @@ type TurnRequest struct {
 	Tools    []ToolDef
 
 	Temperature *float64
+	TopP        *float64
+	TopK        *int
 	MaxTokens   int
 
 	// Thinking is non-nil to enable extended thinking where supported.

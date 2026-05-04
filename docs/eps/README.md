@@ -59,6 +59,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Draft |
 | 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Implemented |
 | 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
+| 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

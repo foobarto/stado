@@ -175,6 +175,20 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/exit", "/quit":
 		return tea.Quit
+	case "/loop":
+		// /loop [duration] <prompt>  or  /loop stop — EP-0036.
+		rest := ""
+		if len(parts) > 1 {
+			rest = strings.TrimSpace(strings.Join(parts[1:], " "))
+		}
+		return m.handleLoopCmd(rest)
+	case "/monitor":
+		// /monitor <cmd>  or  /monitor stop — EP-0036.
+		rest := ""
+		if len(parts) > 1 {
+			rest = strings.TrimSpace(strings.Join(parts[1:], " "))
+		}
+		return m.handleMonitorCmd(rest)
 	case "/spawn":
 		// /spawn <prompt...> — fire a background agent. Uses the
 		// active session's provider+model. EP-0034.

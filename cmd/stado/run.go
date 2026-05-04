@@ -36,6 +36,10 @@ var (
 	runSandboxFS   bool
 	runSessionID   string
 	runSkill       string
+	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
+	runTemperature float64
+	runTopP        float64
+	runTopK        int
 )
 
 var (
@@ -97,6 +101,16 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		// here too so `stado run --provider ollama-cloud --model
 		// kimi-k2.6 --prompt …` works without editing config.toml.
 		applyRootProviderOverrides(cfg)
+		// EP-0036: apply sampling flag overrides on top of config.
+		if cmd.Flags().Changed("temperature") {
+			cfg.Sampling.Temperature = &runTemperature
+		}
+		if cmd.Flags().Changed("top-p") {
+			cfg.Sampling.TopP = &runTopP
+		}
+		if cmd.Flags().Changed("top-k") {
+			cfg.Sampling.TopK = &runTopK
+		}
 		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context) error {
 			prov, err := runBuildProvider(cfg)
 			if err != nil {
@@ -184,6 +198,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				TokenCap:             cfg.Budget.HardTokens,
 				InputTokenCap:        cfg.Budget.HardInputTokens,
 				OutputTokenCap:       cfg.Budget.HardOutputTokens,
+				// EP-0036: sampling — flag overrides already patched into cfg.Sampling above.
+				Temperature: cfg.Sampling.Temperature,
+				TopP:        cfg.Sampling.TopP,
+				TopK:        cfg.Sampling.TopK,
 			}
 			// --no-tools wins over --tools when both are set; the
 			// negative flag is the natural opt-out form for users
@@ -341,6 +359,10 @@ func init() {
 		"Sandbox tool execution: bash runs in bwrap (Linux) and writes are landlock-confined to the session worktree + /tmp. Off by default — `stado run` operates on your actual filesystem.")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
+	// EP-0036: sampling overrides. Zero value = use config/provider default.
+	runCmd.Flags().Float64Var(&runTemperature, "temperature", 0, "Sampling temperature (0 = provider default; 0–2 typical range). Overrides [sampling].temperature in config.")
+	runCmd.Flags().Float64Var(&runTopP, "top-p", 0, "Nucleus sampling top-p (0 = provider default). Overrides [sampling].top_p in config.")
+	runCmd.Flags().IntVar(&runTopK, "top-k", 0, "Top-k sampling (0 = provider default). Overrides [sampling].top_k in config.")
 	rootCmd.AddCommand(runCmd)
 }
 

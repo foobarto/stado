@@ -352,6 +352,13 @@ func (m *Model) startStream() tea.Cmd {
 		Messages: m.msgs,
 		Tools:    m.toolDefs(),
 		System:   m.turnSystemPrompt(latestUserPrompt(m.msgs)),
+		// EP-0036: sampling from config [sampling] section (nil-safe).
+		Temperature: func() *float64 {
+			if m.cfg != nil { return m.cfg.Sampling.Temperature }; return nil }(),
+		TopP: func() *float64 {
+			if m.cfg != nil { return m.cfg.Sampling.TopP }; return nil }(),
+		TopK: func() *int {
+			if m.cfg != nil { return m.cfg.Sampling.TopK }; return nil }(),
 	}
 	m.turnAllowed = make(map[string]struct{}, len(req.Tools))
 	for _, t := range req.Tools {

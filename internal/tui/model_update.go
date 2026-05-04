@@ -133,15 +133,53 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == stateError {
 			return m, nil
 		}
-		// Budget warn-once check: m.usage.CostUSD was updated inside
-		// the stream goroutine before sendMsg(streamDoneMsg), so by
-		// the time we're here it reflects the just-finished turn.
 		m.maybeEmitBudgetWarning()
-		// Fire the post_turn lifecycle hook (no-op when unset). Runs
-		// synchronously but capped at 5s inside the Runner so a slow
-		// hook can't stall the next turn meaningfully.
 		m.firePostTurnHook()
-		return m, tea.Batch(m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))
+		var cmds []tea.Cmd
+		cmds = append(cmds, m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))
+		// EP-0036: after each turn, check if the loop agent signalled
+		// done; if not and loop is active, queue the next iteration or
+		// schedule the next tick.
+		if m.loop != nil {
+			lastText := m.lastAssistantText()
+			if !m.loopCheckDone(lastText) {
+				if m.loop.interval > 0 {
+					cmds = append(cmds, m.loopTick())
+				} else {
+					cmds = append(cmds, m.loopIterate())
+				}
+			}
+		}
+		return m, tea.Batch(cmds...)
+
+	case loopTickMsg:
+		// EP-0036: timed loop interval elapsed — start next iteration if idle.
+		if m.loop != nil && m.state != stateStreaming {
+			return m, m.loopIterate()
+		}
+		// If busy, reschedule — the turn-done path will call loopTick again.
+		return m, nil
+
+	case monitorLinesMsg:
+		// EP-0036: batch of monitor output lines delivered to the session.
+		for _, line := range msg {
+			m.appendBlock(block{kind: "system", body: "[monitor] " + line})
+		}
+		m.renderBlocks()
+		return m, nil
+
+	case monitorDoneMsg:
+		// EP-0036: monitored process exited.
+		if m.monitor != nil {
+			m.monitor = nil
+		}
+		body := "monitor: process exited"
+		if msg.err != nil {
+			body += " (" + msg.err.Error() + ")"
+		}
+		m.appendBlock(block{kind: "system", body: body})
+		m.renderBlocks()
+		return m, nil
 
 	case backgroundTickResultMsg:
 		m.backgroundPlugins = msg.survivors

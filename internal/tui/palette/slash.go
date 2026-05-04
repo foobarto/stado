@@ -55,6 +55,8 @@ var Commands = []Command{
 	{"/budget", "Show the cost budget or /budget ack to continue past the hard cap", "", "Session"},
 	{"/skill", "List loaded skills — /skill:<name> to inject a skill's prompt body", "", "Session"},
 	{"/retry", "Regenerate the last assistant turn from the same user prompt", "", "Session"},
+	{"/loop", "Repeat a prompt automatically: /loop [duration] <prompt>  or  /loop stop (EP-0036)", "", "Session"},
+	{"/monitor", "Stream process stdout as session notifications: /monitor <cmd>  or  /monitor stop (EP-0036)", "", "Session"},
 	{"/session", "Print the current session id + worktree (copy for other shells)", "", "Session"},
 
 	// View — layout toggles.

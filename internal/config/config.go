@@ -46,6 +46,7 @@ type Config struct {
 	Memory    Memory    `koanf:"memory"`
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
+	Sampling  Sampling  `koanf:"sampling"`
 	TUI       TUI       `koanf:"tui"`
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
@@ -195,6 +196,22 @@ type Agent struct {
 	// SystemPromptTemplate is loaded from SystemPromptPath after config +
 	// env resolution. It is intentionally not mapped back into koanf.
 	SystemPromptTemplate string `koanf:"-" json:"-"`
+}
+
+// Sampling controls LLM sampling parameters injected into every
+// TurnRequest. All fields default to the provider's own default when
+// zero/nil — setting them here overrides the provider default globally.
+// Use --temperature / --top-p / --top-k on `stado run` for one-shot
+// overrides. EP-0036.
+//
+//	[sampling]
+//	temperature = 0.7
+//	top_p       = 0.9
+//	top_k       = 40
+type Sampling struct {
+	Temperature *float64 `koanf:"temperature"`
+	TopP        *float64 `koanf:"top_p"`
+	TopK        *int     `koanf:"top_k"`
 }
 
 // TUI contains display-only preferences for the interactive terminal UI.

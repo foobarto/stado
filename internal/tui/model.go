@@ -211,6 +211,12 @@ type Model struct {
 	// no-fork-link case.
 	rootCtx context.Context
 
+	// loop is non-nil when a /loop session is active. EP-0036.
+	loop *loopState
+
+	// monitor is non-nil when a /monitor process is running. EP-0036.
+	monitor *monitorState
+
 	// backgroundPlugins are persistent plugin instances loaded once
 	// per TUI session from cfg.Plugins.Background. Each ticks after
 	// every turn boundary so session-observing plugins (auto-compact,
