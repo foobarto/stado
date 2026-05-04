@@ -10,7 +10,10 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -24,9 +27,11 @@ import (
 func TestMCPServer_ToolsExposedWithSchemas(t *testing.T) {
 	reg := runtime.BuildDefaultRegistry()
 	srv := server.NewMCPServer("stado-test", "0.0.0-test")
-	host := stadoMCPHost{workdir: t.TempDir()}
+	runner := sandbox.Detect()
+	host := stadoMCPHost{workdir: t.TempDir(), runner: runner}
+	executor := &tools.Executor{Registry: reg, Runner: runner, Metrics: telemetry.Metrics{}, Agent: "test"}
 	for _, tl := range reg.All() {
-		registerStadoTool(srv, tl, host)
+		registerStadoTool(srv, tl, host, executor)
 	}
 
 	// Verify each schema we'd marshal is actually valid JSON, and the
@@ -79,7 +84,8 @@ func TestRawSchema_NilAndErrorFallbacks(t *testing.T) {
 // approval request. The client is the authz boundary in mcp-server
 // mode; stado trusts the caller.
 func TestStadoMCPHost_AutoApproves(t *testing.T) {
-	h := stadoMCPHost{workdir: "/tmp"}
+	runner := sandbox.Detect()
+	h := stadoMCPHost{workdir: "/tmp", runner: runner}
 	decision, err := h.Approve(context.Background(),
 		tool.ApprovalRequest{Tool: "any", Command: "any"})
 	if err != nil {
@@ -91,8 +97,28 @@ func TestStadoMCPHost_AutoApproves(t *testing.T) {
 	if h.Workdir() != "/tmp" {
 		t.Errorf("Workdir lost: %q", h.Workdir())
 	}
+	if h.Runner() == nil {
+		t.Error("Runner() must expose the configured sandbox runner so bash gets confined")
+	}
 	// PriorRead never hits since we have no log.
 	if _, ok := h.PriorRead(tool.ReadKey{Path: "x"}); ok {
 		t.Error("PriorRead should always be miss on the MCP host")
+	}
+}
+
+// TestStadoMCPHost_RunnerInterfaceAssertable: the bash tool detects
+// the sandbox runner via an interface type-assert (`h.(interface{
+// Runner() sandbox.Runner })`). If the host stops exposing Runner()
+// for any reason, bash silently runs unsandboxed — this test catches
+// the regression by asserting the interface satisfies as bash would.
+func TestStadoMCPHost_RunnerInterfaceAssertable(t *testing.T) {
+	h := stadoMCPHost{workdir: "/tmp", runner: sandbox.Detect()}
+	var asTool tool.Host = h
+	rh, ok := asTool.(interface{ Runner() sandbox.Runner })
+	if !ok {
+		t.Fatal("stadoMCPHost no longer satisfies Runner() interface — bash will silently run unsandboxed")
+	}
+	if rh.Runner() == nil {
+		t.Error("Runner() returned nil — bash will silently run unsandboxed")
 	}
 }

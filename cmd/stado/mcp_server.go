@@ -6,9 +6,16 @@ package main
 // if they were first-party tools.
 //
 // Scope is deliberately small: tools-only, no resources, no prompts,
-// no sampling. Each tools/call runs in isolation with an auto-approve
-// host rooted at the process cwd — the MCP client is assumed to be
-// the authorization boundary.
+// no sampling. The host is auto-approve at the policy layer — the
+// MCP client is assumed to be the authorization boundary — but every
+// call routes through the shared Executor (so otel audit spans emit
+// per call) and the host exposes sandbox.Detect() as the bash Runner
+// (so shell commands run inside bwrap / sandbox-exec / equivalent
+// confinement, matching the TUI/run paths).
+//
+// Phase B of EP-0032 spawns this binary as the wrapped agent's
+// `mcpServers` mount; the audit + sandbox upgrade here is what gives
+// ACP-wrapped sessions per-tool-call audit granularity (D7).
 
 import (
 	"context"
@@ -22,7 +29,10 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
@@ -52,12 +62,28 @@ var mcpServerCmd = &cobra.Command{
 			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())
-			host := stadoMCPHost{workdir: mustCwd()}
+			runner := sandbox.Detect()
+			host := stadoMCPHost{workdir: mustCwd(), runner: runner}
+
+			// Executor wraps each tool.Run with otel audit spans +
+			// latency metrics — same path the TUI and `stado run`
+			// take. No git Session: mcp-server calls are single-shot
+			// without a stadogit conversation to commit against.
+			executor := &tools.Executor{
+				Registry: reg,
+				Session:  nil,
+				Runner:   runner,
+				Metrics:  telemetry.Metrics{},
+				Agent:    "stado-mcp-server",
+				Model:    cfg.Defaults.Model,
+				ReadLog:  nil, // single-shot calls don't dedup
+			}
 
 			for _, t := range reg.All() {
-				registerStadoTool(srv, t, host)
+				registerStadoTool(srv, t, host, executor)
 			}
-			fmt.Fprintf(os.Stderr, "stado mcp-server: serving %d tool(s) on stdio\n", len(reg.All()))
+			fmt.Fprintf(os.Stderr, "stado mcp-server: serving %d tool(s) on stdio (sandbox: %s)\n",
+				len(reg.All()), runner.Name())
 			return server.ServeStdio(srv)
 		})
 	},
@@ -65,10 +91,19 @@ var mcpServerCmd = &cobra.Command{
 
 // registerStadoTool wires a stado tool into the MCP server. Input
 // schema is the stado tool's Schema() verbatim; handler unmarshals
-// the MCP request args, delegates to t.Run, and packages the Result
-// as MCP content.
-func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost) {
+// the MCP request args, delegates to executor.Run (which emits an
+// otel audit span and applies the sandbox runner via the host),
+// and packages the Result as MCP content.
+//
+// Going through Executor.Run rather than t.Run directly is the audit
+// surface every other stado entry point uses (TUI, `stado run`,
+// plugin-run with --with-tool-host). MCP clients now show up in the
+// audit trail with `tool.name` + `tool.outcome` + `tool.duration_ms`
+// like any other caller. Bash specifically also picks up sandbox
+// confinement because the host exposes Runner().
+func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, executor *tools.Executor) {
 	mcpTool := mcp.NewToolWithRawSchema(t.Name(), t.Description(), rawSchema(t.Schema()))
+	name := t.Name()
 	srv.AddTool(mcpTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		argsJSON, err := json.Marshal(req.GetArguments())
 		if err != nil {
@@ -77,7 +112,7 @@ func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost) {
 		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		res, err := t.Run(ctx, argsJSON, host)
+		res, err := executor.Run(ctx, name, argsJSON, host)
 		if err != nil {
 			return mcp.NewToolResultErrorFromErr("tool run", err), nil
 		}
@@ -104,17 +139,23 @@ func rawSchema(m map[string]any) json.RawMessage {
 	return body
 }
 
-// stadoMCPHost is an auto-approve Host with a fixed workdir and no
-// read-dedup log. Single-shot MCP calls don't have a running session
-// to dedup against.
+// stadoMCPHost is an auto-approve Host with a fixed workdir, no
+// read-dedup log, and an exposed sandbox runner. Single-shot MCP
+// calls don't have a running session to dedup against. The Runner()
+// method makes the bash tool sandbox-aware (it does an interface
+// type-assert to find this method); without Runner() exposed, bash
+// would run unsandboxed even on hosts where bwrap/sandbox-exec is
+// available — silent and bad.
 type stadoMCPHost struct {
 	workdir string
+	runner  sandbox.Runner
 }
 
 func (h stadoMCPHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h stadoMCPHost) Workdir() string { return h.workdir }
+func (h stadoMCPHost) Workdir() string        { return h.workdir }
+func (h stadoMCPHost) Runner() sandbox.Runner { return h.runner }
 func (h stadoMCPHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 	return tool.PriorReadInfo{}, false
 }
