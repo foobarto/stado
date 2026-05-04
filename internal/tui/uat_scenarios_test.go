@@ -118,8 +118,9 @@ func TestUAT_EmptyEnterIsNoop(t *testing.T) {
 
 // A4 (complement): Ctrl+C on an empty input while a queue exists
 // clears the queue but does NOT cancel the still-running stream.
-// The rule is "one intent per press".
-func TestUAT_CtrlCClearsQueueBeforeStream(t *testing.T) {
+// The rule is "one intent per press". (Esc / Ctrl+G now own the
+// queue-clear semantics; Ctrl+C only clears input.)
+func TestUAT_EscClearsQueueBeforeStream(t *testing.T) {
 	m := scenarioModel(t)
 	var streamCancelled int
 	ctx, cancel := context.WithCancel(context.Background())
@@ -129,7 +130,7 @@ func TestUAT_CtrlCClearsQueueBeforeStream(t *testing.T) {
 	_ = ctx
 	m.queuedPrompt = "hold that thought"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
 		t.Errorf("queue not cleared: %q", m.queuedPrompt)

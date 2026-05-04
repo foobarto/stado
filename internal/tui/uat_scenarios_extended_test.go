@@ -368,24 +368,26 @@ func TestUAT_QueuedPromptRendersBlockAndClearsOnDrain(t *testing.T) {
 	}
 }
 
-// E5: Ctrl+C with a queued-but-not-yet-dispatched prompt wipes both
-// the pending text AND the block we appended for visual feedback.
-// Leaving the block behind would show a dangling "queued" pill with
-// no matching message in history.
-func TestUAT_QueuedPromptCtrlCDropsBlock(t *testing.T) {
+// E5: Esc / Ctrl+G with a queued-but-not-yet-dispatched prompt
+// wipes both the pending text AND the block we appended for visual
+// feedback. Leaving the block behind would show a dangling
+// "queued" pill with no matching message in history.
+// (Ctrl+C now only clears chat input — Esc / Ctrl+G own the
+// queue-clear semantics per the v0.28.0 keybinding cleanup.)
+func TestUAT_QueuedPromptEscDropsBlock(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateStreaming
 	m.blocks = append(m.blocks, block{kind: "user", body: "queued-msg", queued: true})
 	m.queuedPrompt = "queued-msg"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
-		t.Error("Ctrl+C should clear queuedPrompt")
+		t.Error("Esc should clear queuedPrompt")
 	}
 	for _, blk := range m.blocks {
 		if blk.queued {
-			t.Errorf("queued block survived Ctrl+C: %+v", blk)
+			t.Errorf("queued block survived Esc: %+v", blk)
 		}
 	}
 }

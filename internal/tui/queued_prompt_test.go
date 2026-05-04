@@ -68,10 +68,12 @@ func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
 	}
 }
 
-// TestQueuedPrompt_CtrlCClearsQueueFirst: when a queued prompt exists,
-// Ctrl+C on empty input clears the queue — it does NOT also cancel the
-// running stream. Those are two user intents; we handle one per press.
-func TestQueuedPrompt_CtrlCClearsQueueFirst(t *testing.T) {
+// TestQueuedPrompt_EscClearsQueueFirst: when a queued prompt exists,
+// Esc / Ctrl+G clears the queue — it does NOT also cancel the
+// running stream. Those are two user intents; we handle one per
+// press. (Ctrl+C now only clears chat input per the v0.28.0
+// keybinding cleanup.)
+func TestQueuedPrompt_EscClearsQueueFirst(t *testing.T) {
 	m := queueModel(t)
 	cancelled := false
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,14 +83,13 @@ func TestQueuedPrompt_CtrlCClearsQueueFirst(t *testing.T) {
 	_ = ctx
 	m.queuedPrompt = "buffered thing"
 
-	// Ctrl+C. Editor's InputClear maps to ctrl+c.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
 		t.Errorf("queuedPrompt = %q, want cleared", m.queuedPrompt)
 	}
 	if cancelled {
-		t.Error("stream cancel should not fire on first Ctrl+C while queued — take two presses")
+		t.Error("stream cancel should not fire on first Esc while queued — take two presses")
 	}
 }
 

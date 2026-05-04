@@ -325,6 +325,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.startStream()
 
 	case tea.KeyMsg:
+		// Ctrl+C closes any open modal popup. Esc still works (each
+		// modal handles it internally), but adding Ctrl+C as a
+		// secondary close key matches readline conventions and lets
+		// the user dismiss popups without leaving home-row. Checked
+		// before any modal-specific routing so it pre-empts the
+		// modal's own keypress handling.
+		if msg.Type == tea.KeyCtrlC && m.anyModalOpen() {
+			m.closeAllModals()
+			return m, nil
+		}
+
 		if m.showStatus {
 			if action, ok := m.keys.TryPrefix(msg); ok {
 				if action == keys.StatusView {
@@ -755,10 +766,46 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case m.keys.Matches(msg, keys.SessionInterrupt):
-			if m.state == stateStreaming && m.streamCancel != nil {
-				m.streamCancel()
+			// Esc / Ctrl+G — readline + Emacs canonical cancel.
+			// Priority: clear queued prompt > cancel in-flight stream.
+			// Mirrors the Ctrl+C (InputClear) behaviour for the
+			// empty-input case so all three keys converge on a
+			// consistent /cancel semantic.
+			if m.queuedPrompt != "" {
+				m.queuedPrompt = ""
+				for i := len(m.blocks) - 1; i >= 0; i-- {
+					if m.blocks[i].kind == "user" && m.blocks[i].queued {
+						m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
+						break
+					}
+				}
+				m.appendBlock(block{kind: "system", body: "queued prompt cleared"})
+				m.renderBlocks()
 				return m, nil
 			}
+			if m.state == stateStreaming && m.streamCancel != nil {
+				m.streamCancel()
+				m.appendBlock(block{kind: "system", body: "turn cancelled"})
+				m.renderBlocks()
+				return m, nil
+			}
+
+		case m.keys.Matches(msg, keys.ForceQueue):
+			// Alt+Enter — fire the queued prompt NOW. Cancels the
+			// current turn (its existing cleanup drains the queue
+			// and dispatches the queued prompt), so the next thing
+			// the user sees is their just-submitted message running.
+			if m.queuedPrompt == "" {
+				m.appendBlock(block{kind: "system", body: "force-queue: no queued prompt"})
+				m.renderBlocks()
+				return m, nil
+			}
+			if m.state == stateStreaming && m.streamCancel != nil {
+				m.streamCancel()
+				m.appendBlock(block{kind: "system", body: "force-queue: cancelled current turn; queued prompt running"})
+				m.renderBlocks()
+			}
+			return m, nil
 
 		case m.keys.Matches(msg, keys.ToolExpand):
 			m.toggleLastToolExpand()
@@ -775,59 +822,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case m.keys.Matches(msg, keys.InputClear):
-			// Ctrl+C at the top level: cancel in-flight state rather than
-			// quit. The exit key is ctrl+d; let ctrl+c act like a
-			// "get me out of whatever I was typing" escape that never
-			// leaves stado. If the input is empty and nothing's in
-			// flight, no-op (user can ctrl+d to exit).
-			if m.input.Value() == "" {
-				// Queued-prompt clears first: if the user queued a
-				// follow-up while streaming and wants to take it back,
-				// they reach for Ctrl+C/Esc before the model finishes.
-				// Don't also cancel the stream in the same keystroke —
-				// that combines two intents.
-				if m.queuedPrompt != "" {
-					m.queuedPrompt = ""
-					// Also drop the queued-user block that was appended
-					// for visual feedback — Ctrl+C on a queued prompt
-					// means "forget this message", so leaving the block
-					// in the transcript with a dangling "queued" pill
-					// would be misleading.
-					for i := len(m.blocks) - 1; i >= 0; i-- {
-						if m.blocks[i].kind == "user" && m.blocks[i].queued {
-							m.blocks = append(m.blocks[:i], m.blocks[i+1:]...)
-							break
-						}
-					}
-					m.renderBlocks()
-					return m, nil
-				}
-				if m.state == stateStreaming && m.streamCancel != nil {
-					m.streamCancel()
-					m.appendBlock(block{kind: "system", body: "turn cancelled"})
-					m.renderBlocks()
-				}
-				if m.state == stateCompactionPending {
-					m.resolveCompaction(false)
-				}
-				if m.approval != nil {
-					return m, m.resolveApproval(false)
-				}
-				// Also cancel any async tool that is still running.
-				m.toolMu.Lock()
-				if m.toolCancel != nil {
-					m.toolCancel()
-					m.toolCancel = nil
-				}
-				if m.toolTickTimer != nil {
-					m.toolTickTimer.Stop()
-					m.toolTickTimer = nil
-				}
-				m.toolMu.Unlock()
-				return m, nil
-			}
-			// Non-empty input: the editor's InputClear case (editor.go)
-			// resets the textarea. Fall through to let inputCmd do that.
+			// Ctrl+C: clear the chat input only. Cancel semantics
+			// live on Esc / Ctrl+G (SessionInterrupt) and force-queue
+			// on Alt+Enter (ForceQueue) — Ctrl+C does NOT touch the
+			// in-flight stream or queued prompt anymore. The exit
+			// key is Ctrl+D.
+			//
+			// The editor's own InputClear case (input/editor.go)
+			// resets the textarea on falls-through; we don't return
+			// here so that path runs.
 
 		case m.keys.Matches(msg, keys.InputSubmit):
 			if m.input.Value() == "" {

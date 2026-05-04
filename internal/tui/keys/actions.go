@@ -47,6 +47,7 @@ const (
 	ToolExpand              Action = "tool_expand"
 	ModeToggle              Action = "mode_toggle"
 	ModeToggleBtw           Action = "mode_toggle_btw"
+	ForceQueue              Action = "force_queue"
 )
 
 var ActionDescriptions = map[Action]string{
@@ -94,4 +95,5 @@ var ActionDescriptions = map[Action]string{
 	ToolExpand:              "Expand latest details",
 	ModeToggle:              "Toggle Plan/Do mode",
 	ModeToggleBtw:           "Toggle BTW mode",
+	ForceQueue:              "Force queued prompt to run now",
 }

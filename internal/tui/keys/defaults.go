@@ -2,11 +2,11 @@ package keys
 
 var Defaults = map[Action]string{
 	AppExit:                 "ctrl+d,ctrl+x ctrl+c",
-	SessionInterrupt:        "esc",
+	SessionInterrupt:        "esc,ctrl+g",
 	HistoryPrevious:         "up,ctrl+p",
 	HistoryNext:             "down,ctrl+n",
 	InputSubmit:             "enter",
-	InputNewline:            "shift+enter,ctrl+j,alt+enter",
+	InputNewline:            "shift+enter,ctrl+j",
 	InputClear:              "ctrl+c",
 	InputMoveLeft:           "left,ctrl+b",
 	InputMoveRight:          "right,ctrl+f",
@@ -24,7 +24,7 @@ var Defaults = map[Action]string{
 	MessagesPageDown:        "pagedown,ctrl+alt+f",
 	MessagesHalfPageUp:      "ctrl+alt+u",
 	MessagesHalfPageDown:    "ctrl+alt+d",
-	MessagesFirst:           "ctrl+g,home",
+	MessagesFirst:           "home",
 	MessagesLast:            "ctrl+alt+g,end",
 	CommandList:             "ctrl+p",
 	AgentSwitch:             "ctrl+x a",
@@ -45,4 +45,5 @@ var Defaults = map[Action]string{
 	ToolExpand:              "shift+tab",
 	ModeToggle:              "tab",
 	ModeToggleBtw:           "ctrl+x ctrl+b",
+	ForceQueue:              "alt+enter",
 }

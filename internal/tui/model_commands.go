@@ -24,6 +24,53 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
+// anyModalOpen returns true when any modal picker / overlay is
+// visible. Source for the Ctrl+C "close popup" route at the top of
+// Update.
+func (m *Model) anyModalOpen() bool {
+	switch {
+	case m.modelPicker.Visible:
+		return true
+	case m.filePicker.Visible:
+		return true
+	case m.sessionPick.Visible:
+		return true
+	case m.themePick.Visible:
+		return true
+	case m.agentPick.Visible:
+		return true
+	case m.slash.Visible:
+		return true
+	}
+	return false
+}
+
+// closeAllModals dismisses every modal picker that's currently
+// visible. Used by the Ctrl+C top-level binding so a single press
+// reliably closes whatever popup is up.
+func (m *Model) closeAllModals() {
+	if m.modelPicker.Visible {
+		m.modelPicker.Close()
+	}
+	if m.filePicker.Visible {
+		m.filePicker.Close()
+	}
+	if m.sessionPick.Visible {
+		m.sessionPick.Close()
+	}
+	if m.themePick.Visible {
+		m.themePick.Close()
+	}
+	if m.agentPick.Visible {
+		m.agentPick.Close()
+	}
+	if m.slash.Visible {
+		m.slash.Close()
+		m.slashInline = false
+	}
+	m.layout()
+}
+
 func (m *Model) handleSlash(text string) tea.Cmd {
 	parts := strings.Fields(text)
 	if len(parts) == 0 {
