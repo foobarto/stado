@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/dotenv"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -104,6 +105,14 @@ func init() {
 }
 
 func main() {
+	// Auto-load .env files from cwd → filesystem root, closer files
+	// winning. Shell-set env always beats .env. Done before
+	// rootCmd.Execute so config.Load() and provider construction
+	// see the populated env. Disable via STADO_DOTENV_DISABLE=1 if
+	// the auto-load surprises a setup.
+	if os.Getenv("STADO_DOTENV_DISABLE") == "" {
+		_ = dotenv.LoadHierarchy("")
+	}
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
