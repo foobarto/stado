@@ -5,20 +5,30 @@
 # file is for the local dev loop.
 
 GO       ?= go
-GOFLAGS  ?= -buildvcs=false
+GOFLAGS  ?=
 PKG      ?= ./cmd/stado
 BIN      ?= stado
 STATICCHECK ?= staticcheck
+
+# `git describe`-derived version for ldflags injection. Falls through
+# to "0.0.0-dev" (matching the package-level default) when we're not
+# in a git checkout. `--tags --always --dirty` produces:
+#   v0.31.0                            (on a tagged commit, clean tree)
+#   v0.31.0-3-gabc1234                 (3 commits past v0.31.0, clean)
+#   v0.31.0-3-gabc1234-dirty           (... with uncommitted changes)
+#   abc1234-dirty                      (no tag reachable, dirty)
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
+LDFLAGS  := -X main.version=$(VERSION)
 
 .DEFAULT_GOAL := build
 
 .PHONY: build
 build: ## Compile ./stado (default target)
-	$(GO) build $(GOFLAGS) -o $(BIN) $(PKG)
+	$(GO) build $(GOFLAGS) -ldflags='$(LDFLAGS)' -o $(BIN) $(PKG)
 
 .PHONY: install
 install: ## Install ./stado into $(GOPATH)/bin
-	$(GO) install $(GOFLAGS) $(PKG)
+	$(GO) install $(GOFLAGS) -ldflags='$(LDFLAGS)' $(PKG)
 
 .PHONY: test
 test: ## Run the full test suite

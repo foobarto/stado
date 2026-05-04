@@ -98,6 +98,24 @@ func collectBuildInfo() buildInfo {
 			out.Modified = s.Value == "true"
 		}
 	}
+	// Final fallback: when neither ldflags nor a versioned go-install
+	// gave us something readable (`(devel)` or empty), synthesise a
+	// version-ish string from the VCS info we DO have. Better than
+	// shipping `(devel)` to operators who'd ask "which build is this?".
+	if out.Version == "" || out.Version == "(devel)" {
+		if out.Commit != "" {
+			short := out.Commit
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			out.Version = "0.0.0-dev+" + short
+			if out.Modified {
+				out.Version += "-dirty"
+			}
+		} else {
+			out.Version = "0.0.0-dev"
+		}
+	}
 	return out
 }
 
