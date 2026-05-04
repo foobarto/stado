@@ -1,0 +1,32 @@
+{
+  "name": "http-session",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "28f0fa4d25503211",
+  "wasm_sha256": "2804d89ada1a6d1dbc1a7442aae3664839ccd9069ba9b16d7d570b06b0b68422",
+  "capabilities": [
+    "net:http_request",
+    "fs:read:.cache/stado-http-session",
+    "fs:write:.cache/stado-http-session"
+  ],
+  "tools": [
+    {
+      "name": "http_session_open",
+      "description": "Open a reusable HTTP session. Returns a session_id to pass into http_session_request. Optional base_url is prefixed onto relative request URLs; optional default_headers are merged into every request (per-call headers win on conflict). Sessions persist to \u003cworkdir\u003e/.cache/stado-http-session/\u003cid\u003e.json so they survive across tool calls and stado restarts.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"base_url\":{\"type\":\"string\",\"description\":\"e.g. https://api.example.com — prefix for relative URLs\"},\"default_headers\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"},\"description\":\"e.g. {\\\"Authorization\\\":\\\"Bearer ...\\\"}\"},\"session_id\":{\"type\":\"string\",\"description\":\"Optional; supply to re-open or rename an existing session. Must match [A-Za-z0-9_-]{1,64}.\"}}}"
+    },
+    {
+      "name": "http_session_request",
+      "description": "Issue an HTTP request inside an open session. Cookies harvested from prior responses are re-emitted on subsequent calls to the same host; default headers from open() are merged in. URL may be absolute or relative-to-session-base_url. Body is base64-encoded for binary safety. Returns the same shape as stado_http_request plus the post-response cookie jar for that host.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"method\":{\"type\":\"string\",\"enum\":[\"GET\",\"POST\",\"PUT\",\"DELETE\",\"PATCH\",\"HEAD\"]},\"url\":{\"type\":\"string\"},\"headers\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}},\"body_b64\":{\"type\":\"string\"},\"timeout_ms\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":120000}},\"required\":[\"session_id\",\"method\",\"url\"]}"
+    },
+    {
+      "name": "http_session_close",
+      "description": "Discard a session's cached state (cookie jar, default headers). The on-disk file is blanked (no fs_unlink host import yet) so the slot is reusable.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    }
+  ],
+  "min_stado_version": "0.30.0",
+  "timestamp_utc": "2026-05-04T23:00:00Z",
+  "nonce": "http-session-001"
+}
