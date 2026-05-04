@@ -93,11 +93,11 @@ func (c *Client) Close(reason error) error {
 }
 
 func (c *Client) readLoop() {
-	defer c.Close(nil)
+	defer func() { _ = c.Close(nil) }()
 	for {
 		line, err := c.br.ReadBytes('\n')
 		if err != nil {
-			c.Close(err)
+			_ = c.Close(err)
 			return
 		}
 		if len(line) == 1 { // empty
