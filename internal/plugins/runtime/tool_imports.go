@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/tools/httpreq"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
@@ -39,6 +40,7 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		{exportName: "stado_fs_tool_read_context", tool: readctx.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_exec_bash", tool: bash.BashTool{}, allowed: func(h *Host) bool { return h.ExecBash }},
 		{exportName: "stado_http_get", tool: webfetch.WebFetchTool{}, allowed: func(h *Host) bool { return h.NetHTTPGet || len(h.NetHost) > 0 }, preflight: preflightHTTPGet},
+		{exportName: "stado_http_request", tool: httpreq.RequestTool{}, allowed: func(h *Host) bool { return h.NetHTTPRequest || len(h.NetReqHost) > 0 }, preflight: preflightHTTPRequest},
 		{exportName: "stado_search_ripgrep", tool: rg.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.ExecSearch }, preflight: requireFullReadScope},
 		{exportName: "stado_search_ast_grep", tool: astgrep.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && len(h.FSWrite) > 0 && h.ExecASTGrep }, preflight: requireFullReadWriteScope},
 		{exportName: "stado_lsp_find_definition", tool: def, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
@@ -194,6 +196,31 @@ func preflightHTTPGet(h *Host, raw json.RawMessage) error {
 	}
 	hostName := strings.ToLower(u.Hostname())
 	for _, allowed := range h.NetHost {
+		if strings.EqualFold(strings.TrimSpace(allowed), hostName) {
+			return nil
+		}
+	}
+	return fmt.Errorf("url host %q denied by manifest", hostName)
+}
+
+func preflightHTTPRequest(h *Host, raw json.RawMessage) error {
+	var args httpreq.Args
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return err
+		}
+	}
+	u, err := url.Parse(args.URL)
+	if err != nil {
+		return err
+	}
+	// Broad cap (NetHTTPRequest with no host allowlist) → permit any
+	// (public) host. The dial-context guard still blocks RFC1918.
+	if len(h.NetReqHost) == 0 {
+		return nil
+	}
+	hostName := strings.ToLower(u.Hostname())
+	for _, allowed := range h.NetReqHost {
 		if strings.EqualFold(strings.TrimSpace(allowed), hostName) {
 			return nil
 		}

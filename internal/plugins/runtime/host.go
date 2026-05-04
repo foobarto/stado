@@ -77,7 +77,9 @@ type Host struct {
 	// Public built-in tool capability bits. These map thin host
 	// wrappers to the underlying native implementation while keeping
 	// manifests narrow and auditable.
-	NetHTTPGet  bool
+	NetHTTPGet     bool
+	NetHTTPRequest bool       // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
+	NetReqHost     []string   // optional hostname allow-list for net:http_request:<host>
 	ExecBash    bool
 	ExecSearch  bool
 	ExecASTGrep bool
@@ -198,6 +200,16 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 		case "net":
 			if len(parts) == 2 && parts[1] == "http_get" {
 				h.NetHTTPGet = true
+				continue
+			}
+			// "net:http_request" — broad: any (public) host.
+			// "net:http_request:<host>" — narrow: gates by exact
+			// hostname. Any number of host entries can be appended.
+			if parts[1] == "http_request" {
+				h.NetHTTPRequest = true
+				if len(parts) == 3 && parts[2] != "" {
+					h.NetReqHost = append(h.NetReqHost, strings.ToLower(parts[2]))
+				}
 				continue
 			}
 			// "net:<host>" — the cap string after "net:" is the

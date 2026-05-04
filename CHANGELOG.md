@@ -6,6 +6,25 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugin host imports
+
+- **New `net:http_request` capability + `stado_http_request` host
+  import.** Generic HTTP client (GET / POST / PUT / DELETE / PATCH /
+  HEAD) with custom request headers and request body. Replaces the
+  GET-only / markdown-converting shape of `stado_http_get` for
+  plugins that need to drive REST APIs (auth headers, JSON bodies,
+  status codes other than 200, response headers like
+  `Set-Cookie`). Capability surface: `net:http_request` (broad,
+  any public host) and `net:http_request:<hostname>` (narrow,
+  per-host allowlist). Request/response bodies are base64 in/out
+  for binary-safe JSON transport. Same private-network dial guard
+  as `stado_http_get` (RFC1918 / loopback / link-local refused
+  before TLS handshake); a future `net:http_request_private` cap
+  will gate lab-IP access for plugins that need it. The new
+  allowlist (`Host.NetReqHost`) is kept separate from the
+  existing `Host.NetHost` (http_get's allowlist) so a manifest
+  declaring only one method's hosts can't reach the other.
+
 ### Plugins
 
 - **`exec:pty` capability + nine new host imports for persistent
