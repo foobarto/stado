@@ -300,6 +300,17 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 			return fmt.Errorf("acpwrap: validate mcp mount: %w", validateErr)
 		}
 		mcpServers = []any{mount}
+
+		// Diagnostic: some agents (gemini, claude, codex) ignore the
+		// session/new.mcpServers wire entry and only honor MCP servers
+		// pre-registered in their own config (`gemini mcp add` etc).
+		// CheckMCPRegistration logs a stderr warning with the exact
+		// registration command when stado is missing — this turns a
+		// silent integration degradation into actionable diagnostics.
+		// Best-effort, no error: failed lookups are still warnings.
+		// Skipped silently for agents that honor the wire (opencode,
+		// zed) and for unrecognised binaries.
+		CheckMCPRegistration(ctx, p.cfg.Binary, mount.Command)
 	}
 
 	sessionID, err := client.SessionNewWithMCPServers(ctx, cwd, mcpServers)
