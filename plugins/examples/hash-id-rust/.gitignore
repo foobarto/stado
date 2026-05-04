@@ -1,0 +1,5 @@
+target/
+plugin.wasm
+plugin.manifest.json
+plugin.manifest.sig
+*.seed

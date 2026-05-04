@@ -1,0 +1,18 @@
+{
+  "name": "hash-id-rust",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [],
+  "tools": [
+    {
+      "name": "hash_identify",
+      "description": "Identify hash types from a sample. Returns candidate list with hashcat mode and john format. Covers: Kerberos AS-REP/TGS, NetNTLMv2, bcrypt, sha512/256crypt, md5crypt, phpass, KeePass, Django PBKDF2, MySQL-sha1, SHA-512/256/1, NTLM/MD5. This is the Rust SDK proof plugin — compare its ~100 KB wasm to the ~3.5 MB Go equivalent.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"hash\":{\"type\":\"string\",\"description\":\"A sample hash value or hash line\"}},\"required\":[\"hash\"]}"
+    }
+  ],
+  "min_stado_version": "0.30.0",
+  "timestamp_utc": "2026-05-05T02:15:00Z",
+  "nonce": "hash-id-rust-001"
+}

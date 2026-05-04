@@ -92,7 +92,23 @@ should work as-is.
 
 The Go runtime overhead (~3 MB wasm output for a trivial plugin)
 is real. If size matters, write the plugin in Zig or Rust against
-the same ABI; the bundled `hello-zig` example is ~800 bytes.
+the same ABI. Proven examples:
+
+| Language | Example | Wasm size | Build |
+|----------|---------|-----------|-------|
+| Go | `http-session` | ~3.5 MB | `GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared` |
+| Zig | `hello` | ~800 B | `zig build-exe -target wasm32-freestanding -fno-entry -OReleaseSmall` |
+| Zig | `encode-zig` | ~5 KB | same — full base64/hex/url/html encode+decode |
+| Rust | (pending) | ~50–200 KB expected | `cargo build --target wasm32-unknown-unknown --release` |
+
+Zig's `wasm32-freestanding` target needs no WASI or libc — the
+stado ABI is the only interface. Rust requires declaring extern "C"
+host imports and `#[no_mangle]` exports matching the same ABI surface.
+
+**Key ABI constraint for Zig/Rust:** the host calls `stado_alloc`
+twice per tool invocation — once for the args buffer and once for
+the 1 MiB result buffer. Size your arena to at least 2 MiB to
+accommodate both.
 
 ## Step 2 — Sign
 
