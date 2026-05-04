@@ -71,7 +71,7 @@ func OpenOrInitSidecar(sidecarPath, userRepoRoot string) (*Sidecar, error) {
 	case err == nil:
 		// already exists
 	case errors.Is(err, git.ErrRepositoryNotExists):
-		if err := workdirpath.MkdirAllNoSymlink(absSidecar, 0o700); err != nil {
+		if err := workdirpath.MkdirAllUnderUserConfig(absSidecar, 0o700); err != nil {
 			return nil, fmt.Errorf("sidecar: mkdir: %w", err)
 		}
 		repo, err = git.PlainInit(absSidecar, true) // bare
@@ -104,10 +104,10 @@ func (s *Sidecar) ensureAlternates() error {
 	}
 
 	altDir := filepath.Join(s.Path, "objects", "info")
-	if err := workdirpath.MkdirAllNoSymlink(altDir, 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(altDir)
+	root, err := workdirpath.OpenRootUnderUserConfig(altDir)
 	if err != nil {
 		return fmt.Errorf("sidecar: open alternates dir: %w", err)
 	}

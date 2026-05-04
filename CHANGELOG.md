@@ -8,6 +8,29 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Completed the Atomic Fedora boot fix — pass 2.** v0.26.1's
+  `hack/test-on-fedora-atomic.sh` test harness only exercised
+  `stado config-path`, which leaves three more boot-time surfaces
+  unchecked. Fanning the test out to `doctor --no-local --json`,
+  `session list`, and `audit verify` surfaced two more strict
+  from-`/` walks: `internal/audit/key.go` (the audit signing key
+  load+create path, ~`.config/stado/audit/...`) and
+  `internal/state/git/sidecar.go` (the sidecar bare repo init +
+  alternates dir, under `~/.local/state/stado/sessions/`). Both
+  trip on Atomic's `/home → /var/home` symlink whenever a normal
+  user runs anything that signs a commit or enumerates sessions —
+  i.e. nearly every real workflow. Migrated to the trust-anchor
+  variants (`ReadRegularFileUnderUserConfigLimited` /
+  `OpenRootUnderUserConfig` / `MkdirAllUnderUserConfig`); same
+  threat model as v0.26.1.
+
+- **Reworked `hack/test-on-fedora-atomic.sh` as a multi-probe
+  regression suite.** The script now runs four boot-touching
+  probes in the bwrap namespace and reports per-probe PASS/REGRESSION,
+  so partial regressions surface specifically. Adding new probes
+  is one line in the `PROBES=()` array. `make fedora-atomic-test`
+  is the entry point.
+
 - **Completed the Atomic Fedora `/home → /var/home` boot fix.** v0.26.0
   migrated three call sites (`config dir`, `audit key dir`, `worktree
   root`) from the strict from-`/` `MkdirAllNoSymlink` to the

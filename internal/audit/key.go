@@ -49,7 +49,7 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func loadKey(path string) (ed25519.PrivateKey, error) {
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxPrivateKeyFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxPrivateKeyFileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func WritePrivateKeyFile(path string, data []byte) error {
 	if name == "." || name == string(filepath.Separator) {
 		return fmt.Errorf("invalid key path: %s", path)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return err
 	}
