@@ -508,3 +508,57 @@ func TestGlobLimitedSkipsSymlinkDirectoryTraversal(t *testing.T) {
 		t.Fatalf("symlink directory was traversed: total=%d matches=%v", total, matches)
 	}
 }
+
+// Regression: ReadRegularFileUnderUserConfigLimited must succeed when the
+// trust-anchor chain (HOME / XDG_*_HOME) traverses a symlink — that's the
+// Atomic Fedora `/home → /var/home` shape that broke pre-v0.26.0 boot.
+func TestReadRegularFileUnderUserConfigLimitedFollowsAnchorSymlink(t *testing.T) {
+	base := t.TempDir()
+	realHome := filepath.Join(base, "var-home", "user")
+	if err := os.MkdirAll(filepath.Join(realHome, "config", "stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realHome, "config", "stado", "system-prompt.md"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Operator-layout symlink: $base/home → var-home (the analogue of
+	// /home → /var/home on Atomic).
+	homeLink := filepath.Join(base, "home")
+	if err := os.Symlink("var-home", homeLink); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	t.Setenv("HOME", filepath.Join(homeLink, "user"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeLink, "user", "config"))
+
+	data, err := ReadRegularFileUnderUserConfigLimited(filepath.Join(homeLink, "user", "config", "stado", "system-prompt.md"), 1024)
+	if err != nil {
+		t.Fatalf("ReadRegularFileUnderUserConfigLimited: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("content = %q, want hello", data)
+	}
+}
+
+// Defense-in-depth: a symlink BELOW the trust anchor must still be rejected
+// — the relaxation only applies to operator-layout symlinks above the anchor.
+func TestReadRegularFileUnderUserConfigLimitedRejectsInUserSymlink(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "config", "stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(base, "secret.txt")
+	if err := os.WriteFile(target, []byte("attacker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "config", "stado", "system-prompt.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	t.Setenv("HOME", base)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
+
+	_, err := ReadRegularFileUnderUserConfigLimited(link, 1024)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ReadRegularFileUnderUserConfigLimited error = %v, want symlink rejection", err)
+	}
+}

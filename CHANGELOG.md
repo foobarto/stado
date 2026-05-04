@@ -6,6 +6,28 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Fixes
+
+- **Completed the Atomic Fedora `/home → /var/home` boot fix.** v0.26.0
+  migrated three call sites (`config dir`, `audit key dir`, `worktree
+  root`) from the strict from-`/` `MkdirAllNoSymlink` to the
+  trust-anchor-aware `MkdirAllUnderUserConfig`. Four more call sites in
+  `internal/config/config.go` still walked from `/` and tripped the
+  same wall: the system-prompt-template ensure (`MkdirAllNoSymlink` →
+  `MkdirAllUnderUserConfig`), the system-prompt-template root opener
+  (`OpenRootNoSymlink` → `OpenRootUnderUserConfig`), and two read-paths
+  for the system-prompt template (a new
+  `ReadRegularFileUnderUserConfigLimited` helper, mirroring the
+  existing `Mkdir`/`OpenRoot` wrappers). On Atomic the v0.26.0 binary
+  booted via `--version` (which prints before any FS work) but failed
+  on `stado config-path` and any normal startup that triggered
+  `config.Load()`. Added `hack/test-on-fedora-atomic.sh` — a
+  `bwrap`-based regression test that simulates the `/home → /var/home`
+  symlink layout — plus a `make fedora-atomic-test` target. Threat
+  model unchanged: symlinks ABOVE the trust anchor are tolerated as
+  operator-supplied OS layout, symlinks UNDER the anchor are still
+  rejected by the strict `OpenRootNoSymlinkUnder` walk; see EP-0028.
+
 ### CLI
 
 - **Added `stado run --quiet`.** Suppresses `▸ tool(args)` preview lines

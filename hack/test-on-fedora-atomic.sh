@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# test-on-fedora-atomic.sh
+#
+# Reproduces the Bazzite / Fedora Atomic / Silverblue filesystem
+# layout (`/home` → `/var/home` symlink) inside a transient
+# `bwrap` namespace and runs the stado binary against that layout
+# to verify boot-time MkdirAll paths don't regress.
+#
+# Why this exists: stado v0.25.7 failed at boot with
+#   `Error: config: create config dir: directory component is a
+#    symlink: home`
+# on every Atomic-Fedora-derived host because `MkdirAllNoSymlink`
+# walks from `/` and rejects symlinked `/home`. v0.26.0 fixed it
+# via `MkdirAllUnderUserConfig` (EP-0028). This script is the
+# regression guard so the next person who hardens the path-walker
+# doesn't accidentally re-introduce the boot wall.
+#
+# Default behaviour: build a fresh `./stado`, then run
+# `stado config-path` inside a bwrap namespace where `/home` is a
+# symlink to `/var/home` and `$HOME` is `/var/home/$USER`. Success
+# criteria: zero exit code AND a config.toml path on stdout. Failure:
+# any non-zero, OR the error string `directory component is a symlink:
+# home` anywhere in output.
+#
+# Why `config-path` (not `--version`): `--version` prints from a
+# Cobra hook before any FS work, so it can't surface boot-time
+# MkdirAll failures. `config-path` calls `config.Load()` →
+# `MkdirAllUnderUserConfig` + the system-prompt-template ensure
+# chain, which is the exact path that broke pre-v0.26.0.
+#
+# Usage:
+#   hack/test-on-fedora-atomic.sh                   # build + test
+#   hack/test-on-fedora-atomic.sh --binary ./stado  # use existing binary
+#   hack/test-on-fedora-atomic.sh --no-build        # skip build step
+#
+# Requires: bwrap (bubblewrap). Available on most Linux dev hosts;
+# install via `dnf install bubblewrap` / `apt install bubblewrap`.
+
+set -euo pipefail
+
+BIN=""
+BUILD=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --binary) BIN="$2"; shift 2 ;;
+    --no-build) BUILD=0; shift ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 64 ;;
+  esac
+done
+
+if ! command -v bwrap >/dev/null; then
+  echo "test-on-fedora-atomic: bwrap not found." >&2
+  echo "  Install via: dnf install bubblewrap   (Fedora-derived)" >&2
+  echo "                apt install bubblewrap   (Debian-derived)" >&2
+  echo "                brew install bubblewrap  (macOS — limited)" >&2
+  exit 1
+fi
+
+if [[ -z "$BIN" ]]; then
+  BIN="$(pwd)/stado"
+  if [[ "$BUILD" == 1 ]]; then
+    echo "→ building ./stado"
+    go build -buildvcs=false -o stado ./cmd/stado
+  fi
+fi
+if [[ ! -x "$BIN" ]]; then
+  echo "test-on-fedora-atomic: binary not found / not executable: $BIN" >&2
+  exit 1
+fi
+
+# Construct the simulated XDG layout outside the namespace. bwrap
+# bind-mounts these directories to the desired paths, so the stado
+# binary sees /home → /var/home/$USER even though our real host's
+# /home is a regular directory.
+#
+# Layout we want inside the namespace:
+#   /var/home/atomic-test/                # real bind-mounted tempdir
+#   /var/home/atomic-test/.config/        # XDG_CONFIG_HOME
+#   /var/home/atomic-test/.local/share/   # XDG_DATA_HOME
+#   /var/home/atomic-test/.local/state/   # XDG_STATE_HOME
+#   /home -> /var/home                    # symlink (the bug trigger)
+#   /tmp                                   # real tempfs
+#   /usr,/lib,/lib64,/etc                  # ro-bind from host
+#   /home/atomic-test/stado                # bind-mount of $BIN
+WORKDIR="$(mktemp -d --tmpdir stado-atomic-test.XXXXXX)"
+trap 'rm -rf "$WORKDIR"' EXIT
+mkdir -p \
+  "$WORKDIR/var/home/atomic-test" \
+  "$WORKDIR/var/home/atomic-test/.config" \
+  "$WORKDIR/var/home/atomic-test/.local/share" \
+  "$WORKDIR/var/home/atomic-test/.local/state"
+
+echo "→ running stado config-path inside Atomic-style /home → /var/home namespace"
+# `config-path` triggers config.Load() → MkdirAllUnderUserConfig under
+# XDG_CONFIG_HOME; that's the actual boot-time path that broke pre-v0.26.0.
+# `--version` prints before any FS work and won't surface a regression.
+OUT="$WORKDIR/stdout"
+ERR="$WORKDIR/stderr"
+set +e
+bwrap \
+  --ro-bind /usr /usr \
+  --ro-bind /etc /etc \
+  --ro-bind-try /lib /lib \
+  --ro-bind-try /lib64 /lib64 \
+  --ro-bind-try /bin /bin \
+  --ro-bind-try /sbin /sbin \
+  --proc /proc \
+  --dev /dev \
+  --tmpfs /tmp \
+  --bind "$WORKDIR/var/home" /var/home \
+  --bind "$BIN" /var/home/atomic-test/stado \
+  --symlink /var/home /home \
+  --chdir /home/atomic-test \
+  --setenv HOME /home/atomic-test \
+  --setenv USER atomic-test \
+  --setenv PATH /usr/local/bin:/usr/bin:/bin \
+  --setenv XDG_CONFIG_HOME /home/atomic-test/.config \
+  --setenv XDG_DATA_HOME   /home/atomic-test/.local/share \
+  --setenv XDG_STATE_HOME  /home/atomic-test/.local/state \
+  --unshare-user --unshare-pid --unshare-net \
+  /home/atomic-test/stado config-path >"$OUT" 2>"$ERR"
+RC=$?
+set -e
+
+cat "$ERR" >&2
+
+if grep -q "directory component is a symlink: home" "$ERR" "$OUT" 2>/dev/null; then
+  echo "test-on-fedora-atomic: REGRESSION — Atomic /home → /var/home boot bug is back" >&2
+  echo "  See EP-0028 + the workdirpath.MkdirAllUnderUserConfig fix." >&2
+  exit 1
+fi
+
+if [[ "$RC" -ne 0 ]]; then
+  echo "test-on-fedora-atomic: stado config-path returned $RC inside the namespace" >&2
+  exit "$RC"
+fi
+
+if ! grep -qE "/.config/stado/config.toml$" "$OUT"; then
+  echo "test-on-fedora-atomic: expected config-path output, got:" >&2
+  cat "$OUT" >&2
+  exit 1
+fi
+
+echo "→ PASS — stado boots cleanly with /home → /var/home"
+echo "  config-path = $(cat "$OUT" | head -1)"

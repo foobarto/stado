@@ -152,6 +152,36 @@ func ReadRegularFileNoSymlinkLimited(path string, maxBytes int64) ([]byte, error
 	return data, nil
 }
 
+// ReadRegularFileUnderUserConfigLimited reads path with the same trust-anchor
+// model as MkdirAllUnderUserConfig / OpenRootUnderUserConfig: the chain UP
+// TO the longest HOME / XDG_*_HOME ancestor is treated as operator-supplied
+// (so a system-level `/home → /var/home` symlink is accepted), and the
+// remainder is walked with strict no-symlink enforcement. When path falls
+// outside any anchor, falls back to the strict from-/ ReadRegularFileNoSymlinkLimited.
+func ReadRegularFileUnderUserConfigLimited(path string, maxBytes int64) ([]byte, error) {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return nil, err
+	}
+	anchor := userTrustAnchor(abs)
+	if anchor == "" {
+		return ReadRegularFileNoSymlinkLimited(abs, maxBytes)
+	}
+	rel, err := filepath.Rel(anchor, abs)
+	if err != nil {
+		return nil, err
+	}
+	if rel == "." || rel == "" {
+		return nil, fmt.Errorf("invalid file path: %s (equal to user-config anchor)", path)
+	}
+	root, err := OpenRootNoSymlinkUnder(anchor, filepath.Dir(rel))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return ReadRootRegularFileLimited(root, filepath.Base(rel), maxBytes)
+}
+
 // ReadRootRegularFileLimited opens a regular file relative to root, rejects
 // final symlinks and open-time swaps, and reads at most maxBytes.
 func ReadRootRegularFileLimited(root *os.Root, name string, maxBytes int64) ([]byte, error) {

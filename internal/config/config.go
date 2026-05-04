@@ -428,7 +428,7 @@ func (c *Config) loadSystemPromptTemplate() error {
 	}
 	var body []byte
 	var err error
-	body, err = workdirpath.ReadRegularFileNoSymlinkLimited(c.Agent.SystemPromptPath, maxSystemPromptTemplateBytes)
+	body, err = workdirpath.ReadRegularFileUnderUserConfigLimited(c.Agent.SystemPromptPath, maxSystemPromptTemplateBytes)
 	if err != nil {
 		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
 	}
@@ -447,7 +447,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("default system prompt template is not a regular file: %s", path)
 		}
-		data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSystemPromptTemplateBytes)
+		data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSystemPromptTemplateBytes)
 		if err != nil {
 			return fmt.Errorf("read default system prompt template: %w", err)
 		}
@@ -460,7 +460,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat default system prompt template: %w", err)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
 	}
 	if err := createDefaultSystemPromptTemplate(path); err != nil {
@@ -538,7 +538,7 @@ func systemPromptTemplateRoot(path string) (*os.Root, string, error) {
 	if name == "." || name == string(filepath.Separator) {
 		return nil, "", fmt.Errorf("invalid system prompt template path: %s", path)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(filepath.Dir(path))
+	root, err := workdirpath.OpenRootUnderUserConfig(filepath.Dir(path))
 	if err != nil {
 		return nil, "", err
 	}

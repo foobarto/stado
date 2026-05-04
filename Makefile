@@ -39,6 +39,10 @@ tidy: ## Run go mod tidy
 fetch-binaries: ## Run hack/fetch-binaries.go (mirrors the goreleaser before-hook)
 	$(GO) run hack/fetch-binaries.go
 
+.PHONY: fedora-atomic-test
+fedora-atomic-test: build ## Regression-test the Atomic Fedora /home → /var/home boot path (needs bwrap)
+	./hack/test-on-fedora-atomic.sh --no-build
+
 .PHONY: clean
 clean: ## Remove the local binary
 	rm -f $(BIN)
