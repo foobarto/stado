@@ -6,6 +6,31 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Providers
+
+- **ACP client — wrap external coding-agent CLIs as stado providers
+  (phase A of EP-0032).** stado already speaks ACP as a server (Zed
+  drives stado). This is the inverse: stado as ACP **client** wrapping
+  an external CLI (`gemini --acp`, `opencode acp`, future
+  zed-compatible variants). Configure via:
+
+  ```toml
+  [acp.providers.gemini-acp]
+  binary = "gemini"
+  args   = ["--acp"]
+  ```
+
+  Then `stado run --provider gemini-acp --prompt "..."` (or pin in
+  `[defaults].provider`). The wrapped agent uses ITS OWN tools
+  — phase A's deliberate scope. Phase B will add opt-in tool-host
+  capability so wrapped agents can call stado's tool registry; phase
+  C adds per-call hybrid. Audit boundary: stado records the
+  conversation boundary, not the wrapped agent's internal tool calls
+  — that's the trust boundary when handing off to a third-party
+  agent. End-to-end tested with `gemini --acp` on a real Google
+  account; `opencode acp` should work too (same canonical
+  Zed-spec dialect). EP-0032 has the full design + decision log.
+
 ### CLI
 
 - **Added `stado integrations`** — detect external coding-agent CLIs

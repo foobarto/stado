@@ -295,8 +295,43 @@ type OTel struct {
 	ServiceName string            `koanf:"service_name"`
 }
 
-// ACP is Phase 8's [acp] section.
-type ACP struct{}
+// ACP is Phase 8's [acp] section. Houses both server-side and
+// client-side ACP knobs.
+//
+//	[acp.providers.gemini-acp]
+//	binary = "gemini"
+//	args   = ["--acp"]
+//
+//	[acp.providers.opencode-acp]
+//	binary = "opencode"
+//	args   = ["acp"]
+//
+// Each entry registers a stado provider that wraps an external ACP-
+// speaking coding-agent CLI. The provider is built lazily on first
+// use; the wrapped agent's tools live INSIDE the wrapped agent
+// (phase A of EP-0032 — wrapped-agent-owns-tools). Phase B will add
+// optional tool-host capability so wrapped agents can call stado's
+// tool registry via ACP method calls.
+type ACP struct {
+	Providers map[string]ACPProvider `koanf:"providers"`
+}
+
+// ACPProvider declares one wrapped-agent provider. Binary is the
+// only required field; everything else inherits stado defaults.
+type ACPProvider struct {
+	// Binary is the absolute path to (or PATH-resolvable name of)
+	// the wrapped agent's executable. Required.
+	Binary string `koanf:"binary"`
+	// Args is the argv passed to Binary to launch its ACP server
+	// mode (e.g. ["--acp"] for gemini, ["acp"] for opencode).
+	Args []string `koanf:"args"`
+	// CWD overrides the working directory the wrapped agent reports
+	// for its session. Empty = stado's cwd at first-stream time.
+	CWD string `koanf:"cwd"`
+	// Env adds entries to the wrapped agent's environment (parent
+	// PATH/HOME/etc inherit by default).
+	Env []string `koanf:"env"`
+}
 
 // Plugins is Phase 7's [plugins] section. CRL fields are Phase 7.6 —
 // the revocation list is downloaded from CRLURL, verified against

@@ -20,6 +20,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/providers/acpwrap"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
 	"github.com/foobarto/stado/internal/providers/localdetect"
@@ -278,6 +279,22 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		return openai.New("", "")
 	case "google", "gemini":
 		return google.New("")
+	}
+
+	// ACP-wrapped agent providers (`[acp.providers.<name>]` in
+	// config.toml). Picked BEFORE the inference-preset lookup so an
+	// ACP wrapper named "gemini-acp" doesn't get shadowed by an
+	// OAI-compat preset of the same name. EP-0032 phase A.
+	if cfg.ACP.Providers != nil {
+		if p, ok := cfg.ACP.Providers[name]; ok && p.Binary != "" {
+			return acpwrap.New(acpwrap.Config{
+				Name:   name,
+				Binary: p.Binary,
+				Args:   p.Args,
+				CWD:    p.CWD,
+				Env:    p.Env,
+			})
+		}
 	}
 
 	// User-defined preset wins over the bundled default of the same name
