@@ -235,6 +235,44 @@ built-in implementation. This is the strongest way to deploy a
 plugin — the plugin doesn't need to be in the LLM's prompt, it's
 just *the* `webfetch`.
 
+## Auditability invariant — do not bypass the trace
+
+stado's git trace ref (`refs/sessions/<id>/trace`, EP-0004) records
+every tool call as part of the session's audit log. **This invariant
+is non-negotiable.** Any code path that mutates session state must
+commit through the trace path so the audit log stays complete; a
+silent bypass — even an "optimisation" that batches commits or a
+"convenience" that side-steps a write — voids the audit guarantee
+for that session.
+
+The session-compaction work briefly broke this invariant by
+accident; it was caught + remedied. The reminder is forward-looking:
+when you write a plugin (or, more importantly, when you propose a
+new core feature), ask:
+
+- *Does this mutate session state?* (file writes inside the worktree;
+  fork rpc; memory-store appends from `memory:write` capability;
+  llm:invoke responses)
+- *If yes, does the mutation flow through the existing
+  trace-committing path?* (`stadogit.Session.Commit`, the agent
+  loop's tool-call wrapper, etc.)
+
+If the answer is "yes, mutates" + "no, bypasses trace", the design
+is wrong. Plugins inherit this discipline by default — the host
+imports that mutate (`stado_fs_write`, `stado_exec_bash` via the
+agent loop, `stado_session_fork`, `stado_llm_invoke`) all commit
+through the trace. A plugin that wires up its own out-of-band
+mutation channel (e.g., shells out via `stado_exec_bash` to a
+network sink that writes elsewhere) is the regression vector.
+Capability gating bounds what a plugin can do; the trace ref
+records what it actually did.
+
+For operator-tooling commands (gc, doctor, install) the trace-ref
+invariant doesn't apply — they're operator actions, not agent
+actions, and they live outside the per-session ref namespace. But
+any new agent-callable tool (whether bundled, plugin, or MCP)
+must respect this.
+
 ## Inspecting an existing plugin
 
 For a plugin you didn't write (a teammate's, an example bundled
