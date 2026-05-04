@@ -4,6 +4,63 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.32.0 — /loop, /monitor, stado schedule, .stado/ project dir, sampling args
+
+### TUI
+
+- **`/loop [duration] <prompt>`** — repeat a prompt automatically. Immediate-repeat
+  (fires as soon as each turn finishes) or timed (`/loop 5m "check deploy"`). Agent
+  self-terminates by including `[LOOP_DONE]` in its response; operator cancels with
+  `/loop stop`. Status bar shows `↻ loop (5m)` while active. EP-0036.
+
+- **`/monitor <cmd>`** — stream a process's stdout into the current session as
+  `[monitor]` system blocks. Each stdout line is injected as a notification so the
+  agent can react to log events, CI output, or any live stream. `/monitor stop` kills
+  the background process. EP-0036.
+
+### CLI
+
+- **`stado schedule`** — persistent scheduled runs. `create --cron "0 9 * * *"
+  --prompt "..."` persists entries to `<state-dir>/schedules.json`. Subcommands:
+  `list`, `rm`, `run-now`, `install-cron`, `uninstall-cron`. `install-cron` writes
+  OS crontab entries for all active schedules; `uninstall-cron` removes them. No
+  daemon required — OS cron handles timing. EP-0036.
+
+- **`stado run --temperature / --top-p / --top-k`** — one-shot sampling overrides.
+  Also configurable in `config.toml` (or `.stado/config.toml`) under `[sampling]`.
+  Wired into TurnRequest for both TUI and headless AgentLoop. Zero/nil = provider
+  default. EP-0036.
+
+### Config
+
+- **`.stado/` project-local directory** — commit stado config alongside the repo.
+  Three artefacts: `.stado/config.toml` (overlays user config, project wins),
+  `.stado/AGENTS.md` (stado-specific agent instructions, sits between `AGENTS.md`
+  and `CLAUDE.md` in the walk), `.stado/plugins/` (project-local plugin search
+  dir, supplements global state-dir). Discovery walks cwd upward; nearest wins.
+  New helpers: `Config.ProjectStadoDir()`, `.ProjectPluginsDir()`, `.AllPluginDirs()`.
+  EP-0035.
+
+### Plugins
+
+- **`plugins/examples/http-session`** (Go, ~3.5 MB) — reusable HTTP session wrapper
+  on top of `stado_http_request`. Cookie jar + default-header merging + base-URL
+  resolution across tool calls. State persisted to disk (wasm instance freshness).
+
+- **`plugins/examples/encode-zig`** (Zig, ~5 KB) — base64/base64url/hex/url/html
+  encode+decode. Zig SDK proof: 700× smaller than the Go equivalent; documents the
+  2 MiB arena constraint for non-Go plugin authors.
+
+- **`plugins/examples/hash-id-rust`** (Rust, source-only) — hash identification,
+  17 types, `#![no_std]`, `wasm32-unknown-unknown`. Rust SDK proof; builds when
+  `rustup target add wasm32-unknown-unknown`.
+
+### Fixes
+
+- `stado --version` now shows a readable string across all build paths: `make build`
+  → `v0.31.0-N-gabcdef-dirty` (git describe); `go install ...@tag` → `vX.Y.Z`;
+  bare `go build` → Go's pseudo-version; fallback → `0.0.0-dev+<hash>`.
+
 ## v0.31.0 — net:http_request_private opt-in for lab IPs
 
 ### Plugin host imports
