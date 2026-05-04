@@ -319,7 +319,7 @@ func Load() (*Config, error) {
 	}
 
 	if _, err := os.Lstat(configPath); err == nil {
-		data, err := workdirpath.ReadRegularFileNoSymlinkLimited(configPath, maxConfigBytes)
+		data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(configPath, maxConfigBytes)
 		if err != nil {
 			return nil, fmt.Errorf("load config: %w", err)
 		}

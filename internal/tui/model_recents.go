@@ -192,7 +192,7 @@ func readModelStateFile(path string) ([]byte, error) {
 }
 
 func writeModelStateRecords(path string, records []modelRecentRecord) bool {
-	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(path), 0o700); err != nil {
 		return false
 	}
 	data, err := json.MarshalIndent(records, "", "  ")
@@ -213,7 +213,7 @@ func modelStateRoot(path string) (*os.Root, string, error) {
 	if name == "." || name == string(filepath.Separator) {
 		return nil, "", fmt.Errorf("invalid model state path: %s", path)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return nil, "", err
 	}

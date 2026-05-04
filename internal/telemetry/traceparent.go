@@ -77,7 +77,7 @@ func WriteCurrentTraceparent(ctx context.Context, dir string) error {
 		return errors.New("traceparent: propagator returned empty traceparent")
 	}
 
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func LoadParentTraceparent(ctx context.Context, dir string) (context.Context, bo
 	if dir == "" {
 		return ctx, false
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return ctx, false
 	}

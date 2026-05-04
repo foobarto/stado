@@ -83,7 +83,7 @@ func CreateSession(sidecar *Sidecar, worktreeRoot, sessionID string, parentTree 
 		return nil, err
 	}
 	worktree := filepath.Join(worktreeRoot, sessionID)
-	if err := workdirpath.MkdirAllNoSymlink(worktree, 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(worktree, 0o700); err != nil {
 		return nil, fmt.Errorf("create worktree: %w", err)
 	}
 	s := &Session{

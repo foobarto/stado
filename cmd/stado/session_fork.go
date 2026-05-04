@@ -88,7 +88,7 @@ var sessionRevertCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
+			if err := workdirpath.MkdirAllUnderUserConfig(cfg.WorktreeDir(), 0o700); err != nil {
 				return err
 			}
 			newID := uuid.New().String()
@@ -150,7 +150,7 @@ func createSessionAt(cfg *config.Config, parentID string, atCommit plumbing.Hash
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
-	if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(cfg.WorktreeDir(), 0o700); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err

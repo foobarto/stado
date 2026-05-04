@@ -126,10 +126,10 @@ func copyDir(src, dst string) error {
 	if !filepath.IsLocal(dstName) || strings.ContainsAny(dstName, `/\`) || dstName == "." || dstName == ".." {
 		return fmt.Errorf("invalid destination directory name: %q", dstName)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(dstParent, 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(dstParent, 0o700); err != nil {
 		return err
 	}
-	dstParentRoot, err := workdirpath.OpenRootNoSymlink(dstParent)
+	dstParentRoot, err := workdirpath.OpenRootUnderUserConfig(dstParent)
 	if err != nil {
 		return err
 	}

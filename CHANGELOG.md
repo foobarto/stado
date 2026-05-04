@@ -8,6 +8,25 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **Completed the Atomic Fedora boot fix — pass 3 (full audit).** Pass 2
+  (v0.26.2) added a multi-probe regression test that surfaced the
+  audit-key + sidecar wall. A static audit of every remaining strict
+  from-`/` strict-walk caller surfaced 11 more boot-time HOME-rooted
+  paths spread across 10 files: config.toml read (loaded only when a
+  config exists, so the empty-namespace test missed it), session
+  worktree mkdir + open, materialize tree mkdir + open + wipe,
+  conversation worktree open, tasks store mkdir + open, theme TOML read,
+  model recents mkdir + open, instructions walk-up read,
+  binext cache dir mkdir + open, traceparent write + read, session-fork
+  worktree mkdir, plugin install destination mkdir + open. Migrated all
+  to the trust-anchor variants (same threat model as v0.26.1/v0.26.2).
+  Extended the regression test with `config show` (exercises the
+  load-existing-config path that fired on real users with config.toml
+  present) and added `XDG_CACHE_HOME` to the namespace setenv block so
+  binext probes resolve the right anchor. The test now runs 5 probes
+  end-to-end and verifies all reach the application logic past every
+  known boot-time MkdirAll/OpenRoot/Read wall.
+
 - **Completed the Atomic Fedora boot fix — pass 2.** v0.26.1's
   `hack/test-on-fedora-atomic.sh` test harness only exercised
   `stado config-path`, which leaves three more boot-time surfaces

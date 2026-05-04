@@ -19,7 +19,7 @@ func ListWorktreeSessionIDs(worktreeRoot string) ([]string, error) {
 }
 
 func listWorktreeSessionIDsLimited(worktreeRoot string, maxEntries int) ([]string, error) {
-	root, err := workdirpath.OpenRootNoSymlink(worktreeRoot)
+	root, err := workdirpath.OpenRootUnderUserConfig(worktreeRoot)
 	if err != nil {
 		return nil, err
 	}

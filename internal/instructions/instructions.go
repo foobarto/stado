@@ -199,7 +199,7 @@ func Load(start string) (Result, error) {
 				// reason.
 				continue
 			}
-			body, readErr := workdirpath.ReadRegularFileNoSymlinkLimited(candidate, maxInstructionsFileBytes)
+			body, readErr := workdirpath.ReadRegularFileUnderUserConfigLimited(candidate, maxInstructionsFileBytes)
 			if readErr != nil {
 				return Result{}, fmt.Errorf("instructions: read %s: %w", candidate, readErr)
 			}

@@ -89,7 +89,20 @@ mkdir -p \
   "$WORKDIR/var/home/atomic-test" \
   "$WORKDIR/var/home/atomic-test/.config" \
   "$WORKDIR/var/home/atomic-test/.local/share" \
-  "$WORKDIR/var/home/atomic-test/.local/state"
+  "$WORKDIR/var/home/atomic-test/.local/state" \
+  "$WORKDIR/var/home/atomic-test/.cache"
+
+# Pre-seed a config.toml so the with-config probe exercises the
+# "config exists, must be read" path (config.go:322) — distinct from
+# the empty-namespace path that just creates the dir.
+mkdir -p "$WORKDIR/var/home/atomic-test/.config/stado"
+cat > "$WORKDIR/var/home/atomic-test/.config/stado/config.toml" <<'TOML'
+# Pre-existing config.toml — exercises the load-existing-config path
+# that broke pre-v0.26.3 on Atomic.
+[defaults]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+TOML
 
 run_in_namespace() {
   local out="$1"; local err="$2"; shift 2
@@ -113,6 +126,7 @@ run_in_namespace() {
     --setenv XDG_CONFIG_HOME /home/atomic-test/.config \
     --setenv XDG_DATA_HOME   /home/atomic-test/.local/share \
     --setenv XDG_STATE_HOME  /home/atomic-test/.local/state \
+    --setenv XDG_CACHE_HOME  /home/atomic-test/.cache \
     --unshare-user --unshare-pid --unshare-net \
     /home/atomic-test/stado "$@" >"$out" 2>"$err"
 }
@@ -122,6 +136,9 @@ run_in_namespace() {
 # so the test deliberately fans out to all known boot-touching commands:
 #
 #   config-path     → config.Load() + system-prompt-template ensure
+#                    + (with the pre-seeded config.toml above) the
+#                      load-existing-config read path (config.go:322)
+#   config show     → re-reads config; same load-existing-config path
 #   doctor --json   → broad env health-check, hits config + audit + state-dir
 #   session list    → sidecar git repo init + worktree enumeration
 #   audit verify    → audit-key load-or-create (HOME-rooted PEM)
@@ -129,6 +146,7 @@ run_in_namespace() {
 # Add new probes here as additional boot-touching surface ships.
 PROBES=(
   "config-path"
+  "config show"
   "doctor --no-local --json"
   "session list"
   "audit verify"

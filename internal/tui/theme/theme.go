@@ -78,7 +78,7 @@ func Default() *Theme {
 
 // Load reads a TOML theme file. Missing fields fall back to the bundled default.
 func Load(path string) (*Theme, error) {
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxThemeFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxThemeFileBytes)
 	if err != nil {
 		return nil, fmt.Errorf("theme: read %s: %w", path, err)
 	}

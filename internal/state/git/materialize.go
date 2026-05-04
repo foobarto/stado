@@ -50,10 +50,10 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err != nil {
 		return fmt.Errorf("materialize: read tree %s: %w", treeHash, err)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(dir, 0o750); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return fmt.Errorf("materialize: root %s: %w", dir, err)
 	}
@@ -342,7 +342,7 @@ func collectPruneExtras(root *os.Root, rel, rootDir string, kept map[string]bool
 }
 
 func wipeDir(dir string) error {
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return err
 	}
