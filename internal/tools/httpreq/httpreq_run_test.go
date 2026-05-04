@@ -13,7 +13,21 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/pkg/tool"
 )
+
+// privateHost is a fake tool.Host that opts into the loosened guard
+// when allow=true. Implements only the subset Run needs (the
+// HostNetworkPolicy probe); the embedded tool.Host nil receiver
+// would panic if called, but Run never reaches PriorRead/RecordRead
+// on the http_request path.
+type privateHost struct {
+	tool.Host
+	allow bool
+}
+
+func (p privateHost) AllowPrivateNetwork() bool { return p.allow }
 
 // withTestServer swaps the dial guard so the test server (loopback)
 // is reachable. Restored on cleanup. Real-world dial guard remains
@@ -236,6 +250,57 @@ func TestResponseBodyTruncated(t *testing.T) {
 	body, _ := base64.StdEncoding.DecodeString(r.BodyB64)
 	if len(body) != maxResponseBodyBytes {
 		t.Fatalf("body len=%d, want %d", len(body), maxResponseBodyBytes)
+	}
+}
+
+// TestPrivateNetworkAllowedWithCapability: a host that implements
+// HostNetworkPolicy and returns AllowPrivateNetwork()=true causes
+// stado_http_request to use the loosened dial guard, so a loopback
+// destination resolves. We exercise this end-to-end against the
+// real (un-stubbed) dial path — no test override of
+// httpReqDialContext / httpReqPrivateDialContext.
+func TestPrivateNetworkAllowedWithCapability(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("private-ok"))
+	}))
+	defer srv.Close()
+
+	args := Args{Method: "GET", URL: srv.URL}
+	raw, _ := json.Marshal(args)
+	res, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	if err != nil {
+		t.Fatalf("Run with private cap: %v", err)
+	}
+	r := mustDecode(t, res.Content)
+	if r.Status != 200 {
+		t.Fatalf("status=%d, want 200", r.Status)
+	}
+	body, _ := base64.StdEncoding.DecodeString(r.BodyB64)
+	if string(body) != "private-ok" {
+		t.Fatalf("body=%q, want 'private-ok'", body)
+	}
+}
+
+// TestPrivateNetworkDeniedWithoutCapability: same as above but the
+// host says allow=false → strict guard kicks in → loopback refused.
+// Distinct from TestPrivateNetworkBlocked (which passes nil host).
+func TestPrivateNetworkDeniedWithoutCapability(t *testing.T) {
+	args := Args{Method: "GET", URL: "http://127.0.0.1:1/blocked"}
+	raw, _ := json.Marshal(args)
+	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: false})
+	if err == nil || !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("err=%v, want 'private network' error", err)
+	}
+}
+
+// TestPrivateGuardStillRefusesMulticast: even with the cap granted,
+// multicast / unspecified / docs ranges must remain refused.
+func TestPrivateGuardStillRefusesMulticast(t *testing.T) {
+	args := Args{Method: "GET", URL: "http://224.0.0.1/x"}
+	raw, _ := json.Marshal(args)
+	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	if err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("err=%v, want 'denied' error for multicast even with private cap", err)
 	}
 }
 

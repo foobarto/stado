@@ -26,7 +26,16 @@ const (
 )
 
 // httpReqDialContext is overridable for tests (see httpreq_run_test.go).
+// It's used when the host has not opted into private-network access.
 var httpReqDialContext = guardedHTTPReqDialContext
+
+// httpReqPrivateDialContext is the loosened guard used when the host
+// implements tool.HostNetworkPolicy and AllowPrivateNetwork() is true.
+// Loopback / RFC1918 / link-local / CGNAT are permitted; everything
+// else (multicast, reserved, IPv4-mapped trickery via Unmap) still
+// goes through the same resolution path so the host can't be tricked
+// into dialing a non-IP literal.
+var httpReqPrivateDialContext = privateAllowedHTTPReqDialContext
 
 // blockedHTTPReqPrefixes mirrors webfetch's private-network filter.
 // Same blocklist; new packages keep their own copy so a future tweak
@@ -71,10 +80,14 @@ var stripRequestHeaders = map[string]struct{}{
 	"content-length":      {}, // body-derived
 }
 
-func (RequestTool) Run(ctx context.Context, raw json.RawMessage, _ tool.Host) (tool.Result, error) {
+func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.Result, error) {
 	var p Args
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
+	}
+	dial := httpReqDialContext
+	if pol, ok := h.(tool.HostNetworkPolicy); ok && pol.AllowPrivateNetwork() {
+		dial = httpReqPrivateDialContext
 	}
 	method, err := validateMethod(p.Method)
 	if err != nil {
@@ -122,7 +135,7 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, _ tool.Host) (t
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	transport.DialContext = httpReqDialContext
+	transport.DialContext = dial
 	client := &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
@@ -272,4 +285,76 @@ func isPublicHTTPReqIP(ip netip.Addr) bool {
 		}
 	}
 	return true
+}
+
+// privateAllowedHTTPReqDialContext is the dial guard used when the
+// host opted into net:http_request_private. RFC1918, loopback,
+// link-local, and CGNAT (100.64.0.0/10) are permitted alongside
+// public addresses. Multicast / reserved / unspecified / docs ranges
+// are still refused — those are never legitimate HTTP destinations.
+func privateAllowedHTTPReqDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := resolveHTTPReqHost(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for _, ip := range ips {
+		if !isDialableHTTPReqIP(ip) {
+			return nil, fmt.Errorf("http_request: address %s for host %q denied", ip, host)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("http_request: no address records for host %q", host)
+	}
+	dialer := &net.Dialer{}
+	var lastErr error
+	for _, ip := range ips {
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// isDialableHTTPReqIP is the looser counterpart to isPublicHTTPReqIP.
+// Private (RFC1918), loopback, link-local, and CGNAT are accepted;
+// only the destinations that are never valid HTTP targets are
+// rejected — multicast, the unspecified address, IPv4/IPv6 reserved
+// and documentation ranges.
+func isDialableHTTPReqIP(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() {
+		return false
+	}
+	if ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	for _, prefix := range alwaysBlockedHTTPReqPrefixes {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// alwaysBlockedHTTPReqPrefixes — refused even with
+// net:http_request_private. These ranges are documentation,
+// reserved, or never-valid-HTTP-endpoints.
+var alwaysBlockedHTTPReqPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("ff00::/8"),
+	netip.MustParsePrefix("2001:db8::/32"),
 }

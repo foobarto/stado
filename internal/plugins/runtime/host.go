@@ -77,10 +77,11 @@ type Host struct {
 	// Public built-in tool capability bits. These map thin host
 	// wrappers to the underlying native implementation while keeping
 	// manifests narrow and auditable.
-	NetHTTPGet     bool
-	NetHTTPRequest bool       // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
-	NetReqHost     []string   // optional hostname allow-list for net:http_request:<host>
-	ExecBash    bool
+	NetHTTPGet            bool
+	NetHTTPRequest        bool     // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
+	NetReqHost            []string // optional hostname allow-list for net:http_request:<host>
+	NetHTTPRequestPrivate bool     // when true, stado_http_request's dial guard allows RFC1918 / loopback / link-local destinations. Off by default — opt-in via net:http_request_private cap.
+	ExecBash              bool
 	ExecSearch  bool
 	ExecASTGrep bool
 	ExecPTY     bool
@@ -212,6 +213,15 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 				continue
 			}
+			// "net:http_request_private" — when granted, the
+			// dial guard for stado_http_request allows private
+			// addresses (RFC1918, loopback, link-local). Implies
+			// NetHTTPRequest.
+			if parts[1] == "http_request_private" {
+				h.NetHTTPRequest = true
+				h.NetHTTPRequestPrivate = true
+				continue
+			}
 			// "net:<host>" — the cap string after "net:" is the
 			// exact host to allow. Special values "allow" / "deny" are
 			// handled at the MCP layer but aren't exposed to plugins
@@ -284,6 +294,13 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 	}
 	return h
 }
+
+// AllowPrivateNetwork implements tool.HostNetworkPolicy. Returns
+// true when the manifest declared `net:http_request_private`. The
+// http_request tool probes for this via type assertion to decide
+// whether to use the strict public-only dial guard or the loosened
+// variant.
+func (h *Host) AllowPrivateNetwork() bool { return h.NetHTTPRequestPrivate }
 
 func (h *Host) NeedsMemoryBridge() bool {
 	return h.MemoryPropose || h.MemoryRead || h.MemoryWrite

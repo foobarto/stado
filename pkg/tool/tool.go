@@ -85,6 +85,18 @@ type Host interface {
 	RecordRead(key ReadKey, info PriorReadInfo)
 }
 
+// HostNetworkPolicy is an optional Host capability tools probe via
+// type assertion. Hosts return true from AllowPrivateNetwork when
+// the underlying plugin manifest opted into the
+// `net:http_request_private` capability — meaning the dial guard
+// in stado_http_request should permit RFC1918 / loopback / link-
+// local destinations. Hosts that don't implement this interface,
+// or implement it returning false, get the strict public-only
+// behaviour.
+type HostNetworkPolicy interface {
+	AllowPrivateNetwork() bool
+}
+
 // WritePathGuard is an optional host capability for mutating file tools.
 // Hosts that implement it can reject writes before the tool touches disk.
 type WritePathGuard interface {
