@@ -976,6 +976,14 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 			if m.program != nil {
 				m.program.Send(subagentEventMsg{ev: ev})
 			}
+			// EP-0034 phase B will fan SubagentEvents into
+			// runtime.Fleet.UpdateProgress so the /fleet modal
+			// shows live LastTool/LastText. Phase A (this
+			// release) populates SessionID + terminal Status
+			// from Fleet.runGoroutine on goroutine return —
+			// adequate for "see what's running, see what
+			// finished," misses "see what running agent X is
+			// currently doing." See docs/eps/0034 D5.
 		},
 	}
 	return runner.SpawnSubagent
