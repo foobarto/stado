@@ -4,7 +4,24 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
-## Unreleased
+## v0.31.0 — net:http_request_private opt-in for lab IPs
+
+### Plugin host imports
+
+- **`net:http_request_private` capability + `tool.HostNetworkPolicy`
+  interface.** Loosens the `stado_http_request` dial guard to permit
+  RFC1918, loopback, link-local, and CGNAT destinations when the
+  manifest declares the cap. Multicast, unspecified, IPv4/IPv6
+  reserved, and documentation ranges remain refused — those are
+  never valid HTTP destinations regardless of policy. The strict
+  public-only path is still the default; opt-in is per-plugin and
+  visible in the manifest. Implemented via type-assertion on
+  `tool.Host`: hosts return true from `AllowPrivateNetwork()` to
+  flip the dial guard. Tests cover cap-granted-loopback-allowed,
+  cap-denied-loopback-blocked, and cap-granted-multicast-still-
+  refused.
+
+## v0.30.0 — net:http_request capability
 
 ### Plugin host imports
 

@@ -155,7 +155,9 @@ buckets:
 |------------------|---------------|------------------|
 | `fs:read:/abs/path`, `fs:write:/abs/path` | `stado_fs_read` / `stado_fs_write` to that absolute path | Any |
 | `fs:read:.`, `fs:read:./sub` | Same, but resolved against the host's `Workdir` | `plugin run --workdir=$PWD` (default workdir is the plugin's install dir, not the operator's CWD — EP-0027) |
-| `net:http_get`, `net:<host>` | `stado_http_get` (URL fetch) | `plugin run --with-tool-host` (no flag → "plugin host has no tool runtime context" error — EP-0028) |
+| `net:http_get`, `net:<host>` | `stado_http_get` (URL fetch, markdown-converting) | `plugin run --with-tool-host` (no flag → "plugin host has no tool runtime context" error — EP-0028) |
+| `net:http_request`, `net:http_request:<host>` | `stado_http_request` (generic HTTP — methods, headers, body, base64-binary-safe) | `plugin run --with-tool-host` |
+| `net:http_request_private` | Loosens `stado_http_request`'s dial guard to permit RFC1918 / loopback / link-local / CGNAT destinations. Multicast / unspecified / reserved / docs ranges still refused. Off by default — opt-in only. | `plugin run --with-tool-host` |
 | `exec:search`, `exec:ast_grep`, `lsp:query` | Bundled search / lsp tool imports | `plugin run --with-tool-host` |
 | `exec:bash`, `exec:shallow_bash` | `stado_exec_bash` | TUI / `stado run` only — `plugin run` refuses, EP-0028 (the `sandbox.Runner` is not available) |
 | `session:read`, `session:fork`, `session:observe` | Session-aware reads + fork RPC | `plugin run --session <id>` |
