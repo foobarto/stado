@@ -20,9 +20,58 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+// shortFleetID returns the first 8 chars of a fleet id for stderr/
+// system-block display. Mirrors the picker's truncation so user logs
+// match the modal.
+func shortFleetID(id string) string {
+	if len(id) >= 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// spawnerFunc adapts a (ctx, req)→(result, error) closure to the
+// runtime.Spawner interface that Fleet.Spawn expects.
+type spawnerFunc func(ctx context.Context, req subagent.Request) (subagent.Result, error)
+
+func (f spawnerFunc) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
+	return f(ctx, req)
+}
+
+// spawnFleetAgent fires a background agent via the runtime Fleet,
+// using the same SubagentRunner the spawn_agent tool uses. Returns
+// a Cmd so the caller can chain it like any other slash command.
+func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
+	if m.session == nil {
+		m.appendBlock(block{kind: "system", body: "spawn: no active session — start a turn first so a parent session exists"})
+		return nil
+	}
+	if m.fleet == nil {
+		m.fleet = runtime.NewFleet()
+	}
+	spawner := spawnerFunc(m.buildSubagentSpawner())
+	id, err := m.fleet.Spawn(m.rootCtx, spawner, prompt, runtime.SpawnOptions{
+		Provider: m.providerDisplayName(),
+		Model:    m.model,
+	})
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "spawn: " + err.Error()})
+		return nil
+	}
+	short := id
+	if len(short) >= 8 {
+		short = short[:8]
+	}
+	m.appendBlock(block{kind: "system",
+		body: "spawned background agent " + short + " — `/fleet` to view"})
+	m.renderBlocks()
+	return nil
+}
 
 // anyModalOpen returns true when any modal picker / overlay is
 // visible. Source for the Ctrl+C "close popup" route at the top of
@@ -40,6 +89,8 @@ func (m *Model) anyModalOpen() bool {
 	case m.agentPick.Visible:
 		return true
 	case m.slash.Visible:
+		return true
+	case m.fleetPicker != nil && m.fleetPicker.Visible:
 		return true
 	}
 	return false
@@ -67,6 +118,9 @@ func (m *Model) closeAllModals() {
 	if m.slash.Visible {
 		m.slash.Close()
 		m.slashInline = false
+	}
+	if m.fleetPicker != nil && m.fleetPicker.Visible {
+		m.fleetPicker.Close()
 	}
 	m.layout()
 }
@@ -121,6 +175,26 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/exit", "/quit":
 		return tea.Quit
+	case "/spawn":
+		// /spawn <prompt...> — fire a background agent. Uses the
+		// active session's provider+model. EP-0034.
+		if len(parts) < 2 {
+			m.appendBlock(block{kind: "system", body: "spawn: usage `/spawn <prompt>`"})
+			return nil
+		}
+		prompt := strings.TrimSpace(strings.Join(parts[1:], " "))
+		if prompt == "" {
+			m.appendBlock(block{kind: "system", body: "spawn: prompt is empty"})
+			return nil
+		}
+		return m.spawnFleetAgent(prompt)
+	case "/fleet":
+		// /fleet — open the fleet modal. Reads runtime.Fleet's
+		// current snapshot.
+		entries := m.fleet.List()
+		m.fleetPicker.Open(entries)
+		m.layout()
+		return nil
 	case "/cancel", "/stop":
 		// Cancel the in-flight turn (if any). The stream goroutine
 		// observes ctx.Done and unwinds; the buffered events still

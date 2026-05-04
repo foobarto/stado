@@ -16,11 +16,13 @@ import (
 	"github.com/foobarto/stado/internal/instructions"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/agentpicker"
 	"github.com/foobarto/stado/internal/tui/filepicker"
+	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/input"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
@@ -260,6 +262,8 @@ type Model struct {
 	taskPick    *taskpicker.Model
 	themePick   *themepicker.Model
 	filePicker  *filepicker.Model
+	fleetPicker *fleetpicker.Model
+	fleet       *runtime.Fleet
 	vp          viewport.Model
 	showHelp    bool
 	showStatus  bool
@@ -482,6 +486,8 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		taskPick:         taskpicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
+		fleetPicker:      fleetpicker.New(),
+		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
 		vp:               viewport.New(0, 0),
 		activityVP:       viewport.New(0, 0),

@@ -174,6 +174,14 @@ func (m *Model) View() string {
 		m.modelPicker.Height = m.height
 		return m.modelPicker.View(m.width, m.height)
 	}
+	if m.fleetPicker != nil && m.fleetPicker.Visible {
+		// Refresh on each render so status pills + last-tool snapshots
+		// reflect what the goroutines have written. Cheap (Fleet.List
+		// is a copy under a mutex) and avoids a separate refresh
+		// timer.
+		m.fleetPicker.Refresh(m.fleet.List())
+		return m.fleetPicker.View(m.width, m.height)
+	}
 	if m.sessionPick.Visible {
 		m.sessionPick.Width = m.width
 		m.sessionPick.Height = m.height

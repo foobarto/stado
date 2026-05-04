@@ -11,6 +11,7 @@ import (
 
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
+	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -460,6 +461,49 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.layout()
 					return m, nil
 				}
+			}
+			return m, nil
+		}
+
+		// Fleet picker is modal — route keypresses and act on the
+		// Result the picker emits. Esc / Ctrl+G fall through to
+		// the SessionInterrupt handler below; Ctrl+C is handled at
+		// the top of Update via closeAllModals.
+		if m.fleetPicker != nil && m.fleetPicker.Visible {
+			cmd, handled := m.fleetPicker.Update(msg)
+			if !handled && (msg.Type == tea.KeyEsc) {
+				m.fleetPicker.Close()
+				m.layout()
+				return m, nil
+			}
+			if m.fleetPicker.Out.Action != fleetpicker.ActionNone {
+				out := m.fleetPicker.Out
+				m.fleetPicker.Out = fleetpicker.Result{}
+				switch out.Action {
+				case fleetpicker.ActionView:
+					if e, ok := m.fleet.Get(out.FleetID); ok && e.SessionID != "" {
+						m.fleetPicker.Close()
+						m.appendBlock(block{kind: "system",
+							body: "fleet: switch to session " + e.SessionID + " — use `/session " + e.SessionID + "`"})
+						m.renderBlocks()
+					} else {
+						m.appendBlock(block{kind: "system",
+							body: "fleet: child session id not yet known (still spawning)"})
+						m.renderBlocks()
+					}
+				case fleetpicker.ActionCancel:
+					_ = m.fleet.Cancel(out.FleetID)
+					m.fleetPicker.Refresh(m.fleet.List())
+					m.appendBlock(block{kind: "system",
+						body: "fleet: cancelled background agent " + shortFleetID(out.FleetID)})
+					m.renderBlocks()
+				case fleetpicker.ActionRemove:
+					m.fleet.Remove(out.FleetID)
+					m.fleetPicker.Refresh(m.fleet.List())
+				}
+			}
+			if handled {
+				return m, cmd
 			}
 			return m, nil
 		}
