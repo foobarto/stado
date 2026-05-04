@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -21,27 +22,28 @@ import (
 //     this is NOT a substitute for runtime capability gates — those
 //     are enforced by the wasm host imports against the manifest's
 //     declared capabilities, regardless of approval. EP-0005 §"Goals".
+//   - Runner() (sandbox.Runner) — the same `sandbox.Detect()` runner
+//     the agent loop uses (bwrap on Linux, sandbox-exec on macOS,
+//     NoneRunner elsewhere). Bash duck-types this to wrap commands in
+//     the platform sandbox. plugin_run.go refuses to start when the
+//     manifest declares `exec:bash` AND `Detect()` returns NoneRunner —
+//     that's the "approval ≠ policy" guard from EP-0005: we don't
+//     substitute the operator's CLI invocation for a real syscall
+//     filter when none is available.
 //   - PriorRead/RecordRead — no-op. The agent-loop dedup machinery
 //     doesn't apply to one-shot plugin invocations.
-//
-// What it deliberately does NOT provide:
-//
-//   - Runner() (sandbox.Runner) — bash uses this duck-typed extension
-//     to run commands inside a Landlock/Seatbelt sandbox. Returning a
-//     no-op runner here would mean bash runs unsandboxed, contrary to
-//     EP-0005 §"Non-goals" ("Treating human approval as a substitute
-//     for kernel or runtime policy"). Instead, plugin_run.go refuses
-//     any plugin that declares `exec:bash` under --with-tool-host
-//     before it gets here.
 type pluginRunToolHost struct {
 	workdir string
+	runner  sandbox.Runner
 }
 
-func newPluginRunToolHost(workdir string) tool.Host {
-	return pluginRunToolHost{workdir: workdir}
+func newPluginRunToolHost(workdir string, runner sandbox.Runner) tool.Host {
+	return pluginRunToolHost{workdir: workdir, runner: runner}
 }
 
 func (h pluginRunToolHost) Workdir() string { return h.workdir }
+
+func (h pluginRunToolHost) Runner() sandbox.Runner { return h.runner }
 
 func (h pluginRunToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil

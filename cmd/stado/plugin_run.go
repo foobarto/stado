@@ -12,6 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
@@ -107,14 +108,21 @@ var pluginRunCmd = &cobra.Command{
 		// capability, so this is a no-op for plugins that don't.
 		host.StateDir = cfg.StateDir()
 
-		// EP-0028: refuse `exec:bash` under --with-tool-host BEFORE
-		// constructing the wasm runtime, so the user gets a clean
-		// error instead of paying the runtime cost. exec:bash needs
-		// a sandbox.Runner that plugin run can't supply without
-		// dragging in the full agent runtime, and EP-0005 forbids
-		// substituting human approval for runtime policy.
-		if pluginRunWithToolHost && host.ExecBash {
-			return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` (or `exec:shallow_bash`) capability, which needs the agent runtime's sandbox.Runner — run via `stado run` (or the TUI) instead", m.Name)
+		// EP-0028 D1 (resolved in v0.27.0): exec:bash now runs under
+		// `sandbox.Detect()` — the same runner the agent loop uses.
+		// We still refuse when the platform has NO native sandbox
+		// (Detect → NoneRunner), because EP-0005 §"Non-goals" forbids
+		// substituting the operator's CLI invocation for a real
+		// syscall/file-access filter. On Linux without bwrap, on
+		// macOS without sandbox-exec, on Windows always: same outcome
+		// as before — explicit refusal with an install hint, not
+		// silent unsandboxed execution.
+		var runner sandbox.Runner
+		if pluginRunWithToolHost {
+			runner = sandbox.Detect()
+			if host.ExecBash && runner.Name() == "none" {
+				return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` but no native sandbox is available on this host (sandbox.Detect → none) — install bubblewrap (Linux: `dnf install bubblewrap` / `apt install bubblewrap`) or run on a host with sandbox-exec (macOS), then retry", m.Name)
+			}
 		}
 
 		ctx := cmd.Context()
@@ -133,7 +141,7 @@ var pluginRunCmd = &cobra.Command{
 		// "plugin host has no tool runtime context" error and the
 		// caller can only test the plugin's pure-fs paths. EP-0028.
 		if pluginRunWithToolHost {
-			host.ToolHost = newPluginRunToolHost(workdir)
+			host.ToolHost = newPluginRunToolHost(workdir, runner)
 		}
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {
@@ -210,8 +218,8 @@ func init() {
 			"read files from the operator's repo.")
 	pluginRunCmd.Flags().BoolVar(&pluginRunWithToolHost, "with-tool-host", false,
 		"Wire host.ToolHost so plugins importing bundled tools (stado_http_get, stado_fs_tool_*, stado_lsp_*, stado_search_*) "+
-			"can be exercised from the CLI. Refuses plugins that declare `exec:bash` because the sandbox.Runner the agent loop "+
-			"normally provides is not available here — use `stado run` for those. EP-0028.")
+			"can be exercised from the CLI. exec:bash plugins run under sandbox.Detect() (bwrap on Linux, sandbox-exec on macOS); "+
+			"refused only if the platform has no native sandbox (sandbox.Detect → none). EP-0028 D1.")
 }
 
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {

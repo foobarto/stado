@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -21,10 +22,18 @@ import (
 // interface and returns the expected default behaviours.
 func TestPluginRunToolHost_Surface(t *testing.T) {
 	wd := t.TempDir()
-	h := newPluginRunToolHost(wd)
+	runner := sandbox.NoneRunner{}
+	h := newPluginRunToolHost(wd, runner)
 
 	if got := h.Workdir(); got != wd {
 		t.Errorf("Workdir() = %q, want %q", got, wd)
+	}
+	rh, ok := h.(interface{ Runner() sandbox.Runner })
+	if !ok {
+		t.Fatalf("pluginRunToolHost should expose Runner() for bash duck-typing")
+	}
+	if got := rh.Runner().Name(); got != "none" {
+		t.Errorf("Runner().Name() = %q, want %q", got, "none")
 	}
 	dec, err := h.Approve(context.Background(), tool.ApprovalRequest{
 		Tool:    "any",
@@ -44,11 +53,22 @@ func TestPluginRunToolHost_Surface(t *testing.T) {
 	h.RecordRead(tool.ReadKey{Path: "/tmp/x"}, tool.PriorReadInfo{Turn: 1})
 }
 
-// TestPluginRun_WithToolHost_RefusesExecBash exercises the EP-0028
-// guarantee: a plugin declaring `exec:bash` (or `exec:shallow_bash`)
-// is rejected under --with-tool-host because plugin run can't
-// supply a sandbox.Runner that EP-0005 demands.
-func TestPluginRun_WithToolHost_RefusesExecBash(t *testing.T) {
+// TestPluginRun_WithToolHost_ExecBashGate_NoSandbox exercises the
+// EP-0028 D1 guarantee in its v0.27.0 form: when no native sandbox
+// is available (sandbox.Detect → NoneRunner), exec:bash plugins are
+// refused with an install hint. EP-0005 forbids substituting the
+// operator's CLI invocation for a real syscall filter, so the gate
+// fires BEFORE the wasm runtime is constructed.
+//
+// On hosts WITH a native sandbox (bwrap on Linux dev hosts,
+// sandbox-exec on macOS) the gate doesn't fire — verifying the
+// happy path needs a real wasm plugin built, which is out of scope
+// for a unit test. Skipped there.
+func TestPluginRun_WithToolHost_ExecBashGate_NoSandbox(t *testing.T) {
+	if sandbox.Detect().Name() != "none" {
+		t.Skipf("skipping: native sandbox is available (%s); test exercises the no-sandbox refusal branch", sandbox.Detect().Name())
+	}
+
 	cfg := isolatedHome(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	src := buildTestPluginWithCaps(t, priv, pub, "needs-bash", "0.1.0", []string{"exec:bash"})
@@ -67,10 +87,10 @@ func TestPluginRun_WithToolHost_RefusesExecBash(t *testing.T) {
 
 	err := pluginRunCmd.RunE(pluginRunCmd, []string{"needs-bash-0.1.0", "anything"})
 	if err == nil {
-		t.Fatal("expected --with-tool-host to refuse a plugin declaring exec:bash")
+		t.Fatal("expected --with-tool-host to refuse exec:bash on no-sandbox host")
 	}
-	if !strings.Contains(err.Error(), "exec:bash") || !strings.Contains(err.Error(), "stado run") {
-		t.Errorf("expected error pointing at exec:bash and recommending `stado run`, got %v", err)
+	if !strings.Contains(err.Error(), "no native sandbox") || !strings.Contains(err.Error(), "bubblewrap") {
+		t.Errorf("expected refusal to mention no-native-sandbox + bubblewrap install hint, got %v", err)
 	}
 }
 

@@ -6,6 +6,18 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugins
+
+- **`stado plugin run --with-tool-host` now supports `exec:bash`
+  plugins** under `sandbox.Detect()` (bwrap on Linux, sandbox-exec
+  on macOS) — the same runner the agent loop uses. v0.26.0 refused
+  unconditionally because no Runner was wired in; v0.27.0 narrows
+  the refusal to: *manifest declares `exec:bash` AND no native
+  sandbox is available* (NoneRunner). EP-0005 is preserved — we
+  don't substitute the operator's CLI invocation for a real
+  syscall/file-access filter, we just stop refusing cases where a
+  real one IS available. Resolves EP-0028 D1.
+
 ### Fixes
 
 - **Completed the Atomic Fedora boot fix — pass 3 (full audit).** Pass 2

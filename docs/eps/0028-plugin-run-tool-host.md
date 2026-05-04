@@ -275,7 +275,7 @@ green because their fixture paths fall outside any trust anchor.
 
 ### D1. Refuse `exec:bash` rather than supply an unsandboxed `Runner`
 
-- **Decided:** under `--with-tool-host`, plugins declaring
+- **Decided (v0.26.0):** under `--with-tool-host`, plugins declaring
   `exec:bash` (or `exec:shallow_bash`) are refused at runtime
   setup time with an actionable error.
 - **Alternatives:** ship a no-op runner (bash runs unsandboxed);
@@ -287,6 +287,18 @@ green because their fixture paths fall outside any trust anchor.
   packaging. The proper fix (plumb a real runner) is a bigger
   scope; refusing-with-pointer-to-`stado-run` is honest about the
   current limitation without weakening the security model.
+
+- **Resolved (v0.27.0):** the third alternative — plumb a real
+  runner — landed. `cmd/stado/plugin_run.go` now wires
+  `sandbox.Detect()` into `pluginRunToolHost.Runner`, so
+  `exec:bash` plugins run under the same bwrap / sandbox-exec
+  confinement as the agent loop. The refusal is now narrowed to:
+  *manifest declares `exec:bash` AND `Detect()` returns NoneRunner*.
+  EP-0005 still holds — we don't substitute the operator's CLI
+  invocation for a real syscall filter; we just stop refusing
+  cases where a real syscall filter IS available. NoneRunner hosts
+  (Linux without bwrap, macOS without sandbox-exec, Windows
+  always) still get the explicit refusal with an install hint.
 
 ### D2. Trust anchor = HOME ∪ XDG_*_HOME, not arbitrary paths
 
