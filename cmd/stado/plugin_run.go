@@ -108,7 +108,7 @@ var pluginRunCmd = &cobra.Command{
 		// dragging in the full agent runtime, and EP-0005 forbids
 		// substituting human approval for runtime policy.
 		if pluginRunWithToolHost && host.ExecBash {
-			return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` (or `exec:shallow_bash`) capability, which needs the agent runtime's sandbox.Runner. Run via `stado run` (or the TUI) instead.", m.Name)
+			return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` (or `exec:shallow_bash`) capability, which needs the agent runtime's sandbox.Runner — run via `stado run` (or the TUI) instead", m.Name)
 		}
 
 		ctx := cmd.Context()
