@@ -55,6 +55,15 @@ Plugins / Infra / Fixes.
   have a HEAD file or a gitfile pointer to be accepted. The 6 inline
   walkers across `cmd/stado/`, `internal/runtime/`, and
   `internal/memory/` now delegate to the shared helper. EP-0027.
+- **New bundled example: `plugins/examples/webfetch-cached/`.**
+  Drop-in replacement for the bundled `webfetch` tool that adds a
+  SHA-256-keyed disk cache. Demonstrates three v0.26.0 plugin-surface
+  features in one ~140-line plugin: wrapping a bundled-tool host
+  import (`stado_http_get` via `--with-tool-host`), workdir-rooted
+  fs capabilities (`fs:read:.cache/stado-webfetch` via `--workdir`),
+  and `[tools].overrides` for transparent bundled-tool replacement.
+  Solves the "Anthropic WebFetch hard-codes a 15-min TTL" friction
+  documented in the round-1 dogfood notes.
 
 ### Fixes
 

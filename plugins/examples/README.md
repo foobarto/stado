@@ -18,6 +18,7 @@ matches the toolchain you already have.
 | [`approval-ast-grep-go/`](approval-ast-grep-go/) | Go     | ~3 MB     | Non-default override for `ast_grep`. Search-only runs directly; rewrite mode asks for approval first |
 | [`session-inspect/`](session-inspect/)         | Go       | ~3 MB     | Phase 7.1b capability demo — declares `session:read` / `session:fork` / `llm:invoke`, exercises the first |
 | [`session-recorder/`](session-recorder/)       | Go       | ~3 MB     | Phase 7.1b second validator — `session:read` + `fs:read`/`fs:write` + `stado_plugin_tick`. Appends a JSONL line per turn to `.stado/session-recordings.jsonl`. Different capability mix from auto-compact, same ABI — proves the surface is general-purpose |
+| [`webfetch-cached/`](webfetch-cached/)         | Go       | ~3.5 MB   | v0.26.0 surface demo — wraps the bundled `stado_http_get` host import behind a SHA-256-keyed disk cache. Showcases `--with-tool-host`, workdir-rooted fs caps, and `[tools].overrides` for transparent bundled-tool replacement |
 
 Both implement the same tool contract so you can diff them:
 

@@ -1,0 +1,22 @@
+{
+  "name": "webfetch-cached",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "33ecd5793539691c",
+  "wasm_sha256": "2aef960773719e26cfa163155d2650e14663ea48dd6c3dabbd8c055108eb52f1",
+  "capabilities": [
+    "net:http_get",
+    "fs:read:.cache/stado-webfetch",
+    "fs:write:.cache/stado-webfetch"
+  ],
+  "tools": [
+    {
+      "name": "webfetch",
+      "description": "Fetch a URL and return its markdownified body. Caches results to disk under \u003cworkdir\u003e/.cache/stado-webfetch/\u003csha256-of-url\u003e.json so repeated fetches of the same URL inside or across sessions are free. Drop-in replacement for the bundled webfetch tool — wire it via `[tools].overrides = { webfetch = \"webfetch-cached-0.1.0\" }` in config.toml.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\",\"description\":\"URL to fetch\"}},\"required\":[\"url\"]}"
+    }
+  ],
+  "min_stado_version": "0.26.0",
+  "timestamp_utc": "2026-05-04T12:30:00Z",
+  "nonce": "webfetch-cached-demo-001"
+}
