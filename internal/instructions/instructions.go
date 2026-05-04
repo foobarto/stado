@@ -29,6 +29,12 @@ import (
 // fallback candidates.
 var Names = []string{"AGENTS.md", "CLAUDE.md"}
 
+// projectLocalNames are candidates checked inside `.stado/` at each
+// directory level, between `AGENTS.md` and `CLAUDE.md`. This lets
+// projects commit stado-specific instructions without affecting other
+// tools that also read `AGENTS.md`. EP-0035.
+var projectLocalNames = []string{"AGENTS.md"}
+
 const maxInstructionsFileBytes int64 = 1 << 20
 
 // Result reports what Load resolved. Content is empty iff no file was
@@ -181,10 +187,27 @@ func Load(start string) (Result, error) {
 		return Result{}, fmt.Errorf("instructions: resolve %s: %w", start, err)
 	}
 	// Walk: start, parent, parent-of-parent, ... stop at filesystem root.
+	// At each directory, check in order:
+	//   1. <dir>/AGENTS.md          (cross-vendor standard — wins over stado-specific)
+	//   2. <dir>/.stado/AGENTS.md   (stado-specific committed config — EP-0035)
+	//   3. <dir>/CLAUDE.md          (Claude Code compat fallback)
 	dir := abs
 	for {
-		for _, name := range Names {
-			candidate := filepath.Join(dir, name)
+		// Build the candidate list for this directory level: standard names
+		// interleaved with .stado/<name> after the first entry so .stado/
+		// variants sit between the primary AGENTS.md and the CLAUDE.md fallback.
+		candidates := make([]string, 0, len(Names)+len(projectLocalNames))
+		if len(Names) > 0 {
+			candidates = append(candidates, filepath.Join(dir, Names[0])) // AGENTS.md first
+		}
+		for _, name := range projectLocalNames {
+			candidates = append(candidates, filepath.Join(dir, ".stado", name)) // .stado/AGENTS.md
+		}
+		for _, name := range Names[1:] {
+			candidates = append(candidates, filepath.Join(dir, name)) // CLAUDE.md last
+		}
+
+		for _, candidate := range candidates {
 			info, statErr := os.Lstat(candidate)
 			if errors.Is(statErr, os.ErrNotExist) {
 				continue

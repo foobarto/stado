@@ -28,6 +28,10 @@ const maxSystemPromptTemplateBytes int64 = 1 << 20
 // that later phases fill in (see PLAN.md).
 type Config struct {
 	ConfigPath string `koanf:"-"`
+	// projectStadoDir is the absolute path of the .stado/ directory
+	// found by walking up from cwd. Empty when no .stado/ exists.
+	// EP-0035.
+	projectStadoDir string
 
 	Defaults  Defaults  `koanf:"defaults"`
 	Approvals Approvals `koanf:"approvals"`
@@ -463,6 +467,27 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("stat config: %w", err)
 	}
 
+	// EP-0035: project-local .stado/config.toml overlay.
+	// Loaded after user config so project settings win key-by-key within
+	// each table. Env vars (next step) still win over both.
+	cwd, _ := os.Getwd()
+	projectStadoDir := findProjectStadoDir(cwd)
+	if projectStadoDir != "" {
+		projectCfgPath := filepath.Join(projectStadoDir, "config.toml")
+		if info, err := os.Lstat(projectCfgPath); err == nil && info.Mode().IsRegular() {
+			data, err := os.ReadFile(projectCfgPath) //nolint:gosec // path is inside user-controlled cwd
+			if err != nil {
+				return nil, fmt.Errorf("load project config: %w", err)
+			}
+			if int64(len(data)) > maxConfigBytes {
+				return nil, fmt.Errorf("project config exceeds %d byte limit", maxConfigBytes)
+			}
+			if err := k.Load(staticBytesProvider(data), toml.Parser()); err != nil {
+				return nil, fmt.Errorf("load project config: %w", err)
+			}
+		}
+	}
+
 	if err := k.Load(env.Provider("STADO_", ".", func(s string) string {
 		key := strings.ToLower(strings.TrimPrefix(s, "STADO_"))
 		return strings.ReplaceAll(key, "_", ".")
@@ -476,6 +501,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.ConfigPath = configPath
+	cfg.projectStadoDir = projectStadoDir
 	if err := cfg.loadSystemPromptTemplate(); err != nil {
 		return nil, err
 	}
@@ -705,12 +731,66 @@ func defaultConfigPath() string {
 	return filepath.Join(home, ".config", appName, "config.toml")
 }
 
+// findProjectStadoDir walks from start upward looking for a directory
+// that contains a `.stado/` subdirectory. Returns the `.stado/` path
+// when found, or "" when nothing is found up to the filesystem root.
+// EP-0035.
+func findProjectStadoDir(start string) string {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return ""
+	}
+	dir := abs
+	for {
+		candidate := filepath.Join(dir, ".stado")
+		info, err := os.Lstat(candidate)
+		if err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
 func (c *Config) StateDir() string {
 	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
 		return filepath.Join(xdg, appName)
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share", appName)
+}
+
+// ProjectStadoDir returns the absolute path of the .stado/ directory
+// found by walking up from cwd at Load() time, or "" when none exists.
+// EP-0035.
+func (c *Config) ProjectStadoDir() string { return c.projectStadoDir }
+
+// ProjectPluginsDir returns the per-project plugin search directory
+// (.stado/plugins/) when a .stado/ directory was found, or "" when none
+// exists. The directory may not exist yet — callers should check before
+// listing it. EP-0035.
+func (c *Config) ProjectPluginsDir() string {
+	if c.projectStadoDir == "" {
+		return ""
+	}
+	return filepath.Join(c.projectStadoDir, "plugins")
+}
+
+// AllPluginDirs returns all directories to search for installed plugins,
+// in priority order: project-local first (so project plugins shadow
+// global ones with the same name+version), then global. Empty entries
+// are filtered out. Callers should search all returned dirs and use the
+// first match. EP-0035.
+func (c *Config) AllPluginDirs() []string {
+	global := filepath.Join(c.StateDir(), "plugins")
+	project := c.ProjectPluginsDir()
+	if project == "" {
+		return []string{global}
+	}
+	return []string{project, global}
 }
 
 // WorktreeDir is the root under which per-session worktrees live. Uses

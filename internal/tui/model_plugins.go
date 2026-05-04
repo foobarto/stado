@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -47,9 +48,9 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	}
 	m.bgPluginRuntime = rt
 
-	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
+	pluginRoots := cfg.AllPluginDirs() // EP-0035: global + project .stado/plugins/
 	for _, id := range ids {
-		bp, note := m.loadOneBackground(ctx, rt, cfg, pluginsRoot, id)
+		bp, note := m.loadOneBackground(ctx, rt, cfg, pluginRoots, id)
 		if note != "" {
 			if bp != nil {
 				slog.Info(note)
@@ -91,7 +92,7 @@ func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
 // Returns (plugin, advisory) — advisory is non-empty on load
 // failure OR on successful load so the user knows the plugin is
 // active. nil plugin signals "skip this one."
-func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, cfg *config.Config, pluginsRoot, id string) (*pluginRuntime.BackgroundPlugin, string) {
+func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, cfg *config.Config, pluginRoots []string, id string) (*pluginRuntime.BackgroundPlugin, string) {
 	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
 		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
 		host.ApprovalBridge = tuiApprovalBridge{model: m}
@@ -106,7 +107,7 @@ func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime
 		return bp, fmt.Sprintf("background plugin %s loaded (bundled default)", bundled.ID)
 	}
 
-	dir, err := plugins.InstalledDir(pluginsRoot, id)
+	dir, err := plugins.InstalledDirInAny(pluginRoots, id)
 	if err != nil {
 		return nil, fmt.Sprintf("background plugin %s: %v", id, err)
 	}
@@ -515,20 +516,47 @@ func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName
 	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
 }
 
-// renderInstalledPluginList scans pluginsRoot and returns a human body
-// enumerating each installed plugin with the tools it declares. Helpful
-// discovery block for the bare `/plugin` command.
-func renderInstalledPluginList(pluginsRoot string) string {
-	dirs, err := plugins.ListInstalledDirs(pluginsRoot)
-	if err != nil || len(dirs) == 0 {
+// renderInstalledPluginList scans all pluginRoots and returns a human
+// body enumerating each installed plugin with the tools it declares.
+// Helpful discovery block for the bare `/plugin` command. EP-0035:
+// scans all roots so project-local plugins are listed alongside global.
+func renderInstalledPluginList(pluginRoots ...string) string {
+	seen := map[string]struct{}{}
+	var allDirs []string
+	for _, root := range pluginRoots {
+		ds, err := plugins.ListInstalledDirs(root)
+		if err != nil {
+			continue
+		}
+		for _, d := range ds {
+			if _, already := seen[d]; !already {
+				seen[d] = struct{}{}
+				allDirs = append(allDirs, d)
+			}
+		}
+	}
+	if len(allDirs) == 0 {
 		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see plugins/examples/hello/."
 	}
+	pluginsRoot := pluginRoots[0]
 
 	var sb strings.Builder
 	sb.WriteString("Installed plugins:")
-	for _, name := range dirs {
+	for _, name := range allDirs {
 		sb.WriteString("\n  /plugin:" + name)
-		mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsRoot, name))
+		// Find the first root that has this plugin dir.
+		var pluginPath string
+		for _, root := range pluginRoots {
+			p := filepath.Join(root, name)
+			if _, err := os.Lstat(p); err == nil {
+				pluginPath = p
+				break
+			}
+		}
+		if pluginPath == "" {
+			pluginPath = filepath.Join(pluginsRoot, name)
+		}
+		mf, _, err := plugins.LoadFromDir(pluginPath)
 		if err != nil {
 			sb.WriteString("  (manifest load failed: " + err.Error() + ")")
 			continue

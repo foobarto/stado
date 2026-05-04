@@ -50,7 +50,7 @@ func TestLoadOneBackgroundRejectsEscapingPluginID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bp, note := m.loadOneBackground(context.TODO(), nil, &config.Config{}, pluginsRoot, "../escape")
+	bp, note := m.loadOneBackground(context.TODO(), nil, &config.Config{}, []string{pluginsRoot}, "../escape")
 	if bp != nil {
 		t.Fatal("escaping background plugin id unexpectedly loaded")
 	}

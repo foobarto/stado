@@ -57,6 +57,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
 | 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Draft |
 | 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Draft |
+| 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Implemented |
+| 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

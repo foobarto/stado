@@ -620,11 +620,11 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "plugin: config load: " + err.Error()})
 		return nil
 	}
-	pluginsRoot := filepath.Join(cfg.StateDir(), "plugins")
+	pluginRoots := cfg.AllPluginDirs() // EP-0035: global + project .stado/plugins/
 
 	// Bare /plugin → list installed.
 	if parts[0] == "/plugin" {
-		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(pluginsRoot)})
+		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(pluginRoots...)})
 		return nil
 	}
 
@@ -637,7 +637,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		return nil
 	}
 
-	pluginDir, err := plugins.InstalledDir(pluginsRoot, nameVer)
+	pluginDir, err := plugins.InstalledDirInAny(pluginRoots, nameVer)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "plugin: " + err.Error()})
 		return nil

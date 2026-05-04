@@ -1364,7 +1364,14 @@ func (m *Model) installedAutoCompact() string {
 	if err != nil {
 		return ""
 	}
-	entries, err := plugins.ListInstalledDirs(filepath.Join(cfg.StateDir(), "plugins"))
+	// EP-0035: search all plugin roots (global + project .stado/plugins/).
+	var entries []string
+	for _, root := range cfg.AllPluginDirs() {
+		dirs, err2 := plugins.ListInstalledDirs(root)
+		if err2 == nil {
+			entries = append(entries, dirs...)
+		}
+	}
 	if err != nil {
 		return ""
 	}

@@ -201,6 +201,50 @@ func TestTemplateInjectsProjectInstructions(t *testing.T) {
 	}
 }
 
+// TestLoad_StadoAgentsMdBeforeCLAUDE: .stado/AGENTS.md in the same
+// directory is preferred over CLAUDE.md but defers to a top-level
+// AGENTS.md. EP-0035.
+func TestLoad_StadoAgentsMdBeforeCLAUDE(t *testing.T) {
+	dir := t.TempDir()
+	stadoDir := filepath.Join(dir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(stadoDir, "AGENTS.md"), "stado-specific instructions")
+	mustWrite(t, filepath.Join(dir, "CLAUDE.md"), "claude body")
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if r.Content != "stado-specific instructions" {
+		t.Errorf("expected .stado/AGENTS.md to win over CLAUDE.md; got %q (path: %s)", r.Content, r.Path)
+	}
+	if !strings.Contains(r.Path, ".stado") {
+		t.Errorf("expected path to be inside .stado/; got %q", r.Path)
+	}
+}
+
+// TestLoad_RootAgentsMdBeatsStadoAgentsMd: when both AGENTS.md and
+// .stado/AGENTS.md exist in the same directory, the root AGENTS.md wins.
+func TestLoad_RootAgentsMdBeatsStadoAgentsMd(t *testing.T) {
+	dir := t.TempDir()
+	stadoDir := filepath.Join(dir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "cross-vendor instructions")
+	mustWrite(t, filepath.Join(stadoDir, "AGENTS.md"), "stado-specific instructions")
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if r.Content != "cross-vendor instructions" {
+		t.Errorf("expected root AGENTS.md to win over .stado/AGENTS.md; got %q (path: %s)", r.Content, r.Path)
+	}
+}
+
 func mustWrite(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {

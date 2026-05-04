@@ -300,6 +300,77 @@ func TestLoadLeavesCustomSystemPromptTemplateUntouched(t *testing.T) {
 	}
 }
 
+// TestProjectStadoDirConfig verifies that .stado/config.toml in the cwd
+// overlays on top of the user config and that env vars still win. EP-0035.
+func TestProjectStadoDirConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	// User config sets model = "user-model".
+	userCfgDir := filepath.Join(tmp, "stado")
+	if err := os.MkdirAll(userCfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userCfgDir, "config.toml"), []byte("[defaults]\nmodel = \"user-model\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a project dir with .stado/config.toml that overrides model.
+	projectDir := filepath.Join(tmp, "project")
+	stadoDir := filepath.Join(projectDir, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stadoDir, "config.toml"), []byte("[defaults]\nmodel = \"project-model\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Change working directory to the project dir so findProjectStadoDir finds it.
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Project config wins over user config.
+	if cfg.Defaults.Model != "project-model" {
+		t.Errorf("Defaults.Model = %q, want project-model", cfg.Defaults.Model)
+	}
+	// ProjectStadoDir reported correctly.
+	if cfg.ProjectStadoDir() != stadoDir {
+		t.Errorf("ProjectStadoDir() = %q, want %q", cfg.ProjectStadoDir(), stadoDir)
+	}
+	// ProjectPluginsDir is inside .stado/.
+	if cfg.ProjectPluginsDir() != filepath.Join(stadoDir, "plugins") {
+		t.Errorf("ProjectPluginsDir() = %q", cfg.ProjectPluginsDir())
+	}
+}
+
+// TestFindProjectStadoDirWalksUp verifies that the search walks upward
+// from cwd, not just the immediate directory. EP-0035.
+func TestFindProjectStadoDirWalksUp(t *testing.T) {
+	root := t.TempDir()
+	stadoDir := filepath.Join(root, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Deep subdirectory — no .stado here.
+	deep := filepath.Join(root, "a", "b", "c")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := findProjectStadoDir(deep)
+	if got != stadoDir {
+		t.Errorf("findProjectStadoDir(%q) = %q, want %q", deep, got, stadoDir)
+	}
+}
+
 func TestStateDir(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
