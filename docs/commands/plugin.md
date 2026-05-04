@@ -117,6 +117,7 @@ Installed plugin IDs match the directory names under the state dir, so
 | `stado plugin run [--session <id>] [--workdir <path>] [--with-tool-host] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
 | `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
 | `stado plugin doctor <plugin-id>` | Inspect manifest + emit per-surface compatibility table with the exact flags to pass |
+| `stado plugin info <plugin-id>` | Dump installed plugin's manifest as pretty JSON (sibling to doctor — info dumps, doctor analyses) |
 
 ## Using plugins from the TUI
 
