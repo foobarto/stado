@@ -111,7 +111,7 @@ func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
 	if strings.TrimSpace(worktreeDir) == "" {
 		return nil, os.ErrNotExist
 	}
-	root, err := workdirpath.OpenRootNoSymlink(worktreeDir)
+	root, err := workdirpath.OpenRootUnderUserConfig(worktreeDir)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.Fil
 	if int64(len(data)) > maxSessionMetadataFileBytes {
 		return fmt.Errorf("session metadata exceeds %d bytes: %s", maxSessionMetadataFileBytes, name)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(worktreeDir)
+	root, err := workdirpath.OpenRootUnderUserConfig(worktreeDir)
 	if err != nil {
 		return err
 	}

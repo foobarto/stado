@@ -196,7 +196,7 @@ func writeShareableSidecar(path string, data []byte) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid sidecar path: %s", path)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return err
 	}

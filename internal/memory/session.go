@@ -21,7 +21,7 @@ const (
 // for the current worktree/session. The marker lives under .stado so it
 // stays local to the checked-out session and is ignored by git.
 func SessionDisabled(workdir string) bool {
-	root, err := workdirpath.OpenRootNoSymlink(sessionControlRoot(workdir))
+	root, err := workdirpath.OpenRootUnderUserConfig(sessionControlRoot(workdir))
 	if err != nil {
 		return false
 	}
@@ -36,7 +36,7 @@ func SessionDisabled(workdir string) bool {
 // SetSessionDisabled toggles the current worktree/session marker used by
 // PromptContext to skip approved-memory retrieval.
 func SetSessionDisabled(workdir string, disabled bool) error {
-	root, err := workdirpath.OpenRootNoSymlink(sessionControlRoot(workdir))
+	root, err := workdirpath.OpenRootUnderUserConfig(sessionControlRoot(workdir))
 	if err != nil {
 		return err
 	}
@@ -131,7 +131,7 @@ func sessionControlRoot(workdir string) string {
 }
 
 func hasUserRepoPin(workdir string) bool {
-	root, err := workdirpath.OpenRootNoSymlink(workdir)
+	root, err := workdirpath.OpenRootUnderUserConfig(workdir)
 	if err != nil {
 		return false
 	}

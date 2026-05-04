@@ -203,7 +203,7 @@ func readUserRepoPin(workdir string) string {
 	if strings.TrimSpace(workdir) == "" {
 		return ""
 	}
-	root, err := workdirpath.OpenRootNoSymlink(workdir)
+	root, err := workdirpath.OpenRootUnderUserConfig(workdir)
 	if err != nil {
 		return ""
 	}

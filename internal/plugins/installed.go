@@ -21,7 +21,7 @@ func ListInstalledDirs(root string) ([]string, error) {
 }
 
 func listInstalledDirs(root string, maxEntries int) ([]string, error) {
-	pluginsRoot, err := workdirpath.OpenRootNoSymlink(root)
+	pluginsRoot, err := workdirpath.OpenRootUnderUserConfig(root)
 	if err != nil {
 		return nil, err
 	}

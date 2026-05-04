@@ -18,6 +18,16 @@ Plugins / Infra / Fixes.
   `--workdir=$PWD` when the plugin is meant to read files from the
   operator's repo (the common case for project-specific plugins).
   EP-0027 documents the rationale.
+- **Added `stado plugin run --with-tool-host`.** Wires `host.ToolHost`
+  so plugins that import bundled tools (`stado_http_get`,
+  `stado_fs_tool_*`, `stado_lsp_*`, `stado_search_*`) can be exercised
+  end-to-end from the CLI. Without this, `tool_imports.go` returned
+  the documented "plugin host has no tool runtime context" error and
+  net/exec/lsp paths were only reachable via `stado run`. Refuses
+  plugins that declare `exec:bash` because the `sandbox.Runner` the
+  agent loop normally provides is not available here — those need to
+  run via `stado run` (EP-0005 forbids substituting human approval
+  for runtime policy). EP-0028 walks through the design.
 
 ### Plugins
 
@@ -32,6 +42,19 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **`stado` no longer fails to boot when `/home` is a symlink.**
+  `MkdirAllNoSymlink` walks from `/` and rejects any symlink in any
+  path component — too strict for HOME-rooted system paths on
+  Fedora Atomic / Silverblue (`/home` → `/var/home`) and similar
+  setups. New helpers `workdirpath.MkdirAllUnderUserConfig` /
+  `OpenRootUnderUserConfig` anchor the no-symlink walk at the
+  operator's `XDG_*_HOME` / `HOME` environment, so OS-level
+  symlinks ABOVE the trust anchor are accepted while symlinks
+  WITHIN user space are still rejected. 13 HOME-rooted call sites
+  (config dir, state dir, worktree dir, audit keys, memory store,
+  plugin install / state files) migrated to the new helpers; the
+  strict `MkdirAllNoSymlink` stays for genuinely-untrusted callers
+  (in-repo sandbox writes from inside plugin host imports). EP-0028.
 - **Empty `/tmp/.git/` no longer fools session GC + lesson document
   paths.** A stray empty `.git/` directory in any parent of CWD was
   enough to make `findRepoRoot` (and its 5 cousins) return the wrong

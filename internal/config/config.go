@@ -299,7 +299,15 @@ func Load() (*Config, error) {
 	k := koanf.New(".")
 
 	configPath := defaultConfigPath()
-	if err := workdirpath.MkdirAllNoSymlink(filepath.Dir(configPath), 0o700); err != nil {
+	// MkdirAllUnderExistingAncestor: walk up from the desired config
+	// dir to the longest existing ancestor (typically the user's
+	// HOME or XDG_CONFIG_HOME), then create everything below with
+	// no-symlink enforcement. The plain MkdirAllNoSymlink walks from
+	// `/`, which fails on systems where `/home` is a symlink to
+	// `/var/home` (Fedora Atomic / Silverblue) — the user's ancestor
+	// environment is operator-controlled and trusted; only the path
+	// below it needs adversarial-symlink defense. EP-0028.
+	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(configPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 

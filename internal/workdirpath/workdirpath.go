@@ -256,6 +256,191 @@ func WriteFile(workdir, path string, data []byte, perm os.FileMode) error {
 	return WriteRootFileAtomic(root, rel, data, perm)
 }
 
+// MkdirAllUnderUserConfig creates path with no-symlink enforcement
+// anchored at the operator's HOME / XDG_*_HOME trust ancestors.
+//
+// When path falls under one of those anchors, the chain UP TO the
+// anchor is treated as operator-supplied: missing components are
+// created via os.MkdirAll (no symlink rejection — `/home` may
+// legitimately symlink to `/var/home` on Atomic Fedora / Silverblue,
+// `/var/home` may not exist yet on a fresh container, etc.). The
+// rest of the path (anchor → leaf) is walked with the strict
+// no-symlink check, so an in-user-space attacker can't redirect a
+// stado write by planting a symlink under the anchor.
+//
+// When path is NOT under any anchor, we fall back to the strict
+// from-`/` MkdirAllNoSymlink check — preserving the defense for
+// callers that operate on adversarially-supplied paths (in-tmpdir
+// tests, in-repo writes).
+//
+// Use this for HOME-rooted system paths (XDG config / data / state
+// dirs, the audit-key directory, the per-user worktree root). See
+// EP-0028 for the threat-model rationale.
+func MkdirAllUnderUserConfig(path string, perm os.FileMode) error {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	anchor := userTrustAnchor(abs)
+	if anchor == "" {
+		return MkdirAllNoSymlink(abs, perm)
+	}
+	// Ensure the anchor exists. The chain UP TO the anchor is the
+	// operator's environment, not adversarial.
+	if info, err := os.Stat(anchor); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(anchor, perm); err != nil {
+			return err
+		}
+	} else if !info.IsDir() {
+		return fmt.Errorf("user-config anchor is not a directory: %s", anchor)
+	}
+	rel, err := filepath.Rel(anchor, abs)
+	if err != nil {
+		return err
+	}
+	if rel == "." || rel == "" {
+		return nil
+	}
+	return MkdirAllNoSymlinkUnder(anchor, rel, perm)
+}
+
+// OpenRootUnderUserConfig opens path with the same trust-anchor
+// model as MkdirAllUnderUserConfig. The anchor itself must already
+// exist (Open doesn't create); paths under the anchor are walked
+// with no-symlink enforcement.
+func OpenRootUnderUserConfig(path string) (*os.Root, error) {
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return nil, err
+	}
+	anchor := userTrustAnchor(abs)
+	if anchor == "" {
+		return OpenRootNoSymlink(abs)
+	}
+	rel, err := filepath.Rel(anchor, abs)
+	if err != nil {
+		return nil, err
+	}
+	if rel == "." || rel == "" {
+		return os.OpenRoot(anchor)
+	}
+	return OpenRootNoSymlinkUnder(anchor, rel)
+}
+
+// userTrustAnchor returns the longest HOME/XDG_*_HOME ancestor that
+// covers absPath, or "" when none does. We treat these as
+// operator-controlled trust roots: their own ancestor symlink chain
+// is whatever the OS gave us; we don't second-guess the user's
+// system layout. Paths below them are still subject to no-symlink
+// enforcement against in-user-space attackers.
+func userTrustAnchor(absPath string) string {
+	var candidates []string
+	for _, env := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		if v := os.Getenv(env); v != "" {
+			candidates = append(candidates, v)
+		}
+	}
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		candidates = append(candidates, h)
+	}
+	var best string
+	for _, c := range candidates {
+		ca, err := filepath.Abs(filepath.Clean(c))
+		if err != nil {
+			continue
+		}
+		if absPath != ca && !strings.HasPrefix(absPath+string(filepath.Separator), ca+string(filepath.Separator)) {
+			continue
+		}
+		if len(ca) > len(best) {
+			best = ca
+		}
+	}
+	return best
+}
+
+// MkdirAllNoSymlinkUnder ensures relSub exists as a directory tree
+// rooted under ancestor. ancestor must be an existing directory and
+// is opened via os.OpenRoot (which follows the OS path resolution
+// up to and including ancestor — symlinks IN the ancestor's own
+// path chain are accepted as the operator's environment, e.g.
+// `/home` symlinked to `/var/home` on Fedora Atomic / Silverblue).
+// Symlinks in path components UNDER ancestor are still rejected,
+// matching the threat model of MkdirAllNoSymlink.
+//
+// Use this for HOME-rooted system paths (XDG config / data / state
+// dirs, the user's audit-key directory, the per-user worktree root)
+// where the strict from-/ walk fails on systems whose `/home` is a
+// symlink. For genuinely untrusted writes (in-repo paths supplied
+// by an adversary, plugin sandbox writes), keep using
+// MkdirAllNoSymlink so the entire path chain is checked.
+func MkdirAllNoSymlinkUnder(ancestor, relSub string, perm os.FileMode) error {
+	if strings.Contains(ancestor, "\x00") || strings.Contains(relSub, "\x00") {
+		return fmt.Errorf("invalid directory path %q / %q", ancestor, relSub)
+	}
+	if ancestor == "" {
+		return fmt.Errorf("ancestor required")
+	}
+	root, err := os.OpenRoot(ancestor)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return MkdirAllRootNoSymlink(root, filepath.Clean(relSub), perm)
+}
+
+// OpenRootNoSymlinkUnder is the OpenRootNoSymlink analogue for a
+// trusted-ancestor walk. See MkdirAllNoSymlinkUnder.
+func OpenRootNoSymlinkUnder(ancestor, relSub string) (*os.Root, error) {
+	if strings.Contains(ancestor, "\x00") || strings.Contains(relSub, "\x00") {
+		return nil, fmt.Errorf("invalid directory path %q / %q", ancestor, relSub)
+	}
+	if ancestor == "" {
+		return nil, fmt.Errorf("ancestor required")
+	}
+	cur, err := os.OpenRoot(ancestor)
+	if err != nil {
+		return nil, err
+	}
+	rel := filepath.Clean(relSub)
+	if rel == "." || rel == "" {
+		return cur, nil
+	}
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			_ = cur.Close()
+			return nil, fmt.Errorf("invalid directory path %q", relSub)
+		}
+		info, err := cur.Lstat(part)
+		if err != nil {
+			_ = cur.Close()
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			_ = cur.Close()
+			return nil, fmt.Errorf("directory component is a symlink: %s", part)
+		}
+		if !info.IsDir() {
+			_ = cur.Close()
+			return nil, fmt.Errorf("directory component is not a directory: %s", part)
+		}
+		next, err := cur.OpenRoot(part)
+		if err != nil {
+			_ = cur.Close()
+			return nil, err
+		}
+		_ = cur.Close()
+		cur = next
+	}
+	return cur, nil
+}
+
 // MkdirAllNoSymlink creates path like os.MkdirAll, but rejects any existing
 // symlink component instead of following it while preparing a write root.
 func MkdirAllNoSymlink(path string, perm os.FileMode) error {

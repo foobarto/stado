@@ -67,10 +67,10 @@ func WriteTemplate(configPath string, data []byte, force bool) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid config path %q", configPath)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}
@@ -99,10 +99,10 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid config path %q", configPath)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}

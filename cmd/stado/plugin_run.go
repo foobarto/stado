@@ -20,6 +20,7 @@ import (
 var (
 	pluginRunSession       string
 	pluginRunWorkdir       string
+	pluginRunWithToolHost  bool
 	pluginRunBuildProvider = tui.BuildProvider
 )
 
@@ -77,13 +78,6 @@ var pluginRunCmd = &cobra.Command{
 			}
 		}
 
-		ctx := cmd.Context()
-		rt, err := pluginRuntime.New(ctx)
-		if err != nil {
-			return fmt.Errorf("runtime: %w", err)
-		}
-		defer func() { _ = rt.Close(ctx) }()
-
 		// Resolve plugin Workdir. Default = install dir (backward
 		// compat with plugins that scope fs:read:. to their own state
 		// directory). Override with --workdir <path> when the plugin
@@ -106,7 +100,35 @@ var pluginRunCmd = &cobra.Command{
 			workdir = abs
 		}
 		host := pluginRuntime.NewHost(*m, workdir, nil)
+
+		// EP-0028: refuse `exec:bash` under --with-tool-host BEFORE
+		// constructing the wasm runtime, so the user gets a clean
+		// error instead of paying the runtime cost. exec:bash needs
+		// a sandbox.Runner that plugin run can't supply without
+		// dragging in the full agent runtime, and EP-0005 forbids
+		// substituting human approval for runtime policy.
+		if pluginRunWithToolHost && host.ExecBash {
+			return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` (or `exec:shallow_bash`) capability, which needs the agent runtime's sandbox.Runner. Run via `stado run` (or the TUI) instead.", m.Name)
+		}
+
+		ctx := cmd.Context()
+		rt, err := pluginRuntime.New(ctx)
+		if err != nil {
+			return fmt.Errorf("runtime: %w", err)
+		}
+		defer func() { _ = rt.Close(ctx) }()
+
 		attachPluginMemoryBridge(cfg, host, m.Name)
+
+		// Wire host.ToolHost when --with-tool-host is set so plugins
+		// importing bundled tools (stado_http_get, stado_fs_tool_*,
+		// stado_lsp_*, stado_search_*) can be exercised end-to-end
+		// from the CLI. Without this, tool_imports.go returns the
+		// "plugin host has no tool runtime context" error and the
+		// caller can only test the plugin's pure-fs paths. EP-0028.
+		if pluginRunWithToolHost {
+			host.ToolHost = newPluginRunToolHost(workdir)
+		}
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {
 				bridge, note, err := buildPluginRunBridge(cmd.Context(), cfg, pluginRunSession, m.Name, host.LLMInvokeBudget > 0)
@@ -180,6 +202,10 @@ func init() {
 		"Override the plugin's Workdir (the path against which fs:read:./fs:write:. capabilities and relative file paths resolve). "+
 			"Default is the plugin's install dir for backward compatibility — pass --workdir=$PWD when the plugin is meant to "+
 			"read files from the operator's repo.")
+	pluginRunCmd.Flags().BoolVar(&pluginRunWithToolHost, "with-tool-host", false,
+		"Wire host.ToolHost so plugins importing bundled tools (stado_http_get, stado_fs_tool_*, stado_lsp_*, stado_search_*) "+
+			"can be exercised from the CLI. Refuses plugins that declare `exec:bash` because the sandbox.Runner the agent loop "+
+			"normally provides is not available here — use `stado run` for those. EP-0028.")
 }
 
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {

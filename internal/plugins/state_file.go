@@ -116,11 +116,11 @@ func pluginStateRoot(path string, createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("invalid plugin state path: %s", path)
 	}
 	if createDir {
-		if err := workdirpath.MkdirAllNoSymlink(dir, 0o700); err != nil {
+		if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
 			return nil, "", err
 		}
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return nil, "", err
 	}

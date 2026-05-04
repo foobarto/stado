@@ -196,7 +196,7 @@ func VerifyWASMDigest(manifestSHA256Hex string, wasmPath string) error {
 // ReadVerifiedWASM reads a plugin WASM file through the same handle used to
 // verify its manifest-declared SHA256 digest.
 func ReadVerifiedWASM(manifestSHA256Hex string, wasmPath string) ([]byte, error) {
-	root, err := workdirpath.OpenRootNoSymlink(filepath.Dir(wasmPath))
+	root, err := workdirpath.OpenRootUnderUserConfig(filepath.Dir(wasmPath))
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func ReadVerifiedWASM(manifestSHA256Hex string, wasmPath string) ([]byte, error)
 // Manifest.AuthorPubkeyHex so trust errors can echo the full pubkey.
 // Returns (manifest, signature-base64) ready for Verify.
 func LoadFromDir(dir string) (*Manifest, string, error) {
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return nil, "", fmt.Errorf("plugin: open dir: %w", err)
 	}

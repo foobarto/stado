@@ -61,7 +61,7 @@ func OpenSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +98,7 @@ func NewSession(cfg *config.Config, cwd string) (*stadogit.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := workdirpath.MkdirAllNoSymlink(cfg.WorktreeDir(), 0o700); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(cfg.WorktreeDir(), 0o700); err != nil {
 		return nil, err
 	}
 	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), uuid.New().String(), plumbing.ZeroHash)
