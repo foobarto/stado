@@ -66,6 +66,12 @@ var configPathCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(versionCmd, configPathCmd)
+	// Set Version so cobra wires up the standard `--version` global
+	// flag (alongside the `stado version` subcommand). Same source
+	// of truth: collectBuildInfo() reads debug.ReadBuildInfo() and
+	// falls back to the package-level `version` variable when the
+	// binary wasn't ldflags-stamped.
+	rootCmd.Version = collectBuildInfo().Version
 }
 
 func main() {

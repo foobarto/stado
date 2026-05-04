@@ -19,6 +19,7 @@ import (
 
 var (
 	pluginRunSession       string
+	pluginRunWorkdir       string
 	pluginRunBuildProvider = tui.BuildProvider
 )
 
@@ -83,7 +84,28 @@ var pluginRunCmd = &cobra.Command{
 		}
 		defer func() { _ = rt.Close(ctx) }()
 
-		host := pluginRuntime.NewHost(*m, dir, nil)
+		// Resolve plugin Workdir. Default = install dir (backward
+		// compat with plugins that scope fs:read:. to their own state
+		// directory). Override with --workdir <path> when the plugin
+		// is meant to operate against the operator's repo, e.g.
+		// `stado plugin run --workdir=$PWD htb-cve-lookup-0.3.0
+		// lookup '{"service":"NSClient"}'` from inside that repo.
+		workdir := dir
+		if pluginRunWorkdir != "" {
+			abs, err := filepath.Abs(pluginRunWorkdir)
+			if err != nil {
+				return fmt.Errorf("--workdir %q: %w", pluginRunWorkdir, err)
+			}
+			info, err := os.Stat(abs)
+			if err != nil {
+				return fmt.Errorf("--workdir %q: %w", pluginRunWorkdir, err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("--workdir %q: not a directory", pluginRunWorkdir)
+			}
+			workdir = abs
+		}
+		host := pluginRuntime.NewHost(*m, workdir, nil)
 		attachPluginMemoryBridge(cfg, host, m.Name)
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {
@@ -154,6 +176,10 @@ func init() {
 	pluginRunCmd.Flags().StringVar(&pluginRunSession, "session", "",
 		"Bind the plugin run to a persisted session ID so session-aware capabilities work on the CLI")
 	_ = pluginRunCmd.RegisterFlagCompletionFunc("session", completeSessionIDs)
+	pluginRunCmd.Flags().StringVar(&pluginRunWorkdir, "workdir", "",
+		"Override the plugin's Workdir (the path against which fs:read:./fs:write:. capabilities and relative file paths resolve). "+
+			"Default is the plugin's install dir for backward compatibility — pass --workdir=$PWD when the plugin is meant to "+
+			"read files from the operator's repo.")
 }
 
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {
