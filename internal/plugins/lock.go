@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -138,6 +137,3 @@ func LockEntryFromManifest(id Identity, m Manifest) LockEntry {
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
 	}
 }
-
-// ErrLockNotFound is returned when ReadLock is called on a non-existent file.
-var ErrLockNotFound = errors.New("plugin-lock.toml not found")
