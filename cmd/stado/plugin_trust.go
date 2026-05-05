@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 )
@@ -100,6 +101,7 @@ var pluginListCmd = &cobra.Command{
 			author      string
 			fingerprint string
 			trusted     bool
+			bundled     bool // indicates a binary-bundled plugin
 			caps        int
 		}
 
@@ -132,6 +134,25 @@ var pluginListCmd = &cobra.Command{
 			})
 		}
 
+		// Also enumerate bundled plugins.
+		for _, b := range bundledplugins.List() {
+			toolsList := strings.Join(b.Tools, ", ")
+			if len(toolsList) > 40 {
+				toolsList = toolsList[:37] + "..."
+			}
+			rows = append(rows, row{
+				name:        b.Name,
+				version:     b.Version,
+				tools:       len(b.Tools),
+				toolNames:   toolsList,
+				author:      b.Author,
+				fingerprint: "",
+				trusted:     true,
+				bundled:     true,
+				caps:        len(b.Capabilities),
+			})
+		}
+
 		if len(rows) == 0 {
 			fmt.Fprintln(cmd.OutOrStdout(), "No plugins installed.")
 			fmt.Fprintln(cmd.OutOrStdout(), "Install one with: stado plugin install <dir>")
@@ -140,19 +161,32 @@ var pluginListCmd = &cobra.Command{
 
 		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
 
-		trustedCount := 0
+		bundledCount, installedCount, trustedCount := 0, 0, 0
 		for _, r := range rows {
-			if r.trusted {
+			switch {
+			case r.bundled:
+				bundledCount++
 				trustedCount++
+			case r.trusted:
+				installedCount++
+				trustedCount++
+			default:
+				installedCount++
 			}
 		}
 
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-		fmt.Fprintf(w, "%d plugins installed", len(rows))
-		if trustedCount < len(rows) {
-			fmt.Fprintf(w, " (%d trusted, %d untrusted)", trustedCount, len(rows)-trustedCount)
+		if bundledCount > 0 && installedCount > 0 {
+			fmt.Fprintf(w, "%d plugins (%d bundled, %d installed", len(rows), bundledCount, installedCount)
+		} else if bundledCount > 0 {
+			fmt.Fprintf(w, "%d plugins (%d bundled", len(rows), bundledCount)
 		} else {
-			fmt.Fprintf(w, " (all trusted)")
+			fmt.Fprintf(w, "%d plugins (%d installed", len(rows), installedCount)
+		}
+		if trustedCount < len(rows) {
+			fmt.Fprintf(w, "; %d trusted, %d untrusted)", trustedCount, len(rows)-trustedCount)
+		} else {
+			fmt.Fprintf(w, "; all trusted)")
 		}
 		fmt.Fprintln(w)
 		fmt.Fprintln(w)
@@ -160,11 +194,16 @@ var pluginListCmd = &cobra.Command{
 		fmt.Fprintln(w, "────\t───────\t─────\t──────\t───────────\t──────")
 		for _, r := range rows {
 			status := "✓ trusted"
-			if !r.trusted {
+			switch {
+			case r.bundled:
+				status = "✓ bundled"
+			case !r.trusted:
 				status = "⚠ untrusted"
 			}
 			fpr := r.fingerprint
-			if len(fpr) > 16 {
+			if r.bundled {
+				fpr = "-"
+			} else if len(fpr) > 16 {
 				fpr = fpr[:16]
 			}
 			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\n",
