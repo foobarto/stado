@@ -44,6 +44,7 @@ Listed in rough priority order (highest = most operator pain).
 - **Status today:** Moot — TUI slash mutating verbs aren't built (the corresponding `stado tool enable/...` CLI verbs landed in `563d251` but no `/tool enable` mirror yet).
 - **Action:** When wiring `/tool enable / disable / autoload / unautoload` into TUI, default to per-session, add `--save`.
 - **Files:** `internal/tui/model_commands.go`.
+- **Status: Implemented 2026-05-05** (commits `3f70e70`, `551048f`, `a4e2968`, `5b5700d`, `700242c`, `83a28da`, `e195b52`, `f039af4` on `feat/tui-slash-and-handles`). Per-session by default; `--save` writes to project's `.stado/config.toml` only (the slash version doesn't expose `--global` — session-scoped override is the equivalent for user-level intent). `visibleTools()` now honours session disable overrides.
 
 ## 6. `tools.describe(names: [str])` batched form
 
@@ -57,6 +58,7 @@ Listed in rough priority order (highest = most operator pain).
 - **Status today:** EP-0038a Task 1 used opaque uint32/uint64 handles. `/ps` / `/kill` work but render bare numbers.
 - **Decision needed:** Adopt the dotted format for operator-facing surfaces (renderer + parser, no on-the-wire change), or formally drop from locked decisions.
 - **Files:** `internal/plugins/runtime/handles.go`, `internal/tui/model_commands.go` (`/ps` + `/kill` renderers).
+- **Status: Implemented 2026-05-05** (commits `3a58898`, `3db10ca`, `0c3b94d`, `b6f2b32` on `feat/tui-slash-and-handles`). Decision was option A — adopt the dotted format. `FormatHandleID` / `FormatFreeStandingHandleID` / `ParseHandleID` exported from `internal/plugins/runtime/handles.go`; `/ps` and `/kill` route through them. Internal handle table stays uint32; this is operator-facing only. `conn:` and `listen:` types reserved for when Tier 1 networking lands (BACKLOG #11).
 
 ## 8. EP-0038e — Tier 2 stateful HTTP + secrets
 
