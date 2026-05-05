@@ -197,3 +197,17 @@ func TestToolEnable_SaveWritesConfig(t *testing.T) {
 		t.Errorf("--save should not populate session overrides; got %v", m.sessionToolOverrides.enableAdd)
 	}
 }
+
+func TestToolSlash_HelpMentionsAllVerbs(t *testing.T) {
+	m := &Model{cfg: &config.Config{}}
+	m.handleToolSlash([]string{"/tool", "nope"})
+	out := m.lastSystemBlockBody()
+	for _, v := range []string{"ls", "info", "cats", "enable", "disable", "autoload", "unautoload", "reload"} {
+		if !strings.Contains(out, v) {
+			t.Errorf("help should mention verb %q; got: %s", v, out)
+		}
+	}
+	if !strings.Contains(out, "--save") {
+		t.Errorf("help should mention --save; got: %s", out)
+	}
+}

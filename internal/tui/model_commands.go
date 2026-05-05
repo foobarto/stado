@@ -618,7 +618,10 @@ func (m *Model) handleToolSlash(parts []string) {
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload: removed %v from this session's autoload (use --save to persist)", args)})
 
 	default:
-		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
+			"/tool %s: unknown verb. Try: ls, info, cats, enable, disable, autoload, unautoload, reload\n"+
+				"Mutating verbs are session-scoped by default; pass --save to persist to .stado/config.toml.",
+			verb)})
 	}
 }
 
