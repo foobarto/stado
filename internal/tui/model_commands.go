@@ -465,10 +465,11 @@ func (m *Model) handleToolSlash(parts []string) {
 			glob = parts[2]
 		}
 		reg := runtime.BuildDefaultRegistry()
-		if m.cfg != nil {
-			runtime.ApplyToolFilter(reg, m.cfg)
+		eff := m.effectiveConfig()
+		if eff != nil {
+			runtime.ApplyToolFilter(reg, eff)
 		}
-		autoloaded := runtime.AutoloadedTools(reg, m.cfg)
+		autoloaded := runtime.AutoloadedTools(reg, eff)
 		autoSet := map[string]bool{}
 		for _, t := range autoloaded {
 			autoSet[t.Name()] = true

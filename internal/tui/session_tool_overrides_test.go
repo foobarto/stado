@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	rt "github.com/foobarto/stado/internal/runtime"
 )
 
 // TestEffectiveTools_NoOverrides returns the disk config unchanged.
@@ -105,4 +106,94 @@ func containsString(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// TestEffectiveConfig_NoOverrides returns m.cfg unchanged.
+func TestEffectiveConfig_NoOverrides(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"fs.*"}
+	m := &Model{cfg: cfg}
+	if m.effectiveConfig() != cfg {
+		t.Error("zero overrides should return identical *Config (pointer equality)")
+	}
+}
+
+// TestEffectiveConfig_NilCfg returns nil.
+func TestEffectiveConfig_NilCfg(t *testing.T) {
+	m := &Model{cfg: nil}
+	if m.effectiveConfig() != nil {
+		t.Error("nil cfg should produce nil effectiveConfig")
+	}
+}
+
+// TestEffectiveConfig_OverridesProduceCopy: when overrides exist,
+// returned config is distinct from m.cfg and reflects the merged view.
+func TestEffectiveConfig_OverridesProduceCopy(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"fs.read"}
+	m := &Model{cfg: cfg}
+	m.sessionToolOverrides.autoloadAdd = []string{"shell.exec"}
+
+	eff := m.effectiveConfig()
+	if eff == cfg {
+		t.Error("with overrides, effectiveConfig should return a NEW config, not the original pointer")
+	}
+	if !containsString(eff.Tools.Autoload, "shell.exec") {
+		t.Errorf("effective autoload should include override-added; got %v", eff.Tools.Autoload)
+	}
+	// Original unchanged.
+	if containsString(cfg.Tools.Autoload, "shell.exec") {
+		t.Errorf("original cfg.Tools.Autoload was mutated; got %v", cfg.Tools.Autoload)
+	}
+}
+
+// TestEffectiveConfig_FlowsToAutoloadedTools confirms the override
+// flows into the runtime.AutoloadedTools computation. This is the
+// integration check the slash verbs depend on.
+func TestEffectiveConfig_FlowsToAutoloadedTools(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = nil // disk: nothing autoloaded
+	m := &Model{cfg: cfg}
+	m.sessionToolOverrides.autoloadAdd = []string{"read"} // bare native name
+
+	reg := rt.BuildDefaultRegistry()
+	eff := m.effectiveConfig()
+	rt.ApplyToolFilter(reg, eff)
+	got := rt.AutoloadedTools(reg, eff)
+
+	found := false
+	for _, tt := range got {
+		if tt.Name() == "read" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("override should make 'read' autoloaded; got %d autoloaded tools", len(got))
+	}
+}
+
+// TestSessionToolOverrideHidesTool covers the small predicate.
+func TestSessionToolOverrideHidesTool(t *testing.T) {
+	m := &Model{}
+	m.sessionToolOverrides.disableAdd = []string{"shell.exec"}
+	if !m.sessionToolOverrideHidesTool("shell.exec") {
+		t.Error("disableAdd should hide the tool")
+	}
+	if m.sessionToolOverrideHidesTool("fs.read") {
+		t.Error("unrelated tool shouldn't be hidden")
+	}
+
+	// disableRemove un-hides what disableAdd would otherwise hide.
+	m.sessionToolOverrides.disableRemove = []string{"shell.exec"}
+	if m.sessionToolOverrideHidesTool("shell.exec") {
+		t.Error("disableRemove should beat disableAdd")
+	}
+
+	// enableRemove also hides.
+	m2 := &Model{}
+	m2.sessionToolOverrides.enableRemove = []string{"web.fetch"}
+	if !m2.sessionToolOverrideHidesTool("web.fetch") {
+		t.Error("enableRemove should hide the tool")
+	}
 }

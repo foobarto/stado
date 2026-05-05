@@ -74,3 +74,49 @@ func applyOverride(base, adds, removes []string) []string {
 	}
 	return out
 }
+
+// effectiveConfig returns a copy of m.cfg with [tools] replaced by
+// the override-merged view. Returns m.cfg unchanged when there are
+// no overrides — cheap zero-value path.
+//
+// Used by /tool ls (so the operator sees the live state) and by
+// visibleTools (so disabled tools disappear from the model's surface).
+func (m *Model) effectiveConfig() *config.Config {
+	if m == nil || m.cfg == nil {
+		return nil
+	}
+	if m.sessionToolOverrides.isZero() {
+		return m.cfg
+	}
+	cp := *m.cfg
+	cp.Tools = m.sessionToolOverrides.effectiveTools(m.cfg)
+	return &cp
+}
+
+// sessionToolOverrideHidesTool reports whether the given tool name
+// should be hidden from the model's surface based on session
+// overrides. Hidden if (a) it appears in disableAdd and not in
+// disableRemove, or (b) it appears in enableRemove (operator pulled
+// it out of the live enabled set).
+//
+// Subtractive only — overrides can never widen the executor's
+// registry, only narrow it.
+func (m *Model) sessionToolOverrideHidesTool(name string) bool {
+	o := &m.sessionToolOverrides
+	for _, r := range o.disableRemove {
+		if r == name {
+			return false // explicitly un-disabled
+		}
+	}
+	for _, d := range o.disableAdd {
+		if d == name {
+			return true
+		}
+	}
+	for _, r := range o.enableRemove {
+		if r == name {
+			return true
+		}
+	}
+	return false
+}
