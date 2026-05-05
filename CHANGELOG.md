@@ -4,6 +4,57 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.34.0 — Tool list UX, terminal aliases, fs.ls, web/dns wasm, remote install
+
+### Tool surface (EP-0037 follow-ups)
+
+- **`stado tool list`** — replaces `tool ls`, adds **PLUGIN** + **CATEGORIES**
+  columns and renders dotted canonical names (`fs.read`, `shell.exec`). Bundled
+  tool metadata layer maps both wire and bare names. Hidden tools (`approval_demo`,
+  superseded natives like `webfetch`/`spawn_agent`) drop out of listings.
+- **`plugin list`** — proper table: NAME / VERSION / TOOLS / AUTHOR / FINGERPRINT
+  / TRUST.
+- **`plugin info`** — defaults to human-readable tool schemas / params /
+  capabilities; `--json` for scripting.
+- **Autoload fix** — `spawn_agent` re-added to the default autoload set so the
+  native `SubagentEvent` path is reachable without explicit `tools.describe`
+  activation (regression from EP-0037).
+
+### ABI v2 wasm modules (EP-0038 follow-ups)
+
+- **`stado_terminal_*` aliases** for the existing `stado_pty_*` host imports
+  (`open/list/attach/detach/write/read/signal/resize/close`). Capability check
+  enforced at call time, so multi-tool wasm modules link cleanly even with
+  partial cap grants.
+- **`shell.wasm`** — full PTY surface: `shell.spawn/list/attach/detach/read/`
+  `write/resize/signal/destroy` plus one-shot `shell.exec/bash/sh/zsh`.
+  Capabilities: `terminal:open` (PTY) + `exec:proc` (one-shot).
+- **`fs.ls`** — folded into `fs.wasm` via `stado_exec` over `/bin/ls`. Bare `ls`
+  binary embedding dropped.
+- **`web.wasm`** — `web.fetch` wrapper over `stado_http_get`. Native `webfetch`
+  hidden in favour of the wasm version.
+- **`dns.wasm`** — `dns.resolve` over `stado_dns_resolve` (A/AAAA/TXT/MX/NS/PTR).
+- **`agent.*` tools** — `agent.spawn/list/read_messages/send_message/cancel`
+  wired through `tool.AgentFleetProvider` → `FleetBridge`. Native `spawn_agent`
+  remains as the authoritative SubagentEvent path; `agent.spawn` is the
+  wasm-backed surface.
+
+### Plugin distribution (EP-0039 follow-ups)
+
+- **Remote install** — `stado plugin install github.com/owner/repo@vX.Y.Z`.
+  Three-tier resolution: GitHub release artefact → raw tree fetch → source build
+  (deferred). Lock file written on success.
+- **`plugin update [--check]`** — drift check / re-pin against lock entries.
+- **`plugin verify-installed`** — re-verify signatures of installed plugins.
+- **Project-walking lock file** — `.stado/plugin-lock.toml` discovered up the
+  directory tree.
+
+### Plugin examples
+
+- **`plugins/examples/browser`** — Tier 1 + 2 wasm browser sample.
+- **`plugins/examples/image-info`** — image metadata wasm sample.
+- **`plugins/examples/ls`**, **`plugins/examples/mcp-client`**, others.
+
 ## v0.33.0 — Tool dispatch, ABI v2, plugin distribution, supervisor lane, browser
 
 ### Tool dispatch and operator surface (EP-0037)
