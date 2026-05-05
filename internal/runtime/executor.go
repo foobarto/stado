@@ -16,20 +16,32 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-// defaultAutoloadNames is the hardcoded convenience core when [tools.autoload]
-// is empty. These bare names match the pre-EP-0038 native tool names and will
-// be updated to wire names (fs__read etc.) when EP-0038 migrates each tool.
+// defaultAutoloadNames is the hardcoded convenience core when
+// [tools.autoload] is empty. Each entry must match a registered tool's
+// Name() exactly — the autoload selection is by-name, not by-canonical
+// dotted form, so the mixed shapes below are deliberate and reflect
+// what the registry actually contains.
+//
+// Legacy native fs/bash tools register under bare names (read, write,
+// edit, glob, grep, bash) per their Tool.Name() implementations in
+// internal/tools/fs and internal/tools/bash. They're wrapped at
+// registration time by newBundledPluginTool, which preserves the bare
+// name — there's no fs__read alias in the registry today, so switching
+// these entries to wire form would silently break autoload.
+//
+// EP-0038-migrated tools (only fs__ls today) register under wire form;
+// they appear here in wire form for the same reason.
+//
+// spawn_agent is the native subagent.Tool registration; only this name
+// fires the SubagentEvent observability path. The wasm agent__spawn
+// alias exists alongside but is intentionally NOT autoloaded — see
+// BACKLOG #1 / #14 for the planned collapse.
+//
+// To convert a bare-name entry to wire form, also add the wire-form
+// alias at registration time in bundled_plugin_tools.go.
 var defaultAutoloadNames = []string{
 	"read", "write", "edit", "glob", "grep", "bash",
-	// EP-0038 wire names for new wasm-backed tools. fs__ls supersedes
-	// the bare `ls` native tool, which is hidden from listings — no
-	// bare `ls` registration exists in the registry post-EP-0038.
 	"fs__ls",
-	// spawn_agent: native subagent tool needs autoload — its SubagentEvent
-	// path is wired only for this tool, not for the wasm agent__spawn alias.
-	// TODO: collapse spawn_agent / agent__spawn into one canonical surface
-	// (route the wasm wrapper to the native SubagentEvent path) so the
-	// LLM doesn't see two semantically-equivalent spawn tools.
 	"spawn_agent",
 }
 
