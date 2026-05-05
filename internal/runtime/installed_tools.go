@@ -13,6 +13,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -228,7 +229,12 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 			if _, exists := reg.Get(def.Name); exists {
 				fmt.Fprintf(os.Stderr, "stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
 			}
-			class := classFromString(def.Class)
+			class, err := pluginRuntime.EffectiveToolClass(def, mf.Capabilities)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to non-mutating\n",
+					name, version, def.Name, err)
+				class = tool.ClassNonMutating
+			}
 			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class))
 
 			installedRegistryMu.Lock()
@@ -239,30 +245,6 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 			installedRegistryMu.Unlock()
 		}
 	}
-}
-
-// classFromString maps a manifest's Class string to the runtime's
-// tool.Class enum. Defaults to ClassExec — matches pkg/tool's
-// ClassOf() fallback for tools that don't declare a class
-// (pkg/tool/tool.go:58: "unknown tools are treated conservatively").
-//
-// Note: this is intentionally distinct from plugins.ToolDef.ClassValue(),
-// which defaults to ClassNonMutating. The wrapper's Class() drives
-// registry display; safety-critical promotion (e.g. capability-based)
-// happens at invocation time inside runPluginInvocation via
-// EffectiveToolClass.
-func classFromString(s string) tool.Class {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "nonmutating", "non-mutating", "non_mutating":
-		return tool.ClassNonMutating
-	case "statemutating", "state-mutating", "state_mutating":
-		return tool.ClassStateMutating
-	case "mutating":
-		return tool.ClassMutating
-	case "exec":
-		return tool.ClassExec
-	}
-	return tool.ClassExec
 }
 
 // LookupInstalledModule returns the manifest + wasm path for the
