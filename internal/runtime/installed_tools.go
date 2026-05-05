@@ -111,3 +111,43 @@ func (t *installedPluginTool) Run(_ context.Context, _ json.RawMessage, _ tool.H
 		Error: "installed plugin tool not invokable directly via Tool.Run; route through stado tool run <name>",
 	}, nil
 }
+
+// groupInstalledByName scans pluginsDir for "<name>-<version>"
+// subdirectories and returns a map of name → versions. Entries that
+// don't match the expected pattern (no -v prefix, the "active"
+// metadata subdir, plain files) are skipped. A missing pluginsDir
+// is not an error — returns an empty map.
+func groupInstalledByName(pluginsDir string) (map[string][]string, error) {
+	out := map[string][]string{}
+	entries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "active" {
+			continue
+		}
+		name, version, ok := splitInstalledID(e.Name())
+		if !ok {
+			continue
+		}
+		out[name] = append(out[name], version)
+	}
+	return out, nil
+}
+
+// splitInstalledID splits "<name>-<version>" into name + version.
+// Splits on the last "-v<digit>" boundary so multi-dash names like
+// "htb-lab" or "exfil-server" round-trip correctly. Returns ok=false
+// when the suffix isn't a "v<digit>..." shape.
+func splitInstalledID(id string) (name, version string, ok bool) {
+	for i := len(id) - 1; i >= 1; i-- {
+		if id[i] == '-' && i+1 < len(id) && id[i+1] == 'v' && i+2 < len(id) && id[i+2] >= '0' && id[i+2] <= '9' {
+			return id[:i], id[i+1:], true
+		}
+	}
+	return "", "", false
+}

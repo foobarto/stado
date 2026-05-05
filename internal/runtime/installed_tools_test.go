@@ -148,3 +148,64 @@ func TestPickActiveVersion_NoCandidates(t *testing.T) {
 		t.Errorf("pickActiveVersion empty = %q, want empty", got)
 	}
 }
+
+// TestGroupInstalledByName_GroupsAndSkips: name-version dirs are
+// grouped; non-matching entries (active/ subdir, files, malformed
+// names) are skipped.
+func TestGroupInstalledByName_GroupsAndSkips(t *testing.T) {
+	dir := t.TempDir()
+	pluginsDir := filepath.Join(dir, "plugins")
+	for _, sub := range []string{
+		"fs-v0.1.0", "fs-v0.2.0", "shell-v1.0.0",
+		"active",  // metadata dir; must be skipped
+		"no-dash", // malformed name; must be skipped
+	} {
+		_ = os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755)
+	}
+	_ = os.WriteFile(filepath.Join(pluginsDir, "stray.txt"), []byte("ignore"), 0o644)
+
+	got, err := groupInstalledByName(pluginsDir)
+	if err != nil {
+		t.Fatalf("groupInstalledByName: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 groups, got %d: %+v", len(got), got)
+	}
+	if len(got["fs"]) != 2 {
+		t.Errorf("fs versions = %v, want 2 entries", got["fs"])
+	}
+	if len(got["shell"]) != 1 {
+		t.Errorf("shell versions = %v, want 1 entry", got["shell"])
+	}
+}
+
+// TestGroupInstalledByName_NoPluginsDir: missing dir returns empty
+// map without error.
+func TestGroupInstalledByName_NoPluginsDir(t *testing.T) {
+	dir := t.TempDir()
+	got, err := groupInstalledByName(filepath.Join(dir, "plugins"))
+	if err != nil {
+		t.Fatalf("groupInstalledByName on missing dir: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty map; got %+v", got)
+	}
+}
+
+// TestGroupInstalledByName_HandlesMultiDashNames: "htb-lab-v0.1.0"
+// → name "htb-lab", version "v0.1.0". The split is on the LAST "-v"
+// preceding a digit.
+func TestGroupInstalledByName_HandlesMultiDashNames(t *testing.T) {
+	dir := t.TempDir()
+	pluginsDir := filepath.Join(dir, "plugins")
+	_ = os.MkdirAll(filepath.Join(pluginsDir, "htb-lab-v0.1.0"), 0o755)
+	_ = os.MkdirAll(filepath.Join(pluginsDir, "exfil-server-v0.1.0"), 0o755)
+
+	got, _ := groupInstalledByName(pluginsDir)
+	if len(got["htb-lab"]) != 1 || got["htb-lab"][0] != "v0.1.0" {
+		t.Errorf("htb-lab grouping = %+v; want {htb-lab: [v0.1.0]}", got)
+	}
+	if len(got["exfil-server"]) != 1 {
+		t.Errorf("exfil-server grouping wrong: %+v", got)
+	}
+}
