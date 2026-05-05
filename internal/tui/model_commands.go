@@ -542,6 +542,35 @@ func (m *Model) handleToolSlash(parts []string) {
 		m.sessionToolOverrides.disableRemove = appendUnique(m.sessionToolOverrides.disableRemove, args...)
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable: enabled %v for this session (use --save to persist to .stado/config.toml)", args)})
 
+	case "disable":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool disable <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable: %v", err)})
+				return
+			}
+			// Pull from enabled and autoload before adding to disabled —
+			// otherwise the disable is silently masked by either of those
+			// lists. Mirrors cmd/stado/tool.go:289-294.
+			_ = config.WriteToolsListRemove(path, "enabled", args)
+			_ = config.WriteToolsListRemove(path, "autoload", args)
+			if err := config.WriteToolsListAdd(path, "disabled", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable --save: wrote %s ([tools].disabled += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.disableAdd = appendUnique(m.sessionToolOverrides.disableAdd, args...)
+		m.sessionToolOverrides.enableRemove = appendUnique(m.sessionToolOverrides.enableRemove, args...)
+		m.sessionToolOverrides.autoloadRemove = appendUnique(m.sessionToolOverrides.autoloadRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable: disabled %v for this session (use --save to persist)", args)})
+
 	default:
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
 	}

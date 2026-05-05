@@ -56,3 +56,38 @@ func TestToolEnable_PullsFromDisableRemove(t *testing.T) {
 		t.Errorf("enable should populate disableRemove for the same arg; got %+v", m.sessionToolOverrides)
 	}
 }
+
+func TestToolDisable_NoSave(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"shell.exec"} // pre-existing autoload
+	m := &Model{cfg: cfg}
+	m.handleToolSlash([]string{"/tool", "disable", "shell.exec"})
+
+	if !containsString(m.sessionToolOverrides.disableAdd, "shell.exec") {
+		t.Errorf("disable should add to disableAdd; got %+v", m.sessionToolOverrides)
+	}
+	// Disable must also pull from autoload (in-memory only — disk
+	// config.Tools.Autoload stays untouched).
+	eff := m.effectiveConfig()
+	if containsString(eff.Tools.Autoload, "shell.exec") {
+		t.Errorf("disable should mask autoload; got effective autoload %v", eff.Tools.Autoload)
+	}
+}
+
+func TestToolDisable_NoArgs(t *testing.T) {
+	m := &Model{cfg: &config.Config{}}
+	m.handleToolSlash([]string{"/tool", "disable"})
+	out := m.lastSystemBlockBody()
+	if !strings.Contains(out, "usage") {
+		t.Errorf("missing-args should print usage; got: %q", out)
+	}
+}
+
+func TestToolDisable_PullsFromEnableRemove(t *testing.T) {
+	cfg := &config.Config{}
+	m := &Model{cfg: cfg}
+	m.handleToolSlash([]string{"/tool", "disable", "shell.exec"})
+	if !containsString(m.sessionToolOverrides.enableRemove, "shell.exec") {
+		t.Errorf("disable should populate enableRemove for the same arg; got %+v", m.sessionToolOverrides)
+	}
+}
