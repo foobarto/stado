@@ -124,14 +124,14 @@ func decompress(algo string, data []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		return io.ReadAll(io.LimitReader(r, maxPluginRuntimeFSFileBytes))
 	case "zlib":
 		r, err := zlib.NewReader(bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		return io.ReadAll(io.LimitReader(r, maxPluginRuntimeFSFileBytes))
 	default:
 		return nil, fmt.Errorf("decompress: unknown algo %q", algo)

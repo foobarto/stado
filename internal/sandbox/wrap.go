@@ -67,9 +67,9 @@ func MaybeRewrap(cfg WrapConfig) error {
 	case "external":
 		if !alreadyWrapped && !looksWrapped() {
 			return fmt.Errorf(
-				"sandbox mode 'external' configured but stado does not appear to be\n"+
-					"running inside a wrapper. Start stado under bwrap / firejail / sandbox-exec,\n"+
-					"or set [sandbox] mode = \"wrap\" to have stado wrap itself.")
+				"sandbox mode 'external' configured but stado does not appear to be " +
+					"running inside a wrapper. Start stado under bwrap / firejail / sandbox-exec, " +
+					"or set [sandbox] mode = \"wrap\" to have stado wrap itself")
 		}
 		return nil
 

@@ -136,6 +136,9 @@ var pluginRunCmd = &cobra.Command{
 		}
 
 		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		rt, err := pluginRuntime.New(ctx)
 		if err != nil {
 			return fmt.Errorf("runtime: %w", err)
