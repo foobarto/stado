@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
@@ -464,10 +465,11 @@ func (m *Model) handleToolSlash(parts []string) {
 			glob = parts[2]
 		}
 		reg := runtime.BuildDefaultRegistry()
-		if m.cfg != nil {
-			runtime.ApplyToolFilter(reg, m.cfg)
+		eff := m.effectiveConfig()
+		if eff != nil {
+			runtime.ApplyToolFilter(reg, eff)
 		}
-		autoloaded := runtime.AutoloadedTools(reg, m.cfg)
+		autoloaded := runtime.AutoloadedTools(reg, eff)
 		autoSet := map[string]bool{}
 		for _, t := range autoloaded {
 			autoSet[t.Name()] = true
@@ -516,8 +518,110 @@ func (m *Model) handleToolSlash(parts []string) {
 		// Runtime-only: wasm instance drop on next call. No config change.
 		m.appendBlock(block{kind: "system", body: "/tool reload: wasm instance(s) will be re-initialised on next call."})
 
+	case "enable":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool enable <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable: %v", err)})
+				return
+			}
+			_ = config.WriteToolsListRemove(path, "disabled", args)
+			if err := config.WriteToolsListAdd(path, "enabled", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable --save: wrote %s ([tools].enabled += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.enableAdd = appendUnique(m.sessionToolOverrides.enableAdd, args...)
+		m.sessionToolOverrides.disableRemove = appendUnique(m.sessionToolOverrides.disableRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable: enabled %v for this session (use --save to persist to .stado/config.toml)", args)})
+
+	case "disable":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool disable <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable: %v", err)})
+				return
+			}
+			// Pull from enabled and autoload before adding to disabled —
+			// otherwise the disable is silently masked by either of those
+			// lists. Mirrors cmd/stado/tool.go:289-294.
+			_ = config.WriteToolsListRemove(path, "enabled", args)
+			_ = config.WriteToolsListRemove(path, "autoload", args)
+			if err := config.WriteToolsListAdd(path, "disabled", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable --save: wrote %s ([tools].disabled += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.disableAdd = appendUnique(m.sessionToolOverrides.disableAdd, args...)
+		m.sessionToolOverrides.enableRemove = appendUnique(m.sessionToolOverrides.enableRemove, args...)
+		m.sessionToolOverrides.autoloadRemove = appendUnique(m.sessionToolOverrides.autoloadRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable: disabled %v for this session (use --save to persist)", args)})
+
+	case "autoload":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool autoload <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload: %v", err)})
+				return
+			}
+			if err := config.WriteToolsListAdd(path, "autoload", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload --save: wrote %s ([tools].autoload += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.autoloadAdd = appendUnique(m.sessionToolOverrides.autoloadAdd, args...)
+		m.sessionToolOverrides.autoloadRemove = removeFromSlice(m.sessionToolOverrides.autoloadRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload: %v for this session (use --save to persist)", args)})
+
+	case "unautoload":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool unautoload <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload: %v", err)})
+				return
+			}
+			if err := config.WriteToolsListRemove(path, "autoload", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload --save: wrote %s ([tools].autoload -= %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.autoloadRemove = appendUnique(m.sessionToolOverrides.autoloadRemove, args...)
+		m.sessionToolOverrides.autoloadAdd = removeFromSlice(m.sessionToolOverrides.autoloadAdd, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload: removed %v from this session's autoload (use --save to persist)", args)})
+
 	default:
-		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
+			"/tool %s: unknown verb. Try: ls, info, cats, enable, disable, autoload, unautoload, reload\n"+
+				"Mutating verbs are session-scoped by default; pass --save to persist to .stado/config.toml.",
+			verb)})
 	}
 }
 
@@ -567,6 +671,64 @@ func (m *Model) handleSessionDetach() {
 	prev := m.attach.agentID
 	m.attach = attachState{}
 	m.appendBlock(block{kind: "system", body: fmt.Sprintf("detached from agent:%s — back to main session", prev[:min8(prev)])})
+}
+
+// parseToolMutateArgs splits /tool {enable,disable,autoload,
+// unautoload} args into the actual tool names/globs and the --save
+// flag.
+func parseToolMutateArgs(rest []string) (args []string, save bool) {
+	for _, a := range rest {
+		if a == "--save" {
+			save = true
+			continue
+		}
+		args = append(args, a)
+	}
+	return
+}
+
+// appendUnique returns slice ∪ {extras}, preserving order.
+func appendUnique(slice []string, extras ...string) []string {
+	seen := map[string]bool{}
+	for _, s := range slice {
+		seen[s] = true
+	}
+	for _, e := range extras {
+		if seen[e] {
+			continue
+		}
+		seen[e] = true
+		slice = append(slice, e)
+	}
+	return slice
+}
+
+// removeFromSlice returns slice with all entries equal to any of
+// the targets removed, preserving order.
+func removeFromSlice(slice []string, targets ...string) []string {
+	skip := map[string]bool{}
+	for _, t := range targets {
+		skip[t] = true
+	}
+	out := slice[:0]
+	for _, s := range slice {
+		if !skip[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// projectConfigPath returns the path of the project's
+// .stado/config.toml. Mirrors cmd/stado/tool.go's
+// toolMutateConfigPath default branch (the slash version doesn't
+// expose --global; session-scoped override is the equivalent).
+func projectConfigPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return cwd + "/.stado/config.toml", nil
 }
 
 func (m *Model) handleMemorySlash(parts []string) {
@@ -1375,10 +1537,12 @@ func (m *Model) renderPS(_ bool) string {
 	sb.WriteString(fmt.Sprintf("%-20s %-12s %-20s %s\n", "ID", "STATUS", "MODEL", "STARTED"))
 	for _, e := range entries {
 		age := time.Since(e.StartedAt).Round(time.Second).String()
-		sb.WriteString(fmt.Sprintf("agent:%-14s %-12s %-20s %s ago\n",
-			e.FleetID[:min8(e.FleetID)], string(e.Status), e.Model, age))
+		agentID := pluginRuntime.FormatFreeStandingHandleID(pluginRuntime.HandleTypeAgent, e.FleetID)
+		sb.WriteString(fmt.Sprintf("%-20s %-12s %-20s %s ago\n",
+			agentID, string(e.Status), e.Model, age))
 		if e.SessionID != "" {
-			sb.WriteString(fmt.Sprintf("  session:%-12s driver\n", e.SessionID[:min8(e.SessionID)]))
+			sessionID := pluginRuntime.FormatFreeStandingHandleID(pluginRuntime.HandleTypeSession, e.SessionID)
+			sb.WriteString(fmt.Sprintf("  %-18s driver\n", sessionID))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
@@ -1392,14 +1556,26 @@ func min8(s string) int {
 }
 
 // handleKillSlash handles /kill <id>. EP-0038 §H.
+// Accepts:
+//   - typed-prefix form: "agent:bf3e" (preferred, matches /ps output)
+//   - bare ID:           "bf3e..."   (back-compat — copy-paste-friendly)
 func (m *Model) handleKillSlash(parts []string) {
 	if len(parts) < 2 {
 		m.appendBlock(block{kind: "system", body: "/kill <agent-id>  — cancel a running agent"})
 		return
 	}
-	id := parts[1]
-	// Strip "agent:" prefix if present.
-	id = strings.TrimPrefix(id, "agent:")
+	raw := parts[1]
+	id := raw
+	if typ, parsedID, _, err := pluginRuntime.ParseHandleID(raw); err == nil {
+		// Typed-prefix form parsed cleanly. Only "agent:" is
+		// kill-routable today; proc:/term: don't have cancel paths
+		// hooked into the TUI yet.
+		if typ != pluginRuntime.HandleTypeAgent {
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill: /kill only supports agent handles (got %s)", typ)})
+			return
+		}
+		id = parsedID
+	}
 	if m.fleet == nil {
 		m.appendBlock(block{kind: "system", body: "kill: no fleet registry"})
 		return

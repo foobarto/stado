@@ -1023,12 +1023,28 @@ func (m *Model) visibleTools() []tool.Tool {
 		return nil
 	}
 	all := m.executor.Registry.All()
+	var pool []tool.Tool
 	if m.mode != modePlan && m.mode != modeBTW {
-		return all
+		pool = all
+	} else {
+		pool = make([]tool.Tool, 0, len(all))
+		for _, t := range all {
+			if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+				continue
+			}
+			pool = append(pool, t)
+		}
 	}
-	out := make([]tool.Tool, 0, len(all))
-	for _, t := range all {
-		if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+	// Apply session-scoped overrides on top of the registry-side filter
+	// (which was already applied at executor-build time using the disk
+	// config). Overrides only ever subtract from `pool` — they can't
+	// expose tools that aren't in the executor's registry.
+	if m.sessionToolOverrides.isZero() {
+		return pool
+	}
+	out := make([]tool.Tool, 0, len(pool))
+	for _, t := range pool {
+		if m.sessionToolOverrideHidesTool(t.Name()) {
 			continue
 		}
 		out = append(out, t)

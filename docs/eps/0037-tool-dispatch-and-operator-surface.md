@@ -31,6 +31,15 @@ history:
       CLI flags; stado tool ls/info/cats/reload subcommand; /tool and /session TUI slash
       mirrors; category validation at plugin install time; [sandbox] schema + SandboxWrap
       sub-section.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      /tool slash mutating verbs (enable/disable/autoload/unautoload)
+      added with per-session-default + --save semantics. Typed-prefix
+      handle ID format (FormatHandleID/ParseHandleID) replaces bare
+      numerics in /ps and /kill. visibleTools() now honours session
+      disable overrides — operators can hide tools from the model
+      mid-session without disk writes. BACKLOG items #5 and #7.
 ---
 
 # EP-0037: Tool dispatch, naming, and operator surface
@@ -718,10 +727,15 @@ wants a tool that doesn't exist runs `plugin install`, then
 Pattern: every CLI subcommand has a `/<subcommand>` slash mirror.
 Two semantic differences from CLI:
 
-1. **Slash commands default to per-session, non-persistent** — they
-   apply to the current TUI session and don't rewrite config files.
-   Add `--save` to persist to project (or `--save --global` for
-   user-level).
+1. **Mutating slash commands default to per-session, non-persistent** —
+   `/tool enable/disable/autoload/unautoload` apply to the current TUI
+   session and don't rewrite config files; the changes vanish on
+   restart. Add `--save` (e.g. `/tool disable browser.fetch --save`) to
+   additionally write the change to the project's `.stado/config.toml`
+   via `config.WriteToolsListAdd/Remove`. The CLI (`stado tool
+   enable/...`) is the inverse — persistent by default, no `--save`
+   flag because there's no transient layer to scope it against.
+   Read-only verbs (`/tool ls/info/cats`) ignore `--save`.
 2. Slash commands have access to runtime state CLI doesn't have:
    live agents, currently-loaded plugin instances, current session's
    token count, etc. Some slash commands have no CLI mirror as a
@@ -734,7 +748,7 @@ Mirrored slash commands landed by this EP:
 /tool cats [glob]                  /tool enable <glob>
 /tool disable <glob>               /tool autoload <glob>
 /tool unautoload <glob>            /tool reload <glob>
-/tool * --save [--global]          (persist mode)
+/tool {enable,disable,autoload,unautoload} ... --save  (persist to project config)
 
 /session list [--driver=agent]     /session show <id>
 /session attach <id> --read-only   (live-follow viewer; EP-0038
