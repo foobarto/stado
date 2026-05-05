@@ -1,0 +1,58 @@
+{
+  "name": "browser",
+  "version": "0.2.0",
+  "author": "stado",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "net:http_request",
+    "net:http_request_private",
+    "exec:proc",
+    "net:dial:tcp:127.0.0.1:*"
+  ],
+  "tools": [
+    {
+      "name": "browser_open",
+      "description": "Open a URL in a headless browser session. Fetches the page with Chrome/Firefox/Safari header profiles, manages a cookie jar, follows redirects, parses HTML. Returns title, links, forms, visible text, and HTML. If the page detects as requiring JavaScript, use browser_cdp_open instead. No external dependencies required.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\",\"description\":\"URL to fetch\"},\"profile\":{\"type\":\"string\",\"enum\":[\"chrome\",\"firefox\",\"safari\"],\"description\":\"Browser header profile (default: chrome)\"},\"headers\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"},\"description\":\"Extra HTTP headers to send\"}},\"required\":[\"url\"]}"
+    },
+    {
+      "name": "browser_click",
+      "description": "Follow a link on the current page in a browser session. Identify the link by index (from browser_open's links list) or by text_match substring.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"link_index\":{\"type\":\"integer\",\"description\":\"Index from the links array returned by browser_open\"},\"text_match\":{\"type\":\"string\",\"description\":\"Substring to match against link text\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_query",
+      "description": "Run a CSS selector against the current page and return matching elements. Use attr to extract a specific attribute value (e.g. attr='href' to get link URLs).",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"selector\":{\"type\":\"string\",\"description\":\"CSS selector\"},\"attr\":{\"type\":\"string\",\"description\":\"Attribute to extract (optional; omit for text+HTML)\"}},\"required\":[\"session_id\",\"selector\"]}"
+    },
+    {
+      "name": "browser_cdp_open",
+      "description": "Open a URL in a real headless Chrome browser via CDP. Executes JavaScript, handles SPAs and dynamic content, runs anti-bot bypass patches (--disable-blink-features=AutomationControlled). Requires chromium or google-chrome installed. Returns title, full rendered text, HTML, and links. Use this when browser_open returns needs_js=true or for pages with DataDome/Akamai protection.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\",\"description\":\"URL to navigate to\"},\"wait_for_ms\":{\"type\":\"integer\",\"description\":\"Max milliseconds to wait for page load (default 10000)\"}},\"required\":[\"url\"]}"
+    },
+    {
+      "name": "browser_cdp_eval",
+      "description": "Execute JavaScript in the current Chrome CDP session. Returns the result value. Use for: extracting dynamic content, interacting with SPAs, reading JS variables, triggering events.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"js\":{\"type\":\"string\",\"description\":\"JavaScript expression to evaluate\"},\"await_promise\":{\"type\":\"boolean\",\"description\":\"Await the result if it's a Promise (default false)\"}},\"required\":[\"session_id\",\"js\"]}"
+    },
+    {
+      "name": "browser_cdp_navigate",
+      "description": "Navigate the Chrome CDP session to a new URL (reuses the existing Chrome process). More efficient than browser_cdp_open for multi-page flows.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"url\":{\"type\":\"string\"},\"wait_for_ms\":{\"type\":\"integer\"}},\"required\":[\"session_id\",\"url\"]}"
+    },
+    {
+      "name": "browser_cdp_screenshot",
+      "description": "Capture a screenshot of the current page in a Chrome CDP session. Returns base64-encoded PNG or JPEG.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"format\":{\"type\":\"string\",\"enum\":[\"png\",\"jpeg\"],\"description\":\"Image format (default: png)\"},\"quality\":{\"type\":\"integer\",\"description\":\"JPEG quality 0-100 (default: 80)\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_cdp_close",
+      "description": "Close a Chrome CDP session and terminate the Chrome process. Always call this when done to free resources.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    }
+  ],
+  "min_stado_version": "0.33.0",
+  "timestamp_utc": "2026-05-05T00:00:00Z",
+  "nonce": "browser-v2-001"
+}
