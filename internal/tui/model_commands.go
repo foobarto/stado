@@ -1410,7 +1410,7 @@ func (m *Model) handleKillSlash(parts []string) {
 		// kill-routable today; proc:/term: don't have cancel paths
 		// hooked into the TUI yet.
 		if typ != pluginRuntime.HandleTypeAgent {
-			m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill: %s handles aren't kill-routable from /kill yet", typ)})
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill: /kill only supports agent handles (got %s)", typ)})
 			return
 		}
 		id = parsedID
