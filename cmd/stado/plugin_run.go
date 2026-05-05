@@ -141,7 +141,7 @@ var pluginRunCmd = &cobra.Command{
 		// "plugin host has no tool runtime context" error and the
 		// caller can only test the plugin's pure-fs paths. EP-0028.
 		if pluginRunWithToolHost {
-			host.ToolHost = newPluginRunToolHost(workdir, runner)
+			host.ToolHost = newPluginRunToolHost(workdir, runner, host.NetHTTPRequestPrivate)
 		}
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {

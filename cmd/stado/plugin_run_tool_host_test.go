@@ -23,7 +23,7 @@ import (
 func TestPluginRunToolHost_Surface(t *testing.T) {
 	wd := t.TempDir()
 	runner := sandbox.NoneRunner{}
-	h := newPluginRunToolHost(wd, runner)
+	h := newPluginRunToolHost(wd, runner, false)
 
 	if got := h.Workdir(); got != wd {
 		t.Errorf("Workdir() = %q, want %q", got, wd)

@@ -33,17 +33,26 @@ import (
 //   - PriorRead/RecordRead — no-op. The agent-loop dedup machinery
 //     doesn't apply to one-shot plugin invocations.
 type pluginRunToolHost struct {
-	workdir string
-	runner  sandbox.Runner
+	workdir             string
+	runner              sandbox.Runner
+	allowPrivateNetwork bool
 }
 
-func newPluginRunToolHost(workdir string, runner sandbox.Runner) tool.Host {
-	return pluginRunToolHost{workdir: workdir, runner: runner}
+// newPluginRunToolHost forwards the manifest's net:http_request_private
+// capability through to the bundled http_request tool via
+// AllowPrivateNetwork(). Without it the runtime Host would honour the
+// cap for stado_http_request but the tool.Host the bundled tool sees
+// would return false, so the dial guard rejects loopback / RFC1918
+// even when the plugin should reach them.
+func newPluginRunToolHost(workdir string, runner sandbox.Runner, allowPrivateNetwork bool) tool.Host {
+	return pluginRunToolHost{workdir: workdir, runner: runner, allowPrivateNetwork: allowPrivateNetwork}
 }
 
 func (h pluginRunToolHost) Workdir() string { return h.workdir }
 
 func (h pluginRunToolHost) Runner() sandbox.Runner { return h.runner }
+
+func (h pluginRunToolHost) AllowPrivateNetwork() bool { return h.allowPrivateNetwork }
 
 func (h pluginRunToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
