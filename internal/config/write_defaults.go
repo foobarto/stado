@@ -65,6 +65,109 @@ func WriteTUIThinkingDisplay(configPath, mode string) error {
 	})
 }
 
+// WriteToolsListAdd appends entries to [tools].<key> ("enabled" /
+// "disabled" / "autoload"). Existing entries in the list are preserved.
+// Duplicates are de-duped. The list is created when absent. Empty entries
+// are ignored. EP-0037 §F — `stado tool {enable,disable,autoload}` config
+// persistence.
+func WriteToolsListAdd(configPath, key string, entries []string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	if !isToolsListKey(key) {
+		return fmt.Errorf("unknown [tools] list key %q (want enabled / disabled / autoload)", key)
+	}
+	add := dedupeNonEmpty(entries)
+	if len(add) == 0 {
+		return fmt.Errorf("no entries to add")
+	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		existing := readStringList(tree, []string{"tools", key})
+		merged := dedupeNonEmpty(append(existing, add...))
+		tree.SetPath([]string{"tools", key}, anySliceFromStrings(merged))
+	})
+}
+
+// WriteToolsListRemove removes entries from [tools].<key>. Non-present
+// entries are silently ignored. The list is left empty (not deleted) when
+// no entries remain — keeps the section visible for inspection.
+func WriteToolsListRemove(configPath, key string, entries []string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	if !isToolsListKey(key) {
+		return fmt.Errorf("unknown [tools] list key %q (want enabled / disabled / autoload)", key)
+	}
+	rm := dedupeNonEmpty(entries)
+	if len(rm) == 0 {
+		return fmt.Errorf("no entries to remove")
+	}
+	rmSet := make(map[string]bool, len(rm))
+	for _, e := range rm {
+		rmSet[e] = true
+	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		existing := readStringList(tree, []string{"tools", key})
+		kept := make([]string, 0, len(existing))
+		for _, e := range existing {
+			if !rmSet[e] {
+				kept = append(kept, e)
+			}
+		}
+		tree.SetPath([]string{"tools", key}, anySliceFromStrings(kept))
+	})
+}
+
+func isToolsListKey(k string) bool {
+	switch k {
+	case "enabled", "disabled", "autoload":
+		return true
+	}
+	return false
+}
+
+func readStringList(tree *toml.Tree, path []string) []string {
+	v := tree.GetPath(path)
+	if v == nil {
+		return nil
+	}
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, e := range s {
+			if str, ok := e.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func dedupeNonEmpty(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, e := range in {
+		e = strings.TrimSpace(e)
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return out
+}
+
+func anySliceFromStrings(in []string) []any {
+	out := make([]any, len(in))
+	for i, s := range in {
+		out[i] = s
+	}
+	return out
+}
+
 // WriteTUITheme updates [tui].theme in config.toml.
 func WriteTUITheme(configPath, themeID string) error {
 	if strings.TrimSpace(configPath) == "" {

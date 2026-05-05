@@ -150,3 +150,56 @@ func TestWriteDefaultsRejectsConfigParentSymlink(t *testing.T) {
 		t.Fatalf("symlink target was modified, stat err = %v", err)
 	}
 }
+
+func TestWriteToolsListAddCreatesAndDedupes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+
+	if err := WriteToolsListAdd(path, "autoload", []string{"fs.read", "bash"}); err != nil {
+		t.Fatalf("add #1: %v", err)
+	}
+	if err := WriteToolsListAdd(path, "autoload", []string{"bash", "fs.write"}); err != nil {
+		t.Fatalf("add #2: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, want := range []string{"fs.read", "bash", "fs.write"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config missing %q: %s", want, got)
+		}
+	}
+	if strings.Count(got, `"bash"`) != 1 {
+		t.Errorf("bash should appear once after dedupe:\n%s", got)
+	}
+}
+
+func TestWriteToolsListRemoveDropsEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+
+	if err := WriteToolsListAdd(path, "disabled", []string{"webfetch", "ripgrep"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteToolsListRemove(path, "disabled", []string{"webfetch"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if strings.Contains(got, "webfetch") {
+		t.Errorf("webfetch should have been removed:\n%s", got)
+	}
+	if !strings.Contains(got, "ripgrep") {
+		t.Errorf("ripgrep should remain:\n%s", got)
+	}
+}
+
+func TestWriteToolsListRejectsUnknownKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := WriteToolsListAdd(path, "bogus", []string{"x"}); err == nil {
+		t.Fatal("expected error for unknown [tools] key")
+	}
+}

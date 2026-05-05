@@ -192,8 +192,134 @@ var toolReloadCmd = &cobra.Command{
 	},
 }
 
+// ── mutating verbs (EP-0037 §F) ────────────────────────────────────────────
+
+var (
+	toolMutateGlobal bool
+	toolMutateConfig string
+	toolMutateDryRun bool
+)
+
+func toolMutateConfigPath() (string, error) {
+	if toolMutateConfig != "" {
+		return toolMutateConfig, nil
+	}
+	if toolMutateGlobal {
+		// Mirror config.defaultConfigPath: $XDG_CONFIG_HOME/stado/config.toml
+		// or ~/.config/stado/config.toml.
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			return xdg + "/stado/config.toml", nil
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user home: %w", err)
+		}
+		return home + "/.config/stado/config.toml", nil
+	}
+	// Project-local: .stado/config.toml under the cwd (or its
+	// nearest ancestor — config.Load walks up). Default to creating
+	// it in the cwd.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return cwd + "/.stado/config.toml", nil
+}
+
+func runToolMutate(verb, key, removeFromKey string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("tool %s: at least one tool name or glob is required", verb)
+	}
+	path, err := toolMutateConfigPath()
+	if err != nil {
+		return err
+	}
+	if toolMutateDryRun {
+		fmt.Fprintf(os.Stderr, "tool %s: would update %s\n", verb, path)
+		fmt.Fprintf(os.Stderr, "  add to [tools].%s: %v\n", key, args)
+		if removeFromKey != "" {
+			fmt.Fprintf(os.Stderr, "  remove from [tools].%s: %v\n", removeFromKey, args)
+		}
+		return nil
+	}
+	if removeFromKey != "" {
+		// Best-effort cleanup of the inverse list. Silent no-op when the
+		// inverse list is empty or the entry isn't there.
+		_ = config.WriteToolsListRemove(path, removeFromKey, args)
+	}
+	if err := config.WriteToolsListAdd(path, key, args); err != nil {
+		return fmt.Errorf("tool %s: %w", verb, err)
+	}
+	fmt.Printf("tool %s: updated %s ([tools].%s += %v)\n", verb, path, key, args)
+	return nil
+}
+
+func runToolUnmutate(verb, key string, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("tool %s: at least one tool name or glob is required", verb)
+	}
+	path, err := toolMutateConfigPath()
+	if err != nil {
+		return err
+	}
+	if toolMutateDryRun {
+		fmt.Fprintf(os.Stderr, "tool %s: would update %s\n", verb, path)
+		fmt.Fprintf(os.Stderr, "  remove from [tools].%s: %v\n", key, args)
+		return nil
+	}
+	if err := config.WriteToolsListRemove(path, key, args); err != nil {
+		return fmt.Errorf("tool %s: %w", verb, err)
+	}
+	fmt.Printf("tool %s: updated %s ([tools].%s -= %v)\n", verb, path, key, args)
+	return nil
+}
+
+var toolEnableCmd = &cobra.Command{
+	Use:   "enable <name|glob> [<name|glob>...]",
+	Short: "Add tools to [tools].enabled (allowlist) and remove them from [tools].disabled if present",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runToolMutate("enable", "enabled", "disabled", args)
+	},
+}
+
+var toolDisableCmd = &cobra.Command{
+	Use:   "disable <name|glob> [<name|glob>...]",
+	Short: "Add tools to [tools].disabled and remove them from [tools].enabled / [tools].autoload if present",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Disabling a tool should also pull it out of autoload — otherwise
+		// the autoload entry silently masks the disable.
+		path, err := toolMutateConfigPath()
+		if err == nil && !toolMutateDryRun {
+			_ = config.WriteToolsListRemove(path, "autoload", args)
+		}
+		return runToolMutate("disable", "disabled", "enabled", args)
+	},
+}
+
+var toolAutoloadCmd = &cobra.Command{
+	Use:   "autoload <name|glob> [<name|glob>...]",
+	Short: "Add tools to [tools].autoload (schema sent every turn)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runToolMutate("autoload", "autoload", "", args)
+	},
+}
+
+var toolUnautoloadCmd = &cobra.Command{
+	Use:   "unautoload <name|glob> [<name|glob>...]",
+	Short: "Remove tools from [tools].autoload (still reachable via tools.search/describe)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runToolUnmutate("unautoload", "autoload", args)
+	},
+}
+
 func init() {
 	toolCmd.PersistentFlags().BoolVar(&toolJSONFlag, "json", false, "Emit JSON output")
-	toolCmd.AddCommand(toolListCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd)
+	for _, c := range []*cobra.Command{toolEnableCmd, toolDisableCmd, toolAutoloadCmd, toolUnautoloadCmd} {
+		c.Flags().BoolVar(&toolMutateGlobal, "global", false, "Write the user-level config (~/.config/stado/config.toml) instead of the project's .stado/config.toml")
+		c.Flags().StringVar(&toolMutateConfig, "config", "", "Explicit config file path (overrides --global and project default)")
+		c.Flags().BoolVar(&toolMutateDryRun, "dry-run", false, "Print intended changes without writing")
+	}
+	toolCmd.AddCommand(toolListCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd,
+		toolEnableCmd, toolDisableCmd, toolAutoloadCmd, toolUnautoloadCmd)
 	rootCmd.AddCommand(toolCmd)
 }

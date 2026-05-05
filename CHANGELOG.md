@@ -4,6 +4,70 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.34.1 — Atomic Fedora / Bazzite, multi-tool wasm, exec:proc multi-glob
+
+### Fixes
+
+- **`/home → /var/home` strict-walk regression** — every tool that touched a
+  session worktree (`~/.local/state/stado/worktrees/...`) failed on Atomic
+  Fedora / Bazzite with `directory component is a symlink: home` because the
+  no-symlink walk used by `treebuild`, `subagent_adoption`, audit/minisign,
+  several `cmd/stado/*.go` writers, and most TUI / tool readers rejected the
+  operator-supplied `/home` link. Fixed by extending the EP-0028 trust-anchor
+  model to file/dir Open: new `OpenRegularFileUnderUserConfig` +
+  `ReadRegularFileUnderUserConfigNoLimit` plus migration of ~17 call sites
+  to the anchored variants. In-userspace attacker boundary preserved (strict
+  walk from anchor down). Adversarial paths outside HOME / XDG still get
+  the strict from-`/` check via the fallback inside `OpenRoot*UnderUserConfig`.
+- **TUI bash / native-tool cwd parity** — TUI tools now operate on the user's
+  launch CWD (matching `stado run` default) instead of the session audit
+  worktree. Both override paths fixed (`resetForSession` and
+  `model_stream.go` host-adapter wiring). The session worktree remains in
+  use only for turn-boundary tree commits.
+- **Multi-tool wasm "missing ABI exports"** — `newBundledWasmTool` was
+  setting `def.Name` to the full export name (`stado_tool_ls`), but the
+  dispatcher prepends `stado_tool_` again — `fs.ls`, `shell.spawn/...`,
+  `agent.spawn/...`, `web.fetch`, `dns.resolve` all looked up
+  `stado_tool_stado_tool_<X>` and failed. Strip the prefix.
+- **`exec:proc:<glob>` allows multiple scoped binaries per manifest** —
+  `Host.ExecProcGlob` was a single string; the second declaration silently
+  overwrote the first. Switched to `[]string` so e.g. `fs.ls` declaring
+  both `/bin/ls` and `/usr/bin/ls` works regardless of which is the
+  symlink and which the canonical path.
+- **`plugin run` exec:bash gate restored to documented behavior** — was
+  drifting toward always-refuse; restored EP-0028 D1's warn-loud-run-by-
+  default with `[sandbox] refuse_no_runner = true` opt-in for hard refusal.
+- **`cobra.Command.Context()` nil-fallback** in `plugin run` (panic surfaced
+  under -race in CI when `RunE` invoked without a parent `Execute()`).
+- **`spawn_agent` autoload** — restored to the default tool surface so the
+  native subagent SubagentEvent path stays reachable without explicit
+  `tools.describe` activation (regression from EP-0037 autoload).
+
+### Tool dispatch (EP-0037 §F follow-up)
+
+- **`stado tool enable / disable / autoload / unautoload`** — the locked
+  config-mutating verbs. Replaces TOML hand-edits to `[tools]` for
+  managing visibility and per-turn surface. Flags: `--global` (writes
+  `~/.config/stado/config.toml` instead of project's `.stado/config.toml`),
+  `--config <path>` (explicit target), `--dry-run`. Inverse-list cleanup
+  on the right side: `tool enable` strips from disabled; `tool disable`
+  strips from enabled and autoload.
+
+### Lint / CI
+
+- Cleared five dead-code findings exposed once golangci-lint stopped
+  early-exiting (`resolveToolName`, `subagentSpawnerAdapter`,
+  `monitorLineMsg`, `loopStatusLabel`, `toolLike`).
+- `host_proc.go` receiver name `host` → `h` (ST1016).
+- `host_compress.go` defer wrapped to satisfy errcheck.
+- `sandbox/wrap.go` error string reflowed (ST1005).
+
+### Docs
+
+- Restored architectural-reset notes (2026-05-05) under
+  `docs/eps/notes/2026-05-05-architectural-reset.md` — the design history
+  that produced EP-0037/0038/0039.
+
 ## v0.34.0 — Tool list UX, terminal aliases, fs.ls, web/dns wasm, remote install
 
 ### Tool surface (EP-0037 follow-ups)
