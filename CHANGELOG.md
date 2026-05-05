@@ -4,6 +4,17 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## Unreleased
+
+### Breaking changes
+
+- **CLI** — `--tools-whitelist` renamed to `--tools` (canonical per
+  architectural-reset NOTES §10). No back-compat alias kept; pre-1.0
+  means scripts using the old name need updating. The previous bool
+  `--tools` (on/off gate) is removed; use `--no-tools` for pure-chat
+  mode. `--tools` is now the comma-separated whitelist (empty = all
+  installed tools enabled).
+
 ## v0.34.1 — Atomic Fedora / Bazzite, multi-tool wasm, exec:proc multi-glob
 
 ### Fixes

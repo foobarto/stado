@@ -178,7 +178,15 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 				stack[0] = 0
 				return
 			}
-			h := rt.handles.alloc("proc", &procHandle{cmd: cmd, stdin: stdinPipe, stdout: stdoutPipe})
+			h, err := rt.handles.alloc("proc", &procHandle{cmd: cmd, stdin: stdinPipe, stdout: stdoutPipe})
+			if err != nil {
+				host.Logger.Warn("stado_proc_spawn failed", slog.String("err", err.Error()))
+				_ = stdinPipe.Close()
+				_ = stdoutPipe.Close()
+				_ = cmd.Process.Kill()
+				stack[0] = 0
+				return
+			}
 			stack[0] = uint64(h)
 		}),
 		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},

@@ -11,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -116,10 +117,14 @@ var toolInfoCmd = &cobra.Command{
 		query := args[0]
 		// Try direct lookup
 		t, ok := reg.Get(query)
-		if !ok && strings.Contains(query, ".") {
-			// canonical → wire
-			wire := strings.ReplaceAll(query, ".", "__")
-			t, ok = reg.Get(wire)
+		if !ok {
+			// canonical → wire (split on first dot, route through WireForm
+			// so hyphenated plugin aliases normalise to underscores).
+			if dot := strings.Index(query, "."); dot > 0 && dot < len(query)-1 {
+				if wire, err := tools.WireForm(query[:dot], query[dot+1:]); err == nil {
+					t, ok = reg.Get(wire)
+				}
+			}
 		}
 		if !ok {
 			// canonical lookup via metadata

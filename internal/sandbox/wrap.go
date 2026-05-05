@@ -96,7 +96,7 @@ func doRewrap(cfg WrapConfig) error {
 			"Install bwrap (apt install bubblewrap / dnf install bubblewrap)\n" +
 			"or set [sandbox] mode = \"off\" to disable sandboxing."
 		if cfg.RefuseNoRunner {
-			return fmt.Errorf("%s", msg) //nolint:staticcheck
+			return errors.New(msg)
 		}
 		fmt.Fprintln(os.Stderr, "stado: warn: "+msg)
 		fmt.Fprintln(os.Stderr, "stado: warn: running without process-containment sandbox.")

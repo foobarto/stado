@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,9 +19,16 @@ const (
 
 // FetchAnchorPubkey fetches the author pubkey from the owner's well-known
 // anchor URL and returns the hex-encoded pubkey string. EP-0039 §C.
-func FetchAnchorPubkey(url string) (string, error) {
+//
+// The caller's ctx scopes cancellation; anchorHTTPTimeout (15s) remains
+// as a hard ceiling on the underlying http.Client.
+func FetchAnchorPubkey(ctx context.Context, url string) (string, error) {
 	cl := &http.Client{Timeout: anchorHTTPTimeout}
-	resp, err := cl.Get(url) //nolint:noctx
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("anchor build request %s: %w", url, err)
+	}
+	resp, err := cl.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("anchor fetch %s: %w", url, err)
 	}

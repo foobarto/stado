@@ -47,6 +47,7 @@ type Config struct {
 	Context   Context   `koanf:"context"`
 	Agent     Agent     `koanf:"agent"`
 	Sampling  Sampling  `koanf:"sampling"`
+	Sessions  Sessions  `koanf:"sessions"`
 	TUI       TUI       `koanf:"tui"`
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
@@ -80,6 +81,22 @@ type Hooks struct {
 	// interactive and non-interactive surfaces.
 	// Empty = no hook.
 	PostTurn string `koanf:"post_turn"`
+}
+
+// Sessions configures session lifecycle policy. EP-0037 §C / NOTES §8.
+//
+// AutoPruneAfter is the duration after which completed sessions are
+// pruned by stado on startup ("90d", "30d", or "" for never; default
+// is "" — sessions are durable audit records by design). The
+// duration is parsed at startup with time.ParseDuration extended for
+// the "d" suffix.
+//
+// Auto-prune execution is not yet wired (TODO: connect to the
+// existing `stado session prune` codepath at startup). This struct
+// commits to the schema today; setting AutoPruneAfter has no
+// effect until the startup hook lands.
+type Sessions struct {
+	AutoPruneAfter string `koanf:"auto_prune_after"`
 }
 
 // Budget is the [budget] config section — per-session guardrails on

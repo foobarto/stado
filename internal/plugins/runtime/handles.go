@@ -26,11 +26,19 @@ func newHandleRegistry() *handleRegistry {
 	return &handleRegistry{entries: make(map[uint32]handleEntry)}
 }
 
-// alloc allocates a new handle. Retries on the rare 32-bit collision (EP-0038 D22).
-func (r *handleRegistry) alloc(typeTag string, value any) uint32 {
+// maxHandleAllocAttempts bounds the collision-retry loop. With a uint32
+// keyspace this should never bite in normal operation; the bound exists
+// so a broken random source or near-full registry surfaces as an error
+// rather than a hang.
+const maxHandleAllocAttempts = 1000
+
+// alloc allocates a new handle. Retries on the rare 32-bit collision
+// (EP-0038 D22), bounded at maxHandleAllocAttempts attempts. Returns
+// (id, nil) on success; (0, err) when the bound is exhausted.
+func (r *handleRegistry) alloc(typeTag string, value any) (uint32, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for {
+	for i := 0; i < maxHandleAllocAttempts; i++ {
 		id := rand.Uint32()
 		if id == 0 {
 			continue // zero is the invalid/null handle
@@ -39,8 +47,9 @@ func (r *handleRegistry) alloc(typeTag string, value any) uint32 {
 			continue // collision — re-roll
 		}
 		r.entries[id] = handleEntry{typeTag: typeTag, value: value}
-		return id
+		return id, nil
 	}
+	return 0, fmt.Errorf("handleRegistry: alloc exhausted %d attempts (type=%s)", maxHandleAllocAttempts, typeTag)
 }
 
 func (r *handleRegistry) get(handle uint32) (any, bool) {

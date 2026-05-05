@@ -59,6 +59,21 @@ func TestWireForm_DotsAndDashes(t *testing.T) {
 	}
 }
 
+func TestWireSegment(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"fs", "fs"},
+		{"htb-lab", "htb_lab"},
+		{"foo.bar", "foo_bar"},
+		{"a.b-c", "a_b_c"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := tools.WireSegment(c.in); got != c.want {
+			t.Errorf("WireSegment(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestParseWireForm(t *testing.T) {
 	alias, name, ok := tools.ParseWireForm("fs__read")
 	if !ok || alias != "fs" || name != "read" {
