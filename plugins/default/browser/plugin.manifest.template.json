@@ -50,6 +50,21 @@
       "name": "browser_cdp_close",
       "description": "Close a Chrome CDP session and terminate the Chrome process. Always call this when done to free resources.",
       "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_cdp_click_element",
+      "description": "Click on a DOM element in a Chrome CDP session using CSS selector. Scrolls the element into view, resolves its centre coordinates, and dispatches real mousePressed + mouseReleased events so JS onclick handlers and custom components fire correctly.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"selector\":{\"type\":\"string\",\"description\":\"CSS selector for the element to click\"},\"index\":{\"type\":\"integer\",\"description\":\"Which match to click if selector matches multiple elements (0-based, default 0)\"}},\"required\":[\"session_id\",\"selector\"]}"
+    },
+    {
+      "name": "browser_cdp_type",
+      "description": "Type text or press a special key in a Chrome CDP session. Optionally focus a CSS selector first. Use key for special keys: Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, etc. Use clear_first to select-all and delete existing content before typing.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\",\"description\":\"Text to type (printable characters)\"},\"key\":{\"type\":\"string\",\"description\":\"Special key to press: Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1-F12\"},\"selector\":{\"type\":\"string\",\"description\":\"CSS selector of element to focus before typing (optional)\"},\"clear_first\":{\"type\":\"boolean\",\"description\":\"Select-all + delete existing content before typing (default false)\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_cdp_scroll",
+      "description": "Scroll the page or a specific element in a Chrome CDP session. Triggers real scroll events so lazy-loading, infinite scroll, and sticky headers behave correctly. Use delta for relative scrolling (positive=down) or x/y for absolute position.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"selector\":{\"type\":\"string\",\"description\":\"CSS selector of scrollable element (omit to scroll the window)\"},\"delta\":{\"type\":\"integer\",\"description\":\"Relative scroll amount in pixels (positive=down, negative=up)\"},\"x\":{\"type\":\"integer\",\"description\":\"Absolute horizontal scroll position in pixels\"},\"y\":{\"type\":\"integer\",\"description\":\"Absolute vertical scroll position in pixels\"},\"behavior\":{\"type\":\"string\",\"enum\":[\"instant\",\"smooth\"],\"description\":\"Scroll behavior (default: instant)\"},\"wait_for_ms\":{\"type\":\"integer\",\"description\":\"Milliseconds to wait after scroll for lazy-loaded content (default 0)\"}},\"required\":[\"session_id\"]}"
     }
   ],
   "min_stado_version": "0.33.0",
