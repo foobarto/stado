@@ -184,6 +184,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 	caps := opts.Provider.Capabilities()
 	tracer := otel.Tracer(telemetry.TracerName)
 
+	// EP-0037: track tools activated by tools.describe across turns.
+	activatedNames := map[string]bool{}
+
 	for turn := 0; turn < opts.MaxTurns; turn++ {
 		if turn > 0 {
 			got := hashMessagesPrefix(msgs, priorLen)
@@ -228,7 +231,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			TopK:        opts.TopK,
 		}
 		if opts.Executor != nil {
-			req.Tools = ToolDefs(opts.Executor.Registry)
+			// EP-0037: send only autoloaded tools + session-activated tools each turn.
+			autoloaded := AutoloadedTools(opts.Executor.Registry, opts.Config)
+			surface := dedupeTools(append(autoloaded, activatedSlice(opts.Executor.Registry, activatedNames)...))
+			req.Tools = ToolDefsFromSlice(surface)
 		}
 		allowedTools := allowedToolSet(req.Tools)
 		if caps.SupportsPromptCache && len(msgs) > 0 {
@@ -369,6 +375,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				isErr = true
 			} else if isErr {
 				content = res.Error
+			}
+			// EP-0037: tools.describe activates tool schemas into the session surface.
+			if c.Name == "tools__describe" && !isErr {
+				extractActivated(content, activatedNames)
 			}
 			results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
 				ToolUseID: c.ID,

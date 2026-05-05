@@ -249,3 +249,45 @@ func toolAllowed(allowed map[string]struct{}, name string) bool {
 func unavailableToolResult(name string) string {
 	return fmt.Sprintf("tool %q is not available for this turn", name)
 }
+
+// activatedSlice returns the tools in reg whose names are in the activated set.
+func activatedSlice(reg *tools.Registry, activated map[string]bool) []pkgtool.Tool {
+	out := make([]pkgtool.Tool, 0, len(activated))
+	for name := range activated {
+		if t, ok := reg.Get(name); ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// dedupeTools returns ts with duplicate names removed (first occurrence wins).
+func dedupeTools(ts []pkgtool.Tool) []pkgtool.Tool {
+	seen := make(map[string]bool, len(ts))
+	out := make([]pkgtool.Tool, 0, len(ts))
+	for _, t := range ts {
+		if !seen[t.Name()] {
+			seen[t.Name()] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// extractActivated parses a tools.describe result JSON and adds the names of
+// successfully described tools to the activated set.
+func extractActivated(content string, activated map[string]bool) {
+	var items []map[string]any
+	if err := json.Unmarshal([]byte(content), &items); err != nil {
+		return
+	}
+	for _, item := range items {
+		name, ok := item["name"].(string)
+		if !ok {
+			continue
+		}
+		if _, hasErr := item["error"]; !hasErr {
+			activated[name] = true
+		}
+	}
+}
