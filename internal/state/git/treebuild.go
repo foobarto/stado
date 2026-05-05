@@ -45,7 +45,11 @@ func (s *Session) buildTreeDir(dir string, state *buildTreeState, depth int) (pl
 	if depth > state.maxDepth {
 		return plumbing.ZeroHash, fmt.Errorf("build tree: directory nesting exceeds %d: %s", state.maxDepth, dir)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	// Anchor at HOME / XDG_*_HOME so operator-layout symlinks above the
+	// worktree (e.g. `/home → /var/home` on Atomic Fedora / Bazzite) are
+	// accepted. Symlinks UNDER the anchor are still rejected by the
+	// strict-walk segment.
+	root, err := workdirpath.OpenRootUnderUserConfig(dir)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("build tree: read %s: %w", dir, err)
 	}
@@ -124,7 +128,7 @@ func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) 
 		return s.writeBlobReader(path, strings.NewReader(target), int64(len(target)))
 	}
 
-	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
 	}

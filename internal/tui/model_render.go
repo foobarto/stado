@@ -779,7 +779,7 @@ func currentGitBranch(cwd string) string {
 		return ""
 	}
 
-	root, err := workdirpath.OpenRootNoSymlink(repo)
+	root, err := workdirpath.OpenRootUnderUserConfig(repo)
 	if err != nil {
 		return ""
 	}

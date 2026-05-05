@@ -103,7 +103,7 @@ func scanGoFileSymbols(fset *token.FileSet, rel, path string, limit int) []symbo
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -171,7 +171,7 @@ func scanPythonFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -234,7 +234,7 @@ func scanScriptFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}
@@ -327,7 +327,7 @@ func scanShellFileSymbols(rel, path string, limit int) []symbolCandidate {
 	if limit <= 0 {
 		return nil
 	}
-	data, err := workdirpath.ReadRegularFileNoSymlinkLimited(path, maxSymbolSourceFileBytes)
+	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSymbolSourceFileBytes)
 	if err != nil {
 		return nil
 	}

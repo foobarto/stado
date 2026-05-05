@@ -230,6 +230,73 @@ func ReadRootRegularFileLimited(root *os.Root, name string, maxBytes int64) ([]b
 	return data, nil
 }
 
+// OpenRegularFileUnderUserConfig is the OpenRegularFileNoSymlink analogue
+// for the trust-anchor walk: directory components UP TO the longest
+// HOME / XDG_*_HOME ancestor are accepted as the operator's environment
+// (so `/home → /var/home` on Atomic Fedora / Bazzite resolves), the rest
+// of the path is walked with strict no-symlink enforcement, and the
+// final component must be a regular file (no terminal symlink). When
+// path falls outside any anchor, falls back to OpenRegularFileNoSymlink.
+func OpenRegularFileUnderUserConfig(path string) (*os.File, error) {
+	if strings.Contains(path, "\x00") {
+		return nil, fmt.Errorf("invalid file path %q", path)
+	}
+	clean := filepath.Clean(path)
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return nil, err
+	}
+	base := filepath.Base(abs)
+	if base == "." || base == string(filepath.Separator) {
+		return nil, fmt.Errorf("invalid file path %q", path)
+	}
+	root, err := OpenRootUnderUserConfig(filepath.Dir(abs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Lstat(base)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("file is a symlink: %s", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	f, err := root.Open(base)
+	if err != nil {
+		return nil, err
+	}
+	openedInfo, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	if !os.SameFile(info, openedInfo) {
+		_ = f.Close()
+		return nil, fmt.Errorf("file changed while opening: %s", path)
+	}
+	return f, nil
+}
+
+// ReadRegularFileUnderUserConfigNoLimit is a convenience wrapper that reads
+// the entire file via OpenRegularFileUnderUserConfig.
+func ReadRegularFileUnderUserConfigNoLimit(path string) ([]byte, error) {
+	f, err := OpenRegularFileUnderUserConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
 // OpenRegularFileNoSymlink opens an absolute or relative filesystem path while
 // rejecting symlinked directory components and symlinked final paths.
 func OpenRegularFileNoSymlink(path string) (*os.File, error) {

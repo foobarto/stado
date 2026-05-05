@@ -106,7 +106,7 @@ func Load(start string) ([]Skill, error) {
 }
 
 func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
-	root, err := workdirpath.OpenRootNoSymlink(d)
+	root, err := workdirpath.OpenRootUnderUserConfig(d)
 	if err != nil {
 		return nil, fmt.Errorf("skills: open dir %s: %w", d, err)
 	}

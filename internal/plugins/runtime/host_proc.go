@@ -24,11 +24,11 @@ type procHandle struct {
 }
 
 // procAllowed checks exec:proc / exec:proc:<glob> capability.
-func (host *Host) procAllowed(bin string) bool {
-	if !host.ExecProc {
+func (h *Host) procAllowed(bin string) bool {
+	if !h.ExecProc {
 		return false
 	}
-	if host.ExecProcGlob == "" {
+	if h.ExecProcGlob == "" {
 		return true // broad exec:proc
 	}
 	// Scoped: resolve binary and match glob.
@@ -37,7 +37,7 @@ func (host *Host) procAllowed(bin string) bool {
 		abs = bin
 	}
 	abs = filepath.Clean(abs)
-	matched, _ := filepath.Match(host.ExecProcGlob, abs)
+	matched, _ := filepath.Match(h.ExecProcGlob, abs)
 	return matched
 }
 

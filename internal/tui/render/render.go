@@ -160,7 +160,7 @@ func readFSTemplateDirEntries(fsys fs.FS, dirPath string, state *templateWalkSta
 }
 
 func walkOverlayTemplates(root *template.Template, overlayDir string) error {
-	overlayRoot, err := workdirpath.OpenRootNoSymlink(overlayDir)
+	overlayRoot, err := workdirpath.OpenRootUnderUserConfig(overlayDir)
 	if err != nil {
 		return err
 	}

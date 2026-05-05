@@ -171,7 +171,7 @@ func copyDir(src, dst string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("source is not a directory: %s", src)
 	}
-	srcRoot, err := workdirpath.OpenRootNoSymlink(src)
+	srcRoot, err := workdirpath.OpenRootUnderUserConfig(src)
 	if err != nil {
 		return err
 	}

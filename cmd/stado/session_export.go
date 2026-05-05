@@ -86,7 +86,7 @@ var sessionExportCmd = &cobra.Command{
 			return err
 		}
 		if dir := filepath.Dir(exportOutput); dir != "" && dir != "." {
-			if err := workdirpath.MkdirAllNoSymlink(dir, 0o750); err != nil {
+			if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o750); err != nil {
 				return fmt.Errorf("session export: mkdir %s: %w", dir, err)
 			}
 		}

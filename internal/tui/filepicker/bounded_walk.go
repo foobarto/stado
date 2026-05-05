@@ -35,7 +35,7 @@ type repoFileWalkState struct {
 }
 
 func walkRepoFiles(rootPath string, maxEntries, maxDepth int, visit func(rel string, info os.FileInfo) repoFileWalkDecision) error {
-	root, err := workdirpath.OpenRootNoSymlink(rootPath)
+	root, err := workdirpath.OpenRootUnderUserConfig(rootPath)
 	if err != nil {
 		return err
 	}

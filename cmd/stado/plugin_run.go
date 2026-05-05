@@ -127,12 +127,12 @@ var pluginRunCmd = &cobra.Command{
 		}
 		runner := sandbox.Detect()
 		if host.ExecBash && !host.ExecProc && runner.Name() == "none" {
-			if cfg.Sandbox.RefuseNoRunner {
-				return fmt.Errorf("plugin run: plugin %s declares exec:bash but no sandbox runner is available and [sandbox] refuse_no_runner = true", m.Name)
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"stado: warn: plugin %s declares exec:bash but no sandbox runner is available — running unsandboxed. Set [sandbox] refuse_no_runner = true to hard-fail instead.\n",
-				m.Name)
+			// EP-0028 D1 + EP-0005 §"Non-goals": exec:bash without a native
+			// sandbox would substitute the operator's CLI invocation for a
+			// real syscall/file-access filter, which the threat model
+			// forbids. Refuse with an install hint instead of silently
+			// running unsandboxed.
+			return fmt.Errorf("plugin run: plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap (Linux: `apt install bubblewrap` / `dnf install bubblewrap`) or sandbox-exec (macOS: bundled with Xcode CLT) and re-run", m.Name)
 		}
 
 		ctx := cmd.Context()

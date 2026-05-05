@@ -125,7 +125,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 	if err != nil {
 		return err
 	}
-	parentRoot, err := workdirpath.OpenRootNoSymlink(parentRootPath)
+	parentRoot, err := workdirpath.OpenRootUnderUserConfig(parentRootPath)
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 }
 
 func copyRegularChildFileAtomic(parentRoot *os.Root, parentRel, childPath string) error {
-	src, err := workdirpath.OpenRegularFileNoSymlink(childPath)
+	src, err := workdirpath.OpenRegularFileUnderUserConfig(childPath)
 	if err != nil {
 		return err
 	}

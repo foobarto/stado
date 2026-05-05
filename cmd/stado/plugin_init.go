@@ -107,7 +107,7 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 		if !force {
 			return nil, fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
 		}
-		root, err := workdirpath.OpenRootNoSymlink(cleanDir)
+		root, err := workdirpath.OpenRootUnderUserConfig(cleanDir)
 		if err != nil {
 			return nil, fmt.Errorf("init: open %s: %w", dir, err)
 		}
@@ -119,10 +119,10 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 	if !filepath.IsLocal(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return nil, fmt.Errorf("init: invalid output dir %q", dir)
 	}
-	if err := workdirpath.MkdirAllNoSymlink(parent, 0o750); err != nil {
+	if err := workdirpath.MkdirAllUnderUserConfig(parent, 0o750); err != nil {
 		return nil, fmt.Errorf("init: mkdir %s: %w", parent, err)
 	}
-	parentRoot, err := workdirpath.OpenRootNoSymlink(parent)
+	parentRoot, err := workdirpath.OpenRootUnderUserConfig(parent)
 	if err != nil {
 		return nil, fmt.Errorf("init: open %s: %w", parent, err)
 	}

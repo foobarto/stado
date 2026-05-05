@@ -361,7 +361,7 @@ func extractBinary(archivePath, assetName string) (string, error) {
 		_ = tmp.Close()
 		_ = os.Remove(out)
 	}
-	f, err := workdirpath.OpenRegularFileNoSymlink(archivePath)
+	f, err := workdirpath.OpenRegularFileUnderUserConfig(archivePath)
 	if err != nil {
 		cleanup()
 		return "", err
@@ -532,7 +532,7 @@ func prepareInstallBinary(path string) error {
 }
 
 func copyFile(src, dst string) error {
-	in, err := workdirpath.OpenRegularFileNoSymlink(src)
+	in, err := workdirpath.OpenRegularFileUnderUserConfig(src)
 	if err != nil {
 		return err
 	}

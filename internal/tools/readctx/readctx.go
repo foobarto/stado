@@ -193,7 +193,7 @@ func resolveGoImports(filePath, workdir string, maxBytes int) ([]filePair, error
 // <pkgname>.go, else the first non-test .go file. Directory entries are read
 // in bounded batches so large local packages cannot force unbounded listings.
 func selectGoPackageFile(pkgDir string, maxEntries int) (string, error) {
-	root, err := workdirpath.OpenRootNoSymlink(pkgDir)
+	root, err := workdirpath.OpenRootUnderUserConfig(pkgDir)
 	if err != nil {
 		return "", err
 	}

@@ -154,7 +154,7 @@ var pluginSignCmd = &cobra.Command{
 }
 
 func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
-	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
 }
 
 func sha256RegularFileNoSymlinkMax(path string, maxBytes int64) (string, error) {
-	f, err := workdirpath.OpenRegularFileNoSymlink(path)
+	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
 	if err != nil {
 		return "", err
 	}
