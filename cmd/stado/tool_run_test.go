@@ -103,3 +103,77 @@ func TestToolRun_ToolNotFound(t *testing.T) {
 		t.Errorf("error message should reference 'stado tool list'; got: %q", err.Error())
 	}
 }
+
+// TestToolRun_DisabledRefuses: a tool listed in cfg.Tools.Disabled
+// is refused unless --force is passed.
+func TestToolRun_DisabledRefuses(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.Tools.Disabled = []string{"read"}
+
+	var stdout, stderr bytes.Buffer
+	err = runToolByName(t.Context(), "read", `{}`,
+		toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+	if err == nil {
+		t.Fatal("expected error for disabled tool; got nil")
+	}
+	if !strings.Contains(err.Error(), "disabled") {
+		t.Errorf("error should mention 'disabled'; got: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("error should hint at --force; got: %q", err.Error())
+	}
+}
+
+// TestToolRun_DisabledForceOverrides: --force runs the tool anyway.
+func TestToolRun_DisabledForceOverrides(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.Tools.Disabled = []string{"read"}
+
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "x.txt")
+	if err := os.WriteFile(target, []byte("forced"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = runToolByName(t.Context(), "read",
+		`{"path":"`+target+`"}`,
+		toolRunOptions{Cfg: cfg, Workdir: tmp, Force: true, Stdout: &stdout, Stderr: &stderr})
+	if err != nil {
+		t.Fatalf("with --force, expected success; got: %v\nstderr: %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "forced") {
+		t.Errorf("expected 'forced' in stdout; got: %q", stdout.String())
+	}
+}
+
+// TestToolRun_DisabledByGlob: glob in [tools].disabled also refuses.
+func TestToolRun_DisabledByGlob(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	cfg.Tools.Disabled = []string{"fs.*"}
+
+	var stdout, stderr bytes.Buffer
+	err = runToolByName(t.Context(), "fs.read", `{}`,
+		toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+	if err == nil {
+		t.Fatal("expected error for tool matching disabled glob; got nil")
+	}
+	if !strings.Contains(err.Error(), "disabled") {
+		t.Errorf("error should mention 'disabled'; got: %q", err.Error())
+	}
+}

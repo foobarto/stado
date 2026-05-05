@@ -78,12 +78,29 @@ type toolRunOptions struct {
 // dispatches via runPluginInvocation.
 func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptions) error {
 	cfg := opts.Cfg
+	// Build the unfiltered registry: `tool run` is an operator-explicit
+	// invocation, so we honour [tools].disabled via the dedicated refusal
+	// below (with --force escape) rather than via ApplyToolFilter, which
+	// would otherwise hide the tool and produce a misleading "not found".
 	reg := runtime.BuildDefaultRegistry()
-	runtime.ApplyToolFilter(reg, cfg)
 
 	registered, ok := lookupToolInRegistry(reg, name)
 	if !ok {
 		return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", name)
+	}
+
+	// Disabled-tool refusal: check both registered name and canonical
+	// form against [tools].disabled patterns. Pass --force to bypass.
+	if !opts.Force && cfg != nil {
+		registeredName := registered.Name()
+		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		for _, pat := range cfg.Tools.Disabled {
+			if runtime.ToolMatchesGlob(registeredName, pat) ||
+				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
+				return fmt.Errorf("tool %q is disabled in [tools].disabled (matched pattern %q); remove it from disabled, or re-run with --force",
+					name, pat)
+			}
+		}
 	}
 
 	// Bundled vs installed.
