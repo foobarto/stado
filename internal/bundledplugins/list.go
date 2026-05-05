@@ -16,12 +16,18 @@ type Info struct {
 	Author       string   // bundledplugins.Author == "stado"
 	Tools        []string // registered tool names attributable to this module, sorted
 	Capabilities []string // declared caps, deduped across all tools, sorted
+	// WasmSource carries raw wasm bytes for user-bundled plugins
+	// (registered via internal/userbundled). When non-nil, Wasm()
+	// returns these bytes directly instead of consulting the embed.FS.
+	// nil for upstream-shipped bundled plugins.
+	WasmSource []byte
 }
 
 type moduleEntry struct {
-	Name string
-	Tool string
-	Caps []string
+	Name       string
+	Tool       string
+	Caps       []string
+	WasmSource []byte
 }
 
 var (
@@ -106,6 +112,9 @@ func buildList(entries []moduleEntry) []Info {
 			byName[e.Name] = info
 			toolSeen[e.Name] = map[string]bool{}
 			capSeen[e.Name] = map[string]bool{}
+		}
+		if e.WasmSource != nil {
+			info.WasmSource = e.WasmSource
 		}
 		if e.Tool != "" && !toolSeen[e.Name][e.Tool] {
 			toolSeen[e.Name][e.Tool] = true
