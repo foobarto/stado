@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -207,5 +209,45 @@ func TestGroupInstalledByName_HandlesMultiDashNames(t *testing.T) {
 	}
 	if len(got["exfil-server"]) != 1 {
 		t.Errorf("exfil-server grouping wrong: %+v", got)
+	}
+}
+
+// TestRegisterInstalledPluginTools_NoPluginsDirNoOp: registry stays
+// empty when nothing is installed.
+func TestRegisterInstalledPluginTools_NoPluginsDirNoOp(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	reg := tools.NewRegistry()
+	registerInstalledPluginTools(reg, cfg)
+	if got := len(reg.All()); got != 0 {
+		t.Errorf("expected empty registry; got %d tools", got)
+	}
+}
+
+// TestRegisterInstalledPluginTools_NilCfgNoOp: nil config is a
+// silent no-op (matches BuildDefaultRegistry's nil-cfg contract).
+func TestRegisterInstalledPluginTools_NilCfgNoOp(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerInstalledPluginTools(reg, nil)
+	if got := len(reg.All()); got != 0 {
+		t.Errorf("expected empty registry on nil cfg; got %d tools", got)
+	}
+}
+
+// TestLookupInstalledModule_NotFound: looking up a tool that
+// hasn't been registered returns ok=false.
+func TestLookupInstalledModule_NotFound(t *testing.T) {
+	// Reset the package-level state so prior tests don't leak.
+	installedRegistryMu.Lock()
+	installedByTool = map[string]installedRecord{}
+	installedRegistryMu.Unlock()
+
+	if _, _, ok := LookupInstalledModule("nope__missing"); ok {
+		t.Error("LookupInstalledModule for unknown tool should be ok=false")
 	}
 }

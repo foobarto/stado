@@ -3,13 +3,17 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/mod/semver"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -150,4 +154,127 @@ func splitInstalledID(id string) (name, version string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// installedRegistryMu protects the package-level installedByTool
+// map populated by registerInstalledPluginTools and consumed by
+// LookupInstalledModule (used by cmd/stado/tool_run.go to dispatch).
+var (
+	installedRegistryMu sync.Mutex
+	installedByTool     = map[string]installedRecord{}
+)
+
+type installedRecord struct {
+	Manifest plugins.Manifest
+	WasmPath string
+}
+
+// registerInstalledPluginTools enumerates installed plugins under
+// cfg.StateDir()/plugins/, picks the active version per plugin
+// (pickActiveVersion), verifies the manifest signature against the
+// trust store + wasm sha256, and registers each declared tool as
+// an installedPluginTool wrapper with the verified wasm path.
+//
+// Plugins failing signature or sha verification emit a stado: warn
+// line on stderr and are skipped. Tool-name collisions with already-
+// registered tools (typically bundled) emit a stado: info line at
+// registration time and overwrite (Q4 — installed wins, per
+// tools.Registry.Register semantics).
+//
+// Q1/Q2/Q3/Q4 of the design.
+func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	stateDir := cfg.StateDir()
+	pluginsDir := filepath.Join(stateDir, "plugins")
+
+	groups, err := groupInstalledByName(pluginsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stado: warn: enumerate installed plugins: %v\n", err)
+		return
+	}
+
+	ts := plugins.NewTrustStore(stateDir)
+
+	// Reset package-level lookup state for this build.
+	installedRegistryMu.Lock()
+	installedByTool = map[string]installedRecord{}
+	installedRegistryMu.Unlock()
+
+	for name, versions := range groups {
+		version := pickActiveVersion(stateDir, name, versions)
+		if version == "" {
+			continue
+		}
+		dir := filepath.Join(pluginsDir, name+"-"+version)
+		mf, sig, err := plugins.LoadFromDir(dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s manifest load: %v\n", name, version, err)
+			continue
+		}
+		if err := ts.VerifyManifest(mf, sig); err != nil {
+			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s signature failed: %v; not registered\n", name, version, err)
+			continue
+		}
+		wasmPath := filepath.Join(dir, "plugin.wasm")
+		// Re-verify wasm sha now to catch tampering between install
+		// and registration.
+		if _, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath); err != nil {
+			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s wasm verify: %v; not registered\n", name, version, err)
+			continue
+		}
+		for _, def := range mf.Tools {
+			if _, exists := reg.Get(def.Name); exists {
+				fmt.Fprintf(os.Stderr, "stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
+			}
+			class := classFromString(def.Class)
+			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class))
+
+			installedRegistryMu.Lock()
+			installedByTool[def.Name] = installedRecord{
+				Manifest: *mf,
+				WasmPath: wasmPath,
+			}
+			installedRegistryMu.Unlock()
+		}
+	}
+}
+
+// classFromString maps a manifest's Class string to the runtime's
+// tool.Class enum. Defaults to ClassExec — matches pkg/tool's
+// ClassOf() fallback for tools that don't declare a class
+// (pkg/tool/tool.go:58: "unknown tools are treated conservatively").
+//
+// Note: this is intentionally distinct from plugins.ToolDef.ClassValue(),
+// which defaults to ClassNonMutating. The wrapper's Class() drives
+// registry display; safety-critical promotion (e.g. capability-based)
+// happens at invocation time inside runPluginInvocation via
+// EffectiveToolClass.
+func classFromString(s string) tool.Class {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "nonmutating", "non-mutating", "non_mutating":
+		return tool.ClassNonMutating
+	case "statemutating", "state-mutating", "state_mutating":
+		return tool.ClassStateMutating
+	case "mutating":
+		return tool.ClassMutating
+	case "exec":
+		return tool.ClassExec
+	}
+	return tool.ClassExec
+}
+
+// LookupInstalledModule returns the manifest + wasm path for the
+// named installed-plugin tool. Symmetric with
+// bundledplugins.LookupModuleByToolName. Used by cmd/stado/tool_run.go
+// to dispatch installed-plugin invocation through runPluginInvocation.
+func LookupInstalledModule(toolName string) (plugins.Manifest, string, bool) {
+	installedRegistryMu.Lock()
+	defer installedRegistryMu.Unlock()
+	rec, ok := installedByTool[toolName]
+	if !ok {
+		return plugins.Manifest{}, "", false
+	}
+	return rec.Manifest, rec.WasmPath, true
 }
