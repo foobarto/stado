@@ -284,6 +284,10 @@ type Model struct {
 	fleetPicker *fleetpicker.Model
 	fleet       *runtime.Fleet
 	attach      attachState // /session attach RW state (EP-0038 §F)
+	// sessionToolOverrides holds /tool enable/disable/autoload/
+	// unautoload edits made without --save. Zero value = no
+	// overrides. EP-0037 §I, BACKLOG #5.
+	sessionToolOverrides sessionToolOverrides
 	vp          viewport.Model
 	showHelp    bool
 	showStatus  bool
