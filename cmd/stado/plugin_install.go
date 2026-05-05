@@ -46,6 +46,17 @@ var pluginInstallCmd = &cobra.Command{
 			return err
 		}
 		src := args[0]
+		// EP-0039: detect remote identity (host/owner/repo@version) and fetch
+		// to a local staging dir before running the install pipeline.
+		if looksLikeRemoteIdentity(src) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetching %s...\n", src)
+			fetched, fetchErr := fetchRemotePlugin(src)
+			if fetchErr != nil {
+				return fmt.Errorf("install: %w", fetchErr)
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "fetched to %s\n", fetched)
+			src = fetched
+		}
 		m, sig, err := plugins.LoadFromDir(src)
 		if err != nil {
 			return err
@@ -125,6 +136,22 @@ var pluginInstallCmd = &cobra.Command{
 		if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
 			_ = workdirpath.RemoveAllNoSymlink(dst)
 			return fmt.Errorf("install: verify installed copy: %w", err)
+		}
+		// EP-0039: write lock file entry if this was a remote install (identity present).
+		if looksLikeRemoteIdentity(args[0]) {
+			if id, err := plugins.ParseIdentity(args[0]); err == nil {
+				lockPath := pluginLockPath(cfg)
+				if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err == nil {
+					lock, _ := plugins.ReadLock(lockPath)
+					if lock == nil {
+						lock = plugins.NewLock()
+					}
+					lock.Add(plugins.LockEntryFromManifest(id, *m))
+					if err := lock.Write(lockPath); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not write %s: %v\n", lockPath, err)
+					}
+				}
+			}
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
 		return nil
