@@ -298,6 +298,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/agents":
 		m.openAgentPicker()
+	case "/supervisor":
+		m.handleSupervisorSlash(parts)
 	case "/stats":
 		m.appendBlock(block{kind: "system", body: m.renderStats()})
 	case "/ps":
@@ -1292,6 +1294,40 @@ func localRunnerNoModelsHint(provider string) string {
 		return "restart vLLM with `vllm serve <model>`"
 	default:
 		return ""
+	}
+}
+
+// ── EP-0033 supervisor lane slash commands ────────────────────────────────
+
+func (m *Model) handleSupervisorSlash(parts []string) {
+	verb := ""
+	if len(parts) >= 2 {
+		verb = parts[1]
+	}
+	switch verb {
+	case "on", "enable":
+		if m.cfg != nil {
+			m.cfg.Supervisor.Enabled = true
+		}
+		m.appendBlock(block{kind: "system", body: "supervisor: enabled — questions and short inputs will be answered immediately while the worker continues"})
+	case "off", "disable":
+		if m.cfg != nil {
+			m.cfg.Supervisor.Enabled = false
+		}
+		m.appendBlock(block{kind: "system", body: "supervisor: disabled — all input queues for the worker"})
+	case "status", "":
+		enabled := m.cfg != nil && m.cfg.Supervisor.Enabled
+		if enabled {
+			model := ""
+			if m.cfg.Supervisor.Model != "" {
+				model = " (model: " + m.cfg.Supervisor.Model + ")"
+			}
+			m.appendBlock(block{kind: "system", body: "supervisor: enabled" + model + "\nClassifier: question-heuristic (? suffix = answer, action verb = queue)"})
+		} else {
+			m.appendBlock(block{kind: "system", body: "supervisor: disabled — /supervisor on to enable"})
+		}
+	default:
+		m.appendBlock(block{kind: "system", body: "/supervisor on|off|status"})
 	}
 }
 

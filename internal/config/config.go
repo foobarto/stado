@@ -51,7 +51,8 @@ type Config struct {
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
 	Hooks     Hooks     `koanf:"hooks"`
-	Runtime   Runtime   `koanf:"runtime"`
+	Runtime    Runtime    `koanf:"runtime"`
+	Supervisor Supervisor `koanf:"supervisor"`
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
@@ -314,6 +315,24 @@ type InferencePreset struct {
 	// keep their conventional env var when this is empty. When set, it
 	// always wins over the builtin convention.
 	APIKeyEnv string `koanf:"api_key_env"`
+}
+
+// Supervisor is the [supervisor] config section — responsive frontline
+// supervisor/worker lane split. Off by default. EP-0033.
+//
+//	[supervisor]
+//	enabled  = true
+//	provider = "anthropic-haiku"   # references a [providers.<name>] entry
+//	model    = "claude-haiku-4-5"  # optional model override
+type Supervisor struct {
+	// Enabled activates the supervisor lane. Default false.
+	Enabled bool `koanf:"enabled"`
+	// Provider is the provider entry name to use for the supervisor lane.
+	// Empty = use the same provider as the worker.
+	Provider string `koanf:"provider"`
+	// Model overrides the supervisor provider's default model.
+	// Empty = use the provider's default.
+	Model string `koanf:"model"`
 }
 
 // Runtime is the [runtime] config section — internal migration flags.

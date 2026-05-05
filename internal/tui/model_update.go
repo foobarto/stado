@@ -943,6 +943,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.slashInline = false
 					return m, m.handleSlash(text)
 				}
+				// EP-0033: supervisor lane — classify input and route accordingly.
+				if m.cfg != nil && m.cfg.Supervisor.Enabled {
+					switch classifyInput(text) {
+					case supervisorAnswer:
+						// Route to supervisor (btw) lane — answers immediately
+						// from transcript context without queuing.
+						m.input.History.Push(text)
+						m.input.Reset()
+						return m, m.startBtw(text)
+					case supervisorInterrupt:
+						// Cancel worker and queue the input.
+						if m.streamCancel != nil {
+							m.streamCancel()
+						}
+						m.appendBlock(block{kind: "system", body: "supervisor: interrupting worker — input queued for next turn"})
+						m.queuedPrompt = text
+						m.input.History.Push(text)
+						m.input.Reset()
+						m.renderBlocks()
+						return m, nil
+					case supervisorSteer:
+						// Inject a steering note and queue.
+						steer := "[supervisor steer] " + text
+						m.appendBlock(block{kind: "btw", body: steer})
+						m.queuedPrompt = text
+						m.input.History.Push(text)
+						m.input.Reset()
+						m.renderBlocks()
+						return m, nil
+					default:
+						// supervisorQueue: fall through to normal queue behaviour.
+					}
+				}
 				m.queuedPrompt = text
 				m.appendBlock(block{kind: "user", body: text, queued: true})
 				m.renderBlocks()

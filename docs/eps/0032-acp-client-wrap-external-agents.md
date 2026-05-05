@@ -2,9 +2,10 @@
 ep: 0032
 title: ACP client — wrap external coding-agent CLIs as stado providers
 author: Bartosz Ptaszynski
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-04
+implemented-in: v0.27.0
 history:
   - date: 2026-05-04
     status: Draft
@@ -15,6 +16,9 @@ history:
   - date: 2026-05-04
     status: Draft
     note: Phase B implementation v1 landed across 5 commits (c1f235d, cd18daa, 73bc1f1, edc854e, cdd4938) — inbound dispatch, fs/* translator, universal mcp-server upgrade (Executor + sandbox), MCP mount builder, provider wiring under Tools="stado". Terminal/* ACP methods deferred (MCP-mounted bash covers shell routing). End-to-end smoke against a real wrapped agent pending dogfood.
+  - date: 2026-05-05
+    status: Implemented
+    note: Phase A+B shipped. Phase C (merge mode) explicitly deferred per EP decision — "defer until B has been in use long enough." Status updated to Implemented for phases A+B.
 see-also: [0005, 0006]
 ---
 

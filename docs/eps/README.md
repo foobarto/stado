@@ -55,8 +55,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Placeholder |
 | 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
-| 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Draft |
-| 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Draft |
+| 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Implemented |
+| 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Implemented |
 | 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Superseded |
 | 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
 | 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |

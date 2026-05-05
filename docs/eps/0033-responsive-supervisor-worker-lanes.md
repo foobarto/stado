@@ -2,13 +2,23 @@
 ep: 0033
 title: Responsive frontline — supervisor + worker lanes
 author: Bartosz Ptaszynski
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-04
+implemented-in: v0.33.0
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Captures the feature ask as user-described, the design space worked out in conversation, and the implementation shape that reuses /btw as the supervisor primitive.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Implemented in v0.33.0. [supervisor] config section (enabled, provider, model).
+      Rule-based classifier (question heuristic / interrupt phrases / steer phrases / action-verb
+      queue). During stateStreaming, supervisor-classified inputs route to startBtw() (answer),
+      supervisor steer injects a steering note, supervisor interrupt calls streamCancel.
+      /supervisor on|off|status TUI slash commands. Prompt-based classifier deferred as
+      [supervisor.classifier_prompt] config knob for a follow-up.
 see-also: [0007, 0014, 0032]
 ---
 
