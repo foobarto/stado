@@ -543,7 +543,11 @@ catalogue."
 
 ---
 
-## Task 10: Tighten `golangci-lint` test-file blanket exclusions
+## Task 10: Tighten `golangci-lint` test-file blanket exclusions — **DEFERRED**
+
+**Status: deferred 2026-05-05.** golangci-lint v2.11.4 panics on every package in the local environment (`runner_loadingpackage.go:45` — likely a Go-toolchain / golangci-plugin-version mismatch). Cannot establish a baseline lint output, so cannot measure the delta from narrowing the exclusion. Re-pick this task once the linter is functional locally OR address it as a separate "fix golangci-lint integration" plan.
+
+
 
 **Files:**
 - Modify: `.golangci.yml`
