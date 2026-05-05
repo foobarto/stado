@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -163,5 +165,35 @@ func TestToolUnautoload_ClearsPendingAdd(t *testing.T) {
 	}
 	if !containsString(m.sessionToolOverrides.autoloadRemove, "fs.read") {
 		t.Errorf("unautoload should populate autoloadRemove; got %v", m.sessionToolOverrides.autoloadRemove)
+	}
+}
+
+func TestToolEnable_SaveWritesConfig(t *testing.T) {
+	tmp := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir tmp: %v", err)
+	}
+
+	cfg := &config.Config{}
+	m := &Model{cfg: cfg}
+	m.handleToolSlash([]string{"/tool", "enable", "shell.exec", "--save"})
+
+	want := filepath.Join(tmp, ".stado", "config.toml")
+	data, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("expected config at %s: %v", want, err)
+	}
+	if !strings.Contains(string(data), "shell.exec") {
+		t.Errorf("config should mention shell.exec; got: %s", string(data))
+	}
+
+	// Session overrides should remain empty — --save bypasses them.
+	if len(m.sessionToolOverrides.enableAdd) != 0 {
+		t.Errorf("--save should not populate session overrides; got %v", m.sessionToolOverrides.enableAdd)
 	}
 }
