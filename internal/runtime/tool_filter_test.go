@@ -101,3 +101,102 @@ func TestApplyToolFilter_UnknownEnabledNamesDoNotEmptyRegistry(t *testing.T) {
 		t.Fatalf("unknown enabled tools should be ignored; was %d, got %d", before, got)
 	}
 }
+
+func TestToolMatchesGlob(t *testing.T) {
+	cases := []struct {
+		name, pat string
+		want      bool
+	}{
+		// Exact bare-name match (pre-EP-0038 tools)
+		{"read", "read", true},
+		{"bash", "bash", true},
+		{"webfetch", "web.*", false}, // bare "webfetch" has no __ separator, doesn't match "web.*"
+		// Wire-form with dotted glob
+		{"fs__read", "fs.*", true},
+		{"fs__write", "fs.*", true},
+		{"shell__exec", "fs.*", false},
+		{"tools__search", "tools.*", true},
+		{"tools__describe", "tools.*", true},
+		// Universal wildcard
+		{"read", "*", true},
+		{"fs__read", "*", true},
+		// No match
+		{"web__fetch", "fs.*", false},
+	}
+	for _, c := range cases {
+		got := ToolMatchesGlob(c.name, c.pat)
+		if got != c.want {
+			t.Errorf("ToolMatchesGlob(%q, %q) = %v, want %v", c.name, c.pat, got, c.want)
+		}
+	}
+}
+
+func TestAutoloadedTools_DefaultCore(t *testing.T) {
+	reg := BuildDefaultRegistry()
+	cfg := &config.Config{} // empty — use hardcoded defaults
+	autoloaded := AutoloadedTools(reg, cfg)
+
+	names := map[string]bool{}
+	for _, tl := range autoloaded {
+		names[tl.Name()] = true
+	}
+	// Default convenience tools must be present.
+	for _, want := range []string{"read", "write", "edit", "glob", "grep", "bash"} {
+		if !names[want] {
+			t.Errorf("default autoload should include %q", want)
+		}
+	}
+	// Meta-tools always present regardless of config.
+	for _, want := range []string{"tools__search", "tools__describe", "tools__categories", "tools__in_category"} {
+		if !names[want] {
+			t.Errorf("meta-tool %q should always be autoloaded", want)
+		}
+	}
+}
+
+func TestAutoloadedTools_CustomAutoload(t *testing.T) {
+	reg := BuildDefaultRegistry()
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"read", "grep"}
+	autoloaded := AutoloadedTools(reg, cfg)
+
+	names := map[string]bool{}
+	for _, tl := range autoloaded {
+		names[tl.Name()] = true
+	}
+	if !names["read"] || !names["grep"] {
+		t.Error("custom autoload should include read and grep")
+	}
+	if names["bash"] {
+		t.Error("bash should NOT be autoloaded when not in custom autoload list")
+	}
+	// Meta-tools still always present.
+	if !names["tools__search"] {
+		t.Error("tools__search should always be autoloaded")
+	}
+}
+
+func TestApplyToolFilter_WildcardDisabled(t *testing.T) {
+	reg := BuildDefaultRegistry()
+	cfg := &config.Config{}
+	cfg.Tools.Disabled = []string{"bash"} // exact name
+	ApplyToolFilter(reg, cfg)
+	for _, tl := range reg.All() {
+		if tl.Name() == "bash" {
+			t.Error("bash should be removed by disabled list")
+		}
+	}
+}
+
+func TestApplyToolFilter_GlobDisabled(t *testing.T) {
+	// After EP-0038 tools get wire names, this tests glob removal.
+	// For now just verify zero-match glob is a silent no-op.
+	reg := BuildDefaultRegistry()
+	before := len(reg.All())
+	cfg := &config.Config{}
+	cfg.Tools.Disabled = []string{"nonexistent.*"} // glob matching nothing
+	ApplyToolFilter(reg, cfg)
+	if got := len(reg.All()); got != before {
+		t.Errorf("zero-match glob disable should be no-op; was %d, got %d", before, got)
+	}
+}

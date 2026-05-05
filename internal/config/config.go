@@ -168,6 +168,11 @@ func (m Memory) EffectiveBudgetTokens() int {
 type Tools struct {
 	Enabled  []string `koanf:"enabled"`
 	Disabled []string `koanf:"disabled"`
+	// Autoload is the subset of enabled tools whose schemas are sent to
+	// the model at every turn (EP-0037 §E). Tools not in this list are
+	// still reachable via tools.search + tools.describe. Empty = use the
+	// hardcoded default core (fs.*, shell.exec bare-name equivalents).
+	Autoload []string `koanf:"autoload"`
 	// Overrides maps a registry tool name to an installed plugin ID
 	// (`<name>-<version>` or `<name>@<version>`). When set, the plugin's
 	// matching tool declaration replaces the native/MCP tool under the
@@ -310,8 +315,29 @@ type InferencePreset struct {
 	APIKeyEnv string `koanf:"api_key_env"`
 }
 
-// Sandbox is Phase 3's [sandbox] section — placeholder.
-type Sandbox struct{}
+// Sandbox is the [sandbox] config section. EP-0037 reserves the schema;
+// EP-0038 implements the wrap-mode enforcement.
+//
+//	[sandbox]
+//	mode = "off"          # "off" | "wrap" | "external"
+//	http_proxy = ""       # e.g. "http://127.0.0.1:8080"
+//	dns_servers = []      # override system resolver
+//	allow_env = []        # env-var allow-list; empty = pass-through
+//	refuse_no_runner = false  # hard-refuse when mode=wrap but no wrapper found
+type Sandbox struct {
+	// Mode controls process-containment behaviour. Default "off".
+	Mode string `koanf:"mode"`
+	// HTTPProxy is injected as HTTP_PROXY / HTTPS_PROXY into the wrapped process.
+	HTTPProxy string `koanf:"http_proxy"`
+	// DNSServers overrides the system resolver inside the sandbox.
+	DNSServers []string `koanf:"dns_servers"`
+	// AllowEnv is an allow-list of environment variable names passed into
+	// the sandbox. Empty = pass all through (default).
+	AllowEnv []string `koanf:"allow_env"`
+	// RefuseNoRunner makes mode=wrap hard-fail when no wrapper binary is
+	// found. Default false (warn loudly, run anyway).
+	RefuseNoRunner bool `koanf:"refuse_no_runner"`
+}
 
 // Git is Phase 2's [git] section — sidecar paths, author identity.
 type Git struct{}

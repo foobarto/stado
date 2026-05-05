@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -11,26 +12,103 @@ import (
 	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/tasktool"
+	pkgtool "github.com/foobarto/stado/pkg/tool"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+// defaultAutoloadNames is the hardcoded convenience core when [tools.autoload]
+// is empty. These bare names match the pre-EP-0038 native tool names and will
+// be updated to wire names (fs__read etc.) when EP-0038 migrates each tool.
+var defaultAutoloadNames = []string{
+	"read", "write", "edit", "glob", "grep", "bash",
+}
 
 // BuildDefaultRegistry returns a Registry preloaded with stado's bundled tools
 // (bash, fs, webfetch). Separate from Executor so callers can add/remove tools
 // before constructing the Executor.
 func BuildDefaultRegistry() *tools.Registry {
-	return buildBundledPluginRegistry()
+	reg := buildBundledPluginRegistry()
+	registerMetaTools(reg)
+	return reg
 }
 
-// ApplyToolFilter trims a registry per cfg.Tools. All tools are on
-// by default; Enabled acts as an allowlist (keep only these);
-// Disabled removes specific names from the default set. When both
-// are set Enabled wins — Disabled is redundant against an explicit
-// allowlist.
+// ToolMatchesGlob reports whether a registered tool name matches a config
+// pattern. Patterns are either exact names (bare or wire-form) or wildcard
+// globs using dotted-canonical syntax with a trailing .*:
 //
-// Unknown tool names in either list log to stderr but don't abort —
-// typo-tolerant so a user's config doesn't break stado across
-// version upgrades that rename a tool. Mutates the registry in
-// place so it's safe to chain after BuildDefaultRegistry.
+//   - "read"     — exact bare-name match
+//   - "fs.*"     — matches any wire-form tool whose alias segment is "fs"
+//     (fs__read, fs__write, etc.) or canonical form fs.read
+//   - "*"        — matches every tool
+//
+// Wire form uses double-underscore as separator (EP-0037 §B), so "fs.*"
+// maps to the prefix "fs__" when matching wire names.
+func ToolMatchesGlob(toolName, pattern string) bool {
+	// Universal wildcard.
+	if pattern == "*" {
+		return true
+	}
+	// Exact match (bare names, wire names, or canonical dotted names).
+	if toolName == pattern {
+		return true
+	}
+	// Dotted wildcard: "fs.*" matches wire-form tools with alias "fs__"
+	// and canonical-form tools with prefix "fs.".
+	if rest, ok := strings.CutSuffix(pattern, ".*"); ok {
+		wirePrefix := strings.NewReplacer(".", "_", "-", "_").Replace(rest) + "__"
+		dotPrefix := rest + "."
+		return strings.HasPrefix(toolName, wirePrefix) || strings.HasPrefix(toolName, dotPrefix)
+	}
+	return false
+}
+
+// toolMatchesAny returns true when toolName matches any of the patterns.
+func toolMatchesAny(toolName string, patterns []string) bool {
+	for _, p := range patterns {
+		if ToolMatchesGlob(toolName, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// AutoloadedTools returns the subset of tools in reg that should have their
+// schemas sent to the model on every turn (EP-0037 §E). The four meta-tools
+// are always included regardless of config. If cfg.Tools.Autoload is empty,
+// defaultAutoloadNames is used.
+func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
+	autoloadPatterns := defaultAutoloadNames
+	if cfg != nil && len(cfg.Tools.Autoload) > 0 {
+		autoloadPatterns = cfg.Tools.Autoload
+	}
+	var out []pkgtool.Tool
+	for _, t := range reg.All() {
+		if isMetaTool(t.Name()) {
+			out = append(out, t)
+			continue
+		}
+		if toolMatchesAny(t.Name(), autoloadPatterns) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// isMetaTool reports whether name is one of the four dispatch kernel tools.
+func isMetaTool(name string) bool {
+	switch name {
+	case "tools__search", "tools__describe", "tools__categories", "tools__in_category":
+		return true
+	}
+	return false
+}
+
+// ApplyToolFilter trims a registry per cfg.Tools. All tools are on by default;
+// Enabled acts as an allowlist (keep only these); Disabled removes specific
+// names. When both are set Enabled wins. Patterns support wildcard globs via
+// ToolMatchesGlob (e.g. "fs.*", "*"). Zero-match globs are silent no-ops.
+//
+// Mutates the registry in place; safe to chain after BuildDefaultRegistry.
 func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	if cfg == nil {
 		return
@@ -43,22 +121,25 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		known[t.Name()] = true
 	}
 
-	// Warn on unknown names so typos surface.
-	warnUnknown := func(list []string, label string) {
+	// Warn only for exact (non-glob) names that don't match anything.
+	warnUnknownExact := func(list []string, label string) {
 		for _, n := range list {
+			if strings.ContainsAny(n, "*?") {
+				continue // globs: zero match is silent
+			}
 			if !known[n] {
-				fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such bundled tool (ignored)\n", label, n)
+				fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such tool (ignored)\n", label, n)
 			}
 		}
 	}
-	warnUnknown(cfg.Tools.Enabled, "enabled")
-	warnUnknown(cfg.Tools.Disabled, "disabled")
+	warnUnknownExact(cfg.Tools.Enabled, "enabled")
+	warnUnknownExact(cfg.Tools.Disabled, "disabled")
 
 	if len(cfg.Tools.Enabled) > 0 {
 		allow := map[string]bool{}
-		for _, n := range cfg.Tools.Enabled {
-			if known[n] {
-				allow[n] = true
+		for name := range known {
+			if toolMatchesAny(name, cfg.Tools.Enabled) {
+				allow[name] = true
 			}
 		}
 		if len(allow) == 0 {
@@ -72,8 +153,10 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		return
 	}
 	// Disabled-only path.
-	for _, n := range cfg.Tools.Disabled {
-		reg.Unregister(n)
+	for name := range known {
+		if toolMatchesAny(name, cfg.Tools.Disabled) {
+			reg.Unregister(name)
+		}
 	}
 }
 
@@ -113,6 +196,21 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 // attachMCP is defined in mcp_glue.go — kept in a separate file so pulling
 // the MCP SDK in is a single-file diff and easier to #ifdef out on airgap
 // builds later.
+
+// ToolDefsFromSlice renders a tool slice as []agent.ToolDef. Used by the
+// agentloop to send only the autoloaded + activated subset each turn.
+func ToolDefsFromSlice(ts []pkgtool.Tool) []agent.ToolDef {
+	out := make([]agent.ToolDef, 0, len(ts))
+	for _, t := range ts {
+		schema, _ := json.Marshal(t.Schema())
+		out = append(out, agent.ToolDef{
+			Name:        t.Name(),
+			Description: t.Description(),
+			Schema:      schema,
+		})
+	}
+	return out
+}
 
 // ToolDefs renders the registry as []agent.ToolDef for a TurnRequest.
 func ToolDefs(reg *tools.Registry) []agent.ToolDef {

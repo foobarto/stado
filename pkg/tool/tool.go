@@ -103,6 +103,13 @@ type WritePathGuard interface {
 	CheckWritePath(path string) error
 }
 
+// ToolActivator is an optional Host extension. When tools.describe is called,
+// the host activates the described tool schemas into the current session's
+// tool surface so the model can call them in subsequent turns (EP-0037 §E).
+type ToolActivator interface {
+	ActivateTool(name string)
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes
