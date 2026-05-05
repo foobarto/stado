@@ -83,10 +83,191 @@ Listed in rough priority order (highest = most operator pain).
 
 ---
 
+# Audit additions (2026-05-05 quality pass)
+
+Added after a three-axis audit (consistency / code-quality / spec-vs-code
+reconciliation) of the v0.33.0 landings. The original 10 items above
+remain accurate. The items below are drift the original BACKLOG didn't
+catch — verified against code, not just inferred from agent reports.
+
+## 11. Tier 1 networking primitives missing entirely
+
+- **Locked at:** NOTES §3 / EP-0038 §B Tier 1 — `stado_net_dial(transport,
+  addr, opts)`, `stado_net_listen`, `stado_net_accept`, `stado_net_{read,
+  write,close}`, `stado_net_icmp_{open,send,recv,close}`.
+- **Status today:** No `host_net.go` file exists. Zero `stado_net_*`
+  imports registered in `internal/plugins/runtime/`. `host_dns.go`,
+  `host_http_request_test.go` are the only network-adjacent files.
+- **Effect:** Plugins cannot open raw sockets, listen for callbacks,
+  or do raw ICMP. The HTB use case for `net.listen` (callbacks /
+  reverse-shell handlers) is unbuildable. Capability vocabulary
+  (`net:dial:<transport>:<host>:<port>` etc.) is documented but has
+  nothing to gate.
+- **Effort:** Substantial — host_net.go scaffolding + handle table
+  integration + capability matcher for `<transport>:<host>:<port>`
+  globs + ICMP raw-socket privilege check (kernel-side only).
+- **Recommendation:** Own EP — call it EP-0038f or similar. Not a
+  patch fix.
+
+## 12. `stado_json_parse` / `stado_json_stringify` missing
+
+- **Locked at:** NOTES §3 Tier 3 — strict RFC 8259.
+- **Status today:** Not registered in runtime/host_*.go. Plugins
+  must roll their own JSON parsers in wasm or use the SDK's
+  helpers.
+- **Effort:** Small — `host_json.go` wrapping `encoding/json`.
+- **Recommendation:** Single PR alongside the Tier-1 networking
+  EP, or its own micro-PR.
+
+## 13. `stado_dns_resolve_axfr` missing
+
+- **Locked at:** NOTES §3 Tier 2.
+- **Status today:** Only `stado_dns_resolve` present in
+  `host_dns.go`. AXFR is a separate import per the locked surface.
+- **Effort:** Small — extend `host_dns.go`. Capability
+  `dns:axfr:<zone>` is in the vocabulary already.
+- **Recommendation:** Bundle with the Tier-1 networking EP.
+
+## 14. `agent.send_message` and `agent.read_messages` are stubs
+
+- **Status today:** `internal/runtime/fleet_bridge.go:99,135` —
+  `AgentReadMessages()` returns "best-effort single assistant
+  message"; `AgentSendMessage()` is a no-op. Both wired tools are
+  registered and visible to the LLM but don't do anything useful.
+- **Effect:** Of the locked 5-tool agent surface, only `spawn`,
+  `list`, and `cancel` are functional. The two-channel
+  communication model (and the architectural payoff of
+  agents-as-sessions) is a stub.
+- **Effort:** Modest — wire the FleetBridge to the actual session
+  message-queue + driver-field plumbing. Probably a fresh plan.
+- **Recommendation:** Address as part of resolving Item 1
+  (spawn_agent / agent.spawn collapse) — both touch the same
+  FleetBridge path.
+
+## 15. CLI flag name drift — `--tools-whitelist` vs locked `--tools`
+
+- **Locked at:** NOTES §10 — *"`--tools <list>` (whitelist;
+  lockdown mode)"*.
+- **Status today:** `cmd/stado/run.go:38-40,409` use
+  `--tools-whitelist`. Comment at `:405-408` acknowledges back-
+  compat: "the canonical name agreed in NOTES is `--tools`."
+- **Effort:** Tiny — rename flag (this is pre-1.0, no kid gloves
+  per NOTES line 1117).
+- **Recommendation:** Single PR. Drop `--tools-whitelist`
+  entirely; do not keep an alias.
+
+## 16. Silent JSON-parse error swallows in meta-tools
+
+- **Status today:** `internal/runtime/meta_tools.go:43`
+  (`metaSearch.Run`) and `:147` (`metaCategories.Run`) use
+  `_ = json.Unmarshal(...)`. Malformed args silently default to
+  empty query. Inconsistent with `metaDescribe:101` and
+  `metaInCategory:186` which check the error.
+- **Effort:** Tiny — change two lines.
+- **Recommendation:** Single PR; bundle with any meta-tool work.
+
+## 17. `FetchAnchorPubkey` ignores caller context
+
+- **Status today:** `internal/plugins/anchor.go:23` calls
+  `cl.Get(url)` with `//nolint:noctx`. Hardcoded 15s timeout, no
+  cancellation. Operator can't Ctrl-C an anchor fetch.
+- **Effort:** Small — switch to `http.NewRequestWithContext` and
+  thread the caller's `ctx`.
+- **Recommendation:** Single PR.
+
+## 18. Handle registry collision spins forever
+
+- **Status today:** `internal/plugins/runtime/handles.go:26-40` —
+  on collision, `alloc()` retries indefinitely. No max-attempt
+  bound. Theoretical deadlock under registry-full or rand-broken
+  conditions.
+- **Effort:** Tiny — bound the retry loop, return error on
+  exhaustion.
+- **Recommendation:** Single PR.
+
+## 19. Parity tests cover only `fs` + `shell` families
+
+- **Status today:** `internal/runtime/parity_test.go` gates `fs`
+  and `shell` only. EP-0038b migrated `rg`, `astgrep`, `readctx`,
+  `web`, `dns`, `agent` — none have parity backstops. The
+  `STADO_PARITY_*` env-gate harness is in place but unused for
+  these families.
+- **Effect:** The parity-test backstop that justified keeping
+  `internal/tools/*` (Item 10) only works for two of the seven
+  migrated families.
+- **Effort:** Modest — one parity test per family, reusing the
+  harness.
+- **Recommendation:** Plan-worthy; bundle with any work that
+  touches the migrated tools.
+
+## 20. `[sessions] auto_prune_after` config schema not wired
+
+- **Locked at:** NOTES §8 — *"`[sessions] auto_prune_after = ""`
+  (off by default)"*.
+- **Status today:** No `Sessions` struct in
+  `internal/config/config.go`. CLI `stado session prune` exists
+  for explicit cleanup, but the config knob is absent (operators
+  who want time-based retention have no toggle).
+- **Effort:** Small — add struct, parse, wire to the existing
+  prune codepath as a startup-time hook.
+- **Recommendation:** Single PR.
+
+## 21. Manual wire-form munging bypasses helpers
+
+- **Status today:** `internal/tools/tool.go:121` does
+  `strings.ReplaceAll(query, ".", "__")` directly. The
+  `WireForm`/`ParseWireForm` helpers exist precisely to keep this
+  round-trip in one place.
+- **Effort:** Tiny — replace with the helper call.
+- **Recommendation:** Single PR.
+
+## 22. `nolint:staticcheck` on `fmt.Errorf("%s", msg)`
+
+- **Status today:** `internal/sandbox/wrap.go:99`. Should be
+  `errors.New(msg)` or `fmt.Errorf(msg)`. The `nolint` hides a
+  valid lint signal.
+- **Effort:** Trivial.
+- **Recommendation:** Bundle into any sandbox-touching PR.
+
+## 23. Unused exported `ErrLockNotFound`
+
+- **Status today:** `internal/plugins/lock.go:142` exports
+  `ErrLockNotFound` but no callsite checks for it. Either delete
+  or wire into the install/load paths that should distinguish
+  "lock not found" from generic read errors.
+- **Effort:** Trivial.
+
+## 24. `defaultAutoloadNames` mixes wire forms and bare names
+
+- **Status today:** `internal/runtime/executor.go:20-34` lists
+  both `"read"` (bare native name) and `"fs__ls"`, `"spawn_agent"`
+  (wire form). Comment promises a cleanup post-EP-0038; still
+  mixed.
+- **Effort:** Small — pick wire form throughout, update comment.
+- **Recommendation:** Single PR; bundle with Item 1 collapse work
+  (touches the same area).
+
+## 25. `golangci-lint` test-file blanket exclusions
+
+- **Status today:** `.golangci.yml` exempts errcheck/unused
+  wholesale in `*_test.go`. Hides setup-failure smells (e.g. a
+  test that silently fails to spin up a fixture).
+- **Effort:** Small — narrow the exclusion to specific rules
+  (e.g. `t.TempDir()` cleanup-error suppression only).
+- **Recommendation:** Single PR.
+
+---
+
 ## Conventions for picking from this backlog
 
 - Each item lists **files** to keep grep-able; treat the list as load-bearing when starting a plan.
-- Items 2, 4, 6, 9 are tiny enough to land in a single PR without a full superpowers plan.
-- Items 1, 3, 5, 7 deserve a proper plan or an `AskUserQuestion` first to settle the design choice.
-- Item 8 is its own EP.
-- Item 10 is best left as a documented deviation rather than executed.
+- **Originals 2, 4, 6, 9** + **audit additions 12, 13, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25** are tiny enough to land in a single PR without a full superpowers plan.
+- **Originals 1, 3, 5, 7** + **audit additions 14, 19** deserve a proper plan or an `AskUserQuestion` first to settle the design choice.
+- **Original 8** + **audit addition 11** are each their own EP.
+- **Original 10** is best left as a documented deviation rather than executed.
+
+## Severity rollup (audit, 2026-05-05)
+
+- **MUST FIX (operator-visible / functional gap):** 11 (Tier 1 net), 14 (agent messaging stubs), 15 (flag name), 1 (spawn_agent dup).
+- **SHOULD FIX (correctness / hygiene):** 12, 13, 16, 17, 18, 19, 20, 21, 7.
+- **NIT (cleanup):** 22, 23, 24, 25.
