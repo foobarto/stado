@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/mod/semver"
+
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -22,6 +24,36 @@ func activeVersionMarker(stateDir, pluginName string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// pickActiveVersion returns which version of pluginName to register,
+// given the list of candidates found on disk. Pin precedence:
+//  1. <stateDir>/plugins/active/<name> marker file (set by
+//     `stado plugin use <name>@<version>`); only honoured when the
+//     marker's version is among candidates. Marker pointing at a
+//     version not on disk returns "" (caller logs + skips).
+//  2. Highest semver among candidates.
+//
+// Returns "" if (1) misses and candidates is empty.
+func pickActiveVersion(stateDir, pluginName string, candidates []string) string {
+	if marker := activeVersionMarker(stateDir, pluginName); marker != "" {
+		for _, v := range candidates {
+			if v == marker {
+				return marker
+			}
+		}
+		return ""
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	best := candidates[0]
+	for _, v := range candidates[1:] {
+		if semver.Compare(v, best) > 0 {
+			best = v
+		}
+	}
+	return best
 }
 
 // installedPluginTool wraps an installed plugin's declared tool as
