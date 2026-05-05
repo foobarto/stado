@@ -370,8 +370,31 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.handleBudgetSlash(parts)
 	case "/retry":
 		return m.handleRetrySlash()
+	case "/tool":
+		m.handleToolSlash(parts)
 	case "/session":
-		m.handleSessionSlash()
+		// /session          — show current session (existing behaviour)
+		// /session list     — alias for /sessions
+		// /session show <id> — show info for a specific session
+		// /session attach <id> — read-only attach (EP-0038 adds RW)
+		if len(parts) >= 2 {
+			switch parts[1] {
+			case "list":
+				m.appendBlock(block{kind: "system", body: m.renderSessionsOverview()})
+			case "show":
+				if len(parts) < 3 {
+					m.appendBlock(block{kind: "system", body: "/session show <id> — use `stado session show <id>` for full detail"})
+				} else {
+					m.appendBlock(block{kind: "system", body: fmt.Sprintf("session show %s: use `stado session show %s` in a terminal for full detail", parts[2], parts[2])})
+				}
+			case "attach":
+				m.appendBlock(block{kind: "system", body: "/session attach: read-write attach ships in EP-0038. Use `stado session fork <id>` for now."})
+			default:
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/session %s: unknown verb. Try: list, show, attach", parts[1])})
+			}
+		} else {
+			m.handleSessionSlash()
+		}
 	case "/split":
 		m.splitView = !m.splitView
 		if m.splitView {
@@ -403,6 +426,77 @@ func (m *Model) handleSessionSlash() {
 		sb.WriteString(fmt.Sprintf("\nlabel:    %s", desc))
 	}
 	m.appendBlock(block{kind: "system", body: sb.String()})
+}
+
+// handleToolSlash dispatches /tool <verb> [args] commands (EP-0037 §I).
+// Session-scoped by default — does not write config files.
+func (m *Model) handleToolSlash(parts []string) {
+	verb := ""
+	if len(parts) >= 2 {
+		verb = parts[1]
+	}
+	switch verb {
+	case "", "ls":
+		glob := ""
+		if len(parts) >= 3 {
+			glob = parts[2]
+		}
+		reg := runtime.BuildDefaultRegistry()
+		if m.cfg != nil {
+			runtime.ApplyToolFilter(reg, m.cfg)
+		}
+		autoloaded := runtime.AutoloadedTools(reg, m.cfg)
+		autoSet := map[string]bool{}
+		for _, t := range autoloaded {
+			autoSet[t.Name()] = true
+		}
+		var lines []string
+		for _, t := range reg.All() {
+			if glob != "" && !runtime.ToolMatchesGlob(t.Name(), glob) {
+				continue
+			}
+			state := "enabled"
+			if autoSet[t.Name()] {
+				state = "autoloaded"
+			}
+			lines = append(lines, fmt.Sprintf("%-32s %s", t.Name(), state))
+		}
+		m.appendBlock(block{kind: "system", body: strings.Join(lines, "\n")})
+
+	case "info":
+		if len(parts) < 3 {
+			m.appendBlock(block{kind: "system", body: "/tool info <name>"})
+			return
+		}
+		reg := runtime.BuildDefaultRegistry()
+		t, ok := reg.Get(parts[2])
+		if !ok {
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("tool %q not found", parts[2])})
+			return
+		}
+		schema, _ := json.MarshalIndent(t.Schema(), "", "  ")
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("%s\n\n%s\n\nSchema:\n%s", t.Name(), t.Description(), schema)})
+
+	case "cats":
+		q := ""
+		if len(parts) >= 3 {
+			q = strings.ToLower(parts[2])
+		}
+		var cats []string
+		for _, c := range plugins.CanonicalCategories {
+			if q == "" || strings.Contains(strings.ToLower(c), q) {
+				cats = append(cats, c)
+			}
+		}
+		m.appendBlock(block{kind: "system", body: strings.Join(cats, "\n")})
+
+	case "reload":
+		// Runtime-only: wasm instance drop on next call. No config change.
+		m.appendBlock(block{kind: "system", body: "/tool reload: wasm instance(s) will be re-initialised on next call."})
+
+	default:
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
+	}
 }
 
 func (m *Model) handleMemorySlash(parts []string) {
