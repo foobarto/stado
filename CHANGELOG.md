@@ -4,6 +4,81 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## v0.33.0 — Tool dispatch, ABI v2, plugin distribution, supervisor lane, browser
+
+### Tool dispatch and operator surface (EP-0037)
+
+- **Wire-form naming** — canonical dotted (`fs.read`) + wire `__` form (`fs__read`).
+  21-entry frozen category taxonomy, validated at `plugin install` time.
+- **Four meta-tools** — `tools__search/describe/categories/in_category` as
+  non-disableable dispatch kernel. `tools.describe` activates non-autoloaded schemas
+  into the session surface.
+- **Autoload dispatch** — only the autoloaded core hits the turn's tool surface
+  (default: `read/write/edit/glob/grep/bash` + kernel). Configurable via
+  `[tools.autoload]` or `--tools-autoload`.
+- **`stado tool ls|info|cats|reload`** subcommand.
+- **CLI** — `--tools-whitelist`, `--tools-autoload`, `--tools-disable`.
+- **TUI** — `/tool ls|info|cats|reload`, `/session list|show|attach|detach`.
+
+### ABI v2 and bundled wasm tools (EP-0038)
+
+- **New host imports** — `stado_proc_spawn/read/write/wait/kill/close`,
+  `stado_exec`, `stado_bundled_bin`, `stado_fs_read_partial` (offset/length partial
+  read, D24), `stado_dns_resolve`, `stado_hash/hmac` (md5/sha1/sha256/sha512),
+  `stado_compress/decompress` (gzip/zlib). Handle registry (32-bit, collision check).
+- **Wasm migration** — bundled wasm plugins: `fs`, `shell`, `rg`, `readctx`,
+  `agent`. Per-tool parity flags (`[runtime.use_wasm.*]`). `fs` and `shell` parity
+  tests pass. `ApplyWasmMigration()` activated from `BuildExecutor`.
+- **Agent surface** — `FleetBridge` + `stado_agent_*` host imports. `FleetBridgeAdapter`
+  wraps existing Fleet + SubagentRunner. `agent.spawn/list/read_messages/send_message/cancel`.
+- **Sandbox wrap-mode** — `[sandbox] mode = "wrap"` re-execs under
+  bwrap/firejail/sandbox-exec. `[sandbox.wrap]` config for binds and network.
+  `--with-tool-host` deprecated (ToolHost always wired).
+- **TUI** — `/ps`, `/top`, `/kill`, `/stats`, `/sandbox`, `/config`. `[YOU]` marker
+  on operator messages in multi-producer sessions.
+- **`/session attach` RW** — inject messages into a running agent session.
+
+### Plugin distribution and trust (EP-0039)
+
+- **VCS identity** — `github.com/owner/repo[@subdir]@vX.Y.Z`. Floating refs
+  rejected. `plugin install` validates semver/SHA format.
+- **Anchor-of-trust** — per-owner TOFU via `AnchorTrustStore`.
+- **Lock file** — `.stado/plugin-lock.toml` per project.
+- **SHA256 drift detection** — auto-reinstall on wasm sha256 change. `--force` flag.
+- **Quality pass** — `plugin trust --pubkey-file`, `plugin use <name>@<ver>`,
+  `plugin dev <dir>` (one-step authoring loop).
+
+### Supervisor lane (EP-0033)
+
+- **`[supervisor] enabled`** — when on, input during a streaming turn is classified
+  before queuing: questions → `tools.btw` answer, steer phrases → guidance note,
+  interrupt phrases → cancel worker.
+- **`/supervisor on|off|status`** TUI slash commands.
+
+### Security-research harness (EP-0030)
+
+- **`stado run --mode security`** — activates recon-first discipline, abusability
+  filter (PoC-or-it-didn't-happen), candidate vs verified split, engagement folder
+  conventions in the system prompt.
+- **`stado harness init`** — creates `notes/engagements/` and
+  `.stado/harness/security.md` (customisable prompt override).
+
+### Browser plugin
+
+- **`plugins/default/browser`** — two-tier browser, auto-available to all models.
+  - **Tier 1** (no deps): `browser_open`, `browser_click`, `browser_query` — HTTP
+    fetch, cookie jar, Chrome/Firefox/Safari headers. `needs_js: true` escalation hint.
+  - **Tier 2** (requires `chromium`/`google-chrome`): `browser_cdp_open`,
+    `browser_cdp_navigate`, `browser_cdp_eval`, `browser_cdp_screenshot`,
+    `browser_cdp_click_element`, `browser_cdp_type`, `browser_cdp_scroll`,
+    `browser_cdp_close` — real headless Chrome, full JS, real DOM events, keyboard,
+    scroll triggers. Anti-detection: `--disable-blink-features=AutomationControlled`.
+
+### Infra / Fixes
+
+- **Makefile** — `GOTMPDIR` redirected off `/tmp` to avoid per-user quota.
+- **EP-0032** (ACP client) — phases A+B marked Implemented.
+
 ## v0.32.0 — /loop, /monitor, stado schedule, .stado/ project dir, sampling args
 
 ### TUI
