@@ -180,6 +180,87 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
 		},
 		shellSessionCaps))
+
+	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
+	agentCaps := []string{"agent:fleet"}
+	r.Register(newBundledWasmTool("agent", "stado_tool_spawn", "agent__spawn",
+		"Spawn a sub-agent. Returns {id, session_id, status, final_text?}. Default async=false blocks until child completes; async=true returns immediately. Default model inherits parent's. EP-0038 §D.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"prompt"},
+			"properties": map[string]any{
+				"prompt":          map[string]any{"type": "string"},
+				"model":           map[string]any{"type": "string"},
+				"async":           map[string]any{"type": "boolean"},
+				"ephemeral":       map[string]any{"type": "boolean"},
+				"parent_session":  map[string]any{"type": "string"},
+				"sandbox_profile": map[string]any{"type": "string"},
+				"allowed_tools":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			},
+		},
+		agentCaps))
+	r.Register(newBundledWasmTool("agent", "stado_tool_list", "agent__list",
+		"List agents in caller's spawn tree. Returns [{id, session_id, status, model, started_at, last_turn_at, cost_so_far_usd}].",
+		tool.ClassNonMutating,
+		map[string]any{"type": "object"},
+		agentCaps))
+	r.Register(newBundledWasmTool("agent", "stado_tool_read_messages", "agent__read_messages",
+		"Read assistant-role messages from an agent's output channel. Optional since/timeout for incremental polling. Returns {messages, offset, status}.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{
+				"id":         map[string]any{"type": "string"},
+				"since":      map[string]any{"type": "integer"},
+				"timeout_ms": map[string]any{"type": "integer"},
+			},
+		},
+		agentCaps))
+	r.Register(newBundledWasmTool("agent", "stado_tool_send_message", "agent__send_message",
+		"Send a user-role message into an agent's inbox. Delivered at the agent's next yield point.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id", "message"},
+			"properties": map[string]any{
+				"id":      map[string]any{"type": "string"},
+				"message": map[string]any{"type": "string"},
+			},
+		},
+		agentCaps))
+	// EP-0038c: web.* and dns.* — wasm-backed wrappers over existing host imports.
+	r.Register(newBundledWasmTool("web", "stado_tool_fetch", "web__fetch",
+		"Fetch a URL and return the body converted to markdown. Supports HTTPS to public hosts via net:http_request capability.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"url"},
+			"properties": map[string]any{
+				"url":        map[string]any{"type": "string"},
+				"timeout_ms": map[string]any{"type": "integer"},
+			},
+		},
+		[]string{"net:http_request"}))
+	r.Register(newBundledWasmTool("dns", "stado_tool_resolve", "dns__resolve",
+		"DNS lookup: A/AAAA (default), TXT, MX, NS, PTR. Args: name, qtype?, server?, timeout_ms?. Returns {records, error?}.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"name"},
+			"properties": map[string]any{
+				"name":       map[string]any{"type": "string"},
+				"qtype":      map[string]any{"type": "string", "enum": []string{"A", "AAAA", "TXT", "MX", "NS", "PTR"}},
+				"server":     map[string]any{"type": "string"},
+				"timeout_ms": map[string]any{"type": "integer"},
+			},
+		},
+		[]string{"dns:resolve"}))
+
+	r.Register(newBundledWasmTool("agent", "stado_tool_cancel", "agent__cancel",
+		"Cancel a running agent. The child exits at its next yield point.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{"id": map[string]any{"type": "string"}},
+		},
+		agentCaps))
 	return r
 }
 
@@ -319,6 +400,12 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 
 	host := pluginRuntime.NewHost(p.manifest, h.Workdir(), nil)
 	host.ToolHost = h
+	// EP-0038c: wire FleetBridge for agent.* tools when the host provides one.
+	if afp, ok := h.(tool.AgentFleetProvider); ok {
+		if fb, ok := afp.AgentFleetBridge().(pluginRuntime.FleetBridge); ok {
+			host.FleetBridge = fb
+		}
+	}
 	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
 		host.ApprovalBridge = bridge
 	}

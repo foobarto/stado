@@ -110,6 +110,14 @@ type ToolActivator interface {
 	ActivateTool(name string)
 }
 
+// AgentFleetProvider is an optional Host extension. When implemented, bundled
+// agent.* wasm tools get a FleetBridge wired automatically. Returns an opaque
+// any to avoid an import cycle (the actual type is *runtime.FleetBridgeAdapter).
+// EP-0038 §D Tier 1+.
+type AgentFleetProvider interface {
+	AgentFleetBridge() any
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes

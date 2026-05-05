@@ -70,8 +70,8 @@ var bundledToolMetadata = map[string]ToolMetadata{
 	"lsp__symbols":       {Canonical: "lsp.symbols", Plugin: "lsp", Categories: []string{"lsp", "code-search"}},
 	"lsp__hover":         {Canonical: "lsp.hover", Plugin: "lsp", Categories: []string{"lsp", "documentation"}},
 
-	// web
-	"webfetch":     {Canonical: "web.fetch", Plugin: "web", Categories: []string{"web", "network"}},
+	// web — webfetch native superseded by web__fetch wasm; hide the native.
+	"webfetch":     {Canonical: "", Plugin: "", Categories: nil},
 	"web__fetch":   {Canonical: "web.fetch", Plugin: "web", Categories: []string{"web", "network"}},
 	"web__search":  {Canonical: "web.search", Plugin: "web", Categories: []string{"web", "network"}},
 	"web__browse":  {Canonical: "web.browse", Plugin: "web", Categories: []string{"web", "network"}},
@@ -81,7 +81,8 @@ var bundledToolMetadata = map[string]ToolMetadata{
 	"http__client_new":  {Canonical: "http.client_new", Plugin: "http", Categories: []string{"network", "web"}},
 
 	// agent
-	"spawn_agent":         {Canonical: "agent.spawn", Plugin: "agent", Categories: []string{"agent"}},
+	// spawn_agent is hidden — superseded by agent.* wasm tools (EP-0038 supersedes EP-0013).
+	"spawn_agent":         {Canonical: "", Plugin: "", Categories: nil},
 	"agent__spawn":        {Canonical: "agent.spawn", Plugin: "agent", Categories: []string{"agent"}},
 	"agent__list":         {Canonical: "agent.list", Plugin: "agent", Categories: []string{"agent"}},
 	"agent__read_messages": {Canonical: "agent.read_messages", Plugin: "agent", Categories: []string{"agent"}},
