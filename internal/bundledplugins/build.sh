@@ -29,6 +29,20 @@ TOOLS=(
   hover
 )
 
+# EP-0038b: new wasm tool plugins with wire-name exports.
+# Output names use the alias (e.g. fs.wasm, shell.wasm).
+EP38_TOOLS=(
+  fs
+  shell
+  rg
+)
+
+# EP-0038b readctx replacement (renamed module dir to avoid conflict with
+# existing read_with_context module).
+EP38_RENAMED=(
+  "readctx-ng:readctx"
+)
+
 tmpdir="$(mktemp -d "$ROOT/.wasm-build.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -37,6 +51,18 @@ mkdir -p wasm
 for tool in "${TOOLS[@]}"; do
   echo "building ${tool}.wasm"
   GOOS=wasip1 GOARCH=wasm "$GO_BIN" build -buildmode=c-shared -o "$tmpdir/${tool}.wasm" "./modules/${tool}"
+done
+
+for tool in "${EP38_TOOLS[@]}"; do
+  echo "building ${tool}.wasm (ep-0038b)"
+  GOOS=wasip1 GOARCH=wasm "$GO_BIN" build -buildmode=c-shared -o "$tmpdir/${tool}.wasm" "./modules/${tool}"
+done
+
+for entry in "${EP38_RENAMED[@]}"; do
+  srcdir="${entry%%:*}"
+  outname="${entry##*:}"
+  echo "building ${outname}.wasm (ep-0038b, from modules/${srcdir})"
+  GOOS=wasip1 GOARCH=wasm "$GO_BIN" build -buildmode=c-shared -o "$tmpdir/${outname}.wasm" "./modules/${srcdir}"
 done
 
 echo "building auto-compact.wasm"

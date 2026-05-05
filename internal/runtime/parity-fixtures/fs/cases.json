@@ -1,0 +1,45 @@
+[
+  {
+    "tool": "read",
+    "native_name": "read",
+    "wasm_name": "fs__read",
+    "cases": [
+      {
+        "name": "read_full_file",
+        "args": {"path": "testdata/hello.txt"},
+        "setup": [{"write": "testdata/hello.txt", "content": "hello parity\n"}]
+      },
+      {
+        "name": "read_partial_offset",
+        "args": {"path": "testdata/data.bin", "offset": 5, "length": 10},
+        "setup": [{"write": "testdata/data.bin", "content": "0123456789abcdefghij"}]
+      }
+    ]
+  },
+  {
+    "tool": "write",
+    "native_name": "write",
+    "wasm_name": "fs__write",
+    "cases": [
+      {
+        "name": "write_new_file",
+        "args": {"path": "testdata/out.txt", "content": "written by parity test"}
+      }
+    ]
+  },
+  {
+    "tool": "glob",
+    "native_name": "glob",
+    "wasm_name": "fs__glob",
+    "cases": [
+      {
+        "name": "glob_txt",
+        "args": {"pattern": "testdata/*.txt"},
+        "setup": [
+          {"write": "testdata/a.txt", "content": "a"},
+          {"write": "testdata/b.txt", "content": "b"}
+        ]
+      }
+    ]
+  }
+]

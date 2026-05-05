@@ -51,6 +51,7 @@ type Config struct {
 	Tools     Tools     `koanf:"tools"`
 	Budget    Budget    `koanf:"budget"`
 	Hooks     Hooks     `koanf:"hooks"`
+	Runtime   Runtime   `koanf:"runtime"`
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
@@ -313,6 +314,26 @@ type InferencePreset struct {
 	// keep their conventional env var when this is empty. When set, it
 	// always wins over the builtin convention.
 	APIKeyEnv string `koanf:"api_key_env"`
+}
+
+// Runtime is the [runtime] config section — internal migration flags.
+// These are not operator-facing in the normal sense; they gate per-tool
+// wasm parity migrations during EP-0038 rollout. All default false (use
+// native Go implementations) until the golden parity test for each tool
+// passes.
+//
+//	[runtime.use_wasm]
+//	fs     = true    # flip after fs parity test passes
+//	shell  = true
+//	rg     = true
+type Runtime struct {
+	// UseWasm maps short tool-family names to booleans. When true, the
+	// wasm plugin for that family is registered instead of (and with the
+	// wire names replacing) the native implementation.
+	// Families: "fs", "shell", "rg", "astgrep", "readctx", "lsp",
+	//           "web", "http", "agent", "mcp", "image", "dns",
+	//           "secrets", "task", "tools".
+	UseWasm map[string]bool `koanf:"use_wasm"`
 }
 
 // Sandbox is the [sandbox] config section. EP-0037 reserves the schema;
@@ -758,9 +779,9 @@ func expandHome(path string) string {
 			return home
 		}
 	}
-	if strings.HasPrefix(path, "~/") {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
+			return filepath.Join(home, rest)
 		}
 	}
 	return path
