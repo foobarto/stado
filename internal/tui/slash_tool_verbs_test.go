@@ -91,3 +91,77 @@ func TestToolDisable_PullsFromEnableRemove(t *testing.T) {
 		t.Errorf("disable should populate enableRemove for the same arg; got %+v", m.sessionToolOverrides)
 	}
 }
+
+func TestToolAutoload_NoSave(t *testing.T) {
+	cfg := &config.Config{}
+	m := &Model{cfg: cfg}
+	m.handleToolSlash([]string{"/tool", "autoload", "fs.read"})
+
+	if !containsString(m.sessionToolOverrides.autoloadAdd, "fs.read") {
+		t.Errorf("autoload should add; got %+v", m.sessionToolOverrides)
+	}
+}
+
+func TestToolAutoload_NoArgs(t *testing.T) {
+	m := &Model{cfg: &config.Config{}}
+	m.handleToolSlash([]string{"/tool", "autoload"})
+	out := m.lastSystemBlockBody()
+	if !strings.Contains(out, "usage") {
+		t.Errorf("missing-args should print usage; got: %q", out)
+	}
+}
+
+func TestToolAutoload_ClearsPendingRemove(t *testing.T) {
+	// If a previous /tool unautoload queued a removal, /tool autoload
+	// for the same name should cancel that removal.
+	m := &Model{cfg: &config.Config{}}
+	m.sessionToolOverrides.autoloadRemove = []string{"fs.read"}
+	m.handleToolSlash([]string{"/tool", "autoload", "fs.read"})
+
+	if containsString(m.sessionToolOverrides.autoloadRemove, "fs.read") {
+		t.Errorf("autoload should clear pending autoloadRemove; got %v", m.sessionToolOverrides.autoloadRemove)
+	}
+	if !containsString(m.sessionToolOverrides.autoloadAdd, "fs.read") {
+		t.Errorf("autoload should populate autoloadAdd; got %v", m.sessionToolOverrides.autoloadAdd)
+	}
+}
+
+func TestToolUnautoload_NoSave(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"fs.read"}
+	m := &Model{cfg: cfg}
+	m.handleToolSlash([]string{"/tool", "unautoload", "fs.read"})
+
+	eff := m.effectiveConfig()
+	if containsString(eff.Tools.Autoload, "fs.read") {
+		t.Errorf("unautoload should remove from effective autoload; got %v", eff.Tools.Autoload)
+	}
+	// Disk config untouched.
+	if !containsString(cfg.Tools.Autoload, "fs.read") {
+		t.Errorf("disk config should still have fs.read; got %v", cfg.Tools.Autoload)
+	}
+}
+
+func TestToolUnautoload_NoArgs(t *testing.T) {
+	m := &Model{cfg: &config.Config{}}
+	m.handleToolSlash([]string{"/tool", "unautoload"})
+	out := m.lastSystemBlockBody()
+	if !strings.Contains(out, "usage") {
+		t.Errorf("missing-args should print usage; got: %q", out)
+	}
+}
+
+func TestToolUnautoload_ClearsPendingAdd(t *testing.T) {
+	// If /tool autoload queued an add, /tool unautoload for the same
+	// name should cancel that add.
+	m := &Model{cfg: &config.Config{}}
+	m.sessionToolOverrides.autoloadAdd = []string{"fs.read"}
+	m.handleToolSlash([]string{"/tool", "unautoload", "fs.read"})
+
+	if containsString(m.sessionToolOverrides.autoloadAdd, "fs.read") {
+		t.Errorf("unautoload should clear pending autoloadAdd; got %v", m.sessionToolOverrides.autoloadAdd)
+	}
+	if !containsString(m.sessionToolOverrides.autoloadRemove, "fs.read") {
+		t.Errorf("unautoload should populate autoloadRemove; got %v", m.sessionToolOverrides.autoloadRemove)
+	}
+}

@@ -571,6 +571,52 @@ func (m *Model) handleToolSlash(parts []string) {
 		m.sessionToolOverrides.autoloadRemove = appendUnique(m.sessionToolOverrides.autoloadRemove, args...)
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool disable: disabled %v for this session (use --save to persist)", args)})
 
+	case "autoload":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool autoload <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload: %v", err)})
+				return
+			}
+			if err := config.WriteToolsListAdd(path, "autoload", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload --save: wrote %s ([tools].autoload += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.autoloadAdd = appendUnique(m.sessionToolOverrides.autoloadAdd, args...)
+		m.sessionToolOverrides.autoloadRemove = removeFromSlice(m.sessionToolOverrides.autoloadRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool autoload: %v for this session (use --save to persist)", args)})
+
+	case "unautoload":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool unautoload <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload: %v", err)})
+				return
+			}
+			if err := config.WriteToolsListRemove(path, "autoload", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload --save: wrote %s ([tools].autoload -= %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.autoloadRemove = appendUnique(m.sessionToolOverrides.autoloadRemove, args...)
+		m.sessionToolOverrides.autoloadAdd = removeFromSlice(m.sessionToolOverrides.autoloadAdd, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool unautoload: removed %v from this session's autoload (use --save to persist)", args)})
+
 	default:
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
 	}
@@ -652,6 +698,22 @@ func appendUnique(slice []string, extras ...string) []string {
 		slice = append(slice, e)
 	}
 	return slice
+}
+
+// removeFromSlice returns slice with all entries equal to any of
+// the targets removed, preserving order.
+func removeFromSlice(slice []string, targets ...string) []string {
+	skip := map[string]bool{}
+	for _, t := range targets {
+		skip[t] = true
+	}
+	out := slice[:0]
+	for _, s := range slice {
+		if !skip[s] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // projectConfigPath returns the path of the project's
