@@ -65,62 +65,84 @@ func WriteTUIThinkingDisplay(configPath, mode string) error {
 	})
 }
 
-// WriteToolsListAdd appends entries to [tools].<key> ("enabled" /
-// "disabled" / "autoload"). Existing entries in the list are preserved.
-// Duplicates are de-duped. The list is created when absent. Empty entries
-// are ignored. EP-0037 §F — `stado tool {enable,disable,autoload}` config
-// persistence.
-func WriteToolsListAdd(configPath, key string, entries []string) error {
+// ToolsListKey is one of the three [tools] list-typed config keys.
+// EP-0037 §F — `stado tool {enable,disable,autoload}` config persistence.
+type ToolsListKey string
+
+const (
+	ToolsKeyEnabled  ToolsListKey = "enabled"
+	ToolsKeyDisabled ToolsListKey = "disabled"
+	ToolsKeyAutoload ToolsListKey = "autoload"
+)
+
+// ToolsListOp is one mutation against a single [tools].<key> list.
+type ToolsListOp struct {
+	Key    ToolsListKey
+	Add    []string // appended, de-duped against existing
+	Remove []string // dropped if present
+}
+
+// WriteToolsLists applies a batch of [tools] list mutations atomically:
+// one config-file read, one mutation pass, one atomic write. Duplicates
+// are de-duped. Empty list entries are ignored. Lists are left empty
+// (not deleted) when no entries remain — keeps the section visible for
+// inspection. Removing a non-present entry is silent.
+//
+// The whole batch lands together (or not at all on write error), avoiding
+// the cross-list inconsistency a per-key sequence would risk if the
+// process died mid-update — `tool disable foo` removes from `enabled`
+// AND `autoload` AND adds to `disabled` in one pass.
+func WriteToolsLists(configPath string, ops []ToolsListOp) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	if !isToolsListKey(key) {
-		return fmt.Errorf("unknown [tools] list key %q (want enabled / disabled / autoload)", key)
+	for _, op := range ops {
+		if !isToolsListKey(string(op.Key)) {
+			return fmt.Errorf("unknown [tools] list key %q (want enabled / disabled / autoload)", op.Key)
+		}
 	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		for _, op := range ops {
+			existing := readStringList(tree, []string{"tools", string(op.Key)})
+			rmSet := make(map[string]bool, len(op.Remove))
+			for _, e := range dedupeNonEmpty(op.Remove) {
+				rmSet[e] = true
+			}
+			kept := make([]string, 0, len(existing))
+			for _, e := range existing {
+				if !rmSet[e] {
+					kept = append(kept, e)
+				}
+			}
+			merged := dedupeNonEmpty(append(kept, op.Add...))
+			tree.SetPath([]string{"tools", string(op.Key)}, merged)
+		}
+	})
+}
+
+// WriteToolsListAdd is a one-key shorthand for WriteToolsLists. Errors
+// if entries is empty (matching the prior contract).
+func WriteToolsListAdd(configPath, key string, entries []string) error {
 	add := dedupeNonEmpty(entries)
 	if len(add) == 0 {
 		return fmt.Errorf("no entries to add")
 	}
-	return updateConfig(configPath, func(tree *toml.Tree) {
-		existing := readStringList(tree, []string{"tools", key})
-		merged := dedupeNonEmpty(append(existing, add...))
-		tree.SetPath([]string{"tools", key}, anySliceFromStrings(merged))
-	})
+	return WriteToolsLists(configPath, []ToolsListOp{{Key: ToolsListKey(key), Add: add}})
 }
 
-// WriteToolsListRemove removes entries from [tools].<key>. Non-present
-// entries are silently ignored. The list is left empty (not deleted) when
-// no entries remain — keeps the section visible for inspection.
+// WriteToolsListRemove is a one-key shorthand for WriteToolsLists. Errors
+// if entries is empty (matching the prior contract).
 func WriteToolsListRemove(configPath, key string, entries []string) error {
-	if strings.TrimSpace(configPath) == "" {
-		return fmt.Errorf("config path is empty")
-	}
-	if !isToolsListKey(key) {
-		return fmt.Errorf("unknown [tools] list key %q (want enabled / disabled / autoload)", key)
-	}
 	rm := dedupeNonEmpty(entries)
 	if len(rm) == 0 {
 		return fmt.Errorf("no entries to remove")
 	}
-	rmSet := make(map[string]bool, len(rm))
-	for _, e := range rm {
-		rmSet[e] = true
-	}
-	return updateConfig(configPath, func(tree *toml.Tree) {
-		existing := readStringList(tree, []string{"tools", key})
-		kept := make([]string, 0, len(existing))
-		for _, e := range existing {
-			if !rmSet[e] {
-				kept = append(kept, e)
-			}
-		}
-		tree.SetPath([]string{"tools", key}, anySliceFromStrings(kept))
-	})
+	return WriteToolsLists(configPath, []ToolsListOp{{Key: ToolsListKey(key), Remove: rm}})
 }
 
 func isToolsListKey(k string) bool {
-	switch k {
-	case "enabled", "disabled", "autoload":
+	switch ToolsListKey(k) {
+	case ToolsKeyEnabled, ToolsKeyDisabled, ToolsKeyAutoload:
 		return true
 	}
 	return false
@@ -156,14 +178,6 @@ func dedupeNonEmpty(in []string) []string {
 		}
 		seen[e] = true
 		out = append(out, e)
-	}
-	return out
-}
-
-func anySliceFromStrings(in []string) []any {
-	out := make([]any, len(in))
-	for i, s := range in {
-		out[i] = s
 	}
 	return out
 }

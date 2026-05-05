@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -210,25 +211,21 @@ func toolMutateConfigPath() (string, error) {
 		return toolMutateConfig, nil
 	}
 	if toolMutateGlobal {
-		// Mirror config.defaultConfigPath: $XDG_CONFIG_HOME/stado/config.toml
-		// or ~/.config/stado/config.toml.
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			return xdg + "/stado/config.toml", nil
-		}
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve user home: %w", err)
-		}
-		return home + "/.config/stado/config.toml", nil
+		return config.DefaultConfigPath(), nil
 	}
-	// Project-local: .stado/config.toml under the cwd (or its
-	// nearest ancestor — config.Load walks up). Default to creating
-	// it in the cwd.
+	// Project-local: prefer the .stado/ directory config.Load() would pick
+	// up (walks up the cwd ancestors per EP-0035). When no ancestor has
+	// a .stado/ yet, create one in the cwd.
+	if cfg, err := config.Load(); err == nil {
+		if d := cfg.ProjectStadoDir(); d != "" {
+			return filepath.Join(d, "config.toml"), nil
+		}
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("getwd: %w", err)
 	}
-	return cwd + "/.stado/config.toml", nil
+	return filepath.Join(cwd, ".stado", "config.toml"), nil
 }
 
 func runToolMutate(verb, key, removeFromKey string, args []string) error {

@@ -854,6 +854,13 @@ func expandHome(path string) string {
 	return path
 }
 
+// DefaultConfigPath returns the operator-level config file location:
+// $XDG_CONFIG_HOME/stado/config.toml, falling back to
+// ~/.config/stado/config.toml. Mirrors what config.Load() reads when
+// no project-local override is present. Exported so CLI subcommands
+// like `stado tool enable --global` can target the same file.
+func DefaultConfigPath() string { return defaultConfigPath() }
+
 func defaultConfigPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, appName, "config.toml")
