@@ -406,7 +406,9 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 					m.appendBlock(block{kind: "system", body: fmt.Sprintf("session show %s: use `stado session show %s` in a terminal for full detail", parts[2], parts[2])})
 				}
 			case "attach":
-				m.appendBlock(block{kind: "system", body: "/session attach: read-write attach ships in EP-0038. Use `stado session fork <id>` for now."})
+				m.handleSessionAttach(parts)
+		case "detach":
+				m.handleSessionDetach()
 			default:
 				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/session %s: unknown verb. Try: list, show, attach", parts[1])})
 			}
@@ -515,6 +517,54 @@ func (m *Model) handleToolSlash(parts []string) {
 	default:
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
 	}
+}
+
+// handleSessionAttach wires /session attach <id> [--pause-parent]. EP-0038 §F.
+func (m *Model) handleSessionAttach(parts []string) {
+	// parts[0]="/session", parts[1]="attach", parts[2]=id, parts[3..]=flags
+	var id string
+	pauseParent := false
+	for i := 2; i < len(parts); i++ {
+		switch parts[i] {
+		case "--pause-parent":
+			pauseParent = true
+		default:
+			if id == "" {
+				id = strings.TrimPrefix(parts[i], "agent:")
+			}
+		}
+	}
+	if id == "" {
+		m.appendBlock(block{kind: "system", body: "usage: /session attach <agent-id> [--pause-parent]\nUse /ps to list running agents."})
+		return
+	}
+	if m.fleet == nil {
+		m.appendBlock(block{kind: "system", body: "attach: no fleet registry (not in an agent session)"})
+		return
+	}
+	entry, ok := m.fleet.Get(id)
+	if !ok {
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("attach: agent %q not found — use /ps to list running agents", id)})
+		return
+	}
+	m.attach = attachState{agentID: id, pauseParent: pauseParent}
+	status := fmt.Sprintf("attached to agent:%s (session:%s) — your input will be injected into that session. /session detach to return.",
+		id[:min8(id)], entry.SessionID[:min8(entry.SessionID)])
+	if pauseParent {
+		status += " [--pause-parent: parent agent polling paused]"
+	}
+	m.appendBlock(block{kind: "system", body: status})
+}
+
+// handleSessionDetach clears attach mode. EP-0038 §F.
+func (m *Model) handleSessionDetach() {
+	if m.attach.agentID == "" {
+		m.appendBlock(block{kind: "system", body: "not currently attached to any session"})
+		return
+	}
+	prev := m.attach.agentID
+	m.attach = attachState{}
+	m.appendBlock(block{kind: "system", body: fmt.Sprintf("detached from agent:%s — back to main session", prev[:min8(prev)])})
 }
 
 func (m *Model) handleMemorySlash(parts []string) {

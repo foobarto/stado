@@ -83,6 +83,12 @@ type block struct {
 	cachedThinkingMode thinkingDisplayMode
 }
 
+// attachState tracks /session attach RW mode. EP-0038 §F.
+type attachState struct {
+	agentID     string // bare fleet ID; empty = not attached
+	pauseParent bool
+}
+
 type todo struct {
 	Title  string
 	Status string // "open" | "in_progress" | "done"
@@ -277,6 +283,7 @@ type Model struct {
 	filePicker  *filepicker.Model
 	fleetPicker *fleetpicker.Model
 	fleet       *runtime.Fleet
+	attach      attachState // /session attach RW state (EP-0038 §F)
 	vp          viewport.Model
 	showHelp    bool
 	showStatus  bool

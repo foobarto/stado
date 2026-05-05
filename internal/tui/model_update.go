@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
@@ -954,6 +955,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.slash.Close()
 				m.slashInline = false
 				return m, m.handleSlash(text)
+			}
+			// EP-0038 §F: /session attach RW — route input to agent inbox.
+			if m.attach.agentID != "" {
+				agentID := m.attach.agentID
+				if m.fleet != nil {
+					if _, ok := m.fleet.Get(agentID); ok {
+						m.appendBlock(block{kind: "user", body: text, source: "operator"})
+						// Build a bridge adapter to inject the message.
+						bridge := &runtime.FleetBridgeAdapter{
+							Fleet:   m.fleet,
+							Spawner: spawnerFunc(m.buildSubagentSpawner()),
+							RootCtx: m.rootCtx,
+						}
+						_ = bridge.AgentSendMessage(m.rootCtx, agentID, text)
+						m.appendBlock(block{kind: "system", body: fmt.Sprintf("→ sent to agent:%s", agentID[:min8(agentID)])})
+					} else {
+						m.attach = attachState{} // agent gone — auto-detach
+						m.appendBlock(block{kind: "system", body: "agent no longer running — detached automatically"})
+					}
+				}
+				m.input.History.Push(text)
+				m.input.Reset()
+				m.renderBlocks()
+				return m, nil
 			}
 			// Budget hard-cap gate (same UX pattern as the context
 			// hard-threshold). Draft text stays in input; user clears
