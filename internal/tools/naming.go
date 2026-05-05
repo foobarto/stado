@@ -21,16 +21,21 @@ func WireForm(localAlias, toolName string) (string, error) {
 	if strings.Contains(toolName, "__") {
 		return "", fmt.Errorf("naming: tool name %q contains reserved separator __", toolName)
 	}
-	seg := func(s string) string {
-		s = strings.ReplaceAll(s, ".", "_")
-		s = strings.ReplaceAll(s, "-", "_")
-		return s
-	}
-	wire := seg(localAlias) + "__" + seg(toolName)
+	wire := WireSegment(localAlias) + "__" + WireSegment(toolName)
 	if len(wire) > 64 {
 		return "", fmt.Errorf("naming: wire form %q exceeds 64 chars (Anthropic tool name limit)", wire)
 	}
 	return wire, nil
+}
+
+// WireSegment normalises one segment of a wire-form tool name. Dots and
+// dashes become underscores; the segment is otherwise passed through
+// unchanged. WireForm uses this internally; ToolMatchesGlob uses it
+// when prefix-matching dotted globs against wire-form names.
+func WireSegment(s string) string {
+	s = strings.ReplaceAll(s, ".", "_")
+	s = strings.ReplaceAll(s, "-", "_")
+	return s
 }
 
 // ParseWireForm splits a wire-form tool name back into (localAlias, toolName).

@@ -65,7 +65,7 @@ func ToolMatchesGlob(toolName, pattern string) bool {
 	// Dotted wildcard: "fs.*" matches wire-form tools with alias "fs__"
 	// and canonical-form tools with prefix "fs.".
 	if rest, ok := strings.CutSuffix(pattern, ".*"); ok {
-		wirePrefix := strings.NewReplacer(".", "_", "-", "_").Replace(rest) + "__"
+		wirePrefix := tools.WireSegment(rest) + "__"
 		dotPrefix := rest + "."
 		return strings.HasPrefix(toolName, wirePrefix) || strings.HasPrefix(toolName, dotPrefix)
 	}
