@@ -77,8 +77,8 @@ func TestParseHandleID_FreeStanding(t *testing.T) {
 	if typ != HandleTypeAgent {
 		t.Errorf("type = %q, want %q", typ, HandleTypeAgent)
 	}
-	if plugin != "" {
-		t.Errorf("plugin should be empty for free-standing; got %q", plugin)
+	if plugin != "bf3e" {
+		t.Errorf("owner-or-id = %q, want %q (free-standing id payload)", plugin, "bf3e")
 	}
 	if h != 0 {
 		t.Errorf("h should be 0 for free-standing; got %#x", h)
@@ -94,6 +94,33 @@ func TestParseHandleID_BareNumericRejected(t *testing.T) {
 func TestParseHandleID_UnknownType(t *testing.T) {
 	if _, _, _, err := ParseHandleID("nope:fs.1"); err == nil {
 		t.Error("unknown type prefix should fail")
+	}
+}
+
+func TestParseHandleID_EmptyPayloadRejected(t *testing.T) {
+	if _, _, _, err := ParseHandleID("agent:"); err == nil {
+		t.Error(`ParseHandleID("agent:") should fail — empty payload`)
+	}
+	if _, _, _, err := ParseHandleID("proc:"); err == nil {
+		t.Error(`ParseHandleID("proc:") should fail — empty payload`)
+	}
+}
+
+func TestParseHandleID_EmptyHexRejected(t *testing.T) {
+	if _, _, _, err := ParseHandleID("proc:fs."); err == nil {
+		t.Error(`ParseHandleID("proc:fs.") should fail — empty hex segment`)
+	}
+}
+
+func TestParseHandleID_InvalidHexRejected(t *testing.T) {
+	if _, _, _, err := ParseHandleID("proc:fs.zzz"); err == nil {
+		t.Error(`ParseHandleID("proc:fs.zzz") should fail — invalid hex chars`)
+	}
+}
+
+func TestParseHandleID_EmptyTypeRejected(t *testing.T) {
+	if _, _, _, err := ParseHandleID(":foo"); err == nil {
+		t.Error(`ParseHandleID(":foo") should fail — empty type prefix is not in knownHandleTypes`)
 	}
 }
 
@@ -117,6 +144,29 @@ func TestParseHandleID_RoundTrip(t *testing.T) {
 		if typ != c.typ || plugin != c.plugin || h != c.h {
 			t.Errorf("round-trip %q: got (%q,%q,%#x), want (%q,%q,%#x)",
 				s, typ, plugin, h, c.typ, c.plugin, c.h)
+		}
+	}
+}
+
+func TestParseHandleID_RoundTripFreeStanding(t *testing.T) {
+	cases := []struct {
+		typ HandleType
+		id  string
+	}{
+		{HandleTypeAgent, "bf3eabcd"},   // 8-char id, no truncation
+		{HandleTypeSession, "abc"},      // short id, no truncation
+		{HandleTypePlugin, "fs"},        // plugin name as id
+	}
+	for _, c := range cases {
+		s := FormatFreeStandingHandleID(c.typ, c.id)
+		typ, id, h, err := ParseHandleID(s)
+		if err != nil {
+			t.Errorf("round-trip %q: parse failed: %v", s, err)
+			continue
+		}
+		if typ != c.typ || id != c.id || h != 0 {
+			t.Errorf("round-trip %q: got (%q,%q,%#x), want (%q,%q,0)",
+				s, typ, id, h, c.typ, c.id)
 		}
 	}
 }

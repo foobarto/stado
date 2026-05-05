@@ -113,27 +113,42 @@ func FormatHandleID(typ HandleType, plugin string, h uint32) string {
 	return fmt.Sprintf("%s:%s.%x", typ, plugin, h)
 }
 
+// freeStandingIDDisplayChars is the maximum number of characters
+// shown for free-standing opaque IDs (agent FleetID, session id,
+// plugin name) in operator-facing handle strings.  Matches the
+// existing min8 convention in /ps output.
+const freeStandingIDDisplayChars = 8
+
 // FormatFreeStandingHandleID renders a typed handle ID for IDs that
 // don't live in handleRegistry — agents (FleetID), sessions
 // (stadogit session id), plugin instances (plugin name).  The id is
-// trimmed to 8 characters when longer (operator readability;
-// matches the existing min8 convention in /ps output).
+// trimmed to freeStandingIDDisplayChars characters when longer
+// (operator readability).
 func FormatFreeStandingHandleID(typ HandleType, id string) string {
-	if len(id) > 8 {
-		id = id[:8]
+	if len(id) > freeStandingIDDisplayChars {
+		id = id[:freeStandingIDDisplayChars]
 	}
 	return fmt.Sprintf("%s:%s", typ, id)
 }
 
 // ParseHandleID parses an operator-facing handle ID into its parts.
-// Returns (type, plugin, hex-handle, err).  For free-standing IDs
-// (agent:, session:, plugin:) plugin is "" and h is 0; the caller
-// must look up the id by string in the appropriate registry.
+// Returns (type, owner-or-id, hex-handle, err).  The second return
+// is overloaded by type:
+//
+//   - Owned types (proc/term/conn/listen) with a dotted owner
+//     ("proc:fs.7a2b"): owner-or-id is the plugin name ("fs"),
+//     hex-handle is the parsed uint32.
+//   - Owned types without a dot ("proc:42"): owner-or-id is "",
+//     hex-handle is the parsed uint32.
+//   - Free-standing types (agent/session/plugin), e.g. "agent:bf3e":
+//     owner-or-id is the opaque id payload ("bf3e"), hex-handle is 0.
+//     The caller looks the id up in the appropriate registry.
 //
 // Rejects:
 //   - bare numerics ("123") — must have a type prefix.
 //   - unknown type prefixes.
-//   - hex segments that don't fit in uint32.
+//   - empty payload after the type prefix ("agent:", "proc:").
+//   - hex segments that don't fit in uint32 (owned types only).
 func ParseHandleID(s string) (HandleType, string, uint32, error) {
 	colon := strings.IndexByte(s, ':')
 	if colon < 0 {
@@ -143,6 +158,9 @@ func ParseHandleID(s string) (HandleType, string, uint32, error) {
 	rest := s[colon+1:]
 	if !knownHandleTypes[typ] {
 		return "", "", 0, fmt.Errorf("handle ID %q: unknown type %q", s, typ)
+	}
+	if rest == "" {
+		return "", "", 0, fmt.Errorf("handle ID %q: empty payload after type prefix", s)
 	}
 	// Owned form: "<plugin>.<hex>".
 	if dot := strings.IndexByte(rest, '.'); dot >= 0 {
@@ -158,7 +176,7 @@ func ParseHandleID(s string) (HandleType, string, uint32, error) {
 	// rest is a bare hex value with empty plugin owner — this is
 	// what FormatHandleID emits when called with an empty plugin.
 	// For free-standing types (agent/session/plugin), the rest is
-	// an opaque id string; don't try to parse as hex.
+	// an opaque id string returned in the second slot.
 	if ownedHandleTypes[typ] {
 		v, err := strconv.ParseUint(rest, 16, 32)
 		if err != nil {
@@ -166,5 +184,5 @@ func ParseHandleID(s string) (HandleType, string, uint32, error) {
 		}
 		return typ, "", uint32(v), nil
 	}
-	return typ, "", 0, nil
+	return typ, rest, 0, nil
 }
