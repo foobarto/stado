@@ -2,7 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add all new Tier 1/2/3 host imports defined in EP-0038 §B to the wazero host module: `stado_fs_read_partial`, `stado_proc_*`, `stado_exec`, `stado_bundled_bin`, `stado_dns_*`, `stado_http_client_*`, `stado_secrets_*`, and Tier 3 crypto/compress/json imports. Does NOT move native tools to wasm (that's EP-0038b).
+**Goal:** Add the Tier 1 + select Tier 2/3 host imports defined in EP-0038 §B to the wazero host module: `stado_fs_read_partial`, `stado_proc_*`, `stado_exec`, `stado_bundled_bin`, `stado_dns_*`, and Tier 3 crypto/compress/json imports. Does NOT move native tools to wasm (that's EP-0038b).
+
+> **Scope deferral (clarified after Self-Review).** The originally-listed
+> `stado_http_client_*` (Tier 2 cookie jar HTTP) and `stado_secrets_*` are
+> **deferred** out of this plan. They have concrete `host_http_client.go`
+> + `host_secrets.go` file entries below for traceability, but no Task
+> body — they will land in a future EP-0038e plan (one consolidated Tier 2
+> stateful surface). Existing `stado_http_request` (Tier 1, no cookie jar)
+> covers the immediate one-shot HTTP use cases.
 
 **Architecture:** Each import group lives in its own `host_*.go` file in `internal/plugins/runtime/`. Registration follows the existing pattern: `register*Imports(builder, host)` called from `InstallHostImports`. Each new capability gate gets a corresponding `Host` field and a `capabilities.go` parse entry.
 
@@ -13,10 +21,11 @@
 **Depends on:** EP-0037 plan (for capability families `exec:proc`, `terminal:open`, `net:dial:*`, `bundled-bin:*`)
 
 **Sub-plans:**
-- **EP-0038a** (this): ABI v2 host imports
+- **EP-0038a** (this): ABI v2 host imports — Tier 1 + select Tier 2/3
 - **EP-0038b**: Bundled wasm tool migration (all native → wasm, delete NativeTool wrappers)
-- **EP-0038c**: Agent surface (agent.spawn/list/read_messages/send_message/cancel + /session attach)
-- **EP-0038d**: Sandbox implementation ([sandbox] wrap mode)
+- **EP-0038c**: Agent surface (agent.spawn/list/read_messages/send_message/cancel + /session attach) — see `2026-05-05-ep-0038c-agent-surface.md` (retroactive)
+- **EP-0038d**: Sandbox implementation ([sandbox] wrap mode) — see `2026-05-05-ep-0038d-sandbox-wrap-mode.md` (retroactive)
+- **EP-0038e**: Tier 2 stateful HTTP + secrets (`stado_http_client_*`, `stado_secrets_*`) — deferred from EP-0038a
 
 ---
 
@@ -31,8 +40,8 @@
 | `internal/plugins/runtime/host_net_icmp.go` | Create | stado_net_icmp_* |
 | `internal/plugins/runtime/host_dns.go` | Create | stado_dns_resolve, stado_dns_reverse |
 | `internal/plugins/runtime/host_dns_test.go` | Create | Tests |
-| `internal/plugins/runtime/host_http_client.go` | Create | stado_http_client_new, stado_http_client_request, stado_http_request_streaming |
-| `internal/plugins/runtime/host_secrets.go` | Create | stado_secrets_read, stado_secrets_write, stado_secrets_list |
+| `internal/plugins/runtime/host_http_client.go` | **Deferred to EP-0038e** | stado_http_client_new, stado_http_client_request, stado_http_request_streaming |
+| `internal/plugins/runtime/host_secrets.go` | **Deferred to EP-0038e** | stado_secrets_read, stado_secrets_write, stado_secrets_list |
 | `internal/plugins/runtime/host_crypto.go` | Create | stado_hash, stado_hmac |
 | `internal/plugins/runtime/host_compress.go` | Create | stado_compress, stado_decompress |
 | `internal/plugins/runtime/host_json.go` | Create | stado_json_canonicalise |
