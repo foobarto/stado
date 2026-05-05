@@ -385,6 +385,42 @@ func TestStateDir(t *testing.T) {
 	}
 }
 
+// TestLoadSessionsAutoPruneAfter — operator-set retention is parsed
+// from [sessions] auto_prune_after.
+func TestLoadSessionsAutoPruneAfter(t *testing.T) {
+	cfgHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	configDir := filepath.Join(cfgHome, "stado")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"),
+		[]byte("[sessions]\nauto_prune_after = \"90d\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Sessions.AutoPruneAfter != "90d" {
+		t.Errorf("Sessions.AutoPruneAfter = %q, want %q", cfg.Sessions.AutoPruneAfter, "90d")
+	}
+}
+
+// TestLoadSessionsDefault — default is empty string ("never prune").
+func TestLoadSessionsDefault(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Sessions.AutoPruneAfter != "" {
+		t.Errorf("default Sessions.AutoPruneAfter should be empty; got %q", cfg.Sessions.AutoPruneAfter)
+	}
+}
+
 func quoteTOML(s string) string {
 	return `"` + strings.ReplaceAll(s, `\`, `\\`) + `"`
 }
