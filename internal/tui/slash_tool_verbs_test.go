@@ -27,7 +27,7 @@ func TestToolEnable_NoArgs(t *testing.T) {
 	m := &Model{cfg: &config.Config{}}
 	m.handleToolSlash([]string{"/tool", "enable"})
 	out := m.lastSystemBlockBody()
-	if !strings.Contains(out, "usage") && !strings.Contains(out, "/tool enable") {
+	if !strings.Contains(out, "usage") {
 		t.Errorf("missing-args should print usage; got: %q", out)
 	}
 }
