@@ -52,8 +52,21 @@ func stadoToolExec(argsPtr, argsLen, resPtr, resCap int32) int32 {
 		b, _ := json.Marshal(map[string]string{"error": "exec failed"})
 		return writeResult(resPtr, resCap, b)
 	}
-	// Pass exec result JSON through directly.
-	return writeResult(resPtr, resCap, sdk.Bytes(resBuf, n))
+	// Extract stdout from exec result JSON and return as raw text,
+	// matching the native bash tool's output format.
+	var execResult struct {
+		Stdout   string `json:"stdout"`
+		ExitCode int    `json:"exit_code"`
+		Error    string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(sdk.Bytes(resBuf, n), &execResult); err != nil {
+		return writeResult(resPtr, resCap, sdk.Bytes(resBuf, n)) // fallback: pass through
+	}
+	if execResult.Error != "" {
+		b, _ := json.Marshal(map[string]string{"error": execResult.Error})
+		return writeResult(resPtr, resCap, b)
+	}
+	return writeResult(resPtr, resCap, []byte(execResult.Stdout))
 }
 
 func writeResult(resPtr, resCap int32, data []byte) int32 {

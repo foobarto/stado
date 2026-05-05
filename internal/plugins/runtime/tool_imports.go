@@ -50,15 +50,21 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 	}
 	for _, spec := range specs {
 		spec := spec
-		if !spec.allowed(host) {
-			continue
-		}
+		// Always register the import so wasm modules that import all tool
+		// functions (e.g. the bundled fs plugin) link successfully.
+		// The allowed check runs at call time — unauthorised calls get a
+		// deny error payload instead of a hard link failure. EP-0038b.
 		builder.NewFunctionBuilder().
 			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 				argsPtr := api.DecodeU32(stack[0])
 				argsLen := api.DecodeU32(stack[1])
 				resultPtr := api.DecodeU32(stack[2])
 				resultCap := api.DecodeU32(stack[3])
+				if !spec.allowed(host) {
+					msg := []byte("tool import " + spec.exportName + " denied: insufficient capabilities")
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
+					return
+				}
 				if host.ToolHost == nil {
 					msg := []byte("plugin host has no tool runtime context")
 					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))

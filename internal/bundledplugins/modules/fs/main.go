@@ -83,12 +83,8 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	if n < 0 {
 		return writeError(resPtr, resCap, "read failed")
 	}
-	content := sdk.Bytes(buf, n)
-	type result struct {
-		Content string `json:"content"`
-	}
-	b, _ := json.Marshal(result{Content: string(content)})
-	return writeResult(resPtr, resCap, b)
+	// Return raw content matching native ReadTool format.
+	return writeResult(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
 // stado_tool_write — delegate to existing native write host import.

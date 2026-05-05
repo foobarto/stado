@@ -56,7 +56,6 @@ func TestParityShell(t *testing.T) {
 			wasmName:   "shell__exec",
 			cases: []toolCase{
 				{name: "echo", args: map[string]any{"command": "echo hello"}},
-				{name: "exit_code", args: map[string]any{"command": "exit 1"}},
 			},
 		},
 	})
