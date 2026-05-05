@@ -286,3 +286,32 @@ func LookupInstalledModule(toolName string) (plugins.Manifest, string, bool) {
 	}
 	return rec.Manifest, rec.WasmPath, true
 }
+
+// ResolveInstalledPluginDir takes an operator-friendly bare plugin name
+// (e.g. "gtfobins") and returns the on-disk directory of its active
+// version (e.g. "<state>/plugins/gtfobins-0.1.0"). Resolution mirrors
+// registerInstalledPluginTools: groupInstalledByName + pickActiveVersion.
+//
+// Returns ok=false when the plugin isn't installed, or when an active-
+// version marker points at a version that's not on disk. No signature
+// verification — callers (e.g. plugin info) read the manifest after.
+func ResolveInstalledPluginDir(cfg *config.Config, name string) (string, bool) {
+	if cfg == nil || name == "" {
+		return "", false
+	}
+	stateDir := cfg.StateDir()
+	pluginsDir := filepath.Join(stateDir, "plugins")
+	groups, err := groupInstalledByName(pluginsDir)
+	if err != nil {
+		return "", false
+	}
+	versions, ok := groups[name]
+	if !ok {
+		return "", false
+	}
+	version := pickActiveVersion(stateDir, name, versions)
+	if version == "" {
+		return "", false
+	}
+	return filepath.Join(pluginsDir, name+"-"+version), true
+}

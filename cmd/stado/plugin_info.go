@@ -51,11 +51,18 @@ var pluginInfoCmd = &cobra.Command{
 			return printManifestInfo(cmd.OutOrStdout(), mf, info.Name, true)
 		}
 
-		// Disk-install lookup (original path).
+		// Disk-install lookup. Try operator-friendly bare-name resolution
+		// (e.g. "gtfobins" → "<plugins>/gtfobins-0.1.0") first, falling
+		// back to the literal `<name>-<version>` form so existing scripts
+		// keep working.
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		dir, err := plugins.InstalledDir(pluginsDir, args[0])
-		if err != nil {
-			return err
+		dir, ok := runtime.ResolveInstalledPluginDir(cfg, args[0])
+		if !ok {
+			var err error
+			dir, err = plugins.InstalledDir(pluginsDir, args[0])
+			if err != nil {
+				return err
+			}
 		}
 		if _, err := os.Stat(dir); err != nil {
 			return fmt.Errorf("plugin %q not installed — run `stado plugin list` to see installed plugins", args[0])
