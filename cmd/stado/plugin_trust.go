@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -11,14 +12,31 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 )
 
+var pluginTrustPubkeyFile string
+
 var pluginTrustCmd = &cobra.Command{
-	Use:   "trust <pubkey> [author-name]",
+	Use:   "trust [pubkey] [author-name]",
 	Short: "Pin a plugin author's Ed25519 public key (hex or base64)",
-	Args:  cobra.RangeArgs(1, 2),
+	Long: "trust pins an author pubkey by fingerprint. The pubkey can be provided\n" +
+		"as the first positional argument (hex or base64), or via --pubkey-file.\n" +
+		"Example: stado plugin trust --pubkey-file author.pubkey",
+	Args: cobra.RangeArgs(0, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
+		}
+		// EP-0039: --pubkey-file reads the key from a file (the build
+		// convention writes author.pubkey alongside the seed).
+		if pluginTrustPubkeyFile != "" {
+			data, readErr := os.ReadFile(pluginTrustPubkeyFile)
+			if readErr != nil {
+				return fmt.Errorf("--pubkey-file: %w", readErr)
+			}
+			args = append([]string{strings.TrimSpace(string(data))}, args...)
+		}
+		if len(args) == 0 {
+			return fmt.Errorf("usage: plugin trust <pubkey> or --pubkey-file <path>")
 		}
 		ts := plugins.NewTrustStore(cfg.StateDir())
 		author := ""

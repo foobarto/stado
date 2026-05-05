@@ -16,6 +16,7 @@ import (
 )
 
 var pluginInstallSigner string
+var pluginInstallForce bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
 const (
@@ -92,9 +93,29 @@ var pluginInstallCmd = &cobra.Command{
 			if info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("install: destination is a symlink: %s", dst)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "skipped: %s v%s already installed at %s\n",
-				m.Name, m.Version, dst)
-			return nil
+			if !pluginInstallForce {
+				// EP-0039: sha256 drift detection. If the wasm sha256 in
+				// the incoming manifest differs from the installed copy,
+				// reinstall automatically rather than skipping.
+				if existing, _, loadErr := plugins.LoadFromDir(dst); loadErr == nil &&
+					existing.WASMSHA256 != m.WASMSHA256 {
+					fmt.Fprintf(cmd.OutOrStdout(), "reinstalling: %s v%s (wasm sha256 changed)\n",
+						m.Name, m.Version)
+					if removeErr := os.RemoveAll(dst); removeErr != nil {
+						return fmt.Errorf("install: remove stale copy: %w", removeErr)
+					}
+					// Fall through to normal install path.
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "skipped: %s v%s already installed at %s\n",
+						m.Name, m.Version, dst)
+					return nil
+				}
+			} else {
+				// --force: remove existing and reinstall.
+				if removeErr := os.RemoveAll(dst); removeErr != nil {
+					return fmt.Errorf("install: --force remove: %w", removeErr)
+				}
+			}
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("install: stat destination %s: %w", dst, err)
 		}
