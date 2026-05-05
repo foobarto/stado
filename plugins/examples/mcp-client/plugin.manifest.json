@@ -1,0 +1,33 @@
+{
+  "name": "mcp-client",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "f701ee55897ada64",
+  "wasm_sha256": "a62dcbc84c87be8cccf7f84c6762da247f8f5ce0deda082bd5feb1bcae88a2ed",
+  "capabilities": [
+    "net:http_request",
+    "net:http_request_private",
+    "fs:read:.cache/stado-mcp",
+    "fs:write:.cache/stado-mcp"
+  ],
+  "tools": [
+    {
+      "name": "mcp_init",
+      "description": "Initialize a session against an MCP server over the streamable-HTTP transport. Performs the spec handshake (initialize → notifications/initialized), captures any Mcp-Session-Id the server returns, persists the session under \u003cworkdir\u003e/.cache/stado-mcp/\u003cid\u003e.json so subsequent calls can re-send the same auth headers + sticky session id. Pre-create the cache dir: `mkdir -p .cache/stado-mcp`.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"endpoint\":{\"type\":\"string\",\"description\":\"Streamable-HTTP endpoint (e.g. https://api.example.com/mcp).\"},\"headers\":{\"type\":\"object\",\"description\":\"Extra headers to send on every call (Authorization, X-API-Key, etc).\",\"additionalProperties\":{\"type\":\"string\"}}},\"required\":[\"endpoint\"]}"
+    },
+    {
+      "name": "mcp_list_tools",
+      "description": "List the tools exposed by an MCP server. Requires a session_id from mcp_init.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "mcp_call_tool",
+      "description": "Invoke a tool on an MCP server. Requires a session_id from mcp_init.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\",\"description\":\"Tool name (from mcp_list_tools).\"},\"arguments\":{\"type\":\"object\",\"description\":\"Tool-specific JSON args.\"}},\"required\":[\"session_id\",\"name\"]}"
+    }
+  ],
+  "min_stado_version": "0.26.0",
+  "timestamp_utc": "2026-05-05T08:30:00Z",
+  "nonce": "mcp-client-demo-001"
+}

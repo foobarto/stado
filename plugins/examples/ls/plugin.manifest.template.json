@@ -1,0 +1,21 @@
+{
+  "name": "ls",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "exec:bash",
+    "fs:read:."
+  ],
+  "tools": [
+    {
+      "name": "ls",
+      "description": "List a single directory with structured metadata: name, type (file/dir/link/special), size, mode, mtime. Wraps `ls -la --time-style=long-iso` under stado_exec_bash. Path is relative to the plugin's workdir (pass --workdir=$PWD on the CLI). Set hidden=true to include dot-files.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Directory to list (default '.').\"},\"hidden\":{\"type\":\"boolean\",\"description\":\"Include dot-files (default false).\"}}}"
+    }
+  ],
+  "min_stado_version": "0.26.0",
+  "timestamp_utc": "2026-05-05T08:20:00Z",
+  "nonce": "ls-demo-001"
+}

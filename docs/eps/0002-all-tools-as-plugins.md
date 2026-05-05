@@ -2,11 +2,12 @@
 ep: 2
 title: All Tools as WASM Plugins
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Implemented
+status: Partial
 type: Standards
 created: 2026-04-22
 implemented-in: v0.1.0
-see-also: [5, 6]
+extended-by: [38]
+see-also: [5, 6, 37, 38]
 history:
   - date: 2026-04-22
     status: Draft
@@ -18,6 +19,15 @@ history:
     status: Implemented
     version: v0.1.0
     note: Bundled tools now load through the built-in plugin runtime; approval variants ship as plugins.
+  - date: 2026-05-05
+    status: Partial
+    note: >
+      Status reduced from Implemented to Partial. The visible tool surface is plugin-shaped via
+      newBundledPluginTool wrappers, but the implementation behind a tool name is still native Go
+      (internal/runtime/bundled_plugin_tools.go directly registers fs.ReadTool{}, bash.BashTool{},
+      etc.). The invariant in §Design that "the implementation behind a tool name is a plugin
+      module running in the wazero host" is not currently true. EP-0038 restores the invariant by
+      moving every native tool to a wasm plugin and deleting the wrapper layer.
 ---
 
 # EP-2: All Tools as WASM Plugins

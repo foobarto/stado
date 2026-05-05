@@ -1,0 +1,43 @@
+{
+  "name": "browser",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "net:http_request",
+    "net:http_request_private",
+    "fs:read:.cache/stado-browser",
+    "fs:write:.cache/stado-browser"
+  ],
+  "tools": [
+    {
+      "name": "browser_open",
+      "description": "Open a URL in a tiny headless 'browser' session: fetch, parse the HTML via goquery, persist a cookie jar, follow redirects, and report links/forms/text. NOT a real browser — no JavaScript, no rendering, no canvas/WebGL fingerprinting. Spoofs UA + Accept-* headers from a profile (chrome/firefox/safari) but JA3/JA4 still come from the host's HTTP client. Pre-create the cache dir: `mkdir -p .cache/stado-browser`.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"profile\":{\"type\":\"string\",\"enum\":[\"chrome\",\"firefox\",\"safari\"]},\"headers\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}},\"required\":[\"url\"]}"
+    },
+    {
+      "name": "browser_click",
+      "description": "Follow a link on the current page. Pick by link_index (from browser_open's links list), CSS selector, or substring text_match.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"link_index\":{\"type\":\"integer\"},\"selector\":{\"type\":\"string\"},\"text_match\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_submit",
+      "description": "Fill and submit a form on the current page. Defaults pre-populated from the form's existing input values; overrides from `fields` win. POST forms send application/x-www-form-urlencoded; GET forms append to the URL. multipart/form-data is NOT supported in v0.1.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"form_index\":{\"type\":\"integer\"},\"selector\":{\"type\":\"string\"},\"fields\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}},\"click\":{\"type\":\"string\",\"description\":\"Name of the submit button to 'click', if the form has multiple.\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_screenshot",
+      "description": "Return the current page as text + serialized HTML + a one-line DOM summary. Not a pixel image — there's no rendering pipeline inside the wasm sandbox. Useful for an LLM walking the page.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"}},\"required\":[\"session_id\"]}"
+    },
+    {
+      "name": "browser_eval",
+      "description": "Run a CSS selector against the current page and return matches. attr=null returns text + outerHTML; attr=\"href\" returns the href attribute value, etc. Does NOT execute JavaScript — this is a DOM query, not eval().",
+      "schema": "{\"type\":\"object\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"selector\":{\"type\":\"string\"},\"attr\":{\"type\":\"string\"}},\"required\":[\"session_id\",\"selector\"]}"
+    }
+  ],
+  "min_stado_version": "0.26.0",
+  "timestamp_utc": "2026-05-05T08:50:00Z",
+  "nonce": "browser-demo-001"
+}

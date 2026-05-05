@@ -2,14 +2,26 @@
 ep: 0028
 title: stado plugin run --with-tool-host + HOME-rooted MkdirAll
 author: Bartosz Ptaszynski
-status: Draft
+status: Partial
 type: Standards
 created: 2026-05-04
+superseded-by: [38]
+see-also: [0005, 0006, 0027, 38]
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patches in branch shakedown-r3.
-see-also: [0005, 0006, 0027]
+  - date: 2026-05-05
+    status: Partial
+    superseded-by: [38]
+    note: >
+      Partially superseded by EP-0038. The --with-tool-host flag becomes default behaviour (since
+      under EP-0038 every tool is a wasm plugin, the bundled-vs-plugin distinction goes away); the
+      flag is accepted with deprecation warning for one release then removed. EP-0028 D1 (refuse
+      exec:bash when no sandbox runner is available) is reversed: the new default behaviour is
+      warn-loud-run-anyway, with operator opt-in via [sandbox] refuse_no_runner = true to restore
+      the hard-refusal behaviour. The HOME-rooted MkdirAll work (D2-D6) is unchanged and continues
+      to operate as shipped.
 ---
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll

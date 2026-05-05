@@ -2,11 +2,23 @@
 ep: 13
 title: Subagent Spawn Tool
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Implemented
+status: Superseded
 type: Standards
 created: 2026-04-24
-see-also: [3, 4, 6, 10, 11]
+superseded-by: [38]
+see-also: [3, 4, 6, 10, 11, 38]
 history:
+  - date: 2026-05-05
+    status: Superseded
+    superseded-by: [38]
+    note: >
+      Tool surface superseded by EP-0038's agent.* family (agent.spawn, agent.list,
+      agent.read_messages, agent.send_message, agent.cancel). spawn_agent's native-instead-of-wasm
+      decision is reversed (the new agent surface uses session:* and llm:invoke caps the same way
+      auto-compact does). Sync-only execution becomes async-by-default with sync sugar. The
+      ownership / write_scope / adoption mechanics survive as separate concerns layered on top of
+      agent.spawn (the worker contract becomes a plugin-author convention, not a runtime
+      invariant). The complementary `stado session adopt` CLI flow is unchanged.
   - date: 2026-04-25
     status: Implemented
     note: Closed the synchronous spawn_agent contract after scoped worker spawn, explicit adoption, TUI/headless/ACP surfaces, and live local-provider dogfood shipped.

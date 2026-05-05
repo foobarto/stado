@@ -25,7 +25,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | #    | Title | Type | Status |
 |------|-------|------|--------|
 | 0001 | [EP Purpose and Guidelines](./0001-ep-purpose-and-guidelines.md) | Process | Accepted |
-| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Implemented |
+| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Partial |
 | 0003 | [Provider-Native Agent Interface](./0003-provider-native-agent-interface.md) | Standards | Implemented |
 | 0004 | [Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md) | Standards | Implemented |
 | 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Implemented |
@@ -36,7 +36,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0010 | [Interop Surfaces: MCP, ACP, and Headless](./0010-interop-surfaces-mcp-acp-headless.md) | Standards | Implemented |
 | 0011 | [Observability and Telemetry](./0011-observability-and-telemetry.md) | Standards | Implemented |
 | 0012 | [Release Integrity and Distribution](./0012-release-integrity-and-distribution.md) | Standards | Implemented |
-| 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Implemented |
+| 0013 | [Subagent Spawn Tool](./0013-subagent-spawn-tool.md) | Standards | Superseded |
 | 0014 | [Multi-Session TUI](./0014-multi-session-tui.md) | Standards | Implemented |
 | 0015 | [Memory System Plugin](./0015-memory-system-plugin.md) | Standards | Implemented |
 | 0016 | [Learning and Self-Improvement Plugin](./0016-learning-self-improvement-plugin.md) | Standards | Implemented |
@@ -51,15 +51,18 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 | 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
-| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Implemented |
+| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
 | 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Placeholder |
 | 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
 | 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Draft |
 | 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Draft |
-| 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Implemented |
+| 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Superseded |
 | 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
 | 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |
+| 0037 | [Tool dispatch, naming, and operator surface](./0037-tool-dispatch-and-operator-surface.md) | Standards | Draft |
+| 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Draft |
+| 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

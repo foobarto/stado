@@ -5,7 +5,8 @@ author: Bartosz Ptaszynski <foobarto@gmail.com>
 status: Implemented
 type: Standards
 created: 2026-05-05
-see-also: [27, 28, 6, 9]
+see-also: [27, 28, 6, 9, 37]
+extended-by: [37]
 history:
   - date: 2026-05-05
     note: Implemented — config overlay + .stado/AGENTS.md + plugin search path

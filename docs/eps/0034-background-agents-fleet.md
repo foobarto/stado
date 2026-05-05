@@ -2,14 +2,25 @@
 ep: 0034
 title: Background agents fleet — spawn, observe, terminate
 author: Bartosz Ptaszynski
-status: Draft
+status: Superseded
 type: Standards
 created: 2026-05-04
+superseded-by: [38]
+see-also: [0013, 0014, 0033, 38]
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Captures the user-fired feature ask captured at the end of the v0.28.0 dogfood loop.
-see-also: [0013, 0014, 0033]
+  - date: 2026-05-05
+    status: Superseded
+    superseded-by: [38]
+    note: >
+      Superseded by EP-0038 before any code shipped. EP-0034's Fleet registry concept survives as
+      the runtime backing for agent.list and the /agents slash command, but the tool surface
+      (slash /spawn + /fleet modal) is replaced by the model-facing agent.spawn family. The
+      "single-process goroutines" decision (D1) carries forward unchanged into EP-0038. The
+      polling-based modal (D2) is replaced by the pull-based agent.read_messages convenience
+      channel + session.observe audit channel split.
 ---
 
 # EP-0034: Background agents fleet — spawn, observe, terminate

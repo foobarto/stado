@@ -6,7 +6,8 @@ status: Implemented
 type: Standards
 created: 2026-04-23
 implemented-in: v0.1.0
-see-also: [2, 5, 10, 11, 12]
+see-also: [2, 5, 10, 11, 12, 39]
+extended-by: [39]
 history:
   - date: 2026-04-23
     status: Accepted

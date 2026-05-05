@@ -1,0 +1,20 @@
+{
+  "name": "image-info",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "fs:read:."
+  ],
+  "tools": [
+    {
+      "name": "image_info",
+      "description": "Read just enough of an image file to report format, dimensions, color depth, and byte size — no pixel decoding. Supports PNG, JPEG, GIF87a/89a, WebP (VP8/VP8L/VP8X), and BMP. Path is relative to the plugin's workdir (pass --workdir=$PWD on the CLI). Returns format=\"unknown\" if no magic bytes match.",
+      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the image, relative to workdir.\"}},\"required\":[\"path\"]}"
+    }
+  ],
+  "min_stado_version": "0.26.0",
+  "timestamp_utc": "2026-05-05T08:10:00Z",
+  "nonce": "image-info-demo-001"
+}
