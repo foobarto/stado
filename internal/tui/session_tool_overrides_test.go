@@ -156,7 +156,7 @@ func TestEffectiveConfig_FlowsToAutoloadedTools(t *testing.T) {
 	m := &Model{cfg: cfg}
 	m.sessionToolOverrides.autoloadAdd = []string{"read"} // bare native name
 
-	reg := rt.BuildDefaultRegistry()
+	reg := rt.BuildDefaultRegistry(nil)
 	eff := m.effectiveConfig()
 	rt.ApplyToolFilter(reg, eff)
 	got := rt.AutoloadedTools(reg, eff)

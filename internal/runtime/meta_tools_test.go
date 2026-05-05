@@ -9,7 +9,7 @@ import (
 // default to empty query (audit-additions item #16). They should now
 // return an error.
 func TestMetaSearch_RejectsMalformedJSON(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	tool := &metaSearch{reg: reg}
 	_, err := tool.Run(context.Background(), []byte("{not valid json"), nil)
 	if err == nil {
@@ -18,7 +18,7 @@ func TestMetaSearch_RejectsMalformedJSON(t *testing.T) {
 }
 
 func TestMetaCategories_RejectsMalformedJSON(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	tool := &metaCategories{reg: reg}
 	_, err := tool.Run(context.Background(), []byte("{not valid"), nil)
 	if err == nil {
@@ -29,7 +29,7 @@ func TestMetaCategories_RejectsMalformedJSON(t *testing.T) {
 // Also pin: the *valid* path still works (regression check after the
 // error-handling change).
 func TestMetaSearch_ValidJSON(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	tool := &metaSearch{reg: reg}
 	_, err := tool.Run(context.Background(), []byte(`{"query":"fs"}`), nil)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestMetaSearch_ValidJSON(t *testing.T) {
 }
 
 func TestMetaCategories_ValidJSON(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	tool := &metaCategories{reg: reg}
 	_, err := tool.Run(context.Background(), []byte(`{"query":"file"}`), nil)
 	if err != nil {

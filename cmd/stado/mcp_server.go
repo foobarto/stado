@@ -57,7 +57,7 @@ var mcpServerCmd = &cobra.Command{
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
-			reg := runtime.BuildDefaultRegistry()
+			reg := runtime.BuildDefaultRegistry(cfg)
 			reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 			runtime.ApplyToolFilter(reg, cfg)
 

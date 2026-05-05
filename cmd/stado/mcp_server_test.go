@@ -25,7 +25,7 @@ import (
 // argument hints — catching the regression here is cheaper than
 // debugging it inside Claude Desktop.
 func TestMCPServer_ToolsExposedWithSchemas(t *testing.T) {
-	reg := runtime.BuildDefaultRegistry()
+	reg := runtime.BuildDefaultRegistry(nil)
 	srv := server.NewMCPServer("stado-test", "0.0.0-test")
 	runner := sandbox.Detect()
 	host := stadoMCPHost{workdir: t.TempDir(), runner: runner}
@@ -52,7 +52,7 @@ func TestMCPServer_ToolsExposedWithSchemas(t *testing.T) {
 func TestMCPServer_ExposesTasksTool(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	cfg := &config.Config{}
-	reg := runtime.BuildDefaultRegistry()
+	reg := runtime.BuildDefaultRegistry(nil)
 	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 	runtime.ApplyToolFilter(reg, cfg)
 

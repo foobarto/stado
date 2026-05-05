@@ -82,7 +82,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	// invocation, so we honour [tools].disabled via the dedicated refusal
 	// below (with --force escape) rather than via ApplyToolFilter, which
 	// would otherwise hide the tool and produce a misleading "not found".
-	reg := runtime.BuildDefaultRegistry()
+	reg := runtime.BuildDefaultRegistry(cfg)
 
 	registered, ok := lookupToolInRegistry(reg, name)
 	if !ok {

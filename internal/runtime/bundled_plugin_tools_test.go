@@ -39,7 +39,7 @@ func (r *recordingRunner) Command(ctx context.Context, p sandbox.Policy, cmd str
 }
 
 func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	got, ok := reg.Get("read")
 	if !ok {
 		t.Fatal("read tool missing")
@@ -71,7 +71,7 @@ func TestBundledPluginTool_RunRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	got, ok := reg.Get("read")
 	if !ok {
 		t.Fatal("read tool missing")
@@ -89,7 +89,7 @@ func TestBundledPluginTool_RunRead(t *testing.T) {
 }
 
 func TestBundledPluginTool_BashUsesRunner(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	got, ok := reg.Get("bash")
 	if !ok {
 		t.Fatal("bash tool missing")
@@ -118,7 +118,7 @@ func TestBundledPluginTool_BashUsesRunner(t *testing.T) {
 }
 
 func TestBundledPluginTool_ClassPreserved(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	if got := reg.ClassOf("read"); got != tool.ClassNonMutating {
 		t.Fatalf("ClassOf(read) = %v, want %v", got, tool.ClassNonMutating)
 	}

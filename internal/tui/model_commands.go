@@ -464,7 +464,7 @@ func (m *Model) handleToolSlash(parts []string) {
 		if len(parts) >= 3 {
 			glob = parts[2]
 		}
-		reg := runtime.BuildDefaultRegistry()
+		reg := runtime.BuildDefaultRegistry(m.cfg)
 		eff := m.effectiveConfig()
 		if eff != nil {
 			runtime.ApplyToolFilter(reg, eff)
@@ -492,7 +492,7 @@ func (m *Model) handleToolSlash(parts []string) {
 			m.appendBlock(block{kind: "system", body: "/tool info <name>"})
 			return
 		}
-		reg := runtime.BuildDefaultRegistry()
+		reg := runtime.BuildDefaultRegistry(m.cfg)
 		t, ok := reg.Get(parts[2])
 		if !ok {
 			m.appendBlock(block{kind: "system", body: fmt.Sprintf("tool %q not found", parts[2])})

@@ -31,7 +31,7 @@ var pluginInfoCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
+		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
 		// Bundled-first lookup: a name like "auto-compact" resolves via
 		// bundledplugins.LookupByName to the synthetic manifest baked
 		// into the binary.
