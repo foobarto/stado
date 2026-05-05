@@ -42,9 +42,10 @@ func activeVersionMarker(stateDir, pluginName string) string {
 // Returns "" if (1) misses and candidates is empty.
 func pickActiveVersion(stateDir, pluginName string, candidates []string) string {
 	if marker := activeVersionMarker(stateDir, pluginName); marker != "" {
+		normMarker := semverize(marker)
 		for _, v := range candidates {
-			if v == marker {
-				return marker
+			if semverize(v) == normMarker {
+				return v
 			}
 		}
 		return ""
@@ -54,11 +55,22 @@ func pickActiveVersion(stateDir, pluginName string, candidates []string) string 
 	}
 	best := candidates[0]
 	for _, v := range candidates[1:] {
-		if semver.Compare(v, best) > 0 {
+		if semver.Compare(semverize(v), semverize(best)) > 0 {
 			best = v
 		}
 	}
 	return best
+}
+
+// semverize prepends "v" to a version string when missing, since
+// golang.org/x/mod/semver requires the v-prefixed form. Real install
+// dirs use the no-v form (e.g. "0.1.0"); this lets us compare them
+// without rewriting the on-disk convention.
+func semverize(v string) string {
+	if len(v) > 0 && v[0] == 'v' {
+		return v
+	}
+	return "v" + v
 }
 
 // installedPluginTool wraps an installed plugin's declared tool as
@@ -145,13 +157,27 @@ func groupInstalledByName(pluginsDir string) (map[string][]string, error) {
 }
 
 // splitInstalledID splits "<name>-<version>" into name + version.
-// Splits on the last "-v<digit>" boundary so multi-dash names like
-// "htb-lab" or "exfil-server" round-trip correctly. Returns ok=false
-// when the suffix isn't a "v<digit>..." shape.
+// Accepts both "name-0.1.0" and "name-v0.1.0" forms (real installs
+// use the no-v form; the v-prefixed form is what golang.org/x/mod/
+// semver expects internally — pickActiveVersion normalizes for that).
+// Splits on the last "-" followed by a digit or "v<digit>" so multi-
+// dash names like "htb-lab" round-trip correctly. Returns ok=false
+// when the suffix isn't a version-shaped string.
 func splitInstalledID(id string) (name, version string, ok bool) {
 	for i := len(id) - 1; i >= 1; i-- {
-		if id[i] == '-' && i+1 < len(id) && id[i+1] == 'v' && i+2 < len(id) && id[i+2] >= '0' && id[i+2] <= '9' {
-			return id[:i], id[i+1:], true
+		if id[i] != '-' {
+			continue
+		}
+		rest := id[i+1:]
+		if len(rest) == 0 {
+			continue
+		}
+		// Accept: digit start (0.1.0), or v + digit (v0.1.0).
+		switch {
+		case rest[0] >= '0' && rest[0] <= '9':
+			return id[:i], rest, true
+		case rest[0] == 'v' && len(rest) >= 2 && rest[1] >= '0' && rest[1] <= '9':
+			return id[:i], rest, true
 		}
 	}
 	return "", "", false

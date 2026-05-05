@@ -172,12 +172,12 @@ func TestToolRun_DispatchesInstalledPlugin(t *testing.T) {
 	pluginInstallSigner = hex.EncodeToString(pub)
 	defer func() { pluginInstallSigner = "" }()
 
-	src := buildTestPluginWithCaps(t, priv, pub, "rundemo", "v0.1.0", []string{"fs:read:."})
+	src := buildTestPluginWithCaps(t, priv, pub, "rundemo", "0.1.0", []string{"fs:read:."})
 	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
 		t.Fatalf("plugin install: %v", err)
 	}
 	defer func() {
-		_ = os.RemoveAll(filepath.Join(cfg.StateDir(), "plugins", "rundemo-v0.1.0"))
+		_ = os.RemoveAll(filepath.Join(cfg.StateDir(), "plugins", "rundemo-0.1.0"))
 	}()
 
 	tmp := t.TempDir()

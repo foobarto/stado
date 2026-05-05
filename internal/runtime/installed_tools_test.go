@@ -126,6 +126,11 @@ func TestPickActiveVersion_HighestSemverFallback(t *testing.T) {
 	if got2 != "v0.10.0" {
 		t.Errorf("pickActiveVersion = %q, want v0.10.0 (10 > 2)", got2)
 	}
+	// Also verify no-v form (matches real install-dir convention).
+	got3 := pickActiveVersion(dir, "fs", []string{"0.1.0", "0.10.0", "0.2.0"})
+	if got3 != "0.10.0" {
+		t.Errorf("pickActiveVersion no-v form = %q, want 0.10.0", got3)
+	}
 }
 
 // TestPickActiveVersion_MarkerPointsAtMissingVersion: marker
@@ -158,9 +163,10 @@ func TestGroupInstalledByName_GroupsAndSkips(t *testing.T) {
 	dir := t.TempDir()
 	pluginsDir := filepath.Join(dir, "plugins")
 	for _, sub := range []string{
-		"fs-v0.1.0", "fs-v0.2.0", "shell-v1.0.0",
-		"active",  // metadata dir; must be skipped
-		"no-dash", // malformed name; must be skipped
+		"fs-v0.1.0", "fs-v0.2.0", "shell-v1.0.0", // v-prefixed
+		"agent-1.0.0", // no-v form (real install convention)
+		"active",      // metadata dir; must be skipped
+		"no-dash",     // malformed name; must be skipped
 	} {
 		_ = os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755)
 	}
@@ -170,14 +176,17 @@ func TestGroupInstalledByName_GroupsAndSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("groupInstalledByName: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 groups, got %d: %+v", len(got), got)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 groups, got %d: %+v", len(got), got)
 	}
 	if len(got["fs"]) != 2 {
 		t.Errorf("fs versions = %v, want 2 entries", got["fs"])
 	}
 	if len(got["shell"]) != 1 {
 		t.Errorf("shell versions = %v, want 1 entry", got["shell"])
+	}
+	if len(got["agent"]) != 1 || got["agent"][0] != "1.0.0" {
+		t.Errorf("agent versions = %v, want [1.0.0]", got["agent"])
 	}
 }
 
