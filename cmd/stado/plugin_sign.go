@@ -61,8 +61,9 @@ var pluginGenKeyCmd = &cobra.Command{
 }
 
 var (
-	pluginSignKeyPath string
-	pluginSignWasm    string
+	pluginSignKeyPath        string
+	pluginSignWasm           string
+	pluginSignManifestVersion string
 )
 
 var pluginSignCmd = &cobra.Command{
@@ -103,6 +104,9 @@ var pluginSignCmd = &cobra.Command{
 		var m plugins.Manifest
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return fmt.Errorf("sign: parse manifest: %w", err)
+		}
+		if pluginSignManifestVersion != "" {
+			m.Version = pluginSignManifestVersion
 		}
 
 		wasmPath := pluginSignWasm
