@@ -92,8 +92,25 @@ func TestBwrapRunner_AllowHostsOnlyForwardsProxyPort(t *testing.T) {
 	if err := ensurePastaSpliceOnly(); err != nil {
 		t.Skipf("pasta unavailable: %v", err)
 	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 unavailable")
+	// LookPath honours $PATH, which on some hosts (e.g. linuxbrew)
+	// points at /home/linuxbrew/... — a path bwrap doesn't bind-mount
+	// into the sandbox. Prefer /usr/bin/python3 since BwrapRunner
+	// binds /usr; /bin is often a symlink to usr/bin on the host
+	// but the symlink isn't bind-mounted, so /bin/python3 fails
+	// execvp inside the sandbox even when it exists on the host.
+	pythonBin := ""
+	for _, candidate := range []string{"/usr/bin/python3", "/usr/local/bin/python3"} {
+		if _, err := os.Stat(candidate); err == nil {
+			pythonBin = candidate
+			break
+		}
+	}
+	if pythonBin == "" {
+		resolved, err := exec.LookPath("python3")
+		if err != nil {
+			t.Skip("python3 unavailable")
+		}
+		pythonBin = resolved
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -122,12 +139,12 @@ for label, port in (("proxy", proxy_port), ("blocked", %d)):
 `, blockedPort)
 
 	cmd, err := (BwrapRunner{}).Command(ctx, Policy{
-		Exec: []string{"python3"},
+		Exec: []string{pythonBin},
 		Net: NetPolicy{
 			Kind:  NetAllowHosts,
 			Hosts: []string{"api.github.com"},
 		},
-	}, "python3", []string{"-c", script}, nil)
+	}, pythonBin, []string{"-c", script}, nil)
 	if err != nil {
 		t.Fatalf("Command: %v", err)
 	}
