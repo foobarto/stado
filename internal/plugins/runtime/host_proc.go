@@ -28,17 +28,21 @@ func (h *Host) procAllowed(bin string) bool {
 	if !h.ExecProc {
 		return false
 	}
-	if h.ExecProcGlob == "" {
+	if len(h.ExecProcGlobs) == 0 {
 		return true // broad exec:proc
 	}
-	// Scoped: resolve binary and match glob.
+	// Scoped: resolve binary and match against any of the declared globs.
 	abs, err := exec.LookPath(bin)
 	if err != nil {
 		abs = bin
 	}
 	abs = filepath.Clean(abs)
-	matched, _ := filepath.Match(h.ExecProcGlob, abs)
-	return matched
+	for _, glob := range h.ExecProcGlobs {
+		if matched, _ := filepath.Match(glob, abs); matched {
+			return true
+		}
+	}
+	return false
 }
 
 func registerProcImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {

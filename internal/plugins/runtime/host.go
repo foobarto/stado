@@ -93,9 +93,10 @@ type Host struct {
 	ExecASTGrep bool
 	ExecPTY     bool
 	// ExecProc gates stado_proc_* and stado_exec (EP-0038 §B Tier 1).
-	// ExecProcGlob, when non-empty, restricts to exec:proc:<glob>.
-	ExecProc     bool
-	ExecProcGlob string
+	// ExecProcGlobs, when non-empty, restricts to any of the listed
+	// exec:proc:<glob> patterns. An empty list means broad exec:proc.
+	ExecProc      bool
+	ExecProcGlobs []string
 	// AgentFleet gates stado_agent_* (EP-0038 §D Tier 1+).
 	// Only bundled agent plugin may declare this cap.
 	AgentFleet bool
@@ -369,7 +370,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			case "proc":
 				h.ExecProc = true
 				if len(parts) == 3 && parts[2] != "" {
-					h.ExecProcGlob = parts[2]
+					h.ExecProcGlobs = append(h.ExecProcGlobs, parts[2])
 				}
 			}
 		case "bundled-bin":
