@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,3 +80,37 @@ func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
 // Falls back to a direct read when /proc isn't usable (returned ""
 // signals "use the fallback path" upstream).
 func readPipeFD(_ *os.File) string { return "" }
+
+// TestPluginInfo_BundledLookup: stado plugin info <bundled-name>
+// finds the bundled module and prints its tools.
+func TestPluginInfo_BundledLookup(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	if err := pluginInfoCmd.RunE(pluginInfoCmd, []string{"auto-compact"}); err != nil {
+		t.Fatalf("pluginInfoCmd.RunE: %v", err)
+	}
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "compact") {
+		t.Errorf("output should mention the 'compact' tool; got:\n%s", got)
+	}
+	if !strings.Contains(got, "stado") {
+		t.Errorf("output should show author 'stado'; got:\n%s", got)
+	}
+	if !strings.Contains(got, "bundled") {
+		t.Errorf("output should mark this as bundled; got:\n%s", got)
+	}
+}

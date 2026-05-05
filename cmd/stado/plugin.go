@@ -6,15 +6,15 @@ import (
 
 var pluginCmd = &cobra.Command{
 	Use:   "plugin",
-	Short: "Manage trusted plugin signers + verify + run plugin packages",
+	Short: "Manage trusted plugin signers + verify plugin packages",
 	Long: "stado's plugin model: every plugin ships a signed manifest. Before it\n" +
 		"can run, the author's Ed25519 public key must be pinned via\n" +
 		"`stado plugin trust`, and the signature + wasm sha256 + minimum\n" +
 		"stado-version + rollback protection are all checked by\n" +
 		"`stado plugin verify`. `stado plugin install` copies a verified\n" +
-		"plugin into stado's state dir, after which `stado plugin run` (or\n" +
-		"`/plugin:<name>-<ver>` in the TUI) can invoke its declared tools\n" +
-		"via the wazero wasm runtime.",
+		"plugin into stado's state dir, after which `stado tool run <name>`\n" +
+		"(or `/plugin:<name>-<ver>` in the TUI) can invoke its declared\n" +
+		"tools via the wazero wasm runtime.",
 }
 
 func init() {
@@ -29,7 +29,7 @@ func init() {
 	pluginSignCmd.Flags().StringVar(&pluginSignWasm, "wasm", "",
 		"Path to the plugin wasm binary (default: <manifest-dir>/plugin.wasm)")
 	pluginCmd.AddCommand(pluginTrustCmd, pluginUntrustCmd, pluginListCmd, pluginInstalledCmd, pluginVerifyCmd,
-		pluginDigestCmd, pluginInstallCmd, pluginRunCmd, pluginGenKeyCmd, pluginSignCmd,
+		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
 		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd,
 		// EP-0039: distribution and trust additions.
 		pluginUseCmd, pluginDevCmd)

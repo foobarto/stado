@@ -282,12 +282,13 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 	if def.Schema != "" {
 		_ = json.Unmarshal([]byte(def.Schema), &schema)
 	}
-	return &bundledPluginTool{
+	caps := bundledToolCapabilities(native.Name())
+	t := &bundledPluginTool{
 		manifest: plugins.Manifest{
 			Name:         bundledplugins.ManifestNamePrefix + "-" + native.Name(),
 			Version:      version.Version,
 			Author:       bundledplugins.Author,
-			Capabilities: bundledToolCapabilities(native.Name()),
+			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
 		def:    def,
@@ -295,6 +296,8 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 		class:  class,
 		wasm:   bundledplugins.MustWasm(native.Name()),
 	}
+	bundledplugins.RegisterModule(native.Name(), native.Name(), caps)
+	return t
 }
 
 func newBundledStaticTool(name, desc string, class tool.Class, schema map[string]any, caps []string) tool.Tool {
@@ -308,7 +311,7 @@ func newBundledStaticTool(name, desc string, class tool.Class, schema map[string
 	if def.Schema != "" {
 		_ = json.Unmarshal([]byte(def.Schema), &parsed)
 	}
-	return &bundledPluginTool{
+	t := &bundledPluginTool{
 		manifest: plugins.Manifest{
 			Name:         bundledplugins.ManifestNamePrefix + "-" + name,
 			Version:      version.Version,
@@ -321,6 +324,8 @@ func newBundledStaticTool(name, desc string, class tool.Class, schema map[string
 		class:  class,
 		wasm:   bundledplugins.MustWasm(name),
 	}
+	bundledplugins.RegisterModule(name, name, caps)
+	return t
 }
 
 // newBundledWasmTool registers one tool from a multi-tool wasm module.
@@ -356,6 +361,7 @@ func newBundledWasmTool(wasmName, toolExport, registeredName, desc string, class
 		class:  class,
 		wasm:   bundledplugins.MustWasm(wasmName),
 	}
+	bundledplugins.RegisterModule(wasmName, registeredName, caps)
 	// Override the visible name for the registry (wire form).
 	return &renamedTool{inner: t, name: registeredName}
 }

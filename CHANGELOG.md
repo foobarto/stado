@@ -14,6 +14,13 @@ Plugins / Infra / Fixes.
   `--tools` (on/off gate) is removed; use `--no-tools` for pure-chat
   mode. `--tools` is now the comma-separated whitelist (empty = all
   installed tools enabled).
+- **CLI breaking** — `stado plugin run <plugin-id> <tool> [args]`
+  removed. Use `stado tool run <name> [args]` instead — it resolves
+  bundled and installed tools uniformly through the live registry.
+  The new form accepts both canonical (`fs.read`) and wire
+  (`fs__read`) names; `--session` and `--workdir` flags carry over
+  identically; `--force` overrides `[tools].disabled` for one-off
+  invocation.
 
 ## v0.34.1 — Atomic Fedora / Bazzite, multi-tool wasm, exec:proc multi-glob
 

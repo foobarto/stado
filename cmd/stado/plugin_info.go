@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 var pluginInfoJSON bool
@@ -28,6 +31,27 @@ var pluginInfoCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
+		// Bundled-first lookup: a name like "auto-compact" resolves via
+		// bundledplugins.LookupByName to the synthetic manifest baked
+		// into the binary.
+		if info, _, ok := bundledplugins.LookupByName(args[0]); ok {
+			mf := plugins.Manifest{
+				Name:         bundledplugins.ManifestNamePrefix + "-" + info.Name,
+				Version:      info.Version,
+				Author:       info.Author,
+				Capabilities: info.Capabilities,
+				Tools:        bundledToolDefsFromList(info),
+			}
+			if pluginInfoJSON {
+				out, _ := json.MarshalIndent(mf, "", "  ")
+				fmt.Fprintln(cmd.OutOrStdout(), string(out))
+				return nil
+			}
+			return printManifestInfo(cmd.OutOrStdout(), mf, info.Name, true)
+		}
+
+		// Disk-install lookup (original path).
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 		dir, err := plugins.InstalledDir(pluginsDir, args[0])
 		if err != nil {
@@ -46,31 +70,70 @@ var pluginInfoCmd = &cobra.Command{
 			fmt.Fprintln(cmd.OutOrStdout(), string(out))
 			return nil
 		}
+		return printManifestInfo(cmd.OutOrStdout(), *mf, args[0], false)
+	},
+}
 
-		o := cmd.OutOrStdout()
+func init() {
+	pluginInfoCmd.Flags().BoolVar(&pluginInfoJSON, "json", false, "Output raw manifest JSON (for scripting)")
+}
 
-		// Header
-		fmt.Fprintf(o, "📦 %s  v%s\n", mf.Name, mf.Version)
-		fmt.Fprintf(o, "   Author:       %s\n", mf.Author)
+// bundledToolDefsFromList synthesises minimal ToolDef entries from a
+// bundledplugins.Info. Schema/description aren't tracked at the Info
+// level; the resulting ToolDefs carry just the tool name. Operators
+// reading `plugin info` for a bundled module should also use
+// `stado tool info <toolname>` for full schema detail.
+func bundledToolDefsFromList(info bundledplugins.Info) []plugins.ToolDef {
+	out := make([]plugins.ToolDef, 0, len(info.Tools))
+	for _, name := range info.Tools {
+		out = append(out, plugins.ToolDef{
+			Name:        name,
+			Description: "(bundled — use `stado tool info " + name + "` for full schema)",
+		})
+	}
+	return out
+}
+
+// printManifestInfo renders the manifest details. Refactored from the
+// inline body of pluginInfoCmd.RunE to allow reuse from the bundled
+// path. When bundled is true, certain fields (fingerprint, wasm
+// sha256) are omitted with sentinel values, and the per-tool schema
+// section is replaced with a hint to use `stado tool info`.
+func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundled bool) error {
+	header := fmt.Sprintf("📦 %s  v%s", mf.Name, mf.Version)
+	if bundled {
+		header += "  (bundled)"
+	}
+	fmt.Fprintln(o, header)
+	fmt.Fprintf(o, "   Author:       %s\n", mf.Author)
+	if bundled {
+		fmt.Fprintln(o, "   Fingerprint:  -  (built into stado binary)")
+	} else {
 		fmt.Fprintf(o, "   Fingerprint:  %s\n", mf.AuthorPubkeyFpr)
 		fmt.Fprintf(o, "   Wasm SHA256:  %s\n", mf.WASMSHA256)
-		if mf.MinStadoVersion != "" {
-			fmt.Fprintf(o, "   Requires:     stado >= %s\n", mf.MinStadoVersion)
-		}
-		fmt.Fprintln(o)
+	}
+	if mf.MinStadoVersion != "" {
+		fmt.Fprintf(o, "   Requires:     stado >= %s\n", mf.MinStadoVersion)
+	}
+	fmt.Fprintln(o)
 
-		// Capabilities
-		fmt.Fprintf(o, "Capabilities (%d):\n", len(mf.Capabilities))
-		for _, cap := range mf.Capabilities {
-			fmt.Fprintf(o, "  • %s\n", cap)
-		}
-		fmt.Fprintln(o)
+	// Capabilities
+	fmt.Fprintf(o, "Capabilities (%d):\n", len(mf.Capabilities))
+	for _, c := range mf.Capabilities {
+		fmt.Fprintf(o, "  • %s\n", c)
+	}
+	fmt.Fprintln(o)
 
-		// Tools
+	// Tools
+	if bundled {
+		fmt.Fprintf(o, "Tools (%d):\n", len(mf.Tools))
+		for _, t := range mf.Tools {
+			fmt.Fprintf(o, "  %-30s  %s\n", t.Name, truncateStr(t.Description, 80))
+		}
+	} else {
 		fmt.Fprintf(o, "Tools (%d):\n", len(mf.Tools))
 		w := tabwriter.NewWriter(o, 0, 0, 2, ' ', 0)
 		for _, t := range mf.Tools {
-			// Parse schema to list required params
 			params := schemaParams(t.Schema)
 			paramsStr := ""
 			if params != "" {
@@ -87,11 +150,9 @@ var pluginInfoCmd = &cobra.Command{
 			for _, t := range mf.Tools {
 				fmt.Fprintf(o, "\n  %s\n", t.Name)
 				fmt.Fprintf(o, "  %s\n", strings.Repeat("─", min(len(t.Name)+2, 60)))
-				// Word-wrap description at 72 chars
 				for _, line := range wordWrap(t.Description, 72) {
 					fmt.Fprintf(o, "  %s\n", line)
 				}
-				// Pretty-print schema params
 				if t.Schema != "" {
 					if params := prettySchema(t.Schema); params != "" {
 						fmt.Fprintf(o, "\n  Parameters:\n%s", params)
@@ -99,15 +160,15 @@ var pluginInfoCmd = &cobra.Command{
 				}
 			}
 		}
+	}
 
-		fmt.Fprintln(o)
-		fmt.Fprintf(o, "  stado plugin info %s --json | jq '.tools[].name'\n", args[0])
-		return nil
-	},
-}
-
-func init() {
-	pluginInfoCmd.Flags().BoolVar(&pluginInfoJSON, "json", false, "Output raw manifest JSON (for scripting)")
+	fmt.Fprintln(o)
+	if bundled {
+		fmt.Fprintf(o, "  stado tool info <toolname>   for individual schemas\n")
+	} else {
+		fmt.Fprintf(o, "  stado plugin info %s --json | jq '.tools[].name'\n", displayID)
+	}
+	return nil
 }
 
 // schemaParams extracts required parameter names from a JSON schema string.

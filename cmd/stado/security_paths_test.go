@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/toolinput"
 )
 
 func TestSessionDescribe_RejectsTraversalID(t *testing.T) {
@@ -98,28 +97,3 @@ func TestSessionLand_RejectsInvalidBranchName(t *testing.T) {
 	}
 }
 
-func TestPluginRun_RejectsTraversalID(t *testing.T) {
-	_ = isolatedHome(t)
-	err := pluginRunCmd.RunE(pluginRunCmd, []string{"../escape", "compact"})
-	if err == nil {
-		t.Fatal("expected traversal plugin id to fail")
-	}
-	if !strings.Contains(err.Error(), "invalid plugin id") {
-		t.Fatalf("expected invalid plugin id error, got %v", err)
-	}
-}
-
-func TestPluginRun_RejectsOversizedArgsBeforePluginLookup(t *testing.T) {
-	_ = isolatedHome(t)
-	err := pluginRunCmd.RunE(pluginRunCmd, []string{
-		"missing-0.0.0",
-		"compact",
-		strings.Repeat("x", toolinput.MaxBytes+1),
-	})
-	if err == nil {
-		t.Fatal("expected oversized args to fail")
-	}
-	if !strings.Contains(err.Error(), "tool input exceeds") {
-		t.Fatalf("expected tool input error, got %v", err)
-	}
-}
