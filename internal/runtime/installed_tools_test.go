@@ -260,3 +260,77 @@ func TestLookupInstalledModule_NotFound(t *testing.T) {
 		t.Error("LookupInstalledModule for unknown tool should be ok=false")
 	}
 }
+
+// TestResolveInstalledPluginDir_BareName: bare-name input resolves
+// to the active version's install dir.
+func TestResolveInstalledPluginDir_BareName(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pluginsDir := filepath.Join(dataDir, "stado", "plugins")
+	if err := os.MkdirAll(filepath.Join(pluginsDir, "gtfobins-0.1.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	dir, ok := ResolveInstalledPluginDir(cfg, "gtfobins")
+	if !ok {
+		t.Fatalf("ResolveInstalledPluginDir returned ok=false; want true")
+	}
+	if dir != filepath.Join(pluginsDir, "gtfobins-0.1.0") {
+		t.Errorf("dir = %q, want gtfobins-0.1.0 install path", dir)
+	}
+}
+
+// TestResolveInstalledPluginDir_PrefersMarker: when an active-version
+// marker is set, the resolver returns that version's dir even if a
+// higher version is installed.
+func TestResolveInstalledPluginDir_PrefersMarker(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	pluginsDir := filepath.Join(dataDir, "stado", "plugins")
+	for _, sub := range []string{"foo-0.1.0", "foo-0.2.0"} {
+		_ = os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755)
+	}
+	activeDir := filepath.Join(pluginsDir, "active")
+	_ = os.MkdirAll(activeDir, 0o755)
+	_ = os.WriteFile(filepath.Join(activeDir, "foo"), []byte("0.1.0"), 0o644)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	dir, ok := ResolveInstalledPluginDir(cfg, "foo")
+	if !ok {
+		t.Fatal("ResolveInstalledPluginDir returned ok=false")
+	}
+	if dir != filepath.Join(pluginsDir, "foo-0.1.0") {
+		t.Errorf("dir = %q, want foo-0.1.0 (marker pin)", dir)
+	}
+}
+
+// TestResolveInstalledPluginDir_NotInstalled: a bare name with no
+// matching directory on disk returns ok=false.
+func TestResolveInstalledPluginDir_NotInstalled(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if _, ok := ResolveInstalledPluginDir(cfg, "nope"); ok {
+		t.Error("ResolveInstalledPluginDir for missing plugin should be ok=false")
+	}
+}
+
+// TestResolveInstalledPluginDir_NilCfg: nil cfg returns ok=false
+// (mirrors BuildDefaultRegistry's nil-cfg contract).
+func TestResolveInstalledPluginDir_NilCfg(t *testing.T) {
+	if _, ok := ResolveInstalledPluginDir(nil, "fs"); ok {
+		t.Error("ResolveInstalledPluginDir(nil, _) should be ok=false")
+	}
+}

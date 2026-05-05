@@ -2,15 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/tools"
+	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
 
 // TestToolRun_ResolvesByCanonicalForm: `tool run fs.read` finds the
@@ -200,6 +204,52 @@ func TestToolRun_DispatchesInstalledPlugin(t *testing.T) {
 		// not the test fixture's wasm correctness).
 		t.Logf("tool run reached installed dispatch; invocation error: %v\nstderr: %s", err, stderr.String())
 	}
+}
+
+// TestLookupToolInRegistry_SingleUnderscoreFallback: dotted-form
+// queries resolve to single-underscore wire-form names (the
+// installed-plugin convention), after the existing 3-tier lookup
+// misses. This is the tier-4 fallback that lets `tool run
+// gtfobins.lookup` reach a tool registered as `gtfobins_lookup`.
+func TestLookupToolInRegistry_SingleUnderscoreFallback(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(&stubLookupTool{name: "gtfobins_lookup"})
+
+	got, ok := lookupToolInRegistry(reg, "gtfobins.lookup")
+	if !ok {
+		t.Fatal("expected tier-4 fallback to resolve gtfobins.lookup -> gtfobins_lookup")
+	}
+	if got.Name() != "gtfobins_lookup" {
+		t.Errorf("resolved name = %q, want gtfobins_lookup", got.Name())
+	}
+}
+
+// TestLookupToolInRegistry_DirectMatchWins: exact matches are
+// returned by the first tier; the tier-4 substitution does not
+// shadow legitimate dotted names.
+func TestLookupToolInRegistry_DirectMatchWins(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(&stubLookupTool{name: "weird.name"})
+	reg.Register(&stubLookupTool{name: "weird_name"})
+
+	got, ok := lookupToolInRegistry(reg, "weird.name")
+	if !ok {
+		t.Fatal("expected direct match")
+	}
+	if got.Name() != "weird.name" {
+		t.Errorf("resolved name = %q, want weird.name (tier-1 should win)", got.Name())
+	}
+}
+
+// stubLookupTool is a minimal tool.Tool used for lookup-tier unit
+// tests; Run is unreachable in these tests.
+type stubLookupTool struct{ name string }
+
+func (s *stubLookupTool) Name() string             { return s.name }
+func (s *stubLookupTool) Description() string      { return "stub" }
+func (s *stubLookupTool) Schema() map[string]any   { return map[string]any{"type": "object"} }
+func (s *stubLookupTool) Run(_ context.Context, _ json.RawMessage, _ pkgtool.Host) (pkgtool.Result, error) {
+	return pkgtool.Result{}, nil
 }
 
 // TestToolRun_DisabledByGlob: glob in [tools].disabled also refuses.

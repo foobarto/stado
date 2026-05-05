@@ -180,8 +180,11 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 }
 
 // lookupToolInRegistry tries (in order): exact name match, canonical
-// → wire conversion, canonical-metadata fallback. Mirrors the lookup
-// pattern in `stado tool info`.
+// → wire conversion (double-underscore, bundled convention), canonical-
+// metadata fallback, then single-underscore substitution. The last tier
+// catches installed plugins whose authors use a single-underscore wire
+// form (e.g. gtfobins_lookup) rather than the bundled double-underscore
+// convention — `tool run gtfobins.lookup` should resolve to it.
 func lookupToolInRegistry(reg *tools.Registry, query string) (pkgtool.Tool, bool) {
 	if t, ok := reg.Get(query); ok {
 		return t, true
@@ -196,6 +199,11 @@ func lookupToolInRegistry(reg *tools.Registry, query string) (pkgtool.Tool, bool
 	for _, candidate := range reg.All() {
 		if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
 			return candidate, true
+		}
+	}
+	if strings.Contains(query, ".") {
+		if t, ok := reg.Get(strings.ReplaceAll(query, ".", "_")); ok {
+			return t, true
 		}
 	}
 	return nil, false
