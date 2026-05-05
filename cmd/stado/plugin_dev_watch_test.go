@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -90,5 +93,53 @@ func TestDebounceLoop_ExitsOnContextCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("debounceLoop did not exit on context cancel within 200ms")
+	}
+}
+
+// TestRunDevWatchLoop_CleansUpOnContextCancel: starting the watch
+// loop and immediately cancelling its context should cause it to
+// remove the dev install dir + marker via deferred cleanup.
+//
+// This test does NOT exercise a real build — it simulates a state
+// where PinActiveDev has run (creating the marker) and verifies
+// CleanupDev fires on shutdown.
+func TestRunDevWatchLoop_CleansUpOnContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.template.json"),
+		[]byte(`{"name":"testplugin","version":"0.0.1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", stateDir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var stdout, stderr bytes.Buffer
+		_ = runDevWatchLoop(ctx, dir, &stdout, &stderr)
+	}()
+
+	// Wait for PinActiveDev to land.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	markerPath := filepath.Join(stateDir, "stado", "plugins", "active", "testplugin")
+	for {
+		if _, err := os.Stat(markerPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("active marker never created")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	<-done
+
+	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
+		t.Errorf("marker should be cleaned up after cancel; stat err = %v", err)
 	}
 }
