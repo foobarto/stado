@@ -104,6 +104,38 @@ func TestRegisterModule_DedupsCaps(t *testing.T) {
 	}
 }
 
+// TestList_AutoCompactRegistered: the package-init from
+// auto_compact.go should make the auto-compact module visible
+// without any external test setup.
+func TestList_AutoCompactRegistered(t *testing.T) {
+	// No reset — we want to observe the package-init registration.
+	got := List()
+	found := false
+	for _, info := range got {
+		if info.Name == autoCompactID {
+			found = true
+			if !contains(info.Tools, "compact") {
+				t.Errorf("auto-compact module should expose 'compact' tool; got %v", info.Tools)
+			}
+			if !contains(info.Capabilities, "llm:invoke:30000") {
+				t.Errorf("auto-compact module should expose llm:invoke:30000; got %v", info.Capabilities)
+			}
+		}
+	}
+	if !found {
+		t.Error("auto-compact module not present in List()")
+	}
+}
+
+func contains(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 // resetForTest clears the package-level registry. Calls t.Cleanup to
 // restore. Marked Helper so failures point at the call site.
 func resetForTest(t *testing.T) {

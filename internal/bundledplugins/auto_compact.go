@@ -67,3 +67,8 @@ func autoCompactSchema() string {
 	}
 	return string(raw)
 }
+
+func init() {
+	RegisterModule(autoCompactID, "compact",
+		[]string{"session:observe", "session:read", "session:fork", "llm:invoke:30000"})
+}
