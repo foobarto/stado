@@ -53,6 +53,7 @@ type Config struct {
 	Hooks     Hooks     `koanf:"hooks"`
 	Runtime    Runtime    `koanf:"runtime"`
 	Supervisor Supervisor `koanf:"supervisor"`
+	Harness    Harness    `koanf:"harness"`
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
@@ -315,6 +316,17 @@ type InferencePreset struct {
 	// keep their conventional env var when this is empty. When set, it
 	// always wins over the builtin convention.
 	APIKeyEnv string `koanf:"api_key_env"`
+}
+
+// Harness is the [harness] config section — operator-mode selection. EP-0030.
+//
+//	[harness]
+//	mode = "security"   # "" (default/general) | "security"
+type Harness struct {
+	// Mode selects the default harness. "" or "general" = standard.
+	// "security" = security-research harness (system prompt from
+	// .stado/harness/security.md if present, else built-in template).
+	Mode string `koanf:"mode"`
 }
 
 // Supervisor is the [supervisor] config section — responsive frontline

@@ -2,13 +2,25 @@
 ep: 0030
 title: Security-research default harness — agent / subagent / skills / plugins
 author: Bartosz Ptaszynski
-status: Placeholder
+status: Implemented
 type: Standards
 created: 2026-05-04
+implemented-in: v0.33.0
 history:
   - date: 2026-05-04
     status: Placeholder
     note: Idea capture per EP-0001 §"Placeholders". Not yet a worked design.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Mode-selection via [harness].mode = "security" config or --mode security CLI flag.
+      Security-research system prompt template at .stado/harness/security.md (loaded on mode=security).
+      Engagement folder convention: notes/engagements/<box>/ with recon/loot/writeup subdirs.
+      stado harness init --mode security command creates the folder layout.
+      Bundled skills catalog at plugins/default/security-harness/ (analytical moves, recon discipline,
+      abusability filter). Reuse vs port question resolved: operator's ~/Dokumenty/htb-writeups/
+      is canonical; this EP provides the hook points; operator copies / adapts their harness content
+      into .stado/harness/security.md for project-level customisation.
 see-also: [0002, 0008, 0013, 0017]
 ---
 

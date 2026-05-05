@@ -34,6 +34,7 @@ var (
 	runTools       bool
 	runNoTools     bool
 	runSandboxFS       bool
+	runMode            string // --mode harness mode (EP-0030)
 	runToolsWhitelist  string // --tools-whitelist
 	runToolsAutoload   string // --tools-autoload
 	runToolsDisable    string // --tools-disable
@@ -183,6 +184,15 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					}
 				}
 			}
+			// EP-0030: security harness — prepend harness instructions to system prompt.
+			if cfg.Harness.Mode == "security" {
+				harnessAddition := loadSecurityHarness(promptWorkdir)
+				if harnessAddition != "" && sysPrompt == "" {
+					sysPrompt = harnessAddition
+				} else if harnessAddition != "" {
+					sysPrompt = harnessAddition + "\n\n---\n\n" + sysPrompt
+				}
+			}
 			if continueWorktree != "" {
 				promptWorkdir = continueWorktree
 			}
@@ -238,6 +248,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 						return fmt.Errorf("session: %w", err)
 					}
 				}
+				// EP-0030: harness mode flag overrides config.
+			if runMode != "" {
+				cfg.Harness.Mode = runMode
+			}
 				// EP-0037: CLI flags override [tools] config before building executor.
 			if runToolsWhitelist != "" {
 				cfg.Tools.Enabled = splitComma(runToolsWhitelist)
@@ -384,6 +398,9 @@ func init() {
 		"Disable tools — pure-chat mode (no session, no audit). Wins over --tools when both set.")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false,
 		"Sandbox tool execution: bash runs in bwrap (Linux) and writes are landlock-confined to the session worktree + /tmp. Off by default — `stado run` operates on your actual filesystem.")
+	// EP-0030: harness mode.
+	runCmd.Flags().StringVar(&runMode, "mode", "",
+		"Harness mode: \"\" (general, default) or \"security\" (security-research harness with recon discipline and abusability filters).")
 	// EP-0037: tool surface control flags.
 	runCmd.Flags().StringVar(&runToolsWhitelist, "tools-whitelist", "",
 		"Comma-separated tool globs: ONLY these tools enabled (e.g. 'fs.*,shell.exec'). Stacks with --tools-disable.")
