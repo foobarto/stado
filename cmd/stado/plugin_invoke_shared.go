@@ -14,9 +14,10 @@ import (
 )
 
 // pluginInvokeArgs is the input to runPluginInvocation. The caller
-// (pluginRunCmd or tool_run.go) is responsible for loading + verifying
-// the manifest and the wasm bytes; this helper handles the wasm
-// instantiation, host-import wiring, and tool dispatch.
+// (tool_run.go for bundled plugins; future installed-plugin invokers)
+// is responsible for loading + verifying the manifest and the wasm
+// bytes; this helper handles the wasm instantiation, host-import
+// wiring, and tool dispatch.
 type pluginInvokeArgs struct {
 	Manifest   plugins.Manifest // already loaded + verified by the caller
 	WasmBytes  []byte           // already verified against Manifest.WASMSHA256
@@ -30,8 +31,8 @@ type pluginInvokeArgs struct {
 	Stderr     io.Writer // typically cmd.ErrOrStderr()
 }
 
-// runPluginInvocation is the shared body that both pluginRunCmd and
-// tool_run use. Returns nil on success; an error on any failure.
+// runPluginInvocation is the shared invoke body called from
+// tool_run. Returns nil on success; an error on any failure.
 // Prints res.Content to Stdout on success, res.Error to Stderr on a
 // plugin-reported error.
 func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
