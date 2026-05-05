@@ -24,7 +24,7 @@ func TestDebounceLoop_CoalescesEvents(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		debounceLoop(ctx, events, rebuild, 50*time.Millisecond, nil)
+		debounceLoop(ctx, events, rebuild, 50*time.Millisecond)
 	}()
 
 	for i := 0; i < 5; i++ {
@@ -58,7 +58,7 @@ func TestDebounceLoop_RebuildErrorContinues(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		debounceLoop(ctx, events, rebuild, 25*time.Millisecond, nil)
+		debounceLoop(ctx, events, rebuild, 25*time.Millisecond)
 	}()
 
 	events <- struct{}{}
@@ -85,7 +85,7 @@ func TestDebounceLoop_ExitsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		debounceLoop(ctx, events, rebuild, 100*time.Millisecond, nil)
+		debounceLoop(ctx, events, rebuild, 100*time.Millisecond)
 	}()
 
 	cancel()

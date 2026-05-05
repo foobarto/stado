@@ -97,15 +97,15 @@ func runDevWatchLoop(ctx context.Context, dir string, stdout, stderr io.Writer) 
 		return nil
 	}
 
-	debounceLoop(ctx, events, rebuild, devWatchDebounce, stderr)
+	debounceLoop(ctx, events, rebuild, devWatchDebounce)
 	return nil
 }
 
 // debounceLoop coalesces events from `events` and invokes `rebuild`
-// once per debounce window. Errors from rebuild are written to
-// stderr (when non-nil) and do not stop the loop. Returns when ctx
-// is cancelled.
-func debounceLoop(ctx context.Context, events <-chan struct{}, rebuild func() error, debounce time.Duration, stderr io.Writer) {
+// once per debounce window. Returns when ctx is cancelled. Rebuild
+// errors are the rebuild func's responsibility to log; the loop
+// itself continues unconditionally.
+func debounceLoop(ctx context.Context, events <-chan struct{}, rebuild func() error, debounce time.Duration) {
 	var timer *time.Timer
 	var timerC <-chan time.Time
 
@@ -128,9 +128,9 @@ func debounceLoop(ctx context.Context, events <-chan struct{}, rebuild func() er
 			resetTimer()
 		case <-timerC:
 			timerC = nil
-			if err := rebuild(); err != nil && stderr != nil {
-				_ = err
-			}
+			// rebuild logs its own errors via the closure in
+			// runDevWatchLoop; the loop continues regardless.
+			_ = rebuild()
 		}
 	}
 }
@@ -138,6 +138,12 @@ func debounceLoop(ctx context.Context, events <-chan struct{}, rebuild func() er
 // rebuildOnce runs <dir>/build.sh, re-signs the manifest with the
 // dev seed pinned to plugins.DevSentinelVersion, and re-installs
 // with --force. Returns the new wasm sha-prefix on success.
+//
+// Not reentrant: drives pluginSignCmd / pluginInstallCmd via their
+// package-level flag globals (the established pattern for
+// programmatic cobra re-invocation in this codebase). Concurrent
+// callers in the same process would race on those globals; the CLI
+// runs one watch loop per process, so this is fine in practice.
 func rebuildOnce(dir string, stdout, stderr io.Writer) (string, error) {
 	buildScript := filepath.Join(dir, "build.sh")
 	if _, err := os.Stat(buildScript); err != nil {
