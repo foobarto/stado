@@ -9,7 +9,6 @@ import (
 	"time"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/subagent"
 )
 
 // FleetBridgeAdapter wires a Fleet + Spawner into the pluginRuntime.FleetBridge
@@ -145,12 +144,3 @@ func (a *FleetBridgeAdapter) AgentCancel(ctx context.Context, id string) error {
 	return a.Fleet.Cancel(id)
 }
 
-// subagentSpawnerAdapter adapts SubagentRunner to the Spawner interface.
-// Exists to decouple fleet_bridge.go from concrete SubagentRunner fields.
-type subagentSpawnerAdapter struct {
-	runner *SubagentRunner
-}
-
-func (s *subagentSpawnerAdapter) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
-	return s.runner.SpawnSubagent(ctx, req)
-}

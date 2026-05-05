@@ -120,14 +120,3 @@ func (m *Model) loopTick() tea.Cmd {
 // response text (m.turnText, which is populated during streaming).
 func (m *Model) lastAssistantText() string { return m.turnText }
 
-// loopStatusLabel returns a short string for the status bar when a
-// loop is active, e.g. "↻ loop (5m)".
-func (m *Model) loopStatusLabel() string {
-	if m.loop == nil {
-		return ""
-	}
-	if m.loop.interval > 0 {
-		return fmt.Sprintf("↻ loop (%s)", m.loop.interval)
-	}
-	return "↻ loop"
-}

@@ -70,6 +70,21 @@ func TestPluginRun_WithToolHost_ExecBashGate_NoSandbox(t *testing.T) {
 	}
 
 	cfg := isolatedHome(t)
+	// EP-0028 D1: refusal is opt-in via [sandbox] refuse_no_runner = true.
+	// Write that into the isolated XDG_CONFIG_HOME so config.Load() inside
+	// pluginRunCmd.RunE picks it up.
+	cfgDir := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "stado")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(cfgDir, "config.toml"),
+		[]byte("[sandbox]\nrefuse_no_runner = true\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	src := buildTestPluginWithCaps(t, priv, pub, "needs-bash", "0.1.0", []string{"exec:bash"})
 
@@ -87,7 +102,7 @@ func TestPluginRun_WithToolHost_ExecBashGate_NoSandbox(t *testing.T) {
 
 	err := pluginRunCmd.RunE(pluginRunCmd, []string{"needs-bash-0.1.0", "anything"})
 	if err == nil {
-		t.Fatal("expected --with-tool-host to refuse exec:bash on no-sandbox host")
+		t.Fatal("expected --with-tool-host to refuse exec:bash on no-sandbox host with refuse_no_runner=true")
 	}
 	if !strings.Contains(err.Error(), "no native sandbox") || !strings.Contains(err.Error(), "bubblewrap") {
 		t.Errorf("expected refusal to mention no-native-sandbox + bubblewrap install hint, got %v", err)

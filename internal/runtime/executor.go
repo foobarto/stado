@@ -20,11 +20,16 @@ import (
 // is empty. These bare names match the pre-EP-0038 native tool names and will
 // be updated to wire names (fs__read etc.) when EP-0038 migrates each tool.
 var defaultAutoloadNames = []string{
-	"read", "write", "edit", "glob", "grep", "bash", "ls",
-	// EP-0038 wire names for new wasm-backed tools.
+	"read", "write", "edit", "glob", "grep", "bash",
+	// EP-0038 wire names for new wasm-backed tools. fs__ls supersedes
+	// the bare `ls` native tool, which is hidden from listings — no
+	// bare `ls` registration exists in the registry post-EP-0038.
 	"fs__ls",
 	// spawn_agent: native subagent tool needs autoload — its SubagentEvent
 	// path is wired only for this tool, not for the wasm agent__spawn alias.
+	// TODO: collapse spawn_agent / agent__spawn into one canonical surface
+	// (route the wasm wrapper to the native SubagentEvent path) so the
+	// LLM doesn't see two semantically-equivalent spawn tools.
 	"spawn_agent",
 }
 

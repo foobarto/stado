@@ -16,9 +16,6 @@ type monitorState struct {
 	cancel context.CancelFunc
 }
 
-// monitorLineMsg delivers one stdout line from a monitored process.
-type monitorLineMsg struct{ line string }
-
 // monitorDoneMsg fires when the monitored process exits.
 type monitorDoneMsg struct{ err error }
 

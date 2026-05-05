@@ -21,38 +21,6 @@ var toolCmd = &cobra.Command{
 
 var toolJSONFlag bool
 
-// resolveToolName accepts canonical (fs.read), wire (fs__read), or bare (read)
-// and returns the registered tool from the registry. Returns nil if not found.
-func resolveToolName(reg interface {
-	All() []toolLike
-	Get(string) (toolLike, bool)
-}, query string) (toolLike, bool) {
-	// Direct match first.
-	if t, ok := reg.Get(query); ok {
-		return t, true
-	}
-	// Canonical fs.read → wire fs__read
-	if strings.Contains(query, ".") {
-		wire := strings.ReplaceAll(query, ".", "__")
-		if t, ok := reg.Get(wire); ok {
-			return t, true
-		}
-	}
-	// Walk all and match by canonical name from metadata
-	for _, t := range reg.All() {
-		if runtime.LookupToolMetadata(t.Name()).Canonical == query {
-			return t, true
-		}
-	}
-	return nil, false
-}
-
-type toolLike interface {
-	Name() string
-	Description() string
-	Schema() map[string]any
-}
-
 var toolListCmd = &cobra.Command{
 	Use:     "list [glob]",
 	Aliases: []string{"ls"},
