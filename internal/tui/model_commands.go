@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
@@ -1375,10 +1376,12 @@ func (m *Model) renderPS(_ bool) string {
 	sb.WriteString(fmt.Sprintf("%-20s %-12s %-20s %s\n", "ID", "STATUS", "MODEL", "STARTED"))
 	for _, e := range entries {
 		age := time.Since(e.StartedAt).Round(time.Second).String()
-		sb.WriteString(fmt.Sprintf("agent:%-14s %-12s %-20s %s ago\n",
-			e.FleetID[:min8(e.FleetID)], string(e.Status), e.Model, age))
+		agentID := pluginRuntime.FormatFreeStandingHandleID(pluginRuntime.HandleTypeAgent, e.FleetID)
+		sb.WriteString(fmt.Sprintf("%-20s %-12s %-20s %s ago\n",
+			agentID, string(e.Status), e.Model, age))
 		if e.SessionID != "" {
-			sb.WriteString(fmt.Sprintf("  session:%-12s driver\n", e.SessionID[:min8(e.SessionID)]))
+			sessionID := pluginRuntime.FormatFreeStandingHandleID(pluginRuntime.HandleTypeSession, e.SessionID)
+			sb.WriteString(fmt.Sprintf("  %-18s driver\n", sessionID))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
@@ -1392,14 +1395,26 @@ func min8(s string) int {
 }
 
 // handleKillSlash handles /kill <id>. EP-0038 §H.
+// Accepts:
+//   - typed-prefix form: "agent:bf3e" (preferred, matches /ps output)
+//   - bare ID:           "bf3e..."   (back-compat — copy-paste-friendly)
 func (m *Model) handleKillSlash(parts []string) {
 	if len(parts) < 2 {
 		m.appendBlock(block{kind: "system", body: "/kill <agent-id>  — cancel a running agent"})
 		return
 	}
-	id := parts[1]
-	// Strip "agent:" prefix if present.
-	id = strings.TrimPrefix(id, "agent:")
+	raw := parts[1]
+	id := raw
+	if typ, parsedID, _, err := pluginRuntime.ParseHandleID(raw); err == nil {
+		// Typed-prefix form parsed cleanly. Only "agent:" is
+		// kill-routable today; proc:/term: don't have cancel paths
+		// hooked into the TUI yet.
+		if typ != pluginRuntime.HandleTypeAgent {
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill: %s handles aren't kill-routable from /kill yet", typ)})
+			return
+		}
+		id = parsedID
+	}
 	if m.fleet == nil {
 		m.appendBlock(block{kind: "system", body: "kill: no fleet registry"})
 		return
