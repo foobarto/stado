@@ -36,12 +36,10 @@ const (
 // writes the error string to result and returns -byte_count, mirroring
 // the encodeToolSidePayload convention.
 func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
-	if !host.ExecPTY || host.PTYManager == nil {
-		return
-	}
-	// Register under both legacy stado_pty_* and new stado_terminal_*
-	// names so existing v1 plugins keep working while EP-0038 plugins use
-	// the new naming. EP-0038 §B.
+	// EP-0038b: always register PTY imports so wasm modules that link
+	// against them (e.g. the bundled shell plugin) can instantiate even
+	// when the plugin lacks terminal:open. The handlers check the capability
+	// at call time and return an error if not granted.
 	registerPTYCreate(builder, host, "stado_pty_create")
 	registerPTYCreate(builder, host, "stado_terminal_open")
 	registerPTYList(builder, host, "stado_pty_list")
@@ -60,6 +58,12 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerPTYResize(builder, host, "stado_terminal_resize")
 	registerPTYDestroy(builder, host, "stado_pty_destroy")
 	registerPTYDestroy(builder, host, "stado_terminal_close")
+}
+
+// ptyDenied returns the i64-encoded error response for PTY handlers when
+// the capability is not granted or no PTY manager is wired.
+func ptyDenied(mod api.Module, resPtr, resCap uint32) int32 {
+	return encodeToolSidePayload(mod, resPtr, resCap, []byte("terminal:open capability required"))
 }
 
 // stado_pty_create(args_ptr, args_len, result_ptr, result_cap) → i64
@@ -86,6 +90,7 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 					return
 				}
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap))); return }
 			id, err := host.PTYManager.Spawn(opts)
 			if err != nil {
 				host.Logger.Warn("stado_pty_create failed", slog.String("err", err.Error()))
@@ -107,6 +112,7 @@ func registerPTYList(builder wazero.HostModuleBuilder, host *Host, exportName st
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			bufPtr := api.DecodeU32(stack[0])
 			bufCap := api.DecodeU32(stack[1])
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap)); return }
 			infos := host.PTYManager.List()
 			payload, err := json.Marshal(infos)
 			if err != nil {
@@ -138,6 +144,7 @@ func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
 			if err := host.PTYManager.Attach(req.ID, pty.AttachOpts{Force: req.Force}); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -163,6 +170,7 @@ func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
 			if err := host.PTYManager.Detach(req.ID); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -198,6 +206,7 @@ func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host, exportName s
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, errPtr, errCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, errPtr, errCap)); return }
 			n, err := host.PTYManager.Write(id, data)
 			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, errPtr, errCap, []byte(err.Error())))
@@ -234,6 +243,7 @@ func registerPTYRead(builder wazero.HostModuleBuilder, host *Host, exportName st
 			if timeoutMs == 0 {
 				timeout = pluginRuntimePTYDefaultTimeout
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap)); return }
 			data, err := host.PTYManager.Read(id, int(maxBytes), timeout)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
@@ -272,6 +282,7 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
 			if err := host.PTYManager.Signal(req.ID, syscall.Signal(req.Sig)); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -299,6 +310,7 @@ func registerPTYResize(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
 			if err := host.PTYManager.Resize(req.ID, req.Cols, req.Rows); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -324,6 +336,7 @@ func registerPTYDestroy(builder wazero.HostModuleBuilder, host *Host, exportName
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
 			if err := host.PTYManager.Destroy(req.ID); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return

@@ -33,6 +33,11 @@ func stadoFSToolGlob(argsPtr, argsLen, resPtr, resCap uint32) int32
 //go:wasmimport stado stado_fs_tool_grep
 func stadoFSToolGrep(argsPtr, argsLen, resPtr, resCap uint32) int32
 
+// fs.ls uses stado_exec to call /bin/ls (no native equivalent in fs/ tools).
+//
+//go:wasmimport stado stado_exec
+func stadoExec(reqPtr, reqLen, resPtr, resCap uint32) int32
+
 // ── ABI exports ────────────────────────────────────────────────────────────
 
 //go:wasmexport stado_alloc
@@ -113,6 +118,48 @@ func stadoToolGlob(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //go:wasmexport stado_tool_grep
 func stadoToolGrep(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return stadoFSToolGrep(uint32(argsPtr), uint32(argsLen), uint32(resPtr), uint32(resCap))
+}
+
+// stado_tool_ls — fs.ls. Calls `ls -l --time-style=long-iso` via stado_exec.
+// Returns structured directory entries that fs.glob doesn't provide.
+//
+//go:wasmexport stado_tool_ls
+func stadoToolLs(argsPtr, argsLen, resPtr, resCap int32) int32 {
+	args := sdk.Bytes(argsPtr, argsLen)
+	var req struct {
+		Path   string `json:"path"`
+		Hidden bool   `json:"hidden"`
+	}
+	json.Unmarshal(args, &req)
+	if req.Path == "" {
+		req.Path = "."
+	}
+	argv := []string{"/bin/ls", "-l", "--time-style=long-iso"}
+	if req.Hidden {
+		argv = []string{"/bin/ls", "-la", "--time-style=long-iso"}
+	}
+	argv = append(argv, req.Path)
+	execReq, _ := json.Marshal(map[string]any{"argv": argv, "timeout_ms": 10000})
+	reqPtr := sdk.Alloc(int32(len(execReq)))
+	defer sdk.Free(reqPtr, int32(len(execReq)))
+	sdk.Write(reqPtr, execReq)
+
+	const cap = 1 << 20
+	resBuf := sdk.Alloc(cap)
+	defer sdk.Free(resBuf, cap)
+	n := stadoExec(uint32(reqPtr), uint32(len(execReq)), uint32(resBuf), cap)
+	if n < 0 {
+		return writeError(resPtr, resCap, "exec failed")
+	}
+	// stado_exec returns {stdout, exit_code} — pass through stdout as raw text
+	// matching the existing ls plugin's output format.
+	var ex struct {
+		Stdout string `json:"stdout"`
+	}
+	if err := json.Unmarshal(sdk.Bytes(resBuf, n), &ex); err != nil {
+		return writeResult(resPtr, resCap, sdk.Bytes(resBuf, n))
+	}
+	return writeResult(resPtr, resCap, []byte(ex.Stdout))
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

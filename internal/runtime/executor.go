@@ -21,6 +21,11 @@ import (
 // be updated to wire names (fs__read etc.) when EP-0038 migrates each tool.
 var defaultAutoloadNames = []string{
 	"read", "write", "edit", "glob", "grep", "bash", "ls",
+	// EP-0038 wire names for new wasm-backed tools.
+	"fs__ls",
+	// spawn_agent: native subagent tool needs autoload — its SubagentEvent
+	// path is wired only for this tool, not for the wasm agent__spawn alias.
+	"spawn_agent",
 }
 
 // BuildDefaultRegistry returns a Registry preloaded with stado's bundled tools

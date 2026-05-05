@@ -51,8 +51,10 @@ func stadoTerminalDetach(argsPtr, argsLen, resPtr, resCap uint32) int32
 //go:wasmimport stado stado_terminal_write
 func stadoTerminalWrite(idLo, idHi, bufPtr, bufLen, errPtr, errCap uint32) int32
 
+// stado_terminal_read takes (idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap).
+//
 //go:wasmimport stado stado_terminal_read
-func stadoTerminalRead(argsPtr, argsLen, resPtr, resCap uint32) int32
+func stadoTerminalRead(idLo, idHi, maxBytes, timeoutMs, bufPtr, bufCap uint32) int32
 
 //go:wasmimport stado stado_terminal_signal
 func stadoTerminalSignal(argsPtr, argsLen, resPtr, resCap uint32) int32
@@ -274,7 +276,36 @@ func stadoToolWrite(argsPtr, argsLen, resPtr, resCap int32) int32 {
 
 //go:wasmexport stado_tool_read
 func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalRead, "read")
+	var req struct {
+		ID        uint64 `json:"id"`
+		MaxBytes  int    `json:"max_bytes"`
+		TimeoutMs int    `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal(sdk.Bytes(argsPtr, argsLen), &req); err != nil || req.ID == 0 {
+		return writeErr(resPtr, resCap, "id is required")
+	}
+	if req.MaxBytes <= 0 || req.MaxBytes > 1<<20 {
+		req.MaxBytes = 64 * 1024
+	}
+	bufPtr := sdk.Alloc(int32(req.MaxBytes))
+	defer sdk.Free(bufPtr, int32(req.MaxBytes))
+
+	idLo := uint32(req.ID & 0xFFFFFFFF)
+	idHi := uint32(req.ID >> 32)
+	n := stadoTerminalRead(idLo, idHi, uint32(req.MaxBytes), uint32(req.TimeoutMs), uint32(bufPtr), uint32(req.MaxBytes))
+	if n < 0 {
+		// Negative return = -byte_count of error string at bufPtr.
+		errLen := -n
+		if errLen > 0 && errLen <= int32(req.MaxBytes) {
+			return writeErr(resPtr, resCap, "read: "+string(sdk.Bytes(bufPtr, errLen)))
+		}
+		return writeErr(resPtr, resCap, "read failed")
+	}
+	out, _ := json.Marshal(map[string]any{
+		"data_b64": base64.StdEncoding.EncodeToString(sdk.Bytes(bufPtr, n)),
+		"n":        int(n),
+	})
+	return writeRaw(resPtr, resCap, out)
 }
 
 //go:wasmexport stado_tool_signal

@@ -24,7 +24,8 @@ var bundledToolMetadata = map[string]ToolMetadata{
 	"edit":      {Canonical: "fs.edit", Plugin: "fs", Categories: []string{"filesystem", "code-edit"}},
 	"glob":      {Canonical: "fs.glob", Plugin: "fs", Categories: []string{"filesystem"}},
 	"grep":      {Canonical: "fs.grep", Plugin: "fs", Categories: []string{"filesystem", "code-search"}},
-	"ls":        {Canonical: "fs.ls", Plugin: "fs", Categories: []string{"filesystem"}},
+	// "ls" standalone is hidden — superseded by fs__ls wasm tool.
+	"ls":        {Canonical: "", Plugin: "", Categories: nil},
 	"fs__read":  {Canonical: "fs.read", Plugin: "fs", Categories: []string{"filesystem"}},
 	"fs__write": {Canonical: "fs.write", Plugin: "fs", Categories: []string{"filesystem", "code-edit"}},
 	"fs__edit":  {Canonical: "fs.edit", Plugin: "fs", Categories: []string{"filesystem", "code-edit"}},

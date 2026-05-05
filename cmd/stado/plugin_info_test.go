@@ -38,6 +38,8 @@ func TestPluginInfo_DumpsManifestAsJSON(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = orig }()
 
+	pluginInfoJSON = true
+	defer func() { pluginInfoJSON = false }()
 	runErr := pluginInfoCmd.RunE(pluginInfoCmd, []string{"infodemo-0.1.0"})
 	_ = w.Close()
 	out, _ := os.ReadFile("/proc/self/fd/" + readPipeFD(r))

@@ -36,6 +36,8 @@ EP38_TOOLS=(
   shell
   rg
   agent
+  web
+  dns
 )
 
 # EP-0038b readctx replacement (renamed module dir to avoid conflict with

@@ -29,6 +29,9 @@ func (s approvalBridgeStub) RequestApproval(context.Context, string, string) (bo
 }
 
 func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
+	// EP-0038b: imports are always registered now (capability check at call time)
+	// so wasm plugins linking against multiple tool imports can succeed even when
+	// only some caps are granted. Capability denial happens at call, not link.
 	ctx := context.Background()
 	rt, err := New(ctx)
 	if err != nil {
@@ -46,12 +49,20 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	_, err = rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
-	if err == nil {
-		t.Fatal("expected instantiate to fail without fs:read capability")
+	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
+	if err != nil {
+		t.Fatalf("instantiate should succeed (link-time): got %v", err)
 	}
-	if !strings.Contains(err.Error(), "stado_fs_tool_read") {
-		t.Fatalf("instantiate error = %v, want missing stado_fs_tool_read import", err)
+	defer func() { _ = mod.Close(ctx) }()
+	// Now invoking the read tool should produce a capability-denied error.
+	pt, err := NewPluginTool(mod, plugins.ToolDef{Name: "read"})
+	if err != nil {
+		t.Fatalf("NewPluginTool: %v", err)
+	}
+	res, _ := pt.Run(ctx, []byte(`{"path":"x"}`), toolImportHost{workdir: t.TempDir()})
+	combined := res.Content + res.Error
+	if !strings.Contains(combined, "denied") && !strings.Contains(combined, "capabilities") {
+		t.Fatalf("expected capability denial at call time, got: content=%q error=%q", res.Content, res.Error)
 	}
 }
 

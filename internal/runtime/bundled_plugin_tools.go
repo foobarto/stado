@@ -70,10 +70,9 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// spawn_agent is native for now because it needs a live provider and
 	// forked Session orchestration, not only the plugin host imports.
 	r.Register(subagent.Tool{})
-	// EP-0038c: wasm-only tools with no native equivalent.
-	r.Register(newBundledStaticTool(
-		"ls",
-		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns JSON array of entries.",
+	// EP-0038c: fs.ls — bundled into the fs wasm module (uses stado_exec for /bin/ls).
+	r.Register(newBundledWasmTool("fs", "stado_tool_ls", "fs__ls",
+		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns the formatted ls output.",
 		tool.ClassNonMutating,
 		map[string]any{
 			"type": "object",
@@ -82,8 +81,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 				"hidden": map[string]any{"type": "boolean", "description": "Include dot-files (default false)"},
 			},
 		},
-		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."},
-	))
+		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."}))
 
 	// EP-0038c: shell.* PTY session tools — wasm-backed via shell.wasm.
 	// Capabilities: terminal:open (PTY) + exec:proc (one-shot variants).
