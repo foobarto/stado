@@ -28,6 +28,8 @@ func init() {
 		"Path to the 32-byte Ed25519 seed (generate via `stado plugin gen-key`)")
 	pluginSignCmd.Flags().StringVar(&pluginSignWasm, "wasm", "",
 		"Path to the plugin wasm binary (default: <manifest-dir>/plugin.wasm)")
+	pluginSignCmd.Flags().StringVar(&pluginSignManifestVersion, "manifest-version", "",
+		"Override the version field in the manifest before signing (used by `plugin dev --watch`)")
 	pluginCmd.AddCommand(pluginTrustCmd, pluginUntrustCmd, pluginListCmd, pluginInstalledCmd, pluginVerifyCmd,
 		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
 		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd,

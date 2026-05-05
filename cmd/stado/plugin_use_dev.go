@@ -54,6 +54,13 @@ var pluginUseCmd = &cobra.Command{
 	},
 }
 
+var pluginDevWatch bool
+
+func init() {
+	pluginDevCmd.Flags().BoolVar(&pluginDevWatch, "watch", false,
+		"After first install, watch <dir> for changes and rebuild + reinstall on save")
+}
+
 // ── plugin dev ───────────────────────────────────────────────────────────
 
 // pluginDevCmd collapses gen-key → sign → trust → install for plugin authoring.
@@ -138,6 +145,9 @@ for production keys intended for distribution.`,
 		pluginInstallForce = origForce
 		if installErr != nil {
 			return fmt.Errorf("plugin dev: install: %w", installErr)
+		}
+		if pluginDevWatch {
+			return runDevWatchLoop(cmd.Context(), dir, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		}
 		return nil
 	},
