@@ -81,12 +81,25 @@ type Host struct {
 	NetHTTPRequest        bool     // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
 	NetReqHost            []string // optional hostname allow-list for net:http_request:<host>
 	NetHTTPRequestPrivate bool     // when true, stado_http_request's dial guard allows RFC1918 / loopback / link-local destinations. Off by default — opt-in via net:http_request_private cap.
-	ExecBash              bool
+	ExecBash    bool
 	ExecSearch  bool
 	ExecASTGrep bool
 	ExecPTY     bool
-	LSPQuery    bool
-	UIApproval  bool
+	// ExecProc gates stado_proc_* and stado_exec (EP-0038 §B Tier 1).
+	// ExecProcGlob, when non-empty, restricts to exec:proc:<glob>.
+	ExecProc     bool
+	ExecProcGlob string
+	// BundledBin gates stado_bundled_bin (EP-0038 §B Tier 1).
+	BundledBin bool
+	// DNSResolve / DNSReverse gate stado_dns_resolve / stado_dns_resolve_axfr (Tier 2).
+	DNSResolve bool
+	DNSReverse bool
+	// CryptoHash gates stado_hash and stado_hmac (EP-0038 §B Tier 3).
+	CryptoHash bool
+	// Compress gates stado_compress / stado_decompress (Tier 3).
+	Compress bool
+	LSPQuery   bool
+	UIApproval bool
 
 	// PTYManager is the runtime-shared registry of PTY-backed
 	// processes; survives plugin instantiation freshness so a session
@@ -274,7 +287,29 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.ExecASTGrep = true
 			case "pty":
 				h.ExecPTY = true
+			case "proc":
+				h.ExecProc = true
+				if len(parts) == 3 && parts[2] != "" {
+					h.ExecProcGlob = parts[2]
+				}
 			}
+		case "bundled-bin":
+			h.BundledBin = true
+		case "dns":
+			switch parts[1] {
+			case "resolve":
+				h.DNSResolve = true
+			case "axfr":
+				h.DNSResolve = true // axfr implies resolve
+			case "reverse":
+				h.DNSReverse = true
+			}
+		case "crypto":
+			if parts[1] == "hash" {
+				h.CryptoHash = true
+			}
+		case "compress":
+			h.Compress = true
 		case "lsp":
 			if parts[1] == "query" {
 				h.LSPQuery = true

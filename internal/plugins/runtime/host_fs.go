@@ -23,6 +23,7 @@ const (
 func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerFSReadImport(builder, host)
 	registerFSWriteImport(builder, host)
+	registerFSReadPartialImport(builder, host)
 }
 
 func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
@@ -135,6 +136,114 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_fs_write")
+}
+
+func registerFSReadPartialImport(builder wazero.HostModuleBuilder, host *Host) {
+	// stado_fs_read_partial(path_ptr, path_len,
+	//                        offset_hi, offset_lo,
+	//                        length_hi, length_lo,
+	//                        buf_ptr, buf_cap) → int32
+	//
+	// Reads up to min(length, buf_cap) bytes from abs starting at byte offset.
+	// offset and length are passed as two i32 halves of an i64 (wasm32 compat).
+	// Same capability gates as stado_fs_read. EP-0038 D24.
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			pathPtr := api.DecodeU32(stack[0])
+			pathLen := api.DecodeU32(stack[1])
+			offsetHi := int32(api.DecodeI32(stack[2])) //nolint:gosec
+			offsetLo := int32(api.DecodeI32(stack[3])) //nolint:gosec
+			lengthHi := int32(api.DecodeI32(stack[4])) //nolint:gosec
+			lengthLo := int32(api.DecodeI32(stack[5])) //nolint:gosec
+			bufPtr := api.DecodeU32(stack[6])
+			bufCap := api.DecodeU32(stack[7])
+
+			offset := (int64(offsetHi) << 32) | int64(uint32(offsetLo))
+			length := (int64(lengthHi) << 32) | int64(uint32(lengthLo))
+			if offset < 0 || length <= 0 {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if length > int64(bufCap) {
+				length = int64(bufCap)
+			}
+			if pathLen > maxPluginRuntimeFSPathBytes {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			abs, err := realPath(host.Workdir, path)
+			if err != nil {
+				host.Logger.Warn("stado_fs_read_partial: path resolution failed",
+					slog.String("path", path), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if !host.allowRead(abs) {
+				host.Logger.Warn("stado_fs_read_partial denied", slog.String("path", abs))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			data, err := readAllowedFilePartial(abs, host.FSRead, offset, length)
+			if err != nil {
+				host.Logger.Warn("stado_fs_read_partial failed",
+					slog.String("path", abs), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
+		}),
+		[]api.ValueType{
+			api.ValueTypeI32, api.ValueTypeI32, // path ptr/len
+			api.ValueTypeI32, api.ValueTypeI32, // offset hi/lo
+			api.ValueTypeI32, api.ValueTypeI32, // length hi/lo
+			api.ValueTypeI32, api.ValueTypeI32, // buf ptr/cap
+		},
+		[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_fs_read_partial")
+}
+
+// readAllowedFilePartial reads up to length bytes from abs starting at offset.
+// Same capability gates as readAllowedFile.
+func readAllowedFilePartial(abs string, allow []string, offset, length int64) ([]byte, error) {
+	if length > maxPluginRuntimeFSFileBytes {
+		length = maxPluginRuntimeFSFileBytes
+	}
+	root, rel, err := openAllowedRoot(abs, allow, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	f, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("stado_fs_read_partial: not a regular file: %s", abs)
+	}
+	if offset > 0 {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return nil, err
+		}
+	}
+	buf := make([]byte, length)
+	n, err := io.ReadFull(f, buf)
+	if err == io.ErrUnexpectedEOF {
+		return buf[:n], nil // EOF before length — valid partial read
+	}
+	if err != nil {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 // resolveAbs makes a plugin-supplied path absolute. Plugins that pass

@@ -35,6 +35,12 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerCfgImports(builder, host)
 	registerPTYImports(builder, host)
 	installNativeToolImports(builder, host)
+	// EP-0038a: new Tier 1/2/3 host imports.
+	registerProcImports(builder, host, r)
+	registerBundledBinImport(builder, host)
+	registerDNSImports(builder, host)
+	registerCryptoImports(builder, host)
+	registerCompressImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

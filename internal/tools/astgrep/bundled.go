@@ -29,3 +29,7 @@ func bundledBinary() (string, error) {
 	}
 	return binext.Extract(cacheDir(), name, bundledBytes, bundledSHA256)
 }
+
+// BundledPath returns the filesystem path to the embedded ast-grep binary,
+// extracting it to the cache dir on first call. Used by stado_bundled_bin.
+func BundledPath() (string, error) { return bundledBinary() }

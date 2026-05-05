@@ -48,6 +48,11 @@ type Runtime struct {
 	// = Runtime; CloseAll runs on Close to reap any orphans the
 	// plugin didn't destroy explicitly.
 	pty *pty.Manager
+
+	// handles is the runtime-shared opaque handle registry (proc, net,
+	// terminal connections). Agents and sessions are exempt — they
+	// outlive plugin instances. EP-0038 §G, D13.
+	handles *handleRegistry
 }
 
 // New allocates a fresh wazero runtime with WASI preview 1 preloaded.
@@ -65,6 +70,7 @@ func New(ctx context.Context) (*Runtime, error) {
 	return &Runtime{
 		rt:      rt,
 		modules: make(map[string]*Module),
+		handles: newHandleRegistry(),
 		pty:     pty.NewManager(),
 	}, nil
 }
