@@ -6,6 +6,9 @@
 
 GO       ?= go
 GOFLAGS  ?=
+# Redirect Go's build temp dir off /tmp — per-user quota is tight on this host.
+export GOTMPDIR ?= $(CURDIR)/.tmp
+_ := $(shell mkdir -p $(GOTMPDIR))
 PKG      ?= ./cmd/stado
 BIN      ?= stado
 STATICCHECK ?= staticcheck
