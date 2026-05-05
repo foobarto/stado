@@ -518,6 +518,30 @@ func (m *Model) handleToolSlash(parts []string) {
 		// Runtime-only: wasm instance drop on next call. No config change.
 		m.appendBlock(block{kind: "system", body: "/tool reload: wasm instance(s) will be re-initialised on next call."})
 
+	case "enable":
+		args, save := parseToolMutateArgs(parts[2:])
+		if len(args) == 0 {
+			m.appendBlock(block{kind: "system", body: "usage: /tool enable <name|glob> [<name|glob>...] [--save]"})
+			return
+		}
+		if save {
+			path, err := projectConfigPath()
+			if err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable: %v", err)})
+				return
+			}
+			_ = config.WriteToolsListRemove(path, "disabled", args)
+			if err := config.WriteToolsListAdd(path, "enabled", args); err != nil {
+				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable --save: %v", err)})
+				return
+			}
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable --save: wrote %s ([tools].enabled += %v)", path, args)})
+			return
+		}
+		m.sessionToolOverrides.enableAdd = appendUnique(m.sessionToolOverrides.enableAdd, args...)
+		m.sessionToolOverrides.disableRemove = appendUnique(m.sessionToolOverrides.disableRemove, args...)
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool enable: enabled %v for this session (use --save to persist to .stado/config.toml)", args)})
+
 	default:
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("/tool %s: unknown verb. Try: ls, info, cats, reload", verb)})
 	}
@@ -569,6 +593,48 @@ func (m *Model) handleSessionDetach() {
 	prev := m.attach.agentID
 	m.attach = attachState{}
 	m.appendBlock(block{kind: "system", body: fmt.Sprintf("detached from agent:%s — back to main session", prev[:min8(prev)])})
+}
+
+// parseToolMutateArgs splits /tool {enable,disable,autoload,
+// unautoload} args into the actual tool names/globs and the --save
+// flag.
+func parseToolMutateArgs(rest []string) (args []string, save bool) {
+	for _, a := range rest {
+		if a == "--save" {
+			save = true
+			continue
+		}
+		args = append(args, a)
+	}
+	return
+}
+
+// appendUnique returns slice ∪ {extras}, preserving order.
+func appendUnique(slice []string, extras ...string) []string {
+	seen := map[string]bool{}
+	for _, s := range slice {
+		seen[s] = true
+	}
+	for _, e := range extras {
+		if seen[e] {
+			continue
+		}
+		seen[e] = true
+		slice = append(slice, e)
+	}
+	return slice
+}
+
+// projectConfigPath returns the path of the project's
+// .stado/config.toml. Mirrors cmd/stado/tool.go's
+// toolMutateConfigPath default branch (the slash version doesn't
+// expose --global; session-scoped override is the equivalent).
+func projectConfigPath() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	return cwd + "/.stado/config.toml", nil
 }
 
 func (m *Model) handleMemorySlash(parts []string) {
