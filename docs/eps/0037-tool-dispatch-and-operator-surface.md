@@ -46,6 +46,14 @@ history:
       Renamed --tools-whitelist to --tools (canonical per NOTES §10).
       No back-compat alias kept; pre-1.0. The previous bool --tools
       gate is removed; --no-tools is the pure-chat opt-out.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      stado plugin list / plugin info now show bundled plugins
+      (per-wasm-module unit; '✓ bundled' status). stado plugin run
+      replaced by stado tool run <name>; the new form accepts both
+      canonical and wire forms, refuses [tools].disabled tools
+      unless --force, and resolves bundled + installed uniformly.
 ---
 
 # EP-0037: Tool dispatch, naming, and operator surface

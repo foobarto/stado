@@ -3,109 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-var (
-	pluginRunSession       string
-	pluginRunWorkdir       string
-	pluginRunWithToolHost  bool
-	pluginRunBuildProvider = tui.BuildProvider
-)
+// pluginRunBuildProvider is the provider-builder injection point used by
+// buildPluginRunBridge below and overridden in tests. Kept as a package-level
+// var so test code can substitute a stub before exercising the bridge path.
+var pluginRunBuildProvider = tui.BuildProvider
 
-var pluginRunCmd = &cobra.Command{
-	Use:   "run <name>-<version> <tool> [json-args]",
-	Short: "Run a single tool exported by an installed plugin",
-	Long: "Loads the plugin from $XDG_DATA_HOME/stado/plugins/<name>-<version>/,\n" +
-		"instantiates the wasm module in a wazero sandbox bound by the\n" +
-		"manifest's declared capabilities, then invokes the named tool\n" +
-		"with the supplied JSON args (default: empty object).\n\n" +
-		"Primarily for local plugin authoring. Pass --session <id> to bind\n" +
-		"the run to a persisted session so session-aware capabilities like\n" +
-		"session:read, session:fork, and llm:invoke work on the CLI too.",
-	Args: cobra.RangeArgs(2, 3),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load()
-		if err != nil {
-			return err
-		}
-		toolName := args[1]
-		argsJSON := "{}"
-		if len(args) >= 3 {
-			argsJSON = args[2]
-		}
-		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
-			return err
-		}
-		dir, err := plugins.InstalledDir(filepath.Join(cfg.StateDir(), "plugins"), args[0])
-		if err != nil {
-			return err
-		}
-		if _, err := os.Stat(dir); err != nil {
-			return fmt.Errorf("plugin %s not installed (run `stado plugin install <plugin-dir>` after building + signing it)", args[0])
-		}
-
-		// Load + verify manifest (signature + wasm sha256 + rollback).
-		// The caller is presumably the same user who installed the
-		// plugin, so trust-store should already have the signer.
-		m, sig, err := plugins.LoadFromDir(dir)
-		if err != nil {
-			return err
-		}
-		wasmPath := filepath.Join(dir, "plugin.wasm")
-		wasmBytes, err := plugins.ReadVerifiedWASM(m.WASMSHA256, wasmPath)
-		if err != nil {
-			return fmt.Errorf("verify: %w", err)
-		}
-		ts := plugins.NewTrustStore(cfg.StateDir())
-		if err := ts.VerifyManifest(m, sig); err != nil {
-			return fmt.Errorf("verify: %w", err)
-		}
-		if cfg.Plugins.CRLURL != "" {
-			if err := consultCRL(cfg, m); err != nil {
-				return fmt.Errorf("run: %w", err)
-			}
-		}
-
-		// EP-0038 §J: --with-tool-host is deprecated. ToolHost is now always wired
-		// (every plugin run has access to bundled tool imports). The flag is accepted
-		// for one release with a deprecation warning, then removed.
-		if pluginRunWithToolHost {
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"stado: warning: --with-tool-host is deprecated (EP-0038); "+
-					"ToolHost is now wired by default. Flag will be removed in a future release.\n")
-		}
-
-		ctx := cmd.Context()
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		return runPluginInvocation(ctx, pluginInvokeArgs{
-			Manifest:   *m,
-			WasmBytes:  wasmBytes,
-			ToolName:   toolName,
-			ArgsJSON:   argsJSON,
-			Cfg:        cfg,
-			WorkdirArg: pluginRunWorkdir,
-			InstallDir: dir,
-			SessionID:  pluginRunSession,
-			Stdout:     cmd.OutOrStdout(),
-			Stderr:     cmd.ErrOrStderr(),
-		})
-	},
-}
-
+// attachPluginMemoryBridge wires a local-disk memory bridge onto the plugin
+// runtime host when the plugin's manifest declares it needs one. Shared
+// between every code path that constructs a pluginRuntime.Host (CLI tool run
+// and TUI plugin invocations alike).
 func attachPluginMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName string) {
 	if cfg == nil || host == nil || !host.NeedsMemoryBridge() {
 		return
@@ -113,20 +27,10 @@ func attachPluginMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, plug
 	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
 }
 
-func init() {
-	pluginRunCmd.Flags().StringVar(&pluginRunSession, "session", "",
-		"Bind the plugin run to a persisted session ID so session-aware capabilities work on the CLI")
-	_ = pluginRunCmd.RegisterFlagCompletionFunc("session", completeSessionIDs)
-	pluginRunCmd.Flags().StringVar(&pluginRunWorkdir, "workdir", "",
-		"Override the plugin's Workdir (the path against which fs:read:./fs:write:. capabilities and relative file paths resolve). "+
-			"Default is the plugin's install dir for backward compatibility — pass --workdir=$PWD when the plugin is meant to "+
-			"read files from the operator's repo.")
-	pluginRunCmd.Flags().BoolVar(&pluginRunWithToolHost, "with-tool-host", false,
-		"Wire host.ToolHost so plugins importing bundled tools (stado_http_get, stado_fs_tool_*, stado_lsp_*, stado_search_*) "+
-			"can be exercised from the CLI. exec:bash plugins run under sandbox.Detect() (bwrap on Linux, sandbox-exec on macOS); "+
-			"refused only if the platform has no native sandbox (sandbox.Detect → none). EP-0028 D1.")
-}
-
+// buildPluginRunBridge constructs the SessionBridge that session-aware plugin
+// capabilities (session:read, session:fork, llm:invoke) rely on. The query
+// string is either a session ID or a partial-prefix; resolution + opening
+// happen here so callers receive a ready-to-use bridge.
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {
 	id, err := resolveSessionID(cfg, query)
 	if err != nil {
@@ -175,6 +79,9 @@ func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, plugin
 	return bridge, note, nil
 }
 
+// countPluginRunTokens returns the provider's token count for the supplied
+// message slice when the provider implements TokenCounter, else 0. Used by
+// the SessionBridge TokensFn so plugins can read the live conversation cost.
 func countPluginRunTokens(ctx context.Context, prov agent.Provider, model string, msgs []agent.Message) int {
 	if prov == nil {
 		return 0
