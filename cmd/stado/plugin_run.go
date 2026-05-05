@@ -117,12 +117,22 @@ var pluginRunCmd = &cobra.Command{
 		// macOS without sandbox-exec, on Windows always: same outcome
 		// as before — explicit refusal with an install hint, not
 		// silent unsandboxed execution.
-		var runner sandbox.Runner
+		// EP-0038 §J: --with-tool-host is deprecated. ToolHost is now always wired
+		// (every plugin run has access to bundled tool imports). The flag is accepted
+		// for one release with a deprecation warning, then removed.
 		if pluginRunWithToolHost {
-			runner = sandbox.Detect()
-			if host.ExecBash && runner.Name() == "none" {
-				return fmt.Errorf("plugin run --with-tool-host: plugin %s declares `exec:bash` but no native sandbox is available on this host (sandbox.Detect → none) — install bubblewrap (Linux: `dnf install bubblewrap` / `apt install bubblewrap`) or run on a host with sandbox-exec (macOS), then retry", m.Name)
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"stado: warning: --with-tool-host is deprecated (EP-0038); "+
+					"ToolHost is now wired by default. Flag will be removed in a future release.\n")
+		}
+		runner := sandbox.Detect()
+		if host.ExecBash && !host.ExecProc && runner.Name() == "none" {
+			if cfg.Sandbox.RefuseNoRunner {
+				return fmt.Errorf("plugin run: plugin %s declares exec:bash but no sandbox runner is available and [sandbox] refuse_no_runner = true", m.Name)
 			}
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"stado: warn: plugin %s declares exec:bash but no sandbox runner is available — running unsandboxed. Set [sandbox] refuse_no_runner = true to hard-fail instead.\n",
+				m.Name)
 		}
 
 		ctx := cmd.Context()
@@ -134,15 +144,8 @@ var pluginRunCmd = &cobra.Command{
 
 		attachPluginMemoryBridge(cfg, host, m.Name)
 
-		// Wire host.ToolHost when --with-tool-host is set so plugins
-		// importing bundled tools (stado_http_get, stado_fs_tool_*,
-		// stado_lsp_*, stado_search_*) can be exercised end-to-end
-		// from the CLI. Without this, tool_imports.go returns the
-		// "plugin host has no tool runtime context" error and the
-		// caller can only test the plugin's pure-fs paths. EP-0028.
-		if pluginRunWithToolHost {
-			host.ToolHost = newPluginRunToolHost(workdir, runner, host.NetHTTPRequestPrivate)
-		}
+		// EP-0038 §J: ToolHost is always wired now (--with-tool-host deprecated).
+		host.ToolHost = newPluginRunToolHost(workdir, runner, host.NetHTTPRequestPrivate)
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			if pluginRunSession != "" {
 				bridge, note, err := buildPluginRunBridge(cmd.Context(), cfg, pluginRunSession, m.Name, host.LLMInvokeBudget > 0)

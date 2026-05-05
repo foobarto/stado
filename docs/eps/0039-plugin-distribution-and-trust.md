@@ -2,9 +2,10 @@
 ep: 39
 title: Plugin distribution and trust — anchor repo, versioned identity, lock file
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-05
+implemented-in: v0.33.0
 see-also: [6, 12, 35, 37, 38]
 history:
   - date: 2026-05-05
@@ -23,6 +24,15 @@ history:
       subdir tag convention (codex #17, gemini #17); §K reframed `/plugin install` TUI
       semantics as install-durable / session-flip-enable / opt-in-pin (codex #18). Decision
       log gained D12–D17 capturing the changes.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Implemented in v0.33.0. ParseIdentity() with strict semver/SHA validation;
+      AnchorTrustStore (per-owner TOFU, separate from per-key TrustStore); lock.go
+      (hand-rolled TOML, NewLock/ReadLock/Write); SHA256 drift detection at install +
+      --force flag; plugin trust --pubkey-file; plugin use <name>@<version>;
+      plugin dev <dir> (gen-key → sign → trust → install). Remote git fetch / 3-tier
+      artefact resolution and plugin update/update-anchor deferred as follow-ons.
 ---
 
 # EP-0039: Plugin distribution and trust — anchor repo, versioned identity, lock file

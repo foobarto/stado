@@ -25,7 +25,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | #    | Title | Type | Status |
 |------|-------|------|--------|
 | 0001 | [EP Purpose and Guidelines](./0001-ep-purpose-and-guidelines.md) | Process | Accepted |
-| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Partial |
+| 0002 | [All Tools as WASM Plugins](./0002-all-tools-as-plugins.md) | Standards | Implemented |
 | 0003 | [Provider-Native Agent Interface](./0003-provider-native-agent-interface.md) | Standards | Implemented |
 | 0004 | [Git-Native Sessions and Audit Trail](./0004-git-native-sessions-and-audit.md) | Standards | Implemented |
 | 0005 | [Capability-Based Sandboxing](./0005-capability-based-sandboxing.md) | Standards | Implemented |
@@ -51,7 +51,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
 | 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
-| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
+| 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Superseded |
 | 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Placeholder |
 | 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
@@ -60,9 +60,9 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Superseded |
 | 0035 | [Project-local .stado/ directory](./0035-project-local-stado-dir.md) | Standards | Implemented |
 | 0036 | [Loop, monitor, and schedule — recurring agent work](./0036-loop-monitor-schedule.md) | Standards | Implemented |
-| 0037 | [Tool dispatch, naming, and operator surface](./0037-tool-dispatch-and-operator-surface.md) | Standards | Draft |
-| 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Draft |
-| 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Draft |
+| 0037 | [Tool dispatch, naming, and operator surface](./0037-tool-dispatch-and-operator-surface.md) | Standards | Implemented |
+| 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Implemented |
+| 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

@@ -2,9 +2,10 @@
 ep: 38
 title: ABI v2, bundled wasm tools, and runtime surface
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-05
+implemented-in: v0.33.0
 requires: [37]
 supersedes: [13, 28, 34]
 see-also: [2, 5, 6, 14, 17, 29, 31, 35, 37]
@@ -34,6 +35,16 @@ history:
       Added stado_fs_read_partial to §B Tier 1 surface and D24. Motivated by image-info
       dogfood: all-or-nothing stado_fs_read forced 16 MiB buffer allocation per header
       inspection call. fs.read tool gains offset?/length? params at schema level.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Implemented in v0.33.0. Handle registry; stado_proc_*/stado_exec; stado_bundled_bin;
+      stado_fs_read_partial (D24); stado_dns_resolve; stado_hash/hmac; stado_compress/decompress;
+      stado_agent_* Tier 1+ imports + FleetBridgeAdapter; agent/fs/shell/rg/readctx wasm modules
+      with parity tests passing; ApplyWasmMigration with [runtime.use_wasm] flags;
+      /ps /top /kill /stats /sandbox /config TUI introspection commands;
+      [YOU] multi-producer renderer marker; sandbox MaybeRewrap wrap-mode re-exec.
+      /session attach RW deferred — stub present, full implementation follow-on.
 ---
 
 # EP-0038: ABI v2, bundled wasm tools, and runtime surface

@@ -2,10 +2,10 @@
 ep: 2
 title: All Tools as WASM Plugins
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Partial
+status: Implemented
 type: Standards
 created: 2026-04-22
-implemented-in: v0.1.0
+implemented-in: v0.33.0
 extended-by: [38]
 see-also: [5, 6, 37, 38]
 history:
@@ -28,6 +28,15 @@ history:
       etc.). The invariant in §Design that "the implementation behind a tool name is a plugin
       module running in the wazero host" is not currently true. EP-0038 restores the invariant by
       moving every native tool to a wasm plugin and deleting the wrapper layer.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Invariant restored by EP-0038. Wasm plugins for fs/shell/rg/readctx/agent now ship
+      as real wasm modules in internal/bundledplugins/wasm/. Per-tool parity flags
+      ([runtime.use_wasm.*]) gate the migration; ApplyWasmMigration swaps native
+      registrations for wasm-backed ones when a flag is set. Parity tests pass for
+      fs (read/glob) and shell (exec). The native wrapper facade (newBundledPluginTool)
+      remains for tools not yet migrated but is no longer the primary path.
 ---
 
 # EP-2: All Tools as WASM Plugins

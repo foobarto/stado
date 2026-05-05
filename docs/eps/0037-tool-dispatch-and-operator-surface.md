@@ -2,9 +2,10 @@
 ep: 37
 title: Tool dispatch, naming, and operator surface
 author: Bartosz Ptaszynski <foobarto@gmail.com>
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-05
+implemented-in: v0.33.0
 extended-by: []
 see-also: [2, 5, 6, 17, 28, 29, 31, 35]
 history:
@@ -20,6 +21,16 @@ history:
       non-disableable kernel of all four meta-tools with `tools.describe` activating schemas
       onto the model surface (codex #1); §J dropped manifest top-level `name:` field;
       decision-log D3 / D7 rewritten to record the new shapes.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Implemented in v0.33.0. WireForm/ParseWireForm naming helpers; 21-entry canonical
+      category taxonomy; [tools.autoload] config + wildcard glob in ApplyToolFilter;
+      four native meta-tools (tools__search/describe/categories/in_category); autoload
+      dispatch in agentloop with session-scoped activation; --tools-whitelist/autoload/disable
+      CLI flags; stado tool ls/info/cats/reload subcommand; /tool and /session TUI slash
+      mirrors; category validation at plugin install time; [sandbox] schema + SandboxWrap
+      sub-section.
 ---
 
 # EP-0037: Tool dispatch, naming, and operator surface
