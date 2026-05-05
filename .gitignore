@@ -31,3 +31,4 @@
 /examples/plugins/*/zig-cache/
 /examples/plugins/*/zig-out/
 .env
+NOTES*.md

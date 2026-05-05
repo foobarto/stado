@@ -909,12 +909,12 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			}}
 		}
 	}
-	workdir := m.cwd
-	if m.session != nil {
-		workdir = m.session.WorktreePath
-	}
+	// Tools operate on the user's launch CWD, not the session audit
+	// worktree. Same model as `stado run` default. The worktree is
+	// where turn-boundary tree commits live (m.session.WorktreePath); it
+	// is NOT the agent's working directory.
 	host := hostAdapter{
-		workdir: workdir,
+		workdir: m.cwd,
 		readLog: m.executor.ReadLog,
 		runner:  m.executor.Runner,
 		approval: tuiApprovalBridge{

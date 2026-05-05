@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/bundledplugins"
@@ -325,10 +326,17 @@ func newBundledStaticTool(name, desc string, class tool.Class, schema map[string
 // newBundledWasmTool registers one tool from a multi-tool wasm module.
 // wasmName: the .wasm file basename in internal/bundledplugins/wasm/.
 // toolExport: the stado_tool_<X> export name within that module.
+//
+//	The dispatcher in plugin runtime prepends "stado_tool_" to def.Name to
+//	resolve the export, so def.Name is the bare suffix — for an export
+//	`stado_tool_ls`, pass `toolExport = "stado_tool_ls"` and we strip the
+//	prefix here to keep the call sites readable.
+//
 // registeredName: how the tool is named in the registry (typically wire form).
 func newBundledWasmTool(wasmName, toolExport, registeredName, desc string, class tool.Class, schema map[string]any, caps []string) tool.Tool {
+	bare := strings.TrimPrefix(toolExport, "stado_tool_")
 	def := plugins.ToolDef{
-		Name:        toolExport,
+		Name:        bare,
 		Description: desc,
 		Class:       pluginClassName(class),
 		Schema:      mustMarshalSchema(schema),
