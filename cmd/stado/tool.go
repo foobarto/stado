@@ -325,6 +325,7 @@ func init() {
 		c.Flags().BoolVar(&toolMutateDryRun, "dry-run", false, "Print intended changes without writing")
 	}
 	toolCmd.AddCommand(toolListCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd,
-		toolEnableCmd, toolDisableCmd, toolAutoloadCmd, toolUnautoloadCmd)
+		toolEnableCmd, toolDisableCmd, toolAutoloadCmd, toolUnautoloadCmd,
+		toolRunCmd)
 	rootCmd.AddCommand(toolCmd)
 }
