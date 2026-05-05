@@ -33,8 +33,11 @@ var (
 	runQuiet       bool
 	runTools       bool
 	runNoTools     bool
-	runSandboxFS   bool
-	runSessionID   string
+	runSandboxFS       bool
+	runToolsWhitelist  string // --tools-whitelist
+	runToolsAutoload   string // --tools-autoload
+	runToolsDisable    string // --tools-disable
+	runSessionID       string
 	runSkill       string
 	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
 	runTemperature float64
@@ -221,7 +224,17 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 						return fmt.Errorf("session: %w", err)
 					}
 				}
-				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
+				// EP-0037: CLI flags override [tools] config before building executor.
+			if runToolsWhitelist != "" {
+				cfg.Tools.Enabled = splitComma(runToolsWhitelist)
+			}
+			if runToolsAutoload != "" {
+				cfg.Tools.Autoload = splitComma(runToolsAutoload)
+			}
+			if runToolsDisable != "" {
+				cfg.Tools.Disabled = append(cfg.Tools.Disabled, splitComma(runToolsDisable)...)
+			}
+			opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
 				if err != nil {
 					return fmt.Errorf("tools: %w", err)
 				}
@@ -357,6 +370,13 @@ func init() {
 		"Disable tools — pure-chat mode (no session, no audit). Wins over --tools when both set.")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false,
 		"Sandbox tool execution: bash runs in bwrap (Linux) and writes are landlock-confined to the session worktree + /tmp. Off by default — `stado run` operates on your actual filesystem.")
+	// EP-0037: tool surface control flags.
+	runCmd.Flags().StringVar(&runToolsWhitelist, "tools-whitelist", "",
+		"Comma-separated tool globs: ONLY these tools enabled (e.g. 'fs.*,shell.exec'). Stacks with --tools-disable.")
+	runCmd.Flags().StringVar(&runToolsAutoload, "tools-autoload", "",
+		"Comma-separated tool globs: always-on surface sent to model every turn. Empty = use [tools.autoload] from config.")
+	runCmd.Flags().StringVar(&runToolsDisable, "tools-disable", "",
+		"Comma-separated tool globs: remove from surface entirely. Wins over enable and autoload.")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
 	// EP-0036: sampling overrides. Zero value = use config/provider default.
@@ -364,6 +384,17 @@ func init() {
 	runCmd.Flags().Float64Var(&runTopP, "top-p", 0, "Nucleus sampling top-p (0 = provider default). Overrides [sampling].top_p in config.")
 	runCmd.Flags().IntVar(&runTopK, "top-k", 0, "Top-k sampling (0 = provider default). Overrides [sampling].top_k in config.")
 	rootCmd.AddCommand(runCmd)
+}
+
+// splitComma splits a comma-separated flag value into a trimmed non-empty slice.
+func splitComma(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // resolveRunPromptFromFlags mutates runPrompt to reflect --skill
