@@ -20,7 +20,7 @@ import (
 // is empty. These bare names match the pre-EP-0038 native tool names and will
 // be updated to wire names (fs__read etc.) when EP-0038 migrates each tool.
 var defaultAutoloadNames = []string{
-	"read", "write", "edit", "glob", "grep", "bash",
+	"read", "write", "edit", "glob", "grep", "bash", "ls",
 }
 
 // BuildDefaultRegistry returns a Registry preloaded with stado's bundled tools

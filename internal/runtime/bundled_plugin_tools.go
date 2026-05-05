@@ -70,6 +70,20 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// spawn_agent is native for now because it needs a live provider and
 	// forked Session orchestration, not only the plugin host imports.
 	r.Register(subagent.Tool{})
+	// EP-0038c: wasm-only tools with no native equivalent.
+	r.Register(newBundledStaticTool(
+		"ls",
+		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns JSON array of entries. Requires exec:proc capability wired by the runtime.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":   map[string]any{"type": "string", "description": "Directory to list (default '.')"},
+				"hidden": map[string]any{"type": "boolean", "description": "Include dot-files (default false)"},
+			},
+		},
+		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."},
+	))
 	return r
 }
 
