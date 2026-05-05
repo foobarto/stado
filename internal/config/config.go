@@ -358,6 +358,25 @@ type Sandbox struct {
 	// RefuseNoRunner makes mode=wrap hard-fail when no wrapper binary is
 	// found. Default false (warn loudly, run anyway).
 	RefuseNoRunner bool `koanf:"refuse_no_runner"`
+	// Wrap holds [sandbox.wrap] sub-section config. EP-0038d.
+	Wrap SandboxWrap `koanf:"wrap"`
+}
+
+// SandboxWrap is the [sandbox.wrap] sub-section. EP-0038d.
+type SandboxWrap struct {
+	// Runner selects the wrapper binary: "auto" (default), "bwrap",
+	// "firejail", or "sandbox-exec".
+	Runner string `koanf:"runner"`
+	// BindRO is a list of paths to mount read-only inside the sandbox.
+	// Additive on top of the default contract (stado XDG dirs, /usr, resolv.conf).
+	BindRO []string `koanf:"bind_ro"`
+	// BindRW is a list of paths to mount read-write inside the sandbox.
+	// The operator's CWD is NOT auto-bound — declare it here.
+	BindRW []string `koanf:"bind_rw"`
+	// Network controls network access inside the sandbox.
+	// "host" (default) = full access; "namespaced" = isolated netns;
+	// "off" = no network at all.
+	Network string `koanf:"network"`
 }
 
 // Git is Phase 2's [git] section — sidecar paths, author identity.

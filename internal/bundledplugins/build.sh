@@ -35,6 +35,7 @@ EP38_TOOLS=(
   fs
   shell
   rg
+  agent
 )
 
 # EP-0038b readctx replacement (renamed module dir to avoid conflict with

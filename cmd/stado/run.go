@@ -100,6 +100,20 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		if err != nil {
 			return err
 		}
+		// EP-0038d: sandbox wrap-mode — re-exec under bwrap/firejail/sandbox-exec
+		// when [sandbox] mode = "wrap" and not already inside a wrapper.
+		if err := sandbox.MaybeRewrap(sandbox.WrapConfig{
+			Mode:           cfg.Sandbox.Mode,
+			BindRO:         cfg.Sandbox.Wrap.BindRO,
+			BindRW:         cfg.Sandbox.Wrap.BindRW,
+			Network:        cfg.Sandbox.Wrap.Network,
+			HTTPProxy:      cfg.Sandbox.HTTPProxy,
+			AllowEnv:       cfg.Sandbox.AllowEnv,
+			RefuseNoRunner: cfg.Sandbox.RefuseNoRunner,
+			Runner:         cfg.Sandbox.Wrap.Runner,
+		}); err != nil {
+			return err
+		}
 		// Root --provider/--model are persistent flags; honour them
 		// here too so `stado run --provider ollama-cloud --model
 		// kimi-k2.6 --prompt …` works without editing config.toml.

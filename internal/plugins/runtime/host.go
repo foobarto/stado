@@ -63,6 +63,13 @@ type Host struct {
 	// back to ambient storage.
 	MemoryBridge MemoryBridge
 
+	// FleetBridge wires the agent fleet operations backing the bundled
+	// agent plugin's stado_agent_* host imports (EP-0038 §D Tier 1+).
+	// Only the bundled agent plugin may declare agent:fleet cap; user
+	// plugins are blocked at install time.
+	// Nil on surfaces without a live runtime fleet (e.g. plugin run).
+	FleetBridge FleetBridge
+
 	// ApprovalBridge powers explicit plugin-requested human approval
 	// prompts. Unlike the old global tool gate, this is opt-in per
 	// plugin capability and may be nil on non-interactive surfaces.
@@ -89,6 +96,9 @@ type Host struct {
 	// ExecProcGlob, when non-empty, restricts to exec:proc:<glob>.
 	ExecProc     bool
 	ExecProcGlob string
+	// AgentFleet gates stado_agent_* (EP-0038 §D Tier 1+).
+	// Only bundled agent plugin may declare this cap.
+	AgentFleet bool
 	// BundledBin gates stado_bundled_bin (EP-0038 §B Tier 1).
 	BundledBin bool
 	// DNSResolve / DNSReverse gate stado_dns_resolve / stado_dns_resolve_axfr (Tier 2).
@@ -170,6 +180,70 @@ type MemoryBridge interface {
 // decide how to proceed.
 type ApprovalBridge interface {
 	RequestApproval(ctx context.Context, title, body string) (bool, error)
+}
+
+// FleetBridge is the capability-checked surface the bundled agent plugin
+// calls through for stado_agent_* operations. EP-0038 §D Tier 1+.
+// Nil on surfaces without a live runtime fleet.
+type FleetBridge interface {
+	// AgentSpawn starts a new child agent. Returns (agentID, sessionID).
+	AgentSpawn(ctx context.Context, req AgentSpawnRequest) (AgentSpawnResult, error)
+	// AgentList returns all agents in the caller's spawn tree.
+	AgentList(ctx context.Context) ([]AgentListEntry, error)
+	// AgentReadMessages drains the inbox for the given agent since offset.
+	// Blocks up to timeoutMs milliseconds (0 = no wait).
+	AgentReadMessages(ctx context.Context, id string, since int, timeoutMs int) (AgentMessages, error)
+	// AgentSendMessage injects a user-role message into the agent's session.
+	AgentSendMessage(ctx context.Context, id, msg string) error
+	// AgentCancel requests cancellation of the given agent.
+	AgentCancel(ctx context.Context, id string) error
+}
+
+// AgentSpawnRequest is the input to FleetBridge.AgentSpawn.
+type AgentSpawnRequest struct {
+	Prompt        string
+	Model         string
+	Async         bool
+	Ephemeral     bool
+	ParentSession string // empty = use caller's session
+	AllowedTools  []string
+	SandboxProfile string
+}
+
+// AgentSpawnResult is the output of FleetBridge.AgentSpawn.
+type AgentSpawnResult struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	// FinalText is populated when Async=false and the agent completed.
+	FinalText string `json:"final_text,omitempty"`
+}
+
+// AgentListEntry is one entry from FleetBridge.AgentList.
+type AgentListEntry struct {
+	ID          string  `json:"id"`
+	SessionID   string  `json:"session_id"`
+	Status      string  `json:"status"`
+	Model       string  `json:"model"`
+	StartedAt   string  `json:"started_at"`
+	LastTurnAt  string  `json:"last_turn_at,omitempty"`
+	CostUSD     float64 `json:"cost_usd,omitempty"`
+}
+
+// AgentMessages is the result of FleetBridge.AgentReadMessages.
+type AgentMessages struct {
+	Messages []AgentMessage `json:"messages"`
+	Offset   int            `json:"offset"`
+	Status   string         `json:"status"`
+}
+
+// AgentMessage is one item in AgentMessages.
+type AgentMessage struct {
+	Role    string          `json:"role"`             // "assistant" or "external_input"
+	Content string          `json:"content,omitempty"`
+	Source  string          `json:"source,omitempty"` // for external_input events
+	Offset  int             `json:"offset,omitempty"`
+	Summary string          `json:"summary,omitempty"`
 }
 
 // NewHost parses a manifest's capabilities into a Host.
@@ -310,6 +384,10 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			}
 		case "compress":
 			h.Compress = true
+		case "agent":
+			if parts[1] == "fleet" {
+				h.AgentFleet = true
+			}
 		case "lsp":
 			if parts[1] == "query" {
 				h.LSPQuery = true
