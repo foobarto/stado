@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +157,48 @@ func TestToolRun_DisabledForceOverrides(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "forced") {
 		t.Errorf("expected 'forced' in stdout; got: %q", stdout.String())
+	}
+}
+
+// TestToolRun_DispatchesInstalledPlugin: an installed plugin's
+// declared tool is invocable via stado tool run <toolname>. Verifies
+// that the dispatcher gets past the bundled-only branch and reaches
+// the installed-plugin path. Uses buildTestPluginWithCaps from
+// plugin_test_helpers_test.go, which produces a stub plugin whose
+// ToolDef.Name is "anything".
+func TestToolRun_DispatchesInstalledPlugin(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pluginInstallSigner = hex.EncodeToString(pub)
+	defer func() { pluginInstallSigner = "" }()
+
+	src := buildTestPluginWithCaps(t, priv, pub, "rundemo", "0.1.0", []string{"fs:read:."})
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
+		t.Fatalf("plugin install: %v", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(filepath.Join(cfg.StateDir(), "plugins", "rundemo-0.1.0"))
+	}()
+
+	tmp := t.TempDir()
+	var stdout, stderr bytes.Buffer
+
+	// The fixture plugin's declared tool name is "anything" (see
+	// buildTestPluginWithCaps). The wasm payload is a stub blob, so
+	// invocation is expected to fail at the wasm-runtime layer — but
+	// the assertion here is "we got past the not-yet-supported
+	// branch", i.e. dispatch reached the installed-plugin path.
+	err := runToolByName(t.Context(), "anything", `{}`,
+		toolRunOptions{Cfg: cfg, Workdir: tmp, Stdout: &stdout, Stderr: &stderr})
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not yet supported") || strings.Contains(errMsg, "not a bundled tool") {
+			t.Fatalf("tool run still hits the not-yet-supported branch: %v", err)
+		}
+		// Otherwise: dispatch reached but invocation failed —
+		// acceptable for this test (which is verifying the wiring,
+		// not the test fixture's wasm correctness).
+		t.Logf("tool run reached installed dispatch; invocation error: %v\nstderr: %s", err, stderr.String())
 	}
 }
 

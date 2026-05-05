@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -82,7 +83,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	// invocation, so we honour [tools].disabled via the dedicated refusal
 	// below (with --force escape) rather than via ApplyToolFilter, which
 	// would otherwise hide the tool and produce a misleading "not found".
-	reg := runtime.BuildDefaultRegistry()
+	reg := runtime.BuildDefaultRegistry(cfg)
 
 	registered, ok := lookupToolInRegistry(reg, name)
 	if !ok {
@@ -103,31 +104,6 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		}
 	}
 
-	// Bundled vs installed.
-	info, isBundled := bundledplugins.LookupModuleByToolName(registered.Name())
-	if !isBundled {
-		return fmt.Errorf("tool %q is not a bundled tool — installed-plugin invocation by tool-name is not yet supported (use `stado tool list` to see what's available)", registered.Name())
-	}
-
-	// Reconstruct synthetic manifest for the bundled module.
-	pluginName := bundledplugins.ManifestNamePrefix + "-" + info.Name
-	bareToolDef := toolDefFromRegistered(registered)
-	manifest := plugins.Manifest{
-		Name:         pluginName,
-		Version:      info.Version,
-		Author:       info.Author,
-		Capabilities: info.Capabilities,
-		Tools:        []plugins.ToolDef{bareToolDef},
-	}
-	wasmBytes, err := bundledplugins.Wasm(info.Name)
-	if err != nil {
-		return fmt.Errorf("bundled wasm load: %w", err)
-	}
-
-	// Workdir default: cwd when bundled (bundled plugins don't have a
-	// natural install dir; cwd is the operator's repo).
-	installDir, _ := os.Getwd()
-
 	stdout := opts.Stdout
 	if stdout == nil {
 		stdout = os.Stdout
@@ -137,18 +113,70 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		stderr = os.Stderr
 	}
 
-	return runPluginInvocation(ctx, pluginInvokeArgs{
-		Manifest:   manifest,
-		WasmBytes:  wasmBytes,
-		ToolName:   bareToolDef.Name,
-		ArgsJSON:   argsJSON,
-		Cfg:        cfg,
-		WorkdirArg: opts.Workdir,
-		InstallDir: installDir,
-		SessionID:  opts.Session,
-		Stdout:     stdout,
-		Stderr:     stderr,
-	})
+	// Bundled path.
+	if info, ok := bundledplugins.LookupModuleByToolName(registered.Name()); ok {
+		pluginName := bundledplugins.ManifestNamePrefix + "-" + info.Name
+		bareToolDef := toolDefFromRegistered(registered)
+		manifest := plugins.Manifest{
+			Name:         pluginName,
+			Version:      info.Version,
+			Author:       info.Author,
+			Capabilities: info.Capabilities,
+			Tools:        []plugins.ToolDef{bareToolDef},
+		}
+		wasmBytes, err := bundledplugins.Wasm(info.Name)
+		if err != nil {
+			return fmt.Errorf("bundled wasm load: %w", err)
+		}
+		installDir, _ := os.Getwd()
+		return runPluginInvocation(ctx, pluginInvokeArgs{
+			Manifest:   manifest,
+			WasmBytes:  wasmBytes,
+			ToolName:   bareToolDef.Name,
+			ArgsJSON:   argsJSON,
+			Cfg:        cfg,
+			WorkdirArg: opts.Workdir,
+			InstallDir: installDir,
+			SessionID:  opts.Session,
+			Stdout:     stdout,
+			Stderr:     stderr,
+		})
+	}
+
+	// Installed-plugin path.
+	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+		wasmBytes, err := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
+		if err != nil {
+			return fmt.Errorf("verify: %w", err)
+		}
+		// Find the matching ToolDef in the manifest. Installed plugins
+		// use the registered tool name as-is — the plugin author chose
+		// the wire-form name in their manifest.
+		var bareName string
+		for _, td := range mfst.Tools {
+			if td.Name == registered.Name() {
+				bareName = td.Name
+				break
+			}
+		}
+		if bareName == "" {
+			return fmt.Errorf("internal: tool %q registered but not in installed manifest %q", registered.Name(), mfst.Name)
+		}
+		return runPluginInvocation(ctx, pluginInvokeArgs{
+			Manifest:   mfst,
+			WasmBytes:  wasmBytes,
+			ToolName:   bareName,
+			ArgsJSON:   argsJSON,
+			Cfg:        cfg,
+			WorkdirArg: opts.Workdir,
+			InstallDir: filepath.Dir(wasmPath),
+			SessionID:  opts.Session,
+			Stdout:     stdout,
+			Stderr:     stderr,
+		})
+	}
+
+	return fmt.Errorf("tool %q registered but its source plugin not found — try `stado plugin list`", registered.Name())
 }
 
 // lookupToolInRegistry tries (in order): exact name match, canonical

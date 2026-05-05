@@ -82,7 +82,7 @@ var pluginListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
+		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 
 		// Load trust store for author fingerprint → trusted status.
@@ -232,7 +232,7 @@ var pluginInstalledCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
+		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 		ids, err := plugins.ListInstalledDirs(pluginsDir)
 		if err != nil {

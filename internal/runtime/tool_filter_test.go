@@ -10,7 +10,7 @@ import (
 // TestApplyToolFilter_DefaultKeepsEverything: no config values →
 // registry unchanged.
 func TestApplyToolFilter_DefaultKeepsEverything(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
 	ApplyToolFilter(reg, cfg)
@@ -22,7 +22,7 @@ func TestApplyToolFilter_DefaultKeepsEverything(t *testing.T) {
 // TestApplyToolFilter_EnabledAllowlist: only the listed tools
 // survive.
 func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"read", "grep"}
 	ApplyToolFilter(reg, cfg)
@@ -46,7 +46,7 @@ func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
 // TestApplyToolFilter_DisabledRemovesNamed: disabled removes only
 // the listed tools; all others remain.
 func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
 	cfg.Tools.Disabled = []string{"bash", "webfetch"}
@@ -66,7 +66,7 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 // TestApplyToolFilter_EnabledWinsOverDisabled: when both are set,
 // Enabled is authoritative (allowlist) and Disabled is ignored.
 func TestApplyToolFilter_EnabledWinsOverDisabled(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"read"}
 	cfg.Tools.Disabled = []string{"read"} // would conflict if honoured
@@ -81,7 +81,7 @@ func TestApplyToolFilter_EnabledWinsOverDisabled(t *testing.T) {
 // TestApplyToolFilter_UnknownNamesTolerated: a typo in either list
 // shouldn't panic or remove anything unexpected.
 func TestApplyToolFilter_UnknownNamesTolerated(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
 	cfg.Tools.Disabled = []string{"nopes-not-a-real-tool"}
@@ -92,7 +92,7 @@ func TestApplyToolFilter_UnknownNamesTolerated(t *testing.T) {
 }
 
 func TestApplyToolFilter_UnknownEnabledNamesDoNotEmptyRegistry(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"renamed-tool", "missing-tool"}
@@ -132,7 +132,7 @@ func TestToolMatchesGlob(t *testing.T) {
 }
 
 func TestAutoloadedTools_DefaultCore(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{} // empty — use hardcoded defaults
 	autoloaded := AutoloadedTools(reg, cfg)
 
@@ -155,7 +155,7 @@ func TestAutoloadedTools_DefaultCore(t *testing.T) {
 }
 
 func TestAutoloadedTools_CustomAutoload(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
 	cfg.Tools.Autoload = []string{"read", "grep"}
 	autoloaded := AutoloadedTools(reg, cfg)
@@ -177,7 +177,7 @@ func TestAutoloadedTools_CustomAutoload(t *testing.T) {
 }
 
 func TestApplyToolFilter_WildcardDisabled(t *testing.T) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
 	cfg.Tools.Disabled = []string{"bash"} // exact name
 	ApplyToolFilter(reg, cfg)
@@ -191,7 +191,7 @@ func TestApplyToolFilter_WildcardDisabled(t *testing.T) {
 func TestApplyToolFilter_GlobDisabled(t *testing.T) {
 	// After EP-0038 tools get wire names, this tests glob removal.
 	// For now just verify zero-match glob is a silent no-op.
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
 	cfg.Tools.Disabled = []string{"nonexistent.*"} // glob matching nothing

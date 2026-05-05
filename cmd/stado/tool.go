@@ -32,7 +32,7 @@ var toolListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		reg := runtime.BuildDefaultRegistry()
+		reg := runtime.BuildDefaultRegistry(cfg)
 		runtime.ApplyToolFilter(reg, cfg)
 		autoloaded := runtime.AutoloadedTools(reg, cfg)
 		autoloadSet := map[string]bool{}
@@ -112,7 +112,7 @@ var toolInfoCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		reg := runtime.BuildDefaultRegistry()
+		reg := runtime.BuildDefaultRegistry(cfg)
 		runtime.ApplyToolFilter(reg, cfg)
 
 		query := args[0]

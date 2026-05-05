@@ -45,12 +45,21 @@ var defaultAutoloadNames = []string{
 	"spawn_agent",
 }
 
-// BuildDefaultRegistry returns a Registry preloaded with stado's bundled tools
-// (bash, fs, webfetch). Separate from Executor so callers can add/remove tools
-// before constructing the Executor.
-func BuildDefaultRegistry() *tools.Registry {
+// BuildDefaultRegistry returns a Registry preloaded with stado's
+// bundled tools (fs, shell, web, dns, agent, etc.), the meta-tools
+// (tools__search/describe/categories/in_category), and — when cfg
+// is non-nil — the operator's installed plugins from cfg.StateDir()/
+// plugins/. Bundled registers first; installed registers last and
+// overwrites bundled on tool-name collision (Q4 — installed wins).
+//
+// cfg may be nil for test code that wants the bundled-only set;
+// production callers should pass the loaded config.
+func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 	reg := buildBundledPluginRegistry()
 	registerMetaTools(reg)
+	if cfg != nil {
+		registerInstalledPluginTools(reg, cfg)
+	}
 	return reg
 }
 
@@ -192,7 +201,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 // blocklist is applied AFTER MCP tools land so MCP-sourced names can
 // also be trimmed.
 func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(cfg)
 	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 
 	if len(cfg.MCP.Servers) > 0 {

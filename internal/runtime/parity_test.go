@@ -81,13 +81,13 @@ func runParityFamily(t *testing.T, family string, cases []parityCase) {
 
 	// Native registry (no wasm flags set).
 	nativeCfg := &config.Config{}
-	nativeReg := runtime.BuildDefaultRegistry()
+	nativeReg := runtime.BuildDefaultRegistry(nil)
 	runtime.ApplyToolFilter(nativeReg, nativeCfg)
 
 	// Wasm registry (flag set for this family).
 	wasmCfg := &config.Config{}
 	wasmCfg.Runtime.UseWasm = map[string]bool{family: true}
-	wasmReg := runtime.BuildDefaultRegistry()
+	wasmReg := runtime.BuildDefaultRegistry(nil)
 	runtime.ApplyWasmMigration(wasmReg, wasmCfg)
 
 	for _, pc := range cases {

@@ -80,7 +80,7 @@ func TestApplyToolOverrides_ReplacesBundledTool(t *testing.T) {
 	})
 	cfg.Tools.Overrides = map[string]string{"read": "corp-read-1.0.0"}
 
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		t.Fatalf("ApplyToolOverrides: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestApplyToolOverrides_ReplacesBundledTool(t *testing.T) {
 func TestApplyToolOverrides_RejectsUnknownTarget(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	cfg.Tools.Overrides = map[string]string{"nope": "corp-nope-1.0.0"}
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err == nil {
 		t.Fatal("expected unknown target error")
 	}
@@ -108,7 +108,7 @@ func TestApplyToolOverrides_RejectsUnknownTarget(t *testing.T) {
 func TestApplyToolOverrides_RejectsEscapingPluginID(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	cfg.Tools.Overrides = map[string]string{"read": "../corp-read-1.0.0"}
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	err := ApplyToolOverrides(reg, cfg)
 	if err == nil || !strings.Contains(err.Error(), "invalid plugin id") {
 		t.Fatalf("ApplyToolOverrides error = %v, want invalid plugin id", err)
@@ -149,7 +149,7 @@ func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	err = ApplyToolOverrides(reg, cfg)
 	if err == nil || !strings.Contains(err.Error(), "session/llm capabilities") {
 		t.Fatalf("ApplyToolOverrides error = %v, want session/llm rejection", err)
@@ -188,7 +188,7 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := BuildDefaultRegistry()
+	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		t.Fatalf("ApplyToolOverrides: %v", err)
 	}
