@@ -76,6 +76,14 @@ type ToolDef struct {
 	// with no declared properties". Added after v1 manifests — legacy
 	// manifests without the field still verify thanks to `omitempty`.
 	Schema string `json:"schema,omitempty"`
+	// Categories lists canonical taxonomy entries (EP-0037 §C).
+	// Validated at install time against plugins.CanonicalCategories.
+	// Empty is valid — tool won't appear in in_category results.
+	Categories []string `json:"categories,omitempty"`
+	// ExtraCategories holds free-form tags beyond the canonical list.
+	// Not validated against the canonical taxonomy; marked distinctly
+	// in tools.describe output.
+	ExtraCategories []string `json:"extra_categories,omitempty"`
 }
 
 // ClassValue parses the manifest-declared tool class. Empty means the
