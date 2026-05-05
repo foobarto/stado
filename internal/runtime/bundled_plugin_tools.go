@@ -73,7 +73,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// EP-0038c: wasm-only tools with no native equivalent.
 	r.Register(newBundledStaticTool(
 		"ls",
-		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns JSON array of entries. Requires exec:proc capability wired by the runtime.",
+		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns JSON array of entries.",
 		tool.ClassNonMutating,
 		map[string]any{
 			"type": "object",
@@ -84,6 +84,102 @@ func buildBundledPluginRegistry() *tools.Registry {
 		},
 		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."},
 	))
+
+	// EP-0038c: shell.* PTY session tools — wasm-backed via shell.wasm.
+	// Capabilities: terminal:open (PTY) + exec:proc (one-shot variants).
+	shellSessionCaps := []string{"terminal:open", "exec:proc"}
+	r.Register(newBundledWasmTool("shell", "stado_tool_spawn", "shell__spawn",
+		"Open an interactive PTY shell session. Returns {id} — use shell.read / shell.write / shell.destroy to drive it. Persists across tool calls. Args: argv? (default ['/bin/bash']), env?, cwd?, cols?, rows?, buffer_bytes?",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"argv": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"env":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"cwd":  map[string]any{"type": "string"},
+				"cols": map[string]any{"type": "integer"}, "rows": map[string]any{"type": "integer"},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_list", "shell__list",
+		"List active PTY shell sessions: id, cmd, alive, attached, started_at, buffered, dropped, exit_code.",
+		tool.ClassNonMutating,
+		map[string]any{"type": "object"},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_attach", "shell__attach",
+		"Attach to a PTY session to read/write. Single-attach lock per session — use force:true to steal. Args: id, force?",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{
+				"id":    map[string]any{"type": "integer"},
+				"force": map[string]any{"type": "boolean"},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_detach", "shell__detach",
+		"Release the attachment lock on a PTY session. Args: id.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_write", "shell__write",
+		"Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes). Requires attach.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{
+				"id":       map[string]any{"type": "integer"},
+				"data":     map[string]any{"type": "string"},
+				"data_b64": map[string]any{"type": "string"},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_read", "shell__read",
+		"Read buffered output from a PTY session. Args: id, max_bytes?, timeout_ms?. Returns {data?, data_b64, n, eof?}. Requires attach.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{
+				"id":         map[string]any{"type": "integer"},
+				"max_bytes":  map[string]any{"type": "integer"},
+				"timeout_ms": map[string]any{"type": "integer"},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_signal", "shell__signal",
+		"Send a POSIX signal to a PTY session. Args: id, sig (e.g. 'SIGINT', 'SIGTERM', 9). Out-of-band — no attach required.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id", "sig"},
+			"properties": map[string]any{
+				"id":  map[string]any{"type": "integer"},
+				"sig": map[string]any{},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_resize", "shell__resize",
+		"Resize a PTY session. Args: id, cols, rows. Out-of-band — no attach required.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id", "cols", "rows"},
+			"properties": map[string]any{
+				"id":   map[string]any{"type": "integer"},
+				"cols": map[string]any{"type": "integer"},
+				"rows": map[string]any{"type": "integer"},
+			},
+		},
+		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_destroy", "shell__destroy",
+		"Kill a PTY session and free its resources. Args: id.",
+		tool.ClassExec,
+		map[string]any{
+			"type": "object", "required": []string{"id"},
+			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
+		},
+		shellSessionCaps))
 	return r
 }
 
@@ -145,6 +241,60 @@ func newBundledStaticTool(name, desc string, class tool.Class, schema map[string
 		class:  class,
 		wasm:   bundledplugins.MustWasm(name),
 	}
+}
+
+// newBundledWasmTool registers one tool from a multi-tool wasm module.
+// wasmName: the .wasm file basename in internal/bundledplugins/wasm/.
+// toolExport: the stado_tool_<X> export name within that module.
+// registeredName: how the tool is named in the registry (typically wire form).
+func newBundledWasmTool(wasmName, toolExport, registeredName, desc string, class tool.Class, schema map[string]any, caps []string) tool.Tool {
+	def := plugins.ToolDef{
+		Name:        toolExport,
+		Description: desc,
+		Class:       pluginClassName(class),
+		Schema:      mustMarshalSchema(schema),
+	}
+	var parsed map[string]any
+	if def.Schema != "" {
+		_ = json.Unmarshal([]byte(def.Schema), &parsed)
+	}
+	t := &bundledPluginTool{
+		manifest: plugins.Manifest{
+			Name:         bundledplugins.ManifestNamePrefix + "-" + wasmName,
+			Version:      version.Version,
+			Author:       bundledplugins.Author,
+			Capabilities: caps,
+			Tools:        []plugins.ToolDef{def},
+		},
+		def:    def,
+		schema: parsed,
+		class:  class,
+		wasm:   bundledplugins.MustWasm(wasmName),
+	}
+	// Override the visible name for the registry (wire form).
+	return &renamedTool{inner: t, name: registeredName}
+}
+
+// renamedTool wraps a tool to expose a different Name() — the inner tool
+// still calls its underlying wasm export, but the registry sees the wire name.
+type renamedTool struct {
+	inner tool.Tool
+	name  string
+}
+
+func (r *renamedTool) Name() string        { return r.name }
+func (r *renamedTool) Description() string { return r.inner.Description() }
+func (r *renamedTool) Schema() map[string]any {
+	return r.inner.Schema()
+}
+func (r *renamedTool) Class() tool.Class {
+	if c, ok := r.inner.(tool.Classifier); ok {
+		return c.Class()
+	}
+	return tool.ClassExec
+}
+func (r *renamedTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	return r.inner.Run(ctx, args, h)
 }
 
 func (p *bundledPluginTool) Name() string        { return p.def.Name }

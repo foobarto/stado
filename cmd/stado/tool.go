@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -20,66 +21,42 @@ var toolCmd = &cobra.Command{
 
 var toolJSONFlag bool
 
-// canonicalName converts a tool's internal name to its canonical display name.
-// Uses single underscores as namespace separator (API-compatible — Anthropic's
-// tool name regex is ^[a-zA-Z0-9_-]{1,64}$, dots are not allowed).
-//
-// Wire names (alias__tool) become alias_tool.
-// Bare pre-EP-0038 names get their expected canonical prefix.
-// Internal test tools (approval_demo) return "" to signal "hide from listing".
-func canonicalName(name string) string {
-	// Hide internal test tools.
-	if name == "approval_demo" {
-		return ""
+// resolveToolName accepts canonical (fs.read), wire (fs__read), or bare (read)
+// and returns the registered tool from the registry. Returns nil if not found.
+func resolveToolName(reg interface {
+	All() []toolLike
+	Get(string) (toolLike, bool)
+}, query string) (toolLike, bool) {
+	// Direct match first.
+	if t, ok := reg.Get(query); ok {
+		return t, true
 	}
-	// Wire form alias__tool → alias_tool (single underscore for display)
-	if idx := strings.Index(name, "__"); idx >= 0 {
-		alias := name[:idx]
-		tool := name[idx+2:]
-		return alias + "_" + tool
+	// Canonical fs.read → wire fs__read
+	if strings.Contains(query, ".") {
+		wire := strings.ReplaceAll(query, ".", "__")
+		if t, ok := reg.Get(wire); ok {
+			return t, true
+		}
 	}
-	// Pre-EP-0038 bare names: map to their eventual canonical form.
-	// These will be replaced by wire names once EP-0038b migration completes.
-	switch name {
-	case "read":
-		return "fs_read"
-	case "write":
-		return "fs_write"
-	case "edit":
-		return "fs_edit"
-	case "glob":
-		return "fs_glob"
-	case "grep":
-		return "fs_grep"
-	case "bash":
-		return "shell_exec"
-	case "webfetch":
-		return "web_fetch"
-	case "ripgrep":
-		return "rg_search"
-	case "ast_grep":
-		return "astgrep_search"
-	case "read_with_context":
-		return "readctx_read"
-	case "find_definition":
-		return "lsp_definition"
-	case "find_references":
-		return "lsp_references"
-	case "document_symbols":
-		return "lsp_symbols"
-	case "hover":
-		return "lsp_hover"
-	case "spawn_agent":
-		return "agent_spawn"
-	case "ls":
-		return "ls_list"
+	// Walk all and match by canonical name from metadata
+	for _, t := range reg.All() {
+		if runtime.LookupToolMetadata(t.Name()).Canonical == query {
+			return t, true
+		}
 	}
-	return name
+	return nil, false
 }
 
-var toolLsCmd = &cobra.Command{
-	Use:   "ls [glob]",
-	Short: "List tools with state (autoloaded/enabled/disabled)",
+type toolLike interface {
+	Name() string
+	Description() string
+	Schema() map[string]any
+}
+
+var toolListCmd = &cobra.Command{
+	Use:     "list [glob]",
+	Aliases: []string{"ls"},
+	Short:   "List tools with state, plugin source, and categories",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -96,52 +73,69 @@ var toolLsCmd = &cobra.Command{
 		if len(args) > 0 {
 			glob = args[0]
 		}
-		if toolJSONFlag {
-			for _, t := range reg.All() {
-				cname := canonicalName(t.Name())
-				if cname == "" {
-					continue
-				}
-				if glob != "" && !runtime.ToolMatchesGlob(t.Name(), glob) {
-					continue
-				}
-				state := "enabled"
-				if autoloadSet[t.Name()] {
-					state = "autoloaded"
-				}
-				entry := map[string]any{"name": cname, "wire": t.Name(), "state": state}
-				b, _ := json.Marshal(entry)
-				fmt.Println(string(b))
-			}
-			return nil
+
+		type row struct {
+			canonical  string
+			state      string
+			plugin     string
+			categories string
+			desc       string
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tSTATE\tDESCRIPTION")
+		var rows []row
 		for _, t := range reg.All() {
-			cname := canonicalName(t.Name())
-			if cname == "" {
-				continue // hide internal tools
+			md := runtime.LookupToolMetadata(t.Name())
+			if md.Canonical == "" {
+				continue // hidden internal tool
 			}
-			if glob != "" && !runtime.ToolMatchesGlob(t.Name(), glob) {
+			if glob != "" && !runtime.ToolMatchesGlob(t.Name(), glob) && !runtime.ToolMatchesGlob(md.Canonical, glob) {
 				continue
 			}
 			state := "enabled"
 			if autoloadSet[t.Name()] {
 				state = "autoloaded"
 			}
-			desc := t.Description()
-			if len(desc) > 60 {
-				desc = desc[:57] + "…"
-			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n", cname, state, desc)
+			rows = append(rows, row{
+				canonical:  md.Canonical,
+				state:      state,
+				plugin:     md.Plugin,
+				categories: strings.Join(md.Categories, ", "),
+				desc:       t.Description(),
+			})
 		}
-		return w.Flush()
+		sort.Slice(rows, func(i, j int) bool { return rows[i].canonical < rows[j].canonical })
+
+		if toolJSONFlag {
+			for _, r := range rows {
+				entry := map[string]any{
+					"name":       r.canonical,
+					"state":      r.state,
+					"plugin":     r.plugin,
+					"categories": r.categories,
+				}
+				b, _ := json.Marshal(entry)
+				fmt.Println(string(b))
+			}
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tSTATE\tPLUGIN\tCATEGORIES")
+		fmt.Fprintln(w, "────\t─────\t──────\t──────────")
+		for _, r := range rows {
+			cats := r.categories
+			if cats == "" {
+				cats = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.canonical, r.state, r.plugin, cats)
+		}
+		_ = w.Flush()
+		fmt.Printf("\n%d tools (%d autoloaded)\n", len(rows), len(autoloaded))
+		return nil
 	},
 }
 
 var toolInfoCmd = &cobra.Command{
 	Use:   "info <name>",
-	Short: "Full schema + description for a named tool",
+	Short: "Full schema + description for a named tool (accepts canonical fs.read or wire fs__read)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
@@ -150,33 +144,36 @@ var toolInfoCmd = &cobra.Command{
 		}
 		reg := runtime.BuildDefaultRegistry()
 		runtime.ApplyToolFilter(reg, cfg)
-		// Accept canonical dotted name (fs.read) or wire name (fs__read) or bare (read).
+
 		query := args[0]
+		// Try direct lookup
 		t, ok := reg.Get(query)
-		if !ok {
-			// Try reversing canonical → wire (fs.read → fs__read)
+		if !ok && strings.Contains(query, ".") {
+			// canonical → wire
 			wire := strings.ReplaceAll(query, ".", "__")
 			t, ok = reg.Get(wire)
 		}
 		if !ok {
-			// Try reversing canonical → bare via known mappings
-			for _, name := range reg.All() {
-				if canonicalName(name.Name()) == query {
-					t = name
+			// canonical lookup via metadata
+			for _, candidate := range reg.All() {
+				if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
+					t = candidate
 					ok = true
 					break
 				}
 			}
 		}
 		if !ok {
-			return fmt.Errorf("tool %q not found — try `stado tool ls` to see available tools", query)
+			return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", query)
 		}
-		cname := canonicalName(t.Name())
+		md := runtime.LookupToolMetadata(t.Name())
 		schema, _ := json.MarshalIndent(t.Schema(), "", "  ")
 		if toolJSONFlag {
 			out := map[string]any{
-				"name":        cname,
+				"name":        md.Canonical,
 				"wire":        t.Name(),
+				"plugin":      md.Plugin,
+				"categories":  md.Categories,
 				"description": t.Description(),
 				"schema":      json.RawMessage(schema),
 			}
@@ -184,19 +181,24 @@ var toolInfoCmd = &cobra.Command{
 			fmt.Println(string(b))
 			return nil
 		}
-		fmt.Printf("Name:        %s\n", cname)
-		if cname != t.Name() {
+		fmt.Printf("Name:        %s\n", md.Canonical)
+		fmt.Printf("Plugin:      %s\n", md.Plugin)
+		if len(md.Categories) > 0 {
+			fmt.Printf("Categories:  %s\n", strings.Join(md.Categories, ", "))
+		}
+		if md.Canonical != t.Name() {
 			fmt.Printf("Wire name:   %s\n", t.Name())
 		}
 		fmt.Printf("Description: %s\n", t.Description())
-		fmt.Printf("Schema:\n%s\n", schema)
+		fmt.Printf("\nSchema:\n%s\n", schema)
 		return nil
 	},
 }
 
 var toolCatsCmd = &cobra.Command{
-	Use:   "cats [query]",
-	Short: "List canonical tool categories (optional substring filter)",
+	Use:     "categories [query]",
+	Aliases: []string{"cats"},
+	Short:   "List canonical tool categories (optional substring filter)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		q := ""
 		if len(args) > 0 {
@@ -214,7 +216,7 @@ var toolCatsCmd = &cobra.Command{
 
 var toolReloadCmd = &cobra.Command{
 	Use:   "reload [glob]",
-	Short: "Signal the running TUI session to drop cached wasm instance(s) on next call",
+	Short: "Drop cached wasm instances; takes effect inside the running TUI session",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(os.Stderr, "note: tool reload takes effect inside a running stado session.")
 		fmt.Fprintln(os.Stderr, "      Use /tool reload <glob> in the TUI to reload without restarting.")
@@ -224,6 +226,6 @@ var toolReloadCmd = &cobra.Command{
 
 func init() {
 	toolCmd.PersistentFlags().BoolVar(&toolJSONFlag, "json", false, "Emit JSON output")
-	toolCmd.AddCommand(toolLsCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd)
+	toolCmd.AddCommand(toolListCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd)
 	rootCmd.AddCommand(toolCmd)
 }

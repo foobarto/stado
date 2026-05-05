@@ -402,6 +402,10 @@ func init() {
 	runCmd.Flags().StringVar(&runMode, "mode", "",
 		"Harness mode: \"\" (general, default) or \"security\" (security-research harness with recon discipline and abusability filters).")
 	// EP-0037: tool surface control flags.
+	// --tools-whitelist is kept for back-compat; the canonical name agreed in
+	// EP-0037 is the whitelist alias --tools (string), but --tools already
+	// existed as a bool gate. Operators wanting the whitelist use
+	// --tools-whitelist or pass an explicit comma list. Both work.
 	runCmd.Flags().StringVar(&runToolsWhitelist, "tools-whitelist", "",
 		"Comma-separated tool globs: ONLY these tools enabled (e.g. 'fs.*,shell.exec'). Stacks with --tools-disable.")
 	runCmd.Flags().StringVar(&runToolsAutoload, "tools-autoload", "",

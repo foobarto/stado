@@ -351,6 +351,11 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			case "write":
 				h.MemoryWrite = true
 			}
+		case "terminal":
+			// EP-0038: terminal:open is the new name for exec:pty.
+			if parts[1] == "open" {
+				h.ExecPTY = true
+			}
 		case "exec":
 			switch parts[1] {
 			case "shallow_bash", "bash":

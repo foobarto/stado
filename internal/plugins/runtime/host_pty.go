@@ -39,22 +39,34 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	if !host.ExecPTY || host.PTYManager == nil {
 		return
 	}
-	registerPTYCreate(builder, host)
-	registerPTYList(builder, host)
-	registerPTYAttach(builder, host)
-	registerPTYDetach(builder, host)
-	registerPTYWrite(builder, host)
-	registerPTYRead(builder, host)
-	registerPTYSignal(builder, host)
-	registerPTYResize(builder, host)
-	registerPTYDestroy(builder, host)
+	// Register under both legacy stado_pty_* and new stado_terminal_*
+	// names so existing v1 plugins keep working while EP-0038 plugins use
+	// the new naming. EP-0038 §B.
+	registerPTYCreate(builder, host, "stado_pty_create")
+	registerPTYCreate(builder, host, "stado_terminal_open")
+	registerPTYList(builder, host, "stado_pty_list")
+	registerPTYList(builder, host, "stado_terminal_list")
+	registerPTYAttach(builder, host, "stado_pty_attach")
+	registerPTYAttach(builder, host, "stado_terminal_attach")
+	registerPTYDetach(builder, host, "stado_pty_detach")
+	registerPTYDetach(builder, host, "stado_terminal_detach")
+	registerPTYWrite(builder, host, "stado_pty_write")
+	registerPTYWrite(builder, host, "stado_terminal_write")
+	registerPTYRead(builder, host, "stado_pty_read")
+	registerPTYRead(builder, host, "stado_terminal_read")
+	registerPTYSignal(builder, host, "stado_pty_signal")
+	registerPTYSignal(builder, host, "stado_terminal_signal")
+	registerPTYResize(builder, host, "stado_pty_resize")
+	registerPTYResize(builder, host, "stado_terminal_resize")
+	registerPTYDestroy(builder, host, "stado_pty_destroy")
+	registerPTYDestroy(builder, host, "stado_terminal_close")
 }
 
 // stado_pty_create(args_ptr, args_len, result_ptr, result_cap) → i64
 //
 // args = JSON pty.SpawnOpts. Returns the new id on success (always
 // >0). On error, writes error string to result and returns -length.
-func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -83,14 +95,14 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI64(int64(id))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI64}).
-		Export("stado_pty_create")
+		Export(exportName)
 }
 
 // stado_pty_list(buf_ptr, buf_cap) → i32
 //
 // Writes JSON array of pty.SessionInfo. Returns byte count or -length
 // on error.
-func registerPTYList(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYList(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			bufPtr := api.DecodeU32(stack[0])
@@ -104,14 +116,14 @@ func registerPTYList(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, payload))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_list")
+		Export(exportName)
 }
 
 // stado_pty_attach(args_ptr, args_len, result_ptr, result_cap) → i32
 //
 // args = {"id": uint64, "force": bool}. Returns 0 on success, -length
 // with error string on failure.
-func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -133,11 +145,11 @@ func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_attach")
+		Export(exportName)
 }
 
 // stado_pty_detach(args_ptr, args_len, result_ptr, result_cap) → i32
-func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -158,7 +170,7 @@ func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_detach")
+		Export(exportName)
 }
 
 // stado_pty_write(id_lo, id_hi, buf_ptr, buf_len, err_ptr, err_cap) → i32
@@ -167,7 +179,7 @@ func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host) {
 // is split across two i32s because wasm32 host imports cap params at
 // i32 unless explicitly declared i64; for Write we want the buffer
 // pointer/length pair to stay i32-aligned.
-func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			idLo := api.DecodeU32(stack[0])
@@ -194,7 +206,7 @@ func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(int32(n))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_write")
+		Export(exportName)
 }
 
 // stado_pty_read(id_lo, id_hi, max_bytes, timeout_ms, buf_ptr, buf_cap) → i32
@@ -202,7 +214,7 @@ func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host) {
 // Returns bytes read (positive, may be 0 on timeout-with-no-data), -1
 // when the session has closed and the ring is empty (EOF), or
 // -length with err string on other failure.
-func registerPTYRead(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYRead(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			idLo := api.DecodeU32(stack[0])
@@ -238,14 +250,14 @@ func registerPTYRead(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_read")
+		Export(exportName)
 }
 
 // stado_pty_signal(args_ptr, args_len, result_ptr, result_cap) → i32
 //
 // args = {"id": uint64, "sig": int}. sig is a POSIX signal number
 // (e.g. 2 = SIGINT, 15 = SIGTERM). Returns 0 on success.
-func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -267,11 +279,11 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_signal")
+		Export(exportName)
 }
 
 // stado_pty_resize(args_ptr, args_len, result_ptr, result_cap) → i32
-func registerPTYResize(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYResize(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -294,11 +306,11 @@ func registerPTYResize(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_resize")
+		Export(exportName)
 }
 
 // stado_pty_destroy(args_ptr, args_len, result_ptr, result_cap) → i32
-func registerPTYDestroy(builder wazero.HostModuleBuilder, host *Host) {
+func registerPTYDestroy(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			argsPtr := api.DecodeU32(stack[0])
@@ -319,7 +331,7 @@ func registerPTYDestroy(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
-		Export("stado_pty_destroy")
+		Export(exportName)
 }
 
 func decodePTYArgs(mod api.Module, ptr, length uint32, dst any) error {
