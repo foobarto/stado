@@ -74,6 +74,14 @@ var pluginInstallCmd = &cobra.Command{
 			}
 		}
 
+		// EP-0037 §C: validate canonical categories on every tool definition.
+		// Pre-EP-0037 manifests without categories are accepted (backward compat).
+		for _, td := range m.Tools {
+			if err := plugins.ValidateCategories(td.Categories); err != nil {
+				return fmt.Errorf("install: tool %q: %w", td.Name, err)
+			}
+		}
+
 		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||
 			strings.ContainsAny(m.Name, "/\\") || strings.ContainsAny(m.Version, "/\\") {
 			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
