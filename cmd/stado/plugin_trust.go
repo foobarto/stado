@@ -13,6 +13,7 @@ import (
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 var pluginTrustPubkeyFile string
@@ -81,6 +82,7 @@ var pluginListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 
 		// Load trust store for author fingerprint → trusted status.
@@ -230,6 +232,7 @@ var pluginInstalledCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		_ = runtime.BuildDefaultRegistry() // unused — side-effect: triggers bundled-tool registrations
 		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 		ids, err := plugins.ListInstalledDirs(pluginsDir)
 		if err != nil {
