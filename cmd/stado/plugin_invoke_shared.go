@@ -61,11 +61,11 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	if host.ExecBash && !host.ExecProc && runner.Name() == "none" {
 		if cfg.Sandbox.RefuseNoRunner {
 			return fmt.Errorf(
-				"plugin run: plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap or sandbox-exec, or set [sandbox] refuse_no_runner = false to run unsandboxed",
+				"plugin run: plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap (Linux: `apt install bubblewrap` / `dnf install bubblewrap`) or sandbox-exec (macOS: bundled with Xcode CLT), or set [sandbox] refuse_no_runner = false to run unsandboxed",
 				in.Manifest.Name)
 		}
 		fmt.Fprintf(in.Stderr,
-			"stado: warn: plugin %s declares exec:bash but no native sandbox runner is available — running unsandboxed.\n",
+			"stado: warn: plugin %s declares exec:bash but no native sandbox runner is available — running unsandboxed. Set [sandbox] refuse_no_runner = true to hard-fail instead.\n",
 			in.Manifest.Name)
 	}
 
@@ -93,7 +93,7 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 			bridge.PluginName = in.Manifest.Name
 			host.SessionBridge = bridge
 			fmt.Fprintln(in.Stderr,
-				"stado: session-aware capabilities declared; pass --session <id> to attach to a persisted session")
+				"stado plugin run: session-aware capabilities declared; note that the one-shot CLI has no live session — pass --session <id> to attach to a persisted session")
 		}
 	}
 
