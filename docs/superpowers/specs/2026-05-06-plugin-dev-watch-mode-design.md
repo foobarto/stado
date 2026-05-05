@@ -309,3 +309,36 @@ After implementation:
    observe exactly one rebuild fires (debounce works).
 5. Crash test: kill stado mid-build (`-9`); restart watch; observe
    the new install overwrites cleanly.
+
+## Handoff (2026-05-06)
+
+- **What shipped:** `stado plugin dev <dir> --watch` watches the
+  plugin source dir, debounces saves at 250ms, runs `<dir>/build.sh`,
+  re-signs the manifest with `--manifest-version 0.0.0-dev`, and
+  re-installs with `--force`. Cleanup on Ctrl+C removes the
+  `<state>/plugins/<name>-0.0.0-dev/` install + active marker.
+  Six commits on `feat/plugin-dev-watch-mode`:
+  - `chore(deps): add fsnotify`
+  - `feat(plugins): DevSentinelVersion + Pin/CleanupDev helpers`
+  - `feat(cli): plugin sign --manifest-version override`
+  - `feat(cli): runDevWatchLoop + rebuildOnce + debounceLoop`
+  - `feat(cli): plugin dev --watch flag`
+  - `test(cli): integration test for plugin dev --watch cleanup`
+- **Tests:** 4 unit tests in `internal/plugins/devmode_test.go`
+  (sentinel + pin + cleanup + idempotence) and 4 in
+  `cmd/stado/plugin_dev_watch_test.go` (debounce coalesce, error-
+  resilience, context-cancel exit, cleanup-on-cancel integration).
+  All green.
+- **What's left:** TUI live-reload (Q8 — long-running TUI sessions
+  don't auto-reload; iteration loop runs through `stado tool run`).
+  Filed as a follow-up cycle item.
+- **Manual smoke:** Pending user verification against an active
+  plugin source dir. The bundled hello-demo example would need a
+  `build.sh` tweak (its build.sh signs with `hello-demo.seed`,
+  but the watch loop expects to drive signing itself via
+  `.stado/dev.seed` — operators using the watch flow should make
+  their build.sh produce only the wasm, not sign).
+- **What to watch:** dev install left over after `kill -9` of the
+  watch process — re-run of `plugin dev --watch` overwrites cleanly,
+  but operators may see stale `<name>-0.0.0-dev` dirs if the watch
+  ever crashes outside the deferred cleanup path.
