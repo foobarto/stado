@@ -1,9 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // TestActiveVersionMarker_Reads: when a marker file exists, returns
@@ -47,5 +51,49 @@ func TestActiveVersionMarker_StripsWhitespace(t *testing.T) {
 	got := activeVersionMarker(dir, "shell")
 	if got != "v0.5.0" {
 		t.Errorf("activeVersionMarker should trim whitespace; got %q", got)
+	}
+}
+
+// TestInstalledPluginTool_NameAndDescription: the wrapper exposes
+// the manifest's tool name and description without loading wasm.
+func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
+	mf := plugins.Manifest{
+		Name:    "test-plugin",
+		Version: "v0.1.0",
+		Tools: []plugins.ToolDef{{
+			Name:        "lookup",
+			Description: "Lookup a thing",
+			Schema:      `{"type":"object"}`,
+		}},
+	}
+	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating)
+	if tl.Name() != "lookup" {
+		t.Errorf("Name() = %q, want lookup", tl.Name())
+	}
+	if tl.Description() != "Lookup a thing" {
+		t.Errorf("Description() = %q, want 'Lookup a thing'", tl.Description())
+	}
+	// Schema returns parsed map; just verify it's non-nil.
+	if tl.Schema() == nil {
+		t.Error("Schema() returned nil")
+	}
+}
+
+// TestInstalledPluginTool_RunReturnsSentinel: direct .Run() returns
+// a sentinel Result with Error populated since installed-plugin
+// invocation goes through tool_run's shared helper, not the
+// registry's Tool interface.
+func TestInstalledPluginTool_RunReturnsSentinel(t *testing.T) {
+	mf := plugins.Manifest{
+		Name: "test-plugin", Version: "v0.1.0",
+		Tools: []plugins.ToolDef{{Name: "lookup"}},
+	}
+	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating)
+	res, err := tl.Run(context.Background(), nil, nil)
+	if err != nil {
+		t.Errorf("Run() error = %v, want nil (returns Result.Error instead)", err)
+	}
+	if res.Error == "" {
+		t.Error("Run() should populate Result.Error with sentinel message")
 	}
 }
