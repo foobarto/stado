@@ -298,6 +298,24 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 	case "/agents":
 		m.openAgentPicker()
+	case "/stats":
+		m.appendBlock(block{kind: "system", body: m.renderStats()})
+	case "/ps":
+		m.appendBlock(block{kind: "system", body: m.renderPS(false)})
+	case "/top":
+		// /top is /ps live-updating — in the TUI, show /ps with a note
+		// since we don't have a dedicated live-update mode yet.
+		m.appendBlock(block{kind: "system", body: m.renderPS(true)})
+	case "/kill":
+		m.handleKillSlash(parts)
+	case "/sandbox":
+		m.appendBlock(block{kind: "system", body: m.renderSandboxState()})
+	case "/config":
+		section := ""
+		if len(parts) >= 2 {
+			section = parts[1]
+		}
+		m.appendBlock(block{kind: "system", body: m.renderConfigState(section)})
 	case "/model":
 		if len(parts) < 2 {
 			m.openModelPicker()
@@ -1225,4 +1243,144 @@ func localRunnerNoModelsHint(provider string) string {
 	default:
 		return ""
 	}
+}
+
+// ── EP-0038 §H runtime introspection slash commands ───────────────────────
+
+// renderStats formats /stats output: tokens, cost, agents, uptime. EP-0038 §H.
+func (m *Model) renderStats() string {
+	var sb strings.Builder
+	sb.WriteString("session stats\n")
+	sb.WriteString(fmt.Sprintf("  input tokens:  %s\n", formatTokenCount(m.usage.InputTokens)))
+	sb.WriteString(fmt.Sprintf("  output tokens: %s\n", formatTokenCount(m.usage.OutputTokens)))
+	sb.WriteString(fmt.Sprintf("  total tokens:  %s\n", formatTokenCount(m.totalTokens())))
+	if m.usage.CostUSD > 0 {
+		sb.WriteString(fmt.Sprintf("  cost:          $%.4f\n", m.usage.CostUSD))
+	}
+	if m.fleet != nil {
+		entries := m.fleet.List()
+		running := 0
+		for _, e := range entries {
+			if e.Status == runtime.FleetStatusRunning {
+				running++
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  agents:        %d total, %d running\n", len(entries), running))
+	}
+	if !m.turnStart.IsZero() {
+		sb.WriteString(fmt.Sprintf("  current turn:  %s\n", time.Since(m.turnStart).Round(time.Second)))
+	}
+	if m.session != nil && m.session.ID != "" {
+		sb.WriteString(fmt.Sprintf("  session:       %s\n", m.session.ID))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// renderPS formats /ps output: live fleet agents + handles. EP-0038 §H.
+func (m *Model) renderPS(_ bool) string {
+	if m.fleet == nil {
+		return "ps: no fleet registry (not in an agent session)"
+	}
+	entries := m.fleet.List()
+	if len(entries) == 0 {
+		return "ps: no agents running"
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("%-20s %-12s %-20s %s\n", "ID", "STATUS", "MODEL", "STARTED"))
+	for _, e := range entries {
+		age := time.Since(e.StartedAt).Round(time.Second).String()
+		sb.WriteString(fmt.Sprintf("agent:%-14s %-12s %-20s %s ago\n",
+			e.FleetID[:min8(e.FleetID)], string(e.Status), e.Model, age))
+		if e.SessionID != "" {
+			sb.WriteString(fmt.Sprintf("  session:%-12s driver\n", e.SessionID[:min8(e.SessionID)]))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func min8(s string) int {
+	if len(s) < 8 {
+		return len(s)
+	}
+	return 8
+}
+
+// handleKillSlash handles /kill <id>. EP-0038 §H.
+func (m *Model) handleKillSlash(parts []string) {
+	if len(parts) < 2 {
+		m.appendBlock(block{kind: "system", body: "/kill <agent-id>  — cancel a running agent"})
+		return
+	}
+	id := parts[1]
+	// Strip "agent:" prefix if present.
+	id = strings.TrimPrefix(id, "agent:")
+	if m.fleet == nil {
+		m.appendBlock(block{kind: "system", body: "kill: no fleet registry"})
+		return
+	}
+	if err := m.fleet.Cancel(id); err != nil {
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill %s: %v", id, err)})
+		return
+	}
+	m.appendBlock(block{kind: "system", body: fmt.Sprintf("kill: cancelled agent %s", id)})
+}
+
+// renderSandboxState formats /sandbox output. EP-0038 §H.
+func (m *Model) renderSandboxState() string {
+	if m.cfg == nil {
+		return "sandbox: no config loaded"
+	}
+	mode := m.cfg.Sandbox.Mode
+	if mode == "" {
+		mode = "off"
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("mode:        %s\n", mode))
+	if m.cfg.Sandbox.HTTPProxy != "" {
+		sb.WriteString(fmt.Sprintf("http_proxy:  %s\n", m.cfg.Sandbox.HTTPProxy))
+	}
+	if len(m.cfg.Sandbox.DNSServers) > 0 {
+		sb.WriteString(fmt.Sprintf("dns_servers: %v\n", m.cfg.Sandbox.DNSServers))
+	}
+	if mode == "wrap" {
+		runner := m.cfg.Sandbox.Wrap.Runner
+		if runner == "" {
+			runner = "auto"
+		}
+		sb.WriteString(fmt.Sprintf("runner:      %s\n", runner))
+		if net := m.cfg.Sandbox.Wrap.Network; net != "" {
+			sb.WriteString(fmt.Sprintf("network:     %s\n", net))
+		}
+		if len(m.cfg.Sandbox.Wrap.BindRW) > 0 {
+			sb.WriteString(fmt.Sprintf("bind_rw:     %v\n", m.cfg.Sandbox.Wrap.BindRW))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// renderConfigState formats /config [section] output. EP-0038 §H.
+func (m *Model) renderConfigState(section string) string {
+	if m.cfg == nil {
+		return "config: no config loaded"
+	}
+	var sb strings.Builder
+	show := func(name, val string) {
+		if section == "" || strings.HasPrefix(name, section) {
+			sb.WriteString(fmt.Sprintf("%-30s %s\n", name, val))
+		}
+	}
+	show("defaults.model", m.cfg.Defaults.Model)
+	show("defaults.provider", m.cfg.Defaults.Provider)
+	show("sandbox.mode", func() string {
+		if m.cfg.Sandbox.Mode == "" {
+			return "off"
+		}
+		return m.cfg.Sandbox.Mode
+	}())
+	show("tools.autoload", fmt.Sprintf("%v", m.cfg.Tools.Autoload))
+	show("tools.disabled", fmt.Sprintf("%v", m.cfg.Tools.Disabled))
+	if sb.Len() == 0 {
+		return fmt.Sprintf("config: no section matching %q", section)
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }

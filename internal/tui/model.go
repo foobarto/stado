@@ -49,6 +49,13 @@ type block struct {
 	// wondering if it registered.
 	queued bool
 
+	// source identifies who produced this block. "operator" (default,
+	// empty) means the session operator typed it. Other values surface
+	// as a [source] prefix in the renderer — e.g. agent-injected
+	// messages show "[agent:<id>]" so the operator can tell their own
+	// inputs from programmatic ones in multi-producer sessions. EP-0038 §E.
+	source string
+
 	// Tool-call specific
 	toolID     string
 	toolName   string

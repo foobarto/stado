@@ -1340,8 +1340,21 @@ func (m *Model) invalidateBlockCache(i int) {
 func (m *Model) renderBlock(blk block, width int) (string, error) {
 	switch blk.kind {
 	case "user":
+		// EP-0038 §E: multi-producer message metadata.
+		// Operator-typed messages in an agent-driven session get [YOU].
+		// Messages injected by other producers get [source].
+		label := ""
+		if m.fleet != nil && len(m.fleet.List()) > 0 {
+			// We're in a session with running agents — add provenance label.
+			if blk.source == "" || blk.source == "operator" {
+				label = "[YOU] "
+			} else {
+				label = "[" + blk.source + "] "
+			}
+		}
+		body := label + blk.body
 		return m.renderer.Exec("message_user", map[string]any{
-			"Body":   blk.body,
+			"Body":   body,
 			"Width":  width,
 			"Queued": blk.queued,
 		})
