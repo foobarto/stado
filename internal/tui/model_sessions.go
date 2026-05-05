@@ -373,7 +373,15 @@ func (m *Model) restoreSessionProviderState(state sessionUIState) {
 
 func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.session = sess
-	m.cwd = sess.WorktreePath
+	// Keep the launch CWD as m.cwd — tools should operate on the user's
+	// real filesystem, not the session's audit worktree. The worktree is
+	// where turn-boundary tree commits live (m.session.WorktreePath); it
+	// is NOT the agent's working directory. Mirrors the
+	// `stado run` default (cmd/stado/run.go:269 — "agent operates on my
+	// actual filesystem"). Pre-fix this assignment overrode m.cwd to the
+	// worktree, which made `pwd` / `ls` etc. report
+	// ~/.local/state/stado/worktrees/<id> instead of where the user
+	// launched stado from.
 	m.blocks = nil
 	m.msgs = nil
 	m.todos = nil
