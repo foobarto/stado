@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/foobarto/stado/internal/tools"
@@ -40,7 +41,9 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
 	}
-	_ = json.Unmarshal(args, &req)
+	if err := json.Unmarshal(args, &req); err != nil {
+		return pkgtool.Result{}, fmt.Errorf("metaSearch: parse args: %w", err)
+	}
 	if req.Limit <= 0 {
 		req.Limit = 200
 	}
@@ -144,7 +147,9 @@ func (m *metaCategories) Schema() map[string]any {
 }
 func (m *metaCategories) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host) (pkgtool.Result, error) {
 	var req struct{ Query string `json:"query"` }
-	_ = json.Unmarshal(args, &req)
+	if err := json.Unmarshal(args, &req); err != nil {
+		return pkgtool.Result{}, fmt.Errorf("metaCategories: parse args: %w", err)
+	}
 	q := strings.ToLower(req.Query)
 	seen := map[string]bool{}
 	for _, t := range m.reg.All() {
