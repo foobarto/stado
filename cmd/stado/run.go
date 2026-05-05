@@ -31,11 +31,10 @@ var (
 	runNoTurnLimit bool
 	runJSON        bool
 	runQuiet       bool
-	runTools       bool
 	runNoTools     bool
 	runSandboxFS       bool
 	runMode            string // --mode harness mode (EP-0030)
-	runToolsWhitelist  string // --tools-whitelist
+	runTools           string // --tools (whitelist; comma-separated globs)
 	runToolsAutoload   string // --tools-autoload
 	runToolsDisable    string // --tools-disable
 	runSessionID       string
@@ -73,12 +72,14 @@ For scripted use, two modes strip the noise:
 
 Defaults at a glance:
 
-  --tools          ON   (use --no-tools for pure-chat mode)
+  --tools          ""   (empty = all installed tools enabled; pass globs to whitelist)
+  --no-tools       OFF  (pure-chat mode — no session, no audit)
   --sandbox-fs     OFF  (agent operates on your actual filesystem)
 
-When tools are on (default), bash + read/write/grep/etc. are available
-and every call commits to the session's git-native audit log. Pass
---no-tools for pure-chat mode (no tools, no session, no audit).
+By default, bash + read/write/grep/etc. are available and every call
+commits to the session's git-native audit log. Pass --no-tools for
+pure-chat mode (no tools, no session, no audit). Pass --tools with a
+comma-separated glob list to whitelist a subset (e.g. --tools=fs.*).
 
 When --sandbox-fs is set, bash runs inside bwrap (Linux) and writes
 are landlock-confined to the session worktree + /tmp. Without it,
@@ -230,10 +231,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				TopP:        cfg.Sampling.TopP,
 				TopK:        cfg.Sampling.TopK,
 			}
-			// --no-tools wins over --tools when both are set; the
-			// negative flag is the natural opt-out form for users
-			// who don't want to type `--tools=false`.
-			toolsEnabled := runTools && !runNoTools
+			// --no-tools is the gate: pure-chat mode disables the
+			// executor entirely. --tools (string) is a whitelist of
+			// globs applied below if non-empty; empty = all enabled.
+			toolsEnabled := !runNoTools
 			if toolsEnabled {
 				cwd, _ := os.Getwd()
 				toolWorktree := cwd
@@ -253,8 +254,8 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				cfg.Harness.Mode = runMode
 			}
 				// EP-0037: CLI flags override [tools] config before building executor.
-			if runToolsWhitelist != "" {
-				cfg.Tools.Enabled = splitComma(runToolsWhitelist)
+			if runTools != "" {
+				cfg.Tools.Enabled = splitComma(runTools)
 			}
 			if runToolsAutoload != "" {
 				cfg.Tools.Autoload = splitComma(runToolsAutoload)
@@ -392,22 +393,16 @@ func init() {
 		"Disable the max-turn cap entirely; the loop runs until no tool calls remain or the context is cancelled. Beats --max-turns when both set. Useful for long-running multi-step tasks where the cap is the wrong control surface (use --budget hard_usd or context timeout instead).")
 	runCmd.Flags().BoolVar(&runJSON, "json", false, "Emit JSON lines instead of raw text (preferred for scripted use; one event per line)")
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
-	runCmd.Flags().BoolVar(&runTools, "tools", true,
-		"Enable the bundled toolset with git-native audit (default). Negate with --no-tools.")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,
-		"Disable tools — pure-chat mode (no session, no audit). Wins over --tools when both set.")
+		"Disable tools — pure-chat mode (no session, no audit).")
 	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false,
 		"Sandbox tool execution: bash runs in bwrap (Linux) and writes are landlock-confined to the session worktree + /tmp. Off by default — `stado run` operates on your actual filesystem.")
 	// EP-0030: harness mode.
 	runCmd.Flags().StringVar(&runMode, "mode", "",
 		"Harness mode: \"\" (general, default) or \"security\" (security-research harness with recon discipline and abusability filters).")
-	// EP-0037: tool surface control flags.
-	// --tools-whitelist is kept for back-compat; the canonical name agreed in
-	// EP-0037 is the whitelist alias --tools (string), but --tools already
-	// existed as a bool gate. Operators wanting the whitelist use
-	// --tools-whitelist or pass an explicit comma list. Both work.
-	runCmd.Flags().StringVar(&runToolsWhitelist, "tools-whitelist", "",
-		"Comma-separated tool globs: ONLY these tools enabled (e.g. 'fs.*,shell.exec'). Stacks with --tools-disable.")
+	// EP-0037: tool surface control flags (canonical names per NOTES §10).
+	runCmd.Flags().StringVar(&runTools, "tools", "",
+		"Comma-separated tool globs: ONLY these tools enabled (e.g. 'fs.*,shell.exec'). Empty = all installed tools enabled. Stacks with --tools-disable.")
 	runCmd.Flags().StringVar(&runToolsAutoload, "tools-autoload", "",
 		"Comma-separated tool globs: always-on surface sent to model every turn. Empty = use [tools.autoload] from config.")
 	runCmd.Flags().StringVar(&runToolsDisable, "tools-disable", "",

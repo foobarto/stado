@@ -40,6 +40,12 @@ history:
       numerics in /ps and /kill. visibleTools() now honours session
       disable overrides — operators can hide tools from the model
       mid-session without disk writes. BACKLOG items #5 and #7.
+  - date: 2026-05-05
+    status: Implemented
+    note: >
+      Renamed --tools-whitelist to --tools (canonical per NOTES §10).
+      No back-compat alias kept; pre-1.0. The previous bool --tools
+      gate is removed; --no-tools is the pure-chat opt-out.
 ---
 
 # EP-0037: Tool dispatch, naming, and operator surface
