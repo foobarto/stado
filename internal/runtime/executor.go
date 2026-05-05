@@ -178,6 +178,7 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 			fmt.Fprintf(os.Stderr, "stado: MCP setup: %v\n", err)
 		}
 	}
+	ApplyWasmMigration(reg, cfg)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		return nil, err
 	}
