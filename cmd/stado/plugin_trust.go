@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -72,28 +74,107 @@ var pluginUntrustCmd = &cobra.Command{
 
 var pluginListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List pinned plugin authors (trust-store entries). For installed plugins see `stado plugin installed`",
+	Short: "List installed plugins with name, version, tools, author and trust status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
 			return err
 		}
+		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
+
+		// Load trust store for author fingerprint → trusted status.
 		ts := plugins.NewTrustStore(cfg.StateDir())
-		store, err := ts.Load()
-		if err != nil {
-			return err
+		trust, _ := ts.Load() // non-fatal if missing
+
+		// Enumerate installed plugin directories.
+		ids, err := plugins.ListInstalledDirs(pluginsDir)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read plugins dir: %w", err)
 		}
-		if len(store) == 0 {
-			fmt.Fprintln(os.Stderr, "(no plugin signers pinned)")
+
+		type row struct {
+			name        string
+			version     string
+			tools       int
+			toolNames   string // comma-joined, truncated
+			author      string
+			fingerprint string
+			trusted     bool
+			caps        int
+		}
+
+		var rows []row
+		for _, id := range ids {
+			mf, _, loadErr := plugins.LoadFromDir(filepath.Join(pluginsDir, id))
+			if loadErr != nil {
+				// Show even if manifest is broken.
+				rows = append(rows, row{name: id, version: "?", author: "manifest load failed"})
+				continue
+			}
+			var toolNames []string
+			for _, t := range mf.Tools {
+				toolNames = append(toolNames, t.Name)
+			}
+			tns := strings.Join(toolNames, ", ")
+			if len(tns) > 40 {
+				tns = tns[:37] + "..."
+			}
+			_, trusted := trust[mf.AuthorPubkeyFpr]
+			rows = append(rows, row{
+				name:        mf.Name,
+				version:     mf.Version,
+				tools:       len(mf.Tools),
+				toolNames:   tns,
+				author:      mf.Author,
+				fingerprint: mf.AuthorPubkeyFpr,
+				trusted:     trusted,
+				caps:        len(mf.Capabilities),
+			})
+		}
+
+		if len(rows) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "No plugins installed.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Install one with: stado plugin install <dir>")
 			return nil
 		}
-		for _, e := range store {
-			lv := e.LastVersion
-			if lv == "" {
-				lv = "-"
+
+		sort.Slice(rows, func(i, j int) bool { return rows[i].name < rows[j].name })
+
+		trustedCount := 0
+		for _, r := range rows {
+			if r.trusted {
+				trustedCount++
 			}
-			fmt.Printf("%s  author=%s  last_version=%s\n", e.Fingerprint, e.Author, lv)
 		}
+
+		w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+		fmt.Fprintf(w, "%d plugins installed", len(rows))
+		if trustedCount < len(rows) {
+			fmt.Fprintf(w, " (%d trusted, %d untrusted)", trustedCount, len(rows)-trustedCount)
+		} else {
+			fmt.Fprintf(w, " (all trusted)")
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "NAME\tVERSION\tTOOLS\tAUTHOR\tFINGERPRINT\tSTATUS")
+		fmt.Fprintln(w, "────\t───────\t─────\t──────\t───────────\t──────")
+		for _, r := range rows {
+			status := "✓ trusted"
+			if !r.trusted {
+				status = "⚠ untrusted"
+			}
+			fpr := r.fingerprint
+			if len(fpr) > 16 {
+				fpr = fpr[:16]
+			}
+			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\n",
+				r.name, r.version, r.tools, r.author, fpr, status)
+		}
+		_ = w.Flush()
+
+		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), "Tools per plugin: stado plugin info <name>-<version>")
+		fmt.Fprintln(cmd.OutOrStdout(), "Trust a new key:  stado plugin trust <pubkey>")
 		return nil
 	},
 }
