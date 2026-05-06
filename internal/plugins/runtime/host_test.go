@@ -96,6 +96,57 @@ func TestPathAllowed_EmptyAllowList(t *testing.T) {
 	}
 }
 
+// TestNewHost_FSCapAliasesSymlinkedWorkdir: on systems where the
+// workdir crosses a symlink (Fedora Atomic /home → /var/home), the
+// fs:read:. cap parser must register both the symlink-form and the
+// realpath-form, otherwise fs_read denies every file because
+// realPath() resolves to the realpath but the cap allowlist only
+// stored the symlink form.
+func TestNewHost_FSCapAliasesSymlinkedWorkdir(t *testing.T) {
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "realhome", "user", "repo")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir real: %v", err)
+	}
+	linkDir := filepath.Join(tmp, "linkhome")
+	if err := os.Symlink(filepath.Join(tmp, "realhome"), linkDir); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	// Workdir presented to NewHost is the symlink form.
+	workdir := filepath.Join(linkDir, "user", "repo")
+
+	m := plugins.Manifest{Name: "demo", Capabilities: []string{"fs:read:."}}
+	h := NewHost(m, workdir, nil)
+
+	// Real-path form (after EvalSymlinks) — what realPath() produces
+	// when fs_read runs against any file under the workdir.
+	resolvedWorkdir, err := filepath.EvalSymlinks(workdir)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	if !pathAllowed(resolvedWorkdir, h.FSRead) {
+		t.Errorf("realpath form %q should be allowed; FSRead=%v", resolvedWorkdir, h.FSRead)
+	}
+	// Symlink form should also still be allowed (paths that don't
+	// cross the symlink boundary continue to work).
+	if !pathAllowed(workdir, h.FSRead) {
+		t.Errorf("symlink form %q should be allowed; FSRead=%v", workdir, h.FSRead)
+	}
+}
+
+func TestSymlinkAlias_NonExistentPathReturnsEmpty(t *testing.T) {
+	if got := symlinkAlias("/definitely/not/here/at/all"); got != "" {
+		t.Errorf("missing path should return empty; got %q", got)
+	}
+}
+
+func TestSymlinkAlias_SameRealPathReturnsEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	if got := symlinkAlias(tmp); got != "" {
+		t.Errorf("path that resolves to itself should return empty; got %q", got)
+	}
+}
+
 func TestResolveAbs_RelativeJoinedWithWorkdir(t *testing.T) {
 	got := resolveAbs("/home/user", "./subdir/file.txt")
 	want := filepath.Clean("/home/user/subdir/file.txt")

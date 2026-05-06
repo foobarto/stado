@@ -8,6 +8,18 @@ Plugins / Infra / Fixes.
 
 ### Fixes
 
+- **`fs:read:.` / `fs:write:.` on Fedora Atomic / Silverblue / Bazzite.**
+  On these distros `/home` is a symlink to `/var/home`. When the
+  operator's workdir was the symlink form (`/home/user/repo`), the
+  cap parser stored the literal path in `h.FSRead` but `realPath()`
+  at file-access time resolved through the symlink to
+  `/var/home/user/repo/...`. The cap-glob compare failed, so every
+  `fs_read` call silently denied. Fix: at cap-parsing time, also
+  append the `EvalSymlinks`-resolved form when it differs from the
+  literal — both forms are now in the allowlist. Best-effort:
+  missing path or EvalSymlinks failure falls back to the literal.
+  Reported by the operator on Fedora Atomic.
+
 - **Bundled `shell.*` / `pty.*` PTY persistence across calls.** Each
   `bundledPluginTool.Run` was creating a fresh `pluginRuntime.New`,
   which in turn created its own `pty.NewManager()`. So
