@@ -72,7 +72,9 @@ func TestHeadless_ToolsListCoversBundled(t *testing.T) {
 	reply := readLine(t, client, 2*time.Second)
 
 	// Confirm a representative sample of bundled tools appears.
-	for _, want := range []string{`"bash"`, `"read"`, `"grep"`, `"ripgrep"`, `"find_definition"`} {
+	// Step 4 of EP-no-internal-tools renamed bare 'bash' to wire-form
+	// 'shell__bash'.
+	for _, want := range []string{`"shell__bash"`, `"read"`, `"grep"`, `"ripgrep"`, `"find_definition"`} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("tools.list missing %s:\n%s", want, reply)
 		}
