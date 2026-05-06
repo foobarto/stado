@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,136 @@ func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerFSReadImport(builder, host)
 	registerFSWriteImport(builder, host)
 	registerFSReadPartialImport(builder, host)
+	registerFSReaddirImport(builder, host)
+	registerFSStatImport(builder, host)
+}
+
+// maxFSReaddirEntries caps a single stado_fs_readdir call. The wasm
+// caller paginates by passing a non-zero offset.
+const maxFSReaddirEntries = 50000
+
+// registerFSReaddirImport — stado_fs_readdir primitive.
+//
+// Signature: (path_ptr, path_len, offset, buf_ptr, buf_cap) → int32
+//
+// Reads the directory at `path`, encodes a JSON array of
+// {name, type, mode} entries starting at `offset`, writes to buf.
+// Returns bytes written, 0 = "no more entries past offset", -1 = error.
+//
+// Capability gate: needs fs:read on the directory's resolved path.
+// Each call returns at most maxFSReaddirEntries entries; pagination
+// is the wasm caller's job (offset += entries returned).
+func registerFSReaddirImport(builder wazero.HostModuleBuilder, host *Host) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+			pathPtr := api.DecodeU32(stack[0])
+			pathLen := api.DecodeU32(stack[1])
+			offset := int(api.DecodeI32(stack[2]))
+			bufPtr := api.DecodeU32(stack[3])
+			bufCap := api.DecodeU32(stack[4])
+			if pathLen > maxPluginRuntimeFSPathBytes {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			abs, err := realPath(host.Workdir, path)
+			if err != nil {
+				host.Logger.Warn("stado_fs_readdir denied — symlink", slog.String("path", path), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if !host.allowRead(abs) {
+				host.Logger.Warn("stado_fs_readdir denied", slog.String("path", abs))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			payload, err := readDirEntries(abs, offset, maxFSReaddirEntries)
+			if err != nil {
+				host.Logger.Warn("stado_fs_readdir failed", slog.String("path", abs), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if len(payload) == 0 {
+				stack[0] = api.EncodeI32(0)
+				return
+			}
+			if uint32(len(payload)) > bufCap {
+				host.Logger.Warn("stado_fs_readdir truncation",
+					slog.Int("payload_bytes", len(payload)),
+					slog.Uint64("buf_cap", uint64(bufCap)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, payload))
+		}),
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32, // path ptr/len
+				api.ValueTypeI32,                   // offset
+				api.ValueTypeI32, api.ValueTypeI32, // buf ptr/cap
+			},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_fs_readdir")
+}
+
+// registerFSStatImport — stado_fs_stat primitive.
+//
+// Signature: (path_ptr, path_len, buf_ptr, buf_cap) → int32
+//
+// Returns a JSON {mode, size, mtime, type} payload where:
+//   - mode: octal permissions (e.g. 0o644 → 420)
+//   - size: file size in bytes (0 for non-regular)
+//   - mtime: modification time RFC3339
+//   - type: "file" | "dir" | "symlink" | "other"
+//
+// -1 on cap deny / not found / unreadable.
+func registerFSStatImport(builder wazero.HostModuleBuilder, host *Host) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+			pathPtr := api.DecodeU32(stack[0])
+			pathLen := api.DecodeU32(stack[1])
+			bufPtr := api.DecodeU32(stack[2])
+			bufCap := api.DecodeU32(stack[3])
+			if pathLen > maxPluginRuntimeFSPathBytes {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			abs, err := realPath(host.Workdir, path)
+			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if !host.allowRead(abs) {
+				host.Logger.Warn("stado_fs_stat denied", slog.String("path", abs))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			payload, err := statEntry(abs)
+			if err != nil {
+				host.Logger.Warn("stado_fs_stat failed", slog.String("path", abs), slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			if uint32(len(payload)) > bufCap {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, payload))
+		}),
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_fs_stat")
 }
 
 func registerFSReadImport(builder wazero.HostModuleBuilder, host *Host) {
@@ -424,4 +555,88 @@ func encodeI32Length(n int) (uint64, bool) {
 		return 0, false
 	}
 	return api.EncodeI32(int32(n)), true // #nosec G115 -- checked against maxInt32Result.
+}
+
+// readDirEntries lists the directory at abs starting at the given offset
+// (entries are sorted by name; offset indexes into that sorted slice).
+// Returns a JSON array of {name, type, mode} entries, capped at maxN.
+// Returns an empty slice (length 0) when offset is past the end —
+// the caller treats that as "no more entries."
+func readDirEntries(abs string, offset, maxN int) ([]byte, error) {
+	if offset < 0 {
+		offset = 0
+	}
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		return nil, err
+	}
+	// os.ReadDir returns entries sorted by name. Slice into the page.
+	if offset >= len(entries) {
+		return []byte{}, nil
+	}
+	end := offset + maxN
+	if end > len(entries) {
+		end = len(entries)
+	}
+	page := entries[offset:end]
+
+	type out struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		Mode uint32 `json:"mode"`
+	}
+	rows := make([]out, 0, len(page))
+	for _, e := range page {
+		t := "other"
+		switch {
+		case e.Type().IsDir():
+			t = "dir"
+		case e.Type()&os.ModeSymlink != 0:
+			t = "symlink"
+		case e.Type().IsRegular():
+			t = "file"
+		}
+		info, infoErr := e.Info()
+		var mode uint32
+		if infoErr == nil {
+			mode = uint32(info.Mode().Perm())
+		}
+		rows = append(rows, out{Name: e.Name(), Type: t, Mode: mode})
+	}
+	return jsonMarshalEntries(rows)
+}
+
+// statEntry returns a JSON {mode, size, mtime, type} payload for abs.
+func statEntry(abs string) ([]byte, error) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, err
+	}
+	t := "other"
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		t = "symlink"
+	case info.Mode().IsDir():
+		t = "dir"
+	case info.Mode().IsRegular():
+		t = "file"
+	}
+	type out struct {
+		Mode  uint32 `json:"mode"`
+		Size  int64  `json:"size"`
+		Mtime string `json:"mtime"`
+		Type  string `json:"type"`
+	}
+	return jsonMarshalEntries(out{
+		Mode:  uint32(info.Mode().Perm()),
+		Size:  info.Size(),
+		Mtime: info.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+		Type:  t,
+	})
+}
+
+// jsonMarshalEntries is a thin wrapper to keep the main functions
+// readable. Pure passthrough to json.Marshal.
+func jsonMarshalEntries(v any) ([]byte, error) {
+	return json.Marshal(v)
 }
