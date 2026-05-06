@@ -954,6 +954,67 @@ func (m *Model) handleDescribeSlash(parts []string) {
 // every invocation (cheap, and catches a tampered-after-install plugin
 // before it runs). Tool execution happens on a tea.Cmd goroutine so
 // the UI stays responsive — result arrives as pluginRunResultMsg.
+// handlePluginReload rebuilds the executor's tools registry so any
+// plugins installed (or removed) since session start become visible.
+// With a plugin name argument, lists which of that plugin's tools
+// are now in the rebuilt registry. Without an argument, rebuilds and
+// reports the total count.
+func (m *Model) handlePluginReload(args []string) tea.Cmd {
+	if m.executor == nil || m.cfg == nil {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: no executor (run inside a session)"})
+		return nil
+	}
+	newReg := runtime.BuildDefaultRegistry(m.cfg)
+	m.executor.Registry = newReg
+
+	if len(args) == 0 {
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("/plugin reload: rebuilt registry — %d tools available", len(newReg.All())),
+		})
+		return nil
+	}
+
+	name := args[0]
+	cfg := m.cfg
+	pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
+	dir, ok := runtime.ResolveInstalledPluginDir(cfg, name)
+	if !ok {
+		// Fallback: literal `<name>-<version>` form.
+		d, derr := plugins.InstalledDir(pluginsDir, name)
+		if derr == nil {
+			if _, sterr := os.Stat(d); sterr == nil {
+				dir = d
+				ok = true
+			}
+		}
+	}
+	if !ok {
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("/plugin reload: %q not installed (registry rebuilt anyway)", name),
+		})
+		return nil
+	}
+	mf, _, err := plugins.LoadFromDir(dir)
+	if err != nil {
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("/plugin reload: rebuilt; manifest read for %q failed: %v", name, err),
+		})
+		return nil
+	}
+	toolNames := make([]string, 0, len(mf.Tools))
+	for _, t := range mf.Tools {
+		toolNames = append(toolNames, t.Name)
+	}
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("/plugin reload %s: %d tools (%s)", name, len(toolNames), strings.Join(toolNames, ", ")),
+	})
+	return nil
+}
+
 func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	cfg, err := config.Load()
 	if err != nil {
@@ -964,6 +1025,13 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 
 	// Bare /plugin → list installed.
 	if parts[0] == "/plugin" {
+		// /plugin reload [<name>] — rebuild the in-memory tools registry
+		// so newly-installed plugins (or updated ones) become visible
+		// in the running session without a TUI restart. Without a name,
+		// rebuilds the full registry.
+		if len(parts) >= 2 && parts[1] == "reload" {
+			return m.handlePluginReload(parts[2:])
+		}
 		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(pluginRoots...)})
 		return nil
 	}
