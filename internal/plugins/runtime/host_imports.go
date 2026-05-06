@@ -56,6 +56,9 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	// EP-0038h: stado_json_get / stado_json_format — host-side JSON
 	// extraction and formatting; no caps required.
 	registerJSONImports(builder, host)
+	// EP-no-internal-tools Step 1: stado_http_request as a true
+	// primitive (no longer delegating to a tool.Tool).
+	registerHTTPRequestImport(builder, host)
 	// EP-0038h: stado_http_request_stream + chunked body reads.
 	// Reuses net:http_request[:<host>] cap; per-Runtime stream cap.
 	registerHTTPStreamImports(builder, host, r)
