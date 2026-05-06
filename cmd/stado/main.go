@@ -126,7 +126,7 @@ func init() {
 		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
 	rootCmd.PersistentFlags().BoolVar(&unsafeSkipBundleVerify, "unsafe-skip-bundle-verify", false,
 		"Skip runtime verification of the appended user-bundled payload (loses tamper-evidence)")
-	rootCmd.AddCommand(versionCmd, configPathCmd)
+	rootCmd.AddCommand(versionCmd, configPathCmd, secretsCmd)
 	// Set Version so cobra wires up the standard `--version` global
 	// flag (alongside the `stado version` subcommand). Same source
 	// of truth: collectBuildInfo() reads debug.ReadBuildInfo() and

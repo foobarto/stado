@@ -125,6 +125,18 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireUIApproval
 		cn.note = "needs an approval bridge — only the TUI / headless agent loop provides one"
 		return cn
+	case cap == "secrets:read" || strings.HasPrefix(cap, "secrets:read:"):
+		cn.requirement = requireNothing
+		cn.note = "operator's secret store; stado provides — declare secrets:read:<your_secret_pattern> to narrow access"
+		return cn
+	case cap == "secrets:write" || strings.HasPrefix(cap, "secrets:write:"):
+		cn.requirement = requireNothing
+		cn.note = "writes to operator's secret store; stado provides — declare secrets:write:<your_secret_pattern> to narrow access"
+		return cn
+	case cap == "net:http_client":
+		cn.requirement = requireNothing
+		cn.note = "stateful HTTP client with cookie jar; uses net:http_request:<host> caps as the host allowlist"
+		return cn
 	}
 	cn.note = "unrecognised capability — passed through to the runtime as-is"
 	return cn

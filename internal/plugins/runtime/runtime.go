@@ -53,6 +53,11 @@ type Runtime struct {
 	// terminal connections). Agents and sessions are exempt — they
 	// outlive plugin instances. EP-0038 §G, D13.
 	handles *handleRegistry
+
+	// httpClientCount tracks the number of open HTTP client handles
+	// (typeTag "http") across all plugin instances on this Runtime.
+	// Accessed atomically. Used to enforce maxHTTPClientsPerRuntime.
+	httpClientCount int64
 }
 
 // New allocates a fresh wazero runtime with WASI preview 1 preloaded.
@@ -98,6 +103,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	if r.pty != nil {
 		r.pty.CloseAll()
 	}
+	closeAllHTTPClients(r)
 	return r.rt.Close(ctx)
 }
 
