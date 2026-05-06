@@ -299,10 +299,31 @@ type SessionBridge interface {
 	// as its first user turn. Returns the new session ID.
 	Fork(ctx context.Context, atTurnRef, seedMessage string) (sessionID string, err error)
 	// InvokeLLM runs a one-shot completion against the active
-	// provider with the given prompt, returning the aggregated reply
-	// text and the number of tokens consumed (used to enforce the
-	// per-session budget).
-	InvokeLLM(ctx context.Context, prompt string) (reply string, tokensUsed int, err error)
+	// provider with the given prompt + options, returning the
+	// aggregated reply text and the number of tokens consumed (used
+	// to enforce the per-session budget). Options control persona,
+	// model override, additional system content, and sampling caps.
+	InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (reply string, tokensUsed int, err error)
+}
+
+// LLMInvokeOpts narrows what stado_llm_invoke / SessionBridge.InvokeLLM
+// callers can override per call. Zero values mean "inherit from the
+// active session" (persona, model) or "provider default" (sampling).
+type LLMInvokeOpts struct {
+	// Persona names the operating manual for this single call. Empty
+	// = inherit the session-active persona; "default" = bundled
+	// default; any other name resolves through the standard order.
+	Persona string
+	// Model overrides the session model for this call only. Empty =
+	// session model.
+	Model string
+	// System is additional system prompt content appended after the
+	// persona body + project AGENTS.md. Optional.
+	System string
+	// MaxTokens caps the response length. Zero = provider default.
+	MaxTokens int
+	// Temperature in [0..2] when supported. Zero = provider default.
+	Temperature float64
 }
 
 // MemoryBridge is the capability-checked persistent-memory surface
@@ -347,6 +368,10 @@ type AgentSpawnRequest struct {
 	ParentSession string // empty = use caller's session
 	AllowedTools  []string
 	SandboxProfile string
+	// Persona names the operating manual the child runs under.
+	// Empty = inherit the parent's active persona. Empty +
+	// no parent = bundled "default". EP-0038i.
+	Persona string
 }
 
 // AgentSpawnResult is the output of FleetBridge.AgentSpawn.

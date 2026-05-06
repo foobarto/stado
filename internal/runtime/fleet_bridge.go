@@ -27,7 +27,8 @@ func (a *FleetBridgeAdapter) AgentSpawn(ctx context.Context, req pluginRuntime.A
 		return pluginRuntime.AgentSpawnResult{}, fmt.Errorf("prompt is required")
 	}
 	opts := SpawnOptions{
-		Model: req.Model,
+		Model:   req.Model,
+		Persona: req.Persona,
 	}
 	fleetID, err := a.Fleet.Spawn(a.RootCtx, a.Spawner, req.Prompt, opts)
 	if err != nil {

@@ -49,6 +49,7 @@ Shorter forms live in:
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `--with-tool-host` / `[tools].overrides` patterns |
+| Personas | [features/personas.md](features/personas.md) | Operating-manual personas (software-engineer, qa-tester, prose-writer, etc.) — bundled set, custom additions, resolution order, `agent.spawn` delegation |
 | Plugin ABI | [plugins/abi-reference.md](plugins/abi-reference.md) | Systematic ABI reference — memory model, return-code conventions, typed handles, JSON envelope, capability vocabulary, manifest schema, lifecycle |
 | Plugin host imports | [plugins/host-imports.md](plugins/host-imports.md) | Function-by-function reference for every wasm host import (~70 entries, grouped by tier) |
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |

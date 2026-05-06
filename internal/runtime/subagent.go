@@ -10,6 +10,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/personas"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
@@ -42,6 +43,11 @@ type SubagentRunner struct {
 	// children so AgentSendMessage actually delivers. Nil for
 	// direct-spawn callers (no fleet inbox to drain).
 	InboxFn func() []string
+
+	// PersonaName is the parent's active persona; subagents inherit
+	// it unless their spawn request specified one. Empty = no
+	// inherited persona (use bundled default). EP-0038i.
+	PersonaName string
 }
 
 // WithInbox returns a copy of the runner with InboxFn set. Implements
@@ -152,6 +158,22 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	childCtx, cancel := context.WithTimeout(ctx, time.Duration(req.TimeoutSeconds)*time.Second)
 	defer cancel()
 
+	// Resolve the child's persona. Empty = inherit (caller's flow
+	// already populated r.Persona at WithPersona time when relevant).
+	// req.Persona overrides r.Persona for this single spawn.
+	personaName := req.Persona
+	if personaName == "" {
+		personaName = r.PersonaName
+	}
+	var childPersona *personas.Persona
+	if personaName != "" {
+		resolver := personas.Resolver{CWD: child.WorktreePath, ConfigDir: config.ConfigDir()}
+		if p, perr := resolver.Load(personaName); perr == nil {
+			childPersona = p
+		} else {
+			r.emitSubagentEvent(req, child, "warning", "running", "persona "+personaName+": "+perr.Error())
+		}
+	}
 	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
 		Provider:             r.Provider,
 		Executor:             exec,
@@ -164,6 +186,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		SystemTemplate:       r.SystemTemplate,
 		Host:                 childHost,
 		InboxFn:              r.InboxFn,
+		Persona:              childPersona,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr

@@ -39,6 +39,7 @@ var (
 	runToolsDisable    string // --tools-disable
 	runSessionID       string
 	runSkill       string
+	runPersona     string // --persona; empty = config default → bundled default
 	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
 	runTemperature float64
 	runTopP        float64
@@ -207,12 +208,17 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				// no-tool-calls-remain or context cancellation.
 				maxTurns = math.MaxInt32
 			}
+			persona, perr := resolvePersona(runPersona, cfg)
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "stado run: persona: %v\n", perr)
+			}
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
 				Config:   cfg,
 				Model:    cfg.Defaults.Model,
 				Messages: append(priorMsgs, newUserMsg),
 				MaxTurns: maxTurns,
+				Persona:  persona,
 				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
@@ -407,6 +413,10 @@ func init() {
 		"Comma-separated tool globs: always-on surface sent to model every turn. Empty = use [tools.autoload] from config.")
 	runCmd.Flags().StringVar(&runToolsDisable, "tools-disable", "",
 		"Comma-separated tool globs: remove from surface entirely. Wins over enable and autoload.")
+	runCmd.Flags().StringVar(&runPersona, "persona", "",
+		"Persona name to use as the operating manual (system prompt). "+
+			"Empty = [defaults].persona from config, or bundled default. "+
+			"Resolution: {cwd}/.stado/personas → ~/.stado/personas → bundled.")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
 	// EP-0036: sampling overrides. Zero value = use config/provider default.
