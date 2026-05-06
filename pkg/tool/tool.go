@@ -103,11 +103,23 @@ type WritePathGuard interface {
 	CheckWritePath(path string) error
 }
 
-// ToolActivator is an optional Host extension. When tools.describe is called,
-// the host activates the described tool schemas into the current session's
-// tool surface so the model can call them in subsequent turns (EP-0037 §E).
+// ToolActivator is an optional Host extension. When tools.describe /
+// tools.activate / plugin.load is called, the host activates the
+// described tool schemas into the current session's tool surface so
+// the model can call them in subsequent turns (EP-0037 §E). Hosts that
+// don't implement this silently no-op the activation calls — the
+// architectural-reset lazy-load surface is then unrealized.
 type ToolActivator interface {
 	ActivateTool(name string)
+}
+
+// ToolDeactivator is an optional Host extension paired with
+// ToolActivator. When tools.deactivate / plugin.unload is called, the
+// named tool is removed from the per-session surface; subsequent
+// turns no longer see it (until re-activated). Hosts implementing
+// ToolActivator should also implement ToolDeactivator for symmetry.
+type ToolDeactivator interface {
+	DeactivateTool(name string)
 }
 
 // AgentFleetProvider is an optional Host extension. When implemented, bundled

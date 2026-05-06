@@ -244,6 +244,11 @@ func TestStartupProbeFailureRestoresQueuedPrompt(t *testing.T) {
 // TestPlanMode_FiltersMutatingTools proves the Plan/Do toggle actually
 // removes exec + mutating tools from the TurnRequest, so the model
 // genuinely cannot act in Plan mode (not just a post-hoc approval loop).
+//
+// EP-0037 lazy-load note: toolDefs() now returns only autoloaded core +
+// session-activated tools. The test activates the 5 fixture tools
+// explicitly so the Plan/Do filter is the variable under test, not the
+// activation surface.
 func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 	rnd, _ := render.New(theme.Default())
 	reg := tools.NewRegistry()
@@ -258,6 +263,14 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 		func() (agent.Provider, error) { return nil, nil },
 		rnd, keys.NewRegistry())
 	m.executor = exec
+	// Activate the fixture tools so they reach the per-turn surface.
+	m.activatedTools = map[string]bool{
+		"read":    true,
+		"write":   true,
+		"edit":    true,
+		"ripgrep": true,
+		"bash":    true,
+	}
 
 	// Do mode — all five tools visible.
 	m.mode = modeDo

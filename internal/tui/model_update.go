@@ -350,6 +350,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolsExecutedMsg:
 		m.annotateLastAssistantToolResults(msg.results)
+		// EP-0037 lazy-load: when the model called tools.describe, parse
+		// the result and add the described tools to this session's
+		// activation set so subsequent turns surface them.
+		m.absorbToolActivations(msg.results)
 		// Append a role=tool message with the accumulated tool results.
 		if len(msg.results) > 0 {
 			blocks := make([]agent.Block, 0, len(msg.results))

@@ -271,6 +271,15 @@ type hostAdapter struct {
 	runner   sandbox.Runner
 	approval tuiApprovalBridge
 	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
+	// activate is the lazy-load activation hook. Called by the
+	// tools__describe / tools__activate / plugin__load meta-tools via
+	// the pkg/tool.ToolActivator interface; adds the named tool to
+	// this session's activated set so subsequent toolDefs() include it.
+	// EP-0037.
+	activate func(name string)
+	// deactivate is the inverse hook for tools__deactivate /
+	// plugin__unload via pkg/tool.ToolDeactivator.
+	deactivate func(name string)
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -303,6 +312,24 @@ func (h hostAdapter) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 		return
 	}
 	h.readLog.RecordRead(key, info)
+}
+
+// ActivateTool implements pkg/tool.ToolActivator — surfaces a named tool
+// into the next turn's tool surface. Called by tools__describe /
+// tools__activate / plugin__load. When the activate hook isn't wired
+// (no Model context, e.g. plugin run), the activation is silently dropped.
+func (h hostAdapter) ActivateTool(name string) {
+	if h.activate != nil {
+		h.activate(name)
+	}
+}
+
+// DeactivateTool implements pkg/tool.ToolDeactivator — removes a tool
+// from this session's per-turn surface. Inverse of ActivateTool.
+func (h hostAdapter) DeactivateTool(name string) {
+	if h.deactivate != nil {
+		h.deactivate(name)
+	}
 }
 
 // buildPluginBridge wires the live TUI's Session + active provider
