@@ -6,7 +6,21 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### Plugin runtime — agent-loop integration
+
+- **`stado_progress` now reaches the model.** v0.38 introduced
+  operator-visibility for progress emissions (TUI sidebar, `stado
+  plugin run` stderr). v0.42 adds the model-visibility half: while
+  a tool runs, emissions are collected per-call via a context-
+  threaded `tool.ProgressCollector`; on successful return,
+  `Executor.Run` prepends a `[progress] plugin: text` log to the
+  tool's result envelope so the model sees the trail. Bounded at
+  64 entries per call (FIFO drop on overflow). Suppressed when the
+  tool errored (errored results stay clean). This is atomic from
+  the model's POV — mid-tool model streaming would need an
+  LLM-API streaming-tool-call contract that doesn't exist today;
+  closing that gap would shift the agent-loop contract and is
+  filed for if/when an upstream provider ships native support.
 
 ## v0.42.0 — EP-0038i ICMP echo (closes the network surface)
 

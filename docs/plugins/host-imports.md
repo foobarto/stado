@@ -635,15 +635,37 @@ the model. Mid-tool partial output to the model would break tool-call
 atomicity in current LLM contracts and is explicitly out of scope
 for v1.
 
-**Wiring.** The host caller (TUI, headless run, `stado plugin run`)
-provides a callback `(plugin, text) → void`. When the callback isn't
-set the import returns 0 and silently drops — the plugin shouldn't
-fail because the operator surface isn't connected.
+**Wiring — operator surface.** The host caller (TUI, headless run,
+`stado plugin run`) provides a callback `(plugin, text) → void`.
+When the callback isn't set the import returns 0 and silently drops
+— the plugin shouldn't fail because the operator surface isn't
+connected.
 
 - `stado plugin run` prints `[plugin] text` to stderr.
 - The TUI surfaces progress lines in the sidebar log tail tagged
   `PROGRESS [plugin] text`. Progress entries always show regardless
   of `--sidebar-debug` (the plugin author chose to emit them).
+
+**Wiring — model surface (agent-loop integration).** When the tool
+runs inside `Executor.Run` (agent loop, `stado run`, TUI tool
+dispatch) progress emissions ALSO get collected per-call and
+prepended to the tool's result envelope so the model sees the trail:
+
+```
+[progress] scanner: checking 1/256
+[progress] scanner: checking 17/256: 22/tcp open
+...
+[progress] scanner: scan complete
+
+discovered 3 hosts: 10.0.0.3, 10.0.0.7, 10.0.0.42
+```
+
+Bounded — at most 64 entries per call (FIFO drop on overflow). The
+prepend is suppressed when the tool errored, so error messages
+read cleanly. This is atomic from the model's POV (model still
+sees the tool result exactly once, after completion) — true
+mid-tool model streaming would need an LLM-API streaming-tool-call
+contract that doesn't exist today.
 
 ### stado_json_get, stado_json_format, stado_json_set
 

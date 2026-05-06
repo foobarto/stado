@@ -260,3 +260,112 @@ func TestExecutor_RejectsOversizedArgsBeforeToolRun(t *testing.T) {
 		t.Fatal("tool ran after oversized args")
 	}
 }
+
+// TestExecutor_PrependsProgressLog: a tool that appends to the
+// per-call progress collector during Run gets its emissions
+// prepended to the result envelope so the model sees the trail.
+func TestExecutor_PrependsProgressLog(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ex.Registry.Register(stubTool{
+		name:  "stub_with_progress",
+		class: tool.ClassNonMutating,
+		effect: func(_ string) (tool.Result, error) {
+			// Tool itself doesn't have ctx; in the real flow this
+			// happens inside bundled_plugin_tools.Run which sees ctx
+			// + has the collector wired into host.Progress. For the
+			// test we drive the collector directly via the package
+			// helpers exposed alongside ContextWithProgress —
+			// substituting what the wasm-side wrapper would do.
+			return tool.Result{Content: "the answer"}, nil
+		},
+	})
+
+	// The executor installs the collector inside Run; our stub tool
+	// can't reach it via ctx because it doesn't take ctx into the
+	// effect closure. Instead, register a tool that DOES use ctx:
+	ex.Registry.Register(progressEmittingTool{name: "scan_with_progress"})
+
+	res, err := ex.Run(context.Background(), "scan_with_progress",
+		json.RawMessage(`{}`), stubHost{workdir: wt})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(res.Content, "[progress] scanner: checking 1/3") {
+		t.Errorf("missing first progress line: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "[progress] scanner: checking 3/3") {
+		t.Errorf("missing third progress line: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "scan complete") {
+		t.Errorf("missing tool result: %q", res.Content)
+	}
+}
+
+// TestExecutor_NoProgress_NoChange: tools that don't emit progress
+// produce identical output before and after the wiring (regression
+// guard against accidental envelope-wrapping).
+func TestExecutor_NoProgress_NoChange(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ex.Registry.Register(stubTool{
+		name:  "silent",
+		class: tool.ClassNonMutating,
+		effect: func(_ string) (tool.Result, error) {
+			return tool.Result{Content: "just a result"}, nil
+		},
+	})
+	res, err := ex.Run(context.Background(), "silent", json.RawMessage(`{}`), stubHost{workdir: wt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Content != "just a result" {
+		t.Errorf("envelope wrapping leaked: %q", res.Content)
+	}
+}
+
+// TestExecutor_ErroredTool_NoProgressLog: when the tool errors,
+// progress entries don't get prepended (errored output replaces
+// rather than augments).
+func TestExecutor_ErroredTool_NoProgressLog(t *testing.T) {
+	ex, _, wt := newExecutorFixture(t)
+	ex.Registry.Register(progressThenErrorTool{})
+	res, _ := ex.Run(context.Background(), "scan_then_error",
+		json.RawMessage(`{}`), stubHost{workdir: wt})
+	if strings.Contains(res.Content, "[progress]") {
+		t.Errorf("errored tool should not include progress log: %q", res.Content)
+	}
+}
+
+// progressEmittingTool: takes ctx, appends to the in-context
+// collector, returns a successful result.
+type progressEmittingTool struct {
+	name string
+}
+
+func (p progressEmittingTool) Name() string           { return p.name }
+func (progressEmittingTool) Description() string      { return "stub" }
+func (progressEmittingTool) Schema() map[string]any   { return map[string]any{"type": "object"} }
+func (progressEmittingTool) Class() tool.Class        { return tool.ClassNonMutating }
+func (p progressEmittingTool) Run(ctx context.Context, _ json.RawMessage, _ tool.Host) (tool.Result, error) {
+	if pc := tool.ProgressFromContext(ctx); pc != nil {
+		pc.Append("scanner", "checking 1/3")
+		pc.Append("scanner", "checking 2/3")
+		pc.Append("scanner", "checking 3/3")
+	}
+	return tool.Result{Content: "scan complete"}, nil
+}
+
+// progressThenErrorTool: appends progress, then errors. Verifies
+// the executor doesn't prepend progress when the tool reports an
+// error (we want errored results to read clearly).
+type progressThenErrorTool struct{}
+
+func (progressThenErrorTool) Name() string           { return "scan_then_error" }
+func (progressThenErrorTool) Description() string    { return "" }
+func (progressThenErrorTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (progressThenErrorTool) Class() tool.Class      { return tool.ClassNonMutating }
+func (progressThenErrorTool) Run(ctx context.Context, _ json.RawMessage, _ tool.Host) (tool.Result, error) {
+	if pc := tool.ProgressFromContext(ctx); pc != nil {
+		pc.Append("scanner", "starting up")
+	}
+	return tool.Result{Content: "tool failed", Error: "internal failure"}, nil
+}

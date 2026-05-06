@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -66,6 +67,12 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	)
 	defer span.End()
 
+	// Install a fresh per-call progress collector. Bundled wasm
+	// plugins that wire stado_progress also Append to this collector;
+	// after the tool returns, we prepend the collected entries to
+	// result.Content so the model sees the trail. EP-0038i.
+	ctx, progCollector := tool.ContextWithProgress(ctx)
+
 	// Capture pre-state for Exec diff-then-commit.
 	var preTree plumbing.Hash
 	if e.Session != nil && class == tool.ClassExec {
@@ -78,6 +85,15 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	start := time.Now()
 	res, runErr := t.Run(ctx, args, h)
 	duration := time.Since(start)
+
+	// Drain any progress emissions buffered during the tool call and
+	// prepend them to the result envelope so the model sees the
+	// trail. Operator-side ProgressEmitter delivery (TUI sidebar,
+	// stderr) already happened live; this only adds the model-facing
+	// channel. Skip when there's nothing to add or the tool errored.
+	if entries := progCollector.Drain(); len(entries) > 0 && runErr == nil && res.Error == "" {
+		res.Content = renderProgressLog(entries) + res.Content
+	}
 
 	outcome := "ok"
 	if runErr != nil || res.Error != "" {
@@ -182,4 +198,25 @@ func sha256Of(b []byte) string {
 	}
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// renderProgressLog formats progress entries as a plain-text prefix
+// the model can read. Each entry is one line tagged `[progress]`
+// followed by a blank line separating from the actual result.
+// Format chosen to round-trip cleanly through any tool-result
+// transport (no JSON wrap, no markdown that might collide with
+// tool-emitted markdown).
+func renderProgressLog(entries []tool.ProgressEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString("[progress] ")
+		if e.Plugin != "" {
+			b.WriteString(e.Plugin)
+			b.WriteString(": ")
+		}
+		b.WriteString(e.Text)
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
+	return b.String()
 }
