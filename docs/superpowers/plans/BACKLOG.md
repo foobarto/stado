@@ -1,52 +1,55 @@
 # Backlog — locked decisions awaiting a plan
 
-These items were **locked in the 2026-05-05 architectural reset**
-(`docs/eps/notes/2026-05-05-architectural-reset.md`) but never made it
-into a `superpowers:writing-plans` task list. None are blocking, but
-each has a paid-in-full design discussion and just needs the
-implementation step.
-
-Listed in rough priority order (highest = most operator pain).
+> **Status (2026-05-06):** All 10 items from the 2026-05-05
+> architectural-reset locked-decisions list are resolved.
+> 8 shipped, 1 documented deferral, 1 split between #5 (done)
+> and #7 (done).
 
 ---
 
-## 1. Collapse `spawn_agent` (native) and `agent.spawn` (wasm) into one canonical surface
+## 1. ~~Collapse `spawn_agent` (native) and `agent.spawn` (wasm)~~ — **DONE 2026-05-06** (`feat/collapse-spawn-agent-surface` PR)
 
-- **Locked at:** NOTES line ~520 (agent surface section), reaffirmed in `defaultAutoloadNames` TODO comment in `internal/runtime/executor.go`.
-- **Problem:** Two registered tools that do the same thing. Only `spawn_agent` fires `SubagentEvent` (lifecycle observability). The wasm `agent.spawn` doesn't. The LLM may be unsure which to use; the operator can't filter to just one.
-- **Options:**
-  - Route `agent.spawn` execution through the SubagentRunner so it emits the same events; drop the bare `spawn_agent` registration.
-  - Drop the wasm `agent.spawn` and keep only the native.
-  - Document them as intentionally distinct (audit-emitting vs ephemeral).
-- **Files:** `internal/runtime/bundled_plugin_tools.go`, `internal/runtime/agentloop_helpers.go`, `internal/runtime/executor.go`, `internal/plugins/runtime/host_agent.go`.
+Native `spawn_agent` registration dropped; wasm `agent.spawn`
+(registered as `agent__spawn`) is the canonical surface. Both
+paths went through `SubagentRunner` already; the wasm form is
+a strict superset (adds `agent.list`, `read_messages`,
+`send_message`, `cancel`, async mode). `subagent.Tool{}` type
+deleted; `subagent.ToolName` const retained as a label for
+commit metadata.
 
-## 2. `plugin install --autoload`
+## 2. ~~`plugin install --autoload`~~ — **DONE 2026-05-06** (`feat/plugin-install-autoload` PR)
 
-- **Locked at:** NOTES line 1093 — *"pin to autoload at install time, persisted in config. Saves the operator the second `tool autoload` call."*
-- **Effort:** Tiny. Add `--autoload` flag to `pluginInstallCmd`; on success, call `config.WriteToolsListAdd(path, "autoload", <newly-installed-tool-names>)`.
-- **Files:** `cmd/stado/plugin_install.go`. `WriteToolsListAdd` already exists (`internal/config/write_defaults.go` — landed in `563d251`).
+`stado plugin install --autoload` now persists the newly-
+installed plugin's tools into `[tools].autoload` via
+`config.WriteToolsListAdd`. Failure to write the config is
+non-fatal (warn to stderr; install still succeeded).
 
-## 3. `plugin doctor` cap-vs-sandbox cross-check
+## 3. ~~`plugin doctor` cap-vs-sandbox cross-check~~ — **DONE 2026-05-06** (`feat/plugin-doctor-sandbox-check` PR)
 
-- **Locked at:** NOTES line ~1056 — *"declared caps vs `[sandbox]` constraints (e.g. plugin wants `net:dial:tcp:*:*` but operator's sandbox is `network = "namespaced"` — flag with severity)"*.
-- **Effort:** Modest. Read `[sandbox]` config + the plugin's manifest caps; cross-reference and emit warnings.
-- **Files:** `cmd/stado/plugin_doctor.go` (existing), `internal/plugins/manifest.go` (cap parse helpers).
+After the existing surface-compatibility report, `plugin doctor`
+walks the plugin's caps against `[sandbox]` config. Three
+severity tiers (✗ error / ⚠ warn / i info) cover net-blocked,
+namespaced-no-proxy, fs paths not in bind_ro/bind_rw, and the
+exec:* informational note.
 
-## 4. `plugin reload <name>` (whole-plugin)
+## 4. ~~`plugin reload <name>` (whole-plugin)~~ — **DONE 2026-05-06** (`feat/plugin-reload` PR)
 
-- **Locked at:** NOTES Q8 — *"both, distinct"* — `tool reload` (per-tool) AND `plugin reload` (whole-plugin module).
-- **Status today:** `tool reload` exists; `plugin reload` doesn't.
-- **Effort:** Small. `cmd/stado/plugin_reload.go` invalidating cached `*pluginRuntime.Module` for a plugin name.
+CLI `stado plugin reload <name>` validates + lists tools.
+TUI `/plugin reload [<name>]` rebuilds the executor's tools
+registry so plugins installed AFTER session start become
+visible without restart. Tool calls always re-read plugin.wasm
+from disk per invocation (no wasm cache to invalidate); the
+CLI subcommand is advisory + informational.
 
 ## 5. ~~Slash-command persistence default~~ — **DONE 2026-05-05** (`feat/tui-slash-and-handles` PR)
 
 `/tool enable / disable / autoload / unautoload` shipped with per-session default + `--save` flag flip. See `internal/tui/model_commands.go`.
 
-## 6. `tools.describe(names: [str])` batched form
+## 6. ~~`tools.describe(name | names)` batched form~~ — **DONE 2026-05-06** (`feat/tools-describe-batched` PR)
 
-- **Locked at:** NOTES Q4 — *"batched, one round-trip"*.
-- **Status today:** Single-name path lives in `internal/runtime/meta_tools.go`. Batching not implemented.
-- **Effort:** Tiny — accept `string | []string` and dispatch over the slice.
+`tools__describe` now accepts `name: "foo"` (single) OR
+`names: ["foo","bar"]` (batched). Both forms can be passed
+in one call; entries are merged and deduped preserving order.
 
 ## 7. ~~Typed-prefix dotted handle IDs (`proc:fs.7a2b`)~~ — **DONE 2026-05-05** (`feat/tui-slash-and-handles` PR)
 
@@ -61,11 +64,12 @@ imports gated by `secrets:read[:<glob>]`, `secrets:write[:<glob>]`,
 and `net:http_client`. Spec + handoff in
 `docs/superpowers/specs/2026-05-06-ep-0038e-tier2-stateful-design.md`.
 
-## 9. `plugin install --pubkey-file` already done; `plugin sign` for CI pipelines
+## 9. ~~`plugin sign` for CI pipelines~~ — **DONE 2026-05-06** (`feat/plugin-sign-ci` PR)
 
-- **Locked at:** NOTES quality-pass.
-- **Status today:** `--pubkey-file` landed (EP-0039 Task 5). `plugin sign <dir> --key <path>` for CI is implicit (sign is bundled into install/dev today). Worth a separate `plugin sign` verb for headless CI signing.
-- **Files:** `cmd/stado/plugin_sign.go` (extend).
+`stado plugin sign --key-env <ENVVAR>` reads the seed from an
+env var (hex or base64), eliminating the temp-file dance for
+CI runner secrets. `--quiet` suppresses informational stdout
+for clean CI logs.
 
 ## 10. ~~Delete `buildNativeRegistry()` per EP-0038b Task 5~~ — **DEVIATION DOCUMENTED 2026-05-06**
 
@@ -79,9 +83,4 @@ Full justification + revisit conditions in `docs/eps/0038-abi-v2-bundled-wasm-an
 
 ---
 
-## Conventions for picking from this backlog
-
-- Each item lists **files** to keep grep-able; treat the list as load-bearing when starting a plan.
-- Items 2, 4, 6, 9 are tiny enough to land in a single PR without a full superpowers plan.
-- Items 1, 3, 5, 7 deserve a proper plan or an `AskUserQuestion` first to settle the design choice.
-- Item 8 is its own EP.
+## Done — empty. New work goes through `superpowers:brainstorming` first.
