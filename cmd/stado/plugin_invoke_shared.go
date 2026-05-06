@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -140,29 +139,3 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	return nil
 }
 
-// runPluginInvocationCaptured is the same as runPluginInvocation but
-// returns the result content as a string instead of writing to Stdout.
-// Used by the stado_tool_invoke recursive path so it can capture inner
-// plugin output and return it to the calling wasm guest.
-//
-// Kept here (not in pluginrun) because it's a CLI-affordance: the
-// agent loop and MCP server callers of pluginrun call pluginrun.Run
-// directly and use its tool.Result return value without this wrapper.
-func runPluginInvocationCaptured(ctx context.Context, in pluginInvokeArgs) (string, error) {
-	var buf bytes.Buffer
-	in.Stdout = &buf
-	if in.Stderr == nil {
-		in.Stderr = io.Discard
-	}
-	if err := runPluginInvocation(ctx, in); err != nil {
-		return "", err
-	}
-	// runPluginInvocation Fprintln's the content; trim the trailing
-	// newline so callers see the same shape they'd get from a direct
-	// reg.Run() call.
-	out := buf.String()
-	if len(out) > 0 && out[len(out)-1] == '\n' {
-		out = out[:len(out)-1]
-	}
-	return out, nil
-}

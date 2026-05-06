@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
@@ -35,6 +36,7 @@ type pluginOverrideTool struct {
 	schema    map[string]any
 	class     tool.Class
 	wasm      []byte
+	cfg       *config.Config
 }
 
 func (p *pluginOverrideTool) Name() string        { return p.def.Name }
@@ -47,35 +49,24 @@ func (p *pluginOverrideTool) Schema() map[string]any {
 }
 func (p *pluginOverrideTool) Class() tool.Class { return p.class }
 
+// Run dispatches the override plugin via pluginrun.Run. Pre-Step-0.2
+// this had its own copy of the runtime + host setup; pluginrun
+// absorbed it. The override path remains distinct only in HOW the
+// tool gets registered (cfg.Tools.Overrides → loadPluginOverrideTool
+// at executor build time) — the dispatch is uniform.
 func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	rt, err := pluginRuntime.New(ctx)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("plugin %s: runtime: %w", p.pluginID, err)
-	}
-	defer func() { _ = rt.Close(ctx) }()
-
-	host := pluginRuntime.NewHost(p.manifest, h.Workdir(), nil)
-	host.ToolHost = h
-	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
-		host.ApprovalBridge = bridge
-	}
-	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("plugin %s: host imports: %w", p.pluginID, err)
-	}
-	mod, err := rt.Instantiate(ctx, p.wasm, p.manifest)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("plugin %s: instantiate: %w", p.pluginID, err)
-	}
-	defer func() { _ = mod.Close(ctx) }()
-
-	pt, err := pluginRuntime.NewPluginTool(mod, p.def)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	return pt.Run(ctx, args, h)
+	return pluginrun.Run(ctx, pluginrun.RunArgs{
+		Manifest:       p.manifest,
+		WasmBytes:      p.wasm,
+		ToolName:       p.def.Name,
+		Args:           args,
+		Cfg:            p.cfg,
+		Workdir:        h.Workdir(),
+		InvokeRegistry: installedInvokeReg,
+	}, h)
 }
 
 func normalisePluginID(ref string) string {
@@ -143,6 +134,7 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 		schema:    schema,
 		class:     class,
 		wasm:      wasmBytes,
+		cfg:       cfg,
 	}, nil
 }
 
