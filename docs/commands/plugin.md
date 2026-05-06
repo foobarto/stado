@@ -105,16 +105,22 @@ Installed plugin IDs match the directory names under the state dir, so
 | Command | Purpose |
 |---------|---------|
 | `stado plugin init <name>` | Scaffold a Go `wasip1` plugin project |
+| `stado plugin dev <dir>` | Build, sign, trust, and install from a local directory in one shot (development workflow — bypasses the trust prompt for ad-hoc keys) |
 | `stado plugin gen-key <path>` | Generate a new Ed25519 seed for signing |
 | `stado plugin sign <manifest.json> --key <seed>` | Fill manifest digest/fingerprint fields and sign |
 | `stado plugin digest <file>` | Print a WASM blob's sha256 |
 | `stado plugin trust <pubkey> [author]` | Pin a signer pubkey |
 | `stado plugin untrust <fingerprint>` | Remove a signer pin |
-| `stado plugin list` | Show trusted signer entries |
-| `stado plugin installed` | Show installed plugin IDs |
+| `stado plugin list` | List trusted signers + installed plugins, with author and trust status |
+| `stado plugin installed` | Show installed plugin IDs (matches state/plugins/<id>/) |
 | `stado plugin verify <dir>` | Verify a plugin directory in place |
+| `stado plugin verify-installed <plugin-id>` | Re-verify an installed plugin against the trust store (catch trust-store drift) |
 | `stado plugin install <dir>` | Verify, then copy into the state dir |
+| `stado plugin update <plugin-id>` | Pull and install the latest tagged version of an installed plugin (EP-0039) |
+| `stado plugin use <plugin-id>` | Switch the active version for an installed plugin (per-project) |
+| `stado plugin reload <plugin-id>` | Re-read a plugin's tools and capabilities; effective inside a TUI session via `/plugin reload` |
 | `stado plugin run [--session <id>] [--workdir <path>] [--with-tool-host] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
+| `stado plugin bundle [--out <file>] [<plugin-id> …]` | Bundle installed plugins into a portable stado binary (no Go toolchain required at the destination) |
 | `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
 | `stado plugin doctor <plugin-id>` | Inspect manifest + emit per-surface compatibility table with the exact flags to pass |
 | `stado plugin info <plugin-id>` | Dump installed plugin's manifest as pretty JSON (sibling to doctor — info dumps, doctor analyses) |
@@ -196,6 +202,8 @@ Relevant `config.toml` sections:
 ## See also
 
 - [docs/features/plugin-authoring.md](../features/plugin-authoring.md) — end-to-end walkthrough for first-time plugin authors
+- [docs/plugins/abi-reference.md](../plugins/abi-reference.md) — systematic ABI reference (memory, return codes, handles, manifest schema)
+- [docs/plugins/host-imports.md](../plugins/host-imports.md) — function-by-function reference for every host import
 - [README.md](../../README.md) — install channels and high-level plugin summary
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog

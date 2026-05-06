@@ -164,26 +164,49 @@ plugin id — it will tell you whether you need `--with-tool-host`,
 ## Capabilities and the surface they require
 
 The manifest declares capabilities that the host enforces at the
-wasm-import boundary. Every capability falls into one of four
-buckets:
+wasm-import boundary. The full vocabulary is catalogued in the
+[ABI reference §8](../plugins/abi-reference.md#8-capability-vocabulary);
+this table covers the most common groups and the plugin-run
+surface each requires.
 
 | Capability shape | What it gates | Required surface |
 |------------------|---------------|------------------|
-| `fs:read:/abs/path`, `fs:write:/abs/path` | `stado_fs_read` / `stado_fs_write` to that absolute path | Any |
-| `fs:read:.`, `fs:read:./sub` | Same, but resolved against the host's `Workdir` | `plugin run --workdir=$PWD` (default workdir is the plugin's install dir, not the operator's CWD — EP-0027) |
-| `net:http_get`, `net:<host>` | `stado_http_get` (URL fetch, markdown-converting) | `plugin run --with-tool-host` (no flag → "plugin host has no tool runtime context" error — EP-0028) |
-| `net:http_request`, `net:http_request:<host>` | `stado_http_request` (generic HTTP — methods, headers, body, base64-binary-safe) | `plugin run --with-tool-host` |
-| `net:http_request_private` | Loosens `stado_http_request`'s dial guard to permit RFC1918 / loopback / link-local / CGNAT destinations. Multicast / unspecified / reserved / docs ranges still refused. Off by default — opt-in only. | `plugin run --with-tool-host` |
-| `exec:search`, `exec:ast_grep`, `lsp:query` | Bundled search / lsp tool imports | `plugin run --with-tool-host` |
-| `exec:bash`, `exec:shallow_bash` | `stado_exec_bash` | TUI / `stado run` only — `plugin run` refuses, EP-0028 (the `sandbox.Runner` is not available) |
-| `session:read`, `session:fork`, `session:observe` | Session-aware reads + fork RPC | `plugin run --session <id>` |
-| `llm:invoke`, `llm:invoke:<budget>` | Outbound LLM calls from the plugin | `plugin run --session <id>` (uses the session's provider) |
+| `fs:read:/abs/path`, `fs:write:/abs/path` | `stado_fs_read` / `stado_fs_write` to that path | Any |
+| `fs:read:.`, `fs:read:./sub` | Same, but resolved against `Workdir` | `plugin run --workdir=$PWD` (default workdir is the plugin's install dir, not the operator's CWD — EP-0027) |
+| `net:http_get`, `net:<host>` | `stado_http_get` (markdown-converting URL fetch) | `plugin run --with-tool-host` (no flag → "plugin host has no tool runtime context" error — EP-0028) |
+| `net:http_request[:<host>]` | `stado_http_request` and `_request_stream` | `plugin run --with-tool-host` |
+| `net:http_request_private` | Loosens dial guard to RFC1918 / loopback / link-local / CGNAT. Off by default. | `plugin run --with-tool-host` |
+| `net:http_client` | Stateful HTTP client with cookie jar (`stado_http_client_*`) | `plugin run --with-tool-host` |
+| `net:dial:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Outbound `stado_net_dial` (TCP / UDP / Unix). Private addresses still need `net:http_request_private`. | Any |
+| `net:listen:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Server-side `stado_net_listen` (verbatim host:port match — no implicit `127.0.0.1 ⊂ 0.0.0.0`) | Any |
+| `exec:search`, `exec:ast_grep`, `lsp:query` | Bundled search / LSP imports | `plugin run --with-tool-host` |
+| `exec:bash`, `exec:shallow_bash` | `stado_exec_bash` | TUI / `stado run` only — `plugin run` refuses (EP-0028) |
+| `exec:proc[:<binary-glob>]` | `stado_proc_*` and `stado_exec` | TUI / `stado run` (sandbox runner needed) |
+| `exec:pty`, `terminal:open` | PTY-backed shell sessions (`stado_pty_*` / `stado_terminal_*`) | TUI / `stado run` |
+| `session:read`, `session:fork`, `session:observe` | Session reads + fork RPC | `plugin run --session <id>` |
+| `llm:invoke[:<token-budget>]` | Outbound LLM calls | `plugin run --session <id>` (uses the session's provider) |
 | `memory:propose`, `memory:read`, `memory:write` | Append-only memory store | `plugin run --session <id>` (or any agent loop) |
-| `ui:approval` | Approval bridge | TUI / headless agent loop only |
+| `state:read[:<key-glob>]`, `state:write[:<key-glob>]` | Process-lifetime in-memory KV (`stado_instance_*`) | Any |
+| `secrets:read[:<name-glob>]`, `secrets:write[:<name-glob>]` | Operator secret store (`stado_secrets_*`) | Any |
+| `tool:invoke[:<name-glob>]` | Plugin calls other registered tools (`stado_tool_invoke`) | Any (depth-limited) |
+| `agent:fleet` | Sub-agent fleet (`stado_agent_*`) — bundled agent plugin only | TUI / `stado run` |
+| `dns:resolve` | `stado_dns_resolve` | Any |
+| `crypto:hash`, `compress` | Stateless format helpers (hash, hmac, gzip, zlib) | Any |
+| `cfg:state_dir` | Read state-dir path (`stado_cfg_state_dir`) | Any |
+| `bundled-bin` | Read bundled binaries (`stado_bundled_bin`) | Any |
+| `ui:approval` | Approval bridge (`stado_ui_approve`) | TUI / headless agent loop only |
 
 `stado plugin doctor` automates this table — run it against any
 installed plugin and the report will tell you exactly what flags
 to pass.
+
+### Manifest extras (v0.36+)
+
+| Field | Purpose |
+|---|---|
+| `requires` | Array of `"<plugin-name>"` or `"<name> >= <ver>"` — install fails if a dep is missing. |
+| `tools[].categories` | Array of category tags (`file`, `network`, `code-search`, …). Operators can add `[tools].autoload_categories = ["file"]` to surface tools by category instead of by name. |
+| `min_stado_version` | Refuses install on older stado. Set to the version that introduced any host import you call. |
 
 ## Iteration loop
 
@@ -237,6 +260,66 @@ SHA-256-keyed disk cache. Manifest declares
 `net:http_get` + the cache directory as
 `fs:read:/abs/cache` and `fs:write:/abs/cache`. Run with
 `--with-tool-host` so `stado_http_get` is wired up.
+
+### Emit progress for long-running tools
+
+Tools that take more than ~2 seconds should emit progress so the
+operator sees they're alive. The `stado_progress` import is a
+no-cap, fire-and-forget operator-visibility channel:
+
+```go
+//go:wasmimport stado stado_progress
+func stadoProgress(textPtr, textLen uint32) int32
+
+// Inside your tool:
+msg := []byte(fmt.Sprintf("checking host %d/%d", i, total))
+stadoProgress(uint32(uintptr(unsafe.Pointer(&msg[0]))), uint32(len(msg)))
+```
+
+The TUI surfaces these as `PROGRESS [plugin] text` lines in the
+sidebar; `stado plugin run` prints them to stderr. No capability
+needed; payload bounded to 4 KiB. The model only sees the final
+tool result — progress is operator UX, not agent input.
+
+### Extract a JSON field without bundling a parser
+
+`stado_json_get` extracts one value from a JSON document by dotted
+path; saves ~50 KiB of bundled parser per plugin and runs at
+native speed. Useful for picking one field out of an HTTP response:
+
+```go
+//go:wasmimport stado stado_json_get
+func stadoJSONGet(jsonPtr, jsonLen, pathPtr, pathLen, outPtr, outMax uint32) int32
+
+// Pull "user.id" out of an API response.
+out := make([]byte, 256)
+n := stadoJSONGet(
+    uint32(uintptr(unsafe.Pointer(&body[0]))), uint32(len(body)),
+    uint32(uintptr(unsafe.Pointer(&pathBytes[0]))), uint32(len(pathBytes)),
+    uint32(uintptr(unsafe.Pointer(&out[0]))), uint32(cap(out)),
+)
+// out[:n] = `"alice"` (canonical JSON; strings keep quotes)
+```
+
+Path syntax is dotted with array indices: `user.tags.0`. No
+capability needed.
+
+### Persist state across tool calls within a session
+
+`stado_instance_*` is a per-Runtime in-memory KV store. State
+survives across calls within one stado process; cleared at session
+end. Per-plugin namespaced — you can't read another plugin's keys.
+
+```go
+// Capabilities: state:read, state:write
+sdkSet("session_token", tokenBytes)
+sdkGet("session_token") // returns the bytes, or nil
+```
+
+Bound: 1 MiB per value, 16 MiB per plugin. For state that needs
+to survive a stado restart, use the operator secret store
+(`stado_secrets_*`, capability `secrets:read[:<glob>]` /
+`secrets:write[:<glob>]`).
 
 ### Use as an override for a bundled tool
 
@@ -318,9 +401,14 @@ whether to trust the plugin.
 
 ## Related documents
 
+- [`docs/plugins/abi-reference.md`](../plugins/abi-reference.md) —
+  systematic ABI reference (memory model, return-code conventions,
+  typed handles, JSON envelope, capability vocabulary index,
+  manifest schema, lifecycle). Read this end-to-end once when you
+  start writing plugins.
 - [`docs/plugins/host-imports.md`](../plugins/host-imports.md) —
-  comprehensive reference for every wasm host import (~70 in
-  total), grouped by Tier, with capability gates and ABI
+  function-by-function reference for every wasm host import (~70
+  in total), grouped by Tier, with capability gates and ABI
   signatures. The first place to look when "I need the WASM tool
   to do X but the host only exposes Y."
 - [`docs/commands/plugin.md`](../commands/plugin.md) — exhaustive
