@@ -37,6 +37,7 @@ var Commands = []Command{
 	// Session — state about this run.
 	{"/agents", "Open the agent picker for Do, Plan, and BTW", "ctrl+x a", "Session"},
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "ctrl+x m", "Session"},
+	{"/persona", "Open the persona picker (no args) or switch (/persona <name>)", "", "Session"},
 	{"/status", "Open provider, tool, plugin, sandbox, and telemetry status", "ctrl+x s", "Session"},
 	{"/provider", "Show current provider capabilities or setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},

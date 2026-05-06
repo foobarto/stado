@@ -46,6 +46,31 @@ func TestWriteDefaultsPreservesUnspecifiedProvider(t *testing.T) {
 	}
 }
 
+func TestWriteDefaultPersona(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := WriteDefaultPersona(path, "offsec"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `persona = "offsec"`) {
+		t.Fatalf("config missing persona:\n%s", data)
+	}
+	// Empty value clears the key.
+	if err := WriteDefaultPersona(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "persona =") {
+		t.Fatalf("empty WriteDefaultPersona should drop the key:\n%s", data)
+	}
+}
+
 func TestWriteTUIThinkingDisplay(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte("[defaults]\nprovider = \"anthropic\"\n"), 0o600); err != nil {

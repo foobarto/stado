@@ -625,6 +625,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if m.personaPicker.Visible {
+			cmd, handled := m.personaPicker.Update(msg)
+			if handled {
+				return m, cmd
+			}
+			if m.keys.Matches(msg, keys.InputSubmit) {
+				if sel := m.personaPicker.Selected(); sel != nil {
+					m.personaPicker.Close()
+					m.applyPersonaSelection(sel.ID)
+					m.layout()
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
 		if m.sessionPick.Visible {
 			if m.sessionPick.Renaming() {
 				if m.keys.Matches(msg, keys.InputSubmit) {

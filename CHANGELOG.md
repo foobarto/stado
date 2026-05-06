@@ -8,6 +8,47 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.44.1 — TUI persona surface
+
+The TUI half of v0.44.0's personas feature — `/persona` slash command,
+fuzzy-search picker, and a status-line indicator. Swaps live without
+restarting the session; the next turn picks up the new operating
+manual via `personas.AssembleSystem`.
+
+### TUI
+
+- **`/persona <name>`** switches the active persona for the current
+  TUI session. `/persona` with no arg opens a fuzzy-search picker
+  modeled on `/model` — type to filter, arrow keys to move, Enter
+  to confirm, Esc to cancel. Picker entries are sourced project →
+  user → bundled and dedupe by name (project shadows user shadows
+  bundled), labeled accordingly.
+
+- **Status-line indicator.** Active persona name appears as a quiet
+  `· <name>` segment after the cost column when set. Only renders
+  when a persona is active so the line stays uncluttered for
+  operators who haven't picked one.
+
+- **Persistence.** Selecting a persona via picker or `/persona <name>`
+  also writes `[defaults].persona` to the active config — the next
+  `stado` invocation boots with the same operator persona unless
+  `--persona` overrides it.
+
+### Internals
+
+- `internal/tui/personapicker/` — modal picker (fuzzy search +
+  list nav). Lighter than `modelpicker` (no favorites, no provider
+  switch). Tests cover preselection, fuzzy filter, escape, no-match.
+- `internal/tui/model_persona.go` — `initPersona` (boot resolution
+  from `cfg.Defaults.Persona`), `switchPersona`, `openPersonaPicker`,
+  `applyPersonaSelection`, `personaOrigin` (bundled/project/user
+  labeling).
+- `model_stream.turnSystemPrompt` now prefers `personas.AssembleSystem`
+  when `m.persona != nil`; falls back to legacy
+  `instructions.ComposeSystemPrompt` when no persona is set.
+- `config.WriteDefaultPersona` — TOML write helper mirroring
+  `WriteDefaults`. Empty value clears the key.
+
 ## v0.44.0 — Personas
 
 Eight bundled operating-manual personas; `--persona` everywhere a

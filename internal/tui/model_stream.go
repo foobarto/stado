@@ -16,6 +16,7 @@ import (
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/memory"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -27,10 +28,14 @@ import (
 )
 
 func (m *Model) turnSystemPrompt(userPrompt string) string {
+	mem := m.turnMemoryContext(userPrompt)
+	if m.persona != nil {
+		return personas.AssembleSystem(m.persona, m.systemPrompt, mem, "")
+	}
 	return instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
 		Provider: m.providerDisplayName(),
 		Model:    m.model,
-		Memory:   m.turnMemoryContext(userPrompt),
+		Memory:   mem,
 	})
 }
 
