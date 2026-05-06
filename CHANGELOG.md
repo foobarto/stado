@@ -8,6 +8,20 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.35.2 — `.github/dependabot.yml` for explicit example-plugin scans
+
+### Infra
+
+- **`.github/dependabot.yml`** — explicit scan configuration covering
+  the parent gomod module, all example-plugin subdirs (`/plugins/default/*`,
+  `/plugins/examples/*` — 18 of them total) via the `directories`
+  (plural) glob shape, and GitHub Actions in `.github/workflows/`.
+  Without this, dependabot's auto-discovery rescanned the plugin
+  go.mods on a slow cadence; v0.35.1's fix took longer than expected
+  to flip its 4 alerts to "fixed". Explicit weekly schedule + commit-
+  message scopes (`chore(deps)`, `chore(plugin-example)`,
+  `chore(ci)`) keep future bumps consistent.
+
 ## v0.35.1 — Dependabot bumps for golang.org/x/net
 
 ### Fixes
