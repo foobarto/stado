@@ -8,6 +8,19 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.43.1 — Windows build fix
+
+### Fixes
+
+- **goreleaser Windows target.** `syscall.SetsockoptInt` takes
+  `syscall.Handle` on Windows but the EP-0038i `setBroadcastFD`
+  helper was casting `fd` to `int` (POSIX shape). Split the helper
+  into `host_net_setsockopt_unix.go` (`!windows`) and
+  `host_net_setsockopt_windows.go` so each platform casts the
+  `uintptr` from `SyscallConn.Control` to its own `SetsockoptInt`
+  argument type. Cross-verified with `GOOS=windows GOARCH=amd64
+  go build` and `GOOS=darwin GOARCH=amd64 go build`.
+
 ## v0.43.0 — stado_progress agent-loop integration (closes the EP-0038 backlog)
 
 ### Plugin runtime — agent-loop integration
