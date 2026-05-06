@@ -5,7 +5,6 @@ package tools
 
 import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
-	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
@@ -18,7 +17,6 @@ import (
 // Registry.ClassOf consults this first; tools implementing tool.Classifier
 // override on a per-instance basis. Unknown names default to Exec.
 var Classes = map[string]tool.Class{
-	(bash.BashTool{}).Name():            tool.ClassExec,
 	(fs.ReadTool{}).Name():              tool.ClassNonMutating,
 	(fs.GlobTool{}).Name():              tool.ClassNonMutating,
 	(fs.GrepTool{}).Name():              tool.ClassNonMutating,

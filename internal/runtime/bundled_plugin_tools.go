@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
@@ -12,7 +11,6 @@ import (
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
-	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
@@ -32,7 +30,9 @@ func buildNativeRegistry() *tools.Registry {
 	r.Register(fs.EditTool{})
 	r.Register(fs.GlobTool{})
 	r.Register(fs.GrepTool{})
-	r.Register(bash.BashTool{Timeout: 60 * time.Second})
+	// bash native registration removed Step 4 of EP-no-internal-tools —
+	// replaced by the wasm shell__bash / shell__exec / shell__sh / shell__zsh
+	// tools registered below using stado_exec primitives.
 	// webfetch native registration removed Step 2 of EP-no-internal-tools
 	// — replaced by the wasm web__fetch tool registered below using the
 	// stado_http_request primitive.
@@ -175,6 +175,34 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
 		},
 		shellSessionCaps))
+
+	// EP-no-internal-tools Step 4: shell.exec / shell.bash / shell.sh /
+	// shell.zsh — one-shot exec via stado_exec. Replaces the native
+	// bash.BashTool (registered as bare `bash`, displayed as shell.exec).
+	// Each scoped to its specific binary via exec:proc:<basename>.
+	commandSchema := map[string]any{
+		"type": "object", "required": []string{"command"},
+		"properties": map[string]any{
+			"command":    map[string]any{"type": "string", "description": "Shell command to run"},
+			"timeout_ms": map[string]any{"type": "integer", "description": "Timeout in milliseconds (default 30000)"},
+		},
+	}
+	r.Register(newBundledWasmTool("shell", "stado_tool_exec", "shell__exec",
+		"Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
+		tool.ClassExec, commandSchema,
+		[]string{"exec:proc:sh"}))
+	r.Register(newBundledWasmTool("shell", "stado_tool_bash", "shell__bash",
+		"Execute a shell command via /bin/bash -c, return combined stdout+stderr.",
+		tool.ClassExec, commandSchema,
+		[]string{"exec:proc:bash"}))
+	r.Register(newBundledWasmTool("shell", "stado_tool_sh", "shell__sh",
+		"Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
+		tool.ClassExec, commandSchema,
+		[]string{"exec:proc:sh"}))
+	r.Register(newBundledWasmTool("shell", "stado_tool_zsh", "shell__zsh",
+		"Execute a shell command via /usr/bin/zsh -c, return combined stdout+stderr.",
+		tool.ClassExec, commandSchema,
+		[]string{"exec:proc:zsh"}))
 
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
 	agentCaps := []string{"agent:fleet"}

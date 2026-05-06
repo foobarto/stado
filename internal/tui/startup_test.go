@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -10,9 +12,9 @@ import (
 
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/rg"
+	"github.com/foobarto/stado/pkg/tool"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -256,7 +258,7 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 	reg.Register(fs.WriteTool{})  // Mutating
 	reg.Register(fs.EditTool{})   // Mutating
 	reg.Register(rg.Tool{})       // NonMutating
-	reg.Register(bash.BashTool{}) // Exec
+	reg.Register(stubExecTool{})  // Exec — was bash.BashTool pre-Step-4
 	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
 
 	m := NewModel("/tmp", "m", "anthropic",
@@ -269,7 +271,7 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 		"write":   true,
 		"edit":    true,
 		"ripgrep": true,
-		"bash":    true,
+		"bash":    true, // stubExecTool registers under name "bash"
 	}
 
 	// Do mode — all five tools visible.
@@ -291,3 +293,22 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 		}
 	}
 }
+
+// stubExecTool replaces the deleted internal/tools/bash.BashTool in tests
+// that just need an Exec-class tool to verify the Plan/Do mode filter.
+type stubExecTool struct{}
+
+func (stubExecTool) Name() string                                                       { return "bash" }
+func (stubExecTool) Description() string                                                { return "stub exec tool for tests" }
+func (stubExecTool) Schema() map[string]any                                             { return map[string]any{"type": "object"} }
+func (stubExecTool) Class() pkgtoolClass                                                { return pkgtoolClassExec }
+func (stubExecTool) Run(_ context.Context, _ json.RawMessage, _ pkgtoolHost) (pkgtoolResult, error) {
+	return pkgtoolResult{}, nil
+}
+
+// Ensure imports don't drift if tests stop using these:
+type pkgtoolClass = tool.Class
+type pkgtoolHost = tool.Host
+type pkgtoolResult = tool.Result
+
+const pkgtoolClassExec = tool.ClassExec

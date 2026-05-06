@@ -20,9 +20,7 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 			"fs:write:/tmp/work",
 			"net:api.github.com",
 			"net:http_get",
-			"exec:shallow_bash",
-			"exec:search",
-			"exec:ast_grep",
+			"exec:proc:bash",
 			"lsp:query",
 			"memory:propose",
 			"memory:read",
@@ -49,8 +47,8 @@ func TestNewHost_ParsesCapabilities(t *testing.T) {
 	if !h.NetHTTPGet {
 		t.Error("NetHTTPGet should be enabled")
 	}
-	if !h.ExecBash || !h.ExecSearch || !h.ExecASTGrep {
-		t.Errorf("exec caps not parsed: bash=%v search=%v ast=%v", h.ExecBash, h.ExecSearch, h.ExecASTGrep)
+	if !h.ExecProc || len(h.ExecProcGlobs) != 1 || h.ExecProcGlobs[0] != "bash" {
+		t.Errorf("exec:proc:bash not parsed: ExecProc=%v Globs=%v", h.ExecProc, h.ExecProcGlobs)
 	}
 	if !h.LSPQuery {
 		t.Error("LSPQuery should be enabled")
