@@ -28,6 +28,13 @@ Plugins / Infra / Fixes.
   on-disk path to the plugin's `.wasm` (or `(embedded)` for bundled
   plugins). Useful for `cp` / `file` / `wasm-objdump` / `sha256sum`
   workflows without remembering the state-dir layout.
+- **Cleaner text selection.** When the sidebar is hidden (`Ctrl+T`)
+  the chat column no longer pads each row to a fixed width —
+  click-drag-to-select copies just the visible text instead of a
+  trail of pad spaces. The sidebar adjacency problem (rectangular
+  terminal selection grabs sidebar text too) remains terminal-side;
+  `tui.md` documents three escape hatches: hide sidebar first,
+  block-mode `Alt+drag`, or set `[tui].mouse_capture = false`.
 
 ## v0.39.0 — session.search plugin + TUI progress surface
 
