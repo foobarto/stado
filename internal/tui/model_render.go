@@ -142,10 +142,8 @@ func (m *Model) View() string {
 		left.WriteString(m.renderInputBox(mainW))
 		left.WriteString(m.renderStatus(mainW))
 
-		leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
-
-		base = leftBlock
 		if sidebarW > 0 {
+			leftBlock := lipgloss.NewStyle().Width(mainW).Render(left.String())
 			sidebar := m.renderSidebar(sidebarW)
 			sepH := max(1, m.height)
 			base = lipgloss.JoinHorizontal(lipgloss.Top,
@@ -153,6 +151,12 @@ func (m *Model) View() string {
 				lipgloss.NewStyle().Foreground(m.theme.Fg("border").GetForeground()).Render(strings.Repeat("│\n", sepH-1)+"│"),
 				sidebar,
 			)
+		} else {
+			// No sidebar → don't pad each line to mainW. Trailing
+			// spaces would otherwise be included in terminal click-
+			// drag-to-select copy. Strip per-line so the user's
+			// clipboard gets the visible text only.
+			base = stripTrailingSpacesPerLine(left.String())
 		}
 	}
 
@@ -1325,6 +1329,24 @@ func (m *Model) renderBlockCached(i, width int) string {
 		blk.cachedThinkingMode = m.thinkingMode
 	}
 	return out
+}
+
+// stripTrailingSpacesPerLine removes trailing spaces and tabs from
+// every line of s. Used when no sidebar is shown so terminal click-
+// drag-to-select copies the visible text without padding spaces.
+// ANSI styling sequences live before the visible cells, so trimming
+// SGR-bearing trailing whitespace is safe; we only strip ASCII
+// space + tab to avoid touching unicode whitespace inside content.
+func stripTrailingSpacesPerLine(s string) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		// strings.TrimRight on " \t" handles both common pad chars.
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // applyFocusMarker prepends a coloured left-border glyph to every line

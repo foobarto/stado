@@ -186,6 +186,26 @@ func TestFocusPrevNext_SkipsNonExpandable(t *testing.T) {
 	}
 }
 
+// TestStripTrailingSpacesPerLine: clean copy support — removes trailing
+// spaces / tabs from every line, leaves embedded whitespace alone.
+func TestStripTrailingSpacesPerLine(t *testing.T) {
+	cases := map[string]string{
+		"":                                "",
+		"hello":                           "hello",
+		"hello   ":                        "hello",
+		"hello\tworld\t\t":                "hello\tworld",
+		"line1   \nline2\t\nline3":        "line1\nline2\nline3",
+		"  leading kept  ":                "  leading kept",
+		"unicode kept   ":            "unicode kept", // NBSP is not ASCII space
+	}
+	for in, want := range cases {
+		got := stripTrailingSpacesPerLine(in)
+		if got != want {
+			t.Errorf("strip(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // TestBlockAtContentLine: line-range lookup correctly identifies the
 // block under a given content-Y coordinate, including off-the-end and
 // out-of-range cases.

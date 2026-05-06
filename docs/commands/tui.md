@@ -341,6 +341,23 @@ Workarounds:
   `Alt+Down` to navigate tool blocks and `PageUp` / `PageDown` to
   scroll.
 
+### Selecting & copying chat text cleanly
+
+Terminal selection works on a rectangular grid: dragging across rows
+that span both the chat and the sidebar copies the sidebar text too,
+and trailing pad spaces on each chat row land in your clipboard.
+Three escape hatches, picking the cheapest first:
+
+1. **`Ctrl+T` to hide the sidebar before selecting.** stado then
+   stops padding chat rows to a fixed width — your selection is just
+   the visible text. This is usually the fastest path.
+2. **`Alt+drag` (block / rectangular selection)** in terminals that
+   support it — Alacritty, kitty, iTerm2, gnome-terminal (Ctrl+Alt
+   on some configs), Konsole. Selects only the rectangle you drag
+   over, ignoring the sidebar.
+3. **`[tui].mouse_capture = false`** for permanent native selection
+   (see above).
+
 ## Gotchas
 
 - **The cwd matters.** The TUI opens a session for whichever repo
