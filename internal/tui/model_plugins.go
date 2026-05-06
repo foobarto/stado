@@ -280,6 +280,10 @@ type hostAdapter struct {
 	// deactivate is the inverse hook for tools__deactivate /
 	// plugin__unload via pkg/tool.ToolDeactivator.
 	deactivate func(name string)
+	// progress receives stado_progress emissions from bundled wasm
+	// plugins. Wired so the TUI surfaces progress lines in the
+	// sidebar log tail. EP-0038h.
+	progress func(plugin, text string)
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -329,6 +333,14 @@ func (h hostAdapter) ActivateTool(name string) {
 func (h hostAdapter) DeactivateTool(name string) {
 	if h.deactivate != nil {
 		h.deactivate(name)
+	}
+}
+
+// EmitProgress implements pkg/tool.ProgressEmitter — surfaces
+// stado_progress payloads to the TUI's sidebar log tail. EP-0038h.
+func (h hostAdapter) EmitProgress(plugin, text string) {
+	if h.progress != nil {
+		h.progress(plugin, text)
 	}
 }
 

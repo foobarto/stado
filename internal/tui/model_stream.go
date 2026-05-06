@@ -932,6 +932,12 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 				delete(m.activatedTools, name)
 			}
 		},
+		progress: func(plugin, text string) {
+			// Surface as a sidebar log entry tagged PROGRESS. The
+			// PROGRESS prefix forces visibility regardless of
+			// --sidebar-debug (plugin author chose to emit this).
+			m.pushLogLine("PROGRESS [" + plugin + "] " + text)
+		},
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())

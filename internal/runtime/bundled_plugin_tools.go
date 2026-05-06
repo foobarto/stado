@@ -434,6 +434,12 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
 		host.ApprovalBridge = bridge
 	}
+	// EP-0038h: route stado_progress emissions to the host when it's
+	// equipped to render them (TUI, headless run). Nil-callback drop
+	// is the default when the host doesn't implement ProgressEmitter.
+	if pe, ok := h.(tool.ProgressEmitter); ok {
+		host.Progress = pe.EmitProgress
+	}
 	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: host imports: %w", p.def.Name, err)
 	}
