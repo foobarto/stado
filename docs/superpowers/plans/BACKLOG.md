@@ -68,12 +68,15 @@ Listed in rough priority order (highest = most operator pain).
 - **Status today:** `--pubkey-file` landed (EP-0039 Task 5). `plugin sign <dir> --key <path>` for CI is implicit (sign is bundled into install/dev today). Worth a separate `plugin sign` verb for headless CI signing.
 - **Files:** `cmd/stado/plugin_sign.go` (extend).
 
-## 10. Delete `buildNativeRegistry()` per EP-0038b Task 5
+## 10. ~~Delete `buildNativeRegistry()` per EP-0038b Task 5~~ — **DEVIATION DOCUMENTED 2026-05-06**
 
-- **Locked at:** EP-0038b plan Task 5 (NOT in NOTES — this is plan-vs-code drift).
-- **Status today:** Native code in `internal/tools/{fs,bash,webfetch,rg,astgrep,readctx,lspfind}` is alive and registered, then wrapped in a wasm shim at registration time. Plan called for full deletion + relocation under host imports.
-- **Risk:** High — would touch every native tool, parity tests need to stay green. Practically the parity wasm/native flag system today gives you the migration knob without forcing the deletion.
-- **Recommendation:** Treat as deferred indefinitely; the no-native-tools invariant is satisfied at the model-facing surface, and removing the dual-path harness today loses the parity-test backstop. Document the deviation in `docs/eps/0038`.
+Decision: retain native `buildNativeRegistry()` indefinitely as the
+parity-test backstop + operational fallback. The no-native-tools
+invariant holds at the model-facing surface (wasm-side wins when
+enabled); deleting the native path would lose the parity cross-check
+and the runtime opt-out via `[runtime.use_wasm.<tool>]`.
+
+Full justification + revisit conditions in `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`'s "Deviation: buildNativeRegistry() retained as parity backstop" section.
 
 ---
 
@@ -83,4 +86,3 @@ Listed in rough priority order (highest = most operator pain).
 - Items 2, 4, 6, 9 are tiny enough to land in a single PR without a full superpowers plan.
 - Items 1, 3, 5, 7 deserve a proper plan or an `AskUserQuestion` first to settle the design choice.
 - Item 8 is its own EP.
-- Item 10 is best left as a documented deviation rather than executed.

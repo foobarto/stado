@@ -1388,6 +1388,49 @@ EP-0038 phase plan:
     every `docs/commands/*.md` file referenced from EPs being
     superseded or amended.
 
+### Deviation: `buildNativeRegistry()` retained as parity backstop
+
+EP-0038 phase 7 (Migration step 6 above) called for deletion of
+`internal/runtime/bundled_plugin_tools.go`'s native registrations
+plus removal of `internal/tools/{fs,bash,webfetch,rg,astgrep,readctx,
+lspfind}` once each tool's wasm equivalent passed parity.
+
+**Status (2026-05-06):** parity tests are green and every native
+tool has a wasm equivalent in `internal/bundledplugins/wasm/`. The
+migration knob (`[runtime.use_wasm.<tool>]`) lets operators flip
+each family wasm-side at runtime via `ApplyWasmMigration`. The
+no-native-tools invariant holds at the **model-facing surface** —
+when wasm is enabled the native tools are unregistered and
+unreachable.
+
+**Decision: retain native `buildNativeRegistry()` indefinitely** as
+the parity-test backstop and as a fallback path during regressions.
+Three reasons:
+
+1. The dual-path structure is what makes the parity tests
+   meaningful — golden inputs are replayed against both
+   implementations. Deleting the native side loses the cross-check
+   for any future ABI / host-import drift.
+2. `ApplyWasmMigration` is the operational opt-out: an operator can
+   disable a wasm family that's misbehaving in production, fall
+   back to native, and stado keeps running while the wasm bug is
+   investigated. Without the native path that escape hatch
+   disappears.
+3. The maintenance cost is low — `internal/tools/*` are stable,
+   well-tested, and not under active feature work. The native code
+   is small (a few hundred lines per tool) and rarely touched.
+
+This is a deliberate deviation from the original Migration step 6
+recommendation, formalised here so future readers see "still
+present, intentionally" rather than "still present, oversight."
+
+If a future maintainer wants to revisit, the case for deletion
+strengthens when (a) all wasm families have shipped in production
+for at least one full release without parity-test failures or
+operational opt-outs, AND (b) ABI v3 lands and the v2 native
+fallback adds maintenance burden disproportionate to its parity
+backstop value. Neither condition is satisfied as of 2026-05-06.
+
 ### Backward compatibility
 
 - ABI v1 plugins continue working against the v1-shaped imports
