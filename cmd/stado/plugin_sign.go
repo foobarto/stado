@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -61,9 +62,11 @@ var pluginGenKeyCmd = &cobra.Command{
 }
 
 var (
-	pluginSignKeyPath        string
-	pluginSignWasm           string
+	pluginSignKeyPath         string
+	pluginSignKeyEnv          string
+	pluginSignWasm            string
 	pluginSignManifestVersion string
+	pluginSignQuiet           bool
 )
 
 var pluginSignCmd = &cobra.Command{
@@ -83,16 +86,9 @@ var pluginSignCmd = &cobra.Command{
 		manifestPath := args[0]
 		dir := filepath.Dir(manifestPath)
 
-		if pluginSignKeyPath == "" {
-			return fmt.Errorf("sign: --key required")
-		}
-		seed, err := readRegularFileNoSymlinkMax(pluginSignKeyPath, ed25519.SeedSize)
+		seed, err := loadPluginSignSeed()
 		if err != nil {
-			return fmt.Errorf("sign: read key: %w", err)
-		}
-		if len(seed) != ed25519.SeedSize {
-			return fmt.Errorf("sign: key must be %d bytes (got %d) — use `stado plugin gen-key`",
-				ed25519.SeedSize, len(seed))
+			return err
 		}
 		priv := ed25519.NewKeyFromSeed(seed)
 		pub := priv.Public().(ed25519.PublicKey)
@@ -141,20 +137,92 @@ var pluginSignCmd = &cobra.Command{
 			return fmt.Errorf("sign: write sig: %w", err)
 		}
 
-		fmt.Printf("wasm_sha256:    %s\n", m.WASMSHA256)
-		fmt.Printf("author_fpr:     %s\n", m.AuthorPubkeyFpr)
-		fmt.Printf("pubkey (hex):   %s\n", hex.EncodeToString(pub))
-		fmt.Printf("signature:      %s\n", sigPath)
-
 		// Write author.pubkey sidecar so `stado plugin verify` can echo
 		// the full pubkey in its "not pinned" error (dogfood #8).
 		pubkeyPath := filepath.Join(dir, "author.pubkey")
 		if err := writeRegularFileAtomic(pubkeyPath, []byte(hex.EncodeToString(pub)+"\n"), 0o644); err != nil {
 			return fmt.Errorf("sign: write author.pubkey: %w", err)
 		}
-		fmt.Printf("author.pubkey:  %s\n", pubkeyPath)
+
+		if !pluginSignQuiet {
+			fmt.Printf("wasm_sha256:    %s\n", m.WASMSHA256)
+			fmt.Printf("author_fpr:     %s\n", m.AuthorPubkeyFpr)
+			fmt.Printf("pubkey (hex):   %s\n", hex.EncodeToString(pub))
+			fmt.Printf("signature:      %s\n", sigPath)
+			fmt.Printf("author.pubkey:  %s\n", pubkeyPath)
+		}
 		return nil
 	},
+}
+
+// loadPluginSignSeed resolves the Ed25519 seed from --key (file path)
+// or --key-env (env var holding hex- or base64-encoded seed).
+// Exactly one of the two must be set. Env-var form is preferred for
+// CI: the secret is injected at job time and never touches a file
+// the runner has to clean up.
+func loadPluginSignSeed() ([]byte, error) {
+	switch {
+	case pluginSignKeyPath != "" && pluginSignKeyEnv != "":
+		return nil, fmt.Errorf("sign: pass exactly one of --key or --key-env, not both")
+	case pluginSignKeyPath != "":
+		seed, err := readRegularFileNoSymlinkMax(pluginSignKeyPath, ed25519.SeedSize)
+		if err != nil {
+			return nil, fmt.Errorf("sign: read key: %w", err)
+		}
+		if len(seed) != ed25519.SeedSize {
+			return nil, fmt.Errorf("sign: key must be %d bytes (got %d) — use `stado plugin gen-key`",
+				ed25519.SeedSize, len(seed))
+		}
+		return seed, nil
+	case pluginSignKeyEnv != "":
+		raw := os.Getenv(pluginSignKeyEnv)
+		if raw == "" {
+			return nil, fmt.Errorf("sign: env var %q is empty or unset", pluginSignKeyEnv)
+		}
+		return decodeSignSeed(raw)
+	default:
+		return nil, fmt.Errorf("sign: provide --key <file> or --key-env <ENVVAR>")
+	}
+}
+
+// decodeSignSeed accepts a 32-byte Ed25519 seed in hex (64 chars) or
+// standard base64 (44 chars including padding). Whitespace is trimmed.
+func decodeSignSeed(raw string) ([]byte, error) {
+	raw = trimSeedWhitespace(raw)
+	// Try hex first (64 chars, all 0-9a-fA-F).
+	if len(raw) == 64 {
+		if seed, err := hex.DecodeString(raw); err == nil && len(seed) == ed25519.SeedSize {
+			return seed, nil
+		}
+	}
+	// Fall back to base64.
+	if seed, err := stdBase64Decode(raw); err == nil && len(seed) == ed25519.SeedSize {
+		return seed, nil
+	}
+	return nil, fmt.Errorf("sign: env-var seed is not a 32-byte Ed25519 key in hex or base64")
+}
+
+func trimSeedWhitespace(s string) string {
+	start, end := 0, len(s)
+	for start < end {
+		c := s[start]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			break
+		}
+		start++
+	}
+	for end > start {
+		c := s[end-1]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			break
+		}
+		end--
+	}
+	return s[start:end]
+}
+
+func stdBase64Decode(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
 }
 
 func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
