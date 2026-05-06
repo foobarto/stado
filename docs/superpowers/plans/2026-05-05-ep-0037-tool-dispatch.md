@@ -111,7 +111,7 @@ func TestParseWireForm(t *testing.T) {
 - [ ] **Step 2: Run to verify fail**
 
 ```
-cd /home/foobarto/Dokumenty/stado && go test ./internal/tools/... -run TestWireForm 2>&1 | head -20
+cd <repo-root> && go test ./internal/tools/... -run TestWireForm 2>&1 | head -20
 ```
 Expected: `cannot find package` or `undefined: tools.WireForm`
 

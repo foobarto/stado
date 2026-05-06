@@ -1,0 +1,28 @@
+# Pre-commit config for stado.
+#
+# Install once per clone:
+#   pip install pre-commit && pre-commit install
+#
+# The hook runs on `git commit` against the staged diff and refuses
+# the commit on findings. To run a one-off scan of the whole repo:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        # Inherits .gitleaks.toml from the repo root automatically.
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Refuse commits that include unresolved merge markers.
+      - id: check-merge-conflict
+      # Refuse files that look like private keys (PEM/PKCS8/SSH).
+      - id: detect-private-key
+      # Trim trailing whitespace + ensure final newline.
+      - id: trailing-whitespace
+        exclude: '\.golden$|\.testdata/|^plugins/examples/.*\.wasm$'
+      - id: end-of-file-fixer
+        exclude: '\.golden$|\.testdata/|^plugins/examples/.*\.wasm$'

@@ -140,7 +140,7 @@ Python extras already installed in most hermes installations.
 
 ```toml
 [acp.providers.hermes-acp-stado]
-binary = "/home/foobarto/.hermes/hermes-agent/venv/bin/hermes"
+binary = "~/.hermes/hermes-agent/venv/bin/hermes"
 args   = ["acp"]
 tools  = "stado"
 ```

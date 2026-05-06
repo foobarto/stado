@@ -24,7 +24,7 @@ func TestRegisterCfgImports_Smoke(t *testing.T) {
 		Name:         "cfg-demo",
 		Capabilities: []string{"cfg:state_dir"},
 	}, "/tmp", nil)
-	host.StateDir = "/var/home/foobarto/.local/share/stado"
+	host.StateDir = "/tmp/test-stado-state"
 
 	if !host.CfgStateDir {
 		t.Fatal("CfgStateDir should be true after parsing `cfg:state_dir` cap")

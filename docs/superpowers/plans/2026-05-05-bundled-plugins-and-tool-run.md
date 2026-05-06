@@ -52,7 +52,7 @@
 
 - [ ] **Step 1.1: Write the failing test file**
 
-Create `/home/foobarto/Dokumenty/stado/internal/bundledplugins/list_test.go`:
+Create `<repo-root>/internal/bundledplugins/list_test.go`:
 
 ```go
 package bundledplugins
@@ -180,12 +180,12 @@ func resetForTest(t *testing.T) {
 
 - [ ] **Step 1.2: Run the test, verify it fails to compile**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/bundledplugins/ -run "TestRegisterModule|TestList_|TestLookup" -count=1`
+Run: `cd <repo-root> && go test ./internal/bundledplugins/ -run "TestRegisterModule|TestList_|TestLookup" -count=1`
 Expected: build failure with `undefined: RegisterModule`, `undefined: Info`, `undefined: List`, etc.
 
 - [ ] **Step 1.3: Implement `internal/bundledplugins/list.go`**
 
-Create `/home/foobarto/Dokumenty/stado/internal/bundledplugins/list.go`:
+Create `<repo-root>/internal/bundledplugins/list.go`:
 
 ```go
 package bundledplugins
@@ -322,18 +322,18 @@ func buildList(entries []moduleEntry) []Info {
 
 - [ ] **Step 1.4: Run the tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/bundledplugins/ -run "TestRegisterModule|TestList_|TestLookup" -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/bundledplugins/ -run "TestRegisterModule|TestList_|TestLookup" -count=1 -v`
 Expected: 6 PASS.
 
 - [ ] **Step 1.5: Run the full bundledplugins package**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/bundledplugins/ -count=1`
+Run: `cd <repo-root> && go test ./internal/bundledplugins/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 1.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/bundledplugins/list.go internal/bundledplugins/list_test.go
 git commit -m "feat(bundledplugins): Info + RegisterModule registry
 
@@ -356,7 +356,7 @@ callers yet — wiring lands in the next task."
 
 - [ ] **Step 2.1: Read the registration constructors**
 
-`cd /home/foobarto/Dokumenty/stado && sed -n '270,360p' internal/runtime/bundled_plugin_tools.go`
+`cd <repo-root> && sed -n '270,360p' internal/runtime/bundled_plugin_tools.go`
 
 Confirm the three constructors:
 - `newBundledPluginTool(native tool.Tool, class)` — wasmName = `native.Name()`, toolName = `native.Name()`, caps from `bundledToolCapabilities(native.Name())`.
@@ -383,7 +383,7 @@ In `newBundledWasmTool` (just before `return &renamedTool{...}`):
 bundledplugins.RegisterModule(wasmName, registeredName, caps)
 ```
 
-If `bundledplugins` is already imported at the top of the file, no import change. Verify with: `grep "bundledplugins" /home/foobarto/Dokumenty/stado/internal/runtime/bundled_plugin_tools.go | head -3`.
+If `bundledplugins` is already imported at the top of the file, no import change. Verify with: `grep "bundledplugins" <repo-root>/internal/runtime/bundled_plugin_tools.go | head -3`.
 
 - [ ] **Step 2.3: Self-register the auto-compact background plugin**
 
@@ -444,12 +444,12 @@ func contains(xs []string, s string) bool {
 
 - [ ] **Step 2.5: Run focused tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/bundledplugins/ -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/bundledplugins/ -count=1 -v`
 Expected: all PASS, including `TestList_AutoCompactRegistered`.
 
 - [ ] **Step 2.6: Run full repo to verify the runtime-side wiring compiles**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go build ./... && go test ./internal/runtime/ -count=1`
+Run: `cd <repo-root> && go build ./... && go test ./internal/runtime/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 2.7: Sanity-print real registrations**
@@ -469,13 +469,13 @@ func TestList_DebugDump(t *testing.T) {
 }
 ```
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/bundledplugins/ -run TestList_DebugDump -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/bundledplugins/ -run TestList_DebugDump -count=1 -v`
 Expected: only the auto-compact module appears (because the runtime package isn't imported by this test binary). That's expected — full registration count comes through when other packages import runtime. **Delete the `TestList_DebugDump` test before commit** — it's transient.
 
 - [ ] **Step 2.8: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/bundled_plugin_tools.go internal/bundledplugins/auto_compact.go internal/bundledplugins/list_test.go
 git commit -m "feat(runtime): wire bundled-tool registrations into bundledplugins.List
 
@@ -498,7 +498,7 @@ into the test binary."
 
 - [ ] **Step 3.1: Read the existing `pluginRunCmd.RunE` body**
 
-`cd /home/foobarto/Dokumenty/stado && sed -n '38,215p' cmd/stado/plugin_run.go`
+`cd <repo-root> && sed -n '38,215p' cmd/stado/plugin_run.go`
 
 Note the steps in order:
 1. Load config
@@ -524,7 +524,7 @@ The split point: steps 1-4 are "load" (becomes `pluginRunCmd`'s RunE OR `tool_ru
 
 - [ ] **Step 3.2: Create the shared helper**
 
-Create `/home/foobarto/Dokumenty/stado/cmd/stado/plugin_invoke_shared.go`:
+Create `<repo-root>/cmd/stado/plugin_invoke_shared.go`:
 
 ```go
 package main
@@ -748,18 +748,18 @@ Keep the existing `init()` block with its flag registrations as-is; keep `attach
 
 - [ ] **Step 3.4: Run all tests in cmd/stado**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS. The existing `pluginRun*` tests should pass unchanged because behavior is preserved.
 
 - [ ] **Step 3.5: Run go vet**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./cmd/stado/`
+Run: `cd <repo-root> && go vet ./cmd/stado/`
 Expected: clean.
 
 - [ ] **Step 3.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/plugin_run.go cmd/stado/plugin_invoke_shared.go
 git commit -m "refactor(cli): extract runPluginInvocation from pluginRunCmd
 
@@ -784,7 +784,7 @@ This task implements the happy path only. Disabled-tool refusal lands in Task 5.
 
 - [ ] **Step 4.1: Write failing test**
 
-Create `/home/foobarto/Dokumenty/stado/cmd/stado/tool_run_test.go`:
+Create `<repo-root>/cmd/stado/tool_run_test.go`:
 
 ```go
 package main
@@ -893,12 +893,12 @@ func TestToolRun_ToolNotFound(t *testing.T) {
 
 - [ ] **Step 4.2: Run the test, verify it fails to compile**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestToolRun_" -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestToolRun_" -count=1`
 Expected: build failure with `undefined: runToolByName`, `undefined: toolRunOptions`.
 
 - [ ] **Step 4.3: Implement `cmd/stado/tool_run.go`**
 
-Create `/home/foobarto/Dokumenty/stado/cmd/stado/tool_run.go`:
+Create `<repo-root>/cmd/stado/tool_run.go`:
 
 ```go
 package main
@@ -1207,23 +1207,23 @@ toolCmd.AddCommand(toolListCmd, toolInfoCmd, toolCatsCmd, toolReloadCmd,
 
 - [ ] **Step 4.5: Run focused tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
 Expected: 3 PASS.
 
 - [ ] **Step 4.6: Run full cmd/stado tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 4.7: Run go vet**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./cmd/stado/`
+Run: `cd <repo-root> && go vet ./cmd/stado/`
 Expected: clean.
 
 - [ ] **Step 4.8: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/tool_run.go cmd/stado/tool_run_test.go cmd/stado/tool.go
 git commit -m "feat(cli): stado tool run <name> for bundled tools
 
@@ -1330,7 +1330,7 @@ func TestToolRun_DisabledByGlob(t *testing.T) {
 
 - [ ] **Step 5.2: Run tests, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestToolRun_Disabled" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestToolRun_Disabled" -count=1 -v`
 Expected: 3 FAIL — there's no disabled check in `runToolByName` yet.
 
 - [ ] **Step 5.3: Add the disabled check**
@@ -1353,18 +1353,18 @@ In `cmd/stado/tool_run.go`, modify `runToolByName`. After the `lookupToolInRegis
 
 - [ ] **Step 5.4: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
 Expected: all 6 tests (3 happy + 3 disabled) PASS.
 
 - [ ] **Step 5.5: Run full cmd/stado tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 5.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/tool_run.go cmd/stado/tool_run_test.go
 git commit -m "feat(cli): tool run honours [tools].disabled with --force escape
 
@@ -1386,13 +1386,13 @@ check for one-off invocation."
 
 - [ ] **Step 6.1: Read the existing renderer**
 
-`cd /home/foobarto/Dokumenty/stado && sed -n '75,180p' cmd/stado/plugin_trust.go`
+`cd <repo-root> && sed -n '75,180p' cmd/stado/plugin_trust.go`
 
 Note the `row` struct (lines 95-104), the population loop (107-133), the summary line (151-156), and the output format (159-172).
 
 - [ ] **Step 6.2: Locate or create the test file**
 
-`cd /home/foobarto/Dokumenty/stado && ls cmd/stado/plugin_trust_test.go cmd/stado/plugin_list_test.go 2>/dev/null`
+`cd <repo-root> && ls cmd/stado/plugin_trust_test.go cmd/stado/plugin_list_test.go 2>/dev/null`
 
 If neither exists, create `cmd/stado/plugin_list_test.go`. If one exists, append to it.
 
@@ -1471,7 +1471,7 @@ func TestPluginList_BundledHasDashFingerprint(t *testing.T) {
 
 - [ ] **Step 6.4: Run tests, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestPluginList_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestPluginList_" -count=1 -v`
 Expected: FAIL — current output contains neither "bundled" nor a `-` fingerprint.
 
 - [ ] **Step 6.5: Extend the `row` struct + populate from `bundledplugins.List()`**
@@ -1574,18 +1574,18 @@ Replace the summary block (lines 143-157) and status rendering (lines 161-172) t
 
 - [ ] **Step 6.7: Run tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestPluginList_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestPluginList_" -count=1 -v`
 Expected: 2 PASS.
 
 - [ ] **Step 6.8: Run full cmd/stado tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS. Existing `pluginList`-related tests should still pass — the format additions are purely additive.
 
 - [ ] **Step 6.9: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/plugin_trust.go cmd/stado/plugin_list_test.go
 git commit -m "feat(cli): plugin list shows bundled plugins
 
@@ -1647,7 +1647,7 @@ func TestPluginInfo_BundledLookup(t *testing.T) {
 
 - [ ] **Step 7.2: Run test, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestPluginInfo_BundledLookup" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestPluginInfo_BundledLookup" -count=1 -v`
 Expected: FAIL — `auto-compact` isn't installed on disk; the existing `plugins.InstalledDir` lookup errors with "plugin not installed".
 
 - [ ] **Step 7.3: Add bundled-first lookup to `pluginInfoCmd.RunE`**
@@ -1753,18 +1753,18 @@ This keeps the JSON path and renames the long inline render block. Delete the pr
 
 - [ ] **Step 7.4: Run tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestPluginInfo_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestPluginInfo_" -count=1 -v`
 Expected: PASS for the new test. The existing `pluginInfo` tests (if any) should still pass — verify next.
 
 - [ ] **Step 7.5: Run full cmd/stado tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 7.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/plugin_info.go cmd/stado/plugin_info_test.go
 git commit -m "feat(cli): plugin info finds bundled plugins by name
 
@@ -1839,18 +1839,18 @@ Append to the `history:` block in `docs/eps/0037-tool-dispatch-and-operator-surf
 
 - [ ] **Step 8.5: Run full repo tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go build ./... && go test ./... -count=1 2>&1 | tail -20`
+Run: `cd <repo-root> && go build ./... && go test ./... -count=1 2>&1 | tail -20`
 Expected: PASS.
 
 - [ ] **Step 8.6: Run go vet**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./...`
+Run: `cd <repo-root> && go vet ./...`
 Expected: clean.
 
 - [ ] **Step 8.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/plugin_run.go cmd/stado/plugin.go CHANGELOG.md docs/eps/0037-tool-dispatch-and-operator-surface.md
 git commit -m "feat(cli)!: remove plugin run; tool run replaces it
 
@@ -1875,28 +1875,28 @@ plugin_invoke_shared.go."
 
 - [ ] **Step 9.1: Full repo `go test`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./... -count=1 2>&1 | tail -15`
+Run: `cd <repo-root> && go test ./... -count=1 2>&1 | tail -15`
 Expected: every package PASS.
 
 - [ ] **Step 9.2: Full repo `go vet`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./...`
+Run: `cd <repo-root> && go vet ./...`
 Expected: clean.
 
 - [ ] **Step 9.3: Manual smoke — `plugin list`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go run ./cmd/stado plugin list 2>&1 | head -30`
+Run: `cd <repo-root> && go run ./cmd/stado plugin list 2>&1 | head -30`
 Expected: bundled rows visible (`fs`, `shell`, `agent`, `web`, `dns`, `bash`, `auto-compact`, etc.) with `✓ bundled` status.
 
 - [ ] **Step 9.4: Manual smoke — `plugin info auto-compact`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go run ./cmd/stado plugin info auto-compact`
+Run: `cd <repo-root> && go run ./cmd/stado plugin info auto-compact`
 Expected: prints the auto-compact module's synthetic manifest, including the `compact` tool.
 
 - [ ] **Step 9.5: Manual smoke — `tool run` happy path**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 echo "smoke" > /tmp/stado-smoke.txt
 go run ./cmd/stado tool run fs.read --workdir /tmp '{"path":"/tmp/stado-smoke.txt"}'
 ```
@@ -1911,7 +1911,7 @@ Expected: same output.
 - [ ] **Step 9.6: Manual smoke — `tool run` disabled**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 mkdir -p /tmp/stado-smoke-cfg/stado
 cat > /tmp/stado-smoke-cfg/stado/config.toml <<EOF
 [tools]
@@ -1929,17 +1929,17 @@ Expected: succeeds.
 - [ ] **Step 9.7: Manual smoke — `plugin run` is gone**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 go run ./cmd/stado plugin run foo bar '{}'
 ```
 Expected: cobra "unknown command" error or similar.
 
 - [ ] **Step 9.8: Inspect the diff**
 
-Run: `cd /home/foobarto/Dokumenty/stado && git log main..HEAD --oneline`
+Run: `cd <repo-root> && git log main..HEAD --oneline`
 Expected: 8 task commits + 1 plan commit (`60844eb`) + 1 spec commit (the design doc commit). All scoped, no surprises.
 
-Run: `cd /home/foobarto/Dokumenty/stado && git diff main..HEAD --stat | tail -15`
+Run: `cd <repo-root> && git diff main..HEAD --stat | tail -15`
 Expected: ~13 files, ~+500/-200 lines (rough estimate).
 
 - [ ] **Step 9.9: Self-review summary**

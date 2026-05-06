@@ -29,7 +29,7 @@
 
 **Context:** Audit found `--tools-whitelist` lingering as back-compat. NOTES locked the canonical name as `--tools`. Pre-1.0 → drop the back-compat alias entirely.
 
-- [ ] **Step 1.1: Read current state.** `cd /home/foobarto/Dokumenty/stado && grep -n "tools-whitelist\|runToolsWhitelist" cmd/stado/run.go`. Confirm flag definition lives at lines 38, 409, and the back-compat comment block is at 405-408.
+- [ ] **Step 1.1: Read current state.** `cd <repo-root> && grep -n "tools-whitelist\|runToolsWhitelist" cmd/stado/run.go`. Confirm flag definition lives at lines 38, 409, and the back-compat comment block is at 405-408.
 
 - [ ] **Step 1.2: Rename flag in `run.go`.** Edit `cmd/stado/run.go`:
   - Line 38: rename variable `runToolsWhitelist` → `runTools` and update the inline comment.
@@ -54,12 +54,12 @@
       back-compat alias kept; pre-1.0.
 ```
 
-- [ ] **Step 1.5: Run.** `cd /home/foobarto/Dokumenty/stado && go build ./... && go test ./cmd/... -count=1`. Expected: PASS.
+- [ ] **Step 1.5: Run.** `cd <repo-root> && go build ./... && go test ./cmd/... -count=1`. Expected: PASS.
 
 - [ ] **Step 1.6: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/run.go CHANGELOG.md docs/eps/0037-tool-dispatch-and-operator-surface.md
 git commit -m "feat(cli)!: rename --tools-whitelist to --tools
 
@@ -77,9 +77,9 @@ alias kept — scripts using the old name need updating."
 
 **Context:** Audit flagged `_ = json.Unmarshal(args, &req)` at lines 43 (`metaSearch.Run`) and 147 (`metaCategories.Run`) — malformed args silently default to empty query. The other two meta-tools (`metaDescribe:101`, `metaInCategory:186`) correctly check the error.
 
-- [ ] **Step 2.1: Read current state.** `grep -n "json.Unmarshal" /home/foobarto/Dokumenty/stado/internal/runtime/meta_tools.go` — confirm the four call sites and their differing patterns.
+- [ ] **Step 2.1: Read current state.** `grep -n "json.Unmarshal" <repo-root>/internal/runtime/meta_tools.go` — confirm the four call sites and their differing patterns.
 
-- [ ] **Step 2.2: Write failing test.** Append to `internal/runtime/meta_tools_test.go` (create if it doesn't exist — locate any existing test file in that package first via `ls /home/foobarto/Dokumenty/stado/internal/runtime/meta_tools*`):
+- [ ] **Step 2.2: Write failing test.** Append to `internal/runtime/meta_tools_test.go` (create if it doesn't exist — locate any existing test file in that package first via `ls <repo-root>/internal/runtime/meta_tools*`):
 
 ```go
 func TestMetaSearch_RejectsMalformedJSON(t *testing.T) {
@@ -101,7 +101,7 @@ func TestMetaCategories_RejectsMalformedJSON(t *testing.T) {
 
 Note: Read the existing tests in `meta_tools_test.go` (if any) before writing — match their imports and Tool construction style.
 
-- [ ] **Step 2.3: Run, verify FAIL.** `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run "TestMetaSearch_RejectsMalformedJSON|TestMetaCategories_RejectsMalformedJSON" -count=1 -v`. Expected: tests run; both FAIL because malformed JSON silently passes.
+- [ ] **Step 2.3: Run, verify FAIL.** `cd <repo-root> && go test ./internal/runtime/ -run "TestMetaSearch_RejectsMalformedJSON|TestMetaCategories_RejectsMalformedJSON" -count=1 -v`. Expected: tests run; both FAIL because malformed JSON silently passes.
 
 - [ ] **Step 2.4: Fix `metaSearch.Run`.** In `meta_tools.go:43`, replace:
 
@@ -121,14 +121,14 @@ if err := json.Unmarshal(args, &req); err != nil {
 
 - [ ] **Step 2.5: Fix `metaCategories.Run`.** Same pattern at `meta_tools.go:147`. Replace `_ = json.Unmarshal(args, &req)` with the error-checking form using prefix `"metaCategories: parse args: %w"`.
 
-- [ ] **Step 2.6: Run.** `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run "TestMetaSearch_RejectsMalformedJSON|TestMetaCategories_RejectsMalformedJSON" -count=1 -v`. Expected: PASS.
+- [ ] **Step 2.6: Run.** `cd <repo-root> && go test ./internal/runtime/ -run "TestMetaSearch_RejectsMalformedJSON|TestMetaCategories_RejectsMalformedJSON" -count=1 -v`. Expected: PASS.
 
 - [ ] **Step 2.7: Run full runtime tests.** `go test ./internal/runtime/ -count=1`. Expected: PASS.
 
 - [ ] **Step 2.8: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/meta_tools.go internal/runtime/meta_tools_test.go
 git commit -m "fix(runtime): meta-tools surface JSON-parse errors
 
@@ -147,7 +147,7 @@ return an error instead of defaulting to empty query."
 
 **Context:** Audit flagged `cl.Get(url) //nolint:noctx` — hardcoded 15s timeout, no caller cancellation.
 
-- [ ] **Step 3.1: Read current state.** `cat /home/foobarto/Dokumenty/stado/internal/plugins/anchor.go` to see the full function. `grep -rn "FetchAnchorPubkey" /home/foobarto/Dokumenty/stado/` to find callers.
+- [ ] **Step 3.1: Read current state.** `cat <repo-root>/internal/plugins/anchor.go` to see the full function. `grep -rn "FetchAnchorPubkey" <repo-root>/` to find callers.
 
 - [ ] **Step 3.2: Update signature to accept `ctx context.Context`.** Change `FetchAnchorPubkey(...)` to `FetchAnchorPubkey(ctx context.Context, ...)`. Inside the body, replace:
 
@@ -169,12 +169,12 @@ The 15s timeout should remain on the `cl` (`http.Client.Timeout`) — that's a h
 
 - [ ] **Step 3.3: Update each caller.** For each result of the grep, thread the caller's `ctx` through. If a caller doesn't have a context handy, accept this is a wider plumbing change and pause to ask the user — but that's unlikely; most callers are already in context-aware code paths.
 
-- [ ] **Step 3.4: Run.** `cd /home/foobarto/Dokumenty/stado && go build ./... && go test ./internal/plugins/... -count=1`. Expected: PASS.
+- [ ] **Step 3.4: Run.** `cd <repo-root> && go build ./... && go test ./internal/plugins/... -count=1`. Expected: PASS.
 
 - [ ] **Step 3.5: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/plugins/anchor.go <any-caller-files>
 git commit -m "fix(plugins): FetchAnchorPubkey honours caller context
 
@@ -193,9 +193,9 @@ so operator Ctrl-C cancels the anchor fetch."
 
 **Context:** Audit flagged the `for { }` infinite loop in `alloc` — no retry bound. Bound at e.g. 1000 attempts; return an error on exhaustion. Caller signature change required (was returning `uint32`; now `(uint32, error)`).
 
-- [ ] **Step 4.1: Read current state.** `cat /home/foobarto/Dokumenty/stado/internal/plugins/runtime/handles.go` lines 26-44.
+- [ ] **Step 4.1: Read current state.** `cat <repo-root>/internal/plugins/runtime/handles.go` lines 26-44.
 
-- [ ] **Step 4.2: Find callers of `alloc`.** `grep -rn "\\.alloc(" /home/foobarto/Dokumenty/stado/internal/plugins/runtime/`. Each caller will need to handle the new error return.
+- [ ] **Step 4.2: Find callers of `alloc`.** `grep -rn "\\.alloc(" <repo-root>/internal/plugins/runtime/`. Each caller will need to handle the new error return.
 
 - [ ] **Step 4.3: Update the signature.** Change:
 
@@ -293,7 +293,7 @@ The exhaustion case is hard to test directly without mocking `rand.Uint32`. The 
 - [ ] **Step 4.7: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/plugins/runtime/handles.go internal/plugins/runtime/handles_test.go <caller-files>
 git commit -m "fix(runtime): bound handleRegistry.alloc retry loop
 
@@ -315,7 +315,7 @@ signature."
 
 The plan does NOT wire the auto-prune execution — that's startup-time work that touches the session-storage code path. This task only adds the struct + parses the value. Auto-prune execution remains TODO with a marker comment.
 
-- [ ] **Step 5.1: Read current state.** `cd /home/foobarto/Dokumenty/stado && grep -n "type Config struct\|type.*Config struct" internal/config/config.go | head -5`. Locate where Sandbox/Agent/Tools sections live and pick a coherent spot for `Sessions`.
+- [ ] **Step 5.1: Read current state.** `cd <repo-root> && grep -n "type Config struct\|type.*Config struct" internal/config/config.go | head -5`. Locate where Sandbox/Agent/Tools sections live and pick a coherent spot for `Sessions`.
 
 - [ ] **Step 5.2: Add the struct.** In `internal/config/config.go`, near the existing `type Tools struct` (around line 171), add:
 
@@ -370,14 +370,14 @@ func TestConfig_SessionsDefaultEmpty(t *testing.T) {
 
 If `LoadFromPath` doesn't exist, use whatever loader the rest of the test suite uses (look at one existing config test for the pattern).
 
-- [ ] **Step 5.4: Run.** `cd /home/foobarto/Dokumenty/stado && go test ./internal/config/... -count=1`. Expected: PASS.
+- [ ] **Step 5.4: Run.** `cd <repo-root> && go test ./internal/config/... -count=1`. Expected: PASS.
 
 - [ ] **Step 5.5: Run go build to confirm no callers break.** `go build ./...`. Expected: PASS.
 
 - [ ] **Step 5.6: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/config/config.go internal/config/config_test.go
 git commit -m "feat(config): [sessions] auto_prune_after schema
 
@@ -398,11 +398,11 @@ the startup-time hook lands in a follow-up."
 
 **Context:** Audit flagged manual `strings.ReplaceAll(query, ".", "__")` instead of going through `WireForm` (`internal/tools/naming.go`). Round-trip discipline is broken at these two sites.
 
-- [ ] **Step 6.1: Read the helper.** `cat /home/foobarto/Dokumenty/stado/internal/tools/naming.go`. Confirm `WireForm` and `ParseWireForm` exist and what their signatures look like.
+- [ ] **Step 6.1: Read the helper.** `cat <repo-root>/internal/tools/naming.go`. Confirm `WireForm` and `ParseWireForm` exist and what their signatures look like.
 
-- [ ] **Step 6.2: Inspect `cmd/stado/tool.go:121` context.** `sed -n '115,128p' /home/foobarto/Dokumenty/stado/cmd/stado/tool.go`. Read the surrounding lines to understand what `query` is — is it `<plugin>.<tool>` form or just `<tool>`?
+- [ ] **Step 6.2: Inspect `cmd/stado/tool.go:121` context.** `sed -n '115,128p' <repo-root>/cmd/stado/tool.go`. Read the surrounding lines to understand what `query` is — is it `<plugin>.<tool>` form or just `<tool>`?
 
-- [ ] **Step 6.3: Inspect `internal/runtime/executor.go:68` context.** `sed -n '60,75p' /home/foobarto/Dokumenty/stado/internal/runtime/executor.go`. The current line uses `strings.NewReplacer(".", "_", "-", "_").Replace(rest)` — that's similar to but not identical to `WireForm`. Decide whether to swap or leave (there's a chance this site has different semantics).
+- [ ] **Step 6.3: Inspect `internal/runtime/executor.go:68` context.** `sed -n '60,75p' <repo-root>/internal/runtime/executor.go`. The current line uses `strings.NewReplacer(".", "_", "-", "_").Replace(rest)` — that's similar to but not identical to `WireForm`. Decide whether to swap or leave (there's a chance this site has different semantics).
 
 - [ ] **Step 6.4: Replace at `cmd/stado/tool.go:121`.** Replace:
 
@@ -416,12 +416,12 @@ For ambiguity: if the existing manual munging works correctly, the swap should p
 
 - [ ] **Step 6.5: Decide on `executor.go:68`.** Read 60-75. If the function is producing a wire prefix from a canonical fragment (`fs.read` → `fs__read`), `WireForm` is the right swap. If it's doing something more subtle (e.g. handling MCP tool names with hyphens), leave it and add a comment noting why. Document your decision in the commit message.
 
-- [ ] **Step 6.6: Run tests.** `cd /home/foobarto/Dokumenty/stado && go test ./cmd/... ./internal/runtime/... ./internal/tools/... -count=1`. Expected: PASS.
+- [ ] **Step 6.6: Run tests.** `cd <repo-root> && go test ./cmd/... ./internal/runtime/... ./internal/tools/... -count=1`. Expected: PASS.
 
 - [ ] **Step 6.7: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/tool.go internal/runtime/executor.go
 git commit -m "refactor(naming): route through WireForm helper
 
@@ -442,7 +442,7 @@ If the executor.go site was deliberately left alone, mention it in the commit me
 
 **Context:** Audit flagged `return fmt.Errorf("%s", msg) //nolint:staticcheck`. Should be `errors.New(msg)`.
 
-- [ ] **Step 7.1: Read current state.** `sed -n '95,105p' /home/foobarto/Dokumenty/stado/internal/sandbox/wrap.go`.
+- [ ] **Step 7.1: Read current state.** `sed -n '95,105p' <repo-root>/internal/sandbox/wrap.go`.
 
 - [ ] **Step 7.2: Replace.** Line 99 currently:
 
@@ -456,14 +456,14 @@ becomes:
 return errors.New(msg)
 ```
 
-Add `"errors"` to the import block if missing. Drop `"fmt"` from imports ONLY if no other site in the file uses it (check via `grep -n "fmt\\." /home/foobarto/Dokumenty/stado/internal/sandbox/wrap.go`).
+Add `"errors"` to the import block if missing. Drop `"fmt"` from imports ONLY if no other site in the file uses it (check via `grep -n "fmt\\." <repo-root>/internal/sandbox/wrap.go`).
 
-- [ ] **Step 7.3: Run.** `cd /home/foobarto/Dokumenty/stado && go vet ./internal/sandbox/ && go test ./internal/sandbox/ -count=1`. Expected: PASS.
+- [ ] **Step 7.3: Run.** `cd <repo-root> && go vet ./internal/sandbox/ && go test ./internal/sandbox/ -count=1`. Expected: PASS.
 
 - [ ] **Step 7.4: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/sandbox/wrap.go
 git commit -m "fix(sandbox): use errors.New instead of fmt.Errorf nolint
 
@@ -480,7 +480,7 @@ is the right primitive for a constant-string error."
 
 **Context:** Audit flagged `ErrLockNotFound` exported but never consumed. Delete.
 
-- [ ] **Step 8.1: Verify it's still unused.** `cd /home/foobarto/Dokumenty/stado && grep -rn "ErrLockNotFound" .` — should show only the definition site (lock.go:142 + the comment at :142).
+- [ ] **Step 8.1: Verify it's still unused.** `cd <repo-root> && grep -rn "ErrLockNotFound" .` — should show only the definition site (lock.go:142 + the comment at :142).
 
 - [ ] **Step 8.2: Delete the lines.** Remove:
 
@@ -491,12 +491,12 @@ var ErrLockNotFound = errors.New("plugin-lock.toml not found")
 
 If `errors` becomes unused after the deletion (no other reference in the file), drop it from imports.
 
-- [ ] **Step 8.3: Run.** `cd /home/foobarto/Dokumenty/stado && go vet ./internal/plugins/... && go test ./internal/plugins/... -count=1`. Expected: PASS.
+- [ ] **Step 8.3: Run.** `cd <repo-root> && go vet ./internal/plugins/... && go test ./internal/plugins/... -count=1`. Expected: PASS.
 
 - [ ] **Step 8.4: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/plugins/lock.go
 git commit -m "refactor(plugins): drop unused ErrLockNotFound
 
@@ -516,22 +516,22 @@ catcher. Re-add when there's a consumer that wants to distinguish
 
 The decision: pick wire form throughout for consistency with how the LLM sees tool names. Bare native names are pre-EP-0038; everything should be wire form now.
 
-- [ ] **Step 9.1: Read current state.** `sed -n '15,40p' /home/foobarto/Dokumenty/stado/internal/runtime/executor.go`.
+- [ ] **Step 9.1: Read current state.** `sed -n '15,40p' <repo-root>/internal/runtime/executor.go`.
 
 - [ ] **Step 9.2: Convert each entry to wire form.** For each bare name, look up its plugin owner and produce `<plugin>__<tool>`. For names that are already wire form, leave them. For `"spawn_agent"` (the native subagent tool), keep as-is — it's a single-segment wire form already. The `defaultAutoloadNames` comment should be updated to reflect "all entries are wire form (Anthropic API requires `[a-zA-Z0-9_-]{1,64}`)".
 
-Read `/home/foobarto/Dokumenty/stado/internal/runtime/bundled_plugin_tools.go` to verify which native names map to which plugins. Bare names like `"read"` register as `"fs__read"` in wire form (per `WireForm("fs", "read")`).
+Read `<repo-root>/internal/runtime/bundled_plugin_tools.go` to verify which native names map to which plugins. Bare names like `"read"` register as `"fs__read"` in wire form (per `WireForm("fs", "read")`).
 
 Be conservative: if the change would require modifying tool registrations elsewhere, scope creep. Just update `defaultAutoloadNames`.
 
-- [ ] **Step 9.3: Run autoload tests.** `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run "Autoload" -count=1 -v`. Expected: PASS. If a test asserts on bare names, that test needs updating too — read the failures and fix.
+- [ ] **Step 9.3: Run autoload tests.** `cd <repo-root> && go test ./internal/runtime/ -run "Autoload" -count=1 -v`. Expected: PASS. If a test asserts on bare names, that test needs updating too — read the failures and fix.
 
 - [ ] **Step 9.4: Run full runtime tests.** `go test ./internal/runtime/ -count=1`. Expected: PASS.
 
 - [ ] **Step 9.5: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/executor.go <any-test-files>
 git commit -m "refactor(runtime): defaultAutoloadNames uses wire form throughout
 
@@ -554,26 +554,26 @@ catalogue."
 
 **Context:** Audit flagged the wholesale `*_test.go` exemption for errcheck/unused. Hides setup-failure smells. Narrow to specific rules — typically only `t.TempDir()` cleanup-error suppression is wanted.
 
-- [ ] **Step 10.1: Read current state.** `cat /home/foobarto/Dokumenty/stado/.golangci.yml`. Locate the exclude rule.
+- [ ] **Step 10.1: Read current state.** `cat <repo-root>/.golangci.yml`. Locate the exclude rule.
 
 - [ ] **Step 10.2: Decide on the narrowed rule.** A typical replacement: keep errcheck excluded only for explicitly-ignored returns (the `_ = somecall()` pattern), not for ALL test errors. Or scope by linter (allow `errcheck` to run; only allow `unused` vars in tests).
 
 Pick the narrowest exclusion that doesn't trigger a flood of pre-existing warnings. After narrowing, run:
 
 ```bash
-cd /home/foobarto/Dokumenty/stado && golangci-lint run ./... 2>&1 | head -40
+cd <repo-root> && golangci-lint run ./... 2>&1 | head -40
 ```
 
 If the output is overwhelming (>20 new issues), this task is bigger than "tightening" — pause and write a follow-up plan.
 
 - [ ] **Step 10.3: Apply the narrowed rule and verify.** Re-run `golangci-lint`. Expected: small number of new issues OR none.
 
-- [ ] **Step 10.4: Run.** `cd /home/foobarto/Dokumenty/stado && go vet ./... && go test ./... -count=1`. Expected: PASS.
+- [ ] **Step 10.4: Run.** `cd <repo-root> && go vet ./... && go test ./... -count=1`. Expected: PASS.
 
 - [ ] **Step 10.5: Commit.**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add .golangci.yml
 git commit -m "chore(lint): narrow test-file errcheck/unused exclusion
 

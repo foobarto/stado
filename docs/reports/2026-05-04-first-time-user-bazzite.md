@@ -139,6 +139,6 @@ Draft — the dogfood corpus across both is the actual input.
   Atomic Fedora" — the underlying boot fix.
 - [EP-0030](../eps/0030-security-research-default-harness.md) —
   the placeholder this report feeds.
-- [`~/Dokumenty/bounty-hunting/`](file:///home/foobarto/Dokumenty/bounty-hunting/)
-  + [`~/Dokumenty/htb-writeups/`](file:///home/foobarto/Dokumenty/htb-writeups/)
+- [`~/Dokumenty/bounty-hunting/`](file://~/Dokumenty/bounty-hunting/)
+  + [`~/Dokumenty/htb-writeups/`](file://~/Dokumenty/htb-writeups/)
   — primary inspiration sources for the EP-0030 Draft phase.
