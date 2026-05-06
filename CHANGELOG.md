@@ -6,7 +6,28 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### TUI
+
+- **Expand older tool calls.** `Shift+Tab` previously only toggled
+  the latest tool call or assistant turn details. New navigation:
+  `Alt+Up` / `Alt+Down` move focus to the previous / next
+  expandable block (rendered with a left-edge accent marker);
+  `Shift+Tab` then toggles whichever block is focused. With no
+  focus, `Shift+Tab` falls back to the previous "latest" behaviour.
+- **Mouse left-click expands a tool block.** Click any tool /
+  expandable assistant block in the conversation to focus + toggle
+  it. Clicks past the conversation pane (sidebar, input) fall
+  through to default behaviour.
+- **`[tui].mouse_capture` config option** — default `true` (current
+  behaviour: app captures mouse events for click-to-expand + scroll
+  wheel). Operators who prefer terminal-native click-drag-to-
+  select-text can set `false` to disable capture entirely. With
+  capture on, holding `Shift` while click-dragging usually bypasses
+  app capture in modern terminals.
+- **`stado plugin list` PATH column** — each row now shows the
+  on-disk path to the plugin's `.wasm` (or `(embedded)` for bundled
+  plugins). Useful for `cp` / `file` / `wasm-objdump` / `sha256sum`
+  workflows without remembering the state-dir layout.
 
 ## v0.39.0 — session.search plugin + TUI progress surface
 

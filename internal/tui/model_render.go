@@ -1255,14 +1255,22 @@ func (m *Model) renderBlocks() {
 		width = 10
 	}
 	first := true
+	m.blockLineRanges = m.blockLineRanges[:0]
+	curLine := 0
 	for i := range m.blocks {
 		if !m.shouldRenderBlock(m.blocks[i]) {
 			continue
 		}
 		if !first {
 			b.WriteString("\n")
+			curLine++ // separator line
 		}
 		out := m.renderBlockCached(i, width)
+		blockLines := strings.Count(out, "\n") + 1
+		m.blockLineRanges = append(m.blockLineRanges, blockLineRange{
+			start: curLine, end: curLine + blockLines, blockIdx: i,
+		})
+		curLine += blockLines
 		b.WriteString(out)
 		first = false
 	}
@@ -1297,21 +1305,38 @@ func (m *Model) renderBlockCached(i, width int) string {
 		blk.cachedMeta == blk.meta &&
 		blk.cachedDetails == blk.details &&
 		blk.cachedExpand == blk.expanded &&
+		blk.cachedFocused == blk.focused &&
 		blk.cachedResult == blk.toolResult &&
 		thinkingCacheOK {
 		return blk.cachedOut
 	}
 	out, _ := m.renderBlock(*blk, width)
+	if blk.focused {
+		out = applyFocusMarker(out, m.theme.Fg("accent").GetForeground())
+	}
 	blk.cachedOut = out
 	blk.cachedWidth = width
 	blk.cachedMeta = blk.meta
 	blk.cachedDetails = blk.details
 	blk.cachedExpand = blk.expanded
+	blk.cachedFocused = blk.focused
 	blk.cachedResult = blk.toolResult
 	if blk.kind == "thinking" {
 		blk.cachedThinkingMode = m.thinkingMode
 	}
 	return out
+}
+
+// applyFocusMarker prepends a coloured left-border glyph to every line
+// of the rendered block so the focused tool/assistant call stands out
+// in the conversation pane. EP-N/A — older-tool expand UX.
+func applyFocusMarker(rendered string, fg lipgloss.TerminalColor) string {
+	marker := lipgloss.NewStyle().Foreground(fg).Render("▌ ")
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		lines[i] = marker + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) renderAssistantDetails(details string) string {

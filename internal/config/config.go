@@ -255,6 +255,15 @@ type TUI struct {
 	// ThinkingDisplay controls how provider-native thinking blocks are
 	// rendered in the viewport: show, tail, or hide.
 	ThinkingDisplay string `koanf:"thinking_display"`
+	// MouseCapture toggles app-level mouse handling. When true (default),
+	// stado captures mouse events for click-to-expand on tool blocks +
+	// scroll-wheel. The trade-off is that the terminal's native
+	// click-drag-to-select-text is suppressed; users can still hold
+	// Shift while dragging on most modern terminals to bypass capture.
+	// When false, mouse capture is fully off — native selection works
+	// everywhere but click-to-expand and mouse scroll are unavailable
+	// (use alt+up/alt+down to navigate tool blocks instead).
+	MouseCapture *bool `koanf:"mouse_capture"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage

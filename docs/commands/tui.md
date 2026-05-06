@@ -160,7 +160,9 @@ memorising:
 | `Ctrl+X S` | Open status modal |
 | `Ctrl+X H` | Cycle thinking display: show, tail, hide |
 | `Ctrl+X K` | Open shared task manager |
-| `Shift+Tab` | Expand the latest tool call or assistant turn details |
+| `Shift+Tab` | Expand the focused (or latest) tool call / assistant turn details |
+| `Alt+Up` / `Alt+Down` | Move focus to older / newer expandable block (then `Shift+Tab` toggles it) |
+| Mouse left-click | Click any tool block to focus + expand it (hold `Shift` while click-dragging if you need terminal-native selection — or set `[tui].mouse_capture = false` to disable app mouse capture entirely) |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
 | `Ctrl+C` | Cancel stream / clear pending queue |
@@ -320,6 +322,24 @@ relevant sections:
 | `[hooks]` | `post_turn` lifecycle shell hook |
 | `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
+| `[tui]` | display preferences (`theme`, `thinking_display`, `mouse_capture`) |
+
+### `[tui].mouse_capture`
+
+Default `true` — stado captures mouse events so left-click expands a
+tool block and the scroll wheel scrolls the conversation. Trade-off:
+the terminal's native click-drag-to-select-text is suppressed.
+Workarounds:
+
+- **Hold `Shift` while click-dragging.** Most modern terminals
+  (Alacritty, kitty, iTerm2, gnome-terminal, Konsole, WezTerm) honour
+  this — selection passes through to the terminal regardless of app
+  mouse capture.
+- **Set `[tui].mouse_capture = false`** to disable app mouse capture
+  entirely. Native click-drag-to-select works everywhere; click-to-
+  expand and mouse-wheel scroll are unavailable. Use `Alt+Up` /
+  `Alt+Down` to navigate tool blocks and `PageUp` / `PageDown` to
+  scroll.
 
 ## Gotchas
 

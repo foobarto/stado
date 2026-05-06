@@ -67,6 +67,11 @@ type block struct {
 	// expanded toggles tool call bodies and assistant turn details.
 	expanded bool
 
+	// focused indicates the block is the keyboard/mouse-focused
+	// expandable; rendered with a left-edge accent marker. Mutually
+	// exclusive across blocks (only one can be focused at a time).
+	focused bool
+
 	// Render cache: avoid re-running glamour/markdown on every frame.
 	// Streaming a long assistant message causes renderBlocks to fire
 	// 10+ times/sec; without caching, each tick re-renders every past
@@ -79,8 +84,17 @@ type block struct {
 	cachedMeta         string
 	cachedDetails      string
 	cachedExpand       bool
+	cachedFocused      bool
 	cachedResult       string
 	cachedThinkingMode thinkingDisplayMode
+}
+
+// blockLineRange is one entry in m.blockLineRanges — the line span a
+// rendered block occupies in the messages viewport content. Mouse
+// clicks lookup the block index from a content-Y coordinate.
+type blockLineRange struct {
+	start, end int // [start, end) inclusive of start, exclusive of end
+	blockIdx   int // index into m.blocks
 }
 
 // attachState tracks /session attach RW mode. EP-0038 §F.
@@ -385,6 +399,16 @@ type Model struct {
 	// visible compaction draft, so an edit updates the same block the
 	// user is looking at instead of appending a new one.
 	compactionBlockIdx int
+
+	// focusedBlockIdx tracks which expandable block the user is
+	// keyboard-focused on. -1 = no focus (ToolExpand toggles latest).
+	// Set by alt+up/alt+down navigation and by mouse click on a block.
+	focusedBlockIdx int
+
+	// blockLineRanges records each rendered block's line-range in the
+	// vp content (start inclusive, end exclusive). Populated during
+	// renderBlocks; consumed by mouse click → block-index lookup.
+	blockLineRanges []blockLineRange
 	// compacting marks a summarisation stream in-flight so we can route
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
@@ -526,6 +550,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
 		rootCtx:          context.Background(),
+		focusedBlockIdx:  -1, // no focus by default; ToolExpand acts on latest
 	}
 	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
 	// fallback). A missing file is fine; a broken file is a stderr

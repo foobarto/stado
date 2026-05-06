@@ -45,6 +45,8 @@ const (
 	SidebarNarrower         Action = "sidebar_narrower"
 	SidebarWider            Action = "sidebar_wider"
 	ToolExpand              Action = "tool_expand"
+	ToolFocusPrev           Action = "tool_focus_prev"
+	ToolFocusNext           Action = "tool_focus_next"
 	ModeToggle              Action = "mode_toggle"
 	ModeToggleBtw           Action = "mode_toggle_btw"
 	ForceQueue              Action = "force_queue"
@@ -92,7 +94,9 @@ var ActionDescriptions = map[Action]string{
 	SidebarToggle:           "Toggle sidebar",
 	SidebarNarrower:         "Make sidebar narrower",
 	SidebarWider:            "Make sidebar wider",
-	ToolExpand:              "Expand latest details",
+	ToolExpand:              "Expand details (focused or latest)",
+	ToolFocusPrev:           "Focus previous tool block",
+	ToolFocusNext:           "Focus next tool block",
 	ModeToggle:              "Toggle Plan/Do mode",
 	ModeToggleBtw:           "Toggle BTW mode",
 	ForceQueue:              "Force queued prompt to run now",

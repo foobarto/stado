@@ -43,6 +43,8 @@ var Defaults = map[Action]string{
 	SidebarNarrower:         "ctrl+x [",
 	SidebarWider:            "ctrl+x ]",
 	ToolExpand:              "shift+tab",
+	ToolFocusPrev:           "alt+up",
+	ToolFocusNext:           "alt+down",
 	ModeToggle:              "tab",
 	ModeToggleBtw:           "ctrl+x ctrl+b",
 	ForceQueue:              "alt+enter",

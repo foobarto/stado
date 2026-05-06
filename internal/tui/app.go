@@ -144,11 +144,19 @@ func Run(cfg *config.Config) error {
 	// widget as literal text. tea.WithFilter below is the backstop for
 	// responses that slipped past the wrapper (shouldn't happen but
 	// costs nothing to keep).
-	p := tea.NewProgram(m,
+	teaOpts := []tea.ProgramOption{
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 		tea.WithInput(newOSCStripFile(os.Stdin)),
-		tea.WithFilter(filterOSCResponses))
+		tea.WithFilter(filterOSCResponses),
+	}
+	// Mouse capture defaults on (enables click-to-expand + scroll-wheel).
+	// Operators who prefer terminal-native click-drag-to-select-text
+	// can set [tui].mouse_capture = false. With capture on, hold Shift
+	// while dragging on most modern terminals to bypass.
+	if m.cfg == nil || m.cfg.TUI.MouseCapture == nil || *m.cfg.TUI.MouseCapture {
+		teaOpts = append(teaOpts, tea.WithMouseCellMotion())
+	}
+	p := tea.NewProgram(m, teaOpts...)
 	m.Attach(p)
 	if localFallback != nil {
 		go func() {
