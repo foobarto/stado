@@ -13,6 +13,7 @@ func registerSecretsImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerSecretsGetImport(builder, host)
 	registerSecretsPutImport(builder, host)
 	registerSecretsListImport(builder, host)
+	registerSecretsDeleteImport(builder, host)
 }
 
 // stado_secrets_get(name_ptr i32, name_len i32, out_ptr i32, out_max i32) → i32
@@ -233,4 +234,61 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
 		[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_secrets_list")
+}
+
+// stado_secrets_delete(name_ptr i32, name_len i32) → i32
+//
+// Removes the named secret. Idempotent — missing name returns 0.
+// Cap-gated by secrets:write[:<glob>] (delete = a write op).
+// Audit event emitted on every call.
+func registerSecretsDeleteImport(builder wazero.HostModuleBuilder, host *Host) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
+			namePtr, nameLen := api.DecodeU32(stack[0]), api.DecodeU32(stack[1])
+
+			deny := func(name, reason string) {
+				if host.Secrets != nil {
+					host.Secrets.Audit(SecretsAuditEvent{
+						Plugin:  host.Manifest.Name,
+						Op:      "delete",
+						Secret:  name,
+						Allowed: false,
+						Reason:  reason,
+					})
+				}
+				stack[0] = api.EncodeI32(-1)
+			}
+
+			if host.Secrets == nil {
+				deny("", "no secrets capability granted")
+				return
+			}
+			if host.Secrets.Store == nil {
+				deny("", "secret store not provisioned by host")
+				return
+			}
+			name, err := readStringLimited(mod, namePtr, nameLen, 128)
+			if err != nil || name == "" {
+				deny("", "invalid secret name")
+				return
+			}
+			if !host.Secrets.CanWrite(name) {
+				deny(name, fmt.Sprintf("name %q not matched by secrets:write globs", name))
+				return
+			}
+			if err := host.Secrets.Store.Remove(name); err != nil {
+				deny(name, err.Error())
+				return
+			}
+			host.Secrets.Audit(SecretsAuditEvent{
+				Plugin:  host.Manifest.Name,
+				Op:      "delete",
+				Secret:  name,
+				Allowed: true,
+			})
+			stack[0] = api.EncodeI32(0)
+		}),
+		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+		[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_secrets_delete")
 }

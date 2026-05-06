@@ -164,6 +164,12 @@ type Host struct {
 	// by toolInvokeMaxDepth. Tester #3.
 	ToolInvoke *ToolInvokeAccess
 
+	// NetDial gates stado_net_dial / read / write / close (Tier 1
+	// raw socket primitives). Populated when the manifest declares
+	// net:dial:tcp:<host>:<port>. Tester #5. UDP / Unix / listen /
+	// ICMP deferred to a future EP-0038g.
+	NetDial *NetDialAccess
+
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.
@@ -572,6 +578,21 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if len(parts) == 3 && parts[2] != "" {
 					h.ToolInvoke.AllowedGlobs = append(h.ToolInvoke.AllowedGlobs, parts[2])
 				}
+			}
+		}
+		// "net:dial:<transport>:<host-glob>:<port-glob>" — Tier 1 raw
+		// socket dial. Parsed separately from the case-block because
+		// the cap has 5 colon-separated parts, not 2-3 like the others.
+		// EP-0038f. Tester #5.
+		if parts[0] == "net" && len(parts) >= 2 && parts[1] == "dial" {
+			if len(parts) >= 5 && parts[2] == "tcp" {
+				if h.NetDial == nil {
+					h.NetDial = &NetDialAccess{}
+				}
+				h.NetDial.TCPGlobs = append(h.NetDial.TCPGlobs, NetDialPattern{
+					Host: parts[3],
+					Port: parts[4],
+				})
 			}
 		}
 	}
