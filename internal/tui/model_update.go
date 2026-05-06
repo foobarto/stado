@@ -245,7 +245,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		if toolName == subagent.ToolName && !msg.result.IsError {
+		if toolName == "agent__spawn" && !msg.result.IsError {
 			m.appendSubagentNotice(msg.result.Content)
 		}
 		m.pendingResults = append(m.pendingResults, msg.result)

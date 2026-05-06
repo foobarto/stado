@@ -130,10 +130,11 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 }
 
 type autoApproveHost struct {
-	workdir string
-	readLog *tools.ReadLog
-	runner  sandbox.Runner
-	spawn   func(context.Context, subagent.Request) (subagent.Result, error)
+	workdir     string
+	readLog     *tools.ReadLog
+	runner      sandbox.Runner
+	spawn       func(context.Context, subagent.Request) (subagent.Result, error)
+	fleetBridge *FleetBridgeAdapter
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -148,6 +149,12 @@ func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request
 		return subagent.Result{}, errors.New("spawn_agent unavailable: current host does not support subagents")
 	}
 	return h.spawn(ctx, req)
+}
+
+// AgentFleetBridge implements tool.AgentFleetProvider so the wasm agent.*
+// tools can reach the FleetBridgeAdapter when the loop auto-constructs a host.
+func (h autoApproveHost) AgentFleetBridge() any {
+	return h.fleetBridge
 }
 
 func (h autoApproveHost) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {

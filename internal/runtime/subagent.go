@@ -371,7 +371,7 @@ func keepReadOnlyTools(reg *tools.Registry) {
 	}
 	for _, t := range reg.All() {
 		name := t.Name()
-		if name == subagent.ToolName || reg.ClassOf(name) != tool.ClassNonMutating {
+		if reg.ClassOf(name) != tool.ClassNonMutating {
 			reg.Unregister(name)
 		}
 	}

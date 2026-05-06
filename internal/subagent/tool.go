@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"path"
 	"strings"
-
-	"github.com/foobarto/stado/internal/tools/budget"
-	"github.com/foobarto/stado/pkg/tool"
 )
 
 const (
@@ -66,90 +63,6 @@ type Result struct {
 // implement when they can create and run child sessions.
 type Spawner interface {
 	SpawnSubagent(ctx context.Context, req Request) (Result, error)
-}
-
-// Tool exposes spawn_agent to the provider.
-type Tool struct{}
-
-func (Tool) Name() string { return ToolName }
-
-func (Tool) Description() string {
-	return "Spawn a bounded child agent for parallel repo work. Supports read-only explorers and scoped workspace_write workers whose changes stay in the child session until explicit adoption."
-}
-
-func (Tool) Schema() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"required":             []string{"prompt"},
-		"properties": map[string]any{
-			"prompt": map[string]any{
-				"type":        "string",
-				"description": "Self-contained task for the child agent. Include exact files, questions, and expected output.",
-			},
-			"role": map[string]any{
-				"type":        "string",
-				"description": "Child role. Use explorer with read_only, or worker with workspace_write.",
-				"enum":        []string{DefaultRole, WorkerRole},
-				"default":     DefaultRole,
-			},
-			"mode": map[string]any{
-				"type":        "string",
-				"description": "Execution mode. workspace_write requires role=worker, ownership, and non-empty write_scope.",
-				"enum":        []string{DefaultMode, WorkspaceWriteMode},
-				"default":     DefaultMode,
-			},
-			"ownership": map[string]any{
-				"type":        "string",
-				"description": "Human-readable file/module responsibility. Required for workspace_write workers.",
-			},
-			"write_scope": map[string]any{
-				"type":        "array",
-				"description": "Repo-relative path or glob scopes a workspace_write worker may edit. Required for workspace_write.",
-				"items": map[string]any{
-					"type": "string",
-				},
-			},
-			"max_turns": map[string]any{
-				"type":        "integer",
-				"description": "Maximum child agent turns. Defaults to 6 and is capped at 12.",
-				"minimum":     1,
-				"maximum":     MaxTurns,
-				"default":     DefaultTurns,
-			},
-			"timeout_seconds": map[string]any{
-				"type":        "integer",
-				"description": "Maximum wall-clock seconds for the child agent. Defaults to 180 and is capped at 900.",
-				"minimum":     1,
-				"maximum":     MaxTimeoutSeconds,
-				"default":     DefaultTimeoutSeconds,
-			},
-		},
-	}
-}
-
-func (Tool) Class() tool.Class { return tool.ClassNonMutating }
-
-func (Tool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.Result, error) {
-	req, err := DecodeRequest(raw)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	spawner, ok := h.(Spawner)
-	if !ok {
-		err := errors.New("spawn_agent unavailable: current host does not support subagents")
-		return tool.Result{Error: err.Error()}, err
-	}
-	res, err := spawner.SpawnSubagent(ctx, req)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	data, err := json.MarshalIndent(res, "", "  ")
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	content := budget.TruncateBytes(string(data), budget.SubagentBytes, "open the child session or use a narrower subagent task")
-	return tool.Result{Content: content}, nil
 }
 
 // DecodeRequest validates and normalises a spawn_agent request.

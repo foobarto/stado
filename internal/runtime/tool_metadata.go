@@ -82,8 +82,6 @@ var bundledToolMetadata = map[string]ToolMetadata{
 	"http__client_new":  {Canonical: "http.client_new", Plugin: "http", Categories: []string{"network", "web"}},
 
 	// agent
-	// spawn_agent is hidden — superseded by agent.* wasm tools (EP-0038 supersedes EP-0013).
-	"spawn_agent":         {Canonical: "", Plugin: "", Categories: nil},
 	"agent__spawn":        {Canonical: "agent.spawn", Plugin: "agent", Categories: []string{"agent"}},
 	"agent__list":         {Canonical: "agent.list", Plugin: "agent", Categories: []string{"agent"}},
 	"agent__read_messages": {Canonical: "agent.read_messages", Plugin: "agent", Categories: []string{"agent"}},

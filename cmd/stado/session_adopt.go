@@ -28,7 +28,7 @@ var sessionAdoptCmd = &cobra.Command{
 	Long: "Plans adoption of changed files from <child-id> into <parent-id>.\n" +
 		"Default is a dry run. Pass --apply to copy non-conflicting child\n" +
 		"changes into the parent and commit subagent_adopt trace/tree metadata.\n\n" +
-		"Pass --fork-tree from the worker spawn_agent result when it is non-empty;\n" +
+		"Pass --fork-tree from the worker agent.spawn result when it is non-empty;\n" +
 		"an omitted fork tree means the child forked from an empty tree.",
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
