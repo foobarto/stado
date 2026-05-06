@@ -60,6 +60,11 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 
 	host := pluginRuntime.NewHost(in.Manifest, workdir, nil)
 	host.StateDir = cfg.StateDir()
+	// stado_progress emissions surface as bracketed lines on the
+	// operator's stderr during a direct `stado plugin run`. EP-0038h.
+	host.Progress = func(plugin, text string) {
+		fmt.Fprintf(in.Stderr, "[%s] %s\n", plugin, text)
+	}
 
 	runner := sandbox.Detect()
 	if host.ExecBash && !host.ExecProc && runner.Name() == "none" {
