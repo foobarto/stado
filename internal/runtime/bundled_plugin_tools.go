@@ -10,7 +10,6 @@ import (
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
@@ -68,9 +67,6 @@ func buildBundledPluginRegistry() *tools.Registry {
 		},
 		[]string{"ui:approval"},
 	))
-	// spawn_agent is native for now because it needs a live provider and
-	// forked Session orchestration, not only the plugin host imports.
-	r.Register(subagent.Tool{})
 	// EP-0038c: fs.ls — bundled into the fs wasm module (uses stado_exec for /bin/ls).
 	r.Register(newBundledWasmTool("fs", "stado_tool_ls", "fs__ls",
 		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns the formatted ls output.",

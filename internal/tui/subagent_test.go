@@ -9,7 +9,6 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
-	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -18,7 +17,7 @@ func TestSpawnAgentToolResultAddsVisibleChildNotice(t *testing.T) {
 	m.blocks = append(m.blocks, block{
 		kind:     "tool",
 		toolID:   "spawn-1",
-		toolName: subagent.ToolName,
+		toolName: "agent__spawn",
 	})
 
 	content := `{
@@ -55,7 +54,7 @@ func TestSpawnAgentWorkerResultAddsAdoptionHint(t *testing.T) {
 	m.blocks = append(m.blocks, block{
 		kind:     "tool",
 		toolID:   "spawn-1",
-		toolName: subagent.ToolName,
+		toolName: "agent__spawn",
 	})
 
 	content := `{

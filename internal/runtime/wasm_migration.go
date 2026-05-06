@@ -175,45 +175,6 @@ var wasmFamilies = []struct {
 		},
 	},
 	{
-		key: "agent",
-		family: wasmFamily{
-			nativeNames: []string{"spawn_agent"},
-			wasmAlias:   "agent",
-			wasmTools: []wasmTool{
-				{name: "spawn", description: "Spawn a sub-agent. Returns {id, session_id, status, final_text?}.",
-					schema: map[string]any{"type": "object", "required": []string{"prompt"},
-						"properties": map[string]any{
-							"prompt": map[string]any{"type": "string"},
-							"model":  map[string]any{"type": "string"},
-							"async":  map[string]any{"type": "boolean"},
-						}},
-					caps: []string{"agent:fleet"}},
-				{name: "list", description: "List agents in the current spawn tree.",
-					schema:  map[string]any{"type": "object"},
-					caps: []string{"agent:fleet"}},
-				{name: "read_messages", description: "Read messages from an agent's output channel.",
-					schema: map[string]any{"type": "object", "required": []string{"id"},
-						"properties": map[string]any{
-							"id":         map[string]any{"type": "string"},
-							"since":      map[string]any{"type": "integer"},
-							"timeout_ms": map[string]any{"type": "integer"},
-						}},
-					caps: []string{"agent:fleet"}},
-				{name: "send_message", description: "Send a message to a running agent.",
-					schema: map[string]any{"type": "object", "required": []string{"id", "message"},
-						"properties": map[string]any{
-							"id":      map[string]any{"type": "string"},
-							"message": map[string]any{"type": "string"},
-						}},
-					caps: []string{"agent:fleet"}},
-				{name: "cancel", description: "Cancel a running agent.",
-					schema: map[string]any{"type": "object", "required": []string{"id"},
-						"properties": map[string]any{"id": map[string]any{"type": "string"}}},
-					caps: []string{"agent:fleet"}},
-			},
-		},
-	},
-	{
 		key: "readctx",
 		family: wasmFamily{
 			nativeNames: []string{"read_with_context"},

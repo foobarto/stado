@@ -32,17 +32,17 @@ import (
 // EP-0038-migrated tools (only fs__ls today) register under wire form;
 // they appear here in wire form for the same reason.
 //
-// spawn_agent is the native subagent.Tool registration; only this name
-// fires the SubagentEvent observability path. The wasm agent__spawn
-// alias exists alongside but is intentionally NOT autoloaded — see
-// BACKLOG #1 / #14 for the planned collapse.
+// agent__spawn is the wasm-backed canonical surface for sub-agent spawning;
+// it routes through SubagentRunner.SpawnSubagent and emits SubagentEvent
+// for full lifecycle observability. The native spawn_agent registration has
+// been removed (BACKLOG #1).
 //
 // To convert a bare-name entry to wire form, also add the wire-form
 // alias at registration time in bundled_plugin_tools.go.
 var defaultAutoloadNames = []string{
 	"read", "write", "edit", "glob", "grep", "bash",
 	"fs__ls",
-	"spawn_agent",
+	"agent__spawn",
 }
 
 // BuildDefaultRegistry returns a Registry preloaded with stado's

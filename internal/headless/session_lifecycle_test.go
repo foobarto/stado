@@ -16,7 +16,6 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
 	stadoruntime "github.com/foobarto/stado/internal/runtime"
-	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -605,7 +604,7 @@ func (p *spawnPromptProvider) StreamTurn(ctx context.Context, req agent.TurnRequ
 		case 1:
 			ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
 				ID:    "spawn-1",
-				Name:  subagent.ToolName,
+				Name:  "agent__spawn",
 				Input: json.RawMessage(`{"prompt":"inspect this repo","max_turns":1,"timeout_seconds":30}`),
 			}}
 			ch <- agent.Event{Kind: agent.EvDone}
@@ -646,7 +645,7 @@ func (p *cancelSpawnProvider) StreamTurn(ctx context.Context, req agent.TurnRequ
 		case 1:
 			ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
 				ID:    "spawn-cancel-1",
-				Name:  subagent.ToolName,
+				Name:  "agent__spawn",
 				Input: json.RawMessage(`{"prompt":"block until cancelled","max_turns":1,"timeout_seconds":60}`),
 			}}
 			ch <- agent.Event{Kind: agent.EvDone}

@@ -147,22 +147,34 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			rlog = opts.Executor.ReadLog
 			runner = opts.Executor.Runner
 		}
+		loopRunner := SubagentRunner{
+			Config:               opts.Config,
+			Parent:               sessionFromExecutor(opts.Executor),
+			Provider:             opts.Provider,
+			Model:                opts.Model,
+			Thinking:             opts.Thinking,
+			ThinkingBudgetTokens: opts.ThinkingBudgetTokens,
+			System:               opts.System,
+			SystemTemplate:       opts.SystemTemplate,
+			AgentName:            "stado-subagent",
+			OnEvent:              opts.OnSubagentEvent,
+		}
+		spawnFn := buildLoopSubagentSpawner(loopRunner)
+		var fb *FleetBridgeAdapter
+		if spawnFn != nil {
+			fleet := NewFleet()
+			fb = &FleetBridgeAdapter{
+				Fleet:   fleet,
+				Spawner: loopRunner,
+				RootCtx: ctx,
+			}
+		}
 		opts.Host = autoApproveHost{
-			workdir: workdir,
-			readLog: rlog,
-			runner:  runner,
-			spawn: buildLoopSubagentSpawner(SubagentRunner{
-				Config:               opts.Config,
-				Parent:               sessionFromExecutor(opts.Executor),
-				Provider:             opts.Provider,
-				Model:                opts.Model,
-				Thinking:             opts.Thinking,
-				ThinkingBudgetTokens: opts.ThinkingBudgetTokens,
-				System:               opts.System,
-				SystemTemplate:       opts.SystemTemplate,
-				AgentName:            "stado-subagent",
-				OnEvent:              opts.OnSubagentEvent,
-			}),
+			workdir:     workdir,
+			readLog:     rlog,
+			runner:      runner,
+			spawn:       spawnFn,
+			fleetBridge: fb,
 		}
 	}
 
