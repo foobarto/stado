@@ -6,7 +6,15 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### Plugins
+
+- **`session.search`** — new bundled wasm plugin offering grep-style
+  search over the current session's message history. Substring
+  (default) or RE2 regex (`is_regex: true`); case-insensitive by
+  default; optional role filter; bounded results + snippet length.
+  Capability: `session:read` (existing — no new host imports).
+  Search core lives in `searchcore/` so it builds + tests on the
+  host arch alongside the wasip1-only main module.
 
 ## v0.38.0 — EP-0038h: JSON helpers + UDP stateless + HTTP streaming + stado_progress
 

@@ -46,6 +46,11 @@ EP38_RENAMED=(
   "readctx-ng:readctx"
 )
 
+# Bundled wasm plugins beyond the EP-0038b core.
+EXTRA_WASM=(
+  session_search
+)
+
 tmpdir="$(mktemp -d "$ROOT/.wasm-build.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -66,6 +71,11 @@ for entry in "${EP38_RENAMED[@]}"; do
   outname="${entry##*:}"
   echo "building ${outname}.wasm (ep-0038b, from modules/${srcdir})"
   GOOS=wasip1 GOARCH=wasm "$GO_BIN" build -buildmode=c-shared -o "$tmpdir/${outname}.wasm" "./modules/${srcdir}"
+done
+
+for tool in "${EXTRA_WASM[@]}"; do
+  echo "building ${tool}.wasm"
+  GOOS=wasip1 GOARCH=wasm "$GO_BIN" build -buildmode=c-shared -o "$tmpdir/${tool}.wasm" "./modules/${tool}"
 done
 
 echo "building auto-compact.wasm"
