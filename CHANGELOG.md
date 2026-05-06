@@ -8,6 +8,31 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.44.2 — Two bugfixes
+
+### Fixes
+
+- **`stado_tool_invoke` now reaches installed plugins.** The CLI's
+  `host.ToolInvoke.Invoke` callback called `reg.Run`, which for
+  installed plugins hit `installedPluginTool.Run`'s sentinel error
+  ("not invokable directly via Tool.Run"). Bundled plugins worked
+  because their `Run()` is real. Detect the installed-plugin case via
+  `runtime.LookupInstalledModule` and dispatch through
+  `runPluginInvocation`, mirroring `tool_run.go`'s branch.
+  (`cmd/stado/plugin_invoke_shared.go`)
+
+- **`stado tool run` for installed plugins now defaults workdir to
+  CWD.** The installed-plugin branch passed `filepath.Dir(wasmPath)` as
+  `InstallDir` (= default workdir) — the plugin install directory under
+  `~/.local/share/stado/plugins/<name>-<ver>/`. The bundled-plugin
+  branch already used `os.Getwd()`. Net effect: relative paths in
+  plugin args resolved against the install dir, not the operator's
+  CWD. Surface symptom on Fedora Atomic looked like a `/home →
+  /var/home` symlink-aliasing bug because `--workdir
+  /var/home/<project>` "fixed" it; the actual root cause was the
+  asymmetric default. The pre-existing `symlinkAlias` mechanism (v0.40.0)
+  was already handling the real symlink case. (`cmd/stado/tool_run.go`)
+
 ## v0.44.1 — TUI persona surface
 
 The TUI half of v0.44.0's personas feature — `/persona` slash command,
