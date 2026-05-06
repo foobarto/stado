@@ -29,6 +29,8 @@ var (
 	pluginBundleOut           string
 	pluginBundleBundlingKey   string
 	pluginBundleFromFile      string
+	pluginBundleStripFlag     bool
+	pluginBundleInfoFlag      bool
 )
 
 // bundleFile is the in-memory shape of bundle.toml.
@@ -92,6 +94,12 @@ Use --info to inspect what's bundled in a binary.`,
 }
 
 func runPluginBundle(cmd *cobra.Command, args []string) error {
+	if pluginBundleStripFlag {
+		return runStripAction(cmd)
+	}
+	if pluginBundleInfoFlag {
+		return runInfoAction(cmd)
+	}
 	if pluginBundleFromFile != "" {
 		bf, err := loadBundleFile(pluginBundleFromFile)
 		if err != nil {
@@ -264,6 +272,50 @@ func loadOrGenerateBundlerKey(seedPath string) (ed25519.PublicKey, ed25519.Priva
 	return priv.Public().(ed25519.PublicKey), priv, nil
 }
 
+func runStripAction(cmd *cobra.Command) error {
+	from := pluginBundleFrom
+	if from == "" {
+		return fmt.Errorf("--from required for --strip (the binary to strip)")
+	}
+	out := pluginBundleOut
+	if out == "" {
+		out = filepath.Base(from) + "-stripped"
+	}
+	if err := bundlepayload.StripFromBinary(from, out); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "stripped → %s\n", out)
+	return nil
+}
+
+func runInfoAction(cmd *cobra.Command) error {
+	from := pluginBundleFrom
+	if from == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("locate running stado: %w", err)
+		}
+		from = exe
+	}
+	bundle, err := bundlepayload.LoadFromFile(from, false)
+	if err != nil {
+		return fmt.Errorf("read bundle: %w", err)
+	}
+	if len(bundle.Entries) == 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: no bundle (vanilla stado)\n", from)
+		return nil
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "%s\n", from)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Bundler:  %s\n", plugins.Fingerprint(bundle.BundlerPubkey)[:16])
+	fmt.Fprintf(cmd.OutOrStdout(), "  Plugins (%d):\n", len(bundle.Entries))
+	for _, e := range bundle.Entries {
+		bare := strings.TrimPrefix(e.Manifest.Name, bundledplugins.ManifestNamePrefix+"-")
+		fmt.Fprintf(cmd.OutOrStdout(), "    • %-20s v%-10s  %d tools, %d KB wasm\n",
+			bare, e.Manifest.Version, len(e.Manifest.Tools), len(e.Wasm)/1024)
+	}
+	return nil
+}
+
 func init() {
 	pluginBundleCmd.Flags().BoolVar(&pluginBundleAllowUnsigned, "allow-unsigned", false,
 		"Skip per-plugin signature verification (the bundler signature still seals the result)")
@@ -277,6 +329,10 @@ func init() {
 		"Path to a persistent Ed25519 seed file (default: ephemeral keypair per invocation)")
 	pluginBundleCmd.Flags().StringVar(&pluginBundleFromFile, "from-file", "",
 		"Path to a TOML manifest listing plugins to bundle (alternative to CLI args)")
+	pluginBundleCmd.Flags().BoolVar(&pluginBundleStripFlag, "strip", false,
+		"Remove the appended bundle from --from, writing vanilla output to --out")
+	pluginBundleCmd.Flags().BoolVar(&pluginBundleInfoFlag, "info", false,
+		"Print the bundle's contents (default --from: running stado)")
 
 	pluginCmd.AddCommand(pluginBundleCmd)
 }
