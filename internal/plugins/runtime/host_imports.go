@@ -43,6 +43,8 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerCompressImports(builder, host)
 	// EP-0038c: Tier 1+ agent fleet imports (bundled agent plugin only).
 	registerAgentImports(builder, host)
+	// EP-0038e: Tier 2 secrets host imports.
+	registerSecretsImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

@@ -11,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/secrets"
 )
 
 // pluginInvokeArgs is the input to runPluginInvocation. The caller
@@ -78,6 +79,15 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 
 	attachPluginMemoryBridge(cfg, host, in.Manifest.Name)
 	host.ToolHost = newPluginRunToolHost(workdir, runner, host.NetHTTPRequestPrivate)
+
+	if host.Secrets != nil {
+		host.Secrets.Store = secrets.NewStore(cfg.StateDir())
+		host.Secrets.PluginName = in.Manifest.Name
+		host.Secrets.AuditEmitter = func(ev pluginRuntime.SecretsAuditEvent) {
+			fmt.Fprintf(in.Stderr, "stado-audit: secrets op=%s secret=%q plugin=%s allowed=%v reason=%s\n",
+				ev.Op, ev.Secret, ev.Plugin, ev.Allowed, ev.Reason)
+		}
+	}
 
 	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 		if in.SessionID != "" {

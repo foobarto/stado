@@ -9,6 +9,7 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
+	"github.com/foobarto/stado/internal/secrets"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -136,10 +137,89 @@ type Host struct {
 	// whatever degraded path it has.
 	StateDir string
 
+	// Secrets gates stado_secrets_* host imports. Populated when the
+	// plugin manifest declares secrets:read[:<glob>] or
+	// secrets:write[:<glob>]. Nil when neither is granted.
+	Secrets *SecretsAccess
+
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.
 	llmTokensUsed int64
+}
+
+// SecretsAccess holds the capability gates and backing store for the
+// stado_secrets_* host imports. Constructed lazily by NewHost when the
+// manifest declares at least one secrets:* capability.
+type SecretsAccess struct {
+	Store        *secrets.Store
+	ReadGlobs    []string // patterns from secrets:read:<glob>; empty = broad match-all
+	WriteGlobs   []string // patterns from secrets:write:<glob>; empty = broad match-all
+	AuditEmitter func(SecretsAuditEvent) // optional; nil = no-op
+	PluginName   string                  // manifest.Name; included in audit events
+}
+
+// SecretsAuditEvent is the structured record emitted for every
+// stado_secrets_* host-import call, whether allowed or denied.
+// Values are never populated with the secret's value — only its name.
+type SecretsAuditEvent struct {
+	Plugin  string
+	Op      string // "get" | "put" | "list" | "remove"
+	Secret  string // empty for list
+	Allowed bool
+	Reason  string // populated when !Allowed
+}
+
+// CanRead reports whether the named secret is reachable under the
+// declared secrets:read[:<glob>] capabilities. Empty ReadGlobs means
+// broad (match-all). Uses filepath.Match for shell-glob semantics.
+func (s *SecretsAccess) CanRead(name string) bool {
+	if len(s.ReadGlobs) == 0 {
+		return true
+	}
+	for _, g := range s.ReadGlobs {
+		if matched, _ := filepath.Match(g, name); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// CanWrite reports whether the named secret is writable under the
+// declared secrets:write[:<glob>] capabilities. Empty WriteGlobs means
+// broad (match-all).
+func (s *SecretsAccess) CanWrite(name string) bool {
+	if len(s.WriteGlobs) == 0 {
+		return true
+	}
+	for _, g := range s.WriteGlobs {
+		if matched, _ := filepath.Match(g, name); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// CanList reports whether the plugin may call stado_secrets_list.
+// Requires either broad read (empty ReadGlobs) or a pattern that
+// matches "*" (covering all names).
+func (s *SecretsAccess) CanList() bool {
+	if len(s.ReadGlobs) == 0 {
+		return true // broad read
+	}
+	for _, g := range s.ReadGlobs {
+		if g == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// Audit calls the AuditEmitter if one is wired; otherwise it's a no-op.
+func (s *SecretsAccess) Audit(ev SecretsAuditEvent) {
+	if s.AuditEmitter != nil {
+		s.AuditEmitter(ev)
+	}
 }
 
 // SessionBridge is the capability-checked surface plugin code calls
@@ -408,6 +488,28 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			// host import returning the named string.
 			if parts[1] == "state_dir" {
 				h.CfgStateDir = true
+			}
+		case "secrets":
+			// secrets:read[:<glob>] and secrets:write[:<glob>].
+			// Store/AuditEmitter are populated by the host caller after
+			// NewHost returns; we only record the glob patterns here.
+			switch parts[1] {
+			case "read":
+				if h.Secrets == nil {
+					h.Secrets = &SecretsAccess{}
+				}
+				if len(parts) == 3 && parts[2] != "" {
+					h.Secrets.ReadGlobs = append(h.Secrets.ReadGlobs, parts[2])
+				}
+				// len(parts) == 2 → broad read; ReadGlobs stays empty (match-all)
+			case "write":
+				if h.Secrets == nil {
+					h.Secrets = &SecretsAccess{}
+				}
+				if len(parts) == 3 && parts[2] != "" {
+					h.Secrets.WriteGlobs = append(h.Secrets.WriteGlobs, parts[2])
+				}
+				// len(parts) == 2 → broad write; WriteGlobs stays empty (match-all)
 			}
 		}
 	}
