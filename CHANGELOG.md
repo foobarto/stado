@@ -6,6 +6,22 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugin runtime — new host imports
+
+- **`stado_http_upload_create` + `_upload_write` + `_upload_finish`** —
+  chunked HTTP request body delivery (EP-0038i, the symmetric
+  counterpart to v0.38.0 response streaming). Plugins can now upload
+  multi-GB payloads without buffering the whole body in wasm memory.
+  New typed handle `httpup:<id>`; `_upload_finish` returns a
+  `httpresp:<id>` so the plugin drains the response via the existing
+  `stado_http_response_read` / `_close` imports — upload + download
+  streaming compose. Reuses `net:http_request[:<host>]` cap; no new
+  cap surface. Per-Runtime cap of 8 concurrent in-flight uploads;
+  reaped on Runtime shutdown. Args JSON narrows to method/url/
+  headers/timeout_ms/content_length — no `body_b64`. Out of scope:
+  HTTP/2 server-push, multipart streaming, trailers, true bidi
+  duplex.
+
 ### Fixes
 
 - **`fs:read:.` / `fs:write:.` on Fedora Atomic / Silverblue / Bazzite.**

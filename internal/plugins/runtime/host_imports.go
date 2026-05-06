@@ -59,6 +59,10 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	// EP-0038h: stado_http_request_stream + chunked body reads.
 	// Reuses net:http_request[:<host>] cap; per-Runtime stream cap.
 	registerHTTPStreamImports(builder, host, r)
+	// EP-0038i: stado_http_upload_* — chunked request body delivery
+	// for uploads that don't fit in wasm memory. Reuses
+	// net:http_request[:<host>] cap.
+	registerHTTPUploadImports(builder, host, r)
 	// EP-0038h: stado_progress — operator-visible progress emit.
 	// No cap; nil-callback drop semantics.
 	registerProgressImport(builder, host)
