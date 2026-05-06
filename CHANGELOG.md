@@ -8,6 +8,58 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.38.0 — EP-0038h: JSON helpers + UDP stateless + HTTP streaming + stado_progress
+
+Bundle of four deferred items from v0.36–v0.37. Each is small on its
+own; releasing them together avoids per-tag overhead.
+
+### Plugin runtime — new host imports
+
+- **`stado_json_get(json, path) → bytes`** + **`stado_json_format(json, indent) → bytes`** —
+  host-side JSON conveniences. Plugins extract one value from an
+  HTTP response or pretty-print a payload without bundling a 50 KB
+  parser into every wasm binary. Path is dotted form (`a.b.0.c`); no
+  filters or globs. No capability gating (pure compute, bounded to
+  256 KB input).
+- **`stado_net_listen("udp", host, port)` + `stado_net_sendto` + `stado_net_recvfrom`** —
+  stateless UDP. A UDP listen handle backs both
+  send-to-anyone and recv-from-anyone, mirroring Go's
+  `net.PacketConn`. New cap `net:listen:udp:<host>:<port>`. Outbound
+  peers in `_sendto` are gated by the **same `net:dial:udp:` glob set**
+  as connect-mode UDP — a UDP listener can't be a wildcard spray gun.
+  `_recvfrom` packs `(body_len << 32) | addr_len` into an i64 return
+  with `-1` / `-2` sentinels in the body slot.
+- **`stado_http_request_stream` + `stado_http_response_read` + `stado_http_response_close`** —
+  chunked HTTP body delivery. Resolves the large-payload OOM in
+  `stado_http_request`. New typed handle `httpresp:<id>`. Reuses
+  existing `net:http_request[:<host>]` cap; no new cap surface.
+  Per-Runtime cap of 8 concurrent open streams; reaped on Runtime
+  shutdown. Out of scope: request-body streaming (uploads), HTTP/2
+  push, multipart, `proxy_url` (use the non-streaming variant for
+  SOCKS pivots).
+- **`stado_progress(text_ptr, text_len) → i32`** — operator-visible
+  progress emission for long-running tools (>2s). v1 is
+  operator-visibility only; the agent / model sees only the final
+  tool result. Mid-tool partial output to the model would break
+  tool-call atomicity in current LLM contracts and is explicitly
+  out of scope. 4 KB max per call. `stado plugin run` prints
+  `[plugin] text` to stderr; TUI integration follows.
+
+### Plugin manifest
+
+- New capability vocabulary:
+  - `net:listen:udp:<host>:<port>` — bind a UDP socket for
+    stateless send/recv (verbatim host-port match like TCP listen)
+- Plugin doctor classifies the new UDP listen cap.
+
+### Deferred
+
+ICMP raw sockets (per operator: last), AXFR DNS, FleetBridge
+messaging real impl, `stado_json_set` / jq-style queries, UDP
+broadcast/multicast set-options, HTTP request body streaming
+(uploads), `stado_progress` agent-loop integration (model sees
+mid-tool partials).
+
 ## v0.37.0 — EP-0038g: net expansion (UDP + Unix sockets + listen/accept)
 
 Continuation of the v0.36.0 EP-0038f TCP work. Plugins can now talk
