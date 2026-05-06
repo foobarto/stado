@@ -89,6 +89,13 @@ type Host struct {
 	NetHTTPRequest        bool     // gates stado_http_request (POST/PUT/DELETE/PATCH/HEAD/GET)
 	NetReqHost            []string // optional hostname allow-list for net:http_request:<host>
 	NetHTTPRequestPrivate bool     // when true, stado_http_request's dial guard allows RFC1918 / loopback / link-local destinations. Off by default — opt-in via net:http_request_private cap.
+	// NetHTTPClient gates stado_http_client_create / _close / _request (EP-0038e Tier 2).
+	// A stateful client with cookie jar and redirect policy, distinct from the one-shot
+	// stado_http_request import. Declared via net:http_client in the manifest.
+	// The operator's NetReqHost allowlist applies as an outer bound: even when
+	// opts.AllowedHosts is empty (allow-all), the client can only reach hosts
+	// the operator approved via net:http_request:<host>.
+	NetHTTPClient bool
 	ExecBash    bool
 	ExecSearch  bool
 	ExecASTGrep bool
@@ -388,6 +395,12 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			if parts[1] == "http_request_private" {
 				h.NetHTTPRequest = true
 				h.NetHTTPRequestPrivate = true
+				continue
+			}
+			// "net:http_client" — stateful HTTP client with cookie jar.
+			// Host allowlist still bounds reachable hosts (see NetReqHost).
+			if parts[1] == "http_client" {
+				h.NetHTTPClient = true
 				continue
 			}
 			// "net:<host>" — the cap string after "net:" is the

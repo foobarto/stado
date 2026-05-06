@@ -328,3 +328,56 @@ plumbing through both surfaces takes more glue than expected).
    cookie reuse across requests.
 5. Negative tests: plugin without `secrets:read` cap is refused;
    plugin without `net:http_client` cap is refused.
+
+## Handoff (2026-05-06)
+
+### What shipped
+
+Four commits on `feat/ep-0038e-tier2-stateful`:
+
+1. `6576b70` — secrets store + CLI (`stado secrets set/get/list/rm`).
+2. `985b78d` — secrets host imports (`stado_secrets_get/put/list`) + cap parsing.
+3. `9dc2c8b` — `internal/httpclient` package (stateful client, cookie jar, dial guard).
+4. This commit — wasm host imports `stado_http_client_create / _close / _request`,
+   `NetHTTPClient` cap field + parser, `httpClientCount` on Runtime, cleanup in
+   `Runtime.Close`, `plugin_doctor` classification for `net:http_client`.
+
+Tests: 131 passing in the `runtime` package (262 RUN lines, covering both subtests
+and top-level). New tests in `host_http_client_test.go`: 11 test functions covering
+cap denied, happy path create+close, AllowPrivate gate, allowed-host intersection,
+per-Runtime cap (64), idempotent close, Runtime.Close cleanup, and end-to-end
+httptest request.
+
+### What's left
+
+- **Cookie persistence** — jar state lives in-process only; survives plugin
+  instance restarts within a Runtime but not across process restarts. A follow-up
+  spec can add optional JSON serialisation of the jar to the secrets store.
+- **Streaming responses** — body is fully buffered and base64'd in the JSON
+  envelope. Suitable for API payloads; unsuitable for large binary downloads.
+  A streaming variant with separate `stado_http_client_read_body` calls is a
+  Tier 3 follow-up.
+- **Cookie-jar introspection** — no `stado_http_client_get_cookies /
+  _set_cookies` yet; plugins can't seed a jar from a known session token.
+
+### Spec deviations
+
+- `HandleTypeHTTPClient` was not added to the public `HandleType` constants in
+  `handles.go` — the `"http"` tag is internal to the registry. The wasm SDK
+  formats typed handles at the language layer; no public constant is needed until
+  a CLI surface exposes http-client handle IDs.
+- `_request` signature: 11 parameters (handle + 5×ptr/len pairs + resp_out+resp_max).
+  Spec sketched a simpler shape; the 11-arg form matches the existing multi-param
+  convention in `host_proc.go` and fits in wasm32 i32-only imports.
+- Response JSON uses `body_b64` (base64-encoded body in the envelope) as chosen.
+  Confirmed simpler than the multi-accessor alternative.
+
+### What to watch
+
+- The `httpClientCount` counter uses `sync/atomic` and the registry mutex
+  separately — a very tight race between _create and _close could briefly
+  show count=-1 if close wins; harmless (just allows one extra create), but
+  monitor for negative values in production logs.
+- Idle-connection cleanup in `closeAllHTTPClients` holds the registry mutex
+  briefly to collect, then releases before calling `Close()`. Watch for
+  shutdown latency if plugins open many connections to slow hosts.
