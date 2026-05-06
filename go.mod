@@ -1,6 +1,6 @@
 module github.com/foobarto/stado
 
-go 1.25.0
+go 1.25.5
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.37.0
@@ -18,7 +18,7 @@ require (
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/v2 v2.3.4
-	github.com/mark3labs/mcp-go v0.48.0
+	github.com/mark3labs/mcp-go v0.52.0
 	github.com/mattn/go-isatty v0.0.20
 	github.com/openai/openai-go v1.12.0
 	github.com/pelletier/go-toml v1.9.5
@@ -104,6 +104,7 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
