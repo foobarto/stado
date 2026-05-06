@@ -178,6 +178,11 @@ func (m *Model) View() string {
 		m.modelPicker.Height = m.height
 		return m.modelPicker.View(m.width, m.height)
 	}
+	if m.personaPicker.Visible {
+		m.personaPicker.Width = m.width
+		m.personaPicker.Height = m.height
+		return m.personaPicker.View(m.width, m.height)
+	}
 	if m.fleetPicker != nil && m.fleetPicker.Visible {
 		// Refresh on each render so status pills + last-tool snapshots
 		// reflect what the goroutines have written. Cheap (Fleet.List
@@ -680,6 +685,7 @@ func (m *Model) renderStatus(width int) string {
 		"Queued":       queued,
 		"Budget":       m.budgetWarning(),
 		"Elapsed":      elapsed,
+		"Persona":      m.personaName(),
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)

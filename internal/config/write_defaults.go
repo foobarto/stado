@@ -54,6 +54,23 @@ func WriteDefaults(configPath, provider, model string) error {
 	})
 }
 
+// WriteDefaultPersona updates [defaults].persona in config.toml. Empty value
+// clears the key — callers usually want to set a real name, but the picker
+// resets to "default" by writing that name explicitly.
+func WriteDefaultPersona(configPath, persona string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	persona = strings.TrimSpace(persona)
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		if persona == "" {
+			tree.DeletePath([]string{"defaults", "persona"})
+			return
+		}
+		tree.SetPath([]string{"defaults", "persona"}, persona)
+	})
+}
+
 // WriteTUIThinkingDisplay updates [tui].thinking_display in config.toml.
 func WriteTUIThinkingDisplay(configPath, mode string) error {
 	if strings.TrimSpace(configPath) == "" {

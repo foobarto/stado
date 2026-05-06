@@ -81,6 +81,8 @@ func (m *Model) anyModalOpen() bool {
 	switch {
 	case m.modelPicker.Visible:
 		return true
+	case m.personaPicker.Visible:
+		return true
 	case m.filePicker.Visible:
 		return true
 	case m.sessionPick.Visible:
@@ -103,6 +105,9 @@ func (m *Model) anyModalOpen() bool {
 func (m *Model) closeAllModals() {
 	if m.modelPicker.Visible {
 		m.modelPicker.Close()
+	}
+	if m.personaPicker.Visible {
+		m.personaPicker.Close()
 	}
 	if m.filePicker.Visible {
 		m.filePicker.Close()
@@ -331,6 +336,12 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 				body += "\n" + err.Error()
 			}
 			m.appendBlock(block{kind: "system", body: body})
+		}
+	case "/persona":
+		if len(parts) < 2 {
+			m.openPersonaPicker()
+		} else {
+			m.applyPersonaSelection(parts[1])
 		}
 	case "/theme":
 		if len(parts) < 2 {
