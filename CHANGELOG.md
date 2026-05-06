@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.39.0 — session.search plugin + TUI progress surface
+
 ### Plugins
 
 - **`session.search`** — new bundled wasm plugin offering grep-style
@@ -15,6 +19,17 @@ Plugins / Infra / Fixes.
   Capability: `session:read` (existing — no new host imports).
   Search core lives in `searchcore/` so it builds + tests on the
   host arch alongside the wasip1-only main module.
+
+### TUI
+
+- **`stado_progress` surfaces in the sidebar.** Closes the half-shipped
+  EP-0038h piece. Bundled wasm plugins emitting `stado_progress` now
+  show as `PROGRESS [plugin] text` entries in the TUI's log-tail
+  sidebar — always visible (no `--sidebar-debug` required), styled as
+  accent. Wired via a new `tool.ProgressEmitter` optional Host
+  extension; `bundled_plugin_tools.Run` type-asserts and populates
+  `host.Progress`. Headless runs without an attached operator stay
+  silent (nil callback, plugin doesn't fail).
 
 ## v0.38.0 — EP-0038h: JSON helpers + UDP stateless + HTTP streaming + stado_progress
 
