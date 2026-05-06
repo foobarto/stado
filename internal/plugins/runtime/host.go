@@ -626,25 +626,26 @@ func (h *Host) parseNetSocketCap(full []string) {
 			return
 		}
 		host, port := full[3], full[4]
+		pat := NetDialPattern{Host: host, Port: port}
 		switch mode {
 		case "dial":
 			if h.NetDial == nil {
 				h.NetDial = &NetDialAccess{}
 			}
-			pat := NetDialPattern{Host: host, Port: port}
 			if transport == "tcp" {
 				h.NetDial.TCPGlobs = append(h.NetDial.TCPGlobs, pat)
 			} else {
 				h.NetDial.UDPGlobs = append(h.NetDial.UDPGlobs, pat)
 			}
 		case "listen":
-			if transport == "udp" {
-				return // UDP listen not in this cycle
-			}
 			if h.NetListen == nil {
 				h.NetListen = &NetListenAccess{}
 			}
-			h.NetListen.TCPGlobs = append(h.NetListen.TCPGlobs, NetDialPattern{Host: host, Port: port})
+			if transport == "tcp" {
+				h.NetListen.TCPGlobs = append(h.NetListen.TCPGlobs, pat)
+			} else {
+				h.NetListen.UDPGlobs = append(h.NetListen.UDPGlobs, pat)
+			}
 		}
 	case "unix":
 		path := strings.Join(full[3:], ":")

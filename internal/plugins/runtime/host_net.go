@@ -144,12 +144,13 @@ func (a *NetDialAccess) CanDialUnix(path string) bool {
 }
 
 // NetListenAccess records server-side socket capabilities granted by
-// net:listen:tcp:<host>:<port> and net:listen:unix:<path> entries.
-// Listening on 0.0.0.0 vs 127.0.0.1 is encoded in the capability
-// string itself — the operator must spell out which interface to
-// expose; there is no implicit fallback.
+// net:listen:{tcp,udp}:<host>:<port> and net:listen:unix:<path>
+// entries. Listening on 0.0.0.0 vs 127.0.0.1 is encoded in the
+// capability string itself — the operator must spell out which
+// interface to expose; there is no implicit fallback.
 type NetListenAccess struct {
 	TCPGlobs  []NetDialPattern // (hostGlob, portGlob)
+	UDPGlobs  []NetDialPattern // EP-0038h — UDP bind for stateless send/recv
 	UnixGlobs []string         // path globs
 }
 
@@ -175,16 +176,29 @@ type netConn struct {
 }
 
 // netListener is the host-side state for a stado_net_listen-allocated
-// handle. `kind` carries the transport so close-listener knows whether
-// to remove a socket file (`unix`) or just close the listener (`tcp`).
+// handle. `kind` carries the transport so close-listener knows what to
+// reap (socket file for unix; PacketConn vs Listener for udp vs tcp).
 type netListener struct {
-	l    net.Listener
-	kind string // "tcp" | "unix"
-	path string // unix only — removed on Close
+	l    net.Listener   // tcp / unix; nil for udp
+	pc   net.PacketConn // udp; nil for tcp / unix
+	kind string         // "tcp" | "unix" | "udp"
+	path string         // unix only — removed on Close
 }
 
-// registerNetImports wires every EP-0038f/g host import: dial+read+
-// write+close, plus the listen+accept+close_listener trio.
+// closeUnderlying closes whichever of l or pc is set.
+func (n *netListener) closeUnderlying() error {
+	if n.l != nil {
+		return n.l.Close()
+	}
+	if n.pc != nil {
+		return n.pc.Close()
+	}
+	return nil
+}
+
+// registerNetImports wires every EP-0038f/g/h host import: dial+read+
+// write+close, plus the listen+accept+close_listener trio, plus the
+// stateless UDP sendto+recvfrom pair.
 func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
 	registerNetDialImport(builder, host, rt)
 	registerNetReadImport(builder, host, rt)
@@ -193,6 +207,8 @@ func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtim
 	registerNetListenImport(builder, host, rt)
 	registerNetAcceptImport(builder, host, rt)
 	registerNetCloseListenerImport(builder, host, rt)
+	registerNetSendtoImport(builder, host, rt)
+	registerNetRecvfromImport(builder, host, rt)
 }
 
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
@@ -435,15 +451,15 @@ func registerNetListenImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if atomic.LoadInt64(&rt.netListenerCount) >= maxNetListenersPerRuntime {
 				return -1
 			}
-			ln, kind, path, err := listenNet(host, transport, hostStr, int(port))
+			lst, err := listenNet(host, transport, hostStr, int(port))
 			if err != nil {
 				return -1
 			}
-			id, err := rt.handles.alloc(string(HandleTypeListen), &netListener{l: ln, kind: kind, path: path})
+			id, err := rt.handles.alloc(string(HandleTypeListen), lst)
 			if err != nil {
-				_ = ln.Close()
-				if path != "" {
-					_ = removeUnixSocketFile(path)
+				_ = lst.closeUnderlying()
+				if lst.path != "" {
+					_ = removeUnixSocketFile(lst.path)
 				}
 				return -1
 			}
@@ -453,34 +469,50 @@ func registerNetListenImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 		Export("stado_net_listen")
 }
 
-// listenNet performs the cap-gated bind. Returns the kind tag (for
-// later cleanup) and the socket path (Unix only).
-func listenNet(host *Host, transport, hostStr string, port int) (net.Listener, string, string, error) {
+// listenNet performs the cap-gated bind. Returns a fully-formed
+// netListener; tcp/unix populate `l` and udp populates `pc`.
+func listenNet(host *Host, transport, hostStr string, port int) (*netListener, error) {
 	switch transport {
 	case "tcp":
 		portStr := strconv.Itoa(port)
 		if !host.NetListen.CanListenTCP(hostStr, portStr) {
-			return nil, "", "", errCapDenied
+			return nil, errCapDenied
 		}
 		ln, err := net.Listen("tcp", net.JoinHostPort(hostStr, portStr))
 		if err != nil {
-			return nil, "", "", err
+			return nil, err
 		}
-		return ln, "tcp", "", nil
+		return &netListener{l: ln, kind: "tcp"}, nil
 	case "unix":
 		if err := validateUnixSocketPath(hostStr); err != nil {
-			return nil, "", "", err
+			return nil, err
 		}
 		if !host.NetListen.CanListenUnix(hostStr) {
-			return nil, "", "", errCapDenied
+			return nil, errCapDenied
 		}
 		ln, err := net.Listen("unix", hostStr)
 		if err != nil {
-			return nil, "", "", err
+			return nil, err
 		}
-		return ln, "unix", hostStr, nil
+		return &netListener{l: ln, kind: "unix", path: hostStr}, nil
+	case "udp":
+		// UDP listen is shape-shared with TCP listen but uses
+		// PacketConn semantics (sendto / recvfrom). Cap vocab reuses
+		// net:listen:tcp's host-port glob shape under :udp:.
+		portStr := strconv.Itoa(port)
+		if host.NetListen == nil {
+			return nil, errCapDenied
+		}
+		if !matchHostPort(host.NetListen.UDPGlobs, hostStr, portStr) {
+			return nil, errCapDenied
+		}
+		pc, err := net.ListenPacket("udp", net.JoinHostPort(hostStr, portStr))
+		if err != nil {
+			return nil, err
+		}
+		return &netListener{pc: pc, kind: "udp"}, nil
 	default:
-		return nil, "", "", errCapDenied
+		return nil, errCapDenied
 	}
 }
 
@@ -497,6 +529,11 @@ func registerNetAcceptImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			}
 			lst, ok := lookupNetListener(rt, uint32(handle))
 			if !ok {
+				return -1
+			}
+			if lst.l == nil {
+				// UDP / packet-conn listeners have no Accept; plugin
+				// should be using sendto/recvfrom instead.
 				return -1
 			}
 			timeout := time.Duration(timeoutMs) * time.Millisecond
@@ -544,7 +581,7 @@ func registerNetCloseListenerImport(builder wazero.HostModuleBuilder, host *Host
 			if !ok {
 				return -1
 			}
-			_ = lst.l.Close()
+			_ = lst.closeUnderlying()
 			if lst.kind == "unix" && lst.path != "" {
 				_ = removeUnixSocketFile(lst.path)
 			}
@@ -569,6 +606,119 @@ func lookupNetListener(rt *Runtime, handle uint32) (*netListener, bool) {
 	return lst, ok
 }
 
+// stado_net_sendto(lst_handle, host_ptr, host_len, port_i32,
+//                  data_ptr, data_len) → i32
+//
+// Sends one UDP packet to the (host, port) peer. Cap-gated by the
+// SAME net:dial:udp:<peer-host>:<peer-port> globs as connect-mode UDP
+// dial — a UDP listener can't be a wildcard spray gun. Private peer
+// addresses still need NetHTTPRequestPrivate. Returns bytes written
+// or -1 on cap denied / unknown handle / send failure.
+func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(_ context.Context, mod api.Module,
+			handle, hostPtr, hostLen, port, dataPtr, dataLen int32,
+		) int32 {
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok || lst.kind != "udp" || lst.pc == nil {
+				return -1
+			}
+			if host.NetDial == nil {
+				return -1
+			}
+			peerHost, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			if !ok {
+				return -1
+			}
+			portStr := strconv.Itoa(int(port))
+			if !host.NetDial.CanDialUDP(peerHost, portStr) {
+				return -1
+			}
+			// Private-IP guard — same as dial.
+			if !host.NetHTTPRequestPrivate {
+				if ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", peerHost); err == nil {
+					for _, ip := range ips {
+						if isPrivateIP(ip) {
+							return -1
+						}
+					}
+				}
+			}
+			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
+			if !ok {
+				return -1
+			}
+			addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(peerHost, portStr))
+			if err != nil {
+				return -1
+			}
+			n, err := lst.pc.WriteTo(data, addr)
+			if err != nil {
+				return -1
+			}
+			return int32(n)
+		}).
+		Export("stado_net_sendto")
+}
+
+// stado_net_recvfrom(lst_handle, timeout_ms, body_ptr, body_max,
+//                    addr_ptr, addr_max) → i64
+//
+// Reads one packet. Returns a packed i64:
+//   high 32 = body bytes written (or -1 / -2 sentinel as int32)
+//   low  32 = address-string bytes written (host:port form)
+// On error / timeout, body sentinel is set; caller can ignore the
+// addr buffer. -2 = timeout (recoverable), -1 = error.
+func registerNetRecvfromImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(_ context.Context, mod api.Module,
+			handle, timeoutMs, bodyPtr, bodyMax, addrPtr, addrMax int32,
+		) int64 {
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok || lst.kind != "udp" || lst.pc == nil {
+				return packRecvResult(-1, 0)
+			}
+			timeout := time.Duration(timeoutMs) * time.Millisecond
+			if timeout <= 0 {
+				timeout = netAcceptDefaultTimeout
+			}
+			if timeout > netAcceptMaxTimeout {
+				timeout = netAcceptMaxTimeout
+			}
+			_ = lst.pc.SetReadDeadline(time.Now().Add(timeout))
+			defer lst.pc.SetReadDeadline(time.Time{})
+
+			buf := make([]byte, bodyMax)
+			n, peer, err := lst.pc.ReadFrom(buf)
+			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					return packRecvResult(-2, 0)
+				}
+				return packRecvResult(-1, 0)
+			}
+			if !mod.Memory().Write(uint32(bodyPtr), buf[:n]) {
+				return packRecvResult(-1, 0)
+			}
+			addrStr := peer.String()
+			if int32(len(addrStr)) > addrMax {
+				addrStr = addrStr[:addrMax]
+			}
+			if !mod.Memory().Write(uint32(addrPtr), []byte(addrStr)) {
+				return packRecvResult(-1, 0)
+			}
+			return packRecvResult(int32(n), int32(len(addrStr)))
+		}).
+		Export("stado_net_recvfrom")
+}
+
+// packRecvResult packs (body_len_or_sentinel, addr_len) into the i64
+// return shape: high 32 = body, low 32 = addr. The wasm caller
+// extracts body via int32(ret >> 32) (signed cast preserves the
+// -1/-2 sentinels) and addr via uint32(ret & 0xFFFFFFFF).
+func packRecvResult(bodyLen, addrLen int32) int64 {
+	return (int64(bodyLen) << 32) | (int64(addrLen) & 0xFFFFFFFF)
+}
+
 // closeAllNetListeners reaps listener handles on Runtime.Close. Removes
 // any unix socket files left behind.
 func (r *Runtime) closeAllNetListeners(ctx context.Context) {
@@ -585,7 +735,7 @@ func (r *Runtime) closeAllNetListeners(ctx context.Context) {
 	}
 	r.handles.mu.Unlock()
 	for _, l := range listeners {
-		_ = l.l.Close()
+		_ = l.closeUnderlying()
 		if l.kind == "unix" && l.path != "" {
 			_ = removeUnixSocketFile(l.path)
 		}

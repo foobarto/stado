@@ -161,6 +161,10 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "stado_net_listen (TCP) — server-side bind. Loopback vs 0.0.0.0 must be spelled out in the cap; no implicit fallback. 8 listeners per plugin."
 		return cn
+	case strings.HasPrefix(cap, "net:listen:udp:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_net_listen (UDP) — bind for sendto/recvfrom. Outbound peers still gated by net:dial:udp:<peer-host>:<port> caps."
+		return cn
 	case strings.HasPrefix(cap, "net:listen:unix:"):
 		cn.requirement = requireNothing
 		cn.note = "stado_net_listen (Unix) — server-side IPC bind. Socket file is removed on listener close."
