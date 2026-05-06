@@ -69,6 +69,11 @@ type Runtime struct {
 	// maxNetListenersPerRuntime. EP-0038g.
 	netListenerCount int64
 
+	// httpStreamCount tracks open stado_http_request_stream response
+	// handles (typeTag "httpresp"). Accessed atomically. Enforces
+	// maxHTTPStreamsPerRuntime. EP-0038h.
+	httpStreamCount int64
+
 	// instanceStore is the per-Runtime in-memory KV store backing
 	// stado_instance_*. Process-lifetime; cleared at Close. Per-plugin
 	// namespacing inside the store (a plugin can't read another's keys).
@@ -135,6 +140,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	closeAllHTTPClients(r)
 	r.closeAllNetConns(ctx)
 	r.closeAllNetListeners(ctx)
+	r.closeAllHTTPStreams(ctx)
 	return r.rt.Close(ctx)
 }
 

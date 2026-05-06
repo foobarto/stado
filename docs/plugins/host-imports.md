@@ -274,6 +274,38 @@ on the request; the dial guard still applies to the proxy address
 itself, so set `net:http_request_private` if the proxy lives on
 loopback / RFC1918 (the typical case for pivots).
 
+### stado_http_request_stream / stado_http_response_read / stado_http_response_close
+
+EP-0038h — chunked HTTP response delivery for plugins fetching large
+payloads (firmware, log archives) without OOMing the wasm instance.
+
+| Import | Returns |
+|---|---|
+| `stado_http_request_stream(args_ptr, args_len, out_ptr, out_max) → i32` | bytes of result JSON written; -1 on error |
+| `stado_http_response_read(handle, out_ptr, out_max, timeout_ms) → i32` | bytes written; 0 = EOF; -1 = error |
+| `stado_http_response_close(handle) → i32` | 0 (idempotent); -1 on unknown handle |
+
+**Capability:** reuses `net:http_request[:<host>]` from the
+non-streaming variant. No new cap.
+
+**Args JSON:** `{method, url, headers?, body_b64?, timeout_ms?}`
+(narrow subset of `stado_http_request`'s args; proxy_url omitted in
+v1).
+
+**Result JSON:** `{status, headers, body_handle}` — `body_handle` is
+a `httpresp:<id>` typed handle for the open response body. The
+plugin drains it via `stado_http_response_read` until 0 (EOF) and
+calls `_response_close` to release.
+
+**Resource cap:** 8 concurrent open response streams per Runtime.
+The 9th `_request_stream` returns -1. Open streams are reaped on
+Runtime shutdown.
+
+**Out of scope:** request body streaming (large uploads), HTTP/2
+server-push, multipart streaming. `proxy_url` (SOCKS pivots) not
+exposed in streaming v1 — use the non-streaming variant if you need
+the proxy.
+
 ### stado_dns_resolve
 
 | Field | Value |
