@@ -125,10 +125,13 @@ func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 	return out
 }
 
-// isMetaTool reports whether name is one of the four dispatch kernel tools.
+// isMetaTool reports whether name is one of the dispatch kernel tools.
+// All meta-tools are unconditionally autoloaded — they're how the model
+// discovers and activates the rest of the surface.
 func isMetaTool(name string) bool {
 	switch name {
-	case "tools__search", "tools__describe", "tools__categories", "tools__in_category":
+	case "tools__search", "tools__describe", "tools__categories", "tools__in_category",
+		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload":
 		return true
 	}
 	return false
@@ -309,6 +312,15 @@ func dedupeTools(ts []pkgtool.Tool) []pkgtool.Tool {
 // extractActivated parses a tools.describe result JSON and adds the names of
 // successfully described tools to the activated set.
 func extractActivated(content string, activated map[string]bool) {
+	AbsorbActivatedFromDescribe(content, activated)
+}
+
+// AbsorbActivatedFromDescribe is the exported form of extractActivated.
+// Used by the TUI's per-session activation tracking (model_stream.go's
+// absorbToolActivations) so the lazy-load surface flips on after the
+// model calls tools.describe — matching the headless agentloop's
+// behaviour at internal/runtime/agentloop.go's activatedNames tracking.
+func AbsorbActivatedFromDescribe(content string, activated map[string]bool) {
 	var items []map[string]any
 	if err := json.Unmarshal([]byte(content), &items); err != nil {
 		return

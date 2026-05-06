@@ -921,6 +921,17 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			model: m,
 		},
 		spawn: m.buildSubagentSpawner(),
+		activate: func(name string) {
+			if m.activatedTools == nil {
+				m.activatedTools = map[string]bool{}
+			}
+			m.activatedTools[name] = true
+		},
+		deactivate: func(name string) {
+			if m.activatedTools != nil {
+				delete(m.activatedTools, name)
+			}
+		},
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -999,15 +1010,20 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 // toolDefs builds the tool-definition list for the current turn request. An
 // empty registry (no session) returns nil so the provider runs pure chat.
 //
+// EP-0037 lazy-load: each turn sends only autoloaded core + tools the model
+// has explicitly activated this session via tools.describe / tools.activate
+// / plugin.load. Without this filter every installed plugin's schema would
+// land in every turn, blowing up the prompt budget on rich plugin sets.
+//
 // In Plan mode only NonMutating tools are exposed — the model can grep/read/
 // look-up-defs to form a plan, but can't edit/write/bash. This is the
 // principled enforcement (no approval-loop workaround): the model literally
 // doesn't see the mutating tools as available, so it produces analysis
 // rather than asking to execute.
 func (m *Model) toolDefs() []agent.ToolDef {
-	visible := m.visibleTools()
-	out := make([]agent.ToolDef, 0, len(visible))
-	for _, t := range visible {
+	surface := m.toolSurfaceForTurn()
+	out := make([]agent.ToolDef, 0, len(surface))
+	for _, t := range surface {
 		schema, _ := json.Marshal(t.Schema())
 		out = append(out, agent.ToolDef{
 			Name:        t.Name(),
@@ -1016,6 +1032,107 @@ func (m *Model) toolDefs() []agent.ToolDef {
 		})
 	}
 	return out
+}
+
+// toolSurfaceForTurn is the per-turn surface: AutoloadedTools(reg, cfg) +
+// activatedTools, with Plan-mode and session-override filtering applied.
+// Distinct from visibleTools (which returns the full filtered registry for
+// `/tool ls` and the status modal).
+func (m *Model) toolSurfaceForTurn() []tool.Tool {
+	if m.executor == nil {
+		return nil
+	}
+	eff := m.cfg
+	if !m.sessionToolOverrides.isZero() && m.cfg != nil {
+		c := *m.cfg
+		c.Tools = m.sessionToolOverrides.effectiveTools(m.cfg)
+		eff = &c
+	}
+	autoloaded := runtime.AutoloadedTools(m.executor.Registry, eff)
+	pool := autoloaded
+	if len(m.activatedTools) > 0 {
+		seen := map[string]bool{}
+		for _, t := range autoloaded {
+			seen[t.Name()] = true
+		}
+		for name := range m.activatedTools {
+			if seen[name] {
+				continue
+			}
+			if t, ok := m.executor.Registry.Get(name); ok {
+				pool = append(pool, t)
+				seen[name] = true
+			}
+		}
+	}
+	if m.mode == modePlan || m.mode == modeBTW {
+		out := make([]tool.Tool, 0, len(pool))
+		for _, t := range pool {
+			if m.executor.Registry.ClassOf(t.Name()) != tool.ClassNonMutating {
+				continue
+			}
+			out = append(out, t)
+		}
+		pool = out
+	}
+	if !m.sessionToolOverrides.isZero() {
+		out := make([]tool.Tool, 0, len(pool))
+		for _, t := range pool {
+			if m.sessionToolOverrideHidesTool(t.Name()) {
+				continue
+			}
+			out = append(out, t)
+		}
+		pool = out
+	}
+	return pool
+}
+
+// absorbToolActivations scans tool results from the just-completed turn
+// and adds activations for tools.describe results. The result-blocks only
+// carry tool_use_id; we look up the corresponding ToolUseBlock in the
+// most recent assistant message to find the call name. EP-0037 lazy-load.
+func (m *Model) absorbToolActivations(results []agent.ToolResultBlock) {
+	if len(results) == 0 || len(m.msgs) == 0 {
+		return
+	}
+	// Find the last assistant message with tool calls (must be the
+	// one whose results we're processing).
+	var calls []agent.ToolUseBlock
+	for i := len(m.msgs) - 1; i >= 0; i-- {
+		if m.msgs[i].Role != agent.RoleAssistant {
+			continue
+		}
+		for _, b := range m.msgs[i].Content {
+			if b.ToolUse != nil {
+				calls = append(calls, *b.ToolUse)
+			}
+		}
+		break
+	}
+	if len(calls) == 0 {
+		return
+	}
+	idToName := make(map[string]string, len(calls))
+	for _, c := range calls {
+		idToName[c.ID] = c.Name
+	}
+	for _, r := range results {
+		if r.IsError {
+			continue
+		}
+		name, ok := idToName[r.ToolUseID]
+		if !ok {
+			continue
+		}
+		switch name {
+		case "tools__describe":
+			if m.activatedTools == nil {
+				m.activatedTools = map[string]bool{}
+			}
+			runtime.AbsorbActivatedFromDescribe(r.Content, m.activatedTools)
+		}
+	}
 }
 
 func (m *Model) visibleTools() []tool.Tool {

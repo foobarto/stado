@@ -165,6 +165,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.turnText = ""
 		m.turnThinking = ""
 		m.turnToolCalls = nil
+		m.activatedTools = nil // EP-0037 lazy-load: clear per-session activations on /clear
 		m.renderBlocks()
 	case "/help":
 		m.showHelp = true

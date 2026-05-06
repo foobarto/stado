@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/sandbox"
+	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
 
 // TestMetaSearch_RejectsMalformedJSON: malformed args used to silently
@@ -103,6 +106,127 @@ func TestMetaDescribe_EmptyArgs(t *testing.T) {
 	res, _ := tool.Run(context.Background(), []byte(`{}`), nil)
 	if res.Error == "" {
 		t.Error("expected Result.Error to be set; got empty")
+	}
+}
+
+// fakeActivatorHost is a minimal tool.Host that implements
+// ToolActivator + ToolDeactivator for meta-tool tests.
+type fakeActivatorHost struct {
+	activated   map[string]bool
+	deactivated map[string]bool
+}
+
+func newFakeActivatorHost() *fakeActivatorHost {
+	return &fakeActivatorHost{
+		activated:   map[string]bool{},
+		deactivated: map[string]bool{},
+	}
+}
+
+func (h *fakeActivatorHost) Approve(context.Context, pkgtool.ApprovalRequest) (pkgtool.Decision, error) {
+	return pkgtool.DecisionAllow, nil
+}
+func (h *fakeActivatorHost) Workdir() string         { return "/tmp" }
+func (h *fakeActivatorHost) Runner() sandbox.Runner  { return sandbox.NoneRunner{} }
+func (h *fakeActivatorHost) RequestApproval(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+func (h *fakeActivatorHost) PriorRead(pkgtool.ReadKey) (pkgtool.PriorReadInfo, bool) {
+	return pkgtool.PriorReadInfo{}, false
+}
+func (h *fakeActivatorHost) RecordRead(pkgtool.ReadKey, pkgtool.PriorReadInfo) {}
+func (h *fakeActivatorHost) ActivateTool(name string)   { h.activated[name] = true }
+func (h *fakeActivatorHost) DeactivateTool(name string) { h.deactivated[name] = true }
+
+// TestMetaActivate_AddsToActivationSet: tools__activate calls the
+// host's ActivateTool for each known tool name.
+func TestMetaActivate_AddsToActivationSet(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaActivate{reg: reg}
+	host := newFakeActivatorHost()
+
+	res, err := tool.Run(context.Background(), []byte(`{"name":"read"}`), host)
+	if err != nil {
+		t.Fatalf("activate single: %v", err)
+	}
+	if res.Error != "" {
+		t.Errorf("res.Error = %q", res.Error)
+	}
+	if !host.activated["read"] {
+		t.Errorf("expected `read` in activated set; got %v", host.activated)
+	}
+
+	host = newFakeActivatorHost()
+	res, err = tool.Run(context.Background(), []byte(`{"names":["read","grep"]}`), host)
+	if err != nil {
+		t.Fatalf("activate batch: %v", err)
+	}
+	if !host.activated["read"] || !host.activated["grep"] {
+		t.Errorf("expected both `read` and `grep` activated; got %v", host.activated)
+	}
+}
+
+// TestMetaActivate_NoHostSupport: returns an error result when the host
+// doesn't implement ToolActivator.
+func TestMetaActivate_NoHostSupport(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaActivate{reg: reg}
+	res, _ := tool.Run(context.Background(), []byte(`{"name":"read"}`), nil)
+	if res.Error == "" {
+		t.Error("expected Result.Error when host is nil")
+	}
+}
+
+// TestMetaDeactivate_RemovesFromSet: tools__deactivate calls
+// DeactivateTool for each name.
+func TestMetaDeactivate_RemovesFromSet(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaDeactivate{reg: reg}
+	host := newFakeActivatorHost()
+	host.activated["read"] = true
+
+	_, err := tool.Run(context.Background(), []byte(`{"name":"read"}`), host)
+	if err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	if !host.deactivated["read"] {
+		t.Errorf("expected `read` in deactivated set")
+	}
+}
+
+// TestMetaPluginLoad_ActivatesAllToolsForPlugin: plugin__load activates
+// every tool whose metadata says it belongs to the named plugin.
+func TestMetaPluginLoad_ActivatesAllToolsForPlugin(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaPluginLoad{reg: reg}
+	host := newFakeActivatorHost()
+
+	// `agent` plugin owns at least agent__spawn / agent__list (per
+	// internal/runtime/bundled_plugin_tools.go's registrations).
+	res, err := tool.Run(context.Background(), []byte(`{"plugin":"agent"}`), host)
+	if err != nil {
+		t.Fatalf("plugin__load: %v", err)
+	}
+	if res.Error != "" {
+		t.Errorf("res.Error = %q (content: %s)", res.Error, res.Content)
+	}
+	if !strings.Contains(res.Content, "agent__spawn") {
+		t.Errorf("expected `agent__spawn` in result; got: %s", res.Content)
+	}
+	if len(host.activated) == 0 {
+		t.Error("expected ActivateTool to be called at least once")
+	}
+}
+
+// TestMetaPluginLoad_UnknownPluginReturnsError: plugin__load against an
+// unknown plugin name → Result.Error.
+func TestMetaPluginLoad_UnknownPluginReturnsError(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaPluginLoad{reg: reg}
+	host := newFakeActivatorHost()
+	res, _ := tool.Run(context.Background(), []byte(`{"plugin":"nope-no-such"}`), host)
+	if res.Error == "" {
+		t.Error("expected error for unknown plugin")
 	}
 }
 

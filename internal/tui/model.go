@@ -288,6 +288,13 @@ type Model struct {
 	// unautoload edits made without --save. Zero value = no
 	// overrides. EP-0037 §I, BACKLOG #5.
 	sessionToolOverrides sessionToolOverrides
+
+	// activatedTools tracks tools the model brought into the per-turn
+	// surface via tools__describe / tools__activate / plugin__load.
+	// EP-0037 lazy-load: each turn sends only AutoloadedTools(reg, cfg)
+	// + the names in this set. Cleared on /clear and on session-switch.
+	// nil = empty (treat as no activations).
+	activatedTools map[string]bool
 	vp          viewport.Model
 	showHelp    bool
 	showStatus  bool
