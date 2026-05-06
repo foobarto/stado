@@ -6,6 +6,14 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.40.0 — TUI tool-expand + mouse + PTY persistence + EP-0038i imports
+
+Bundle release covering UI quality-of-life, two operator-reported
+fixes, and three deferred plugin-runtime imports (HTTP upload
+streaming, JSON set, AXFR DNS).
+
 ### Plugin runtime — new host imports
 
 - **`stado_dns_resolve_axfr(zone, server, timeout_ms?)`** — DNS zone
