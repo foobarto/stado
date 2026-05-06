@@ -35,8 +35,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -48,8 +50,14 @@ import (
 )
 
 const (
-	maxNetConnsPerRuntime = 64
-	netDialDefaultTimeout = 10 * time.Second
+	maxNetConnsPerRuntime     = 64
+	maxNetListenersPerRuntime = 8
+	netDialDefaultTimeout     = 10 * time.Second
+	// netAcceptMaxTimeout caps stado_net_accept's blocking window. An
+	// infinite-block accept holds the runtime forever (DoS); the wasm
+	// caller re-loops if it wants to wait longer. EP-0038g Q5.
+	netAcceptMaxTimeout     = 30 * time.Second
+	netAcceptDefaultTimeout = 5 * time.Second
 )
 
 // NetDialAccess records a plugin's manifest-declared outbound socket
@@ -166,12 +174,25 @@ type netConn struct {
 	c net.Conn
 }
 
-// registerNetImports wires the four TCP imports.
+// netListener is the host-side state for a stado_net_listen-allocated
+// handle. `kind` carries the transport so close-listener knows whether
+// to remove a socket file (`unix`) or just close the listener (`tcp`).
+type netListener struct {
+	l    net.Listener
+	kind string // "tcp" | "unix"
+	path string // unix only — removed on Close
+}
+
+// registerNetImports wires every EP-0038f/g host import: dial+read+
+// write+close, plus the listen+accept+close_listener trio.
 func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
 	registerNetDialImport(builder, host, rt)
 	registerNetReadImport(builder, host, rt)
 	registerNetWriteImport(builder, host, rt)
 	registerNetCloseImport(builder, host, rt)
+	registerNetListenImport(builder, host, rt)
+	registerNetAcceptImport(builder, host, rt)
+	registerNetCloseListenerImport(builder, host, rt)
 }
 
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
@@ -387,6 +408,198 @@ func lookupNetConn(rt *Runtime, handle uint32) (*netConn, bool) {
 	}
 	conn, ok := v.(*netConn)
 	return conn, ok
+}
+
+// stado_net_listen(transport_ptr, transport_len, host_ptr, host_len,
+//                  port_i32) → i64
+//
+// transport: "tcp" | "unix". For "unix", host carries the socket path
+// and port is ignored. Returns the listener handle as i64, or -1 on
+// cap denied / bind failure / cap exhausted.
+func registerNetListenImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module,
+			transportPtr, transportLen, hostPtr, hostLen, port int32,
+		) int64 {
+			if host.NetListen == nil {
+				return -1
+			}
+			transport, ok := readMemoryString(mod, uint32(transportPtr), uint32(transportLen))
+			if !ok {
+				return -1
+			}
+			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			if !ok {
+				return -1
+			}
+			if atomic.LoadInt64(&rt.netListenerCount) >= maxNetListenersPerRuntime {
+				return -1
+			}
+			ln, kind, path, err := listenNet(host, transport, hostStr, int(port))
+			if err != nil {
+				return -1
+			}
+			id, err := rt.handles.alloc(string(HandleTypeListen), &netListener{l: ln, kind: kind, path: path})
+			if err != nil {
+				_ = ln.Close()
+				if path != "" {
+					_ = removeUnixSocketFile(path)
+				}
+				return -1
+			}
+			atomic.AddInt64(&rt.netListenerCount, 1)
+			return int64(id)
+		}).
+		Export("stado_net_listen")
+}
+
+// listenNet performs the cap-gated bind. Returns the kind tag (for
+// later cleanup) and the socket path (Unix only).
+func listenNet(host *Host, transport, hostStr string, port int) (net.Listener, string, string, error) {
+	switch transport {
+	case "tcp":
+		portStr := strconv.Itoa(port)
+		if !host.NetListen.CanListenTCP(hostStr, portStr) {
+			return nil, "", "", errCapDenied
+		}
+		ln, err := net.Listen("tcp", net.JoinHostPort(hostStr, portStr))
+		if err != nil {
+			return nil, "", "", err
+		}
+		return ln, "tcp", "", nil
+	case "unix":
+		if err := validateUnixSocketPath(hostStr); err != nil {
+			return nil, "", "", err
+		}
+		if !host.NetListen.CanListenUnix(hostStr) {
+			return nil, "", "", errCapDenied
+		}
+		ln, err := net.Listen("unix", hostStr)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return ln, "unix", hostStr, nil
+	default:
+		return nil, "", "", errCapDenied
+	}
+}
+
+// stado_net_accept(lst_handle i32, timeout_ms i32) → i64
+//
+// Returns the accepted conn handle (uint32 promoted to i64) on success.
+// Returns -1 on error / unknown handle / cap exhausted, -2 on timeout.
+// Timeout is clamped to [0, netAcceptMaxTimeout]; <=0 = default 5s.
+func registerNetAcceptImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, handle, timeoutMs int32) int64 {
+			if host.NetListen == nil {
+				return -1
+			}
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			timeout := time.Duration(timeoutMs) * time.Millisecond
+			if timeout <= 0 {
+				timeout = netAcceptDefaultTimeout
+			}
+			if timeout > netAcceptMaxTimeout {
+				timeout = netAcceptMaxTimeout
+			}
+			if d, ok := lst.l.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = d.SetDeadline(time.Now().Add(timeout))
+				defer d.SetDeadline(time.Time{})
+			}
+			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
+				return -1
+			}
+			conn, err := lst.l.Accept()
+			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					return -2
+				}
+				return -1
+			}
+			id, err := rt.handles.alloc(string(HandleTypeConn), &netConn{c: conn})
+			if err != nil {
+				_ = conn.Close()
+				return -1
+			}
+			atomic.AddInt64(&rt.netConnCount, 1)
+			return int64(id)
+		}).
+		Export("stado_net_accept")
+}
+
+// stado_net_close_listener(lst_handle) → i32
+// Returns 0 on success / already-closed; -1 on unknown handle. Removes
+// the unix socket file if the listener was a unix bind. Idempotent.
+func registerNetCloseListenerImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, handle int32) int32 {
+			if host.NetListen == nil {
+				return -1
+			}
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			_ = lst.l.Close()
+			if lst.kind == "unix" && lst.path != "" {
+				_ = removeUnixSocketFile(lst.path)
+			}
+			rt.handles.free(uint32(handle))
+			atomic.AddInt64(&rt.netListenerCount, -1)
+			return 0
+		}).
+		Export("stado_net_close_listener")
+}
+
+// lookupNetListener fetches the *netListener for a handle, or
+// (nil, false) if the handle isn't ours.
+func lookupNetListener(rt *Runtime, handle uint32) (*netListener, bool) {
+	if !rt.handles.isType(handle, string(HandleTypeListen)) {
+		return nil, false
+	}
+	v, ok := rt.handles.get(handle)
+	if !ok {
+		return nil, false
+	}
+	lst, ok := v.(*netListener)
+	return lst, ok
+}
+
+// closeAllNetListeners reaps listener handles on Runtime.Close. Removes
+// any unix socket files left behind.
+func (r *Runtime) closeAllNetListeners(ctx context.Context) {
+	r.handles.mu.Lock()
+	listeners := make([]*netListener, 0)
+	for id, e := range r.handles.entries {
+		if e.typeTag != string(HandleTypeListen) {
+			continue
+		}
+		if l, ok := e.value.(*netListener); ok {
+			listeners = append(listeners, l)
+		}
+		delete(r.handles.entries, id)
+	}
+	r.handles.mu.Unlock()
+	for _, l := range listeners {
+		_ = l.l.Close()
+		if l.kind == "unix" && l.path != "" {
+			_ = removeUnixSocketFile(l.path)
+		}
+	}
+}
+
+// removeUnixSocketFile is a thin wrapper over os.Remove that swallows
+// not-found errors so listener cleanup is idempotent. Returns the
+// underlying error for any other failure.
+func removeUnixSocketFile(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // closeAllNetConns is called on Runtime.Close to reap any TCP
