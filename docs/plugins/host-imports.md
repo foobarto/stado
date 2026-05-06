@@ -286,6 +286,37 @@ loopback / RFC1918 (the typical case for pivots).
 Args JSON: `{"name": "example.com", "qtype": "A"|"AAAA"|"TXT"|"MX"|"NS"|"PTR", "server"?: "8.8.8.8", "timeout_ms"?: 5000}`.
 Result: `{"records": [{"name", "type", "value"}], "error"?: "..."}`.
 
+### stado_net_*
+
+Tier 1 raw socket primitives — TCP only this cycle. UDP, Unix sockets,
+listen/accept, ICMP deferred to a future EP-0038g. Tester #5: lets
+plugins talk to non-HTTP services (SMTP, LDAP, banner grab, custom
+C2) without dropping to bash.
+
+| Import | Returns | Capability |
+|---|---|---|
+| `stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port i32, timeout_ms i32) → i64` | typed handle `conn:<id>` | `net:dial:<transport>:<host-glob>:<port-glob>` |
+| `stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32` | bytes read; 0 = EOF | inherited from dial |
+| `stado_net_write(handle, data_ptr, data_len) → i32` | bytes written | inherited |
+| `stado_net_close(handle) → i32` | 0 | inherited |
+
+`transport` must be `"tcp"` (only). Host and port globs use shell-glob
+semantics. Examples:
+
+```
+net:dial:tcp:api.example.com:443
+net:dial:tcp:*.example.com:*
+net:dial:tcp:127.0.0.1:*       # loopback any port
+net:dial:tcp:*:*               # broad
+```
+
+The same private-address dial guard as `stado_http_request` applies:
+dialing RFC1918 / loopback / link-local addresses requires
+`net:http_request_private` (extended to all dial paths).
+
+Per-Runtime cap on open conn handles: 64. The 65th `_dial` returns -1.
+On Runtime shutdown all open conns are closed automatically.
+
 ### stado_tool_invoke
 
 Wasm plugins call other registered tools — the host-side composition
@@ -350,6 +381,7 @@ widening.
 |---|---|---|
 | `stado_secrets_get(name_ptr, name_len, out_ptr, out_max) → i32` | bytes (raw value) | `secrets:read[:<name-glob>]` |
 | `stado_secrets_put(name_ptr, name_len, value_ptr, value_len) → i32` | 0 | `secrets:write[:<name-glob>]` |
+| `stado_secrets_delete(name_ptr, name_len) → i32` | 0 (idempotent) | `secrets:write[:<name-glob>]` |
 | `stado_secrets_list(out_ptr, out_max) → i32` | bytes (`\n`-joined) | `secrets:read` (broad) |
 
 Every call (allowed AND denied) emits a structured audit event
@@ -507,6 +539,7 @@ exec:rg                    exec:ast-grep
 net:http_get               net:<host>
 net:http_request           net:http_request:<host>
 net:http_request_private   net:http_client
+net:dial:tcp:<host>:<port>
 dns:resolve                dns:resolve:<glob>
 secrets:read[:<glob>]      secrets:write[:<glob>]
 crypto:hash

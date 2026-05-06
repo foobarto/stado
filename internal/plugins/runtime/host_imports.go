@@ -51,6 +51,8 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerInstanceImports(builder, host)
 	// 2026-05-06: stado_tool_invoke — inter-tool composition (tester #3).
 	registerToolInvokeImport(builder, host)
+	// 2026-05-06: EP-0038f Tier 1 net dial (TCP) — tester #5.
+	registerNetImports(builder, host, r)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

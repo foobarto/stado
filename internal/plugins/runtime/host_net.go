@@ -1,0 +1,310 @@
+// stado_net_* — Tier 1 raw socket primitives.
+//
+// Tester #5: stado_http_request is HTTP-only. Any non-HTTP protocol —
+// SMTP, LDAP, raw TCP banner grab, FTP, custom C2 — requires dropping
+// to bash. A stado_tcp_connect(host, port) → handle + stado_tcp_read/
+// write(handle, ...) set, gated behind net:tcp_connect:<host>:<port>
+// capability, would let WASM plugins talk to arbitrary services.
+//
+// This cycle ships TCP only. UDP, Unix sockets, listen/accept, ICMP
+// are deferred to a future EP-0038g. The handle type is "conn" (per
+// EP-0038's typed-prefix convention), already reserved in handles.go.
+//
+// Capability vocabulary (manifest):
+//
+//   net:dial:tcp:<host-glob>:<port-glob>
+//   net:dial:tcp:*           (broad — any TCP host:port)
+//
+// Host and port globs use shell-glob semantics. Examples:
+//
+//   net:dial:tcp:api.example.com:443
+//   net:dial:tcp:*.example.com:*
+//   net:dial:tcp:127.0.0.1:*    (loopback any port)
+//
+// The same private-address dial guard as stado_http_request applies:
+// dialing RFC1918 / loopback / link-local addresses requires
+// net:http_request_private (semantically extended to all dial paths).
+// That cap is the operator's "yes, my plugin needs to reach lab IPs"
+// signal regardless of which import triggers the dial.
+//
+// Per-Runtime cap on open conn handles: 64 (matches HTTP client cap).
+
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+)
+
+const (
+	maxNetConnsPerRuntime = 64
+	netDialDefaultTimeout = 10 * time.Second
+)
+
+// NetDialAccess records a plugin's manifest-declared net:dial:tcp:*
+// capabilities + (later) listen/icmp; only TCP dial is shipped this
+// cycle. Each glob entry is a (host-glob, port-glob) pair.
+type NetDialAccess struct {
+	// TCPGlobs are (hostGlob, portGlob) pairs from
+	// net:dial:tcp:<hostGlob>:<portGlob> caps. Empty list with the
+	// access struct present means no caps granted.
+	TCPGlobs []NetDialPattern
+}
+
+// NetDialPattern is one (host, port) glob pair.
+type NetDialPattern struct {
+	Host string // shell-glob; "*" = any
+	Port string // shell-glob (port as string for glob matching); "*" = any
+}
+
+// CanDialTCP returns true when (host, port) matches any TCPGlobs entry.
+func (a *NetDialAccess) CanDialTCP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	host = strings.ToLower(host)
+	for _, g := range a.TCPGlobs {
+		if g.Host == "*" {
+			if g.Port == "*" || g.Port == port {
+				return true
+			}
+			continue
+		}
+		hostMatched, _ := filepath.Match(strings.ToLower(g.Host), host)
+		if !hostMatched {
+			continue
+		}
+		if g.Port == "*" {
+			return true
+		}
+		portMatched, _ := filepath.Match(g.Port, port)
+		if portMatched {
+			return true
+		}
+	}
+	return false
+}
+
+// netConn is the host-side state for a stado_net_dial-allocated handle.
+type netConn struct {
+	c net.Conn
+}
+
+// registerNetImports wires the four TCP imports.
+func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	registerNetDialImport(builder, host, rt)
+	registerNetReadImport(builder, host, rt)
+	registerNetWriteImport(builder, host, rt)
+	registerNetCloseImport(builder, host, rt)
+}
+
+// stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
+//                timeout_ms i32) → i64
+//
+// transport: "tcp" (only). Other transports deferred (EP-0038g).
+// Returns: handle as i64 (uint32 promoted), or -1 on cap denied / dial
+// failure / cap exhausted. The plugin's SDK packages the i64 into the
+// typed-prefix "conn:<id>" form for operator-facing display.
+func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module,
+			transportPtr, transportLen, hostPtr, hostLen, port, timeoutMs int32,
+		) int64 {
+			if host.NetDial == nil {
+				return -1
+			}
+			transport, ok := readMemoryString(mod, uint32(transportPtr), uint32(transportLen))
+			if !ok {
+				return -1
+			}
+			if transport != "tcp" {
+				return -1 // UDP/Unix/etc. deferred
+			}
+			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			if !ok {
+				return -1
+			}
+			portStr := strconv.Itoa(int(port))
+			if !host.NetDial.CanDialTCP(hostStr, portStr) {
+				return -1
+			}
+			// Per-Runtime cap.
+			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
+				return -1
+			}
+			// Dial guard: refuse private addresses unless host has
+			// the http_request_private cap (extended to net:dial).
+			timeout := time.Duration(timeoutMs) * time.Millisecond
+			if timeout <= 0 {
+				timeout = netDialDefaultTimeout
+			}
+			d := net.Dialer{Timeout: timeout}
+			addr := net.JoinHostPort(hostStr, portStr)
+			// Pre-resolve and check IP.
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
+			if err != nil {
+				return -1
+			}
+			if !host.NetHTTPRequestPrivate {
+				for _, ip := range ips {
+					if isPrivateIP(ip) {
+						return -1
+					}
+				}
+			}
+			conn, err := d.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return -1
+			}
+			id, err := rt.handles.alloc(string(HandleTypeConn), &netConn{c: conn})
+			if err != nil {
+				_ = conn.Close()
+				return -1
+			}
+			atomic.AddInt64(&rt.netConnCount, 1)
+			return int64(id)
+		}).
+		Export("stado_net_dial")
+}
+
+// stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32
+// Returns bytes read, 0 on EOF, -1 on error / unknown handle.
+func registerNetReadImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module,
+			handle, outPtr, outMax, timeoutMs int32,
+		) int32 {
+			if host.NetDial == nil {
+				return -1
+			}
+			conn, ok := lookupNetConn(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			if timeoutMs > 0 {
+				_ = conn.c.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
+			} else {
+				_ = conn.c.SetReadDeadline(time.Time{})
+			}
+			buf := make([]byte, outMax)
+			n, err := conn.c.Read(buf)
+			if err != nil && n == 0 {
+				if errors.Is(err, net.ErrClosed) {
+					return 0
+				}
+				return -1
+			}
+			if !mod.Memory().Write(uint32(outPtr), buf[:n]) {
+				return -1
+			}
+			return int32(n)
+		}).
+		Export("stado_net_read")
+}
+
+// stado_net_write(handle, data_ptr, data_len) → i32
+// Returns bytes written, -1 on error / unknown handle.
+func registerNetWriteImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module,
+			handle, dataPtr, dataLen int32,
+		) int32 {
+			if host.NetDial == nil {
+				return -1
+			}
+			conn, ok := lookupNetConn(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
+			if !ok {
+				return -1
+			}
+			n, err := conn.c.Write(data)
+			if err != nil {
+				return -1
+			}
+			return int32(n)
+		}).
+		Export("stado_net_write")
+}
+
+// stado_net_close(handle) → i32
+// Returns 0 on success or already-closed; -1 on unknown handle.
+func registerNetCloseImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, handle int32) int32 {
+			if host.NetDial == nil {
+				return -1
+			}
+			conn, ok := lookupNetConn(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			_ = conn.c.Close()
+			rt.handles.free(uint32(handle))
+			atomic.AddInt64(&rt.netConnCount, -1)
+			return 0
+		}).
+		Export("stado_net_close")
+}
+
+// lookupNetConn fetches the *netConn for a handle, or (nil, false) if
+// the handle isn't ours / has been freed.
+func lookupNetConn(rt *Runtime, handle uint32) (*netConn, bool) {
+	if !rt.handles.isType(handle, string(HandleTypeConn)) {
+		return nil, false
+	}
+	v, ok := rt.handles.get(handle)
+	if !ok {
+		return nil, false
+	}
+	conn, ok := v.(*netConn)
+	return conn, ok
+}
+
+// closeAllNetConns is called on Runtime.Close to reap any TCP
+// connections plugins left open.
+func (r *Runtime) closeAllNetConns(ctx context.Context) {
+	r.handles.mu.Lock()
+	conns := make([]*netConn, 0)
+	for id, e := range r.handles.entries {
+		if e.typeTag != string(HandleTypeConn) {
+			continue
+		}
+		if c, ok := e.value.(*netConn); ok {
+			conns = append(conns, c)
+		}
+		delete(r.handles.entries, id)
+	}
+	r.handles.mu.Unlock()
+	for _, c := range conns {
+		_ = c.c.Close()
+	}
+}
+
+// isPrivateIP reports whether ip is in any of the standard private,
+// loopback, or link-local prefixes. Mirrors the dial guard in
+// internal/tools/httpreq.
+func isPrivateIP(ip net.IP) bool {
+	a, ok := netip.AddrFromSlice(ip.To16())
+	if !ok {
+		return false
+	}
+	return a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() ||
+		a.IsLinkLocalMulticast() || a.IsMulticast() || a.IsUnspecified()
+}
+
+// errPrivateAddr is returned by the dial guard for clarity in tests.
+var errPrivateAddr = fmt.Errorf("net:dial: address is private and net:http_request_private not granted")
