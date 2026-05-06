@@ -13,7 +13,6 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/pkg/tool"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -256,9 +255,9 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(fs.ReadTool{})   // NonMutating
 	reg.Register(fs.WriteTool{})  // Mutating
-	reg.Register(fs.EditTool{})   // Mutating
-	reg.Register(rg.Tool{})       // NonMutating
-	reg.Register(stubExecTool{})  // Exec — was bash.BashTool pre-Step-4
+	reg.Register(fs.EditTool{})  // Mutating
+	reg.Register(stubNonMutatingTool{}) // NonMutating — was rg.Tool pre-Step-5
+	reg.Register(stubExecTool{})        // Exec — was bash.BashTool pre-Step-4
 	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
 
 	m := NewModel("/tmp", "m", "anthropic",
@@ -292,6 +291,19 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 			t.Errorf("Plan mode leaked mutating tool %q", d.Name)
 		}
 	}
+}
+
+// stubNonMutatingTool replaces the deleted internal/tools/rg.Tool in
+// tests that just need a NonMutating-class tool to verify Plan/Do mode
+// filtering.
+type stubNonMutatingTool struct{}
+
+func (stubNonMutatingTool) Name() string                                                       { return "ripgrep" }
+func (stubNonMutatingTool) Description() string                                                { return "stub non-mutating tool for tests" }
+func (stubNonMutatingTool) Schema() map[string]any                                             { return map[string]any{"type": "object"} }
+func (stubNonMutatingTool) Class() pkgtoolClass                                                { return tool.ClassNonMutating }
+func (stubNonMutatingTool) Run(_ context.Context, _ json.RawMessage, _ pkgtoolHost) (pkgtoolResult, error) {
+	return pkgtoolResult{}, nil
 }
 
 // stubExecTool replaces the deleted internal/tools/bash.BashTool in tests
