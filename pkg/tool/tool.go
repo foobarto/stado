@@ -130,6 +130,14 @@ type AgentFleetProvider interface {
 	AgentFleetBridge() any
 }
 
+// ProgressEmitter is an optional Host extension. When implemented, bundled
+// wasm plugins that call stado_progress route their emissions through
+// EmitProgress(plugin, text). Hosts that don't implement it (e.g. headless
+// runs without an attached operator) get the silent-drop default. EP-0038h.
+type ProgressEmitter interface {
+	EmitProgress(plugin, text string)
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes

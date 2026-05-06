@@ -156,7 +156,7 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 	if len(m.logTail) == 0 {
 		return nil
 	}
-	if !m.sidebarDebug && m.state != stateError && !logTailHasWarning(m.logTail) {
+	if !m.sidebarDebug && m.state != stateError && !logTailHasWarning(m.logTail) && !logTailHasProgress(m.logTail) {
 		return nil
 	}
 	out := make([]sidebarLine, 0, len(m.logTail))
@@ -171,6 +171,8 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 			tone = "accent"
 		case strings.HasPrefix(line, "INFO ") || strings.Contains(line, " INFO "):
 			tone = "text_dim"
+		case strings.HasPrefix(line, "PROGRESS ") || strings.Contains(line, " PROGRESS "):
+			tone = "accent"
 		}
 		out = append(out, sidebarLine{Text: line, Tone: tone})
 	}
@@ -181,6 +183,18 @@ func logTailHasWarning(lines []string) bool {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "ERROR ") || strings.Contains(line, " ERROR ") ||
 			strings.HasPrefix(line, "WARN ") || strings.Contains(line, " WARN ") {
+			return true
+		}
+	}
+	return false
+}
+
+// logTailHasProgress reports whether the tail contains a stado_progress
+// emission. Progress lines surface in the sidebar regardless of
+// --sidebar-debug because the plugin author chose to emit them. EP-0038h.
+func logTailHasProgress(lines []string) bool {
+	for _, line := range lines {
+		if strings.HasPrefix(line, "PROGRESS ") || strings.Contains(line, " PROGRESS ") {
 			return true
 		}
 	}

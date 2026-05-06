@@ -45,3 +45,23 @@ func TestTUILogger_TraceDuringUpdateDoesNotBlock(t *testing.T) {
 		t.Fatal("expected trace log to be recorded")
 	}
 }
+
+func TestLogTailHasProgress(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want bool
+	}{
+		{"empty", nil, false},
+		{"prefix", []string{"PROGRESS [scanner] checking 17/256"}, true},
+		{"middle", []string{"15:04:05 PROGRESS scanning hosts"}, true},
+		{"none", []string{"INFO startup ok", "WARN slow path"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := logTailHasProgress(tc.in); got != tc.want {
+				t.Errorf("logTailHasProgress(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}

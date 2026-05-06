@@ -524,9 +524,12 @@ for v1.
 **Wiring.** The host caller (TUI, headless run, `stado plugin run`)
 provides a callback `(plugin, text) → void`. When the callback isn't
 set the import returns 0 and silently drops — the plugin shouldn't
-fail because the operator surface isn't connected. Today
-`stado plugin run` prints `[plugin] text` to stderr; TUI integration
-follows.
+fail because the operator surface isn't connected.
+
+- `stado plugin run` prints `[plugin] text` to stderr.
+- The TUI surfaces progress lines in the sidebar log tail tagged
+  `PROGRESS [plugin] text`. Progress entries always show regardless
+  of `--sidebar-debug` (the plugin author chose to emit them).
 
 ### stado_json_get, stado_json_format
 
