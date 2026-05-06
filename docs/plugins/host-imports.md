@@ -286,6 +286,30 @@ loopback / RFC1918 (the typical case for pivots).
 Args JSON: `{"name": "example.com", "qtype": "A"|"AAAA"|"TXT"|"MX"|"NS"|"PTR", "server"?: "8.8.8.8", "timeout_ms"?: 5000}`.
 Result: `{"records": [{"name", "type", "value"}], "error"?: "..."}`.
 
+### stado_instance_*
+
+Process-lifetime in-memory KV store with per-plugin namespacing.
+For state that needs to span tool calls but doesn't need to persist
+across stado restarts (auth cookies, session tokens, intermediate
+data through a multi-step exploit chain). Use `stado_secrets_*` if
+you need disk persistence.
+
+| Import | Returns | Capability |
+|---|---|---|
+| `stado_instance_get(key_ptr, key_len, out_ptr, out_max) → i32` | bytes (value) | `state:read[:<glob>]` |
+| `stado_instance_set(key_ptr, key_len, value_ptr, value_len) → i32` | 0 | `state:write[:<glob>]` |
+| `stado_instance_delete(key_ptr, key_len) → i32` | 0 | `state:write[:<glob>]` (idempotent) |
+| `stado_instance_list(prefix_ptr, prefix_len, out_ptr, out_max) → i32` | bytes (`\n`-joined) | `state:read` (broad — empty globs OR `*`) |
+
+Bounds: 1 MB per value, 16 MB total per plugin. `_set` returns -1
+when either limit would be exceeded. Glob shape matches secrets:
+empty `state:read` = match-all; `state:read:cookies_*` narrows to a
+key prefix.
+
+Cleared on stado exit. Plugins can't read another plugin's keys
+even with broad caps — namespacing is enforced per the host's
+`State.PluginName` field.
+
 ### stado_secrets_*
 
 EP-0038e — operator secret store. Files at
@@ -456,6 +480,7 @@ net:http_request_private   net:http_client
 dns:resolve                dns:resolve:<glob>
 secrets:read[:<glob>]      secrets:write[:<glob>]
 crypto:hash
+state:read[:<glob>]        state:write[:<glob>]
 session:observe            session:read
 session:fork
 llm:invoke[:<budget>]

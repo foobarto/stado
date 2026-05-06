@@ -149,6 +149,13 @@ type Host struct {
 	// secrets:write[:<glob>]. Nil when neither is granted.
 	Secrets *SecretsAccess
 
+	// State gates stado_instance_* host imports — process-lifetime KV
+	// store with per-plugin namespacing. Populated when the manifest
+	// declares state:read[:<glob>] or state:write[:<glob>]. Nil when
+	// neither is granted. The Store itself is per-Runtime; this struct
+	// just records the manifest's allowed key patterns + plugin name.
+	State *StateAccess
+
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.
@@ -523,6 +530,27 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 					h.Secrets.WriteGlobs = append(h.Secrets.WriteGlobs, parts[2])
 				}
 				// len(parts) == 2 → broad write; WriteGlobs stays empty (match-all)
+			}
+		case "state":
+			// state:read[:<glob>] and state:write[:<glob>] gate the
+			// stado_instance_* host imports (process-lifetime KV store).
+			// Same glob shape as secrets. The Store itself is per-Runtime;
+			// this just records the manifest's allowed key patterns.
+			switch parts[1] {
+			case "read":
+				if h.State == nil {
+					h.State = &StateAccess{}
+				}
+				if len(parts) == 3 && parts[2] != "" {
+					h.State.ReadGlobs = append(h.State.ReadGlobs, parts[2])
+				}
+			case "write":
+				if h.State == nil {
+					h.State = &StateAccess{}
+				}
+				if len(parts) == 3 && parts[2] != "" {
+					h.State.WriteGlobs = append(h.State.WriteGlobs, parts[2])
+				}
 			}
 		}
 	}
