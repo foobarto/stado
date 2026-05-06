@@ -1,0 +1,55 @@
+# Dependabot configuration.
+#
+# Goals:
+#   1. Trigger explicit security-update + version-bump PRs against
+#      the parent module + every example plugin subdir.
+#   2. Force a rescan on every push to one of these manifests so
+#      alerts auto-flip to "fixed" promptly after a fix lands.
+#
+# Example plugins live in their own go.mod files (e.g.
+# plugins/default/browser/, plugins/examples/*) and ship as build
+# fixtures. Listing them under `directories` (plural — supports
+# globs since 2024) lets one update entry cover all of them.
+
+version: 2
+
+updates:
+  # Parent module.
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # All example plugins — each has its own go.mod for the wasm
+  # build target. Treated as independent Go modules.
+  - package-ecosystem: gomod
+    directories:
+      - "/plugins/default/*"
+      - "/plugins/examples/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - plugin-example
+    commit-message:
+      prefix: "chore(plugin-example)"
+      include: scope
+
+  # GitHub Actions used in CI workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
