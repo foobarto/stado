@@ -141,6 +141,10 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "writes to in-memory KV (stado_instance_*); per-plugin namespaced"
 		return cn
+	case cap == "tool:invoke" || strings.HasPrefix(cap, "tool:invoke:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_tool_invoke — plugin calls other registered tools; gated by name glob; depth-limited recursion"
+		return cn
 	case cap == "net:http_client":
 		cn.requirement = requireNothing
 		cn.note = "stateful HTTP client with cookie jar; uses net:http_request:<host> caps as the host allowlist"
