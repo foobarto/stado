@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/personas"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/providers/localdetect"
@@ -28,6 +29,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/palette"
+	"github.com/foobarto/stado/internal/tui/personapicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
 	"github.com/foobarto/stado/internal/tui/taskpicker"
@@ -490,6 +492,13 @@ type Model struct {
 	// and executed with runtime metadata for every provider request.
 	systemPromptTemplate string
 
+	// persona is the active operating-manual prompt (EP-personas). When
+	// non-nil, turnSystemPrompt prefers personas.AssembleSystem over the
+	// instructions.ComposeSystemPrompt path. Switched live by /persona.
+	persona         *personas.Persona
+	personaResolver personas.Resolver
+	personaPicker   *personapicker.Model
+
 	// skills is the list of `.stado/skills/*.md` files discovered at
 	// startup. Each is reachable as `/skill:<name>` from the palette;
 	// invocation injects the skill body as a user message so the
@@ -544,6 +553,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		slash:            palette.New(),
 		agentPick:        agentpicker.New(),
 		modelPicker:      modelpicker.New(),
+		personaPicker:    personapicker.New(),
 		sessionPick:      sessionpicker.New(),
 		taskPick:         taskpicker.New(),
 		themePick:        themepicker.New(),
