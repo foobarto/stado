@@ -82,30 +82,47 @@ type metaDescribe struct{ reg *tools.Registry }
 
 func (m *metaDescribe) Name() string { return "tools__describe" }
 func (m *metaDescribe) Description() string {
-	return "Fetch full schema + docs for named tools and activate them for this session. Batched: pass multiple names in one call."
+	return "Fetch full schema + docs for named tools and activate them for this session. Pass either name=\"foo\" for a single tool or names=[\"foo\",\"bar\"] for a batch — both forms accepted in one round-trip."
 }
 func (m *metaDescribe) Schema() map[string]any {
 	return map[string]any{
-		"type":     "object",
-		"required": []string{"names"},
+		"type": "object",
 		"properties": map[string]any{
+			"name": map[string]any{
+				"type":        "string",
+				"description": "Single tool name (canonical or wire-form). Use this OR `names` for a batch.",
+			},
 			"names": map[string]any{
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
-				"description": "Canonical or wire-form tool names.",
+				"description": "Multiple tool names (canonical or wire-form). Use this OR `name`. When both are passed, entries are merged (duplicates deduped).",
 			},
 		},
 	}
 }
 func (m *metaDescribe) Run(_ context.Context, args json.RawMessage, h pkgtool.Host) (pkgtool.Result, error) {
 	var req struct {
+		Name  string   `json:"name"`
 		Names []string `json:"names"`
 	}
 	if err := json.Unmarshal(args, &req); err != nil {
 		return pkgtool.Result{Error: "invalid args: " + err.Error()}, nil
 	}
+	// Merge `name` + `names`, dedupe while preserving caller order.
+	queryNames := make([]string, 0, len(req.Names)+1)
+	seen := map[string]bool{}
+	for _, n := range append([]string{req.Name}, req.Names...) {
+		if n == "" || seen[n] {
+			continue
+		}
+		seen[n] = true
+		queryNames = append(queryNames, n)
+	}
+	if len(queryNames) == 0 {
+		return pkgtool.Result{Error: "tools__describe: provide `name` or `names`"}, nil
+	}
 	var out []map[string]any
-	for _, name := range req.Names {
+	for _, name := range queryNames {
 		t, ok := m.reg.Get(name)
 		if !ok {
 			out = append(out, map[string]any{"name": name, "error": "not found"})
