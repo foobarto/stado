@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
@@ -81,22 +82,30 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 	}
 }
 
-// TestInstalledPluginTool_RunReturnsSentinel: direct .Run() returns
-// a sentinel Result with Error populated since installed-plugin
-// invocation goes through tool_run's shared helper, not the
-// registry's Tool interface.
-func TestInstalledPluginTool_RunReturnsSentinel(t *testing.T) {
+// TestInstalledPluginTool_RunDispatchesViaPluginrun: Step 0.1 changed
+// installedPluginTool.Run from a sentinel-error returner to a real
+// invoker that dispatches via pluginrun.Run. Verify the new contract:
+// the call returns a real error when prerequisites aren't met (here,
+// the wasm path doesn't exist on disk so verification fails), not the
+// pre-Step-0.1 "not invokable directly" sentinel string.
+func TestInstalledPluginTool_RunDispatchesViaPluginrun(t *testing.T) {
 	mf := plugins.Manifest{
 		Name: "test-plugin", Version: "v0.1.0",
 		Tools: []plugins.ToolDef{{Name: "lookup"}},
 	}
 	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating)
 	res, err := tl.Run(context.Background(), nil, nil)
-	if err != nil {
-		t.Errorf("Run() error = %v, want nil (returns Result.Error instead)", err)
+	if err == nil {
+		t.Fatal("Run() with nonexistent wasm path should error")
 	}
 	if res.Error == "" {
-		t.Error("Run() should populate Result.Error with sentinel message")
+		t.Error("Run() should populate Result.Error alongside the returned error")
+	}
+	// The pre-Step-0.1 sentinel string MUST NOT appear — its presence
+	// would mean we're back to the broken state where agent loop / MCP
+	// server callers silently fail for installed plugins.
+	if got := res.Error; strings.Contains(got, "not invokable directly via Tool.Run") {
+		t.Errorf("Result.Error still contains pre-Step-0.1 sentinel string: %q", got)
 	}
 }
 

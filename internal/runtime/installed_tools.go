@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -120,14 +121,51 @@ func (t *installedPluginTool) Schema() map[string]any {
 }
 func (t *installedPluginTool) Class() tool.Class { return t.class }
 
-// Run is a sentinel — installed-plugin invocation goes through
-// runPluginInvocation in cmd/stado/plugin_invoke_shared.go via
-// tool_run.go's installed branch.
-func (t *installedPluginTool) Run(_ context.Context, _ json.RawMessage, _ tool.Host) (tool.Result, error) {
-	return tool.Result{
-		Error: "installed plugin tool not invokable directly via Tool.Run; route through stado tool run <name>",
-	}, nil
+// Run dispatches the installed plugin via pluginrun.Run. Re-reads the
+// verified wasm from disk per call (no in-memory cache); the up-front
+// signature + sha verification at registration time ensures the bytes
+// haven't been swapped, but the on-disk file may have been touched
+// between then and now — re-verify defensively.
+//
+// Pre-Step-0 this returned a sentinel error and only the CLI's
+// `stado tool run` dispatcher special-cased installed plugins. The
+// agent loop and MCP server's executor.Run (which calls Tool.Run
+// directly) hit the sentinel and silently failed for installed
+// plugins — fixed here so all dispatch paths are uniform.
+func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	wasmBytes, err := plugins.ReadVerifiedWASM(t.manifest.WASMSHA256, t.wasmPath)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, fmt.Errorf("installed %s: verify: %w", t.manifest.Name, err)
+	}
+	cfgPtr := installedRunCfg
+	if cfgPtr == nil {
+		return tool.Result{Error: "installed plugin tool: no cfg bound"}, fmt.Errorf("installed %s: no cfg bound to runtime", t.manifest.Name)
+	}
+	return pluginrun.Run(ctx, pluginrun.RunArgs{
+		Manifest:  t.manifest,
+		WasmBytes: wasmBytes,
+		ToolName:  t.def.Name,
+		Args:      args,
+		Cfg:       cfgPtr,
+		Workdir:   h.Workdir(),
+		// SessionID intentionally empty: the agent-loop tool.Host
+		// already carries any session bridge through the lifecycle
+		// wiring pluginrun's attachLifecycleBridges pulls off h.
+		// CLI invocations route through plugin_invoke_shared.go which
+		// builds a SessionBridgeBuilder from --session.
+		InvokeRegistry: installedInvokeReg,
+	}, h)
 }
+
+// installedRunCfg + installedInvokeReg carry per-process cfg + active
+// registry into the per-tool Run() method. installedPluginTool stores
+// only manifest+def to keep the value cheap; the registration path
+// binds these once at startup. Set by registerInstalledPluginTools so
+// Run() can reach them without storing a copy on every tool.
+var (
+	installedRunCfg    *config.Config
+	installedInvokeReg *tools.Registry
+)
 
 // groupInstalledByName scans pluginsDir for "<name>-<version>"
 // subdirectories and returns a map of name → versions. Entries that
@@ -223,6 +261,14 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 	}
 
 	ts := plugins.NewTrustStore(stateDir)
+
+	// Bind per-process cfg + the active registry so installedPluginTool.Run
+	// can dispatch via pluginrun.Run without storing a copy on every tool.
+	// The registry passed here is also the InvokeRegistry for any
+	// stado_tool_invoke calls from installed plugins — they see the
+	// same surface this build constructed.
+	installedRunCfg = cfg
+	installedInvokeReg = reg
 
 	// Reset package-level lookup state for this build.
 	installedRegistryMu.Lock()
