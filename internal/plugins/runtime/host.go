@@ -113,6 +113,9 @@ type Host struct {
 	// DNSResolve / DNSReverse gate stado_dns_resolve / stado_dns_resolve_axfr (Tier 2).
 	DNSResolve bool
 	DNSReverse bool
+	// DNSAXFR gates stado_dns_resolve_axfr (zone transfer over TCP).
+	// Implies DNSResolve. Declared via dns:axfr in the manifest.
+	DNSAXFR bool
 	// CryptoHash gates stado_hash and stado_hmac (EP-0038 §B Tier 3).
 	CryptoHash bool
 	// Compress gates stado_compress / stado_decompress (Tier 3).
@@ -529,6 +532,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.DNSResolve = true
 			case "axfr":
 				h.DNSResolve = true // axfr implies resolve
+				h.DNSAXFR = true
 			case "reverse":
 				h.DNSReverse = true
 			}

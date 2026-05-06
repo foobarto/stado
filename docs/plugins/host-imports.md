@@ -349,6 +349,28 @@ server-push, multipart streaming. `proxy_url` (SOCKS pivots) not
 exposed in streaming v1 — use the non-streaming variant if you need
 the proxy.
 
+### stado_dns_resolve_axfr
+
+EP-0038i — DNS zone transfer (AXFR, RFC 5936). Streams every record
+in a zone over TCP. Most public servers refuse; useful for security
+tooling against known-permissive or misconfigured infrastructure.
+
+| Import | Capability |
+|---|---|
+| `stado_dns_resolve_axfr(req_ptr, req_len, result_ptr, result_cap) → i32` | `dns:axfr` (implies `dns:resolve`) |
+
+Args JSON: `{"zone": "example.com", "server": "ns1.example.com[:53]", "timeout_ms"?: 30000}`.
+Both `zone` and `server` are required — there's no recursion semantic
+for AXFR, the plugin must name the authoritative server. Default
+port `:53` is appended when the `server` value omits one.
+
+Result JSON: `{"records": [{"name", "type", "class", "ttl", "rdata"}], "error"?: "..."}`.
+`type` and `class` are the symbolic forms (`SOA`, `NS`, `A`, `AAAA`,
+`MX`, `TXT`, `IN`, etc.). `rdata` is the type-specific text form
+(e.g. `"192.0.2.1"` for an A record, `"ns1.example.com."` for NS).
+
+A REFUSED rcode lands in `error` rather than crashing the plugin.
+
 ### stado_dns_resolve
 
 | Field | Value |

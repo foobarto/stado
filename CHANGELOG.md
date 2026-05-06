@@ -8,6 +8,15 @@ Plugins / Infra / Fixes.
 
 ### Plugin runtime — new host imports
 
+- **`stado_dns_resolve_axfr(zone, server, timeout_ms?)`** — DNS zone
+  transfer (RFC 5936). Useful for security tooling enumerating
+  internal zones on misconfigured / permissive infrastructure. New
+  capability `dns:axfr` (implies `dns:resolve`). Plugin must name
+  the authoritative server explicitly — no recursion. REFUSED rcodes
+  land in `result.error` rather than crashing. Adds the
+  `github.com/miekg/dns` dependency (single direct dep; the standard
+  Go DNS library; binary impact bounded by the imports we use).
+
 - **`stado_json_set(json, path, value) → modified_json`** — companion
   to v0.38.0's `_get` / `_format`. Mutates a value at a dotted path
   in a JSON document and returns the canonical bytes of the modified

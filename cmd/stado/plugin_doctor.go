@@ -173,6 +173,18 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "stateful HTTP client with cookie jar; uses net:http_request:<host> caps as the host allowlist"
 		return cn
+	case cap == "dns:resolve":
+		cn.requirement = requireNothing
+		cn.note = "stado_dns_resolve — recursive DNS lookups (A, AAAA, TXT, MX, NS, PTR)"
+		return cn
+	case cap == "dns:axfr":
+		cn.requirement = requireNothing
+		cn.note = "stado_dns_resolve_axfr — DNS zone transfer (RFC 5936). Most public servers refuse; useful against misconfigured infrastructure. Implies dns:resolve."
+		return cn
+	case cap == "dns:reverse":
+		cn.requirement = requireNothing
+		cn.note = "reverse DNS lookups (PTR queries by IP)"
+		return cn
 	}
 	cn.note = "unrecognised capability — passed through to the runtime as-is"
 	return cn

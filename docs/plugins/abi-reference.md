@@ -359,7 +359,7 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `lsp:query` | bundled LSP imports |
 | `bundled-bin` | `stado_bundled_bin` access |
 | `dns:resolve` | `stado_dns_resolve` |
-| `dns:axfr` (reserved) | `stado_dns_resolve_axfr` (deferred) |
+| `dns:axfr` | `stado_dns_resolve_axfr` (RFC 5936 zone transfer; implies `dns:resolve`) |
 | `dns:reverse` (reserved) | reverse DNS (deferred) |
 | `crypto:hash` | `stado_hash`, `stado_hmac` |
 | `compress` | `stado_compress`, `stado_decompress` |
