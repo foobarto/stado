@@ -52,15 +52,14 @@ Listed in rough priority order (highest = most operator pain).
 
 `FormatHandleID`/`ParseHandleID` + `HandleType` constants in `internal/plugins/runtime/handles.go`.
 
-## 8. EP-0038e — Tier 2 stateful HTTP + secrets
+## 8. ~~EP-0038e — Tier 2 stateful HTTP + secrets~~ — **DONE 2026-05-06** (`feat/ep-0038e-tier2-stateful` PR)
 
-- **Locked at:** NOTES + EP-0038 §B Tier 2.
-- **Originally scoped in:** `EP-0038a` plan §Goal/§File Map; deferred at §Self-Review.
-- **Surface:**
-  - `stado_http_client_*` — persistent client w/ cookie jar, mux limits, redirect policy.
-  - `stado_secrets_*` — operator secret store (`~/.config/stado/secrets/`), audited fetch, never-on-stdout.
-- **Effort:** Substantial — handle table, cookie-jar lifecycle, secret store provisioning, capability surface (`net:http_client`, `secrets:read`, `secrets:write`).
-- **Recommendation:** Write a fresh `2026-MM-DD-ep-0038e-tier2-stateful.md` plan when this becomes a priority; don't fold into another plan.
+`internal/secrets/` (operator store + `stado secrets` CLI) and
+`internal/httpclient/` (cookie jar + redirect policy + dial guard)
+shipped, plus `stado_secrets_*` and `stado_http_client_*` wasm
+imports gated by `secrets:read[:<glob>]`, `secrets:write[:<glob>]`,
+and `net:http_client`. Spec + handoff in
+`docs/superpowers/specs/2026-05-06-ep-0038e-tier2-stateful-design.md`.
 
 ## 9. `plugin install --pubkey-file` already done; `plugin sign` for CI pipelines
 
