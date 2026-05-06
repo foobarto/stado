@@ -571,7 +571,17 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			case "proc":
 				h.ExecProc = true
 				if len(parts) == 3 && parts[2] != "" {
-					h.ExecProcGlobs = append(h.ExecProcGlobs, parts[2])
+					glob := parts[2]
+					// Glob shape: absolute path OR slash-free basename.
+					// Reject mixed (relative path with slashes) — it
+					// won't match procAllowed's resolved-path lookup
+					// and would be a silent-deny footgun.
+					if strings.Contains(glob, "/") && !strings.HasPrefix(glob, "/") {
+						h.Logger.Warn("exec:proc glob rejected: mixed relative-path form (use absolute path or slash-free basename)",
+							slog.String("glob", glob))
+						continue
+					}
+					h.ExecProcGlobs = append(h.ExecProcGlobs, glob)
 				}
 			}
 		case "bundled-bin":
