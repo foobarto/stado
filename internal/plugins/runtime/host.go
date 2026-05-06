@@ -176,6 +176,14 @@ type Host struct {
 	// EP-0038g.
 	NetListen *NetListenAccess
 
+	// Progress is the operator-visible callback for stado_progress
+	// emissions. Wired by the host caller (TUI, headless run, plugin
+	// invoke shell). When nil the import drops silently — the plugin
+	// shouldn't fail because the operator surface isn't connected.
+	// EP-0038h. NOT for agent-loop integration; the model only sees
+	// the final tool result.
+	Progress func(plugin, text string)
+
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.

@@ -502,6 +502,32 @@ Output is the raw digest (not hex/base64); the plugin formats it.
 If `out_max` is too small, returns the required size (re-call with
 that buffer). On corrupt input returns -1.
 
+### stado_progress
+
+EP-0038h — operator-visible progress emission for long-running tools
+(>2s). Tester #4: a multi-host probe should be able to print
+`checking host 17/256` so the operator can tell it's making progress.
+
+| Import | Returns |
+|---|---|
+| `stado_progress(text_ptr, text_len) → i32` | 0 on success / silent drop; -1 on overlong text |
+
+**No capability required.** Bounded payload: 4 KB per call (longer
+returns -1).
+
+**Audience: operator only.** The agent / model sees only the final
+tool result; this is a UX channel, not an information channel for
+the model. Mid-tool partial output to the model would break tool-call
+atomicity in current LLM contracts and is explicitly out of scope
+for v1.
+
+**Wiring.** The host caller (TUI, headless run, `stado plugin run`)
+provides a callback `(plugin, text) → void`. When the callback isn't
+set the import returns 0 and silently drops — the plugin shouldn't
+fail because the operator surface isn't connected. Today
+`stado plugin run` prints `[plugin] text` to stderr; TUI integration
+follows.
+
 ### stado_json_get, stado_json_format
 
 EP-0038h — host-side JSON conveniences. Lets plugins extract a single
