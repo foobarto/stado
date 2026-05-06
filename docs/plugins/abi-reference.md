@@ -475,6 +475,25 @@ State that needs to survive across calls within a session uses
 `stado_instance_*` (per-Runtime in-memory KV) or the operator
 secret store (`stado_secrets_*`).
 
+### 10.2 Optional `tool.Host` extensions
+
+Long-lived hosts (TUI session, MCP server, headless agent loop)
+share resources across the per-call runtimes by implementing
+optional interfaces on the host they pass into `tool.Run`:
+
+| Interface | Method | Purpose |
+|---|---|---|
+| `tool.AgentFleetProvider` | `AgentFleetBridge() any` | Bundled `agent.*` tools see a shared fleet |
+| `tool.ProgressEmitter` | `EmitProgress(plugin, text)` | Bundled `stado_progress` emissions surface to the operator |
+| `tool.PTYProvider` | `PTYManager() any` | Bundled `shell.*` / `pty.*` tools share a long-lived PTY registry — without this, `shell.spawn` returns an id that the next call's `shell.attach` / `read` / `write` can't see (each `bundledPluginTool.Run` would otherwise build a fresh `pty.NewManager`) |
+| `pluginRuntime.ApprovalBridge` | (host-package interface) | Plugins requesting `ui:approval` get an interactive prompt |
+
+When a host doesn't implement these, the bundled-plugin Run path
+falls back gracefully (per-call manager, nil callback drop, deny
+approval). Single-shot CLI invocations (`stado plugin run`,
+`stado tool run`) are short-lived processes anyway, so the fallback
+is appropriate for them.
+
 ---
 
 ## 11. Lazy-load and meta-tools

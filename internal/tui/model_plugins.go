@@ -17,6 +17,7 @@ import (
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
@@ -196,6 +197,12 @@ func (m *Model) closeBackgroundPlugins(ctx context.Context) {
 		_ = m.bgPluginRuntime.Close(ctx)
 		m.bgPluginRuntime = nil
 	}
+	// Reap any PTYs opened by bundled shell.* / pty.* tools during
+	// the session — without this they'd outlive the TUI process.
+	if m.ptyManager != nil {
+		m.ptyManager.CloseAll()
+		m.ptyManager = nil
+	}
 }
 
 // backgroundTickResultMsg carries the post-tick surviving plugin
@@ -284,6 +291,13 @@ type hostAdapter struct {
 	// plugins. Wired so the TUI surfaces progress lines in the
 	// sidebar log tail. EP-0038h.
 	progress func(plugin, text string)
+
+	// pty is the TUI-session-lifetime PTY manager shared across every
+	// bundled-plugin tool dispatch. Without this each call would
+	// build a fresh pluginRuntime with its own pty.NewManager(), and
+	// shell.spawn → shell.attach across calls would fail with
+	// "session not found." Bug-fix per operator report.
+	pty *pty.Manager
 }
 
 func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -343,6 +357,11 @@ func (h hostAdapter) EmitProgress(plugin, text string) {
 		h.progress(plugin, text)
 	}
 }
+
+// PTYManager implements pkg/tool.PTYProvider — bundled shell.* /
+// pty.* tools reuse the TUI-session-lifetime manager via this hook
+// so session ids survive across consecutive tool dispatches.
+func (h hostAdapter) PTYManager() any { return h.pty }
 
 // buildPluginBridge wires the live TUI's Session + active provider
 // behind a SessionBridgeImpl so plugins that declared session/LLM

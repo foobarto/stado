@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
@@ -429,6 +430,17 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 	if afp, ok := h.(tool.AgentFleetProvider); ok {
 		if fb, ok := afp.AgentFleetBridge().(pluginRuntime.FleetBridge); ok {
 			host.FleetBridge = fb
+		}
+	}
+	// Bug-fix: each bundledPluginTool.Run builds a fresh pluginRuntime
+	// with its own pty.NewManager(). That breaks shell.spawn → shell.read
+	// across calls because the second runtime's manager doesn't know
+	// about the first runtime's PTY. When the caller supplies a
+	// long-lived PTY manager (TUI session, MCP server, headless agent
+	// loop), reuse it so spawn/attach/read/write/destroy share state.
+	if pp, ok := h.(tool.PTYProvider); ok {
+		if pm, ok := pp.PTYManager().(*pty.Manager); ok && pm != nil {
+			host.PTYManager = pm
 		}
 	}
 	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {

@@ -138,6 +138,17 @@ type ProgressEmitter interface {
 	EmitProgress(plugin, text string)
 }
 
+// PTYProvider is an optional Host extension. When implemented, bundled
+// shell.* / pty.* wasm tools share a long-lived PTY manager across
+// tool dispatches instead of each dispatch getting its own. Without
+// this, shell.spawn → shell.attach in successive calls fails with
+// "session not found" because the per-call plugin runtime's PTY map
+// dies when the runtime closes. Returns an opaque any to avoid an
+// import cycle (the actual type is *pty.Manager).
+type PTYProvider interface {
+	PTYManager() any
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes

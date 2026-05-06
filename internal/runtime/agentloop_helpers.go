@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/streambudget"
@@ -135,6 +136,10 @@ type autoApproveHost struct {
 	runner      sandbox.Runner
 	spawn       func(context.Context, subagent.Request) (subagent.Result, error)
 	fleetBridge *FleetBridgeAdapter
+	// pty is the agent-loop-lifetime PTY manager shared with bundled
+	// shell.* / pty.* tools so spawn / attach / read / write across
+	// dispatches see the same registry.
+	pty *pty.Manager
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -156,6 +161,13 @@ func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request
 func (h autoApproveHost) AgentFleetBridge() any {
 	return h.fleetBridge
 }
+
+// PTYManager implements pkg/tool.PTYProvider so bundled shell.* / pty.*
+// wasm tools share a long-lived PTY registry across dispatches in the
+// agent loop. Without this, shell.spawn → shell.attach across calls
+// would fail with "session not found" because each bundled-plugin Run
+// would otherwise build a fresh pluginRuntime with its own manager.
+func (h autoApproveHost) PTYManager() any { return h.pty }
 
 func (h autoApproveHost) PriorRead(key tool.ReadKey) (tool.PriorReadInfo, bool) {
 	if h.readLog == nil {

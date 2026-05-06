@@ -15,6 +15,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
@@ -169,12 +170,17 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				RootCtx: ctx,
 			}
 		}
+		ptyMgr := pty.NewManager()
+		// Reap any PTYs the loop opened on return so subprocesses don't
+		// outlive the loop. Idempotent.
+		defer ptyMgr.CloseAll()
 		opts.Host = autoApproveHost{
 			workdir:     workdir,
 			readLog:     rlog,
 			runner:      runner,
 			spawn:       spawnFn,
 			fleetBridge: fb,
+			pty:         ptyMgr,
 		}
 	}
 

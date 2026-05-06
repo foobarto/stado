@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/skills"
@@ -409,6 +410,12 @@ type Model struct {
 	// vp content (start inclusive, end exclusive). Populated during
 	// renderBlocks; consumed by mouse click → block-index lookup.
 	blockLineRanges []blockLineRange
+
+	// ptyManager is the TUI-session-lifetime PTY manager shared with
+	// bundled shell.* / pty.* tools so spawn / attach / read / write
+	// across calls see the same registry. Built once at NewModel;
+	// CloseAll on shutdown.
+	ptyManager *pty.Manager
 	// compacting marks a summarisation stream in-flight so we can route
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
@@ -551,6 +558,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		ctxHardThreshold: 0.90,
 		rootCtx:          context.Background(),
 		focusedBlockIdx:  -1, // no focus by default; ToolExpand acts on latest
+		ptyManager:       pty.NewManager(),
 	}
 	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
 	// fallback). A missing file is fine; a broken file is a stderr
