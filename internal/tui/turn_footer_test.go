@@ -149,3 +149,88 @@ func TestShiftTabTogglesLatestAssistantDetails(t *testing.T) {
 		t.Fatal("assistant details should collapse")
 	}
 }
+
+// TestFocusPrevNext_SkipsNonExpandable: alt+up walks back through tool
+// blocks, skipping user/system blocks; alt+down moves forward; past the
+// last expandable, focus clears so ToolExpand falls back to "latest."
+func TestFocusPrevNext_SkipsNonExpandable(t *testing.T) {
+	m := scenarioModel(t)
+	m.focusedBlockIdx = -1
+	m.blocks = []block{
+		{kind: "user", body: "hi"},
+		{kind: "tool", toolName: "fs.read", body: "..."},
+		{kind: "user", body: "more"},
+		{kind: "tool", toolName: "bash", body: "..."},
+	}
+
+	m.focusPrevExpandable()
+	if m.focusedBlockIdx != 3 {
+		t.Errorf("first prev should land on the latest tool block (idx 3), got %d", m.focusedBlockIdx)
+	}
+	m.focusPrevExpandable()
+	if m.focusedBlockIdx != 1 {
+		t.Errorf("second prev should skip user blocks and land on idx 1, got %d", m.focusedBlockIdx)
+	}
+	m.focusPrevExpandable()
+	if m.focusedBlockIdx != 1 {
+		t.Errorf("no earlier expandable — focus should stick at idx 1, got %d", m.focusedBlockIdx)
+	}
+
+	m.focusNextExpandable()
+	if m.focusedBlockIdx != 3 {
+		t.Errorf("next from 1 should land on idx 3, got %d", m.focusedBlockIdx)
+	}
+	m.focusNextExpandable()
+	if m.focusedBlockIdx != -1 {
+		t.Errorf("next past last expandable should clear focus, got %d", m.focusedBlockIdx)
+	}
+}
+
+// TestBlockAtContentLine: line-range lookup correctly identifies the
+// block under a given content-Y coordinate, including off-the-end and
+// out-of-range cases.
+func TestBlockAtContentLine(t *testing.T) {
+	m := scenarioModel(t)
+	m.blockLineRanges = []blockLineRange{
+		{start: 0, end: 5, blockIdx: 0},
+		{start: 5, end: 12, blockIdx: 1},
+		{start: 12, end: 20, blockIdx: 2},
+	}
+	cases := map[int]int{
+		0:  0,  // start of first block
+		4:  0,  // last line of first block
+		5:  1,  // start of second
+		11: 1,  // last line of second
+		12: 2,  // start of third
+		19: 2,  // last line of third
+		20: -1, // off the end
+		-1: -1, // negative
+	}
+	for line, want := range cases {
+		got := m.blockAtContentLine(line)
+		if got != want {
+			t.Errorf("blockAtContentLine(%d) = %d, want %d", line, got, want)
+		}
+	}
+}
+
+// TestToggleLastToolExpand_HonoursFocus: when a focused block exists,
+// ToolExpand toggles it, not the latest.
+func TestToggleLastToolExpand_HonoursFocus(t *testing.T) {
+	m := scenarioModel(t)
+	m.blocks = []block{
+		{kind: "tool", toolName: "fs.read"},
+		{kind: "tool", toolName: "bash"},
+	}
+	// Focus the older one.
+	m.focusedBlockIdx = 0
+	m.blocks[0].focused = true
+
+	m.toggleLastToolExpand()
+	if !m.blocks[0].expanded {
+		t.Errorf("focused block (idx 0) should be expanded; got blocks: %+v", m.blocks)
+	}
+	if m.blocks[1].expanded {
+		t.Errorf("non-focused block (idx 1) should NOT toggle when another is focused")
+	}
+}

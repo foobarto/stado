@@ -368,6 +368,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, m.startStream()
 
+	case tea.MouseMsg:
+		// Click-to-expand on tool/assistant blocks. Only consume left-
+		// button presses; release / drag / motion events flow through
+		// to the viewport for default scroll behaviour. Hold Shift +
+		// drag to bypass app mouse capture and use native terminal
+		// selection (most modern terminals support this).
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if m.handleMessagesClick(msg.X, msg.Y) {
+				m.renderBlocks()
+				return m, nil
+			}
+		}
+		// Forward to viewport for scroll-wheel handling.
+		var vpCmd tea.Cmd
+		m.vp, vpCmd = m.vp.Update(msg)
+		return m, vpCmd
+
 	case tea.KeyMsg:
 		// Ctrl+C closes any open modal popup. Esc still works (each
 		// modal handles it internally), but adding Ctrl+C as a
@@ -899,6 +916,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderBlocks()
 			return m, nil
 
+		case m.keys.Matches(msg, keys.ToolFocusPrev):
+			m.focusPrevExpandable()
+			m.renderBlocks()
+			return m, nil
+
+		case m.keys.Matches(msg, keys.ToolFocusNext):
+			m.focusNextExpandable()
+			m.renderBlocks()
+			return m, nil
+
 		case m.keys.Matches(msg, keys.ModeToggle):
 			if m.mode == modeDo {
 				m.mode = modePlan
@@ -1102,17 +1129,141 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// toggleLastToolExpand toggles the focused expandable block's
+// expansion. When no block is focused, falls back to the latest
+// expandable block. EP-N/A — supports expanding older tool calls.
 func (m *Model) toggleLastToolExpand() {
-	for i := len(m.blocks) - 1; i >= 0; i-- {
-		switch {
-		case m.blocks[i].kind == "assistant" && strings.TrimSpace(m.blocks[i].details) != "":
-			m.blocks[i].expanded = !m.blocks[i].expanded
+	// Honour focus when set; the user navigated here deliberately.
+	if m.focusedBlockIdx >= 0 && m.focusedBlockIdx < len(m.blocks) {
+		blk := &m.blocks[m.focusedBlockIdx]
+		if isExpandableBlock(*blk) {
+			blk.expanded = !blk.expanded
 			return
-		case m.blocks[i].kind == "tool":
+		}
+	}
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if isExpandableBlock(m.blocks[i]) {
 			m.blocks[i].expanded = !m.blocks[i].expanded
 			return
 		}
 	}
+}
+
+// isExpandableBlock reports whether a block has expand/collapse state
+// the user might want to toggle (tool blocks, plus assistant blocks
+// that have hidden details).
+func isExpandableBlock(b block) bool {
+	switch b.kind {
+	case "tool":
+		return true
+	case "assistant":
+		return strings.TrimSpace(b.details) != ""
+	}
+	return false
+}
+
+// focusPrevExpandable moves the focused block one step earlier in the
+// conversation, skipping non-expandable blocks. With no current focus,
+// jumps to the latest expandable block.
+func (m *Model) focusPrevExpandable() {
+	if len(m.blocks) == 0 {
+		return
+	}
+	start := len(m.blocks) - 1
+	if m.focusedBlockIdx >= 0 {
+		start = m.focusedBlockIdx - 1
+	}
+	for i := start; i >= 0; i-- {
+		if isExpandableBlock(m.blocks[i]) {
+			m.clearFocus()
+			m.focusedBlockIdx = i
+			m.blocks[i].focused = true
+			m.invalidateBlockCache(i)
+			return
+		}
+	}
+	// No earlier expandable — keep current focus.
+}
+
+// focusNextExpandable moves the focused block one step later. When the
+// user is already on the latest expandable, clears focus (so the next
+// ToolExpand falls through to "latest").
+func (m *Model) focusNextExpandable() {
+	if len(m.blocks) == 0 {
+		return
+	}
+	if m.focusedBlockIdx < 0 {
+		return // nothing focused, nothing to advance
+	}
+	for i := m.focusedBlockIdx + 1; i < len(m.blocks); i++ {
+		if isExpandableBlock(m.blocks[i]) {
+			m.clearFocus()
+			m.focusedBlockIdx = i
+			m.blocks[i].focused = true
+			m.invalidateBlockCache(i)
+			return
+		}
+	}
+	// Past the last expandable — clear focus so ToolExpand falls
+	// back to "latest".
+	m.clearFocus()
+}
+
+// clearFocus removes the focus marker from the previously-focused block.
+func (m *Model) clearFocus() {
+	if m.focusedBlockIdx >= 0 && m.focusedBlockIdx < len(m.blocks) {
+		m.blocks[m.focusedBlockIdx].focused = false
+		m.invalidateBlockCache(m.focusedBlockIdx)
+	}
+	m.focusedBlockIdx = -1
+}
+
+// blockAtContentLine returns the index of the block occupying the
+// given content-line in the rendered viewport, or -1 if no block
+// overlaps that line. Used by the mouse click handler.
+func (m *Model) blockAtContentLine(line int) int {
+	for _, r := range m.blockLineRanges {
+		if line >= r.start && line < r.end {
+			return r.blockIdx
+		}
+	}
+	return -1
+}
+
+// handleMessagesClick processes a left-button click on the messages
+// viewport area. Maps the click to a block, sets focus, and toggles
+// expansion if the block is expandable. Returns true when the click
+// consumed something (caller skips default scroll handling).
+func (m *Model) handleMessagesClick(msgX, msgY int) bool {
+	// Single-view: vp starts at row 0 of the left column. Split-view:
+	// activityVP fills the top, then a separator row, then vp.
+	vpTop := 0
+	if m.splitView {
+		vpTop = m.activityVP.Height + 1 // +1 for separator row
+	}
+	if msgY < vpTop || msgY >= vpTop+m.vp.Height {
+		return false
+	}
+	// Sidebar lives to the right of vp. Reject clicks past the vp
+	// width — those land on the sidebar, not the conversation.
+	if msgX >= m.vp.Width {
+		return false
+	}
+	contentLine := m.vp.YOffset + (msgY - vpTop)
+	idx := m.blockAtContentLine(contentLine)
+	if idx < 0 {
+		return false
+	}
+	if !isExpandableBlock(m.blocks[idx]) {
+		return false
+	}
+	// Move focus to the clicked block + toggle its expansion.
+	m.clearFocus()
+	m.focusedBlockIdx = idx
+	m.blocks[idx].focused = true
+	m.blocks[idx].expanded = !m.blocks[idx].expanded
+	m.invalidateBlockCache(idx)
+	return true
 }
 
 func (m *Model) resolveApproval(allow bool) tea.Cmd {
