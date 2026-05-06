@@ -51,7 +51,7 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
-	cfg.Tools.Disabled = []string{"bash", "webfetch"}
+	cfg.Tools.Disabled = []string{"bash", "web__fetch"}
 	ApplyToolFilter(reg, cfg)
 
 	after := len(reg.All())
@@ -59,7 +59,7 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 		t.Errorf("disabled should trim 2 tools; was %d → %d", before, after)
 	}
 	for _, tl := range reg.All() {
-		if tl.Name() == "bash" || tl.Name() == "webfetch" {
+		if tl.Name() == "bash" || tl.Name() == "web__fetch" {
 			t.Errorf("tool %q should have been removed", tl.Name())
 		}
 	}
