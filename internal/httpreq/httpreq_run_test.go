@@ -5,7 +5,7 @@ package httpreq
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	
 	"io"
 	"net"
 	"net/http"
@@ -13,21 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/foobarto/stado/pkg/tool"
 )
 
-// privateHost is a fake tool.Host that opts into the loosened guard
-// when allow=true. Implements only the subset Run needs (the
-// HostNetworkPolicy probe); the embedded tool.Host nil receiver
-// would panic if called, but Run never reaches PriorRead/RecordRead
-// on the http_request path.
-type privateHost struct {
-	tool.Host
-	allow bool
-}
-
-func (p privateHost) AllowPrivateNetwork() bool { return p.allow }
 
 // withTestServer swaps the dial guard so the test server (loopback)
 // is reachable. Restored on cleanup. Real-world dial guard remains
@@ -44,15 +31,6 @@ func withTestServer(t *testing.T, h http.Handler) (string, func()) {
 		srv.Close()
 	}
 	return srv.URL, cleanup
-}
-
-func mustDecode(t *testing.T, raw string) Response {
-	t.Helper()
-	var r Response
-	if err := json.Unmarshal([]byte(raw), &r); err != nil {
-		t.Fatalf("decode response: %v (raw=%q)", err, raw)
-	}
-	return r
 }
 
 // TestPostJSON: send a POST with a JSON body and an Authorization
@@ -80,12 +58,11 @@ func TestPostJSON(t *testing.T) {
 		Headers: map[string]string{"Authorization": "Bearer testtoken", "Content-Type": "application/json"},
 		BodyB64: base64.StdEncoding.EncodeToString([]byte(`{"x":1}`)),
 	}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, nil)
+	res, err := Do(context.Background(), args, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	r := mustDecode(t, res.Content)
+	r := res
 	if r.Status != 201 {
 		t.Fatalf("status=%d, want 201", r.Status)
 	}
@@ -107,12 +84,11 @@ func TestMethods(t *testing.T) {
 	defer stop()
 	for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH"} {
 		args := Args{Method: m, URL: target}
-		raw, _ := json.Marshal(args)
-		res, err := RequestTool{}.Run(context.Background(), raw, nil)
+		res, err := Do(context.Background(), args, false)
 		if err != nil {
 			t.Fatalf("Run %s: %v", m, err)
 		}
-		r := mustDecode(t, res.Content)
+		r := res
 		body, _ := base64.StdEncoding.DecodeString(r.BodyB64)
 		if string(body) != m {
 			t.Fatalf("method %s: body=%q, want %q", m, body, m)
@@ -123,10 +99,9 @@ func TestMethods(t *testing.T) {
 // TestUnsupportedMethod
 func TestUnsupportedMethod(t *testing.T) {
 	args := Args{Method: "TRACE", URL: "https://example.com"}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, nil)
+	res, err := Do(context.Background(), args, false)
 	if err == nil {
-		t.Fatalf("Run: expected error for TRACE, got result %q", res.Content)
+		t.Fatalf("Run: expected error for TRACE, got status %d", res.Status)
 	}
 	if !strings.Contains(err.Error(), "unsupported method") {
 		t.Fatalf("err=%v, want 'unsupported method'", err)
@@ -136,8 +111,7 @@ func TestUnsupportedMethod(t *testing.T) {
 // TestBadBodyB64: malformed base64 surfaces a clean error.
 func TestBadBodyB64(t *testing.T) {
 	args := Args{Method: "POST", URL: "https://example.com", BodyB64: "%%not-base64%%"}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, nil)
+	_, err := Do(context.Background(), args, false)
 	if err == nil || !strings.Contains(err.Error(), "body_b64") {
 		t.Fatalf("err=%v, want body_b64 error", err)
 	}
@@ -148,8 +122,7 @@ func TestBadBodyB64(t *testing.T) {
 // here we exercise the guard directly with a 127.0.0.1 URL.)
 func TestPrivateNetworkBlocked(t *testing.T) {
 	args := Args{Method: "GET", URL: "http://127.0.0.1:1/blocked"}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, nil)
+	_, err := Do(context.Background(), args, false)
 	if err == nil || !strings.Contains(err.Error(), "private network") {
 		t.Fatalf("err=%v, want 'private network' error", err)
 	}
@@ -170,12 +143,11 @@ func TestRedirectSameHostAllowed(t *testing.T) {
 	defer stop()
 
 	args := Args{Method: "GET", URL: target + "/start"}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, nil)
+	res, err := Do(context.Background(), args, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	r := mustDecode(t, res.Content)
+	r := res
 	body, _ := base64.StdEncoding.DecodeString(r.BodyB64)
 	if string(body) != "redirected" {
 		t.Fatalf("body=%q, want 'redirected'", body)
@@ -193,8 +165,7 @@ func TestRedirectCrossHostBlocked(t *testing.T) {
 	defer stop()
 
 	args := Args{Method: "GET", URL: target}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, nil)
+	_, err := Do(context.Background(), args, false)
 	if err == nil || !strings.Contains(err.Error(), "different host") {
 		t.Fatalf("err=%v, want 'different host'", err)
 	}
@@ -216,12 +187,11 @@ func TestStripsHopByHopHeaders(t *testing.T) {
 		URL:     target,
 		Headers: map[string]string{"Connection": "Upgrade", "Host": "evil.example", "X-Custom": "kept"},
 	}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, nil)
+	res, err := Do(context.Background(), args, false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	r := mustDecode(t, res.Content)
+	r := res
 	body, _ := base64.StdEncoding.DecodeString(r.BodyB64)
 	if string(body) != "kept" {
 		t.Fatalf("body=%q, want X-Custom='kept' to pass through", body)
@@ -241,9 +211,8 @@ func TestResponseBodyTruncated(t *testing.T) {
 	}))
 	defer stop()
 	args := Args{Method: "GET", URL: target}
-	raw, _ := json.Marshal(args)
-	res, _ := RequestTool{}.Run(context.Background(), raw, nil)
-	r := mustDecode(t, res.Content)
+	res, _ := Do(context.Background(), args, false)
+	r := res
 	if !r.BodyTruncated {
 		t.Fatalf("body_truncated=false, want true")
 	}
@@ -266,12 +235,11 @@ func TestPrivateNetworkAllowedWithCapability(t *testing.T) {
 	defer srv.Close()
 
 	args := Args{Method: "GET", URL: srv.URL}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	res, err := Do(context.Background(), args, true)
 	if err != nil {
 		t.Fatalf("Run with private cap: %v", err)
 	}
-	r := mustDecode(t, res.Content)
+	r := res
 	if r.Status != 200 {
 		t.Fatalf("status=%d, want 200", r.Status)
 	}
@@ -286,8 +254,7 @@ func TestPrivateNetworkAllowedWithCapability(t *testing.T) {
 // Distinct from TestPrivateNetworkBlocked (which passes nil host).
 func TestPrivateNetworkDeniedWithoutCapability(t *testing.T) {
 	args := Args{Method: "GET", URL: "http://127.0.0.1:1/blocked"}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: false})
+	_, err := Do(context.Background(), args, false)
 	if err == nil || !strings.Contains(err.Error(), "private network") {
 		t.Fatalf("err=%v, want 'private network' error", err)
 	}
@@ -297,8 +264,7 @@ func TestPrivateNetworkDeniedWithoutCapability(t *testing.T) {
 // multicast / unspecified / docs ranges must remain refused.
 func TestPrivateGuardStillRefusesMulticast(t *testing.T) {
 	args := Args{Method: "GET", URL: "http://224.0.0.1/x"}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	_, err := Do(context.Background(), args, true)
 	if err == nil || !strings.Contains(err.Error(), "denied") {
 		t.Fatalf("err=%v, want 'denied' error for multicast even with private cap", err)
 	}
@@ -344,12 +310,11 @@ func TestProxyURL_HTTP(t *testing.T) {
 		URL:      "http://example.invalid/x",
 		ProxyURL: proxySrv.URL,
 	}
-	raw, _ := json.Marshal(args)
-	res, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	res, err := Do(context.Background(), args, true)
 	if err != nil {
 		t.Fatalf("Run with proxy_url: %v", err)
 	}
-	resp := mustDecode(t, res.Content)
+	resp := res
 	if resp.Status != 200 {
 		t.Errorf("status=%d, want 200", resp.Status)
 	}
@@ -375,8 +340,7 @@ func TestProxyURL_RejectsUnsupportedScheme(t *testing.T) {
 		URL:      target,
 		ProxyURL: "ftp://something.example",
 	}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	_, err := Do(context.Background(), args, true)
 	if err == nil {
 		t.Fatal("expected error for unsupported proxy scheme")
 	}
@@ -397,8 +361,7 @@ func TestProxyURL_RejectsMalformed(t *testing.T) {
 		URL:      target,
 		ProxyURL: "://this-is-not-a-url",
 	}
-	raw, _ := json.Marshal(args)
-	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	_, err := Do(context.Background(), args, true)
 	if err == nil {
 		t.Fatal("expected error for malformed proxy_url")
 	}

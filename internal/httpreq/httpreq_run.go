@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -15,8 +14,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/foobarto/stado/pkg/tool"
 )
 
 const (
@@ -26,11 +23,11 @@ const (
 )
 
 // httpReqDialContext is overridable for tests (see httpreq_run_test.go).
-// It's used when the host has not opted into private-network access.
+// It's used when the caller has not opted into private-network access.
 var httpReqDialContext = guardedHTTPReqDialContext
 
-// httpReqPrivateDialContext is the loosened guard used when the host
-// implements tool.HostNetworkPolicy and AllowPrivateNetwork() is true.
+// httpReqPrivateDialContext is the loosened guard used when the caller
+// passes allowPrivate=true (host opted into net:http_request_private).
 // Loopback / RFC1918 / link-local / CGNAT are permitted; everything
 // else (multicast, reserved, IPv4-mapped trickery via Unmap) still
 // goes through the same resolution path so the host can't be tricked
@@ -80,22 +77,29 @@ var stripRequestHeaders = map[string]struct{}{
 	"content-length":      {}, // body-derived
 }
 
-func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (tool.Result, error) {
-	var p Args
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
+// Do executes one HTTP request per the supplied args + dial-policy
+// boolean. Returns the parsed Response on success, or an error.
+//
+// allowPrivate: when true, the dial guard permits RFC1918 / loopback /
+// link-local / CGNAT destinations. When false (default), only public
+// addresses are dialable. Caller (the host wrapper) plumbs this from
+// the manifest's `net:http_request_private` capability.
+//
+// This is a primitive — no tool.Host, no tool.Result envelope. The
+// host wrapper at `internal/plugins/runtime/host_http_request.go`
+// translates this into the wasm-facing JSON shape.
+func Do(ctx context.Context, p Args, allowPrivate bool) (Response, error) {
 	dial := httpReqDialContext
-	if pol, ok := h.(tool.HostNetworkPolicy); ok && pol.AllowPrivateNetwork() {
+	if allowPrivate {
 		dial = httpReqPrivateDialContext
 	}
 	method, err := validateMethod(p.Method)
 	if err != nil {
-		return tool.Result{Error: err.Error()}, err
+		return Response{}, err
 	}
 	u, err := validateRequestURL(p.URL)
 	if err != nil {
-		return tool.Result{Error: err.Error()}, err
+		return Response{}, err
 	}
 	initialHost := strings.ToLower(u.Hostname())
 
@@ -111,15 +115,14 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (t
 	if p.BodyB64 != "" {
 		decoded, err := base64.StdEncoding.DecodeString(p.BodyB64)
 		if err != nil {
-			err = fmt.Errorf("body_b64 invalid base64: %w", err)
-			return tool.Result{Error: err.Error()}, err
+			return Response{}, fmt.Errorf("body_b64 invalid base64: %w", err)
 		}
 		body = bytes.NewReader(decoded)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
-		return tool.Result{Error: err.Error()}, err
+		return Response{}, err
 	}
 	req.Header.Set("User-Agent", "stado/0.1.0")
 	for k, v := range p.Headers {
@@ -145,7 +148,7 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (t
 	//   socks5h://  — same, but DNS resolution happens at the proxy
 	if p.ProxyURL != "" {
 		if err := configureProxy(transport, dial, p.ProxyURL); err != nil {
-			return tool.Result{Error: err.Error()}, err
+			return Response{}, err
 		}
 	}
 
@@ -164,13 +167,13 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (t
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return tool.Result{Error: err.Error()}, err
+		return Response{}, err
 	}
 	defer resp.Body.Close()
 
 	bodyBytes, truncated, err := readResponseBody(resp.Body)
 	if err != nil {
-		return tool.Result{Error: err.Error()}, err
+		return Response{}, err
 	}
 
 	headers := make(map[string]string, len(resp.Header))
@@ -181,17 +184,12 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (t
 		headers[k] = strings.Join(vs, ", ")
 	}
 
-	out := Response{
+	return Response{
 		Status:        resp.StatusCode,
 		Headers:       headers,
 		BodyB64:       base64.StdEncoding.EncodeToString(bodyBytes),
 		BodyTruncated: truncated,
-	}
-	payload, err := json.Marshal(out)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	return tool.Result{Content: string(payload)}, nil
+	}, nil
 }
 
 func validateMethod(m string) (string, error) {
