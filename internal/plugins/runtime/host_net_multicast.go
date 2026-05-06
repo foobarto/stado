@@ -2,24 +2,20 @@
 // the platform-specific syscall hop (SO_BROADCAST is OS-level, not
 // available through Go's net.UDPConn directly) lives next to the
 // x/net/ipv4 / ipv6 multicast wrapper. EP-0038i.
+//
+// The setBroadcastFD helper is split into _unix.go / _windows.go
+// because syscall.SetsockoptInt takes int on POSIX and
+// syscall.Handle on Windows.
 package runtime
 
 import (
 	"fmt"
 	"net"
 	"strings"
-	"syscall"
 
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 )
-
-// setBroadcastFD enables/disables SO_BROADCAST on a raw fd. Linux,
-// BSD, and Darwin all use SOL_SOCKET / SO_BROADCAST; on Windows the
-// constants are the same but we don't currently target Windows.
-func setBroadcastFD(fd, value int) error {
-	return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_BROADCAST, value)
-}
 
 // parseGroupIface splits "<group_ip>[,<iface_name>]" into the IP and
 // the interface (nil = any). Returns an error for unparseable input.

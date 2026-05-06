@@ -793,7 +793,7 @@ func applyUDPSetopt(pc net.PacketConn, key, value string) error {
 			if on {
 				v = 1
 			}
-			setErr = setBroadcastFD(int(fd), v)
+			setErr = setBroadcastFD(fd, v)
 		})
 		if err != nil {
 			return err
