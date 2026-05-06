@@ -19,7 +19,7 @@ require (
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/v2 v2.3.4
 	github.com/mark3labs/mcp-go v0.48.0
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.22
 	github.com/openai/openai-go v1.12.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pkoukk/tiktoken-go v0.1.8
