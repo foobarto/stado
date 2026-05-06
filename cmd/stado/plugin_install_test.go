@@ -110,6 +110,85 @@ func TestPluginInstall_WithSignerTOFU(t *testing.T) {
 	}
 }
 
+// TestPluginInstall_Autoload: --autoload flag persists the plugin's
+// tools into [tools].autoload in config.toml so they're loaded into
+// future sessions without a separate `tool autoload` call.
+func TestPluginInstall_Autoload(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPluginWithTools(t, priv, pub, "auto", "1.0.0",
+		[]plugins.ToolDef{
+			{Name: "auto_lookup", Description: "lookup"},
+			{Name: "auto_search", Description: "search"},
+		})
+
+	pluginInstallSigner = hex.EncodeToString(pub)
+	pluginInstallAutoload = true
+	defer func() {
+		pluginInstallSigner = ""
+		pluginInstallAutoload = false
+	}()
+
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	// Re-load config and verify autoload entries landed.
+	reloaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	got := reloaded.Tools.Autoload
+	wantHas := map[string]bool{"auto_lookup": false, "auto_search": false}
+	for _, name := range got {
+		if _, ok := wantHas[name]; ok {
+			wantHas[name] = true
+		}
+	}
+	for name, found := range wantHas {
+		if !found {
+			t.Errorf("autoload missing %q after install --autoload (got %v)", name, got)
+		}
+	}
+	_ = cfg // already verified via reloaded
+}
+
+// buildTestPluginWithTools is buildTestPlugin + tools in the manifest.
+// Used by --autoload tests.
+func buildTestPluginWithTools(t *testing.T, priv ed25519.PrivateKey, pub ed25519.PublicKey, name, version string, tools []plugins.ToolDef) string {
+	t.Helper()
+	dir := t.TempDir()
+	wasm := []byte("pretend-wasm-blob-" + name)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.wasm"), wasm, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(wasm)
+	m := &plugins.Manifest{
+		Name:            name,
+		Version:         version,
+		Author:          "test-author",
+		AuthorPubkeyFpr: plugins.Fingerprint(pub),
+		WASMSHA256:      hex.EncodeToString(sum[:]),
+		TimestampUTC:    time.Now().UTC().Format(time.RFC3339),
+		Tools:           tools,
+	}
+	canonical, err := m.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := m.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.json"), canonical, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.sig"), []byte(sig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestPluginInstall_NormalizesInstalledPermissions(t *testing.T) {
 	cfg := isolatedHome(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)

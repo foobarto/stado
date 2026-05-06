@@ -22,6 +22,8 @@ func init() {
 		"Pin the plugin's author Ed25519 pubkey (hex or base64) inline before verification. Only use when you've verified the signer out of band.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallForce, "force", false,
 		"Force reinstall even when the same version is already present (bypasses idempotency check). EP-0039.")
+	pluginInstallCmd.Flags().BoolVar(&pluginInstallAutoload, "autoload", false,
+		"After install, persist the plugin's tools into [tools].autoload in config.toml — they'll load into every session without a separate `stado tool autoload` call.")
 	pluginTrustCmd.Flags().StringVar(&pluginTrustPubkeyFile, "pubkey-file", "",
 		"Path to a file containing the hex-encoded Ed25519 public key (alternative to passing inline). EP-0039.")
 	pluginSignCmd.Flags().StringVar(&pluginSignKeyPath, "key", "",

@@ -17,6 +17,7 @@ import (
 
 var pluginInstallSigner string
 var pluginInstallForce bool
+var pluginInstallAutoload bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
 const (
@@ -154,6 +155,21 @@ var pluginInstallCmd = &cobra.Command{
 			}
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
+
+		// --autoload: persist this plugin's tools into config.toml's
+		// [tools].autoload list so they're loaded into every session
+		// without an additional `stado tool autoload <name>` step.
+		if pluginInstallAutoload && len(m.Tools) > 0 {
+			names := make([]string, 0, len(m.Tools))
+			for _, td := range m.Tools {
+				names = append(names, td.Name)
+			}
+			if err := config.WriteToolsListAdd(cfg.ConfigPath, "autoload", names); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warn: --autoload could not update %s: %v\n", cfg.ConfigPath, err)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "autoloaded: %s\n", strings.Join(names, ", "))
+			}
+		}
 		return nil
 	},
 }
