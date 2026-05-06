@@ -53,6 +53,9 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	registerToolInvokeImport(builder, host)
 	// 2026-05-06: EP-0038f Tier 1 net dial (TCP) — tester #5.
 	registerNetImports(builder, host, r)
+	// EP-0038h: stado_json_get / stado_json_format — host-side JSON
+	// extraction and formatting; no caps required.
+	registerJSONImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

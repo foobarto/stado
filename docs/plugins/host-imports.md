@@ -444,6 +444,42 @@ Output is the raw digest (not hex/base64); the plugin formats it.
 If `out_max` is too small, returns the required size (re-call with
 that buffer). On corrupt input returns -1.
 
+### stado_json_get, stado_json_format
+
+EP-0038h — host-side JSON conveniences. Lets plugins extract a single
+value from an HTTP response or pretty-print a payload without
+bundling a 50 KB JSON parser into every plugin binary.
+
+| Import | Returns |
+|---|---|
+| `stado_json_get(json_ptr, json_len, path_ptr, path_len, out_ptr, out_max) → i32` | bytes written; -1 on malformed JSON / missing path / out_max too small |
+| `stado_json_format(json_ptr, json_len, indent, out_ptr, out_max) → i32` | bytes written; -1 on malformed JSON / out_max too small |
+
+**No capability required** — pure compute. Input bounded to 256 KB
+per call; larger payloads should be chunked via
+`stado_http_response_read`.
+
+**Path syntax (`_get`).** Dotted form, with non-negative integers
+treated as array indices:
+
+```
+.            # whole document (also "")
+user.name    # nested object key
+items.0.id   # first array element's id field
+```
+
+No filters, globs, or recursive descent. Keys containing `.`
+literally are unreachable; use `_format` and parse-by-walk if you
+need that.
+
+**Return form (`_get`).** Canonical JSON bytes of the value: numbers
+are unquoted (`42`), strings keep their quotes (`"hello"`), objects
+and arrays are valid JSON. The output is round-trippable into another
+`_get` call.
+
+**Indent (`_format`).** `0` = compact; `N>0` = N-space indent
+(clamped to 16).
+
 ## Agent surface
 
 EP-0038c — wasm plugins talk to the in-process Fleet via these
