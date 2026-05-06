@@ -574,16 +574,18 @@ fail because the operator surface isn't connected.
   `PROGRESS [plugin] text`. Progress entries always show regardless
   of `--sidebar-debug` (the plugin author chose to emit them).
 
-### stado_json_get, stado_json_format
+### stado_json_get, stado_json_format, stado_json_set
 
-EP-0038h — host-side JSON conveniences. Lets plugins extract a single
-value from an HTTP response or pretty-print a payload without
-bundling a 50 KB JSON parser into every plugin binary.
+EP-0038h (`_get`, `_format`) + EP-0038i (`_set`) — host-side JSON
+conveniences. Lets plugins extract a value, mutate a value, or
+pretty-print a payload without bundling a 50 KB JSON parser into
+every plugin binary.
 
 | Import | Returns |
 |---|---|
 | `stado_json_get(json_ptr, json_len, path_ptr, path_len, out_ptr, out_max) → i32` | bytes written; -1 on malformed JSON / missing path / out_max too small |
 | `stado_json_format(json_ptr, json_len, indent, out_ptr, out_max) → i32` | bytes written; -1 on malformed JSON / out_max too small |
+| `stado_json_set(json_ptr, json_len, path_ptr, path_len, value_ptr, value_len, out_ptr, out_max) → i32` | bytes of modified document written; -1 on malformed JSON / malformed value / unwalkable path / out_max too small |
 
 **No capability required** — pure compute. Input bounded to 256 KB
 per call; larger payloads should be chunked via
@@ -609,6 +611,19 @@ and arrays are valid JSON. The output is round-trippable into another
 
 **Indent (`_format`).** `0` = compact; `N>0` = N-space indent
 (clamped to 16).
+
+**Set semantics (`_set`).** The `value` payload must itself be valid
+JSON — it gets parsed and embedded at the target location. New keys
+on existing objects are added. Out-of-range or non-numeric array
+indices return -1 (no implicit array growth). Walking through a
+missing key creates intermediate empty objects so plugins can build
+nested structure with successive sets:
+
+```
+{} + set("a.b.c", `"deep"`) → {"a":{"b":{"c":"deep"}}}
+```
+
+Empty path replaces the whole document (root-level set).
 
 ## Agent surface
 
