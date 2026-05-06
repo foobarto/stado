@@ -2,11 +2,149 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/plugins"
 )
+
+// TestPluginSign_KeyEnv_Hex: --key-env reads the seed from an env
+// var encoded as hex (64 chars).
+func TestPluginSign_KeyEnv_Hex(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath, _ := writeUnsignedTestPlugin(t, dir, "demo", "0.1.0")
+
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	seed := priv.Seed()
+	t.Setenv("STADO_TEST_SIGNING_KEY", hex.EncodeToString(seed))
+	pluginSignKeyPath = ""
+	pluginSignKeyEnv = "STADO_TEST_SIGNING_KEY"
+	pluginSignQuiet = true
+	defer func() {
+		pluginSignKeyEnv = ""
+		pluginSignQuiet = false
+	}()
+
+	if err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath}); err != nil {
+		t.Fatalf("sign with --key-env hex: %v", err)
+	}
+	sigPath := filepath.Join(dir, "plugin.manifest.sig")
+	if _, err := os.Stat(sigPath); err != nil {
+		t.Errorf("expected sig file written; got: %v", err)
+	}
+}
+
+// TestPluginSign_KeyEnv_Base64: --key-env accepts base64-encoded seed.
+func TestPluginSign_KeyEnv_Base64(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath, _ := writeUnsignedTestPlugin(t, dir, "demo", "0.1.0")
+
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	seed := priv.Seed()
+	t.Setenv("STADO_TEST_SIGNING_KEY", base64.StdEncoding.EncodeToString(seed))
+	pluginSignKeyPath = ""
+	pluginSignKeyEnv = "STADO_TEST_SIGNING_KEY"
+	pluginSignQuiet = true
+	defer func() {
+		pluginSignKeyEnv = ""
+		pluginSignQuiet = false
+	}()
+
+	if err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath}); err != nil {
+		t.Fatalf("sign with --key-env base64: %v", err)
+	}
+}
+
+// TestPluginSign_KeyEnv_MissingVar: --key-env pointing at an unset
+// env var is a clear error.
+func TestPluginSign_KeyEnv_MissingVar(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath, _ := writeUnsignedTestPlugin(t, dir, "demo", "0.1.0")
+
+	pluginSignKeyPath = ""
+	pluginSignKeyEnv = "STADO_TEST_SIGNING_KEY_UNSET_FOR_THIS_TEST"
+	defer func() { pluginSignKeyEnv = "" }()
+
+	err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath})
+	if err == nil {
+		t.Fatal("expected error when env var is unset")
+	}
+	if !strings.Contains(err.Error(), "empty or unset") {
+		t.Errorf("error should mention `empty or unset`; got: %v", err)
+	}
+}
+
+// TestPluginSign_BothKeyAndKeyEnv: passing both --key and --key-env
+// is rejected.
+func TestPluginSign_BothKeyAndKeyEnv(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath, _ := writeUnsignedTestPlugin(t, dir, "demo", "0.1.0")
+
+	seedPath := filepath.Join(dir, "key.seed")
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	if err := os.WriteFile(seedPath, priv.Seed(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STADO_TEST_SIGNING_KEY", hex.EncodeToString(priv.Seed()))
+	pluginSignKeyPath = seedPath
+	pluginSignKeyEnv = "STADO_TEST_SIGNING_KEY"
+	defer func() {
+		pluginSignKeyPath = ""
+		pluginSignKeyEnv = ""
+	}()
+
+	err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath})
+	if err == nil {
+		t.Fatal("expected error when both --key and --key-env are passed")
+	}
+	if !strings.Contains(err.Error(), "exactly one") {
+		t.Errorf("error should mention `exactly one`; got: %v", err)
+	}
+}
+
+// TestPluginSign_NoKeyAtAll: no --key and no --key-env is an error.
+func TestPluginSign_NoKeyAtAll(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath, _ := writeUnsignedTestPlugin(t, dir, "demo", "0.1.0")
+
+	pluginSignKeyPath = ""
+	pluginSignKeyEnv = ""
+
+	err := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath})
+	if err == nil {
+		t.Fatal("expected error when neither --key nor --key-env is set")
+	}
+	if !strings.Contains(err.Error(), "--key-env") {
+		t.Errorf("error should mention --key-env as an option; got: %v", err)
+	}
+}
+
+// writeUnsignedTestPlugin sets up a minimal manifest + wasm dir for
+// sign tests. Returns the manifest path + the wasm path.
+func writeUnsignedTestPlugin(t *testing.T, dir, name, version string) (manifestPath, wasmPath string) {
+	t.Helper()
+	wasmPath = filepath.Join(dir, "plugin.wasm")
+	if err := os.WriteFile(wasmPath, []byte("test-wasm-bytes-"+name), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mf := plugins.Manifest{
+		Name:    name,
+		Version: version,
+		Author:  "ci-test",
+	}
+	manifestPath = filepath.Join(dir, "plugin.manifest.json")
+	body, _ := json.MarshalIndent(&mf, "", "  ")
+	if err := os.WriteFile(manifestPath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return manifestPath, wasmPath
+}
 
 func TestPluginGenKeyRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
