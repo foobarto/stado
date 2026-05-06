@@ -420,6 +420,98 @@ func TestListenNet_UDPCapDenied(t *testing.T) {
 	}
 }
 
+// TestApplyUDPSetopt_Broadcast: enabling broadcast on a real UDP
+// socket toggles the kernel SO_BROADCAST flag. Skipped if the test
+// environment refuses (some sandboxes filter setsockopt).
+func TestApplyUDPSetopt_Broadcast(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer pc.Close()
+	if err := applyUDPSetopt(pc, "broadcast", "true"); err != nil {
+		t.Errorf("setopt broadcast=true: %v", err)
+	}
+	if err := applyUDPSetopt(pc, "broadcast", "false"); err != nil {
+		t.Errorf("setopt broadcast=false: %v", err)
+	}
+}
+
+// TestApplyUDPSetopt_MulticastTTL: setting multicast TTL on a UDP
+// socket succeeds for valid values, rejects out-of-range.
+func TestApplyUDPSetopt_MulticastTTL(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer pc.Close()
+	if err := applyUDPSetopt(pc, "multicast_ttl", "32"); err != nil {
+		t.Errorf("ttl=32: %v", err)
+	}
+	if err := applyUDPSetopt(pc, "multicast_ttl", "-1"); err == nil {
+		t.Error("ttl=-1: expected error")
+	}
+	if err := applyUDPSetopt(pc, "multicast_ttl", "abc"); err == nil {
+		t.Error("ttl=abc: expected error")
+	}
+}
+
+// TestApplyUDPSetopt_UnknownKeyRejected.
+func TestApplyUDPSetopt_UnknownKeyRejected(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer pc.Close()
+	if err := applyUDPSetopt(pc, "no_such_key", "x"); err == nil {
+		t.Error("expected error for unknown key")
+	}
+}
+
+// TestApplyUDPSetopt_MulticastJoinLeave: joining + leaving a real
+// IPv4 multicast group via the helper. Skipped if the test
+// environment refuses multicast (containers, some sandboxes).
+func TestApplyUDPSetopt_MulticastJoinLeave(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", "0.0.0.0:0")
+	if err != nil {
+		t.Skipf("ipv4 udp listen unavailable: %v", err)
+	}
+	defer pc.Close()
+	// Use a documentation-range multicast group (RFC 5771) that's
+	// safe for tests and unlikely to clash with other traffic.
+	const testGroup = "239.255.0.42"
+	if err := applyUDPSetopt(pc, "multicast_join", testGroup); err != nil {
+		t.Skipf("multicast_join unavailable in this env: %v", err)
+	}
+	if err := applyUDPSetopt(pc, "multicast_leave", testGroup); err != nil {
+		t.Errorf("multicast_leave: %v", err)
+	}
+}
+
+// TestParseGroupIface_RejectsNonMulticast.
+func TestParseGroupIface_RejectsNonMulticast(t *testing.T) {
+	if _, _, err := parseGroupIface("192.0.2.1"); err == nil {
+		t.Error("non-multicast IP should be rejected")
+	}
+	if _, _, err := parseGroupIface("not-an-ip"); err == nil {
+		t.Error("unparseable IP should be rejected")
+	}
+}
+
+// TestParseBool covers the value parser used for boolean setopts.
+func TestParseBool(t *testing.T) {
+	cases := map[string]bool{"true": true, "TRUE": true, "1": true, "false": false, "False": false, "0": false}
+	for in, want := range cases {
+		got, err := parseBool(in)
+		if err != nil || got != want {
+			t.Errorf("parseBool(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	if _, err := parseBool("yes"); err == nil {
+		t.Error("non-bool string should error")
+	}
+}
+
 // TestPackRecvResult: the high32/low32 packing convention round-trips.
 func TestPackRecvResult(t *testing.T) {
 	cases := []struct {

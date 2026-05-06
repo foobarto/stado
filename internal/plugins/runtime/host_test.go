@@ -415,6 +415,19 @@ func TestNewHost_ParsesNetDialAndListenCaps(t *testing.T) {
 	}
 }
 
+// TestNewHost_ParsesNetMulticastCap: net:multicast:udp toggles the
+// NetMulticast bit; absent cap leaves it false.
+func TestNewHost_ParsesNetMulticastCap(t *testing.T) {
+	h := NewHost(plugins.Manifest{Name: "demo", Capabilities: []string{"net:multicast:udp"}}, "/tmp", nil)
+	if !h.NetMulticast {
+		t.Error("NetMulticast should be true with net:multicast:udp")
+	}
+	hWithout := NewHost(plugins.Manifest{Name: "demo"}, "/tmp", nil)
+	if hWithout.NetMulticast {
+		t.Error("NetMulticast should default false")
+	}
+}
+
 // TestNewHost_NetCapsEmptyWithoutDeclarations confirms NetDial /
 // NetListen are nil when no relevant cap is granted.
 func TestNewHost_NetCapsEmptyWithoutDeclarations(t *testing.T) {

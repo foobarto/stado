@@ -173,6 +173,10 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "stateful HTTP client with cookie jar; uses net:http_request:<host> caps as the host allowlist"
 		return cn
+	case cap == "net:multicast:udp":
+		cn.requirement = requireNothing
+		cn.note = "stado_net_setopt — enables broadcast / multicast group join+leave / multicast TTL+loopback on UDP listener handles. Use for discovery protocols (mDNS, SSDP, BACnet, NBNS)."
+		return cn
 	case cap == "dns:resolve":
 		cn.requirement = requireNothing
 		cn.note = "stado_dns_resolve — recursive DNS lookups (A, AAAA, TXT, MX, NS, PTR)"

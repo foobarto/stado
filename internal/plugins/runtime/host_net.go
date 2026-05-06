@@ -209,6 +209,7 @@ func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtim
 	registerNetCloseListenerImport(builder, host, rt)
 	registerNetSendtoImport(builder, host, rt)
 	registerNetRecvfromImport(builder, host, rt)
+	registerNetSetoptImport(builder, host, rt)
 }
 
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
@@ -717,6 +718,121 @@ func registerNetRecvfromImport(builder wazero.HostModuleBuilder, host *Host, rt 
 // -1/-2 sentinels) and addr via uint32(ret & 0xFFFFFFFF).
 func packRecvResult(bodyLen, addrLen int32) int64 {
 	return (int64(bodyLen) << 32) | (int64(addrLen) & 0xFFFFFFFF)
+}
+
+// stado_net_setopt(lst_handle, key_ptr, key_len, value_ptr, value_len) → i32
+//
+// Key-based dispatch for socket options on a UDP listener handle.
+// Returns 0 on success, -1 on cap-denied / unknown key / unknown
+// handle / underlying syscall failure.
+//
+// Initial keys (EP-0038i):
+//
+//   "broadcast"            → "true"/"false" — toggle SO_BROADCAST.
+//                            Required for sendto to broadcast addrs
+//                            (255.255.255.255 or subnet broadcasts).
+//   "multicast_join"       → "<group_ip>[,<iface_name>]" — join the
+//                            multicast group on the named interface
+//                            (default any).
+//   "multicast_leave"      → "<group_ip>[,<iface_name>]"
+//   "multicast_loopback"   → "true"/"false" — whether multicast we
+//                            send is looped back to us.
+//   "multicast_ttl"        → "<int 0..255>" — TTL/hop-limit on
+//                            outgoing multicast packets.
+//
+// All five keys require net:multicast:udp in the manifest. The
+// listener must be UDP (net.PacketConn).
+func registerNetSetoptImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(_ context.Context, mod api.Module,
+			handle, keyPtr, keyLen, valuePtr, valueLen int32,
+		) int32 {
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok || lst.kind != "udp" || lst.pc == nil {
+				return -1
+			}
+			if !host.NetMulticast {
+				return -1
+			}
+			key, ok := readMemoryString(mod, uint32(keyPtr), uint32(keyLen))
+			if !ok {
+				return -1
+			}
+			val, ok := readMemoryString(mod, uint32(valuePtr), uint32(valueLen))
+			if !ok {
+				return -1
+			}
+			if err := applyUDPSetopt(lst.pc, key, val); err != nil {
+				return -1
+			}
+			return 0
+		}).
+		Export("stado_net_setopt")
+}
+
+// applyUDPSetopt routes a (key, value) to the underlying socket.
+// Errors return non-nil; the import surface translates to -1.
+func applyUDPSetopt(pc net.PacketConn, key, value string) error {
+	switch key {
+	case "broadcast":
+		on, err := parseBool(value)
+		if err != nil {
+			return err
+		}
+		uc, ok := pc.(*net.UDPConn)
+		if !ok {
+			return errSetoptUnsupported
+		}
+		sc, err := uc.SyscallConn()
+		if err != nil {
+			return err
+		}
+		var setErr error
+		err = sc.Control(func(fd uintptr) {
+			v := 0
+			if on {
+				v = 1
+			}
+			setErr = setBroadcastFD(int(fd), v)
+		})
+		if err != nil {
+			return err
+		}
+		return setErr
+	case "multicast_join":
+		return udpMulticastChange(pc, value, true)
+	case "multicast_leave":
+		return udpMulticastChange(pc, value, false)
+	case "multicast_loopback":
+		on, err := parseBool(value)
+		if err != nil {
+			return err
+		}
+		return udpSetMulticastLoopback(pc, on)
+	case "multicast_ttl":
+		ttl, err := strconv.Atoi(value)
+		if err != nil || ttl < 0 || ttl > 255 {
+			return fmt.Errorf("multicast_ttl: invalid value %q", value)
+		}
+		return udpSetMulticastTTL(pc, ttl)
+	default:
+		return fmt.Errorf("setopt: unknown key %q", key)
+	}
+}
+
+// errSetoptUnsupported is returned when the underlying conn isn't a
+// *net.UDPConn (e.g. test stubs) — gives a stable sentinel for tests.
+var errSetoptUnsupported = fmt.Errorf("setopt: underlying conn does not support socket options")
+
+// parseBool accepts "true"/"false"/"1"/"0".
+func parseBool(s string) (bool, error) {
+	switch strings.ToLower(s) {
+	case "true", "1":
+		return true, nil
+	case "false", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("expected true/false; got %q", s)
 }
 
 // closeAllNetListeners reaps listener handles on Runtime.Close. Removes

@@ -6,7 +6,20 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### Plugin runtime — new host imports
+
+- **`stado_net_setopt(lst_udp, key, value)`** — broadcast / multicast
+  setopts on a UDP listener handle. Five keys: `broadcast` (toggles
+  `SO_BROADCAST`, required for sendto to broadcast addresses);
+  `multicast_join` / `multicast_leave` (join/leave a multicast group
+  on an optional named interface); `multicast_loopback` (whether
+  multicast we send is looped back to us); `multicast_ttl` (TTL /
+  hop limit on outgoing multicast packets, 0..255). All keys gated
+  by the new `net:multicast:udp` capability. Group addresses
+  validated as multicast (224.0.0.0/4 for IPv4, ff00::/8 for IPv6).
+  Multicast wiring uses `golang.org/x/net/ipv4|ipv6` (already a
+  transitive dep). Useful for discovery protocols (mDNS, SSDP,
+  WS-Discovery, BACnet, NBNS).
 
 ## v0.40.0 — TUI tool-expand + mouse + PTY persistence + EP-0038i imports
 

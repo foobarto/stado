@@ -179,6 +179,12 @@ type Host struct {
 	// EP-0038g.
 	NetListen *NetListenAccess
 
+	// NetMulticast gates the elevated stado_net_setopt keys
+	// (broadcast, multicast_join/leave, multicast_ttl, multicast_loopback)
+	// on UDP listener handles. Declared via net:multicast:udp in the
+	// manifest. EP-0038i.
+	NetMulticast bool
+
 	// Progress is the operator-visible callback for stado_progress
 	// emissions. Wired by the host caller (TUI, headless run, plugin
 	// invoke shell). When nil the import drops silently — the plugin
@@ -439,6 +445,13 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if len(parts) == 3 && parts[2] != "" {
 					h.NetReqHost = append(h.NetReqHost, strings.ToLower(parts[2]))
 				}
+				continue
+			}
+			// "net:multicast:udp" — enables the elevated setopt keys
+			// (broadcast, multicast_join/leave, multicast_ttl,
+			// multicast_loopback) on UDP listener handles. EP-0038i.
+			if parts[1] == "multicast" && len(parts) == 3 && parts[2] == "udp" {
+				h.NetMulticast = true
 				continue
 			}
 			// "net:http_request_private" — when granted, the

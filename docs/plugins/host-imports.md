@@ -402,6 +402,7 @@ Docker daemon) without dropping to bash.
 | `stado_net_close_listener(lst_handle) → i32` | 0 | inherited |
 | `stado_net_sendto(lst_udp, host_ptr, host_len, port, data_ptr, data_len) → i32` | bytes written; -1 on error | `net:listen:udp:<bind>` + `net:dial:udp:<peer-host>:<port>` |
 | `stado_net_recvfrom(lst_udp, timeout_ms, body_ptr, body_max, addr_ptr, addr_max) → i64` | packed `(body_len << 32) \| addr_len`; -1 / -2 sentinels in body slot | inherited from UDP listen |
+| `stado_net_setopt(lst_udp, key_ptr, key_len, value_ptr, value_len) → i32` | 0 on success; -1 on cap-denied / unknown key / unknown handle / syscall failure | `net:multicast:udp` |
 
 **Transports.** `stado_net_dial` accepts `"tcp"`, `"udp"`, `"unix"`.
 For `"unix"`, the `host` parameter carries the socket path; `port` is
@@ -431,6 +432,23 @@ Outbound peers in `stado_net_sendto` are gated by the **same
 `net:dial:udp:<host>:<port>` glob set** as connect-mode UDP — a UDP
 listener can't be a wildcard spray gun. Private peer addresses still
 need `net:http_request_private`.
+
+**Broadcast and multicast — `stado_net_setopt`.** A UDP listener
+can be reconfigured for broadcast / multicast traffic via key-based
+setopts:
+
+| Key | Value form | Effect |
+|---|---|---|
+| `broadcast` | `"true"` / `"false"` | Toggle `SO_BROADCAST` — required for sendto to broadcast addrs (`255.255.255.255`, subnet broadcasts) |
+| `multicast_join` | `"<group_ip>[,<iface_name>]"` | Join the multicast group on the named interface (default: any) |
+| `multicast_leave` | `"<group_ip>[,<iface_name>]"` | Inverse of join |
+| `multicast_loopback` | `"true"` / `"false"` | Whether multicast we send is looped back to us |
+| `multicast_ttl` | `"<int 0..255>"` | TTL / hop limit on outgoing multicast |
+
+All five keys require `net:multicast:udp` in the manifest. Useful
+for discovery protocols (mDNS / SSDP / WS-Discovery / BACnet / NBNS).
+Group IPs are validated as multicast (224.0.0.0/4 for IPv4, ff00::/8
+for IPv6) — non-multicast inputs are rejected.
 
 **Capability vocabulary.**
 
