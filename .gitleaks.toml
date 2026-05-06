@@ -1,0 +1,30 @@
+# gitleaks configuration for stado.
+#
+# Extends the default rules with project-specific allowlists. The
+# default ruleset (https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml)
+# covers cloud provider tokens, API keys, and the common patterns;
+# we layer allowlists for known false positives.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "stado false positives"
+paths = [
+  # The compiled stado binary contains random byte sequences in
+  # bundled wasm/embed.FS payloads that the default ruleset
+  # mis-identifies as Hunter / DigitalOcean / Cloudflare tokens.
+  '''^stado$''',
+  '''^stado-.*$''',
+  # Build artefacts: .tmp/ holds the GOTMPDIR scratch space (per Makefile).
+  '''^\.tmp/''',
+  # The example plugins ship demo wasm + dev seeds intended to be
+  # public — they're examples, not production keys.
+  '''^plugins/examples/''',
+]
+regexes = [
+  # Test fixture asserting the OAI-compat client REJECTS embedded
+  # credentials. The literal `https://user:pass@example.com` is
+  # synthetic and exists in source so the test can assert against it.
+  '''https://user:pass@example\.com''',
+]

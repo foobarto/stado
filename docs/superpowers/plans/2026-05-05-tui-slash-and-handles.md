@@ -195,12 +195,12 @@ func TestParseHandleID_RoundTrip(t *testing.T) {
 
 - [ ] **Step 1.2: Run the test file, verify compilation fails**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/plugins/runtime/ -run TestFormatHandleID -count=1`
+Run: `cd <repo-root> && go test ./internal/plugins/runtime/ -run TestFormatHandleID -count=1`
 Expected: build failure with `undefined: FormatHandleID`, `undefined: HandleType`, etc.
 
 - [ ] **Step 1.3: Add the implementation to `handles.go`**
 
-Append to `/home/foobarto/Dokumenty/stado/internal/plugins/runtime/handles.go`:
+Append to `<repo-root>/internal/plugins/runtime/handles.go`:
 
 ```go
 // HandleType is the canonical type-tag string used in operator-facing
@@ -300,18 +300,18 @@ import (
 
 - [ ] **Step 1.4: Run tests, verify all pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/plugins/runtime/ -run TestFormatHandleID -run TestParseHandleID -run TestFormat -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/plugins/runtime/ -run TestFormatHandleID -run TestParseHandleID -run TestFormat -count=1 -v`
 Expected: PASS for all `TestFormatHandleID_*`, `TestFormatFreeStandingHandleID*`, `TestParseHandleID_*`.
 
 - [ ] **Step 1.5: Run full package tests to verify no regressions**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/plugins/runtime/ -count=1`
+Run: `cd <repo-root> && go test ./internal/plugins/runtime/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 1.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/plugins/runtime/handles.go internal/plugins/runtime/handles_format_test.go
 git commit -m "feat(runtime): typed-prefix handle ID formatter/parser (BACKLOG #7)
 
@@ -415,7 +415,7 @@ func TestHandleKillSlash_AcceptsTypedPrefix(t *testing.T) {
 
 - [ ] **Step 2.2: Run test to verify it fails**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestRenderPS_UsesTypedPrefix -run TestHandleKillSlash -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestRenderPS_UsesTypedPrefix -run TestHandleKillSlash -count=1 -v`
 Expected: FAIL — likely on `Spawn` signature mismatch or no current state being injected; this test will need adjustment after looking at `runtime.Fleet.Spawn`'s actual signature.
 
 If `Fleet.Spawn` doesn't exist with that exact signature, simplify the test to construct `runtime.FleetEntry` values via a fake fleet wrapper or a builder — the test author should match the API. Read `internal/runtime/fleet.go:128-180` for the actual `Spawn` signature first.
@@ -497,18 +497,18 @@ Note: this removes `min8` from `renderPS` (the truncation now happens inside `Fo
 
 - [ ] **Step 2.5: Run focused tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestRenderPS_UsesTypedPrefix -run TestHandleKillSlash -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestRenderPS_UsesTypedPrefix -run TestHandleKillSlash -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 2.6: Run package tests for regressions**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -count=1`
+Run: `cd <repo-root> && go test ./internal/tui/ -count=1`
 Expected: PASS for all existing tests too.
 
 - [ ] **Step 2.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/model_commands.go internal/tui/handle_ids_test.go
 git commit -m "feat(tui): /ps and /kill use typed-prefix handle IDs (BACKLOG #7)
 
@@ -530,7 +530,7 @@ The override struct holds in-memory edits to `[tools].enabled`, `[tools].disable
 
 - [ ] **Step 3.1: Locate the Model struct definition**
 
-Run: `cd /home/foobarto/Dokumenty/stado && grep -rn "type Model struct" internal/tui/ | head -5`
+Run: `cd <repo-root> && grep -rn "type Model struct" internal/tui/ | head -5`
 
 Read whichever file owns the struct so the field can be added with the right ordering / json tags.
 
@@ -625,7 +625,7 @@ func contains(xs []string, s string) bool {
 
 - [ ] **Step 3.3: Run tests, verify they fail to compile**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestEffectiveTools -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestEffectiveTools -count=1 -v`
 Expected: build failure with `undefined: sessionToolOverrides`.
 
 - [ ] **Step 3.4: Add implementation**
@@ -713,13 +713,13 @@ sessionToolOverrides sessionToolOverrides
 
 - [ ] **Step 3.6: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestEffectiveTools -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestEffectiveTools -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 3.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/session_tool_overrides.go internal/tui/session_tool_overrides_test.go internal/tui/model.go
 git commit -m "feat(tui): session tool overrides (BACKLOG #5 foundation)
 
@@ -839,13 +839,13 @@ func TestEffectiveConfig_FlowsToAutoloadedTools(t *testing.T) {
 
 - [ ] **Step 4.5: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestEffectiveConfig -run TestEffectiveTools -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestEffectiveConfig -run TestEffectiveTools -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 4.6: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/session_tool_overrides.go internal/tui/session_tool_overrides_test.go internal/tui/model_commands.go internal/tui/turn.go
 git commit -m "feat(tui): session tool overrides flow into autoload computation
 
@@ -920,7 +920,7 @@ func (m *Model) lastSystemBlock() string {
 
 - [ ] **Step 5.2: Run tests, verify they fail**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolEnable -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolEnable -count=1 -v`
 Expected: FAIL — `enable` is currently an unknown verb in `handleToolSlash`.
 
 - [ ] **Step 5.3: Add the `enable` verb to `handleToolSlash`**
@@ -1009,13 +1009,13 @@ Update the verb-list error message in the `default:` branch:
 
 - [ ] **Step 5.4: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolEnable -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolEnable -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 5.5: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/model_commands.go internal/tui/slash_tool_verbs_test.go
 git commit -m "feat(tui): /tool enable session/save semantics (BACKLOG #5)
 
@@ -1058,7 +1058,7 @@ func TestToolDisable_NoSave(t *testing.T) {
 
 - [ ] **Step 6.2: Run test, verify it fails**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolDisable -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolDisable -count=1 -v`
 Expected: FAIL — `disable` not yet a recognised verb.
 
 - [ ] **Step 6.3: Add the `disable` case**
@@ -1095,13 +1095,13 @@ Insert in `handleToolSlash` after `case "enable":`:
 
 - [ ] **Step 6.4: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolDisable -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolDisable -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 6.5: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/model_commands.go internal/tui/slash_tool_verbs_test.go
 git commit -m "feat(tui): /tool disable session/save semantics (BACKLOG #5)
 
@@ -1146,7 +1146,7 @@ func TestToolUnautoload_NoSave(t *testing.T) {
 
 - [ ] **Step 7.2: Run tests, verify they fail**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolAutoload -run TestToolUnautoload -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolAutoload -run TestToolUnautoload -count=1 -v`
 Expected: FAIL.
 
 - [ ] **Step 7.3: Add the verbs**
@@ -1223,13 +1223,13 @@ func removeFromSlice(slice []string, targets ...string) []string {
 
 - [ ] **Step 7.4: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolAutoload -run TestToolUnautoload -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolAutoload -run TestToolUnautoload -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 7.5: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/model_commands.go internal/tui/slash_tool_verbs_test.go
 git commit -m "feat(tui): /tool autoload + unautoload session/save (BACKLOG #5)
 
@@ -1293,13 +1293,13 @@ func TestToolEnable_SaveWritesConfig(t *testing.T) {
 
 - [ ] **Step 8.2: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolEnable_SaveWritesConfig -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolEnable_SaveWritesConfig -count=1 -v`
 Expected: PASS (assuming `WriteToolsListAdd` already creates the parent dir; if not, add `os.MkdirAll(filepath.Dir(path), 0755)` to `projectConfigPath`).
 
 - [ ] **Step 8.3: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/slash_tool_verbs_test.go
 git commit -m "test(tui): --save writes to project .stado/config.toml"
 ```
@@ -1347,13 +1347,13 @@ func TestToolSlash_HelpMentionsAllVerbs(t *testing.T) {
 
 - [ ] **Step 9.3: Run tests, verify pass**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/tui/ -run TestToolSlash_HelpMentionsAllVerbs -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/tui/ -run TestToolSlash_HelpMentionsAllVerbs -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 9.4: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/tui/model_commands.go internal/tui/slash_tool_verbs_test.go
 git commit -m "feat(tui): /tool help lists all 8 verbs + --save hint"
 ```
@@ -1369,7 +1369,7 @@ EP-0037 already documents the slash mirrors as a feature; the `enable/disable/au
 
 - [ ] **Step 10.1: Find the relevant section**
 
-Run: `cd /home/foobarto/Dokumenty/stado && grep -n "/tool\|tool ls\|slash" docs/eps/0037-tool-dispatch-and-operator-surface.md | head -20`
+Run: `cd <repo-root> && grep -n "/tool\|tool ls\|slash" docs/eps/0037-tool-dispatch-and-operator-surface.md | head -20`
 
 Locate the paragraph mentioning `/tool` mirrors.
 
@@ -1394,7 +1394,7 @@ Adjust history frontmatter at the top of the EP if it has a per-revision changel
 - [ ] **Step 10.3: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add docs/eps/0037-tool-dispatch-and-operator-surface.md
 git commit -m "docs(ep-0037): document /tool slash mutating verbs + handle ID format"
 ```
@@ -1413,7 +1413,7 @@ In `docs/superpowers/plans/BACKLOG.md`, edit items #5 and #7 to insert a `**Stat
 - [ ] **Step 11.2: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add docs/superpowers/plans/BACKLOG.md
 git commit -m "docs(backlog): mark #5 (slash mutating verbs) + #7 (typed handles) done"
 ```

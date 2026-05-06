@@ -116,7 +116,7 @@ func TestActiveVersionMarker_StripsWhitespace(t *testing.T) {
 
 - [ ] **Step 1.2: Run tests, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestActiveVersionMarker -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestActiveVersionMarker -count=1`
 Expected: build failure with `undefined: activeVersionMarker`.
 
 - [ ] **Step 1.3: Create `installed_tools.go`**
@@ -147,13 +147,13 @@ func activeVersionMarker(stateDir, pluginName string) string {
 
 - [ ] **Step 1.4: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestActiveVersionMarker -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestActiveVersionMarker -count=1 -v`
 Expected: 3 PASS.
 
 - [ ] **Step 1.5: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/installed_tools.go internal/runtime/installed_tools_test.go
 git commit -m "feat(runtime): activeVersionMarker helper for installed plugins
 
@@ -175,7 +175,7 @@ to register."
 
 - [ ] **Step 2.1: Read the bundledPluginTool shape**
 
-`cd /home/foobarto/Dokumenty/stado && sed -n '270,300p' internal/runtime/bundled_plugin_tools.go`
+`cd <repo-root> && sed -n '270,300p' internal/runtime/bundled_plugin_tools.go`
 
 Note the struct fields: `manifest`, `def`, `schema`, `class`, `wasm`. The wasm bytes are loaded eagerly via `bundledplugins.MustWasm()` at construction time. For installed plugins, we want lazy load — the registration shouldn't pay the cost of reading every plugin's wasm on every CLI invocation.
 
@@ -218,12 +218,12 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 
 - [ ] **Step 2.3: Run, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestInstalledPluginTool -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestInstalledPluginTool -count=1`
 Expected: build failure with `undefined: newInstalledPluginTool`.
 
 - [ ] **Step 2.4: Add the wrapper type to `installed_tools.go`**
 
-Append to `/home/foobarto/Dokumenty/stado/internal/runtime/installed_tools.go`:
+Append to `<repo-root>/internal/runtime/installed_tools.go`:
 
 ```go
 import (
@@ -300,18 +300,18 @@ Match the existing `bundledPluginTool` Run signature exactly. If `bundledPluginT
 
 - [ ] **Step 2.5: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestInstalledPluginTool -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestInstalledPluginTool -count=1 -v`
 Expected: PASS.
 
 - [ ] **Step 2.6: Run full runtime tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 2.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/installed_tools.go internal/runtime/installed_tools_test.go
 git commit -m "feat(runtime): installedPluginTool wrapper for registry entries
 
@@ -337,7 +337,7 @@ The existing `internal/plugins/identity.go` `ParseIdentity` validates `vX.Y.Z` s
 
 - [ ] **Step 3.1: Check what semver tooling exists**
 
-Run: `cd /home/foobarto/Dokumenty/stado && grep -rn "golang.org/x/mod/semver\|semver.Compare" internal/ | head -5`
+Run: `cd <repo-root> && grep -rn "golang.org/x/mod/semver\|semver.Compare" internal/ | head -5`
 
 If `semver.Compare` is already used: prefer it. Else: parse via `plugins.ParseIdentity` and compare on the parsed major.minor.patch ints.
 
@@ -404,7 +404,7 @@ func TestPickActiveVersion_NoCandidates(t *testing.T) {
 
 - [ ] **Step 3.3: Run, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestPickActiveVersion -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestPickActiveVersion -count=1`
 Expected: build failure with `undefined: pickActiveVersion`.
 
 - [ ] **Step 3.4: Implement `pickActiveVersion`**
@@ -447,23 +447,23 @@ func pickActiveVersion(stateDir, pluginName string, candidates []string) string 
 
 If `golang.org/x/mod/semver` isn't available, run:
 ```
-cd /home/foobarto/Dokumenty/stado && go get golang.org/x/mod/semver@latest && go mod tidy
+cd <repo-root> && go get golang.org/x/mod/semver@latest && go mod tidy
 ```
 
 - [ ] **Step 3.5: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestPickActiveVersion -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestPickActiveVersion -count=1 -v`
 Expected: 4 PASS.
 
 - [ ] **Step 3.6: Run full repo build**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go build ./...`
+Run: `cd <repo-root> && go build ./...`
 Expected: clean.
 
 - [ ] **Step 3.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/installed_tools.go internal/runtime/installed_tools_test.go go.mod go.sum
 git commit -m "feat(runtime): pickActiveVersion for installed plugins
 
@@ -553,7 +553,7 @@ func TestGroupInstalledByName_HandlesMultiDashNames(t *testing.T) {
 
 - [ ] **Step 4.2: Run, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestGroupInstalledByName -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestGroupInstalledByName -count=1`
 Expected: build failure.
 
 - [ ] **Step 4.3: Implement**
@@ -623,13 +623,13 @@ The `plugins.ParseIdentity` call expects a full identity string (host/owner/repo
 
 - [ ] **Step 4.4: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestGroupInstalledByName -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestGroupInstalledByName -count=1 -v`
 Expected: 3 PASS.
 
 - [ ] **Step 4.5: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/installed_tools.go internal/runtime/installed_tools_test.go
 git commit -m "feat(runtime): groupInstalledByName for plugin enumeration
 
@@ -653,7 +653,7 @@ pickActiveVersion."
 
 - [ ] **Step 5.1: Read existing plugin-test helpers**
 
-`cd /home/foobarto/Dokumenty/stado && grep -n "buildTestPluginWithCaps\|isolatedHome" cmd/stado/plugin_test_helpers_test.go cmd/stado/plugin_info_test.go 2>/dev/null | head -10`
+`cd <repo-root> && grep -n "buildTestPluginWithCaps\|isolatedHome" cmd/stado/plugin_test_helpers_test.go cmd/stado/plugin_info_test.go 2>/dev/null | head -10`
 
 These helpers create a signed plugin in a tempdir with a working trust-store entry. They live in `cmd/stado/` and aren't directly importable into `internal/runtime/` — but the runtime tests can either:
 - Build their own minimal fixture (eager: stub a manifest + wasm file in a tempdir).
@@ -710,7 +710,7 @@ The skipped test signals scope and gives the next implementer an obvious place t
 
 - [ ] **Step 5.3: Run, verify FAIL**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestRegisterInstalledPluginTools_NoPluginsDirNoOp -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestRegisterInstalledPluginTools_NoPluginsDirNoOp -count=1`
 Expected: build failure.
 
 - [ ] **Step 5.4: Implement `registerInstalledPluginTools` + `LookupInstalledModule`**
@@ -835,18 +835,18 @@ The `pkgtool.ClassMutating`/`ClassNonMutating` constants come from `pkg/tool/`. 
 
 - [ ] **Step 5.5: Run tests, verify PASS**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -run TestRegisterInstalledPluginTools -count=1 -v`
+Run: `cd <repo-root> && go test ./internal/runtime/ -run TestRegisterInstalledPluginTools -count=1 -v`
 Expected: PASS for NoPluginsDir test; SKIP for the deferred fixture test.
 
 - [ ] **Step 5.6: Run full runtime tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./internal/runtime/ -count=1`
+Run: `cd <repo-root> && go test ./internal/runtime/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 5.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/installed_tools.go internal/runtime/installed_tools_test.go
 git commit -m "feat(runtime): registerInstalledPluginTools + LookupInstalledModule
 
@@ -876,7 +876,7 @@ through runPluginInvocation."
 
 - [ ] **Step 6.1: Update `BuildDefaultRegistry`**
 
-Read `cd /home/foobarto/Dokumenty/stado && sed -n '36,46p' internal/runtime/executor.go` to see the current shape.
+Read `cd <repo-root> && sed -n '36,46p' internal/runtime/executor.go` to see the current shape.
 
 Replace:
 
@@ -914,7 +914,7 @@ Add `"github.com/foobarto/stado/internal/config"` to the imports if it's not alr
 
 - [ ] **Step 6.2: Update production call sites**
 
-Run `cd /home/foobarto/Dokumenty/stado && grep -rn "runtime.BuildDefaultRegistry()" cmd/ internal/ | grep -v "_test.go"` to confirm the 9 call sites match the plan's file map.
+Run `cd <repo-root> && grep -rn "runtime.BuildDefaultRegistry()" cmd/ internal/ | grep -v "_test.go"` to confirm the 9 call sites match the plan's file map.
 
 For EACH site, change `runtime.BuildDefaultRegistry()` to `runtime.BuildDefaultRegistry(cfg)`. The `cfg` variable is in scope at each site (from a `cfg, err := config.Load()` or `m.cfg`). Specifically:
 
@@ -932,29 +932,29 @@ If any callsite doesn't have `cfg` in scope (unlikely), pass `nil` — that reta
 
 - [ ] **Step 6.3: Update test call sites**
 
-Run: `cd /home/foobarto/Dokumenty/stado && grep -rn "BuildDefaultRegistry()" --include="*_test.go"`
+Run: `cd <repo-root> && grep -rn "BuildDefaultRegistry()" --include="*_test.go"`
 
 For EACH test-file site, change `BuildDefaultRegistry()` to `BuildDefaultRegistry(nil)`. Test code wants bundled-only behaviour for repeatability.
 
 - [ ] **Step 6.4: Build the repo**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go build ./...`
+Run: `cd <repo-root> && go build ./...`
 Expected: clean. If any callsite has the wrong signature, fix.
 
 - [ ] **Step 6.5: Run all tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./... -count=1 2>&1 | grep -E "^(FAIL|ok)" | grep -v "^ok"`
+Run: `cd <repo-root> && go test ./... -count=1 2>&1 | grep -E "^(FAIL|ok)" | grep -v "^ok"`
 Expected: only the pre-existing `internal/sandbox/TestBwrapRunner_AllowHostsOnly...` failure (environmental, unrelated). All others PASS.
 
 - [ ] **Step 6.6: Run go vet**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./...`
+Run: `cd <repo-root> && go vet ./...`
 Expected: clean.
 
 - [ ] **Step 6.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add internal/runtime/executor.go cmd/stado/tool.go cmd/stado/tool_run.go cmd/stado/plugin_trust.go cmd/stado/plugin_info.go cmd/stado/mcp_server.go internal/tui/model_commands.go
 # add any test files updated
 git commit -m "feat(runtime): BuildDefaultRegistry takes cfg; wires installed plugins
@@ -982,7 +982,7 @@ from their surrounding scope."
 
 - [ ] **Step 7.1: Read current state**
 
-`cd /home/foobarto/Dokumenty/stado && sed -n '95,130p' cmd/stado/tool_run.go`
+`cd <repo-root> && sed -n '95,130p' cmd/stado/tool_run.go`
 
 Locate the "not yet supported" return.
 
@@ -1134,23 +1134,23 @@ func TestToolRun_DispatchesInstalledPlugin(t *testing.T) {
 
 - [ ] **Step 7.4: Run tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
+Run: `cd <repo-root> && go test ./cmd/stado/ -run "TestToolRun_" -count=1 -v`
 Expected: previous 6 PASS + (1 SKIP or 1 PASS for the new test).
 
 - [ ] **Step 7.5: Run full cmd/stado tests**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./cmd/stado/ -count=1`
+Run: `cd <repo-root> && go test ./cmd/stado/ -count=1`
 Expected: PASS.
 
 - [ ] **Step 7.6: Run go vet**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./cmd/stado/`
+Run: `cd <repo-root> && go vet ./cmd/stado/`
 Expected: clean.
 
 - [ ] **Step 7.7: Commit**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git add cmd/stado/tool_run.go cmd/stado/tool_run_test.go
 git commit -m "feat(cli): tool run dispatches installed plugins
 
@@ -1177,18 +1177,18 @@ are."
 
 - [ ] **Step 8.1: Full repo `go test`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go test ./... -count=1 2>&1 | grep -E "^(FAIL|ok)" | grep -v "^ok"`
+Run: `cd <repo-root> && go test ./... -count=1 2>&1 | grep -E "^(FAIL|ok)" | grep -v "^ok"`
 Expected: only the pre-existing `internal/sandbox/TestBwrapRunner_AllowHostsOnly...` failure (environmental).
 
 - [ ] **Step 8.2: Full repo `go vet`**
 
-Run: `cd /home/foobarto/Dokumenty/stado && go vet ./...`
+Run: `cd <repo-root> && go vet ./...`
 Expected: clean.
 
 - [ ] **Step 8.3: Smoke — `stado tool list` shows installed plugins**
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 go run ./cmd/stado tool list 2>&1 | head -30
 ```
 
@@ -1199,7 +1199,7 @@ Expected: alongside bundled tools (`fs__ls`, `shell__exec`, etc.), entries like 
 Pick an installed plugin tool that's safe (e.g. `gtfobins__lookup` if installed). Run:
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 go run ./cmd/stado tool run gtfobins.lookup '{"binary":"awk"}'
 ```
 
@@ -1231,7 +1231,7 @@ Expected: succeeds.
 If you have a plugin installed that exposes a name colliding with a bundled tool, the `stado: info` line should appear on stderr at registration. If not, this step is a soft check — note it as untested if no collision exists.
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 go run ./cmd/stado tool list 2>&1 | grep "stado: info"
 ```
 
@@ -1242,7 +1242,7 @@ Expected: collision lines if any, empty otherwise.
 Run:
 
 ```bash
-cd /home/foobarto/Dokumenty/stado
+cd <repo-root>
 git log main..HEAD --oneline
 git diff main..HEAD --stat | tail -10
 ```
