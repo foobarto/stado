@@ -326,6 +326,56 @@ func TestInstallHostImports_Smoke(t *testing.T) {
 	}
 }
 
+// TestNewHost_ParsesNetDialAndListenCaps covers the EP-0038g cap
+// vocabulary additions: UDP + Unix dial, TCP + Unix listen.
+func TestNewHost_ParsesNetDialAndListenCaps(t *testing.T) {
+	m := plugins.Manifest{
+		Name: "demo",
+		Capabilities: []string{
+			"net:dial:tcp:api.example.com:443",
+			"net:dial:udp:*.ntp.org:123",
+			"net:dial:unix:/var/run/docker.sock",
+			"net:listen:tcp:127.0.0.1:8080",
+			"net:listen:tcp:0.0.0.0:9090",
+			"net:listen:unix:/tmp/srv-*.sock",
+		},
+	}
+	h := NewHost(m, "/tmp", nil)
+	if h.NetDial == nil {
+		t.Fatal("NetDial should be populated")
+	}
+	if len(h.NetDial.TCPGlobs) != 1 || h.NetDial.TCPGlobs[0].Host != "api.example.com" {
+		t.Errorf("TCPGlobs: %+v", h.NetDial.TCPGlobs)
+	}
+	if len(h.NetDial.UDPGlobs) != 1 || h.NetDial.UDPGlobs[0].Host != "*.ntp.org" {
+		t.Errorf("UDPGlobs: %+v", h.NetDial.UDPGlobs)
+	}
+	if len(h.NetDial.UnixGlobs) != 1 || h.NetDial.UnixGlobs[0] != "/var/run/docker.sock" {
+		t.Errorf("UnixGlobs: %+v", h.NetDial.UnixGlobs)
+	}
+	if h.NetListen == nil {
+		t.Fatal("NetListen should be populated")
+	}
+	if len(h.NetListen.TCPGlobs) != 2 {
+		t.Errorf("TCP listen globs: %+v", h.NetListen.TCPGlobs)
+	}
+	if len(h.NetListen.UnixGlobs) != 1 || h.NetListen.UnixGlobs[0] != "/tmp/srv-*.sock" {
+		t.Errorf("Unix listen globs: %+v", h.NetListen.UnixGlobs)
+	}
+}
+
+// TestNewHost_NetCapsEmptyWithoutDeclarations confirms NetDial /
+// NetListen are nil when no relevant cap is granted.
+func TestNewHost_NetCapsEmptyWithoutDeclarations(t *testing.T) {
+	h := NewHost(plugins.Manifest{Name: "x"}, "/tmp", nil)
+	if h.NetDial != nil {
+		t.Error("NetDial should be nil when no net:dial:* cap")
+	}
+	if h.NetListen != nil {
+		t.Error("NetListen should be nil when no net:listen:* cap")
+	}
+}
+
 // TestInstallHostImports_TwiceFails covers the runtime invariant that
 // two modules can't export the same name. Real plugins get an isolated
 // Runtime per plugin (see the 7.1c caller) so this test also guards

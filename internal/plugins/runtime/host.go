@@ -166,9 +166,15 @@ type Host struct {
 
 	// NetDial gates stado_net_dial / read / write / close (Tier 1
 	// raw socket primitives). Populated when the manifest declares
-	// net:dial:tcp:<host>:<port>. Tester #5. UDP / Unix / listen /
-	// ICMP deferred to a future EP-0038g.
+	// net:dial:{tcp,udp,unix}:<host-or-path>:<port>. EP-0038g extends
+	// the v0.36.0 TCP-only surface with UDP + Unix dial. ICMP still
+	// deferred.
 	NetDial *NetDialAccess
+
+	// NetListen gates stado_net_listen / accept / close_listener.
+	// Populated when the manifest declares net:listen:{tcp,unix}:*.
+	// EP-0038g.
+	NetListen *NetListenAccess
 
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
@@ -427,7 +433,12 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			// "net:<host>" — the cap string after "net:" is the
 			// exact host to allow. Special values "allow" / "deny" are
 			// handled at the MCP layer but aren't exposed to plugins
-			// here (too much power).
+			// here (too much power). "net:dial:..." / "net:listen:..."
+			// are parsed by parseNetSocketCap below — don't junk-
+			// populate NetHost with their multi-segment payloads.
+			if parts[1] == "dial" || parts[1] == "listen" {
+				break // out of the switch; parser block below handles it
+			}
 			rest := strings.Join(parts[1:], ":")
 			if rest != "" && rest != "allow" && rest != "deny" {
 				h.NetHost = append(h.NetHost, rest)
@@ -580,23 +591,79 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 			}
 		}
-		// "net:dial:<transport>:<host-glob>:<port-glob>" — Tier 1 raw
-		// socket dial. Parsed separately from the case-block because
-		// the cap has 5 colon-separated parts, not 2-3 like the others.
-		// EP-0038f. Tester #5.
-		if parts[0] == "net" && len(parts) >= 2 && parts[1] == "dial" {
-			if len(parts) >= 5 && parts[2] == "tcp" {
-				if h.NetDial == nil {
-					h.NetDial = &NetDialAccess{}
-				}
-				h.NetDial.TCPGlobs = append(h.NetDial.TCPGlobs, NetDialPattern{
-					Host: parts[3],
-					Port: parts[4],
-				})
-			}
+		// "net:dial:<transport>:..." and "net:listen:<transport>:..."
+		// have more colon-separated segments than the SplitN(_, _, 3)
+		// shape above can express. Re-split the raw cap string for
+		// these two prefixes only.
+		//
+		//   net:dial:tcp:<host>:<port>   — 5 parts (EP-0038f)
+		//   net:dial:udp:<host>:<port>   — 5 parts (EP-0038g)
+		//   net:dial:unix:<path-glob>    — 4+ parts; path may contain
+		//                                   colons → re-join from full[3:]
+		//   net:listen:tcp:<host>:<port> — 5 parts (EP-0038g)
+		//   net:listen:unix:<path-glob>  — 4+ parts (EP-0038g)
+		if parts[0] == "net" && (parts[1] == "dial" || parts[1] == "listen") {
+			full := strings.Split(cap, ":")
+			h.parseNetSocketCap(full)
 		}
 	}
 	return h
+}
+
+// parseNetSocketCap absorbs net:dial:* and net:listen:* capabilities,
+// populating NetDial / NetListen as needed. `full` is the cap split
+// on every colon (no SplitN limit) so transport-specific suffixes
+// stay intact.
+func (h *Host) parseNetSocketCap(full []string) {
+	if len(full) < 4 {
+		return
+	}
+	mode := full[1]      // "dial" | "listen"
+	transport := full[2] // "tcp" | "udp" | "unix"
+	switch transport {
+	case "tcp", "udp":
+		if len(full) < 5 {
+			return
+		}
+		host, port := full[3], full[4]
+		switch mode {
+		case "dial":
+			if h.NetDial == nil {
+				h.NetDial = &NetDialAccess{}
+			}
+			pat := NetDialPattern{Host: host, Port: port}
+			if transport == "tcp" {
+				h.NetDial.TCPGlobs = append(h.NetDial.TCPGlobs, pat)
+			} else {
+				h.NetDial.UDPGlobs = append(h.NetDial.UDPGlobs, pat)
+			}
+		case "listen":
+			if transport == "udp" {
+				return // UDP listen not in this cycle
+			}
+			if h.NetListen == nil {
+				h.NetListen = &NetListenAccess{}
+			}
+			h.NetListen.TCPGlobs = append(h.NetListen.TCPGlobs, NetDialPattern{Host: host, Port: port})
+		}
+	case "unix":
+		path := strings.Join(full[3:], ":")
+		if path == "" {
+			return
+		}
+		switch mode {
+		case "dial":
+			if h.NetDial == nil {
+				h.NetDial = &NetDialAccess{}
+			}
+			h.NetDial.UnixGlobs = append(h.NetDial.UnixGlobs, path)
+		case "listen":
+			if h.NetListen == nil {
+				h.NetListen = &NetListenAccess{}
+			}
+			h.NetListen.UnixGlobs = append(h.NetListen.UnixGlobs, path)
+		}
+	}
 }
 
 // AllowPrivateNetwork implements tool.HostNetworkPolicy. Returns

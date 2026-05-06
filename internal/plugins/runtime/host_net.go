@@ -52,14 +52,20 @@ const (
 	netDialDefaultTimeout = 10 * time.Second
 )
 
-// NetDialAccess records a plugin's manifest-declared net:dial:tcp:*
-// capabilities + (later) listen/icmp; only TCP dial is shipped this
-// cycle. Each glob entry is a (host-glob, port-glob) pair.
+// NetDialAccess records a plugin's manifest-declared outbound socket
+// capabilities. EP-0038f shipped TCP; EP-0038g extends with UDP and
+// Unix dial. ICMP is still deferred. Each TCP/UDP entry is a
+// (host-glob, port-glob) pair; Unix entries are path globs.
 type NetDialAccess struct {
 	// TCPGlobs are (hostGlob, portGlob) pairs from
 	// net:dial:tcp:<hostGlob>:<portGlob> caps. Empty list with the
-	// access struct present means no caps granted.
+	// access struct present means no TCP caps granted.
 	TCPGlobs []NetDialPattern
+	// UDPGlobs mirrors TCPGlobs for net:dial:udp:<host>:<port> caps.
+	UDPGlobs []NetDialPattern
+	// UnixGlobs are path globs from net:dial:unix:<path-glob>. Path
+	// globs use filepath.Match semantics.
+	UnixGlobs []string
 }
 
 // NetDialPattern is one (host, port) glob pair.
@@ -68,13 +74,12 @@ type NetDialPattern struct {
 	Port string // shell-glob (port as string for glob matching); "*" = any
 }
 
-// CanDialTCP returns true when (host, port) matches any TCPGlobs entry.
-func (a *NetDialAccess) CanDialTCP(host, port string) bool {
-	if a == nil {
-		return false
-	}
+// matchHostPort returns true when (host, port) matches any glob in pats.
+// Hosts are matched case-insensitive; "*" host short-circuits to a
+// port-only check.
+func matchHostPort(pats []NetDialPattern, host, port string) bool {
 	host = strings.ToLower(host)
-	for _, g := range a.TCPGlobs {
+	for _, g := range pats {
 		if g.Host == "*" {
 			if g.Port == "*" || g.Port == port {
 				return true
@@ -94,6 +99,66 @@ func (a *NetDialAccess) CanDialTCP(host, port string) bool {
 		}
 	}
 	return false
+}
+
+// matchPath returns true when path matches any glob in globs (filepath.Match).
+func matchPath(globs []string, path string) bool {
+	for _, g := range globs {
+		if matched, _ := filepath.Match(g, path); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// CanDialTCP returns true when (host, port) matches any TCPGlobs entry.
+func (a *NetDialAccess) CanDialTCP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.TCPGlobs, host, port)
+}
+
+// CanDialUDP returns true when (host, port) matches any UDPGlobs entry.
+func (a *NetDialAccess) CanDialUDP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.UDPGlobs, host, port)
+}
+
+// CanDialUnix returns true when path matches any UnixGlobs entry.
+func (a *NetDialAccess) CanDialUnix(path string) bool {
+	if a == nil {
+		return false
+	}
+	return matchPath(a.UnixGlobs, path)
+}
+
+// NetListenAccess records server-side socket capabilities granted by
+// net:listen:tcp:<host>:<port> and net:listen:unix:<path> entries.
+// Listening on 0.0.0.0 vs 127.0.0.1 is encoded in the capability
+// string itself — the operator must spell out which interface to
+// expose; there is no implicit fallback.
+type NetListenAccess struct {
+	TCPGlobs  []NetDialPattern // (hostGlob, portGlob)
+	UnixGlobs []string         // path globs
+}
+
+// CanListenTCP returns true when (host, port) matches any TCPGlobs entry.
+func (a *NetListenAccess) CanListenTCP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.TCPGlobs, host, port)
+}
+
+// CanListenUnix returns true when path matches any UnixGlobs entry.
+func (a *NetListenAccess) CanListenUnix(path string) bool {
+	if a == nil {
+		return false
+	}
+	return matchPath(a.UnixGlobs, path)
 }
 
 // netConn is the host-side state for a stado_net_dial-allocated handle.
