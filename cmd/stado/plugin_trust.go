@@ -102,6 +102,7 @@ var pluginListCmd = &cobra.Command{
 			toolNames   string // comma-joined, truncated
 			author      string
 			fingerprint string
+			path        string // wasm path for installed plugins; "(embedded)" for bundled
 			trusted     bool
 			bundled     bool // indicates a binary-bundled plugin
 			caps        int
@@ -131,6 +132,7 @@ var pluginListCmd = &cobra.Command{
 				toolNames:   tns,
 				author:      mf.Author,
 				fingerprint: mf.AuthorPubkeyFpr,
+				path:        filepath.Join(pluginsDir, id, "plugin.wasm"),
 				trusted:     trusted,
 				caps:        len(mf.Capabilities),
 			})
@@ -149,6 +151,7 @@ var pluginListCmd = &cobra.Command{
 				toolNames:   toolsList,
 				author:      b.Author,
 				fingerprint: "",
+				path:        "(embedded)",
 				trusted:     true,
 				bundled:     true,
 				caps:        len(b.Capabilities),
@@ -192,8 +195,8 @@ var pluginListCmd = &cobra.Command{
 		}
 		fmt.Fprintln(w)
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "NAME\tVERSION\tTOOLS\tAUTHOR\tFINGERPRINT\tSTATUS")
-		fmt.Fprintln(w, "────\t───────\t─────\t──────\t───────────\t──────")
+		fmt.Fprintln(w, "NAME\tVERSION\tTOOLS\tAUTHOR\tFINGERPRINT\tSTATUS\tPATH")
+		fmt.Fprintln(w, "────\t───────\t─────\t──────\t───────────\t──────\t────")
 		for _, r := range rows {
 			status := "✓ trusted"
 			switch {
@@ -208,8 +211,8 @@ var pluginListCmd = &cobra.Command{
 			} else if len(fpr) > 16 {
 				fpr = fpr[:16]
 			}
-			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\n",
-				r.name, r.version, r.tools, r.author, fpr, status)
+			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\t%s\n",
+				r.name, r.version, r.tools, r.author, fpr, status, r.path)
 		}
 		_ = w.Flush()
 
