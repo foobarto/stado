@@ -8,6 +8,18 @@ Plugins / Infra / Fixes.
 
 ### Plugin runtime — new host imports
 
+- **`stado_agent_send_message` real impl.** Was a stub that validated
+  the agent ID and silently dropped the body. Now: `Fleet` carries a
+  per-agent inbox queue (bounded at 64 messages); `SendMessage` pushes
+  onto it; `AgentLoop` drains queued messages at every turn boundary
+  and prepends them as user-role inputs in the next turn request.
+  Wired through a new optional `InboxAwareSpawner` interface
+  (`Spawner` + `WithInbox(fn func() []string) Spawner`); the fleet
+  type-asserts and supplies a closure drawing from the right inbox.
+  `SubagentRunner` implements both. Effect: the bundled agent
+  plugin's `agent.send_message` tool actually delivers messages
+  mid-loop instead of being a no-op.
+
 - **`stado_net_setopt(lst_udp, key, value)`** — broadcast / multicast
   setopts on a UDP listener handle. Five keys: `broadcast` (toggles
   `SO_BROADCAST`, required for sendto to broadcast addresses);

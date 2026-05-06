@@ -132,12 +132,10 @@ func (a *FleetBridgeAdapter) AgentReadMessages(ctx context.Context, id string, s
 }
 
 func (a *FleetBridgeAdapter) AgentSendMessage(ctx context.Context, id, msg string) error {
-	// TODO: inject into session inbox when multi-producer inbox is wired.
-	// For now, verify the agent exists and return success.
-	if _, ok := a.Fleet.Get(id); !ok {
-		return fmt.Errorf("agent %q not found", id)
-	}
-	return nil
+	// Real impl: queue the message into the agent's inbox. The agent's
+	// loop drains the inbox at the next turn boundary and prepends
+	// pending messages as user-role inputs (see AgentLoopOptions.InboxFn).
+	return a.Fleet.SendMessage(id, msg)
 }
 
 func (a *FleetBridgeAdapter) AgentCancel(ctx context.Context, id string) error {

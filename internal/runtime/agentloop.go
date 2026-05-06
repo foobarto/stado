@@ -84,6 +84,14 @@ type AgentLoopOptions struct {
 	// own retrieval/scoping so this loop stays provider/session generic.
 	MemoryContext string
 
+	// InboxFn is the optional pull-source for operator- or peer-
+	// injected messages addressed to this agent. The loop calls it
+	// at every turn boundary; non-empty returns are prepended to the
+	// next turn request as user-role inputs. Used by FleetBridge
+	// AgentSendMessage to deliver messages mid-loop without rewriting
+	// the existing transcript. Empty / nil result is a no-op.
+	InboxFn func() []string
+
 	// CostCapUSD is the optional cumulative-cost ceiling for this
 	// loop. Zero disables the guard (the common case). When set, the
 	// loop checks cumulative cost at every turn boundary and returns
@@ -222,6 +230,20 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 					slog.String("got_hash", got),
 				)
 				return finalText, msgs, errors.New(violationMsg)
+			}
+		}
+
+		// Inbox drain — operator or peer-agent messages queued via
+		// FleetBridge AgentSendMessage land here at turn boundaries.
+		// Append before the model sees the next request so they
+		// appear as user-role inputs the model can react to.
+		if opts.InboxFn != nil {
+			if pending := opts.InboxFn(); len(pending) > 0 {
+				for _, body := range pending {
+					msgs = append(msgs, agent.Text(agent.RoleUser, body))
+				}
+				priorLen = len(msgs)
+				priorHash = hashMessagesPrefix(msgs, priorLen)
 			}
 		}
 

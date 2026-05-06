@@ -35,6 +35,21 @@ type SubagentRunner struct {
 
 	AgentName string
 	OnEvent   func(SubagentEvent)
+
+	// InboxFn is the optional pull-source for operator- or peer-
+	// agent injected messages, drained at every turn boundary by
+	// AgentLoop. Wired by Fleet.runGoroutine for fleet-spawned
+	// children so AgentSendMessage actually delivers. Nil for
+	// direct-spawn callers (no fleet inbox to drain).
+	InboxFn func() []string
+}
+
+// WithInbox returns a copy of the runner with InboxFn set. Implements
+// the inbox-aware-spawner contract Fleet.runGoroutine uses to wire
+// FleetBridge AgentSendMessage delivery.
+func (r SubagentRunner) WithInbox(fn func() []string) Spawner {
+	r.InboxFn = fn
+	return r
 }
 
 // SubagentEvent is emitted at child lifecycle boundaries so outer
@@ -148,6 +163,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		System:               r.System,
 		SystemTemplate:       r.SystemTemplate,
 		Host:                 childHost,
+		InboxFn:              r.InboxFn,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr

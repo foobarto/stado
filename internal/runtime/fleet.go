@@ -96,14 +96,62 @@ type Fleet struct {
 	// cancels parallels entries — kept separate so List can return
 	// pure-data copies of entries without leaking goroutine handles.
 	cancels map[string]context.CancelFunc
+	// inboxes parallels entries with a slice of pending operator-/
+	// peer-injected messages per agent. The agent's loop drains its
+	// inbox at turn boundaries and prepends queued messages as
+	// user-role inputs in the next turn. Bounded — see
+	// fleetInboxMaxMessages.
+	inboxes map[string][]string
 }
+
+// fleetInboxMaxMessages caps an agent's pending-inbox depth so a
+// runaway producer can't unbounded-grow stado's heap. New messages
+// past the cap are dropped silently — the producer can re-send.
+const fleetInboxMaxMessages = 64
 
 // NewFleet returns an empty fleet.
 func NewFleet() *Fleet {
 	return &Fleet{
 		entries: map[string]*FleetEntry{},
 		cancels: map[string]context.CancelFunc{},
+		inboxes: map[string][]string{},
 	}
+}
+
+// SendMessage queues a message for delivery to the named agent's next
+// turn. Returns an error when the agent doesn't exist; silently drops
+// messages past fleetInboxMaxMessages. Empty / whitespace-only bodies
+// are rejected to keep noise out of the agent's transcript.
+func (f *Fleet) SendMessage(id, body string) error {
+	body = strings.TrimRight(body, "\r\n")
+	if strings.TrimSpace(body) == "" {
+		return errors.New("fleet: message body is empty")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.entries[id]; !ok {
+		return fmt.Errorf("fleet: agent %q not found", id)
+	}
+	q := f.inboxes[id]
+	if len(q) >= fleetInboxMaxMessages {
+		return nil // drop silently per the cap; producer can retry
+	}
+	f.inboxes[id] = append(q, body)
+	return nil
+}
+
+// DrainInbox returns and clears the queued messages for the named
+// agent. Returns nil when the agent doesn't exist or has no
+// pending messages. The agent's loop calls this at turn boundaries.
+func (f *Fleet) DrainInbox(id string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	q := f.inboxes[id]
+	if len(q) == 0 {
+		return nil
+	}
+	delete(f.inboxes, id)
+	return q
 }
 
 // Spawner is the minimal interface Fleet needs from the runtime —
@@ -111,6 +159,14 @@ func NewFleet() *Fleet {
 // (SubagentRunner, hostAdapter, fakes) plug in unchanged.
 type Spawner interface {
 	SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error)
+}
+
+// InboxAwareSpawner is the optional extension a Spawner implements
+// when it can deliver mid-loop operator/peer messages to the child.
+// Fleet.runGoroutine type-asserts to wire AgentSendMessage delivery.
+type InboxAwareSpawner interface {
+	Spawner
+	WithInbox(fn func() []string) Spawner
 }
 
 // Spawn starts a new background agent. Returns immediately with the
@@ -170,6 +226,15 @@ func (f *Fleet) runGoroutine(ctx context.Context, id string, spawner Spawner, op
 		Mode:           opts.Mode,
 		MaxTurns:       opts.MaxTurns,
 		TimeoutSeconds: opts.TimeoutSeconds,
+	}
+
+	// Wire the inbox source so AgentSendMessage delivery actually
+	// reaches this child's loop. Spawners that don't support it
+	// (no WithInbox method) fall back to the original spawner;
+	// FleetBridge.AgentSendMessage still queues but messages won't
+	// be drained until the spawner gains support.
+	if iaSpawner, ok := spawner.(InboxAwareSpawner); ok {
+		spawner = iaSpawner.WithInbox(func() []string { return f.DrainInbox(id) })
 	}
 
 	res, err := spawner.SpawnSubagent(ctx, req)

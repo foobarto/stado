@@ -291,3 +291,105 @@ func TestFleet_RootCtxCancelled_CancelsEntry(t *testing.T) {
 	cancel()
 	waitForStatus(t, f, id, FleetStatusCancelled)
 }
+
+// TestFleet_SendMessage_RoutesToInbox: queued messages land in the
+// per-agent inbox and DrainInbox returns them in order.
+func TestFleet_SendMessage_RoutesToInbox(t *testing.T) {
+	f := NewFleet()
+	sp := &fakeSpawner{delay: 100 * time.Millisecond}
+	id, _ := f.Spawn(context.Background(), sp, "p", SpawnOptions{})
+
+	if err := f.SendMessage(id, "hi 1"); err != nil {
+		t.Fatalf("send 1: %v", err)
+	}
+	if err := f.SendMessage(id, "hi 2"); err != nil {
+		t.Fatalf("send 2: %v", err)
+	}
+	got := f.DrainInbox(id)
+	if len(got) != 2 || got[0] != "hi 1" || got[1] != "hi 2" {
+		t.Errorf("drain: got %v", got)
+	}
+	// Drain a second time — empty.
+	if got := f.DrainInbox(id); len(got) != 0 {
+		t.Errorf("expected empty drain, got %v", got)
+	}
+}
+
+// TestFleet_SendMessage_UnknownAgent: errors when the agent doesn't exist.
+func TestFleet_SendMessage_UnknownAgent(t *testing.T) {
+	f := NewFleet()
+	if err := f.SendMessage("not-a-real-id", "hi"); err == nil {
+		t.Error("expected error for unknown agent")
+	}
+}
+
+// TestFleet_SendMessage_RejectsEmpty: whitespace-only bodies error.
+func TestFleet_SendMessage_RejectsEmpty(t *testing.T) {
+	f := NewFleet()
+	sp := &fakeSpawner{delay: 100 * time.Millisecond}
+	id, _ := f.Spawn(context.Background(), sp, "p", SpawnOptions{})
+	if err := f.SendMessage(id, "   \t\n  "); err == nil {
+		t.Error("expected error for empty body")
+	}
+}
+
+// TestFleet_SendMessage_BoundedQueue: past fleetInboxMaxMessages,
+// further sends are silent no-ops (drop) — producer can retry later.
+func TestFleet_SendMessage_BoundedQueue(t *testing.T) {
+	f := NewFleet()
+	sp := &fakeSpawner{delay: 100 * time.Millisecond}
+	id, _ := f.Spawn(context.Background(), sp, "p", SpawnOptions{})
+
+	for i := 0; i < fleetInboxMaxMessages+10; i++ {
+		if err := f.SendMessage(id, "msg"); err != nil {
+			t.Fatalf("send: %v", err)
+		}
+	}
+	got := f.DrainInbox(id)
+	if len(got) != fleetInboxMaxMessages {
+		t.Errorf("queue depth: got %d, want %d (capped)", len(got), fleetInboxMaxMessages)
+	}
+}
+
+// inboxAwareFakeSpawner adds WithInbox so the runGoroutine wires the
+// drain function. It records what InboxFn returned at SpawnSubagent
+// time (proving the wiring round-trips).
+type inboxAwareFakeSpawner struct {
+	*fakeSpawner
+	inboxFn func() []string
+}
+
+func (s inboxAwareFakeSpawner) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
+	if s.inboxFn != nil {
+		// Drain once to assert the wiring landed.
+		_ = s.inboxFn()
+	}
+	return s.fakeSpawner.SpawnSubagent(ctx, req)
+}
+
+func (s inboxAwareFakeSpawner) WithInbox(fn func() []string) Spawner {
+	s.inboxFn = fn
+	return s
+}
+
+// TestFleet_RunGoroutine_WiresInboxDrainOnInboxAwareSpawner: the
+// fleet calls WithInbox on a spawner that supports it, and the
+// returned closure draws from the right inbox.
+func TestFleet_RunGoroutine_WiresInboxDrainOnInboxAwareSpawner(t *testing.T) {
+	f := NewFleet()
+	base := &fakeSpawner{delay: 30 * time.Millisecond}
+	sp := inboxAwareFakeSpawner{fakeSpawner: base}
+	id, err := f.Spawn(context.Background(), sp, "p", SpawnOptions{})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if err := f.SendMessage(id, "queued-before-loop"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	waitForStatus(t, f, id, FleetStatusCompleted)
+	// The spawner's inboxFn closure should have drained the queue
+	// once at SpawnSubagent time, leaving the inbox empty.
+	if got := f.DrainInbox(id); len(got) != 0 {
+		t.Errorf("inbox should be drained by spawner's closure; got %v", got)
+	}
+}
