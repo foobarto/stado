@@ -4,12 +4,15 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/knadh/koanf/parsers/toml"
+	"github.com/knadh/koanf/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/bundledplugins"
@@ -25,7 +28,47 @@ var (
 	pluginBundleFrom          string
 	pluginBundleOut           string
 	pluginBundleBundlingKey   string
+	pluginBundleFromFile      string
 )
+
+// bundleFile is the in-memory shape of bundle.toml.
+type bundleFile struct {
+	Output        string `koanf:"output"`
+	AllowUnsigned bool   `koanf:"allow_unsigned"`
+	Plugins       []struct {
+		Name    string `koanf:"name"`
+		Version string `koanf:"version"`
+	} `koanf:"plugin"`
+}
+
+// bundleFileBytes is a koanf provider that serves raw bytes.
+// Mirrors config.staticBytesProvider so we don't need a new dependency.
+type bundleFileBytes []byte
+
+func (p bundleFileBytes) ReadBytes() ([]byte, error) {
+	out := make([]byte, len(p))
+	copy(out, p)
+	return out, nil
+}
+func (p bundleFileBytes) Read() (map[string]any, error) {
+	return nil, errors.New("bundleFileBytes provider does not support parsed reads")
+}
+
+func loadBundleFile(path string) (*bundleFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	k := koanf.New(".")
+	if err := k.Load(bundleFileBytes(data), toml.Parser()); err != nil {
+		return nil, err
+	}
+	var bf bundleFile
+	if err := k.Unmarshal("", &bf); err != nil {
+		return nil, err
+	}
+	return &bf, nil
+}
 
 var pluginBundleCmd = &cobra.Command{
 	Use:   "bundle <plugin-id>...",
@@ -49,8 +92,25 @@ Use --info to inspect what's bundled in a binary.`,
 }
 
 func runPluginBundle(cmd *cobra.Command, args []string) error {
+	if pluginBundleFromFile != "" {
+		bf, err := loadBundleFile(pluginBundleFromFile)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", pluginBundleFromFile, err)
+		}
+		if pluginBundleOut == "" && bf.Output != "" {
+			pluginBundleOut = bf.Output
+		}
+		if bf.AllowUnsigned {
+			pluginBundleAllowUnsigned = true
+		}
+		for _, p := range bf.Plugins {
+			// Ignore version for now — ResolveInstalledPluginDir respects
+			// the active-version marker. Future enhancement: pin by version.
+			args = append(args, p.Name)
+		}
+	}
 	if len(args) == 0 {
-		return fmt.Errorf("at least one plugin id required (or use --strip / --info)")
+		return fmt.Errorf("at least one plugin id required (or use --from-file, --strip, --info)")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -215,6 +275,8 @@ func init() {
 		"Output path for the customized binary (default: <source-name>-custom)")
 	pluginBundleCmd.Flags().StringVar(&pluginBundleBundlingKey, "bundling-key", "",
 		"Path to a persistent Ed25519 seed file (default: ephemeral keypair per invocation)")
+	pluginBundleCmd.Flags().StringVar(&pluginBundleFromFile, "from-file", "",
+		"Path to a TOML manifest listing plugins to bundle (alternative to CLI args)")
 
 	pluginCmd.AddCommand(pluginBundleCmd)
 }
