@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -162,6 +161,13 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		if bareName == "" {
 			return fmt.Errorf("internal: tool %q registered but not in installed manifest %q", registered.Name(), mfst.Name)
 		}
+		// Default workdir is the operator's CWD — mirrors the bundled-
+		// plugin path above. Using filepath.Dir(wasmPath) here would
+		// pin relative path args to the plugin install dir
+		// (~/.local/share/stado/plugins/<name>-<ver>/), which surprises
+		// operators who pass `./subdir` expecting it to resolve against
+		// where they ran the command from. --workdir overrides.
+		installDir, _ := os.Getwd()
 		return runPluginInvocation(ctx, pluginInvokeArgs{
 			Manifest:   mfst,
 			WasmBytes:  wasmBytes,
@@ -169,7 +175,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 			ArgsJSON:   argsJSON,
 			Cfg:        cfg,
 			WorkdirArg: opts.Workdir,
-			InstallDir: filepath.Dir(wasmPath),
+			InstallDir: installDir,
 			SessionID:  opts.Session,
 			Stdout:     stdout,
 			Stderr:     stderr,
