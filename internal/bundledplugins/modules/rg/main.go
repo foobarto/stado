@@ -48,10 +48,10 @@ func stadoToolSearch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	defer sdk.Free(pathBuf, pathBufSize)
 
 	n := stadoBundledBin(uint32(namePtr), uint32(len(name)), uint32(pathBuf), pathBufSize)
-	if n < 0 {
-		return writeError(resPtr, resCap, "ripgrep binary not available — install ripgrep or use a release build")
+	rgPath := "rg" // PATH lookup via stado_exec when no bundled binary
+	if n > 0 {
+		rgPath = string(sdk.Bytes(pathBuf, n))
 	}
-	rgPath := string(sdk.Bytes(pathBuf, n))
 
 	argv := []string{rgPath, "--json"}
 	argv = append(argv, req.Flags...)

@@ -9,11 +9,9 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 
-	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
-	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -42,8 +40,9 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		// stado_http_request was here as a delegate to httpreq.RequestTool;
 		// EP-no-internal-tools Step 1 promoted it to a true primitive
 		// registered by registerHTTPRequestImport (host_http_request.go).
-		{exportName: "stado_search_ripgrep", tool: rg.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.ExecSearch }, preflight: requireFullReadScope},
-		{exportName: "stado_search_ast_grep", tool: astgrep.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && len(h.FSWrite) > 0 && h.ExecASTGrep }, preflight: requireFullReadWriteScope},
+		// stado_search_ripgrep + stado_search_ast_grep were delegates to
+		// rg.Tool / astgrep.Tool; EP-no-internal-tools Step 5 dropped
+		// them. The rg + astgrep wasm plugins use stado_exec primitives.
 		{exportName: "stado_lsp_find_definition", tool: def, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
 		{exportName: "stado_lsp_find_references", tool: &lspfind.FindReferences{Definition: def}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
 		{exportName: "stado_lsp_document_symbols", tool: &lspfind.DocumentSymbols{Definition: def}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
