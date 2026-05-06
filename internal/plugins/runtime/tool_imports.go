@@ -14,7 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/httpreq"
+	"github.com/foobarto/stado/internal/httpreq"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
@@ -40,7 +40,9 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		{exportName: "stado_fs_tool_read_context", tool: readctx.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_exec_bash", tool: bash.BashTool{}, allowed: func(h *Host) bool { return h.ExecBash }},
 		{exportName: "stado_http_get", tool: webfetch.WebFetchTool{}, allowed: func(h *Host) bool { return h.NetHTTPGet || len(h.NetHost) > 0 }, preflight: preflightHTTPGet},
-		{exportName: "stado_http_request", tool: httpreq.RequestTool{}, allowed: func(h *Host) bool { return h.NetHTTPRequest || len(h.NetReqHost) > 0 }, preflight: preflightHTTPRequest},
+		// stado_http_request was here as a delegate to httpreq.RequestTool;
+		// EP-no-internal-tools Step 1 promoted it to a true primitive
+		// registered by registerHTTPRequestImport (host_http_request.go).
 		{exportName: "stado_search_ripgrep", tool: rg.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.ExecSearch }, preflight: requireFullReadScope},
 		{exportName: "stado_search_ast_grep", tool: astgrep.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && len(h.FSWrite) > 0 && h.ExecASTGrep }, preflight: requireFullReadWriteScope},
 		{exportName: "stado_lsp_find_definition", tool: def, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
