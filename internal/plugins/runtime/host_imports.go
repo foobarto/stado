@@ -56,6 +56,9 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	// EP-0038h: stado_json_get / stado_json_format — host-side JSON
 	// extraction and formatting; no caps required.
 	registerJSONImports(builder, host)
+	// EP-0038h: stado_http_request_stream + chunked body reads.
+	// Reuses net:http_request[:<host>] cap; per-Runtime stream cap.
+	registerHTTPStreamImports(builder, host, r)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

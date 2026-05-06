@@ -89,14 +89,15 @@ const (
 	HandleTypeAgent    HandleType = "agent"
 	HandleTypeSession  HandleType = "session"
 	HandleTypePlugin   HandleType = "plugin"
-	HandleTypeConn     HandleType = "conn"   // reserved — Tier 1 net (BACKLOG #11)
-	HandleTypeListen   HandleType = "listen" // reserved — Tier 1 net (BACKLOG #11)
+	HandleTypeConn     HandleType = "conn"     // reserved — Tier 1 net (BACKLOG #11)
+	HandleTypeListen   HandleType = "listen"   // reserved — Tier 1 net (BACKLOG #11)
+	HandleTypeHTTPResp HandleType = "httpresp" // EP-0038h — open HTTP response body
 )
 
 var knownHandleTypes = map[HandleType]bool{
 	HandleTypeProc: true, HandleTypeTerminal: true, HandleTypeAgent: true,
 	HandleTypeSession: true, HandleTypePlugin: true, HandleTypeConn: true,
-	HandleTypeListen: true,
+	HandleTypeListen: true, HandleTypeHTTPResp: true,
 }
 
 // ownedHandleTypes are the types whose ID payload is a uint32 hex
@@ -108,6 +109,7 @@ var ownedHandleTypes = map[HandleType]bool{
 	HandleTypeTerminal: true,
 	HandleTypeConn:     true,
 	HandleTypeListen:   true,
+	HandleTypeHTTPResp: true,
 }
 
 // FormatHandleID renders a typed handle ID for an *owned* handle —
