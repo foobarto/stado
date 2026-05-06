@@ -248,6 +248,25 @@ func buildBundledPluginRegistry() *tools.Registry {
 		},
 		[]string{"dns:resolve"}))
 
+	// 2026-05-06: session.search — bundled wasm plugin that uses
+	// session:read to fetch the conversation history then runs a
+	// substring or regex search in-wasm. Cap-gated by session:read.
+	r.Register(newBundledWasmTool("session_search", "stado_tool_session_search", "session__search",
+		"Search the current session's message history for a substring (default) or regex (is_regex=true). Returns matched messages with role, index, and a context snippet. Useful for recalling earlier discussion in long sessions without rebuilding context manually.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"query"},
+			"properties": map[string]any{
+				"query":            map[string]any{"type": "string", "description": "Substring or regex to search for."},
+				"is_regex":         map[string]any{"type": "boolean", "description": "Treat query as a Go RE2 regex (default false = substring)."},
+				"case_sensitive":   map[string]any{"type": "boolean", "description": "Case-sensitive matching (default false = case-insensitive)."},
+				"roles":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles."},
+				"max_results":      map[string]any{"type": "integer", "description": "Cap on returned matches (default 50, max 1000)."},
+				"snippet_chars":    map[string]any{"type": "integer", "description": "Total chars of context around each match (default 80, max 400)."},
+			},
+		},
+		[]string{"session:read"}))
+
 	r.Register(newBundledWasmTool("agent", "stado_tool_cancel", "agent__cancel",
 		"Cancel a running agent. The child exits at its next yield point.",
 		tool.ClassExec,
