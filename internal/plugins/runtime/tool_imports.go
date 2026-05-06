@@ -10,7 +10,6 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/tools/astgrep"
-	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
@@ -34,7 +33,9 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		{exportName: "stado_fs_tool_glob", tool: fs.GlobTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_fs_tool_grep", tool: fs.GrepTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_fs_tool_read_context", tool: readctx.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
-		{exportName: "stado_exec_bash", tool: bash.BashTool{}, allowed: func(h *Host) bool { return h.ExecBash }},
+		// stado_exec_bash removed Step 4 of EP-no-internal-tools — the
+		// shell wasm plugin now uses stado_exec with cap exec:proc:bash.
+		// exec:bash and exec:shallow_bash caps are dead with it.
 		// stado_http_get was here as a delegate to webfetch.WebFetchTool;
 		// EP-no-internal-tools Step 2 dropped it. The web/webfetch wasm
 		// plugins use stado_http_request now.

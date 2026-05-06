@@ -100,34 +100,12 @@ func TestBundledPluginTool_RunRead(t *testing.T) {
 	}
 }
 
-func TestBundledPluginTool_BashUsesRunner(t *testing.T) {
-	reg := BuildDefaultRegistry(nil)
-	got, ok := reg.Get("bash")
-	if !ok {
-		t.Fatal("bash tool missing")
-	}
-	runner := &recordingRunner{}
-	host := bundledToolHost{workdir: t.TempDir(), runner: runner}
-	res, err := got.Run(context.Background(), json.RawMessage(`{"command":"printf ignored"}`), host)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if res.Error != "" {
-		t.Fatalf("tool error: %s", res.Error)
-	}
-	if !runner.called {
-		t.Fatal("runner was not invoked")
-	}
-	if runner.policy.CWD != host.workdir {
-		t.Fatalf("policy.CWD = %q, want %q", runner.policy.CWD, host.workdir)
-	}
-	if len(runner.policy.Exec) != 1 || runner.policy.Exec[0] != "bash" {
-		t.Fatalf("policy.Exec = %v, want [bash]", runner.policy.Exec)
-	}
-	if !strings.Contains(res.Content, "runner-ok") {
-		t.Fatalf("content = %q, want runner output", res.Content)
-	}
-}
+// TestBundledPluginTool_BashUsesRunner removed Step 4 of EP-no-internal-tools.
+// The native bash.BashTool routed through sandbox.Runner with a hardcoded
+// bwrap policy (workdir + /tmp + net deny). Post-Step-4 the bash tool is
+// the wasm shell__bash, which uses stado_exec without sandbox by default —
+// plugin author opts in via the new sandbox arg. The "bash automatically
+// gets bwrap" behavior this test asserted is gone, intentionally.
 
 // TestBundledPluginTool_HonoursPTYProvider: cross-call PTY persistence.
 // When the host implements tool.PTYProvider, successive bundled-plugin
