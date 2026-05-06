@@ -104,15 +104,14 @@ type RunArgs struct {
 // tool.Host for lifecycle bridges (PTY, fleet, approvals, progress);
 // caller must always pass a non-nil Host.
 func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
-	if args.Cfg == nil {
-		return tool.Result{Error: "pluginrun: nil cfg"}, fmt.Errorf("pluginrun: nil cfg")
-	}
 	if h == nil {
 		return tool.Result{Error: "pluginrun: nil host"}, fmt.Errorf("pluginrun: nil host")
 	}
 
 	rtHost := pluginRuntime.NewHost(args.Manifest, args.Workdir, nil)
-	rtHost.StateDir = args.Cfg.StateDir()
+	if args.Cfg != nil {
+		rtHost.StateDir = args.Cfg.StateDir()
+	}
 	rtHost.ToolHost = h
 
 	// Refuse exec:bash plugins on hosts without a sandbox runner — the
@@ -120,8 +119,10 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	// here so every dispatch path enforces it. After Step 4 (bash
 	// migrates to exec:proc:bash with optional sandbox), exec:bash
 	// disappears as a manifest cap and this branch becomes dead — fine.
+	// nil cfg = test path; skip the refuse check since there's no
+	// configured policy to enforce.
 	runner := sandbox.Detect()
-	if rtHost.ExecBash && !rtHost.ExecProc && runner.Name() == "none" {
+	if args.Cfg != nil && rtHost.ExecBash && !rtHost.ExecProc && runner.Name() == "none" {
 		if args.Cfg.Sandbox.RefuseNoRunner {
 			return tool.Result{
 				Error: fmt.Sprintf(
@@ -129,11 +130,6 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 					args.Manifest.Name),
 			}, fmt.Errorf("pluginrun: refuse_no_runner")
 		}
-		// Soft path: fall through to instantiate, but tag the result so
-		// the caller can decide whether to log a warning. Empty Result
-		// content with a non-nil "warning" doesn't fit the tool.Result
-		// shape — skip emitting a warning here; the agent loop's
-		// post-call hooks pick this up via cap inspection if needed.
 	}
 
 	rt, err := pluginRuntime.New(ctx)
@@ -144,7 +140,7 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 
 	attachMemoryBridge(args.Cfg, rtHost, args.Manifest.Name)
 
-	if rtHost.Secrets != nil {
+	if rtHost.Secrets != nil && args.Cfg != nil {
 		rtHost.Secrets.Store = secrets.NewStore(args.Cfg.StateDir())
 		rtHost.Secrets.PluginName = args.Manifest.Name
 		if args.SecretsAudit != nil {
@@ -157,6 +153,21 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	}
 
 	attachLifecycleBridges(rtHost, h)
+
+	// Per-call progress collector lives in ctx (Executor.Run installs
+	// it); the host's ProgressEmitter is already wired by
+	// attachLifecycleBridges. Combine: emit to the operator surface
+	// (TUI / stderr) AND append to the result-envelope collector so
+	// the model sees plugin progress as part of the tool result.
+	if progCollector := tool.ProgressFromContext(ctx); progCollector != nil {
+		emitter := rtHost.Progress
+		rtHost.Progress = func(plugin, text string) {
+			if emitter != nil {
+				emitter(plugin, text)
+			}
+			progCollector.Append(plugin, text)
+		}
+	}
 
 	if rtHost.ToolInvoke != nil && args.InvokeRegistry != nil {
 		rtHost.ToolInvoke.Invoke = makeInvokeCallback(args.InvokeRegistry, h)
