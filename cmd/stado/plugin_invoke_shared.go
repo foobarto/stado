@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
@@ -101,13 +102,49 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	}
 	if host.ToolInvoke != nil {
 		host.ToolInvoke.Invoke = func(ctx context.Context, name string, args json.RawMessage) (string, error) {
-			// CLI plugin-run has no surrounding session registry, so
-			// stado_tool_invoke from a CLI invocation routes against
-			// the live BuildDefaultRegistry — same set the agent loop
-			// would see. The inner tool runs against host.ToolHost
-			// (the tool.Host carrying the agent's workdir/runner),
-			// not the plugin host directly. Errors propagate so the
-			// plugin can surface them to its caller.
+			// Installed-plugin target: bypass the sentinel
+			// installedPluginTool.Run and dispatch through
+			// runPluginInvocation (same path tool_run.go uses for direct
+			// CLI invocations). Without this hop the inner call hits the
+			// "not invokable directly" sentinel error string.
+			if mfst, wasmPath, ok := runtime.LookupInstalledModule(name); ok {
+				wasmBytes, werr := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
+				if werr != nil {
+					return "", fmt.Errorf("verify: %w", werr)
+				}
+				bareName := name
+				for _, td := range mfst.Tools {
+					if td.Name == name {
+						bareName = td.Name
+						break
+					}
+				}
+				var stdoutBuf strings.Builder
+				if rerr := runPluginInvocation(ctx, pluginInvokeArgs{
+					Manifest:   mfst,
+					WasmBytes:  wasmBytes,
+					ToolName:   bareName,
+					ArgsJSON:   string(args),
+					Cfg:        cfg,
+					WorkdirArg: in.WorkdirArg,
+					InstallDir: filepath.Dir(wasmPath),
+					SessionID:  in.SessionID,
+					Stdout:     &stdoutBuf,
+					Stderr:     in.Stderr,
+				}); rerr != nil {
+					return "", rerr
+				}
+				// runPluginInvocation Fprintln's res.Content; strip the
+				// trailing newline so the caller sees the same shape
+				// reg.Run would produce.
+				return strings.TrimRight(stdoutBuf.String(), "\n"), nil
+			}
+			// Native + bundled-plugin target. CLI plugin-run has no
+			// surrounding session registry, so we route against the live
+			// BuildDefaultRegistry — same set the agent loop would see.
+			// The inner tool runs against host.ToolHost (the tool.Host
+			// carrying the agent's workdir/runner), not the plugin host
+			// directly. Errors propagate so the plugin can surface them.
 			reg := runtime.BuildDefaultRegistry(cfg)
 			result, err := reg.Run(ctx, name, args, host.ToolHost)
 			if err != nil {
