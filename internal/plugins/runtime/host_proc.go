@@ -14,6 +14,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/sandbox"
 )
 
 // procHandle holds the state for a long-lived spawned process.
@@ -24,6 +26,15 @@ type procHandle struct {
 }
 
 // procAllowed checks exec:proc / exec:proc:<glob> capability.
+//
+// Glob forms (EP-no-internal-tools Step 3):
+//   - Absolute path: matched against the resolved absolute path
+//     (`exec:proc:/usr/bin/bash`, `exec:proc:/usr/bin/impacket-*`)
+//   - Slash-free basename: matched against `filepath.Base(resolved)`
+//     so cross-distro portability works without hand-tuning manifests
+//     (`exec:proc:bash` matches /usr/bin/bash AND /bin/bash)
+//   - Mixed forms (relative path with slashes, e.g. `bin/bash`) are
+//     rejected as ambiguous.
 func (h *Host) procAllowed(bin string) bool {
 	if !h.ExecProc {
 		return false
@@ -31,15 +42,24 @@ func (h *Host) procAllowed(bin string) bool {
 	if len(h.ExecProcGlobs) == 0 {
 		return true // broad exec:proc
 	}
-	// Scoped: resolve binary and match against any of the declared globs.
 	abs, err := exec.LookPath(bin)
 	if err != nil {
 		abs = bin
 	}
 	abs = filepath.Clean(abs)
+	base := filepath.Base(abs)
 	for _, glob := range h.ExecProcGlobs {
-		if matched, _ := filepath.Match(glob, abs); matched {
-			return true
+		if strings.Contains(glob, "/") {
+			// Absolute-path form (caller responsibility — relative
+			// glob with slashes was rejected at cap-parse time).
+			if matched, _ := filepath.Match(glob, abs); matched {
+				return true
+			}
+		} else {
+			// Slash-free: basename match.
+			if matched, _ := filepath.Match(glob, base); matched {
+				return true
+			}
 		}
 	}
 	return false
@@ -58,6 +78,11 @@ func registerProcImports(builder wazero.HostModuleBuilder, host *Host, rt *Runti
 // registerExecImport registers stado_exec — one-shot process run.
 // stado_exec(req_ptr, req_len, result_ptr, result_cap) → int32
 // req/result are JSON-encoded ExecRequest / ExecResult.
+//
+// EP-no-internal-tools Step 3: req gains an optional `sandbox` field
+// — when set, the call routes through sandbox.Runner with that policy.
+// When nil, runs unsandboxed (today's behavior). Plugin author decides;
+// stado is unbiased.
 func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -70,10 +95,11 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 			var req struct {
-				Argv    []string `json:"argv"`
-				Stdin   string   `json:"stdin"`
-				Env     []string `json:"env"`
-				Timeout int      `json:"timeout_ms"`
+				Argv    []string       `json:"argv"`
+				Stdin   string         `json:"stdin"`
+				Env     []string       `json:"env"`
+				Timeout int            `json:"timeout_ms"`
+				Sandbox *sandboxPolicy `json:"sandbox,omitempty"`
 			}
 			if err := json.Unmarshal(reqBytes, &req); err != nil || len(req.Argv) == 0 {
 				stack[0] = api.EncodeI32(-1)
@@ -95,10 +121,14 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			cmd := exec.CommandContext(execCtx, req.Argv[0], req.Argv[1:]...) //nolint:gosec
-			cmd.Dir = host.Workdir
-			if len(req.Env) > 0 {
-				cmd.Env = req.Env
+			cmd, cmdErr := buildSandboxedCmd(execCtx, req.Sandbox, host.Workdir, req.Argv, req.Env)
+			if cmdErr != nil {
+				type errResult struct {
+					Error string `json:"error"`
+				}
+				b, _ := json.Marshal(errResult{Error: cmdErr.Error()})
+				stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, b))
+				return
 			}
 			if req.Stdin != "" {
 				cmd.Stdin = strings.NewReader(req.Stdin)
@@ -145,8 +175,9 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 				return
 			}
 			var req struct {
-				Argv []string `json:"argv"`
-				Env  []string `json:"env"`
+				Argv    []string       `json:"argv"`
+				Env     []string       `json:"env"`
+				Sandbox *sandboxPolicy `json:"sandbox,omitempty"`
 			}
 			if err := json.Unmarshal(reqBytes, &req); err != nil || len(req.Argv) == 0 {
 				stack[0] = 0
@@ -157,10 +188,11 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 				stack[0] = 0
 				return
 			}
-			cmd := exec.CommandContext(ctx, req.Argv[0], req.Argv[1:]...) //nolint:gosec
-			cmd.Dir = host.Workdir
-			if len(req.Env) > 0 {
-				cmd.Env = req.Env
+			cmd, cmdErr := buildSandboxedCmd(ctx, req.Sandbox, host.Workdir, req.Argv, req.Env)
+			if cmdErr != nil {
+				host.Logger.Warn("stado_proc_spawn sandbox build failed", slog.String("err", cmdErr.Error()))
+				stack[0] = 0
+				return
 			}
 			stdinPipe, err := cmd.StdinPipe()
 			if err != nil {
@@ -320,4 +352,56 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 		[]api.ValueType{api.ValueTypeI32},
 		[]api.ValueType{}).
 		Export("stado_proc_close")
+}
+
+// sandboxPolicy is the wasm-side wire shape for the optional `sandbox`
+// field on stado_exec / stado_proc_spawn requests. Mirrors sandbox.Policy
+// but with JSON tags + nil-when-unset semantics (the field is omitempty).
+type sandboxPolicy struct {
+	FSRead  []string `json:"fs_read"`
+	FSWrite []string `json:"fs_write"`
+	Exec    []string `json:"exec"`
+	Net     string   `json:"net"` // "deny" | "allow" — anything else = unset
+	CWD     string   `json:"cwd"`
+	Env     []string `json:"env"` // env vars to keep
+}
+
+// buildSandboxedCmd constructs the *exec.Cmd. When policy is nil, runs
+// unsandboxed (today's stado_exec semantics). When set, routes through
+// sandbox.Detect()'s runner with the supplied policy. If the runner is
+// "none" but a non-nil policy was requested, returns an error — silent-
+// fall-back-to-unsandboxed would defeat the plugin author's intent.
+func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir string, argv []string, env []string) (*exec.Cmd, error) {
+	if policy == nil {
+		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec
+		cmd.Dir = workdir
+		if len(env) > 0 {
+			cmd.Env = env
+		}
+		return cmd, nil
+	}
+	runner := sandbox.Detect()
+	if runner.Name() == "none" {
+		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available (install bubblewrap on Linux or sandbox-exec on macOS)")
+	}
+	cwd := policy.CWD
+	if cwd == "" {
+		cwd = workdir
+	}
+	netPolicy := sandbox.NetPolicy{}
+	switch policy.Net {
+	case "deny":
+		netPolicy.Kind = sandbox.NetDenyAll
+	case "allow":
+		netPolicy.Kind = sandbox.NetAllowAll
+	}
+	p := sandbox.Policy{
+		FSRead:  policy.FSRead,
+		FSWrite: policy.FSWrite,
+		Exec:    policy.Exec,
+		Net:     netPolicy,
+		CWD:     cwd,
+		Env:     policy.Env,
+	}
+	return runner.Command(ctx, p, argv[0], argv[1:], env)
 }
