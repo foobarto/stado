@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -263,25 +264,25 @@ func TestValidateUnixSocketPath(t *testing.T) {
 // confirm Accept returns the connection. Cap-gated by net:listen:tcp.
 func TestListenNet_TCPRoundTrip(t *testing.T) {
 	host := &Host{NetListen: &NetListenAccess{TCPGlobs: []NetDialPattern{{"127.0.0.1", "0"}}}}
-	ln, kind, path, err := listenNet(host, "tcp", "127.0.0.1", 0)
+	lst, err := listenNet(host, "tcp", "127.0.0.1", 0)
 	if err != nil {
 		t.Fatalf("listenNet: %v", err)
 	}
-	defer ln.Close()
-	if kind != "tcp" || path != "" {
-		t.Errorf("kind=%q path=%q want tcp / empty", kind, path)
+	defer lst.l.Close()
+	if lst.kind != "tcp" || lst.path != "" {
+		t.Errorf("kind=%q path=%q want tcp / empty", lst.kind, lst.path)
 	}
-	addr := ln.Addr().(*net.TCPAddr)
+	addr := lst.l.Addr().(*net.TCPAddr)
 	dialer := net.Dialer{Timeout: time.Second}
 	conn, err := dialer.Dial("tcp", addr.String())
 	if err != nil {
 		t.Fatalf("client dial: %v", err)
 	}
 	defer conn.Close()
-	if d, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+	if d, ok := lst.l.(interface{ SetDeadline(time.Time) error }); ok {
 		_ = d.SetDeadline(time.Now().Add(time.Second))
 	}
-	srvConn, err := ln.Accept()
+	srvConn, err := lst.l.Accept()
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -291,7 +292,7 @@ func TestListenNet_TCPRoundTrip(t *testing.T) {
 // TestListenNet_TCPCapDenied: bind on a non-allowed port fails.
 func TestListenNet_TCPCapDenied(t *testing.T) {
 	host := &Host{NetListen: &NetListenAccess{TCPGlobs: []NetDialPattern{{"127.0.0.1", "8080"}}}}
-	if _, _, _, err := listenNet(host, "tcp", "127.0.0.1", 9999); err == nil {
+	if _, err := listenNet(host, "tcp", "127.0.0.1", 9999); err == nil {
 		t.Fatal("listen on non-allowed port should fail")
 	}
 }
@@ -302,19 +303,19 @@ func TestListenNet_UnixCleansSocket(t *testing.T) {
 	tmp := t.TempDir()
 	sockPath := filepath.Join(tmp, "srv.sock")
 	host := &Host{NetListen: &NetListenAccess{UnixGlobs: []string{sockPath}}}
-	ln, _, path, err := listenNet(host, "unix", sockPath, 0)
+	lst, err := listenNet(host, "unix", sockPath, 0)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	if path != sockPath {
-		t.Errorf("path=%q want %q", path, sockPath)
+	if lst.path != sockPath {
+		t.Errorf("path=%q want %q", lst.path, sockPath)
 	}
-	_ = ln.Close()
-	if err := removeUnixSocketFile(path); err != nil {
+	_ = lst.closeUnderlying()
+	if err := removeUnixSocketFile(lst.path); err != nil {
 		t.Errorf("remove socket: %v", err)
 	}
 	// Idempotent — second remove on absent file is fine.
-	if err := removeUnixSocketFile(path); err != nil {
+	if err := removeUnixSocketFile(lst.path); err != nil {
 		t.Errorf("second remove (idempotent) should not error: %v", err)
 	}
 }
@@ -335,11 +336,11 @@ func TestRuntime_ListenerCapEnforced(t *testing.T) {
 	// ports on the host.
 	for i := 0; i < maxNetListenersPerRuntime; i++ {
 		p := filepath.Join(tmp, "ok-")
-		ln, _, _, err := listenNet(host, "unix", p+strings.Repeat("x", i+1)+".sock", 0)
+		lst, err := listenNet(host, "unix", p+strings.Repeat("x", i+1)+".sock", 0)
 		if err != nil {
 			t.Fatalf("listenNet[%d]: %v", i, err)
 		}
-		if _, err := r.handles.alloc(string(HandleTypeListen), &netListener{l: ln, kind: "unix", path: p}); err != nil {
+		if _, err := r.handles.alloc(string(HandleTypeListen), lst); err != nil {
 			t.Fatalf("alloc[%d]: %v", i, err)
 		}
 		atomicAddListener(r, +1)
@@ -354,6 +355,91 @@ func TestRuntime_ListenerCapEnforced(t *testing.T) {
 // helpers — keep tests independent of atomic-package imports.
 func atomicLoadListener(r *Runtime) int64 { return r.netListenerCount }
 func atomicAddListener(r *Runtime, d int64) { r.netListenerCount += d }
+
+// TestListenNet_UDPRoundTrip: UDP listen returns a PacketConn-backed
+// listener; sendto + recvfrom pump a packet to a peer that bounces it.
+func TestListenNet_UDPRoundTrip(t *testing.T) {
+	// The "peer" is a separate UDP socket on loopback that simply
+	// echoes whatever it gets back to the sender.
+	peer, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("peer listen: %v", err)
+	}
+	defer peer.Close()
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			n, addr, err := peer.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			_, _ = peer.WriteTo(buf[:n], addr)
+		}
+	}()
+	peerPort := peer.LocalAddr().(*net.UDPAddr).Port
+
+	host := &Host{
+		NetListen:             &NetListenAccess{UDPGlobs: []NetDialPattern{{"127.0.0.1", "0"}}},
+		NetDial:               &NetDialAccess{UDPGlobs: []NetDialPattern{{"127.0.0.1", "*"}}},
+		NetHTTPRequestPrivate: true,
+	}
+	lst, err := listenNet(host, "udp", "127.0.0.1", 0)
+	if err != nil {
+		t.Fatalf("listenNet UDP: %v", err)
+	}
+	defer lst.closeUnderlying()
+	if lst.kind != "udp" || lst.pc == nil {
+		t.Fatalf("expected udp listener with pc; got kind=%q pc=%v", lst.kind, lst.pc)
+	}
+
+	// Send a packet to the peer.
+	addr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(peerPort)))
+	if _, err := lst.pc.WriteTo([]byte("hello"), addr); err != nil {
+		t.Fatalf("write to peer: %v", err)
+	}
+	// Read the echo back.
+	_ = lst.pc.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 32)
+	n, srcAddr, err := lst.pc.ReadFrom(buf)
+	if err != nil {
+		t.Fatalf("readfrom: %v", err)
+	}
+	if got := string(buf[:n]); got != "hello" {
+		t.Errorf("echo mismatch: got %q", got)
+	}
+	if _, ok := srcAddr.(*net.UDPAddr); !ok {
+		t.Errorf("source addr type: %T", srcAddr)
+	}
+}
+
+// TestListenNet_UDPCapDenied: UDP bind without a matching glob fails.
+func TestListenNet_UDPCapDenied(t *testing.T) {
+	host := &Host{NetListen: &NetListenAccess{UDPGlobs: []NetDialPattern{{"127.0.0.1", "8080"}}}}
+	if _, err := listenNet(host, "udp", "127.0.0.1", 9999); err == nil {
+		t.Fatal("UDP bind on non-allowed port should fail")
+	}
+}
+
+// TestPackRecvResult: the high32/low32 packing convention round-trips.
+func TestPackRecvResult(t *testing.T) {
+	cases := []struct {
+		body, addr int32
+	}{
+		{0, 0},
+		{42, 13},
+		{-1, 0}, // error sentinel
+		{-2, 0}, // timeout sentinel
+		{1500, 21},
+	}
+	for _, tc := range cases {
+		ret := packRecvResult(tc.body, tc.addr)
+		gotBody := int32(ret >> 32)
+		gotAddr := int32(uint32(ret))
+		if gotBody != tc.body || gotAddr != tc.addr {
+			t.Errorf("pack(%d, %d) → unpack got (%d, %d)", tc.body, tc.addr, gotBody, gotAddr)
+		}
+	}
+}
 
 // TestDialNet_PrivateAddrRefused: loopback is refused without
 // NetHTTPRequestPrivate, even when the cap glob matches.

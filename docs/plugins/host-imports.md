@@ -303,11 +303,37 @@ Docker daemon) without dropping to bash.
 | `stado_net_listen(transport_ptr, transport_len, host_ptr, host_len, port i32) → i64` | typed handle `listen:<id>` (-1 on error) | `net:listen:<transport>:<host-glob>:<port-glob>` (or `:<path-glob>` for unix) |
 | `stado_net_accept(lst_handle, timeout_ms i32) → i64` | typed handle `conn:<id>` (-1 on error, -2 on timeout) | inherited from listen |
 | `stado_net_close_listener(lst_handle) → i32` | 0 | inherited |
+| `stado_net_sendto(lst_udp, host_ptr, host_len, port, data_ptr, data_len) → i32` | bytes written; -1 on error | `net:listen:udp:<bind>` + `net:dial:udp:<peer-host>:<port>` |
+| `stado_net_recvfrom(lst_udp, timeout_ms, body_ptr, body_max, addr_ptr, addr_max) → i64` | packed `(body_len << 32) \| addr_len`; -1 / -2 sentinels in body slot | inherited from UDP listen |
 
 **Transports.** `stado_net_dial` accepts `"tcp"`, `"udp"`, `"unix"`.
 For `"unix"`, the `host` parameter carries the socket path; `port` is
-ignored. UDP is connect-mode only (one peer per socket); broadcast,
-multicast, and accept-from-any patterns are not exposed in v1.
+ignored. UDP dial is connect-mode (one peer per socket).
+`stado_net_listen` accepts `"tcp"`, `"udp"`, `"unix"`. UDP listen
+returns a stateless handle for `_sendto`/`_recvfrom` (any peer, gated
+by `net:dial:udp:` globs).
+
+**Stateless UDP — sendto / recvfrom.** A UDP listen handle can both
+send packets to peers and receive from any sender:
+
+```
+lst = stado_net_listen("udp", "0.0.0.0", 0)        # bind ephemeral
+stado_net_sendto(lst, "1.2.3.4", 53, query_bytes)  # peer cap-gated
+n, addr_n = unpack(stado_net_recvfrom(lst, 1000, body, 1500, addr, 64))
+# body[:n] = response payload, addr[:addr_n] = "host:port" of sender
+```
+
+The wasm caller un-packs the recvfrom return:
+```
+ret    : i64
+body_n : int32 = int32(ret >> 32)        # signed cast preserves -1 / -2 sentinels
+addr_n : int32 = int32(uint32(ret))      # unsigned low 32
+```
+
+Outbound peers in `stado_net_sendto` are gated by the **same
+`net:dial:udp:<host>:<port>` glob set** as connect-mode UDP — a UDP
+listener can't be a wildcard spray gun. Private peer addresses still
+need `net:http_request_private`.
 
 **Capability vocabulary.**
 
