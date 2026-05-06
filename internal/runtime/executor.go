@@ -112,14 +112,45 @@ func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 	if cfg != nil && len(cfg.Tools.Autoload) > 0 {
 		autoloadPatterns = cfg.Tools.Autoload
 	}
+	categorySet := map[string]bool{}
+	if cfg != nil {
+		for _, c := range cfg.Tools.AutoloadCategories {
+			categorySet[c] = true
+		}
+	}
+	seen := map[string]bool{}
 	var out []pkgtool.Tool
 	for _, t := range reg.All() {
 		if isMetaTool(t.Name()) {
-			out = append(out, t)
+			if !seen[t.Name()] {
+				out = append(out, t)
+				seen[t.Name()] = true
+			}
 			continue
 		}
 		if toolMatchesAny(t.Name(), autoloadPatterns) {
-			out = append(out, t)
+			if !seen[t.Name()] {
+				out = append(out, t)
+				seen[t.Name()] = true
+			}
+			continue
+		}
+		// Category-based autoload (Tester #7). Tools whose Categories
+		// metadata overlaps with cfg.Tools.AutoloadCategories join the
+		// per-turn surface. Empty AutoloadCategories = no category-based
+		// expansion.
+		if len(categorySet) > 0 {
+			if tc, ok := t.(toolCategoried); ok {
+				for _, c := range tc.Categories() {
+					if categorySet[c] {
+						if !seen[t.Name()] {
+							out = append(out, t)
+							seen[t.Name()] = true
+						}
+						break
+					}
+				}
+			}
 		}
 	}
 	return out

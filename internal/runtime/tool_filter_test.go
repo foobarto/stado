@@ -2,9 +2,11 @@ package runtime
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	pkgtoolPkg "github.com/foobarto/stado/pkg/tool"
 )
 
 // TestApplyToolFilter_DefaultKeepsEverything: no config values →
@@ -152,6 +154,39 @@ func TestAutoloadedTools_DefaultCore(t *testing.T) {
 			t.Errorf("meta-tool %q should always be autoloaded", want)
 		}
 	}
+}
+
+// TestAutoloadedTools_CategoriesAddTools: AutoloadCategories pulls
+// tools whose Categories metadata overlaps; layered on top of the
+// name-based autoload (union, deduped).
+func TestAutoloadedTools_CategoriesAddTools(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	cfg := &config.Config{}
+	cfg.Tools.AutoloadCategories = []string{"file"}
+	autoloaded := AutoloadedTools(reg, cfg)
+	// The bundled fs tools are tagged "file"; verify some of them
+	// surface even without an explicit name-based autoload.
+	want := []string{"read", "write"}
+	got := map[string]bool{}
+	for _, t := range autoloaded {
+		got[t.Name()] = true
+	}
+	for _, name := range want {
+		if !got[name] {
+			t.Errorf("autoload-category=file should pull %q; got: %v", name, listNames(autoloaded))
+		}
+	}
+}
+
+// listNames is a small helper to render a tool slice as a sorted
+// comma-joined string for error messages.
+func listNames(ts []pkgtoolPkg.Tool) string {
+	out := make([]string, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, t.Name())
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
 }
 
 func TestAutoloadedTools_CustomAutoload(t *testing.T) {

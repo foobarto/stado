@@ -193,6 +193,13 @@ type Tools struct {
 	// still reachable via tools.search + tools.describe. Empty = use the
 	// hardcoded default core (fs.*, shell.exec bare-name equivalents).
 	Autoload []string `koanf:"autoload"`
+	// AutoloadCategories adds every tool whose categories metadata
+	// overlaps with one of these category names to the per-turn
+	// autoload set. Layered ON TOP of Autoload — the union is what
+	// the model sees each turn. Tester #7: lets HTB-tooling sessions
+	// run lean and pull, e.g., `recon` tools always while `exploit`
+	// tools stay lazy-loaded behind tools.activate.
+	AutoloadCategories []string `koanf:"autoload_categories"`
 	// Overrides maps a registry tool name to an installed plugin ID
 	// (`<name>-<version>` or `<name>@<version>`). When set, the plugin's
 	// matching tool declaration replaces the native/MCP tool under the

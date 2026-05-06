@@ -95,6 +95,14 @@ var pluginInstallCmd = &cobra.Command{
 			}
 		}
 
+		// 2026-05-06 — plugin dep resolution (tester #8). When the
+		// manifest declares `requires`, every entry must already be
+		// installed at a satisfying version. Prevents silent partial-
+		// functionality (composite plugins like exploit-lib + http-session).
+		if reqErr := plugins.CheckRequires(m, filepath.Join(cfg.StateDir(), "plugins")); reqErr != nil {
+			return fmt.Errorf("install: %w", reqErr)
+		}
+
 		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||
 			strings.ContainsAny(m.Name, "/\\") || strings.ContainsAny(m.Version, "/\\") {
 			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
