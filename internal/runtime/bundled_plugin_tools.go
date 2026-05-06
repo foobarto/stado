@@ -10,11 +10,9 @@ import (
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
-	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/version"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -36,8 +34,9 @@ func buildNativeRegistry() *tools.Registry {
 	// webfetch native registration removed Step 2 of EP-no-internal-tools
 	// — replaced by the wasm web__fetch tool registered below using the
 	// stado_http_request primitive.
-	r.Register(rg.Tool{})
-	r.Register(astgrep.Tool{})
+	// rg + astgrep native registrations removed Step 5 of EP-no-internal-
+	// tools — replaced by wasm rg__search / astgrep__search registered
+	// below (which use stado_exec to spawn the binaries).
 	r.Register(readctx.Tool{})
 	def := &lspfind.FindDefinition{}
 	r.Register(def)
@@ -203,6 +202,36 @@ func buildBundledPluginRegistry() *tools.Registry {
 		"Execute a shell command via /usr/bin/zsh -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
 		[]string{"exec:proc:zsh"}))
+
+	// EP-no-internal-tools Step 5: rg.search + astgrep.search via
+	// stado_exec spawning the bundled binaries. Replaces the native
+	// rg.Tool / astgrep.Tool registrations.
+	rgSchema := map[string]any{
+		"type": "object", "required": []string{"pattern"},
+		"properties": map[string]any{
+			"pattern": map[string]any{"type": "string", "description": "Regex pattern"},
+			"path":    map[string]any{"type": "string", "description": "Search root (default cwd)"},
+			"flags":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Extra rg flags (e.g. ['--hidden','-i'])"},
+		},
+	}
+	r.Register(newBundledWasmTool("rg", "stado_tool_search", "rg__search",
+		"Fast file-contents search via ripgrep. Pass pattern + optional path + optional flags.",
+		tool.ClassNonMutating, rgSchema,
+		[]string{"fs:read:.", "exec:proc:rg", "bundled-bin:rg"}))
+
+	astgrepSchema := map[string]any{
+		"type": "object", "required": []string{"pattern"},
+		"properties": map[string]any{
+			"pattern": map[string]any{"type": "string", "description": "ast-grep pattern, e.g. 'fmt.Println($X)'"},
+			"lang":    map[string]any{"type": "string", "description": "Language (e.g. 'go', 'python', 'js')"},
+			"path":    map[string]any{"type": "string", "description": "Search root (default cwd)"},
+			"rewrite": map[string]any{"type": "string", "description": "Rewrite template; when set, files are updated in place"},
+		},
+	}
+	r.Register(newBundledWasmTool("astgrep", "stado_tool_search", "astgrep__search",
+		"Structural code search and rewrite via ast-grep (tree-sitter patterns).",
+		tool.ClassMutating, astgrepSchema,
+		[]string{"fs:read:.", "fs:write:.", "exec:proc:ast-grep", "bundled-bin:astgrep"}))
 
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
 	agentCaps := []string{"agent:fleet"}

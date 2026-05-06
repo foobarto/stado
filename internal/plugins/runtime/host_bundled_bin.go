@@ -8,8 +8,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 
-	"github.com/foobarto/stado/internal/tools/astgrep"
-	"github.com/foobarto/stado/internal/tools/rg"
+	"github.com/foobarto/stado/internal/astgrep"
+	"github.com/foobarto/stado/internal/rg"
 )
 
 // bundledBinPath returns the filesystem path to a named bundled binary.
