@@ -38,12 +38,9 @@ Listed in rough priority order (highest = most operator pain).
 - **Status today:** `tool reload` exists; `plugin reload` doesn't.
 - **Effort:** Small. `cmd/stado/plugin_reload.go` invalidating cached `*pluginRuntime.Module` for a plugin name.
 
-## 5. Slash-command persistence default
+## 5. ~~Slash-command persistence default~~ — **DONE 2026-05-05** (`feat/tui-slash-and-handles` PR)
 
-- **Locked at:** NOTES Q7 — *"slash = per-session, CLI = persist; `--save` flips slash to write config"*.
-- **Status today:** Moot — TUI slash mutating verbs aren't built (the corresponding `stado tool enable/...` CLI verbs landed in `563d251` but no `/tool enable` mirror yet).
-- **Action:** When wiring `/tool enable / disable / autoload / unautoload` into TUI, default to per-session, add `--save`.
-- **Files:** `internal/tui/model_commands.go`.
+`/tool enable / disable / autoload / unautoload` shipped with per-session default + `--save` flag flip. See `internal/tui/model_commands.go`.
 
 ## 6. `tools.describe(names: [str])` batched form
 
@@ -51,12 +48,9 @@ Listed in rough priority order (highest = most operator pain).
 - **Status today:** Single-name path lives in `internal/runtime/meta_tools.go`. Batching not implemented.
 - **Effort:** Tiny — accept `string | []string` and dispatch over the slice.
 
-## 7. Typed-prefix dotted handle IDs (`proc:fs.7a2b`)
+## 7. ~~Typed-prefix dotted handle IDs (`proc:fs.7a2b`)~~ — **DONE 2026-05-05** (`feat/tui-slash-and-handles` PR)
 
-- **Locked at:** NOTES line 1057-1078 — *"Type-prefix is mandatory ... `/ps`/`/kill` use these"*.
-- **Status today:** EP-0038a Task 1 used opaque uint32/uint64 handles. `/ps` / `/kill` work but render bare numbers.
-- **Decision needed:** Adopt the dotted format for operator-facing surfaces (renderer + parser, no on-the-wire change), or formally drop from locked decisions.
-- **Files:** `internal/plugins/runtime/handles.go`, `internal/tui/model_commands.go` (`/ps` + `/kill` renderers).
+`FormatHandleID`/`ParseHandleID` + `HandleType` constants in `internal/plugins/runtime/handles.go`.
 
 ## 8. EP-0038e — Tier 2 stateful HTTP + secrets
 
