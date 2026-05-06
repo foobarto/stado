@@ -9,7 +9,6 @@ import (
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/tasktool"
-	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -22,17 +21,15 @@ func TestClassOf_BuiltIns(t *testing.T) {
 	r.Register(fs.GlobTool{})
 	r.Register(fs.GrepTool{})
 	r.Register(tasktool.Tool{})
-	r.Register(webfetch.WebFetchTool{})
 
 	cases := map[string]tool.Class{
-		"bash":     tool.ClassExec,
-		"read":     tool.ClassNonMutating,
-		"write":    tool.ClassMutating,
-		"edit":     tool.ClassMutating,
-		"glob":     tool.ClassNonMutating,
-		"grep":     tool.ClassNonMutating,
-		"tasks":    tool.ClassStateMutating,
-		"webfetch": tool.ClassNonMutating,
+		"bash":  tool.ClassExec,
+		"read":  tool.ClassNonMutating,
+		"write": tool.ClassMutating,
+		"edit":  tool.ClassMutating,
+		"glob":  tool.ClassNonMutating,
+		"grep":  tool.ClassNonMutating,
+		"tasks": tool.ClassStateMutating,
 	}
 	for name, want := range cases {
 		if got := r.ClassOf(name); got != want {

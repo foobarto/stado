@@ -19,7 +19,6 @@ TOOLS=(
   glob
   grep
   bash
-  webfetch
   ripgrep
   ast_grep
   read_with_context

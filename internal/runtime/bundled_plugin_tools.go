@@ -17,7 +17,6 @@ import (
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
-	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/internal/version"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -34,7 +33,9 @@ func buildNativeRegistry() *tools.Registry {
 	r.Register(fs.GlobTool{})
 	r.Register(fs.GrepTool{})
 	r.Register(bash.BashTool{Timeout: 60 * time.Second})
-	r.Register(webfetch.WebFetchTool{})
+	// webfetch native registration removed Step 2 of EP-no-internal-tools
+	// — replaced by the wasm web__fetch tool registered below using the
+	// stado_http_request primitive.
 	r.Register(rg.Tool{})
 	r.Register(astgrep.Tool{})
 	r.Register(readctx.Tool{})
