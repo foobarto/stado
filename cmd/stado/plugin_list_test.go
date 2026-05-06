@@ -34,6 +34,32 @@ func TestPluginList_ShowsBundled(t *testing.T) {
 	}
 }
 
+// TestPluginList_ShowsPathColumn: the table includes a PATH column,
+// bundled plugins render as "(embedded)" and the header is present.
+func TestPluginList_ShowsPathColumn(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	var stdout bytes.Buffer
+	pluginListCmd.SetOut(&stdout)
+	pluginListCmd.SetErr(&stdout)
+	defer func() {
+		pluginListCmd.SetOut(nil)
+		pluginListCmd.SetErr(nil)
+	}()
+
+	if err := pluginListCmd.RunE(pluginListCmd, nil); err != nil {
+		t.Fatalf("pluginListCmd.RunE: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "PATH") {
+		t.Errorf("output should include PATH column header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "(embedded)") {
+		t.Errorf("bundled plugin rows should show '(embedded)' as path; got:\n%s", out)
+	}
+}
+
 // TestPluginList_BundledHasDashFingerprint: bundled rows render the
 // fingerprint column as "-" rather than empty/truncated noise.
 func TestPluginList_BundledHasDashFingerprint(t *testing.T) {
