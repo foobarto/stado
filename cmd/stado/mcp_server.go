@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tasks"
@@ -63,7 +64,14 @@ var mcpServerCmd = &cobra.Command{
 
 			srv := server.NewMCPServer("stado", stadoVersion())
 			runner := sandbox.Detect()
-			host := stadoMCPHost{workdir: mustCwd(), runner: runner}
+			host := stadoMCPHost{
+				workdir: mustCwd(),
+				runner:  runner,
+				// Server-lifetime PTY manager — shell.spawn → shell.read
+				// across MCP calls share state. Reaped on server exit.
+				pty: pty.NewManager(),
+			}
+			defer host.pty.CloseAll()
 
 			// Executor wraps each tool.Run with otel audit spans +
 			// latency metrics — same path the TUI and `stado run`
@@ -149,6 +157,12 @@ func rawSchema(m map[string]any) json.RawMessage {
 type stadoMCPHost struct {
 	workdir string
 	runner  sandbox.Runner
+	// pty is a server-lifetime PTY manager shared across every tool
+	// dispatch so shell.spawn → shell.attach / read / write succeed
+	// across calls. Without this each bundled-plugin runtime would
+	// instantiate its own pty.NewManager() and the second call would
+	// fail with "session not found." Bug-fix per operator report.
+	pty *pty.Manager
 }
 
 func (h stadoMCPHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -160,6 +174,11 @@ func (h stadoMCPHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 	return tool.PriorReadInfo{}, false
 }
 func (h stadoMCPHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
+
+// PTYManager implements pkg/tool.PTYProvider — bundled shell.* /
+// pty.* tools reuse the server-lifetime manager via this hook so
+// session ids survive across MCP calls.
+func (h stadoMCPHost) PTYManager() any { return h.pty }
 
 func mustCwd() string {
 	cwd, err := os.Getwd()

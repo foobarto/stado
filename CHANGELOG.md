@@ -6,6 +6,26 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Fixes
+
+- **Bundled `shell.*` / `pty.*` PTY persistence across calls.** Each
+  `bundledPluginTool.Run` was creating a fresh `pluginRuntime.New`,
+  which in turn created its own `pty.NewManager()`. So
+  `shell.spawn` returned an id that the next call's `shell.attach` /
+  `read` / `write` couldn't see — every dispatch got a fresh empty
+  registry and the second call returned `pty: session not found`.
+  Reported on `v0.37.0+`. Fix: new optional `tool.PTYProvider`
+  interface; long-lived hosts (TUI session, MCP server, headless
+  agent loop) construct one `*pty.Manager` and expose it via
+  `PTYManager()`. The bundled-plugin Run path now type-asserts and
+  reuses the shared manager when present, falling back to the
+  per-call manager otherwise (one-shot `stado plugin run` / `stado
+  tool run` are still single-process so the per-call fallback is
+  fine for those). Added a regression test
+  (`TestBundledPluginTool_HonoursPTYProvider`) that spawns a real
+  PTY between two `shell__list` dispatches and confirms the second
+  call sees it.
+
 ### TUI
 
 - **Expand older tool calls.** `Shift+Tab` previously only toggled

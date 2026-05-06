@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
@@ -23,6 +25,17 @@ type bundledToolHost struct {
 func (h bundledToolHost) Workdir() string { return h.workdir }
 
 func (h bundledToolHost) Runner() sandbox.Runner { return h.runner }
+
+// bundledToolHostWithPTY mirrors bundledToolHost but additionally
+// implements pkg/tool.PTYProvider, exposing a shared PTY manager so
+// successive bundledPluginTool.Run calls see the same session
+// registry. Used by the cross-call PTY persistence regression test.
+type bundledToolHostWithPTY struct {
+	bundledToolHost
+	pty *pty.Manager
+}
+
+func (h bundledToolHostWithPTY) PTYManager() any { return h.pty }
 
 type recordingRunner struct {
 	called bool
@@ -113,6 +126,62 @@ func TestBundledPluginTool_BashUsesRunner(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "runner-ok") {
 		t.Fatalf("content = %q, want runner output", res.Content)
+	}
+}
+
+// TestBundledPluginTool_HonoursPTYProvider: cross-call PTY persistence.
+// When the host implements tool.PTYProvider, successive bundled-plugin
+// dispatches see the same PTY registry — shell.spawn → shell.list
+// across calls finds the spawned session. Pre-fix, each Run built a
+// fresh pluginRuntime with its own pty.NewManager and the second call
+// got an empty list.
+func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("requires `sleep` binary")
+	}
+	sharedMgr := pty.NewManager()
+	defer sharedMgr.CloseAll()
+
+	host := bundledToolHostWithPTY{
+		bundledToolHost: bundledToolHost{
+			workdir: t.TempDir(),
+			runner:  sandbox.NoneRunner{},
+		},
+		pty: sharedMgr,
+	}
+
+	reg := BuildDefaultRegistry(nil)
+	listTool, ok := reg.Get("shell__list")
+	if !ok {
+		t.Fatal("shell__list missing from registry")
+	}
+
+	// First dispatch — empty manager.
+	res1, err := listTool.Run(context.Background(), json.RawMessage(`{}`), host)
+	if err != nil {
+		t.Fatalf("first list: %v", err)
+	}
+
+	// Pre-populate the SHARED manager with a real session so the
+	// second list call has something to find. Spawn directly via
+	// the manager — bundled wasm shell.spawn would do the same
+	// against the shared manager, but spawning here lets us pin
+	// the assertion to a known id.
+	id, err := sharedMgr.Spawn(pty.SpawnOpts{Cmd: "sleep 30"})
+	if err != nil {
+		t.Skipf("Spawn requires runnable shell environment: %v", err)
+	}
+	defer sharedMgr.Destroy(id)
+	idStr := strconv.FormatUint(id, 10)
+
+	// Second dispatch — should observe the shared session.
+	res2, err := listTool.Run(context.Background(), json.RawMessage(`{}`), host)
+	if err != nil {
+		t.Fatalf("second list: %v", err)
+	}
+	if !strings.Contains(res2.Content, idStr) {
+		t.Errorf("second list did not see the shared PTY id %s\nfirst:  %s\nsecond: %s",
+			idStr, res1.Content, res2.Content)
 	}
 }
 

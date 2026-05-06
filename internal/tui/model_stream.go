@@ -938,6 +938,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			// --sidebar-debug (plugin author chose to emit this).
 			m.pushLogLine("PROGRESS [" + plugin + "] " + text)
 		},
+		pty: m.ptyManager,
 	}
 	// Create a cancellable context for this tool execution.
 	ctx, cancel := context.WithCancel(context.Background())
