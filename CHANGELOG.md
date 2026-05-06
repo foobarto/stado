@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.42.0 — EP-0038i ICMP echo (closes the network surface)
+
 ### Plugin runtime — new host imports
 
 - **`stado_net_icmp_echo(host, timeout_ms?, count?, payload_size?)`** —
