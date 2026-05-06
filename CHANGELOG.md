@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.41.0 — UDP broadcast/multicast + FleetBridge messaging real impl
+
 ### Plugin runtime — new host imports
 
 - **`stado_agent_send_message` real impl.** Was a stub that validated
