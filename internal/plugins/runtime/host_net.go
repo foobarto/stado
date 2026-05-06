@@ -177,7 +177,8 @@ func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtim
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
 //                timeout_ms i32) → i64
 //
-// transport: "tcp" (only). Other transports deferred (EP-0038g).
+// transport: "tcp" | "udp" | "unix". For "unix", host carries the
+// socket path and port is ignored.
 // Returns: handle as i64 (uint32 promoted), or -1 on cap denied / dial
 // failure / cap exhausted. The plugin's SDK packages the i64 into the
 // typed-prefix "conn:<id>" form for operator-facing display.
@@ -193,42 +194,19 @@ func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 			if !ok {
 				return -1
 			}
-			if transport != "tcp" {
-				return -1 // UDP/Unix/etc. deferred
-			}
 			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
 			if !ok {
 				return -1
 			}
-			portStr := strconv.Itoa(int(port))
-			if !host.NetDial.CanDialTCP(hostStr, portStr) {
-				return -1
-			}
-			// Per-Runtime cap.
+			// Per-Runtime cap (shared TCP+UDP+Unix conn budget).
 			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
 				return -1
 			}
-			// Dial guard: refuse private addresses unless host has
-			// the http_request_private cap (extended to net:dial).
 			timeout := time.Duration(timeoutMs) * time.Millisecond
 			if timeout <= 0 {
 				timeout = netDialDefaultTimeout
 			}
-			d := net.Dialer{Timeout: timeout}
-			addr := net.JoinHostPort(hostStr, portStr)
-			// Pre-resolve and check IP.
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
-			if err != nil {
-				return -1
-			}
-			if !host.NetHTTPRequestPrivate {
-				for _, ip := range ips {
-					if isPrivateIP(ip) {
-						return -1
-					}
-				}
-			}
-			conn, err := d.DialContext(ctx, "tcp", addr)
+			conn, err := dialNet(ctx, host, transport, hostStr, int(port), timeout)
 			if err != nil {
 				return -1
 			}
@@ -242,6 +220,49 @@ func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 		}).
 		Export("stado_net_dial")
 }
+
+// dialNet performs the cap-gated dial. Centralised so each transport
+// gets uniform private-IP / cap-glob enforcement.
+func dialNet(ctx context.Context, host *Host, transport, hostStr string, port int, timeout time.Duration) (net.Conn, error) {
+	switch transport {
+	case "tcp":
+		portStr := strconv.Itoa(port)
+		if !host.NetDial.CanDialTCP(hostStr, portStr) {
+			return nil, errCapDenied
+		}
+		return dialIP(ctx, host, "tcp", hostStr, portStr, timeout)
+	case "udp":
+		portStr := strconv.Itoa(port)
+		if !host.NetDial.CanDialUDP(hostStr, portStr) {
+			return nil, errCapDenied
+		}
+		return dialIP(ctx, host, "udp", hostStr, portStr, timeout)
+	default:
+		return nil, errCapDenied
+	}
+}
+
+// dialIP runs the IP-based dial path: pre-resolve, private-IP guard,
+// then dial. Used by tcp + udp variants.
+func dialIP(ctx context.Context, host *Host, network, hostStr, portStr string, timeout time.Duration) (net.Conn, error) {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
+	if err != nil {
+		return nil, err
+	}
+	if !host.NetHTTPRequestPrivate {
+		for _, ip := range ips {
+			if isPrivateIP(ip) {
+				return nil, errPrivateAddr
+			}
+		}
+	}
+	d := net.Dialer{Timeout: timeout}
+	addr := net.JoinHostPort(hostStr, portStr)
+	return d.DialContext(ctx, network, addr)
+}
+
+// errCapDenied is returned by the dial helpers for cap-glob mismatch.
+var errCapDenied = fmt.Errorf("net:dial: capability not granted")
 
 // stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32
 // Returns bytes read, 0 on EOF, -1 on error / unknown handle.

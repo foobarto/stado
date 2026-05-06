@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"context"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestNetDialAccess_CanDialTCP(t *testing.T) {
@@ -122,6 +124,79 @@ func TestNetListenAccess_Unix(t *testing.T) {
 	}
 	if a.CanListenUnix("/tmp/other.sock") {
 		t.Error("non-matching path should be denied")
+	}
+}
+
+// TestDialNet_UDPEcho exercises the full UDP dial path: cap glob,
+// private-IP guard, dial, round-trip a packet. Loopback requires
+// NetHTTPRequestPrivate=true.
+func TestDialNet_UDPEcho(t *testing.T) {
+	srv, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+	go func() {
+		buf := make([]byte, 1500)
+		for {
+			n, addr, err := srv.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			_, _ = srv.WriteTo(buf[:n], addr)
+		}
+	}()
+	port := srv.LocalAddr().(*net.UDPAddr).Port
+
+	host := &Host{
+		NetDial:               &NetDialAccess{UDPGlobs: []NetDialPattern{{"127.0.0.1", "*"}}},
+		NetHTTPRequestPrivate: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := dialNet(ctx, host, "udp", "127.0.0.1", port, time.Second)
+	if err != nil {
+		t.Fatalf("dialNet: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 32)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got := string(buf[:n]); got != "ping" {
+		t.Errorf("echo mismatch: got %q", got)
+	}
+}
+
+// TestDialNet_UDPCapDenied: dial without a matching UDPGlob is rejected.
+func TestDialNet_UDPCapDenied(t *testing.T) {
+	host := &Host{
+		NetDial:               &NetDialAccess{TCPGlobs: []NetDialPattern{{"*", "*"}}},
+		NetHTTPRequestPrivate: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if _, err := dialNet(ctx, host, "udp", "127.0.0.1", 53, time.Second); err == nil {
+		t.Fatal("UDP dial without UDPGlobs should fail")
+	}
+}
+
+// TestDialNet_PrivateAddrRefused: loopback is refused without
+// NetHTTPRequestPrivate, even when the cap glob matches.
+func TestDialNet_PrivateAddrRefused(t *testing.T) {
+	host := &Host{
+		NetDial:               &NetDialAccess{UDPGlobs: []NetDialPattern{{"*", "*"}}},
+		NetHTTPRequestPrivate: false,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if _, err := dialNet(ctx, host, "udp", "127.0.0.1", 53, time.Second); err == nil {
+		t.Fatal("loopback dial without private cap should fail")
 	}
 }
 
