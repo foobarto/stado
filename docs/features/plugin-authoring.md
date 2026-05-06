@@ -318,6 +318,11 @@ whether to trust the plugin.
 
 ## Related documents
 
+- [`docs/plugins/host-imports.md`](../plugins/host-imports.md) —
+  comprehensive reference for every wasm host import (~70 in
+  total), grouped by Tier, with capability gates and ABI
+  signatures. The first place to look when "I need the WASM tool
+  to do X but the host only exposes Y."
 - [`docs/commands/plugin.md`](../commands/plugin.md) — exhaustive
   per-command reference.
 - [EP-0002](../eps/0002-all-tools-as-plugins.md) — why every tool
