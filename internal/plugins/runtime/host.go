@@ -156,6 +156,14 @@ type Host struct {
 	// just records the manifest's allowed key patterns + plugin name.
 	State *StateAccess
 
+	// ToolInvoke gates stado_tool_invoke — wasm plugins calling other
+	// registered tools. Populated when the manifest declares
+	// tool:invoke[:<name-glob>]. The Invoke callback is wired by the
+	// host caller (BuildExecutor / runPluginInvocation) to dispatch
+	// against the active session's registry, with recursion bounded
+	// by toolInvokeMaxDepth. Tester #3.
+	ToolInvoke *ToolInvokeAccess
+
 	// llmTokensUsed tracks the per-session running total against
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.
@@ -550,6 +558,19 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				}
 				if len(parts) == 3 && parts[2] != "" {
 					h.State.WriteGlobs = append(h.State.WriteGlobs, parts[2])
+				}
+			}
+		case "tool":
+			// tool:invoke[:<name-glob>] — wasm plugins calling other
+			// registered tools via stado_tool_invoke. Glob-shape
+			// matches secrets + state. The Invoke callback is wired
+			// by the host caller after NewHost returns.
+			if parts[1] == "invoke" {
+				if h.ToolInvoke == nil {
+					h.ToolInvoke = &ToolInvokeAccess{}
+				}
+				if len(parts) == 3 && parts[2] != "" {
+					h.ToolInvoke.AllowedGlobs = append(h.ToolInvoke.AllowedGlobs, parts[2])
 				}
 			}
 		}

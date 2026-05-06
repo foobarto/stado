@@ -286,6 +286,36 @@ loopback / RFC1918 (the typical case for pivots).
 Args JSON: `{"name": "example.com", "qtype": "A"|"AAAA"|"TXT"|"MX"|"NS"|"PTR", "server"?: "8.8.8.8", "timeout_ms"?: 5000}`.
 Result: `{"records": [{"name", "type", "value"}], "error"?: "..."}`.
 
+### stado_tool_invoke
+
+Wasm plugins call other registered tools — the host-side composition
+primitive. Resolves the tester's "exploit_tomcat_war_deploy can't use
+exfil_listener_command to stand up a catch server before deploying
+the webshell" friction. Avoids forcing inter-plugin coordination
+through agent-loop turns.
+
+| Field | Value |
+|---|---|
+| File | `host_tool_invoke.go` |
+| Signature | `stado_tool_invoke(name_ptr, name_len, args_ptr, args_len, out_ptr, out_max) → i32` |
+| Capability | `tool:invoke[:<name-glob>]` |
+| Returns | bytes (result JSON) or -1 on cap denied / depth limit |
+
+The plugin's manifest declares which tools it can invoke
+(`tool:invoke:fs.read`, `tool:invoke:cve_lookup`, `tool:invoke:exploit_*`).
+Empty glob = match-all. The TARGET tool's own capability requirements
+are enforced against the SESSION's host (workdir, runner, etc.) — not
+against the calling plugin. So `tool:invoke:fs.read` lets the plugin
+call fs.read with the SESSION's `fs:read:.` cap, not the plugin's.
+
+Recursion is bounded at depth 4. A plugin invoking another plugin
+that invokes another plugin etc. counts depth at each step and
+refuses with -1 beyond the limit. Threaded via context value.
+
+Errors from the inner tool come back as a JSON envelope `{"error": "..."}`
+so the plugin can distinguish failure from "tool returned an empty
+result" (both write zero content bytes otherwise).
+
 ### stado_instance_*
 
 Process-lifetime in-memory KV store with per-plugin namespacing.
@@ -480,6 +510,7 @@ net:http_request_private   net:http_client
 dns:resolve                dns:resolve:<glob>
 secrets:read[:<glob>]      secrets:write[:<glob>]
 crypto:hash
+tool:invoke[:<name-glob>]
 state:read[:<glob>]        state:write[:<glob>]
 session:observe            session:read
 session:fork

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/secrets"
 )
@@ -91,6 +93,26 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	if host.State != nil {
 		host.State.Store = rt.InstanceStore()
 		host.State.PluginName = in.Manifest.Name
+	}
+	if host.ToolInvoke != nil {
+		host.ToolInvoke.Invoke = func(ctx context.Context, name string, args json.RawMessage) (string, error) {
+			// CLI plugin-run has no surrounding session registry, so
+			// stado_tool_invoke from a CLI invocation routes against
+			// the live BuildDefaultRegistry — same set the agent loop
+			// would see. The inner tool runs against host.ToolHost
+			// (the tool.Host carrying the agent's workdir/runner),
+			// not the plugin host directly. Errors propagate so the
+			// plugin can surface them to its caller.
+			reg := runtime.BuildDefaultRegistry(cfg)
+			result, err := reg.Run(ctx, name, args, host.ToolHost)
+			if err != nil {
+				return "", err
+			}
+			if result.Error != "" {
+				return "", fmt.Errorf("%s: %s", name, result.Error)
+			}
+			return result.Content, nil
+		}
 	}
 
 	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
