@@ -6,4 +6,4 @@
 {{- if eq .State "error" }}{{ color "error" $dot }} {{ color "text_secondary" .ErrorMessage }}  {{ end -}}
 {{- if .Queued }}{{ color "accent" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
 {{- if .Budget }}{{ color "warning" .Budget }}  {{ end -}}
-{{ color "muted" .Tokens }}{{ if .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end }} {{ color "muted" "·" }} {{ color "muted" .Cost }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}
+{{ color "muted" .Tokens }}{{ if .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end }} {{ color "muted" "·" }} {{ color "muted" .Cost }}{{ if .Persona }} {{ color "muted" "·" }} {{ color "text_secondary" .Persona }}{{ end }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}

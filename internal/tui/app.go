@@ -111,6 +111,7 @@ func Run(cfg *config.Config) error {
 	m.executor = exec
 	m.session = sess
 	m.systemPromptTemplate = cfg.Agent.SystemPromptTemplate
+	m.initPersona(cfg)
 	if sess != nil {
 		runSpan.SetAttributes(attribute.String("session.id", sess.ID))
 	}
