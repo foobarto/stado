@@ -3,6 +3,7 @@ package bundledplugins
 import (
 	"sort"
 	"sync"
+	"testing"
 
 	"github.com/foobarto/stado/internal/version"
 )
@@ -46,6 +47,38 @@ func RegisterModule(wasmName, toolName string, caps []string) {
 		Name: wasmName,
 		Tool: toolName,
 		Caps: append([]string(nil), caps...),
+	})
+}
+
+// RegisterModuleWithWasm is like RegisterModule but also records the
+// raw wasm bytes for a user-bundled plugin. The wasm is stored on the
+// registry entry so that Wasm() can return it without consulting the
+// embed.FS (which only contains upstream-shipped modules).
+func RegisterModuleWithWasm(wasmName, toolName string, caps []string, wasmSource []byte) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	registry = append(registry, moduleEntry{
+		Name:       wasmName,
+		Tool:       toolName,
+		Caps:       append([]string(nil), caps...),
+		WasmSource: wasmSource,
+	})
+}
+
+// ResetForTest clears the registry and installs a t.Cleanup that
+// restores the previous state. Exported for use in external test
+// packages (e.g. internal/userbundled). Behaviour is identical to the
+// package-internal resetForTest used by bundledplugins tests.
+func ResetForTest(t *testing.T) {
+	t.Helper()
+	registryMu.Lock()
+	prev := append([]moduleEntry(nil), registry...)
+	registry = nil
+	registryMu.Unlock()
+	t.Cleanup(func() {
+		registryMu.Lock()
+		registry = prev
+		registryMu.Unlock()
 	})
 }
 

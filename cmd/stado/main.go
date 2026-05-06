@@ -12,6 +12,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/dotenv"
 	"github.com/foobarto/stado/internal/tui"
+	_ "github.com/foobarto/stado/internal/userbundled"
 )
 
 var version = "0.0.0-dev"
