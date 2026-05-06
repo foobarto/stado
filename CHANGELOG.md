@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.35.0 — Plugin bundle, dev watch, Tier 2 (HTTP client + secrets), spawn_agent collapse
+
 ### Breaking changes
 
 - **CLI** — `--tools-whitelist` renamed to `--tools` (canonical per
@@ -17,10 +21,139 @@ Plugins / Infra / Fixes.
 - **CLI breaking** — `stado plugin run <plugin-id> <tool> [args]`
   removed. Use `stado tool run <name> [args]` instead — it resolves
   bundled and installed tools uniformly through the live registry.
-  The new form accepts both canonical (`fs.read`) and wire
-  (`fs__read`) names; `--session` and `--workdir` flags carry over
-  identically; `--force` overrides `[tools].disabled` for one-off
-  invocation.
+  Accepts both canonical (`fs.read`) and wire (`fs__read`) names;
+  `--session` and `--workdir` carry over; `--force` overrides
+  `[tools].disabled` for one-off invocation.
+- **Tool surface** — `spawn_agent` (native) removed in favour of
+  `agent__spawn` (wasm). Both paths went through `SubagentRunner`;
+  the wasm form is a strict superset (adds `agent__list`,
+  `read_messages`, `send_message`, `cancel`, async mode). Default
+  autoload list rewritten: `spawn_agent` → `agent__spawn`. Manifests
+  declaring `subagent.Tool` registrations need to drop them.
+
+### Plugin authoring
+
+- **`stado plugin bundle <ids>... --out=<binary>`** — appends already-
+  compiled wasm plugins to the trailing bytes of a stado binary,
+  producing a portable customised stado without requiring a Go
+  toolchain. Two-level signature verification: per-plugin author
+  signature + outer ephemeral-by-default bundler signature seals
+  the payload. `--bundling-key=<seed>` for persistent identity,
+  `--allow-unsigned` to skip per-plugin trust-store check,
+  `--allow-shadow` to override tool-name collisions. Sub-actions:
+  `--strip --from=<bundled>` (extract vanilla copy),
+  `--info --from=<binary>` (list bundle contents). Runtime escape
+  hatch: `--unsafe-skip-bundle-verify` boots a tampered bundle
+  with a loud warning + permanent `[unsafe-skip-verify]` marker
+  in `--version`. Spec at
+  `docs/superpowers/specs/2026-05-06-plugin-bundle-design.md`.
+- **`stado plugin dev <dir> --watch`** — file-watch + auto-rebuild
+  + auto-reinstall under a `0.0.0-dev` sentinel that gets cleaned
+  up on Ctrl+C. 250ms debounce; requires `<dir>/build.sh`.
+  Persistence-free in spirit (the sentinel install + active marker
+  are removed on watch exit). Reuses the unified-registry slot —
+  plugin tools become visible via `stado tool run` / `tool list`
+  / mcp-server immediately. Spec at
+  `docs/superpowers/specs/2026-05-06-plugin-dev-watch-mode-design.md`.
+- **`stado plugin install --autoload`** — persists the newly-installed
+  plugin's tools into `[tools].autoload` so they load into every
+  session without a separate `stado tool autoload` call.
+- **`stado plugin reload <name>`** (CLI) + `/plugin reload [<name>]`
+  (TUI) — CLI is advisory (tool calls re-read plugin.wasm per
+  invocation); TUI rebuilds the executor's tools registry so
+  plugins installed AFTER session start become visible without
+  restarting.
+- **`stado plugin sign --key-env <ENVVAR>` + `--quiet`** — CI-
+  friendly signing flow. The seed is read from an env var (hex or
+  base64), eliminating the temp-file dance for runner secrets.
+  `--quiet` suppresses informational stdout.
+
+### Plugin runtime — Tier 2 (EP-0038e)
+
+- **Stateful HTTP client** — new `internal/httpclient/Client` with
+  cookie jar, redirect cap (default 10, with `follow_subdomain_only`),
+  per-host + total connection mux limits, dial guard (RFC1918 /
+  loopback / link-local refused unless `AllowPrivate=true`), and
+  exact + suffix-glob host allowlist. Wasm imports
+  `stado_http_client_create / _close / _request` gated by
+  `net:http_client` capability; the existing
+  `net:http_request:<host>` allowlist still bounds reachable hosts.
+  Per-Runtime cap of 64 open clients prevents resource exhaustion.
+- **Operator secret store** — new `internal/secrets/Store` backs
+  `<StateDir>/secrets/<name>` with mode-0600 files and refuse-on-
+  permission-widening. Wasm imports `stado_secrets_get / _put /
+  _list` gated by `secrets:read[:<glob>]` and `secrets:write[:<glob>]`
+  capabilities. Every call (allowed or denied) emits a structured
+  audit event — names yes, values never. New CLI:
+  `stado secrets set/get/list/rm <name>`. Spec at
+  `docs/superpowers/specs/2026-05-06-ep-0038e-tier2-stateful-design.md`.
+- **`stado plugin doctor`** — added cap-vs-sandbox cross-check that
+  flags concrete mismatches between manifest caps and `[sandbox]`
+  config. E.g. `net:http_request` with `[sandbox.wrap].network = "off"`
+  → error; `fs:read:/etc/passwd` not in `bind_ro` → warn; etc.
+- **Unified registry follow-ups** — `tool run gtfobins.lookup`
+  (dotted form) now resolves installed plugins whose authors use
+  the single-underscore wire convention (`gtfobins_lookup`); tier-4
+  fallback in `lookupToolInRegistry`. `plugin info <name>` (bare
+  name, no version) resolves via the new
+  `runtime.ResolveInstalledPluginDir` helper.
+
+### Tool dispatch
+
+- **`tools__describe`** — accepts `name: "foo"` (single) OR
+  `names: ["foo","bar"]` (batched). Both forms can be passed in
+  one call; entries are merged and deduped preserving order.
+  Replaces the names-array-only schema.
+
+### CLI
+
+- **`stado --unsafe-skip-bundle-verify`** — top-level persistent
+  flag for runtime-skip of bundled-payload verification. Loud
+  stderr warning; permanent `[unsafe-skip-verify]` marker in
+  `--version` output.
+- **`stado --version` custom-bundle marker** — when a binary
+  contains a user-bundled payload, version output appends
+  `(custom: N plugins, bundler=<8-char-fpr>)` for operator
+  visibility.
+- **`stado secrets set/get/list/rm`** — see Plugin runtime above.
+
+### Plugin metadata
+
+- New capability vocabulary entries (with `plugin doctor`
+  classification): `net:http_client` (creates HTTP clients +
+  uses existing host allowlist), `secrets:read[:<glob>]`,
+  `secrets:write[:<glob>]`.
+
+### Infra
+
+- **Security/PII audit infrastructure** —
+  `.gitleaks.toml` extends the default ruleset with project-specific
+  allowlists (binary noise, OAI-compat test URI, examples).
+  `.pre-commit-config.yaml` runs gitleaks + detect-private-key +
+  trailing-whitespace + EOL hooks on every commit.
+  `.github/workflows/secret-scan.yml` runs gitleaks-action against
+  every PR and push to main.
+  Working-tree path-leak strip: 121 `/home/<username>/...`
+  occurrences across docs replaced with `~`/`<repo-root>`.
+  Editorial pass on `docs/eps/notes/2026-05-05-architectural-reset.md`
+  (2018 lines of chat transcript curated to 152-line summary).
+- **Sandbox test resilience** — bwrap test now prefers
+  `/usr/bin/python3` over `which python3` so linuxbrew-style
+  environments (where python lives at a path bwrap doesn't bind)
+  don't false-fail.
+
+### Deviation documentation
+
+- **`buildNativeRegistry()` retention** — original EP-0038b Task 5
+  called for deletion; documented as a deliberate retention in
+  EP-0038's "Deviation" section. Native code stays as the parity-
+  test backstop and as the operational fallback when a wasm
+  family misbehaves in production.
+
+### Fixes
+
+- **fsnotify integration** — added as a direct dep for plugin dev
+  watch mode; previously listed `// indirect`.
 
 ## v0.34.1 — Atomic Fedora / Bazzite, multi-tool wasm, exec:proc multi-glob
 
