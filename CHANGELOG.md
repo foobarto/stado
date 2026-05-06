@@ -6,6 +6,10 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+(no unreleased changes)
+
+## v0.43.0 — stado_progress agent-loop integration (closes the EP-0038 backlog)
+
 ### Plugin runtime — agent-loop integration
 
 - **`stado_progress` now reaches the model.** v0.38 introduced
