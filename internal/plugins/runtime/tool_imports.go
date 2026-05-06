@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/url"
-	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -14,11 +12,9 @@ import (
 	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/httpreq"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/tools/rg"
-	"github.com/foobarto/stado/internal/tools/webfetch"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -39,7 +35,9 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		{exportName: "stado_fs_tool_grep", tool: fs.GrepTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_fs_tool_read_context", tool: readctx.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
 		{exportName: "stado_exec_bash", tool: bash.BashTool{}, allowed: func(h *Host) bool { return h.ExecBash }},
-		{exportName: "stado_http_get", tool: webfetch.WebFetchTool{}, allowed: func(h *Host) bool { return h.NetHTTPGet || len(h.NetHost) > 0 }, preflight: preflightHTTPGet},
+		// stado_http_get was here as a delegate to webfetch.WebFetchTool;
+		// EP-no-internal-tools Step 2 dropped it. The web/webfetch wasm
+		// plugins use stado_http_request now.
 		// stado_http_request was here as a delegate to httpreq.RequestTool;
 		// EP-no-internal-tools Step 1 promoted it to a true primitive
 		// registered by registerHTTPRequestImport (host_http_request.go).
@@ -188,50 +186,8 @@ func requireFullReadWriteScope(h *Host, _ json.RawMessage) error {
 	return nil
 }
 
-func preflightHTTPGet(h *Host, raw json.RawMessage) error {
-	var args webfetch.Args
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return err
-		}
-	}
-	u, err := url.Parse(args.URL)
-	if err != nil {
-		return err
-	}
-	if len(h.NetHost) == 0 {
-		return nil
-	}
-	hostName := strings.ToLower(u.Hostname())
-	for _, allowed := range h.NetHost {
-		if strings.EqualFold(strings.TrimSpace(allowed), hostName) {
-			return nil
-		}
-	}
-	return fmt.Errorf("url host %q denied by manifest", hostName)
-}
-
-func preflightHTTPRequest(h *Host, raw json.RawMessage) error {
-	var args httpreq.Args
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return err
-		}
-	}
-	u, err := url.Parse(args.URL)
-	if err != nil {
-		return err
-	}
-	// Broad cap (NetHTTPRequest with no host allowlist) → permit any
-	// (public) host. The dial-context guard still blocks RFC1918.
-	if len(h.NetReqHost) == 0 {
-		return nil
-	}
-	hostName := strings.ToLower(u.Hostname())
-	for _, allowed := range h.NetReqHost {
-		if strings.EqualFold(strings.TrimSpace(allowed), hostName) {
-			return nil
-		}
-	}
-	return fmt.Errorf("url host %q denied by manifest", hostName)
-}
+// preflightHTTPGet was removed Step 2 of EP-no-internal-tools — the
+// stado_http_get delegate it gated is gone.
+//
+// preflightHTTPRequest moved to host_http_request.go where the
+// stado_http_request primitive applies its host-allowlist gate inline.
