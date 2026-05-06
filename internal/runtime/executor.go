@@ -225,16 +225,29 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	}
 }
 
-// BuildExecutor wires the tool registry + session + sandbox runner.
+// BuildRegistryWithPlugins builds the tool registry the agent loop,
+// MCP server, and any other tool-dispatching surface should share.
+// Composes:
 //
-// Also loads any MCP servers from config and registers their tools. Failed
-// MCP connections are logged to stderr, not fatal — stado should boot
-// without them if the endpoint is down.
+//  1. BuildDefaultRegistry — bundled + installed plugin tools + meta-tools
+//  2. tasks tool (the bootstrapping carve-out; migrating to a wasm
+//     plugin in Step 8 of EP-no-internal-tools)
+//  3. external MCP-attached tools (when cfg.MCP.Servers non-empty)
+//  4. ApplyWasmMigration (legacy native↔wasm flip; deletes in Step 9)
+//  5. ApplyToolOverrides (cfg.Tools.Overrides → pluginOverrideTool)
+//  6. ApplyToolFilter (cfg.Tools.Enabled / Disabled allowlist)
 //
-// Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
-// blocklist is applied AFTER MCP tools land so MCP-sourced names can
-// also be trimmed.
-func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
+// EXCLUDES the MCP-server-only `llm.invoke` tool — mcp_server.go
+// registers that on top of the returned registry. The agent and CLI
+// surfaces deliberately don't expose llm.invoke (model uses
+// stado_agent_* for sub-LLM delegation).
+//
+// Pre-Step-0.5 the MCP server bypassed this composition, building
+// only `BuildDefaultRegistry + tasks + llm.invoke + ApplyToolFilter`
+// — missing MCP attach + wasm migration + tool overrides. After this
+// helper exists, both BuildExecutor and the MCP server call it for
+// uniform tool surface across paths.
+func BuildRegistryWithPlugins(cfg *config.Config) (*tools.Registry, error) {
 	reg := BuildDefaultRegistry(cfg)
 	reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
 
@@ -248,7 +261,18 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 		return nil, err
 	}
 	ApplyToolFilter(reg, cfg)
+	return reg, nil
+}
 
+// BuildExecutor wires the shared registry + session + sandbox runner.
+//
+// Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
+// blocklist is applied via BuildRegistryWithPlugins.
+func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
+	reg, err := BuildRegistryWithPlugins(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &tools.Executor{
 		Registry: reg,
 		Session:  sess,
