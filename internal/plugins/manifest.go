@@ -51,6 +51,16 @@ type Manifest struct {
 	TimestampUTC    string    `json:"timestamp_utc"`
 	Nonce           string    `json:"nonce"`
 
+	// Requires is the optional plugin-dependency list. Each entry is
+	// "<plugin-name>" or "<plugin-name> >= <version>" (semver).
+	// stado plugin install verifies that every listed plugin is
+	// already installed at a satisfying version; install fails with
+	// a clear error when a required plugin is missing. Tester #8 —
+	// prevents silent partial-functionality when a composite plugin
+	// (e.g. exploit-lib needing http-session) is installed without
+	// its prerequisites.
+	Requires []string `json:"requires,omitempty"`
+
 	// AuthorPubkeyHex is the raw Ed25519 public key in hex (64 chars).
 	// It is NOT part of the canonicalised manifest — stored separately
 	// so the trust-layer can echo it in error messages when a pin is

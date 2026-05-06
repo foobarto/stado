@@ -477,6 +477,32 @@ The host calls into the plugin to:
 The plugin SDK (`pkg/plugin-sdk-zig/`, `pkg/plugin-sdk-go/`)
 provides these as `pub fn` / `//export` declarations.
 
+## Manifest extras
+
+Beyond capabilities, the plugin manifest carries two extras worth
+mentioning here for plugin authors:
+
+### `requires`
+
+Optional list of plugin dependencies. `stado plugin install`
+verifies each entry is already installed at a satisfying version
+before completing. Pre-1.0 supports only `>=` constraints.
+
+```json
+{
+  "name": "exploit-lib",
+  "requires": ["http-session >= 0.1.0", "secrets-store"]
+}
+```
+
+### `tools[].categories`
+
+The tool-level `categories` array enables operator-side
+`[tools].autoload_categories = ["recon"]` config, which adds every
+tool tagged with a matching category to the per-turn autoload set.
+Lets HTB-tooling sessions run lean and pull, e.g., `recon` tools
+always while `exploit` tools stay lazy-loaded behind tools.activate.
+
 ## Patterns and anti-patterns
 
 ### Use `stado_proc_*` + `exec:proc:<binary>`, not `stado_exec_bash`
