@@ -112,16 +112,17 @@ func TestPTYImports_ManagerSurvivesAcrossInstantiations(t *testing.T) {
 }
 
 // TestPTYCapabilityParse covers exec:pty being recognised alongside
-// the other exec:* variants.
+// the other exec:* variants. Post-Step-4 only exec:pty + exec:proc[:glob]
+// remain — exec:bash / exec:search / exec:ast_grep all dropped.
 func TestPTYCapabilityParse(t *testing.T) {
 	mf := plugins.Manifest{
 		Name:         "x",
 		Version:      "1.0.0",
-		Capabilities: []string{"exec:bash", "exec:pty", "exec:search"},
+		Capabilities: []string{"exec:proc:bash", "exec:pty"},
 	}
 	host := NewHost(mf, t.TempDir(), nil)
-	if !host.ExecBash || !host.ExecPTY || !host.ExecSearch {
-		t.Fatalf("exec caps parsed: bash=%v pty=%v search=%v", host.ExecBash, host.ExecPTY, host.ExecSearch)
+	if !host.ExecProc || !host.ExecPTY {
+		t.Fatalf("exec caps parsed: proc=%v pty=%v", host.ExecProc, host.ExecPTY)
 	}
 }
 

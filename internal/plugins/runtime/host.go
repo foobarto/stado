@@ -560,12 +560,9 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			}
 		case "exec":
 			switch parts[1] {
-			case "shallow_bash", "bash":
-				h.ExecBash = true
-			case "search":
-				h.ExecSearch = true
-			case "ast_grep":
-				h.ExecASTGrep = true
+			// EP-no-internal-tools Steps 4+5: exec:bash / exec:shallow_bash /
+			// exec:search / exec:ast_grep all dropped — their delegate host
+			// imports are gone. Use exec:proc:<glob> instead.
 			case "pty":
 				h.ExecPTY = true
 			case "proc":

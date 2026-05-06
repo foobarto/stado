@@ -51,7 +51,7 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	before := len(reg.All())
 	cfg := &config.Config{}
-	cfg.Tools.Disabled = []string{"bash", "web__fetch"}
+	cfg.Tools.Disabled = []string{"shell__bash", "web__fetch"}
 	ApplyToolFilter(reg, cfg)
 
 	after := len(reg.All())
@@ -59,7 +59,7 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 		t.Errorf("disabled should trim 2 tools; was %d → %d", before, after)
 	}
 	for _, tl := range reg.All() {
-		if tl.Name() == "bash" || tl.Name() == "web__fetch" {
+		if tl.Name() == "shell__bash" || tl.Name() == "web__fetch" {
 			t.Errorf("tool %q should have been removed", tl.Name())
 		}
 	}
@@ -142,8 +142,9 @@ func TestAutoloadedTools_DefaultCore(t *testing.T) {
 	for _, tl := range autoloaded {
 		names[tl.Name()] = true
 	}
-	// Default convenience tools must be present.
-	for _, want := range []string{"read", "write", "edit", "glob", "grep", "bash"} {
+	// Default convenience tools must be present. Step 4 of EP-no-internal-
+	// tools renamed bare 'bash' to wire-form 'shell__bash'.
+	for _, want := range []string{"read", "write", "edit", "glob", "grep", "shell__bash"} {
 		if !names[want] {
 			t.Errorf("default autoload should include %q", want)
 		}

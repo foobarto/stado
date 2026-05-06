@@ -40,7 +40,7 @@ import (
 // To convert a bare-name entry to wire form, also add the wire-form
 // alias at registration time in bundled_plugin_tools.go.
 var defaultAutoloadNames = []string{
-	"read", "write", "edit", "glob", "grep", "bash",
+	"read", "write", "edit", "glob", "grep", "shell__bash",
 	"fs__ls",
 	"agent__spawn",
 }

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
-	"github.com/foobarto/stado/internal/tools/bash"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
@@ -14,7 +12,6 @@ import (
 
 func TestClassOf_BuiltIns(t *testing.T) {
 	r := NewRegistry()
-	r.Register(bash.BashTool{Timeout: time.Second})
 	r.Register(fs.ReadTool{})
 	r.Register(fs.WriteTool{})
 	r.Register(fs.EditTool{})
@@ -23,7 +20,6 @@ func TestClassOf_BuiltIns(t *testing.T) {
 	r.Register(tasktool.Tool{})
 
 	cases := map[string]tool.Class{
-		"bash":  tool.ClassExec,
 		"read":  tool.ClassNonMutating,
 		"write": tool.ClassMutating,
 		"edit":  tool.ClassMutating,
