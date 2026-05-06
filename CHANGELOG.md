@@ -8,6 +8,23 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.35.1 — Dependabot bumps for golang.org/x/net
+
+### Fixes
+
+- **Browser-plugin go.mods bumped to `golang.org/x/net v0.43.0`** —
+  closes 4 dependabot alerts (GHSA-qxp5-gwg8-xv66 HTTP-proxy IPv6
+  bypass, GHSA-vvgc-356p-c3xw XSS) on
+  `plugins/default/browser/go.mod` and `plugins/examples/browser/go.mod`
+  where x/net was pinned at v0.30.0.
+
+### Infra
+
+- `go mod tidy` promoted `github.com/fsnotify/fsnotify v1.7.0` from
+  `// indirect` to direct in the parent module — it was always
+  consumed directly by the plugin-dev-watch wiring; the indirect
+  tag was stale from when the dep was first added.
+
 ## v0.35.0 — Plugin bundle, dev watch, Tier 2 (HTTP client + secrets), spawn_agent collapse
 
 ### Breaking changes
