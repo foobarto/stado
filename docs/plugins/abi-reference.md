@@ -350,6 +350,7 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:listen:udp:<host-glob>:<port-glob>` | UDP bind for stateless send/recv |
 | `net:listen:unix:<path-glob>` | Unix socket bind |
 | `net:multicast:udp` | `stado_net_setopt` keys: broadcast, multicast_join/leave/loopback/ttl |
+| `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
 | `net:<host>` | Generic `stado_http_get` host allowlist (deprecated; prefer `net:http_request:<host>`) |
 | `exec:bash` / `exec:shallow_bash` | `stado_exec_bash` (refused on `plugin run` — needs an agent loop's sandbox runner) |
 | `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist) |

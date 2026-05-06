@@ -66,6 +66,9 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	// EP-0038h: stado_progress — operator-visible progress emit.
 	// No cap; nil-callback drop semantics.
 	registerProgressImport(builder, host)
+	// EP-0038i: stado_net_icmp_echo — ICMP echo (ping). Capability:
+	// net:icmp. Tries unprivileged ICMP first; falls back to raw.
+	registerICMPImports(builder, host)
 
 	if _, err := builder.Instantiate(ctx); err != nil {
 		return fmt.Errorf("wazero: install host imports: %w", err)

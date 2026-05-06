@@ -177,6 +177,10 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "stado_net_setopt — enables broadcast / multicast group join+leave / multicast TTL+loopback on UDP listener handles. Use for discovery protocols (mDNS, SSDP, BACnet, NBNS)."
 		return cn
+	case cap == "net:icmp":
+		cn.requirement = requireNothing
+		cn.note = "stado_net_icmp_echo — ICMP echo (ping). Tries unprivileged ICMP first (Linux ping_group_range / macOS default); falls back to raw if available. Set net.ipv4.ping_group_range or grant CAP_NET_RAW if echoes return 'operation not permitted'."
+		return cn
 	case cap == "dns:resolve":
 		cn.requirement = requireNothing
 		cn.note = "stado_dns_resolve — recursive DNS lookups (A, AAAA, TXT, MX, NS, PTR)"

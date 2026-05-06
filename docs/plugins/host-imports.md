@@ -349,6 +349,37 @@ server-push, multipart streaming. `proxy_url` (SOCKS pivots) not
 exposed in streaming v1 — use the non-streaming variant if you need
 the proxy.
 
+### stado_net_icmp_echo
+
+EP-0038i — ICMP echo (ping) for plugins doing reachability checks
+beyond what TCP probes can answer. Resolves the host, sends N
+echoes, returns per-packet RTTs.
+
+| Import | Capability |
+|---|---|
+| `stado_net_icmp_echo(args_ptr, args_len, out_ptr, out_max) → i32` | `net:icmp` |
+
+Args JSON: `{"host": "...", "timeout_ms"?: 1000, "count"?: 1, "payload_size"?: 32}`.
+Defaults: 1 echo, 1 s timeout, 32-byte payload. Caps: `count` ≤ 64,
+`payload_size` ≤ 1500.
+
+Result JSON: `{"rtts_ms": [...], "sent": N, "received": M, "error"?: "..."}`.
+Each successfully-replied echo contributes one float to `rtts_ms`.
+Lost echoes count toward `sent` but not `received`.
+
+**Privilege.** Tries an unprivileged ICMP socket first (Linux
+`net.ipv4.ping_group_range` covering the running uid; macOS supports
+this without sysctl since 10.10). Falls back to raw on `EPERM`. Raw
+needs `CAP_NET_RAW` or root. The error message names the fix:
+
+```
+icmp listen: ... (try `sysctl -w net.ipv4.ping_group_range='0 65535'` or run with CAP_NET_RAW)
+```
+
+**Private-IP guard.** Inherits `NetHTTPRequestPrivate`. Without that
+cap, RFC1918 / loopback / link-local destinations are refused at
+the resolve step.
+
 ### stado_dns_resolve_axfr
 
 EP-0038i — DNS zone transfer (AXFR, RFC 5936). Streams every record

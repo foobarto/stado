@@ -185,6 +185,13 @@ type Host struct {
 	// manifest. EP-0038i.
 	NetMulticast bool
 
+	// NetICMP gates stado_net_icmp_echo. Declared via net:icmp in
+	// the manifest. Note: requires either an unprivileged ICMP
+	// socket (Linux net.ipv4.ping_group_range, macOS default since
+	// 10.10) or CAP_NET_RAW. The host import surfaces a clear
+	// "operation not permitted" error when neither path works.
+	NetICMP bool
+
 	// Progress is the operator-visible callback for stado_progress
 	// emissions. Wired by the host caller (TUI, headless run, plugin
 	// invoke shell). When nil the import drops silently — the plugin
@@ -452,6 +459,11 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			// multicast_loopback) on UDP listener handles. EP-0038i.
 			if parts[1] == "multicast" && len(parts) == 3 && parts[2] == "udp" {
 				h.NetMulticast = true
+				continue
+			}
+			// "net:icmp" — gates stado_net_icmp_echo. EP-0038i.
+			if len(parts) == 2 && parts[1] == "icmp" {
+				h.NetICMP = true
 				continue
 			}
 			// "net:http_request_private" — when granted, the

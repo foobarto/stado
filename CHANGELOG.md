@@ -6,7 +6,21 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### Plugin runtime — new host imports
+
+- **`stado_net_icmp_echo(host, timeout_ms?, count?, payload_size?)`** —
+  ICMP echo (ping) for plugins doing reachability sweeps where a
+  closed TCP port and a dropped IP are different signals. New
+  capability `net:icmp`. Tries an unprivileged ICMP socket first
+  (Linux `net.ipv4.ping_group_range` covers the running uid; macOS
+  supports this without sysctl since 10.10); falls back to raw
+  (`SOCK_RAW` + `IPPROTO_ICMP`) which needs `CAP_NET_RAW`. Error
+  message names the fix (`sysctl ping_group_range` or `CAP_NET_RAW`).
+  Private-IP guard via `NetHTTPRequestPrivate` — without that cap,
+  loopback / RFC1918 / link-local destinations are refused at
+  resolve. Result includes per-echo RTTs in milliseconds plus
+  sent/received counts. Bounds: count ≤ 64, payload ≤ 1500 bytes.
+  Uses `golang.org/x/net/icmp` (already a transitive dep).
 
 ## v0.41.0 — UDP broadcast/multicast + FleetBridge messaging real impl
 
