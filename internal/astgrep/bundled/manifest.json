@@ -1,0 +1,10 @@
+{
+  "version": "0.38.7",
+  "sha256": {
+    "ast-grep-darwin-amd64": "145ca9e7e66113d560250a89652e277c52fef585a7f269458c2cf957b5948847",
+    "ast-grep-darwin-arm64": "3ee1c319af5259a25a4dbbbc5ee8b2faca7d152d078e14b29e8d765e88465b58",
+    "ast-grep-linux-amd64": "c8b72307e9943710ab9531759d1d258750b4189ba74da8d6931a6db4e279e833",
+    "ast-grep-linux-arm64": "854eea1acbf2394ce8d0fd7ee5696b35338a636839cd5ef030eba792badbb410",
+    "ast-grep-windows-amd64.exe": "43cafc30a8f5ffdac7e26a65fdc3e2646e1959948cfb458c2723f9bb53dfbd9f"
+  }
+}

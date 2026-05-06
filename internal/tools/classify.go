@@ -4,11 +4,9 @@
 package tools
 
 import (
-	"github.com/foobarto/stado/internal/tools/astgrep"
 	"github.com/foobarto/stado/internal/tools/fs"
 	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
-	"github.com/foobarto/stado/internal/tools/rg"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -22,8 +20,6 @@ var Classes = map[string]tool.Class{
 	(fs.GrepTool{}).Name():              tool.ClassNonMutating,
 	(fs.WriteTool{}).Name():             tool.ClassMutating,
 	(fs.EditTool{}).Name():              tool.ClassMutating,
-	(rg.Tool{}).Name():                  tool.ClassNonMutating,
-	(astgrep.Tool{}).Name():             tool.ClassExec,
 	(readctx.Tool{}).Name():             tool.ClassNonMutating,
 	(tasktool.Tool{}).Name():            tool.ClassStateMutating,
 	(&lspfind.FindDefinition{}).Name():  tool.ClassNonMutating,

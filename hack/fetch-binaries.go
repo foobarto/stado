@@ -4,8 +4,8 @@
 // OS/arch matrix stado supports, verifies sha256 against the release
 // checksum manifests, and stages them under:
 //
-//	internal/tools/rg/bundled/rg-<os>-<arch>[.exe]
-//	internal/tools/astgrep/bundled/ast-grep-<os>-<arch>[.exe]
+//	internal/rg/bundled/rg-<os>-<arch>[.exe]
+//	internal/astgrep/bundled/ast-grep-<os>-<arch>[.exe]
 //
 // Also writes a `manifest.json` sidecar per tool with per-file sha256
 // so the embed-time verification in internal/tools/binext can pin the
