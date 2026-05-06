@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -16,18 +18,20 @@ func sampleEntry(t *testing.T, name string) Entry {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wasm := []byte("\x00asm\x01\x00\x00\x00")
+	wasmHash := sha256.Sum256(wasm)
 	mf := plugins.Manifest{
-		Name:    "stado-bundled-" + name,
-		Version: "0.1.0",
-		Author:  "test",
-		Tools:   []plugins.ToolDef{{Name: name + "_lookup", Description: "test"}},
+		Name:       "stado-bundled-" + name,
+		Version:    "0.1.0",
+		Author:     "test",
+		Tools:      []plugins.ToolDef{{Name: name + "_lookup", Description: "test"}},
+		WASMSHA256: hex.EncodeToString(wasmHash[:]),
 	}
 	canon, err := mf.Canonical()
 	if err != nil {
 		t.Fatalf("canonical: %v", err)
 	}
-	wasm := []byte("\x00asm\x01\x00\x00\x00")
-	sig := ed25519.Sign(priv, append(canon, wasm...))
+	sig := ed25519.Sign(priv, canon)
 	return Entry{
 		Pubkey:   pub,
 		Manifest: mf,

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,15 +20,17 @@ import (
 func sampleBundleEntry(t *testing.T) bundlepayload.Entry {
 	t.Helper()
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	wasm := []byte("\x00asm\x01\x00\x00\x00")
+	wasmHash := sha256.Sum256(wasm)
 	mf := plugins.Manifest{
-		Name:    "stado-bundled-x",
-		Version: "0.1.0",
-		Author:  "test",
-		Tools:   []plugins.ToolDef{{Name: "x_lookup", Description: "test"}},
+		Name:       "stado-bundled-x",
+		Version:    "0.1.0",
+		Author:     "test",
+		Tools:      []plugins.ToolDef{{Name: "x_lookup", Description: "test"}},
+		WASMSHA256: hex.EncodeToString(wasmHash[:]),
 	}
 	canon, _ := mf.Canonical()
-	wasm := []byte("\x00asm\x01\x00\x00\x00")
-	sig := ed25519.Sign(priv, append(canon, wasm...))
+	sig := ed25519.Sign(priv, canon)
 	return bundlepayload.Entry{Pubkey: pub, Manifest: mf, Sig: sig, Wasm: wasm}
 }
 

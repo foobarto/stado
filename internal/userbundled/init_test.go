@@ -3,6 +3,8 @@ package userbundled
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,19 +21,21 @@ func makeEntry(t *testing.T, bareName, toolName string, caps []string) bundlepay
 	if err != nil {
 		t.Fatal(err)
 	}
+	wasm := []byte("\x00asm\x01\x00\x00\x00") // minimal valid wasm magic
+	wasmHash := sha256.Sum256(wasm)
 	mf := plugins.Manifest{
 		Name:         bundledplugins.ManifestNamePrefix + "-" + bareName,
 		Version:      "0.1.0",
 		Author:       "test",
 		Capabilities: caps,
 		Tools:        []plugins.ToolDef{{Name: toolName, Description: "test tool"}},
+		WASMSHA256:   hex.EncodeToString(wasmHash[:]),
 	}
 	canon, err := mf.Canonical()
 	if err != nil {
 		t.Fatalf("canonical: %v", err)
 	}
-	wasm := []byte("\x00asm\x01\x00\x00\x00") // minimal valid wasm magic
-	sig := ed25519.Sign(priv, append(canon, wasm...))
+	sig := ed25519.Sign(priv, canon)
 	return bundlepayload.Entry{
 		Pubkey:   pub,
 		Manifest: mf,

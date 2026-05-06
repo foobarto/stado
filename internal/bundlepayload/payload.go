@@ -27,6 +27,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -202,8 +203,18 @@ func DecodeBytes(raw []byte, skipVerify bool) (Bundle, error) {
 			if err != nil {
 				return Bundle{}, fmt.Errorf("entry %d: canonicalize: %w", i, err)
 			}
-			if !ed25519.Verify(e.Pubkey, append(canon, e.Wasm...), e.Sig) {
+			// Plugin signatures are over the canonical manifest bytes
+			// only — the manifest's WASMSHA256 field is the binding to
+			// the wasm. Verify both: (1) author sig over canonical
+			// manifest, (2) wasm sha matches the declared digest.
+			if !ed25519.Verify(e.Pubkey, canon, e.Sig) {
 				return Bundle{}, fmt.Errorf("entry %d (%s): %w", i, e.Manifest.Name, ErrEntrySigInvalid)
+			}
+			wasmHash := sha256.Sum256(e.Wasm)
+			wasmHashHex := hex.EncodeToString(wasmHash[:])
+			if e.Manifest.WASMSHA256 != "" && e.Manifest.WASMSHA256 != wasmHashHex {
+				return Bundle{}, fmt.Errorf("entry %d (%s): %w: wasm sha256 mismatch (manifest %s, actual %s)",
+					i, e.Manifest.Name, ErrEntrySigInvalid, e.Manifest.WASMSHA256, wasmHashHex)
 			}
 		}
 	}
