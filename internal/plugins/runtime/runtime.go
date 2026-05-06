@@ -74,6 +74,11 @@ type Runtime struct {
 	// maxHTTPStreamsPerRuntime. EP-0038h.
 	httpStreamCount int64
 
+	// httpUploadCount tracks in-flight stado_http_upload_create
+	// request body writers (typeTag "httpup"). Accessed atomically.
+	// Enforces maxHTTPUploadsPerRuntime. EP-0038i.
+	httpUploadCount int64
+
 	// instanceStore is the per-Runtime in-memory KV store backing
 	// stado_instance_*. Process-lifetime; cleared at Close. Per-plugin
 	// namespacing inside the store (a plugin can't read another's keys).
@@ -141,6 +146,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	r.closeAllNetConns(ctx)
 	r.closeAllNetListeners(ctx)
 	r.closeAllHTTPStreams(ctx)
+	r.closeAllHTTPUploads(ctx)
 	return r.rt.Close(ctx)
 }
 

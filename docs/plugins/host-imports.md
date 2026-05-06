@@ -274,6 +274,49 @@ on the request; the dial guard still applies to the proxy address
 itself, so set `net:http_request_private` if the proxy lives on
 loopback / RFC1918 (the typical case for pivots).
 
+### stado_http_upload_create / stado_http_upload_write / stado_http_upload_finish
+
+EP-0038i — chunked HTTP request body delivery for plugins uploading
+large payloads (multi-GB files, dynamic content) without buffering
+the body whole into wasm memory. Companion to the response-streaming
+imports (the response from `_upload_finish` is a `httpresp:<id>`
+the plugin drains via `_response_read` / `_response_close`).
+
+| Import | Returns |
+|---|---|
+| `stado_http_upload_create(args_ptr, args_len, out_ptr, out_max) → i32` | bytes of result JSON written; -1 on error. Result: `{upload_handle: u32}` |
+| `stado_http_upload_write(handle, data_ptr, data_len) → i32` | bytes written to request body; -1 on error |
+| `stado_http_upload_finish(handle, out_ptr, out_max) → i32` | bytes of response JSON written; -1 on error. Result: `{status, headers, body_handle}` |
+
+**Capability:** reuses `net:http_request[:<host>]`. No new cap.
+
+**Args JSON:** `{method, url, headers?, timeout_ms?, content_length?}`.
+Body is **not** in args — comes through `_upload_write`. Set
+`content_length` if you know the size; otherwise the request uses
+HTTP/1.1 chunked transfer encoding automatically.
+
+**Flow:**
+
+```
+upload_handle = stado_http_upload_create(args)
+loop:
+    stado_http_upload_write(upload_handle, chunk)
+result = stado_http_upload_finish(upload_handle)
+# result.body_handle is a httpresp:<id>; drain via:
+loop:
+    n = stado_http_response_read(result.body_handle, buf, max, timeout)
+    # n == 0 → EOF
+stado_http_response_close(result.body_handle)
+```
+
+**Resource cap:** 8 concurrent in-flight uploads per Runtime. The
+9th `_upload_create` returns -1. Reaped on Runtime shutdown.
+
+**Out of scope:** HTTP/2 server-push body, multipart streaming,
+request trailers, true bidirectional duplex (upload-while-
+downloading concurrent reads). For "upload all then drain
+response," compose `_upload_finish` + `_response_read`.
+
 ### stado_http_request_stream / stado_http_response_read / stado_http_response_close
 
 EP-0038h — chunked HTTP response delivery for plugins fetching large

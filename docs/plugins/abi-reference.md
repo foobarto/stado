@@ -187,7 +187,8 @@ handles**: a 32-bit ID prefixed with a stable type tag.
 | `plugin` | Reference to another loaded plugin | (internal — used by `tool:invoke`) | — |
 | `conn` | TCP / UDP / Unix socket (dialed or accepted) | `stado_net_dial`, `stado_net_accept` | net_read/write/close |
 | `listen` | TCP / UDP / Unix listener | `stado_net_listen` | net_accept, net_sendto, net_recvfrom, net_close_listener |
-| `httpresp` | Open HTTP response body | `stado_http_request_stream` | http_response_read/close |
+| `httpresp` | Open HTTP response body | `stado_http_request_stream`, `stado_http_upload_finish` | http_response_read/close |
+| `httpup` | In-flight HTTP request body writer | `stado_http_upload_create` | http_upload_write/finish |
 | `http` | Stateful HTTP client (cookie jar) | `stado_http_client_create` | http_client_request, http_client_close |
 
 ### 5.2 Handle lifecycle
@@ -219,7 +220,8 @@ each handle type has a per-Runtime cap:
 | Open subprocess + PTY handles | (configurable) |
 | Open net connections (dial ∪ accept) | 64 |
 | Open net listeners | 8 |
-| Open HTTP streams | 8 |
+| Open HTTP response streams | 8 |
+| In-flight HTTP uploads | 8 |
 | Open HTTP clients | 32 |
 
 Calls that would exceed the cap return `-1`. The plugin should
