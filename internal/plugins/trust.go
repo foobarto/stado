@@ -215,6 +215,12 @@ func verifyManifestWithPub(m *Manifest, sigB64 string, pub ed25519.PublicKey, la
 	return nil
 }
 
+// ParsePubkey is the exported wrapper around parsePubkey. Accepts hex
+// (64 chars) or standard-encoded base64 (44 chars with padding).
+func ParsePubkey(s string) (ed25519.PublicKey, error) {
+	return parsePubkey(s)
+}
+
 // parsePubkey accepts hex (64 chars) or standard-encoded base64 (44 chars
 // with padding). Returns an ed25519.PublicKey of the canonical 32 bytes.
 func parsePubkey(s string) (ed25519.PublicKey, error) {

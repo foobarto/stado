@@ -17,6 +17,17 @@ const (
 )
 
 func Wasm(toolName string) ([]byte, error) {
+	// For user-bundled plugins the wasm bytes are stored directly on
+	// the registry entry. Consult the registry before falling through
+	// to the embed.FS (which only contains upstream-shipped modules).
+	registryMu.Lock()
+	infos := buildList(registry)
+	registryMu.Unlock()
+	for _, info := range infos {
+		if info.Name == toolName && info.WasmSource != nil {
+			return info.WasmSource, nil
+		}
+	}
 	return wasmFS.ReadFile("wasm/" + toolName + ".wasm")
 }
 

@@ -9,12 +9,39 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/dotenv"
+	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/tui"
+	"github.com/foobarto/stado/internal/userbundled"
 )
 
 var version = "0.0.0-dev"
+
+// formatVersion builds the version string shown by `stado version` and
+// `stado --version`. When a user-bundled payload is loaded, it appends a
+// "(custom: N plugins, bundler=XXXXXXXX)" marker; when signature
+// verification was skipped it appends "[unsafe-skip-verify]".
+func formatVersion() string {
+	base := collectBuildInfo().Version
+	if userbundled.Bundler != nil {
+		fpr := plugins.Fingerprint(userbundled.Bundler)
+		var n int
+		for _, info := range bundledplugins.List() {
+			if info.WasmSource != nil {
+				n++
+			}
+		}
+		if n > 0 {
+			base += fmt.Sprintf(" (custom: %d plugins, bundler=%s)", n, fpr[:8])
+		}
+	}
+	if userbundled.SkipVerifyApplied {
+		base += " [unsafe-skip-verify]"
+	}
+	return base
+}
 
 // rootProvider / rootModel mirror --provider / --model on the root
 // command. Subcommands inherit them as persistent flags; values are
@@ -73,7 +100,7 @@ var versionCmd = &cobra.Command{
 		// Share collectBuildInfo with `stado verify` so `version` and
 		// `verify` can't disagree — both resolve `0.0.0-dev` through
 		// debug.ReadBuildInfo() when the binary wasn't ldflags-stamped.
-		fmt.Println(collectBuildInfo().Version)
+		fmt.Println(formatVersion())
 	},
 }
 
@@ -90,18 +117,22 @@ var configPathCmd = &cobra.Command{
 	},
 }
 
+var unsafeSkipBundleVerify bool
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&rootProvider, "provider", "",
 		"Provider override (anthropic, openai, google, ollama-cloud, litellm, or any configured preset). Beats defaults.provider in config.toml for this invocation.")
 	rootCmd.PersistentFlags().StringVar(&rootModel, "model", "",
 		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
+	rootCmd.PersistentFlags().BoolVar(&unsafeSkipBundleVerify, "unsafe-skip-bundle-verify", false,
+		"Skip runtime verification of the appended user-bundled payload (loses tamper-evidence)")
 	rootCmd.AddCommand(versionCmd, configPathCmd)
 	// Set Version so cobra wires up the standard `--version` global
 	// flag (alongside the `stado version` subcommand). Same source
 	// of truth: collectBuildInfo() reads debug.ReadBuildInfo() and
 	// falls back to the package-level `version` variable when the
 	// binary wasn't ldflags-stamped.
-	rootCmd.Version = collectBuildInfo().Version
+	rootCmd.Version = formatVersion()
 }
 
 func main() {
