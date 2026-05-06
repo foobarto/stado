@@ -34,7 +34,7 @@ func init() {
 		"Override the version field in the manifest before signing (used by `plugin dev --watch`)")
 	pluginCmd.AddCommand(pluginTrustCmd, pluginUntrustCmd, pluginListCmd, pluginInstalledCmd, pluginVerifyCmd,
 		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
-		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd,
+		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd, pluginReloadCmd,
 		// EP-0039: distribution and trust additions.
 		pluginUseCmd, pluginDevCmd)
 	rootCmd.AddCommand(pluginCmd)
