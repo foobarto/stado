@@ -8,6 +8,103 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.36.0 — Lazy-load realised, host imports doc, EP-0038f TCP, tester-feedback items
+
+This release closes the central architectural-reset gap (lazy-load
+not actually filtering the per-turn surface) and ships seven new
+plugin-runtime imports addressing concrete tester pain.
+
+### Plugin runtime — new host imports
+
+- **`stado_http_request` proxy_url field** — http(s) + socks5(h)
+  schemes route the request through a proxy. Use case: after a
+  ligolo-ng pivot every WASM tool reaches inner subnets without
+  dropping to bash. Dial guard still applies to the proxy itself;
+  `net:http_request_private` covers loopback proxies.
+- **`stado_instance_get/set/delete/list`** — process-lifetime in-memory
+  KV store with per-plugin namespacing. Resolves multi-step exploit
+  chains needing state across tool calls (auth cookies, session
+  tokens). Bounded: 1 MB per value, 16 MB per plugin. Capabilities:
+  `state:read[:<glob>]`, `state:write[:<glob>]`.
+- **`stado_tool_invoke`** — wasm plugins call other registered tools.
+  Capability: `tool:invoke[:<name-glob>]`. Recursion depth-limited
+  (4). Errors wrapped in JSON envelope.
+- **`stado_net_dial / read / write / close`** — Tier 1 TCP raw socket
+  primitives (BACKLOG #11 — partial; UDP/Unix/listen/ICMP deferred to
+  EP-0038g). Capability: `net:dial:tcp:<host-glob>:<port-glob>`.
+  Same private-address dial guard as http_request.
+- **`stado_secrets_delete`** — wasm wrapper for the existing
+  `secrets.Store.Remove`. Cap-gated by `secrets:write`.
+- **Four new meta-tools** (always autoloaded alongside `tools__search`
+  / `_describe` / `_categories` / `_in_category`):
+  `tools__activate`, `tools__deactivate`, `plugin__load`,
+  `plugin__unload`. Lets the agent skip the describe round-trip when
+  a parent already named the tool, and bulk-load/unload all of a
+  plugin's tools.
+
+### Lazy-load realised (EP-0037 §E)
+
+The architectural reset's central design — "stado stops broadcasting
+every tool's schema in the system prompt" — was 80% built but the TUI
+wasn't actually filtering per-turn `toolDefs()`. Fixed:
+
+- `Model.activatedTools` map; cleared on `/clear`.
+- `toolSurfaceForTurn()` returns autoload ∪ activated, with Plan-mode
+  + session-override filters.
+- `Host.ActivateTool` / `DeactivateTool` (`pkg/tool.ToolActivator` /
+  `ToolDeactivator`) now actually implemented.
+- `tools__describe` results parsed and added to activation set after
+  every tool turn (via `runtime.AbsorbActivatedFromDescribe`).
+
+Net effect: a session with N installed plugins now sends only autoload
+core (~8 tools) + whatever the model has explicitly activated, rather
+than every tool's schema every turn.
+
+### Tool-surface configuration
+
+- **`[tools].autoload_categories`** — list of category names. Every
+  tool whose `tools[].categories` overlaps joins the autoload set.
+  Layered on top of name-based autoload. Lets operators run lean with
+  rich plugin sets (declare `["recon"]`; pull exploit_* on demand via
+  `tools.activate`).
+
+### Plugin manifest
+
+- **`requires []string`** — plugin dependency declarations.
+  `["http-session >= 0.1.0", "secrets-store"]`. `stado plugin install`
+  verifies each entry is installed at a satisfying version; install
+  fails with a multi-error listing every unsatisfied dep at once.
+
+### Tool surface — operator-collapsed surface
+
+- **`spawn_agent` removed** — was already done in v0.35.0 but worth
+  noting again: the canonical agent-spawn surface is `agent.spawn`
+  (wasm), part of the unified `agent.*` family. Manifests declaring
+  `subagent.Tool` registrations need to drop them.
+
+### Documentation
+
+- **`docs/plugins/host-imports.md`** — comprehensive reference for
+  every wasm host import (~70 total). Tier 1/2/3 grouping, capability
+  gates, ABI conventions, Patterns + anti-patterns section addressing
+  tester feedback ("don't conflate plugin execution with agent
+  orchestration"; "use exec:proc:<binary> over exec:bash"). Linked
+  from `docs/features/plugin-authoring.md` as the first stop.
+
+### Plugin doctor
+
+- New cap classifications: `state:*`, `tool:invoke:*`, `net:dial:*`.
+
+### Deferred
+
+- **Tier 1 net beyond TCP** — UDP, Unix sockets, listen/accept,
+  ICMP. EP-0038g (own design cycle).
+- **`stado_progress` streaming** — partial-output channel for tools
+  that take >2s. Out of scope this cycle; deserves design care for
+  agent-loop integration.
+- **`stado_dns_resolve_axfr`**, **`stado_json_*`**, **HTTP streaming**
+  — housekeeping items also for EP-0038g.
+
 ## v0.35.2 — `.github/dependabot.yml` for explicit example-plugin scans
 
 ### Infra
