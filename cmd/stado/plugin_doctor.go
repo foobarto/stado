@@ -51,6 +51,18 @@ var pluginDoctorCmd = &cobra.Command{
 			return err
 		}
 		fmt.Print(report)
+		// Cap-vs-sandbox cross-check. Surfaces conflicts between the
+		// plugin's declared caps and the operator's [sandbox] config —
+		// the kind of mismatch that produces "ENOENT / connection
+		// refused" errors at runtime that the operator can't trace
+		// back to their own config without help.
+		findings := crossCheckSandbox(mf, cfg.Sandbox)
+		if len(findings) > 0 {
+			fmt.Println("\nSandbox cross-check:")
+			for _, f := range findings {
+				fmt.Println(f.Render())
+			}
+		}
 		return nil
 	},
 }
@@ -116,6 +128,129 @@ func classifyCapability(cap string) capabilityNote {
 	}
 	cn.note = "unrecognised capability — passed through to the runtime as-is"
 	return cn
+}
+
+// sandboxFinding flags a mismatch between a plugin's declared caps
+// and the operator's [sandbox] config. Three severities:
+//
+//   - error: the cap WILL fail at runtime under this sandbox config
+//     (e.g. plugin declares net:http_request but [sandbox.wrap].network = "off")
+//   - warn:  the cap MAY need extra setup (e.g. fs:read:/etc/passwd
+//     not in [sandbox.wrap].bind_ro)
+//   - info:  no concern; surfaced so the operator sees the
+//     sandbox-cap relationship explicitly
+type sandboxFinding struct {
+	Cap      string
+	Severity string // "error", "warn", "info"
+	Note     string
+}
+
+func (f sandboxFinding) Render() string {
+	icon := "i "
+	switch f.Severity {
+	case "error":
+		icon = "✗ "
+	case "warn":
+		icon = "⚠ "
+	}
+	return fmt.Sprintf("  %s%-50s %s", icon, f.Cap, f.Note)
+}
+
+// crossCheckSandbox compares the plugin's declared capabilities
+// against the operator's [sandbox] config and returns findings
+// that point at concrete mismatches.
+//
+// Rules:
+//   - sandbox.mode = "off" — no enforcement; emit nothing.
+//   - sandbox.wrap.network = "off" — net:* caps will fail.
+//   - sandbox.wrap.network = "namespaced" + no http_proxy — net:* caps
+//     can't reach the host network without a proxy.
+//   - sandbox.wrap.network = "namespaced" + http_proxy set — net:* caps
+//     route through the proxy (informational).
+//   - fs:read:/abs/path or fs:write:/abs/path — only flagged when the
+//     path is NOT under sandbox.wrap.bind_ro / bind_rw. Workdir-rooted
+//     paths (".", "./...") are auto-bound by stado and not flagged.
+//   - exec:* caps — no sandbox constraint at the wrap layer; surfaced
+//     as informational.
+func crossCheckSandbox(mf *plugins.Manifest, sb config.Sandbox) []sandboxFinding {
+	if sb.Mode == "" || sb.Mode == "off" {
+		return nil
+	}
+	var out []sandboxFinding
+	netBlocked := sb.Wrap.Network == "off"
+	netNamespaced := sb.Wrap.Network == "namespaced"
+	hasProxy := strings.TrimSpace(sb.HTTPProxy) != ""
+
+	for _, c := range mf.Capabilities {
+		switch {
+		case strings.HasPrefix(c, "net:"):
+			switch {
+			case netBlocked:
+				out = append(out, sandboxFinding{
+					Cap: c, Severity: "error",
+					Note: "[sandbox.wrap].network = \"off\" — this cap WILL fail at runtime",
+				})
+			case netNamespaced && !hasProxy:
+				out = append(out, sandboxFinding{
+					Cap: c, Severity: "error",
+					Note: "[sandbox.wrap].network = \"namespaced\" with no [sandbox].http_proxy set — set http_proxy or change network mode",
+				})
+			case netNamespaced && hasProxy:
+				out = append(out, sandboxFinding{
+					Cap: c, Severity: "info",
+					Note: "namespaced netns + http_proxy set — traffic routes through " + sb.HTTPProxy,
+				})
+			}
+		case strings.HasPrefix(c, "fs:read:") || strings.HasPrefix(c, "fs:write:"):
+			path := c[strings.IndexByte(c, ':')+1:]
+			path = path[strings.IndexByte(path, ':')+1:]
+			if path == "." || path == "" || strings.HasPrefix(path, "./") || !strings.HasPrefix(path, "/") {
+				continue // workdir-rooted; stado auto-binds
+			}
+			isWrite := strings.HasPrefix(c, "fs:write:")
+			if isWrite {
+				if !pathInBindList(path, sb.Wrap.BindRW) {
+					out = append(out, sandboxFinding{
+						Cap: c, Severity: "warn",
+						Note: "absolute path not in [sandbox.wrap].bind_rw — add it or this cap will fail at runtime",
+					})
+				}
+			} else {
+				if !pathInBindList(path, sb.Wrap.BindRO) && !pathInBindList(path, sb.Wrap.BindRW) {
+					out = append(out, sandboxFinding{
+						Cap: c, Severity: "warn",
+						Note: "absolute path not in [sandbox.wrap].bind_ro — add it or this cap will fail at runtime",
+					})
+				}
+			}
+		case strings.HasPrefix(c, "exec:"):
+			// exec:* runs through stado's bundled exec runner; the
+			// wrap layer doesn't constrain it directly. Surface as
+			// informational so the operator knows the cap-vs-config
+			// relationship is checked.
+			out = append(out, sandboxFinding{
+				Cap: c, Severity: "info",
+				Note: "exec runs through stado's runner; sandbox.wrap doesn't gate this directly",
+			})
+		}
+	}
+	return out
+}
+
+// pathInBindList returns true if `path` exactly matches or is under
+// any entry in `binds`. Bind entries are absolute paths; sub-paths
+// of a bound directory are reachable.
+func pathInBindList(path string, binds []string) bool {
+	for _, b := range binds {
+		b = strings.TrimRight(b, "/")
+		if path == b {
+			return true
+		}
+		if strings.HasPrefix(path, b+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // buildPluginDoctorReport renders the human-readable text body. Split

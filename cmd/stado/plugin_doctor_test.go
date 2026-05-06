@@ -4,8 +4,143 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 )
+
+// TestCrossCheckSandbox_OffMode: sandbox.mode = "off" yields no findings.
+func TestCrossCheckSandbox_OffMode(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"net:http_request", "fs:read:/etc/passwd"}}
+	got := crossCheckSandbox(mf, config.Sandbox{Mode: "off"})
+	if len(got) != 0 {
+		t.Errorf("off mode should produce no findings; got %v", got)
+	}
+}
+
+// TestCrossCheckSandbox_NetBlocked: sandbox.wrap.network = "off"
+// flags every net:* cap as a hard error.
+func TestCrossCheckSandbox_NetBlocked(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"net:http_request", "net:dial:tcp"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+		Wrap: config.SandboxWrap{Network: "off"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 findings; got %d (%v)", len(got), got)
+	}
+	for _, f := range got {
+		if f.Severity != "error" {
+			t.Errorf("net cap with network=off should be error; got %v", f)
+		}
+		if !strings.Contains(f.Note, "network = \"off\"") {
+			t.Errorf("note should mention network=off; got %q", f.Note)
+		}
+	}
+}
+
+// TestCrossCheckSandbox_NetNamespacedNoProxy: namespaced netns
+// without http_proxy is a hard error for net:* caps.
+func TestCrossCheckSandbox_NetNamespacedNoProxy(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"net:http_request"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+		Wrap: config.SandboxWrap{Network: "namespaced"},
+	})
+	if len(got) != 1 || got[0].Severity != "error" {
+		t.Errorf("namespaced no-proxy should be error; got %v", got)
+	}
+}
+
+// TestCrossCheckSandbox_NetNamespacedWithProxy: namespaced netns
+// + http_proxy set is informational (route via proxy).
+func TestCrossCheckSandbox_NetNamespacedWithProxy(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"net:http_request"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode:      "wrap",
+		HTTPProxy: "http://127.0.0.1:8080",
+		Wrap:      config.SandboxWrap{Network: "namespaced"},
+	})
+	if len(got) != 1 || got[0].Severity != "info" {
+		t.Errorf("namespaced + proxy should be info; got %v", got)
+	}
+}
+
+// TestCrossCheckSandbox_FsAbsoluteNotBound: an absolute fs:read
+// path NOT in [sandbox.wrap].bind_ro is a warning.
+func TestCrossCheckSandbox_FsAbsoluteNotBound(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"fs:read:/etc/passwd"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+		Wrap: config.SandboxWrap{BindRO: []string{"/usr"}},
+	})
+	if len(got) != 1 || got[0].Severity != "warn" {
+		t.Errorf("unbound /etc/passwd should be warn; got %v", got)
+	}
+}
+
+// TestCrossCheckSandbox_FsAbsoluteBound: an absolute fs:read path
+// inside a bound directory is silent (no finding).
+func TestCrossCheckSandbox_FsAbsoluteBound(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"fs:read:/usr/bin/grep"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+		Wrap: config.SandboxWrap{BindRO: []string{"/usr"}},
+	})
+	for _, f := range got {
+		if strings.HasPrefix(f.Cap, "fs:") {
+			t.Errorf("bound /usr/bin/grep should produce no fs finding; got %v", f)
+		}
+	}
+}
+
+// TestCrossCheckSandbox_FsWorkdirRooted: workdir-rooted fs caps
+// (".", "./...", relative paths) are silent — stado auto-binds.
+func TestCrossCheckSandbox_FsWorkdirRooted(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"fs:read:.", "fs:write:./output"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+	})
+	for _, f := range got {
+		if strings.HasPrefix(f.Cap, "fs:") {
+			t.Errorf("workdir-rooted fs cap should be silent; got %v", f)
+		}
+	}
+}
+
+// TestCrossCheckSandbox_FsWriteRequiresBindRW: an absolute fs:write
+// path must be in bind_rw, not just bind_ro.
+func TestCrossCheckSandbox_FsWriteRequiresBindRW(t *testing.T) {
+	mf := &plugins.Manifest{Capabilities: []string{"fs:write:/var/log/app"}}
+	got := crossCheckSandbox(mf, config.Sandbox{
+		Mode: "wrap",
+		Wrap: config.SandboxWrap{BindRO: []string{"/var/log"}}, // RO won't satisfy WRITE
+	})
+	if len(got) != 1 || got[0].Severity != "warn" {
+		t.Errorf("write to RO-only bind should warn; got %v", got)
+	}
+	if !strings.Contains(got[0].Note, "bind_rw") {
+		t.Errorf("note should mention bind_rw; got %q", got[0].Note)
+	}
+}
+
+// TestPathInBindList: subpaths of bound dirs match; unrelated paths don't.
+func TestPathInBindList(t *testing.T) {
+	binds := []string{"/usr", "/var/log/"}
+	cases := map[string]bool{
+		"/usr":          true,
+		"/usr/bin/grep": true,
+		"/usr/local":    true,
+		"/etc":          false,
+		"/var/log":      true,
+		"/var/log/app":  true,
+		"/var":          false, // not under /var/log
+	}
+	for path, want := range cases {
+		if got := pathInBindList(path, binds); got != want {
+			t.Errorf("pathInBindList(%q, ...) = %v, want %v", path, got, want)
+		}
+	}
+}
 
 // TestClassifyCapability checks the manifest-cap → required-surface
 // mapping that the doctor command uses to render its compatibility
