@@ -130,7 +130,7 @@ func (f *fakeBridge) Fork(ctx context.Context, atTurn, seed string) (string, err
 	f.forkCalls++
 	return f.forkResult, nil
 }
-func (f *fakeBridge) InvokeLLM(ctx context.Context, prompt string) (string, int, error) {
+func (f *fakeBridge) InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (string, int, error) {
 	f.llmCalls++
 	if f.llmErr != nil {
 		return "", 0, f.llmErr
@@ -194,7 +194,7 @@ func TestInstallHostImports_SessionImportsRegister(t *testing.T) {
 // a guardrail that the interface doesn't swallow errors.
 func TestSessionBridge_Errors_Wrapped(t *testing.T) {
 	bridge := &fakeBridge{llmErr: errors.New("budget denied upstream")}
-	_, _, err := bridge.InvokeLLM(context.Background(), "x")
+	_, _, err := bridge.InvokeLLM(context.Background(), "x", LLMInvokeOpts{})
 	if err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Errorf("expected budget error to propagate: %v", err)
 	}

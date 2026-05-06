@@ -154,13 +154,25 @@ func (b *SessionBridgeImpl) Fork(ctx context.Context, atTurnRef, seedMessage str
 // logged via stadogit's OnCommit hook but do not fail the call — a
 // degraded audit trail is preferable to a plugin that can't invoke
 // the model at all.
-func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string) (string, int, error) {
+func (b *SessionBridgeImpl) InvokeLLM(ctx context.Context, prompt string, opts LLMInvokeOpts) (string, int, error) {
 	if b.Provider == nil {
 		return "", 0, errors.New("llm_invoke: no provider on bridge")
 	}
+	model := b.Model
+	if opts.Model != "" {
+		model = opts.Model
+	}
 	req := agent.TurnRequest{
-		Model:    b.Model,
+		Model:    model,
 		Messages: []agent.Message{agent.Text(agent.RoleUser, prompt)},
+		System:   opts.System, // persona resolution lives one layer up; bridge takes the raw system body
+	}
+	if opts.MaxTokens > 0 {
+		req.MaxTokens = opts.MaxTokens
+	}
+	if opts.Temperature > 0 {
+		t := opts.Temperature
+		req.Temperature = &t
 	}
 	ch, err := b.Provider.StreamTurn(ctx, req)
 	if err != nil {

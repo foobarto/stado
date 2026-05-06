@@ -35,7 +35,10 @@ import (
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/toolinput"
+	"github.com/foobarto/stado/internal/tools/llmtool"
 	"github.com/foobarto/stado/internal/tools/tasktool"
+	"github.com/foobarto/stado/internal/tui"
+	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -60,6 +63,17 @@ var mcpServerCmd = &cobra.Command{
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
 			reg := runtime.BuildDefaultRegistry(cfg)
 			reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
+			// llm.invoke — MCP-only tool exposing stado's configured
+			// provider with persona selection. Not registered in TUI /
+			// `stado run` paths (where the model is the consumer, not
+			// a tool client). EP-0038i.
+			reg.Register(llmtool.Tool{
+				Provider:       func() (agent.Provider, error) { return tui.BuildProvider(cfg) },
+				DefaultModel:   cfg.Defaults.Model,
+				DefaultPersona: mcpServerPersona,
+				CWD:            mustCwd(),
+				ConfigDir:      config.ConfigDir(),
+			})
 			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())
@@ -199,6 +213,13 @@ func stadoVersion() string {
 	return "dev"
 }
 
+var mcpServerPersona string
+
 func init() {
+	mcpServerCmd.Flags().StringVar(&mcpServerPersona, "persona", "",
+		"Persona that supplies the operating manual when stado's LLM is "+
+			"invoked through MCP (via the `llm.invoke` tool, agent.spawn, "+
+			"etc.). Empty = [defaults].persona from config, or bundled "+
+			"default. Per-call args still override.")
 	rootCmd.AddCommand(mcpServerCmd)
 }

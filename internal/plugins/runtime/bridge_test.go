@@ -179,7 +179,7 @@ func TestBridge_InvokeLLM_AggregatesDeltas(t *testing.T) {
 		},
 	}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	reply, tokens, err := b.InvokeLLM(context.Background(), "hi")
+	reply, tokens, err := b.InvokeLLM(context.Background(), "hi", LLMInvokeOpts{})
 	if err != nil {
 		t.Fatalf("InvokeLLM: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestBridge_InvokeLLM_FallbackTokenEstimate(t *testing.T) {
 		},
 	}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	_, tokens, err := b.InvokeLLM(context.Background(), "prompt")
+	_, tokens, err := b.InvokeLLM(context.Background(), "prompt", LLMInvokeOpts{})
 	if err != nil {
 		t.Fatalf("InvokeLLM: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestBridge_InvokeLLM_FallbackTokenEstimate(t *testing.T) {
 func TestBridge_InvokeLLM_ProviderError(t *testing.T) {
 	p := fakeStreamProvider{err: errors.New("provider boom")}
 	b := &SessionBridgeImpl{Provider: p, Model: "fake"}
-	_, _, err := b.InvokeLLM(context.Background(), "x")
+	_, _, err := b.InvokeLLM(context.Background(), "x", LLMInvokeOpts{})
 	if err == nil {
 		t.Fatal("expected error")
 	}

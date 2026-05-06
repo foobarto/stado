@@ -42,7 +42,8 @@ func stadoSessionNextEvent(bufPtr, bufCap uint32) int32
 func stadoSessionFork(atPtr, atLen, seedPtr, seedLen, outPtr, outCap uint32) int32
 
 //go:wasmimport stado stado_llm_invoke
-func stadoLLMInvoke(promptPtr, promptLen, outPtr, outCap uint32) int32
+// args is JSON: {prompt, persona?, model?, system?, max_tokens?, temperature?}.
+func stadoLLMInvoke(argsPtr, argsLen, outPtr, outCap uint32) int32
 
 // ---- helpers ----------------------------------------------------------
 
@@ -91,17 +92,51 @@ func readField(name string) []byte {
 
 // invokeLLM calls stado_llm_invoke with prompt. Returns reply bytes
 // or nil when the host denied / budget exceeded / provider errored.
+//
+// args is JSON. We hand-build the envelope to avoid pulling
+// encoding/json into this minimal plugin (keeps wasm size lean).
 func invokeLLM(prompt string) []byte {
-	pb := []byte(prompt)
+	args := []byte(`{"prompt":` + jsonQuote(prompt) + `}`)
 	buf := make([]byte, 128*1024) // 128 KiB is more than enough for a summary
 	n := stadoLLMInvoke(
-		uint32(uintptr(unsafe.Pointer(&pb[0]))), uint32(len(pb)),
+		uint32(uintptr(unsafe.Pointer(&args[0]))), uint32(len(args)),
 		uint32(uintptr(unsafe.Pointer(&buf[0]))), uint32(len(buf)),
 	)
 	if n < 0 {
 		return nil
 	}
 	return buf[:n]
+}
+
+// jsonQuote escapes a string into a JSON-quoted literal (with
+// surrounding double-quotes). Handles the small set of control chars
+// json requires escaped; full unicode escaping is overkill here since
+// our prompts come from session text we already emit cleanly.
+func jsonQuote(s string) string {
+	out := make([]byte, 0, len(s)+2)
+	out = append(out, '"')
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"':
+			out = append(out, '\\', '"')
+		case '\\':
+			out = append(out, '\\', '\\')
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		case '\t':
+			out = append(out, '\\', 't')
+		default:
+			if c < 0x20 {
+				continue
+			}
+			out = append(out, c)
+		}
+	}
+	out = append(out, '"')
+	return string(out)
 }
 
 // forkAt calls stado_session_fork. Returns the new session ID or ""

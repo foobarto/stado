@@ -8,6 +8,65 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.44.0 — Personas
+
+Eight bundled operating-manual personas; `--persona` everywhere a
+turn is initiated; `stado_llm_invoke` ABI cleaned up to JSON args
+with persona / model / system / sampling fields.
+
+### Personas
+
+- **Eight bundled personas** under `internal/personas/library/`:
+  `default`, `software-engineer`, `qa-tester`, `technical-writer`,
+  `prose-writer`, `prose-editor`, `researcher`, `offsec`. Full
+  6–10 KB operating manuals — switch via `/persona <name>` (TUI;
+  v0.44.1) or `--persona <name>` (CLI). Operators add their own
+  under `~/.stado/personas/` or `{project}/.stado/personas/`;
+  resolution is project → user → bundled. Inheritance via
+  `inherits: <name>` frontmatter (one level deep, cycle-detected).
+
+- **`[defaults].persona`** in `config.toml` pins the session-default
+  persona. `--persona` flags on `stado run` and `stado mcp-server`
+  override per call / per server.
+
+- **`agent.spawn` gains `persona`.** Sub-agents inherit the parent's
+  persona unless their spawn args specify one — enabling the
+  writer→editor / engineer→qa-tester delegation pattern. Threaded
+  through `subagent.Request`, `SpawnOptions`, `SubagentRunner`, and
+  `AgentLoopOptions`.
+
+- **`AgentLoopOptions.Persona`** + `personas.AssembleSystem` —
+  centralized system-prompt assembly: persona body → project
+  AGENTS.md → memory context → per-call extra. Replaces the
+  per-surface ad-hoc concatenation.
+
+### Plugin runtime — ABI change
+
+- **`stado_llm_invoke` is now JSON-args** —
+  `(args_ptr, args_len, out_ptr, out_max) → i32`, where args is
+  `{prompt, persona?, model?, system?, max_tokens?, temperature?}`.
+  Replaces the bare-prompt + 4-i32 shape. Single-user repo so we
+  break the wire cleanly rather than ship a v2 import. Bundled
+  `auto-compact` plugin updated; existing third-party plugins (none
+  yet) need to migrate.
+
+### MCP
+
+- **New native `llm.invoke` tool** registered by `stado mcp-server`
+  (only — not in TUI / `stado run` paths where the model is the
+  consumer, not a tool client). Lets external MCP clients (Claude
+  Desktop, Zed, etc.) hit stado's configured provider with persona
+  selection. Args: `{prompt, persona?, model?, system?, max_tokens?,
+  temperature?}`.
+
+- **`agent.spawn` schema gains `persona`** — visible to MCP clients
+  automatically because the schema flows through to MCP exposure.
+
+### Deferred to v0.44.1
+
+- TUI `/persona` slash command + persona picker modal + status-line
+  indicator. CLI + ABI surfaces ship now; the TUI surface follows.
+
 ## v0.43.1 — Windows build fix
 
 ### Fixes

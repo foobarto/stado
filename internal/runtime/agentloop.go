@@ -15,6 +15,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
@@ -83,6 +84,13 @@ type AgentLoopOptions struct {
 	// MemoryContext is optional approved-memory prompt context. Callers
 	// own retrieval/scoping so this loop stays provider/session generic.
 	MemoryContext string
+
+	// Persona, when non-nil, supplies the agent's operating manual
+	// (system prompt body). Replaces the default stado-shipped
+	// system prompt template entirely; project AGENTS.md / CLAUDE.md
+	// (passed as System) and MemoryContext still append. Nil falls
+	// back to instructions.ComposeSystemPrompt for legacy callers.
+	Persona *personas.Persona
 
 	// InboxFn is the optional pull-source for operator- or peer-
 	// injected messages addressed to this agent. The loop calls it
@@ -260,11 +268,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		req := agent.TurnRequest{
 			Model:    opts.Model,
 			Messages: msgs,
-			System: instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
-				Provider: opts.Provider.Name(),
-				Model:    opts.Model,
-				Memory:   opts.MemoryContext,
-			}),
+			System:   buildTurnSystem(opts),
 			// EP-0036: sampling overrides from config or --temperature / --top-p / --top-k.
 			Temperature: opts.Temperature,
 			TopP:        opts.TopP,
@@ -433,4 +437,19 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		turnSpan.End()
 	}
 	return finalText, msgs, fmt.Errorf("runtime: exceeded %d turns", opts.MaxTurns)
+}
+
+// buildTurnSystem assembles the system prompt for a turn. When a
+// persona is active it replaces the stado-shipped template entirely
+// (project AGENTS.md + memory still append). Without a persona,
+// falls back to instructions.ComposeSystemPrompt for legacy behavior.
+func buildTurnSystem(opts AgentLoopOptions) string {
+	if opts.Persona != nil {
+		return personas.AssembleSystem(opts.Persona, opts.System, opts.MemoryContext, "")
+	}
+	return instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
+		Provider: opts.Provider.Name(),
+		Model:    opts.Model,
+		Memory:   opts.MemoryContext,
+	})
 }

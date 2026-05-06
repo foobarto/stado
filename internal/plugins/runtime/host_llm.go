@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 
@@ -9,15 +11,28 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+// llmInvokeArgs is the JSON envelope stado_llm_invoke now accepts.
+// Was a bare-prompt + 4 i32s ABI; now the first ptr/len pair carries
+// JSON so we can extend per-call options without reshuffling the
+// signature. EP-0038i (personas integration).
+type llmInvokeArgs struct {
+	Prompt      string  `json:"prompt"`
+	Persona     string  `json:"persona,omitempty"`
+	Model       string  `json:"model,omitempty"`
+	System      string  `json:"system,omitempty"`
+	MaxTokens   int     `json:"max_tokens,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"`
+}
+
 func registerLLMImport(builder wazero.HostModuleBuilder, host *Host) {
-	// stado_llm_invoke(prompt_ptr, prompt_len, out_ptr, out_cap) → int32
+	// stado_llm_invoke(args_ptr, args_len, out_ptr, out_cap) → int32
 	//
-	// Phase 7.1b — llm:invoke capability. One-shot completion against
-	// the active provider. Budget enforcement: the plugin's manifest
-	// declared "llm:invoke:<N>" becomes host.LLMInvokeBudget (default
-	// 10000 when no suffix). Tokens consumed across all calls in this
-	// instantiation add to host.llmTokensUsed; once the budget is
-	// exhausted, further calls return -1 without touching the bridge.
+	// args is JSON: {prompt, persona?, model?, system?, max_tokens?, temperature?}.
+	// One-shot completion against the active provider. Budget
+	// enforcement: the plugin's manifest declared "llm:invoke:<N>"
+	// becomes host.LLMInvokeBudget (default 10000 when no suffix).
+	// Tokens consumed across all calls in this instantiation add to
+	// host.llmTokensUsed; once exhausted, further calls return -1.
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			if host.LLMInvokeBudget <= 0 {
@@ -37,22 +52,28 @@ func registerLLMImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			promptPtr := api.DecodeU32(stack[0])
-			promptLen := api.DecodeU32(stack[1])
+			argsPtr := api.DecodeU32(stack[0])
+			argsLen := api.DecodeU32(stack[1])
 			outPtr := api.DecodeU32(stack[2])
 			outCap := api.DecodeU32(stack[3])
-			prompt, err := readStringLimited(mod, promptPtr, promptLen, maxPluginRuntimeLLMPromptBytes)
+			argsBytes, err := readBytesLimited(mod, argsPtr, argsLen, maxPluginRuntimeLLMPromptBytes)
 			if err != nil {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
+			var args llmInvokeArgs
+			if err := json.Unmarshal(argsBytes, &args); err != nil || args.Prompt == "" {
+				host.Logger.Warn("stado_llm_invoke: malformed args", slog.String("err", fmt.Sprintf("%v", err)))
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
 			// Preflight: a single call must not exceed the remaining
-			// budget.  We estimate input tokens at ~4 bytes/token (same
-			// fallback the bridge uses).  Output is capped by the
+			// budget. We estimate input tokens at ~4 bytes/token (same
+			// fallback the bridge uses). Output is capped by the
 			// remaining budget so an oversized response can't silently
 			// exhaust the allowance.
 			const bytesPerToken = 4
-			promptTokEstimate := (len(prompt) + bytesPerToken - 1) / bytesPerToken
+			promptTokEstimate := (len(args.Prompt) + bytesPerToken - 1) / bytesPerToken
 			remaining := host.LLMInvokeBudget - int(used)
 			if promptTokEstimate >= remaining {
 				host.Logger.Warn("stado_llm_invoke denied — call would exceed budget",
@@ -62,7 +83,14 @@ func registerLLMImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			reply, tokens, err := host.SessionBridge.InvokeLLM(ctx, prompt)
+			invokeOpts := LLMInvokeOpts{
+				Persona:     args.Persona,
+				Model:       args.Model,
+				System:      args.System,
+				MaxTokens:   args.MaxTokens,
+				Temperature: args.Temperature,
+			}
+			reply, tokens, err := host.SessionBridge.InvokeLLM(ctx, args.Prompt, invokeOpts)
 			if err != nil {
 				host.Logger.Warn("stado_llm_invoke failed", slog.String("err", err.Error()))
 				stack[0] = api.EncodeI32(-1)

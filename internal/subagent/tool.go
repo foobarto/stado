@@ -40,6 +40,10 @@ type Request struct {
 	// TimeoutSeconds is capped by MaxTimeoutSeconds. Zero means default,
 	// not unlimited.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+	// Persona names the operating manual for this child agent.
+	// Empty = inherit the parent's active persona; "default" = bundled.
+	// EP-0038i.
+	Persona string `json:"persona,omitempty"`
 }
 
 // Result is the structured payload returned to the parent model.

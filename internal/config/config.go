@@ -281,6 +281,12 @@ type Context struct {
 type Defaults struct {
 	Provider string `koanf:"provider"`
 	Model    string `koanf:"model"`
+	// Persona names the bundled or user-installed persona that
+	// supplies the agent's operating manual (system prompt). Empty
+	// or "default" = bundled default. Resolution order:
+	// {cwd}/.stado/personas → ~/.stado/personas → bundled.
+	// Per-call surfaces (CLI flag, /persona, agent.spawn arg) override.
+	Persona string `koanf:"persona"`
 }
 
 type Approvals struct {
@@ -876,6 +882,13 @@ func expandHome(path string) string {
 // no project-local override is present. Exported so CLI subcommands
 // like `stado tool enable --global` can target the same file.
 func DefaultConfigPath() string { return defaultConfigPath() }
+
+// ConfigDir returns the directory containing config.toml — the
+// per-user stado config dir. Used by `personas`, `skills`, etc.
+// for resolution paths under <ConfigDir>/personas/, etc.
+func ConfigDir() string {
+	return filepath.Dir(defaultConfigPath())
+}
 
 func defaultConfigPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {

@@ -180,13 +180,14 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
 	agentCaps := []string{"agent:fleet"}
 	r.Register(newBundledWasmTool("agent", "stado_tool_spawn", "agent__spawn",
-		"Spawn a sub-agent. Returns {id, session_id, status, final_text?}. Default async=false blocks until child completes; async=true returns immediately. Default model inherits parent's. EP-0038 §D.",
+		"Spawn a sub-agent. Returns {id, session_id, status, final_text?}. Default async=false blocks until child completes; async=true returns immediately. Default model inherits parent's. Default persona inherits parent's. EP-0038 §D.",
 		tool.ClassExec,
 		map[string]any{
 			"type": "object", "required": []string{"prompt"},
 			"properties": map[string]any{
 				"prompt":          map[string]any{"type": "string"},
 				"model":           map[string]any{"type": "string"},
+				"persona":         map[string]any{"type": "string", "description": "Persona for the child (operating manual). Empty = inherit parent's persona."},
 				"async":           map[string]any{"type": "boolean"},
 				"ephemeral":       map[string]any{"type": "boolean"},
 				"parent_session":  map[string]any{"type": "string"},
