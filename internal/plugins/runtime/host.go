@@ -402,11 +402,26 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			} else {
 				scope = normaliseCapabilityPath(workdir, path)
 			}
+			// On systems where the workdir crosses a symlink (notably
+			// Fedora Atomic / Silverblue / Bazzite, where /home →
+			// /var/home), the cap-path stored above is the symlink
+			// form (e.g. /home/user/repo) but actual file reads run
+			// through realPath(), which resolves to /var/home/user/.
+			// Without aliasing both forms here the cap-glob compare
+			// fails and fs:read:. silently denies every file. Append
+			// the realpath alongside the literal so either form
+			// matches at allow-time.
+			scopes := []string{scope}
+			if !strings.HasPrefix(scope, "cfg:") {
+				if alias := symlinkAlias(scope); alias != "" {
+					scopes = append(scopes, alias)
+				}
+			}
 			switch parts[1] {
 			case "read":
-				h.FSRead = append(h.FSRead, scope)
+				h.FSRead = append(h.FSRead, scopes...)
 			case "write":
-				h.FSWrite = append(h.FSWrite, scope)
+				h.FSWrite = append(h.FSWrite, scopes...)
 			}
 		case "net":
 			if len(parts) == 2 && parts[1] == "http_get" {
@@ -762,4 +777,27 @@ func normaliseCapabilityPath(workdir, path string) string {
 		return filepath.Clean(path)
 	}
 	return resolveAbs(workdir, path)
+}
+
+// symlinkAlias returns the EvalSymlinks-resolved form of an absolute
+// path when it differs from the literal, or "" when the path doesn't
+// resolve differently / doesn't exist / can't be evaluated. Used to
+// alias fs:read / fs:write cap entries on systems where the workdir
+// crosses a symlink (Fedora Atomic /home → /var/home is the canonical
+// case). Best-effort: a missing path or EvalSymlinks failure is not
+// fatal — the caller falls back to the literal entry, which may still
+// match if the runtime's realPath also fails on the access side.
+func symlinkAlias(absPath string) string {
+	if absPath == "" || !filepath.IsAbs(absPath) {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return ""
+	}
+	resolved = filepath.Clean(resolved)
+	if resolved == filepath.Clean(absPath) {
+		return ""
+	}
+	return resolved
 }
