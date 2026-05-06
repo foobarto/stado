@@ -237,10 +237,39 @@ func dialNet(ctx context.Context, host *Host, transport, hostStr string, port in
 			return nil, errCapDenied
 		}
 		return dialIP(ctx, host, "udp", hostStr, portStr, timeout)
+	case "unix":
+		// hostStr carries the socket path; port is ignored.
+		if err := validateUnixSocketPath(hostStr); err != nil {
+			return nil, err
+		}
+		if !host.NetDial.CanDialUnix(hostStr) {
+			return nil, errCapDenied
+		}
+		d := net.Dialer{Timeout: timeout}
+		return d.DialContext(ctx, "unix", hostStr)
 	default:
 		return nil, errCapDenied
 	}
 }
+
+// validateUnixSocketPath enforces the conservative path constraints
+// from EP-0038g Q10: no `..` traversal, BSD sun_path upper bound.
+func validateUnixSocketPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("net:unix: empty path")
+	}
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("net:unix: path contains `..`")
+	}
+	if len(path) > maxUnixSocketPath {
+		return fmt.Errorf("net:unix: path exceeds %d bytes", maxUnixSocketPath)
+	}
+	return nil
+}
+
+// maxUnixSocketPath is the conservative cross-platform upper bound for
+// sockaddr_un.sun_path (BSD = 104, Linux = 108). Pick the smaller.
+const maxUnixSocketPath = 104
 
 // dialIP runs the IP-based dial path: pre-resolve, private-IP guard,
 // then dial. Used by tcp + udp variants.

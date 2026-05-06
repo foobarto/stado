@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"context"
+	"io"
 	"net"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -183,6 +186,76 @@ func TestDialNet_UDPCapDenied(t *testing.T) {
 	defer cancel()
 	if _, err := dialNet(ctx, host, "udp", "127.0.0.1", 53, time.Second); err == nil {
 		t.Fatal("UDP dial without UDPGlobs should fail")
+	}
+}
+
+// TestDialNet_UnixEcho exercises the full Unix-dial path: cap glob,
+// path validation, dial, round-trip a byte stream over a temp socket.
+func TestDialNet_UnixEcho(t *testing.T) {
+	tmp := t.TempDir()
+	sockPath := filepath.Join(tmp, "echo.sock")
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_, _ = io.Copy(c, c)
+	}()
+
+	host := &Host{NetDial: &NetDialAccess{UnixGlobs: []string{sockPath}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := dialNet(ctx, host, "unix", sockPath, 0, time.Second)
+	if err != nil {
+		t.Fatalf("dialNet: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	conn.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 4)
+	n, err := io.ReadFull(conn, buf)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got := string(buf[:n]); got != "ping" {
+		t.Errorf("echo mismatch: got %q", got)
+	}
+}
+
+// TestDialNet_UnixCapDenied: without a matching UnixGlob the dial fails.
+func TestDialNet_UnixCapDenied(t *testing.T) {
+	host := &Host{NetDial: &NetDialAccess{UnixGlobs: []string{"/var/run/docker.sock"}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if _, err := dialNet(ctx, host, "unix", "/tmp/other.sock", 0, time.Second); err == nil {
+		t.Fatal("non-matching path should be denied")
+	}
+}
+
+// TestValidateUnixSocketPath: refuses traversal + over-long paths.
+func TestValidateUnixSocketPath(t *testing.T) {
+	cases := map[string]bool{
+		"":                                       false,
+		"/tmp/sock":                              true,
+		"/tmp/../etc/sock":                       false, // traversal
+		"/tmp/" + strings.Repeat("a", 200):       false, // > 104
+		strings.Repeat("/x", 50) + "/sock":       false, // > 104
+		strings.Repeat("/a", 30) + "/x.sock":     true,  // exactly within bound
+	}
+	for path, wantOK := range cases {
+		err := validateUnixSocketPath(path)
+		gotOK := err == nil
+		if gotOK != wantOK {
+			t.Errorf("validateUnixSocketPath(%q) ok=%v, want %v (err=%v)", path, gotOK, wantOK, err)
+		}
 	}
 }
 
