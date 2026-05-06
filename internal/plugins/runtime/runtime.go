@@ -58,6 +58,25 @@ type Runtime struct {
 	// (typeTag "http") across all plugin instances on this Runtime.
 	// Accessed atomically. Used to enforce maxHTTPClientsPerRuntime.
 	httpClientCount int64
+
+	// instanceStore is the per-Runtime in-memory KV store backing
+	// stado_instance_*. Process-lifetime; cleared at Close. Per-plugin
+	// namespacing inside the store (a plugin can't read another's keys).
+	// Tester #2 (multi-step exploit chains needing state across calls).
+	instanceStore *InstanceStore
+}
+
+// InstanceStore returns the runtime-shared KV store backing
+// stado_instance_*. Lazily created on first call; non-nil for the
+// remainder of the Runtime's lifetime. Wired into a plugin's Host via
+// Host.State.Store before InstallHostImports.
+func (r *Runtime) InstanceStore() *InstanceStore {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.instanceStore == nil {
+		r.instanceStore = NewInstanceStore()
+	}
+	return r.instanceStore
 }
 
 // New allocates a fresh wazero runtime with WASI preview 1 preloaded.

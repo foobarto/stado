@@ -88,6 +88,10 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 				ev.Op, ev.Secret, ev.Plugin, ev.Allowed, ev.Reason)
 		}
 	}
+	if host.State != nil {
+		host.State.Store = rt.InstanceStore()
+		host.State.PluginName = in.Manifest.Name
+	}
 
 	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 		if in.SessionID != "" {

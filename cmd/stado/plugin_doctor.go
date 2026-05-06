@@ -133,6 +133,14 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "writes to operator's secret store; stado provides — declare secrets:write:<your_secret_pattern> to narrow access"
 		return cn
+	case cap == "state:read" || strings.HasPrefix(cap, "state:read:"):
+		cn.requirement = requireNothing
+		cn.note = "process-lifetime in-memory KV (stado_instance_*); cleared on stado exit"
+		return cn
+	case cap == "state:write" || strings.HasPrefix(cap, "state:write:"):
+		cn.requirement = requireNothing
+		cn.note = "writes to in-memory KV (stado_instance_*); per-plugin namespaced"
+		return cn
 	case cap == "net:http_client":
 		cn.requirement = requireNothing
 		cn.note = "stateful HTTP client with cookie jar; uses net:http_request:<host> caps as the host allowlist"
