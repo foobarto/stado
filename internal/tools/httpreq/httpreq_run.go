@@ -136,6 +136,19 @@ func (RequestTool) Run(ctx context.Context, raw json.RawMessage, h tool.Host) (t
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DialContext = dial
+
+	// Optional proxy routing — after a network pivot (e.g. ligolo on
+	// 127.0.0.1:1080) the agent wants every WASM tool to reach inner
+	// subnets without rebuilding curl invocations. Schemes:
+	//   http(s)://  — Go's standard Transport.Proxy hook
+	//   socks5://   — wrap dial with golang.org/x/net/proxy SOCKS5
+	//   socks5h://  — same, but DNS resolution happens at the proxy
+	if p.ProxyURL != "" {
+		if err := configureProxy(transport, dial, p.ProxyURL); err != nil {
+			return tool.Result{Error: err.Error()}, err
+		}
+	}
+
 	client := &http.Client{
 		Timeout:   timeout,
 		Transport: transport,

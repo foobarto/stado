@@ -306,3 +306,100 @@ func TestPrivateGuardStillRefusesMulticast(t *testing.T) {
 
 // silence unused-import warning if helper drift removes references.
 var _ = url.Parse
+
+// TestProxyURL_HTTP: when proxy_url is set to an http://... URL, the
+// configured proxy server receives the request (test using a second
+// httptest.Server playing proxy role).
+func TestProxyURL_HTTP(t *testing.T) {
+	// Backend that the proxy will forward to.
+	var backendHits int
+	backend, stopBack := withTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendHits++
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("via-proxy-ok"))
+	}))
+	defer stopBack()
+
+	// Proxy that forwards everything to backend regardless of path.
+	var proxyHits int
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyHits++
+		// Re-issue the request to the backend using a vanilla client.
+		req, _ := http.NewRequest(r.Method, backend, r.Body)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			http.Error(w, err.Error(), 502)
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(body)
+	}))
+	defer proxySrv.Close()
+
+	args := Args{
+		Method:   "GET",
+		URL:      "http://example.invalid/x",
+		ProxyURL: proxySrv.URL,
+	}
+	raw, _ := json.Marshal(args)
+	res, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	if err != nil {
+		t.Fatalf("Run with proxy_url: %v", err)
+	}
+	resp := mustDecode(t, res.Content)
+	if resp.Status != 200 {
+		t.Errorf("status=%d, want 200", resp.Status)
+	}
+	if proxyHits == 0 {
+		t.Error("proxy was never hit — proxy_url config didn't take effect")
+	}
+	if backendHits == 0 {
+		t.Error("backend was never hit through proxy")
+	}
+}
+
+// TestProxyURL_RejectsUnsupportedScheme: proxy_url with an
+// unsupported scheme is rejected before the request leaves the
+// process.
+func TestProxyURL_RejectsUnsupportedScheme(t *testing.T) {
+	target, stop := withTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer stop()
+
+	args := Args{
+		Method:   "GET",
+		URL:      target,
+		ProxyURL: "ftp://something.example",
+	}
+	raw, _ := json.Marshal(args)
+	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	if err == nil {
+		t.Fatal("expected error for unsupported proxy scheme")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("error should mention `unsupported`; got: %v", err)
+	}
+}
+
+// TestProxyURL_RejectsMalformed: garbage proxy_url errors clearly.
+func TestProxyURL_RejectsMalformed(t *testing.T) {
+	target, stop := withTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer stop()
+
+	args := Args{
+		Method:   "GET",
+		URL:      target,
+		ProxyURL: "://this-is-not-a-url",
+	}
+	raw, _ := json.Marshal(args)
+	_, err := RequestTool{}.Run(context.Background(), raw, privateHost{allow: true})
+	if err == nil {
+		t.Fatal("expected error for malformed proxy_url")
+	}
+}

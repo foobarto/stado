@@ -261,6 +261,19 @@ are the upper bound. `opts.allow_private = true` requires
 
 These are tool-bridging imports — see [Tool-bridging imports](#tool-bridging-imports).
 
+`stado_http_request` accepts an optional `proxy_url` field on its
+request struct (added 2026-05-06). Schemes:
+
+- `http://`, `https://` — HTTP CONNECT/forward proxy
+- `socks5://`, `socks5h://` — SOCKS5 proxy (5h resolves at proxy)
+
+Proxy use case: after a network pivot (e.g. ligolo-ng on
+`127.0.0.1:1080`), every WASM tool wants to reach inner-subnet hosts
+without dropping to bash. Set `proxy_url: "socks5h://127.0.0.1:1080"`
+on the request; the dial guard still applies to the proxy address
+itself, so set `net:http_request_private` if the proxy lives on
+loopback / RFC1918 (the typical case for pivots).
+
 ### stado_dns_resolve
 
 | Field | Value |

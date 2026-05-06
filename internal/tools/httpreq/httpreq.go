@@ -49,6 +49,10 @@ func (RequestTool) Schema() map[string]any {
 				"minimum":     0,
 				"maximum":     120000,
 			},
+			"proxy_url": map[string]any{
+				"type":        "string",
+				"description": "Optional proxy URL routing this request. Schemes: http://, https://, socks5://, socks5h:// (h = resolve at proxy). Use after a network pivot (e.g. ligolo-ng on 127.0.0.1:1080) to reach inner-subnet hosts without dropping to bash. The proxy address itself goes through the dial guard — set net:http_request_private if the proxy is on loopback / RFC1918.",
+			},
 		},
 		"required": []string{"method", "url"},
 	}
@@ -60,6 +64,7 @@ type Args struct {
 	Headers   map[string]string `json:"headers,omitempty"`
 	BodyB64   string            `json:"body_b64,omitempty"`
 	TimeoutMs int               `json:"timeout_ms,omitempty"`
+	ProxyURL  string            `json:"proxy_url,omitempty"`
 }
 
 type Response struct {
