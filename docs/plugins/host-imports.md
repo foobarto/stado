@@ -288,34 +288,68 @@ Result: `{"records": [{"name", "type", "value"}], "error"?: "..."}`.
 
 ### stado_net_*
 
-Tier 1 raw socket primitives — TCP only this cycle. UDP, Unix sockets,
-listen/accept, ICMP deferred to a future EP-0038g. Tester #5: lets
-plugins talk to non-HTTP services (SMTP, LDAP, banner grab, custom
-C2) without dropping to bash.
+Tier 1 raw socket primitives. EP-0038f shipped TCP dial; EP-0038g
+adds UDP + Unix dial and TCP/Unix listen+accept. ICMP, AXFR, and
+HTTP-streaming remain deferred. Tester #5: lets plugins talk to
+non-HTTP services (SMTP, LDAP, NTP, banner grab, custom C2,
+Docker daemon) without dropping to bash.
 
 | Import | Returns | Capability |
 |---|---|---|
-| `stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port i32, timeout_ms i32) → i64` | typed handle `conn:<id>` | `net:dial:<transport>:<host-glob>:<port-glob>` |
-| `stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32` | bytes read; 0 = EOF | inherited from dial |
+| `stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port i32, timeout_ms i32) → i64` | typed handle `conn:<id>` (-1 on error) | `net:dial:<transport>:<host-glob>:<port-glob>` (or `:<path-glob>` for unix) |
+| `stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32` | bytes read; 0 = EOF | inherited from dial / accept |
 | `stado_net_write(handle, data_ptr, data_len) → i32` | bytes written | inherited |
 | `stado_net_close(handle) → i32` | 0 | inherited |
+| `stado_net_listen(transport_ptr, transport_len, host_ptr, host_len, port i32) → i64` | typed handle `listen:<id>` (-1 on error) | `net:listen:<transport>:<host-glob>:<port-glob>` (or `:<path-glob>` for unix) |
+| `stado_net_accept(lst_handle, timeout_ms i32) → i64` | typed handle `conn:<id>` (-1 on error, -2 on timeout) | inherited from listen |
+| `stado_net_close_listener(lst_handle) → i32` | 0 | inherited |
 
-`transport` must be `"tcp"` (only). Host and port globs use shell-glob
-semantics. Examples:
+**Transports.** `stado_net_dial` accepts `"tcp"`, `"udp"`, `"unix"`.
+For `"unix"`, the `host` parameter carries the socket path; `port` is
+ignored. UDP is connect-mode only (one peer per socket); broadcast,
+multicast, and accept-from-any patterns are not exposed in v1.
+
+**Capability vocabulary.**
 
 ```
+# outbound
 net:dial:tcp:api.example.com:443
 net:dial:tcp:*.example.com:*
-net:dial:tcp:127.0.0.1:*       # loopback any port
-net:dial:tcp:*:*               # broad
+net:dial:tcp:127.0.0.1:*           # loopback any port
+net:dial:udp:*.ntp.org:123
+net:dial:unix:/var/run/docker.sock
+net:dial:unix:/tmp/*.sock          # path glob (filepath.Match)
+
+# server-side
+net:listen:tcp:127.0.0.1:8080      # loopback only
+net:listen:tcp:0.0.0.0:9090        # any-interface — operator must opt in explicitly
+net:listen:unix:/tmp/srv-*.sock
 ```
 
-The same private-address dial guard as `stado_http_request` applies:
-dialing RFC1918 / loopback / link-local addresses requires
-`net:http_request_private` (extended to all dial paths).
+Listen capabilities match the host-port pair **verbatim** — there is
+no implicit `127.0.0.1 ⊂ 0.0.0.0` widening. The operator spells out
+which interface the plugin can bind.
 
-Per-Runtime cap on open conn handles: 64. The 65th `_dial` returns -1.
-On Runtime shutdown all open conns are closed automatically.
+**Private-address dial guard.** Dialing RFC1918 / loopback / link-local
+addresses (TCP or UDP) requires `net:http_request_private`. Extends
+to all `stado_net_dial` paths uniformly. Unix dial does not use this
+guard — Unix sockets are inherently local; the path glob is the
+control.
+
+**Unix path constraints.** Both dial and listen refuse paths
+containing `..` and paths longer than 104 bytes (BSD `sun_path` upper
+bound; conservative across BSD/Linux).
+
+**Resource caps.** 64 concurrent `conn` handles per plugin Runtime
+(dial ∪ accept). 8 concurrent `listen` handles. The 65th dial /
+accept and the 9th listen each return -1. On Runtime shutdown all
+open conns and listeners are closed; Unix listeners also remove
+their socket file.
+
+**Accept timeout.** `stado_net_accept` requires a bounded timeout —
+non-positive defaults to 5s, max 30s. Accept never blocks
+indefinitely (DoS guard); plugins that need to wait longer re-loop.
+Returns -2 on timeout (recoverable) vs -1 on error.
 
 ### stado_tool_invoke
 

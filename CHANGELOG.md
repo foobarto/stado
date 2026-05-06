@@ -8,6 +8,63 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.37.0 — EP-0038g: net expansion (UDP + Unix sockets + listen/accept)
+
+Continuation of the v0.36.0 EP-0038f TCP work. Plugins can now talk
+non-HTTP datagrams, Unix domain sockets, and accept inbound
+connections.
+
+### Plugin runtime — new host imports
+
+- **`stado_net_dial("udp", host, port, timeout_ms)`** — connect-mode
+  UDP client. Same `conn` handle / read-write-close lifecycle as TCP.
+  Capability: `net:dial:udp:<host-glob>:<port-glob>`. Private-IP guard
+  shared with TCP (`net:http_request_private` extends to UDP).
+  Unblocks NTP, DNS-over-UDP, syslog, custom binary RPC.
+- **`stado_net_dial("unix", path, 0, timeout_ms)`** — Unix domain
+  socket client. Capability: `net:dial:unix:<path-glob>` (path glob
+  via `filepath.Match`). Path validation refuses `..` traversal and
+  socket paths > 104 bytes (BSD `sun_path` upper bound).
+- **`stado_net_listen` + `stado_net_accept` + `stado_net_close_listener`** —
+  server-side networking for `tcp` and `unix` transports. New typed
+  handle prefix `listen:<id>`. Per-Runtime cap of 8 listeners; 9th
+  bind returns -1. Accept timeout is required, clamped to
+  `[default 5s, max 30s]` (DoS guard); -2 distinguishes timeout from
+  error. Unix listeners auto-remove their socket file on close and on
+  Runtime shutdown.
+
+### Plugin manifest
+
+- New capability vocabulary:
+  - `net:dial:udp:<host>:<port>` — outbound UDP
+  - `net:dial:unix:<path-glob>` — outbound Unix socket
+  - `net:listen:tcp:<host>:<port>` — bind TCP (host = `127.0.0.1` for
+    loopback, `0.0.0.0` for any-interface; **verbatim match — no
+    implicit widening**, operator must opt in to public binds
+    explicitly)
+  - `net:listen:unix:<path-glob>` — bind Unix socket
+- Plugin doctor (`stado plugin doctor`) classifies each new cap with
+  per-transport notes.
+
+### Bug fixes (carried in)
+
+- **`net:dial:tcp:` parser regression from v0.36.0.** The capability
+  was silently never reaching the parser block (`SplitN(cap, ":", 3)`
+  doesn't expose `parts[2..4]`); it was instead being junk-populated
+  into `NetHost`. The v0.36.0 access-layer tests masked the gap.
+  Fixed by re-splitting `net:dial:*` / `net:listen:*` caps on every
+  colon. v0.36.0 plugins that relied on `net:dial:tcp:*` now actually
+  work as documented.
+
+### Deferred
+
+ICMP raw sockets (needs `CAP_NET_RAW`), AXFR DNS, HTTP request
+streaming, FleetBridge messaging real impl, `stado_json_*`
+conveniences, and UDP stateless `send_to`/`recv_from` remain on the
+backlog. Per the architectural-reset spec, `stado_progress` streaming
+for partial tool output is also still pending — needs agent-loop
+integration design.
+
 ## v0.36.0 — Lazy-load realised, host imports doc, EP-0038f TCP, tester-feedback items
 
 This release closes the central architectural-reset gap (lazy-load

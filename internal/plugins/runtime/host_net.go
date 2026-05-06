@@ -35,8 +35,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -48,18 +50,30 @@ import (
 )
 
 const (
-	maxNetConnsPerRuntime = 64
-	netDialDefaultTimeout = 10 * time.Second
+	maxNetConnsPerRuntime     = 64
+	maxNetListenersPerRuntime = 8
+	netDialDefaultTimeout     = 10 * time.Second
+	// netAcceptMaxTimeout caps stado_net_accept's blocking window. An
+	// infinite-block accept holds the runtime forever (DoS); the wasm
+	// caller re-loops if it wants to wait longer. EP-0038g Q5.
+	netAcceptMaxTimeout     = 30 * time.Second
+	netAcceptDefaultTimeout = 5 * time.Second
 )
 
-// NetDialAccess records a plugin's manifest-declared net:dial:tcp:*
-// capabilities + (later) listen/icmp; only TCP dial is shipped this
-// cycle. Each glob entry is a (host-glob, port-glob) pair.
+// NetDialAccess records a plugin's manifest-declared outbound socket
+// capabilities. EP-0038f shipped TCP; EP-0038g extends with UDP and
+// Unix dial. ICMP is still deferred. Each TCP/UDP entry is a
+// (host-glob, port-glob) pair; Unix entries are path globs.
 type NetDialAccess struct {
 	// TCPGlobs are (hostGlob, portGlob) pairs from
 	// net:dial:tcp:<hostGlob>:<portGlob> caps. Empty list with the
-	// access struct present means no caps granted.
+	// access struct present means no TCP caps granted.
 	TCPGlobs []NetDialPattern
+	// UDPGlobs mirrors TCPGlobs for net:dial:udp:<host>:<port> caps.
+	UDPGlobs []NetDialPattern
+	// UnixGlobs are path globs from net:dial:unix:<path-glob>. Path
+	// globs use filepath.Match semantics.
+	UnixGlobs []string
 }
 
 // NetDialPattern is one (host, port) glob pair.
@@ -68,13 +82,12 @@ type NetDialPattern struct {
 	Port string // shell-glob (port as string for glob matching); "*" = any
 }
 
-// CanDialTCP returns true when (host, port) matches any TCPGlobs entry.
-func (a *NetDialAccess) CanDialTCP(host, port string) bool {
-	if a == nil {
-		return false
-	}
+// matchHostPort returns true when (host, port) matches any glob in pats.
+// Hosts are matched case-insensitive; "*" host short-circuits to a
+// port-only check.
+func matchHostPort(pats []NetDialPattern, host, port string) bool {
 	host = strings.ToLower(host)
-	for _, g := range a.TCPGlobs {
+	for _, g := range pats {
 		if g.Host == "*" {
 			if g.Port == "*" || g.Port == port {
 				return true
@@ -96,23 +109,97 @@ func (a *NetDialAccess) CanDialTCP(host, port string) bool {
 	return false
 }
 
+// matchPath returns true when path matches any glob in globs (filepath.Match).
+func matchPath(globs []string, path string) bool {
+	for _, g := range globs {
+		if matched, _ := filepath.Match(g, path); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// CanDialTCP returns true when (host, port) matches any TCPGlobs entry.
+func (a *NetDialAccess) CanDialTCP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.TCPGlobs, host, port)
+}
+
+// CanDialUDP returns true when (host, port) matches any UDPGlobs entry.
+func (a *NetDialAccess) CanDialUDP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.UDPGlobs, host, port)
+}
+
+// CanDialUnix returns true when path matches any UnixGlobs entry.
+func (a *NetDialAccess) CanDialUnix(path string) bool {
+	if a == nil {
+		return false
+	}
+	return matchPath(a.UnixGlobs, path)
+}
+
+// NetListenAccess records server-side socket capabilities granted by
+// net:listen:tcp:<host>:<port> and net:listen:unix:<path> entries.
+// Listening on 0.0.0.0 vs 127.0.0.1 is encoded in the capability
+// string itself — the operator must spell out which interface to
+// expose; there is no implicit fallback.
+type NetListenAccess struct {
+	TCPGlobs  []NetDialPattern // (hostGlob, portGlob)
+	UnixGlobs []string         // path globs
+}
+
+// CanListenTCP returns true when (host, port) matches any TCPGlobs entry.
+func (a *NetListenAccess) CanListenTCP(host, port string) bool {
+	if a == nil {
+		return false
+	}
+	return matchHostPort(a.TCPGlobs, host, port)
+}
+
+// CanListenUnix returns true when path matches any UnixGlobs entry.
+func (a *NetListenAccess) CanListenUnix(path string) bool {
+	if a == nil {
+		return false
+	}
+	return matchPath(a.UnixGlobs, path)
+}
+
 // netConn is the host-side state for a stado_net_dial-allocated handle.
 type netConn struct {
 	c net.Conn
 }
 
-// registerNetImports wires the four TCP imports.
+// netListener is the host-side state for a stado_net_listen-allocated
+// handle. `kind` carries the transport so close-listener knows whether
+// to remove a socket file (`unix`) or just close the listener (`tcp`).
+type netListener struct {
+	l    net.Listener
+	kind string // "tcp" | "unix"
+	path string // unix only — removed on Close
+}
+
+// registerNetImports wires every EP-0038f/g host import: dial+read+
+// write+close, plus the listen+accept+close_listener trio.
 func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
 	registerNetDialImport(builder, host, rt)
 	registerNetReadImport(builder, host, rt)
 	registerNetWriteImport(builder, host, rt)
 	registerNetCloseImport(builder, host, rt)
+	registerNetListenImport(builder, host, rt)
+	registerNetAcceptImport(builder, host, rt)
+	registerNetCloseListenerImport(builder, host, rt)
 }
 
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
 //                timeout_ms i32) → i64
 //
-// transport: "tcp" (only). Other transports deferred (EP-0038g).
+// transport: "tcp" | "udp" | "unix". For "unix", host carries the
+// socket path and port is ignored.
 // Returns: handle as i64 (uint32 promoted), or -1 on cap denied / dial
 // failure / cap exhausted. The plugin's SDK packages the i64 into the
 // typed-prefix "conn:<id>" form for operator-facing display.
@@ -128,42 +215,19 @@ func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 			if !ok {
 				return -1
 			}
-			if transport != "tcp" {
-				return -1 // UDP/Unix/etc. deferred
-			}
 			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
 			if !ok {
 				return -1
 			}
-			portStr := strconv.Itoa(int(port))
-			if !host.NetDial.CanDialTCP(hostStr, portStr) {
-				return -1
-			}
-			// Per-Runtime cap.
+			// Per-Runtime cap (shared TCP+UDP+Unix conn budget).
 			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
 				return -1
 			}
-			// Dial guard: refuse private addresses unless host has
-			// the http_request_private cap (extended to net:dial).
 			timeout := time.Duration(timeoutMs) * time.Millisecond
 			if timeout <= 0 {
 				timeout = netDialDefaultTimeout
 			}
-			d := net.Dialer{Timeout: timeout}
-			addr := net.JoinHostPort(hostStr, portStr)
-			// Pre-resolve and check IP.
-			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
-			if err != nil {
-				return -1
-			}
-			if !host.NetHTTPRequestPrivate {
-				for _, ip := range ips {
-					if isPrivateIP(ip) {
-						return -1
-					}
-				}
-			}
-			conn, err := d.DialContext(ctx, "tcp", addr)
+			conn, err := dialNet(ctx, host, transport, hostStr, int(port), timeout)
 			if err != nil {
 				return -1
 			}
@@ -177,6 +241,78 @@ func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 		}).
 		Export("stado_net_dial")
 }
+
+// dialNet performs the cap-gated dial. Centralised so each transport
+// gets uniform private-IP / cap-glob enforcement.
+func dialNet(ctx context.Context, host *Host, transport, hostStr string, port int, timeout time.Duration) (net.Conn, error) {
+	switch transport {
+	case "tcp":
+		portStr := strconv.Itoa(port)
+		if !host.NetDial.CanDialTCP(hostStr, portStr) {
+			return nil, errCapDenied
+		}
+		return dialIP(ctx, host, "tcp", hostStr, portStr, timeout)
+	case "udp":
+		portStr := strconv.Itoa(port)
+		if !host.NetDial.CanDialUDP(hostStr, portStr) {
+			return nil, errCapDenied
+		}
+		return dialIP(ctx, host, "udp", hostStr, portStr, timeout)
+	case "unix":
+		// hostStr carries the socket path; port is ignored.
+		if err := validateUnixSocketPath(hostStr); err != nil {
+			return nil, err
+		}
+		if !host.NetDial.CanDialUnix(hostStr) {
+			return nil, errCapDenied
+		}
+		d := net.Dialer{Timeout: timeout}
+		return d.DialContext(ctx, "unix", hostStr)
+	default:
+		return nil, errCapDenied
+	}
+}
+
+// validateUnixSocketPath enforces the conservative path constraints
+// from EP-0038g Q10: no `..` traversal, BSD sun_path upper bound.
+func validateUnixSocketPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("net:unix: empty path")
+	}
+	if strings.Contains(path, "..") {
+		return fmt.Errorf("net:unix: path contains `..`")
+	}
+	if len(path) > maxUnixSocketPath {
+		return fmt.Errorf("net:unix: path exceeds %d bytes", maxUnixSocketPath)
+	}
+	return nil
+}
+
+// maxUnixSocketPath is the conservative cross-platform upper bound for
+// sockaddr_un.sun_path (BSD = 104, Linux = 108). Pick the smaller.
+const maxUnixSocketPath = 104
+
+// dialIP runs the IP-based dial path: pre-resolve, private-IP guard,
+// then dial. Used by tcp + udp variants.
+func dialIP(ctx context.Context, host *Host, network, hostStr, portStr string, timeout time.Duration) (net.Conn, error) {
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
+	if err != nil {
+		return nil, err
+	}
+	if !host.NetHTTPRequestPrivate {
+		for _, ip := range ips {
+			if isPrivateIP(ip) {
+				return nil, errPrivateAddr
+			}
+		}
+	}
+	d := net.Dialer{Timeout: timeout}
+	addr := net.JoinHostPort(hostStr, portStr)
+	return d.DialContext(ctx, network, addr)
+}
+
+// errCapDenied is returned by the dial helpers for cap-glob mismatch.
+var errCapDenied = fmt.Errorf("net:dial: capability not granted")
 
 // stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32
 // Returns bytes read, 0 on EOF, -1 on error / unknown handle.
@@ -272,6 +408,198 @@ func lookupNetConn(rt *Runtime, handle uint32) (*netConn, bool) {
 	}
 	conn, ok := v.(*netConn)
 	return conn, ok
+}
+
+// stado_net_listen(transport_ptr, transport_len, host_ptr, host_len,
+//                  port_i32) → i64
+//
+// transport: "tcp" | "unix". For "unix", host carries the socket path
+// and port is ignored. Returns the listener handle as i64, or -1 on
+// cap denied / bind failure / cap exhausted.
+func registerNetListenImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module,
+			transportPtr, transportLen, hostPtr, hostLen, port int32,
+		) int64 {
+			if host.NetListen == nil {
+				return -1
+			}
+			transport, ok := readMemoryString(mod, uint32(transportPtr), uint32(transportLen))
+			if !ok {
+				return -1
+			}
+			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			if !ok {
+				return -1
+			}
+			if atomic.LoadInt64(&rt.netListenerCount) >= maxNetListenersPerRuntime {
+				return -1
+			}
+			ln, kind, path, err := listenNet(host, transport, hostStr, int(port))
+			if err != nil {
+				return -1
+			}
+			id, err := rt.handles.alloc(string(HandleTypeListen), &netListener{l: ln, kind: kind, path: path})
+			if err != nil {
+				_ = ln.Close()
+				if path != "" {
+					_ = removeUnixSocketFile(path)
+				}
+				return -1
+			}
+			atomic.AddInt64(&rt.netListenerCount, 1)
+			return int64(id)
+		}).
+		Export("stado_net_listen")
+}
+
+// listenNet performs the cap-gated bind. Returns the kind tag (for
+// later cleanup) and the socket path (Unix only).
+func listenNet(host *Host, transport, hostStr string, port int) (net.Listener, string, string, error) {
+	switch transport {
+	case "tcp":
+		portStr := strconv.Itoa(port)
+		if !host.NetListen.CanListenTCP(hostStr, portStr) {
+			return nil, "", "", errCapDenied
+		}
+		ln, err := net.Listen("tcp", net.JoinHostPort(hostStr, portStr))
+		if err != nil {
+			return nil, "", "", err
+		}
+		return ln, "tcp", "", nil
+	case "unix":
+		if err := validateUnixSocketPath(hostStr); err != nil {
+			return nil, "", "", err
+		}
+		if !host.NetListen.CanListenUnix(hostStr) {
+			return nil, "", "", errCapDenied
+		}
+		ln, err := net.Listen("unix", hostStr)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return ln, "unix", hostStr, nil
+	default:
+		return nil, "", "", errCapDenied
+	}
+}
+
+// stado_net_accept(lst_handle i32, timeout_ms i32) → i64
+//
+// Returns the accepted conn handle (uint32 promoted to i64) on success.
+// Returns -1 on error / unknown handle / cap exhausted, -2 on timeout.
+// Timeout is clamped to [0, netAcceptMaxTimeout]; <=0 = default 5s.
+func registerNetAcceptImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, handle, timeoutMs int32) int64 {
+			if host.NetListen == nil {
+				return -1
+			}
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			timeout := time.Duration(timeoutMs) * time.Millisecond
+			if timeout <= 0 {
+				timeout = netAcceptDefaultTimeout
+			}
+			if timeout > netAcceptMaxTimeout {
+				timeout = netAcceptMaxTimeout
+			}
+			if d, ok := lst.l.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = d.SetDeadline(time.Now().Add(timeout))
+				defer d.SetDeadline(time.Time{})
+			}
+			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
+				return -1
+			}
+			conn, err := lst.l.Accept()
+			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					return -2
+				}
+				return -1
+			}
+			id, err := rt.handles.alloc(string(HandleTypeConn), &netConn{c: conn})
+			if err != nil {
+				_ = conn.Close()
+				return -1
+			}
+			atomic.AddInt64(&rt.netConnCount, 1)
+			return int64(id)
+		}).
+		Export("stado_net_accept")
+}
+
+// stado_net_close_listener(lst_handle) → i32
+// Returns 0 on success / already-closed; -1 on unknown handle. Removes
+// the unix socket file if the listener was a unix bind. Idempotent.
+func registerNetCloseListenerImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
+	builder.NewFunctionBuilder().
+		WithFunc(func(ctx context.Context, mod api.Module, handle int32) int32 {
+			if host.NetListen == nil {
+				return -1
+			}
+			lst, ok := lookupNetListener(rt, uint32(handle))
+			if !ok {
+				return -1
+			}
+			_ = lst.l.Close()
+			if lst.kind == "unix" && lst.path != "" {
+				_ = removeUnixSocketFile(lst.path)
+			}
+			rt.handles.free(uint32(handle))
+			atomic.AddInt64(&rt.netListenerCount, -1)
+			return 0
+		}).
+		Export("stado_net_close_listener")
+}
+
+// lookupNetListener fetches the *netListener for a handle, or
+// (nil, false) if the handle isn't ours.
+func lookupNetListener(rt *Runtime, handle uint32) (*netListener, bool) {
+	if !rt.handles.isType(handle, string(HandleTypeListen)) {
+		return nil, false
+	}
+	v, ok := rt.handles.get(handle)
+	if !ok {
+		return nil, false
+	}
+	lst, ok := v.(*netListener)
+	return lst, ok
+}
+
+// closeAllNetListeners reaps listener handles on Runtime.Close. Removes
+// any unix socket files left behind.
+func (r *Runtime) closeAllNetListeners(ctx context.Context) {
+	r.handles.mu.Lock()
+	listeners := make([]*netListener, 0)
+	for id, e := range r.handles.entries {
+		if e.typeTag != string(HandleTypeListen) {
+			continue
+		}
+		if l, ok := e.value.(*netListener); ok {
+			listeners = append(listeners, l)
+		}
+		delete(r.handles.entries, id)
+	}
+	r.handles.mu.Unlock()
+	for _, l := range listeners {
+		_ = l.l.Close()
+		if l.kind == "unix" && l.path != "" {
+			_ = removeUnixSocketFile(l.path)
+		}
+	}
+}
+
+// removeUnixSocketFile is a thin wrapper over os.Remove that swallows
+// not-found errors so listener cleanup is idempotent. Returns the
+// underlying error for any other failure.
+func removeUnixSocketFile(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // closeAllNetConns is called on Runtime.Close to reap any TCP

@@ -145,9 +145,25 @@ func classifyCapability(cap string) capabilityNote {
 		cn.requirement = requireNothing
 		cn.note = "stado_tool_invoke — plugin calls other registered tools; gated by name glob; depth-limited recursion"
 		return cn
-	case strings.HasPrefix(cap, "net:dial:"):
+	case strings.HasPrefix(cap, "net:dial:tcp:"):
 		cn.requirement = requireNothing
-		cn.note = "stado_net_dial (TCP) — raw socket connection. Glob: <transport>:<host>:<port>. Private addrs require net:http_request_private."
+		cn.note = "stado_net_dial (TCP) — raw socket connection. Private addrs require net:http_request_private."
+		return cn
+	case strings.HasPrefix(cap, "net:dial:udp:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_net_dial (UDP) — connect-mode datagram socket. Private addrs require net:http_request_private."
+		return cn
+	case strings.HasPrefix(cap, "net:dial:unix:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_net_dial (Unix) — local IPC socket. Path-glob gated; refuses `..` traversal."
+		return cn
+	case strings.HasPrefix(cap, "net:listen:tcp:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_net_listen (TCP) — server-side bind. Loopback vs 0.0.0.0 must be spelled out in the cap; no implicit fallback. 8 listeners per plugin."
+		return cn
+	case strings.HasPrefix(cap, "net:listen:unix:"):
+		cn.requirement = requireNothing
+		cn.note = "stado_net_listen (Unix) — server-side IPC bind. Socket file is removed on listener close."
 		return cn
 	case cap == "net:http_client":
 		cn.requirement = requireNothing

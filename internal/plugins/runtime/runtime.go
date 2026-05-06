@@ -59,10 +59,15 @@ type Runtime struct {
 	// Accessed atomically. Used to enforce maxHTTPClientsPerRuntime.
 	httpClientCount int64
 
-	// netConnCount tracks open stado_net_dial TCP handles
-	// (typeTag "conn"). Accessed atomically. Used to enforce
-	// maxNetConnsPerRuntime. EP-0038f.
+	// netConnCount tracks open stado_net_dial handles (typeTag
+	// "conn"; TCP / UDP / Unix dialed AND accepted). Accessed
+	// atomically. Enforces maxNetConnsPerRuntime. EP-0038f / 0038g.
 	netConnCount int64
+
+	// netListenerCount tracks open stado_net_listen handles
+	// (typeTag "listen"). Accessed atomically. Enforces
+	// maxNetListenersPerRuntime. EP-0038g.
+	netListenerCount int64
 
 	// instanceStore is the per-Runtime in-memory KV store backing
 	// stado_instance_*. Process-lifetime; cleared at Close. Per-plugin
@@ -129,6 +134,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 	closeAllHTTPClients(r)
 	r.closeAllNetConns(ctx)
+	r.closeAllNetListeners(ctx)
 	return r.rt.Close(ctx)
 }
 
