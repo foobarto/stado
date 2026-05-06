@@ -100,6 +100,70 @@ func TestJSONFormat_Malformed(t *testing.T) {
 	}
 }
 
+// TestJSONSetByPath: set updates the document at the path and
+// returns the canonical bytes; missing keys on existing objects
+// are added; out-of-range array indices are rejected.
+func TestJSONSetByPath(t *testing.T) {
+	raw := []byte(`{"user":{"name":"alice","tags":["admin","ops"]},"count":42}`)
+
+	cases := []struct {
+		name      string
+		path      string
+		value     string
+		wantInOut string // substring expected in output
+		wantErr   bool
+	}{
+		{"replace string", "user.name", `"bob"`, `"name":"bob"`, false},
+		{"replace number", "count", `100`, `"count":100`, false},
+		{"replace array elem", "user.tags.0", `"superuser"`, `"superuser"`, false},
+		{"add new key", "user.email", `"x@y"`, `"email":"x@y"`, false},
+		{"replace object", "user", `{"role":"guest"}`, `"role":"guest"`, false},
+		{"oor array index", "user.tags.99", `"x"`, "", true},
+		{"non-numeric on array", "user.tags.q", `"x"`, "", true},
+		{"value not json", "count", `not-json`, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := jsonSetByPath(raw, tc.path, []byte(tc.value))
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error; got %s", out)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if !strings.Contains(string(out), tc.wantInOut) {
+				t.Errorf("output missing %q: %s", tc.wantInOut, out)
+			}
+		})
+	}
+}
+
+// TestJSONSetByPath_RootReplace: empty path replaces the whole document.
+func TestJSONSetByPath_RootReplace(t *testing.T) {
+	out, err := jsonSetByPath([]byte(`{"a":1}`), "", []byte(`[1,2,3]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != `[1,2,3]` {
+		t.Errorf("got %s, want [1,2,3]", out)
+	}
+}
+
+// TestJSONSetByPath_NilDescent: setting deep into a missing key chain
+// auto-creates the intermediate objects (treating nil as empty object).
+func TestJSONSetByPath_NilDescent(t *testing.T) {
+	out, err := jsonSetByPath([]byte(`{}`), "a.b.c", []byte(`"deep"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"c":"deep"`) {
+		t.Errorf("nested set missing: %s", out)
+	}
+}
+
 // TestJSONGetByPath_ReturnsCanonicalForms confirms that round-tripping
 // `_get` output back into `_get` works (number → number, string keeps
 // quotes, object → object).

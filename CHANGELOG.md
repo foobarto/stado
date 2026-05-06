@@ -8,6 +8,16 @@ Plugins / Infra / Fixes.
 
 ### Plugin runtime — new host imports
 
+- **`stado_json_set(json, path, value) → modified_json`** — companion
+  to v0.38.0's `_get` / `_format`. Mutates a value at a dotted path
+  in a JSON document and returns the canonical bytes of the modified
+  document. The `value` payload is itself parsed as JSON and embedded
+  at the target. New object keys are added; out-of-range / non-numeric
+  array indices return -1 (no implicit array growth). Walking
+  through nil auto-creates intermediate objects so plugins can build
+  nested structure incrementally. Empty path replaces the whole doc.
+  No capability gating (pure compute, bounded to 256 KB input).
+
 - **`stado_http_upload_create` + `_upload_write` + `_upload_finish`** —
   chunked HTTP request body delivery (EP-0038i, the symmetric
   counterpart to v0.38.0 response streaming). Plugins can now upload
