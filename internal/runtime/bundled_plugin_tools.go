@@ -3,14 +3,12 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
-	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
-	"github.com/foobarto/stado/internal/plugins/runtime/pty"
+	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/astgrep"
@@ -415,69 +413,25 @@ func (p *bundledPluginTool) Schema() map[string]any {
 }
 func (p *bundledPluginTool) Class() tool.Class { return p.class }
 
+// Run dispatches the bundled plugin via pluginrun.Run. Pre-Step-0.2
+// this function had its own copy of the runtime + host setup +
+// lifecycle wiring; pluginrun absorbed all of it. Bundled and installed
+// plugins now share the same invocation primitive — the only
+// difference is where the wasm bytes come from (embed.FS for bundled,
+// disk for installed).
 func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	rt, err := pluginRuntime.New(ctx)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: runtime: %w", p.def.Name, err)
-	}
-	defer func() { _ = rt.Close(ctx) }()
-
-	host := pluginRuntime.NewHost(p.manifest, h.Workdir(), nil)
-	host.ToolHost = h
-	// EP-0038c: wire FleetBridge for agent.* tools when the host provides one.
-	if afp, ok := h.(tool.AgentFleetProvider); ok {
-		if fb, ok := afp.AgentFleetBridge().(pluginRuntime.FleetBridge); ok {
-			host.FleetBridge = fb
-		}
-	}
-	// Bug-fix: each bundledPluginTool.Run builds a fresh pluginRuntime
-	// with its own pty.NewManager(). That breaks shell.spawn → shell.read
-	// across calls because the second runtime's manager doesn't know
-	// about the first runtime's PTY. When the caller supplies a
-	// long-lived PTY manager (TUI session, MCP server, headless agent
-	// loop), reuse it so spawn/attach/read/write/destroy share state.
-	if pp, ok := h.(tool.PTYProvider); ok {
-		if pm, ok := pp.PTYManager().(*pty.Manager); ok && pm != nil {
-			host.PTYManager = pm
-		}
-	}
-	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
-		host.ApprovalBridge = bridge
-	}
-	// EP-0038h: route stado_progress emissions to the host when it's
-	// equipped to render them (TUI, headless run, plugin run stderr).
-	// EP-0038i: ALSO append to the per-call progress collector if
-	// one's installed in ctx (Executor.Run installs it). The collector
-	// surfaces emissions to the model via the result envelope.
-	progCollector := tool.ProgressFromContext(ctx)
-	pe, hasEmitter := h.(tool.ProgressEmitter)
-	if hasEmitter || progCollector != nil {
-		host.Progress = func(plugin, text string) {
-			if hasEmitter {
-				pe.EmitProgress(plugin, text)
-			}
-			if progCollector != nil {
-				progCollector.Append(plugin, text)
-			}
-		}
-	}
-	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: host imports: %w", p.def.Name, err)
-	}
-	mod, err := rt.Instantiate(ctx, p.wasm, p.manifest)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, fmt.Errorf("bundled plugin %s: instantiate: %w", p.def.Name, err)
-	}
-	defer func() { _ = mod.Close(ctx) }()
-
-	pt, err := pluginRuntime.NewPluginTool(mod, p.def)
-	if err != nil {
-		return tool.Result{Error: err.Error()}, err
-	}
-	return pt.Run(ctx, args, h)
+	return pluginrun.Run(ctx, pluginrun.RunArgs{
+		Manifest:       p.manifest,
+		WasmBytes:      p.wasm,
+		ToolName:       p.def.Name,
+		Args:           args,
+		Cfg:            installedRunCfg, // bound at registry-build time
+		Workdir:        h.Workdir(),
+		InvokeRegistry: installedInvokeReg,
+	}, h)
 }
 
 func pluginClassName(class tool.Class) string {

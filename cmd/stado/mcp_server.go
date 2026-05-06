@@ -31,12 +31,10 @@ import (
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
-	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools/llmtool"
-	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -61,12 +59,20 @@ var mcpServerCmd = &cobra.Command{
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
-			reg := runtime.BuildDefaultRegistry(cfg)
-			reg.Register(tasktool.Tool{Path: tasks.StorePath(cfg.StateDir())})
-			// llm.invoke — MCP-only tool exposing stado's configured
-			// provider with persona selection. Not registered in TUI /
-			// `stado run` paths (where the model is the consumer, not
-			// a tool client). EP-0038i.
+			// Shared composition with the agent loop / CLI: bundled +
+			// installed plugin tools + tasks + MCP-attached + wasm
+			// migration + overrides + filter. Step 0.5 of EP-no-internal-
+			// tools — pre-converge the MCP server skipped MCP attach,
+			// wasm migration, and tool overrides.
+			reg, err := runtime.BuildRegistryWithPlugins(cfg)
+			if err != nil {
+				return fmt.Errorf("mcp-server: registry: %w", err)
+			}
+			// llm.invoke — MCP-server-only tool exposing stado's
+			// configured provider with persona selection. Deliberately
+			// not in BuildRegistryWithPlugins because it doesn't belong
+			// on the agent registry (model uses stado_agent_* for
+			// sub-LLM delegation, not a model-facing llm.invoke tool).
 			reg.Register(llmtool.Tool{
 				Provider:       func() (agent.Provider, error) { return tui.BuildProvider(cfg) },
 				DefaultModel:   cfg.Defaults.Model,
@@ -74,7 +80,6 @@ var mcpServerCmd = &cobra.Command{
 				CWD:            mustCwd(),
 				ConfigDir:      config.ConfigDir(),
 			})
-			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())
 			runner := sandbox.Detect()

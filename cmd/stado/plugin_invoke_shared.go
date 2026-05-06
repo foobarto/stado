@@ -7,21 +7,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/sandbox"
-	"github.com/foobarto/stado/internal/secrets"
 )
 
 // pluginInvokeArgs is the input to runPluginInvocation. The caller
 // (tool_run.go for bundled plugins; future installed-plugin invokers)
 // is responsible for loading + verifying the manifest and the wasm
-// bytes; this helper handles the wasm instantiation, host-import
-// wiring, and tool dispatch.
+// bytes; this helper handles workdir resolution + CLI-flavoured
+// stdout/stderr formatting around the shared pluginrun.Run dispatch.
 type pluginInvokeArgs struct {
 	Manifest   plugins.Manifest // already loaded + verified by the caller
 	WasmBytes  []byte           // already verified against Manifest.WASMSHA256
@@ -35,10 +34,10 @@ type pluginInvokeArgs struct {
 	Stderr     io.Writer // typically cmd.ErrOrStderr()
 }
 
-// runPluginInvocation is the shared invoke body called from
-// tool_run. Returns nil on success; an error on any failure.
-// Prints res.Content to Stdout on success, res.Error to Stderr on a
-// plugin-reported error.
+// runPluginInvocation is the CLI's wrapper around pluginrun.Run. It
+// resolves the --workdir arg, sets up CLI-flavoured Progress / Secrets
+// audit / SessionBridge note callbacks (all of which stream to Stderr),
+// dispatches via pluginrun, and prints the result envelope to Stdout.
 func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	cfg := in.Cfg
 
@@ -59,16 +58,63 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 		workdir = abs
 	}
 
-	host := pluginRuntime.NewHost(in.Manifest, workdir, nil)
-	host.StateDir = cfg.StateDir()
-	// stado_progress emissions surface as bracketed lines on the
-	// operator's stderr during a direct `stado plugin run`. EP-0038h.
-	host.Progress = func(plugin, text string) {
-		fmt.Fprintf(in.Stderr, "[%s] %s\n", plugin, text)
+	// CLI-side host: minimal mock providing workdir, runner, and
+	// auto-approval. Agent loop / MCP server callers of pluginrun.Run
+	// pass their real tool.Host carrying lifecycle bridges.
+	runner := sandbox.Detect()
+	host := newPluginRunToolHost(workdir, runner, false)
+
+	// stado_tool_invoke dispatch from this CLI invocation routes
+	// against the live BuildDefaultRegistry — same set the agent loop
+	// would see. Per-call construction is fine for the CLI single-shot
+	// path (no surrounding executor with filters).
+	invokeReg := runtime.BuildDefaultRegistry(cfg)
+
+	args := pluginrun.RunArgs{
+		Manifest:  in.Manifest,
+		WasmBytes: in.WasmBytes,
+		ToolName:  in.ToolName,
+		Args:      json.RawMessage(in.ArgsJSON),
+		Cfg:       cfg,
+		Workdir:   workdir,
+		SessionID: in.SessionID,
+		// Progress / SecretsAudit go to Stderr in CLI mode. Agent loop
+		// and MCP server pass nil here; they wire progress via the
+		// host's ProgressEmitter interface that pluginrun assertion
+		// pulls off the host.
+		SecretsAudit: func(ev pluginRuntime.SecretsAuditEvent) {
+			fmt.Fprintf(in.Stderr,
+				"stado-audit: secrets op=%s secret=%q plugin=%s allowed=%v reason=%s\n",
+				ev.Op, ev.Secret, ev.Plugin, ev.Allowed, ev.Reason)
+		},
+		InvokeRegistry: invokeReg,
+		SessionBridgeNote: func(note string) {
+			fmt.Fprintln(in.Stderr, note)
+		},
+		// SessionBridgeBuilder is wired only when the CLI was invoked
+		// with --session OR the manifest declares a session-aware cap
+		// without --session (in which case we want the CLI's
+		// "pass --session to attach" note rather than nil-bridge silent
+		// failure). pluginrun's nil-bridge path also surfaces the cap
+		// gracefully — but the CLI message is more helpful, so we
+		// always supply the builder.
+		SessionBridgeBuilder: func(ctx context.Context, sessionID, pluginName string, withLLM bool) (pluginRuntime.SessionBridge, string, error) {
+			if sessionID != "" {
+				bridge, note, err := buildPluginRunBridge(ctx, cfg, sessionID, pluginName, withLLM)
+				return bridge, note, err
+			}
+			bridge := pluginRuntime.NewSessionBridge(nil, nil, "")
+			bridge.PluginName = pluginName
+			return bridge, "stado plugin run: session-aware capabilities declared; note that the one-shot CLI has no live session — pass --session <id> to attach to a persisted session", nil
+		},
 	}
 
-	runner := sandbox.Detect()
-	if host.ExecBash && !host.ExecProc && runner.Name() == "none" {
+	// Compute exec:bash refuse-no-runner check before pluginrun (which
+	// also enforces it) so the CLI's error message is the rich one with
+	// install hints instead of pluginrun's generic copy. After Step 4
+	// migrates bash to exec:proc, this check disappears.
+	probeHost := pluginRuntime.NewHost(in.Manifest, workdir, nil)
+	if probeHost.ExecBash && !probeHost.ExecProc && runner.Name() == "none" {
 		if cfg.Sandbox.RefuseNoRunner {
 			return fmt.Errorf(
 				"plugin run: plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap (Linux: `apt install bubblewrap` / `dnf install bubblewrap`) or sandbox-exec (macOS: bundled with Xcode CLT), or set [sandbox] refuse_no_runner = false to run unsandboxed",
@@ -79,127 +125,7 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 			in.Manifest.Name)
 	}
 
-	rt, err := pluginRuntime.New(ctx)
-	if err != nil {
-		return fmt.Errorf("runtime: %w", err)
-	}
-	defer func() { _ = rt.Close(ctx) }()
-
-	attachPluginMemoryBridge(cfg, host, in.Manifest.Name)
-	host.ToolHost = newPluginRunToolHost(workdir, runner, host.NetHTTPRequestPrivate)
-
-	if host.Secrets != nil {
-		host.Secrets.Store = secrets.NewStore(cfg.StateDir())
-		host.Secrets.PluginName = in.Manifest.Name
-		host.Secrets.AuditEmitter = func(ev pluginRuntime.SecretsAuditEvent) {
-			fmt.Fprintf(in.Stderr, "stado-audit: secrets op=%s secret=%q plugin=%s allowed=%v reason=%s\n",
-				ev.Op, ev.Secret, ev.Plugin, ev.Allowed, ev.Reason)
-		}
-	}
-	if host.State != nil {
-		host.State.Store = rt.InstanceStore()
-		host.State.PluginName = in.Manifest.Name
-	}
-	if host.ToolInvoke != nil {
-		host.ToolInvoke.Invoke = func(ctx context.Context, name string, args json.RawMessage) (string, error) {
-			// Installed-plugin target: bypass the sentinel
-			// installedPluginTool.Run and dispatch through
-			// runPluginInvocation (same path tool_run.go uses for direct
-			// CLI invocations). Without this hop the inner call hits the
-			// "not invokable directly" sentinel error string.
-			if mfst, wasmPath, ok := runtime.LookupInstalledModule(name); ok {
-				wasmBytes, werr := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
-				if werr != nil {
-					return "", fmt.Errorf("verify: %w", werr)
-				}
-				bareName := name
-				for _, td := range mfst.Tools {
-					if td.Name == name {
-						bareName = td.Name
-						break
-					}
-				}
-				var stdoutBuf strings.Builder
-				if rerr := runPluginInvocation(ctx, pluginInvokeArgs{
-					Manifest:   mfst,
-					WasmBytes:  wasmBytes,
-					ToolName:   bareName,
-					ArgsJSON:   string(args),
-					Cfg:        cfg,
-					WorkdirArg: in.WorkdirArg,
-					InstallDir: filepath.Dir(wasmPath),
-					SessionID:  in.SessionID,
-					Stdout:     &stdoutBuf,
-					Stderr:     in.Stderr,
-				}); rerr != nil {
-					return "", rerr
-				}
-				// runPluginInvocation Fprintln's res.Content; strip the
-				// trailing newline so the caller sees the same shape
-				// reg.Run would produce.
-				return strings.TrimRight(stdoutBuf.String(), "\n"), nil
-			}
-			// Native + bundled-plugin target. CLI plugin-run has no
-			// surrounding session registry, so we route against the live
-			// BuildDefaultRegistry — same set the agent loop would see.
-			// The inner tool runs against host.ToolHost (the tool.Host
-			// carrying the agent's workdir/runner), not the plugin host
-			// directly. Errors propagate so the plugin can surface them.
-			reg := runtime.BuildDefaultRegistry(cfg)
-			result, err := reg.Run(ctx, name, args, host.ToolHost)
-			if err != nil {
-				return "", err
-			}
-			if result.Error != "" {
-				return "", fmt.Errorf("%s: %s", name, result.Error)
-			}
-			return result.Content, nil
-		}
-	}
-
-	if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
-		if in.SessionID != "" {
-			bridge, note, err := buildPluginRunBridge(ctx, cfg, in.SessionID, in.Manifest.Name, host.LLMInvokeBudget > 0)
-			if err != nil {
-				return err
-			}
-			host.SessionBridge = bridge
-			if note != "" {
-				fmt.Fprintln(in.Stderr, note)
-			}
-		} else {
-			bridge := pluginRuntime.NewSessionBridge(nil, nil, "")
-			bridge.PluginName = in.Manifest.Name
-			host.SessionBridge = bridge
-			fmt.Fprintln(in.Stderr,
-				"stado plugin run: session-aware capabilities declared; note that the one-shot CLI has no live session — pass --session <id> to attach to a persisted session")
-		}
-	}
-
-	if err := pluginRuntime.InstallHostImports(ctx, rt, host); err != nil {
-		return fmt.Errorf("host imports: %w", err)
-	}
-	mod, err := rt.Instantiate(ctx, in.WasmBytes, in.Manifest)
-	if err != nil {
-		return fmt.Errorf("instantiate: %w", err)
-	}
-	defer func() { _ = mod.Close(ctx) }()
-
-	var tdef *plugins.ToolDef
-	for i := range in.Manifest.Tools {
-		if in.Manifest.Tools[i].Name == in.ToolName {
-			tdef = &in.Manifest.Tools[i]
-			break
-		}
-	}
-	if tdef == nil {
-		return fmt.Errorf("tool %q not declared in plugin manifest %q", in.ToolName, in.Manifest.Name)
-	}
-	pt, err := pluginRuntime.NewPluginTool(mod, *tdef)
-	if err != nil {
-		return err
-	}
-	res, err := pt.Run(ctx, []byte(in.ArgsJSON), nil)
+	res, err := pluginrun.Run(ctx, args, host)
 	if err != nil {
 		if res.Error != "" {
 			fmt.Fprintln(in.Stderr, res.Error)
@@ -212,3 +138,4 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	fmt.Fprintln(in.Stdout, res.Content)
 	return nil
 }
+
