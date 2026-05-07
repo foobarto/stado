@@ -26,9 +26,9 @@ const loopDoneSignal = "[LOOP_DONE]"
 
 // handleLoopCmd processes a /loop slash command. EP-0036.
 //
-//   /loop stop                  → cancel active loop
-//   /loop <prompt>              → immediate-repeat on <prompt>
-//   /loop <duration> <prompt>   → timed loop (e.g. /loop 5m check deploy)
+//	/loop stop                  → cancel active loop
+//	/loop <prompt>              → immediate-repeat on <prompt>
+//	/loop <duration> <prompt>   → timed loop (e.g. /loop 5m check deploy)
 func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 	rest = strings.TrimSpace(rest)
 
@@ -119,4 +119,3 @@ func (m *Model) loopTick() tea.Cmd {
 // lastAssistantText returns the most recently accumulated assistant
 // response text (m.turnText, which is populated during streaming).
 func (m *Model) lastAssistantText() string { return m.turnText }
-

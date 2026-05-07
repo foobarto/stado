@@ -10,14 +10,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/fs"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/fs"
-	"github.com/foobarto/stado/pkg/tool"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // TestStartup_NoProviderKey proves stado's TUI boot path does NOT require
@@ -253,9 +253,9 @@ func TestStartupProbeFailureRestoresQueuedPrompt(t *testing.T) {
 func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 	rnd, _ := render.New(theme.Default())
 	reg := tools.NewRegistry()
-	reg.Register(fs.ReadTool{})   // NonMutating
-	reg.Register(fs.WriteTool{})  // Mutating
-	reg.Register(fs.EditTool{})  // Mutating
+	reg.Register(fs.ReadTool{})         // NonMutating
+	reg.Register(fs.WriteTool{})        // Mutating
+	reg.Register(fs.EditTool{})         // Mutating
 	reg.Register(stubNonMutatingTool{}) // NonMutating — was rg.Tool pre-Step-5
 	reg.Register(stubExecTool{})        // Exec — was bash.BashTool pre-Step-4
 	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
@@ -298,10 +298,10 @@ func TestPlanMode_FiltersMutatingTools(t *testing.T) {
 // filtering.
 type stubNonMutatingTool struct{}
 
-func (stubNonMutatingTool) Name() string                                                       { return "ripgrep" }
-func (stubNonMutatingTool) Description() string                                                { return "stub non-mutating tool for tests" }
-func (stubNonMutatingTool) Schema() map[string]any                                             { return map[string]any{"type": "object"} }
-func (stubNonMutatingTool) Class() pkgtoolClass                                                { return tool.ClassNonMutating }
+func (stubNonMutatingTool) Name() string           { return "ripgrep" }
+func (stubNonMutatingTool) Description() string    { return "stub non-mutating tool for tests" }
+func (stubNonMutatingTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (stubNonMutatingTool) Class() pkgtoolClass    { return tool.ClassNonMutating }
 func (stubNonMutatingTool) Run(_ context.Context, _ json.RawMessage, _ pkgtoolHost) (pkgtoolResult, error) {
 	return pkgtoolResult{}, nil
 }
@@ -310,10 +310,10 @@ func (stubNonMutatingTool) Run(_ context.Context, _ json.RawMessage, _ pkgtoolHo
 // that just need an Exec-class tool to verify the Plan/Do mode filter.
 type stubExecTool struct{}
 
-func (stubExecTool) Name() string                                                       { return "bash" }
-func (stubExecTool) Description() string                                                { return "stub exec tool for tests" }
-func (stubExecTool) Schema() map[string]any                                             { return map[string]any{"type": "object"} }
-func (stubExecTool) Class() pkgtoolClass                                                { return pkgtoolClassExec }
+func (stubExecTool) Name() string           { return "bash" }
+func (stubExecTool) Description() string    { return "stub exec tool for tests" }
+func (stubExecTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (stubExecTool) Class() pkgtoolClass    { return pkgtoolClassExec }
 func (stubExecTool) Run(_ context.Context, _ json.RawMessage, _ pkgtoolHost) (pkgtoolResult, error) {
 	return pkgtoolResult{}, nil
 }

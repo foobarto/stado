@@ -188,11 +188,11 @@ func readModelStateFile(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("model state file is not regular: %s", name)
 	}
-	return workdirpath.ReadRootRegularFileLimited(root, name, maxModelStateFileBytes)
+	return workdirpath.NewRootResolver(root).ReadFileLimited(name, maxModelStateFileBytes)
 }
 
 func writeModelStateRecords(path string, records []modelRecentRecord) bool {
-	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.NewUserConfigResolver().MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false
 	}
 	data, err := json.MarshalIndent(records, "", "  ")
@@ -204,7 +204,7 @@ func writeModelStateRecords(path string, records []modelRecentRecord) bool {
 		return false
 	}
 	defer func() { _ = root.Close() }()
-	return workdirpath.WriteRootFileAtomic(root, name, append(data, '\n'), 0o600) == nil
+	return workdirpath.NewRootResolver(root).WriteFileAtomic(name, append(data, '\n'), 0o600) == nil
 }
 
 func modelStateRoot(path string) (*os.Root, string, error) {
@@ -213,7 +213,7 @@ func modelStateRoot(path string) (*os.Root, string, error) {
 	if name == "." || name == string(filepath.Separator) {
 		return nil, "", fmt.Errorf("invalid model state path: %s", path)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(dir)
 	if err != nil {
 		return nil, "", err
 	}

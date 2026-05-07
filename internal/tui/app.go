@@ -20,6 +20,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/fs"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/providers/acpwrap"
@@ -33,7 +34,6 @@ import (
 	"github.com/foobarto/stado/internal/runtime/sessionstats"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
-	"github.com/foobarto/stado/internal/fs"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -303,8 +303,8 @@ func BuildProvider(cfg *config.Config) (agent.Provider, error) { return buildPro
 // specific message.
 func buildIntegrationFallback(cfg *config.Config, name string) (agent.Provider, error, bool) {
 	var (
-		base     string
-		isMCP    bool
+		base  string
+		isMCP bool
 	)
 	switch {
 	case strings.HasSuffix(name, "-acp"):

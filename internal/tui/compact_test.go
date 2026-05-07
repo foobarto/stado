@@ -21,7 +21,7 @@ type compactStubProvider struct {
 	summary string
 }
 
-func (compactStubProvider) Name() string                  { return "compact-stub" }
+func (compactStubProvider) Name() string                     { return "compact-stub" }
 func (compactStubProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 
 func (p compactStubProvider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {

@@ -331,9 +331,9 @@ type Model struct {
 	// + the names in this set. Cleared on /clear and on session-switch.
 	// nil = empty (treat as no activations).
 	activatedTools map[string]bool
-	vp          viewport.Model
-	showHelp    bool
-	showStatus  bool
+	vp             viewport.Model
+	showHelp       bool
+	showStatus     bool
 
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only

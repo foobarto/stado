@@ -1099,7 +1099,7 @@ func currentGitBranch(cwd string) string {
 		return ""
 	}
 
-	root, err := workdirpath.OpenRootUnderUserConfig(repo)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(repo)
 	if err != nil {
 		return ""
 	}
@@ -1107,7 +1107,7 @@ func currentGitBranch(cwd string) string {
 	if info, err := root.Stat(".git"); err != nil || !info.IsDir() {
 		return ""
 	}
-	head, err := workdirpath.ReadRootRegularFileLimited(root, filepath.Join(".git", "HEAD"), maxGitHeadFileBytes)
+	head, err := workdirpath.NewRootResolver(root).ReadFileLimited(filepath.Join(".git", "HEAD"), maxGitHeadFileBytes)
 	if err != nil {
 		return ""
 	}

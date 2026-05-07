@@ -422,7 +422,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 				}
 			case "attach":
 				m.handleSessionAttach(parts)
-		case "detach":
+			case "detach":
 				m.handleSessionDetach()
 			default:
 				m.appendBlock(block{kind: "system", body: fmt.Sprintf("/session %s: unknown verb. Try: list, show, attach", parts[1])})

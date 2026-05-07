@@ -21,8 +21,8 @@ type monitorDoneMsg struct{ err error }
 
 // handleMonitorCmd processes a /monitor slash command. EP-0036.
 //
-//   /monitor <cmd>   start streaming <cmd> stdout as system blocks
-//   /monitor stop    kill the background process
+//	/monitor <cmd>   start streaming <cmd> stdout as system blocks
+//	/monitor stop    kill the background process
 func (m *Model) handleMonitorCmd(rest string) tea.Cmd {
 	rest = strings.TrimSpace(rest)
 
