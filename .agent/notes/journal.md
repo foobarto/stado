@@ -51,6 +51,30 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — Phase 1.3 complete
+
+FleetBridgeAdapter contract tests cover the layer the plan was
+specifically worried about (no test file existed for fleet_bridge.go;
+fleet_test.go covered the underlying *Fleet, not the adapter).
+
+17 tests covering all 5 adapter methods + concurrency (20-way
+parallel spawn). Stable under -count=10 -race.
+
+Plan-vs-reality: Fleet.Cancel is documented idempotent (returns
+nil for unknown IDs). Plan called for typed not-found error.
+Aligning would be a behavior change; existing callers depend on
+idempotency. Kept current behavior; documented divergence in the
+test for future-fix follow-up.
+
+Race detector caught a latent issue in the package's existing
+fakeSpawner (gotPrompt write isn't atomic). Existing tests run
+serially so they don't hit it. My concurrency test would have, so
+I added a tiny race-safe `concurrentSpawner` for that test only —
+didn't touch fakeSpawner per "don't fix things you weren't asked
+to fix."
+
+Phase 1 is now complete. Ready for merge checkpoint #1.
+
 ## 2026-05-07 — Phase 1.2 complete
 
 Runner contract test in

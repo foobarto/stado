@@ -21,8 +21,17 @@ allowed. 13 sub-test executions. Stable under `-count=10 -race`.
 Multi-layer composition parked as
 `.agent/specs/open/sandbox-multilayer-composition.md`.
 
-Up next: Phase 1.3 (`internal/runtime/fleet_bridge.go` lifecycle
-tests). Closes Phase 1, then merge checkpoint #1.
+Phase 1.3: **complete.** FleetBridgeAdapter contract tests in
+`internal/runtime/fleet_bridge_test.go`. 17 tests covering
+AgentSpawn (sync/async/error/cancel), AgentList, AgentReadMessages
+(unknown/completed/running/timeout/cancel), AgentSendMessage, and
+AgentCancel. Plus a concurrency test (20 parallel spawns).
+Stable under `-count=10 -race`.
+
+Phase 1 done — ready for **merge checkpoint #1** (tests-only
+diff).
+
+Up next: Phase 2.1 (A2) — workdirpath Resolver/RootResolver.
 
 ## Queued (in order, per plan)
 
