@@ -366,7 +366,7 @@ func commitCurrentTree(t *testing.T, sess *stadogit.Session, summary string) {
 	if err != nil {
 		t.Fatalf("BuildTreeFromDir: %v", err)
 	}
-	if _, err := sess.CommitToTree(tree, stadogit.CommitMeta{Tool: "write", Summary: summary}); err != nil {
+	if _, err := sess.CommitToTree(tree, stadogit.CommitMeta{Tool: "fs__write", Summary: summary}); err != nil {
 		t.Fatalf("CommitToTree: %v", err)
 	}
 }

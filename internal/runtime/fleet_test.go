@@ -185,9 +185,9 @@ func TestFleet_UpdateProgress_RunningEntry_BumpsLast(t *testing.T) {
 	defer func() { _ = f.Cancel(id) }()
 
 	time.Sleep(20 * time.Millisecond)
-	f.UpdateProgress(id, "read", "scanning README.md")
+	f.UpdateProgress(id, "fs__read", "scanning README.md")
 	e, _ := f.Get(id)
-	if e.LastTool != "read" {
+	if e.LastTool != "fs__read" {
 		t.Errorf("LastTool = %q", e.LastTool)
 	}
 	if !strings.Contains(e.LastText, "scanning") {

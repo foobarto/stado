@@ -26,7 +26,7 @@ func TestPrefixBytesStable(t *testing.T) {
 		}},
 		{Role: agent.RoleAssistant, Content: []agent.Block{
 			{Text: &agent.TextBlock{Text: "I'll glob."}},
-			{ToolUse: &agent.ToolUseBlock{ID: "t1", Name: "glob", Input: json.RawMessage(`{"pattern":"pkg/**"}`)}},
+			{ToolUse: &agent.ToolUseBlock{ID: "t1", Name: "fs__glob", Input: json.RawMessage(`{"pattern":"pkg/**"}`)}},
 		}},
 		{Role: agent.RoleTool, Content: []agent.Block{
 			{ToolResult: &agent.ToolResultBlock{ToolUseID: "t1", Content: "pkg/agent/agent.go"}},
@@ -56,7 +56,7 @@ func TestPrefixBytesStable(t *testing.T) {
 	// 12 trials with tools registered in randomised order each time. All
 	// must produce identical bytes.
 	rnd := rand.New(rand.NewSource(7))
-	names := []string{"read", "write", "edit", "glob", "grep", "bash"}
+	names := []string{"fs__read", "fs__write", "fs__edit", "fs__glob", "fs__grep", "bash"}
 
 	var canonical []byte
 	for trial := 0; trial < 12; trial++ {

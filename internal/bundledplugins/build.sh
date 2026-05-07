@@ -13,12 +13,6 @@ fi
 
 TOOLS=(
   approval_demo
-  read
-  write
-  edit
-  glob
-  grep
-  read_with_context
   find_definition
   find_references
   document_symbols
@@ -36,10 +30,9 @@ EP38_TOOLS=(
   dns
 )
 
-# EP-0038b/EP-no-internal-tools renamed modules: rebuild from a renamed
-# source dir so the wire-form output name matches the registered tool.
+# EP-no-internal-tools renamed modules: rebuild from a renamed source
+# dir so the wire-form output name matches the registered tool.
 EP38_RENAMED=(
-  "readctx-ng:readctx"
   "ast_grep:astgrep"
 )
 

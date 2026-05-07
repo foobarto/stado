@@ -10,8 +10,6 @@ import (
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/version"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -22,11 +20,9 @@ import (
 // thin host layer.
 func buildNativeRegistry() *tools.Registry {
 	r := tools.NewRegistry()
-	r.Register(fs.ReadTool{})
-	r.Register(fs.WriteTool{})
-	r.Register(fs.EditTool{})
-	r.Register(fs.GlobTool{})
-	r.Register(fs.GrepTool{})
+	// fs native registrations removed Step 7 of EP-no-internal-tools —
+	// replaced by wasm fs__read / fs__write / fs__edit / fs__glob /
+	// fs__grep registered via newBundledWasmTool below.
 	// bash native registration removed Step 4 of EP-no-internal-tools —
 	// replaced by the wasm shell__bash / shell__exec / shell__sh / shell__zsh
 	// tools registered below using stado_exec primitives.
@@ -36,7 +32,8 @@ func buildNativeRegistry() *tools.Registry {
 	// rg + astgrep native registrations removed Step 5 of EP-no-internal-
 	// tools — replaced by wasm rg__search / astgrep__search registered
 	// below (which use stado_exec to spawn the binaries).
-	r.Register(readctx.Tool{})
+	// readctx native registration removed Step 7 of EP-no-internal-tools —
+	// replaced by fs.read_with_context registered via newBundledWasmTool.
 	// lspfind native registrations removed Step 6 of EP-no-internal-tools —
 	// the four lsp wasm shims (find_definition / find_references /
 	// document_symbols / hover) call the now-primitive stado_lsp_*
@@ -65,6 +62,79 @@ func buildBundledPluginRegistry() *tools.Registry {
 		},
 		[]string{"ui:approval"},
 	))
+	// EP-no-internal-tools Step 7: fs.* tools — wasm-backed via the fs
+	// wasm plugin's stado_fs_* primitives. Replaces the native fs.ReadTool /
+	// fs.WriteTool / fs.EditTool / fs.GlobTool / fs.GrepTool registrations.
+	fsReadSchema := map[string]any{
+		"type": "object", "required": []string{"path"},
+		"properties": map[string]any{
+			"path":   map[string]any{"type": "string"},
+			"offset": map[string]any{"type": "integer", "description": "Byte offset (default 0)"},
+			"length": map[string]any{"type": "integer", "description": "Max bytes to read"},
+		},
+	}
+	r.Register(newBundledWasmTool("fs", "stado_tool_read", "fs__read",
+		"Read a file. Optional offset/length for partial reads.",
+		tool.ClassNonMutating, fsReadSchema, []string{"fs:read:."}))
+	r.Register(newBundledWasmTool("fs", "stado_tool_write", "fs__write",
+		"Write content to a file (creates or truncates).",
+		tool.ClassMutating,
+		map[string]any{
+			"type": "object", "required": []string{"path", "content"},
+			"properties": map[string]any{
+				"path":    map[string]any{"type": "string"},
+				"content": map[string]any{"type": "string"},
+			},
+		},
+		[]string{"fs:write:."}))
+	r.Register(newBundledWasmTool("fs", "stado_tool_edit", "fs__edit",
+		"Edit a file by replacing an exact string. Set replace_all=true for multi-occurrence.",
+		tool.ClassMutating,
+		map[string]any{
+			"type": "object", "required": []string{"path", "old_string", "new_string"},
+			"properties": map[string]any{
+				"path":        map[string]any{"type": "string"},
+				"old_string":  map[string]any{"type": "string"},
+				"new_string":  map[string]any{"type": "string"},
+				"replace_all": map[string]any{"type": "boolean"},
+			},
+		},
+		[]string{"fs:read:.", "fs:write:."}))
+	r.Register(newBundledWasmTool("fs", "stado_tool_glob", "fs__glob",
+		"Find files matching a glob pattern. Walks recursively from path (default cwd).",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"pattern"},
+			"properties": map[string]any{
+				"pattern": map[string]any{"type": "string", "description": "Glob pattern (e.g. *.go)"},
+				"path":    map[string]any{"type": "string", "description": "Walk root (default '.')"},
+			},
+		},
+		[]string{"fs:read:."}))
+	r.Register(newBundledWasmTool("fs", "stado_tool_grep", "fs__grep",
+		"Search file contents with regex. Walks recursively from path (default cwd).",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"pattern"},
+			"properties": map[string]any{
+				"pattern": map[string]any{"type": "string", "description": "Regex pattern"},
+				"path":    map[string]any{"type": "string", "description": "Walk root (default '.')"},
+			},
+		},
+		[]string{"fs:read:."}))
+	r.Register(newBundledWasmTool("fs", "stado_tool_read_context", "readctx__read",
+		"Read a file with a window of context around a target line.",
+		tool.ClassNonMutating,
+		map[string]any{
+			"type": "object", "required": []string{"path"},
+			"properties": map[string]any{
+				"path":  map[string]any{"type": "string"},
+				"line":  map[string]any{"type": "integer", "description": "Center line (1-indexed)"},
+				"range": map[string]any{"type": "integer", "description": "Total lines to show (default 20)"},
+			},
+		},
+		[]string{"fs:read:."}))
+
 	// EP-0038c: fs.ls — bundled into the fs wasm module (uses stado_exec for /bin/ls).
 	r.Register(newBundledWasmTool("fs", "stado_tool_ls", "fs__ls",
 		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns the formatted ls output.",

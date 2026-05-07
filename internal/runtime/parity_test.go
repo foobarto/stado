@@ -22,7 +22,7 @@ func TestParityFS(t *testing.T) {
 	}
 	runParityFamily(t, "fs", []parityCase{
 		{
-			nativeName: "read",
+			nativeName: "fs__read",
 			wasmName:   "fs__read",
 			setup: func(dir string) {
 				os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello parity\n"), 0o644)
@@ -32,7 +32,7 @@ func TestParityFS(t *testing.T) {
 			},
 		},
 		{
-			nativeName: "glob",
+			nativeName: "fs__glob",
 			wasmName:   "fs__glob",
 			setup: func(dir string) {
 				os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644)

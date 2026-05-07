@@ -54,14 +54,14 @@ func TestMetaCategories_ValidJSON(t *testing.T) {
 func TestMetaDescribe_SingleName(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	tool := &metaDescribe{reg: reg}
-	res, err := tool.Run(context.Background(), []byte(`{"name":"read"}`), nil)
+	res, err := tool.Run(context.Background(), []byte(`{"name":"fs__read"}`), nil)
 	if err != nil {
 		t.Fatalf("single-name describe: %v", err)
 	}
 	if res.Error != "" {
 		t.Fatalf("res.Error = %q", res.Error)
 	}
-	if !strings.Contains(res.Content, `"name":"read"`) {
+	if !strings.Contains(res.Content, `"name":"fs__read"`) {
 		t.Errorf("expected `read` entry in content; got: %s", res.Content)
 	}
 }
@@ -70,14 +70,14 @@ func TestMetaDescribe_SingleName(t *testing.T) {
 func TestMetaDescribe_NamesArray(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	tool := &metaDescribe{reg: reg}
-	res, err := tool.Run(context.Background(), []byte(`{"names":["read","write"]}`), nil)
+	res, err := tool.Run(context.Background(), []byte(`{"names":["fs__read","fs__write"]}`), nil)
 	if err != nil {
 		t.Fatalf("batched describe: %v", err)
 	}
-	if !strings.Contains(res.Content, `"name":"read"`) {
+	if !strings.Contains(res.Content, `"name":"fs__read"`) {
 		t.Errorf("expected `read`; got: %s", res.Content)
 	}
-	if !strings.Contains(res.Content, `"name":"write"`) {
+	if !strings.Contains(res.Content, `"name":"fs__write"`) {
 		t.Errorf("expected `write`; got: %s", res.Content)
 	}
 }
@@ -86,15 +86,15 @@ func TestMetaDescribe_NamesArray(t *testing.T) {
 func TestMetaDescribe_BothNameAndNames(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	tool := &metaDescribe{reg: reg}
-	res, err := tool.Run(context.Background(), []byte(`{"name":"read","names":["read","write"]}`), nil)
+	res, err := tool.Run(context.Background(), []byte(`{"name":"fs__read","names":["fs__read","fs__write"]}`), nil)
 	if err != nil {
 		t.Fatalf("merged describe: %v", err)
 	}
 	// `read` should appear exactly once in the entries list.
-	if got := strings.Count(res.Content, `"name":"read"`); got != 1 {
+	if got := strings.Count(res.Content, `"name":"fs__read"`); got != 1 {
 		t.Errorf("expected exactly one `read` entry; got %d in: %s", got, res.Content)
 	}
-	if !strings.Contains(res.Content, `"name":"write"`) {
+	if !strings.Contains(res.Content, `"name":"fs__write"`) {
 		t.Errorf("expected `write`; got: %s", res.Content)
 	}
 }
@@ -145,23 +145,23 @@ func TestMetaActivate_AddsToActivationSet(t *testing.T) {
 	tool := &metaActivate{reg: reg}
 	host := newFakeActivatorHost()
 
-	res, err := tool.Run(context.Background(), []byte(`{"name":"read"}`), host)
+	res, err := tool.Run(context.Background(), []byte(`{"name":"fs__read"}`), host)
 	if err != nil {
 		t.Fatalf("activate single: %v", err)
 	}
 	if res.Error != "" {
 		t.Errorf("res.Error = %q", res.Error)
 	}
-	if !host.activated["read"] {
+	if !host.activated["fs__read"] {
 		t.Errorf("expected `read` in activated set; got %v", host.activated)
 	}
 
 	host = newFakeActivatorHost()
-	res, err = tool.Run(context.Background(), []byte(`{"names":["read","grep"]}`), host)
+	res, err = tool.Run(context.Background(), []byte(`{"names":["fs__read","fs__grep"]}`), host)
 	if err != nil {
 		t.Fatalf("activate batch: %v", err)
 	}
-	if !host.activated["read"] || !host.activated["grep"] {
+	if !host.activated["fs__read"] || !host.activated["fs__grep"] {
 		t.Errorf("expected both `read` and `grep` activated; got %v", host.activated)
 	}
 }
@@ -171,7 +171,7 @@ func TestMetaActivate_AddsToActivationSet(t *testing.T) {
 func TestMetaActivate_NoHostSupport(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	tool := &metaActivate{reg: reg}
-	res, _ := tool.Run(context.Background(), []byte(`{"name":"read"}`), nil)
+	res, _ := tool.Run(context.Background(), []byte(`{"name":"fs__read"}`), nil)
 	if res.Error == "" {
 		t.Error("expected Result.Error when host is nil")
 	}
@@ -183,13 +183,13 @@ func TestMetaDeactivate_RemovesFromSet(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	tool := &metaDeactivate{reg: reg}
 	host := newFakeActivatorHost()
-	host.activated["read"] = true
+	host.activated["fs__read"] = true
 
-	_, err := tool.Run(context.Background(), []byte(`{"name":"read"}`), host)
+	_, err := tool.Run(context.Background(), []byte(`{"name":"fs__read"}`), host)
 	if err != nil {
 		t.Fatalf("deactivate: %v", err)
 	}
-	if !host.deactivated["read"] {
+	if !host.deactivated["fs__read"] {
 		t.Errorf("expected `read` in deactivated set")
 	}
 }

@@ -73,26 +73,26 @@ func TestApplyToolOverrides_ReplacesBundledTool(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
-		Name:        "read",
+		Name:        "fs__read",
 		Description: "policy-wrapped read",
 		Class:       "Exec",
 		Schema:      `{"type":"object","properties":{"path":{"type":"string"}}}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
 
 	reg := BuildDefaultRegistry(nil)
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		t.Fatalf("ApplyToolOverrides: %v", err)
 	}
-	got, ok := reg.Get("read")
+	got, ok := reg.Get("fs__read")
 	if !ok {
 		t.Fatal("read tool missing after override")
 	}
 	if got.Description() != "policy-wrapped read" {
 		t.Fatalf("description = %q", got.Description())
 	}
-	if reg.ClassOf("read") != tool.ClassExec {
-		t.Fatalf("ClassOf(read) = %v, want %v", reg.ClassOf("read"), tool.ClassExec)
+	if reg.ClassOf("fs__read") != tool.ClassExec {
+		t.Fatalf("ClassOf(read) = %v, want %v", reg.ClassOf("fs__read"), tool.ClassExec)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestApplyToolOverrides_RejectsUnknownTarget(t *testing.T) {
 
 func TestApplyToolOverrides_RejectsEscapingPluginID(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
-	cfg.Tools.Overrides = map[string]string{"read": "../corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": "../corp-read-1.0.0"}
 	reg := BuildDefaultRegistry(nil)
 	err := ApplyToolOverrides(reg, cfg)
 	if err == nil || !strings.Contains(err.Error(), "invalid plugin id") {
@@ -119,12 +119,12 @@ func TestApplyToolOverrides_RejectsSessionAwareOverrides(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
-		Name:        "read",
+		Name:        "fs__read",
 		Description: "session-aware read",
 		Class:       "NonMutating",
 		Schema:      `{"type":"object"}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
 	cfg.Plugins.RekorURL = ""
 	cfg.Plugins.CRLURL = ""
 
@@ -160,12 +160,12 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	installOverridePlugin(t, cfg, priv, pub, "corp-read-1.0.0", plugins.ToolDef{
-		Name:        "read",
+		Name:        "fs__read",
 		Description: "read via plugin",
 		Class:       "NonMutating",
 		Schema:      `{"type":"object"}`,
 	})
-	cfg.Tools.Overrides = map[string]string{"read": "corp-read-1.0.0"}
+	cfg.Tools.Overrides = map[string]string{"fs__read": "corp-read-1.0.0"}
 
 	dir := filepath.Join(cfg.StateDir(), "plugins", "corp-read-1.0.0")
 	mf, _, err := plugins.LoadFromDir(dir)
@@ -192,7 +192,7 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	if err := ApplyToolOverrides(reg, cfg); err != nil {
 		t.Fatalf("ApplyToolOverrides: %v", err)
 	}
-	if got := reg.ClassOf("read"); got != tool.ClassExec {
+	if got := reg.ClassOf("fs__read"); got != tool.ClassExec {
 		t.Fatalf("ClassOf(read) = %v, want %v", got, tool.ClassExec)
 	}
 }

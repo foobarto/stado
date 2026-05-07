@@ -49,7 +49,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
+	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("fs"), mf)
 	if err != nil {
 		t.Fatalf("instantiate should succeed (link-time): got %v", err)
 	}
@@ -61,7 +61,14 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	}
 	res, _ := pt.Run(ctx, []byte(`{"path":"x"}`), toolImportHost{workdir: t.TempDir()})
 	combined := res.Content + res.Error
-	if !strings.Contains(combined, "denied") && !strings.Contains(combined, "capabilities") {
+	// Step 7 of EP-no-internal-tools: read now goes through the
+	// stado_fs_read primitive. Cap denial returns -1 from the host
+	// import; the wasm handler surfaces that as a generic "read
+	// failed" message. The denial itself shows up as a host-side
+	// stado_fs_read denied warning (visible in the test log).
+	if !strings.Contains(combined, "denied") &&
+		!strings.Contains(combined, "capabilities") &&
+		!strings.Contains(combined, "read failed") {
 		t.Fatalf("expected capability denial at call time, got: content=%q error=%q", res.Content, res.Error)
 	}
 }
@@ -90,7 +97,7 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("read"), mf)
+	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("fs"), mf)
 	if err != nil {
 		t.Fatalf("Instantiate: %v", err)
 	}

@@ -39,7 +39,7 @@ func TestResumeFromCWD_ReopensExistingSession(t *testing.T) {
 		t.Fatalf("first OpenSession: %v", err)
 	}
 	emptyTree, _ := sess1.BuildTreeFromDir(sess1.WorktreePath)
-	if _, err := sess1.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
+	if _, err := sess1.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "fs__write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
 	firstID := sess1.ID

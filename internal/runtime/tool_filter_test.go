@@ -26,7 +26,7 @@ func TestApplyToolFilter_DefaultKeepsEverything(t *testing.T) {
 func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
-	cfg.Tools.Enabled = []string{"read", "grep"}
+	cfg.Tools.Enabled = []string{"fs__read", "fs__grep"}
 	ApplyToolFilter(reg, cfg)
 
 	var names []string
@@ -34,7 +34,7 @@ func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
 		names = append(names, tl.Name())
 	}
 	sort.Strings(names)
-	want := []string{"grep", "read"}
+	want := []string{"fs__grep", "fs__read"}
 	if len(names) != 2 {
 		t.Fatalf("expected 2 tools (read+grep), got %d: %v", len(names), names)
 	}
@@ -70,12 +70,12 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 func TestApplyToolFilter_EnabledWinsOverDisabled(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
-	cfg.Tools.Enabled = []string{"read"}
-	cfg.Tools.Disabled = []string{"read"} // would conflict if honoured
+	cfg.Tools.Enabled = []string{"fs__read"}
+	cfg.Tools.Disabled = []string{"fs__read"} // would conflict if honoured
 	ApplyToolFilter(reg, cfg)
 
 	tools := reg.All()
-	if len(tools) != 1 || tools[0].Name() != "read" {
+	if len(tools) != 1 || tools[0].Name() != "fs__read" {
 		t.Errorf("Enabled allowlist should win; got %v", tools)
 	}
 }
@@ -110,7 +110,7 @@ func TestToolMatchesGlob(t *testing.T) {
 		want      bool
 	}{
 		// Exact bare-name match (pre-EP-0038 tools)
-		{"read", "read", true},
+		{"fs__read", "fs__read", true},
 		{"bash", "bash", true},
 		{"webfetch", "web.*", false}, // bare "webfetch" has no __ separator, doesn't match "web.*"
 		// Wire-form with dotted glob
@@ -120,7 +120,7 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"tools__search", "tools.*", true},
 		{"tools__describe", "tools.*", true},
 		// Universal wildcard
-		{"read", "*", true},
+		{"fs__read", "*", true},
 		{"fs__read", "*", true},
 		// No match
 		{"web__fetch", "fs.*", false},
@@ -144,7 +144,7 @@ func TestAutoloadedTools_DefaultCore(t *testing.T) {
 	}
 	// Default convenience tools must be present. Step 4 of EP-no-internal-
 	// tools renamed bare 'bash' to wire-form 'shell__bash'.
-	for _, want := range []string{"read", "write", "edit", "glob", "grep", "shell__bash"} {
+	for _, want := range []string{"fs__read", "fs__write", "fs__edit", "fs__glob", "fs__grep", "shell__bash"} {
 		if !names[want] {
 			t.Errorf("default autoload should include %q", want)
 		}
@@ -167,7 +167,7 @@ func TestAutoloadedTools_CategoriesAddTools(t *testing.T) {
 	autoloaded := AutoloadedTools(reg, cfg)
 	// The bundled fs tools are tagged "file"; verify some of them
 	// surface even without an explicit name-based autoload.
-	want := []string{"read", "write"}
+	want := []string{"fs__read", "fs__write"}
 	got := map[string]bool{}
 	for _, t := range autoloaded {
 		got[t.Name()] = true
@@ -193,14 +193,14 @@ func listNames(ts []pkgtoolPkg.Tool) string {
 func TestAutoloadedTools_CustomAutoload(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
-	cfg.Tools.Autoload = []string{"read", "grep"}
+	cfg.Tools.Autoload = []string{"fs__read", "fs__grep"}
 	autoloaded := AutoloadedTools(reg, cfg)
 
 	names := map[string]bool{}
 	for _, tl := range autoloaded {
 		names[tl.Name()] = true
 	}
-	if !names["read"] || !names["grep"] {
+	if !names["fs__read"] || !names["fs__grep"] {
 		t.Error("custom autoload should include read and grep")
 	}
 	if names["bash"] {
