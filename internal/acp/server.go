@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/foobarto/stado/internal/config"
@@ -164,6 +165,11 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 			return nil, &RPCError{Code: CodeInvalidParams, Message: err.Error()}
 		}
 	}
+	if s.EnableTools {
+		if msg := s.checkInstalledPluginABI(); msg != "" {
+			return nil, &RPCError{Code: CodeInternalError, Message: msg}
+		}
+	}
 	cwd, _ := os.Getwd()
 	s.mu.Lock()
 	s.nextID++
@@ -171,6 +177,39 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 	s.sessions[id] = &acpSession{id: id, workdir: cwd, maxTurns: p.MaxTurns}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
+}
+
+// checkInstalledPluginABI eagerly verifies installed-plugin wasm
+// modules export the required ABI surface (stado_alloc, stado_free,
+// stado_tool_<name>). Returns an empty string when everything checks
+// out, or a multi-line summary suitable for an RPC error message.
+//
+// Surfaced from session/new so ACP integrators see the broken-plugin
+// diagnostic ONCE, before any prompt — instead of the model spinning
+// through retries against a stale plugin and failing each tool call
+// with no actionable cue. v0.45.1, fix for B2.
+func (s *Server) checkInstalledPluginABI() string {
+	if s.Cfg == nil {
+		return ""
+	}
+	issues, err := runtime.VerifyInstalledPluginsABI(context.Background(), s.Cfg)
+	if err != nil {
+		// Treat enumeration failure as a soft warning — the per-tool
+		// invocation path will surface the real error if the plugin
+		// is unusable. Don't block session/new on this.
+		fmt.Fprintf(os.Stderr, "stado acp: warn: ABI verify enumeration failed: %v\n", err)
+		return ""
+	}
+	if len(issues) == 0 {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "installed plugin ABI mismatch — rebuild required for:")
+	for _, i := range issues {
+		lines = append(lines, "  "+i.String())
+	}
+	lines = append(lines, "rebuild plugin(s) against the current stado runtime, re-sign, and re-install before starting a new session.")
+	return strings.Join(lines, "\n")
 }
 
 type sessionPromptParams struct {
