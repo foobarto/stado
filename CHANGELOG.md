@@ -97,6 +97,16 @@ Plugins / Infra / Fixes.
   with `{sessionId, requestId, selected[], cancelled}`. Session
   cancel and connection drops resolve every pending request with
   `cancelled=true` so plugin calls don't deadlock.
+- **At-quit session summary** (Q1). When the TUI exits cleanly, a
+  per-session summary lands in the terminal scrollback covering
+  uptime, total tool calls, tokens in/out, total cost, and per-model
+  + per-tool breakdowns. Source is the same git-native trace ref
+  `stado stats` reads, so the totals are authoritative across crashes
+  and resumes — no live tally drift. Empty sessions print a single
+  "no tool calls this session" line.
+  Implementation: new `internal/runtime/sessionstats` package walks
+  one session's trace ref and renders a focused summary, distinct
+  from the cross-session aggregator that backs `stado stats`.
 - Approval drawer (plugin-requested human approval) polished.
   Title gets a ⚠ icon prefix; body renders in a faint code-block
   frame when it's command-shaped (multi-line, contains `$ ` or

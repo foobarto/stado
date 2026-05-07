@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ import (
 	"github.com/foobarto/stado/internal/providers/oaicompat"
 	"github.com/foobarto/stado/internal/providers/openai"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/runtime/sessionstats"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/fs"
@@ -183,7 +185,33 @@ func Run(cfg *config.Config) error {
 		runSpan.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("tui: %w", err)
 	}
+	// At-quit session summary (Q1). Walks the session's git-native
+	// trace ref and prints uptime / tokens / cost / per-model + per-
+	// tool breakdown to stderr after the TUI has restored the
+	// terminal. Best-effort: missing trace ref or empty session
+	// renders a single "no tool calls" line. Failure to walk the
+	// ref shouldn't override the clean exit.
+	emitSessionSummary(m, os.Stderr)
 	return nil
+}
+
+// emitSessionSummary walks the session's trace ref and writes a
+// human-readable summary to w. Pulled out for testability — callers
+// pass a real *Model and an io.Writer.
+func emitSessionSummary(m *Model, w io.Writer) {
+	if m == nil || m.session == nil || m.session.Sidecar == nil {
+		return
+	}
+	summary, err := sessionstats.Walk(m.session.Sidecar, m.session.ID)
+	if err != nil {
+		fmt.Fprintf(w, "stado: warn: session summary walk failed: %v\n", err)
+		return
+	}
+	uptime := time.Since(m.startedAt)
+	if m.startedAt.IsZero() {
+		uptime = 0
+	}
+	sessionstats.Render(w, summary, uptime)
 }
 
 // filterOSCResponses is the backstop filter for terminal OSC replies

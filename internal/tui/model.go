@@ -248,6 +248,10 @@ type Model struct {
 	theme    *theme.Theme
 	renderer *render.Renderer
 
+	// startedAt timestamps NewModel; used by the at-quit session
+	// summary to report wall-clock uptime. Q1.
+	startedAt time.Time
+
 	// rootCtx is the ancestor context for every span this TUI
 	// creates. When cwd contains a `.stado-span-context` (written by
 	// a prior `stado session fork`), it carries the parent trace
@@ -576,6 +580,7 @@ type choiceRequest struct {
 // key. providerName labels the status bar before the lazy build resolves.
 func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.Provider, error), rnd *render.Renderer, keyReg *keys.Registry) *Model {
 	m := &Model{
+		startedAt:        time.Now(),
 		cwd:              cwd,
 		keys:             keyReg,
 		theme:            rnd.Theme(),
