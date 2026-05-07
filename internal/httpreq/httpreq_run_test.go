@@ -295,7 +295,7 @@ func TestProxyURL_HTTP(t *testing.T) {
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			http.Error(w, err.Error(), 502)
+			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()

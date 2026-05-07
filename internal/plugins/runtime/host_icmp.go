@@ -153,7 +153,7 @@ func runICMPEcho(ctx context.Context, host *Host, target string, timeout time.Du
 	if err != nil {
 		return out, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// id is a hint only — Linux's unprivileged ICMP path overwrites
 	// it kernel-side. We rely on Seq for matching.

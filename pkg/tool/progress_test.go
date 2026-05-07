@@ -74,7 +74,10 @@ func TestContextWithProgress_RoundTrip(t *testing.T) {
 	if got := ProgressFromContext(context.Background()); got != nil {
 		t.Errorf("bare ctx should return nil; got %+v", got)
 	}
-	// Nil context returns nil safely.
+	// Nil context returns nil safely. The linter would normally flag
+	// passing nil to a context-accepting func; the whole point here is
+	// to verify the defensive nil-check, so we explicitly opt out.
+	//nolint:staticcheck // SA1012: nil-context guard is the contract under test
 	if got := ProgressFromContext(nil); got != nil {
 		t.Errorf("nil ctx should return nil; got %+v", got)
 	}

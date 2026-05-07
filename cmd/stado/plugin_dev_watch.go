@@ -31,7 +31,7 @@ func runDevWatchLoop(ctx context.Context, dir string, stdout, stderr io.Writer) 
 	if err != nil {
 		return fmt.Errorf("fsnotify: %w", err)
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	if err := addRecursive(w, dir); err != nil {
 		return fmt.Errorf("watch %s: %w", dir, err)

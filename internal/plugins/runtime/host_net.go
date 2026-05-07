@@ -546,7 +546,7 @@ func registerNetAcceptImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			}
 			if d, ok := lst.l.(interface{ SetDeadline(time.Time) error }); ok {
 				_ = d.SetDeadline(time.Now().Add(timeout))
-				defer d.SetDeadline(time.Time{})
+				defer func() { _ = d.SetDeadline(time.Time{}) }()
 			}
 			if atomic.LoadInt64(&rt.netConnCount) >= maxNetConnsPerRuntime {
 				return -1
@@ -687,7 +687,7 @@ func registerNetRecvfromImport(builder wazero.HostModuleBuilder, host *Host, rt 
 				timeout = netAcceptMaxTimeout
 			}
 			_ = lst.pc.SetReadDeadline(time.Now().Add(timeout))
-			defer lst.pc.SetReadDeadline(time.Time{})
+			defer func() { _ = lst.pc.SetReadDeadline(time.Time{}) }()
 
 			buf := make([]byte, bodyMax)
 			n, peer, err := lst.pc.ReadFrom(buf)

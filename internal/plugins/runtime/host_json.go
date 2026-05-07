@@ -252,7 +252,7 @@ func setAtPath(cur any, tokens []string, newVal any) (any, error) {
 		for k, vv := range v {
 			out[k] = vv
 		}
-		next, _ := out[tok]
+		next := out[tok]
 		updated, err := setAtPath(next, rest, newVal)
 		if err != nil {
 			return nil, err

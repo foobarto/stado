@@ -3,7 +3,6 @@ package plugins
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -150,8 +149,3 @@ func compareVersions(a, b string) int {
 	return semver.Compare(a, b)
 }
 
-// requiresPath is a small convenience for callers that want
-// pluginsDir from a state-dir.
-func requiresPath(stateDir string) string {
-	return filepath.Join(stateDir, "plugins")
-}

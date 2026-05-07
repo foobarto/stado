@@ -73,8 +73,7 @@ func TestRequest_CookieJarRoundTrip(t *testing.T) {
 }
 
 func TestRedirect_FollowDefault(t *testing.T) {
-	var srv2 *httptest.Server
-	srv2 = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv2.Close()

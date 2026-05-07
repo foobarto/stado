@@ -250,8 +250,12 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				for _, body := range pending {
 					msgs = append(msgs, agent.Text(agent.RoleUser, body))
 				}
-				priorLen = len(msgs)
-				priorHash = hashMessagesPrefix(msgs, priorLen)
+				// priorLen / priorHash are intentionally NOT updated
+				// here. The end-of-iteration update at the bottom of
+				// the loop refreshes them once the tool-result block
+				// has been appended; an inbox flush only grows the
+				// suffix, so the prefix-of-priorLen check still
+				// matches priorHash on next iteration.
 			}
 		}
 
