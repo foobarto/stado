@@ -110,6 +110,11 @@ Plugins / Infra / Fixes.
   Implementation: new `internal/runtime/sessionstats` package walks
   one session's trace ref and renders a focused summary, distinct
   from the cross-session aggregator that backs `stado stats`.
+  Box-drawing chars (`──`) and the ellipsis (`…`) fall back to ASCII
+  (`--` / `...`) on non-UTF-8 terminals — the package inspects
+  `LC_ALL` → `LC_CTYPE` → `LANG` for a UTF-8 hint and degrades
+  gracefully so the summary stays readable in CI logs, minimal SSH
+  sessions, and `LANG=C` shells instead of degrading to `?` mojibake.
 - Approval drawer (plugin-requested human approval) polished.
   Title gets a ⚠ icon prefix; body renders in a faint code-block
   frame when it's command-shaped (multi-line, contains `$ ` or

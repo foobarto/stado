@@ -13,6 +13,7 @@ package sessionstats
 import (
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -132,6 +133,39 @@ func absorbCommit(s *Summary, c *object.Commit) {
 	s.ByTool[tool] = ts
 }
 
+// renderGlyphs picks between UTF-8 box-drawing / ellipsis and their
+// ASCII fallbacks. Decided once per Render call from $LC_ALL /
+// $LC_CTYPE / $LANG so output stays readable on `LANG=C` terminals
+// (CI logs, minimal SSH clients, log shippers) instead of degrading
+// to `?` mojibake.
+type renderGlyphs struct {
+	hRule    string // "─" (UTF-8) or "-" (ASCII)
+	ellipsis string // "…" (UTF-8) or "..." (ASCII)
+}
+
+func chooseRenderGlyphs() renderGlyphs {
+	for _, k := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		v := os.Getenv(k)
+		if v == "" {
+			continue
+		}
+		if localeIsUTF8(v) {
+			return renderGlyphs{hRule: "─", ellipsis: "…"}
+		}
+		// First set locale variable wins. POSIX rules say LC_ALL
+		// overrides LC_CTYPE overrides LANG; once we see a set
+		// non-UTF-8 locale we stop looking.
+		return renderGlyphs{hRule: "-", ellipsis: "..."}
+	}
+	// Nothing set at all — assume ASCII to avoid mojibake.
+	return renderGlyphs{hRule: "-", ellipsis: "..."}
+}
+
+func localeIsUTF8(v string) bool {
+	u := strings.ToUpper(v)
+	return strings.Contains(u, "UTF-8") || strings.Contains(u, "UTF8")
+}
+
 // Render writes a compact human-readable summary to w. Header line
 // covers totals; per-model + per-tool tables follow when non-empty.
 // Sorts model rows by cost desc, tool rows by call count desc.
@@ -139,6 +173,10 @@ func absorbCommit(s *Summary, c *object.Commit) {
 // uptime is the session's wall-clock lifetime from the operator's
 // POV — TUI passes time.Since(startedAt). If zero, falls back to
 // (LastAt - FirstAt) from the commit timestamps.
+//
+// Box-drawing characters fall back to ASCII (-- and ...) on
+// non-UTF-8 terminals so the summary stays readable in CI logs and
+// minimal SSH sessions.
 func Render(w io.Writer, s *Summary, uptime time.Duration) {
 	if s == nil || s.Empty() {
 		fmt.Fprintln(w, "stado: no tool calls this session")
@@ -148,7 +186,14 @@ func Render(w io.Writer, s *Summary, uptime time.Duration) {
 		uptime = s.LastAt.Sub(s.FirstAt)
 	}
 
-	fmt.Fprintln(w, "── session summary ──────────────────────────────────────")
+	g := chooseRenderGlyphs()
+	const ruleWidth = 57
+	headerLabel := " session summary "
+	headLead := strings.Repeat(g.hRule, 2)
+	headTail := strings.Repeat(g.hRule, ruleWidth-2-len(headerLabel))
+	footer := strings.Repeat(g.hRule, ruleWidth)
+
+	fmt.Fprintln(w, headLead+headerLabel+headTail)
 	fmt.Fprintf(w, "  uptime:     %s\n", fmtDuration(uptime))
 	fmt.Fprintf(w, "  tool calls: %d\n", s.TotalCalls)
 	fmt.Fprintf(w, "  tokens:     %s in / %s out\n", fmtThousands(s.TokensIn), fmtThousands(s.TokensOut))
@@ -172,7 +217,7 @@ func Render(w io.Writer, s *Summary, uptime time.Duration) {
 		})
 		for _, r := range rows {
 			fmt.Fprintf(w, "    %-30s  %4d calls  %s in / %s out  %s\n",
-				truncMid(r.name, 30),
+				truncMid(r.name, 30, g.ellipsis),
 				r.stats.Calls,
 				fmtThousands(r.stats.TokensIn),
 				fmtThousands(r.stats.TokensOut),
@@ -198,13 +243,13 @@ func Render(w io.Writer, s *Summary, uptime time.Duration) {
 		})
 		for _, r := range rows {
 			fmt.Fprintf(w, "    %-30s  %4d calls  %s\n",
-				truncMid(r.name, 30),
+				truncMid(r.name, 30, g.ellipsis),
 				r.stats.Calls,
 				fmtMs(r.stats.DurationMs),
 			)
 		}
 	}
-	fmt.Fprintln(w, "─────────────────────────────────────────────────────────")
+	fmt.Fprintln(w, footer)
 }
 
 func fmtDuration(d time.Duration) string {
@@ -250,15 +295,21 @@ func fmtThousands(n int) string {
 	return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 }
 
-func truncMid(s string, max int) string {
+// truncMid shortens s to at most `max` rune-equivalents, inserting
+// the supplied ellipsis at the join. Caller passes "…" or "..." per
+// the chosen glyph set; all length math is byte-based to mirror the
+// existing %-30s padding semantics, so a 3-byte UTF-8 ellipsis stays
+// a 1-rune visual character at one byte cost in alignment (same as
+// before this fallback was introduced).
+func truncMid(s string, max int, ellipsis string) string {
 	if len(s) <= max {
 		return s
 	}
-	if max < 6 {
+	if max < len(ellipsis)+2 {
 		return s[:max]
 	}
-	keep := (max - 1) / 2
-	return s[:keep] + "…" + s[len(s)-keep:]
+	keep := (max - len(ellipsis)) / 2
+	return s[:keep] + ellipsis + s[len(s)-keep:]
 }
 
 // parseCommitMessage extracts trailers from a commit body. Mirrors

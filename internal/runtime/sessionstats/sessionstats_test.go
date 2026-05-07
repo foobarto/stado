@@ -130,10 +130,96 @@ func TestFmtThousands(t *testing.T) {
 }
 
 func TestTruncMid(t *testing.T) {
-	if got := truncMid("hello world", 100); got != "hello world" {
+	if got := truncMid("hello world", 100, "…"); got != "hello world" {
 		t.Errorf("no-trunc passthrough: %q", got)
 	}
-	if got := truncMid("a-very-long-model-name-claude-opus-4-7", 16); !strings.Contains(got, "…") || len(got) > 17 {
-		t.Errorf("truncMid: %q", got)
+	if got := truncMid("a-very-long-model-name-claude-opus-4-7", 16, "…"); !strings.Contains(got, "…") || len(got) > 17 {
+		t.Errorf("truncMid utf8: %q", got)
+	}
+	if got := truncMid("a-very-long-model-name-claude-opus-4-7", 16, "..."); !strings.Contains(got, "...") || len(got) > 16 {
+		t.Errorf("truncMid ascii: %q", got)
+	}
+}
+
+func TestLocaleIsUTF8(t *testing.T) {
+	cases := map[string]bool{
+		"en_US.UTF-8":     true,
+		"C.UTF-8":         true,
+		"en_GB.utf8":      true,
+		"pl_PL.UTF-8@x":   true,
+		"C":               false,
+		"POSIX":           false,
+		"en_US.ISO-8859-1": false,
+		"":                false,
+	}
+	for in, want := range cases {
+		if got := localeIsUTF8(in); got != want {
+			t.Errorf("localeIsUTF8(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestChooseRenderGlyphs_LANG(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "en_US.UTF-8")
+	g := chooseRenderGlyphs()
+	if g.hRule != "─" || g.ellipsis != "…" {
+		t.Errorf("UTF-8 LANG should give utf8 glyphs: %+v", g)
+	}
+}
+
+func TestChooseRenderGlyphs_LANG_C(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "C")
+	g := chooseRenderGlyphs()
+	if g.hRule != "-" || g.ellipsis != "..." {
+		t.Errorf("LANG=C should give ascii glyphs: %+v", g)
+	}
+}
+
+func TestChooseRenderGlyphs_LCAllOverridesLang(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	t.Setenv("LC_CTYPE", "en_US.UTF-8")
+	t.Setenv("LANG", "en_US.UTF-8")
+	g := chooseRenderGlyphs()
+	if g.hRule != "-" {
+		t.Errorf("LC_ALL=C must override LANG=UTF-8: %+v", g)
+	}
+}
+
+func TestChooseRenderGlyphs_Unset(t *testing.T) {
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "")
+	g := chooseRenderGlyphs()
+	if g.hRule != "-" {
+		t.Errorf("no locale set should fall back to ascii: %+v", g)
+	}
+}
+
+func TestRender_ASCIIFallbackOnLANGC(t *testing.T) {
+	t.Setenv("LC_ALL", "C")
+	s := &Summary{
+		SessionID:  "sess-1",
+		TotalCalls: 1,
+		TokensIn:   100,
+		TokensOut:  10,
+		CostUSD:    0.001,
+		ByModel:    map[string]ModelStats{"a-very-long-model-name-claude-opus-4-7": {Calls: 1}},
+		ByTool:     map[string]ToolStats{"fs__read": {Calls: 1}},
+	}
+	var buf bytes.Buffer
+	Render(&buf, s, time.Second)
+	out := buf.String()
+	if strings.ContainsRune(out, '─') {
+		t.Errorf("ASCII fallback emitted U+2500 box-drawing char:\n%s", out)
+	}
+	if strings.ContainsRune(out, '…') {
+		t.Errorf("ASCII fallback emitted U+2026 ellipsis:\n%s", out)
+	}
+	if !strings.Contains(out, "-- session summary ") {
+		t.Errorf("ASCII header missing dashes:\n%s", out)
 	}
 }
