@@ -84,8 +84,17 @@ RootResolver (*os.Root), UserConfigResolver (HOME/XDG anchor),
 StrictResolver (no-symlink + Under). 49 new tests total
 (23 + 10 + 16). Existing 29 legacy tests still green.
 
-Up next: Phase 2.1.d — behavior matrix + legacy wrapper rewrite
-(split 2-3 commits by family).
+Phase 2.1.d: **deferred to 2.1.Y** (plan revised). Original
+intent was wrapper-rewrite + behavior-matrix doc here, but the
+impl-move adds value mainly at deletion time — bundling with
+2.1.Y means the impls move once instead of twice and migrators
+during 2.1.e..N see legacy in its familiar form. The 49 new
+tests already encode every contract the matrix would document.
+
+Up next: Phase 2.1.e — broad caller migration. 21 caller
+packages identified at A2 start; ~155 call sites concentrated
+in the top 6 legacy fns. Per-package commits, batched by
+family.
 
 ## Queued (in order, per plan)
 

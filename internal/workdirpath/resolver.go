@@ -16,11 +16,15 @@ import (
 // workdir-anchored functions (`Resolve`, `RootRel`, `OpenReadFile`,
 // `WriteFile`, `RootRelForWrite`, `Glob`, `GlobLimited`).
 //
+// Methods delegate to the legacy implementations during the
+// migration window. Per the A2 staging notes, the impls move
+// in at 2.1.Y (legacy deletion) — keeping them in workdirpath.go
+// during 2.1.a-N preserves git history of the security-critical
+// code and means caller migration commits see the production-
+// tested impls in their familiar form.
+//
 // One Resolver per workdir. Cheap to construct; safe to share
-// across goroutines (immutable after New). Methods delegate to
-// the legacy implementations during the migration window
-// (2.1.a-c); legacy is rewritten as one-line wrappers on top of
-// these methods at 2.1.d.
+// across goroutines (immutable after New).
 type Resolver struct {
 	workdir string // canonical absolute path; populated by New
 }

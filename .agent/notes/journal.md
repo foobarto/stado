@@ -51,6 +51,41 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — 2.1.b/c landed; 2.1.d deferred to 2.1.Y
+
+UserConfigResolver (10 tests) and StrictResolver + Under (16
+tests) both committed. All 4 types now exist alongside legacy.
+49 new tests across 4 types + 29 legacy tests, all green under
+`-count=5 -race`.
+
+Started 2.1.d (wrapper rewrite) — wrote a fresh resolver.go
+with impls moved inline, then realized:
+
+1. The impl-move requires extracting LEAF helpers (openRootNoSymlink,
+   mkdirAllRootNoSymlink) that are currently exported. These
+   touch ALL 4 type families' implementations.
+2. The "wrapper rewrite" doesn't add functional value — both
+   forms (legacy with impls, legacy as 1-line wrappers) work
+   identically until legacy is deleted.
+3. Doing the impl-move now means doing it AGAIN at 2.1.Y when
+   legacy is removed. Doing it once at 2.1.Y is simpler.
+4. Caller migrators during 2.1.e..N see legacy in its familiar
+   form if the impls don't move yet. Easier to follow git history.
+
+Reverted the resolver.go inline-impl draft; restored the
+delegating form. Updated plan: 2.1.d marks deferred, 2.1.Y
+bundles impl-move with deletion. New plan flow:
+- 2.1.aa: mcpbridge audit (done)
+- 2.1.a/b/c: types land with tests (done)
+- 2.1.d: deferred to 2.1.Y
+- 2.1.e..N: caller migration (next session)
+- 2.1.X: Deprecated: markers
+- 2.1.Y: delete legacy + inline impls into new types
+
+This is a clean stopping point for A2 in this session. Future
+sessions pick up at 2.1.e (caller migration is the bulk of
+remaining work).
+
 ## 2026-05-07 — 2.1.a Resolver + RootResolver landed
 
 Both new types compile and pass their own tests (23 new tests).

@@ -570,21 +570,32 @@ API doesn't absorb them.
    canary caller. Legacy untouched.
 3. **2.1.c — `StrictResolver` + `Under(ancestor)`.** Tests + 1
    canary caller. Legacy untouched.
-4. **2.1.d — Behavior matrix + wrapper rewrite.** First commit:
-   a markdown matrix in `.agent/` enumerating all 23 legacy
-   funcs × axes (NUL handling, abs/rel, missing-parent rules,
-   final-symlink rejection, regular-file check, negative-limit
-   behaviour, mode preservation, root ownership, Windows volume
-   root, glob limits, anchor-equality, overlapping HOME/XDG
-   longest match, symlinked HOME, outside-anchor fallback).
-   That matrix drives wrapper-rewrite test additions. Then 2-3
-   commits rewriting legacy as one-line wrappers, split by
-   family (workdir/root, user-config, strict/under). Existing 29
-   tests act as a bit-compatibility suite.
+4. **2.1.d — DEFERRED.** *Original plan* called for legacy to be
+   rewritten as one-line wrappers around the new types here, with
+   a behavior-matrix doc gating the rewrite. *Revised at 2.1.d
+   start, 2026-05-07:* the rewrite is mostly code reshaping with
+   limited functional benefit until legacy is deleted. The impl-
+   move now bundles with 2.1.Y — when legacy is deleted, the
+   impls inline into the new types in one commit instead of
+   being shuffled twice. Rationale:
+   - The 49 new tests (across 4 types) + 29 legacy tests already
+     encode every contract the matrix would document.
+   - During 2.1.e..N caller migration, having impls in their
+     familiar legacy form (workdirpath.go) keeps git blame /
+     git log readable for migrators.
+   - At 2.1.Y the deletion + impl-move happen mechanically: each
+     legacy fn's body becomes the corresponding new-type method's
+     impl; the exported legacy symbol disappears.
+   The new types continue delegating to legacy through 2.1.e..N.
 5. **2.1.e..N — Broad caller migration**, batched 4-6 commits
-   by package family.
+   by package family. New types continue calling legacy
+   internally; only the call-site is updated.
 6. **2.1.X — Mark legacy `Deprecated:`.**
-7. **2.1.Y — Delete legacy.** Verify zero
+7. **2.1.Y — Delete legacy + inline impls into new types.**
+   The wrapper-rewrite the original plan called for at 2.1.d
+   happens here, alongside removal of the now-unused exported
+   symbols. Each legacy fn's body lands in the matching new-type
+   method; legacy file shrinks to zero exports. Verify zero
    `workdirpath.<LegacyFn>(` references remain.
 
 **Files touched.**
