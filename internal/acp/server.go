@@ -39,6 +39,12 @@ import (
 //     MUST reply with session/approval_response{sessionId, requestId,
 //     allow:bool, cancelled:bool} or the plugin call blocks until
 //     session/cancel.
+//   - "tool_summary" — end-of-turn signal that the model produced ≥1
+//     tool call but zero text deltas. Payload fields "toolCount" (int),
+//     "lastTool" (string), "lastError" (bool). Lets ACP clients
+//     construct a minimal reply when session/prompt's `text` is empty
+//     because the model did its work entirely through tools. Fires at
+//     most once per session/prompt; never fires when text was emitted.
 //
 // session/new accepts an optional `maxTurns` integer to pin the per-session turn
 // budget; falls back to [acp] max_turns from config, then 50 with --tools / 1
@@ -496,23 +502,37 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		OnSubagentEvent: func(ev runtime.SubagentEvent) {
 			s.emitSubagentUpdate(p.SessionID, ev)
 		},
-		OnEvent: func(ev agent.Event) {
-			switch ev.Kind {
-			case agent.EvTextDelta:
-				if ev.Text != "" {
-					_ = s.conn.Notify("session/update", map[string]any{
-						"sessionId": p.SessionID, "kind": "text", "text": ev.Text,
-					})
-				}
-			case agent.EvToolCallEnd:
-				if ev.ToolCall != nil {
-					_ = s.conn.Notify("session/update", map[string]any{
-						"sessionId": p.SessionID, "kind": "tool_call",
-						"name": ev.ToolCall.Name, "input": string(ev.ToolCall.Input),
-					})
-				}
+	}
+	// Counters for the end-of-turn tool_summary signal. Tool-only
+	// turns (zero text deltas, ≥1 tool calls) produce a session/prompt
+	// response with text="", which an ACP client assembling a reply
+	// from kind=text alone sees as 0 bytes. tool_summary lets the
+	// client construct a minimal reply from the tool execution
+	// record without prompting the model to summarise. F7.
+	var (
+		textEventCount int
+		toolEventCount int
+		lastToolName   string
+	)
+	opts.OnEvent = func(ev agent.Event) {
+		switch ev.Kind {
+		case agent.EvTextDelta:
+			if ev.Text != "" {
+				textEventCount++
+				_ = s.conn.Notify("session/update", map[string]any{
+					"sessionId": p.SessionID, "kind": "text", "text": ev.Text,
+				})
 			}
-		},
+		case agent.EvToolCallEnd:
+			if ev.ToolCall != nil {
+				toolEventCount++
+				lastToolName = ev.ToolCall.Name
+				_ = s.conn.Notify("session/update", map[string]any{
+					"sessionId": p.SessionID, "kind": "tool_call",
+					"name": ev.ToolCall.Name, "input": string(ev.ToolCall.Input),
+				})
+			}
+		}
 	}
 	if s.EnableTools {
 		s.ensureGitSession(sess)
@@ -537,9 +557,29 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
 	}
 
-	text, msgs, err := runtime.AgentLoop(pctx, opts)
-	if err != nil {
-		return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
+	priorLen := len(localMsgs)
+	text, msgs, loopErr := runtime.AgentLoop(pctx, opts)
+
+	// Tool-only-turn signal: zero text deltas + ≥1 tool calls. Walk
+	// the messages added during this turn for tool-result blocks to
+	// fill in lastError. The contract is "text='' is normal; the
+	// notification tells you what happened instead." F7.
+	//
+	// Fires before the loop-error check so a turn that hit MaxTurns
+	// after a few tool calls still gives the client the summary —
+	// the tool work that did happen is real and the client should
+	// see it. When loopErr is non-nil the emitted lastError walks
+	// only the messages successfully accumulated up to the error.
+	if textEventCount == 0 && toolEventCount > 0 {
+		var newMsgs []agent.Message
+		if priorLen <= len(msgs) {
+			newMsgs = msgs[priorLen:]
+		}
+		s.emitToolSummary(p.SessionID, toolEventCount, lastToolName, lastToolErrorIn(newMsgs))
+	}
+
+	if loopErr != nil {
+		return nil, &RPCError{Code: CodeInternalError, Message: loopErr.Error()}
 	}
 	sess.mu.Lock()
 	gitSess := sess.gitSess
@@ -558,6 +598,43 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	sess.messages = msgs
 	sess.mu.Unlock()
 	return sessionPromptResult{Text: text}, nil
+}
+
+// emitToolSummary sends the F7 end-of-turn signal that fires only on
+// tool-only turns (zero text deltas, ≥1 tool calls). Wire shape is
+// stable so ACP clients can construct a minimal reply without
+// prompting the model to summarise:
+//
+//	{sessionId, kind: "tool_summary",
+//	 toolCount: int, lastTool: string, lastError: bool}
+func (s *Server) emitToolSummary(sessionID string, toolCount int, lastTool string, lastError bool) {
+	if s == nil || s.conn == nil {
+		return
+	}
+	_ = s.conn.Notify("session/update", map[string]any{
+		"sessionId": sessionID,
+		"kind":      "tool_summary",
+		"toolCount": toolCount,
+		"lastTool":  lastTool,
+		"lastError": lastError,
+	})
+}
+
+// lastToolErrorIn walks the supplied messages newest-last and
+// returns true when the most recent ToolResult block is_error=true.
+// Returns false on no tool-result blocks (defensive — shouldn't
+// happen when toolEventCount > 0, but the caller can't depend on
+// that).
+func lastToolErrorIn(msgs []agent.Message) bool {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		blocks := msgs[i].Content
+		for j := len(blocks) - 1; j >= 0; j-- {
+			if blocks[j].ToolResult != nil {
+				return blocks[j].ToolResult.IsError
+			}
+		}
+	}
+	return false
 }
 
 func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) {

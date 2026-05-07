@@ -84,15 +84,18 @@ Plugins / Infra / Fixes.
   thread coherent. Removes the multi-dispatch context loss where
   long-running engagements re-discover the same workspace state at
   the start of every new ACP session.
-- **Tool-only-turn empty-text behaviour documented** in
-  `stado acp --help`. Some models chain tool calls without producing
-  any text deltas, so the `session/prompt` success response carries
-  `text=""` even though work happened. The tool calls are visible
-  through `kind=tool_call` `session/update` notifications and
-  committed to the trace ref; clients should either prompt the model
-  to summarise or treat empty `text` as "see tool_call updates."
-  Documented to keep integrators from assembling 0-byte assistant
-  replies when the model worked entirely through tools.
+- **`kind=tool_summary` end-of-turn notification** for tool-only
+  turns (closes tester finding F7). When a `session/prompt` produces
+  ≥1 tool call but zero text deltas, stado emits a `session/update`
+  notification with `kind=tool_summary` carrying `toolCount` (int),
+  `lastTool` (string), and `lastError` (bool) before the prompt
+  response is sent. Lets ACP clients construct a minimal reply when
+  `text` is empty without parsing the per-call stream themselves.
+  Fires at most once per `session/prompt`; never fires when text was
+  emitted; fires on AgentLoop errors too (a turn that hits MaxTurns
+  after a tool call still gives the client the partial summary).
+  `--help` now spells out the rule alongside the existing
+  empty-`text` documentation.
 - **Persona on headless + ACP envelopes** (closes the personas-design
   Done-def gap). `stado acp --persona <name>` and
   `stado headless --persona <name>` set an operator default that

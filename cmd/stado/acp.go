@@ -64,18 +64,24 @@ var acpCmd = &cobra.Command{
 		"  kind=approval   wasm plugin requested operator yes/no approval\n" +
 		"                  fields: requestId, title, body. Client must reply via\n" +
 		"                  session/approval_response with\n" +
-		"                  {sessionId, requestId, allow:bool, cancelled:bool}.\n\n" +
+		"                  {sessionId, requestId, allow:bool, cancelled:bool}.\n" +
+		"  kind=tool_summary  end-of-turn signal that the turn produced ≥1 tool\n" +
+		"                  call but zero text deltas. Fields: toolCount (int),\n" +
+		"                  lastTool (string), lastError (bool). At most one\n" +
+		"                  per session/prompt; never fires when text was emitted.\n" +
+		"                  Lets clients build a minimal reply when the model\n" +
+		"                  did its work entirely through tools.\n\n" +
 		"Tool-only turns produce empty session/prompt text:\n" +
 		"  Some models chain tool calls without producing any text deltas, so\n" +
 		"  the session/update stream has zero kind=text events and the\n" +
-		"  session/prompt success response carries text=\"\". The tool work\n" +
-		"  itself is visible via kind=tool_call updates and committed to the\n" +
-		"  session's git-native trace ref. Two ways to handle this:\n" +
-		"  1. System prompt: instruct the model to always produce a final\n" +
-		"     text summary, even when most of the turn is tool calls.\n" +
-		"  2. Client side: treat empty text as \"see tool_call updates\";\n" +
-		"     `stado stats --session <id> --json` lists the tool calls\n" +
-		"     authoritatively if the client wasn't tracking them live.\n\n" +
+		"  session/prompt success response carries text=\"\". stado emits a\n" +
+		"  kind=tool_summary notification at end-of-turn in this case so the\n" +
+		"  ACP client can build a reply from {toolCount, lastTool, lastError}\n" +
+		"  without parsing the tool_call stream itself.\n" +
+		"  System-prompt fallback: still recommended to instruct the model to\n" +
+		"  produce a final text summary; tool_summary is the floor, not the\n" +
+		"  goal. `stado stats --session <id> --json` gives the authoritative\n" +
+		"  per-call breakdown when the client needs more than the summary.\n\n" +
 		"Resuming a session:\n" +
 		"  --resume <id-or-label>            attaches to an existing git-native\n" +
 		"                                    session (full UUID, prefix ≥8, or\n" +
