@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
@@ -40,6 +43,15 @@ import (
 // budget; falls back to [acp] max_turns from config, then 50 with --tools / 1
 // without. ACP clients that need long-running tool sessions should set this
 // explicitly rather than relying on the defaults.
+//
+// session/new also accepts an optional `resumeSession` string carrying a
+// canonical session UUID to resume. When set, the server opens that
+// session's existing worktree, loads the prior conversation history,
+// and returns the same UUID as the ACP `sessionId` so the wire id
+// matches the git id. Falls back to the operator-set
+// `stado acp --resume <id-or-label>` default when the caller leaves
+// `resumeSession` empty. Resuming a session that's already active in
+// this server returns CodeInvalidParams to keep history coherent.
 const ProtocolVersion = 1
 
 // Server is the stado ACP server — stdin/stdout JSON-RPC, one connection.
@@ -51,6 +63,13 @@ type Server struct {
 	// demand and runs the full audited executor loop (tools + git commits
 	// + sandbox). Advertised as ToolCalls: true in initialize.
 	EnableTools bool
+
+	// ResumeSessionID is the canonical git-native session id the
+	// operator pinned via `stado acp --resume <id>`. Applied as the
+	// default for `session/new` when the caller's `resumeSession`
+	// param is empty. Resolved (prefix / description lookup) before
+	// the server starts; this field is always a full session UUID.
+	ResumeSessionID string
 
 	conn   *Conn
 	mu     sync.Mutex
@@ -184,6 +203,15 @@ type sessionNewParams struct {
 	// then to the built-in default. Caps below 1 are coerced to 1
 	// to keep the loop progressing on at least one turn. v0.45.1.
 	MaxTurns int `json:"maxTurns"`
+
+	// ResumeSession, when non-empty, asks the server to attach to an
+	// existing git-native session by full UUID instead of starting a
+	// fresh ACP session. Empty falls back to Server.ResumeSessionID
+	// (the operator's `--resume` CLI default). Returned `sessionId`
+	// matches this id verbatim so the ACP client can round-trip it.
+	// Unknown ids surface as a CodeInvalidParams error before the
+	// session is registered.
+	ResumeSession string `json:"resumeSession"`
 }
 
 type sessionNewResult struct {
@@ -202,6 +230,32 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 			return nil, &RPCError{Code: CodeInternalError, Message: msg}
 		}
 	}
+
+	// Resume target precedence: per-call param > operator-set CLI
+	// default. Both forms must be a full session UUID; prefix /
+	// description lookup stays in the CLI layer (cmd/stado).
+	resumeID := p.ResumeSession
+	if resumeID == "" {
+		resumeID = s.ResumeSessionID
+	}
+	if resumeID != "" {
+		sess, err := s.buildResumedSession(resumeID, p.MaxTurns)
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		if _, taken := s.sessions[resumeID]; taken {
+			s.mu.Unlock()
+			return nil, &RPCError{
+				Code:    CodeInvalidParams,
+				Message: "session already active in this server: " + resumeID,
+			}
+		}
+		s.sessions[resumeID] = sess
+		s.mu.Unlock()
+		return sessionNewResult{SessionID: resumeID}, nil
+	}
+
 	cwd, _ := os.Getwd()
 	s.mu.Lock()
 	s.nextID++
@@ -209,6 +263,71 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 	s.sessions[id] = &acpSession{id: id, workdir: cwd, maxTurns: p.MaxTurns}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
+}
+
+// buildResumedSession opens an existing git-native session by id,
+// loads its conversation history into a fresh acpSession, and
+// returns it ready to be registered. Validates the id format and
+// returns RPC-shaped errors so handleSessionNew can pass them
+// straight back to the caller.
+func (s *Server) buildResumedSession(id string, maxTurns int) (*acpSession, error) {
+	if err := stadogit.ValidateSessionID(id); err != nil {
+		return nil, &RPCError{
+			Code:    CodeInvalidParams,
+			Message: "resumeSession: invalid session id: " + err.Error(),
+		}
+	}
+	// Tighter than ValidateSessionID (which only rejects path
+	// traversals): the wire contract says canonical UUID. Catch
+	// callers passing labels or prefixes here so the error points
+	// at the bug instead of at "no worktree".
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, &RPCError{
+			Code:    CodeInvalidParams,
+			Message: "resumeSession: invalid session id (must be a canonical UUID; prefix / description lookup is operator-only via --resume): " + err.Error(),
+		}
+	}
+	if s.Cfg == nil {
+		return nil, &RPCError{
+			Code:    CodeInternalError,
+			Message: "resumeSession: server has no config",
+		}
+	}
+	worktreePath := filepath.Join(s.Cfg.WorktreeDir(), id)
+	if _, err := os.Stat(worktreePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, &RPCError{
+				Code:    CodeInvalidParams,
+				Message: "resumeSession: no session worktree for id " + id,
+			}
+		}
+		return nil, &RPCError{
+			Code:    CodeInternalError,
+			Message: "resumeSession: stat worktree: " + err.Error(),
+		}
+	}
+	gitSess, err := runtime.OpenSessionByID(s.Cfg, worktreePath, id)
+	if err != nil {
+		return nil, &RPCError{
+			Code:    CodeInvalidParams,
+			Message: "resumeSession: open session " + id + ": " + err.Error(),
+		}
+	}
+	priorMsgs, err := runtime.LoadConversation(worktreePath)
+	if err != nil {
+		return nil, &RPCError{
+			Code:    CodeInternalError,
+			Message: "resumeSession: load conversation: " + err.Error(),
+		}
+	}
+	return &acpSession{
+		id:               id,
+		workdir:          worktreePath,
+		maxTurns:         maxTurns,
+		gitSess:          gitSess,
+		messages:         priorMsgs,
+		persistedViewLen: len(priorMsgs),
+	}, nil
 }
 
 // checkInstalledPluginABI eagerly verifies installed-plugin wasm

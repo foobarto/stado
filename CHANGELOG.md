@@ -53,6 +53,21 @@ Plugins / Infra / Fixes.
   now enumerates all five kinds (`text`, `tool_call`, `subagent`,
   `choice`, `approval`) with their wire fields and required
   client-side response RPC.
+- **Session resume**. `stado acp --resume <id-or-label>` (operator
+  default) and `session/new {"resumeSession": "<UUID>"}` (per-call
+  pin) attach to an existing git-native session: the prior
+  conversation history is loaded via `runtime.LoadConversation`, the
+  worktree becomes the session workdir, and the wire `sessionId`
+  matches the git session UUID so it round-trips across processes.
+  CLI accepts the full lookup vocabulary (UUID, prefix ≥8, or
+  description substring) and resolves before the JSON-RPC loop
+  starts; the wire `resumeSession` requires a canonical UUID so a
+  malformed id surfaces a precise error instead of a "no worktree"
+  red herring. Resuming an already-active session in the same server
+  process is rejected with `CodeInvalidParams` to keep the message
+  thread coherent. Removes the multi-dispatch context loss where
+  long-running engagements re-discover the same workspace state at
+  the start of every new ACP session.
 
 ### CLI
 

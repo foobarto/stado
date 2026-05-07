@@ -16,6 +16,7 @@ var (
 	acpTools       bool
 	acpMaxTurns    int
 	acpNoTurnLimit bool
+	acpResume      string
 )
 
 // acpNoTurnLimitMagnitude is the value resolveMaxTurns reports when
@@ -61,7 +62,16 @@ var acpCmd = &cobra.Command{
 		"  kind=approval   wasm plugin requested operator yes/no approval\n" +
 		"                  fields: requestId, title, body. Client must reply via\n" +
 		"                  session/approval_response with\n" +
-		"                  {sessionId, requestId, allow:bool, cancelled:bool}.",
+		"                  {sessionId, requestId, allow:bool, cancelled:bool}.\n\n" +
+		"Resuming a session:\n" +
+		"  --resume <id-or-label>            attaches to an existing git-native\n" +
+		"                                    session (full UUID, prefix ≥8, or\n" +
+		"                                    description substring), loads its\n" +
+		"                                    conversation history, and uses the\n" +
+		"                                    same UUID as the wire sessionId.\n" +
+		"  session/new {\"resumeSession\": ID} same effect, per-call. Must be a\n" +
+		"                                    full UUID — prefix lookup is\n" +
+		"                                    operator-only.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -74,14 +84,31 @@ var acpCmd = &cobra.Command{
 		} else if acpMaxTurns > 0 {
 			cfg.ACP.MaxTurns = acpMaxTurns
 		}
+		// Resolve --resume up front so a bad query fails before the
+		// JSON-RPC loop opens. Friendly forms (prefix / description
+		// substring) only work here — session/new on the wire takes
+		// canonical UUIDs only.
+		var resumeID string
+		if acpResume != "" {
+			resolved, err := resolveSessionID(cfg, acpResume)
+			if err != nil {
+				return fmt.Errorf("acp: --resume: %w", err)
+			}
+			resumeID = resolved
+		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
 			prov, provErr := tui.BuildProvider(cfg)
 			if provErr != nil {
 				fmt.Fprintf(os.Stderr, "stado acp: provider unavailable: %v\n", provErr)
 			}
-			fmt.Fprintln(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=", acpTools, ")")
+			if resumeID != "" {
+				fmt.Fprintf(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=%v, resume=%s)\n", acpTools, resumeID)
+			} else {
+				fmt.Fprintln(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=", acpTools, ")")
+			}
 			s := acp.NewServer(cfg, prov)
 			s.EnableTools = acpTools
+			s.ResumeSessionID = resumeID
 			return s.Serve(ctx, os.Stdin, os.Stdout)
 		})
 	},
@@ -91,5 +118,6 @@ func init() {
 	acpCmd.Flags().BoolVar(&acpTools, "tools", false, "Enable tool-calling with git-native audit")
 	acpCmd.Flags().IntVar(&acpMaxTurns, "max-turns", 0, "Per-prompt turn cap (operator default; 0 = use [acp] max_turns or built-in)")
 	acpCmd.Flags().BoolVar(&acpNoTurnLimit, "no-turn-limit", false, "Effectively unlimited per-prompt turns (overrides --max-turns)")
+	acpCmd.Flags().StringVar(&acpResume, "resume", "", "Resume an existing session (id, prefix ≥8, or description substring). Loads its conversation history and uses the canonical UUID as the wire sessionId.")
 	rootCmd.AddCommand(acpCmd)
 }
