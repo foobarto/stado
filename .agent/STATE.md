@@ -31,7 +31,18 @@ Stable under `-count=10 -race`.
 Phase 1 done — ready for **merge checkpoint #1** (tests-only
 diff).
 
-Up next: Phase 2.1 (A2) — workdirpath Resolver/RootResolver.
+Phase 2.1.aa: **complete.** mcpbridge audit. Verified
+`internal/mcpbridge` has zero filesystem operations — pure
+JSON-over-RPC bridge to external MCP server process. No
+`workdirpath` usage, no `filepath.*`, no `os.Open/ReadFile/...`.
+No API impact for A2.
+
+Plan also rewritten this turn for the round-2 design pivot:
+4 types (`Resolver` / `UserConfigResolver` / `StrictResolver` /
+`RootResolver`) instead of D12's original 2.
+
+Up next: Phase 2.1.a — `Resolver` (workdir) + `RootResolver`
+(independent constructor) + security tests.
 
 ## Queued (in order, per plan)
 

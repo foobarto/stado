@@ -51,6 +51,29 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — A2 design pivot + 2.1.aa mcpbridge audit
+
+Two rounds of code-level consultation (codex + gemini) on A2's
+design. Both rounds independently rejected D12's original
+"single Resolver + WithAnchor options" approach. Convergent
+recommendation: 4 narrow types (Resolver / UserConfigResolver /
+StrictResolver / RootResolver) per security policy, no options-
+based dispatch, no path-shape dispatch, no generic OpenFile(flags),
+RootResolver independently constructible. Plan + D12 rewritten
+(commit 26ed948) before any code lands.
+
+2.1.aa mcpbridge audit complete. Verified
+`internal/mcpbridge` has ZERO filesystem operations. The package
+is 109 lines of pure JSON-over-RPC bridge to external MCP
+servers — no `workdirpath` import, no `filepath.*`, no
+`os.Open/ReadFile/WriteFile/Mkdir/Stat`, no `EvalSymlinks`, no
+`*os.Root`. The round-3 "audit mcpbridge for safety leakage"
+flag is fully addressed: there is no leakage to fix.
+
+Conclusion for A2 verification: "mcpbridge audit produced a
+defined outcome" → "no fs/workdirpath usage; out of scope".
+mcpbridge stays untouched through the entire A2 phase.
+
 ## 2026-05-07 — Phase 1 round-4 review fixes
 
 Codex + gemini round-4 review caught real gaps in Phase 1 work.
