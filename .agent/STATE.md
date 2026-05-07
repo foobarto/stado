@@ -57,9 +57,18 @@ constructing a Resolver per call is more verbose than legacy.
 The ergonomic win materialises during refactors that store the
 resolver as a struct field, naturally part of broad migration.
 
-Up next: Phase 2.1.b — `UserConfigResolver` (XDG/HOME longest
-anchor + strict fallback). Highest-traffic flavor (74 calls
-across 3 user-config legacy fns).
+Phase 2.1.b: **complete.** `UserConfigResolver` landed in
+`internal/workdirpath/userconfig_resolver.go`. 10 new tests
+covering: longest-anchor wins (HOME vs XDG_STATE_HOME), anchor
+equality, symlinked HOME above anchor (Fedora Atomic case),
+in-user-space symlink rejection below anchor, outside-anchor
+fallback to strict, ReadFileLimited oversize rejection,
+ReadFileNoLimit round-trip, MkdirAll creates missing anchor,
+NUL-byte rejection, no-leak invariant on rejection. All pass
+under `-count=5 -race`. Methods delegate to legacy during the
+2.1.a-c window.
+
+Up next: Phase 2.1.c — `StrictResolver` + `Under(ancestor)`.
 
 ## Queued (in order, per plan)
 
