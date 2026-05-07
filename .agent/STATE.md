@@ -68,7 +68,24 @@ NUL-byte rejection, no-leak invariant on rejection. All pass
 under `-count=5 -race`. Methods delegate to legacy during the
 2.1.a-c window.
 
-Up next: Phase 2.1.c — `StrictResolver` + `Under(ancestor)`.
+Phase 2.1.c: **complete.** `StrictResolver` lands in
+`internal/workdirpath/strict_resolver.go`. 16 new tests covering
+both strict-from-/ paths (parent-symlink rejection, final-symlink
+rejection, oversize, RemoveAll tree + symlink rejection) and
+Under(ancestor) (above-anchor symlink accepted, below-anchor
+symlink rejected, empty-ancestor rejection, ancestor-equality
+no-op). The 3 unsupported-on-Under methods (OpenRegularFile,
+ReadFileLimited, RemoveAll) return defined errors rather than
+silently using strict-from-/ semantics — round-A2 review's
+"behavior change avoidance" call.
+
+All 4 types now landed alongside legacy. Resolver (workdir),
+RootResolver (*os.Root), UserConfigResolver (HOME/XDG anchor),
+StrictResolver (no-symlink + Under). 49 new tests total
+(23 + 10 + 16). Existing 29 legacy tests still green.
+
+Up next: Phase 2.1.d — behavior matrix + legacy wrapper rewrite
+(split 2-3 commits by family).
 
 ## Queued (in order, per plan)
 
