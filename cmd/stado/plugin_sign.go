@@ -226,7 +226,7 @@ func stdBase64Decode(s string) ([]byte, error) {
 }
 
 func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
-	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
+	f, err := workdirpath.NewUserConfigResolver().OpenRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func readRegularFileNoSymlinkMax(path string, maxBytes int64) ([]byte, error) {
 }
 
 func sha256RegularFileNoSymlinkMax(path string, maxBytes int64) (string, error) {
-	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
+	f, err := workdirpath.NewUserConfigResolver().OpenRegularFile(path)
 	if err != nil {
 		return "", err
 	}
