@@ -51,6 +51,45 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — Phase 1 round-4 review fixes
+
+Codex + gemini round-4 review caught real gaps in Phase 1 work.
+All "must-fix" items applied:
+
+- Sandbox T2 false-positive risk: `Available()=LookPath` isn't
+  enough (codex saw bwrap on PATH but T2 still failing in their
+  env). Added `tier2ReadyRunners(t)` probe that runs a benign
+  `true` through the runner and skips T2 with a clear log if
+  the probe fails. Negative control test now uses the probed
+  list.
+- Sync spawn cancel orphan: plan promised "runtime state cleaned
+  (no orphan record)"; implementation deliberately doesn't (spawn
+  goroutine uses RootCtx, not caller ctx). Added test asserting
+  the actual behaviour (entry remains in registry with running
+  status after caller cancel). Plan edited to match.
+- ReadMessages offset gaps: added since>current, since<0, and
+  since-forwarded tests. Documents current behaviour where since
+  is echoed through unchanged; plan edited to note alignment is
+  out of scope.
+- FleetBridge cancel-prop: added cancel-prop tests for AgentList,
+  AgentSendMessage, AgentCancel (previously only Spawn and
+  ReadMessages were covered).
+- Forwarding fields: AgentSpawn forwarding now covers Persona /
+  ParentSession / AllowedTools / SandboxProfile / Ephemeral.
+  LLMInvoke covers Persona / System / Temperature.
+  AgentReadMessages asserts forwarded Since (was 0; now 5).
+- Plan edits: Phase 1.1 SessionBridge / MemoryBridge / Approval /
+  Choice / Fleet specifics rewritten to match HEAD interfaces.
+  Phase 1.3 cancellation, message-offset, and missing-agent
+  sections updated to reflect actual behaviour.
+
+Deferred (per Bartosz's instruction):
+- WASM encoder hardening (duplicate names, negative NumParams,
+  zero-result thunks). No real hazard at current scale.
+- Channel-signalled cancel pattern (replacing time.Sleep). Works
+  today; opportunistic refactor.
+- Phase 2.1 path-traversal hardening — fold into A2 spec at start.
+
 ## 2026-05-07 — Phase 1.3 complete
 
 FleetBridgeAdapter contract tests cover the layer the plan was

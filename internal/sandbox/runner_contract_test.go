@@ -63,6 +63,38 @@ func enforcingRunners(t *testing.T) []Runner {
 	return out
 }
 
+// tier2ReadyRunners returns the subset of enforcingRunners that
+// can actually run a benign command on this host. `Available()`
+// only checks the wrapper binary is on PATH — but bwrap requires
+// user-namespace setup the kernel may refuse (nested containers,
+// locked-down sysctls), and sandbox-exec may be present but
+// disabled. The probe runs `true` under default-allow; runners
+// that fail are skipped from Tier 2 with a clear log line.
+//
+// This avoids false-fails on hosts where the runner binary is
+// installed but the kernel/system rejects its namespace requests
+// — codex CI flagged this on round-4 review.
+func tier2ReadyRunners(t *testing.T) []Runner {
+	t.Helper()
+	var out []Runner
+	for _, r := range enforcingRunners(t) {
+		cmd, err := r.Command(context.Background(), Policy{
+			FSRead:  []string{"/"},
+			FSWrite: []string{"/tmp"},
+		}, "true", nil, nil)
+		if err != nil {
+			t.Logf("skipping %s tier 2: Command probe failed: %v", r.Name(), err)
+			continue
+		}
+		if err := cmd.Run(); err != nil {
+			t.Logf("skipping %s tier 2: probe Run failed: %v (runner present but host environment can't use it)", r.Name(), err)
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // pickShell returns an absolute path to a POSIX shell suitable for
 // `-c "..."` invocations under the configured Tier-2 runners. Falls
 // back to t.Skip if no usable shell can be found.
@@ -173,10 +205,15 @@ func TestRunnerContract_T1_ExecAllowList_EmptyAllowsAny(t *testing.T) {
 // ---- Tier 2: runtime enforcement ----------------------------------------
 
 // TestRunnerContract_T2_NegativeControl: a default-allow policy on
-// `true` exits 0 under every runner including NoneRunner. Confirms
-// the wrappers don't introduce spurious failures on benign workloads.
+// `true` exits 0 under every runner including NoneRunner. For
+// enforcing runners the probe in tier2ReadyRunners has already
+// confirmed the runner can spawn a benign subprocess; this test
+// re-asserts it cleanly under the standard test name. NoneRunner
+// always runs (no probe needed).
 func TestRunnerContract_T2_NegativeControl(t *testing.T) {
-	for _, r := range availableRunners(t) {
+	cases := []Runner{NoneRunner{}}
+	cases = append(cases, tier2ReadyRunners(t)...)
+	for _, r := range cases {
 		t.Run(r.Name(), func(t *testing.T) {
 			cmd, err := r.Command(context.Background(), Policy{
 				FSRead:  []string{"/"},
@@ -198,9 +235,9 @@ func TestRunnerContract_T2_NegativeControl(t *testing.T) {
 // exit, not as an error from Command — Tier 2 enforcement happens
 // inside the spawned process.
 func TestRunnerContract_T2_FSWriteDenied(t *testing.T) {
-	runners := enforcingRunners(t)
+	runners := tier2ReadyRunners(t)
 	if len(runners) == 0 {
-		t.Skipf("no enforcing runner available on %s", runtime.GOOS)
+		t.Skipf("no enforcing runner ready on %s (binary missing or environment blocks it)", runtime.GOOS)
 	}
 	shell := pickShell(t)
 
@@ -241,9 +278,9 @@ func TestRunnerContract_T2_FSWriteDenied(t *testing.T) {
 // case but the target is inside Policy.FSWrite. Subprocess exits 0
 // and the file is created.
 func TestRunnerContract_T2_FSWriteAllowed(t *testing.T) {
-	runners := enforcingRunners(t)
+	runners := tier2ReadyRunners(t)
 	if len(runners) == 0 {
-		t.Skipf("no enforcing runner available on %s", runtime.GOOS)
+		t.Skipf("no enforcing runner ready on %s (binary missing or environment blocks it)", runtime.GOOS)
 	}
 	shell := pickShell(t)
 

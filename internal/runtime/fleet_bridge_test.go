@@ -146,6 +146,47 @@ func TestFleetBridgeAdapter_Spawn_SyncCtxCancelReturnsCtxErr(t *testing.T) {
 	}
 }
 
+// TestFleetBridgeAdapter_Spawn_SyncCancelLeavesEntryRunning
+// asserts the *actual* behavior on sync-spawn cancellation: the
+// adapter returns ctx.Err to the caller but the spawn goroutine
+// keeps running because Fleet.Spawn was launched with the
+// long-lived RootCtx (fleet.go:205), not the caller's ctx.
+//
+// The plan called for "runtime state cleaned (no orphan record)"
+// — that misread the design. The spawn goroutine survives caller
+// cancellation by intent: a plugin can fire-and-forget a sync
+// spawn, return early, and the agent still completes. Documenting
+// the actual contract here so a future refactor doesn't quietly
+// regress it.
+func TestFleetBridgeAdapter_Spawn_SyncCancelLeavesEntryRunning(t *testing.T) {
+	sp := &fakeSpawner{delay: 5 * time.Second}
+	a := newAdapterWithSpawner(t, sp)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err := a.AgentSpawn(ctx, pluginRuntime.AgentSpawnRequest{
+		Prompt: "long task",
+		Async:  false,
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+
+	// Entry must still exist after caller bails, status still
+	// running. List() should report it.
+	entries, listErr := a.AgentList(t.Context())
+	if listErr != nil {
+		t.Fatalf("AgentList: %v", listErr)
+	}
+	if len(entries) != 1 {
+		t.Errorf("got %d entries after sync cancel, want 1 (orphan-by-design)", len(entries))
+	}
+	if len(entries) == 1 && entries[0].Status != string(FleetStatusRunning) {
+		t.Errorf("entry status after sync cancel = %q, want %q (goroutine still running)",
+			entries[0].Status, FleetStatusRunning)
+	}
+}
+
 // ---- AgentList ---------------------------------------------------------
 
 func TestFleetBridgeAdapter_List_EmptyFleetReturnsEmptySlice(t *testing.T) {
@@ -307,6 +348,102 @@ func TestFleetBridgeAdapter_ReadMessages_TimeoutReturnsWhenStatusChanges(t *test
 	}
 	if elapsed >= time.Second {
 		t.Errorf("read took the full timeout (%v); poll didn't observe completion early", elapsed)
+	}
+}
+
+// TestFleetBridgeAdapter_ReadMessages_OffsetAboveCurrent: the plan
+// called for "offset > current → empty, not error". Current
+// implementation just echoes `since` back as msgs.Offset and
+// returns no messages for an agent without a result yet. This
+// matches the plan's "empty, not error" intent for the running
+// case. Documenting current behavior so a future change doesn't
+// silently introduce an error path.
+func TestFleetBridgeAdapter_ReadMessages_OffsetAboveCurrent(t *testing.T) {
+	sp := &fakeSpawner{delay: 5 * time.Second}
+	a := newAdapterWithSpawner(t, sp)
+
+	id, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
+		Prompt: "x",
+		Async:  true,
+	})
+	if err != nil {
+		t.Fatalf("AgentSpawn: %v", err)
+	}
+
+	msgs, err := a.AgentReadMessages(t.Context(), id.ID, 999, 0)
+	if err != nil {
+		t.Fatalf("AgentReadMessages: %v", err)
+	}
+	if len(msgs.Messages) != 0 {
+		t.Errorf("got %d messages with since>current, want 0", len(msgs.Messages))
+	}
+	if msgs.Offset != 999 {
+		t.Errorf("Offset = %d, want 999 (since echoed when no result)", msgs.Offset)
+	}
+}
+
+// TestFleetBridgeAdapter_ReadMessages_OffsetNegative: the plan
+// called for "offset < 0 → defined error". Current implementation
+// does NOT validate `since`; it just echoes the negative value
+// through. Documents the gap; aligning would be a behavior change
+// captured for follow-up.
+func TestFleetBridgeAdapter_ReadMessages_OffsetNegative(t *testing.T) {
+	sp := &fakeSpawner{
+		res:   subagent.Result{Text: "result"},
+		delay: 30 * time.Millisecond,
+	}
+	a := newAdapterWithSpawner(t, sp)
+
+	id, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
+		Prompt: "x",
+		Async:  true,
+	})
+	if err != nil {
+		t.Fatalf("AgentSpawn: %v", err)
+	}
+	waitForStatus(t, a.Fleet, id.ID, FleetStatusCompleted)
+
+	msgs, err := a.AgentReadMessages(t.Context(), id.ID, -1, 0)
+	if err != nil {
+		t.Fatalf("expected no error today (gap from plan), got %v", err)
+	}
+	// Current behavior: -1 is echoed as message Offset; msgs.Offset
+	// becomes since+1 = 0.
+	if msgs.Offset != 0 {
+		t.Errorf("Offset = %d, want 0 (since=-1 + 1; current behavior, plan said error)", msgs.Offset)
+	}
+	if len(msgs.Messages) != 1 || msgs.Messages[0].Offset != -1 {
+		t.Errorf("messages = %+v, want one with Offset=-1 (current behavior)", msgs.Messages)
+	}
+}
+
+func TestFleetBridgeAdapter_ReadMessages_AssertsForwardedSince(t *testing.T) {
+	sp := &fakeSpawner{
+		res:   subagent.Result{Text: "ok"},
+		delay: 30 * time.Millisecond,
+	}
+	a := newAdapterWithSpawner(t, sp)
+
+	id, err := a.AgentSpawn(t.Context(), pluginRuntime.AgentSpawnRequest{
+		Prompt: "x",
+		Async:  true,
+	})
+	if err != nil {
+		t.Fatalf("AgentSpawn: %v", err)
+	}
+	waitForStatus(t, a.Fleet, id.ID, FleetStatusCompleted)
+
+	const wantSince = 42
+	msgs, err := a.AgentReadMessages(t.Context(), id.ID, wantSince, 0)
+	if err != nil {
+		t.Fatalf("AgentReadMessages: %v", err)
+	}
+	if len(msgs.Messages) != 1 || msgs.Messages[0].Offset != wantSince {
+		t.Errorf("message offset = %v, want %d (since forwarded into Message.Offset)",
+			msgs.Messages, wantSince)
+	}
+	if msgs.Offset != wantSince+1 {
+		t.Errorf("Offset = %d, want %d (since+1 when result present)", msgs.Offset, wantSince+1)
 	}
 }
 

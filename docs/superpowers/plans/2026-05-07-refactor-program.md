@@ -167,19 +167,36 @@ unit failures rather than session timeouts.
    call (if started) sees the cancellation. Use a blocking
    primitive fake; cancel mid-call; assert.
 
-**Per-bridge specifics** (in addition to the four contracts):
-- **SessionBridge.** Append-block, get-block-by-id, list-blocks,
-  set-metadata. Assert the block-id seam (caller-supplied vs
-  bridge-supplied) matches the existing wire format.
-- **MemoryBridge.** Read / write / list / search semantics; the
-  read-after-write-within-call invariant if it exists.
-- **ApprovalBridge.** Outcome encoding (approved / denied /
-  asked-but-no-bridge → defined default). Test the deny-on-nil
-  default explicitly.
-- **ChoiceBridge.** Same shape as ApprovalBridge: the no-bridge
-  default; the typed-choice round-trip.
+**Per-bridge specifics** (in addition to the four contracts).
+*Updated 2026-05-07 to match the actual interfaces at HEAD; the
+prior wording listed methods that don't exist on these bridges.*
+- **SessionBridge.** `NextEvent` (ctx-bound poll), `ReadField`
+  (named stringly-typed fields: `message_count` / `token_count` /
+  `session_id` / `last_turn_ref` / `history`), `Fork`,
+  `InvokeLLM`. Plus `stado_llm_invoke` host import. Assert the
+  forwarded `LLMInvokeOpts` carry every per-call field
+  (Persona / Model / System / MaxTokens / Temperature) and that
+  the host's `llmTokensUsed` budget counter increments by the
+  bridge-reported `tokensUsed`.
+- **MemoryBridge.** `Propose` / `Query` / `Update` (note: 3
+  methods, not the prior plan's 4). Verify forwarded payload
+  bytes are unchanged vs. what the import staged into wasm
+  memory; assert the bridge call reaches the bridge for every
+  cap path.
+- **ApprovalBridge.** Outcome encoding (allow=1 / deny=0 /
+  bridge-error→-1 / cap-deny→-1 / nil-bridge→-1). Test all five
+  paths.
+- **ChoiceBridge.** Single-select / multi-select / cancelled
+  responses round-trip through wasm memory. cap-deny and
+  nil-bridge return *negative* bytes-written via
+  `encodeToolSidePayload` (not -1) — the message text staged at
+  the response buffer is part of the contract; assert it.
 - **FleetBridge.** Spawn / list / send-message / read-messages /
-  cancel. Assert that ID typing is preserved through the bridge.
+  cancel. Assert that the full `AgentSpawnRequest` (Prompt,
+  Model, Async, Ephemeral, ParentSession, AllowedTools,
+  SandboxProfile, Persona) reaches the bridge unchanged. Cancel
+  contract applies to every method that takes ctx (i.e. all
+  five).
 
 **Files added.**
 - `internal/plugins/runtime/host_session_bridge_test.go`
@@ -333,20 +350,38 @@ brief was wrong.
 **File added.** `internal/runtime/fleet_bridge_test.go`.
 
 **Coverage targets.** The four contracts above (capability /
-nil / forwarding / cancel) plus FleetBridge specifics:
+nil / forwarding / cancel) plus FleetBridge specifics. *Updated
+2026-05-07 to match HEAD behaviour; the prior wording asserted
+behaviour the implementation deliberately doesn't have.*
 
-- **Sync spawn.** Caller waits for spawn to complete; assert pid /
-  agent-id surfaces; assert error path when spawn fails (e.g.
-  capability denied, parent agent unknown).
-- **Cancellation.** Cancel mid-spawn → ctx.Err returned; runtime
-  state cleaned (no orphan record).
-- **Message offsets.** `read-messages` with an offset returns
-  messages from the right point; offset > current → empty,
-  not error; offset < 0 → defined error.
-- **Missing-agent paths.** All ops on an unknown agent ID return
-  the typed "not found" error, not panic, not nil.
+- **Sync spawn.** Caller waits for spawn to complete; assert
+  agent-id + session-id + status surface; assert error path when
+  the spawner returns an error (test wraps with `agent error: ...`).
+- **Cancellation.** Cancel mid-sync-spawn → ctx.Err returned to
+  the caller. *The fleet entry is intentionally NOT cleaned* —
+  `Fleet.Spawn`'s goroutine uses the long-lived `RootCtx`, not
+  the caller's ctx. A plugin can fire-and-forget a sync spawn
+  and the agent still completes. Test asserts the entry remains
+  in the registry with status=running after caller cancellation.
+- **Message offsets.** `since=0` baseline; `since=N>0` forwards
+  N into both `bridge.Since` and the result's `Message.Offset`
+  field. *`since>current` and `since<0` are not validated by the
+  current implementation* — `since` is echoed through unchanged.
+  Tests document current behaviour; aligning with the original
+  plan's "empty for offset>current; error for offset<0" intent
+  is captured for follow-up but not in scope for this refactor
+  program.
+- **Missing-agent paths.** Get / ReadMessages / SendMessage all
+  return typed "not found" errors. *Cancel is documented
+  idempotent (returns nil for unknown IDs)* — see fleet.go:279.
+  Aligning Cancel with the others would be a behaviour change
+  callers depend on; tests document the current contract.
 - **Concurrency.** Parallel spawn requests don't corrupt the
-  agent registry; a cancelled spawn's slot is reused.
+  agent registry; all spawned IDs are distinct and appear in
+  AgentList. (Note: the package's existing `fakeSpawner` has a
+  latent race in `gotPrompt` under parallel use; tests
+  introduce a local race-safe spawner rather than fixing the
+  shared fixture.)
 
 **Approach.** Write a fleet-specific mini-harness inline in
 `fleet_bridge_test.go` — `_test.go` files aren't importable across

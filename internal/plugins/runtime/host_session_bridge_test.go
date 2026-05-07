@@ -284,7 +284,16 @@ func TestSessionBridge_Forwarding_LLMInvoke(t *testing.T) {
 		withSessionBridge(br).
 		install()
 
-	args := llmInvokeArgs{Prompt: "say hi", Model: "claude-x", MaxTokens: 64}
+	// Cover every llmInvokeArgs field so per-call options reach
+	// the bridge unchanged.
+	args := llmInvokeArgs{
+		Prompt:      "say hi",
+		Persona:     "researcher",
+		Model:       "claude-x",
+		System:      "be terse",
+		MaxTokens:   64,
+		Temperature: 0.7,
+	}
 	argBytes, _ := json.Marshal(args)
 	h.memWrite(0, argBytes)
 	const outPtr, outCap = 256, 256
@@ -298,21 +307,31 @@ func TestSessionBridge_Forwarding_LLMInvoke(t *testing.T) {
 	if br.llmCalls.Load() != 1 {
 		t.Errorf("llmCalls = %d, want 1", br.llmCalls.Load())
 	}
-	if br.lastLLMPrompt != "say hi" {
-		t.Errorf("forwarded prompt = %q, want %q", br.lastLLMPrompt, "say hi")
+	if br.lastLLMPrompt != args.Prompt {
+		t.Errorf("forwarded prompt = %q, want %q", br.lastLLMPrompt, args.Prompt)
 	}
-	if br.lastLLMOpts.Model != "claude-x" {
-		t.Errorf("forwarded model = %q, want %q", br.lastLLMOpts.Model, "claude-x")
+	got := br.lastLLMOpts
+	if got.Persona != args.Persona {
+		t.Errorf("Persona = %q, want %q", got.Persona, args.Persona)
 	}
-	if br.lastLLMOpts.MaxTokens != 64 {
-		t.Errorf("forwarded max_tokens = %d, want 64", br.lastLLMOpts.MaxTokens)
+	if got.Model != args.Model {
+		t.Errorf("Model = %q, want %q", got.Model, args.Model)
+	}
+	if got.System != args.System {
+		t.Errorf("System = %q, want %q", got.System, args.System)
+	}
+	if got.MaxTokens != args.MaxTokens {
+		t.Errorf("MaxTokens = %d, want %d", got.MaxTokens, args.MaxTokens)
+	}
+	if got.Temperature != args.Temperature {
+		t.Errorf("Temperature = %v, want %v", got.Temperature, args.Temperature)
 	}
 	// stado_llm_invoke writes the bare reply string back (token
 	// count is tracked internally on host.llmTokensUsed; not
 	// part of the wire payload). Assert the reply and the host's
 	// running budget total.
-	if got := h.memRead(outPtr, uint32(n)); string(got) != "hi from llm" {
-		t.Errorf("reply buffer = %q, want %q", got, "hi from llm")
+	if reply := h.memRead(outPtr, uint32(n)); string(reply) != "hi from llm" {
+		t.Errorf("reply buffer = %q, want %q", reply, "hi from llm")
 	}
 	if h.host.llmTokensUsed != 7 {
 		t.Errorf("host.llmTokensUsed = %d, want 7 (bridge-reported)", h.host.llmTokensUsed)

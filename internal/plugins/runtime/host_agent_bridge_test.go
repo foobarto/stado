@@ -202,10 +202,17 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 		withFleetBridge(br).
 		install()
 
+	// Cover every AgentSpawnRequest field so forwarding regressions
+	// in B3's bridge wiring don't slip past as silent zeroings.
 	req := AgentSpawnRequest{
-		Prompt: "do the thing",
-		Model:  "claude-x",
-		Async:  true,
+		Prompt:         "do the thing",
+		Model:          "claude-x",
+		Async:          true,
+		Ephemeral:      true,
+		ParentSession:  "parent-sess-1",
+		AllowedTools:   []string{"fs_read", "rg__rg"},
+		SandboxProfile: "strict",
+		Persona:        "researcher",
 	}
 	reqBytes, _ := json.Marshal(req)
 	h.memWrite(0, reqBytes)
@@ -217,22 +224,40 @@ func TestFleetBridge_Forwarding_Spawn(t *testing.T) {
 	if n <= 0 {
 		t.Fatalf("expected positive bytes-written, got %d", n)
 	}
-	if br.lastSpawnReq.Prompt != "do the thing" {
-		t.Errorf("forwarded prompt = %q", br.lastSpawnReq.Prompt)
+	got := br.lastSpawnReq
+	if got.Prompt != req.Prompt {
+		t.Errorf("Prompt = %q, want %q", got.Prompt, req.Prompt)
 	}
-	if br.lastSpawnReq.Model != "claude-x" {
-		t.Errorf("forwarded model = %q", br.lastSpawnReq.Model)
+	if got.Model != req.Model {
+		t.Errorf("Model = %q, want %q", got.Model, req.Model)
 	}
-	if !br.lastSpawnReq.Async {
-		t.Errorf("forwarded Async = false; want true")
+	if got.Async != req.Async {
+		t.Errorf("Async = %v, want %v", got.Async, req.Async)
+	}
+	if got.Ephemeral != req.Ephemeral {
+		t.Errorf("Ephemeral = %v, want %v", got.Ephemeral, req.Ephemeral)
+	}
+	if got.ParentSession != req.ParentSession {
+		t.Errorf("ParentSession = %q, want %q", got.ParentSession, req.ParentSession)
+	}
+	if len(got.AllowedTools) != len(req.AllowedTools) ||
+		got.AllowedTools[0] != req.AllowedTools[0] ||
+		got.AllowedTools[1] != req.AllowedTools[1] {
+		t.Errorf("AllowedTools = %v, want %v", got.AllowedTools, req.AllowedTools)
+	}
+	if got.SandboxProfile != req.SandboxProfile {
+		t.Errorf("SandboxProfile = %q, want %q", got.SandboxProfile, req.SandboxProfile)
+	}
+	if got.Persona != req.Persona {
+		t.Errorf("Persona = %q, want %q", got.Persona, req.Persona)
 	}
 	out := h.memRead(resPtr, uint32(n))
-	var got AgentSpawnResult
-	if err := json.Unmarshal(out, &got); err != nil {
+	var resp AgentSpawnResult
+	if err := json.Unmarshal(out, &resp); err != nil {
 		t.Fatalf("decode result: %v (raw=%s)", err, out)
 	}
-	if got.ID != want.ID || got.SessionID != want.SessionID || got.Status != want.Status {
-		t.Errorf("result = %+v, want %+v", got, want)
+	if resp.ID != want.ID || resp.SessionID != want.SessionID || resp.Status != want.Status {
+		t.Errorf("result = %+v, want %+v", resp, want)
 	}
 }
 
@@ -276,11 +301,12 @@ func TestFleetBridge_Forwarding_ReadMessages(t *testing.T) {
 		withFleetBridge(br).
 		install()
 
+	// Non-zero Since to catch the case where the import drops it.
 	req := struct {
 		ID        string `json:"id"`
 		Since     int    `json:"since"`
 		TimeoutMs int    `json:"timeout_ms"`
-	}{ID: "agent-7", Since: 0, TimeoutMs: 100}
+	}{ID: "agent-7", Since: 5, TimeoutMs: 100}
 	reqBytes, _ := json.Marshal(req)
 	h.memWrite(0, reqBytes)
 	const resPtr, resCap = 256, 1024
@@ -293,6 +319,9 @@ func TestFleetBridge_Forwarding_ReadMessages(t *testing.T) {
 	}
 	if br.lastReadID != "agent-7" {
 		t.Errorf("forwarded id = %q, want agent-7", br.lastReadID)
+	}
+	if br.lastReadSince != 5 {
+		t.Errorf("forwarded since = %d, want 5", br.lastReadSince)
 	}
 	if br.lastReadTimeoutMs != 100 {
 		t.Errorf("forwarded timeout = %d, want 100", br.lastReadTimeoutMs)
@@ -425,5 +454,90 @@ func TestFleetBridge_Cancel_PropagatesToReadMessages(t *testing.T) {
 	if !errors.Is(br.lastReadCtx.Err(), context.DeadlineExceeded) &&
 		!errors.Is(br.lastReadCtx.Err(), context.Canceled) {
 		t.Errorf("ctx not cancelled: %v", br.lastReadCtx.Err())
+	}
+}
+
+func TestFleetBridge_Cancel_PropagatesToList(t *testing.T) {
+	br := &recordingFleetBridge{blockList: true}
+	h := newBridgeHarness(t).
+		withCaps("agent:fleet").
+		withFleetBridge(br).
+		install()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	fn := h.thunkMod.ExportedFunction("thunk_stado_agent_list")
+	_, _ = fn.Call(ctx, 0, 1024)
+
+	if br.listCalls.Load() != 1 {
+		t.Errorf("listCalls = %d, want 1", br.listCalls.Load())
+	}
+	if br.lastListCtx == nil {
+		t.Fatal("bridge never recorded a list ctx")
+	}
+	if !errors.Is(br.lastListCtx.Err(), context.DeadlineExceeded) &&
+		!errors.Is(br.lastListCtx.Err(), context.Canceled) {
+		t.Errorf("list ctx not cancelled: %v", br.lastListCtx.Err())
+	}
+}
+
+func TestFleetBridge_Cancel_PropagatesToSendMessage(t *testing.T) {
+	br := &recordingFleetBridge{blockSend: true}
+	h := newBridgeHarness(t).
+		withCaps("agent:fleet").
+		withFleetBridge(br).
+		install()
+
+	req := struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+	}{ID: "agent-7", Message: "hi"}
+	reqBytes, _ := json.Marshal(req)
+	h.memWrite(0, reqBytes)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	fn := h.thunkMod.ExportedFunction("thunk_stado_agent_send_message")
+	_, _ = fn.Call(ctx, 0, uint64(len(reqBytes)))
+
+	if br.sendCalls.Load() != 1 {
+		t.Errorf("sendCalls = %d, want 1", br.sendCalls.Load())
+	}
+	if br.lastSendCtx == nil {
+		t.Fatal("bridge never recorded a send ctx")
+	}
+	if !errors.Is(br.lastSendCtx.Err(), context.DeadlineExceeded) &&
+		!errors.Is(br.lastSendCtx.Err(), context.Canceled) {
+		t.Errorf("send ctx not cancelled: %v", br.lastSendCtx.Err())
+	}
+}
+
+func TestFleetBridge_Cancel_PropagatesToCancel(t *testing.T) {
+	br := &recordingFleetBridge{blockCancel: true}
+	h := newBridgeHarness(t).
+		withCaps("agent:fleet").
+		withFleetBridge(br).
+		install()
+
+	req := struct {
+		ID string `json:"id"`
+	}{ID: "agent-7"}
+	reqBytes, _ := json.Marshal(req)
+	h.memWrite(0, reqBytes)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	fn := h.thunkMod.ExportedFunction("thunk_stado_agent_cancel")
+	_, _ = fn.Call(ctx, 0, uint64(len(reqBytes)), 256, 256)
+
+	if br.cancelCalls.Load() != 1 {
+		t.Errorf("cancelCalls = %d, want 1", br.cancelCalls.Load())
+	}
+	if br.lastCancelCtx == nil {
+		t.Fatal("bridge never recorded a cancel ctx")
+	}
+	if !errors.Is(br.lastCancelCtx.Err(), context.DeadlineExceeded) &&
+		!errors.Is(br.lastCancelCtx.Err(), context.Canceled) {
+		t.Errorf("cancel ctx not cancelled: %v", br.lastCancelCtx.Err())
 	}
 }
