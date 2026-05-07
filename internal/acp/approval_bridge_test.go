@@ -70,9 +70,9 @@ func TestPendingApprovalRegistry_CancelSessionDelivers(t *testing.T) {
 // captured connection writer + a synchronous Server. Mirrors the
 // choice-bridge roundtrip test.
 func TestServerHandleSessionApprovalResponse_Roundtrip(t *testing.T) {
-	var out bytes.Buffer
+	out := newWriterSync()
 	srv := NewServer(nil, nil)
-	srv.conn = NewConn(strings.NewReader(""), &writerSync{w: &out})
+	srv.conn = NewConn(strings.NewReader(""), out)
 
 	type bridgeResult struct {
 		allow bool
@@ -132,9 +132,9 @@ func TestServerHandleSessionApprovalResponse_Roundtrip(t *testing.T) {
 // allow=false at the bridge boundary, regardless of what the client
 // put in the allow field.
 func TestServerHandleSessionApprovalResponse_CancelledCollapsesToDeny(t *testing.T) {
-	var out bytes.Buffer
+	out := newWriterSync()
 	srv := NewServer(nil, nil)
-	srv.conn = NewConn(strings.NewReader(""), &writerSync{w: &out})
+	srv.conn = NewConn(strings.NewReader(""), out)
 
 	type bridgeResult struct {
 		allow bool

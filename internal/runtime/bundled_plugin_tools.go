@@ -479,34 +479,6 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 	return t
 }
 
-func newBundledStaticTool(name, desc string, class tool.Class, schema map[string]any, caps []string) tool.Tool {
-	def := plugins.ToolDef{
-		Name:        name,
-		Description: desc,
-		Class:       pluginClassName(class),
-		Schema:      mustMarshalSchema(schema),
-	}
-	var parsed map[string]any
-	if def.Schema != "" {
-		_ = json.Unmarshal([]byte(def.Schema), &parsed)
-	}
-	t := &bundledPluginTool{
-		manifest: plugins.Manifest{
-			Name:         bundledplugins.ManifestNamePrefix + "-" + name,
-			Version:      version.Version,
-			Author:       bundledplugins.Author,
-			Capabilities: caps,
-			Tools:        []plugins.ToolDef{def},
-		},
-		def:    def,
-		schema: parsed,
-		class:  class,
-		wasm:   bundledplugins.MustWasm(name),
-	}
-	bundledplugins.RegisterModule(name, name, caps)
-	return t
-}
-
 // newBundledWasmTool registers one tool from a multi-tool wasm module.
 // wasmName: the .wasm file basename in internal/bundledplugins/wasm/.
 // toolExport: the wasm export name; either the full "stado_tool_<X>" form

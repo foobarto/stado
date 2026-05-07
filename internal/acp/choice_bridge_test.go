@@ -76,9 +76,9 @@ func TestPendingChoiceRegistry_CancelSessionDelivers(t *testing.T) {
 // dispatching the response RPC, and the bridge returns with the
 // operator's pick.
 func TestServerHandleSessionChoiceResponse_Roundtrip(t *testing.T) {
-	var out bytes.Buffer
+	out := newWriterSync()
 	srv := NewServer(nil, nil)
-	srv.conn = NewConn(strings.NewReader(""), &writerSync{w: &out})
+	srv.conn = NewConn(strings.NewReader(""), out)
 
 	bridgeResp := make(chan pluginRuntime.ChoiceResponse, 1)
 	go func() {
@@ -142,14 +142,37 @@ func TestServerHandleSessionChoiceResponse_UnknownIDErrors(t *testing.T) {
 }
 
 // writerSync wraps a bytes.Buffer with a mutex so the bridge
-// goroutine and the test's read loop don't race on Write/Read.
+// goroutine's Write and the test's read loop don't race. Provides
+// String() / Bytes() that take the same lock so callers don't have
+// to reach into the inner buffer themselves (which is what was
+// triggering -race failures).
 type writerSync struct {
 	mu sync.Mutex
 	w  *bytes.Buffer
+}
+
+func newWriterSync() *writerSync {
+	return &writerSync{w: &bytes.Buffer{}}
 }
 
 func (w *writerSync) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.w.Write(p)
+}
+
+// String returns a snapshot of the buffer's current contents under
+// the same lock that guards Write, so race detector is satisfied.
+func (w *writerSync) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.w.String()
+}
+
+// Bytes returns a copy of the buffer's current contents under the
+// same lock as Write.
+func (w *writerSync) Bytes() []byte {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]byte(nil), w.w.Bytes()...)
 }

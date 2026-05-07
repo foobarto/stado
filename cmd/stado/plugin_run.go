@@ -16,17 +16,6 @@ import (
 // var so test code can substitute a stub before exercising the bridge path.
 var pluginRunBuildProvider = tui.BuildProvider
 
-// attachPluginMemoryBridge wires a local-disk memory bridge onto the plugin
-// runtime host when the plugin's manifest declares it needs one. Shared
-// between every code path that constructs a pluginRuntime.Host (CLI tool run
-// and TUI plugin invocations alike).
-func attachPluginMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName string) {
-	if cfg == nil || host == nil || !host.NeedsMemoryBridge() {
-		return
-	}
-	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
-}
-
 // buildPluginRunBridge constructs the SessionBridge that session-aware plugin
 // capabilities (session:read, session:fork, llm:invoke) rely on. The query
 // string is either a session ID or a partial-prefix; resolution + opening

@@ -367,6 +367,7 @@ func TestSessionPromptEmitsSubagentNotifications(t *testing.T) {
 }
 
 func TestSessionCancelCancelsSpawnedSubagent(t *testing.T) {
+	skipUnderRaceForGoGit(t)
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -659,7 +660,12 @@ func (p *cancelSpawnProvider) StreamTurn(ctx context.Context, req agent.TurnRequ
 
 func waitForSubagentPhase(t *testing.T, lines <-chan string, phase string) map[string]any {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	// 10s deadline because CI runners (especially with -race) can be
+	// markedly slower than local; the prior 2s budget flaked on
+	// GitHub-hosted ubuntu-latest under load. The test still fails
+	// quickly enough on a real bug and isn't burning much wall-clock
+	// when things are healthy.
+	deadline := time.After(10 * time.Second)
 	for {
 		select {
 		case line := <-lines:

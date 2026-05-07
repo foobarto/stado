@@ -64,7 +64,7 @@ func WriteDefaultPersona(configPath, persona string) error {
 	persona = strings.TrimSpace(persona)
 	return updateConfig(configPath, func(tree *toml.Tree) {
 		if persona == "" {
-			tree.DeletePath([]string{"defaults", "persona"})
+			_ = tree.DeletePath([]string{"defaults", "persona"})
 			return
 		}
 		tree.SetPath([]string{"defaults", "persona"}, persona)

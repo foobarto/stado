@@ -65,8 +65,8 @@ func TestToolSummary_FiresOnToolOnlyTurn(t *testing.T) {
 	srv := NewServer(cfg, toolOnlyProvider{toolName: "fs__read"})
 	srv.EnableTools = false // skip executor wiring; we only need the event stream
 
-	var captured bytes.Buffer
-	srv.conn = NewConn(strings.NewReader(""), &writerSync{w: &captured})
+	captured := newWriterSync()
+	srv.conn = NewConn(strings.NewReader(""), captured)
 
 	res, err := srv.handleSessionNew(nil)
 	if err != nil {
@@ -145,8 +145,8 @@ func TestToolSummary_FiresOnToolOnlyTurn(t *testing.T) {
 
 func TestToolSummary_DoesNotFireWhenTextEmitted(t *testing.T) {
 	srv := NewServer(&config.Config{}, scriptedProvider{text: "hello"})
-	var captured bytes.Buffer
-	srv.conn = NewConn(strings.NewReader(""), &writerSync{w: &captured})
+	captured := newWriterSync()
+	srv.conn = NewConn(strings.NewReader(""), captured)
 
 	res, err := srv.handleSessionNew(nil)
 	if err != nil {

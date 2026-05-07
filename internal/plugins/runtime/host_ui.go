@@ -140,10 +140,7 @@ func registerUIChooseImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			respWire := chooseResponseWire{
-				Selected:  resp.Selected,
-				Cancelled: resp.Cancelled,
-			}
+			respWire := chooseResponseWire(resp)
 			if respWire.Selected == nil {
 				respWire.Selected = []string{}
 			}
@@ -197,7 +194,7 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			return ChoiceRequest{}, fmt.Errorf("option %d: duplicate id %q", i, o.ID)
 		}
 		seen[o.ID] = true
-		out.Options = append(out.Options, ChoiceOption{ID: o.ID, Label: o.Label})
+		out.Options = append(out.Options, ChoiceOption(o))
 	}
 	return out, nil
 }
