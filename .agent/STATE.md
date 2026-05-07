@@ -1,122 +1,90 @@
 # State
 
-**Mode:** Feature (adding test coverage to an existing system)
+**Mode:** Feature / Refactor (workdirpath migration in progress)
 
-**Current item:** Phase 1.1 — Plugins/runtime bridges contract tests
+**Current item:** Phase 2.1 (A2) — workdirpath consolidation
 **Plan:** `docs/superpowers/plans/2026-05-07-refactor-program.md`
 
-## In flight
+## Where we are at end of 2026-05-07/08
 
-Phase 1.1: **complete.** Bridge contract tests in
-`internal/plugins/runtime/` for all 5 bridges (Session/Memory/
-Approval/Choice/Fleet) covering all 4 contracts. 47 tests total.
-Stable under `-count=10 -race`.
+### Phase 1 — DONE
+- 1.1 Bridge contract tests: 47 tests across 5 plugin-host bridges.
+- 1.2 Sandbox runner contract test: 13 sub-tests (Tier 1 + Tier 2 wired).
+- 1.3 FleetBridgeAdapter contract tests: 17 tests.
+- Composition spec parked at
+  `.agent/specs/open/sandbox-multilayer-composition.md`.
 
-Phase 1.2: **complete.** Runner contract test in
-`internal/sandbox/runner_contract_test.go`. Tier 1 (every
-available runner): command shape, exec allow-list deny/pass.
-Tier 2 (BwrapRunner only on this Linux host; sandbox-exec
-analogous on macOS): negative control, FS-write denied, FS-write
-allowed. 13 sub-test executions. Stable under `-count=10 -race`.
-Multi-layer composition parked as
-`.agent/specs/open/sandbox-multilayer-composition.md`.
+### Phase 2.1 (A2) — workdirpath, partially done
+- 2.1.aa mcpbridge audit: cleared as no fs/workdirpath usage.
+- 2.1.a/b/c: 4 new types landed alongside legacy
+  (`Resolver`, `UserConfigResolver`, `StrictResolver`,
+  `RootResolver`). 56 new tests across the 4 types; 29 legacy
+  tests still green.
+- 2.1.d: deferred to 2.1.Y (impl-move bundles with deletion).
+- 2.1.e: 17 of 21 packages migrated (~117 of ~155 call sites).
+  Remaining: cmd/stado (partway through — session.go,
+  filewrite.go, plugin_sign.go, agents.go, plugin_gc.go,
+  plugin_install.go done; learning.go, plugin_init.go,
+  selfupdate.go, session_export.go, session_fork.go pending).
+- 2.1.f: **Bazzite RemoveAll gap fix.** Added
+  `UserConfigResolver.RemoveAll` (one method + 5 retrofitted
+  callers). 5 new tests including the simulated `/home →
+  /var/home` Bazzite case. D13 documents the carve-out from
+  non-goal #1.
 
-Phase 1.3: **complete.** FleetBridgeAdapter contract tests in
-`internal/runtime/fleet_bridge_test.go`. 17 tests covering
-AgentSpawn (sync/async/error/cancel), AgentList, AgentReadMessages
-(unknown/completed/running/timeout/cancel), AgentSendMessage, and
-AgentCancel. Plus a concurrency test (20 parallel spawns).
-Stable under `-count=10 -race`.
+### Up next when resuming
 
-Phase 1 done — ready for **merge checkpoint #1** (tests-only
-diff).
+1. Finish cmd/stado migration. Pending files:
+   - cmd/stado/learning.go (4 calls)
+   - cmd/stado/plugin_init.go (4 calls — has function-pointer
+     pattern: `write := workdirpath.WriteRootFileAtomic`)
+   - cmd/stado/selfupdate.go (2 calls)
+   - cmd/stado/session_export.go (1 call)
+   - cmd/stado/session_fork.go (2 calls)
+2. Run `grep -rEho "workdirpath\.[A-Z]" --include="*.go" |
+   grep -v internal/workdirpath` to confirm only
+   `New*Resolver`, `LooksLikeRepoRoot`, `FindRepoRoot`,
+   `FindRepoRootOrEmpty` remain.
+3. Phase 2.1.X: mark legacy `Deprecated:` markers on the 23
+   exported legacy fns (one tag-style commit; compiler
+   warnings flag remaining usage in any out-of-tree code).
+4. Phase 2.1.Y: delete legacy + inline impls into the new
+   types in one mechanical commit. The 29 existing legacy
+   tests get replaced by parallel tests on the new methods
+   (already written; just rename if needed). Verification:
+   `grep -rn "workdirpath\.[A-Z]"` returns only the new-API
+   methods + `repodisco` exports.
+5. Per-merge-checkpoint smoke: `stado --help`, `stado run --help`,
+   one full `stado run` smoke session pass at checkpoint #2.
+6. Then phases 2.2 (A1) + 2.3 (A3) per the plan.
 
-Phase 2.1.aa: **complete.** mcpbridge audit. Verified
-`internal/mcpbridge` has zero filesystem operations — pure
-JSON-over-RPC bridge to external MCP server process. No
-`workdirpath` usage, no `filepath.*`, no `os.Open/ReadFile/...`.
-No API impact for A2.
+## Branch state
 
-Plan also rewritten this turn for the round-2 design pivot:
-4 types (`Resolver` / `UserConfigResolver` / `StrictResolver` /
-`RootResolver`) instead of D12's original 2.
+```
+worktree-refactor+quality-2026-q2 (this worktree)
+└─ Phase 1 (3 commits) → all green
+└─ A2 design + plan revisions (round-A2 / round-2 / round-final / invariant)
+└─ A2 type-landing (4 types + 56 tests)
+└─ A2 caller migration (10 commits, 17 packages)
+└─ 2.1.f Bazzite fix
+```
 
-Phase 2.1.a: **complete.** `Resolver` (workdir) +
-`RootResolver` (independent constructor) landed in
-`internal/workdirpath/resolver.go` and `root_resolver.go`. 23
-new tests covering construction, security boundary (symlink
-escape, nested-path acceptance, parent-symlink-escape via
-write), and RootResolver's borrowed-handle contract. All pass
-under `-count=10 -race`. Existing 29 legacy tests untouched
-and green. Methods are thin delegators to legacy during the
-2.1.a-c window; dependency flips at 2.1.d.
+Last commit: `b1b0b23 fix(workdirpath): 2.1.f — UserConfigResolver.RemoveAll closes Bazzite gap`
 
-Canary callers deferred to 2.1.e (broad migration). Most
-high-traffic legacy callers use the fns once per function;
-constructing a Resolver per call is more verbose than legacy.
-The ergonomic win materialises during refactors that store the
-resolver as a struct field, naturally part of broad migration.
+## Blocked / open
 
-Phase 2.1.b: **complete.** `UserConfigResolver` landed in
-`internal/workdirpath/userconfig_resolver.go`. 10 new tests
-covering: longest-anchor wins (HOME vs XDG_STATE_HOME), anchor
-equality, symlinked HOME above anchor (Fedora Atomic case),
-in-user-space symlink rejection below anchor, outside-anchor
-fallback to strict, ReadFileLimited oversize rejection,
-ReadFileNoLimit round-trip, MkdirAll creates missing anchor,
-NUL-byte rejection, no-leak invariant on rejection. All pass
-under `-count=5 -race`. Methods delegate to legacy during the
-2.1.a-c window.
-
-Phase 2.1.c: **complete.** `StrictResolver` lands in
-`internal/workdirpath/strict_resolver.go`. 16 new tests covering
-both strict-from-/ paths (parent-symlink rejection, final-symlink
-rejection, oversize, RemoveAll tree + symlink rejection) and
-Under(ancestor) (above-anchor symlink accepted, below-anchor
-symlink rejected, empty-ancestor rejection, ancestor-equality
-no-op). The 3 unsupported-on-Under methods (OpenRegularFile,
-ReadFileLimited, RemoveAll) return defined errors rather than
-silently using strict-from-/ semantics — round-A2 review's
-"behavior change avoidance" call.
-
-All 4 types now landed alongside legacy. Resolver (workdir),
-RootResolver (*os.Root), UserConfigResolver (HOME/XDG anchor),
-StrictResolver (no-symlink + Under). 49 new tests total
-(23 + 10 + 16). Existing 29 legacy tests still green.
-
-Phase 2.1.d: **deferred to 2.1.Y** (plan revised). Original
-intent was wrapper-rewrite + behavior-matrix doc here, but the
-impl-move adds value mainly at deletion time — bundling with
-2.1.Y means the impls move once instead of twice and migrators
-during 2.1.e..N see legacy in its familiar form. The 49 new
-tests already encode every contract the matrix would document.
-
-Up next: Phase 2.1.e — broad caller migration. 21 caller
-packages identified at A2 start; ~155 call sites concentrated
-in the top 6 legacy fns. Per-package commits, batched by
-family.
-
-## Queued (in order, per plan)
-
-1. **Phase 1.1** (in flight) — bridge contract tests
-2. **Phase 1.2** — sandbox runner contract test (Tier 1 + Tier 2)
-3. **Phase 1.3** — fleet_bridge.go lifecycle tests
-4. End of Phase 1 → merge checkpoint #1
-5. **Phase 2.1 (A2)** — workdirpath Resolver/RootResolver
-6. End of Phase 2.1 → merge checkpoint #2 (cherry-pick to main allowed)
-7. **Phase 2.2 (A1)** — Model + render consolidation
-8. End of Phase 2.2 → merge checkpoint #3
-9. **Phase 2.3 (A3)** — handler_*.go split in package tui
-10. End of Phase 2.3 → merge checkpoint #4
-11. **Phase 3.1, 3.2, 3.3** — Tier B sweep
-12. End of Phase 3 → merge checkpoint #5
-
-## Blocked
-
-Nothing.
+- Nothing blocking. Resume by picking up the cmd/stado
+  remaining files. Pattern is well-established at this point.
 
 ## Recent
 
-- 2026-05-07: plan committed (3 commits), three rounds of consult+fix
-  with codex/gemini. Last commit `ef55cb9`.
-- Now starting Phase 1.1 execution.
+- 2026-05-08: 2.1.f Bazzite gap fix. Operator caught that
+  RemoveAllNoSymlink fails on Atomic Fedora derivatives;
+  EP-0028 fixed it for read/open/mkdir but missed RemoveAll.
+  Now fixed in-scope.
+- 2026-05-07: A2 type-landing complete. Multiple consultation
+  rounds with codex + gemini to validate the 4-type design.
+  Invariant check confirmed workdirpath is internal runtime
+  confinement, not plugin extensibility surface (D12 scope
+  clarification).
+- 2026-05-07: Phase 1 complete (47 + 13 + 17 = 77 tests).
