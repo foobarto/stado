@@ -19,10 +19,10 @@ type recordingSessionBridge struct {
 
 	// Call counters — each contract test asserts these stay at zero
 	// when the gate denies, or increment when the gate permits.
-	readCalls   atomic.Int32
-	eventCalls  atomic.Int32
-	forkCalls   atomic.Int32
-	llmCalls    atomic.Int32
+	readCalls  atomic.Int32
+	eventCalls atomic.Int32
+	forkCalls  atomic.Int32
+	llmCalls   atomic.Int32
 
 	// Last-call args (forwarding contract: assert the import passes
 	// arguments verbatim to the bridge).

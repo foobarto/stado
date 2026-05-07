@@ -15,11 +15,11 @@ import (
 type recordingFleetBridge struct {
 	mu sync.Mutex
 
-	spawnCalls   atomic.Int32
-	listCalls    atomic.Int32
-	readCalls    atomic.Int32
-	sendCalls    atomic.Int32
-	cancelCalls  atomic.Int32
+	spawnCalls  atomic.Int32
+	listCalls   atomic.Int32
+	readCalls   atomic.Int32
+	sendCalls   atomic.Int32
+	cancelCalls atomic.Int32
 
 	lastSpawnReq      AgentSpawnRequest
 	lastReadID        string

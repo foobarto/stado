@@ -206,8 +206,8 @@ func TestRunnerContract_T2_FSWriteDenied(t *testing.T) {
 
 	for _, r := range runners {
 		t.Run(r.Name(), func(t *testing.T) {
-			allow := t.TempDir()    // listed in FSWrite
-			deny := t.TempDir()     // NOT listed
+			allow := t.TempDir() // listed in FSWrite
+			deny := t.TempDir()  // NOT listed
 			target := filepath.Join(deny, "should-fail")
 
 			cmd, err := r.Command(context.Background(), Policy{

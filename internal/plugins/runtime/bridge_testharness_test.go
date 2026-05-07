@@ -285,9 +285,9 @@ func encodeThunkModule(module string, imports []thunkImport) []byte {
 	// Section 5: memory (one, min=1 page, no max).
 	{
 		var s wasmWriter
-		s.uleb128(1)    // 1 memory
-		s.bytes(0x00)   // limits flags: no max
-		s.uleb128(1)    // initial pages
+		s.uleb128(1)  // 1 memory
+		s.bytes(0x00) // limits flags: no max
+		s.uleb128(1)  // initial pages
 		w.section(5, s.buf)
 	}
 
