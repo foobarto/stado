@@ -16,7 +16,11 @@ func DocumentSymbols(ctx context.Context, args SymbolsArgs, workdir string) (str
 	if args.Path == "" {
 		return "", errors.New("lspfind: path required")
 	}
-	full, err := workdirpath.Resolve(workdir, args.Path, false)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	full, err := r.Resolve(args.Path)
 	if err != nil {
 		return "", err
 	}

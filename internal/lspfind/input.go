@@ -10,7 +10,11 @@ import (
 const maxLSPDocumentBytes int64 = 4 << 20
 
 func readLSPDocumentText(workdir, path string) (string, error) {
-	f, err := workdirpath.OpenReadFile(workdir, path)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	f, err := r.OpenRegularFile(path)
 	if err != nil {
 		return "", err
 	}

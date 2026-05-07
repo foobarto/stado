@@ -60,7 +60,11 @@ func FindDefinition(ctx context.Context, args Args, workdir string) (string, err
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
-	full, err := workdirpath.Resolve(workdir, args.Path, false)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	full, err := r.Resolve(args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -97,7 +101,11 @@ func FindReferences(ctx context.Context, args RefArgs, workdir string) (string, 
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
-	full, err := workdirpath.Resolve(workdir, args.Path, false)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	full, err := r.Resolve(args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -158,9 +166,13 @@ func clientFor(ctx context.Context, workdir, server string) (*lsp.Client, error)
 }
 
 func formatWorkdirLocations(workdir string, locs []lsp.Location) string {
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return ""
+	}
 	var b []byte
 	for _, l := range locs {
-		_, rel, err := workdirpath.RootRel(workdir, lsp.URIToPath(l.URI), false)
+		_, rel, err := r.RootRel(lsp.URIToPath(l.URI))
 		if err != nil {
 			continue
 		}

@@ -16,7 +16,11 @@ func Hover(ctx context.Context, args Args, workdir string) (string, error) {
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
-	full, err := workdirpath.Resolve(workdir, args.Path, false)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	full, err := r.Resolve(args.Path)
 	if err != nil {
 		return "", err
 	}
