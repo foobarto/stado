@@ -225,10 +225,11 @@ func WriteTemplate(configPath string, data []byte, force bool) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid config path %q", configPath)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}
@@ -257,14 +258,16 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid config path %q", configPath)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return fmt.Errorf("open config dir: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
 
 	var tree *toml.Tree
 	info, err := root.Lstat(name)
@@ -274,7 +277,7 @@ func updateConfig(configPath string, mutate func(*toml.Tree)) error {
 	case err == nil && !info.Mode().IsRegular():
 		return fmt.Errorf("config file is not regular: %s", name)
 	case err == nil:
-		data, err := workdirpath.ReadRootRegularFileLimited(root, name, maxConfigFileBytes)
+		data, err := rr.ReadFileLimited(name, maxConfigFileBytes)
 		if err != nil {
 			return fmt.Errorf("read config: %w", err)
 		}

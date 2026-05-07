@@ -37,21 +37,21 @@ type Config struct {
 	Approvals Approvals `koanf:"approvals"`
 	MCP       MCP       `koanf:"mcp"`
 
-	Inference Inference `koanf:"inference"`
-	Sandbox   Sandbox   `koanf:"sandbox"`
-	Git       Git       `koanf:"git"`
-	OTel      OTel      `koanf:"otel"`
-	ACP       ACP       `koanf:"acp"`
-	Plugins   Plugins   `koanf:"plugins"`
-	Memory    Memory    `koanf:"memory"`
-	Context   Context   `koanf:"context"`
-	Agent     Agent     `koanf:"agent"`
-	Sampling  Sampling  `koanf:"sampling"`
-	Sessions  Sessions  `koanf:"sessions"`
-	TUI       TUI       `koanf:"tui"`
-	Tools     Tools     `koanf:"tools"`
-	Budget    Budget    `koanf:"budget"`
-	Hooks     Hooks     `koanf:"hooks"`
+	Inference  Inference  `koanf:"inference"`
+	Sandbox    Sandbox    `koanf:"sandbox"`
+	Git        Git        `koanf:"git"`
+	OTel       OTel       `koanf:"otel"`
+	ACP        ACP        `koanf:"acp"`
+	Plugins    Plugins    `koanf:"plugins"`
+	Memory     Memory     `koanf:"memory"`
+	Context    Context    `koanf:"context"`
+	Agent      Agent      `koanf:"agent"`
+	Sampling   Sampling   `koanf:"sampling"`
+	Sessions   Sessions   `koanf:"sessions"`
+	TUI        TUI        `koanf:"tui"`
+	Tools      Tools      `koanf:"tools"`
+	Budget     Budget     `koanf:"budget"`
+	Hooks      Hooks      `koanf:"hooks"`
 	Runtime    Runtime    `koanf:"runtime"`
 	Supervisor Supervisor `koanf:"supervisor"`
 	Harness    Harness    `koanf:"harness"`
@@ -612,12 +612,13 @@ func Load() (*Config, error) {
 	// `/var/home` (Fedora Atomic / Silverblue) — the user's ancestor
 	// environment is operator-controlled and trusted; only the path
 	// below it needs adversarial-symlink defense. EP-0028.
-	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(configPath), 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 
 	if _, err := os.Lstat(configPath); err == nil {
-		data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(configPath, maxConfigBytes)
+		data, err := uc.ReadFileLimited(configPath, maxConfigBytes)
 		if err != nil {
 			return nil, fmt.Errorf("load config: %w", err)
 		}
@@ -748,7 +749,7 @@ func (c *Config) loadSystemPromptTemplate() error {
 	}
 	var body []byte
 	var err error
-	body, err = workdirpath.ReadRegularFileUnderUserConfigLimited(c.Agent.SystemPromptPath, maxSystemPromptTemplateBytes)
+	body, err = workdirpath.NewUserConfigResolver().ReadFileLimited(c.Agent.SystemPromptPath, maxSystemPromptTemplateBytes)
 	if err != nil {
 		return fmt.Errorf("load [agent].system_prompt_path %s: %w", c.Agent.SystemPromptPath, err)
 	}
@@ -767,7 +768,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("default system prompt template is not a regular file: %s", path)
 		}
-		data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxSystemPromptTemplateBytes)
+		data, err := workdirpath.NewUserConfigResolver().ReadFileLimited(path, maxSystemPromptTemplateBytes)
 		if err != nil {
 			return fmt.Errorf("read default system prompt template: %w", err)
 		}
@@ -780,7 +781,7 @@ func ensureDefaultSystemPromptTemplate(path string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat default system prompt template: %w", err)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(path), 0o700); err != nil {
+	if err := workdirpath.NewUserConfigResolver().MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create system prompt template dir: %w", err)
 	}
 	if err := createDefaultSystemPromptTemplate(path); err != nil {
@@ -858,7 +859,7 @@ func systemPromptTemplateRoot(path string) (*os.Root, string, error) {
 	if name == "." || name == string(filepath.Separator) {
 		return nil, "", fmt.Errorf("invalid system prompt template path: %s", path)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(filepath.Dir(path))
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
 	if err != nil {
 		return nil, "", err
 	}
