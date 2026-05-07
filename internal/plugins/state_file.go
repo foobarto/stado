@@ -115,12 +115,13 @@ func pluginStateRoot(path string, createDir bool) (*os.Root, string, error) {
 	if name == "." || name == ".." || name == string(filepath.Separator) || strings.Contains(name, "\x00") {
 		return nil, "", fmt.Errorf("invalid plugin state path: %s", path)
 	}
+	uc := workdirpath.NewUserConfigResolver()
 	if createDir {
-		if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
+		if err := uc.MkdirAll(dir, 0o700); err != nil {
 			return nil, "", err
 		}
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return nil, "", err
 	}

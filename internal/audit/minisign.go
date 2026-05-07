@@ -161,7 +161,7 @@ func trimPrefixI(s, prefix string) (string, bool) {
 // MinisignSignFile is the convenient path-based version of MinisignSign.
 // Streams `path`, signs the contents, and writes `path.minisig`.
 func MinisignSignFile(priv ed25519.PrivateKey, keyID uint64, path, untrustedComment, trustedComment string) error {
-	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
+	f, err := workdirpath.NewUserConfigResolver().OpenRegularFile(path)
 	if err != nil {
 		return err
 	}
@@ -196,10 +196,10 @@ func writeShareableSidecar(path string, data []byte) error {
 	if name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return fmt.Errorf("invalid sidecar path: %s", path)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(dir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return workdirpath.WriteRootFileAtomic(root, name, data, 0o644)
+	return workdirpath.NewRootResolver(root).WriteFileAtomic(name, data, 0o644)
 }

@@ -20,8 +20,8 @@ func TestParseIdentity(t *testing.T) {
 			wantHost: "github.com", wantOwner: "foobarto", wantRepo: "my-plugin", wantVer: "v1.2.3",
 		},
 		{
-			raw:        "github.com/foobarto/monorepo/plugins/myplugin@v0.1.0",
-			wantHost:   "github.com", wantOwner: "foobarto", wantRepo: "monorepo",
+			raw:      "github.com/foobarto/monorepo/plugins/myplugin@v0.1.0",
+			wantHost: "github.com", wantOwner: "foobarto", wantRepo: "monorepo",
 			wantSubdir: "plugins/myplugin", wantVer: "v0.1.0",
 		},
 		{

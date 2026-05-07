@@ -12,9 +12,9 @@ import (
 //
 // The on-disk format is a single string:
 //
-//   "http-session"               → name only, any version
-//   "http-session >= 0.1.0"      → name + minimum semver
-//   "http-session >= v0.1.0"     → equivalent (v-prefix stripped)
+//	"http-session"               → name only, any version
+//	"http-session >= 0.1.0"      → name + minimum semver
+//	"http-session >= v0.1.0"     → equivalent (v-prefix stripped)
 //
 // The constraint operator MUST be ">=" if present. Pre-1.0 we don't
 // support pinned versions or upper bounds — keep the surface narrow
@@ -148,4 +148,3 @@ func compareVersions(a, b string) int {
 	}
 	return semver.Compare(a, b)
 }
-

@@ -35,24 +35,24 @@ import (
 
 // Config is the loadable telemetry config (maps to [otel] in config.toml).
 type Config struct {
-	Enabled   bool              `koanf:"enabled"`
-	Endpoint  string            `koanf:"endpoint"`
-	Protocol  string            `koanf:"protocol"` // "grpc" (default) | "http"
-	Insecure  bool              `koanf:"insecure"`
-	Headers   map[string]string `koanf:"headers"`
-	Timeout   time.Duration     `koanf:"timeout"`
-	SampleRate float64          `koanf:"sample_rate"` // 0.0..1.0
-	ServiceName string          `koanf:"service_name"`
-	Version     string          `koanf:"version"`
+	Enabled     bool              `koanf:"enabled"`
+	Endpoint    string            `koanf:"endpoint"`
+	Protocol    string            `koanf:"protocol"` // "grpc" (default) | "http"
+	Insecure    bool              `koanf:"insecure"`
+	Headers     map[string]string `koanf:"headers"`
+	Timeout     time.Duration     `koanf:"timeout"`
+	SampleRate  float64           `koanf:"sample_rate"` // 0.0..1.0
+	ServiceName string            `koanf:"service_name"`
+	Version     string            `koanf:"version"`
 }
 
 // Runtime is the started-up telemetry state. Shutdown must be called on exit.
 type Runtime struct {
-	tp         *sdktrace.TracerProvider
-	mp         *sdkmetric.MeterProvider
-	tracer     trace.Tracer
-	meter      metric.Meter
-	metrics    Metrics
+	tp      *sdktrace.TracerProvider
+	mp      *sdkmetric.MeterProvider
+	tracer  trace.Tracer
+	meter   metric.Meter
+	metrics Metrics
 }
 
 // Tracer returns the stado tracer (no-op if disabled).

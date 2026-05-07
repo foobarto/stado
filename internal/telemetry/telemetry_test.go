@@ -53,9 +53,9 @@ func TestConfigFromEnv(t *testing.T) {
 
 func TestCleanEndpoint(t *testing.T) {
 	cases := map[string]string{
-		"https://host:4317/":  "host:4317",
-		"http://host:4317":    "host:4317",
-		"host:4317":           "host:4317",
+		"https://host:4317/": "host:4317",
+		"http://host:4317":   "host:4317",
+		"host:4317":          "host:4317",
 	}
 	for in, want := range cases {
 		if got := cleanEndpoint(in); got != want {

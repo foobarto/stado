@@ -49,7 +49,7 @@ func LoadOrCreateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func loadKey(path string) (ed25519.PrivateKey, error) {
-	data, err := workdirpath.ReadRegularFileUnderUserConfigLimited(path, maxPrivateKeyFileBytes)
+	data, err := workdirpath.NewUserConfigResolver().ReadFileLimited(path, maxPrivateKeyFileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,8 @@ func keyPathExists(path string) (bool, error) {
 // WritePrivateKeyFile creates a new private-key file with 0600 permissions
 // without following or overwriting an existing final path.
 func WritePrivateKeyFile(path string, data []byte) error {
-	if err := workdirpath.MkdirAllUnderUserConfig(filepath.Dir(path), 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("mkdir key dir: %w", err)
 	}
 	dir := filepath.Dir(path)
@@ -100,7 +101,7 @@ func WritePrivateKeyFile(path string, data []byte) error {
 	if name == "." || name == string(filepath.Separator) {
 		return fmt.Errorf("invalid key path: %s", path)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
