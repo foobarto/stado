@@ -21,7 +21,7 @@ const (
 // for the current worktree/session. The marker lives under .stado so it
 // stays local to the checked-out session and is ignored by git.
 func SessionDisabled(workdir string) bool {
-	root, err := workdirpath.OpenRootUnderUserConfig(sessionControlRoot(workdir))
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(sessionControlRoot(workdir))
 	if err != nil {
 		return false
 	}
@@ -36,14 +36,14 @@ func SessionDisabled(workdir string) bool {
 // SetSessionDisabled toggles the current worktree/session marker used by
 // PromptContext to skip approved-memory retrieval.
 func SetSessionDisabled(workdir string, disabled bool) error {
-	root, err := workdirpath.OpenRootUnderUserConfig(sessionControlRoot(workdir))
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(sessionControlRoot(workdir))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(".stado", sessionMemoryDisabledFile)
 	if disabled {
-		if err := workdirpath.MkdirAllRootNoSymlink(root, ".stado", 0o700); err != nil {
+		if err := workdirpath.NewRootResolver(root).MkdirAll(".stado", 0o700); err != nil {
 			return err
 		}
 		return writeSessionControlFile(root, path, []byte("disabled\n"), 0o600)
@@ -131,11 +131,11 @@ func sessionControlRoot(workdir string) string {
 }
 
 func hasUserRepoPin(workdir string) bool {
-	root, err := workdirpath.OpenRootUnderUserConfig(workdir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(workdir)
 	if err != nil {
 		return false
 	}
 	defer func() { _ = root.Close() }()
-	_, err = workdirpath.ReadRootRegularFileLimited(root, userRepoPinFile, maxUserRepoPinFileBytes)
+	_, err = workdirpath.NewRootResolver(root).ReadFileLimited(userRepoPinFile, maxUserRepoPinFileBytes)
 	return err == nil
 }

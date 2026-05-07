@@ -203,12 +203,12 @@ func readUserRepoPin(workdir string) string {
 	if strings.TrimSpace(workdir) == "" {
 		return ""
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(workdir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(workdir)
 	if err != nil {
 		return ""
 	}
 	defer func() { _ = root.Close() }()
-	data, err := workdirpath.ReadRootRegularFileLimited(root, userRepoPinFile, maxUserRepoPinFileBytes)
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(userRepoPinFile, maxUserRepoPinFileBytes)
 	if err != nil {
 		return ""
 	}

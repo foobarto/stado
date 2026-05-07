@@ -553,12 +553,13 @@ func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
 	if name == "." || name == ".." || name == string(filepath.Separator) || strings.Contains(name, "\x00") {
 		return nil, "", fmt.Errorf("invalid memory store path: %s", s.Path)
 	}
+	uc := workdirpath.NewUserConfigResolver()
 	if createDir {
-		if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o700); err != nil {
+		if err := uc.MkdirAll(dir, 0o700); err != nil {
 			return nil, "", fmt.Errorf("memory store: create dir: %w", err)
 		}
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return nil, "", fmt.Errorf("memory store: open dir: %w", err)
 	}
