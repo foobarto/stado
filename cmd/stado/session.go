@@ -246,7 +246,7 @@ var sessionGCCmd = &cobra.Command{
 				errs++
 				continue
 			}
-			if err := workdirpath.NewStrictResolver().RemoveAll(wt); err != nil {
+			if err := workdirpath.NewUserConfigResolver().RemoveAll(wt); err != nil {
 				fmt.Fprintf(os.Stderr, "remove worktree %s: %v\n", id, err)
 				errs++
 				continue
@@ -291,7 +291,7 @@ var sessionDeleteCmd = &cobra.Command{
 		if err := sc.DeleteSessionRefs(id); err != nil {
 			return fmt.Errorf("delete refs: %w", err)
 		}
-		if err := workdirpath.NewStrictResolver().RemoveAll(wt); err != nil {
+		if err := workdirpath.NewUserConfigResolver().RemoveAll(wt); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
 		switch {

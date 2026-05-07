@@ -81,3 +81,31 @@ func (uc *UserConfigResolver) ReadFileNoLimit(path string) ([]byte, error) {
 func (uc *UserConfigResolver) MkdirAll(path string, perm os.FileMode) error {
 	return MkdirAllUnderUserConfig(path, perm)
 }
+
+// RemoveAll removes path and its descendants with the same trust
+// model as the other UserConfigResolver methods: chain UP TO
+// the HOME / XDG anchor accepts system symlinks (so deletes
+// under `/home/user/...` work on Atomic Fedora / Bazzite where
+// `/home` is symlinked to `/var/home`); chain BELOW the anchor
+// is walked no-symlink and a final symlink at the target is
+// rejected (so a planted symlink can't redirect a delete to
+// off-tree contents).
+//
+// Paths outside any HOME / XDG anchor fall back to strict
+// no-symlink from `/` (matching `StrictResolver.RemoveAll` /
+// the legacy `RemoveAllNoSymlink`). The fallback preserves the
+// pre-EP-0028 semantics for non-HOME paths.
+//
+// Idempotent: removing a path that doesn't exist returns nil.
+//
+// EP-0028 round-2: the legacy `RemoveAllNoSymlink` was the
+// strict-from-/ walk only. Atomic-Fedora hosts (Silverblue,
+// Bazzite, Kinoite) have `/home → /var/home` as a system
+// symlink, so any `RemoveAllNoSymlink(/home/user/.local/...)`
+// call rejected at the `/home` component. EP-0028 added the
+// `*UnderUserConfig` family for read/open/mkdir but
+// `RemoveAllNoSymlink` was never given an Under-equivalent —
+// this method closes that gap.
+func (uc *UserConfigResolver) RemoveAll(path string) error {
+	return removeAllUnderUserConfig(path)
+}

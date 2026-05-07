@@ -143,7 +143,7 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("install: copy: %w", err)
 		}
 		if err := verifyInstalledPluginCopy(dst, m, sig); err != nil {
-			_ = workdirpath.RemoveAllNoSymlink(dst)
+			_ = workdirpath.NewUserConfigResolver().RemoveAll(dst)
 			return fmt.Errorf("install: verify installed copy: %w", err)
 		}
 		// EP-0039: write lock file entry if this was a remote install (identity present).

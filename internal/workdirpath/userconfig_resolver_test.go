@@ -294,6 +294,186 @@ func TestUserConfigResolver_RejectsNULByte(t *testing.T) {
 	}
 }
 
+// ---- RemoveAll: closes the EP-0028 RemoveAll gap ---------------------
+//
+// EP-0028 added the *UnderUserConfig family for read/open/mkdir
+// because Atomic Fedora's `/home → /var/home` system symlink
+// breaks the strict-from-/ walk. RemoveAll was never given an
+// Under-equivalent. UserConfigResolver.RemoveAll fills the gap.
+
+// TestUserConfigResolver_RemoveAll_FollowsAnchorSymlinkAbove is
+// the Bazzite case: a delete target reached via a symlinked HOME
+// path. Strict RemoveAll (StrictResolver / legacy
+// RemoveAllNoSymlink) rejects at the symlink. UserConfig
+// RemoveAll accepts the system symlink above the anchor and
+// performs the delete via the real filesystem.
+func TestUserConfigResolver_RemoveAll_FollowsAnchorSymlinkAbove(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		// Mirror Bazzite's layout: real HOME at /var/home/user,
+		// /home/user is a symlink to it.
+		realHome := filepath.Join(base, "var", "home", "user")
+		if err := os.MkdirAll(realHome, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(base, "var", "home"), filepath.Join(base, "home")); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+		linkedHome := filepath.Join(base, "home", "user")
+		os.Setenv("HOME", linkedHome)
+
+		// Stage a tree to delete: /home/user/.local/state/stado/worktrees/abc
+		target := filepath.Join(linkedHome, ".local", "state", "stado", "worktrees", "abc")
+		if err := os.MkdirAll(filepath.Join(target, "subdir"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target, "subdir", "file.txt"), []byte("data"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		uc := NewUserConfigResolver()
+		if err := uc.RemoveAll(target); err != nil {
+			t.Fatalf("RemoveAll via symlinked HOME: %v", err)
+		}
+		// Verify gone via the real path.
+		realTarget := filepath.Join(realHome, ".local", "state", "stado", "worktrees", "abc")
+		if _, err := os.Stat(realTarget); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("target still exists at real path: %v", err)
+		}
+	})
+}
+
+// TestUserConfigResolver_RemoveAll_RejectsFinalSymlink: a
+// symlinked target is rejected — removing it would either
+// remove the link or follow it and remove off-tree contents.
+// Both are wrong.
+func TestUserConfigResolver_RemoveAll_RejectsFinalSymlink(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		home := filepath.Join(base, "home", "user")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Setenv("HOME", home)
+
+		realDir := filepath.Join(base, "outside")
+		if err := os.MkdirAll(realDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		linkPath := filepath.Join(home, "redirect")
+		if err := os.Symlink(realDir, linkPath); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+
+		uc := NewUserConfigResolver()
+		if err := uc.RemoveAll(linkPath); err == nil {
+			t.Fatal("expected symlink rejection, got nil")
+		}
+		// realDir must still exist (not followed).
+		if _, err := os.Stat(realDir); err != nil {
+			t.Errorf("realDir disappeared (symlink was followed): %v", err)
+		}
+	})
+}
+
+// TestUserConfigResolver_RemoveAll_IdempotentOnMissing: removing
+// a non-existent path returns nil, matching the legacy
+// RemoveAllNoSymlink contract that callers depend on.
+func TestUserConfigResolver_RemoveAll_IdempotentOnMissing(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		home := filepath.Join(base, "home")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Setenv("HOME", home)
+
+		uc := NewUserConfigResolver()
+		if err := uc.RemoveAll(filepath.Join(home, "never-existed")); err != nil {
+			t.Errorf("RemoveAll on missing path: got %v, want nil", err)
+		}
+	})
+}
+
+// TestUserConfigResolver_RemoveAll_RejectsSymlinkBelowAnchor: a
+// symlink BELOW the HOME/XDG anchor is rejected even if the
+// anchor itself is reached via a system symlink. Defense
+// against in-user-space attackers planting redirects.
+func TestUserConfigResolver_RemoveAll_RejectsSymlinkBelowAnchor(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		home := filepath.Join(base, "home", "user")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Setenv("HOME", home)
+
+		// Plant a symlinked dir BELOW the anchor; target points
+		// outside, with content that must NOT be removed.
+		outside := filepath.Join(base, "outside-tree")
+		if err := os.MkdirAll(filepath.Join(outside, "child"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outside, "child", "important"), []byte("don't delete"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Plant the symlink within the user-config tree:
+		stadoDir := filepath.Join(home, ".local", "state", "stado")
+		if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(stadoDir, "redirect")); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+
+		uc := NewUserConfigResolver()
+		// Remove a path under the symlinked redirect. Should
+		// reject (the redirect itself is a symlink in the
+		// below-anchor walk).
+		if err := uc.RemoveAll(filepath.Join(stadoDir, "redirect", "child")); err == nil {
+			t.Fatal("expected symlink-below-anchor rejection, got nil")
+		}
+		// Outside contents must still exist.
+		if _, err := os.Stat(filepath.Join(outside, "child", "important")); err != nil {
+			t.Errorf("outside file removed via symlink redirect: %v", err)
+		}
+	})
+}
+
+// TestUserConfigResolver_RemoveAll_OutsideAnchorFallsBackToStrict:
+// for paths outside any HOME/XDG anchor, RemoveAll walks
+// strict-no-symlink from `/`, matching legacy
+// RemoveAllNoSymlink semantics.
+func TestUserConfigResolver_RemoveAll_OutsideAnchorFallsBackToStrict(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		// HOME is set but our delete target is outside it.
+		home := filepath.Join(base, "home")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Setenv("HOME", home)
+
+		// Delete target lives entirely outside HOME (no covering
+		// anchor) — strict fallback handles it.
+		target := filepath.Join(base, "outside", "tree", "leaf")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(target, "file.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		uc := NewUserConfigResolver()
+		if err := uc.RemoveAll(target); err != nil {
+			t.Fatalf("RemoveAll on outside-anchor path: %v", err)
+		}
+		if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("target still exists: %v", err)
+		}
+	})
+}
+
 // TestUserConfigResolver_OutsideAnchor_SymlinkFallsBackToStrict
 // covers the round-A2-final outside-anchor-symlink case: when a
 // path falls outside any HOME/XDG anchor, the resolver falls

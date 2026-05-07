@@ -233,7 +233,7 @@ func (m *Model) deleteSession(id string) error {
 	if err := sc.DeleteSessionRefs(id); err != nil {
 		return fmt.Errorf("session delete refs: %w", err)
 	}
-	if err := workdirpath.NewStrictResolver().RemoveAll(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
+	if err := workdirpath.NewUserConfigResolver().RemoveAll(filepath.Join(cfg.WorktreeDir(), id)); err != nil {
 		return fmt.Errorf("session delete worktree: %w", err)
 	}
 	return nil

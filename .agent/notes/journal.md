@@ -51,6 +51,56 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-08 — A2 2.1.f: Bazzite RemoveAll gap fix
+
+Operator (correctly) flagged that the strict-RemoveAll callers
+in cmd/stado/session.go, cmd/stado/agents.go,
+cmd/stado/plugin_gc.go, cmd/stado/plugin_install.go, and
+internal/tui/model_sessions.go all walk through paths under
+HOME/XDG (worktrees, plugin install dirs). On Atomic Fedora /
+Bazzite where `/home → /var/home` is a system symlink, the
+strict-from-/ walk rejects at the `/home` component.
+
+This is a PRE-EXISTING bug in the legacy `RemoveAllNoSymlink` —
+EP-0028 added the *UnderUserConfig family for read/open/mkdir
+to fix exactly this case but RemoveAll was never given an
+Under-equivalent.
+
+Decision: treat the fix as in-scope for A2 (carve-out from
+non-goal #1). Reasons:
+- Operationally broken on a real and growing class of host
+  (Atomic Fedora derivatives are the recommended Linux
+  installation in many environments).
+- Fix shape is bounded — one method + 5 caller sites — using
+  the Under-trust-anchor pattern EP-0028 already validated.
+- Symmetry argument cuts the wrong way: forcing the fix into a
+  separate spec defers it for symmetry's sake while real users
+  hit it.
+
+Implementation:
+- workdirpath/userconfig_resolver.go: added RemoveAll(path)
+  method, documented as the EP-0028 RemoveAll companion.
+- workdirpath/workdirpath.go: added unexported
+  removeAllUnderUserConfig helper. Mirrors the existing
+  *UnderUserConfig pattern: anchor lookup; if no anchor,
+  falls back to RemoveAllNoSymlink (strict from /); else
+  opens parent via OpenRootUnderUserConfig and RemoveAll
+  within the *os.Root.
+- workdirpath/userconfig_resolver_test.go: 5 new tests
+  including the symlinked-HOME Bazzite case (verifies removal
+  works via the symlink AND that the real path is gone).
+
+Caller migrations (5 sites, all switching from
+NewStrictResolver().RemoveAll to NewUserConfigResolver().RemoveAll):
+- cmd/stado/session.go:249,294 (worktree delete)
+- cmd/stado/agents.go:134 (agent kill worktree)
+- cmd/stado/plugin_gc.go:145 (plugin gc)
+- cmd/stado/plugin_install.go:146 (install rollback)
+- internal/tui/model_sessions.go:236 (TUI worktree delete)
+
+Plan updated: D13 captures the carve-out + alternatives
+considered. Phase 2.1 staging gains a 2.1.f step.
+
 ## 2026-05-07 — A2 invariant check: workdirpath ≠ plugin extensibility
 
 Operator reminder: stado's invariant is "primitives, not policies"

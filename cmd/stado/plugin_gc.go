@@ -142,7 +142,7 @@ var pluginGCCmd = &cobra.Command{
 				errs++
 				continue
 			}
-			if err := workdirpath.RemoveAllNoSymlink(dir); err != nil {
+			if err := workdirpath.NewUserConfigResolver().RemoveAll(dir); err != nil {
 				fmt.Fprintf(os.Stderr, "remove %s: %v\n", id, err)
 				errs++
 				continue

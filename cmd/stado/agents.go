@@ -131,7 +131,7 @@ var agentsKillCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
 			}
 		}
-		if err := workdirpath.RemoveAllNoSymlink(wt); err != nil {
+		if err := workdirpath.NewUserConfigResolver().RemoveAll(wt); err != nil {
 			return fmt.Errorf("remove worktree: %w", err)
 		}
 		fmt.Fprintln(os.Stderr, "killed", id)

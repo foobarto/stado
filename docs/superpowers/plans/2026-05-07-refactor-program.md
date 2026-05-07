@@ -590,8 +590,25 @@ API doesn't absorb them.
 5. **2.1.e..N — Broad caller migration**, batched 4-6 commits
    by package family. New types continue calling legacy
    internally; only the call-site is updated.
-6. **2.1.X — Mark legacy `Deprecated:`.**
-7. **2.1.Y — Delete legacy + inline impls into new types.**
+6. **2.1.f — Bazzite/Atomic-Fedora `RemoveAll` gap fix
+   (in-scope behavior fix).** EP-0028 added the
+   `*UnderUserConfig` family for read/open/mkdir because
+   Atomic Fedora hosts have `/home → /var/home` as a system
+   symlink, and the strict-from-/ walk rejects at `/home`.
+   `RemoveAllNoSymlink` was never given an Under-equivalent —
+   `cmd/stado session delete`, `stado plugin gc`, plugin-
+   install rollback, agent kill, and TUI worktree delete all
+   walk through this code path and fail on Bazzite. Adds
+   `UserConfigResolver.RemoveAll` (anchor-walk above /
+   no-symlink below / strict-fallback for non-HOME paths) and
+   migrates the 5 caller sites from `StrictResolver.RemoveAll`
+   to `UserConfigResolver.RemoveAll`. Captured as a *behavior
+   fix in scope* — the program's "no behavior changes" non-goal
+   has a carve-out for this case because the new behavior is
+   what EP-0028 already established for the rest of the API
+   surface; RemoveAll was simply forgotten.
+7. **2.1.X — Mark legacy `Deprecated:`.**
+8. **2.1.Y — Delete legacy + inline impls into new types.**
    The wrapper-rewrite the original plan called for at 2.1.d
    happens here, alongside removal of the now-unused exported
    symbols. Each legacy fn's body lands in the matching new-type
@@ -1316,6 +1333,44 @@ The original "options-based" design also caused round-3 to
 miss the `*os.Root` legacy functions entirely (the prior draft
 made them un-wrappable). Switching to types-per-policy resolves
 that and surfaces the user-config / strict distinctions cleanly.
+
+### D13. RemoveAll gap fix is a behavior-change carve-out for A2
+
+- **Decided (2.1.f, 2026-05-08):** `UserConfigResolver.RemoveAll`
+  is added to the new API and the 5 strict-RemoveAll caller
+  sites (`cmd/stado/session.go`, `cmd/stado/agents.go`,
+  `cmd/stado/plugin_gc.go`, `cmd/stado/plugin_install.go`,
+  `internal/tui/model_sessions.go`) are migrated from
+  strict-from-/ to user-config-aware. Net behavior: paths under
+  `/home/user` (the Atomic-Fedora layout where `/home → /var/home`)
+  are now removable; non-HOME paths still walk strict-from-/.
+- **Why this is a carve-out from non-goal #1:** the fix
+  generalizes EP-0028's existing Atomic-Fedora stance to the
+  RemoveAll operation. The legacy `RemoveAllNoSymlink` was the
+  ONE strict-from-/ holdover after EP-0028 added Under-variants
+  for read/open/mkdir; it was forgotten in that pass. Operationally,
+  `stado session delete` and friends are broken on Bazzite /
+  Silverblue / Kinoite hosts today. Treating this as a
+  separate behavior-fix spec would defer the bug indefinitely
+  for symmetry that doesn't serve users.
+- **Alternatives considered:**
+  (a) Park as a separate spec and finish A2 first. Rejected —
+      the bug is observable today on a major class of host
+      (Atomic-Fedora derivatives), and the fix shape is bounded
+      (one method + 5 caller sites) and uses the
+      Under-trust-anchor pattern EP-0028 already validated.
+  (b) Add `StrictResolver.RemoveAll` an "anchor-aware mode"
+      flag. Rejected — this is the policy-soup pattern round-A2
+      review explicitly rejected.
+- **Test coverage:** 5 new tests in
+  `userconfig_resolver_test.go` covering the symlinked-HOME
+  Bazzite case, final-symlink rejection, idempotency on
+  missing paths, in-user-space symlink-below-anchor rejection,
+  outside-anchor strict-fallback parity.
+- **Plugin impact:** none. Plugins call host imports; this is
+  internal-runtime-confinement behavior. The bug existed in the
+  internal RemoveAll path that backs `stado_*` operations
+  invoked from cmd/stado / TUI, not plugin-facing semantics.
 
 ## Related
 

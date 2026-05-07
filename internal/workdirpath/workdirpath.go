@@ -658,6 +658,51 @@ func RemoveAllNoSymlink(path string) error {
 	return root.RemoveAll(name)
 }
 
+// removeAllUnderUserConfig is the user-config-aware analogue of
+// RemoveAllNoSymlink. The chain UP TO the HOME / XDG anchor
+// accepts system symlinks (Atomic Fedora's `/home → /var/home`
+// case); the chain BELOW the anchor is no-symlink and a final
+// symlink at the target is rejected. Outside any anchor falls
+// back to the strict-from-/ walk for parity with non-HOME paths.
+//
+// Mirrors the read/open/mkdir family added by EP-0028; closes
+// the RemoveAll gap that family didn't cover. Used by
+// UserConfigResolver.RemoveAll.
+func removeAllUnderUserConfig(path string) error {
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("invalid remove path %q", path)
+	}
+	abs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(abs)
+	if name == "." || name == string(filepath.Separator) {
+		return fmt.Errorf("invalid remove path %q", path)
+	}
+	anchor := userTrustAnchor(abs)
+	if anchor == "" {
+		return RemoveAllNoSymlink(abs)
+	}
+	parent := filepath.Dir(abs)
+	parentRoot, err := OpenRootUnderUserConfig(parent)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parentRoot.Close() }()
+	info, err := parentRoot.Lstat(name)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("remove path is a symlink: %s", path)
+	case err == nil:
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return err
+	}
+	return parentRoot.RemoveAll(name)
+}
+
 // MkdirAllRootNoSymlink creates a directory tree relative to root while
 // rejecting any existing symlink component.
 func MkdirAllRootNoSymlink(root *os.Root, path string, perm os.FileMode) error {
