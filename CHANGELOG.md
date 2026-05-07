@@ -8,6 +8,90 @@ Plugins / Infra / Fixes.
 
 (no unreleased changes)
 
+## v0.45.0 — No internal tools (Steps 0–5)
+
+First half of the EP-no-internal-tools migration. Spec at
+`docs/superpowers/specs/2026-05-06-no-internal-tools-design.md`.
+
+The model-facing tool surface is moving plugin-shaped end-to-end. This
+release ships the architectural unblock + four plugin family migrations.
+The remaining steps (lspfind primitive refactor, fs-family rewrites,
+tasks-as-plugin, VerifiedPluginSource unification, bundled-plugin
+external verify) are scoped for a follow-up release.
+
+### Architecture
+
+- **`internal/runtime/pluginrun/Run`** is the unified wasm-plugin
+  invoker. All four plugin invocation paths (CLI `tool run`, agent
+  loop, MCP server, in-plugin `stado_tool_invoke`) dispatch through it.
+- **`installedPluginTool.Run` is now a real invoker** instead of a
+  sentinel error. Pre-Step-0 the agent loop and MCP server silently
+  failed for installed plugins (only the CLI special-cased the
+  dispatch). All three paths are uniform now.
+- **`runtime.BuildRegistryWithPlugins(cfg)`** is the shared registry
+  helper used by both `BuildExecutor` and the MCP server. Pre-Step-0.5
+  the MCP server bypassed `BuildExecutor`, missing MCP-attach +
+  wasm-migration + tool-overrides; now both surfaces see the same
+  tool surface (minus `llm.invoke`, which the MCP server adds on top
+  as documented MCP-only).
+
+### Plugin families migrated
+
+| Family | Was | Now |
+|---|---|---|
+| `webfetch` / `web.fetch` | native `webfetch.WebFetchTool` | wasm `web__fetch` via `stado_http_request` primitive |
+| `bash` | native `bash.BashTool` (bare name, hardcoded bwrap policy) | wasm `shell__bash` (+ `shell__exec`, `shell__sh`, `shell__zsh`) via `stado_exec` |
+| `ripgrep` | native `rg.Tool` | wasm `rg__search` via `stado_exec` |
+| `ast_grep` | native `astgrep.Tool` | wasm `astgrep__search` via `stado_exec` |
+| `http_request` | native `httpreq.RequestTool` (delegate) | true primitive `stado_http_request` (impl moved to `internal/httpreq/`) |
+
+### Primitive surface changes
+
+- `stado_exec` and `stado_proc_spawn` gain an optional `sandbox`
+  field — when set, the call routes through `sandbox.Runner` with
+  the supplied policy. When omitted, runs unsandboxed (today's
+  default). **Plugin author opts in; stado is unbiased.**
+- New: `stado_fs_readdir(path, offset, buf, cap)` — paged dir listing
+  as JSON `[{name, type, mode}]`. Caller paginates via offset.
+- New: `stado_fs_stat(path, buf, cap)` — `{mode, size, mtime, type}`.
+- `procAllowed` matcher accepts both absolute-path globs
+  (`exec:proc:/usr/bin/bash`) and slash-free basename globs
+  (`exec:proc:bash`). Cross-distro portable. Mixed forms (relative
+  paths with slashes) rejected at cap parse time.
+
+### Removed surfaces
+
+- Host imports: `stado_http_get`, `stado_exec_bash`, `stado_search_ripgrep`, `stado_search_ast_grep`.
+- Caps: `exec:bash`, `exec:shallow_bash`, `exec:search`, `exec:ast_grep`. Use `exec:proc:<binary-glob>` instead.
+- Native packages: `internal/tools/{httpreq,webfetch,bash,rg,astgrep}` (the latter two moved their bundled-binary helpers to `internal/{rg,astgrep}` as subsystem packages).
+- Wasm shim modules: `ripgrep` (the legacy `stado_search_ripgrep` shim).
+
+### Behavior changes
+
+- **bash no longer routes through `sandbox.Runner` by default.** The
+  native `bash.BashTool` hardcoded a bwrap policy (workdir + /tmp,
+  net-deny). The new wasm `shell.bash` runs unsandboxed unless the
+  plugin author passes a `sandbox` arg to `stado_exec` (per
+  unbiased-runtime principle). Same trust model as every other
+  `exec:proc` plugin.
+- **`web.fetch` returns raw response body** instead of HTML→markdown
+  conversion. The native webfetch ran `golang.org/x/net/html` to
+  extract text; the wasm rewrite skips that step. If markdown
+  conversion turns out to matter for model UX, restore via a shared
+  `internal/bundledplugins/sdk/` helper.
+- **Default autoload list** (`executor.go:43`) renames bare `bash` to
+  wire-form `shell__bash`. Operators with custom `[tools].enabled`
+  config that pinned `bash` need to update.
+
+### Migration notes for plugin authors
+
+- Manifests using `exec:bash` / `exec:shallow_bash` / `exec:search` /
+  `exec:ast_grep` need re-signing with `exec:proc:<binary>`.
+- Plugins using `stado_http_get` should switch to `stado_http_request`.
+- Plugins using `stado_search_ripgrep` / `stado_search_ast_grep`
+  should spawn the binaries via `stado_exec` directly (or add their
+  own search helper).
+
 ## v0.44.2 — Two bugfixes
 
 ### Fixes
