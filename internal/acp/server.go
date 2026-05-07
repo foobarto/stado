@@ -19,10 +19,22 @@ import (
 // ProtocolVersion advertised in the initialize handshake. Bumping requires
 // coordinated update in stado + any ACP client.
 //
-// session/update notifications carry one of two kinds today:
+// session/update notifications carry one of these kinds today:
 //   - "text"      — streaming text delta from the provider; payload field "text".
 //   - "tool_call" — a tool call has completed (success or error); payload fields
 //     "name" (string) and "input" (string — JSON-encoded args object).
+//   - "subagent"  — subagent lifecycle event; payload includes phase, status,
+//     role, mode, child session id, parent session, etc.
+//   - "choice"    — a wasm plugin called stado_ui_choose; payload fields
+//     "requestId" (string), "prompt" (string), "options" ([{id,label}]),
+//     "multi" (bool), "default" ([]string). The client MUST reply with
+//     session/choice_response{sessionId, requestId, selected:[]string,
+//     cancelled:bool} or the plugin call blocks until session/cancel.
+//   - "approval"  — a wasm plugin called stado_ui_approve; payload fields
+//     "requestId" (string), "title" (string), "body" (string). The client
+//     MUST reply with session/approval_response{sessionId, requestId,
+//     allow:bool, cancelled:bool} or the plugin call blocks until
+//     session/cancel.
 //
 // session/new accepts an optional `maxTurns` integer to pin the per-session turn
 // budget; falls back to [acp] max_turns from config, then 50 with --tools / 1
@@ -52,6 +64,11 @@ type Server struct {
 	// session/update kind=choice. Resolved by session/choice_response
 	// RPCs from the client. Q3 Phase B.
 	choiceRegistry *pendingChoiceRegistry
+
+	// approvalRegistry tracks in-flight stado_ui_approve requests emitted
+	// as session/update kind=approval. Resolved by session/approval_response
+	// RPCs from the client. Symmetric with choiceRegistry.
+	approvalRegistry *pendingApprovalRegistry
 }
 
 type acpSession struct {
@@ -75,10 +92,11 @@ type acpSession struct {
 // break the handshake).
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {
 	return &Server{
-		Cfg:            cfg,
-		Provider:       prov,
-		sessions:       map[string]*acpSession{},
-		choiceRegistry: newPendingChoiceRegistry(),
+		Cfg:              cfg,
+		Provider:         prov,
+		sessions:         map[string]*acpSession{},
+		choiceRegistry:   newPendingChoiceRegistry(),
+		approvalRegistry: newPendingApprovalRegistry(),
 	}
 }
 
@@ -100,6 +118,8 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.handleSessionCancel(params)
 	case "session/choice_response":
 		return s.handleSessionChoiceResponse(params)
+	case "session/approval_response":
+		return s.handleSessionApprovalResponse(params)
 	case "shutdown":
 		s.conn.WaitPendingExceptCaller()
 		go s.conn.Close()
@@ -413,11 +433,14 @@ func (s *Server) handleSessionCancel(raw json.RawMessage) (any, error) {
 		sess.cancel()
 	}
 	sess.mu.Unlock()
-	// Resolve any pending choice requests for this session so plugin
-	// calls don't deadlock waiting for a client that's about to drop
-	// the prompt. Q3 Phase B.
+	// Resolve any pending choice / approval requests for this session
+	// so plugin calls don't deadlock waiting for a client that's about
+	// to drop the prompt. Q3 Phase B + approval-bridge follow-up.
 	if s.choiceRegistry != nil {
 		s.choiceRegistry.cancelSession(p.SessionID)
+	}
+	if s.approvalRegistry != nil {
+		s.approvalRegistry.cancelSession(p.SessionID)
 	}
 	return struct{}{}, nil
 }

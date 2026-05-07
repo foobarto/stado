@@ -116,6 +116,20 @@ Plugins / Infra / Fixes.
   survives low-contrast themes. Hint line distinguishes the two
   modes: defocused ("Y allow · N deny · ↑ focus drawer"),
   focused ("← / → switch · Enter confirm · ↓ return to input").
+- **ACP integration** for `stado_ui_approve`. Symmetric with the
+  Q3 Phase B `stado_ui_choose` ACP wiring: when a plugin calls the
+  primitive during an ACP session, the server emits `session/update`
+  with `kind=approval` carrying `requestId`, `title`, and `body`,
+  then blocks on a paired `session/approval_response` RPC from the
+  client with `{sessionId, requestId, allow:bool, cancelled:bool}`.
+  `cancelled=true` collapses to `allow=false` at the wasm boundary
+  (`stado_ui_approve` returns 0/deny), preserving the operator-
+  dismissed signal in the wire format for clients that want to
+  surface it. Session cancel and connection drops resolve every
+  pending approval with `cancelled=true` so plugin calls don't
+  deadlock. Closes the gap where ACP plugins calling
+  `stado_ui_approve` previously got `-1 unavailable` because the
+  ACP host didn't implement `ApprovalBridge`.
 
 ### Plugin ABI migration note (for plugin authors)
 
