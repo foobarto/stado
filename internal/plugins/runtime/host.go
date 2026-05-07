@@ -76,6 +76,11 @@ type Host struct {
 	// plugin capability and may be nil on non-interactive surfaces.
 	ApprovalBridge ApprovalBridge
 
+	// ChoiceBridge powers stado_ui_choose — operator-facing single /
+	// multi-choice prompts. Same nil-means-unavailable contract as
+	// ApprovalBridge; gated by ui:choice cap. Q3 (2026-05-07).
+	ChoiceBridge ChoiceBridge
+
 	// ToolHost is the runtime host surface native tool wrappers call
 	// through when a plugin uses the public built-in tool imports.
 	// Nil is valid in non-session contexts like `stado plugin run`;
@@ -122,6 +127,10 @@ type Host struct {
 	Compress bool
 	LSPQuery   bool
 	UIApproval bool
+	// UIChoice gates stado_ui_choose — operator-facing single /
+	// multi-choice picker. Declared via ui:choice in the manifest.
+	// Q3 (2026-05-07).
+	UIChoice bool
 
 	// PTYManager is the runtime-shared registry of PTY-backed
 	// processes; survives plugin instantiation freshness so a session
@@ -348,6 +357,53 @@ type MemoryBridge interface {
 // decide how to proceed.
 type ApprovalBridge interface {
 	RequestApproval(ctx context.Context, title, body string) (bool, error)
+}
+
+// ChoiceBridge is the interactive UI hook plugins use to prompt the
+// operator to pick from a list of options. Mirrors ApprovalBridge but
+// for N-of-M selection instead of yes/no. Nil on surfaces without a
+// user-facing UI (headless run, MCP server) — the host import returns
+// a structured "interactive UI unavailable" error in that case so the
+// plugin can decide what to do (e.g., fail vs. fall back to its
+// `default`).
+//
+// The bridge is single-flight per session: only one outstanding
+// request at a time. Implementations should reject a second concurrent
+// call with a non-nil error so the plugin sees a clean signal instead
+// of stacking drawers.
+//
+// Cancellation: when ctx is cancelled (turn cancel, session cancel,
+// operator quit), the bridge MUST return ChoiceResponse{Cancelled: true}
+// promptly so the plugin call doesn't deadlock.
+type ChoiceBridge interface {
+	RequestChoice(ctx context.Context, req ChoiceRequest) (ChoiceResponse, error)
+}
+
+// ChoiceRequest is the operator-facing prompt. Single-choice flows set
+// Multi=false; multi-choice flows set Multi=true. Default may
+// pre-toggle one or more options by ID — for single mode it
+// determines the cursor's initial position; for multi mode every
+// listed ID starts toggled on.
+type ChoiceRequest struct {
+	Prompt  string
+	Options []ChoiceOption
+	Multi   bool
+	Default []string
+}
+
+// ChoiceOption is a single picker entry. ID is what the plugin gets
+// back in ChoiceResponse.Selected; Label is what the operator sees.
+type ChoiceOption struct {
+	ID    string
+	Label string
+}
+
+// ChoiceResponse carries the operator's answer back to the plugin.
+// Cancelled=true means no decision was made (Esc / session cancel);
+// Selected is empty in that case.
+type ChoiceResponse struct {
+	Selected  []string
+	Cancelled bool
 }
 
 // FleetBridge is the capability-checked surface the bundled agent plugin
@@ -616,8 +672,11 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.LSPQuery = true
 			}
 		case "ui":
-			if parts[1] == "approval" {
+			switch parts[1] {
+			case "approval":
 				h.UIApproval = true
+			case "choice":
+				h.UIChoice = true
 			}
 		case "cfg":
 			// Read-only configuration introspection. EP-0029. Each

@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -53,4 +56,148 @@ func registerUIApprovalImport(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32}, []api.ValueType{api.ValueTypeI32}).
 		Export("stado_ui_approve")
+}
+
+// chooseRequestWire is the JSON shape plugins send via stado_ui_choose.
+// Mirrors ChoiceRequest but uses lowercased field names so plugin
+// authors writing JSON literals don't trip on Go capitalisation.
+type chooseRequestWire struct {
+	Prompt  string                  `json:"prompt"`
+	Options []chooseOptionWire      `json:"options"`
+	Multi   bool                    `json:"multi"`
+	Default []string                `json:"default"`
+}
+
+type chooseOptionWire struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type chooseResponseWire struct {
+	Selected  []string `json:"selected"`
+	Cancelled bool     `json:"cancelled"`
+}
+
+// registerUIChooseImport wires stado_ui_choose. Wire format:
+//
+//	stado_ui_choose(req_ptr, req_len, resp_ptr, resp_cap) -> int32
+//
+// Returns positive bytes-written on success (response is JSON-encoded
+// chooseResponseWire). Negative values use the encodeToolSidePayload
+// convention: -n means an error message of n bytes is at resp_ptr.
+//
+// Cap-gated by ui:choice. Routes to host.ChoiceBridge; nil bridge =
+// "interactive UI unavailable" structured error so plugins on
+// non-interactive surfaces (headless, MCP server) can decide how to
+// handle the lack of operator (e.g., fall back to req.default, or
+// fail). Q3 (2026-05-07).
+func registerUIChooseImport(builder wazero.HostModuleBuilder, host *Host) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			reqPtr := api.DecodeU32(stack[0])
+			reqLen := api.DecodeU32(stack[1])
+			resPtr := api.DecodeU32(stack[2])
+			resCap := api.DecodeU32(stack[3])
+
+			fail := func(msg string) {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(msg)))
+			}
+
+			if !host.UIChoice {
+				host.Logger.Warn("stado_ui_choose denied — manifest lacks ui:choice")
+				fail("ui:choice cap missing")
+				return
+			}
+			if host.ChoiceBridge == nil {
+				host.Logger.Warn("stado_ui_choose unavailable — no choice bridge wired")
+				fail("interactive UI unavailable")
+				return
+			}
+			if reqLen > maxPluginRuntimeUIChooseRequestBytes {
+				fail("request payload too large")
+				return
+			}
+			payload, err := readBytesLimited(mod, reqPtr, reqLen, maxPluginRuntimeUIChooseRequestBytes)
+			if err != nil {
+				fail("request memory read failed")
+				return
+			}
+			var wire chooseRequestWire
+			if err := json.Unmarshal(payload, &wire); err != nil {
+				fail("request JSON decode: " + err.Error())
+				return
+			}
+			req, err := decodeChooseRequest(wire)
+			if err != nil {
+				fail(err.Error())
+				return
+			}
+
+			resp, err := host.ChoiceBridge.RequestChoice(ctx, req)
+			if err != nil {
+				host.Logger.Warn("stado_ui_choose bridge failed", "err", err)
+				fail("choice request rejected: " + err.Error())
+				return
+			}
+
+			respWire := chooseResponseWire{
+				Selected:  resp.Selected,
+				Cancelled: resp.Cancelled,
+			}
+			if respWire.Selected == nil {
+				respWire.Selected = []string{}
+			}
+			out, err := json.Marshal(respWire)
+			if err != nil {
+				fail("response JSON encode failed")
+				return
+			}
+			if uint32(len(out)) > resCap {
+				fail("response too large for plugin buffer")
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, out))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_ui_choose")
+}
+
+// decodeChooseRequest validates the wire payload + applies the
+// per-spec limits (option count, label / id / prompt size). Centralised
+// so the host import keeps a tight body and the validation is
+// independently testable. Returns the runtime-shape ChoiceRequest.
+func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
+	if len(w.Prompt) > maxPluginRuntimeUIChoosePromptBytes {
+		return ChoiceRequest{}, fmt.Errorf("prompt exceeds %d bytes", maxPluginRuntimeUIChoosePromptBytes)
+	}
+	if len(w.Options) == 0 {
+		return ChoiceRequest{}, errors.New("at least one option required")
+	}
+	if len(w.Options) > maxPluginRuntimeUIChooseOptions {
+		return ChoiceRequest{}, fmt.Errorf("too many options (max %d)", maxPluginRuntimeUIChooseOptions)
+	}
+	seen := make(map[string]bool, len(w.Options))
+	out := ChoiceRequest{
+		Prompt:  w.Prompt,
+		Multi:   w.Multi,
+		Default: append([]string(nil), w.Default...),
+		Options: make([]ChoiceOption, 0, len(w.Options)),
+	}
+	for i, o := range w.Options {
+		if o.ID == "" {
+			return ChoiceRequest{}, fmt.Errorf("option %d: id required", i)
+		}
+		if len(o.ID) > maxPluginRuntimeUIChooseIDBytes {
+			return ChoiceRequest{}, fmt.Errorf("option %d: id exceeds %d bytes", i, maxPluginRuntimeUIChooseIDBytes)
+		}
+		if len(o.Label) > maxPluginRuntimeUIChooseLabelBytes {
+			return ChoiceRequest{}, fmt.Errorf("option %d: label exceeds %d bytes", i, maxPluginRuntimeUIChooseLabelBytes)
+		}
+		if seen[o.ID] {
+			return ChoiceRequest{}, fmt.Errorf("option %d: duplicate id %q", i, o.ID)
+		}
+		seen[o.ID] = true
+		out.Options = append(out.Options, ChoiceOption{ID: o.ID, Label: o.Label})
+	}
+	return out, nil
 }

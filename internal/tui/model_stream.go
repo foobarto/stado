@@ -18,6 +18,7 @@ import (
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/streambudget"
@@ -517,6 +518,25 @@ func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (
 	}
 }
 
+// requestPluginChoice posts a stado_ui_choose request to the TUI loop
+// and blocks until the operator answers, cancels, or ctx fires.
+// Single-flight enforcement (rejecting concurrent requests) lives in
+// the Update handler — see pluginChoiceRequestMsg case. Q3.
+func (m *Model) requestPluginChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
+	if m.program == nil {
+		return pluginRuntime.ChoiceResponse{}, errors.New("choice UI unavailable")
+	}
+	resp := make(chan pluginRuntime.ChoiceResponse, 1)
+	m.sendMsg(pluginChoiceRequestMsg{req: req, response: resp})
+	select {
+	case r := <-resp:
+		return r, nil
+	case <-ctx.Done():
+		m.sendMsg(pluginChoiceCancelMsg{response: resp})
+		return pluginRuntime.ChoiceResponse{Cancelled: true}, ctx.Err()
+	}
+}
+
 func (m *Model) handleStreamEvent(ev agent.Event) {
 	// Drop stray events that arrived after the stream was cancelled
 	// (e.g. /clear pressed mid-stream). Compaction state has its own
@@ -923,6 +943,9 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		readLog: m.executor.ReadLog,
 		runner:  m.executor.Runner,
 		approval: tuiApprovalBridge{
+			model: m,
+		},
+		choice: tuiChoiceBridge{
 			model: m,
 		},
 		spawn: m.buildSubagentSpawner(),

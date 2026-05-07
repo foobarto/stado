@@ -22,7 +22,7 @@ Plugins / Infra / Fixes.
 
 ### ACP
 
-- **Configurable `MaxTurns`** (B1/F1 from HTB integration testing).
+- **Configurable `MaxTurns`** (B1/F1 from integration testing).
   Resolution order: `session/new`'s optional `{"maxTurns": N}` param
   (per-session pin from the ACP client) → `[acp] max_turns = N` in
   `config.toml` (operator default) → built-in fallback (50 with
@@ -74,6 +74,20 @@ Plugins / Infra / Fixes.
   empty canvas. New helper at internal/tui/overlays/CenterOver
   composites popups over a base render — reused by the
   approval-drawer polish.
+- New host primitive **`stado_ui_choose`** (Q3 Phase A). Wasm
+  plugins with the new `ui:choice` capability can prompt the
+  operator for a single or multi-choice answer through a TUI bottom
+  drawer. Wire format: JSON request `{prompt, options:[{id,label}],
+  multi, default}`, JSON response `{selected:[...], cancelled:bool}`;
+  errors use the existing negative-length tool-side wire. The TUI
+  drawer renders below the input with ↑/↓ navigate, Space toggle in
+  multi mode, Enter confirm, Esc cancel; long option lists scroll
+  inside the drawer (max 8 visible at once with above/below
+  indicators). Single-flight: a second concurrent request is
+  rejected with `cancelled=true` so plugins see a clean signal.
+  Headless / MCP server return a structured `"interactive UI
+  unavailable"` error so the plugin can decide how to fall back —
+  no silent default-pick. ACP integration follows in Phase B.
 - Approval drawer (plugin-requested human approval) polished.
   Title gets a ⚠ icon prefix; body renders in a faint code-block
   frame when it's command-shaped (multi-line, contains `$ ` or
@@ -1402,7 +1416,7 @@ than every tool's schema every turn.
   the audit log; only the inline preview is elided. Pairs with `--json`
   for scripted use: `--json` for structured event-per-line output, or
   `--quiet` for plain text-only stdout. Dogfood-note item from the
-  htb-writeups workflow integration: `stado run --tools` interleaved
+  external workflow integration: `stado run --tools` interleaved
   agent text with tool-call previews and INFO log lines, making it
   hard to pipe to `jq` or post-process.
 - **Updated `stado run --help` body** to explicitly call out `--json`

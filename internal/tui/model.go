@@ -118,6 +118,10 @@ const (
 	stateIdle sessionState = iota
 	stateStreaming
 	stateApproval
+	// stateChoice: a plugin's stado_ui_choose drawer is open and has
+	// the keyboard. Mutually exclusive with stateApproval — bridge
+	// rejects a choice while approval is open and vice versa. Q3.
+	stateChoice
 	// stateCompactionPending: a summarisation stream has finished and
 	// the proposed summary is visible in the conversation. The next
 	// 'y' / 'n' / 'e' / '/' keystroke resolves it. See DESIGN
@@ -184,6 +188,17 @@ type (
 	}
 	pluginApprovalCancelMsg struct {
 		response chan bool
+	}
+	// pluginChoiceRequestMsg carries a stado_ui_choose request from
+	// the plugin runtime into the TUI loop. The drawer state copies
+	// req fields out + retains the response channel; resolution
+	// (or cancel) sends a single value down response. Q3.
+	pluginChoiceRequestMsg struct {
+		req      pluginRuntime.ChoiceRequest
+		response chan pluginRuntime.ChoiceResponse
+	}
+	pluginChoiceCancelMsg struct {
+		response chan pluginRuntime.ChoiceResponse
 	}
 	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
 	// back to the Update loop. Rendered as a system block so the user
@@ -454,6 +469,14 @@ type Model struct {
 	approvalFocused       bool
 	approvalAllowSelected bool
 
+	// choice carries an in-flight stado_ui_choose request and its
+	// drawer state. Nil when no request is pending. Single-flight
+	// per session — bridge rejects a second concurrent request.
+	choice        *choiceRequest
+	choiceFocused bool
+	choiceCursor  int
+	choiceMarked  map[string]bool
+
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program
 
@@ -535,6 +558,17 @@ type approvalRequest struct {
 	title    string
 	body     string
 	response chan bool
+}
+
+// choiceRequest is the TUI's view of an in-flight stado_ui_choose
+// call. The drawer renders + keys-handles based on these fields;
+// resolution sends ChoiceResponse{Selected,Cancelled} down response
+// (the same channel pluginrun's bridge is selecting on).
+type choiceRequest struct {
+	prompt   string
+	options  []pluginRuntime.ChoiceOption
+	multi    bool
+	response chan pluginRuntime.ChoiceResponse
 }
 
 // NewModel wires the TUI. buildProvider is called on the first streamed turn

@@ -28,6 +28,7 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 
 	registerLogImport(builder, host)
 	registerUIApprovalImport(builder, host)
+	registerUIChooseImport(builder, host)
 	registerFSImports(builder, host)
 	registerSessionImports(builder, host)
 	registerLLMImport(builder, host)

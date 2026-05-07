@@ -16,6 +16,15 @@ const (
 	maxPluginRuntimeLogMessageBytes      uint32 = 64 << 10
 	maxPluginRuntimeUIApprovalTitleBytes uint32 = 4 << 10
 	maxPluginRuntimeUIApprovalBodyBytes  uint32 = 1 << 20
+	// stado_ui_choose limits. Request payload and response payload
+	// share a 64 KiB cap each — 100 options × ~256 byte labels +
+	// IDs gives plenty of headroom for typical pickers.
+	maxPluginRuntimeUIChooseRequestBytes  uint32 = 64 << 10
+	maxPluginRuntimeUIChooseResponseBytes uint32 = 64 << 10
+	maxPluginRuntimeUIChooseOptions       int    = 100
+	maxPluginRuntimeUIChooseLabelBytes    int    = 256
+	maxPluginRuntimeUIChooseIDBytes       int    = 64
+	maxPluginRuntimeUIChoosePromptBytes   int    = 4 << 10
 	maxPluginRuntimeMemoryPayloadBytes   uint32 = 1 << 20
 	maxPluginRuntimeToolArgsBytes        uint32 = 1 << 20
 	maxPluginRuntimeLLMPromptBytes       uint32 = 1 << 20

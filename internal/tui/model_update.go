@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tui/filepicker"
@@ -271,6 +272,57 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, nil
 
+	case pluginChoiceRequestMsg:
+		if m.choice != nil || m.approval != nil {
+			// Single-flight: drop the second request. Plugin sees
+			// cancelled=true and decides what to do.
+			select {
+			case msg.response <- pluginRuntime.ChoiceResponse{Cancelled: true}:
+			default:
+			}
+			return m, nil
+		}
+		m.choice = &choiceRequest{
+			prompt:   msg.req.Prompt,
+			options:  append([]pluginRuntime.ChoiceOption(nil), msg.req.Options...),
+			multi:    msg.req.Multi,
+			response: msg.response,
+		}
+		m.choiceCursor = 0
+		m.choiceFocused = true
+		m.choiceMarked = map[string]bool{}
+		// Pre-toggle defaults. For single mode, the first id in
+		// Default sets the cursor; for multi mode, every listed id
+		// starts toggled on.
+		if len(msg.req.Default) > 0 {
+			if msg.req.Multi {
+				for _, id := range msg.req.Default {
+					m.choiceMarked[id] = true
+				}
+			} else {
+				for i, opt := range m.choice.options {
+					if opt.ID == msg.req.Default[0] {
+						m.choiceCursor = i
+						break
+					}
+				}
+			}
+		}
+		m.state = stateChoice
+		m.renderBlocks()
+		return m, nil
+
+	case pluginChoiceCancelMsg:
+		if m.choice != nil && m.choice.response == msg.response {
+			m.choice = nil
+			m.choiceFocused = false
+			m.choiceCursor = 0
+			m.choiceMarked = nil
+			m.state = stateIdle
+			m.renderBlocks()
+		}
+		return m, nil
+
 	case pluginApprovalCancelMsg:
 		if m.approval != nil && m.approval.response == msg.response {
 			m.approval = nil
@@ -424,6 +476,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.approval != nil {
 			if cmd, handled := m.handleApprovalKey(msg); handled {
+				return m, cmd
+			}
+		}
+
+		if m.choice != nil {
+			if cmd, handled := m.handleChoiceKey(msg); handled {
 				return m, cmd
 			}
 		}
@@ -1280,6 +1338,31 @@ func (m *Model) handleMessagesClick(msgX, msgY int) bool {
 	m.blocks[idx].expanded = !m.blocks[idx].expanded
 	m.invalidateBlockCache(idx)
 	return true
+}
+
+// resolveChoice closes the choice drawer with a positive answer
+// (Enter pressed). Sends ChoiceResponse{Selected, Cancelled=false}
+// down the bridge channel and clears drawer state.
+func (m *Model) resolveChoice(selected []string, cancelled bool) tea.Cmd {
+	req := m.choice
+	m.choice = nil
+	m.choiceFocused = false
+	m.choiceCursor = 0
+	m.choiceMarked = nil
+	m.state = stateIdle
+	if req != nil && req.response != nil {
+		select {
+		case req.response <- pluginRuntime.ChoiceResponse{Selected: selected, Cancelled: cancelled}:
+		default:
+		}
+	}
+	m.renderBlocks()
+	return nil
+}
+
+// resolveChoiceCancel closes the drawer with cancelled=true (Esc).
+func (m *Model) resolveChoiceCancel() tea.Cmd {
+	return m.resolveChoice(nil, true)
 }
 
 func (m *Model) resolveApproval(allow bool) tea.Cmd {

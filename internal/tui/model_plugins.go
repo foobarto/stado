@@ -236,6 +236,21 @@ func (b tuiApprovalBridge) RequestApproval(ctx context.Context, title, body stri
 	return b.model.requestPluginApproval(ctx, title, body)
 }
 
+// tuiChoiceBridge implements pluginRuntime.ChoiceBridge over the TUI
+// model's drawer. Single-flight: the bridge serialises requests via
+// the model's pluginChoiceRequestMsg path, and the model rejects a
+// second concurrent request before it ever lands here. Q3.
+type tuiChoiceBridge struct {
+	model *Model
+}
+
+func (b tuiChoiceBridge) RequestChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
+	if b.model == nil {
+		return pluginRuntime.ChoiceResponse{}, errors.New("choice UI unavailable")
+	}
+	return b.model.requestPluginChoice(ctx, req)
+}
+
 func (m *Model) turnCompleteEvent() []byte {
 	turn := 0
 	if m.session != nil {
@@ -277,6 +292,7 @@ type hostAdapter struct {
 	readLog  *tools.ReadLog
 	runner   sandbox.Runner
 	approval tuiApprovalBridge
+	choice   tuiChoiceBridge
 	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
 	// activate is the lazy-load activation hook. Called by the
 	// tools__describe / tools__activate / plugin__load meta-tools via
@@ -309,6 +325,10 @@ func (h hostAdapter) Runner() sandbox.Runner { return h.runner }
 
 func (h hostAdapter) RequestApproval(ctx context.Context, title, body string) (bool, error) {
 	return h.approval.RequestApproval(ctx, title, body)
+}
+
+func (h hostAdapter) RequestChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
+	return h.choice.RequestChoice(ctx, req)
 }
 
 func (h hostAdapter) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
