@@ -52,14 +52,23 @@ func (r *recordingRunner) Command(ctx context.Context, p sandbox.Policy, cmd str
 
 func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
-	got, ok := reg.Get("read")
+	got, ok := reg.Get("fs__read")
 	if !ok {
 		t.Fatal("read tool missing")
 	}
-	if pt, ok := got.(*bundledPluginTool); !ok {
-		t.Fatalf("read tool type = %T, want *bundledPluginTool", got)
-	} else if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
-		t.Fatalf("read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
+	// Step 7 of EP-no-internal-tools: fs__read is now a wasm tool
+	// registered via newBundledWasmTool, which wraps in renamedTool
+	// (not the legacy *bundledPluginTool that wrapped natives).
+	rt, ok := got.(*renamedTool)
+	if !ok {
+		t.Fatalf("fs__read type = %T, want *renamedTool", got)
+	}
+	pt, ok := rt.inner.(*bundledPluginTool)
+	if !ok {
+		t.Fatalf("renamedTool.inner = %T, want *bundledPluginTool", rt.inner)
+	}
+	if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
+		t.Fatalf("fs__read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
 	}
 	if got, ok := reg.Get("approval_demo"); !ok {
 		t.Fatal("approval_demo tool missing")
@@ -84,7 +93,7 @@ func TestBundledPluginTool_RunRead(t *testing.T) {
 	}
 
 	reg := BuildDefaultRegistry(nil)
-	got, ok := reg.Get("read")
+	got, ok := reg.Get("fs__read")
 	if !ok {
 		t.Fatal("read tool missing")
 	}
@@ -165,11 +174,11 @@ func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
 
 func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
-	if got := reg.ClassOf("read"); got != tool.ClassNonMutating {
-		t.Fatalf("ClassOf(read) = %v, want %v", got, tool.ClassNonMutating)
+	if got := reg.ClassOf("fs__read"); got != tool.ClassNonMutating {
+		t.Fatalf("ClassOf(fs__read) = %v, want %v", got, tool.ClassNonMutating)
 	}
-	if got := reg.ClassOf("bash"); got != tool.ClassExec {
-		t.Fatalf("ClassOf(bash) = %v, want %v", got, tool.ClassExec)
+	if got := reg.ClassOf("shell__bash"); got != tool.ClassExec {
+		t.Fatalf("ClassOf(shell__bash) = %v, want %v", got, tool.ClassExec)
 	}
 	if got := reg.ClassOf("approval_demo"); got != tool.ClassNonMutating {
 		t.Fatalf("ClassOf(approval_demo) = %v, want %v", got, tool.ClassNonMutating)

@@ -41,7 +41,7 @@ func forkPluginEnv(t *testing.T) (*config.Config, *stadogit.Session, *stadogit.S
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := sess.CommitToTree(tree, stadogit.CommitMeta{Tool: "write", Summary: id}); err != nil {
+		if _, err := sess.CommitToTree(tree, stadogit.CommitMeta{Tool: "fs__write", Summary: id}); err != nil {
 			t.Fatal(err)
 		}
 		if err := sess.NextTurn(); err != nil {

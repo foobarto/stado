@@ -53,9 +53,12 @@ func TestToolRun_ResolvesByCanonicalForm(t *testing.T) {
 	}
 }
 
-// TestToolRun_ResolvesByBareForm: bare native name "read" works too
-// (legacy fs native registers with bare name).
-func TestToolRun_ResolvesByBareForm(t *testing.T) {
+// TestToolRun_ResolvesByDisplayForm: display form `fs.read` resolves
+// the same registered tool as the wire form `fs__read`. Step 7 of
+// EP-no-internal-tools dropped the bare-name registrations (`read`),
+// so this test exercises the display↔wire alias rather than legacy
+// bare-form fallback.
+func TestToolRun_ResolvesByDisplayForm(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	cfg, err := config.Load()
@@ -70,7 +73,7 @@ func TestToolRun_ResolvesByBareForm(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	err = runToolByName(t.Context(),
-		"read",
+		"fs.read",
 		`{"path":"`+target+`"}`,
 		toolRunOptions{
 			Cfg:     cfg,
@@ -120,10 +123,10 @@ func TestToolRun_DisabledRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	cfg.Tools.Disabled = []string{"read"}
+	cfg.Tools.Disabled = []string{"fs.read"}
 
 	var stdout, stderr bytes.Buffer
-	err = runToolByName(t.Context(), "read", `{}`,
+	err = runToolByName(t.Context(), "fs.read", `{}`,
 		toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
 	if err == nil {
 		t.Fatal("expected error for disabled tool; got nil")
@@ -144,7 +147,7 @@ func TestToolRun_DisabledForceOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load: %v", err)
 	}
-	cfg.Tools.Disabled = []string{"read"}
+	cfg.Tools.Disabled = []string{"fs.read"}
 
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "x.txt")
@@ -153,7 +156,7 @@ func TestToolRun_DisabledForceOverrides(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	err = runToolByName(t.Context(), "read",
+	err = runToolByName(t.Context(), "fs.read",
 		`{"path":"`+target+`"}`,
 		toolRunOptions{Cfg: cfg, Workdir: tmp, Force: true, Stdout: &stdout, Stderr: &stderr})
 	if err != nil {

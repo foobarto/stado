@@ -204,6 +204,14 @@ type Host struct {
 	// LLMInvokeBudget. Updated atomically inside the stado_llm_invoke
 	// import so concurrent plugin calls don't race past the ceiling.
 	llmTokensUsed int64
+
+	// lastFSError carries the most recent stado_fs_* error message for
+	// retrieval by the wasm plugin via stado_fs_last_error. Populated
+	// when a host-side FS import returns -1 with a structured cause
+	// (scope guard, capability deny, IO failure). Cleared on the next
+	// successful FS import. Cheap workaround for the negative-return
+	// wire format: -1 alone can't carry a string.
+	lastFSError string
 }
 
 // SecretsAccess holds the capability gates and backing store for the

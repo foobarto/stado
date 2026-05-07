@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/fs"
 	"github.com/foobarto/stado/pkg/tool"
 )
 

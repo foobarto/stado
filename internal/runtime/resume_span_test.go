@@ -48,7 +48,7 @@ func TestResume_EmitsSpanLinkedToFork(t *testing.T) {
 	}
 	// Give it a tree ref so the resume path qualifies.
 	emptyTree, _ := sess.BuildTreeFromDir(sess.WorktreePath)
-	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
+	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "fs__write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestResume_NoSpan_WhenNoTraceparent(t *testing.T) {
 		t.Fatal(err)
 	}
 	emptyTree, _ := sess.BuildTreeFromDir(sess.WorktreePath)
-	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
+	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "fs__write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
 	// Ensure no traceparent file exists.

@@ -56,7 +56,7 @@ func TestSummariseSession_AttachedRichMetadata(t *testing.T) {
 
 	// Two turn tags + one tree commit + one compaction.
 	emptyTree, _ := sess.BuildTreeFromDir(sess.WorktreePath)
-	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
+	if _, err := sess.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "fs__write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sess.NextTurn(); err != nil {

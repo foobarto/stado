@@ -18,7 +18,8 @@ import (
 
 type ReadTool struct{}
 
-func (ReadTool) Name() string { return "read" }
+func (ReadTool) Class() tool.Class { return tool.ClassNonMutating }
+func (ReadTool) Name() string      { return "read" }
 func (ReadTool) Description() string {
 	return "Read the contents of a file. Optional start/end line numbers (1-indexed, inclusive; end=-1 means EOF)."
 }
@@ -177,7 +178,8 @@ func referenceResponse(prior tool.PriorReadInfo, rangeKey string) string {
 
 type WriteTool struct{}
 
-func (WriteTool) Name() string        { return "write" }
+func (WriteTool) Class() tool.Class    { return tool.ClassMutating }
+func (WriteTool) Name() string         { return "write" }
 func (WriteTool) Description() string { return "Write content to a file (creates or overwrites)" }
 func (WriteTool) Schema() map[string]any {
 	return map[string]any{
@@ -210,7 +212,8 @@ type EditTool struct{}
 
 const maxEditFileBytes int64 = 4 << 20
 
-func (EditTool) Name() string        { return "edit" }
+func (EditTool) Class() tool.Class    { return tool.ClassMutating }
+func (EditTool) Name() string         { return "edit" }
 func (EditTool) Description() string { return "Apply a search/replace edit to a file" }
 func (EditTool) Schema() map[string]any {
 	return map[string]any{

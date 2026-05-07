@@ -43,10 +43,10 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	if !strings.Contains(res.Text, "child findings") {
 		t.Fatalf("text = %q", res.Text)
 	}
-	if !containsString(prov.toolNames, "read") {
+	if !containsString(prov.toolNames, "fs__read") {
 		t.Fatalf("child tools missing read: %v", prov.toolNames)
 	}
-	for _, forbidden := range []string{"write", "edit", "bash", subagent.ToolName} {
+	for _, forbidden := range []string{"fs__write", "fs__edit", "bash", subagent.ToolName} {
 		if containsString(prov.toolNames, forbidden) {
 			t.Fatalf("child tools exposed %q in read-only mode: %v", forbidden, prov.toolNames)
 		}
@@ -100,7 +100,7 @@ func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	if res.Status != "completed" || res.Mode != subagent.WorkspaceWriteMode {
 		t.Fatalf("bad result: %+v", res)
 	}
-	for _, want := range []string{"read", "write", "edit"} {
+	for _, want := range []string{"fs__read", "fs__write", "fs__edit"} {
 		if !containsString(prov.toolNames, want) {
 			t.Fatalf("worker tools missing %q: %v", want, prov.toolNames)
 		}
@@ -286,12 +286,12 @@ func (p *workerSubagentProvider) StreamTurn(_ context.Context, req agent.TurnReq
 		ch := make(chan agent.Event, 3)
 		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
 			ID:    "allow",
-			Name:  "write",
+			Name:  "fs__write",
 			Input: json.RawMessage(`{"path":"allowed/new.txt","content":"child write"}`),
 		}}
 		ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
 			ID:    "block",
-			Name:  "write",
+			Name:  "fs__write",
 			Input: json.RawMessage(`{"path":"blocked/new.txt","content":"should not land"}`),
 		}}
 		ch <- agent.Event{Kind: agent.EvDone}

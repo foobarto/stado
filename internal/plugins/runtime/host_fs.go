@@ -14,6 +14,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/workdirpath"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 const (
@@ -27,6 +28,38 @@ func registerFSImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerFSReadPartialImport(builder, host)
 	registerFSReaddirImport(builder, host)
 	registerFSStatImport(builder, host)
+	registerFSLastErrorImport(builder, host)
+}
+
+// registerFSLastErrorImport — stado_fs_last_error primitive.
+//
+// Wire format: stado_fs_last_error(buf_ptr, buf_cap) → int32.
+// Returns the byte length of the message written into buf_ptr,
+// or 0 if no error is stashed. The host's FS imports populate
+// host.lastFSError when they return -1 due to a structured cause
+// (scope guard, capability deny, IO failure); the wasm caller
+// reads the message after observing -1 to surface the specific
+// cause via the negative-return tool error envelope. Ungated —
+// no capability is needed since the message is the host's view
+// of an operation the plugin itself just attempted.
+func registerFSLastErrorImport(builder wazero.HostModuleBuilder, host *Host) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			bufPtr := api.DecodeU32(stack[0])
+			bufCap := api.DecodeU32(stack[1])
+			msg := host.lastFSError
+			if msg == "" {
+				stack[0] = api.EncodeI32(0)
+				return
+			}
+			data := []byte(msg)
+			if uint32(len(data)) > bufCap {
+				data = data[:bufCap]
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export("stado_fs_last_error")
 }
 
 // maxFSReaddirEntries caps a single stado_fs_readdir call. The wasm
@@ -222,45 +255,63 @@ func registerFSWriteImport(builder wazero.HostModuleBuilder, host *Host) {
 			pathLen := api.DecodeU32(stack[1])
 			bufPtr := api.DecodeU32(stack[2])
 			bufLen := api.DecodeU32(stack[3])
+			host.lastFSError = ""
+			fail := func(msg string) {
+				host.lastFSError = msg
+				stack[0] = api.EncodeI32(-1)
+			}
 			if pathLen > maxPluginRuntimeFSPathBytes {
 				host.Logger.Warn("stado_fs_write denied — path too large", slog.Uint64("path_len", uint64(pathLen)))
-				stack[0] = api.EncodeI32(-1)
+				fail("path too large")
 				return
 			}
 			if int64(bufLen) > maxPluginRuntimeFSFileBytes {
 				host.Logger.Warn("stado_fs_write denied — payload too large", slog.Uint64("buf_len", uint64(bufLen)))
-				stack[0] = api.EncodeI32(-1)
+				fail("payload too large")
 				return
 			}
 			path, err := readStringLimited(mod, pathPtr, pathLen, maxPluginRuntimeFSPathBytes)
 			if err != nil {
-				stack[0] = api.EncodeI32(-1)
+				fail("invalid path")
 				return
 			}
 			abs, err := realPathForWrite(host.Workdir, path)
 			if err != nil {
 				host.Logger.Warn("stado_fs_write denied — symlink resolution failed", slog.String("path", path), slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			if !host.allowWrite(abs) {
 				host.Logger.Warn("stado_fs_write denied", slog.String("path", abs))
-				stack[0] = api.EncodeI32(-1)
+				fail("path " + abs + " is not in fs:write capability")
 				return
+			}
+			// Subagent write-scope guard. The agent loop's tool.Host
+			// may implement tool.WritePathGuard to enforce a narrower
+			// per-spawn write scope (e.g. worker subagents restricted
+			// to "allowed/**"). Pre-Step-7 this guard ran inside the
+			// native fs.WriteTool.Run; the wasm rewrite has to consult
+			// it explicitly.
+			if guard, ok := host.ToolHost.(tool.WritePathGuard); ok {
+				if err := guard.CheckWritePath(abs); err != nil {
+					host.Logger.Warn("stado_fs_write denied by scope guard", slog.String("path", abs), slog.String("err", err.Error()))
+					fail(err.Error())
+					return
+				}
 			}
 			data, err := readBytesLimited(mod, bufPtr, bufLen, uint32(maxPluginRuntimeFSFileBytes))
 			if err != nil {
-				stack[0] = api.EncodeI32(-1)
+				fail("read buffer failed")
 				return
 			}
 			if err := writeAllowedFile(abs, host.FSWrite, data, 0o644); err != nil {
 				host.Logger.Warn("stado_fs_write failed", slog.String("path", abs), slog.String("err", err.Error()))
-				stack[0] = api.EncodeI32(-1)
+				fail(err.Error())
 				return
 			}
 			encoded, ok := encodeI32Length(len(data))
 			if !ok {
-				stack[0] = api.EncodeI32(-1)
+				fail("write succeeded but length encoding failed")
 				return
 			}
 			stack[0] = encoded

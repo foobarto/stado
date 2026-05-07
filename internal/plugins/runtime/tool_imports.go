@@ -1,190 +1,22 @@
 package runtime
 
+// EP-no-internal-tools — installNativeToolImports is now a no-op.
+//
+// This file used to register the stado_fs_tool_* / stado_exec_bash /
+// stado_http_get / stado_search_* / stado_lsp_* host imports as
+// delegates to native tool.Tool structs (fs.ReadTool, bash.BashTool,
+// etc.). Steps 1–7 of EP-no-internal-tools migrated those to true
+// primitives or wasm-side rewrites. The native packages went away
+// with them.
+//
+// The function is kept for now as a no-op so host_imports.go's
+// InstallHostImports keeps a stable shape; callers don't need to
+// know whether the runtime ships any native delegates.
+
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"log/slog"
-
 	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-
-	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/readctx"
-	"github.com/foobarto/stado/pkg/tool"
 )
 
-type toolImportSpec struct {
-	exportName string
-	tool       tool.Tool
-	allowed    func(*Host) bool
-	preflight  func(*Host, json.RawMessage) error
+func installNativeToolImports(_ wazero.HostModuleBuilder, _ *Host) {
+	// no delegates remain; intentional no-op
 }
-
-func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
-	specs := []toolImportSpec{
-		{exportName: "stado_fs_tool_read", tool: fs.ReadTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: preflightReadPath},
-		{exportName: "stado_fs_tool_write", tool: fs.WriteTool{}, allowed: func(h *Host) bool { return len(h.FSWrite) > 0 }, preflight: preflightWritePath},
-		{exportName: "stado_fs_tool_edit", tool: fs.EditTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && len(h.FSWrite) > 0 }, preflight: preflightEditPath},
-		{exportName: "stado_fs_tool_glob", tool: fs.GlobTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
-		{exportName: "stado_fs_tool_grep", tool: fs.GrepTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
-		{exportName: "stado_fs_tool_read_context", tool: readctx.Tool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: requireFullReadScope},
-		// stado_exec_bash removed Step 4 of EP-no-internal-tools — the
-		// shell wasm plugin now uses stado_exec with cap exec:proc:bash.
-		// exec:bash and exec:shallow_bash caps are dead with it.
-		// stado_http_get was here as a delegate to webfetch.WebFetchTool;
-		// EP-no-internal-tools Step 2 dropped it. The web/webfetch wasm
-		// plugins use stado_http_request now.
-		// stado_http_request was here as a delegate to httpreq.RequestTool;
-		// EP-no-internal-tools Step 1 promoted it to a true primitive
-		// registered by registerHTTPRequestImport (host_http_request.go).
-		// stado_search_ripgrep + stado_search_ast_grep were delegates to
-		// rg.Tool / astgrep.Tool; EP-no-internal-tools Step 5 dropped
-		// them. The rg + astgrep wasm plugins use stado_exec primitives.
-		// stado_lsp_* delegates dropped Step 6 of EP-no-internal-tools.
-		// The four lsp imports are now true primitives registered by
-		// registerLSPImports (host_lsp.go).
-	}
-	for _, spec := range specs {
-		spec := spec
-		// Always register the import so wasm modules that import all tool
-		// functions (e.g. the bundled fs plugin) link successfully.
-		// The allowed check runs at call time — unauthorised calls get a
-		// deny error payload instead of a hard link failure. EP-0038b.
-		builder.NewFunctionBuilder().
-			WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-				argsPtr := api.DecodeU32(stack[0])
-				argsLen := api.DecodeU32(stack[1])
-				resultPtr := api.DecodeU32(stack[2])
-				resultCap := api.DecodeU32(stack[3])
-				if !spec.allowed(host) {
-					msg := []byte("tool import " + spec.exportName + " denied: insufficient capabilities")
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
-					return
-				}
-				if host.ToolHost == nil {
-					msg := []byte("plugin host has no tool runtime context")
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
-					return
-				}
-				argsBytes, err := readBytesLimited(mod, argsPtr, argsLen, maxPluginRuntimeToolArgsBytes)
-				if err != nil {
-					host.Logger.Warn(spec.exportName+" args read failed", slog.String("err", err.Error()))
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, []byte(err.Error())))
-					return
-				}
-				if spec.preflight != nil {
-					if err := spec.preflight(host, json.RawMessage(argsBytes)); err != nil {
-						host.Logger.Warn(spec.exportName+" preflight denied", slog.String("err", err.Error()))
-						stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, []byte(err.Error())))
-						return
-					}
-				}
-				res, err := spec.tool.Run(ctx, json.RawMessage(argsBytes), host.ToolHost)
-				if err != nil {
-					host.Logger.Warn(spec.exportName+" failed", slog.String("err", err.Error()))
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, []byte(err.Error())))
-					return
-				}
-				if res.Error != "" {
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, []byte(res.Error)))
-					return
-				}
-				content := []byte(res.Content)
-				if byteLenExceedsCap(content, resultCap) {
-					msg := []byte(fmt.Sprintf("%s: result %d exceeds %d-byte cap", spec.exportName, len(content), resultCap))
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resultPtr, resultCap, msg))
-					return
-				}
-				stack[0] = api.EncodeI32(writeBytes(mod, resultPtr, resultCap, content))
-			}), []api.ValueType{
-				api.ValueTypeI32, api.ValueTypeI32,
-				api.ValueTypeI32, api.ValueTypeI32,
-			}, []api.ValueType{api.ValueTypeI32}).
-			Export(spec.exportName)
-	}
-
-}
-
-func preflightReadPath(h *Host, raw json.RawMessage) error {
-	var args fs.ReadArgs
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return err
-		}
-	}
-	full, err := realPath(h.Workdir, args.Path)
-	if err != nil {
-		return err
-	}
-	if !h.allowRead(full) {
-		return fmt.Errorf("read path %q denied by manifest", args.Path)
-	}
-	return nil
-}
-
-func preflightEditPath(h *Host, raw json.RawMessage) error {
-	var args fs.EditArgs
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return err
-		}
-	}
-	readFull, err := realPath(h.Workdir, args.Path)
-	if err != nil {
-		return err
-	}
-	writeFull, err := realPathForWrite(h.Workdir, args.Path)
-	if err != nil {
-		return err
-	}
-	if !h.allowRead(readFull) || !h.allowWrite(writeFull) {
-		return fmt.Errorf("edit path %q denied by manifest", args.Path)
-	}
-	return nil
-}
-
-func preflightWritePath(h *Host, raw json.RawMessage) error {
-	var args fs.WriteArgs
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return err
-		}
-	}
-	full, err := realPathForWrite(h.Workdir, args.Path)
-	if err != nil {
-		return err
-	}
-	if !h.allowWrite(full) {
-		return fmt.Errorf("write path %q denied by manifest", args.Path)
-	}
-	return nil
-}
-
-func requireFullReadScope(h *Host, _ json.RawMessage) error {
-	root, err := realPath(h.Workdir, ".")
-	if err != nil {
-		return err
-	}
-	if !h.allowRead(root) {
-		return fmt.Errorf("manifest must grant fs:read to the full workdir for this wrapper")
-	}
-	return nil
-}
-
-func requireFullReadWriteScope(h *Host, _ json.RawMessage) error {
-	root, err := realPath(h.Workdir, ".")
-	if err != nil {
-		return err
-	}
-	if !h.allowRead(root) || !h.allowWrite(root) {
-		return fmt.Errorf("manifest must grant fs:read and fs:write to the full workdir for this wrapper")
-	}
-	return nil
-}
-
-// preflightHTTPGet was removed Step 2 of EP-no-internal-tools — the
-// stado_http_get delegate it gated is gone.
-//
-// preflightHTTPRequest moved to host_http_request.go where the
-// stado_http_request primitive applies its host-allowlist gate inline.

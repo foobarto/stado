@@ -153,14 +153,14 @@ func forkTestServer(t *testing.T) (*Server, *hSession) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parent.CommitToTrace(stadogit.CommitMeta{Tool: "grep", Summary: "t1"}); err != nil {
+	if _, err := parent.CommitToTrace(stadogit.CommitMeta{Tool: "fs__grep", Summary: "t1"}); err != nil {
 		t.Fatal(err)
 	}
 	emptyTree, err := parent.BuildTreeFromDir(parent.WorktreePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parent.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "write", Summary: "seed"}); err != nil {
+	if _, err := parent.CommitToTree(emptyTree, stadogit.CommitMeta{Tool: "fs__write", Summary: "seed"}); err != nil {
 		t.Fatal(err)
 	}
 

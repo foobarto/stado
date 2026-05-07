@@ -31,7 +31,7 @@ import (
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/telemetry"
-	"github.com/foobarto/stado/internal/tools/fs"
+	"github.com/foobarto/stado/internal/fs"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"

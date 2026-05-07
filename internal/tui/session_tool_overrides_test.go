@@ -154,7 +154,7 @@ func TestEffectiveConfig_FlowsToAutoloadedTools(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Tools.Autoload = nil // disk: nothing autoloaded
 	m := &Model{cfg: cfg}
-	m.sessionToolOverrides.autoloadAdd = []string{"read"} // bare native name
+	m.sessionToolOverrides.autoloadAdd = []string{"fs__read"}
 
 	reg := rt.BuildDefaultRegistry(nil)
 	eff := m.effectiveConfig()
@@ -163,13 +163,13 @@ func TestEffectiveConfig_FlowsToAutoloadedTools(t *testing.T) {
 
 	found := false
 	for _, tt := range got {
-		if tt.Name() == "read" {
+		if tt.Name() == "fs__read" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("override should make 'read' autoloaded; got %d autoloaded tools", len(got))
+		t.Errorf("override should make 'fs__read' autoloaded; got %d autoloaded tools", len(got))
 	}
 }
 
