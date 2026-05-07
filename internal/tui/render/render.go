@@ -160,11 +160,12 @@ func readFSTemplateDirEntries(fsys fs.FS, dirPath string, state *templateWalkSta
 }
 
 func walkOverlayTemplates(root *template.Template, overlayDir string) error {
-	overlayRoot, err := workdirpath.OpenRootUnderUserConfig(overlayDir)
+	overlayRoot, err := workdirpath.NewUserConfigResolver().OpenRoot(overlayDir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = overlayRoot.Close() }()
+	rr := workdirpath.NewRootResolver(overlayRoot)
 	entries, err := readRootTemplateDirEntries(overlayRoot, maxTemplateEntries)
 	if err != nil {
 		return err
@@ -186,7 +187,7 @@ func walkOverlayTemplates(root *template.Template, overlayDir string) error {
 		if !info.Mode().IsRegular() {
 			continue
 		}
-		data, err := workdirpath.ReadRootRegularFileLimited(overlayRoot, name, maxTemplateFileBytes)
+		data, err := rr.ReadFileLimited(name, maxTemplateFileBytes)
 		if err != nil {
 			return err
 		}

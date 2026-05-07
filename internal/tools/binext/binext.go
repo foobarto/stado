@@ -47,10 +47,11 @@ func Extract(cacheDir, name string, bundled []byte, expectedSHA string) (string,
 	if err := validateToolName(name); err != nil {
 		return "", err
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(cacheDir, 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(cacheDir, 0o700); err != nil {
 		return "", fmt.Errorf("binext: cache dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(cacheDir)
+	root, err := uc.OpenRoot(cacheDir)
 	if err != nil {
 		return "", fmt.Errorf("binext: open cache dir: %w", err)
 	}

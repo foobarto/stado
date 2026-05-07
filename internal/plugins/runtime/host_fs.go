@@ -379,13 +379,13 @@ func registerFSReadPartialImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, data))
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32, // path ptr/len
-			api.ValueTypeI32, api.ValueTypeI32, // offset hi/lo
-			api.ValueTypeI32, api.ValueTypeI32, // length hi/lo
-			api.ValueTypeI32, api.ValueTypeI32, // buf ptr/cap
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32, // path ptr/len
+				api.ValueTypeI32, api.ValueTypeI32, // offset hi/lo
+				api.ValueTypeI32, api.ValueTypeI32, // length hi/lo
+				api.ValueTypeI32, api.ValueTypeI32, // buf ptr/cap
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_fs_read_partial")
 }
 
@@ -543,12 +543,13 @@ func writeAllowedFile(abs string, allow []string, data []byte, perm os.FileMode)
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
+		if err := rr.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	return workdirpath.WriteRootFileAtomic(root, rel, data, perm)
+	return rr.WriteFileAtomic(rel, data, perm)
 }
 
 func pluginFSReadLimit(bufCap uint32) int64 {
@@ -574,7 +575,7 @@ func openAllowedRoot(abs string, allow []string, allowMissing bool) (*os.Root, s
 		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		root, err := workdirpath.OpenRootUnderUserConfig(rootPath)
+		root, err := workdirpath.NewUserConfigResolver().OpenRoot(rootPath)
 		if err != nil {
 			return nil, "", err
 		}

@@ -372,21 +372,26 @@ func isWindows() bool { return runtime.GOOS == "windows" }
 // --- misc ---
 
 func writeRepoFileAtomic(path string, data []byte, perm os.FileMode) error {
-	rootPath, rel, err := workdirpath.RootRelForWrite(".", path)
+	r, err := workdirpath.New(".")
 	if err != nil {
 		return err
 	}
-	root, err := workdirpath.OpenRootNoSymlink(rootPath)
+	rootPath, rel, err := r.RootRelForWrite(path)
+	if err != nil {
+		return err
+	}
+	root, err := workdirpath.NewStrictResolver().OpenRoot(rootPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
+		if err := rr.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
-	return workdirpath.WriteRootFileAtomicExactMode(root, rel, data, perm)
+	return rr.WriteFileAtomicExactMode(rel, data, perm)
 }
 
 func writeManifest(path string, m manifest) error {
