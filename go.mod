@@ -19,7 +19,8 @@ require (
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/v2 v2.3.4
 	github.com/mark3labs/mcp-go v0.48.0
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.22
+	github.com/miekg/dns v1.1.72
 	github.com/openai/openai-go v1.12.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pkoukk/tiktoken-go v0.1.8
@@ -42,6 +43,7 @@ require (
 	golang.org/x/net v0.53.0
 	golang.org/x/sys v0.43.0
 	google.golang.org/api v0.189.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -96,7 +98,6 @@ require (
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
@@ -134,5 +135,4 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
