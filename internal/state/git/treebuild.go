@@ -49,7 +49,7 @@ func (s *Session) buildTreeDir(dir string, state *buildTreeState, depth int) (pl
 	// worktree (e.g. `/home → /var/home` on Atomic Fedora / Bazzite) are
 	// accepted. Symlinks UNDER the anchor are still rejected by the
 	// strict-walk segment.
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(dir)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("build tree: read %s: %w", dir, err)
 	}
@@ -128,7 +128,7 @@ func (s *Session) writeBlob(path string, isSymlink bool) (plumbing.Hash, error) 
 		return s.writeBlobReader(path, strings.NewReader(target), int64(len(target)))
 	}
 
-	f, err := workdirpath.OpenRegularFileUnderUserConfig(path)
+	f, err := workdirpath.NewUserConfigResolver().OpenRegularFile(path)
 	if err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("open %s: %w", path, err)
 	}

@@ -71,7 +71,7 @@ func OpenOrInitSidecar(sidecarPath, userRepoRoot string) (*Sidecar, error) {
 	case err == nil:
 		// already exists
 	case errors.Is(err, git.ErrRepositoryNotExists):
-		if err := workdirpath.MkdirAllUnderUserConfig(absSidecar, 0o700); err != nil {
+		if err := workdirpath.NewUserConfigResolver().MkdirAll(absSidecar, 0o700); err != nil {
 			return nil, fmt.Errorf("sidecar: mkdir: %w", err)
 		}
 		repo, err = git.PlainInit(absSidecar, true) // bare
@@ -104,19 +104,21 @@ func (s *Sidecar) ensureAlternates() error {
 	}
 
 	altDir := filepath.Join(s.Path, "objects", "info")
-	if err := workdirpath.MkdirAllUnderUserConfig(altDir, 0o700); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(altDir, 0o700); err != nil {
 		return fmt.Errorf("sidecar: mkdir alternates dir: %w", err)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(altDir)
+	root, err := uc.OpenRoot(altDir)
 	if err != nil {
 		return fmt.Errorf("sidecar: open alternates dir: %w", err)
 	}
 	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
 
 	const altName = "alternates"
 	if info, err := root.Lstat(altName); err == nil {
 		if info.Mode().IsRegular() {
-			existing, err := workdirpath.ReadRootRegularFileLimited(root, altName, maxAlternatesFileBytes)
+			existing, err := rr.ReadFileLimited(altName, maxAlternatesFileBytes)
 			if err != nil {
 				return fmt.Errorf("sidecar: read alternates: %w", err)
 			}

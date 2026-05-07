@@ -50,10 +50,11 @@ func (s *Session) materialize(treeHash plumbing.Hash, dir string, replacing bool
 	if err != nil {
 		return fmt.Errorf("materialize: read tree %s: %w", treeHash, err)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(dir, 0o750); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("materialize: mkdir %s: %w", dir, err)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := uc.OpenRoot(dir)
 	if err != nil {
 		return fmt.Errorf("materialize: root %s: %w", dir, err)
 	}
@@ -169,7 +170,7 @@ func prepareMaterializeDir(root *os.Root, rel string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	return workdirpath.MkdirAllRootNoSymlink(root, rel, 0o750)
+	return workdirpath.NewRootResolver(root).MkdirAll(rel, 0o750)
 }
 
 func writeMaterializedFile(root *os.Root, rel string, r io.Reader, perm os.FileMode, maxBytes int64) error {
@@ -342,7 +343,7 @@ func collectPruneExtras(root *os.Root, rel, rootDir string, kept map[string]bool
 }
 
 func wipeDir(dir string) error {
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(dir)
 	if err != nil {
 		return err
 	}
