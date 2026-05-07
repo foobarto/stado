@@ -12,8 +12,17 @@ Phase 1.1: **complete.** Bridge contract tests in
 Approval/Choice/Fleet) covering all 4 contracts. 47 tests total.
 Stable under `-count=10 -race`.
 
-Up next: Phase 1.2 (sandbox runner contract test, Tier 1 + Tier 2)
-or Phase 1.3 (fleet_bridge.go lifecycle). Both are similarly small.
+Phase 1.2: **complete.** Runner contract test in
+`internal/sandbox/runner_contract_test.go`. Tier 1 (every
+available runner): command shape, exec allow-list deny/pass.
+Tier 2 (BwrapRunner only on this Linux host; sandbox-exec
+analogous on macOS): negative control, FS-write denied, FS-write
+allowed. 13 sub-test executions. Stable under `-count=10 -race`.
+Multi-layer composition parked as
+`.agent/specs/open/sandbox-multilayer-composition.md`.
+
+Up next: Phase 1.3 (`internal/runtime/fleet_bridge.go` lifecycle
+tests). Closes Phase 1, then merge checkpoint #1.
 
 ## Queued (in order, per plan)
 

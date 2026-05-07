@@ -51,6 +51,29 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — Phase 1.2 complete
+
+Runner contract test in
+`internal/sandbox/runner_contract_test.go` follows the round-3
+plan revision: Tier 1 covers command-construction + exec
+allow-list semantics (every available runner); Tier 2 covers
+runtime FS enforcement (only BwrapRunner here on Linux, would
+extend to SbxRunner on macOS).
+
+Tier 2 design choice: subprocess result inspected via
+`cmd.Run()` returning `*exec.ExitError` for denied writes and
+checking the host-visible filesystem for the un-created file.
+This matches the round-3 reframe ("subprocess exit code, not
+return value from `Command`") because `Runner.Command` returns
+only `*exec.Cmd`, never a denial — denial happens inside the
+spawned bwrap/sandbox-exec process.
+
+Composition parked as
+`.agent/specs/open/sandbox-multilayer-composition.md`. Verified
+against source: `runner_linux.go::detectList` returns only
+`BwrapRunner` and `NoneRunner`; landlock/seccomp exist as modules
+but aren't wired.
+
 ## 2026-05-07 — Phase 1.1 complete
 
 All 5 bridges have contract tests for all 4 contracts. Pattern:
