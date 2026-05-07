@@ -51,6 +51,29 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — Phase 1.1 complete
+
+All 5 bridges have contract tests for all 4 contracts. Pattern:
+recordingFooBridge with mu+atomic counters, ctx capture, blocking
+flags. cap-gate / nil-bridge tests run with allBridgeImports
+thunk shape; forwarding tests stage payloads in thunk memory and
+assert recorder + return buffer. Cancel tests use context.WithTimeout
+and assert on the recorder's captured ctx.Err() (the closure return
+races with wazero's CloseOnContextDone).
+
+Test counts: SessionBridge 11, MemoryBridge 9, ApprovalBridge 6,
+ChoiceBridge 6, FleetBridge 13. Total 47 (the harness probe is
+counted in the SessionBridge file).
+
+Plan-vs-reality findings logged here for B3:
+- SessionBridge ops in plan ("Append-block, get-block-by-id,
+  list-blocks, set-metadata") don't match reality. Actual:
+  NextEvent / ReadField / Fork / InvokeLLM. Tests adapted.
+- ChoiceBridge return convention is bytes-encoded (positive ok,
+  negative error msg via encodeToolSidePayload). Tests assert
+  the sign + the error message text on cap-deny / nil-bridge
+  paths. Other bridges use plain -1 sentinel.
+
 ## 2026-05-07 — probe failed, need wasm encoder
 
 Wazero panics with "calling ExportedFunction is forbidden on host

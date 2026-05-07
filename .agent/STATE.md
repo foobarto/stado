@@ -7,10 +7,13 @@
 
 ## In flight
 
-Phase 1.1: writing per-bridge contract test suites in
-`internal/plugins/runtime/`. Four contracts every bridge satisfies
-(capability gate, nil-bridge, exact forwarding, cancel propagation)
-plus per-bridge specifics. Build harness first, then per-bridge.
+Phase 1.1: **complete.** Bridge contract tests in
+`internal/plugins/runtime/` for all 5 bridges (Session/Memory/
+Approval/Choice/Fleet) covering all 4 contracts. 47 tests total.
+Stable under `-count=10 -race`.
+
+Up next: Phase 1.2 (sandbox runner contract test, Tier 1 + Tier 2)
+or Phase 1.3 (fleet_bridge.go lifecycle). Both are similarly small.
 
 ## Queued (in order, per plan)
 
