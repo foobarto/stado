@@ -11,7 +11,6 @@ import (
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/internal/version"
 	"github.com/foobarto/stado/pkg/tool"
@@ -38,11 +37,11 @@ func buildNativeRegistry() *tools.Registry {
 	// tools — replaced by wasm rg__search / astgrep__search registered
 	// below (which use stado_exec to spawn the binaries).
 	r.Register(readctx.Tool{})
-	def := &lspfind.FindDefinition{}
-	r.Register(def)
-	r.Register(&lspfind.FindReferences{Definition: def})
-	r.Register(&lspfind.DocumentSymbols{Definition: def})
-	r.Register(&lspfind.Hover{Definition: def})
+	// lspfind native registrations removed Step 6 of EP-no-internal-tools —
+	// the four lsp wasm shims (find_definition / find_references /
+	// document_symbols / hover) call the now-primitive stado_lsp_*
+	// host imports directly. Native code stays in internal/lspfind/
+	// as the host-side LSP client cache + protocol wrapping.
 	return r
 }
 
@@ -232,6 +231,49 @@ func buildBundledPluginRegistry() *tools.Registry {
 		"Structural code search and rewrite via ast-grep (tree-sitter patterns).",
 		tool.ClassMutating, astgrepSchema,
 		[]string{"fs:read:.", "fs:write:.", "exec:proc:ast-grep", "bundled-bin:astgrep"}))
+
+	// EP-no-internal-tools Step 6: lsp.* tools — wasm shims forwarding to
+	// stado_lsp_* (now true primitives, no longer delegates to native
+	// lspfind.Tool structs). Each is its own wasm module (find_definition.wasm,
+	// etc.).
+	lspPositionalSchema := map[string]any{
+		"type": "object", "required": []string{"path", "line", "column"},
+		"properties": map[string]any{
+			"path":   map[string]any{"type": "string"},
+			"line":   map[string]any{"type": "integer", "description": "1-indexed line"},
+			"column": map[string]any{"type": "integer", "description": "1-indexed column"},
+		},
+	}
+	lspCaps := []string{"fs:read:.", "lsp:query"}
+	r.Register(newBundledWasmTool("find_definition", "stado_tool_definition", "lsp__definition",
+		"LSP textDocument/definition — jump to the declaration of a symbol at path:line:column.",
+		tool.ClassNonMutating, lspPositionalSchema, lspCaps))
+	r.Register(newBundledWasmTool("hover", "stado_tool_hover", "lsp__hover",
+		"LSP textDocument/hover — docs/type for a symbol at path:line:column.",
+		tool.ClassNonMutating, lspPositionalSchema, lspCaps))
+
+	lspRefsSchema := map[string]any{
+		"type": "object", "required": []string{"path", "line", "column"},
+		"properties": map[string]any{
+			"path":                map[string]any{"type": "string"},
+			"line":                map[string]any{"type": "integer", "description": "1-indexed line"},
+			"column":              map[string]any{"type": "integer", "description": "1-indexed column"},
+			"include_declaration": map[string]any{"type": "boolean", "description": "default true"},
+		},
+	}
+	r.Register(newBundledWasmTool("find_references", "stado_tool_references", "lsp__references",
+		"LSP textDocument/references — every usage of a symbol.",
+		tool.ClassNonMutating, lspRefsSchema, lspCaps))
+
+	lspSymbolsSchema := map[string]any{
+		"type": "object", "required": []string{"path"},
+		"properties": map[string]any{
+			"path": map[string]any{"type": "string"},
+		},
+	}
+	r.Register(newBundledWasmTool("document_symbols", "stado_tool_symbols", "lsp__symbols",
+		"LSP textDocument/documentSymbol — file outline (functions, types, methods).",
+		tool.ClassNonMutating, lspSymbolsSchema, lspCaps))
 
 	// EP-0038c: agent.* tools — wasm-backed via agent.wasm + FleetBridge.
 	agentCaps := []string{"agent:fleet"}

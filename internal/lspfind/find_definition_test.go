@@ -2,82 +2,61 @@ package lspfind
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/lsp"
-	"github.com/foobarto/stado/pkg/tool"
 )
 
-type stubHost struct{ wd string }
-
-func (s stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
-	return tool.DecisionAllow, nil
-}
-func (s stubHost) Workdir() string { return s.wd }
-func (s stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
-	return tool.PriorReadInfo{}, false
-}
-func (s stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
-
-func TestSchema_RequiresAllCoordinates(t *testing.T) {
-	s := (&FindDefinition{}).Schema()
-	req := s["required"].([]string)
-	if len(req) != 3 {
-		t.Fatalf("required fields = %v", req)
-	}
-}
-
-func TestRun_RejectsMissingArgs(t *testing.T) {
-	cases := []map[string]any{
+func TestFindDefinition_RejectsMissingArgs(t *testing.T) {
+	cases := []Args{
 		{},
-		{"path": "foo.go"},
-		{"path": "foo.go", "line": 1},
-		{"path": "foo.go", "line": 0, "column": 1},
+		{Path: "foo.go"},
+		{Path: "foo.go", Line: 1},
+		{Path: "foo.go", Line: 0, Column: 1},
 	}
 	for i, c := range cases {
-		args, _ := json.Marshal(c)
-		res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: "/tmp"})
+		_, err := FindDefinition(context.Background(), c, "/tmp")
 		if err == nil {
 			t.Errorf("case %d: expected error, got none", i)
+			continue
 		}
-		if !strings.Contains(res.Error, "required") {
-			t.Errorf("case %d: error wrong: %q", i, res.Error)
+		if !strings.Contains(err.Error(), "required") {
+			t.Errorf("case %d: error wrong: %q", i, err)
 		}
 	}
 }
 
-func TestRun_UnknownExtension(t *testing.T) {
+func TestFindDefinition_UnknownExtension(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "foo.md"), []byte("# hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args, _ := json.Marshal(map[string]any{"path": "foo.md", "line": 1, "column": 1})
-	res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: root})
+	_, err := FindDefinition(context.Background(),
+		Args{Path: "foo.md", Line: 1, Column: 1}, root)
 	if err == nil {
-		t.Error("expected error for unmapped extension")
+		t.Fatal("expected error for unmapped extension")
 	}
-	if !strings.Contains(res.Error, "no LSP server") {
-		t.Errorf("error = %q", res.Error)
+	if !strings.Contains(err.Error(), "no LSP server") {
+		t.Errorf("error = %q", err)
 	}
 }
 
-func TestRun_RejectsEscapingPath(t *testing.T) {
+func TestFindDefinition_RejectsEscapingPath(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "foo.go")
 	if err := os.WriteFile(outside, []byte("package main"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args, _ := json.Marshal(map[string]any{"path": outside, "line": 1, "column": 1})
-	res, err := (&FindDefinition{}).Run(context.Background(), args, stubHost{wd: root})
+	_, err := FindDefinition(context.Background(),
+		Args{Path: outside, Line: 1, Column: 1}, root)
 	if err == nil {
 		t.Fatal("expected workdir escape to fail")
 	}
-	if !strings.Contains(res.Error, "escapes workdir") {
-		t.Fatalf("unexpected error: %q", res.Error)
+	if !strings.Contains(err.Error(), "escapes workdir") {
+		t.Fatalf("unexpected error: %q", err)
 	}
 }
 
@@ -165,11 +144,5 @@ func TestLanguageIDFor(t *testing.T) {
 		if got := languageIDFor(ext); got != want {
 			t.Errorf("languageIDFor(%q) = %q", ext, got)
 		}
-	}
-}
-
-func TestClass(t *testing.T) {
-	if (&FindDefinition{}).Class() != tool.ClassNonMutating {
-		t.Error("find_definition should be non-mutating")
 	}
 }

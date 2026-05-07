@@ -59,6 +59,8 @@ func InstallHostImports(ctx context.Context, r *Runtime, host *Host) error {
 	// EP-no-internal-tools Step 1: stado_http_request as a true
 	// primitive (no longer delegating to a tool.Tool).
 	registerHTTPRequestImport(builder, host)
+	// EP-no-internal-tools Step 6: stado_lsp_* as true primitives.
+	registerLSPImports(builder, host)
 	// EP-0038h: stado_http_request_stream + chunked body reads.
 	// Reuses net:http_request[:<host>] cap; per-Runtime stream cap.
 	registerHTTPStreamImports(builder, host, r)

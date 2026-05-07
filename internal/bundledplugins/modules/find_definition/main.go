@@ -15,7 +15,9 @@ func stadoAlloc(size int32) int32 { return sdk.Alloc(size) }
 //go:wasmexport stado_free
 func stadoFree(ptr int32, size int32) { sdk.Free(ptr, size) }
 
-//go:wasmexport stado_tool_find_definition
-func stadoToolFindDefinition(argsPtr, argsLen, resultPtr, resultCap int32) int32 {
+// Wire-form lsp__definition → exported as stado_tool_definition.
+//
+//go:wasmexport stado_tool_definition
+func stadoToolDefinition(argsPtr, argsLen, resultPtr, resultCap int32) int32 {
 	return stadoLSPFindDefinition(uint32(argsPtr), uint32(argsLen), uint32(resultPtr), uint32(resultCap))
 }
