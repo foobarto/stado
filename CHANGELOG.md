@@ -84,6 +84,15 @@ Plugins / Infra / Fixes.
   thread coherent. Removes the multi-dispatch context loss where
   long-running engagements re-discover the same workspace state at
   the start of every new ACP session.
+- **Tool-only-turn empty-text behaviour documented** in
+  `stado acp --help`. Some models chain tool calls without producing
+  any text deltas, so the `session/prompt` success response carries
+  `text=""` even though work happened. The tool calls are visible
+  through `kind=tool_call` `session/update` notifications and
+  committed to the trace ref; clients should either prompt the model
+  to summarise or treat empty `text` as "see tool_call updates."
+  Documented to keep integrators from assembling 0-byte assistant
+  replies when the model worked entirely through tools.
 - **Persona on headless + ACP envelopes** (closes the personas-design
   Done-def gap). `stado acp --persona <name>` and
   `stado headless --persona <name>` set an operator default that

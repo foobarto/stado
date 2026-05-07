@@ -65,6 +65,17 @@ var acpCmd = &cobra.Command{
 		"                  fields: requestId, title, body. Client must reply via\n" +
 		"                  session/approval_response with\n" +
 		"                  {sessionId, requestId, allow:bool, cancelled:bool}.\n\n" +
+		"Tool-only turns produce empty session/prompt text:\n" +
+		"  Some models chain tool calls without producing any text deltas, so\n" +
+		"  the session/update stream has zero kind=text events and the\n" +
+		"  session/prompt success response carries text=\"\". The tool work\n" +
+		"  itself is visible via kind=tool_call updates and committed to the\n" +
+		"  session's git-native trace ref. Two ways to handle this:\n" +
+		"  1. System prompt: instruct the model to always produce a final\n" +
+		"     text summary, even when most of the turn is tool calls.\n" +
+		"  2. Client side: treat empty text as \"see tool_call updates\";\n" +
+		"     `stado stats --session <id> --json` lists the tool calls\n" +
+		"     authoritatively if the client wasn't tracking them live.\n\n" +
 		"Resuming a session:\n" +
 		"  --resume <id-or-label>            attaches to an existing git-native\n" +
 		"                                    session (full UUID, prefix ≥8, or\n" +
