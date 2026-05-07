@@ -242,21 +242,63 @@ runner-side type (this is what `stado audit` surfaces).
 
 **File added.** `internal/sandbox/runner_contract_test.go`.
 
-**Test scenarios.** For each runner currently selected by
-`runner_linux.go` / `runner_darwin.go`, exercise:
-1. **FS-deny.** Policy denies write to `/etc`; runner returns the
-   typed denial error.
-2. **Allow.** Policy allows the same path; subprocess exits 0.
-3. **Error mapping.** Denied call reports the layer that denied
-   it via the runner's standard error type.
-4. **Negative control.** Default-allow policy → call succeeds.
+**What `Runner` actually exposes.** `Runner.Command(ctx, p, name,
+args, env)` returns an `*exec.Cmd` configured for the policy plus
+`(nil, sandbox.Denied{...})` when the exec allow-list rejects
+the binary name. Filesystem and network denials happen at
+runtime inside the spawned process — they surface as non-zero
+exit codes / kernel-mapped errors, not as a synchronous error
+from `Command`. `NoneRunner` doesn't enforce policy at all
+(documented as "unsandboxed" in source); it just builds the
+command. The contract test must reflect this split.
+
+**Test scenarios — split by enforcement layer:**
+
+*Tier 1 — applies to every runner (`BwrapRunner`, `NoneRunner`,
+`runner_darwin`'s sandbox-exec runner). Construction-only,
+no subprocess execution required:*
+1. **Command shape.** `Command` returns an `*exec.Cmd` with the
+   resolved binary path, the policy-derived env, and the runner's
+   expected wrapper invocation (e.g. `bwrap` flags for
+   `BwrapRunner`, no wrapper for `NoneRunner`).
+2. **Exec allow-list denial.** Policy with non-empty `Exec`
+   that excludes `name` returns `(nil, sandbox.Denied{Reason:
+   "exec ... not in allow-list"})` — same shape on every runner
+   (the check lives in `ResolveBinary`, shared by all).
+3. **Exec allow-list pass.** Same policy with `name` allowed
+   returns `*exec.Cmd` without error.
+
+*Tier 2 — applies only to runners that actually enforce
+(`BwrapRunner` on Linux; `runner_darwin`'s sandbox-exec runner
+on macOS). Each test runs the built command against a temp dir:*
+4. **FS-write denied.** Build a command with `BwrapRunner` /
+   sandbox-exec that writes to a tempdir path *not* listed in
+   `Policy.FSWrite`. Run it. Subprocess exits non-zero; the
+   subprocess's stderr / exit code is the assertion target —
+   not a return value from `Command`.
+5. **FS-write allowed.** Same shape, but tempdir is in
+   `Policy.FSWrite`. Subprocess exits 0.
+6. **Negative control.** Default-allow policy on a benign
+   command (e.g. `/usr/bin/true`). Subprocess exits 0 on every
+   runner including `NoneRunner`.
+
+The Tier 1 / Tier 2 split is the corrective from round-3
+review: the original "FS-deny returns typed error" scenario was
+factually wrong about what `Runner.Command` does.
 
 **Skip discipline.**
-- `t.Skip` cleanly when the layer is unavailable on the host:
-  - Linux: skip if `bwrap` not in PATH (use `NoneRunner` path
-    instead).
-  - macOS: skip if `sandbox-exec` missing.
-  - Windows: file uses `//go:build linux || darwin`.
+- Tier 1 tests run on every host that compiles the file (Linux
+  / macOS via `//go:build linux || darwin`). NoneRunner is
+  always available; BwrapRunner / sandbox-exec construction
+  works without the binary being installed (the sandbox
+  binary's absence makes it `Available()=false` but doesn't
+  block `Command()`).
+- Tier 2 tests skip per runner:
+  - BwrapRunner Tier-2 tests skip if `bwrap` not in PATH.
+  - sandbox-exec Tier-2 tests skip if `sandbox-exec` missing
+    (rare on macOS, possible in containers).
+  - NoneRunner has no Tier 2 (nothing to enforce).
+- Windows: file uses `//go:build linux || darwin`.
 
 **Park as separate spec.** Multi-layer composition
 (`landlock + seccomp + bwrap` stacked over one target) requires
@@ -268,8 +310,13 @@ the end of 1.2 with what we'd want once it lands. **Do not let
 **Verification.**
 - [ ] `go test ./internal/sandbox/... -race` passes on Linux dev box.
 - [ ] Same on macOS dev box (if available).
-- [ ] Contract test skips cleanly on hosts without `bwrap` /
-      `sandbox-exec`; no false-fail.
+- [ ] Tier 1 tests run on every host (no `t.Skip` from missing
+      sandbox binary at this tier).
+- [ ] Tier 2 tests skip cleanly per runner when the binary is
+      missing; never fail-by-skip.
+- [ ] Tier 2 FS-write assertions inspect the *subprocess result*
+      (exit code / stderr), not a return value from `Command`
+      (which only returns `*exec.Cmd`).
 - [ ] Existing per-runner tests untouched and still green.
 - [ ] Follow-up spec for landlock+seccomp+bwrap composition
       written and committed.
@@ -330,11 +377,19 @@ every legacy call lands on the same code path it does today.
 
 **The legacy surface.** Inventory at HEAD: 23 exported functions
 in `internal/workdirpath/workdirpath.go` (verified 2026-05-07).
+The package's other file, `repodisco.go`, exports 3 unrelated
+helpers (`LooksLikeRepoRoot`, `FindRepoRoot`,
+`FindRepoRootOrEmpty`) — they're **out of scope** for A2; they
+do repo-root discovery, not path resolution under a confinement
+boundary. Don't migrate them, don't fold them into `Resolver`.
+
 **Re-inventory step at A2 start:** run
-`go doc -all ./internal/workdirpath | grep '^func '` and confirm
-the count + names before drafting the migration commits. The
-prior plan version cited "38 functions" and a duplicate
-`MkdirAllRootNoSymlink` declaration — both wrong. Sample of the
+`grep -E '^func [A-Z]' internal/workdirpath/workdirpath.go | wc -l`
+(file-scoped — `go doc -all ./internal/workdirpath` would also
+list `repodisco.go` exports and inflate the count to 26). Confirm
+the count + names match this plan before drafting migration
+commits. The prior plan version cited "38 functions" and a
+duplicate `MkdirAllRootNoSymlink` declaration — both wrong. Sample of the
 actual surface (non-exhaustive):
 `Resolve`, `RootRel`, `OpenReadFile`,
 `ReadRegularFileNoSymlinkLimited`,
@@ -352,7 +407,9 @@ actual surface (non-exhaustive):
 `Glob`, `GlobLimited`.
 
 **Target shape.** A `Resolver` parameterised by a trust anchor
-(workdir root, user config dir) with these primitives:
+(workdir root, user config dir) with these primitives, plus a
+small `RootResolver` derivation for the 7 legacy `*os.Root`
+functions:
 
 ```go
 type Resolver struct {
@@ -371,12 +428,43 @@ func (r *Resolver) WriteFileAtomic(rel string, data []byte, perm os.FileMode, op
 func (r *Resolver) MkdirAll(rel string, perm os.FileMode, opts ...ResolveOpt) error
 func (r *Resolver) RemoveAll(rel string, opts ...ResolveOpt) error
 func (r *Resolver) Glob(pattern string, opts ...ResolveOpt) ([]string, error)
+
+// AtRoot returns a derivation of Resolver scoped to the given
+// *os.Root. Methods on the result use `root` as their
+// confinement anchor instead of workdir/userConf. Used to
+// migrate the 7 legacy `Root*` functions
+// (OpenRootNoSymlink, MkdirAllRootNoSymlink, WriteRootFileAtomic,
+// WriteRootFileAtomicExactMode, ReadRootRegularFileLimited,
+// OpenRootUnderUserConfig, OpenRootNoSymlinkUnder) without
+// expanding the `ResolveOpt` axis to carry an *os.Root pointer.
+func (r *Resolver) AtRoot(root *os.Root) *RootResolver
+
+type RootResolver struct {
+    root    *os.Root
+    // private symlink/confinement state; not exported
+}
+
+func (rr *RootResolver) OpenFile(rel string, flags int, perm os.FileMode, opts ...ResolveOpt) (*os.File, error)
+func (rr *RootResolver) ReadFile(rel string, opts ...ResolveOpt) ([]byte, error)
+func (rr *RootResolver) WriteFileAtomic(rel string, data []byte, perm os.FileMode) error
+func (rr *RootResolver) MkdirAll(rel string, perm os.FileMode) error
 ```
 
 `ResolveOpt` is a functional-options type that absorbs the
-`Limited` / `NoSymlink` / `UnderUserConfig` / `Root` axes that
-today's name-explosion encodes in function names:
-`WithLimit(n int64)`, `WithSymlinks(bool)`, `WithAnchor(workdir | userConf | root)`.
+`Limited` / `NoSymlink` / `UnderUserConfig` axes that today's
+name-explosion encodes in function names: `WithLimit(n int64)`,
+`WithSymlinks(bool)`, `WithAnchor(workdir | userConf)`. The
+`*os.Root` axis lives on `RootResolver` instead — it's a
+long-lived handle, not a per-call modifier, and threading it
+through `ResolveOpt` would force every call site to package an
+unrelated value.
+
+**Why a separate `RootResolver` over `WithRoot(*os.Root)`.** The
+legacy `*os.Root` functions take the root as their *first
+positional arg*; semantically the root is the operation's
+anchor, not a flag. A derivation method (`r.AtRoot(root)`) makes
+that explicit at the call site and keeps the option set
+homogeneous. Per round-3 review.
 
 **Why options over names.** The current API multiplies one
 behaviour axis (limit, symlink mode, anchor) into a separate
@@ -386,10 +474,12 @@ shrink the public surface, and let new axes (e.g. EP-0040's
 without inventing yet another function.
 
 **Migration strategy** (Codex's call — adopt verbatim):
-1. Land `Resolver` + the new methods alongside the legacy
-   functions. Legacy functions get rewritten as one-liners on
-   top of `Resolver` (preserving behaviour and the public
-   signature). Confirm via tests + smoke runs.
+1. Land `Resolver`, `RootResolver`, and the new methods alongside
+   the legacy functions. Legacy functions get rewritten as
+   one-liners on top of the appropriate type (the 16
+   workdir/userConf functions wrap `Resolver`; the 7 `Root*`
+   functions wrap `RootResolver`). Behaviour and public
+   signatures preserved. Confirm via tests + smoke runs.
 2. **Audit `internal/mcpbridge`** — Gemini flagged likely
    "safety leakage" where MCP-side path resolution duplicates
    workdirpath logic. Fold the audit into A2; don't break
@@ -446,6 +536,10 @@ failure. Mitigations:
       Windows-specific edge cases that the legacy 23-fn API
       currently handles (drive prefixes, UNC paths, reserved
       names) keep working through the new API.
+- [ ] `internal/workdirpath/repodisco.go` untouched (out of scope
+      for A2; its 3 exports `LooksLikeRepoRoot`, `FindRepoRoot`,
+      `FindRepoRootOrEmpty` are repo-discovery, not path
+      confinement).
 - [ ] Smoke: `stado --help`, `stado run --help`,
       `stado plugin install --help` all exit 0.
 
@@ -1023,6 +1117,25 @@ slotting decision" section with a recommended default.)
   Phase 1.1's nil-bridge contract test would also fail under
   (a). Option (b) is a separate, much larger refactor (touches
   every host import + every caller); out of scope.
+
+### D12. A2 splits `Resolver` and `RootResolver`
+
+- **Decided:** the new API has two types — `Resolver` (anchored
+  on workdir + userConfDir) and `RootResolver` (anchored on
+  `*os.Root`), reached via `r.AtRoot(root)`. The 7 legacy
+  `Root*` functions wrap `RootResolver`; the other 16 wrap
+  `Resolver`.
+- **Alternatives:** (a) single `Resolver` with
+  `WithRoot(*os.Root)` option; (b) embed an optional `*os.Root`
+  field on `Resolver` directly.
+- **Why:** `*os.Root` is a long-lived handle, not a per-call
+  modifier. Threading it through `ResolveOpt` would force every
+  call site to package an unrelated value (option a) or split
+  state across "is there a root?" branches (option b). A
+  derivation method makes the anchor explicit at the call site
+  and keeps `ResolveOpt` homogeneous. Caught in round-3 review;
+  the original draft made the legacy `Root*` functions
+  un-wrappable.
 
 ## Related
 
