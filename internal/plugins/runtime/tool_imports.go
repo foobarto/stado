@@ -10,7 +10,6 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/tools/fs"
-	"github.com/foobarto/stado/internal/tools/lspfind"
 	"github.com/foobarto/stado/internal/tools/readctx"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -23,7 +22,6 @@ type toolImportSpec struct {
 }
 
 func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
-	def := &lspfind.FindDefinition{}
 	specs := []toolImportSpec{
 		{exportName: "stado_fs_tool_read", tool: fs.ReadTool{}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 }, preflight: preflightReadPath},
 		{exportName: "stado_fs_tool_write", tool: fs.WriteTool{}, allowed: func(h *Host) bool { return len(h.FSWrite) > 0 }, preflight: preflightWritePath},
@@ -43,10 +41,9 @@ func installNativeToolImports(builder wazero.HostModuleBuilder, host *Host) {
 		// stado_search_ripgrep + stado_search_ast_grep were delegates to
 		// rg.Tool / astgrep.Tool; EP-no-internal-tools Step 5 dropped
 		// them. The rg + astgrep wasm plugins use stado_exec primitives.
-		{exportName: "stado_lsp_find_definition", tool: def, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
-		{exportName: "stado_lsp_find_references", tool: &lspfind.FindReferences{Definition: def}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
-		{exportName: "stado_lsp_document_symbols", tool: &lspfind.DocumentSymbols{Definition: def}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
-		{exportName: "stado_lsp_hover", tool: &lspfind.Hover{Definition: def}, allowed: func(h *Host) bool { return len(h.FSRead) > 0 && h.LSPQuery }, preflight: requireFullReadScope},
+		// stado_lsp_* delegates dropped Step 6 of EP-no-internal-tools.
+		// The four lsp imports are now true primitives registered by
+		// registerLSPImports (host_lsp.go).
 	}
 	for _, spec := range specs {
 		spec := spec
