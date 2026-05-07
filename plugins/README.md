@@ -20,3 +20,7 @@ override experiments.
 - [`examples/session-inspect/`](examples/session-inspect/)
 - [`examples/session-recorder/`](examples/session-recorder/)
 - approval-wrapper examples for `bash`, `write`, `edit`, and `ast_grep`
+- [`examples/approval-demo-go/`](examples/approval-demo-go/) — minimal
+  exerciser for the `ui:approval` cap + `stado_ui_approve` primitive
+- [`examples/choose-demo-go/`](examples/choose-demo-go/) — minimal
+  exerciser for the `ui:choice` cap + `stado_ui_choose` primitive

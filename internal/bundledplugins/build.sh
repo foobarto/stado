@@ -12,7 +12,6 @@ if ! command -v "$GO_BIN" >/dev/null 2>&1; then
 fi
 
 TOOLS=(
-  approval_demo
   find_definition
   find_references
   document_symbols

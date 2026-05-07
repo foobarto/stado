@@ -17,6 +17,9 @@ history:
     status: Implemented
     version: v0.12.0
     note: approval_demo is documented in its tool spec as a manual test tool that models should not call unless a human explicitly requests approval UI testing.
+  - date: 2026-05-07
+    status: Implemented
+    note: approval_demo moved out of the bundled tool surface to plugins/examples/approval-demo-go. choose_demo (ui:choice counterpart) added at plugins/examples/choose-demo-go. Demos are no longer bundled — operators install them via `stado plugin install` to manually exercise the approval / choice UIs.
 ---
 
 # EP-17: Tool Surface Policy and Plugin Approval UI
@@ -63,9 +66,13 @@ card, supports keyboard approval/denial, and keeps the chat input
 editable while the approval is pending. Plugins without `ui:approval`
 cannot open the approval UI.
 
-The bundled `approval_demo` plugin exists to manually exercise this UI
-path. Its tool description tells models not to call it unless a human
-explicitly asks to test plugin approval behavior.
+The `approval_demo` plugin (now at
+[`plugins/examples/approval-demo-go/`](../../plugins/examples/approval-demo-go))
+manually exercises this UI path. It is not bundled into the stado binary
+— operators install it via `stado plugin install` when they want to
+smoke-test the approval drawer. The tool description tells models not to
+call it unless a human explicitly asks to test plugin approval
+behaviour.
 
 The old `/approvals` slash command remains only as a compatibility hint
 that explains the current model. Existing config files with

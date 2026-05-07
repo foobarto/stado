@@ -70,14 +70,14 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "fs:read:." {
 		t.Fatalf("fs__read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
 	}
-	if got, ok := reg.Get("approval_demo"); !ok {
-		t.Fatal("approval_demo tool missing")
-	} else if pt, ok := got.(*bundledPluginTool); !ok {
-		t.Fatalf("approval_demo type = %T, want *bundledPluginTool", got)
-	} else if len(pt.manifest.Capabilities) != 1 || pt.manifest.Capabilities[0] != "ui:approval" {
-		t.Fatalf("approval_demo capabilities = %v, want [ui:approval]", pt.manifest.Capabilities)
-	} else if !strings.Contains(got.Description(), "Manual test tool only") {
-		t.Fatalf("approval_demo description should warn AI away, got %q", got.Description())
+	// approval_demo / choose_demo are no longer bundled — they live as
+	// implementation demos under plugins/examples/{approval-demo-go,
+	// choose-demo-go} and must NOT appear in the default registry.
+	if _, ok := reg.Get("approval_demo"); ok {
+		t.Error("approval_demo should not be in the bundled registry; it is a plugins/examples/ demo")
+	}
+	if _, ok := reg.Get("choose_demo"); ok {
+		t.Error("choose_demo should not be in the bundled registry; it is a plugins/examples/ demo")
 	}
 	if got, ok := reg.Get("agent__spawn"); !ok {
 		t.Fatal("agent__spawn tool missing")
@@ -179,9 +179,6 @@ func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 	}
 	if got := reg.ClassOf("shell__bash"); got != tool.ClassExec {
 		t.Fatalf("ClassOf(shell__bash) = %v, want %v", got, tool.ClassExec)
-	}
-	if got := reg.ClassOf("approval_demo"); got != tool.ClassNonMutating {
-		t.Fatalf("ClassOf(approval_demo) = %v, want %v", got, tool.ClassNonMutating)
 	}
 	if got := reg.ClassOf("agent__spawn"); got != tool.ClassExec {
 		t.Fatalf("ClassOf(agent__spawn) = %v, want %v", got, tool.ClassExec)

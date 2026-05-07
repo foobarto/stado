@@ -49,19 +49,13 @@ func buildBundledPluginRegistry() *tools.Registry {
 	for _, t := range native.All() {
 		r.Register(newBundledPluginTool(t, native.ClassOf(t.Name())))
 	}
-	r.Register(newBundledStaticTool(
-		"approval_demo",
-		"Manual test tool only. Do not use unless a human explicitly asks to test plugin approval UI.",
-		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"title": map[string]any{"type": "string"},
-				"body":  map[string]any{"type": "string"},
-			},
-		},
-		[]string{"ui:approval"},
-	))
+	// approval_demo and choose_demo were previously bundled as static
+	// tools to manually exercise the ui:approval / ui:choice primitives.
+	// They are now shipped as plugins/examples/{approval-demo-go,
+	// choose-demo-go} — installed manually via `stado plugin install`.
+	// Demos shouldn't live in the bundled tool surface (the model can
+	// see them otherwise) and the example layout is the project's
+	// canonical home for "implementation references."
 	// EP-no-internal-tools Step 7: fs.* tools — wasm-backed via the fs
 	// wasm plugin's stado_fs_* primitives. Replaces the native fs.ReadTool /
 	// fs.WriteTool / fs.EditTool / fs.GlobTool / fs.GrepTool registrations.

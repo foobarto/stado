@@ -1,0 +1,21 @@
+{
+  "name": "approval-demo-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval"
+  ],
+  "tools": [
+    {
+      "name": "approval_demo",
+      "description": "Manual test tool only. Do not use unless a human explicitly asks to test plugin approval UI.",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-05-07T00:00:00Z",
+  "nonce": "approval-demo-go-001"
+}

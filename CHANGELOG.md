@@ -6,6 +6,22 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+### Plugins
+
+- **Demos moved to `plugins/examples/`**. The `approval_demo` static
+  bundled tool is removed from the stado binary; its source lives at
+  [`plugins/examples/approval-demo-go/`](plugins/examples/approval-demo-go)
+  with the standard build / sign / install layout. A new sibling
+  [`plugins/examples/choose-demo-go/`](plugins/examples/choose-demo-go)
+  exercises the `ui:choice` cap + `stado_ui_choose` primitive end-to-end
+  (the missing Done-def item from the ui_choose spec). Reasoning: stado
+  shouldn't bundle test/demo tools — the model sees the registry and
+  shouldn't be tempted to call them. Operators who want to manually
+  exercise the approval / choice drawers `stado plugin install` the
+  example. Test that drove `bundledplugins.MustWasm("approval_demo")`
+  now compiles the example at test time (skips when no `go` toolchain
+  is on PATH or the example dir is trimmed from a downstream tree).
+
 ### Architecture
 
 - **EP-no-internal-tools Step 7** (final family). The fs.read/write/edit/

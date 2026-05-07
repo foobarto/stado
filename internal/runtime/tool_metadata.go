@@ -125,8 +125,6 @@ var bundledToolMetadata = map[string]ToolMetadata{
 	"browser__cdp_scroll":         {Canonical: "browser.cdp_scroll", Plugin: "browser", Categories: []string{"web"}},
 	"browser__cdp_close":          {Canonical: "browser.cdp_close", Plugin: "browser", Categories: []string{"web"}},
 
-	// internal/test — hidden from listings
-	"approval_demo": {Canonical: "", Plugin: "", Categories: nil},
 }
 
 // LookupToolMetadata returns the display metadata for a tool. Falls back

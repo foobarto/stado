@@ -1,0 +1,21 @@
+{
+  "name": "choose-demo-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:choice"
+  ],
+  "tools": [
+    {
+      "name": "choose_demo",
+      "description": "Manual test tool only. Do not use unless a human explicitly asks to test the plugin choose UI (stado_ui_choose primitive).",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\"},\"multi\":{\"type\":\"boolean\"},\"default\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"id\",\"label\"],\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"}}}}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-05-07T00:00:00Z",
+  "nonce": "choose-demo-go-001"
+}
