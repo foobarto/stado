@@ -203,6 +203,43 @@ func TestResolver_WriteFileAtomic_RejectsParentSymlinkEscape(t *testing.T) {
 	}
 }
 
+// TestResolver_WriteFileAtomic_RejectsDirectoryTarget covers
+// the atomic-write edge case where the target already exists
+// as a directory. Round-A2 review's atomic-write-failure-modes
+// gap.
+func TestResolver_WriteFileAtomic_RejectsDirectoryTarget(t *testing.T) {
+	wk := t.TempDir()
+	if err := os.Mkdir(filepath.Join(wk, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := mustNew(t, wk)
+
+	if err := r.WriteFileAtomic("target", []byte("payload"), 0o644); err == nil {
+		t.Fatal("expected error writing to directory target, got nil")
+	}
+	if info, err := os.Stat(filepath.Join(wk, "target")); err != nil || !info.IsDir() {
+		t.Errorf("target dir altered: err=%v", err)
+	}
+}
+
+// TestResolver_OpenRegularFile_RejectsDirectoryTarget documents
+// the Lstat-time rejection of non-regular targets. Same TOCTOU
+// shape as the RootResolver test — verifies the path-based
+// confinement layer also enforces the regular-file invariant.
+func TestResolver_OpenRegularFile_RejectsDirectoryTarget(t *testing.T) {
+	wk := t.TempDir()
+	if err := os.Mkdir(filepath.Join(wk, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := mustNew(t, wk)
+
+	f, err := r.OpenRegularFile("subdir")
+	if err == nil {
+		_ = f.Close()
+		t.Fatal("expected error opening directory as regular file, got nil")
+	}
+}
+
 // ---- Glob --------------------------------------------------------------
 
 func TestResolver_Glob_RejectsAbsolutePattern(t *testing.T) {
@@ -237,6 +274,37 @@ func TestResolver_GlobLimited_TotalAndStoredCounts(t *testing.T) {
 	}
 	if total != 5 {
 		t.Errorf("total = %d, want 5", total)
+	}
+}
+
+// ---- NUL-byte handling (round-A2-final review) ------------------------
+//
+// Legacy behavior is mixed:
+//   - Strict Resolve: NUL surfaces as ENOENT-like from
+//     EvalSymlinks → rejected.
+//   - ResolveAllowMissing: NUL surfaces as ENOENT-like; the
+//     missing-path fallback then walks parents looking for an
+//     existing ancestor and succeeds with the NUL-tainted
+//     suffix preserved. This is a long-standing legacy quirk.
+//   - OpenRegularFile / WriteFileAtomic: rely on OS-level NUL
+//     rejection at the open() syscall (ENOENT or EINVAL).
+//
+// The test pins current behavior for the strict path. The
+// AllowMissing quirk is documented but not asserted as
+// rejection — aligning would be a behavior change tracked for
+// follow-up.
+func TestResolver_RejectsNULByte_StrictResolve(t *testing.T) {
+	r := mustNew(t, t.TempDir())
+	bad := "subdir/path\x00trailing"
+
+	if _, err := r.Resolve(bad); err == nil {
+		t.Error("Resolve: expected rejection on NUL byte (strict path)")
+	}
+	if _, err := r.OpenRegularFile(bad); err == nil {
+		t.Error("OpenRegularFile: expected rejection on NUL byte")
+	}
+	if err := r.WriteFileAtomic(bad, []byte("x"), 0o644); err == nil {
+		t.Error("WriteFileAtomic: expected rejection on NUL byte")
 	}
 }
 

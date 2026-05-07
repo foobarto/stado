@@ -51,6 +51,47 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — A2 round-final review fixes
+
+Round-final consultation (codex + gemini) on the landed types:
+- Both validated the 2.1.d → 2.1.Y deferral as correct (codex:
+  "you are not rationalizing"; gemini: "correct engineering
+  decision").
+- Both flagged Resolver.OpenRegularFile semantic mismatch — its
+  doc promised regular-file rejection but the underlying
+  OpenReadFile delegate doesn't enforce it. Fixed: added a
+  post-Stat() check that rejects non-regular files. Behavior
+  expansion at the new API surface (legacy OpenReadFile is
+  unaffected).
+
+Test-coverage gaps applied:
+- Resolver: NUL rejection (strict path; AllowMissing has a
+  legacy quirk where the parent-search fallback surfaces NUL
+  as ENOENT-like → succeeds; documented but not asserted).
+- Resolver: OpenRegularFile rejects directory targets,
+  WriteFileAtomic rejects directory targets.
+- RootResolver: WriteFileAtomic rejects symlink target +
+  directory target; ReadFileLimited rejects directory targets;
+  no-leak under absolute-path / parent-traversal escape attempts
+  on both Mkdir and Write.
+- UserConfigResolver: outside-anchor strict-fallback rejects
+  symlinks (no anchor → no chain-above-anchor leeway).
+- UserConfigResolver: discriminating longest-anchor test —
+  XDG_STATE_HOME (longer) vs HOME (shorter), where choosing
+  HOME would surface the .local/state symlink as
+  below-anchor and reject; choosing XDG_STATE_HOME accepts it.
+
+Plan cleanup: removed stale "create behavior-matrix doc" file
+listing per codex (matrix was deferred when 2.1.d was deferred).
+
+Tests count after round-final: 56 new tests (was 49) + 29 legacy.
+Stable under `-count=5 -race`. Full repo `go test ./...` green.
+
+Round-final pitfall flag (codex) for caller migration:
+"don't let path-under-HOME push strict / plugin-sandbox
+callers into UserConfigResolver." Plugins / sandbox callers
+should use StrictResolver regardless of where the path lives.
+
 ## 2026-05-07 — 2.1.b/c landed; 2.1.d deferred to 2.1.Y
 
 UserConfigResolver (10 tests) and StrictResolver + Under (16

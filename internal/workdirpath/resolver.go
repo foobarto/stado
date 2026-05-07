@@ -2,6 +2,7 @@ package workdirpath
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -89,13 +90,32 @@ func (r *Resolver) RootRelForWrite(path string) (root, rel string, err error) {
 }
 
 // OpenRegularFile opens path for reading via os.Root. Rejects
-// symlinks (parent components AND final), non-regular files, and
-// open-time swaps (SameFile check). Read-only by design — write
+// symlinks (parent components AND final) and non-regular files
+// (directories, devices, etc.). Read-only by design — write
 // callers use WriteFileAtomic.
+//
+// Note on legacy: the underlying `OpenReadFile` doesn't enforce
+// regular-file (it'd cheerfully return an *os.File backed by a
+// directory). This method enforces it as a post-check so the
+// new API surface honours the name. New behavior at this method
+// (legacy callers via `OpenReadFile` are unaffected).
 //
 // Returned *os.File is owned by the caller; close when done.
 func (r *Resolver) OpenRegularFile(path string) (*os.File, error) {
-	return OpenReadFile(r.workdir, path)
+	f, err := OpenReadFile(r.workdir, path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, fmt.Errorf("file is not regular: %s", path)
+	}
+	return f, nil
 }
 
 // WriteFileAtomic writes path through os.Root via tempfile +

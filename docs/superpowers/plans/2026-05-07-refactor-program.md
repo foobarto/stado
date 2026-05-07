@@ -609,8 +609,11 @@ API doesn't absorb them.
 - `internal/workdirpath/userconfig_resolver_test.go` (new).
 - `internal/workdirpath/strict_resolver.go` (new).
 - `internal/workdirpath/strict_resolver_test.go` (new).
-- `.agent/notes/workdirpath-behavior-matrix.md` (new at 2.1.d) —
-  legacy behaviour matrix driving wrapper-rewrite tests.
+- *(originally:* `.agent/notes/workdirpath-behavior-matrix.md`
+  *to be created at 2.1.d. Skipped per the 2.1.d → 2.1.Y
+  deferral — the 49 new tests across 4 types already encode
+  every contract the matrix would document. If the impl-move
+  at 2.1.Y surfaces a missing axis, write the matrix then.)*
 - Per-call-site migration: any package that imports
   `internal/workdirpath` (21 packages identified at A2 start;
   re-inventory before broad migration).

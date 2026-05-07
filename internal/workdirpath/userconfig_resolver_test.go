@@ -294,6 +294,90 @@ func TestUserConfigResolver_RejectsNULByte(t *testing.T) {
 	}
 }
 
+// TestUserConfigResolver_OutsideAnchor_SymlinkFallsBackToStrict
+// covers the round-A2-final outside-anchor-symlink case: when a
+// path falls outside any HOME/XDG anchor, the resolver falls
+// back to strict-no-symlink. A symlink in the path chain must
+// be rejected (no anchor → no chain-above-anchor leeway).
+func TestUserConfigResolver_OutsideAnchor_SymlinkFallsBackToStrict(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		home := filepath.Join(base, "home")
+		if err := os.MkdirAll(home, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Setenv("HOME", home)
+
+		// Path is OUTSIDE any HOME/XDG anchor. Plant a symlink
+		// in its chain; strict-fallback should reject it.
+		realDir := filepath.Join(base, "real")
+		if err := os.MkdirAll(realDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		linkDir := filepath.Join(base, "outside-link")
+		if err := os.Symlink(realDir, linkDir); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+
+		uc := NewUserConfigResolver()
+		// path = base/outside-link/file — outside HOME, must
+		// fall back to strict no-symlink, which rejects.
+		if _, err := uc.OpenRoot(filepath.Join(linkDir, "subdir")); err == nil {
+			t.Fatal("expected strict-fallback symlink rejection, got nil")
+		}
+	})
+}
+
+// TestUserConfigResolver_LongestAnchor_DiscriminatesXDGOverHOME
+// is a discriminating test: stage the operation such that
+// picking HOME (the shorter anchor) instead of XDG_STATE_HOME
+// (the longer anchor that covers the path) would surface
+// detectably. Exercises round-A2-final's "discriminating
+// longest-anchor test" requirement.
+//
+// The trick: place a symlink BELOW HOME's anchor but ABOVE
+// XDG_STATE_HOME's anchor. If the resolver chose HOME, the
+// symlink would be in the "below anchor" chain and rejected.
+// If the resolver chose XDG_STATE_HOME (the correct longest
+// match), the symlink is ABOVE the chosen anchor and accepted.
+func TestUserConfigResolver_LongestAnchor_DiscriminatesXDGOverHOME(t *testing.T) {
+	withIsolatedEnv(t, func() {
+		base := t.TempDir()
+		home := filepath.Join(base, "home")
+		// XDG_STATE_HOME is below home but resolved through a
+		// symlink (real path is /var/state-home).
+		realState := filepath.Join(base, "var", "state-home")
+		if err := os.MkdirAll(realState, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// Plant the symlink as part of the chain BELOW home.
+		stateLink := filepath.Join(home, ".local", "state")
+		if err := os.MkdirAll(filepath.Dir(stateLink), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(realState, stateLink); err != nil {
+			t.Skipf("symlinks unsupported: %v", err)
+		}
+		os.Setenv("HOME", home)
+		os.Setenv("XDG_STATE_HOME", stateLink) // points at the symlink
+
+		// A target under XDG_STATE_HOME. If HOME is chosen as
+		// the anchor, the .local/state symlink appears in the
+		// below-anchor chain → rejected. If XDG_STATE_HOME is
+		// chosen (longest covering anchor), the symlink is the
+		// anchor itself and accepted.
+		target := filepath.Join(stateLink, "stado")
+
+		uc := NewUserConfigResolver()
+		if err := uc.MkdirAll(target, 0o755); err != nil {
+			t.Fatalf("MkdirAll under XDG anchor (longest): %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(realState, "stado")); err != nil {
+			t.Errorf("dir not created via XDG anchor: %v", err)
+		}
+	})
+}
+
 // ---- Sanity: file does NOT leak when below-anchor symlink rejected ---
 
 func TestUserConfigResolver_NoLeakWhenSymlinkRejected(t *testing.T) {

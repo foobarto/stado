@@ -178,6 +178,140 @@ func TestRootResolver_WriteFileAtomicExactMode_ReplacesMode(t *testing.T) {
 	}
 }
 
+// TestRootResolver_WriteFileAtomic_RejectsDirectoryTarget covers
+// the atomic-write edge case where the named target already
+// exists as a directory, not a regular file. The resolver must
+// fail closed rather than attempt to rename-over a directory
+// (which would silently replace it on some filesystems).
+//
+// Round-A2 review's atomic-write-failure-modes gap.
+func TestRootResolver_WriteFileAtomic_RejectsDirectoryTarget(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := os.OpenRoot(dir)
+	defer func() { _ = root.Close() }()
+	rr := NewRootResolver(root)
+
+	if err := rr.WriteFileAtomic("target", []byte("payload"), 0o644); err == nil {
+		t.Fatal("expected error writing to directory target, got nil")
+	}
+	// The directory must still exist (not silently replaced).
+	info, err := os.Stat(filepath.Join(dir, "target"))
+	if err != nil {
+		t.Fatalf("target gone: %v", err)
+	}
+	if !info.IsDir() {
+		t.Errorf("target is no longer a directory; mode=%v", info.Mode())
+	}
+}
+
+// TestRootResolver_WriteFileAtomic_RejectsSymlinkTarget covers
+// the case where the existing target is a symlink. Atomic-write
+// must reject rather than rename-over (which would either
+// replace the link or follow it and write through). Both are
+// safety violations in different ways.
+func TestRootResolver_WriteFileAtomic_RejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(real, []byte("real"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	root, _ := os.OpenRoot(dir)
+	defer func() { _ = root.Close() }()
+	rr := NewRootResolver(root)
+
+	if err := rr.WriteFileAtomic("link.txt", []byte("attacker"), 0o644); err == nil {
+		t.Fatal("expected error writing to symlink target, got nil")
+	}
+	// real.txt must be unchanged — the symlink wasn't followed.
+	got, err := os.ReadFile(real)
+	if err != nil {
+		t.Fatalf("real.txt: %v", err)
+	}
+	if string(got) != "real" {
+		t.Errorf("real.txt contents = %q (symlink was followed)", got)
+	}
+}
+
+// TestRootResolver_ReadFileLimited_StatThenOpenSwapDetected
+// documents the SameFile TOCTOU invariant the legacy
+// implementation enforces between Lstat and Open: if the named
+// file is replaced (e.g., by a different inode) between the
+// Lstat that approved it and the Open, the read fails.
+//
+// Deterministically triggering the race in a unit test isn't
+// reliable, but we can verify the invariant holds for the
+// non-racy path: a file that's NOT swapped passes; a file
+// that's a directory at Lstat time fails before reaching Open.
+//
+// Round-A2 review's TOCTOU-coverage gap. The full concurrent-
+// swap race has no portable test today; this test documents
+// the contract and exercises the surrounding code paths.
+func TestRootResolver_ReadFileLimited_StatThenOpenSwapDetected(t *testing.T) {
+	dir := t.TempDir()
+	// Existing dir at the target name — Lstat catches this and
+	// rejects with "file is not regular" before Open.
+	if err := os.Mkdir(filepath.Join(dir, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := os.OpenRoot(dir)
+	defer func() { _ = root.Close() }()
+	rr := NewRootResolver(root)
+
+	if _, err := rr.ReadFileLimited("target", 1024); err == nil {
+		t.Fatal("expected 'not regular' rejection for directory target, got nil")
+	}
+}
+
+// TestRootResolver_NoEscape_AbsoluteOrParentTraversal covers
+// the round-A2-final escape-rejection contract: paths with
+// leading `..` or absolute paths must NOT escape the borrowed
+// *os.Root, regardless of method (Read / Write / Mkdir).
+func TestRootResolver_NoEscape_AbsoluteOrParentTraversal(t *testing.T) {
+	dir := t.TempDir()
+	root, _ := os.OpenRoot(dir)
+	defer func() { _ = root.Close() }()
+	rr := NewRootResolver(root)
+
+	// Stage a sibling outside the *os.Root we'd escape into if
+	// the resolver allowed `..` traversal.
+	outside := filepath.Join(filepath.Dir(dir), "outside-root")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		op   func() error
+	}{
+		{"MkdirAll-absolute", func() error { return rr.MkdirAll("/etc/leaked", 0o755) }},
+		{"MkdirAll-parent-traversal", func() error { return rr.MkdirAll("../outside-root/leaked", 0o755) }},
+		{"WriteFileAtomic-absolute", func() error {
+			return rr.WriteFileAtomic("/tmp/leaked", []byte("x"), 0o644)
+		}},
+		{"WriteFileAtomic-parent-traversal", func() error {
+			return rr.WriteFileAtomic("../outside-root/leaked", []byte("x"), 0o644)
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.op(); err == nil {
+				t.Errorf("expected escape rejection, got nil")
+			}
+		})
+	}
+	// Verify nothing leaked outside the root.
+	if _, err := os.Stat(filepath.Join(outside, "leaked")); err == nil {
+		t.Error("file leaked through escape attempt")
+	}
+}
+
 // ---- MkdirAll ----------------------------------------------------------
 
 func TestRootResolver_MkdirAll_CreatesNestedDirs(t *testing.T) {
