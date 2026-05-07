@@ -6,6 +6,17 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.46.0 — Step 7 (fs.* wasm) + ACP round 2 (resume, persona, tool_summary)
+
+The fs family closes out the EP-no-internal-tools migration's most
+visible step (Step 7), and the ACP surface fills out: session resume,
+persona pinning, end-of-turn tool_summary for tool-only turns, the
+approval bridge symmetric to the choice bridge, and a documentation
+sweep that brings `--help` to parity with the protocol comment.
+Several smaller paper-cuts get fixed alongside (`stats --json` schema
+versioning, sessionstats ASCII fallback, demos relocated out of the
+bundled tool surface).
+
 ### Plugins
 
 - **Demos moved to `plugins/examples/`**. The `approval_demo` static
@@ -193,6 +204,14 @@ Plugins / Infra / Fixes.
   deadlock. Closes the gap where ACP plugins calling
   `stado_ui_approve` previously got `-1 unavailable` because the
   ACP host didn't implement `ApprovalBridge`.
+
+### Fixes
+
+- **CI lint backlog cleared.** `golangci-lint` had been failing
+  on a sticky set of small violations across nine sites
+  (deferred-Close errcheck, ineffectual assignment in agentloop's
+  inbox-flush branch, several staticcheck nits, one unused helper).
+  Cleaned out so CI's lint job goes green; no behaviour changes.
 
 ### Plugin ABI migration note (for plugin authors)
 
