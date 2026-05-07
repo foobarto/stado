@@ -121,6 +121,11 @@ func (t *installedPluginTool) Schema() map[string]any {
 }
 func (t *installedPluginTool) Class() tool.Class { return t.class }
 
+// PluginName returns the installed plugin's manifest name (e.g.
+// "gtfobins"). Used by the TUI landing render to group autoloaded
+// tools by source plugin.
+func (t *installedPluginTool) PluginName() string { return t.manifest.Name }
+
 // Run dispatches the installed plugin via pluginrun.Run. Re-reads the
 // verified wasm from disk per call (no in-memory cache); the up-front
 // signature + sha verification at registration time ensures the bytes

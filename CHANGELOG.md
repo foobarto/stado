@@ -46,6 +46,15 @@ Plugins / Infra / Fixes.
   and are documented in this changelog with a migration note. Pure
   additions (new keys) do not bump.
 
+### TUI
+
+- Landing screen now lists the autoloaded plugin set under the input
+  box (`12 plugins  agent · fs · rg · shell · …`). Operators can see
+  what surface the next prompt can reach without running
+  `stado tool list` first. Pulled from the live registry, so installed
+  plugins show up alongside bundled ones; the `stado-builtin-tool-`
+  manifest prefix is stripped for the display label.
+
 ### Plugin ABI migration note (for plugin authors)
 
 `v0.45.0` shipped the unified `pluginrun.Run` invocation path. Plugins

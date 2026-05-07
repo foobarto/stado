@@ -327,18 +327,26 @@ func (m *Model) renderLanding(width, height int) string {
 	}
 	input := strings.TrimRight(m.renderInputBox(landingInputWidth(width)), "\n")
 	hint := landingHint(m.theme)
+	plugins := m.landingPluginsHint()
 	bodyH := height - 1
 	if bodyH < 1 {
 		bodyH = 1
 	}
 	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - 3
+	if plugins != "" {
+		logoMaxH -= lipgloss.Height(plugins) + 1
+	}
 	logo := renderLandingLogo(width, logoMaxH)
 
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if logo != "" {
 		parts = append(parts, logo)
 	}
-	parts = append(parts, centerLines(input, width), centerLines(hint, width))
+	parts = append(parts, centerLines(input, width))
+	if plugins != "" {
+		parts = append(parts, centerLines(plugins, width))
+	}
+	parts = append(parts, centerLines(hint, width))
 	stack := strings.Join(parts, "\n\n")
 	body := lipgloss.Place(width, bodyH, lipgloss.Center, lipgloss.Center, stack)
 	return body + "\n" + m.renderLandingFooter(width)
@@ -404,6 +412,32 @@ func landingHint(th *theme.Theme) string {
 	}
 	return th.Fg("text_secondary").Bold(true).Render("ctrl+p") + " " +
 		th.Fg("muted").Render("commands")
+}
+
+// landingPluginsHint renders the autoloaded-plugin badge line under
+// the input hint on the landing screen. Empty string when there is
+// no executor (no registry to introspect) or zero autoloaded plugins
+// — the caller skips the spacing block in that case. Q2 (low-prio
+// follow-up to EP-no-internal-tools): the operator sees what plugin
+// surface is live before typing the first prompt.
+func (m *Model) landingPluginsHint() string {
+	if m.executor == nil {
+		return ""
+	}
+	names := runtime.AutoloadedPluginNames(m.executor.Registry, m.cfg)
+	if len(names) == 0 {
+		return ""
+	}
+	if m.theme == nil {
+		return strings.Join(names, " · ")
+	}
+	dot := m.theme.Fg("muted").Render(" · ")
+	parts := make([]string, len(names))
+	for i, n := range names {
+		parts[i] = m.theme.Fg("text_secondary").Render(n)
+	}
+	count := m.theme.Fg("muted").Render(fmt.Sprintf("%d plugins  ", len(names)))
+	return count + strings.Join(parts, dot)
 }
 
 func centerLines(s string, width int) string {

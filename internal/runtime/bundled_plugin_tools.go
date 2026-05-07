@@ -573,6 +573,21 @@ func (r *renamedTool) Run(ctx context.Context, args json.RawMessage, h tool.Host
 	return r.inner.Run(ctx, args, h)
 }
 
+// PluginName forwards to the inner wrapper so registry consumers can
+// group tools by plugin without unwrapping the renamedTool layer.
+func (r *renamedTool) PluginName() string {
+	if pn, ok := r.inner.(interface{ PluginName() string }); ok {
+		return pn.PluginName()
+	}
+	return ""
+}
+
+// PluginName returns the manifest name the bundled plugin tool was
+// registered under (e.g. "stado-builtin-tool-fs"). Implements the
+// runtime.pluginNamer interface — used by AutoloadedPluginNames to
+// group autoloaded tools by source module on the TUI landing screen.
+func (p *bundledPluginTool) PluginName() string { return p.manifest.Name }
+
 func (p *bundledPluginTool) Name() string        { return p.def.Name }
 func (p *bundledPluginTool) Description() string { return p.def.Description }
 func (p *bundledPluginTool) Schema() map[string]any {
