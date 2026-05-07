@@ -41,8 +41,25 @@ Plan also rewritten this turn for the round-2 design pivot:
 4 types (`Resolver` / `UserConfigResolver` / `StrictResolver` /
 `RootResolver`) instead of D12's original 2.
 
-Up next: Phase 2.1.a — `Resolver` (workdir) + `RootResolver`
-(independent constructor) + security tests.
+Phase 2.1.a: **complete.** `Resolver` (workdir) +
+`RootResolver` (independent constructor) landed in
+`internal/workdirpath/resolver.go` and `root_resolver.go`. 23
+new tests covering construction, security boundary (symlink
+escape, nested-path acceptance, parent-symlink-escape via
+write), and RootResolver's borrowed-handle contract. All pass
+under `-count=10 -race`. Existing 29 legacy tests untouched
+and green. Methods are thin delegators to legacy during the
+2.1.a-c window; dependency flips at 2.1.d.
+
+Canary callers deferred to 2.1.e (broad migration). Most
+high-traffic legacy callers use the fns once per function;
+constructing a Resolver per call is more verbose than legacy.
+The ergonomic win materialises during refactors that store the
+resolver as a struct field, naturally part of broad migration.
+
+Up next: Phase 2.1.b — `UserConfigResolver` (XDG/HOME longest
+anchor + strict fallback). Highest-traffic flavor (74 calls
+across 3 user-config legacy fns).
 
 ## Queued (in order, per plan)
 

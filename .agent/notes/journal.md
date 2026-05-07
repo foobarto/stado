@@ -51,6 +51,42 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — 2.1.a Resolver + RootResolver landed
+
+Both new types compile and pass their own tests (23 new tests).
+Legacy unchanged; existing 29 tests still pass. Stable under
+`-count=10 -race`.
+
+Methods are thin delegators to the legacy implementations during
+this migration window. The dependency flips at 2.1.d: legacy
+becomes one-line wrappers around the new types.
+
+Canary-caller decision: gemini round-2 wanted a canary migration
+per type for ergonomic feedback before the API locks in at 2.1.d.
+After surveying the actual call-site distribution, I'm deferring
+canaries to 2.1.e (broad migration). Reason: the highest-traffic
+legacy functions (OpenRootUnderUserConfig: 43 calls,
+MkdirAllUnderUserConfig: 21) are user-config flavor — landing
+in 2.1.b. Most workdir / *os.Root callers use the legacy fns
+ONCE per function and have no implicit workdir field, so
+constructing a Resolver per call is genuinely more verbose than
+the legacy form. The ergonomic win comes when a caller holds
+the resolver as a long-lived struct field, which is a refactor
+better done as part of broad migration.
+
+API ergonomic review at desk-check time:
+- `Resolver`: clean, but most callers will need light refactoring
+  to take advantage (store the resolver as a field rather than
+  constructing per call).
+- `RootResolver`: independent constructor is the right call.
+  Callers with a long-lived *os.Root (e.g.
+  `internal/runtime/conversation.go`) will see immediate
+  reduction. One-shot callers won't.
+- `OpenRegularFile` (read-only) feels right; the explicit
+  read-only-ness signals intent at the call site.
+- No `OpenFile(flags)` was rejected for good reason — it would
+  invite O_CREATE/O_TRUNC drift.
+
 ## 2026-05-07 — A2 design pivot + 2.1.aa mcpbridge audit
 
 Two rounds of code-level consultation (codex + gemini) on A2's
