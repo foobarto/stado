@@ -64,6 +64,16 @@ Plugins / Infra / Fixes.
   `stado tool list` first. Pulled from the live registry, so installed
   plugins show up alongside bundled ones; the `stado-builtin-tool-`
   manifest prefix is stripped for the display label.
+- Quit-confirm modal (Ctrl-D) polished. Title is action-oriented
+  ("Quit stado?"); keys render as bordered keycap chips with quit /
+  cancel labels; an in-flight subline surfaces ("an in-flight
+  shell.bash call will be cancelled" / "the current response will
+  stop streaming") so the user knows what they'd lose by quitting
+  now. The modal now overlays on top of the chat (rows above and
+  below remain visible) instead of replacing the whole frame with an
+  empty canvas. New helper at internal/tui/overlays/CenterOver
+  composites popups over a base render — reused by the upcoming
+  approval-drawer polish.
 
 ### Plugin ABI migration note (for plugin authors)
 

@@ -78,8 +78,15 @@ func TestQuitConfirmRendersModal(t *testing.T) {
 	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 
 	out := m.View()
-	if !contains(out, "Confirm exit?") {
-		t.Fatalf("quit confirm modal missing prompt: %q", out)
+	// Q4 polish: the prompt is "Quit stado?" + key chips +
+	// Enter/Esc hint. Assert on the action-oriented title +
+	// at least one keycap label so future label tweaks don't
+	// silently regress the modal.
+	if !contains(out, "Quit stado?") {
+		t.Fatalf("quit confirm modal missing title: %q", out)
+	}
+	if !contains(out, "quit") || !contains(out, "cancel") {
+		t.Fatalf("quit confirm modal missing key labels: %q", out)
 	}
 }
 
