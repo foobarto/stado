@@ -8,6 +8,25 @@ package main
 // airgap, works when the user never ran a collector at all.
 //
 // Opencode/pi parity motivation — dogfood gap #3 (research 2026-04-20).
+//
+// JSON schema versioning (--json):
+//
+// `stado stats --json` is consumed by external integrators for token /
+// cost accounting. The output carries `"schema_version": N` and the
+// shape is stable within a major schema version. Field changes that
+// rename or remove keys bump schema_version and are documented in
+// CHANGELOG.md with a migration note. Adding new keys (purely
+// additive) does not bump the version.
+//
+// Schema 1 (v0.45.1+):
+//   schema_version       integer, currently 1
+//   window_days          int — --days flag value
+//   session_id           string — --session filter (omitted when empty)
+//   model_filter         string — --model filter (omitted when empty)
+//   total                {calls, tokens_in, tokens_out, cost_usd}
+//   total_duration_ms    int64
+//   by_model             { "<model>": {calls, tokens_in, tokens_out, cost_usd} }
+//   by_tool              { "<tool>":  {calls, duration_ms} }
 
 import (
 	"encoding/json"
@@ -87,6 +106,12 @@ var statsCmd = &cobra.Command{
 	},
 }
 
+// StatsJSONSchemaVersion is the major version of the `stado stats
+// --json` output schema. Bumped on rename / remove changes; additive
+// changes (new keys) do not bump it. Documented in stats.go's
+// top-of-file comment and CHANGELOG.md migration notes.
+const StatsJSONSchemaVersion = 1
+
 // renderStatsJSON marshals the aggregate into a stable JSON shape
 // suitable for scripting (jq, CI gating, dashboards). Field names
 // use snake_case for consistency with external tooling; values are
@@ -106,17 +131,19 @@ func renderStatsJSON(w interface {
 		DurationMs int64 `json:"duration_ms"`
 	}
 	out := struct {
-		WindowDays  int                 `json:"window_days"`
-		SessionID   string              `json:"session_id,omitempty"`
-		ModelFilter string              `json:"model_filter,omitempty"`
-		Total       modelRow            `json:"total"`
-		DurationMs  int64               `json:"total_duration_ms"`
-		ByModel     map[string]modelRow `json:"by_model"`
-		ByTool      map[string]toolRow  `json:"by_tool"`
+		SchemaVersion int                 `json:"schema_version"`
+		WindowDays    int                 `json:"window_days"`
+		SessionID     string              `json:"session_id,omitempty"`
+		ModelFilter   string              `json:"model_filter,omitempty"`
+		Total         modelRow            `json:"total"`
+		DurationMs    int64               `json:"total_duration_ms"`
+		ByModel       map[string]modelRow `json:"by_model"`
+		ByTool        map[string]toolRow  `json:"by_tool"`
 	}{
-		WindowDays:  statsDays,
-		SessionID:   statsSession,
-		ModelFilter: statsModel,
+		SchemaVersion: StatsJSONSchemaVersion,
+		WindowDays:    statsDays,
+		SessionID:     statsSession,
+		ModelFilter:   statsModel,
 		Total: modelRow{
 			Calls:     agg.totalCalls,
 			TokensIn:  agg.totalIn,

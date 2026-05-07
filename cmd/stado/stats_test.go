@@ -58,6 +58,9 @@ func TestStats_JSONEmptyWhenNoSessions(t *testing.T) {
 	if wd, ok := got["window_days"].(float64); !ok || int(wd) != 7 {
 		t.Errorf("window_days: got %v", got["window_days"])
 	}
+	if sv, ok := got["schema_version"].(float64); !ok || int(sv) != StatsJSONSchemaVersion {
+		t.Errorf("schema_version: got %v, want %d", got["schema_version"], StatsJSONSchemaVersion)
+	}
 	if _, ok := got["total"].(map[string]any); !ok {
 		t.Errorf("missing total: %v", got)
 	}

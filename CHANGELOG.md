@@ -6,7 +6,67 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
-(no unreleased changes)
+### Architecture
+
+- **EP-no-internal-tools Step 7** (final family). The fs.read/write/edit/
+  glob/grep + readctx.read tools migrate to the wasm `fs.wasm` bundled
+  plugin, dispatching through `stado_fs_*` primitives end-to-end. The
+  seven previously-separate wasm modules (read/write/edit/glob/grep/
+  read_with_context/readctx-ng) collapse into one. Wire form: `fs__read`,
+  `fs__write`, `fs__edit`, `fs__glob`, `fs__grep`, `readctx__read`.
+- New host primitive **`stado_fs_last_error`** lets wasm plugins retrieve
+  the host's structured error message (scope-guard violation, capability
+  deny, IO failure) after a `stado_fs_*` primitive returns -1. Used by
+  the wasm fs plugin to surface the specific cause to the model
+  ("outside write_scope" vs generic "write failed").
+
+### ACP
+
+- **Configurable `MaxTurns`** (B1/F1 from HTB integration testing).
+  Resolution order: `session/new`'s optional `{"maxTurns": N}` param
+  (per-session pin from the ACP client) → `[acp] max_turns = N` in
+  `config.toml` (operator default) → built-in fallback (50 with
+  `--tools`, 1 without). Editor integrators no longer need to know
+  stado's compiled-in default.
+- **Eager plugin ABI verify** (B2/F2). When `stado acp --tools`
+  receives `session/new`, every active installed plugin's wasm is
+  compiled (without instantiation) and checked for the required ABI
+  exports (`stado_alloc`, `stado_free`, one `stado_tool_<name>` per
+  manifest tool). Mismatches return a single RPC error listing
+  rebuild-required plugins, instead of the agent retrying through
+  the entire turn budget against broken tools.
+- **Documentation** for `session/update` event kinds, `.env`
+  auto-load behaviour, and the new `MaxTurns` knobs added to
+  `stado acp --help` and the server protocol comment.
+
+### CLI
+
+- `stado stats --json` output now carries `"schema_version": 1`. The
+  schema is stable within a major version; renames/removals bump it
+  and are documented in this changelog with a migration note. Pure
+  additions (new keys) do not bump.
+
+### Plugin ABI migration note (for plugin authors)
+
+`v0.45.0` shipped the unified `pluginrun.Run` invocation path. Plugins
+built against the v0.44.x ABI continue to work unchanged: the wasm
+contract (`stado_alloc` / `stado_free` / `stado_tool_<name>` exports,
+return-len-or-negative-error wire format) is unchanged. New primitives
+(`stado_fs_last_error`, `sandbox` arg on `stado_exec` / `stado_proc_spawn`,
+`stado_fs_readdir`, `stado_fs_stat`) are additive — old plugins that
+don't declare the new caps don't see them.
+
+For plugin authors rebuilding against v0.45.x:
+
+1. Re-run your plugin build script — wasm bytes change with toolchain
+   updates and the manifest's `wasm_sha256` must match.
+2. Re-sign the manifest (`stado plugin sign <dir>`).
+3. Re-install via `stado plugin install <path>`.
+
+Stale-ABI plugins now fail fast with a single `session/new` error in
+ACP mode (see the ACP section above) and surface a clear `plugin ABI
+incomplete` message in CLI / agent-loop dispatch — no more silent
+retries.
 
 ## v0.45.0 — No internal tools (Steps 0–5)
 
