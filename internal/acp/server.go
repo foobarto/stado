@@ -184,7 +184,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		Provider:             prov,
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
-		MaxTurns:             10, // with tools enabled we may need multiple turns
+		MaxTurns:             50, // with tools enabled we may need multiple turns
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
