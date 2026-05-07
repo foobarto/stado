@@ -35,8 +35,13 @@ to stop and re-scope before continuing.
 1. **No behaviour changes.** A refactor that "fixes a bug as a side
    effect" gets parked into a separate fix plan or EP.
 2. **No EPs.** Operator-locked. Plan files only.
-3. **No expansion of public API surface.** All structural splits
-   reduce or hold steady; never grow.
+3. **No expansion of public API surface (end-state).** All
+   structural splits reduce or hold steady measured at phase end.
+   *Acknowledged trade-off:* Phase 2.1 (A2) temporarily grows the
+   `workdirpath` exported surface during the wrapper-window
+   migration — `Resolver` lands alongside the legacy 23 functions
+   before legacy is deleted. Net surface at end of A2 shrinks
+   versus today; intermediate commits intentionally do not.
 4. **No new dependencies.** All work uses stdlib + existing imports.
 5. **No "while I'm here" cleanup** beyond what each phase explicitly
    scopes. Smaller wins go in the addendum at the end of this plan,
@@ -50,7 +55,7 @@ to stop and re-scope before continuing.
 | #   | Phase                | Item                                                  | Cost | Status |
 |-----|----------------------|-------------------------------------------------------|------|--------|
 | 1.1 | Test coverage        | Plugins/runtime bridges — contract tests              | M    | Pending |
-| 1.2 | Test coverage        | Sandbox runner composition test                       | M    | Pending |
+| 1.2 | Test coverage        | Sandbox runner contract test (wired layers only)      | S    | Pending |
 | 1.3 | Test coverage        | `internal/runtime/fleet_bridge.go` lifecycle tests    | M    | Pending |
 | 2.1 | Tier A — A2          | `workdirpath` API simplification (`Resolver` type)    | M    | Pending |
 | 2.2 | Tier A — A1          | `Model` struct + `model_render.go` consolidation      | L    | Pending |
@@ -59,7 +64,7 @@ to stop and re-scope before continuing.
 | 3.2 | Tier B — B2          | `bundled_plugin_tools.go` schema builder              | S    | Pending |
 | 3.3 | Tier B — B3          | Bridge lifecycle/wiring unification                   | M    | Pending |
 
-Total: 9 items. Cost: 6×M + 2×L + 1×S, ballpark a few weeks of focused
+Total: 9 items. Cost: 5×M + 2×L + 2×S, ballpark a few weeks of focused
 work. The plan does not commit to a wall-clock duration; each phase
 ships when it ships.
 
@@ -93,8 +98,9 @@ checkpoints batch into one merge.
 3. **End of Phase 2.2 (A1)**. Model + render consolidation. Largest
    single mechanical churn. Visible only in diff; runtime behaviour
    identical.
-4. **End of Phase 2.3 (A3)**. Update handler split. Mechanical move
-   into `tui/behavior/`; smallest semantic risk in Tier A.
+4. **End of Phase 2.3 (A3)**. Update handler split into
+   `handler_*.go` files in `package tui`; smallest semantic risk
+   in Tier A.
 5. **End of Phase 3** (after 3.1+3.2+3.3). Tier-B sweep. Tests from
    1.1 protect the B3 unification.
 
@@ -205,62 +211,68 @@ unit failures rather than session timeouts.
 - [ ] `go test ./internal/plugins/runtime/... -count=10 -race` for
       flake check.
 
-### 1.2 Sandbox runner composition test
+### 1.2 Sandbox runner contract test (wired layers only)
 
-**What ships.** A single `sandbox_composition_test.go` that exercises
-multiple sandbox layers in concert (Linux: `landlock + seccomp +
-bwrap` over the same target binary; macOS: `sandbox-exec`). Today's
-per-runner tests assert each layer in isolation; a misconfigured
-policy could pass each but fail in composition.
+**Scope correction (round-2 review).** The original brief assumed
+`landlock + seccomp + bwrap` are composed today over the same
+target. Verified against HEAD: `internal/sandbox/runner_linux.go`
+detects only `BwrapRunner` and `NoneRunner`; landlock and seccomp
+exist as separate runners but composition is explicitly flagged
+as follow-up work in source comments. Writing a composition test
+today would mean writing the integration — which violates the
+"no behaviour changes" non-goal.
+
+**What ships (revised).** A small `runner_contract_test.go` that
+asserts the contract `runner.Runner` provides for the runner
+selected at HEAD on each platform — `BwrapRunner` on Linux,
+`runner_darwin` on macOS, `NoneRunner` as fallback. The contract
+is: deny path X under policy Y produces error Z; allow path X
+under policy Y exits 0; the error reported maps to a defined
+runner-side type (this is what `stado audit` surfaces).
 
 **Files in scope.** Read-only refs:
 - `internal/sandbox/runner.go` (interface).
-- `internal/sandbox/landlock_linux.go`.
-- `internal/sandbox/seccomp_linux.go`.
-- `internal/sandbox/bwrap_linux.go`.
-- `internal/sandbox/sbexec_darwin.go`.
-- Existing per-runner tests (`landlock_linux_test.go`, etc.) — must
-  remain green; this phase doesn't touch them.
+- `internal/sandbox/runner_linux.go`.
+- `internal/sandbox/runner_darwin.go`.
+- `internal/sandbox/landlock_linux.go` — single-runner tests only.
+- `internal/sandbox/seccomp_linux.go` — single-runner tests only.
+- Existing per-runner tests (`runner_linux_test.go`,
+  `landlock_linux_test.go`, `seccomp_linux_test.go`) — must remain
+  green; this phase doesn't touch them.
 
-**File added.** `internal/sandbox/composition_test.go`.
+**File added.** `internal/sandbox/runner_contract_test.go`.
 
-**Test scenarios.** Table-driven, each scenario:
-1. Compose a multi-layer policy (e.g., landlock-deny-FS +
-   seccomp-allow-net + bwrap-uid-isolation).
-2. Run a small built-in test target (a `_testmain`-style helper
-   binary, or invoke a simple shell command in a sandbox-spawned
-   subprocess).
-3. Assert the composed effect: e.g., FS-write to `/etc` denied
-   despite seccomp allowing the syscall, because landlock blocks
-   the open.
-4. Assert error mapping: which layer reported the denial
-   (this is what an operator sees in `stado audit`).
-
-Minimum scenarios:
-- FS-deny via landlock under bwrap; expect EACCES.
-- Net-deny via seccomp + landlock-allow; expect ECONNREFUSED or
-  EPERM as the runner currently maps it.
-- macOS: sandbox-exec policy denies a write under bwrap-equivalent
-  isolation; expect the runner's standard denial path.
-- The "composed-but-empty" case: all layers default-allow → call
-  succeeds (negative control).
+**Test scenarios.** For each runner currently selected by
+`runner_linux.go` / `runner_darwin.go`, exercise:
+1. **FS-deny.** Policy denies write to `/etc`; runner returns the
+   typed denial error.
+2. **Allow.** Policy allows the same path; subprocess exits 0.
+3. **Error mapping.** Denied call reports the layer that denied
+   it via the runner's standard error type.
+4. **Negative control.** Default-allow policy → call succeeds.
 
 **Skip discipline.**
-- `t.Skip` cleanly when a layer is unavailable on the host:
-  - Linux: skip if `bwrap` not in PATH, or if seccomp/landlock not
-    supported by kernel (probe via small stub).
-  - macOS: skip if `sandbox-exec` is missing (rare but possible
-    in containers).
-  - Windows: entire test file uses `//go:build linux || darwin`.
-- A skip is not a failure but is logged so CI dashboards can
-  notice the matrix has gaps.
+- `t.Skip` cleanly when the layer is unavailable on the host:
+  - Linux: skip if `bwrap` not in PATH (use `NoneRunner` path
+    instead).
+  - macOS: skip if `sandbox-exec` missing.
+  - Windows: file uses `//go:build linux || darwin`.
+
+**Park as separate spec.** Multi-layer composition
+(`landlock + seccomp + bwrap` stacked over one target) requires
+production wiring that doesn't exist today. Capture it in
+`.claude/specs/open/sandbox-composition.md` (or equivalent) at
+the end of 1.2 with what we'd want once it lands. **Do not let
+1.2 write that integration.**
 
 **Verification.**
 - [ ] `go test ./internal/sandbox/... -race` passes on Linux dev box.
-- [ ] Same on macOS dev box.
-- [ ] Composition test produces a clear skip line on hosts without
-      a layer; no false-fail.
+- [ ] Same on macOS dev box (if available).
+- [ ] Contract test skips cleanly on hosts without `bwrap` /
+      `sandbox-exec`; no false-fail.
 - [ ] Existing per-runner tests untouched and still green.
+- [ ] Follow-up spec for landlock+seccomp+bwrap composition
+      written and committed.
 
 ### 1.3 `internal/runtime/fleet_bridge.go` lifecycle tests
 
@@ -309,14 +321,21 @@ produces no surprises.
 ### 2.1 (A2) `workdirpath` API simplification — `Resolver` type
 
 **What ships.** A new `Resolver` type in `internal/workdirpath/`
-that consolidates the 38-public-function API into ~6 cohesive
+that consolidates the legacy public-function API into ~6 cohesive
 methods. The legacy functions stay as **thin wrappers** around
 `Resolver` for the duration of the migration; they're deleted
 when call-site churn is low and all production callers have
 moved to the new API. The migration does not change behaviour:
 every legacy call lands on the same code path it does today.
 
-**The legacy surface.** Inventory at HEAD:
+**The legacy surface.** Inventory at HEAD: 23 exported functions
+in `internal/workdirpath/workdirpath.go` (verified 2026-05-07).
+**Re-inventory step at A2 start:** run
+`go doc -all ./internal/workdirpath | grep '^func '` and confirm
+the count + names before drafting the migration commits. The
+prior plan version cited "38 functions" and a duplicate
+`MkdirAllRootNoSymlink` declaration — both wrong. Sample of the
+actual surface (non-exhaustive):
 `Resolve`, `RootRel`, `OpenReadFile`,
 `ReadRegularFileNoSymlinkLimited`,
 `ReadRootRegularFileLimited`,
@@ -325,12 +344,12 @@ every legacy call lands on the same code path it does today.
 `OpenRegularFileNoSymlink`,
 `ReadRegularFileUnderUserConfigNoLimit`,
 `MkdirAllUnderUserConfig`, `MkdirAllNoSymlinkUnder`,
-`MkdirAllRootNoSymlink` (declared twice — see open question),
-`MkdirAllNoSymlink`, `OpenRootNoSymlink`,
-`OpenRootUnderUserConfig`, `OpenRootNoSymlinkUnder`,
-`RemoveAllNoSymlink`, `WriteFile`, `WriteRootFileAtomic`,
+`MkdirAllRootNoSymlink`, `MkdirAllNoSymlink`,
+`OpenRootNoSymlink`, `OpenRootUnderUserConfig`,
+`OpenRootNoSymlinkUnder`, `RemoveAllNoSymlink`,
+`WriteFile`, `WriteRootFileAtomic`,
 `WriteRootFileAtomicExactMode`, `RootRelForWrite`,
-`Glob`, `GlobLimited`, plus internals.
+`Glob`, `GlobLimited`.
 
 **Target shape.** A `Resolver` parameterised by a trust anchor
 (workdir root, user config dir) with these primitives:
@@ -376,7 +395,12 @@ without inventing yet another function.
    workdirpath logic. Fold the audit into A2; don't break
    into a separate phase. If MCP currently resolves paths
    without going through workdirpath, the migration is to make
-   it use `Resolver`.
+   it use `Resolver`. **Escape hatch:** if the audit reveals
+   non-trivial divergence (mcpbridge has its own confinement
+   model, or migration would require behaviour-changing logic
+   to unify), park as a separate spec rather than expanding
+   A2. The bar is mechanical migration; anything else gets
+   captured for follow-up.
 3. Migrate high-value callers (per-package, in dependency order):
    `internal/runtime/`, `internal/plugins/runtime/`,
    `internal/tools/`, `internal/mcpbridge`, `internal/state/`,
@@ -412,9 +436,16 @@ failure. Mitigations:
 - [ ] `go vet ./...` clean.
 - [ ] All call sites migrated; no `workdirpath.<LegacyFn>(`
       references remain in production code.
-- [ ] mcpbridge audit produced a defined outcome (either a
-      migration to `Resolver` or a written rationale for why
-      mcpbridge stays separate).
+- [ ] mcpbridge audit produced a defined outcome (migration to
+      `Resolver`, written rationale for staying separate, or a
+      parked follow-up spec for non-trivial divergence).
+- [ ] Cross-platform path parity: `Resolver` test cases run on
+      Linux *and* Windows. Use `filepath.FromSlash` /
+      `filepath.ToSlash` consistently; reject any test that
+      hard-codes `/`-separated paths in a path-comparison.
+      Windows-specific edge cases that the legacy 23-fn API
+      currently handles (drive prefixes, UNC paths, reserved
+      names) keep working through the new API.
 - [ ] Smoke: `stado --help`, `stado run --help`,
       `stado plugin install --help` all exit 0.
 
@@ -422,28 +453,60 @@ failure. Mitigations:
 
 **What ships.** The TUI `Model` struct shrinks; overlay state
 moves into the existing `internal/tui/overlays/` package
-(which already has `center.go`, `help.go`); pickers consolidate
-into a `internal/tui/pickers/` package (creating it if not
-already present, otherwise consolidating into existing structure).
-`model_render.go` shrinks correspondingly: per-overlay rendering
-moves with the overlay; per-picker rendering moves with the
-picker. `Model.View()` becomes a thin orchestrator.
+(which already has `center.go`, `help.go`). The 8 existing picker
+packages stay separate; a small shared `Picker` interface lands
+either in `internal/tui/overlays/` or a new leaf
+`internal/tui/pickers/` package — see "picker contract location"
+below. `model_render.go` shrinks correspondingly: per-overlay
+rendering moves with the overlay; per-picker rendering moves
+with the picker. `Model.View()` becomes a thin orchestrator.
 
-**Framing — consolidation, not new packages.** Codex's correction:
-the relevant package directory (`internal/tui/overlays/`) already
-exists. A1 is moving sprawl from `model.go` and `model_render.go`
-*into* that existing package, not creating a parallel structure.
-Where a sub-area doesn't yet have a package, A1 creates it; where
-it does, A1 moves work into it.
+**Framing — consolidation, not new packages.** The relevant package
+directory (`internal/tui/overlays/`) already exists. A1 is moving
+sprawl from `model.go` and `model_render.go` *into* that existing
+package, not creating a parallel structure. The 8 picker packages
+(`agentpicker`, `filepicker`, `fleetpicker`, `modelpicker`,
+`personapicker`, `sessionpicker`, `taskpicker`, `themepicker`)
+remain as separate packages; A1 adds a shared interface they all
+implement, no merging.
 
 **The big picture.**
 - `Model` today: ~120+ field-equivalent lines mixing chat state,
   TUI lifecycle, picker overlays, approval/choice flows, sidebar
   management, background plugin orchestration, loop/monitor.
-- After A1: `Model` holds chat state + lifecycle + a single
-  `activeOverlay Overlay` slot (interface, not pointer to typed
-  struct) + the sidebar state. Pickers are children of an
-  `OverlayPicker` implementation.
+- After A1: `Model` holds chat state + lifecycle + an
+  `overlayStack []Overlay` (or `activeOverlay Overlay` — see
+  "overlay slotting decision" below) + the sidebar state.
+  Pickers are children of an `OverlayPicker` implementation that
+  wraps the existing picker packages via the shared interface.
+
+**Overlay slotting decision (decide before first A1 commit).**
+Today's `Model` has multiple `*Picker.Visible` flags that may
+simultaneously be true. Two options:
+- **Single slot (`activeOverlay Overlay`).** Simpler, but breaks
+  any flow where two overlays coexist. Could be a behaviour change.
+- **Stack (`overlayStack []Overlay`).** Preserves current
+  multi-visible behaviour as the default. Marginally more state
+  to manage; ESC pops the top.
+
+**Default = preserve current behaviour.** Choose the stack unless
+an audit at A1 design time confirms multi-visible was always a bug
+nobody depended on; in that case open a separate behaviour-fix
+plan. Don't silently flip semantics inside a "no behaviour
+changes" refactor.
+
+**Picker contract location.** The shared `Picker` interface must
+live in a leaf package — one that the 8 picker packages can
+import without creating cycles. Options:
+- Inside `internal/tui/overlays/` if `overlays/` itself doesn't
+  end up importing any picker package.
+- A new `internal/tui/pickers/` package that holds *only* the
+  interface and shared types; never imports a picker package.
+
+The interface package's import set must stay narrow (stdlib +
+`bubbletea` types). If you find yourself wanting to import a
+specific picker into the interface package, you've put logic in
+the wrong layer.
 
 **Overlay interface.**
 
@@ -467,17 +530,23 @@ Implementations:
 - `overlays.Picker{}` — wrapper around the picker package.
 
 **Migration order.**
-1. Define `Overlay` interface in `internal/tui/overlays/overlay.go`.
-2. Move `Help` (already an overlay-shaped thing) onto the new
-   interface. One commit.
-3. Move `Status` overlay. One commit per overlay until done.
-4. Migrate `Model` to hold one `Overlay` slot (or an ordered slice
-   if overlay layering matters — see open question "OverlayPicker design").
-5. Pickers: extract `internal/tui/pickers/` (or use existing
-   `modelpicker` package as anchor). Each picker becomes its own
-   type implementing the picker contract. `OverlayPicker` wraps
-   one.
-6. `model_render.go` per-overlay/per-picker render code follows
+1. Decide overlay slotting (single vs. stack). Default: stack.
+   Documented in commit 1 with rationale.
+2. Define `Overlay` interface in `internal/tui/overlays/overlay.go`.
+3. Define `Picker` interface in its leaf location (see "picker
+   contract location"). One commit.
+4. Move `Help` (already an overlay-shaped thing) onto the new
+   `Overlay` interface. One commit.
+5. Move `Status` overlay. One commit per overlay until done
+   (Status, QuitConfirm, Approval, Choice).
+6. Migrate `Model` to hold the chosen overlay slot/stack. One
+   commit.
+7. Add the shared `Picker` interface implementation to each of
+   the 8 picker packages: `agentpicker`, `filepicker`,
+   `fleetpicker`, `modelpicker`, `personapicker`,
+   `sessionpicker`, `taskpicker`, `themepicker`. One commit per
+   picker. `OverlayPicker` wraps any picker via this interface.
+8. `model_render.go` per-overlay/per-picker render code follows
    each move. `View()` becomes ~50 lines.
 
 **Files touched.**
@@ -485,13 +554,13 @@ Implementations:
 - `internal/tui/model_render.go` — significant shrink.
 - `internal/tui/model_status_modal.go`, `model_quit_confirm.go`,
   `model_help.go` (and their test files) — move to overlay package.
-- `internal/tui/overlays/` — gain new files per overlay.
-- `internal/tui/pickers/` (or existing separate picker packages:
-  `agentpicker`, `fleetpicker`, `modelpicker`, `personapicker`,
-  `sessionpicker`, `taskpicker`, `themepicker`) — at A1 design time,
-  confirm whether "pickers consolidate" means adding a shared
-  interface to the 8 existing separate packages (preferred) or
-  merging them into one. The plan intends the former.
+- `internal/tui/overlays/` — gain new files per overlay (and
+  possibly the `Picker` interface).
+- `internal/tui/pickers/` — *new leaf package* if `overlays/`
+  isn't a fit; holds only the `Picker` interface and shared
+  types.
+- The 8 existing picker packages — gain a small file
+  implementing the shared `Picker` interface; no other change.
 - TUI tests adjust import paths but assertions stay the same.
 
 **Risk.** Largest mechanical churn in the program. Risk vector:
@@ -503,10 +572,19 @@ ESC-while-streaming, etc.) regresses subtly. Mitigations:
 
 **Verification.**
 - [ ] `go test ./internal/tui/... -race` passes.
-- [ ] `Model` struct field count reduced (target: < 60).
+- [ ] `Model` struct field count reduced (verify baseline at A1
+      design time; target a meaningful reduction, not a
+      fixed number — current pre-A1 count is the baseline).
 - [ ] `model_render.go` LoC reduced (target: < 800 from 1937).
 - [ ] One `Overlay` interface; >= 5 implementations.
+- [ ] One `Picker` interface in its leaf package; 8
+      implementations (one per existing picker package).
+- [ ] Picker interface package imports nothing from the 8 picker
+      packages (no cycles).
 - [ ] Smoke: `stado run` opens, ESC closes overlays, Q quits.
+      If multi-visible overlays exist today, the same combinations
+      still display after migration (the slotting decision
+      preserves current behaviour).
 - [ ] Help / Status / Approval / Choice / Picker each tested
       against the `Overlay` interface (not the old typed shape).
 
@@ -514,57 +592,83 @@ ESC-while-streaming, etc.) regresses subtly. Mitigations:
 
 **What ships.** The `tea.Model.Update` handler — currently split
 across `model_update.go` (1544 LoC), `model_commands.go` (1728),
-`model_stream.go` (1625) — moves into a `internal/tui/behavior/`
-package, one file per message family. `model_update.go` becomes
-a thin dispatcher: ~100 lines that route by message type.
+`model_stream.go` (1625) — splits into one file per message
+family inside `package tui` (in `internal/tui/`, *not* a
+subdirectory). `model_update.go` becomes a thin dispatcher
+(~100 lines) that routes by message type to per-family handler
+functions.
 
-**The split.**
-- `tui/behavior/commands.go` — slash-command and user-input
-  message handlers.
-- `tui/behavior/stream.go` — provider streaming + tool-call
-  flow handlers.
-- `tui/behavior/picker_response.go` — picker selection / dismiss
+**Why same package, not a subpackage.** Round-1 review caught
+that handler functions which accept and return `*tui.Model`
+cannot live in `internal/tui/behavior/`: `tui` imports
+`behavior` (for the dispatch call), and `behavior` imports `tui`
+(for the `Model` type) — Go import cycle. The existing
+`overlays/` package avoids this by never importing `tui` and
+only accepting non-Model arguments; handler functions don't
+have that option. Solutions considered and rejected: extracting
+`Model` to its own subpackage (too much blast radius for a
+no-behaviour-change refactor); narrowing handler signatures via
+interfaces (`Model` is too big for a clean interface). The
+honest boundary for handlers that need full `*Model` is
+filename-level, not package-level.
+
+**The split (filenames, all in `package tui`).**
+- `handler_commands.go` — slash-command and user-input message
   handlers.
-- `tui/behavior/lifecycle.go` — init / quit / window-resize.
-- `tui/behavior/tools.go` — tool invocation + result handlers.
+- `handler_stream.go` — provider streaming + tool-call flow
+  handlers.
+- `handler_picker_response.go` — picker selection / dismiss
+  handlers.
+- `handler_lifecycle.go` — init / quit / window-resize.
+- `handler_tools.go` — tool invocation + result handlers.
 
-Each handler has the same shape:
+Each handler has the shape:
 ```go
-func HandleSlashCommand(m *tui.Model, msg SlashCommandMsg) (tui.Model, tea.Cmd)
+func handleSlashCommand(m *Model, msg SlashCommandMsg) (Model, tea.Cmd)
 ```
+
+(unexported — same package, no need for `tui.Model` qualifier
+or capitalised symbol).
 
 The dispatcher in `model_update.go`:
 ```go
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
     switch msg := msg.(type) {
-    case SlashCommandMsg:    return behavior.HandleSlashCommand(&m, msg)
-    case StreamDeltaMsg:     return behavior.HandleStreamDelta(&m, msg)
+    case SlashCommandMsg:    return handleSlashCommand(&m, msg)
+    case StreamDeltaMsg:     return handleStreamDelta(&m, msg)
     // ...
     }
 }
 ```
 
-**The Update handler today.** model_update.go's giant
+**Naming convention.** `handler_*.go` for behavior; render code
+stays in the `model_render.go` family. The filename prefix is
+the only separation now that everything's in `package tui` —
+keep it strict so the boundary between event processing and
+rendering remains visible to readers.
+
+**The Update handler today.** `model_update.go`'s giant
 type-switch covers ~30+ message variants. Inventory pass at
 phase start: extract a list of every `case` arm, name the
-target behavior file, commit-by-commit move plan.
+target handler file, commit-by-commit move plan.
 
-**Optional: telemetry wrapper.** Gemini flagged that
-`model_update.go` may have heavy otel/telemetry calls inline
-that bloat the handlers. *Verify before committing.* If true,
-introduce `tui/behavior/telemetry.go` with `WithTelemetry(handler)`
-wrapper; otherwise skip.
+**Optional: telemetry wrapper.** Round-1 review flagged that
+`model_update.go` may have heavy inline otel/telemetry calls.
+*Verify before committing.* If true, introduce a
+`withTelemetry(handler)` wrapper in `handler_lifecycle.go` (or
+a new `handler_telemetry.go`); otherwise skip.
 
 **Files touched.**
 - `internal/tui/model_update.go` — shrinks to dispatcher.
-- `internal/tui/model_commands.go` — content moved out, file
-  may delete.
-- `internal/tui/model_stream.go` — same.
-- `internal/tui/behavior/` — new package.
+- `internal/tui/model_commands.go` — content moved into
+  `handler_commands.go`; file may delete (or be renamed).
+- `internal/tui/model_stream.go` — same shape, into
+  `handler_stream.go`.
+- `internal/tui/handler_*.go` — new files in `package tui`.
 
 **Approach.**
 1. Inventory pass: list every `case` arm in `Update`. For each,
-   target file under `behavior/`.
+   target a `handler_*.go` file.
 2. Extract one message family at a time. One commit per family.
 3. After each extraction, run the TUI tests for that family.
 4. Last commit: `model_update.go` becomes the dispatcher.
@@ -575,34 +679,15 @@ separate concerns. Risk: a handler that mutates `Model` fields
 in non-obvious ways doesn't survive the move (the `*Model`
 pointer signature should preserve this, but verify).
 
-**⚠ Import-cycle pre-flight (decide before execution).** Handlers
-that accept `*tui.Model` cannot live in `internal/tui/behavior/`
-as a separate package: `tui` (which houses `model_update.go`)
-would import `behavior`, and `behavior` would import `tui` for the
-`Model` type — Go import cycle. The existing `overlays/` package
-avoids this by never importing `tui`. Two options:
-
-1. **Keep files in `package tui`** — place `handler_commands.go`,
-   `handler_stream.go`, etc. directly in `internal/tui/`. No
-   subdirectory, no new package. The dispatcher in
-   `model_update.go` is still thin (~100 lines); the per-family
-   grouping is by filename rather than package. This is consistent
-   with the existing split across `model_commands.go` /
-   `model_stream.go`. *Recommended.*
-
-2. **Extract `Model` to a sub-package** (`internal/tui/model/`)
-   so both `tui` and `behavior` can import it without a cycle.
-   More upheaval; only warranted if the package boundary is
-   needed for reasons beyond file organisation.
-
-Confirm with operator before A3 execution starts.
-
 **Verification.**
 - [ ] `go test ./internal/tui/... -race` passes.
 - [ ] `model_update.go` < 200 LoC (dispatcher only).
-- [ ] `behavior/` package: one file per message family,
-      each < 500 LoC.
-- [ ] All handler signatures match `func(*Model, Msg) (Model, tea.Cmd)`.
+- [ ] `handler_*.go`: one file per message family, each < 500
+      LoC.
+- [ ] All handler signatures match
+      `func(*Model, Msg) (Model, tea.Cmd)`.
+- [ ] No new directory under `internal/tui/` (no `behavior/`
+      subpackage).
 - [ ] Smoke: full session flow works (open → slash command →
       stream response → tool call → quit).
 
@@ -706,19 +791,29 @@ Host setup uses `Bridge.Init`; teardown uses `Dispose`. Operations
 stay typed.
 
 **Files touched.**
-- `internal/plugins/runtime/bridge.go` (new) — `Bridge` interface.
+- `internal/plugins/runtime/bridge_lifecycle.go` (new) — `Bridge`
+  interface. **Note:** the existing `bridge.go` (verified at
+  HEAD, 9396 bytes) holds production session-bridge implementations
+  and stays as-is; pick a different filename for the new
+  interface to avoid the collision.
 - `internal/plugins/runtime/host.go` — Init/Dispose orchestration.
 - `internal/plugins/runtime/host_session.go`,
   `host_memory.go`, `host_ui.go`, `host_agent.go` — implement
   `Bridge`.
 
 **Approach.**
-1. Define `Bridge` interface.
+1. Define `Bridge` interface in `bridge_lifecycle.go`.
 2. Add `Init`/`Dispose` to each concrete bridge — initially
    no-ops where there's nothing to do.
 3. `Host` calls `Init` on each registered bridge during setup;
-   `Dispose` on teardown. Today's nil-bridge defense becomes
-   one check at registration, not every call.
+   `Dispose` on teardown. **Per-call nil-bridge checks stay.**
+   Round-1 review caught a contract conflict: `Host` fields are
+   public, so callers can construct or mutate a `Host` with a
+   nil bridge after `Init`. A single registration-time check
+   would be a behaviour change (the per-call nil → `-1` return
+   path is observable today and asserted by 1.1's contract).
+   B3 unifies the *lifecycle* (Init/Dispose/Name) only;
+   call-path safety is unchanged.
 4. The contract tests from Phase 1.1 protect this — they assert
    the four contracts (cap gate / nil / forwarding / cancel)
    regardless of whether the lifecycle goes through `Bridge.Init`.
@@ -727,13 +822,17 @@ stay typed.
 - Not a generic operations dispatcher.
 - Not a registry that erases bridge types.
 - Not a refactor of the operation method signatures.
+- Not a removal of per-call nil-bridge defense.
 
 **Verification.**
 - [ ] `go test ./internal/plugins/runtime/... -race` passes.
-- [ ] All 1.1 contract tests untouched and green.
+- [ ] All 1.1 contract tests untouched and green (especially the
+      nil-bridge contract — must still hold after B3).
 - [ ] `Host` setup is shorter (one loop, not five).
 - [ ] No new type-assertion hot paths introduced.
 - [ ] `host.go` LoC reduced.
+- [ ] Per-call `host.<X>Bridge == nil` defenses still present in
+      every host import (grep check).
 
 ---
 
@@ -756,20 +855,19 @@ natural:
 
 ## Open questions
 
-- **`MkdirAllRootNoSymlink` declared twice** in workdirpath. Real
-  duplication or a typo in my legacy-API inventory? Verify at A2
-  start; if real, the resolver migration deletes one form.
-- **`OverlayPicker` design.** Whether overlays form a stack (modal-
-  over-modal) or are mutually exclusive. Today's `Model` has
-  multiple `*Picker.Visible` flags simultaneously — meaning
-  multiple can be true. Decide at A1 design time whether that's
-  a bug to fix or a feature to preserve.
+- ~~`MkdirAllRootNoSymlink` declared twice~~ **Resolved
+  (2026-05-07).** Verified against HEAD: appears once. Plan's
+  earlier inventory was wrong; no migration action needed.
 - **Telemetry wrapper for A3.** Verify `model_update.go` actually
   has heavy inline otel/telemetry before extracting a wrapper.
   If telemetry is lightweight, skip the wrapper.
 - **A2 cherry-pick to main.** Specifically when. Probably right
   after merge checkpoint 2 (end of A2). Confirm with operator
   before cherry-picking.
+
+(The A1 overlay-slotting decision moved out of this list during
+the round-2 review pass — it now lives in Phase 2.2's "Overlay
+slotting decision" section with a recommended default.)
 
 ## Decision log
 
@@ -803,9 +901,13 @@ natural:
   (warmup); A2 → A3 → A1.
 - **Why:** A2 is the smallest of the three and has the most
   downstream callers (every fs touch); doing it first sets
-  EP-0040 up cleanly. A1 must precede A3 because the Update
-  split's destination (`tui/behavior/`) is cleaner once `Model`
-  has shed overlay/picker state.
+  EP-0040 up cleanly. A1 precedes A3 because the Update split
+  references `Model` field shapes — doing A1 first means A3
+  works against a stable struct rather than chasing field
+  renames mid-extraction. (Earlier plan versions justified the
+  ordering on `tui/behavior/` package cleanliness; that
+  rationale is stale since A3 now stays in `package tui`. The
+  state-shape stability argument is the live one.)
 
 ### D4. Phase 1.1 as contract tests, not shape tests
 
@@ -832,26 +934,34 @@ natural:
 
 ### D6. workdirpath migration via wrappers
 
-- **Decided:** `Resolver` lands alongside the legacy 38-fn API;
-  legacy functions become one-line wrappers; callers migrate
-  per-package; legacy deleted at end of A2.
+- **Decided:** `Resolver` lands alongside the legacy 23-fn API
+  (verified count at HEAD, 2026-05-07; not 38 as earlier plan
+  versions claimed); legacy functions become one-line wrappers;
+  callers migrate per-package; legacy deleted at end of A2.
 - **Alternatives:** big-bang rewrite; new package alongside
   workdirpath (deprecated original).
 - **Why:** workdirpath is the safety surface for every fs touch.
   Wrapper migration preserves exact behaviour while the public
-  API shrinks; per-package migration commits stay small and
-  reviewable.
+  API end-state shrinks; per-package migration commits stay
+  small and reviewable.
+- **Trade-off:** API surface temporarily grows during the
+  wrapper window (`Resolver` + 23 legacy funcs). Non-goal #3
+  acknowledges this; the surface ends below today's at A2 end.
 
 ### D7. A1 framed as consolidation, not new packages
 
-- **Decided:** A1 moves work into existing `internal/tui/overlays/`
-  + (likely existing) picker package, rather than creating new
-  parallel packages.
-- **Alternatives:** new `tui/ui/` umbrella package; flat structure.
+- **Decided:** A1 moves work into existing `internal/tui/overlays/`,
+  adds a shared `Picker` interface to the 8 existing picker
+  packages (no merge), and may add a single new leaf package
+  (`internal/tui/pickers/`) for the picker interface only if
+  `overlays/` isn't a fit.
+- **Alternatives:** new `tui/ui/` umbrella package; flat structure;
+  merging the 8 picker packages into one.
 - **Why:** the destination directories already exist (verified:
   `tui/overlays/help.go`, `tui/overlays/center.go`). Moving into
   them costs less and matches the project's small-focused-package
-  posture.
+  posture. Merging the 8 picker packages would be its own
+  refactor unrelated to Model shrinking; out of scope.
 
 ### D8. Per-merge-checkpoint smoke check
 
@@ -863,6 +973,56 @@ natural:
   message types to the wrong handlers, e.g.) in ways the unit
   tests don't catch. A smoke check is cheap and catches the
   worst class of regression.
+
+### D9. A3 stays in `package tui` (no `behavior/` subpackage)
+
+- **Decided:** Update-handler split lands as `handler_*.go`
+  files inside `internal/tui/` (same `package tui` as the
+  dispatcher), not in a new `internal/tui/behavior/` subpackage.
+- **Alternatives:** (a) new `behavior/` subpackage as originally
+  drafted; (b) extract `Model` to `internal/tui/model/` so both
+  `tui` and `behavior` import it without cycle; (c) narrow
+  handler signatures via interfaces.
+- **Why:** Handler functions need full `*tui.Model`. Option (a)
+  causes `tui` ↔ `behavior` import cycle. Option (b) is too much
+  blast radius for a no-behaviour-change refactor — `Model` has
+  many private fields and methods the rest of `tui` uses.
+  Option (c) requires defining an interface large enough to
+  cover what the handlers need, which approaches `Model`
+  itself. Filename-level boundary delivers A3's value (thin
+  dispatcher, per-family files) at the lowest cost. Both
+  reviewers (round 1 and round 2) validated.
+
+### D10. 1.2 scoped to wired layers; composition parked
+
+- **Decided:** Phase 1.2 tests only the runner contract for the
+  layer wired in production today (`BwrapRunner` /
+  `runner_darwin` / `NoneRunner`). Multi-layer composition
+  (`landlock + seccomp + bwrap` stacked) gets a follow-up spec.
+- **Alternatives:** (a) write the composition test and the
+  integration to back it (rejected — violates non-goal #1);
+  (b) drop 1.2 entirely (rejected — there's still a contract
+  worth testing for the wired layer).
+- **Why:** Round-2 review verified that `runner_linux.go`
+  detects only `BwrapRunner` and `NoneRunner`, with composition
+  flagged as follow-up in source. Writing the composition test
+  would require writing the integration first, which is a
+  separate piece of work.
+
+### D11. B3 preserves per-call nil-bridge defense
+
+- **Decided:** B3's unified `Bridge` interface covers Init,
+  Dispose, Name only. Per-call `host.<X>Bridge == nil` checks
+  in every host import stay as-is.
+- **Alternatives:** (a) move nil defense to a single
+  registration-time check (original draft); (b) make `Host`
+  fields private with accessors that nil-check.
+- **Why:** Host fields are public, so callers can construct or
+  mutate `Host` after `Init`. A registration-only check would
+  let a later nil cause a panic — observable behaviour change.
+  Phase 1.1's nil-bridge contract test would also fail under
+  (a). Option (b) is a separate, much larger refactor (touches
+  every host import + every caller); out of scope.
 
 ## Related
 
