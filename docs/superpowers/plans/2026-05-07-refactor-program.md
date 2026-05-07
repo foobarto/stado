@@ -1242,6 +1242,33 @@ slotting decision" section with a recommended default.)
 
 ### D12. A2 splits into 4 narrow types, no options-based dispatch
 
+> **Scope clarification (round-A2-invariant review,
+> 2026-05-07).** Stado's overall philosophy is "primitives, not
+> policies": the runtime exposes a **plugin-facing host-import
+> surface** (stado_fs_*, stado_proc_*, stado_net_*, etc.) that
+> plugins compose into their own trust models (per
+> `docs/eps/0002-all-tools-as-plugins.md` and the EP-0037 /
+> EP-0038 architectural reset). That invariant applies to the
+> plugin extensibility surface.
+>
+> `internal/workdirpath` is **not** the plugin extensibility
+> surface — it's the runtime's own internal confinement layer
+> that backs the host-import implementations after the
+> capability gate has run. Plugins don't import workdirpath;
+> they call host imports which call workdirpath internally.
+>
+> The 4-type design therefore encodes **runtime confinement
+> policies**, not stado's general security philosophy. Picking
+> opinionated types here is correct: the runtime needs concrete
+> trust decisions when turning a path into a syscall, and
+> "policy soup" (an options-based generic Resolver) was the
+> exact failure mode round 1 + round 2 review caught.
+>
+> If plugin-facing fs primitives are ever needed beyond the
+> existing host-import set, they belong in a separate
+> `pkg/fsprim` or new host imports — not bolted onto
+> workdirpath retroactively.
+
 - **Decided (revised round-A2 review, 2026-05-07):** the new
   API has 4 types — `Resolver` (workdir),
   `UserConfigResolver` (HOME/XDG longest-anchor walk),

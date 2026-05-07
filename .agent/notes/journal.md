@@ -51,6 +51,39 @@ for that method.
 
 Starting with the harness file now.
 
+## 2026-05-07 — A2 invariant check: workdirpath ≠ plugin extensibility
+
+Operator reminder: stado's invariant is "primitives, not policies"
+— the runtime exposes primitives so plugins/callers compose their
+own trust models. Re-consulted codex + gemini specifically against
+the 4-type design.
+
+**Resolution:** the invariant applies to the
+**plugin-facing host-import surface** (stado_fs_*,
+stado_proc_*, stado_net_*; documented in
+`docs/eps/0002-all-tools-as-plugins.md` and the architectural
+reset notes). Those ARE the primitives plugins compose.
+
+`internal/workdirpath` is NOT the plugin extensibility surface.
+It's the runtime's internal confinement layer that backs the
+host-import implementations after capability gating. Plugins
+never import workdirpath; they call host imports.
+
+Codex confirmed this distinction directly. Gemini argued the
+invariant also applies to internal subsystems wanting different
+trust models, but the architectural docs are clear: the runtime's
+own confinement is allowed to be opinionated. If a plugin-facing
+fs-primitive layer is ever needed beyond the existing host
+imports, it belongs in a new `pkg/fsprim` — not retrofitted
+into workdirpath.
+
+**Action:** added a Scope-clarification block at the top of D12
+documenting this. No code change needed; the 4 types stand.
+
+The future `pkg/fsprim` direction is captured here so a future
+session knows where to start IF that need arises (no current
+caller demands it).
+
 ## 2026-05-07 — A2 round-final review fixes
 
 Round-final consultation (codex + gemini) on the landed types:
