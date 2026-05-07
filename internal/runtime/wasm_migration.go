@@ -23,7 +23,7 @@ type wasmFamily struct {
 }
 
 type wasmTool struct {
-	name        string   // tool name within plugin (e.g. "read")
+	name        string // tool name within plugin (e.g. "read")
 	description string
 	schema      map[string]any
 	caps        []string
@@ -98,9 +98,9 @@ var wasmFamilies = []struct {
 					schema: map[string]any{
 						"type": "object", "required": []string{"pattern"},
 						"properties": map[string]any{
-							"pattern":       map[string]any{"type": "string"},
-							"path":          map[string]any{"type": "string"},
-							"include":       map[string]any{"type": "string"},
+							"pattern":          map[string]any{"type": "string"},
+							"path":             map[string]any{"type": "string"},
+							"include":          map[string]any{"type": "string"},
 							"case_insensitive": map[string]any{"type": "boolean"},
 						},
 					},
@@ -186,9 +186,9 @@ var wasmFamilies = []struct {
 					schema: map[string]any{
 						"type": "object", "required": []string{"path"},
 						"properties": map[string]any{
-							"path":    map[string]any{"type": "string"},
-							"offset":  map[string]any{"type": "integer"},
-							"limit":   map[string]any{"type": "integer"},
+							"path":   map[string]any{"type": "string"},
+							"offset": map[string]any{"type": "integer"},
+							"limit":  map[string]any{"type": "integer"},
 						},
 					},
 					caps: []string{"fs:read:."},

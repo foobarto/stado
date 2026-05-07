@@ -92,7 +92,7 @@ func TestProvidedHostImports_HasCoreSet(t *testing.T) {
 		t.Fatalf("providedHostImports: %v", err)
 	}
 	wantPresent := []string{
-		"stado_alloc",  // ABI exports — wait, these are EXPORTS not imports
+		"stado_alloc", // ABI exports — wait, these are EXPORTS not imports
 		"stado_log",
 		"stado_fs_read",
 		"stado_fs_write",
@@ -114,11 +114,11 @@ func TestProvidedHostImports_HasCoreSet(t *testing.T) {
 		}
 	}
 	wantAbsent := []string{
-		"stado_fs_tool_read",       // removed in Step 7
-		"stado_fs_tool_write",      // removed in Step 7
-		"stado_fs_tool_edit",       // removed in Step 7
-		"stado_search_ripgrep",     // removed in Step 5
-		"stado_search_ast_grep",    // removed in Step 5
+		"stado_fs_tool_read",    // removed in Step 7
+		"stado_fs_tool_write",   // removed in Step 7
+		"stado_fs_tool_edit",    // removed in Step 7
+		"stado_search_ripgrep",  // removed in Step 5
+		"stado_search_ast_grep", // removed in Step 5
 	}
 	for _, n := range wantAbsent {
 		if provided[n] {

@@ -167,7 +167,9 @@ func (m *metaCategories) Schema() map[string]any {
 	}
 }
 func (m *metaCategories) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host) (pkgtool.Result, error) {
-	var req struct{ Query string `json:"query"` }
+	var req struct {
+		Query string `json:"query"`
+	}
 	if err := json.Unmarshal(args, &req); err != nil {
 		return pkgtool.Result{}, fmt.Errorf("metaCategories: parse args: %w", err)
 	}
@@ -208,7 +210,9 @@ func (m *metaInCategory) Schema() map[string]any {
 	}
 }
 func (m *metaInCategory) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host) (pkgtool.Result, error) {
-	var req struct{ Name string `json:"name"` }
+	var req struct {
+		Name string `json:"name"`
+	}
 	if err := json.Unmarshal(args, &req); err != nil || req.Name == "" {
 		return pkgtool.Result{Error: "name is required"}, nil
 	}
@@ -354,7 +358,9 @@ func (m *metaPluginLoad) Schema() map[string]any {
 	}
 }
 func (m *metaPluginLoad) Run(_ context.Context, args json.RawMessage, h pkgtool.Host) (pkgtool.Result, error) {
-	var req struct{ Plugin string `json:"plugin"` }
+	var req struct {
+		Plugin string `json:"plugin"`
+	}
 	if err := json.Unmarshal(args, &req); err != nil {
 		return pkgtool.Result{Error: "invalid args: " + err.Error()}, nil
 	}
@@ -395,7 +401,9 @@ func (m *metaPluginUnload) Schema() map[string]any {
 	}
 }
 func (m *metaPluginUnload) Run(_ context.Context, args json.RawMessage, h pkgtool.Host) (pkgtool.Result, error) {
-	var req struct{ Plugin string `json:"plugin"` }
+	var req struct {
+		Plugin string `json:"plugin"`
+	}
 	if err := json.Unmarshal(args, &req); err != nil {
 		return pkgtool.Result{Error: "invalid args: " + err.Error()}, nil
 	}

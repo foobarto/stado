@@ -14,10 +14,10 @@ import (
 // fakeSpawner returns canned results without actually forking a
 // session. tracks invocation count.
 type fakeSpawner struct {
-	calls   atomic.Int32
-	res     subagent.Result
-	err     error
-	delay   time.Duration
+	calls     atomic.Int32
+	res       subagent.Result
+	err       error
+	delay     time.Duration
 	gotPrompt string
 }
 

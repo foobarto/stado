@@ -234,7 +234,7 @@ func RawConversationLog(worktree string) ([]byte, error) {
 	}
 	defer func() { _ = root.Close() }()
 	path := filepath.Join(worktree, ConversationFile)
-	data, err := workdirpath.ReadRootRegularFileLimited(root, name, maxConversationLogBytes)
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(name, maxConversationLogBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -314,13 +314,13 @@ func conversationRoot(worktree string, createDir bool) (*os.Root, string, error)
 	if worktree == "" {
 		return nil, "", errors.New("conversation: worktree required")
 	}
-	workRoot, err := workdirpath.OpenRootUnderUserConfig(worktree)
+	workRoot, err := workdirpath.NewUserConfigResolver().OpenRoot(worktree)
 	if err != nil {
 		return nil, "", fmt.Errorf("conversation: open worktree %s: %w", worktree, err)
 	}
 	defer func() { _ = workRoot.Close() }()
 	if createDir {
-		if err := workdirpath.MkdirAllRootNoSymlink(workRoot, ".stado", 0o700); err != nil {
+		if err := workdirpath.NewRootResolver(workRoot).MkdirAll(".stado", 0o700); err != nil {
 			return nil, "", fmt.Errorf("conversation: mkdir %s: %w", filepath.Join(worktree, ".stado"), err)
 		}
 	}

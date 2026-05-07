@@ -121,15 +121,20 @@ func AdoptSubagentChanges(parent, child *stadogit.Session, forkTree plumbing.Has
 }
 
 func copyChildChange(parentWorktree, childWorktree, rel string) error {
-	parentRootPath, parentRel, err := workdirpath.RootRelForWrite(parentWorktree, rel)
+	pr, err := workdirpath.New(parentWorktree)
 	if err != nil {
 		return err
 	}
-	parentRoot, err := workdirpath.OpenRootUnderUserConfig(parentRootPath)
+	parentRootPath, parentRel, err := pr.RootRelForWrite(rel)
+	if err != nil {
+		return err
+	}
+	parentRoot, err := workdirpath.NewUserConfigResolver().OpenRoot(parentRootPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = parentRoot.Close() }()
+	parentRR := workdirpath.NewRootResolver(parentRoot)
 
 	childPath, err := safeWorktreeRel(childWorktree, rel)
 	if err != nil {
@@ -157,7 +162,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 			return fmt.Errorf("unsafe symlink target %q for %q", target, rel)
 		}
 		if dir := filepath.Dir(parentRel); dir != "." {
-			if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
+			if err := parentRR.MkdirAll(dir, 0o755); err != nil {
 				return err
 			}
 		}
@@ -170,7 +175,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 		return fmt.Errorf("file is not regular: %s", rel)
 	}
 	if dir := filepath.Dir(parentRel); dir != "." {
-		if err := workdirpath.MkdirAllRootNoSymlink(parentRoot, dir, 0o755); err != nil {
+		if err := parentRR.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
 	}
@@ -178,7 +183,7 @@ func copyChildChange(parentWorktree, childWorktree, rel string) error {
 }
 
 func copyRegularChildFileAtomic(parentRoot *os.Root, parentRel, childPath string) error {
-	src, err := workdirpath.OpenRegularFileUnderUserConfig(childPath)
+	src, err := workdirpath.NewUserConfigResolver().OpenRegularFile(childPath)
 	if err != nil {
 		return err
 	}

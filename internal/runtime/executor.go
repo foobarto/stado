@@ -12,8 +12,8 @@ import (
 	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/tasktool"
-	pkgtool "github.com/foobarto/stado/pkg/tool"
 	"github.com/foobarto/stado/pkg/agent"
+	pkgtool "github.com/foobarto/stado/pkg/tool"
 )
 
 // defaultAutoloadNames is the hardcoded convenience core when

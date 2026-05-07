@@ -424,17 +424,17 @@ func keepWorkspaceWriteTools(reg *tools.Registry) {
 	// like "read", "write", "edit", "ripgrep", "find_definition" no
 	// longer exist on the registry — they're all <plugin>__<tool>.
 	allowed := map[string]struct{}{
-		"fs__read":         {},
-		"fs__glob":         {},
-		"fs__grep":         {},
-		"fs__write":        {},
-		"fs__edit":         {},
-		"rg__search":       {},
-		"readctx__read":    {},
-		"lsp__definition":  {},
-		"lsp__references":  {},
-		"lsp__symbols":     {},
-		"lsp__hover":       {},
+		"fs__read":        {},
+		"fs__glob":        {},
+		"fs__grep":        {},
+		"fs__write":       {},
+		"fs__edit":        {},
+		"rg__search":      {},
+		"readctx__read":   {},
+		"lsp__definition": {},
+		"lsp__references": {},
+		"lsp__symbols":    {},
+		"lsp__hover":      {},
 	}
 	for _, t := range reg.All() {
 		if _, ok := allowed[t.Name()]; !ok {

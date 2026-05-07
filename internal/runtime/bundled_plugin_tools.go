@@ -421,12 +421,12 @@ func buildBundledPluginRegistry() *tools.Registry {
 		map[string]any{
 			"type": "object", "required": []string{"query"},
 			"properties": map[string]any{
-				"query":            map[string]any{"type": "string", "description": "Substring or regex to search for."},
-				"is_regex":         map[string]any{"type": "boolean", "description": "Treat query as a Go RE2 regex (default false = substring)."},
-				"case_sensitive":   map[string]any{"type": "boolean", "description": "Case-sensitive matching (default false = case-insensitive)."},
-				"roles":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles."},
-				"max_results":      map[string]any{"type": "integer", "description": "Cap on returned matches (default 50, max 1000)."},
-				"snippet_chars":    map[string]any{"type": "integer", "description": "Total chars of context around each match (default 80, max 400)."},
+				"query":          map[string]any{"type": "string", "description": "Substring or regex to search for."},
+				"is_regex":       map[string]any{"type": "boolean", "description": "Treat query as a Go RE2 regex (default false = substring)."},
+				"case_sensitive": map[string]any{"type": "boolean", "description": "Case-sensitive matching (default false = case-insensitive)."},
+				"roles":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles."},
+				"max_results":    map[string]any{"type": "integer", "description": "Cap on returned matches (default 50, max 1000)."},
+				"snippet_chars":  map[string]any{"type": "integer", "description": "Total chars of context around each match (default 80, max 400)."},
 			},
 		},
 		[]string{"session:read"}))

@@ -111,12 +111,12 @@ func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
 	if strings.TrimSpace(worktreeDir) == "" {
 		return nil, os.ErrNotExist
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(worktreeDir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(worktreeDir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return workdirpath.ReadRootRegularFileLimited(root, name, maxSessionMetadataFileBytes)
+	return workdirpath.NewRootResolver(root).ReadFileLimited(name, maxSessionMetadataFileBytes)
 }
 
 func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.FileMode) error {
@@ -126,14 +126,14 @@ func writeSessionMetadataFile(worktreeDir, name string, data []byte, perm os.Fil
 	if int64(len(data)) > maxSessionMetadataFileBytes {
 		return fmt.Errorf("session metadata exceeds %d bytes: %s", maxSessionMetadataFileBytes, name)
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(worktreeDir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(worktreeDir)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
 	dir := filepath.Dir(name)
 	if dir != "." {
-		if err := workdirpath.MkdirAllRootNoSymlink(root, dir, 0o700); err != nil {
+		if err := workdirpath.NewRootResolver(root).MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 	}

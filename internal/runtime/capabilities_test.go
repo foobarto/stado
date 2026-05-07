@@ -18,10 +18,10 @@ func TestWantThinking(t *testing.T) {
 		{"", false, false},   // auto + unsupported → off
 		{"auto", true, true}, // explicit auto + supported
 		{"auto", false, false},
-		{"on", true, true},    // forced on
-		{"on", false, true},   // forced on regardless of cap
-		{"off", true, false},  // forced off
-		{"off", false, false}, // forced off
+		{"on", true, true},       // forced on
+		{"on", false, true},      // forced on regardless of cap
+		{"off", true, false},     // forced off
+		{"off", false, false},    // forced off
 		{"nonsense", true, true}, // unknown → treated as auto
 	}
 	for _, c := range cases {

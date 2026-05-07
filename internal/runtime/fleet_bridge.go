@@ -142,4 +142,3 @@ func (a *FleetBridgeAdapter) AgentSendMessage(ctx context.Context, id, msg strin
 func (a *FleetBridgeAdapter) AgentCancel(ctx context.Context, id string) error {
 	return a.Fleet.Cancel(id)
 }
-

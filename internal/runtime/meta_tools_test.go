@@ -126,8 +126,8 @@ func newFakeActivatorHost() *fakeActivatorHost {
 func (h *fakeActivatorHost) Approve(context.Context, pkgtool.ApprovalRequest) (pkgtool.Decision, error) {
 	return pkgtool.DecisionAllow, nil
 }
-func (h *fakeActivatorHost) Workdir() string         { return "/tmp" }
-func (h *fakeActivatorHost) Runner() sandbox.Runner  { return sandbox.NoneRunner{} }
+func (h *fakeActivatorHost) Workdir() string        { return "/tmp" }
+func (h *fakeActivatorHost) Runner() sandbox.Runner { return sandbox.NoneRunner{} }
 func (h *fakeActivatorHost) RequestApproval(context.Context, string, string) (bool, error) {
 	return true, nil
 }
@@ -135,8 +135,8 @@ func (h *fakeActivatorHost) PriorRead(pkgtool.ReadKey) (pkgtool.PriorReadInfo, b
 	return pkgtool.PriorReadInfo{}, false
 }
 func (h *fakeActivatorHost) RecordRead(pkgtool.ReadKey, pkgtool.PriorReadInfo) {}
-func (h *fakeActivatorHost) ActivateTool(name string)   { h.activated[name] = true }
-func (h *fakeActivatorHost) DeactivateTool(name string) { h.deactivated[name] = true }
+func (h *fakeActivatorHost) ActivateTool(name string)                          { h.activated[name] = true }
+func (h *fakeActivatorHost) DeactivateTool(name string)                        { h.deactivated[name] = true }
 
 // TestMetaActivate_AddsToActivationSet: tools__activate calls the
 // host's ActivateTool for each known tool name.

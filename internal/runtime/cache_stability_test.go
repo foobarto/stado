@@ -193,9 +193,9 @@ type fixtureTool struct {
 	class tool.Class
 }
 
-func (f fixtureTool) Name() string          { return f.name }
-func (f fixtureTool) Description() string   { return "fixture tool " + f.name }
-func (f fixtureTool) Class() tool.Class     { return f.class }
+func (f fixtureTool) Name() string        { return f.name }
+func (f fixtureTool) Description() string { return "fixture tool " + f.name }
+func (f fixtureTool) Class() tool.Class   { return f.class }
 func (f fixtureTool) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -224,7 +224,7 @@ type scriptedTurn struct {
 	toolInput string
 }
 
-func (p *scriptedProvider) Name() string                  { return "scripted" }
+func (p *scriptedProvider) Name() string                     { return "scripted" }
 func (p *scriptedProvider) Capabilities() agent.Capabilities { return p.capabilities }
 
 func (p *scriptedProvider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-chan agent.Event, error) {
