@@ -244,6 +244,12 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   surfaces favorites/recents first. Press `Ctrl+F` in the picker to
   toggle a favorite. Selecting a model saves it as the new default.
 - `/agents` — agent picker for Do, Plan, and BTW
+- `/persona [name]` — bare opens the persona picker; `/persona <name>`
+  swaps directly to the named persona and persists the choice in
+  `[defaults].persona`. Resolution order: project (`.stado/personas/`),
+  user (`~/.config/stado/personas/`), bundled. Personas inject their
+  system prompt and tool/cap surface into subsequent turns until the
+  next swap; the system block reports `persona: <old> → <new>`
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, `stado-contrast`, and `stado-rose`; `/theme light`,
   `/theme dark`, and `/theme toggle` switch without opening the picker;

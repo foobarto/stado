@@ -184,12 +184,34 @@ EP-0029.
 | Field | Value |
 |---|---|
 | File | `host_llm.go` |
-| Signature | `stado_llm_invoke(prompt_ptr, prompt_len, out_ptr, out_max) → i32` |
+| Signature | `stado_llm_invoke(args_ptr, args_len, out_ptr, out_cap) → i32` |
 | Capability | `llm:invoke[:<budget-tokens>]` |
-| Returns | bytes (model reply) or -1 if budget exceeded |
+| Returns | bytes (model reply) or -1 if budget exceeded / no session bridge |
 
-One-shot completion against the active provider. Budget cap is
-per-session-cumulative; default 10000 tokens when unspecified.
+One-shot completion against the active provider. The first
+ptr/len pair carries a JSON envelope so the call can be extended
+without reshuffling the wasm signature; the second pair is the
+caller-owned output buffer the host writes the reply into.
+
+Args envelope (all fields except `prompt` are optional):
+
+```json
+{
+  "prompt": "string (required)",
+  "persona": "string — overrides the active session persona for this one call",
+  "model": "string — overrides the active session model (e.g. claude-haiku-4-5)",
+  "system": "string — appended after the persona's system prompt",
+  "max_tokens": 0,
+  "temperature": 0.0
+}
+```
+
+Budget cap is per-session-cumulative across every `stado_llm_invoke`
+the plugin instance makes; default 10000 tokens when no suffix is
+declared on the cap (`llm:invoke` ≡ `llm:invoke:10000`). Once
+exhausted, further calls return -1 immediately without consulting
+the provider. Returns -1 with no token consumption when the host
+has no session bridge attached (e.g., plugin run outside a session).
 
 ### stado_ui_approve
 
