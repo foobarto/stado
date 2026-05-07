@@ -84,7 +84,11 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 }
 
 func readToolContent(workdir, path string, start, end *int) ([]byte, error) {
-	f, err := workdirpath.OpenReadFile(workdir, path)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return nil, err
+	}
+	f, err := r.OpenRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -178,8 +182,8 @@ func referenceResponse(prior tool.PriorReadInfo, rangeKey string) string {
 
 type WriteTool struct{}
 
-func (WriteTool) Class() tool.Class    { return tool.ClassMutating }
-func (WriteTool) Name() string         { return "write" }
+func (WriteTool) Class() tool.Class   { return tool.ClassMutating }
+func (WriteTool) Name() string        { return "write" }
 func (WriteTool) Description() string { return "Write content to a file (creates or overwrites)" }
 func (WriteTool) Schema() map[string]any {
 	return map[string]any{
@@ -202,7 +206,11 @@ func (WriteTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (to
 			return tool.Result{Error: err.Error()}, err
 		}
 	}
-	if err := workdirpath.WriteFile(h.Workdir(), p.Path, []byte(p.Content), 0o644); err != nil {
+	r, err := workdirpath.New(h.Workdir())
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	if err := r.WriteFileAtomic(p.Path, []byte(p.Content), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return tool.Result{Content: fmt.Sprintf("Wrote %d bytes to %s", len(p.Content), p.Path)}, nil
@@ -212,8 +220,8 @@ type EditTool struct{}
 
 const maxEditFileBytes int64 = 4 << 20
 
-func (EditTool) Class() tool.Class    { return tool.ClassMutating }
-func (EditTool) Name() string         { return "edit" }
+func (EditTool) Class() tool.Class   { return tool.ClassMutating }
+func (EditTool) Name() string        { return "edit" }
 func (EditTool) Description() string { return "Apply a search/replace edit to a file" }
 func (EditTool) Schema() map[string]any {
 	return map[string]any{
@@ -251,14 +259,22 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 		return tool.Result{Error: err.Error()}, err
 	}
 	newContent := content[:idx] + p.New + content[idx+len(p.Old):]
-	if err := workdirpath.WriteFile(h.Workdir(), p.Path, []byte(newContent), 0o644); err != nil {
+	r, err := workdirpath.New(h.Workdir())
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	if err := r.WriteFileAtomic(p.Path, []byte(newContent), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
 	return tool.Result{Content: fmt.Sprintf("Applied edit to %s", p.Path)}, nil
 }
 
 func readEditContent(workdir, path string) (string, error) {
-	f, err := workdirpath.OpenReadFile(workdir, path)
+	r, err := workdirpath.New(workdir)
+	if err != nil {
+		return "", err
+	}
+	f, err := r.OpenRegularFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +308,11 @@ func (GlobTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	matches, total, err := workdirpath.GlobLimited(h.Workdir(), p.Pattern, budget.GlobEntries)
+	r, err := workdirpath.New(h.Workdir())
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	matches, total, err := r.GlobLimited(p.Pattern, budget.GlobEntries)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -346,11 +366,15 @@ func (GrepTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if p.Path == "" {
 		searchArg = "."
 	}
-	rootPath, searchRel, err := workdirpath.RootRel(h.Workdir(), searchArg, false)
+	r, err := workdirpath.New(h.Workdir())
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(rootPath)
+	rootPath, searchRel, err := r.RootRel(searchArg)
+	if err != nil {
+		return tool.Result{Error: err.Error()}, err
+	}
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(rootPath)
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -477,7 +501,7 @@ func grepWalkDir(root *os.Root, rel, pattern string, state *grepWalkState, depth
 }
 
 func grepFile(root *os.Root, rel, pattern string, state *grepWalkState) error {
-	data, err := workdirpath.ReadRootRegularFileLimited(root, rel, state.maxFileSize)
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(rel, state.maxFileSize)
 	if err != nil {
 		return nil
 	}
