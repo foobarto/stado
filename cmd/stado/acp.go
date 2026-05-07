@@ -52,10 +52,16 @@ var acpCmd = &cobra.Command{
 		"  kind=text       text deltas streamed from the provider (field: text)\n" +
 		"  kind=tool_call  one notification per completed tool call\n" +
 		"                  (fields: name, input — input is a JSON-encoded string)\n" +
+		"  kind=subagent   subagent lifecycle event (fields: phase, status, role,\n" +
+		"                  mode, child, childWorktree, parentSession, ...)\n" +
 		"  kind=choice     wasm plugin requested operator pick (Q3)\n" +
 		"                  fields: requestId, prompt, options[{id,label}], multi,\n" +
 		"                  default[]. Client must reply via session/choice_response\n" +
-		"                  with {sessionId, requestId, selected[], cancelled}.",
+		"                  with {sessionId, requestId, selected[], cancelled}.\n" +
+		"  kind=approval   wasm plugin requested operator yes/no approval\n" +
+		"                  fields: requestId, title, body. Client must reply via\n" +
+		"                  session/approval_response with\n" +
+		"                  {sessionId, requestId, allow:bool, cancelled:bool}.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

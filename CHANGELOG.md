@@ -49,7 +49,10 @@ Plugins / Infra / Fixes.
   plugin manifest or just rebuild against the new runtime.
 - **Documentation** for `session/update` event kinds, `.env`
   auto-load behaviour, and the new `MaxTurns` knobs added to
-  `stado acp --help` and the server protocol comment.
+  `stado acp --help` and the server protocol comment. `--help`
+  now enumerates all five kinds (`text`, `tool_call`, `subagent`,
+  `choice`, `approval`) with their wire fields and required
+  client-side response RPC.
 
 ### CLI
 
