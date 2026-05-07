@@ -72,8 +72,17 @@ Plugins / Infra / Fixes.
   now. The modal now overlays on top of the chat (rows above and
   below remain visible) instead of replacing the whole frame with an
   empty canvas. New helper at internal/tui/overlays/CenterOver
-  composites popups over a base render — reused by the upcoming
+  composites popups over a base render — reused by the
   approval-drawer polish.
+- Approval drawer (plugin-requested human approval) polished.
+  Title gets a ⚠ icon prefix; body renders in a faint code-block
+  frame when it's command-shaped (multi-line, contains `$ ` or
+  backticks) so long shell commands stay scannable; buttons gain
+  keycap chips ("Y / Allow", "N / Deny") with the active button
+  using both tone-coloured border AND fill so selection contrast
+  survives low-contrast themes. Hint line distinguishes the two
+  modes: defocused ("Y allow · N deny · ↑ focus drawer"),
+  focused ("← / → switch · Enter confirm · ↓ return to input").
 
 ### Plugin ABI migration note (for plugin authors)
 

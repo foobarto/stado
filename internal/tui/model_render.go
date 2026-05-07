@@ -587,23 +587,32 @@ func (m *Model) renderApprovalCard(mainW int) string {
 		innerW = 8
 	}
 
-	title := m.theme.Fg("warning").Bold(true).Render(strings.TrimSpace(m.approval.title))
-	if strings.TrimSpace(m.approval.title) == "" {
-		title = m.theme.Fg("warning").Bold(true).Render("Approval required")
+	rawTitle := strings.TrimSpace(m.approval.title)
+	if rawTitle == "" {
+		rawTitle = "Approval required"
 	}
-	body := m.theme.Fg("text").Render(truncate(m.approval.body, innerW*3))
-	allow := m.renderApprovalButton("Allow [y]", m.approvalAllowSelected, "success")
-	deny := m.renderApprovalButton("Deny [n]", !m.approvalAllowSelected, "error")
-	hint := m.theme.Fg("muted").Render("Up to focus, Left/Right to choose, Enter to confirm")
+	icon := m.theme.Fg("warning").Bold(true).Render("⚠ ")
+	title := icon + m.theme.Fg("warning").Bold(true).Render(rawTitle)
+
+	body := m.renderApprovalBody(strings.TrimSpace(m.approval.body), innerW)
+
+	allow := m.renderApprovalButton("Allow", "Y", m.approvalAllowSelected, "success")
+	deny := m.renderApprovalButton("Deny", "N", !m.approvalAllowSelected, "error")
+	buttonsRow := lipgloss.JoinHorizontal(lipgloss.Top, allow, "  ", deny)
+
+	var hint string
 	if m.approvalFocused {
-		hint = m.theme.Fg("warning").Render("Left/Right to choose, Enter to confirm, Down to return")
+		hint = m.theme.Fg("warning").Render("← / →  switch · Enter confirm · ↓ return to input")
+	} else {
+		hint = m.theme.Fg("muted").Render("Y allow · N deny · ↑ focus drawer")
 	}
 
 	cardBody := lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
 		body,
-		lipgloss.JoinHorizontal(lipgloss.Left, allow, " ", deny),
+		"",
+		buttonsRow,
 		hint,
 	)
 
@@ -622,11 +631,43 @@ func (m *Model) renderApprovalCard(mainW int) string {
 	return style.Render(cardBody)
 }
 
-func (m *Model) renderApprovalButton(label string, active bool, tone string) string {
+// renderApprovalBody styles the request body. When the body looks
+// command-shaped (has a "$ " prefix, backticks, or is multi-line)
+// it renders inside a faint bordered code-block frame so a long
+// shell command stays scannable; otherwise it's plain text. Capped
+// at innerW*3 chars so the drawer never balloons over a chatty body.
+func (m *Model) renderApprovalBody(body string, innerW int) string {
+	if body == "" {
+		return ""
+	}
+	body = truncate(body, innerW*3)
+	codeShaped := strings.Contains(body, "\n") ||
+		strings.HasPrefix(body, "$ ") ||
+		strings.HasPrefix(body, "$") ||
+		strings.Contains(body, "`")
+	if !codeShaped {
+		return m.theme.Fg("text").Render(body)
+	}
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(m.theme.Fg("muted").GetForeground()).
+		Foreground(m.theme.Fg("text").GetForeground()).
+		PaddingLeft(1)
+	if innerW > 4 {
+		style = style.Width(innerW - 2)
+	}
+	return style.Render(body)
+}
+
+// renderApprovalButton draws one of the two action buttons. The
+// active one gets a tone-tinted border AND background fill so the
+// selection contrast survives in low-contrast themes; the inactive
+// one stays muted.
+func (m *Model) renderApprovalButton(label, key string, active bool, tone string) string {
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(m.theme.Fg("border").GetForeground()).
-		Padding(0, 1).
+		Padding(0, 2).
 		Foreground(m.theme.Fg("muted").GetForeground())
 	if active {
 		style = style.
@@ -634,7 +675,11 @@ func (m *Model) renderApprovalButton(label string, active bool, tone string) str
 			Foreground(m.theme.Fg(tone).GetForeground()).
 			Bold(true)
 	}
-	return style.Render(label)
+	keyChip := m.theme.Fg(tone).Bold(true).Render(key)
+	if !active {
+		keyChip = m.theme.Fg("muted").Render(key)
+	}
+	return style.Render(keyChip + "  " + label)
 }
 
 func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
