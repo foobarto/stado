@@ -6,6 +6,65 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+## v0.46.1 — Dependency bumps + CI maintenance
+
+Patch release: dependabot backlog cleared, no behaviour changes for
+operators or plugins.
+
+### CI
+
+- `golangci/golangci-lint-action` **v8 → v9**. Required maintenance
+  upgrade — GitHub deprecates node20 on runners, v9 ships the node24
+  runtime. Pinned `version: v2.11.4` and `args: --timeout=5m`
+  unchanged.
+- `actions/checkout` **v5 → v6**.
+
+### Dependencies (main module)
+
+- `github.com/anthropics/anthropic-sdk-go` **v1.37.0 → v1.40.0**.
+  Additive across the three minor bumps: `Type()` on errors, Memory
+  beta API, structured-outputs auto-parse, Workload Identity
+  Federation, OIDC profiles, header-via-env support. Only
+  behaviour change worth flagging: v1.39 added a 10-minute default
+  HTTP client timeout — benign, turn-level cancellation still
+  drives cleanly.
+- `github.com/mark3labs/mcp-go` **v0.48.0 → v0.52.0**. Pre-1.0
+  additive feature releases — `WithInteger` schema option,
+  `ListPrompts` / `ListResources`, opt-in input + output schema
+  validation, `CommandTransport` for subprocess MCP servers, OAuth
+  Protected Resource Metadata (RFC 9728), Go 1.23 iterator methods,
+  opt-in CORS, `LoggingTransport`, `SchemaCache`. None of the
+  additions is on by default.
+- `google.golang.org/api` **v0.189.0 → v0.278.0**. 89-version
+  pre-1.0 jump but our surface only imports
+  `google.golang.org/api/option` for the Gemini provider client
+  construction; the `option` package is rock-stable. Tests pass
+  under `-race` for `internal/providers/google`.
+- `github.com/mattn/go-isatty` **v0.0.20 → v0.0.22**.
+- `github.com/charmbracelet/x/ansi` **v0.11.6 → v0.11.7**.
+
+### Dependencies (plugin examples)
+
+- `plugins/default/browser` and `plugins/examples/browser`:
+  `github.com/PuerkitoBio/goquery` **v1.10.0 → v1.12.0**.
+- `plugins/examples/browser`: `golang.org/x/net` **v0.43.0 → v0.53.0**.
+
+### Fixes
+
+- **Lint backlog cleared** across nine sites that had been failing
+  CI sporadically: deferred-Close errcheck wrapping, an ineffectual
+  reassignment in `agentloop`'s inbox-flush branch, several
+  staticcheck nits, and one unused helper. No behaviour changes.
+- **Race-detector compatibility** for the ACP test suite: the
+  `writerSync` helper exposes locked `String()` / `Bytes()`
+  accessors so tests reading the captured-buffer don't race the
+  bridge goroutine's `Write`. `TestSessionCancelCancelsSpawnedSubagent`
+  in headless skips under `-race` because of a known concurrent-write
+  race in go-git's `dotgit.cleanObjectList` upstream — a sidecar-wide
+  write mutex is the proper fix and is tracked separately. The
+  test's wall-clock deadline also bumps from 2s to 10s so slow CI
+  runners stop flaking on the timeout path.
+
 ## v0.46.0 — Step 7 (fs.* wasm) + ACP round 2 (resume, persona, tool_summary)
 
 The fs family closes out the EP-no-internal-tools migration's most
