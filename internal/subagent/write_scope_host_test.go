@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/fs"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
 

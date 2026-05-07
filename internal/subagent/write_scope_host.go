@@ -101,11 +101,15 @@ func (h *ScopedWriteHost) recordScopeViolation(target string, err error) {
 }
 
 func normalizedWriteTarget(workdir, target string) (string, error) {
-	full, err := workdirpath.Resolve(workdir, target, true)
+	r, err := workdirpath.New(workdir)
 	if err != nil {
 		return "", err
 	}
-	root, err := workdirpath.Resolve(workdir, ".", false)
+	full, err := r.ResolveAllowMissing(target)
+	if err != nil {
+		return "", err
+	}
+	root, err := r.Resolve(".")
 	if err != nil {
 		return "", err
 	}

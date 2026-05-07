@@ -222,7 +222,7 @@ func Load(start string) (Result, error) {
 				// reason.
 				continue
 			}
-			body, readErr := workdirpath.ReadRegularFileUnderUserConfigLimited(candidate, maxInstructionsFileBytes)
+			body, readErr := workdirpath.NewUserConfigResolver().ReadFileLimited(candidate, maxInstructionsFileBytes)
 			if readErr != nil {
 				return Result{}, fmt.Errorf("instructions: read %s: %w", candidate, readErr)
 			}

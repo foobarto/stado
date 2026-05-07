@@ -106,11 +106,12 @@ func Load(start string) ([]Skill, error) {
 }
 
 func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
-	root, err := workdirpath.OpenRootUnderUserConfig(d)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(d)
 	if err != nil {
 		return nil, fmt.Errorf("skills: open dir %s: %w", d, err)
 	}
 	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
 
 	entries, err := readSkillDirEntries(root, maxSkillDirEntries)
 	if err != nil {
@@ -135,7 +136,7 @@ func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			continue
 		}
-		body, readErr := workdirpath.ReadRootRegularFileLimited(root, name, maxSkillFileBytes)
+		body, readErr := rr.ReadFileLimited(name, maxSkillFileBytes)
 		if readErr != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)

@@ -154,4 +154,3 @@ func TestNormalizeWriteScopeRejectsUnsafeEntries(t *testing.T) {
 		})
 	}
 }
-
