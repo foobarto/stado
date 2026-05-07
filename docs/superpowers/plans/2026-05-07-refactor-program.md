@@ -441,140 +441,213 @@ actual surface (non-exhaustive):
 `WriteRootFileAtomicExactMode`, `RootRelForWrite`,
 `Glob`, `GlobLimited`.
 
-**Target shape.** A `Resolver` parameterised by a trust anchor
-(workdir root, user config dir) with these primitives, plus a
-small `RootResolver` derivation for the 7 legacy `*os.Root`
-functions:
+**Target shape (revised round-A2 review, 2026-05-07).** Two
+rounds of code-level consultation rejected the original
+"single `Resolver` + `WithAnchor` options" design as semantic
+flattening — the legacy package's anchor types encode different
+*security policies*, not runtime flavoring. End-state API is
+4 narrow types:
 
 ```go
-type Resolver struct {
-    workdir   string
-    userConf  string
-    // private symlink/confinement state; not exported
-}
+// Workdir-anchored, symlink-resolving confinement.
+// Wraps the 7 workdir-flavor legacy fns (Resolve, RootRel,
+// OpenReadFile, WriteFile, RootRelForWrite, Glob, GlobLimited).
+type Resolver struct { /* unexported */ }
+func New(workdir string) (*Resolver, error)
 
-func New(workdir, userConfDir string) (*Resolver, error)
+func (r *Resolver) Resolve(path string) (abs string, err error)
+func (r *Resolver) ResolveAllowMissing(path string) (abs string, err error)
+func (r *Resolver) RootRel(path string) (root, rel string, err error)
+func (r *Resolver) RootRelForWrite(path string) (root, rel string, err error)
+func (r *Resolver) OpenRegularFile(path string) (*os.File, error)
+func (r *Resolver) WriteFileAtomic(path string, data []byte, perm os.FileMode) error
+func (r *Resolver) Glob(pattern string) ([]string, error)
+func (r *Resolver) GlobLimited(pattern string, maxStored int) (matches []string, total int, err error)
 
-func (r *Resolver) Resolve(rel string, opts ...ResolveOpt) (abs string, err error)
-func (r *Resolver) RootRel(abs string) (root, rel string, err error)
-func (r *Resolver) OpenFile(rel string, flags int, perm os.FileMode, opts ...ResolveOpt) (*os.File, error)
-func (r *Resolver) ReadFile(rel string, opts ...ResolveOpt) ([]byte, error)
-func (r *Resolver) WriteFileAtomic(rel string, data []byte, perm os.FileMode, opts ...ResolveOpt) error
-func (r *Resolver) MkdirAll(rel string, perm os.FileMode, opts ...ResolveOpt) error
-func (r *Resolver) RemoveAll(rel string, opts ...ResolveOpt) error
-func (r *Resolver) Glob(pattern string, opts ...ResolveOpt) ([]string, error)
+// HOME / XDG longest-anchor walk; chain ABOVE anchor follows
+// system symlinks, chain BELOW anchor is no-symlink. Wraps the 5
+// user-config legacy fns. Constructor uses environment lookup
+// (XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_STATE_HOME /
+// XDG_CACHE_HOME / HOME) — preserves the existing
+// userTrustAnchor logic exactly. When the requested path has no
+// covering anchor, falls back to strict no-symlink semantics
+// (matches OpenRootUnderUserConfig / MkdirAllUnderUserConfig).
+type UserConfigResolver struct { /* unexported */ }
+func NewUserConfigResolver() *UserConfigResolver
 
-// AtRoot returns a derivation of Resolver scoped to the given
-// *os.Root. Methods on the result use `root` as their
-// confinement anchor instead of workdir/userConf. Used to
-// migrate the 7 legacy `Root*` functions
-// (OpenRootNoSymlink, MkdirAllRootNoSymlink, WriteRootFileAtomic,
-// WriteRootFileAtomicExactMode, ReadRootRegularFileLimited,
-// OpenRootUnderUserConfig, OpenRootNoSymlinkUnder) without
-// expanding the `ResolveOpt` axis to carry an *os.Root pointer.
-func (r *Resolver) AtRoot(root *os.Root) *RootResolver
+func (uc *UserConfigResolver) OpenRoot(path string) (*os.Root, error)
+func (uc *UserConfigResolver) OpenRegularFile(path string) (*os.File, error)
+func (uc *UserConfigResolver) ReadFileLimited(path string, maxBytes int64) ([]byte, error)
+func (uc *UserConfigResolver) ReadFileNoLimit(path string) ([]byte, error)
+func (uc *UserConfigResolver) MkdirAll(path string, perm os.FileMode) error
 
-type RootResolver struct {
-    root    *os.Root
-    // private symlink/confinement state; not exported
-}
+// Strict no-symlink walk from absolute root, no anchor. Wraps
+// the 5 strict-flavor legacy fns + 2 ancestor-walk fns via
+// derivation.
+type StrictResolver struct { /* unexported */ }
+func NewStrictResolver() *StrictResolver
 
-func (rr *RootResolver) OpenFile(rel string, flags int, perm os.FileMode, opts ...ResolveOpt) (*os.File, error)
-func (rr *RootResolver) ReadFile(rel string, opts ...ResolveOpt) ([]byte, error)
-func (rr *RootResolver) WriteFileAtomic(rel string, data []byte, perm os.FileMode) error
-func (rr *RootResolver) MkdirAll(rel string, perm os.FileMode) error
+func (s *StrictResolver) OpenRoot(path string) (*os.Root, error)
+func (s *StrictResolver) OpenRegularFile(path string) (*os.File, error)
+func (s *StrictResolver) ReadFileLimited(path string, maxBytes int64) ([]byte, error)
+func (s *StrictResolver) MkdirAll(path string, perm os.FileMode) error
+func (s *StrictResolver) RemoveAll(path string) error
+
+// Under returns a derived StrictResolver scoped to the given
+// trusted ancestor — the chain UP TO the ancestor is opened
+// via os.OpenRoot (system symlinks accepted), below is strict
+// no-symlink. Wraps MkdirAllNoSymlinkUnder / OpenRootNoSymlinkUnder.
+func (s *StrictResolver) Under(ancestor string) (*StrictResolver, error)
+
+// Caller-owned *os.Root handle. Independently constructible —
+// no Resolver dependency, no AtRoot derivation. The RootResolver
+// BORROWS the handle; the caller is responsible for closing the
+// underlying *os.Root. Wraps the 4 *os.Root-relative legacy fns.
+type RootResolver struct { /* unexported */ }
+func NewRootResolver(root *os.Root) *RootResolver
+
+func (rr *RootResolver) ReadFileLimited(name string, maxBytes int64) ([]byte, error)
+func (rr *RootResolver) WriteFileAtomic(name string, data []byte, perm os.FileMode) error
+func (rr *RootResolver) WriteFileAtomicExactMode(name string, data []byte, perm os.FileMode) error
+func (rr *RootResolver) MkdirAll(path string, perm os.FileMode) error
 ```
 
-`ResolveOpt` is a functional-options type that absorbs the
-`Limited` / `NoSymlink` / `UnderUserConfig` axes that today's
-name-explosion encodes in function names: `WithLimit(n int64)`,
-`WithSymlinks(bool)`, `WithAnchor(workdir | userConf)`. The
-`*os.Root` axis lives on `RootResolver` instead — it's a
-long-lived handle, not a per-call modifier, and threading it
-through `ResolveOpt` would force every call site to package an
-unrelated value.
+**Why 4 types instead of 1.** Both reviewers (codex + gemini)
+independently rejected the original options-based design: the
+trust models are *not just runtime flavoring*. `WithAnchor(...)`
+papers over different security policies and invites "policy
+soup" (e.g. `WithSymlinks(true)` conflicting with user-config's
+hardcoded no-symlink-below rule). 4 types make the security
+boundary explicit at every call site.
 
-**Why a separate `RootResolver` over `WithRoot(*os.Root)`.** The
-legacy `*os.Root` functions take the root as their *first
-positional arg*; semantically the root is the operation's
-anchor, not a flag. A derivation method (`r.AtRoot(root)`) makes
-that explicit at the call site and keeps the option set
-homogeneous. Per round-3 review.
+Explicit decisions:
 
-**Why options over names.** The current API multiplies one
-behaviour axis (limit, symlink mode, anchor) into a separate
-function each. Options make the axis explicit at the call site,
-shrink the public surface, and let new axes (e.g. EP-0040's
-`WithFsync(bool)` for atomic-write durability tuning) land
-without inventing yet another function.
+- **No `WithAnchor` option.** Call sites pick the resolver by
+  semantic ownership (workdir / user-config / strict / `*os.Root`).
+- **No path-shape dispatching.** A "smart" Resolver that picks
+  policy by path shape would re-introduce the ambiguity this
+  refactor is removing.
+- **No generic `OpenFile(flags int)`.** Legacy `Open*` fns are
+  read-only by design — they don't accept `os.O_CREATE` /
+  `os.O_TRUNC`. Generic flags invite unsafe combinations through
+  safety surfaces. Methods are semantic: `OpenRegularFile`
+  (read-only, regular-file, no final symlink, SameFile check),
+  `WriteFileAtomic`, `OpenRoot`, `MkdirAll`, `RemoveAll`,
+  `RemoveAll`.
+- **No `WithSymlinks(bool)`.** Symlink policies aren't binary —
+  workdir resolves, user-config splits at anchor, strict refuses
+  all. Encoded in the type, not a flag.
+- **`RootResolver` independently constructed.** No `r.AtRoot()`;
+  callers do `NewRootResolver(root)` directly. Avoids the "fake
+  resolver state" anti-pattern (codex round-2 flag).
+- **`StrictResolver.Under(ancestor)` is a method, not a 5th type.**
+  The trust model (no-symlink walk) is identical; only the
+  ceiling changes.
+- **Behavior preserved exactly.** NUL-byte rejection in entry
+  methods; abs-before-`EvalSymlinks` ordering (Go 1.25+
+  preserves relative input shape); `os.SameFile` TOCTOU check
+  on every `Open` primitive.
 
-**Migration strategy** (Codex's call — adopt verbatim):
-1. Land `Resolver`, `RootResolver`, and the new methods alongside
-   the legacy functions. Legacy functions get rewritten as
-   one-liners on top of the appropriate type (the 16
-   workdir/userConf functions wrap `Resolver`; the 7 `Root*`
-   functions wrap `RootResolver`). Behaviour and public
-   signatures preserved. Confirm via tests + smoke runs.
-2. **Audit `internal/mcpbridge`** — Gemini flagged likely
-   "safety leakage" where MCP-side path resolution duplicates
-   workdirpath logic. Fold the audit into A2; don't break
-   into a separate phase. If MCP currently resolves paths
-   without going through workdirpath, the migration is to make
-   it use `Resolver`. **Escape hatch:** if the audit reveals
-   non-trivial divergence (mcpbridge has its own confinement
-   model, or migration would require behaviour-changing logic
-   to unify), park as a separate spec rather than expanding
-   A2. The bar is mechanical migration; anything else gets
-   captured for follow-up.
-3. Migrate high-value callers (per-package, in dependency order):
-   `internal/runtime/`, `internal/plugins/runtime/`,
-   `internal/tools/`, `internal/mcpbridge`, `internal/state/`,
-   `internal/skills/`, the rest. One commit per package.
-4. Once all production callers use `Resolver`, mark legacy
-   functions `Deprecated:` with a one-release window.
-5. Delete legacy functions in the commit before checkpoint #2
-   closes — assuming no out-of-tree callers (this is internal/).
+**`repodisco.go` stays out of scope.** `LooksLikeRepoRoot` /
+`FindRepoRoot` / `FindRepoRootOrEmpty` are anchor *discovery*,
+not *resolution under an anchor*. Separate concern. The 4-type
+API doesn't absorb them.
+
+**Migration strategy.**
+
+0. **2.1.aa pre-flight — `internal/mcpbridge` audit.** Codex
+   round-2 confirmed mcpbridge has no fs calls or
+   `workdirpath` usage in current source — the audit is likely
+   a one-line "no API impact" finding. Doing it BEFORE 2.1.a
+   prevents an API-shaping exception from being discovered
+   after the types land.
+1. **2.1.a — `Resolver` + `RootResolver`.** Land both with
+   security tests (NUL injection, path traversal, symlink
+   escapes, TOCTOU). Migrate ONE canary caller per type for
+   ergonomic feedback. Legacy untouched.
+2. **2.1.b — `UserConfigResolver`.** Preserves XDG/HOME
+   longest-anchor selection + strict fallback. Tests + 1
+   canary caller. Legacy untouched.
+3. **2.1.c — `StrictResolver` + `Under(ancestor)`.** Tests + 1
+   canary caller. Legacy untouched.
+4. **2.1.d — Behavior matrix + wrapper rewrite.** First commit:
+   a markdown matrix in `.agent/` enumerating all 23 legacy
+   funcs × axes (NUL handling, abs/rel, missing-parent rules,
+   final-symlink rejection, regular-file check, negative-limit
+   behaviour, mode preservation, root ownership, Windows volume
+   root, glob limits, anchor-equality, overlapping HOME/XDG
+   longest match, symlinked HOME, outside-anchor fallback).
+   That matrix drives wrapper-rewrite test additions. Then 2-3
+   commits rewriting legacy as one-line wrappers, split by
+   family (workdir/root, user-config, strict/under). Existing 29
+   tests act as a bit-compatibility suite.
+5. **2.1.e..N — Broad caller migration**, batched 4-6 commits
+   by package family.
+6. **2.1.X — Mark legacy `Deprecated:`.**
+7. **2.1.Y — Delete legacy.** Verify zero
+   `workdirpath.<LegacyFn>(` references remain.
 
 **Files touched.**
-- `internal/workdirpath/workdirpath.go` (the big one).
-- `internal/workdirpath/resolver.go` (new).
+- `internal/workdirpath/workdirpath.go` (legacy; wrapper
+  rewrite at 2.1.d).
+- `internal/workdirpath/resolver.go` (new — `Resolver`).
 - `internal/workdirpath/resolver_test.go` (new).
+- `internal/workdirpath/root_resolver.go` (new — `RootResolver`).
+- `internal/workdirpath/root_resolver_test.go` (new).
+- `internal/workdirpath/userconfig_resolver.go` (new).
+- `internal/workdirpath/userconfig_resolver_test.go` (new).
+- `internal/workdirpath/strict_resolver.go` (new).
+- `internal/workdirpath/strict_resolver_test.go` (new).
+- `.agent/notes/workdirpath-behavior-matrix.md` (new at 2.1.d) —
+  legacy behaviour matrix driving wrapper-rewrite tests.
 - Per-call-site migration: any package that imports
-  `internal/workdirpath`. Inventory at migration time via
-  `go list -deps ./... | grep workdirpath`-style probe.
-- `internal/mcpbridge/*` for the audit — likely a small change;
-  scope confirmed at audit time.
+  `internal/workdirpath` (21 packages identified at A2 start;
+  re-inventory before broad migration).
 
 **Risk.** workdirpath is the safety surface for every fs touch.
 Any regression here surfaces as a security finding, not a test
 failure. Mitigations:
-- Wrappers preserve exact behaviour during migration.
-- Existing `workdirpath_test.go` tests run unchanged for the
-  whole migration window.
-- New `resolver_test.go` reproduces every legacy test case
-  through the new API.
-- Per-call-site migration commit is mechanical and reviewable.
+- 2.1.aa-c land 4 new types ALONGSIDE legacy — legacy unchanged
+  through that window, existing 29 tests stay green.
+- Behavior matrix at 2.1.d enumerates legacy semantics; test
+  additions match it exactly.
+- Wrappers preserve exact public signatures during migration;
+  existing 29 tests act as bit-compatibility suite.
+- Per-call-site migration commits stay small (per-package).
+- Round-A2 review (codex + gemini) explicitly called out:
+  NUL-byte rejection, abs-before-`EvalSymlinks` ordering,
+  `os.SameFile` TOCTOU, anchor-equality, overlapping
+  HOME/XDG longest match, symlinked HOME, outside-anchor
+  fallback. All in test scope.
 
 **Verification.**
 - [ ] `go test ./internal/workdirpath/... -race` passes.
-- [ ] Every legacy test case has a parallel through `Resolver`.
+- [ ] Every legacy test case in `workdirpath_test.go` has a
+      parallel through the new types (workdir → `Resolver`,
+      user-config → `UserConfigResolver`, strict → `StrictResolver`,
+      `*os.Root` → `RootResolver`).
+- [ ] Security tests cover: NUL-byte rejection, path traversal
+      (`../`), symlink escapes (parent + final), TOCTOU
+      `os.SameFile` invariant, abs-before-`EvalSymlinks`
+      ordering, anchor-equality cases, overlapping HOME/XDG
+      longest match, symlinked HOME, outside-anchor fallback.
 - [ ] `go vet ./...` clean.
 - [ ] All call sites migrated; no `workdirpath.<LegacyFn>(`
       references remain in production code.
-- [ ] mcpbridge audit produced a defined outcome (migration to
-      `Resolver`, written rationale for staying separate, or a
-      parked follow-up spec for non-trivial divergence).
-- [ ] Cross-platform path parity: `Resolver` test cases run on
-      Linux *and* Windows. Use `filepath.FromSlash` /
-      `filepath.ToSlash` consistently; reject any test that
-      hard-codes `/`-separated paths in a path-comparison.
-      Windows-specific edge cases that the legacy 23-fn API
-      currently handles (drive prefixes, UNC paths, reserved
+- [ ] mcpbridge audit (2.1.aa) produced a defined outcome:
+      either "no fs/workdirpath usage; no API impact" finding,
+      a migration to one of the new resolvers, or a parked
+      follow-up spec for non-trivial divergence.
+- [ ] Cross-platform path parity: tests run on Linux *and*
+      Windows. Use `filepath.FromSlash` / `filepath.ToSlash`
+      consistently; reject any test that hard-codes
+      `/`-separated paths in a path-comparison. Windows-
+      specific edge cases (drive prefixes, UNC paths, reserved
       names) keep working through the new API.
-- [ ] `internal/workdirpath/repodisco.go` untouched (out of scope
-      for A2; its 3 exports `LooksLikeRepoRoot`, `FindRepoRoot`,
-      `FindRepoRootOrEmpty` are repo-discovery, not path
-      confinement).
+- [ ] `internal/workdirpath/repodisco.go` untouched (out of scope;
+      anchor *discovery*, not *resolution*).
+- [ ] `RootResolver` borrows the `*os.Root` (caller-owned close
+      semantics documented at the constructor).
 - [ ] Smoke: `stado --help`, `stado run --help`,
       `stado plugin install --help` all exit 0.
 
@@ -1153,24 +1226,55 @@ slotting decision" section with a recommended default.)
   (a). Option (b) is a separate, much larger refactor (touches
   every host import + every caller); out of scope.
 
-### D12. A2 splits `Resolver` and `RootResolver`
+### D12. A2 splits into 4 narrow types, no options-based dispatch
 
-- **Decided:** the new API has two types — `Resolver` (anchored
-  on workdir + userConfDir) and `RootResolver` (anchored on
-  `*os.Root`), reached via `r.AtRoot(root)`. The 7 legacy
-  `Root*` functions wrap `RootResolver`; the other 16 wrap
-  `Resolver`.
-- **Alternatives:** (a) single `Resolver` with
-  `WithRoot(*os.Root)` option; (b) embed an optional `*os.Root`
-  field on `Resolver` directly.
-- **Why:** `*os.Root` is a long-lived handle, not a per-call
-  modifier. Threading it through `ResolveOpt` would force every
-  call site to package an unrelated value (option a) or split
-  state across "is there a root?" branches (option b). A
-  derivation method makes the anchor explicit at the call site
-  and keeps `ResolveOpt` homogeneous. Caught in round-3 review;
-  the original draft made the legacy `Root*` functions
-  un-wrappable.
+- **Decided (revised round-A2 review, 2026-05-07):** the new
+  API has 4 types — `Resolver` (workdir),
+  `UserConfigResolver` (HOME/XDG longest-anchor walk),
+  `StrictResolver` (no-symlink from `/`, plus
+  `Under(ancestor)` derivation), `RootResolver` (`*os.Root`
+  handle, **independently constructed via `NewRootResolver`**;
+  no Resolver dependency). Each type exposes only semantic
+  methods (`OpenRegularFile`, `WriteFileAtomic`, `OpenRoot`,
+  `MkdirAll`, `RemoveAll`, etc.) — no generic `OpenFile(flags)`,
+  no `WithAnchor`, no `WithSymlinks(bool)`.
+- **Alternatives considered:**
+  (a) Original D12: single `Resolver` + `RootResolver` with
+      `WithAnchor` / `WithSymlinks` options.
+  (b) Combined Resolver that dispatches policy by path shape
+      (path under workdir → workdir; HOME/XDG → user-config;
+      else → strict).
+  (c) Add a 5th `TrustedAncestorResolver` type for the 2 `Under`
+      legacy fns.
+  (d) Generic `OpenFile(flags int, perm os.FileMode)` unifying
+      Open + Write semantics.
+- **Why:** Two rounds of code-level review (codex + gemini)
+  independently rejected (a). The legacy package's anchor types
+  encode different *security policies* — workdir
+  symlink-resolves, user-config splits at HOME/XDG anchor,
+  strict refuses all symlinks. `WithAnchor` / `WithSymlinks`
+  flatten distinct trust models into runtime flags and invite
+  "policy soup" (e.g. `WithSymlinks(true)` colliding with
+  user-config's hardcoded no-symlink-below rule). 4 types make
+  the security boundary explicit at every call site.
+  - (b) rejected: dispatching by path shape re-introduces the
+    ambiguity this refactor is removing. A symlinked HOME or a
+    workdir under XDG_DATA_HOME would silently change semantics.
+  - (c) rejected: trust model under an ancestor is identical to
+    `StrictResolver` (no-symlink walk); only the ceiling
+    changes. Method-on-type is sufficient.
+  - (d) rejected: legacy `Open*` fns are read-only by design —
+    they don't accept `O_CREATE` / `O_TRUNC`. Generic flags
+    invite unsafe combinations through safety surfaces.
+- **Cost:** API surface end-state is 4 types instead of 2.
+  Trade-off: callers must explicitly pick the security boundary
+  (slightly more verbose at construction) but the boundary is
+  legible at every call site.
+
+The original "options-based" design also caused round-3 to
+miss the `*os.Root` legacy functions entirely (the prior draft
+made them un-wrappable). Switching to types-per-policy resolves
+that and surfaces the user-config / strict distinctions cleanly.
 
 ## Related
 
