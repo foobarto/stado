@@ -483,6 +483,14 @@ type OTel struct {
 // tool registry via ACP method calls.
 type ACP struct {
 	Providers map[string]ACPProvider `koanf:"providers"`
+
+	// MaxTurns caps the agent loop's per-prompt turn budget when stado
+	// runs in ACP server mode (`stado acp`). Zero means use the built-in
+	// default (50 with --tools, 1 without). Callers may also override
+	// this on a per-session basis via `session/new`'s `maxTurns` param;
+	// that param wins when set. v0.45.1 — engagement tasks routinely
+	// need 30–100+ turns and the previous hardcoded 10 throttled them.
+	MaxTurns int `koanf:"max_turns"`
 }
 
 // MCPProviderWrapped is `[mcp.providers.<name>]` — wraps a CLI that

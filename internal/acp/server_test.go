@@ -196,3 +196,51 @@ func TestServerToolSessionsReuseGitStateAcrossPrompts(t *testing.T) {
 		t.Fatalf("persisted conversation = %d messages, want 4", len(loaded))
 	}
 }
+
+// TestResolveMaxTurnsPrecedence covers the per-session > config >
+// built-in-default precedence chain — the contract that lets ACP
+// callers pin engagement turn budgets without recompiling stado.
+func TestResolveMaxTurnsPrecedence(t *testing.T) {
+	cases := []struct {
+		name        string
+		cfgMax      int
+		sessionMax  int
+		enableTools bool
+		want        int
+	}{
+		{"session_pin_wins", 7, 42, true, 42},
+		{"cfg_when_no_pin", 7, 0, true, 7},
+		{"tools_default_when_unset", 0, 0, true, 50},
+		{"chat_default_when_unset", 0, 0, false, 1},
+		{"session_pin_overrides_chat_default", 0, 99, false, 99},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.ACP.MaxTurns = tc.cfgMax
+			srv := NewServer(cfg, nil)
+			srv.EnableTools = tc.enableTools
+			sess := &acpSession{maxTurns: tc.sessionMax}
+			if got := srv.resolveMaxTurns(sess); got != tc.want {
+				t.Fatalf("resolveMaxTurns = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSessionNewAcceptsMaxTurnsParam covers the wire-format end of
+// session/new — `{"maxTurns": N}` lands on acpSession.maxTurns.
+func TestSessionNewAcceptsMaxTurnsParam(t *testing.T) {
+	srv := NewServer(&config.Config{}, nil)
+	res, err := srv.handleSessionNew(json.RawMessage(`{"maxTurns": 25}`))
+	if err != nil {
+		t.Fatalf("handleSessionNew: %v", err)
+	}
+	id := res.(sessionNewResult).SessionID
+	srv.mu.Lock()
+	got := srv.sessions[id].maxTurns
+	srv.mu.Unlock()
+	if got != 25 {
+		t.Fatalf("session.maxTurns = %d, want 25", got)
+	}
+}

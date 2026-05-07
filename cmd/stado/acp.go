@@ -26,7 +26,20 @@ var acpCmd = &cobra.Command{
 		`  }` + "\n\n" +
 		"With --tools the session runs the full audited executor loop: every\n" +
 		"tool call the model makes is committed to the session's trace/tree\n" +
-		"refs and can be audited with `stado audit verify`.",
+		"refs and can be audited with `stado audit verify`.\n\n" +
+		"Environment:\n" +
+		"  Before stado acp starts, .env is auto-loaded from CWD upward. This is\n" +
+		"  the recommended place to inject provider credentials\n" +
+		"  (ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_CLOUD_API_KEY, etc.) without\n" +
+		"  hardcoding them in editor configuration.\n\n" +
+		"Turn budget:\n" +
+		"  --tools sessions default to 50 turns per prompt. Override with\n" +
+		"  [acp] max_turns = N in config.toml (operator default), or with\n" +
+		"  {\"maxTurns\": N} in session/new params (per-session pin).\n\n" +
+		"session/update notifications use these kinds:\n" +
+		"  kind=text       text deltas streamed from the provider (field: text)\n" +
+		"  kind=tool_call  one notification per completed tool call\n" +
+		"                  (fields: name, input — input is a JSON-encoded string)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

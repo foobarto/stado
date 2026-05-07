@@ -17,6 +17,16 @@ import (
 
 // ProtocolVersion advertised in the initialize handshake. Bumping requires
 // coordinated update in stado + any ACP client.
+//
+// session/update notifications carry one of two kinds today:
+//   - "text"      — streaming text delta from the provider; payload field "text".
+//   - "tool_call" — a tool call has completed (success or error); payload fields
+//     "name" (string) and "input" (string — JSON-encoded args object).
+//
+// session/new accepts an optional `maxTurns` integer to pin the per-session turn
+// budget; falls back to [acp] max_turns from config, then 50 with --tools / 1
+// without. ACP clients that need long-running tool sessions should set this
+// explicitly rather than relying on the defaults.
 const ProtocolVersion = 1
 
 // Server is the stado ACP server — stdin/stdout JSON-RPC, one connection.
@@ -47,6 +57,11 @@ type acpSession struct {
 	gitSess          *stadogit.Session
 	persistedViewLen int
 	busy             bool
+
+	// maxTurns is the per-session cap chosen by the caller via
+	// `session/new`. Zero means "use the server-level default"
+	// (Server.Cfg.ACP.MaxTurns, then the built-in fallback).
+	maxTurns int
 }
 
 // NewServer returns a configured ACP server. Provider can be nil; lazy-built
@@ -95,6 +110,28 @@ type initializeCaps struct {
 	Thinking  bool `json:"thinking"`
 }
 
+// resolveMaxTurns picks the per-prompt turn budget for an ACP session,
+// in this priority order:
+//  1. session/new's `maxTurns` param (per-session pin from the caller)
+//  2. [acp] max_turns from config.toml (operator default)
+//  3. 50 when --tools, 1 otherwise (built-in fallback)
+//
+// Per-session pins below 1 are coerced to 1 so the loop always
+// runs at least one turn. The non-tools "1 turn" default is applied
+// at the call site when both #1 and #2 are unset.
+func (s *Server) resolveMaxTurns(sess *acpSession) int {
+	if sess != nil && sess.maxTurns > 0 {
+		return sess.maxTurns
+	}
+	if s.Cfg != nil && s.Cfg.ACP.MaxTurns > 0 {
+		return s.Cfg.ACP.MaxTurns
+	}
+	if s.EnableTools {
+		return 50
+	}
+	return 1
+}
+
 func (s *Server) handleInitialize(_ json.RawMessage) (any, error) {
 	return initializeResult{
 		ProtocolVersion: ProtocolVersion,
@@ -108,16 +145,30 @@ func (s *Server) handleInitialize(_ json.RawMessage) (any, error) {
 	}, nil
 }
 
+type sessionNewParams struct {
+	// MaxTurns lets the ACP client pin a per-session turn budget. Zero
+	// or omitted falls back to the server config ([acp] max_turns),
+	// then to the built-in default. Caps below 1 are coerced to 1
+	// to keep the loop progressing on at least one turn. v0.45.1.
+	MaxTurns int `json:"maxTurns"`
+}
+
 type sessionNewResult struct {
 	SessionID string `json:"sessionId"`
 }
 
-func (s *Server) handleSessionNew(_ json.RawMessage) (any, error) {
+func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
+	var p sessionNewParams
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &RPCError{Code: CodeInvalidParams, Message: err.Error()}
+		}
+	}
 	cwd, _ := os.Getwd()
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("acp-%d", s.nextID)
-	s.sessions[id] = &acpSession{id: id, workdir: cwd}
+	s.sessions[id] = &acpSession{id: id, workdir: cwd, maxTurns: p.MaxTurns}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
 }
@@ -184,7 +235,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		Provider:             prov,
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
-		MaxTurns:             50, // with tools enabled we may need multiple turns
+		MaxTurns:             s.resolveMaxTurns(sess),
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
@@ -223,8 +274,8 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 			}
 			opts.Executor = exec
 		}
-	} else {
-		opts.MaxTurns = 1 // pure chat: single shot
+	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
+		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
 	}
 
 	text, msgs, err := runtime.AgentLoop(pctx, opts)
