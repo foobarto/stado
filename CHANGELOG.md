@@ -28,13 +28,23 @@ Plugins / Infra / Fixes.
   `config.toml` (operator default) → built-in fallback (50 with
   `--tools`, 1 without). Editor integrators no longer need to know
   stado's compiled-in default.
-- **Eager plugin ABI verify** (B2/F2). When `stado acp --tools`
+- **Eager plugin ABI verify** (B2/F2/D1). When `stado acp --tools`
   receives `session/new`, every active installed plugin's wasm is
-  compiled (without instantiation) and checked for the required ABI
-  exports (`stado_alloc`, `stado_free`, one `stado_tool_<name>` per
-  manifest tool). Mismatches return a single RPC error listing
-  rebuild-required plugins, instead of the agent retrying through
-  the entire turn budget against broken tools.
+  compiled (without instantiation) and checked against TWO ABI
+  surfaces:
+  1. **wasm-side exports** — `stado_alloc`, `stado_free`, and one
+     `stado_tool_<name>` per ToolDef in the manifest.
+  2. **host-side imports** — every function the plugin imports from
+     the `stado` namespace must still be provided by the runtime.
+     Catches plugins built against an older stado that reference host
+     primitives deleted in this release (D1: v0.44.x plugins
+     importing `stado_fs_tool_read` after Step 7 removed it).
+  Mismatches surface as a single RPC error listing rebuild-required
+  plugins (with the specific missing symbols), instead of the agent
+  retrying broken tool calls through the entire turn budget. The
+  message distinguishes "missing exports" from "imports removed in
+  this stado version" so the operator knows whether to update the
+  plugin manifest or just rebuild against the new runtime.
 - **Documentation** for `session/update` event kinds, `.env`
   auto-load behaviour, and the new `MaxTurns` knobs added to
   `stado acp --help` and the server protocol comment.

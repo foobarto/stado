@@ -124,6 +124,13 @@ func New(ctx context.Context) (*Runtime, error) {
 // callers can rely on it being non-nil.
 func (r *Runtime) PTYManager() *pty.Manager { return r.pty }
 
+// Wazero returns the underlying wazero runtime. Used by the ABI
+// verifier (internal/runtime.providedHostImports) to enumerate the
+// names registered on the "stado" namespace module after host imports
+// install. Most callers should NOT reach into wazero directly — go
+// through Instantiate / InstallHostImports.
+func (r *Runtime) Wazero() wazero.Runtime { return r.rt }
+
 // Close terminates the runtime + every instantiated module. Safe to
 // call more than once.
 func (r *Runtime) Close(ctx context.Context) error {
