@@ -21,7 +21,7 @@ func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 func (s *Server) dispatch(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case "session.new":
-		return s.sessionNew()
+		return s.sessionNew(params)
 	case "session.prompt":
 		return s.sessionPrompt(ctx, params)
 	case "session.list":

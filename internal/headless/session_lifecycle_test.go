@@ -242,7 +242,7 @@ func TestSessionPromptWithToolsPersistsConversationLog(t *testing.T) {
 	srv := NewServer(cfg, scriptedCompactProvider{summary: "headless reply"})
 	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
 
-	res, err := srv.sessionNew()
+	res, err := srv.sessionNew(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestSessionPromptEmitsSubagentNotifications(t *testing.T) {
 		}
 	}()
 
-	res, err := srv.sessionNew()
+	res, err := srv.sessionNew(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestSessionCancelCancelsSpawnedSubagent(t *testing.T) {
 		}
 	}()
 
-	res, err := srv.sessionNew()
+	res, err := srv.sessionNew(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

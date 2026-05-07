@@ -9,6 +9,7 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -17,6 +18,7 @@ var (
 	acpMaxTurns    int
 	acpNoTurnLimit bool
 	acpResume      string
+	acpPersona     string
 )
 
 // acpNoTurnLimitMagnitude is the value resolveMaxTurns reports when
@@ -71,7 +73,17 @@ var acpCmd = &cobra.Command{
 		"                                    same UUID as the wire sessionId.\n" +
 		"  session/new {\"resumeSession\": ID} same effect, per-call. Must be a\n" +
 		"                                    full UUID — prefix lookup is\n" +
-		"                                    operator-only.",
+		"                                    operator-only.\n\n" +
+		"Persona:\n" +
+		"  --persona <name>                  default persona for new sessions.\n" +
+		"                                    Resolution: {cwd}/.stado/personas\n" +
+		"                                    → <config-dir>/personas → bundled.\n" +
+		"                                    Empty = [defaults].persona, then\n" +
+		"                                    AgentLoop's legacy system-prompt\n" +
+		"                                    path.\n" +
+		"  session/new {\"persona\": NAME}     per-session override; wins over\n" +
+		"                                    --persona for that session. Bad\n" +
+		"                                    name fails session/new.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -96,19 +108,37 @@ var acpCmd = &cobra.Command{
 			}
 			resumeID = resolved
 		}
+		// Resolve --persona up front for the same reason: bad name
+		// fails before any RPC opens. Per-call session/new still wins
+		// over this CLI default. resolvePersona returns nil only when
+		// no name was given anywhere; with --persona explicitly set it
+		// either returns a persona or an error.
+		var defaultPersona *personas.Persona
+		if acpPersona != "" {
+			p, err := resolvePersona(acpPersona, cfg)
+			if err != nil {
+				return fmt.Errorf("acp: --persona: %w", err)
+			}
+			defaultPersona = p
+		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
 			prov, provErr := tui.BuildProvider(cfg)
 			if provErr != nil {
 				fmt.Fprintf(os.Stderr, "stado acp: provider unavailable: %v\n", provErr)
 			}
+			personaTag := ""
+			if defaultPersona != nil {
+				personaTag = ", persona=" + defaultPersona.Name
+			}
 			if resumeID != "" {
-				fmt.Fprintf(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=%v, resume=%s)\n", acpTools, resumeID)
+				fmt.Fprintf(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=%v, resume=%s%s)\n", acpTools, resumeID, personaTag)
 			} else {
-				fmt.Fprintln(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=", acpTools, ")")
+				fmt.Fprintf(os.Stderr, "stado acp: ready (ACP v1, stdio, tools=%v%s)\n", acpTools, personaTag)
 			}
 			s := acp.NewServer(cfg, prov)
 			s.EnableTools = acpTools
 			s.ResumeSessionID = resumeID
+			s.DefaultPersona = defaultPersona
 			return s.Serve(ctx, os.Stdin, os.Stdout)
 		})
 	},
@@ -119,5 +149,6 @@ func init() {
 	acpCmd.Flags().IntVar(&acpMaxTurns, "max-turns", 0, "Per-prompt turn cap (operator default; 0 = use [acp] max_turns or built-in)")
 	acpCmd.Flags().BoolVar(&acpNoTurnLimit, "no-turn-limit", false, "Effectively unlimited per-prompt turns (overrides --max-turns)")
 	acpCmd.Flags().StringVar(&acpResume, "resume", "", "Resume an existing session (id, prefix ≥8, or description substring). Loads its conversation history and uses the canonical UUID as the wire sessionId.")
+	acpCmd.Flags().StringVar(&acpPersona, "persona", "", "Persona name to apply by default. Resolution: {cwd}/.stado/personas → ~/.stado/personas → bundled. session/new {\"persona\":<name>} overrides per-call.")
 	rootCmd.AddCommand(acpCmd)
 }

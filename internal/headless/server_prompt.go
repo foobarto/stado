@@ -88,6 +88,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
 		MaxTurns:             10,
+		Persona:              sess.persona,
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,

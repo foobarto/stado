@@ -84,6 +84,18 @@ Plugins / Infra / Fixes.
   thread coherent. Removes the multi-dispatch context loss where
   long-running engagements re-discover the same workspace state at
   the start of every new ACP session.
+- **Persona on headless + ACP envelopes** (closes the personas-design
+  Done-def gap). `stado acp --persona <name>` and
+  `stado headless --persona <name>` set an operator default that
+  applies to every new session unless overridden per-call.
+  `session/new {"persona": "<name>"}` (ACP) and
+  `session.new {"persona": "<name>"}` (headless) carry the override.
+  Resolution mirrors `stado run`: project (`{cwd}/.stado/personas/`)
+  → user (`<config-dir>/personas/`) → bundled. CLI flags fail at
+  startup on a bad name; wire-form bad names fail `session/new` with
+  `CodeInvalidParams` before the session is registered. The resolved
+  persona threads into `AgentLoopOptions.Persona` for the loop's
+  system-prompt assembly, identical behaviour to `stado run --persona`.
 
 ### CLI
 

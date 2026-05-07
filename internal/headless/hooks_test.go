@@ -47,7 +47,7 @@ func TestSessionPrompt_FiresPostTurnHook(t *testing.T) {
 	})
 	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
 
-	res, err := srv.sessionNew()
+	res, err := srv.sessionNew(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

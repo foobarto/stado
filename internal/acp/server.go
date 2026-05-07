@@ -14,6 +14,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
@@ -71,6 +72,13 @@ type Server struct {
 	// the server starts; this field is always a full session UUID.
 	ResumeSessionID string
 
+	// DefaultPersona is the operator's persona pin from
+	// `stado acp --persona <name>`. Applied to every `session/new`
+	// when the caller's `persona` param is empty. Resolved by the CLI
+	// layer before the server starts so the wire never sees a
+	// missing-persona error after the handshake.
+	DefaultPersona *personas.Persona
+
 	conn   *Conn
 	mu     sync.Mutex
 	nextID uint64
@@ -104,6 +112,13 @@ type acpSession struct {
 	// `session/new`. Zero means "use the server-level default"
 	// (Server.Cfg.ACP.MaxTurns, then the built-in fallback).
 	maxTurns int
+
+	// persona is the resolved persona for this session. Set at
+	// session/new from `persona` param (per-call) or
+	// Server.DefaultPersona (operator CLI pin). nil keeps the legacy
+	// ComposeSystemPrompt path inside AgentLoop, which is what the
+	// pre-personas behaviour was.
+	persona *personas.Persona
 }
 
 // NewServer returns a configured ACP server. Provider can be nil; lazy-built
@@ -212,6 +227,14 @@ type sessionNewParams struct {
 	// Unknown ids surface as a CodeInvalidParams error before the
 	// session is registered.
 	ResumeSession string `json:"resumeSession"`
+
+	// Persona, when non-empty, names a persona to apply to this
+	// session's turns. Resolution order: project (`{cwd}/.stado/personas/`)
+	// → user (`<config-dir>/personas/`) → bundled. Empty falls back
+	// to Server.DefaultPersona (the operator's `--persona` CLI pin),
+	// then to the AgentLoop legacy path. Unknown names surface as a
+	// CodeInvalidParams error before the session is registered.
+	Persona string `json:"persona"`
 }
 
 type sessionNewResult struct {
@@ -231,6 +254,14 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 		}
 	}
 
+	// Persona resolution: per-call name beats operator default. Empty
+	// per-call + nil default = leave persona unset, AgentLoop falls
+	// back to its legacy ComposeSystemPrompt path.
+	persona, perr := s.resolveSessionPersona(p.Persona)
+	if perr != nil {
+		return nil, perr
+	}
+
 	// Resume target precedence: per-call param > operator-set CLI
 	// default. Both forms must be a full session UUID; prefix /
 	// description lookup stays in the CLI layer (cmd/stado).
@@ -243,6 +274,7 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		sess.persona = persona
 		s.mu.Lock()
 		if _, taken := s.sessions[resumeID]; taken {
 			s.mu.Unlock()
@@ -260,9 +292,38 @@ func (s *Server) handleSessionNew(raw json.RawMessage) (any, error) {
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("acp-%d", s.nextID)
-	s.sessions[id] = &acpSession{id: id, workdir: cwd, maxTurns: p.MaxTurns}
+	s.sessions[id] = &acpSession{
+		id:       id,
+		workdir:  cwd,
+		maxTurns: p.MaxTurns,
+		persona:  persona,
+	}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id}, nil
+}
+
+// resolveSessionPersona picks the persona for a new session.
+// Per-call name (from session/new) wins; a non-empty name that
+// doesn't resolve is a hard error so the caller learns about a
+// typo before the first turn fires. Empty per-call name uses
+// Server.DefaultPersona — already resolved by the CLI layer.
+func (s *Server) resolveSessionPersona(name string) (*personas.Persona, *RPCError) {
+	if name == "" {
+		return s.DefaultPersona, nil
+	}
+	cwd, _ := os.Getwd()
+	cfgDir := ""
+	if s.Cfg != nil {
+		cfgDir = config.ConfigDir()
+	}
+	p, err := (personas.Resolver{CWD: cwd, ConfigDir: cfgDir}).Load(name)
+	if err != nil {
+		return nil, &RPCError{
+			Code:    CodeInvalidParams,
+			Message: "persona: " + err.Error(),
+		}
+	}
+	return p, nil
 }
 
 // buildResumedSession opens an existing git-native session by id,
@@ -426,6 +487,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
 		MaxTurns:             s.resolveMaxTurns(sess),
+		Persona:              sess.persona,
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,

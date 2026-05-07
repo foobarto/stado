@@ -8,24 +8,71 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/compact"
+	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+type sessionNewParams struct {
+	// Persona names a persona to apply to this session's turns.
+	// Resolution order: project (`{cwd}/.stado/personas/`) → user
+	// (`<config-dir>/personas/`) → bundled. Empty falls back to
+	// Server.DefaultPersona (the operator's `--persona` CLI pin), then
+	// to the AgentLoop legacy ComposeSystemPrompt path. Unknown names
+	// surface as a CodeInvalidParams error before the session is
+	// registered.
+	Persona string `json:"persona"`
+}
 
 type sessionNewResult struct {
 	SessionID string `json:"sessionId"`
 	Workdir   string `json:"workdir"`
 }
 
-func (s *Server) sessionNew() (any, error) {
+func (s *Server) sessionNew(raw json.RawMessage) (any, error) {
+	var p sessionNewParams
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
+		}
+	}
+	persona, perr := s.resolveSessionPersona(p.Persona)
+	if perr != nil {
+		return nil, perr
+	}
 	cwd, _ := os.Getwd()
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("h-%d", s.nextID)
-	s.sessions[id] = &hSession{id: id, workdir: cwd}
+	s.sessions[id] = &hSession{id: id, workdir: cwd, persona: persona}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id, Workdir: cwd}, nil
+}
+
+// resolveSessionPersona picks the persona for a new session.
+// Per-call name (from session.new) wins; non-empty name that doesn't
+// resolve is a hard error so the caller learns about a typo before
+// the first prompt fires. Empty per-call name uses
+// Server.DefaultPersona — already resolved by the CLI layer.
+func (s *Server) resolveSessionPersona(name string) (*personas.Persona, *acp.RPCError) {
+	if name == "" {
+		return s.DefaultPersona, nil
+	}
+	cwd, _ := os.Getwd()
+	cfgDir := ""
+	if s.Cfg != nil {
+		cfgDir = config.ConfigDir()
+	}
+	p, err := (personas.Resolver{CWD: cwd, ConfigDir: cfgDir}).Load(name)
+	if err != nil {
+		return nil, &acp.RPCError{
+			Code:    acp.CodeInvalidParams,
+			Message: "persona: " + err.Error(),
+		}
+	}
+	return p, nil
 }
 
 type sessionListItem struct {

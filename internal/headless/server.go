@@ -13,6 +13,7 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/personas"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
@@ -27,6 +28,13 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]*hSession
 	nextID   uint64 // monotonic counter so deleting sessions doesn't reuse IDs
+
+	// DefaultPersona is the operator's persona pin from
+	// `stado headless --persona <name>`. Applied to every `session.new`
+	// when the caller's `persona` param is empty. Resolved by the CLI
+	// layer before the server starts so the wire never sees a
+	// missing-persona error after the handshake.
+	DefaultPersona *personas.Persona
 
 	// Background-plugin state. See plugins.go. Populated on Serve()
 	// entry from cfg.Plugins.Background and torn down on exit.
@@ -44,6 +52,12 @@ type hSession struct {
 	persistedViewLen int               // folded conversation messages persisted to conversation.jsonl
 	lastInputTokens  int               // most recent input-token observation
 	busy             bool
+
+	// persona is the resolved persona for this session. Set at
+	// session.new from `persona` param (per-call) or
+	// Server.DefaultPersona (operator CLI pin). nil keeps the
+	// AgentLoop legacy ComposeSystemPrompt path.
+	persona *personas.Persona
 }
 
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {
