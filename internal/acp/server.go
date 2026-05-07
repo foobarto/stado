@@ -47,6 +47,11 @@ type Server struct {
 	// sessions tracked by ID; one active ACP session can host many agent
 	// prompts. For v1 we keep state minimal: just the agent.Message history.
 	sessions map[string]*acpSession
+
+	// choiceRegistry tracks in-flight stado_ui_choose requests emitted as
+	// session/update kind=choice. Resolved by session/choice_response
+	// RPCs from the client. Q3 Phase B.
+	choiceRegistry *pendingChoiceRegistry
 }
 
 type acpSession struct {
@@ -69,7 +74,12 @@ type acpSession struct {
 // on first prompt (mirrors the TUI's behaviour so missing API keys don't
 // break the handshake).
 func NewServer(cfg *config.Config, prov agent.Provider) *Server {
-	return &Server{Cfg: cfg, Provider: prov, sessions: map[string]*acpSession{}}
+	return &Server{
+		Cfg:            cfg,
+		Provider:       prov,
+		sessions:       map[string]*acpSession{},
+		choiceRegistry: newPendingChoiceRegistry(),
+	}
 }
 
 // Serve runs the server loop on r/w until the peer disconnects. Blocking.
@@ -88,6 +98,8 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		return s.handleSessionPrompt(ctx, params)
 	case "session/cancel":
 		return s.handleSessionCancel(params)
+	case "session/choice_response":
+		return s.handleSessionChoiceResponse(params)
 	case "shutdown":
 		s.conn.WaitPendingExceptCaller()
 		go s.conn.Close()
@@ -312,6 +324,13 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 				return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 			}
 			opts.Executor = exec
+			opts.Host = &acpHost{
+				server:    s,
+				sessionID: p.SessionID,
+				workdir:   workdir,
+				readLog:   exec.ReadLog,
+				runner:    exec.Runner,
+			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {
 		opts.MaxTurns = 1 // pure chat default: single shot when nobody asked for more
@@ -394,6 +413,12 @@ func (s *Server) handleSessionCancel(raw json.RawMessage) (any, error) {
 		sess.cancel()
 	}
 	sess.mu.Unlock()
+	// Resolve any pending choice requests for this session so plugin
+	// calls don't deadlock waiting for a client that's about to drop
+	// the prompt. Q3 Phase B.
+	if s.choiceRegistry != nil {
+		s.choiceRegistry.cancelSession(p.SessionID)
+	}
 	return struct{}{}, nil
 }
 

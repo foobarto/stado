@@ -24,10 +24,12 @@ Plugins / Infra / Fixes.
 
 - **Configurable `MaxTurns`** (B1/F1 from integration testing).
   Resolution order: `session/new`'s optional `{"maxTurns": N}` param
-  (per-session pin from the ACP client) → `[acp] max_turns = N` in
-  `config.toml` (operator default) → built-in fallback (50 with
-  `--tools`, 1 without). Editor integrators no longer need to know
-  stado's compiled-in default.
+  (per-session pin from the ACP client) → `stado acp --max-turns N`
+  / `--no-turn-limit` (operator CLI flag, mirrors `stado run`) →
+  `[acp] max_turns = N` in `config.toml` (operator default) →
+  built-in fallback (50 with `--tools`, 1 without).
+  `--no-turn-limit` sets an effectively unlimited cap for
+  engagement workflows that need many turns.
 - **Eager plugin ABI verify** (B2/F2/D1). When `stado acp --tools`
   receives `session/new`, every active installed plugin's wasm is
   compiled (without instantiation) and checked against TWO ABI
@@ -74,20 +76,27 @@ Plugins / Infra / Fixes.
   empty canvas. New helper at internal/tui/overlays/CenterOver
   composites popups over a base render — reused by the
   approval-drawer polish.
-- New host primitive **`stado_ui_choose`** (Q3 Phase A). Wasm
-  plugins with the new `ui:choice` capability can prompt the
-  operator for a single or multi-choice answer through a TUI bottom
-  drawer. Wire format: JSON request `{prompt, options:[{id,label}],
-  multi, default}`, JSON response `{selected:[...], cancelled:bool}`;
-  errors use the existing negative-length tool-side wire. The TUI
-  drawer renders below the input with ↑/↓ navigate, Space toggle in
-  multi mode, Enter confirm, Esc cancel; long option lists scroll
-  inside the drawer (max 8 visible at once with above/below
-  indicators). Single-flight: a second concurrent request is
-  rejected with `cancelled=true` so plugins see a clean signal.
-  Headless / MCP server return a structured `"interactive UI
-  unavailable"` error so the plugin can decide how to fall back —
-  no silent default-pick. ACP integration follows in Phase B.
+- New host primitive **`stado_ui_choose`** (Q3). Wasm plugins with
+  the new `ui:choice` capability can prompt the operator for a
+  single or multi-choice answer. Wire format: JSON request
+  `{prompt, options:[{id,label}], multi, default}`, JSON response
+  `{selected:[...], cancelled:bool}`; errors use the existing
+  negative-length tool-side wire. The TUI drawer renders below the
+  input with ↑/↓ navigate, Space toggle in multi mode, Enter confirm,
+  Esc cancel; long option lists scroll inside the drawer (max 8
+  visible at once with above/below indicators). Single-flight: a
+  second concurrent request is rejected with `cancelled=true` so
+  plugins see a clean signal. Headless / MCP server return a
+  structured `"interactive UI unavailable"` error so the plugin
+  can decide how to fall back — no silent default-pick.
+- **ACP integration** for `stado_ui_choose` (Phase B). When a plugin
+  calls the primitive during an ACP session, the server emits a
+  `session/update` notification with `kind=choice` carrying
+  `requestId`, `prompt`, `options[]`, `multi`, `default[]`, and
+  blocks on a paired `session/choice_response` RPC from the client
+  with `{sessionId, requestId, selected[], cancelled}`. Session
+  cancel and connection drops resolve every pending request with
+  `cancelled=true` so plugin calls don't deadlock.
 - Approval drawer (plugin-requested human approval) polished.
   Title gets a ⚠ icon prefix; body renders in a faint code-block
   frame when it's command-shaped (multi-line, contains `$ ` or
