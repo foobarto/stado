@@ -48,6 +48,7 @@ var Commands = []Command{
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name> <tool> [json] (append -<ver> to pin)", "", "Session"},
 	{"/tool", "Run a tool by name — /tool fs.read [json], /t for short. Verbs (ls/info/enable/disable/autoload/unautoload/reload) flow through the same command.", "", "Session"},
+	{"/alias", "Manage operator-defined slash shortcuts — /alias create <name> <expansion> (use {1},{2},… for positional args), /alias list, /alias rm <name>. Global; rejects collisions with built-ins.", "", "Session"},
 	{"/switch", "Open the session manager", "ctrl+x l", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
 	{"/subagents", "List recent spawned child sessions, status, and adoption commands", "", "Session"},

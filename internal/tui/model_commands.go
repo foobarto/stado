@@ -405,6 +405,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.handleBudgetSlash(parts)
 	case "/retry":
 		return m.handleRetrySlash()
+	case "/alias":
+		return m.handleAliasSlash(parts)
 	case "/tool", "/t":
 		// /tool fs.read {"path":"foo"} runs the tool; /tool ls / info /
 		// enable etc. flow to the management path. /t is the muscle-
