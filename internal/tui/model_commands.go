@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/memory"
@@ -22,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -403,8 +405,13 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.handleBudgetSlash(parts)
 	case "/retry":
 		return m.handleRetrySlash()
-	case "/tool":
-		m.handleToolSlash(parts)
+	case "/tool", "/t":
+		// /tool fs.read {"path":"foo"} runs the tool; /tool ls / info /
+		// enable etc. flow to the management path. /t is the muscle-
+		// memory alias.
+		if cmd := m.handleToolSlash(parts); cmd != nil {
+			return cmd
+		}
 	case "/session":
 		// /session          — show current session (existing behaviour)
 		// /session list     — alias for /sessions
@@ -463,9 +470,13 @@ func (m *Model) handleSessionSlash() {
 	m.appendBlock(block{kind: "system", body: sb.String()})
 }
 
-// handleToolSlash dispatches /tool <verb> [args] commands (EP-0037 §I).
-// Session-scoped by default — does not write config files.
-func (m *Model) handleToolSlash(parts []string) {
+// handleToolManageSlash dispatches the reserved /tool <verb> management
+// commands (EP-0037 §I): ls / info / cats / reload / enable / disable /
+// autoload / unautoload. Session-scoped by default — does not write
+// config files unless --save is supplied. Called from handleToolSlash
+// when the first arg is a recognised verb; tool-name dispatch flows to
+// handleToolExecSlash instead.
+func (m *Model) handleToolManageSlash(parts []string) {
 	verb := ""
 	if len(parts) >= 2 {
 		verb = parts[1]
@@ -1144,6 +1155,265 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	m.renderBlocks()
 
 	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
+}
+
+// toolManageVerbs is the set of /tool sub-verbs that flow to the
+// management handler instead of treating the second arg as a tool
+// name. Kept alongside handleToolSlash so adding a verb is one
+// edit. EP-0037 §I.
+var toolManageVerbs = map[string]bool{
+	"ls":         true,
+	"info":       true,
+	"cats":       true,
+	"reload":     true,
+	"enable":     true,
+	"disable":    true,
+	"autoload":   true,
+	"unautoload": true,
+}
+
+// handleToolSlash is the entry point for /tool and /t. It routes
+// reserved management verbs (ls / info / enable / etc.) to
+// handleToolManageSlash and treats every other second-arg as a tool
+// name to execute via handleToolExecSlash. /t is the muscle-memory
+// alias for /tool — `/t fs.read {"path":"foo.txt"}` works, but
+// `/t ls` also flows to the management path so the alias is fully
+// transparent.
+func (m *Model) handleToolSlash(parts []string) tea.Cmd {
+	if len(parts) >= 2 && toolManageVerbs[parts[1]] {
+		m.handleToolManageSlash(parts)
+		return nil
+	}
+	return m.handleToolExecSlash(parts)
+}
+
+// handleToolExecSlash routes `/tool <name> [json-args]` (and `/t`).
+//
+//	/tool                            → usage hint
+//	/tool <name>                     → invoke with {} args
+//	/tool <name> {"key":"val",…}     → invoke with supplied JSON
+//
+// Resolves <name> as canonical (fs.read) or wire (fs__read) form
+// against the live registry. Bundled tools dispatch from the
+// binary-embedded wasm; installed plugin tools dispatch from
+// $XDG_DATA_HOME/stado/plugins/. Both flow through the same
+// runPluginToolAsync the /plugin: path uses, so progress / approvals
+// / system blocks render consistently.
+//
+// PTY-bound shell tools (shell.spawn / list / attach / read / write
+// / detach / signal / resize / destroy) are refused with the same
+// advisory `stado tool run` uses — those need the agent loop's
+// long-lived executor, not a one-off tool dispatch.
+func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
+	cfg, err := config.Load()
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "tool: config load: " + err.Error()})
+		return nil
+	}
+	if len(parts) < 2 {
+		m.appendBlock(block{
+			kind: "system",
+			body: "usage: /tool <name> [json-args]  (canonical names like fs.read or gtfobins.lookup; see /tools to list)",
+		})
+		return nil
+	}
+	name := parts[1]
+	argsJSON := "{}"
+	if len(parts) >= 3 {
+		argsJSON = strings.Join(parts[2:], " ")
+	}
+
+	reg := runtime.BuildDefaultRegistry(cfg)
+	registered, ok := lookupToolForSlashDispatch(reg, name)
+	if !ok {
+		// Not found: surface both the discovery hint AND the management-
+		// verb cheatsheet so a typo'd verb (`/tool unauotload …`) gets a
+		// helpful list rather than a dead end. Mirrors the verb help the
+		// old switch's default case used to print. Mutating verbs are
+		// session-scoped unless --save is supplied.
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf(
+				"tool %q not found — try /tools to list available tools.\n\n"+
+					"If you meant a /tool management verb, the set is: ls, info, cats, "+
+					"enable, disable, autoload, unautoload, reload. Mutating verbs are "+
+					"session-scoped by default; pass --save to persist to "+
+					".stado/config.toml.",
+				name),
+		})
+		return nil
+	}
+
+	if ptyBoundShellToolName(registered.Name()) {
+		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		if canonical == "" {
+			canonical = registered.Name()
+		}
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf(
+				"tool %q is PTY-bound — it needs the agent loop's long-lived executor, not a one-off /tool dispatch. Ask the agent to run it inside the conversation, or use the MCP server (`stado mcp-server`) for cross-call PTYs.",
+				canonical),
+		})
+		return nil
+	}
+
+	approval := tuiApprovalBridge{model: m}
+
+	// Bundled-tool dispatch.
+	if info, ok := bundledplugins.LookupModuleByToolName(registered.Name()); ok {
+		wasmBytes, err := bundledplugins.Wasm(info.Name)
+		if err != nil {
+			m.appendBlock(block{kind: "system", body: "tool: bundled wasm load: " + err.Error()})
+			return nil
+		}
+		bareToolDef := bundledToolDefForSlash(registered)
+		manifest := plugins.Manifest{
+			Name:         bundledplugins.ManifestNamePrefix + "-" + info.Name,
+			Version:      info.Version,
+			Author:       info.Author,
+			Capabilities: info.Capabilities,
+			Tools:        []plugins.ToolDef{bareToolDef},
+		}
+		cwd, _ := os.Getwd()
+		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		if canonical == "" {
+			canonical = registered.Name()
+		}
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("tool %s: invoking…", canonical),
+		})
+		m.renderBlocks()
+		return runPluginToolAsync(cfg, cwd, &manifest, bareToolDef, argsJSON,
+			manifest.Name, wasmBytes, m.buildPluginBridge(manifest.Name), approval)
+	}
+
+	// Installed-plugin tool dispatch.
+	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+		wasmBytes, err := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
+		if err != nil {
+			m.appendBlock(block{kind: "system", body: "tool: verify: " + err.Error()})
+			return nil
+		}
+		var tdef *plugins.ToolDef
+		for i := range mfst.Tools {
+			if mfst.Tools[i].Name == registered.Name() {
+				tdef = &mfst.Tools[i]
+				break
+			}
+		}
+		if tdef == nil {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("tool %q registered but not declared in installed manifest %q", name, mfst.Name),
+			})
+			return nil
+		}
+		canonical := runtime.LookupToolMetadata(registered.Name()).Canonical
+		if canonical == "" {
+			canonical = registered.Name()
+		}
+		m.appendBlock(block{
+			kind: "system",
+			body: fmt.Sprintf("tool %s: invoking…", canonical),
+		})
+		m.renderBlocks()
+		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, *tdef, argsJSON,
+			mfst.Name+"-"+mfst.Version, wasmBytes,
+			m.buildPluginBridge(mfst.Name), approval)
+	}
+
+	m.appendBlock(block{
+		kind: "system",
+		body: fmt.Sprintf("tool %q registered but its source module was not found", name),
+	})
+	return nil
+}
+
+// lookupToolForSlashDispatch mirrors the CLI's lookupToolInRegistry
+// helper: tries exact name, canonical→wire conversion, canonical-
+// metadata fallback, and a single-underscore substitution. Kept
+// inline here so the TUI doesn't take a dep on cmd/stado/main.
+func lookupToolForSlashDispatch(reg *tools.Registry, query string) (pkgToolHandle, bool) {
+	if t, ok := reg.Get(query); ok {
+		return t, true
+	}
+	if dot := strings.Index(query, "."); dot > 0 && dot < len(query)-1 {
+		if wire, err := tools.WireForm(query[:dot], query[dot+1:]); err == nil {
+			if t, ok := reg.Get(wire); ok {
+				return t, true
+			}
+		}
+	}
+	for _, candidate := range reg.All() {
+		if runtime.LookupToolMetadata(candidate.Name()).Canonical == query {
+			return candidate, true
+		}
+	}
+	if strings.Contains(query, ".") {
+		if t, ok := reg.Get(strings.ReplaceAll(query, ".", "_")); ok {
+			return t, true
+		}
+	}
+	return nil, false
+}
+
+// pkgToolHandle is the minimal surface the slash dispatcher needs
+// from a registered tool. Kept as an alias so the lookup helper can
+// return without pulling pkg/tool into this file's import set
+// (which already grew enough for one commit).
+type pkgToolHandle = interface {
+	Name() string
+	Description() string
+	Schema() map[string]any
+}
+
+// bundledToolDefForSlash builds a plugins.ToolDef from a registered
+// tool. Mirrors cmd/stado/tool_run.go's toolDefFromRegistered: the
+// Name field uses the bare suffix from a wire-form name (fs__read
+// → "read") because the wasm dispatcher prepends "stado_tool_" to
+// resolve the export.
+func bundledToolDefForSlash(t pkgToolHandle) plugins.ToolDef {
+	registered := t.Name()
+	bare := registered
+	if alias, sub, ok := tools.ParseWireForm(registered); ok && alias != "" {
+		bare = sub
+	}
+	schemaJSON := "{}"
+	if schema := t.Schema(); schema != nil {
+		if b, err := json.Marshal(schema); err == nil {
+			schemaJSON = string(b)
+		}
+	}
+	return plugins.ToolDef{
+		Name:        bare,
+		Description: t.Description(),
+		Schema:      schemaJSON,
+	}
+}
+
+// ptyBoundShellToolName is the TUI-side mirror of cmd/stado's
+// ptyBoundShellTool gate. Same nine canonical / wire names; same
+// reasoning — single-dispatch /tool can't host a PTY across calls.
+func ptyBoundShellToolName(name string) bool {
+	canonical := name
+	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
+		canonical = md.Canonical
+	}
+	switch canonical {
+	case "shell.spawn", "shell.list", "shell.attach", "shell.read",
+		"shell.write", "shell.detach", "shell.signal", "shell.resize",
+		"shell.destroy":
+		return true
+	}
+	switch name {
+	case "shell__spawn", "shell__list", "shell__attach", "shell__read",
+		"shell__write", "shell__detach", "shell__signal", "shell__resize",
+		"shell__destroy":
+		return true
+	}
+	return false
 }
 
 // openModelPicker builds the item list for the current provider +
