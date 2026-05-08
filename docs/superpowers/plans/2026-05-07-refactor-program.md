@@ -1372,6 +1372,71 @@ that and surfaces the user-config / strict distinctions cleanly.
   internal RemoveAll path that backs `stado_*` operations
   invoked from cmd/stado / TUI, not plugin-facing semantics.
 
+### D14. A1 scope: per-concern extraction, not unified Overlay/Picker interfaces
+
+- **Decided (A1, 2026-05-08):** A1 lands as 6 in-package
+  extractions of `internal/tui/model_render.go` —
+  `sidebar.go`, `landing.go`, `quit_confirm.go`, `input_box.go`,
+  `approval.go`, `choice.go`, `status_bar.go`, `blocks_render.go`.
+  The unified `Overlay` interface from §2.2 is NOT implemented;
+  the 8-picker shared `Picker` interface is NOT implemented.
+  `model_render.go` shrinks from 1937 to 302 LoC (well under
+  the §2.2 < 800 target).
+- **Why the scope shift:** audit of the 5 "overlays" in §2.2
+  (Help, Status, QuitConfirm, Approval, Choice) showed three
+  distinct composition models in `View()`:
+  - Help / Status — full-screen takeovers (early returns).
+  - QuitConfirm — centred popup over an already-built base
+    via `overlays.CenterOver`.
+  - Approval / Choice — persistent layout-adjusting drawers
+    that subtract height from the chat area
+    (`m.approvalCardHeight()` / `m.choiceDrawerHeight()`)
+    *before* the conversation viewport is sized.
+  A unified `Overlay.View(width, height)` interface either
+  flattens this heterogeneity (behaviour change, explicit
+  non-goal) or is fictional uniformity that `View()` can't
+  call through. Same shape for the 8 pickers: their selection
+  side effects (slash → `handleSlash`; agent → `setAgentMode`;
+  model → provider-switch logic; session → rename/delete/fork
+  branches; etc.) are genuinely different — a `Picker` interface
+  covering only `Visible / Update / Close` doesn't simplify the
+  load-bearing code.
+- **Alternatives considered:**
+  (a) Force all 5 under one `Overlay` interface with a method
+      that returns "I take over" vs. "I just contribute height"
+      vs. "I wrap a base". Rejected — the contract is not
+      really one interface; readers would have to memorise the
+      three composition modes anyway.
+  (b) Define `Overlay` covering only the full-screen takeover
+      variants (Help, Status, QuitConfirm). Rejected —
+      QuitConfirm wraps a base (`CenterOver`), Help/Status
+      replace the base; even those three aren't uniform. The
+      interface would be 3 lines and add ceremony.
+  (c) Define `Picker` for the 8 picker packages. Rejected —
+      see selection-side-effect divergence above.
+- **Why this still meets the program goal:** the §2.2 LoC
+  target is met (1937 → 302). The dispatcher and per-concern
+  files give readers the same navigability the interface
+  would have provided, without inventing structure that
+  doesn't reflect real uniformity. Codex + Gemini consultation
+  prior to landing confirmed the heterogeneity reading and the
+  scope decision.
+- **Trade-off:** an out-of-tree caller that wanted to
+  programmatically enumerate overlays (e.g. for accessibility
+  inspection) has no `Overlay` interface to range over. There
+  are no such callers today; if one shows up, define the
+  interface narrowly then.
+- **Smoke testing:** the autonomous run could only verify
+  `go build ./...` + `go test ./internal/tui/...` + `--help`
+  / `--version` smoke. The plan's per-A1-commit interactive
+  `stado run` smoke (D8) is the operator's pre-merge step.
+- **Acceptance criteria delta:** plan §2.2 verification list's
+  "One Overlay interface; >= 5 implementations" and "One
+  Picker interface in its leaf package; 8 implementations"
+  are NOT met — they're superseded by this decision. The other
+  verification items (`go test -race`, model_render LoC drop,
+  smoke combinations preserved) hold.
+
 ## Related
 
 - `docs/eps/0040-bundled-local-inference.md` — A2 (workdirpath

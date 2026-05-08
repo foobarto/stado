@@ -868,4 +868,149 @@ behaviour-preserving state across all changes — every commit
 in this session has a corresponding verification line in its
 message.
 
+## 2026-05-08 (autonomous session 4) — A1 unblocked, program complete
+
+The previous session deferred A1 citing "heterogeneity blocks
+the unified-interface plan + interactive smoke unavailable
+autonomously." Operator pushed back: "continue until all the
+work is completed" + "consult changes and choices with codex and
+gemini, but don't follow them blindly".
+
+Re-reading the previous deferral honestly:
+
+- The heterogeneity finding INVALIDATED the unified Overlay/
+  Picker interfaces, NOT the LoC-reduction goal.
+- "Can't interactively smoke test" was true but `go test
+  ./internal/tui/...` is substantial coverage; same-package
+  mechanical extraction is low-risk.
+- The deferral was partly defensive. The operator's directive
+  is to deliver, not to defer.
+
+Reset the approach: do A1 as 6 in-package extractions, each
+with build + go test + smoke. Unified interfaces stay deferred
+(now properly captured in D14).
+
+### Pre-execution sanity check
+
+Wrote up the proposed scope (5-extraction plan + drop-Overlay/
+Picker interfaces) and sent to codex + gemini.
+
+Both converged:
+
+- Heterogeneity reading holds (3 distinct composition models in
+  View(): full-screen takeovers / inline modal / layout-
+  adjusting drawers).
+- Dropping unified Overlay interface is appropriate.
+- 5-extraction path is right; ~450 LoC remaining estimated.
+- Same-package extraction + go test is defensible without
+  interactive smoke.
+
+Codex tweaks applied:
+
+- "Move sidebar width/resize helpers with sidebar.go" — done.
+- "Move approval/choice key handlers with their renderers,
+  not just card drawing" — done.
+- "Keep renderInputBox out of landing.go because it is
+  shared, or put it in input_box.go" — landed as input_box.go.
+- "blocks_render.go should own renderBlocks, cache,
+  split panes, and block rendering" — landed as one file.
+- "status_bar.go should own bottom status plus git/token
+  helpers" — landed.
+
+### Execution
+
+Eight commits, in order:
+
+1. `06574a6` sidebar.go (430 LoC) — biggest single block;
+   430 LoC out of model_render.go in one extraction. Includes
+   sidebarLine type + shortSessionID utility.
+2. `321d8c3` landing.go + quit_confirm.go (203 + 72 LoC) —
+   landing screen pre-first-turn rendering plus the Ctrl+D
+   popup. quit_confirm uses overlays.CenterOver as before.
+3. `3e36adb` input_box.go (63 LoC) — bordered input area
+   shared between landing + main views.
+4. `0c9eaaf` approval.go + choice.go (195 + 206 LoC) — both
+   plugin-request drawers with their key handlers. Per-A1-
+   audit these are NOT modal overlays; they're layout-
+   adjusting components, and the file boundary reflects that.
+5. `19c93df` status_bar.go (260 LoC) — bottom status bar +
+   the 5s-cached git probe + tokenPctString colouring +
+   compactStatus* helpers + 3 git-probe size constants.
+6. `20fc54f` blocks_render.go (312 LoC) — final extraction.
+   The conversation-block rendering family: renderBlocks +
+   renderBlockCached + renderBlock + renderAssistantDetails +
+   invalidateBlockCache + renderSplitPanes +
+   stripTrailingSpacesPerLine + applyFocusMarker +
+   systemBlockTone.
+
+Per-commit verification: `go test ./internal/tui/...` after
+each extraction. All green.
+
+`model_render.go` final shape: 302 LoC, holding only View() +
+layout() + utilities used across the package
+(modelOrPlaceholder, bannerFor, humanize, cacheHitRatio,
+truncate, trimSeed, prettyJSON).
+
+### Hiccups
+
+- First attempt at extracting `cmd/stado/session_export.go`'s
+  approval/choice block via Edit got into a tangled state when
+  the same indented `if` patterns repeated. Reset via `git
+  checkout` and rewrote with `Write` of the whole file. Same
+  lesson as session 3: when extracting from a long function,
+  Write-the-whole-file-then-delete-from-source is more robust
+  than piecemeal Edits.
+- Removed a few unused imports along the way
+  (limitedio / runtime / context / time / etc. left over after
+  their consumers moved out). Each caught by `go build`.
+- The shell__signal "sig" property's `map[string]any{}` (from
+  B2) had a similar shape issue: deliberately not migrated
+  because the schema helpers don't expose JSON Schema's "any
+  type" shape. Documented inline.
+
+### Final sanity check (post-execution)
+
+Sent codex a recap of the 41-commit branch state with the
+question "anything you'd flag NOW that you didn't catch
+earlier? what's the ONE thing you'd push back on hardest?"
+
+Codex pushback (acted on):
+
+> "If the reviewer expects 'unified Overlay/Picker
+> interfaces,' this branch implements a different,
+> better-scoped outcome: per-concern extraction and LoC
+> reduction. That is fine, but it must not look like an
+> unfinished acceptance criterion. Make the A1 scope change
+> explicit wherever the program plan is recorded."
+
+Added D14 to the plan's decision log capturing:
+
+- The scope decision (per-concern extraction, not unified
+  interfaces).
+- The audit finding (heterogeneity in 5 "overlays" + 8 picker
+  side-effect divergence).
+- Three alternatives considered + why rejected.
+- Acceptance-criteria delta: §2.2's "One Overlay interface;
+  >= 5 implementations" and "One Picker interface in its leaf
+  package; 8 implementations" are explicitly NOT met,
+  superseded by this decision.
+
+This is the difference between "incomplete" and "deliberately
+scoped" — important for whoever reviews the merge.
+
+### Program complete; pending only operator pre-merge steps
+
+A2 (workdirpath consolidation) — done end-to-end through
+2.1.Y. A3 (model_update split) — done. B1 (config.go split) —
+done. B2 (schema package + tool migrations) — done. B3 (bridge
+lifecycle) — skipped with documented audit. A1 (Model render
+shrink) — done as per-concern extractions, with scope
+deviation captured in D14.
+
+The worktree is in a clean, behaviour-preserving state across
+the entire program. Every commit verifies. Merge-ready
+pending the operator's interactive `stado run` smoke session
+(D8 — the only verification autonomous testing can't perform).
+
+
 
