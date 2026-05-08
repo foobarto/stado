@@ -393,17 +393,47 @@ type ChoiceRequest struct {
 
 // ChoiceOption is a single picker entry. ID is what the plugin gets
 // back in ChoiceResponse.Selected; Label is what the operator sees.
+//
+// F10 fields (Prefix, Input) extend the option to carry an editable
+// field — the row renders as `prefix [editable text] label` and the
+// operator's typed value comes back in ChoiceResponse.InputValue.
+// Both are zero-value-safe; pre-F10 callers (Prefix="", Input=nil)
+// behave exactly as before.
 type ChoiceOption struct {
-	ID    string
-	Label string
+	ID     string
+	Label  string
+	Prefix string        // F10: read-only decoration shown alongside the input field
+	Input  *ChoiceInput  // F10: nil = pure choice row (pre-F10 behaviour)
+}
+
+// ChoiceInput is the optional editable field on a ChoiceOption.
+// Default seeds the field; Validator (when non-nil) is checked
+// runtime-side before the response is returned to the plugin.
+// F10.
+type ChoiceInput struct {
+	Default   string
+	Validator *ChoiceValidator
+}
+
+// ChoiceValidator describes a runtime-side check applied to the
+// operator's typed input before the choice resolves. Kind selects
+// the validator family; Spec carries kind-specific parameters
+// (e.g. "0,80" for length, the pattern for regex). Unknown kinds
+// are rejected at decode time. F10.
+type ChoiceValidator struct {
+	Kind string
+	Spec string
 }
 
 // ChoiceResponse carries the operator's answer back to the plugin.
 // Cancelled=true means no decision was made (Esc / session cancel);
-// Selected is empty in that case.
+// Selected is empty in that case. InputValue carries the text typed
+// into the chosen option's input field, or "" when the chosen
+// option had no input (pre-F10 behaviour). F10.
 type ChoiceResponse struct {
-	Selected  []string
-	Cancelled bool
+	Selected   []string
+	InputValue string
+	Cancelled  bool
 }
 
 // FleetBridge is the capability-checked surface the bundled agent plugin
