@@ -8,6 +8,7 @@ import (
 	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
+	"github.com/foobarto/stado/internal/runtime/schema"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/version"
@@ -59,87 +60,67 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// EP-no-internal-tools Step 7: fs.* tools — wasm-backed via the fs
 	// wasm plugin's stado_fs_* primitives. Replaces the native fs.ReadTool /
 	// fs.WriteTool / fs.EditTool / fs.GlobTool / fs.GrepTool registrations.
-	fsReadSchema := map[string]any{
-		"type": "object", "required": []string{"path"},
-		"properties": map[string]any{
-			"path":   map[string]any{"type": "string"},
-			"offset": map[string]any{"type": "integer", "description": "Byte offset (default 0)"},
-			"length": map[string]any{"type": "integer", "description": "Max bytes to read"},
-		},
-	}
 	r.Register(newBundledWasmTool("fs", "stado_tool_read", "fs__read",
 		"Read a file. Optional offset/length for partial reads.",
-		tool.ClassNonMutating, fsReadSchema, []string{"fs:read:."}))
+		tool.ClassNonMutating,
+		schema.Object([]string{"path"}, schema.Props{
+			"path":   schema.String(),
+			"offset": schema.Integer("Byte offset (default 0)"),
+			"length": schema.Integer("Max bytes to read"),
+		}),
+		[]string{"fs:read:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_write", "fs__write",
 		"Write content to a file (creates or truncates).",
 		tool.ClassMutating,
-		map[string]any{
-			"type": "object", "required": []string{"path", "content"},
-			"properties": map[string]any{
-				"path":    map[string]any{"type": "string"},
-				"content": map[string]any{"type": "string"},
-			},
-		},
+		schema.Object([]string{"path", "content"}, schema.Props{
+			"path":    schema.String(),
+			"content": schema.String(),
+		}),
 		[]string{"fs:write:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_edit", "fs__edit",
 		"Edit a file by replacing an exact string. Set replace_all=true for multi-occurrence.",
 		tool.ClassMutating,
-		map[string]any{
-			"type": "object", "required": []string{"path", "old_string", "new_string"},
-			"properties": map[string]any{
-				"path":        map[string]any{"type": "string"},
-				"old_string":  map[string]any{"type": "string"},
-				"new_string":  map[string]any{"type": "string"},
-				"replace_all": map[string]any{"type": "boolean"},
-			},
-		},
+		schema.Object([]string{"path", "old_string", "new_string"}, schema.Props{
+			"path":        schema.String(),
+			"old_string":  schema.String(),
+			"new_string":  schema.String(),
+			"replace_all": schema.Boolean(),
+		}),
 		[]string{"fs:read:.", "fs:write:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_glob", "fs__glob",
 		"Find files matching a glob pattern. Walks recursively from path (default cwd).",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"pattern"},
-			"properties": map[string]any{
-				"pattern": map[string]any{"type": "string", "description": "Glob pattern (e.g. *.go)"},
-				"path":    map[string]any{"type": "string", "description": "Walk root (default '.')"},
-			},
-		},
+		schema.Object([]string{"pattern"}, schema.Props{
+			"pattern": schema.String("Glob pattern (e.g. *.go)"),
+			"path":    schema.String("Walk root (default '.')"),
+		}),
 		[]string{"fs:read:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_grep", "fs__grep",
 		"Search file contents with regex. Walks recursively from path (default cwd).",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"pattern"},
-			"properties": map[string]any{
-				"pattern": map[string]any{"type": "string", "description": "Regex pattern"},
-				"path":    map[string]any{"type": "string", "description": "Walk root (default '.')"},
-			},
-		},
+		schema.Object([]string{"pattern"}, schema.Props{
+			"pattern": schema.String("Regex pattern"),
+			"path":    schema.String("Walk root (default '.')"),
+		}),
 		[]string{"fs:read:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_read_context", "readctx__read",
 		"Read a file with a window of context around a target line.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"path"},
-			"properties": map[string]any{
-				"path":  map[string]any{"type": "string"},
-				"line":  map[string]any{"type": "integer", "description": "Center line (1-indexed)"},
-				"range": map[string]any{"type": "integer", "description": "Total lines to show (default 20)"},
-			},
-		},
+		schema.Object([]string{"path"}, schema.Props{
+			"path":  schema.String(),
+			"line":  schema.Integer("Center line (1-indexed)"),
+			"range": schema.Integer("Total lines to show (default 20)"),
+		}),
 		[]string{"fs:read:."}))
 
 	// EP-0038c: fs.ls — bundled into the fs wasm module (uses stado_exec for /bin/ls).
 	r.Register(newBundledWasmTool("fs", "stado_tool_ls", "fs__ls",
 		"List a directory with structured metadata: name, type (file/dir/symlink), size, permissions, mtime. Returns the formatted ls output.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path":   map[string]any{"type": "string", "description": "Directory to list (default '.')"},
-				"hidden": map[string]any{"type": "boolean", "description": "Include dot-files (default false)"},
-			},
-		},
+		schema.Object(nil, schema.Props{
+			"path":   schema.String("Directory to list (default '.')"),
+			"hidden": schema.Boolean("Include dot-files (default false)"),
+		}),
 		[]string{"exec:proc:/bin/ls", "exec:proc:/usr/bin/ls", "fs:read:."}))
 
 	// EP-0038c: shell.* PTY session tools — wasm-backed via shell.wasm.
@@ -148,107 +129,84 @@ func buildBundledPluginRegistry() *tools.Registry {
 	r.Register(newBundledWasmTool("shell", "stado_tool_spawn", "shell__spawn",
 		"Open an interactive PTY shell session. Returns {id} — use shell.read / shell.write / shell.destroy to drive it. Persists across tool calls. Args: argv? (default ['/bin/bash']), env?, cwd?, cols?, rows?, buffer_bytes?",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"argv": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"env":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"cwd":  map[string]any{"type": "string"},
-				"cols": map[string]any{"type": "integer"}, "rows": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object(nil, schema.Props{
+			"argv": schema.Array(schema.String()),
+			"env":  schema.Array(schema.String()),
+			"cwd":  schema.String(),
+			"cols": schema.Integer(),
+			"rows": schema.Integer(),
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_list", "shell__list",
 		"List active PTY shell sessions: id, cmd, alive, attached, started_at, buffered, dropped, exit_code.",
 		tool.ClassNonMutating,
-		map[string]any{"type": "object"},
+		schema.Empty(),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_attach", "shell__attach",
 		"Attach to a PTY session to read/write. Single-attach lock per session — use force:true to steal. Args: id, force?",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{
-				"id":    map[string]any{"type": "integer"},
-				"force": map[string]any{"type": "boolean"},
-			},
-		},
+		schema.Object([]string{"id"}, schema.Props{
+			"id":    schema.Integer(),
+			"force": schema.Boolean(),
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_detach", "shell__detach",
 		"Release the attachment lock on a PTY session. Args: id.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
-		},
+		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_write", "shell__write",
 		"Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes). Requires attach.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{
-				"id":       map[string]any{"type": "integer"},
-				"data":     map[string]any{"type": "string"},
-				"data_b64": map[string]any{"type": "string"},
-			},
-		},
+		schema.Object([]string{"id"}, schema.Props{
+			"id":       schema.Integer(),
+			"data":     schema.String(),
+			"data_b64": schema.String(),
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_read", "shell__read",
 		"Read buffered output from a PTY session. Args: id, max_bytes?, timeout_ms?. Returns {data?, data_b64, n, eof?}. Requires attach.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{
-				"id":         map[string]any{"type": "integer"},
-				"max_bytes":  map[string]any{"type": "integer"},
-				"timeout_ms": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object([]string{"id"}, schema.Props{
+			"id":         schema.Integer(),
+			"max_bytes":  schema.Integer(),
+			"timeout_ms": schema.Integer(),
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_signal", "shell__signal",
 		"Send a POSIX signal to a PTY session. Args: id, sig (e.g. 'SIGINT', 'SIGTERM', 9). Out-of-band — no attach required.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id", "sig"},
-			"properties": map[string]any{
-				"id":  map[string]any{"type": "integer"},
-				"sig": map[string]any{},
-			},
-		},
+		schema.Object([]string{"id", "sig"}, schema.Props{
+			"id": schema.Integer(),
+			// sig accepts string ("SIGINT") or integer (9) —
+			// empty schema = any. Schema helpers don't expose
+			// this rare shape, so the literal stays.
+			"sig": map[string]any{},
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_resize", "shell__resize",
 		"Resize a PTY session. Args: id, cols, rows. Out-of-band — no attach required.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id", "cols", "rows"},
-			"properties": map[string]any{
-				"id":   map[string]any{"type": "integer"},
-				"cols": map[string]any{"type": "integer"},
-				"rows": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object([]string{"id", "cols", "rows"}, schema.Props{
+			"id":   schema.Integer(),
+			"cols": schema.Integer(),
+			"rows": schema.Integer(),
+		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_destroy", "shell__destroy",
 		"Kill a PTY session and free its resources. Args: id.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{"id": map[string]any{"type": "integer"}},
-		},
+		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
 		shellSessionCaps))
 
 	// EP-no-internal-tools Step 4: shell.exec / shell.bash / shell.sh /
 	// shell.zsh — one-shot exec via stado_exec. Replaces the native
 	// bash.BashTool (registered as bare `bash`, displayed as shell.exec).
 	// Each scoped to its specific binary via exec:proc:<basename>.
-	commandSchema := map[string]any{
-		"type": "object", "required": []string{"command"},
-		"properties": map[string]any{
-			"command":    map[string]any{"type": "string", "description": "Shell command to run"},
-			"timeout_ms": map[string]any{"type": "integer", "description": "Timeout in milliseconds (default 30000)"},
-		},
-	}
+	commandSchema := schema.Object([]string{"command"}, schema.Props{
+		"command":    schema.String("Shell command to run"),
+		"timeout_ms": schema.Integer("Timeout in milliseconds (default 30000)"),
+	})
 	r.Register(newBundledWasmTool("shell", "stado_tool_exec", "shell__exec",
 		"Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
@@ -269,28 +227,22 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// EP-no-internal-tools Step 5: rg.search + astgrep.search via
 	// stado_exec spawning the bundled binaries. Replaces the native
 	// rg.Tool / astgrep.Tool registrations.
-	rgSchema := map[string]any{
-		"type": "object", "required": []string{"pattern"},
-		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "Regex pattern"},
-			"path":    map[string]any{"type": "string", "description": "Search root (default cwd)"},
-			"flags":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Extra rg flags (e.g. ['--hidden','-i'])"},
-		},
-	}
+	rgSchema := schema.Object([]string{"pattern"}, schema.Props{
+		"pattern": schema.String("Regex pattern"),
+		"path":    schema.String("Search root (default cwd)"),
+		"flags":   schema.Array(schema.String(), "Extra rg flags (e.g. ['--hidden','-i'])"),
+	})
 	r.Register(newBundledWasmTool("rg", "stado_tool_search", "rg__search",
 		"Fast file-contents search via ripgrep. Pass pattern + optional path + optional flags.",
 		tool.ClassNonMutating, rgSchema,
 		[]string{"fs:read:.", "exec:proc:rg", "bundled-bin:rg"}))
 
-	astgrepSchema := map[string]any{
-		"type": "object", "required": []string{"pattern"},
-		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "ast-grep pattern, e.g. 'fmt.Println($X)'"},
-			"lang":    map[string]any{"type": "string", "description": "Language (e.g. 'go', 'python', 'js')"},
-			"path":    map[string]any{"type": "string", "description": "Search root (default cwd)"},
-			"rewrite": map[string]any{"type": "string", "description": "Rewrite template; when set, files are updated in place"},
-		},
-	}
+	astgrepSchema := schema.Object([]string{"pattern"}, schema.Props{
+		"pattern": schema.String("ast-grep pattern, e.g. 'fmt.Println($X)'"),
+		"lang":    schema.String("Language (e.g. 'go', 'python', 'js')"),
+		"path":    schema.String("Search root (default cwd)"),
+		"rewrite": schema.String("Rewrite template; when set, files are updated in place"),
+	})
 	r.Register(newBundledWasmTool("astgrep", "stado_tool_search", "astgrep__search",
 		"Structural code search and rewrite via ast-grep (tree-sitter patterns).",
 		tool.ClassMutating, astgrepSchema,
@@ -300,14 +252,11 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// stado_lsp_* (now true primitives, no longer delegates to native
 	// lspfind.Tool structs). Each is its own wasm module (find_definition.wasm,
 	// etc.).
-	lspPositionalSchema := map[string]any{
-		"type": "object", "required": []string{"path", "line", "column"},
-		"properties": map[string]any{
-			"path":   map[string]any{"type": "string"},
-			"line":   map[string]any{"type": "integer", "description": "1-indexed line"},
-			"column": map[string]any{"type": "integer", "description": "1-indexed column"},
-		},
-	}
+	lspPositionalSchema := schema.Object([]string{"path", "line", "column"}, schema.Props{
+		"path":   schema.String(),
+		"line":   schema.Integer("1-indexed line"),
+		"column": schema.Integer("1-indexed column"),
+	})
 	lspCaps := []string{"fs:read:.", "lsp:query"}
 	r.Register(newBundledWasmTool("find_definition", "stado_tool_definition", "lsp__definition",
 		"LSP textDocument/definition — jump to the declaration of a symbol at path:line:column.",
@@ -316,25 +265,19 @@ func buildBundledPluginRegistry() *tools.Registry {
 		"LSP textDocument/hover — docs/type for a symbol at path:line:column.",
 		tool.ClassNonMutating, lspPositionalSchema, lspCaps))
 
-	lspRefsSchema := map[string]any{
-		"type": "object", "required": []string{"path", "line", "column"},
-		"properties": map[string]any{
-			"path":                map[string]any{"type": "string"},
-			"line":                map[string]any{"type": "integer", "description": "1-indexed line"},
-			"column":              map[string]any{"type": "integer", "description": "1-indexed column"},
-			"include_declaration": map[string]any{"type": "boolean", "description": "default true"},
-		},
-	}
+	lspRefsSchema := schema.Object([]string{"path", "line", "column"}, schema.Props{
+		"path":                schema.String(),
+		"line":                schema.Integer("1-indexed line"),
+		"column":              schema.Integer("1-indexed column"),
+		"include_declaration": schema.Boolean("default true"),
+	})
 	r.Register(newBundledWasmTool("find_references", "stado_tool_references", "lsp__references",
 		"LSP textDocument/references — every usage of a symbol.",
 		tool.ClassNonMutating, lspRefsSchema, lspCaps))
 
-	lspSymbolsSchema := map[string]any{
-		"type": "object", "required": []string{"path"},
-		"properties": map[string]any{
-			"path": map[string]any{"type": "string"},
-		},
-	}
+	lspSymbolsSchema := schema.Object([]string{"path"}, schema.Props{
+		"path": schema.String(),
+	})
 	r.Register(newBundledWasmTool("document_symbols", "stado_tool_symbols", "lsp__symbols",
 		"LSP textDocument/documentSymbol — file outline (functions, types, methods).",
 		tool.ClassNonMutating, lspSymbolsSchema, lspCaps))
@@ -344,72 +287,57 @@ func buildBundledPluginRegistry() *tools.Registry {
 	r.Register(newBundledWasmTool("agent", "stado_tool_spawn", "agent__spawn",
 		"Spawn a sub-agent. Returns {id, session_id, status, final_text?}. Default async=false blocks until child completes; async=true returns immediately. Default model inherits parent's. Default persona inherits parent's. EP-0038 §D.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"prompt"},
-			"properties": map[string]any{
-				"prompt":          map[string]any{"type": "string"},
-				"model":           map[string]any{"type": "string"},
-				"persona":         map[string]any{"type": "string", "description": "Persona for the child (operating manual). Empty = inherit parent's persona."},
-				"async":           map[string]any{"type": "boolean"},
-				"ephemeral":       map[string]any{"type": "boolean"},
-				"parent_session":  map[string]any{"type": "string"},
-				"sandbox_profile": map[string]any{"type": "string"},
-				"allowed_tools":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			},
-		},
+		schema.Object([]string{"prompt"}, schema.Props{
+			"prompt":          schema.String(),
+			"model":           schema.String(),
+			"persona":         schema.String("Persona for the child (operating manual). Empty = inherit parent's persona."),
+			"async":           schema.Boolean(),
+			"ephemeral":       schema.Boolean(),
+			"parent_session":  schema.String(),
+			"sandbox_profile": schema.String(),
+			"allowed_tools":   schema.Array(schema.String()),
+		}),
 		agentCaps))
 	r.Register(newBundledWasmTool("agent", "stado_tool_list", "agent__list",
 		"List agents in caller's spawn tree. Returns [{id, session_id, status, model, started_at, last_turn_at, cost_so_far_usd}].",
 		tool.ClassNonMutating,
-		map[string]any{"type": "object"},
+		schema.Empty(),
 		agentCaps))
 	r.Register(newBundledWasmTool("agent", "stado_tool_read_messages", "agent__read_messages",
 		"Read assistant-role messages from an agent's output channel. Optional since/timeout for incremental polling. Returns {messages, offset, status}.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{
-				"id":         map[string]any{"type": "string"},
-				"since":      map[string]any{"type": "integer"},
-				"timeout_ms": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object([]string{"id"}, schema.Props{
+			"id":         schema.String(),
+			"since":      schema.Integer(),
+			"timeout_ms": schema.Integer(),
+		}),
 		agentCaps))
 	r.Register(newBundledWasmTool("agent", "stado_tool_send_message", "agent__send_message",
 		"Send a user-role message into an agent's inbox. Delivered at the agent's next yield point.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id", "message"},
-			"properties": map[string]any{
-				"id":      map[string]any{"type": "string"},
-				"message": map[string]any{"type": "string"},
-			},
-		},
+		schema.Object([]string{"id", "message"}, schema.Props{
+			"id":      schema.String(),
+			"message": schema.String(),
+		}),
 		agentCaps))
 	// EP-0038c: web.* and dns.* — wasm-backed wrappers over existing host imports.
 	r.Register(newBundledWasmTool("web", "stado_tool_fetch", "web__fetch",
 		"Fetch a URL and return the body converted to markdown. Supports HTTPS to public hosts via net:http_request capability.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"url"},
-			"properties": map[string]any{
-				"url":        map[string]any{"type": "string"},
-				"timeout_ms": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object([]string{"url"}, schema.Props{
+			"url":        schema.String(),
+			"timeout_ms": schema.Integer(),
+		}),
 		[]string{"net:http_request"}))
 	r.Register(newBundledWasmTool("dns", "stado_tool_resolve", "dns__resolve",
 		"DNS lookup: A/AAAA (default), TXT, MX, NS, PTR. Args: name, qtype?, server?, timeout_ms?. Returns {records, error?}.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"name"},
-			"properties": map[string]any{
-				"name":       map[string]any{"type": "string"},
-				"qtype":      map[string]any{"type": "string", "enum": []string{"A", "AAAA", "TXT", "MX", "NS", "PTR"}},
-				"server":     map[string]any{"type": "string"},
-				"timeout_ms": map[string]any{"type": "integer"},
-			},
-		},
+		schema.Object([]string{"name"}, schema.Props{
+			"name":       schema.String(),
+			"qtype":      schema.StringEnum([]string{"A", "AAAA", "TXT", "MX", "NS", "PTR"}),
+			"server":     schema.String(),
+			"timeout_ms": schema.Integer(),
+		}),
 		[]string{"dns:resolve"}))
 
 	// 2026-05-06: session.search — bundled wasm plugin that uses
@@ -418,26 +346,20 @@ func buildBundledPluginRegistry() *tools.Registry {
 	r.Register(newBundledWasmTool("session_search", "stado_tool_session_search", "session__search",
 		"Search the current session's message history for a substring (default) or regex (is_regex=true). Returns matched messages with role, index, and a context snippet. Useful for recalling earlier discussion in long sessions without rebuilding context manually.",
 		tool.ClassNonMutating,
-		map[string]any{
-			"type": "object", "required": []string{"query"},
-			"properties": map[string]any{
-				"query":          map[string]any{"type": "string", "description": "Substring or regex to search for."},
-				"is_regex":       map[string]any{"type": "boolean", "description": "Treat query as a Go RE2 regex (default false = substring)."},
-				"case_sensitive": map[string]any{"type": "boolean", "description": "Case-sensitive matching (default false = case-insensitive)."},
-				"roles":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles."},
-				"max_results":    map[string]any{"type": "integer", "description": "Cap on returned matches (default 50, max 1000)."},
-				"snippet_chars":  map[string]any{"type": "integer", "description": "Total chars of context around each match (default 80, max 400)."},
-			},
-		},
+		schema.Object([]string{"query"}, schema.Props{
+			"query":          schema.String("Substring or regex to search for."),
+			"is_regex":       schema.Boolean("Treat query as a Go RE2 regex (default false = substring)."),
+			"case_sensitive": schema.Boolean("Case-sensitive matching (default false = case-insensitive)."),
+			"roles":          schema.Array(schema.String(), "Restrict to specific roles (user, assistant, tool, tool_result, system). Default: all roles."),
+			"max_results":    schema.Integer("Cap on returned matches (default 50, max 1000)."),
+			"snippet_chars":  schema.Integer("Total chars of context around each match (default 80, max 400)."),
+		}),
 		[]string{"session:read"}))
 
 	r.Register(newBundledWasmTool("agent", "stado_tool_cancel", "agent__cancel",
 		"Cancel a running agent. The child exits at its next yield point.",
 		tool.ClassExec,
-		map[string]any{
-			"type": "object", "required": []string{"id"},
-			"properties": map[string]any{"id": map[string]any{"type": "string"}},
-		},
+		schema.Object([]string{"id"}, schema.Props{"id": schema.String()}),
 		agentCaps))
 	return r
 }
