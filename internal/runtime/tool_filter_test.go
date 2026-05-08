@@ -93,14 +93,47 @@ func TestApplyToolFilter_UnknownNamesTolerated(t *testing.T) {
 	}
 }
 
-func TestApplyToolFilter_UnknownEnabledNamesDoNotEmptyRegistry(t *testing.T) {
+// TestApplyToolFilter_EmptyAllowFailsClosed: when [tools].enabled is
+// non-empty but matches zero registered tools, the registry is emptied
+// (not left untouched). Operator typos / refs to uninstalled tools
+// shouldn't silently re-expose the entire tool surface — that defeats
+// the whole point of an allowlist. The filter prints a stderr advisory
+// naming the unmatched patterns and unregisters everything. Replaces
+// the prior TestApplyToolFilter_UnknownEnabledNamesDoNotEmptyRegistry,
+// which asserted the buggy fall-open behaviour as if it were intent.
+func TestApplyToolFilter_EmptyAllowFailsClosed(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
-	before := len(reg.All())
+	if len(reg.All()) == 0 {
+		t.Fatal("default registry should contain tools; got empty")
+	}
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"renamed-tool", "missing-tool"}
 	ApplyToolFilter(reg, cfg)
-	if got := len(reg.All()); got != before {
-		t.Fatalf("unknown enabled tools should be ignored; was %d, got %d", before, got)
+	if got := len(reg.All()); got != 0 {
+		t.Fatalf("unmatched [tools].enabled should fail closed (empty registry); got %d tools", got)
+	}
+}
+
+// TestApplyToolFilter_CanonicalNameMatchesWireForm: an operator
+// configuring [tools].enabled = ["fs.read"] reasonably expects the
+// registered wire-form tool fs__read to survive the filter and other
+// tools to be dropped. Before the canonical-vs-wire match in
+// ToolMatchesGlob, exact-canonical patterns silently failed to match
+// any wire-form name, the empty-allow fall-open then left every tool
+// enabled, and the operator's allowlist was effectively a no-op.
+// Lock the right behaviour in.
+func TestApplyToolFilter_CanonicalNameMatchesWireForm(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	cfg := &config.Config{}
+	cfg.Tools.Enabled = []string{"fs.read"}
+	ApplyToolFilter(reg, cfg)
+	if _, ok := reg.Get("fs__read"); !ok {
+		t.Errorf("fs__read should survive [tools].enabled=[fs.read] (canonical → wire match)")
+	}
+	for _, tl := range reg.All() {
+		if tl.Name() != "fs__read" {
+			t.Errorf("tool %q should have been filtered out by [fs.read] allowlist", tl.Name())
+		}
 	}
 }
 
@@ -124,6 +157,16 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"fs__read", "*", true},
 		// No match
 		{"web__fetch", "fs.*", false},
+		// Canonical-form pattern against wire-form registered name —
+		// what an operator types in [tools].enabled / --tools.
+		{"fs__read", "fs.read", true},
+		{"shell__bash", "shell.bash", true},
+		{"fs__read", "shell.bash", false},
+		// Canonical-with-dash: alias "htb-lab" → wire "htb_lab"
+		{"htb_lab__spawn", "htb-lab.spawn", false}, // exact canonical doesn't normalise dashes; pattern must use the wire-segment form. Documented behaviour.
+		// Empty inputs.
+		{"", "", true},
+		{"fs__read", "", false},
 	}
 	for _, c := range cases {
 		got := ToolMatchesGlob(c.name, c.pat)

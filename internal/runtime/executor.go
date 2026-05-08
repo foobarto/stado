@@ -64,24 +64,39 @@ func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 }
 
 // ToolMatchesGlob reports whether a registered tool name matches a config
-// pattern. Patterns are either exact names (bare or wire-form) or wildcard
-// globs using dotted-canonical syntax with a trailing .*:
+// pattern. Patterns are either exact names (bare, wire-form, or canonical
+// dotted) or wildcard globs:
 //
 //   - "read"     — exact bare-name match
+//   - "fs.read"  — exact canonical (dotted) match against a wire-form name
+//   - "fs__read" — exact wire-form match
 //   - "fs.*"     — matches any wire-form tool whose alias segment is "fs"
 //     (fs__read, fs__write, etc.) or canonical form fs.read
 //   - "*"        — matches every tool
 //
-// Wire form uses double-underscore as separator (EP-0037 §B), so "fs.*"
-// maps to the prefix "fs__" when matching wire names.
+// Bundled tools register under wire-form names (`fs__read`, `shell__bash`)
+// but operators reach for canonical names in config (`fs.read`,
+// `shell.bash`). The canonical-vs-wire match below is what makes
+// `[tools].enabled = ["fs.read"]` line up against the registered
+// `fs__read`. Without it, exact-canonical-name patterns silently failed
+// to match any tool, and the empty-allow fall-open in ApplyToolFilter
+// turned that miss into "every tool stays enabled" — opposite of the
+// operator's intent.
 func ToolMatchesGlob(toolName, pattern string) bool {
 	// Universal wildcard.
 	if pattern == "*" {
 		return true
 	}
-	// Exact match (bare names, wire names, or canonical dotted names).
+	// Exact match (bare names, wire names, or — when toolName is a wire
+	// form whose canonical reconstruction equals pattern — canonical
+	// dotted names).
 	if toolName == pattern {
 		return true
+	}
+	if alias, sub, ok := tools.ParseWireForm(toolName); ok {
+		if alias+"."+sub == pattern {
+			return true
+		}
 	}
 	// Dotted wildcard: "fs.*" matches wire-form tools with alias "fs__"
 	// and canonical-form tools with prefix "fs.".
@@ -186,15 +201,29 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		known[t.Name()] = true
 	}
 
-	// Warn only for exact (non-glob) names that don't match anything.
+	// Warn only for exact (non-glob) names that don't match anything,
+	// in either wire form or canonical-vs-wire (so an operator typing
+	// "fs.read" against the registered "fs__read" doesn't see a
+	// misleading "no such tool" warning).
 	warnUnknownExact := func(list []string, label string) {
 		for _, n := range list {
 			if strings.ContainsAny(n, "*?") {
 				continue // globs: zero match is silent
 			}
-			if !known[n] {
-				fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such tool (ignored)\n", label, n)
+			if known[n] {
+				continue
 			}
+			matched := false
+			for k := range known {
+				if alias, sub, ok := tools.ParseWireForm(k); ok && alias+"."+sub == n {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such tool (ignored)\n", label, n)
 		}
 	}
 	warnUnknownExact(cfg.Tools.Enabled, "enabled")
@@ -207,7 +236,22 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 				allow[name] = true
 			}
 		}
+		// Fail closed when the operator's allowlist matches nothing.
+		// The previous fall-open ("return without filtering") looked
+		// like a friendly fallback but defeated the whole point of an
+		// allowlist: typo'ing every entry, or referencing tools that
+		// were uninstalled, silently re-exposed the entire tool surface.
+		// An empty match is more likely operator error than intent —
+		// surface it loudly and remove every tool so the next run
+		// fails fast with a clear "no tools available" rather than a
+		// surprising "everything enabled".
 		if len(allow) == 0 {
+			fmt.Fprintf(os.Stderr,
+				"stado: [tools].enabled = %v matched no registered tools — registry is now empty (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
+				cfg.Tools.Enabled)
+			for name := range known {
+				reg.Unregister(name)
+			}
 			return
 		}
 		for name := range known {
