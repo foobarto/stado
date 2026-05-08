@@ -22,6 +22,20 @@ history:
       warn-loud-run-anyway, with operator opt-in via [sandbox] refuse_no_runner = true to restore
       the hard-refusal behaviour. The HOME-rooted MkdirAll work (D2-D6) is unchanged and continues
       to operate as shipped.
+  - date: 2026-05-08
+    status: Partial
+    note: >
+      API surface rename, behaviour preserved (2026-Q2 refactor program A2 + 2.1.f). The exported
+      `MkdirAllUnderUserConfig`, `OpenRootUnderUserConfig`,
+      `ReadRegularFileUnderUserConfig*`, and `OpenRegularFileUnderUserConfig` helpers cited in this
+      EP are no longer exported; they live as private package helpers in `internal/workdirpath/`.
+      The public surface is now four resolver types — `Resolver`, `UserConfigResolver`,
+      `StrictResolver`, `RootResolver` — which compose the same anchor-walk semantics this EP
+      designed. The 2.1.f Bazzite RemoveAll fix added a `RemoveAll` companion to the EP-0028
+      family (it was the one strict-from-/ holdover that EP-0028 missed when adding the
+      Under-variants for read/open/mkdir). Callers in cmd/stado / TUI / tests migrated. No
+      behaviour change for end users; the trust-anchor walk semantics this EP describes are
+      unchanged. CHANGELOG (Unreleased) carries the full migration notes.
 ---
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll
