@@ -62,6 +62,18 @@ become semver guarantees.
 
 ### CLI
 
+- `stado tool run` now refuses PTY-bound shell tools (`shell.spawn`
+  / `list` / `attach` / `read` / `write` / `detach` / `signal` /
+  `resize` / `destroy`) with an actionable advisory pointing at the
+  TUI, MCP server, and agent loop. The CLI is single-shot — its
+  Runtime (and the Runtime's `pty.Manager`) lives only for the
+  duration of one invocation, so a `shell.spawn` could never be
+  observed by a `shell.list` from a separate `tool run`. Pre-fix
+  behaviour was a confusing silent empty list. One-shot
+  `shell.exec` / `shell.bash` / `shell.sh` / `shell.zsh` continue
+  to work — they don't bind a PTY. The `--session` flag's help
+  now also clarifies that it carries session-aware capabilities
+  (audit log, memory, fork) but does NOT persist PTYs. (B5)
 - `stado tool list --json` now emits a single valid JSON document
   (envelope: `{schema_version, count, tools[]}`) instead of NDJSON.
   Pre-v0.46.2 behaviour broke `python3 -m json.tool`, `jq .`, and any

@@ -37,23 +37,32 @@ type change bumps `schema_version` with a migration note. Operators
 relying on the streaming shape can recover it with
 `stado tool list --json | jq -c '.tools[]'`.
 
-### B5: CLI `shell.spawn --session` does not persist PTYs across tool runs
-Observed from `/var/home/foobarto/Dokumenty/htb-writeups` on 2026-05-08 with
-`stado v0.46.1+dirty` while working HTB Validation:
+### B5: CLI `shell.spawn --session` does not persist PTYs across tool runs ~~RESOLVED (refusal + clarified --session help)~~
 
-```bash
-stado tool run shell.spawn --session validation-shell-test \
-  '{"argv":["/bin/bash","-lc","sleep 30"],"cwd":"/tmp"}'
-# => {"id":1}
+**Root cause.** `pluginRuntime.Runtime` owns its `pty.Manager`
+per-process. `stado tool run` is single-shot — Runtime is created,
+tool dispatches, Runtime closes — so PTYs spawned in one invocation
+cannot survive into the next, regardless of `--session`. The
+`--session` flag was always about session-aware capabilities (audit
+log, memory, fork), not PTY persistence; that nuance was buried in
+the help text.
 
-stado tool run shell.list --session validation-shell-test '{}'
-# => []
-```
+**Resolution.** `stado tool run` now refuses the PTY-bound shell
+tools (`shell.spawn` / `list` / `attach` / `read` / `write` /
+`detach` / `signal` / `resize` / `destroy`) with an advisory
+pointing at the surfaces that hold PTY state across calls — TUI
+(`stado`), MCP server (`stado mcp`), agent loop (`stado run`).
+One-shot `shell.exec` / `shell.bash` / `shell.sh` / `shell.zsh`
+remain available because they don't bind a PTY. The `--session`
+flag help now explicitly states it does not bridge PTYs. Tests:
+`TestToolRun_RefusesPTYBoundShellTools` and
+`TestToolRun_AllowsOneShotShellTools`.
 
-`shell.attach` / `shell.read` against the returned id likewise reported
-`pty: session not found`. The same shell tools may still work inside MCP/TUI
-runtime sessions, but the documented CLI `--session` path currently looks
-non-persistent and makes it hard to use `shell.spawn` as a tmux replacement.
+**True cross-CLI persistence remains a separate spec.** Building a
+shell-supervisor sidecar (or daemon socket) so `shell.spawn` from
+one CLI run can be observed by another would be a multi-day
+project — track separately if operators need `stado` as a tmux
+replacement from the CLI.
 
 ## Missing features
 

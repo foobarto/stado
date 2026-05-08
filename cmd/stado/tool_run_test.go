@@ -114,6 +114,75 @@ func TestToolRun_ToolNotFound(t *testing.T) {
 	}
 }
 
+// TestToolRun_RefusesPTYBoundShellTools: PTY-binding shell.* tools
+// don't survive the single-shot CLI lifecycle (PTY manager is per-
+// runtime), so `stado tool run shell.spawn` would silently die at
+// process exit and a follow-up `shell.list` would see an empty
+// registry. The CLI refuses upfront with an advisory pointing at
+// the surfaces that DO hold PTY state across calls. B5.
+func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	cases := []string{
+		"shell.spawn",
+		"shell.list",
+		"shell.attach",
+		"shell.read",
+		"shell.write",
+		"shell.detach",
+		"shell.signal",
+		"shell.resize",
+		"shell.destroy",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runToolByName(t.Context(), name, `{}`,
+				toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+			if err == nil {
+				t.Fatalf("expected refusal for %q, got nil", name)
+			}
+			if !strings.Contains(err.Error(), "single-shot") {
+				t.Errorf("error should mention 'single-shot'; got: %q", err.Error())
+			}
+			if !strings.Contains(err.Error(), "TUI") {
+				t.Errorf("error should point at the TUI; got: %q", err.Error())
+			}
+		})
+	}
+}
+
+// TestToolRun_AllowsOneShotShellTools: the one-shot shell.exec /
+// shell.bash family does NOT bind a PTY, so they continue to work
+// from `stado tool run`. Asserts the gate doesn't over-reach. B5.
+func TestToolRun_AllowsOneShotShellTools(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	for _, name := range []string{"shell.exec", "shell.bash"} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runToolByName(t.Context(), name, `{}`,
+				toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+			// We expect SOME error path to fire (no command supplied,
+			// missing argv, etc.) — but it must NOT be the PTY-bound
+			// gate. Substring assertion: refusal text isn't there.
+			if err != nil && strings.Contains(err.Error(), "single-shot") {
+				t.Errorf("PTY-bound gate should not block one-shot %q: %v", name, err)
+			}
+		})
+	}
+}
+
 // TestToolRun_DisabledRefuses: a tool listed in cfg.Tools.Disabled
 // is refused unless --force is passed.
 func TestToolRun_DisabledRefuses(t *testing.T) {
