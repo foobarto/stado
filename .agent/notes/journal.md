@@ -596,3 +596,276 @@ so the operator can:
 
 A2 (the workdirpath consolidation) is fully complete.
 
+## 2026-05-08 (autonomous session 3) — A3, B1, B2 land; B3 + A1 audited
+
+Operator instruction: "continue on the worktree until all the
+work is completed. Make decisions from this point on on your
+own — pick best options not the fastest/easiest but the ones
+that are of good quality and follow the spirit of the design".
+
+Approached the remaining program (A1, A3, B1, B2, B3) with that
+brief in mind. Took A3 first instead of A1 (plan's D3 ordering)
+because:
+
+- A3 is "lower mechanical risk than A1" by the plan's own words.
+- The plan's D3 reason for A1-before-A3 was minor churn
+  optimisation ("A3 works against a stable struct"); the actual
+  cost is small.
+- A1 is the riskiest piece, so doing it last with full context
+  on the simpler pieces is a quality win.
+- After A3 lands, A1 has a cleaner dispatcher to work against
+  — the inverse of what D3 anticipated, but still a positive.
+
+### A3 (commit `6f2208f`)
+
+Inventory pass on `model_update.go`:Update() identified ~30
+message variants across the giant type-switch. Plan called for
+5 handler files:
+
+1. **handler_lifecycle.go** (148 LoC) — window resize, title
+   spinner, log tail, local-fallback startup probe, loop tick,
+   monitor lines/done, background-plugin tick result, recovery
+   timeout, local hint, subagent event.
+2. **handler_stream.go** (117 LoC) — streamEvent / Batch /
+   Tick / Error / Done + btw answers. The streamTick path is
+   the throttled hot loop on every reasoning-model turn.
+3. **handler_tools.go** (201 LoC) — tool result / tools-
+   executed / tool-tick + plugin events (approval req+cancel,
+   choice req+cancel, run-result, fork notification).
+4. **handler_picker_response.go** (329 LoC) — picker-active
+   KeyMsg dispatch, extracted from inside the original KeyMsg
+   case. 8 picker types (slash, agent, fleet, model, persona,
+   session, task, theme, file). Each picker takes ownership of
+   its keystrokes when visible. Returns
+   `(model, cmd, handled bool)` — handled=true once any picker
+   intercepts; handled=false only when no picker is open OR
+   filePicker sees a typing-character that should refine the
+   query.
+5. **handler_input.go** (504 LoC) — KeyMsg + MouseMsg.
+   Dispatcher logic flows: Ctrl+C-closes-modals → modal-state
+   short-circuits (showStatus, showHelp, approval, choice,
+   compaction, quit-confirm) → onPickerKey delegation →
+   prefix-chord → flat keybinding switch → submitInput. The
+   submitInput helper is dense (~100 LoC for queue / supervisor
+   lane / attach / budget / context-threshold gates) and
+   factored as its own function so onKey reads cleaner.
+
+After this split, `model_update.go` is 462 LoC — Update() itself
+is ~100 LoC (a clean type-switch routing per case to an `on*()`
+handler). The remaining ~350 LoC are helper methods (focus /
+click / modal resolve / file picker) that didn't fit any handler
+family but stay used by them. A follow-up split by concern
+(focus/blocks vs filepicker helpers vs modal-resolve) is
+straightforward but optional; the dispatcher meets the plan's
+"<200 LoC dispatcher" target.
+
+Bonus cleanup along the way: removed dead `cmd, _ := m.vp,
+tea.Cmd(nil); _ = cmd` from the function bottom (a leftover
+from a prior refactor — `cmd` was a viewport.Model assigned and
+discarded). That had been there forever, dead.
+
+Rough patch on the way: my first attempt at the KeyMsg split
+left the original 750-line body in the file twice — the
+replace-and-delete didn't sequence cleanly. Reset via `git
+checkout`, then did a single `Write` of the whole file with the
+clean dispatcher. Lesson: when extracting from a long function,
+do the Write-the-whole-file approach over piecemeal Edits. The
+Edit approach scales when the deletion fits in one
+search-and-replace; when it spans hundreds of lines with mixed
+returns, it's brittle.
+
+### B1 (commit `8ea8ab1`)
+
+Plan framing was "ValidationFunc registry to consolidate per-
+field validators". Audit:
+
+- config.go has only ONE genuine validator
+  (`instructions.ValidateSystemPromptTemplate` inside
+  `loadSystemPromptTemplate`). A registry of one entry would
+  add ceremony.
+- The actual reason config.go was 986 LoC was that two
+  unrelated concerns (system-prompt-template management +
+  path resolution) were co-located with the loader.
+
+So B1 became: split `config.go` by concern.
+
+- `config.go` (735 LoC) — schema + Load() + koanf wiring +
+  normalizeThinkingDisplay.
+- `system_prompt_template.go` (162 LoC, new) — load /
+  ensureDefault / createDefault / replaceDefault / writeFile /
+  templateRoot / isLegacy.
+- `paths.go` (126 LoC, new) — ConfigDir, defaultConfigPath,
+  expandHome, findProjectStadoDir, plus the (*Config) StateDir
+  / Project*Dir / WorktreeDir / SidecarPath methods.
+
+internal/toolinput audit (per plan): the package is 19 LoC
+of size-limit helpers, no validation boilerplate. Skipped
+integration with explanation.
+
+[sessions].auto_prune_after — left as-is. Wiring is a feature
+(not a refactor); removal is a behaviour change (existing
+configs would warn on unrecognized key). The schema is
+"committed" per its own comment.
+
+config.go: 986 → 735 (under the 800 target without forcing a
+fake registry).
+
+### B2 (commits `bfcf586` + `1c28fa4`)
+
+Plan: SchemaBuilder package + migrate ~20 tool schemas. Actual:
+34 tools, 143 inline `map[string]any` literals.
+
+The schema package design went through two iterations:
+
+- **Iteration 1 (rejected)**: Builder type with method chains
+  (`schema.Object().Required(...).Property(...).Build()`).
+  Verbose at the call site (lots of `.Build()`); doesn't scale
+  for the 5-property-typical schemas.
+- **Iteration 2 (landed)**: top-level functions that return
+  `map[string]any` directly. `schema.Object(required, props)`
+  composes via a `Props` map alias. `schema.String(desc...)`
+  / `Integer(desc...)` / `Boolean(desc...)` for scalars with
+  optional description. `Array`, `StringEnum`, `Empty` for the
+  rare cases.
+
+Result at the call site:
+
+```go
+schema.Object([]string{"path"}, schema.Props{
+    "path":   schema.String(),
+    "offset": schema.Integer("Byte offset (default 0)"),
+    "length": schema.Integer("Max bytes to read"),
+})
+```
+
+vs. the original:
+
+```go
+map[string]any{
+    "type": "object", "required": []string{"path"},
+    "properties": map[string]any{
+        "path":   map[string]any{"type": "string"},
+        "offset": map[string]any{"type": "integer", "description": "Byte offset (default 0)"},
+        "length": map[string]any{"type": "integer", "description": "Max bytes to read"},
+    },
+}
+```
+
+12 unit tests cover edge cases including defensive copying
+(callers sharing required-slices or Props maps can't mutate
+schemas post-construction).
+
+After migration: 9 `map[string]any` references remain; 8 are Go
+type signatures; 1 is the deliberate `"sig": map[string]any{}`
+literal for shell__signal (JSON Schema's "any type" — the field
+accepts string `"SIGINT"` or integer `9`). Adding an `Any()`
+helper for one call site would be over-engineering.
+
+Behaviour-preserving: same `map[string]any` shape feeds
+mustMarshalSchema → json.Marshal → identical JSON because Go
+sorts map keys. Wasm host imports + tool registry consumers
+see no diff.
+
+### B3 (skipped — audit only)
+
+Plan: define `Bridge` interface (Init / Dispose / Name); each
+of 5 bridges (Session, Memory, Approval, Choice, Fleet)
+implements it for lifecycle uniformity.
+
+Audit:
+
+- No bridge has Close / Dispose work — `bridge.go` and
+  siblings show zero cleanup methods. The bridges are stateless
+  wrappers; lifetime is the caller's.
+- No bridge has Init work — they're constructed inline at each
+  call site with their dependencies (e.g.
+  `pluginRuntime.NewSessionBridge(sess, prov, model)` vs.
+  `pluginRuntime.NewLocalMemoryBridge(stateDir, owner)`).
+- The 5 setup-site assignments don't share a constructor
+  signature, so a `Bridge.Init(ctx)` loop wouldn't replace any
+  of them.
+- No log line uses a hypothetical `Name()` — nil-bridge
+  handling returns -1 silently per the plan-1.1 contract.
+
+Adding `Init / Dispose / Name` methods as no-ops would be
+ceremony without removing any duplication. The plan's
+verification target ("`Host` setup is shorter — one loop, not
+five") assumes uniform setup; the audit shows there isn't any.
+
+Decision: skip B3 entirely. Documented for future revisit if a
+real bridge lifecycle (e.g. a memory backend that needs Close)
+ever shows up. The plan's existing 1.1 contract tests already
+cover the four invariants (cap-gate / nil / forwarding /
+cancel) regardless of how lifecycle is wired.
+
+### A1 (deferred to operator — audit only)
+
+Plan: 5 overlays (Help, Status, QuitConfirm, Approval, Choice)
+move to `internal/tui/overlays/` under a unified Overlay
+interface; 8 picker packages gain a Picker interface; Model
+shrinks accordingly; `model_render.go` LoC drops from 1937
+toward < 800.
+
+Audit revealed the overlays are heterogeneous in shape:
+
+- **Help / Status** — full-screen takeovers. `View()` returns
+  the overlay's render output and exits at line 35-39 of
+  `model_render.go`. These match `overlays/help.go`'s shape
+  cleanly.
+- **QuitConfirm** — inline modal at `model_render.go:218`,
+  rendered mid-View as part of the conversation pane. Different
+  composition than Help/Status.
+- **Approval / Choice** — persistent UI elements that *adjust
+  the chat-area layout*. The View() flow subtracts
+  `m.approvalCardHeight(mainW)` and `m.choiceDrawerHeight(mainW)`
+  from the available height. They're not overlays in the
+  modal-takeover sense; they're layout-contributing components.
+
+Forcing all 5 under one `Overlay` interface either:
+a) Requires behaviour changes to flatten the heterogeneity
+   (e.g. making Approval full-screen) — explicitly out of
+   scope per "no behaviour changes".
+b) Produces a fictional-uniformity interface where Approval /
+   Choice satisfy the contract but their `View(width, height)`
+   call doesn't compose into `Model.View()` the way
+   Help / Status do.
+
+Plus per plan D8: every A1 commit needs a `stado run`
+interactive smoke check. Autonomous testing can run
+`go test ./internal/tui/...` and `--help` / `--version` smoke;
+genuine "ESC closes overlays, multi-visible combinations
+preserved" coverage needs interactive use.
+
+Quality call: defer A1 with this audit captured. The plan's
+§2.2 "overlay slotting decision" should incorporate the
+heterogeneity finding before commit 1. Two paths the operator
+might choose:
+
+- Narrow the Overlay interface to cover only the
+  full-screen-takeover variants (Help, Status, QuitConfirm).
+  Leave Approval / Choice as layout-adjusting components,
+  documented as a different kind. This is the
+  "consolidation, not new packages" reading of D7.
+- Expand A1's scope to a behaviour-change refactor that makes
+  Approval / Choice full-screen, accepting the user-visible
+  diff. That's a separate plan, not a Tier-A refactor.
+
+The 8-picker Picker interface is independent of the overlay
+decision and could land standalone if useful.
+
+`model_render.go`'s LoC target is mostly orthogonal — the bulk
+isn't overlay rendering; it's block rendering, sidebar, viewport
+composition. A separate pass could trim that.
+
+### Stopping here
+
+Four phases delivered (A2 end-to-end, A3, B1, B2). Two phases
+documented-but-skipped with audit (B3 no-payoff; A1 needs
+operator decision on heterogeneity). Tests green at every
+checkpoint; smokes (`stado --version` + `--help` +
+`run --help`) work. The worktree is in a clean,
+behaviour-preserving state across all changes — every commit
+in this session has a corresponding verification line in its
+message.
+
+
