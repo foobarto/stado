@@ -7,15 +7,36 @@ package main
 //
 // Scope is deliberately small: tools-only, no resources, no prompts,
 // no sampling. The host is auto-approve at the policy layer — the
-// MCP client is assumed to be the authorization boundary — but every
-// call routes through the shared Executor (so otel audit spans emit
-// per call) and the host exposes sandbox.Detect() as the bash Runner
-// (so shell commands run inside bwrap / sandbox-exec / equivalent
-// confinement, matching the TUI/run paths).
+// MCP client is assumed to be the authorization boundary — and every
+// call routes through the shared Executor so otel audit spans emit
+// per call.
+//
+// Sandboxing posture (post EP-no-internal-tools Step 4 — corrected
+// 2026-05-09 review):
+//
+// The legacy in-process bash tool consulted Runner() on the host to
+// confine itself with bubblewrap / sandbox-exec. That tool no longer
+// exists — `bash` is now the wasm tool `shell.exec`, which routes
+// through stado_exec. stado_exec only sandboxes when the wasm guest
+// supplies a `sandbox` policy in its request JSON; the bundled shell
+// wasm in internal/bundledplugins/modules/shell/main.go does NOT set
+// `sandbox`, so commands run with the operator's full UID privileges.
+// host_proc.go:buildSandboxedCmd treats nil policy as "run unsandboxed".
+//
+// In short: mcp-server today does NOT auto-confine bash via bwrap.
+// The Runner field below is plumbed through to the Executor for the
+// audit-trail's tool.runner attribute (so observability still works)
+// and as a hook for any future legacy tools that are sandbox-aware,
+// but the wasm shell path bypasses it.
+//
+// To enforce confinement on stado_exec calls from MCP, the host needs
+// to plumb a default sandbox policy through the wasm boundary so a
+// nil guest sandbox falls back to host policy. Tracked as a follow-up
+// to the 2026-05-09 review.
 //
 // Phase B of EP-0032 spawns this binary as the wrapped agent's
-// `mcpServers` mount; the audit + sandbox upgrade here is what gives
-// ACP-wrapped sessions per-tool-call audit granularity (D7).
+// `mcpServers` mount; the audit upgrade here is what gives ACP-wrapped
+// sessions per-tool-call audit granularity (D7).
 
 import (
 	"context"
@@ -139,15 +160,15 @@ var mcpServerCmd = &cobra.Command{
 // registerStadoTool wires a stado tool into the MCP server. Input
 // schema is the stado tool's Schema() verbatim; handler unmarshals
 // the MCP request args, delegates to executor.Run (which emits an
-// otel audit span and applies the sandbox runner via the host),
+// otel audit span and emits the runner name as a span attribute),
 // and packages the Result as MCP content.
 //
 // Going through Executor.Run rather than t.Run directly is the audit
 // surface every other stado entry point uses (TUI, `stado run`,
 // plugin-run with --with-tool-host). MCP clients now show up in the
 // audit trail with `tool.name` + `tool.outcome` + `tool.duration_ms`
-// like any other caller. Bash specifically also picks up sandbox
-// confinement because the host exposes Runner().
+// like any other caller. The wasm shell path is NOT auto-sandboxed
+// here — see the file-level comment for the corrected posture.
 func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, executor *tools.Executor) {
 	mcpTool := mcp.NewToolWithRawSchema(t.Name(), t.Description(), rawSchema(t.Schema()))
 	name := t.Name()
