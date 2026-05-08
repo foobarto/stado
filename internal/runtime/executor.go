@@ -135,20 +135,20 @@ func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 			}
 			continue
 		}
-		// Category-based autoload (Tester #7). Tools whose Categories
+		// Category-based autoload (Tester #7). Tools whose category
 		// metadata overlaps with cfg.Tools.AutoloadCategories join the
 		// per-turn surface. Empty AutoloadCategories = no category-based
-		// expansion.
+		// expansion. Categories live in tool_metadata.go (per EP-0037 §C
+		// the manifest is authoritative; bundled tools mirror their
+		// declarations there).
 		if len(categorySet) > 0 {
-			if tc, ok := t.(toolCategoried); ok {
-				for _, c := range tc.Categories() {
-					if categorySet[c] {
-						if !seen[t.Name()] {
-							out = append(out, t)
-							seen[t.Name()] = true
-						}
-						break
+			for _, c := range LookupToolMetadata(t.Name()).Categories {
+				if categorySet[c] {
+					if !seen[t.Name()] {
+						out = append(out, t)
+						seen[t.Name()] = true
 					}
+					break
 				}
 			}
 		}

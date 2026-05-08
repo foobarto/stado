@@ -67,8 +67,8 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 			"name":    t.Name(),
 			"summary": summarise(t.Description()),
 		}
-		if tc, ok := t.(toolCategoried); ok {
-			entry["categories"] = tc.Categories()
+		if cats := toolCategories(t.Name()); len(cats) > 0 {
+			entry["categories"] = cats
 		}
 		out = append(out, entry)
 		if len(out) >= req.Limit {
@@ -138,8 +138,8 @@ func (m *metaDescribe) Run(_ context.Context, args json.RawMessage, h pkgtool.Ho
 			"description": t.Description(),
 			"schema":      json.RawMessage(schema),
 		}
-		if tc, ok := t.(toolCategoried); ok {
-			entry["categories"] = tc.Categories()
+		if cats := toolCategories(t.Name()); len(cats) > 0 {
+			entry["categories"] = cats
 		}
 		out = append(out, entry)
 		if ta, ok := h.(pkgtool.ToolActivator); ok {
@@ -176,11 +176,9 @@ func (m *metaCategories) Run(_ context.Context, args json.RawMessage, _ pkgtool.
 	q := strings.ToLower(req.Query)
 	seen := map[string]bool{}
 	for _, t := range m.reg.All() {
-		if tc, ok := t.(toolCategoried); ok {
-			for _, c := range tc.Categories() {
-				if q == "" || strings.Contains(strings.ToLower(c), q) {
-					seen[c] = true
-				}
+		for _, c := range toolCategories(t.Name()) {
+			if q == "" || strings.Contains(strings.ToLower(c), q) {
+				seen[c] = true
 			}
 		}
 	}
@@ -218,16 +216,15 @@ func (m *metaInCategory) Run(_ context.Context, args json.RawMessage, _ pkgtool.
 	}
 	var out []map[string]any
 	for _, t := range m.reg.All() {
-		if tc, ok := t.(toolCategoried); ok {
-			for _, c := range tc.Categories() {
-				if c == req.Name {
-					out = append(out, map[string]any{
-						"name":       t.Name(),
-						"summary":    summarise(t.Description()),
-						"categories": tc.Categories(),
-					})
-					break
-				}
+		cats := toolCategories(t.Name())
+		for _, c := range cats {
+			if c == req.Name {
+				out = append(out, map[string]any{
+					"name":       t.Name(),
+					"summary":    summarise(t.Description()),
+					"categories": cats,
+				})
+				break
 			}
 		}
 	}
@@ -425,8 +422,16 @@ func (m *metaPluginUnload) Run(_ context.Context, args json.RawMessage, h pkgtoo
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-type toolCategoried interface {
-	Categories() []string
+// toolCategories returns the canonical taxonomy entries for a tool by
+// name. Categories live in the tool-metadata table (EP-0037 §C —
+// declared per-tool in the plugin manifest, mirrored into
+// tool_metadata.go for bundled tools), NOT on the tool struct itself.
+// Earlier versions of meta_tools type-asserted to a `Categories() []string`
+// interface that no implementation ever satisfied — every check fell
+// through silently, making tools__list_categories and tools__in_category
+// always return empty. This helper closes the gap.
+func toolCategories(name string) []string {
+	return LookupToolMetadata(name).Categories
 }
 
 func summarise(desc string) string {
