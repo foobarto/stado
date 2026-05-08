@@ -227,6 +227,65 @@ func TestShutdownClosesServer(t *testing.T) {
 	_ = c.Close()
 }
 
+// TestVersionSkew: a client speaking an older protocol version than
+// MinClientVersion is rejected with ErrCodeVersionSkew before any
+// dispatch happens. Confirms the daemon can refuse to serve a
+// down-revved CLI cleanly.
+func TestVersionSkew(t *testing.T) {
+	_, c, teardown := startTestServer(t, ServerOpts{})
+	defer teardown()
+
+	// Send a hand-rolled handshake with an older version.
+	var res HandshakeResult
+	err := c.Call(context.Background(), MethodHandshake, HandshakeParams{
+		ClientVersion: "0", // pre-v1 hypothetical
+		ClientName:    "test",
+	}, &res)
+	if err == nil {
+		t.Fatal("want version-skew error, got nil")
+	}
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != ErrCodeVersionSkew {
+		t.Errorf("err = %v, want ErrCodeVersionSkew", err)
+	}
+}
+
+// TestIdleExitState: shouldIdleExit returns true iff
+// (now - lastActivity) >= IdleTimeout AND no live sessions AND no
+// inflight calls. We exercise the predicate directly rather than
+// driving the actual minute-resolution ticker — too slow for unit
+// tests, and the predicate is the load-bearing piece of the policy.
+func TestIdleExitState(t *testing.T) {
+	live := false
+	srv := NewServer(ServerOpts{
+		SocketPath:  "/tmp/stado-idle-test-not-bound.sock",
+		IdleTimeout: 1 * time.Millisecond,
+		ListSessions: func(_ string, _ bool) []SessionDescriptor {
+			if !live {
+				return nil
+			}
+			return []SessionDescriptor{{Kind: "pty", ID: 1, Alive: true}}
+		},
+	})
+	// Force-set last activity to long ago so timeout has elapsed.
+	srv.lastActivityNanos.Store(time.Now().Add(-time.Hour).UnixNano())
+
+	if !srv.shouldIdleExit() {
+		t.Errorf("with no live sessions + zero inflight: want exit=true")
+	}
+	live = true
+	if srv.shouldIdleExit() {
+		t.Errorf("with a live session: want exit=false")
+	}
+	live = false
+	srv.mu.Lock()
+	srv.inflight = 1
+	srv.mu.Unlock()
+	if srv.shouldIdleExit() {
+		t.Errorf("with inflight=1: want exit=false")
+	}
+}
+
 // TestProjectScopedSessionList: ProjectID="" + all=false returns the
 // unscoped scope only; ProjectID="X" returns only project X's; all=true
 // returns everything. Validates the listSessions contract the daemon

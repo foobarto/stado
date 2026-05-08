@@ -40,6 +40,7 @@ func TestShellSnapshotE2E(t *testing.T) {
 			{Name: "attach", Class: "Exec"},
 			{Name: "write", Class: "Exec"},
 			{Name: "snapshot", Class: "NonMutating"},
+			{Name: "destroy", Class: "Exec"},
 		},
 	}
 	host := NewHost(mf, t.TempDir(), nil)
@@ -85,7 +86,14 @@ func TestShellSnapshotE2E(t *testing.T) {
 	if id == "" || id == "0" {
 		t.Fatalf("spawn returned bad id: %q", out)
 	}
-	defer invoke("snapshot", `{"id":`+id+`}`) // best-effort cleanup peek; CloseAll on rt.Close handles destroy.
+	// Cleanup: destroy the spawned PTY so the cat child doesn't
+	// outlive the test as an orphan (parented to PID 1 and alive
+	// until reboot or manual kill). Earlier this only did a snapshot
+	// "peek" for cleanup, which leaked /bin/cat processes across
+	// repeated test runs and contributed to a multi-process OOM
+	// during a `go test ./...` storm on a dev machine. Destroy is
+	// idempotent — already-closed sessions return without erroring.
+	defer invoke("destroy", `{"id":`+id+`}`)
 
 	// 2. Attach + write the marker. Cat echoes stdin → stdout.
 	invoke("attach", `{"id":`+id+`}`)

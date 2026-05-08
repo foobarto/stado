@@ -34,6 +34,49 @@ become semver guarantees.
 
 ## Unreleased
 
+### CLI
+
+- **`stado daemon` — long-running peer for stateful tool calls.** New
+  subcommand family (`stado daemon start|stop|status`) hosting a
+  Unix-domain-socket JSON-RPC service that holds the state stateful
+  tools (live PTYs from `shell.spawn`, future browser cookie jars and
+  LSP connections) need to keep across `stado tool run` invocations.
+  Before this commit, `stado tool run shell.spawn` returned an `id` no
+  follow-up `shell.read` call could find — every invocation got a fresh
+  empty `pty.Manager`. With the daemon, the spawn-then-read pattern
+  agents rely on works.
+
+  Socket: `$XDG_RUNTIME_DIR/stado/daemon.sock` on Linux (override via
+  `$STADO_DAEMON_SOCKET`); mode 0700, owner-only; SO_PEERCRED uid check
+  on Linux as defence-in-depth.
+
+  Auto-spawn: PTY-bound shell tools auto-start the daemon (forking
+  `stado daemon start --quiet` and waiting up to 2 s for the socket).
+  Operators who prefer to manage the daemon manually set
+  `STADO_DAEMON=manual`; `STADO_DAEMON=off` disables daemon dispatch
+  entirely (PTY tools then refuse with the classic single-shot
+  advisory).
+
+  Project isolation: each `(git_root_or_cwd, STADO_SESSION_ID)` pair
+  gets its own `pty.Manager`, so a session created from one repository
+  can't be enumerated or attached from another. Cross-project kill is
+  refused. Sessions persist for the daemon's lifetime; daemon restart
+  loses them (children of the daemon process; document-only — no
+  re-parenting magic).
+
+  Idle timeout: 30 min default with zero live sessions and no
+  in-flight calls; configurable via `--idle-timeout`. Set to 0 to
+  disable. Stale-socket cleanup runs at start: a daemon that died
+  ungracefully and left a socket file behind gets cleaned up; a live
+  daemon makes the new attempt fail fast with `socket in use`.
+
+  Authorization posture: auto-approve, matching `stado mcp-server` —
+  the calling client is the authorisation boundary. Operators who need
+  human-in-the-loop approval prompts use the TUI (`stado`) or
+  `stado run` without `--tools`; the daemon doesn't yet bounce
+  approval requests back to the calling client (planned for a future
+  release).
+
 ### Plugins
 
 - **`shell.snapshot` — rendered terminal screen capture.** A new

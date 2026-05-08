@@ -342,7 +342,16 @@ error (ACP/MCP) so the calling agent can retry with corrected input.
 - Plugins can author small composite UIs without managing prompt order.
 - Headless / scripted operators have one decision-file shape to populate.
 
-## BUG: `stado tool run --session ... shell.spawn` loses PTY session immediately
+## BUG: `stado tool run --session ... shell.spawn` loses PTY session immediately ~~RESOLVED (stado daemon)~~
+
+Resolved by `stado daemon` — the long-running peer that holds pty.Manager
+across `stado tool run` invocations. PTY-bound tools (shell.spawn / list /
+attach / read / write / snapshot / signal / resize / destroy) auto-route
+through the daemon (auto-spawned on first call). The reproducer below now
+returns the spawned session in `shell.list` and reads correctly.
+
+Project scoping: `STADO_SESSION_ID` (or the discovered git root) selects the
+daemon-side scope, so sessions in repo A are invisible to a call from repo B.
 
 Superseded by B5 above in the current TODO; kept as the original reproducer for
 the CLI PTY persistence behavior.
@@ -366,3 +375,94 @@ returned `{"id":1}`, but the follow-up read could not find the session. Either
 result. Expected: a spawned PTY remains visible to `shell.list` and readable by
 `shell.read` for the same `--session`, or `shell.spawn` returns a failure if it
 cannot persist.
+
+## BUG: MCP `web_tech_detect` returns low-level `stado_http_request` error on HTTPS PWM
+
+Observed from the Kali VM while validating HTB Authority with
+`/home/john/bin/stado` version
+`v0.46.2-0.20260508090149-4b5a09d79163+dirty` via a long-lived
+`stado mcp-server`.
+
+Tool call:
+
+```json
+{
+  "name": "web_tech_detect",
+  "arguments": {
+    "url": "https://10.129.29.235:8443/pwm/",
+    "insecure": true
+  }
+}
+```
+
+Result:
+
+```json
+{"error":"stado_http_request returned -1 (capability missing or buffer too small)"}
+```
+
+Expected: either a normal technology-detection result for the PWM page or a
+structured HTTP/TLS/tool error. The current error looks like an internal
+capability/buffer failure and does not give the operator enough information to
+distinguish target behavior from plugin/runtime failure.
+
+## BUG: MCP `web__fetch` returns `stado_http_request returned -1` on plain HTTP
+
+Observed from the Kali VM while validating HTB Backend with
+`/home/john/bin/stado` version
+`v0.46.2-0.20260508090149-4b5a09d79163+dirty` via a long-lived
+`stado mcp-server`.
+
+`curl` to the same target succeeded:
+
+```bash
+curl -i http://10.129.227.148/
+# HTTP/1.1 200 OK
+# server: uvicorn
+# {"msg":"UHC API Version 1.0"}
+```
+
+But MCP tool calls failed:
+
+```json
+{"name":"web__fetch","arguments":{"url":"http://10.129.227.148/"}}
+```
+
+```text
+web.fetch: stado_http_request returned -1
+```
+
+The same failure occurred for `/docs` and `/api/v1/openapi.json`. Expected:
+`web__fetch` should return the HTTP response, or at least a structured
+network/tool error instead of exposing the low-level host import failure.
+
+## BUG: `tools.describe` is registered but `tool run` cannot find its source plugin
+
+Observed from `/var/home/foobarto/Dokumenty/htb-writeups` while testing the
+current source build copied to Kali for `shell.snapshot`.
+
+Versions:
+
+```bash
+/tmp/stado-current --version
+# stado version v0.47.1-0.20260508160952-003cea728007+dirty
+ssh john@192.168.122.203 '~/bin/stado-current --version'
+# stado version v0.47.1-0.20260508160952-003cea728007+dirty
+```
+
+`tools.describe` is visible in `tool list`/MCP tool lists, but direct CLI
+invocation fails:
+
+```bash
+/tmp/stado-current tool run tools.describe '{"name":"shell__snapshot"}'
+# Error: tool "tools__describe" registered but its source plugin not found — try `stado plugin list`
+
+ssh john@192.168.122.203 \
+  '~/bin/stado-current tool run tools.describe "{\"name\":\"shell__snapshot\"}"'
+# Error: tool "tools__describe" registered but its source plugin not found — try `stado plugin list`
+```
+
+Expected: `tools.describe` should return the schema/description for the named
+tool, or it should not be advertised as runnable. This is separate from the
+new terminal functionality: `shell__spawn` + `shell__snapshot` worked via a
+long-lived MCP server in the same build.
