@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/hinshun/vt10x"
 )
 
 const (
@@ -76,11 +77,11 @@ type AttachOpts struct {
 // Errors surfaced to callers. The host-import layer maps these onto
 // negative return codes + JSON error messages.
 var (
-	ErrNotFound       = errors.New("pty: session not found")
+	ErrNotFound        = errors.New("pty: session not found")
 	ErrAlreadyAttached = errors.New("pty: session already attached")
-	ErrNotAttached    = errors.New("pty: session not attached by caller")
-	ErrClosed         = errors.New("pty: session closed")
-	ErrNoCommand      = errors.New("pty: spawn requires argv or cmd")
+	ErrNotAttached     = errors.New("pty: session not attached by caller")
+	ErrClosed          = errors.New("pty: session closed")
+	ErrNoCommand       = errors.New("pty: spawn requires argv or cmd")
 )
 
 type session struct {
@@ -92,10 +93,17 @@ type session struct {
 	proc   *exec.Cmd
 	master *os.File
 
-	// State guarded by mu; output ring + signaling on cond.
+	// State guarded by mu; output ring + signaling on cond. The vt10x
+	// terminal is also guarded by mu — its own internal lock would
+	// race with our cond.Wait callers otherwise. Every byte written
+	// to the ring is also written to vt; Snapshot reads back rendered
+	// state without any wire-format concerns.
 	mu       sync.Mutex
 	cond     *sync.Cond
 	ring     *ringBuffer
+	vt       vt10x.Terminal
+	cols     uint16
+	rows     uint16
 	dropped  uint64
 	closed   bool
 	exitCode *int
@@ -159,6 +167,14 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		return 0, fmt.Errorf("pty: start: %w", err)
 	}
 
+	cols := winsize.Cols
+	rows := winsize.Rows
+	if cols == 0 {
+		cols = 80
+	}
+	if rows == 0 {
+		rows = 24
+	}
 	s := &session{
 		id:        atomic.AddUint64(&m.nextID, 1),
 		cmd:       fmtCmd(argv),
@@ -166,6 +182,9 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		proc:      cmd,
 		master:    master,
 		ring:      newRingBuffer(bufBytes),
+		vt:        vt10x.New(vt10x.WithSize(int(cols), int(rows))),
+		cols:      cols,
+		rows:      rows,
 	}
 	s.cond = sync.NewCond(&s.mu)
 
@@ -180,7 +199,10 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 }
 
 // drain reads master into the ring forever; broadcasts on every
-// chunk so blocked Read waiters wake.
+// chunk so blocked Read waiters wake. Each chunk is also fed to the
+// vt10x emulator so Snapshot returns up-to-date rendered state — the
+// emulator's Write is best-effort (any internal error is dropped, the
+// ring is the canonical record).
 func (s *session) drain() {
 	buf := make([]byte, 32*1024)
 	for {
@@ -189,6 +211,7 @@ func (s *session) drain() {
 			s.mu.Lock()
 			dropped := s.ring.Write(buf[:n])
 			s.dropped += dropped
+			_, _ = s.vt.Write(buf[:n])
 			s.cond.Broadcast()
 			s.mu.Unlock()
 		}
@@ -315,13 +338,23 @@ func (m *Manager) Signal(id uint64, sig syscall.Signal) error {
 	return s.proc.Process.Signal(sig)
 }
 
-// Resize sets the PTY window size. No attach required.
+// Resize sets the PTY window size. No attach required. The emulator
+// is resized in lockstep so Snapshot dimensions track the kernel's
+// view of the tty.
 func (m *Manager) Resize(id uint64, cols, rows uint16) error {
 	s, err := m.get(id)
 	if err != nil {
 		return err
 	}
-	return pty.Setsize(s.master, &pty.Winsize{Cols: cols, Rows: rows})
+	if err := pty.Setsize(s.master, &pty.Winsize{Cols: cols, Rows: rows}); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.vt.Resize(int(cols), int(rows))
+	s.cols = cols
+	s.rows = rows
+	s.mu.Unlock()
+	return nil
 }
 
 // Destroy terminates the session: SIGTERM, grace period, SIGKILL,

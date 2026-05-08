@@ -198,6 +198,17 @@ func buildBundledPluginRegistry() *tools.Registry {
 		tool.ClassExec,
 		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
 		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_snapshot", "shell__snapshot",
+		"Capture the rendered terminal screen of a PTY session — text plus optional SVG. Useful for inspecting full-screen TUIs (vim, htop, gdb-tui) where shell.read returns ANSI escapes that are hard to interpret. Returns {text, cols, rows, cursor:{x,y,visible}, title, svg?}. Args: id, with_svg? (default false; SVG is ~30–60 KB for 120×32). Read-only: no attach required.",
+		tool.ClassNonMutating,
+		schema.Object([]string{"id"}, schema.Props{
+			"id":          schema.Integer(),
+			"with_svg":    schema.Boolean("Include rendered SVG of the screen (default false)"),
+			"svg_cell_w":  schema.Number("SVG cell pixel width (default 8)"),
+			"svg_cell_h":  schema.Number("SVG cell pixel height (default 17)"),
+			"svg_font_px": schema.Integer("SVG font-size px (default 13)"),
+		}),
+		shellSessionCaps))
 
 	// EP-no-internal-tools Step 4: shell.exec / shell.bash / shell.sh /
 	// shell.zsh — one-shot exec via stado_exec. Replaces the native

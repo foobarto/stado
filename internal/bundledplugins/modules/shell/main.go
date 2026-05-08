@@ -3,21 +3,23 @@
 // shell — bundled stado plugin: one-shot exec + interactive PTY sessions.
 //
 // One-shot tools (over stado_exec):
-//   shell_exec      — run a shell command, return stdout
-//   shell_bash      — run via /bin/bash
-//   shell_sh        — run via /bin/sh
-//   shell_zsh       — run via /usr/bin/zsh
+//
+//	shell_exec      — run a shell command, return stdout
+//	shell_bash      — run via /bin/bash
+//	shell_sh        — run via /bin/sh
+//	shell_zsh       — run via /usr/bin/zsh
 //
 // PTY session tools (over stado_terminal_*):
-//   shell_spawn     — open a PTY session, returns id
-//   shell_list      — list active sessions
-//   shell_attach    — claim a session for read/write
-//   shell_detach    — release attachment
-//   shell_read      — read buffered output from a session
-//   shell_write     — write to a session's stdin
-//   shell_resize    — resize PTY (cols, rows)
-//   shell_signal    — send POSIX signal
-//   shell_destroy   — kill + free the session
+//
+//	shell_spawn     — open a PTY session, returns id
+//	shell_list      — list active sessions
+//	shell_attach    — claim a session for read/write
+//	shell_detach    — release attachment
+//	shell_read      — read buffered output from a session
+//	shell_write     — write to a session's stdin
+//	shell_resize    — resize PTY (cols, rows)
+//	shell_signal    — send POSIX signal
+//	shell_destroy   — kill + free the session
 //
 // EP-0038 §C.
 package main
@@ -64,6 +66,9 @@ func stadoTerminalResize(argsPtr, argsLen, resPtr, resCap uint32) int32
 
 //go:wasmimport stado stado_terminal_close
 func stadoTerminalClose(argsPtr, argsLen, resPtr, resCap uint32) int32
+
+//go:wasmimport stado stado_terminal_snapshot
+func stadoTerminalSnapshot(argsPtr, argsLen, resPtr, resCap uint32) int32
 
 // ── ABI ────────────────────────────────────────────────────────────────────
 
@@ -321,6 +326,29 @@ func stadoToolResize(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //go:wasmexport stado_tool_destroy
 func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalClose, "destroy")
+}
+
+// shell_snapshot — capture the rendered terminal screen of a session.
+// args: {"id": uint64, "with_svg"?: bool, "svg_cell_w"?: float,
+//
+//	"svg_cell_h"?: float, "svg_font_px"?: int}
+//
+// Returns the host-supplied JSON {text, cols, rows, cursor, title, svg?}
+// untouched. Snapshot is read-only — no attach required, safe to call
+// concurrently with shell_read on the same session.
+//
+//go:wasmexport stado_tool_snapshot
+func stadoToolSnapshot(argsPtr, argsLen, resPtr, resCap int32) int32 {
+	// Result can be large (a 120×32 SVG snapshot is 30–60 KB) so the
+	// scratch buf needs to be sized for that.
+	const cap = 256 * 1024
+	buf := sdk.Alloc(cap)
+	defer sdk.Free(buf, cap)
+	n := stadoTerminalSnapshot(uint32(argsPtr), uint32(argsLen), uint32(buf), cap)
+	if n < 0 {
+		return writeErr(resPtr, resCap, "snapshot: "+string(sdk.Bytes(buf, -n)))
+	}
+	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

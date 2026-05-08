@@ -58,6 +58,8 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerPTYResize(builder, host, "stado_terminal_resize")
 	registerPTYDestroy(builder, host, "stado_pty_destroy")
 	registerPTYDestroy(builder, host, "stado_terminal_close")
+	registerPTYSnapshot(builder, host, "stado_pty_snapshot")
+	registerPTYSnapshot(builder, host, "stado_terminal_snapshot")
 }
 
 // ptyDenied returns the i64-encoded error response for PTY handlers when
@@ -90,7 +92,10 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 					return
 				}
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap))); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
+				return
+			}
 			id, err := host.PTYManager.Spawn(opts)
 			if err != nil {
 				host.Logger.Warn("stado_pty_create failed", slog.String("err", err.Error()))
@@ -112,7 +117,10 @@ func registerPTYList(builder wazero.HostModuleBuilder, host *Host, exportName st
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
 			bufPtr := api.DecodeU32(stack[0])
 			bufCap := api.DecodeU32(stack[1])
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap))
+				return
+			}
 			infos := host.PTYManager.List()
 			payload, err := json.Marshal(infos)
 			if err != nil {
@@ -144,7 +152,10 @@ func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
 			if err := host.PTYManager.Attach(req.ID, pty.AttachOpts{Force: req.Force}); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -170,7 +181,10 @@ func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
 			if err := host.PTYManager.Detach(req.ID); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -206,7 +220,10 @@ func registerPTYWrite(builder wazero.HostModuleBuilder, host *Host, exportName s
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, errPtr, errCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, errPtr, errCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, errPtr, errCap))
+				return
+			}
 			n, err := host.PTYManager.Write(id, data)
 			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, errPtr, errCap, []byte(err.Error())))
@@ -243,7 +260,10 @@ func registerPTYRead(builder wazero.HostModuleBuilder, host *Host, exportName st
 			if timeoutMs == 0 {
 				timeout = pluginRuntimePTYDefaultTimeout
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, bufPtr, bufCap))
+				return
+			}
 			data, err := host.PTYManager.Read(id, int(maxBytes), timeout)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
@@ -282,7 +302,10 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
 			if err := host.PTYManager.Signal(req.ID, syscall.Signal(req.Sig)); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -310,7 +333,10 @@ func registerPTYResize(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
 			if err := host.PTYManager.Resize(req.ID, req.Cols, req.Rows); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
@@ -336,12 +362,89 @@ func registerPTYDestroy(builder wazero.HostModuleBuilder, host *Host, exportName
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
-			if !host.ExecPTY || host.PTYManager == nil { stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap)); return }
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
 			if err := host.PTYManager.Destroy(req.ID); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
 			stack[0] = api.EncodeI32(0)
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export(exportName)
+}
+
+// stado_pty_snapshot(args_ptr, args_len, result_ptr, result_cap) → i32
+//
+// args = {"id": uint64, "with_svg"?: bool, "svg_cell_w"?: float,
+//
+//	"svg_cell_h"?: float, "svg_font_px"?: int}
+//
+// Returns byte count of JSON written to result on success, -length
+// with err string on failure. Result JSON shape:
+//
+//	{"text": "...", "cols": 120, "rows": 32,
+//	 "cursor": {"x": 12, "y": 5, "visible": true},
+//	 "title": "...", "svg"?: "<svg>...</svg>"}
+//
+// The text field is always present (lossy plain rendering — see
+// pty.Screen.Text). svg is only emitted when with_svg=true; for a
+// 120×32 grid SVG runs ~30–60 KB so this is opt-in to keep the
+// default snapshot cheap.
+func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportName string) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			argsPtr := api.DecodeU32(stack[0])
+			argsLen := api.DecodeU32(stack[1])
+			resPtr := api.DecodeU32(stack[2])
+			resCap := api.DecodeU32(stack[3])
+			var req struct {
+				ID        uint64  `json:"id"`
+				WithSVG   bool    `json:"with_svg"`
+				SVGCellW  float64 `json:"svg_cell_w"`
+				SVGCellH  float64 `json:"svg_cell_h"`
+				SVGFontPx int     `json:"svg_font_px"`
+			}
+			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
+			screen, err := host.PTYManager.Snapshot(req.ID)
+			if err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			out := map[string]any{
+				"text":  screen.Text(),
+				"cols":  screen.Cols,
+				"rows":  screen.Rows,
+				"title": screen.Title,
+				"cursor": map[string]any{
+					"x":       screen.Cursor.X,
+					"y":       screen.Cursor.Y,
+					"visible": screen.Cursor.Visible,
+				},
+			}
+			if req.WithSVG {
+				opts := &pty.SVGOpts{
+					CellW:  req.SVGCellW,
+					CellH:  req.SVGCellH,
+					FontPx: req.SVGFontPx,
+				}
+				out["svg"] = screen.SVG(opts)
+			}
+			payload, err := json.Marshal(out)
+			if err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export(exportName)

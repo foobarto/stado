@@ -36,6 +36,22 @@ become semver guarantees.
 
 ### Plugins
 
+- **`shell.snapshot` — rendered terminal screen capture.** A new
+  bundled tool feeds every byte read from a PTY session through a
+  `vt10x` emulator alongside the existing ring buffer, then exposes
+  the rendered grid as plain text plus optional self-contained SVG.
+  Lets agents observe full-screen TUIs (vim, htop, gdb-tui, less,
+  midnight commander) where `shell.read` returns ANSI escape stew
+  that's hard to interpret. Read-only — no attach required, safe to
+  call concurrently with `shell.read`. Args: `id`, `with_svg?`
+  (default false; SVG is ~30–60 KB for 120×32). Returns
+  `{text, cols, rows, cursor:{x,y,visible}, title, svg?}`. Two new
+  host imports — `stado_pty_snapshot` and the `stado_terminal_snapshot`
+  alias — gated behind the existing `terminal:open` capability;
+  plugins that already declare it gain access without manifest
+  changes. Adds `github.com/hinshun/vt10x` as a dependency (MIT,
+  ~1.5k LoC pure-Go VT100 emulator).
+
 - **F10 ACP wire format extension.** `session/update kind=choice`
   notifications now carry the per-option `prefix` and `input`
   metadata; `session/choice_response` accepts an `inputValue`
