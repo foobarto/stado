@@ -1,67 +1,79 @@
 # State
 
-**Mode:** Feature / Refactor (workdirpath migration)
+**Mode:** Feature / Refactor (program continuation)
 
-**Current item:** Phase 2.1.Y next — legacy deletion + impl-move
+**Current item:** A2 fully complete; 2.2 (A1) is next.
 **Plan:** `docs/superpowers/plans/2026-05-07-refactor-program.md`
 
-## Where we are at end of 2026-05-08 (session 2)
+## Where we are at end of 2026-05-08 (session 2 — autonomous run)
 
-### Phase 1 — DONE
-- 1.1 Bridge contract tests: 47 tests across 5 plugin-host bridges.
-- 1.2 Sandbox runner contract test: 13 sub-tests (Tier 1 + Tier 2 wired).
-- 1.3 FleetBridgeAdapter contract tests: 17 tests.
-- Composition spec parked at
-  `.agent/specs/open/sandbox-multilayer-composition.md`.
+### Phase 1 — DONE (sessions on 2026-05-07)
+- 1.1 Bridge contract tests (47 tests).
+- 1.2 Sandbox runner contract test (13 sub-tests).
+- 1.3 FleetBridgeAdapter contract tests (17 tests).
 
-### Phase 2.1 (A2) — through 2.1.X
+### Phase 2.1 (A2) — DONE
 - 2.1.aa mcpbridge audit: cleared.
 - 2.1.a/b/c: 4 new types landed alongside legacy.
-- 2.1.d: deferred to 2.1.Y (impl-move bundles with deletion).
-- 2.1.e: **DONE.** All in-tree caller migrations to new API.
-  Final tail (cmd/stado + test-file leftovers) committed in
-  `dcaf422` and `05ca9c9`. Verification grep passes:
-  `grep -rEho 'workdirpath\.[A-Z][a-zA-Z]*' --include='*.go'
-  | grep -v internal/workdirpath` returns only
+- 2.1.d: deferred to 2.1.Y, completed.
+- 2.1.e: full caller migration (production + tests).
+  - `dcaf422` (cmd/stado tail) + `05ca9c9` (test-file leftovers).
+- 2.1.f Bazzite RemoveAll fix: `b1b0b23`.
+- 2.1.X Deprecated markers: `816ebd8`.
+- **2.1.Y legacy deletion: `492e0de`.** All 23 legacy public
+  fns gone — bodies moved to lowercase package-private helpers
+  (rename approach: preserves git history of the
+  security-critical no-symlink walks). 4 wrappers
+  (`WriteRootFileAtomic*`, `Glob`, `GlobLimited`) collapsed
+  into resolver method bodies directly.
+
+### Verification at 2.1.Y commit
+- `grep -rEho 'workdirpath\.[A-Z][a-zA-Z]*' --include='*.go'
+  | grep -v internal/workdirpath` returns ONLY:
   `New*Resolver`, `New`, `LooksLikeRepoRoot`, `FindRepoRoot`,
-  `FindRepoRootOrEmpty`.
-- 2.1.f Bazzite RemoveAll fix landed in `b1b0b23`.
-- 2.1.X: **DONE.** Deprecated markers on all 23 exported legacy
-  fns (`816ebd8`). `golangci-lint run
-  ./internal/workdirpath/...` returns 0 issues — same-package
-  use isn't flagged, so the markers don't disturb the
-  delegating implementations.
+  `FindRepoRootOrEmpty`. ✅
+- `go build ./...` clean. ✅
+- `go test ./...` green. ✅
+- `go test -race -count=2 ./internal/workdirpath/...` green. ✅
+- `golangci-lint run ./internal/workdirpath/...` 0 issues. ✅
+- Smoke: `stado --help` + `stado run --help` render. ✅
 
-### Up next when resuming
+## Up next when resuming
 
-1. **Phase 2.1.Y** — delete legacy + inline impls into the new
-   types in one mechanical commit.
-   - Pre-flight: re-run the verification grep to confirm
-     2.1.e didn't drift between sessions.
-   - Move every legacy function body into the corresponding
-     new-type method (Resolver.\*, UserConfigResolver.\*,
-     StrictResolver.\*, RootResolver.\*). Where multiple
-     legacy fns map to one method (e.g.
-     `OpenRootUnderUserConfig` + `OpenRootNoSymlinkUnder`
-     used internally), pick the cleanest single
-     implementation; current methods are thin delegators so
-     this is mostly a copy + rename.
-   - Delete legacy exported symbols. Internal helpers
-     (`splitAbsoluteRoot`, `userTrustAnchor`,
-     `removeAllUnderUserConfig`, `writeRootFileAtomic`)
-     stay or move into the relevant resolver file as
-     unexported.
-   - Replace the 29 legacy tests with parallel tests on the
-     new methods. The 56 new-type tests already cover the
-     surface; this is mostly renaming/dedup.
-   - Verification after: `grep -rn "workdirpath\.[A-Z]"`
-     returns ONLY new-API methods + `repodisco` exports.
+**Merge checkpoint #2** (per cross-cutting plan §"Merge
+checkpoints"): one full `stado run` smoke-session pass before
+starting A1. This is a manual smoke (not just `--help`).
 
-2. **Per-merge-checkpoint smoke** at checkpoint #2:
-   `stado --help`, `stado run --help`, one full `stado run`
-   smoke session pass.
+Then **Phase 2.2 (A1) — `Model` struct + `model_render.go`
+consolidation.** This is the largest mechanical-churn phase in
+the program. Read `docs/superpowers/plans/2026-05-07-refactor-program.md`
+§2.2 in full before starting. Key things the plan calls out:
 
-3. Then phases 2.2 (A1) + 2.3 (A3) per the plan.
+1. **Overlay slotting decision** in commit 1: stack vs single
+   slot. Plan default is stack (preserves multi-visible
+   behaviour). Decide at A1 design time after auditing
+   today's `*Picker.Visible` flags for cases that legitimately
+   coexist; document rationale in commit 1.
+2. **Picker contract location**: `internal/tui/overlays/` if it
+   doesn't import any picker package, else new
+   `internal/tui/pickers/` leaf package. Audit imports first.
+3. **Migration order is fixed** (8 steps in the plan).
+   Per-overlay commit, then per-picker commit, with a smoke
+   check at each. Don't batch.
+4. **Smoke check shape**: `stado run` opens, ESC closes
+   overlays, Q quits, multi-visible combinations preserved.
+
+Then **Phase 2.3 (A3) — `model_update`/`commands`/`stream`
+dispatcher split.** Lower mechanical risk than A1. Steps:
+1. Inventory pass: every `case` arm in `Update`'s type-switch
+   gets a target `handler_*.go` file.
+2. Per-message-family extraction commits (5 expected:
+   `handler_commands.go`, `handler_stream.go`,
+   `handler_picker_response.go`, `handler_lifecycle.go`,
+   `handler_tools.go`).
+3. Last: `model_update.go` becomes the dispatcher (<200 LoC).
+
+Then Phase 3 (Tier B): B1, B2, B3 per plan §3.
 
 ## Branch state
 
@@ -72,29 +84,26 @@ worktree-refactor+quality-2026-q2 (this worktree)
 └─ A2 type-landing (4 types + 56 tests)
 └─ A2 caller migration (production + tests, full sweep)
 └─ 2.1.f Bazzite fix
-└─ 2.1.X Deprecated markers (816ebd8)
+└─ 2.1.X Deprecated markers
+└─ 2.1.Y legacy deletion (492e0de)  ← here
 ```
 
-Last commit: `816ebd8 docs(workdirpath): 2.1.X — Deprecated markers on 23 legacy fns`
+Last commit: `492e0de refactor(workdirpath): 2.1.Y — delete legacy public surface`
 
 ## Blocked / open
 
-- Nothing blocking. 2.1.Y is the natural next batch.
+- Nothing blocking. A1 ready to start when operator wants.
+- A1's overlay-slotting decision is the only thing that wants
+  operator input ahead of time, and even that has a
+  defensible default (stack).
 
 ## Recent
 
-- 2026-05-08 (session 2): finished 2.1.e — completed cmd/stado
-  caller migration (5 production files + 1 plugin_install
-  carry-over the prior state file marked "done" but had only
-  RemoveAll touched). Discovered ~13 test-file callers of
-  `workdirpath.OpenRootNoSymlink` left untouched by earlier
-  2.1.e batches (`fs/budget_test.go`, `state/git/materialize_test.go`,
-  `skills/skills_test.go`, `tui/render/render_test.go`,
-  `cmd/stado/plugin_install_test.go`); all migrated to
-  `NewStrictResolver().OpenRoot`. One doc-comment fix in
-  `host_lsp.go` (referenced `workdirpath.Resolve`, now
-  `Resolver.Resolve`). 2.1.X Deprecated markers added in a
-  doc-only commit; lint-clean for the package.
-- 2026-05-08 (session 1): 2.1.f Bazzite gap fix.
-- 2026-05-07: A2 type-landing complete + invariant check.
+- 2026-05-08 (session 2 autonomous): completed 2.1.e tail
+  (cmd/stado + test files), 2.1.X Deprecated markers, 2.1.Y
+  legacy deletion. A2 fully done. 4 commits this session
+  (dcaf422, 05ca9c9, 816ebd8, 4313e7b state-update,
+  492e0de 2.1.Y).
+- 2026-05-08 (session 1): 2.1.f Bazzite fix.
+- 2026-05-07: A2 type-landing + invariant check.
 - 2026-05-07: Phase 1 complete (47 + 13 + 17 = 77 tests).

@@ -514,3 +514,85 @@ so the move is copy-the-body + delete the wrapper. Internal
 helpers (`splitAbsoluteRoot`, `userTrustAnchor`,
 `removeAllUnderUserConfig`, `writeRootFileAtomic`) stay
 unexported in whichever file makes sense.
+
+## 2026-05-08 (session 2 cont.) — 2.1.Y landed
+
+Picked the **rename** interpretation of "delete legacy +
+inline impls" rather than the literal copy-into-methods
+interpretation. Rationale:
+
+- The legacy bodies are the security-critical no-symlink
+  walks — moving them around the codebase invites subtle
+  breakage. Their git history is load-bearing for blame on
+  any future security review.
+- Cross-fn calls within the legacy code are dense
+  (`OpenRegularFileNoSymlink` calls `OpenRootNoSymlink`,
+  `MkdirAllUnderUserConfig` calls `MkdirAllNoSymlink` and
+  `MkdirAllNoSymlinkUnder`, etc.). Inlining into methods
+  would either:
+  (a) duplicate the no-symlink walk loop across 4+ methods,
+  or
+  (b) introduce cross-resolver method calls (e.g.
+      `UserConfigResolver.MkdirAll` calling
+      `NewStrictResolver().MkdirAll(...)`), which is
+      ergonomic noise.
+- The state file's framing — "this is mostly a copy +
+  rename" + "current methods are thin delegators" + "one
+  mechanical commit" — reads as compatible with the rename
+  approach. The public API surface is the only thing that
+  must be the resolver methods, not the implementations.
+
+Implementation:
+
+- 23 legacy exported fns renamed lowercase
+  (`Resolve→resolveWorkdir`, `OpenRootNoSymlink→
+  openRootNoSymlink`, `MkdirAllUnderUserConfig→
+  mkdirAllUnderUserConfig`, etc.). Internal cross-references
+  updated. Deprecated markers from 2.1.X dropped (the fns
+  no longer exist publicly so the marker is moot).
+- 4 trivial wrappers around already-private workers
+  collapsed entirely:
+  `WriteRootFileAtomic`/`WriteRootFileAtomicExactMode` (both
+  wrappers around `writeRootFileAtomic(...,bool)`), `Glob`
+  (wrapper around `GlobLimited` with default cap), and
+  `GlobLimited` (wrapper around `globLimited`). Resolver
+  methods call the underlying private workers directly.
+- Resolver methods updated: each is now a one-line delegator
+  to the new lowercase helper. The resolver files are pure
+  API surface.
+- `workdirpath_test.go` updated: in-package tests use the
+  lowercase names. Kept the file rather than deleting —
+  it includes `TestResolve_RelativeWorkdirIsNotEscape` and
+  `TestRootRelForWrite_RelativeWorkdir`, which are
+  regression tests for the v0.26.0 release-build failure
+  (Go 1.25's `EvalSymlinks` shape preservation). Belt-and-
+  braces alongside the 56 new-type tests is cheap.
+
+Verification: grep clean, `go build ./...` clean, full
+`go test ./...` green, `go test -race -count=2
+./internal/workdirpath/...` green, lint clean for the
+package, `stado --help` + `stado run --help` smoke render.
+
+Commit: `492e0de refactor(workdirpath): 2.1.Y — delete
+legacy public surface`. 6 files, +193 / −300.
+
+### Stopping here
+
+The state file's next steps are 2.2 (A1) and 2.3 (A3). A1 is
+the largest-churn phase in the program (Model struct +
+overlays + 8 pickers across 9+ commits, with explicit
+operator-facing decisions in commit 1 — overlay slotting,
+picker interface location). A3 is more mechanical but needs
+an upfront inventory of the `Update` type-switch.
+
+Both are multi-hour phases. Stopping the autonomous run here
+so the operator can:
+1. Run merge-checkpoint-#2 smoke (per the plan).
+2. Confirm direction on A1's overlay-slotting decision (the
+   stack default is defensible but worth confirming) before
+   committing.
+3. Optionally split A1 / A3 across separate sessions for
+   context-window hygiene.
+
+A2 (the workdirpath consolidation) is fully complete.
+
