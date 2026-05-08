@@ -18,6 +18,30 @@
 | 3.2 (B2) bundled-tool schema builder | DONE | `bfcf586` + `1c28fa4` |
 | 3.3 (B3) bridge lifecycle | SKIPPED (audit captured) | — |
 | 2.2 (A1) Model + overlays | DONE (8 in-package extractions) | `06574a6` `321d8c3` `3e36adb` `0c9eaaf` `19c93df` `20fc54f` |
+| Smaller wins addendum | DONE (audit + dead-interface cleanup) | `e1fc00f` |
+
+### Smaller wins addendum (post-program cleanup)
+
+Audited the plan's "smaller wins addendum" list. Findings:
+
+- `auto_prune_after` TODO — already decided in B1 to keep
+  (removal is a behaviour change; wiring is a feature).
+- `toolCategorized` interface — found ZERO implementations
+  (plan said "single"). All 5 type-assertion sites were
+  unreachable dead code; the two meta tools that depended on
+  it (`tools__list_categories`, `tools__in_category`) silently
+  always returned empty lists. Rewired to
+  `LookupToolMetadata(name).Categories` per EP-0037 §C —
+  bug fix on top of cleanup. Commit `e1fc00f`.
+- "Single-impl interfaces" list (Runner / CommitSigner /
+  Spawner / SSHCommitSigner / InboxAwareSpawner) — audit
+  showed each is a real interface with multiple impls or a
+  deliberate cycle-avoidance shim. Plan listing was stale;
+  none warrant inlining.
+- "Other actionable TODOs (3 in non-test code total)" — actual
+  count is 1 (`cmd/stado/plugin_update_verify.go:94`), and
+  it's a feature ask (query GitHub/GitLab API) not a refactor
+  cleanup.
 
 ### A1 outcome
 
