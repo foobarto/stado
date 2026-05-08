@@ -65,25 +65,11 @@ func registerHTTPRequestImport(builder wazero.HostModuleBuilder, host *Host) {
 			// reachable. Broad cap (NetHTTPRequest with no NetReqHost
 			// list) skips this check; the dial guard still blocks
 			// RFC1918 unless allowPrivate=true.
-			if len(host.NetReqHost) > 0 {
-				u, err := url.Parse(args.URL)
-				if err != nil {
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-					return
-				}
-				hostName := strings.ToLower(u.Hostname())
-				allowed := false
-				for _, a := range host.NetReqHost {
-					if strings.EqualFold(strings.TrimSpace(a), hostName) {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					msg := []byte("url host \"" + hostName + "\" denied by manifest")
-					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
-					return
-				}
+			if !hostInRequestAllowList(host, args.URL) {
+				u, _ := url.Parse(args.URL)
+				msg := []byte("url host \"" + strings.ToLower(u.Hostname()) + "\" denied by manifest")
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
+				return
 			}
 
 			resp, err := httpreq.Do(ctx, args, host.NetHTTPRequestPrivate)

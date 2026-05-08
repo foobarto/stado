@@ -99,6 +99,18 @@ func registerHTTPRequestStreamImport(builder wazero.HostModuleBuilder, host *Hos
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return -1
 			}
+			// Per-host capability enforcement: when the manifest
+			// declares net:http_request:<host>, only the listed hosts
+			// are reachable via streaming — same gate the non-streaming
+			// stado_http_request applies (host_http_request.go around
+			// the NetReqHost preflight). Before this check, the
+			// streaming path only verified that *some* HTTP capability
+			// existed; a plugin with net:http_request:api.example.com
+			// could stream from any public host. Reported in the
+			// 2026-05-09 review.
+			if !hostInRequestAllowList(host, args.URL) {
+				return -1
+			}
 			if rt.httpStreamCount >= maxHTTPStreamsPerRuntime {
 				return -1
 			}
