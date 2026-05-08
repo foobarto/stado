@@ -32,7 +32,30 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased
+## v0.47.0 — TUI slash ergonomics, `stado_ui_print`, `stado_ui_choose` input fields
+
+Headline shipping new operator and plugin surfaces:
+
+- **TUI slash ergonomics.** `/tool <name> [args]` (and `/t`) covers
+  bundled and installed tools in one path; `/alias create | list |
+  rm` lets operators define their own slash shortcuts with `{N}`
+  positional substitution. The long `/plugin:<name> <tool>` shape
+  is no longer the only manual-dispatch route, and bundled tools
+  finally have a TUI invocation path.
+- **`stado_ui_print`** — new fire-and-forget plain-text emit for
+  plugins, gated by a `ui:print` capability (F9a; TUI slice).
+- **`stado_ui_choose` input fields** — each option may carry a
+  `prefix` and an optional editable `input` field with a
+  validator (length / regex / int / path / multiline). Bare-input
+  shortcut renders single-option-with-input as a plain prompt.
+  TUI ships end-to-end; non-TUI bridges reject input-bearing
+  options pending follow-on (F10).
+- **Fixes:** `/plugin:<name>` resolves to the active installed
+  version (no `-<ver>` required); `stado tool list --json` emits a
+  single valid JSON document instead of NDJSON; `stado tool run`
+  refuses PTY-bound shell tools with an actionable advisory;
+  `stado mcp-server --help` documents newline-delimited JSON-RPC
+  framing and prints a startup advisory when stdin is a TTY.
 
 ### Plugins
 
