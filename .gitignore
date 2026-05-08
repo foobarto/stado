@@ -9,6 +9,10 @@
 /CLAUDE.md
 .claude/
 
+# Project-local scratch directory for the coding agent (consult dumps,
+# build artefacts, throwaway transcripts). Per project CLAUDE.md.
+/.tmp/
+
 # Binary blobs fetched by `go run hack/fetch-binaries.go` + the per-
 # platform embed files it generates. Release builds run the script as
 # a goreleaser before-hook; dev builds don't need them.
