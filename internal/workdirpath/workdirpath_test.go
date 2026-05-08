@@ -17,7 +17,7 @@ func TestResolve_RejectsEscapeViaSymlink(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Resolve(root, "link.txt", false); err == nil {
+	if _, err := resolveWorkdir(root, "link.txt", false); err == nil {
 		t.Fatal("expected symlink escape to fail")
 	}
 }
@@ -27,7 +27,7 @@ func TestResolve_AllowsNestedMissingPathInsideWorkdir(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Resolve(root, filepath.Join("sub", "new", "file.txt"), true)
+	got, err := resolveWorkdir(root, filepath.Join("sub", "new", "file.txt"), true)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -55,9 +55,9 @@ func TestResolve_RelativeWorkdirIsNotEscape(t *testing.T) {
 	}
 	t.Chdir(root)
 
-	got, err := Resolve(".", filepath.Join("sub", "new", "file.txt"), true)
+	got, err := resolveWorkdir(".", filepath.Join("sub", "new", "file.txt"), true)
 	if err != nil {
-		t.Fatalf("Resolve(.,…): %v", err)
+		t.Fatalf("resolveWorkdir(.,…): %v", err)
 	}
 	want := filepath.Join(root, "sub", "new", "file.txt")
 	wantResolved, _ := filepath.EvalSymlinks(root)
@@ -65,7 +65,7 @@ func TestResolve_RelativeWorkdirIsNotEscape(t *testing.T) {
 		want = filepath.Join(wantResolved, "sub", "new", "file.txt")
 	}
 	if got != want {
-		t.Errorf("Resolve(.,…) = %q, want %q", got, want)
+		t.Errorf("resolveWorkdir(.,…) = %q, want %q", got, want)
 	}
 }
 
@@ -78,9 +78,9 @@ func TestRootRelForWrite_RelativeWorkdir(t *testing.T) {
 	}
 	t.Chdir(root)
 
-	gotRoot, gotRel, err := RootRelForWrite(".", filepath.Join("sub", "nested", "file.bin"))
+	gotRoot, gotRel, err := rootRelForWrite(".", filepath.Join("sub", "nested", "file.bin"))
 	if err != nil {
-		t.Fatalf("RootRelForWrite(.,…): %v", err)
+		t.Fatalf("rootRelForWrite(.,…): %v", err)
 	}
 	if !filepath.IsAbs(gotRoot) {
 		t.Errorf("expected absolute root, got %q", gotRoot)
@@ -95,7 +95,7 @@ func TestRootRel_ReturnsConfinedRelativePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gotRoot, gotRel, err := RootRel(root, filepath.Join(root, "sub", "file.txt"), true)
+	gotRoot, gotRel, err := rootRel(root, filepath.Join(root, "sub", "file.txt"), true)
 	if err != nil {
 		t.Fatalf("RootRel: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestOpenReadFileRejectsSymlinkEscapeAtOpen(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	f, err := OpenReadFile(root, "link.txt")
+	f, err := openReadFile(root, "link.txt")
 	if f != nil {
 		_ = f.Close()
 	}
@@ -139,7 +139,7 @@ func TestReadRegularFileNoSymlinkRejectsParentSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	_, err := ReadRegularFileNoSymlinkLimited(filepath.Join(link, "secret.txt"), 1024)
+	_, err := readRegularFileNoSymlinkLimited(filepath.Join(link, "secret.txt"), 1024)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ReadRegularFileNoSymlinkLimited error = %v, want symlink rejection", err)
 	}
@@ -156,7 +156,7 @@ func TestReadRegularFileNoSymlinkRejectsFinalSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	_, err := ReadRegularFileNoSymlinkLimited(link, 1024)
+	_, err := readRegularFileNoSymlinkLimited(link, 1024)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ReadRegularFileNoSymlinkLimited error = %v, want symlink rejection", err)
 	}
@@ -169,7 +169,7 @@ func TestReadRegularFileNoSymlinkLimitedReadsRegularFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := ReadRegularFileNoSymlinkLimited(path, 2)
+	data, err := readRegularFileNoSymlinkLimited(path, 2)
 	if err != nil {
 		t.Fatalf("ReadRegularFileNoSymlinkLimited: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestReadRegularFileNoSymlinkLimitedRejectsOversizedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := ReadRegularFileNoSymlinkLimited(path, 3)
+	_, err := readRegularFileNoSymlinkLimited(path, 3)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("ReadRegularFileNoSymlinkLimited error = %v, want size rejection", err)
 	}
@@ -199,13 +199,13 @@ func TestReadRootRegularFileLimitedRejectsFinalSymlink(t *testing.T) {
 	if err := os.Symlink("target.txt", filepath.Join(dir, "link.txt")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	root, err := OpenRootNoSymlink(dir)
+	root, err := openRootNoSymlink(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
 
-	_, err = ReadRootRegularFileLimited(root, "link.txt", 1024)
+	_, err = readRootRegularFileLimited(root, "link.txt", 1024)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ReadRootRegularFileLimited error = %v, want symlink rejection", err)
 	}
@@ -217,13 +217,13 @@ func TestReadRootRegularFileLimitedRejectsOversizedFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("abcd"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root, err := OpenRootNoSymlink(dir)
+	root, err := openRootNoSymlink(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
 
-	_, err = ReadRootRegularFileLimited(root, "large.bin", 3)
+	_, err = readRootRegularFileLimited(root, "large.bin", 3)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("ReadRootRegularFileLimited error = %v, want size rejection", err)
 	}
@@ -235,7 +235,7 @@ func TestWriteFileRejectsSymlinkParentEscape(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "linkdir")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	err := WriteFile(root, filepath.Join("linkdir", "out.txt"), []byte("pwned"), 0o644)
+	err := writeFile(root,filepath.Join("linkdir", "out.txt"), []byte("pwned"), 0o644)
 	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
 		t.Fatalf("WriteFile error = %v, want workdir escape", err)
 	}
@@ -254,7 +254,7 @@ func TestWriteFileRejectsInRootFinalSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := WriteFile(root, "link.txt", []byte("pwned"), 0o644)
+	err := writeFile(root,"link.txt", []byte("pwned"), 0o644)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("WriteFile error = %v, want symlink rejection", err)
 	}
@@ -269,7 +269,7 @@ func TestWriteFileRejectsInRootFinalSymlink(t *testing.T) {
 
 func TestWriteFileCreatesNestedMissingPathInsideWorkdir(t *testing.T) {
 	root := t.TempDir()
-	if err := WriteFile(root, filepath.Join("sub", "new", "file.txt"), []byte("ok"), 0o644); err != nil {
+	if err := writeFile(root,filepath.Join("sub", "new", "file.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "sub", "new", "file.txt"))
@@ -292,7 +292,7 @@ func TestMkdirAllNoSymlinkRejectsParentSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := MkdirAllNoSymlink(filepath.Join(link, "child"), 0o755)
+	err := mkdirAllNoSymlink(filepath.Join(link, "child"), 0o755)
 	if err == nil {
 		t.Fatal("MkdirAllNoSymlink should reject symlinked parent dirs")
 	}
@@ -307,7 +307,7 @@ func TestMkdirAllNoSymlinkRejectsParentSymlink(t *testing.T) {
 func TestMkdirAllNoSymlinkCreatesNestedDirs(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "a", "b", "c")
-	if err := MkdirAllNoSymlink(path, 0o755); err != nil {
+	if err := mkdirAllNoSymlink(path, 0o755); err != nil {
 		t.Fatalf("MkdirAllNoSymlink: %v", err)
 	}
 	info, err := os.Stat(path)
@@ -330,7 +330,7 @@ func TestOpenRootNoSymlinkRejectsParentSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	root, err := OpenRootNoSymlink(filepath.Join(link, "child"))
+	root, err := openRootNoSymlink(filepath.Join(link, "child"))
 	if err == nil {
 		_ = root.Close()
 		t.Fatal("OpenRootNoSymlink should reject symlinked parent dirs")
@@ -354,7 +354,7 @@ func TestRemoveAllNoSymlinkRejectsParentSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := RemoveAllNoSymlink(filepath.Join(link, "victim"))
+	err := removeAllNoSymlink(filepath.Join(link, "victim"))
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("RemoveAllNoSymlink error = %v, want symlink rejection", err)
 	}
@@ -377,7 +377,7 @@ func TestRemoveAllNoSymlinkRejectsFinalSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := RemoveAllNoSymlink(link)
+	err := removeAllNoSymlink(link)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("RemoveAllNoSymlink error = %v, want symlink rejection", err)
 	}
@@ -398,7 +398,7 @@ func TestRemoveAllNoSymlinkRemovesDirectoryTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(victim, "nested", "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RemoveAllNoSymlink(victim); err != nil {
+	if err := removeAllNoSymlink(victim); err != nil {
 		t.Fatalf("RemoveAllNoSymlink: %v", err)
 	}
 	if _, err := os.Stat(victim); !os.IsNotExist(err) {
@@ -416,7 +416,7 @@ func TestWriteFilePreservesExistingMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteFile(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o644); err != nil {
+	if err := writeFile(root,"script.sh", []byte("#!/bin/sh\necho ok\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	info, err := os.Stat(path)
@@ -440,8 +440,8 @@ func TestWriteRootFileAtomicExactModeReplacesExistingMode(t *testing.T) {
 	}
 	defer func() { _ = root.Close() }()
 
-	if err := WriteRootFileAtomicExactMode(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
-		t.Fatalf("WriteRootFileAtomicExactMode: %v", err)
+	if err := writeRootFileAtomic(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o755, false); err != nil {
+		t.Fatalf("writeRootFileAtomic(exact): %v", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -454,7 +454,7 @@ func TestWriteRootFileAtomicExactModeReplacesExistingMode(t *testing.T) {
 
 func TestGlob_RejectsEscapePattern(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Glob(root, "../*"); err == nil {
+	if _, _, err := globLimited(root, "../*", maxGlobStored, defaultGlobLimits()); err == nil {
 		t.Fatal("expected escape pattern to fail")
 	}
 }
@@ -466,9 +466,9 @@ func TestGlobLimitedCountsTotalWithStoredCap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	matches, total, err := GlobLimited(root, "*.txt", 2)
+	matches, total, err := globLimited(root, "*.txt", 2, defaultGlobLimits())
 	if err != nil {
-		t.Fatalf("GlobLimited: %v", err)
+		t.Fatalf("globLimited: %v", err)
 	}
 	if total != 3 {
 		t.Fatalf("total = %d, want 3", total)
@@ -500,9 +500,9 @@ func TestGlobLimitedSkipsSymlinkDirectoryTraversal(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "linkdir")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	matches, total, err := GlobLimited(root, "linkdir/*.txt", 10)
+	matches, total, err := globLimited(root, "linkdir/*.txt", 10, defaultGlobLimits())
 	if err != nil {
-		t.Fatalf("GlobLimited: %v", err)
+		t.Fatalf("globLimited: %v", err)
 	}
 	if total != 0 || len(matches) != 0 {
 		t.Fatalf("symlink directory was traversed: total=%d matches=%v", total, matches)
@@ -530,7 +530,7 @@ func TestReadRegularFileUnderUserConfigLimitedFollowsAnchorSymlink(t *testing.T)
 	t.Setenv("HOME", filepath.Join(homeLink, "user"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(homeLink, "user", "config"))
 
-	data, err := ReadRegularFileUnderUserConfigLimited(filepath.Join(homeLink, "user", "config", "stado", "system-prompt.md"), 1024)
+	data, err := readRegularFileUnderUserConfigLimited(filepath.Join(homeLink, "user", "config", "stado", "system-prompt.md"), 1024)
 	if err != nil {
 		t.Fatalf("ReadRegularFileUnderUserConfigLimited: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestReadRegularFileUnderUserConfigLimitedRejectsInUserSymlink(t *testing.T)
 	t.Setenv("HOME", base)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
 
-	_, err := ReadRegularFileUnderUserConfigLimited(link, 1024)
+	_, err := readRegularFileUnderUserConfigLimited(link, 1024)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ReadRegularFileUnderUserConfigLimited error = %v, want symlink rejection", err)
 	}

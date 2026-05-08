@@ -49,7 +49,7 @@ func NewUserConfigResolver() *UserConfigResolver {
 // enforcement below the anchor. The caller takes ownership of
 // the returned root; close when done.
 func (uc *UserConfigResolver) OpenRoot(path string) (*os.Root, error) {
-	return OpenRootUnderUserConfig(path)
+	return openRootUnderUserConfig(path)
 }
 
 // OpenRegularFile opens path for reading, rejecting symlinked
@@ -57,21 +57,21 @@ func (uc *UserConfigResolver) OpenRoot(path string) (*os.Root, error) {
 // paths, and non-regular files. Includes a SameFile TOCTOU
 // check between Lstat and Open. Read-only by design.
 func (uc *UserConfigResolver) OpenRegularFile(path string) (*os.File, error) {
-	return OpenRegularFileUnderUserConfig(path)
+	return openRegularFileUnderUserConfig(path)
 }
 
 // ReadFileLimited reads at most maxBytes from path with the
 // same trust model. Files larger than maxBytes return an error
 // rather than silent truncation.
 func (uc *UserConfigResolver) ReadFileLimited(path string, maxBytes int64) ([]byte, error) {
-	return ReadRegularFileUnderUserConfigLimited(path, maxBytes)
+	return readRegularFileUnderUserConfigLimited(path, maxBytes)
 }
 
 // ReadFileNoLimit reads the entire file. Use only for paths
 // where the caller has independent confidence the file is
 // bounded — there's no size cap here.
 func (uc *UserConfigResolver) ReadFileNoLimit(path string) ([]byte, error) {
-	return ReadRegularFileUnderUserConfigNoLimit(path)
+	return readRegularFileUnderUserConfigNoLimit(path)
 }
 
 // MkdirAll creates path and any missing components. The chain
@@ -79,7 +79,7 @@ func (uc *UserConfigResolver) ReadFileNoLimit(path string) ([]byte, error) {
 // the legacy "anchor-as-operator-environment" rule); the chain
 // below the anchor is walked with no-symlink enforcement.
 func (uc *UserConfigResolver) MkdirAll(path string, perm os.FileMode) error {
-	return MkdirAllUnderUserConfig(path, perm)
+	return mkdirAllUnderUserConfig(path, perm)
 }
 
 // RemoveAll removes path and its descendants with the same trust

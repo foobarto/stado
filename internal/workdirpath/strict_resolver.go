@@ -84,9 +84,9 @@ func (s *StrictResolver) Under(ancestor string) (*StrictResolver, error) {
 // Caller takes ownership of the returned root; close when done.
 func (s *StrictResolver) OpenRoot(path string) (*os.Root, error) {
 	if s.ancestor == "" {
-		return OpenRootNoSymlink(path)
+		return openRootNoSymlink(path)
 	}
-	return OpenRootNoSymlinkUnder(s.ancestor, path)
+	return openRootNoSymlinkUnder(s.ancestor, path)
 }
 
 // MkdirAll creates path and any missing components. On a
@@ -97,9 +97,9 @@ func (s *StrictResolver) OpenRoot(path string) (*os.Root, error) {
 // below is no-symlink + created if missing.
 func (s *StrictResolver) MkdirAll(path string, perm os.FileMode) error {
 	if s.ancestor == "" {
-		return MkdirAllNoSymlink(path, perm)
+		return mkdirAllNoSymlink(path, perm)
 	}
-	return MkdirAllNoSymlinkUnder(s.ancestor, path, perm)
+	return mkdirAllNoSymlinkUnder(s.ancestor, path, perm)
 }
 
 // OpenRegularFile opens path for reading via os.Root, rejecting
@@ -112,7 +112,7 @@ func (s *StrictResolver) OpenRegularFile(path string) (*os.File, error) {
 	if s.ancestor != "" {
 		return nil, fmt.Errorf("OpenRegularFile: not supported on ancestor-bound resolver (ancestor=%q)", s.ancestor)
 	}
-	return OpenRegularFileNoSymlink(path)
+	return openRegularFileNoSymlink(path)
 }
 
 // ReadFileLimited reads at most maxBytes from path with strict
@@ -125,7 +125,7 @@ func (s *StrictResolver) ReadFileLimited(path string, maxBytes int64) ([]byte, e
 	if s.ancestor != "" {
 		return nil, fmt.Errorf("ReadFileLimited: not supported on ancestor-bound resolver (ancestor=%q)", s.ancestor)
 	}
-	return ReadRegularFileNoSymlinkLimited(path, maxBytes)
+	return readRegularFileNoSymlinkLimited(path, maxBytes)
 }
 
 // RemoveAll removes path with strict no-symlink enforcement —
@@ -138,5 +138,5 @@ func (s *StrictResolver) RemoveAll(path string) error {
 	if s.ancestor != "" {
 		return fmt.Errorf("RemoveAll: not supported on ancestor-bound resolver (ancestor=%q)", s.ancestor)
 	}
-	return RemoveAllNoSymlink(path)
+	return removeAllNoSymlink(path)
 }

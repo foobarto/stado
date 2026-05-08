@@ -1,3 +1,11 @@
+// Package workdirpath holds path-confined fs primitives backing
+// stado's runtime path-resolution. The public surface is exposed
+// via the four resolver types — Resolver, UserConfigResolver,
+// StrictResolver, RootResolver — defined in their own files. This
+// file is the implementation core: shared no-symlink walks, the
+// HOME / XDG anchor lookup, the atomic write helper, and the glob
+// machinery. Functions here are unexported; the resolver methods
+// are the API surface for in-tree callers.
 package workdirpath
 
 import (
@@ -19,15 +27,12 @@ const (
 	globReadDirBatch   = 128
 )
 
-// Resolve returns a canonical absolute path confined to workdir.
+// resolveWorkdir returns a canonical absolute path confined to workdir.
 // Symlinks are resolved before the boundary check so in-repo links to
 // out-of-repo targets are rejected. When allowMissing is true, the
 // deepest existing ancestor is resolved and the missing suffix is
 // appended, which allows safe create/write paths under the workdir.
-//
-// Deprecated: use New(workdir).Resolve(path) (or
-// New(workdir).ResolveAllowMissing(path)) instead. Removed in 2.1.Y.
-func Resolve(workdir, path string, allowMissing bool) (string, error) {
+func resolveWorkdir(workdir, path string, allowMissing bool) (string, error) {
 	if workdir == "" {
 		return "", errors.New("workdir unavailable")
 	}
@@ -76,17 +81,15 @@ func Resolve(workdir, path string, allowMissing bool) (string, error) {
 	return resolved, nil
 }
 
-// RootRel returns a path suitable for os.Root methods after applying the same
-// symlink-aware workdir confinement as Resolve. The returned root is the
+// rootRel returns a path suitable for os.Root methods after applying the same
+// symlink-aware workdir confinement as resolveWorkdir. The returned root is the
 // canonical workdir path and rel is relative to that root.
-//
-// Deprecated: use New(workdir).RootRel(path) instead. Removed in 2.1.Y.
-func RootRel(workdir, path string, allowMissing bool) (root, rel string, err error) {
+func rootRel(workdir, path string, allowMissing bool) (root, rel string, err error) {
 	if workdir == "" {
 		return "", "", errors.New("workdir unavailable")
 	}
-	// See Resolve — Go 1.25+ preserves EvalSymlinks input shape;
-	// canonicalise to absolute first so the Rel below works.
+	// See resolveWorkdir — Go 1.25+ preserves EvalSymlinks input
+	// shape; canonicalise to absolute first so the Rel below works.
 	absWorkdir, err := filepath.Abs(workdir)
 	if err != nil {
 		return "", "", err
@@ -95,7 +98,7 @@ func RootRel(workdir, path string, allowMissing bool) (root, rel string, err err
 	if err != nil {
 		return "", "", err
 	}
-	resolved, err := Resolve(workdir, path, allowMissing)
+	resolved, err := resolveWorkdir(workdir, path, allowMissing)
 	if err != nil {
 		return "", "", err
 	}
@@ -112,19 +115,15 @@ func RootRel(workdir, path string, allowMissing bool) (root, rel string, err err
 	return root, rel, nil
 }
 
-// OpenReadFile opens path through os.Root so the final open remains confined
+// openReadFile opens path through os.Root so the final open remains confined
 // even if symlinks are swapped after path resolution. The returned file must
 // be closed by the caller.
-//
-// Deprecated: use New(workdir).OpenRegularFile(path) instead. The new API
-// also rejects non-regular files, which the legacy form did not. Removed
-// in 2.1.Y.
-func OpenReadFile(workdir, path string) (*os.File, error) {
-	rootPath, rel, err := RootRel(workdir, path, false)
+func openReadFile(workdir, path string) (*os.File, error) {
+	rootPath, rel, err := rootRel(workdir, path, false)
 	if err != nil {
 		return nil, err
 	}
-	root, err := OpenRootNoSymlink(rootPath)
+	root, err := openRootNoSymlink(rootPath)
 	if err != nil {
 		return nil, err
 	}
@@ -132,14 +131,11 @@ func OpenReadFile(workdir, path string) (*os.File, error) {
 	return root.Open(rel)
 }
 
-// ReadRegularFileNoSymlinkLimited reads an absolute or relative filesystem path
+// readRegularFileNoSymlinkLimited reads an absolute or relative filesystem path
 // while rejecting symlinked directory components, symlinked final paths, and
 // files larger than maxBytes.
-//
-// Deprecated: use NewStrictResolver().ReadFileLimited(path, maxBytes)
-// instead. Removed in 2.1.Y.
-func ReadRegularFileNoSymlinkLimited(path string, maxBytes int64) ([]byte, error) {
-	f, err := OpenRegularFileNoSymlink(path)
+func readRegularFileNoSymlinkLimited(path string, maxBytes int64) ([]byte, error) {
+	f, err := openRegularFileNoSymlink(path)
 	if err != nil {
 		return nil, err
 	}
@@ -164,23 +160,20 @@ func ReadRegularFileNoSymlinkLimited(path string, maxBytes int64) ([]byte, error
 	return data, nil
 }
 
-// ReadRegularFileUnderUserConfigLimited reads path with the same trust-anchor
-// model as MkdirAllUnderUserConfig / OpenRootUnderUserConfig: the chain UP
-// TO the longest HOME / XDG_*_HOME ancestor is treated as operator-supplied
-// (so a system-level `/home → /var/home` symlink is accepted), and the
-// remainder is walked with strict no-symlink enforcement. When path falls
-// outside any anchor, falls back to the strict from-/ ReadRegularFileNoSymlinkLimited.
-//
-// Deprecated: use NewUserConfigResolver().ReadFileLimited(path, maxBytes)
-// instead. Removed in 2.1.Y.
-func ReadRegularFileUnderUserConfigLimited(path string, maxBytes int64) ([]byte, error) {
+// readRegularFileUnderUserConfigLimited reads path with the same trust-anchor
+// model as mkdirAllUnderUserConfig / openRootUnderUserConfig: the chain UP TO
+// the longest HOME / XDG_*_HOME ancestor is treated as operator-supplied (so a
+// system-level `/home → /var/home` symlink is accepted), and the remainder is
+// walked with strict no-symlink enforcement. When path falls outside any
+// anchor, falls back to the strict from-/ readRegularFileNoSymlinkLimited.
+func readRegularFileUnderUserConfigLimited(path string, maxBytes int64) ([]byte, error) {
 	abs, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
 	anchor := userTrustAnchor(abs)
 	if anchor == "" {
-		return ReadRegularFileNoSymlinkLimited(abs, maxBytes)
+		return readRegularFileNoSymlinkLimited(abs, maxBytes)
 	}
 	rel, err := filepath.Rel(anchor, abs)
 	if err != nil {
@@ -189,20 +182,17 @@ func ReadRegularFileUnderUserConfigLimited(path string, maxBytes int64) ([]byte,
 	if rel == "." || rel == "" {
 		return nil, fmt.Errorf("invalid file path: %s (equal to user-config anchor)", path)
 	}
-	root, err := OpenRootNoSymlinkUnder(anchor, filepath.Dir(rel))
+	root, err := openRootNoSymlinkUnder(anchor, filepath.Dir(rel))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return ReadRootRegularFileLimited(root, filepath.Base(rel), maxBytes)
+	return readRootRegularFileLimited(root, filepath.Base(rel), maxBytes)
 }
 
-// ReadRootRegularFileLimited opens a regular file relative to root, rejects
+// readRootRegularFileLimited opens a regular file relative to root, rejects
 // final symlinks and open-time swaps, and reads at most maxBytes.
-//
-// Deprecated: use NewRootResolver(root).ReadFileLimited(name, maxBytes)
-// instead. Removed in 2.1.Y.
-func ReadRootRegularFileLimited(root *os.Root, name string, maxBytes int64) ([]byte, error) {
+func readRootRegularFileLimited(root *os.Root, name string, maxBytes int64) ([]byte, error) {
 	if root == nil {
 		return nil, errors.New("root unavailable")
 	}
@@ -248,17 +238,14 @@ func ReadRootRegularFileLimited(root *os.Root, name string, maxBytes int64) ([]b
 	return data, nil
 }
 
-// OpenRegularFileUnderUserConfig is the OpenRegularFileNoSymlink analogue
-// for the trust-anchor walk: directory components UP TO the longest
-// HOME / XDG_*_HOME ancestor are accepted as the operator's environment
-// (so `/home → /var/home` on Atomic Fedora / Bazzite resolves), the rest
-// of the path is walked with strict no-symlink enforcement, and the
-// final component must be a regular file (no terminal symlink). When
-// path falls outside any anchor, falls back to OpenRegularFileNoSymlink.
-//
-// Deprecated: use NewUserConfigResolver().OpenRegularFile(path) instead.
-// Removed in 2.1.Y.
-func OpenRegularFileUnderUserConfig(path string) (*os.File, error) {
+// openRegularFileUnderUserConfig is the openRegularFileNoSymlink analogue
+// for the trust-anchor walk: directory components UP TO the longest HOME /
+// XDG_*_HOME ancestor are accepted as the operator's environment (so
+// `/home → /var/home` on Atomic Fedora / Bazzite resolves), the rest of the
+// path is walked with strict no-symlink enforcement, and the final component
+// must be a regular file (no terminal symlink). When path falls outside any
+// anchor, falls back to openRegularFileNoSymlink.
+func openRegularFileUnderUserConfig(path string) (*os.File, error) {
 	if strings.Contains(path, "\x00") {
 		return nil, fmt.Errorf("invalid file path %q", path)
 	}
@@ -271,7 +258,7 @@ func OpenRegularFileUnderUserConfig(path string) (*os.File, error) {
 	if base == "." || base == string(filepath.Separator) {
 		return nil, fmt.Errorf("invalid file path %q", path)
 	}
-	root, err := OpenRootUnderUserConfig(filepath.Dir(abs))
+	root, err := openRootUnderUserConfig(filepath.Dir(abs))
 	if err != nil {
 		return nil, err
 	}
@@ -307,13 +294,10 @@ func OpenRegularFileUnderUserConfig(path string) (*os.File, error) {
 	return f, nil
 }
 
-// ReadRegularFileUnderUserConfigNoLimit is a convenience wrapper that reads
-// the entire file via OpenRegularFileUnderUserConfig.
-//
-// Deprecated: use NewUserConfigResolver().ReadFileNoLimit(path) instead.
-// Removed in 2.1.Y.
-func ReadRegularFileUnderUserConfigNoLimit(path string) ([]byte, error) {
-	f, err := OpenRegularFileUnderUserConfig(path)
+// readRegularFileUnderUserConfigNoLimit is a convenience wrapper that reads
+// the entire file via openRegularFileUnderUserConfig.
+func readRegularFileUnderUserConfigNoLimit(path string) ([]byte, error) {
+	f, err := openRegularFileUnderUserConfig(path)
 	if err != nil {
 		return nil, err
 	}
@@ -321,12 +305,9 @@ func ReadRegularFileUnderUserConfigNoLimit(path string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-// OpenRegularFileNoSymlink opens an absolute or relative filesystem path while
-// rejecting symlinked directory components and symlinked final paths.
-//
-// Deprecated: use NewStrictResolver().OpenRegularFile(path) instead.
-// Removed in 2.1.Y.
-func OpenRegularFileNoSymlink(path string) (*os.File, error) {
+// openRegularFileNoSymlink opens an absolute or relative filesystem path
+// while rejecting symlinked directory components and symlinked final paths.
+func openRegularFileNoSymlink(path string) (*os.File, error) {
 	if strings.Contains(path, "\x00") {
 		return nil, fmt.Errorf("invalid file path %q", path)
 	}
@@ -339,7 +320,7 @@ func OpenRegularFileNoSymlink(path string) (*os.File, error) {
 	if base == "." || base == string(filepath.Separator) {
 		return nil, fmt.Errorf("invalid file path %q", path)
 	}
-	root, err := OpenRootNoSymlink(filepath.Dir(abs))
+	root, err := openRootNoSymlink(filepath.Dir(abs))
 	if err != nil {
 		return nil, err
 	}
@@ -375,60 +356,52 @@ func OpenRegularFileNoSymlink(path string) (*os.File, error) {
 	return f, nil
 }
 
-// WriteFile writes path through os.Root so create/truncate cannot escape the
+// writeFile writes path through os.Root so create/truncate cannot escape the
 // workdir via a concurrently swapped symlink.
-//
-// Deprecated: use New(workdir).WriteFileAtomic(path, data, perm) instead.
-// Removed in 2.1.Y.
-func WriteFile(workdir, path string, data []byte, perm os.FileMode) error {
-	rootPath, rel, err := RootRelForWrite(workdir, path)
+func writeFile(workdir, path string, data []byte, perm os.FileMode) error {
+	rootPath, rel, err := rootRelForWrite(workdir, path)
 	if err != nil {
 		return err
 	}
-	root, err := OpenRootNoSymlink(rootPath)
+	root, err := openRootNoSymlink(rootPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
 	if dir := filepath.Dir(rel); dir != "." {
-		if err := MkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
+		if err := mkdirAllRootNoSymlink(root, dir, 0o755); err != nil {
 			return err
 		}
 	}
-	return WriteRootFileAtomic(root, rel, data, perm)
+	return writeRootFileAtomic(root, rel, data, perm, true)
 }
 
-// MkdirAllUnderUserConfig creates path with no-symlink enforcement
-// anchored at the operator's HOME / XDG_*_HOME trust ancestors.
+// mkdirAllUnderUserConfig creates path with no-symlink enforcement anchored at
+// the operator's HOME / XDG_*_HOME trust ancestors.
 //
-// When path falls under one of those anchors, the chain UP TO the
-// anchor is treated as operator-supplied: missing components are
-// created via os.MkdirAll (no symlink rejection — `/home` may
-// legitimately symlink to `/var/home` on Atomic Fedora / Silverblue,
-// `/var/home` may not exist yet on a fresh container, etc.). The
-// rest of the path (anchor → leaf) is walked with the strict
-// no-symlink check, so an in-user-space attacker can't redirect a
+// When path falls under one of those anchors, the chain UP TO the anchor is
+// treated as operator-supplied: missing components are created via os.MkdirAll
+// (no symlink rejection — `/home` may legitimately symlink to `/var/home` on
+// Atomic Fedora / Silverblue, `/var/home` may not exist yet on a fresh
+// container, etc.). The rest of the path (anchor → leaf) is walked with the
+// strict no-symlink check, so an in-user-space attacker can't redirect a
 // stado write by planting a symlink under the anchor.
 //
-// When path is NOT under any anchor, we fall back to the strict
-// from-`/` MkdirAllNoSymlink check — preserving the defense for
-// callers that operate on adversarially-supplied paths (in-tmpdir
-// tests, in-repo writes).
+// When path is NOT under any anchor, we fall back to the strict from-`/`
+// mkdirAllNoSymlink check — preserving the defense for callers that operate
+// on adversarially-supplied paths (in-tmpdir tests, in-repo writes).
 //
-// Use this for HOME-rooted system paths (XDG config / data / state
-// dirs, the audit-key directory, the per-user worktree root). See
-// EP-0028 for the threat-model rationale.
-//
-// Deprecated: use NewUserConfigResolver().MkdirAll(path, perm) instead.
-// Removed in 2.1.Y.
-func MkdirAllUnderUserConfig(path string, perm os.FileMode) error {
+// Use this for HOME-rooted system paths (XDG config / data / state dirs, the
+// audit-key directory, the per-user worktree root). See EP-0028 for the
+// threat-model rationale.
+func mkdirAllUnderUserConfig(path string, perm os.FileMode) error {
 	abs, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
 	anchor := userTrustAnchor(abs)
 	if anchor == "" {
-		return MkdirAllNoSymlink(abs, perm)
+		return mkdirAllNoSymlink(abs, perm)
 	}
 	// Ensure the anchor exists. The chain UP TO the anchor is the
 	// operator's environment, not adversarial.
@@ -449,24 +422,20 @@ func MkdirAllUnderUserConfig(path string, perm os.FileMode) error {
 	if rel == "." || rel == "" {
 		return nil
 	}
-	return MkdirAllNoSymlinkUnder(anchor, rel, perm)
+	return mkdirAllNoSymlinkUnder(anchor, rel, perm)
 }
 
-// OpenRootUnderUserConfig opens path with the same trust-anchor
-// model as MkdirAllUnderUserConfig. The anchor itself must already
-// exist (Open doesn't create); paths under the anchor are walked
-// with no-symlink enforcement.
-//
-// Deprecated: use NewUserConfigResolver().OpenRoot(path) instead.
-// Removed in 2.1.Y.
-func OpenRootUnderUserConfig(path string) (*os.Root, error) {
+// openRootUnderUserConfig opens path with the same trust-anchor model as
+// mkdirAllUnderUserConfig. The anchor itself must already exist (Open doesn't
+// create); paths under the anchor are walked with no-symlink enforcement.
+func openRootUnderUserConfig(path string) (*os.Root, error) {
 	abs, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
 	anchor := userTrustAnchor(abs)
 	if anchor == "" {
-		return OpenRootNoSymlink(abs)
+		return openRootNoSymlink(abs)
 	}
 	rel, err := filepath.Rel(anchor, abs)
 	if err != nil {
@@ -475,15 +444,14 @@ func OpenRootUnderUserConfig(path string) (*os.Root, error) {
 	if rel == "." || rel == "" {
 		return os.OpenRoot(anchor)
 	}
-	return OpenRootNoSymlinkUnder(anchor, rel)
+	return openRootNoSymlinkUnder(anchor, rel)
 }
 
-// userTrustAnchor returns the longest HOME/XDG_*_HOME ancestor that
-// covers absPath, or "" when none does. We treat these as
-// operator-controlled trust roots: their own ancestor symlink chain
-// is whatever the OS gave us; we don't second-guess the user's
-// system layout. Paths below them are still subject to no-symlink
-// enforcement against in-user-space attackers.
+// userTrustAnchor returns the longest HOME/XDG_*_HOME ancestor that covers
+// absPath, or "" when none does. We treat these as operator-controlled trust
+// roots: their own ancestor symlink chain is whatever the OS gave us; we don't
+// second-guess the user's system layout. Paths below them are still subject
+// to no-symlink enforcement against in-user-space attackers.
 func userTrustAnchor(absPath string) string {
 	var candidates []string
 	for _, env := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
@@ -510,25 +478,20 @@ func userTrustAnchor(absPath string) string {
 	return best
 }
 
-// MkdirAllNoSymlinkUnder ensures relSub exists as a directory tree
-// rooted under ancestor. ancestor must be an existing directory and
-// is opened via os.OpenRoot (which follows the OS path resolution
-// up to and including ancestor — symlinks IN the ancestor's own
-// path chain are accepted as the operator's environment, e.g.
-// `/home` symlinked to `/var/home` on Fedora Atomic / Silverblue).
-// Symlinks in path components UNDER ancestor are still rejected,
-// matching the threat model of MkdirAllNoSymlink.
+// mkdirAllNoSymlinkUnder ensures relSub exists as a directory tree rooted
+// under ancestor. ancestor must be an existing directory and is opened via
+// os.OpenRoot (which follows the OS path resolution up to and including
+// ancestor — symlinks IN the ancestor's own path chain are accepted as the
+// operator's environment, e.g. `/home` symlinked to `/var/home` on Fedora
+// Atomic / Silverblue). Symlinks in path components UNDER ancestor are still
+// rejected, matching the threat model of mkdirAllNoSymlink.
 //
-// Use this for HOME-rooted system paths (XDG config / data / state
-// dirs, the user's audit-key directory, the per-user worktree root)
-// where the strict from-/ walk fails on systems whose `/home` is a
-// symlink. For genuinely untrusted writes (in-repo paths supplied
-// by an adversary, plugin sandbox writes), keep using
-// MkdirAllNoSymlink so the entire path chain is checked.
-//
-// Deprecated: use s, _ := NewStrictResolver().Under(ancestor) then
-// s.MkdirAll(relSub, perm) instead. Removed in 2.1.Y.
-func MkdirAllNoSymlinkUnder(ancestor, relSub string, perm os.FileMode) error {
+// Use this for HOME-rooted system paths (XDG config / data / state dirs, the
+// user's audit-key directory, the per-user worktree root) where the strict
+// from-/ walk fails on systems whose `/home` is a symlink. For genuinely
+// untrusted writes (in-repo paths supplied by an adversary, plugin sandbox
+// writes), keep using mkdirAllNoSymlink so the entire path chain is checked.
+func mkdirAllNoSymlinkUnder(ancestor, relSub string, perm os.FileMode) error {
 	if strings.Contains(ancestor, "\x00") || strings.Contains(relSub, "\x00") {
 		return fmt.Errorf("invalid directory path %q / %q", ancestor, relSub)
 	}
@@ -540,15 +503,12 @@ func MkdirAllNoSymlinkUnder(ancestor, relSub string, perm os.FileMode) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return MkdirAllRootNoSymlink(root, filepath.Clean(relSub), perm)
+	return mkdirAllRootNoSymlink(root, filepath.Clean(relSub), perm)
 }
 
-// OpenRootNoSymlinkUnder is the OpenRootNoSymlink analogue for a
-// trusted-ancestor walk. See MkdirAllNoSymlinkUnder.
-//
-// Deprecated: use s, _ := NewStrictResolver().Under(ancestor) then
-// s.OpenRoot(relSub) instead. Removed in 2.1.Y.
-func OpenRootNoSymlinkUnder(ancestor, relSub string) (*os.Root, error) {
+// openRootNoSymlinkUnder is the openRootNoSymlink analogue for a
+// trusted-ancestor walk. See mkdirAllNoSymlinkUnder.
+func openRootNoSymlinkUnder(ancestor, relSub string) (*os.Root, error) {
 	if strings.Contains(ancestor, "\x00") || strings.Contains(relSub, "\x00") {
 		return nil, fmt.Errorf("invalid directory path %q / %q", ancestor, relSub)
 	}
@@ -595,12 +555,9 @@ func OpenRootNoSymlinkUnder(ancestor, relSub string) (*os.Root, error) {
 	return cur, nil
 }
 
-// MkdirAllNoSymlink creates path like os.MkdirAll, but rejects any existing
+// mkdirAllNoSymlink creates path like os.MkdirAll, but rejects any existing
 // symlink component instead of following it while preparing a write root.
-//
-// Deprecated: use NewStrictResolver().MkdirAll(path, perm) instead.
-// Removed in 2.1.Y.
-func MkdirAllNoSymlink(path string, perm os.FileMode) error {
+func mkdirAllNoSymlink(path string, perm os.FileMode) error {
 	if strings.Contains(path, "\x00") {
 		return fmt.Errorf("invalid directory path %q", path)
 	}
@@ -613,20 +570,17 @@ func MkdirAllNoSymlink(path string, perm os.FileMode) error {
 		return err
 	}
 	rootPath, rel := splitAbsoluteRoot(abs)
-	root, err := OpenRootNoSymlink(rootPath)
+	root, err := openRootNoSymlink(rootPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	return MkdirAllRootNoSymlink(root, rel, perm)
+	return mkdirAllRootNoSymlink(root, rel, perm)
 }
 
-// OpenRootNoSymlink opens an existing directory while rejecting any symlink
+// openRootNoSymlink opens an existing directory while rejecting any symlink
 // component in the directory path.
-//
-// Deprecated: use NewStrictResolver().OpenRoot(path) instead. Removed
-// in 2.1.Y.
-func OpenRootNoSymlink(path string) (*os.Root, error) {
+func openRootNoSymlink(path string) (*os.Root, error) {
 	if strings.Contains(path, "\x00") {
 		return nil, fmt.Errorf("invalid directory path %q", path)
 	}
@@ -672,14 +626,9 @@ func OpenRootNoSymlink(path string) (*os.Root, error) {
 	return cur, nil
 }
 
-// RemoveAllNoSymlink removes path without following symlinked directory
+// removeAllNoSymlink removes path without following symlinked directory
 // components. A final symlink is rejected instead of being removed silently.
-//
-// Deprecated: use NewStrictResolver().RemoveAll(path) instead. For
-// HOME / XDG-rooted paths on systems where /home is a symlink (Atomic
-// Fedora / Bazzite), prefer NewUserConfigResolver().RemoveAll(path).
-// Removed in 2.1.Y.
-func RemoveAllNoSymlink(path string) error {
+func removeAllNoSymlink(path string) error {
 	if strings.Contains(path, "\x00") {
 		return fmt.Errorf("invalid remove path %q", path)
 	}
@@ -693,7 +642,7 @@ func RemoveAllNoSymlink(path string) error {
 		return fmt.Errorf("invalid remove path %q", path)
 	}
 	parent := filepath.Dir(abs)
-	root, err := OpenRootNoSymlink(parent)
+	root, err := openRootNoSymlink(parent)
 	if err != nil {
 		return err
 	}
@@ -712,15 +661,14 @@ func RemoveAllNoSymlink(path string) error {
 }
 
 // removeAllUnderUserConfig is the user-config-aware analogue of
-// RemoveAllNoSymlink. The chain UP TO the HOME / XDG anchor
-// accepts system symlinks (Atomic Fedora's `/home → /var/home`
-// case); the chain BELOW the anchor is no-symlink and a final
-// symlink at the target is rejected. Outside any anchor falls
-// back to the strict-from-/ walk for parity with non-HOME paths.
+// removeAllNoSymlink. The chain UP TO the HOME / XDG anchor accepts system
+// symlinks (Atomic Fedora's `/home → /var/home` case); the chain BELOW the
+// anchor is no-symlink and a final symlink at the target is rejected. Outside
+// any anchor falls back to the strict-from-/ walk for parity with non-HOME
+// paths.
 //
-// Mirrors the read/open/mkdir family added by EP-0028; closes
-// the RemoveAll gap that family didn't cover. Used by
-// UserConfigResolver.RemoveAll.
+// Mirrors the read/open/mkdir family added by EP-0028; closes the RemoveAll
+// gap that family didn't cover. Used by UserConfigResolver.RemoveAll.
 func removeAllUnderUserConfig(path string) error {
 	if strings.Contains(path, "\x00") {
 		return fmt.Errorf("invalid remove path %q", path)
@@ -735,10 +683,10 @@ func removeAllUnderUserConfig(path string) error {
 	}
 	anchor := userTrustAnchor(abs)
 	if anchor == "" {
-		return RemoveAllNoSymlink(abs)
+		return removeAllNoSymlink(abs)
 	}
 	parent := filepath.Dir(abs)
-	parentRoot, err := OpenRootUnderUserConfig(parent)
+	parentRoot, err := openRootUnderUserConfig(parent)
 	if err != nil {
 		return err
 	}
@@ -756,12 +704,9 @@ func removeAllUnderUserConfig(path string) error {
 	return parentRoot.RemoveAll(name)
 }
 
-// MkdirAllRootNoSymlink creates a directory tree relative to root while
+// mkdirAllRootNoSymlink creates a directory tree relative to root while
 // rejecting any existing symlink component.
-//
-// Deprecated: use NewRootResolver(root).MkdirAll(path, perm) instead.
-// Removed in 2.1.Y.
-func MkdirAllRootNoSymlink(root *os.Root, path string, perm os.FileMode) error {
+func mkdirAllRootNoSymlink(root *os.Root, path string, perm os.FileMode) error {
 	if root == nil {
 		return errors.New("root unavailable")
 	}
@@ -847,20 +792,17 @@ func splitAbsoluteRoot(path string) (root, rel string) {
 	return root, rest
 }
 
-// RootRelForWrite returns a root-relative write target after resolving parent
+// rootRelForWrite returns a root-relative write target after resolving parent
 // symlinks without following the final path component.
-//
-// Deprecated: use New(workdir).RootRelForWrite(path) instead. Removed
-// in 2.1.Y.
-func RootRelForWrite(workdir, path string) (root, rel string, err error) {
+func rootRelForWrite(workdir, path string) (root, rel string, err error) {
 	if workdir == "" {
 		return "", "", errors.New("workdir unavailable")
 	}
 	if strings.Contains(path, "\x00") {
 		return "", "", fmt.Errorf("path %q contains NUL", path)
 	}
-	// See Resolve — Go 1.25+ preserves EvalSymlinks input shape;
-	// canonicalise to absolute first so the Rel below works.
+	// See resolveWorkdir — Go 1.25+ preserves EvalSymlinks input
+	// shape; canonicalise to absolute first so the Rel below works.
 	absWorkdir, err := filepath.Abs(workdir)
 	if err != nil {
 		return "", "", err
@@ -879,7 +821,7 @@ func RootRelForWrite(workdir, path string) (root, rel string, err error) {
 	}
 	parent := filepath.Dir(target)
 	base := filepath.Base(target)
-	resolvedParent, err := Resolve(workdir, parent, true)
+	resolvedParent, err := resolveWorkdir(workdir, parent, true)
 	if err != nil {
 		return "", "", err
 	}
@@ -901,25 +843,12 @@ func RootRelForWrite(workdir, path string) (root, rel string, err error) {
 	return root, rel, nil
 }
 
-// WriteRootFileAtomic writes a confined os.Root-relative file through a
+// writeRootFileAtomic writes a confined os.Root-relative file through a
 // same-directory random temp file and renames it over the final path. Existing
 // symlink and non-regular final paths are rejected instead of being followed.
 //
-// Deprecated: use NewRootResolver(root).WriteFileAtomic(name, data, perm)
-// instead. Removed in 2.1.Y.
-func WriteRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode) error {
-	return writeRootFileAtomic(root, name, data, perm, true)
-}
-
-// WriteRootFileAtomicExactMode is like WriteRootFileAtomic, but always applies
-// perm to the replacement file instead of preserving an existing file's mode.
-//
-// Deprecated: use NewRootResolver(root).WriteFileAtomicExactMode(name, data, perm)
-// instead. Removed in 2.1.Y.
-func WriteRootFileAtomicExactMode(root *os.Root, name string, data []byte, perm os.FileMode) error {
-	return writeRootFileAtomic(root, name, data, perm, false)
-}
-
+// preserveExistingMode=true preserves the mode of an existing file (only perm
+// for new files); =false always applies perm.
 func writeRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMode, preserveExistingMode bool) error {
 	if root == nil {
 		return errors.New("root unavailable")
@@ -974,25 +903,6 @@ func writeRootFileAtomic(root *os.Root, name string, data []byte, perm os.FileMo
 	return nil
 }
 
-// Glob returns bounded matches for a workdir-relative pattern after rejecting
-// absolute paths and leading `..` escapes.
-//
-// Deprecated: use New(workdir).Glob(pattern) instead. Removed in 2.1.Y.
-func Glob(workdir, pattern string) ([]string, error) {
-	matches, _, err := GlobLimited(workdir, pattern, maxGlobStored)
-	return matches, err
-}
-
-// GlobLimited returns at most maxStored matches plus the total match count.
-// Traversal is rooted, skips symlinked directories, and fails if the worktree
-// exceeds the glob entry or depth budget.
-//
-// Deprecated: use New(workdir).GlobLimited(pattern, maxStored) instead.
-// Removed in 2.1.Y.
-func GlobLimited(workdir, pattern string, maxStored int) ([]string, int, error) {
-	return globLimited(workdir, pattern, maxStored, defaultGlobLimits())
-}
-
 type globLimits struct {
 	maxEntries int
 	maxDepth   int
@@ -1036,7 +946,7 @@ func globLimited(workdir, pattern string, maxStored int, limits globLimits) ([]s
 	if err != nil {
 		return nil, 0, err
 	}
-	root, err := OpenRootNoSymlink(rootPath)
+	root, err := openRootNoSymlink(rootPath)
 	if err != nil {
 		return nil, 0, err
 	}

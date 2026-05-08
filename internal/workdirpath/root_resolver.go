@@ -51,14 +51,14 @@ func (rr *RootResolver) Root() *os.Root { return rr.root }
 // Files larger than maxBytes return an error rather than
 // silent truncation.
 func (rr *RootResolver) ReadFileLimited(name string, maxBytes int64) ([]byte, error) {
-	return ReadRootRegularFileLimited(rr.root, name, maxBytes)
+	return readRootRegularFileLimited(rr.root, name, maxBytes)
 }
 
 // WriteFileAtomic writes data to name via tempfile + rename.
 // Existing files have their mode preserved; new files are
 // created with perm. Rejects symlinks and non-regular targets.
 func (rr *RootResolver) WriteFileAtomic(name string, data []byte, perm os.FileMode) error {
-	return WriteRootFileAtomic(rr.root, name, data, perm)
+	return writeRootFileAtomic(rr.root, name, data, perm, true)
 }
 
 // WriteFileAtomicExactMode is WriteFileAtomic that always
@@ -66,11 +66,11 @@ func (rr *RootResolver) WriteFileAtomic(name string, data []byte, perm os.FileMo
 // existing file's mode). Use when the caller intends to
 // overwrite the mode along with the contents.
 func (rr *RootResolver) WriteFileAtomicExactMode(name string, data []byte, perm os.FileMode) error {
-	return WriteRootFileAtomicExactMode(rr.root, name, data, perm)
+	return writeRootFileAtomic(rr.root, name, data, perm, false)
 }
 
 // MkdirAll creates path and any missing parents relative to the
 // resolver's *os.Root. Rejects symlinked components.
 func (rr *RootResolver) MkdirAll(path string, perm os.FileMode) error {
-	return MkdirAllRootNoSymlink(rr.root, path, perm)
+	return mkdirAllRootNoSymlink(rr.root, path, perm)
 }
