@@ -128,6 +128,13 @@ type Host struct {
 	// DNSAXFR gates stado_dns_resolve_axfr (zone transfer over TCP).
 	// Implies DNSResolve. Declared via dns:axfr in the manifest.
 	DNSAXFR bool
+
+	// DNSAXFRPrivate loosens the AXFR dial guard so RFC1918 / loopback /
+	// link-local destinations are reachable. Declared via dns:axfr_private
+	// in the manifest. Without it, AXFR refuses to dial private addresses
+	// even when the underlying dns:axfr capability is held — same posture
+	// as net:http_request vs net:http_request_private.
+	DNSAXFRPrivate bool
 	// CryptoHash gates stado_hash and stado_hmac (EP-0038 §B Tier 3).
 	CryptoHash bool
 	// Compress gates stado_compress / stado_decompress (Tier 3).
@@ -724,6 +731,10 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			case "axfr":
 				h.DNSResolve = true // axfr implies resolve
 				h.DNSAXFR = true
+			case "axfr_private":
+				h.DNSResolve = true // axfr implies resolve
+				h.DNSAXFR = true
+				h.DNSAXFRPrivate = true
 			case "reverse":
 				h.DNSReverse = true
 			}

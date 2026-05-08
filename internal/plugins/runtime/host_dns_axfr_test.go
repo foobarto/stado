@@ -56,6 +56,52 @@ func TestDNSAXFR_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestGuardAXFRTarget_RefusesPrivateAddresses: a plugin holding only
+// dns:axfr (without dns:axfr_private) cannot AXFR against loopback,
+// RFC1918, or link-local destinations. Reported as a sister issue to
+// the HTTP private-cap split in the 2026-05-09 review — before the
+// guard, dns:axfr was sufficient to query 127.0.0.1:53 (the local
+// resolver, often answering for internal zones) or 192.168.x.x:53
+// (LAN-side authoritative servers).
+func TestGuardAXFRTarget_RefusesPrivateAddresses(t *testing.T) {
+	cases := []struct {
+		name   string
+		server string
+	}{
+		{"loopback v4", "127.0.0.1:53"},
+		{"loopback v6", "[::1]:53"},
+		{"rfc1918 10.x", "10.0.0.1:53"},
+		{"rfc1918 192.168.x", "192.168.1.1:53"},
+		{"rfc1918 172.16.x", "172.16.0.1:53"},
+		{"no port supplied (default :53 implied)", "127.0.0.1"},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			deny := guardAXFRTarget(ctx, c.server)
+			if deny == "" {
+				t.Errorf("expected denial for %q, got accept", c.server)
+			}
+			if !strings.Contains(deny, "dns:axfr_private") {
+				t.Errorf("denial for %q should reference dns:axfr_private; got %q", c.server, deny)
+			}
+		})
+	}
+}
+
+// TestGuardAXFRTarget_AllowsPublic: a public-IP literal target (e.g.,
+// 192.0.2.1 documentation range) passes the guard. Locks the
+// "broad cap → public destinations only" intent so a regression
+// that flipped the polarity would fail.
+func TestGuardAXFRTarget_AllowsPublic(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if got := guardAXFRTarget(ctx, "192.0.2.1:53"); got != "" {
+		t.Errorf("public IP should pass guard; got denial %q", got)
+	}
+}
+
 // TestDNSAXFR_RefusedByServer: server that returns REFUSED should
 // produce an error from dnsAXFR.
 func TestDNSAXFR_RefusedByServer(t *testing.T) {
