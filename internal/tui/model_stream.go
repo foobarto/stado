@@ -522,7 +522,23 @@ func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (
 // and blocks until the operator answers, cancels, or ctx fires.
 // Single-flight enforcement (rejecting concurrent requests) lives in
 // the Update handler — see pluginChoiceRequestMsg case. Q3.
+//
+// F10: per-option Input fields are not supported in multi-select
+// mode (the UX of typing into N rows with N input fields is unsolved
+// and the spec doesn't address it). The bridge rejects the combo
+// here before the modal opens so plugins see a clean structured
+// error rather than a half-applied response.
 func (m *Model) requestPluginChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
+	// Shape validation runs first (pure logic, no model dependency)
+	// so plugins get a precise error rather than the channel-
+	// unavailable fallback when the request was already malformed.
+	if req.Multi {
+		for _, o := range req.Options {
+			if o.Input != nil {
+				return pluginRuntime.ChoiceResponse{}, errors.New("multi-select choice with per-option input fields is not supported")
+			}
+		}
+	}
 	if m.program == nil {
 		return pluginRuntime.ChoiceResponse{}, errors.New("choice UI unavailable")
 	}

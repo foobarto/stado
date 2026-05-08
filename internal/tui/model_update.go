@@ -291,6 +291,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.choiceCursor = 0
 		m.choiceFocused = true
 		m.choiceMarked = map[string]bool{}
+		// F10: seed per-option input values from each option's
+		// Input.Default. Non-input options stay at "" so the slice
+		// remains index-aligned with options.
+		m.choiceInputs = make([]string, len(msg.req.Options))
+		for i, opt := range msg.req.Options {
+			if opt.Input != nil {
+				m.choiceInputs[i] = opt.Input.Default
+			}
+		}
+		m.choiceValidationErr = ""
 		// Pre-toggle defaults. For single mode, the first id in
 		// Default sets the cursor; for multi mode, every listed id
 		// starts toggled on.
@@ -318,6 +328,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.choiceFocused = false
 			m.choiceCursor = 0
 			m.choiceMarked = nil
+			m.choiceInputs = nil
+			m.choiceValidationErr = ""
 			m.state = stateIdle
 			m.renderBlocks()
 		}
@@ -1341,18 +1353,26 @@ func (m *Model) handleMessagesClick(msgX, msgY int) bool {
 }
 
 // resolveChoice closes the choice drawer with a positive answer
-// (Enter pressed). Sends ChoiceResponse{Selected, Cancelled=false}
-// down the bridge channel and clears drawer state.
-func (m *Model) resolveChoice(selected []string, cancelled bool) tea.Cmd {
+// (Enter pressed). Sends ChoiceResponse{Selected, InputValue,
+// Cancelled=false} down the bridge channel and clears drawer state.
+// inputValue is the F10 typed text from the chosen option's input
+// field; "" when the chosen option had no input (pre-F10 behaviour).
+func (m *Model) resolveChoice(selected []string, inputValue string, cancelled bool) tea.Cmd {
 	req := m.choice
 	m.choice = nil
 	m.choiceFocused = false
 	m.choiceCursor = 0
 	m.choiceMarked = nil
+	m.choiceInputs = nil
+	m.choiceValidationErr = ""
 	m.state = stateIdle
 	if req != nil && req.response != nil {
 		select {
-		case req.response <- pluginRuntime.ChoiceResponse{Selected: selected, Cancelled: cancelled}:
+		case req.response <- pluginRuntime.ChoiceResponse{
+			Selected:   selected,
+			InputValue: inputValue,
+			Cancelled:  cancelled,
+		}:
 		default:
 		}
 	}
@@ -1362,7 +1382,7 @@ func (m *Model) resolveChoice(selected []string, cancelled bool) tea.Cmd {
 
 // resolveChoiceCancel closes the drawer with cancelled=true (Esc).
 func (m *Model) resolveChoiceCancel() tea.Cmd {
-	return m.resolveChoice(nil, true)
+	return m.resolveChoice(nil, "", true)
 }
 
 func (m *Model) resolveApproval(allow bool) tea.Cmd {

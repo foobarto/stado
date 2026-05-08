@@ -34,6 +34,32 @@ become semver guarantees.
 
 ## Unreleased
 
+### Plugins
+
+- **`stado_ui_choose` per-option input fields (F10).** Each option
+  may now declare a `prefix` decoration and an `input` field
+  carrying a `default` value plus an optional `validator`
+  (`length` / `regex` / `int` / `path` / `multiline`). The
+  response gains `input_value` for the chosen option's typed text;
+  pre-F10 callers (options without `prefix` / `input`) decode and
+  resolve identically to before. Bare-input shortcut: a single
+  option with `input` and no `label` renders as a plain TUI input
+  prompt instead of a one-row chooser.
+
+  TUI handles editing inline — printable runes and Backspace edit
+  the focused row's buffer; Enter validates against the option's
+  validator (re-prompts inline on failure) and commits with the
+  typed value. Multi-select with input fields is rejected at the
+  bridge with a structured error. Validators run host-side so
+  invalid input never reaches the plugin.
+
+  ACP / MCP / headless surfaces reject options carrying `input`
+  with `"channel does not yet support per-option input fields"` —
+  plugins targeting both TUI and ACP detect the error and fall
+  back to plain choice on the non-TUI path. Wiring the new fields
+  into the ACP `kind=choice` payload is a follow-on slice.
+  Spec: `.agent/specs/done/f10-ui-choice-input.md`.
+
 ### CLI
 
 - `stado tool list --json` now emits a single valid JSON document

@@ -476,10 +476,17 @@ type Model struct {
 	// choice carries an in-flight stado_ui_choose request and its
 	// drawer state. Nil when no request is pending. Single-flight
 	// per session — bridge rejects a second concurrent request.
-	choice        *choiceRequest
-	choiceFocused bool
-	choiceCursor  int
-	choiceMarked  map[string]bool
+	//
+	// F10: choiceInputs holds the per-option editable text (parallel
+	// to choice.options; "" for options without Input). choiceValidationErr
+	// surfaces below the focused row when an Enter-commit fails the
+	// option's validator. Both clear on resolve / cancel.
+	choice              *choiceRequest
+	choiceFocused       bool
+	choiceCursor        int
+	choiceMarked        map[string]bool
+	choiceInputs        []string
+	choiceValidationErr string
 
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program

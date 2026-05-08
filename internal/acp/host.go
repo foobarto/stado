@@ -54,9 +54,21 @@ func (h *acpHost) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 // RequestChoice routes through the ACP server's pending-choice
 // registry. Implements pluginRuntime.ChoiceBridge — picked up by
 // pluginrun's attachLifecycleBridges via interface assertion.
+//
+// F10: per-option Input fields are not yet wired through the ACP
+// `session/update kind=choice` payload, so the bridge rejects any
+// request carrying Input on an option. Plugins targeting both TUI
+// and ACP detect the structured error and fall back to plain choice
+// for the ACP path. Removing this guard is part of the F10 ACP
+// follow-on slice.
 func (h *acpHost) RequestChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
 	if h.server == nil {
 		return pluginRuntime.ChoiceResponse{}, errors.New("acp host has no server reference")
+	}
+	for _, o := range req.Options {
+		if o.Input != nil {
+			return pluginRuntime.ChoiceResponse{}, errors.New("acp channel does not yet support per-option input fields (F10 TUI-only slice)")
+		}
 	}
 	return h.server.requestChoice(ctx, h.sessionID, req)
 }
