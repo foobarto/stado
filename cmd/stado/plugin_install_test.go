@@ -266,12 +266,12 @@ func TestCopyPluginFileRejectsOversizedFile(t *testing.T) {
 	if err := os.Truncate(extraPath, maxPluginInstallFileBytes+1); err != nil {
 		t.Fatal(err)
 	}
-	srcRoot, err := workdirpath.OpenRootNoSymlink(src)
+	srcRoot, err := workdirpath.NewStrictResolver().OpenRoot(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = srcRoot.Close() }()
-	dstRoot, err := workdirpath.OpenRootNoSymlink(dst)
+	dstRoot, err := workdirpath.NewStrictResolver().OpenRoot(dst)
 	if err != nil {
 		t.Fatal(err)
 	}

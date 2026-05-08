@@ -63,7 +63,7 @@ func TestReadSkillDirEntriesRejectsTooManyEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dirRoot, err := workdirpath.OpenRootNoSymlink(skillsDir)
+	dirRoot, err := workdirpath.NewStrictResolver().OpenRoot(skillsDir)
 	if err != nil {
 		t.Fatal(err)
 	}

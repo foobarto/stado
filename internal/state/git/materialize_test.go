@@ -232,7 +232,7 @@ func TestPruneExtrasRejectsTooManyEntriesBeforeRemoving(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestPruneExtrasRejectsTooDeepCleanup(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestWipeRootRejectsTooManyEntriesBeforeRemoving(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestOpenBlobReaderLimitedRejectsOversizedBlob(t *testing.T) {
 
 func TestWriteMaterializedFileRejectsOversizedReader(t *testing.T) {
 	dir := t.TempDir()
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestMaterializeRejectsTooManyTreeEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := t.TempDir()
-	root, err := workdirpath.OpenRootNoSymlink(dst)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dst)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestMaterializeRejectsTooDeepTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := t.TempDir()
-	root, err := workdirpath.OpenRootNoSymlink(dst)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dst)
 	if err != nil {
 		t.Fatal(err)
 	}

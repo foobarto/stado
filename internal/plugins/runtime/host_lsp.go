@@ -10,7 +10,7 @@
 // Capability gates:
 //   - lsp:query (h.LSPQuery == true)
 //   - fs:read on the resolved path (each call's args.Path goes through
-//     the host's allowRead check via lspfind's workdirpath.Resolve)
+//     the host's allowRead check via lspfind's Resolver.Resolve)
 
 package runtime
 

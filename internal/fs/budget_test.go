@@ -125,7 +125,7 @@ func TestGrepRejectsTooManyWalkEntries(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		writeTempFile(t, dir, fmt.Sprintf("f%d.txt", i), "needle\n")
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestGrepRejectsTooDeepWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTempFile(t, deep, "target.txt", "needle\n")
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestGrepRejectsTooDeepWalk(t *testing.T) {
 func TestGrepStoresOnlyBudgetedMatches(t *testing.T) {
 	dir := t.TempDir()
 	writeTempFile(t, dir, "a.txt", strings.Repeat("needle\n", 5))
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

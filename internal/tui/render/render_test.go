@@ -141,7 +141,7 @@ func TestReadRootTemplateDirEntriesRejectsTooManyEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root, err := workdirpath.OpenRootNoSymlink(dir)
+	root, err := workdirpath.NewStrictResolver().OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
