@@ -64,6 +64,15 @@ one CLI run can be observed by another would be a multi-day
 project — track separately if operators need `stado` as a tmux
 replacement from the CLI.
 
+### B6: Verify/document MCP stdio framing
+
+During the Aero HTB run, direct `stado mcp-server` testing worked reliably with
+newline-delimited JSON-RPC messages, but a Content-Length framed stdio request
+did not produce a usable response. Since `mcp-server --help` describes this as
+an MCP v1 stdio server, verify whether standard MCP clients expect
+Content-Length framing here. If newline framing is intentional, document it
+explicitly; if not, add Content-Length support or a clear protocol error.
+
 ## Missing features
 
 ### F1: ACP session/new max_turns param ~~FIXED~~
@@ -307,3 +316,28 @@ error (ACP/MCP) so the calling agent can retry with corrected input.
   single round-trip instead of choice → input → confirm.
 - Plugins can author small composite UIs without managing prompt order.
 - Headless / scripted operators have one decision-file shape to populate.
+
+## BUG: `stado tool run --session ... shell.spawn` loses PTY session immediately
+
+Superseded by B5 above in the current TODO; kept as the original reproducer for
+the CLI PTY persistence behavior.
+
+Observed from `/var/home/foobarto/Dokumenty/htb-writeups` while trying to use
+stado's bundled shell PTY for an HTB workflow:
+
+```bash
+stado tool run --session aero shell.spawn '{"argv":["bash","-lc","read x; echo got:$x"],"cols":80,"rows":24}'
+# -> {"id":1}
+stado tool run --session aero shell.list '{}'
+# -> []
+stado tool run --session aero shell.read '{"id":1,"timeout_ms":100}'
+# -> {"error":"read: pty: session not found"}
+```
+
+The same happened with `argv=["ssh","-tt","john@192.168.122.203"]`: spawn
+returned `{"id":1}`, but the follow-up read could not find the session. Either
+`tool run` is not persisting shell plugin state under `--session`, or
+`shell.spawn` exits/detaches without surfacing the process failure in its
+result. Expected: a spawned PTY remains visible to `shell.list` and readable by
+`shell.read` for the same `--session`, or `shell.spawn` returns a failure if it
+cannot persist.
