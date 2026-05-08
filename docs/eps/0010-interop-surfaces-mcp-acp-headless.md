@@ -1,7 +1,7 @@
 ---
 ep: 10
 title: Interop Surfaces: MCP, ACP, and Headless
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

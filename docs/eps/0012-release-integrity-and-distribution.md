@@ -1,7 +1,7 @@
 ---
 ep: 12
 title: Release Integrity and Distribution
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

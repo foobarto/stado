@@ -46,6 +46,7 @@ type Config struct {
 	Sessions   Sessions   `koanf:"sessions"`
 	TUI        TUI        `koanf:"tui"`
 	Tools      Tools      `koanf:"tools"`
+	Aliases    Aliases    `koanf:"aliases"`
 	Budget     Budget     `koanf:"budget"`
 	Hooks      Hooks      `koanf:"hooks"`
 	Runtime    Runtime    `koanf:"runtime"`

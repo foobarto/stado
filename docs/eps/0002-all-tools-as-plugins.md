@@ -1,7 +1,7 @@
 ---
 ep: 2
 title: All Tools as WASM Plugins
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-22

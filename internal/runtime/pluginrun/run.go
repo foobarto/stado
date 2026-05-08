@@ -255,6 +255,9 @@ func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
 	if bridge, ok := h.(pluginRuntime.ChoiceBridge); ok {
 		rtHost.ChoiceBridge = bridge
 	}
+	if bridge, ok := h.(pluginRuntime.PrintBridge); ok {
+		rtHost.PrintBridge = bridge
+	}
 	// Progress emitter has two routes: the host's tool.ProgressEmitter
 	// interface (TUI / headless run / stderr) and any per-call collector
 	// installed in ctx by Executor.Run. The collector path runs at the

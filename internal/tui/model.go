@@ -200,6 +200,14 @@ type (
 	pluginChoiceCancelMsg struct {
 		response chan pluginRuntime.ChoiceResponse
 	}
+	// pluginPrintMsg carries a stado_ui_print fire-and-forget emit
+	// into the TUI loop. The Update handler appends a system block
+	// with the text + severity styling. Fire-and-forget: no response
+	// channel — print is a one-way primitive by spec. F9a.
+	pluginPrintMsg struct {
+		text string
+		opts pluginRuntime.PrintOpts
+	}
 	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
 	// back to the Update loop. Rendered as a system block so the user
 	// sees the tool's return value alongside the conversation flow.
@@ -476,10 +484,17 @@ type Model struct {
 	// choice carries an in-flight stado_ui_choose request and its
 	// drawer state. Nil when no request is pending. Single-flight
 	// per session — bridge rejects a second concurrent request.
-	choice        *choiceRequest
-	choiceFocused bool
-	choiceCursor  int
-	choiceMarked  map[string]bool
+	//
+	// F10: choiceInputs holds the per-option editable text (parallel
+	// to choice.options; "" for options without Input). choiceValidationErr
+	// surfaces below the focused row when an Enter-commit fails the
+	// option's validator. Both clear on resolve / cancel.
+	choice              *choiceRequest
+	choiceFocused       bool
+	choiceCursor        int
+	choiceMarked        map[string]bool
+	choiceInputs        []string
+	choiceValidationErr string
 
 	// Back-channel for events from the provider goroutine.
 	program *tea.Program

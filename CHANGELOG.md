@@ -4,7 +4,52 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## Stability commitments
+
+These hold across all releases until stado hits 1.0; after 1.0 they
+become semver guarantees.
+
+- **`stado stats --json` schema.** Output carries `"schema_version": N`.
+  Within a major schema version, the shape is stable: no key is
+  renamed or removed, no value type changes, no semantic re-meaning of
+  an existing key. Pure additions (new keys appearing alongside existing
+  ones) are allowed without bumping. Renames, removals, and type
+  changes bump `schema_version` and ship with a migration note in this
+  changelog under the release that bumps it. Current: schema 1.
+- **`stado tool list --json` schema.** Output carries
+  `"schema_version": N` and the envelope
+  `{schema_version, count, tools[]}`. Same rules as
+  `stado stats --json`: additions are free, renames / removals / value-
+  type changes bump `schema_version` and ship with a migration note.
+  Current: schema 1.
+- **Plugin wasm calling contract.** The exports a plugin must provide
+  (`stado_alloc`, `stado_free`, `stado_tool_<name>` per ToolDef) and
+  the return-length-or-negative-error wire format are stable across
+  pre-1.0 releases. Host-side imports under the `stado` namespace may
+  be added (additive) or removed (breaking). Removals ship in the
+  release's `### Removed surfaces` section with substitutions in the
+  release's `### Plugin ABI migration note`. Eager ABI verify at
+  `session/new` (when `--tools` is set) surfaces stale-ABI plugins
+  with the specific missing imports — no silent retries.
+
 ## Unreleased
+
+### Plugins
+
+- **F10 ACP wire format extension.** `session/update kind=choice`
+  notifications now carry the per-option `prefix` and `input`
+  metadata; `session/choice_response` accepts an `inputValue`
+  field. The server validates `inputValue` against the chosen
+  option's validator before resolving — on failure returns an RPC
+  error and keeps the request open so the client can correct the
+  input and resend with the same `requestId`. The previous
+  rejection of input-bearing options on the ACP bridge is gone;
+  ACP clients that don't yet implement input rendering ignore the
+  metadata and resolve with an empty `inputValue` (graceful
+  degradation). `stado acp --help` updated to enumerate the new
+  fields. Multi-select with input fields stays unsupported.
+
+### Infra (2026-Q2 refactor program)
 
 Code-quality refactor program (2026-Q2). Behaviour-preserving
 across the program except where explicitly noted; the public CLI
@@ -92,6 +137,153 @@ across the program except where explicitly noted; the public CLI
   — adding the interface as no-ops would be ceremony without
   consolidation. Notes in journal; revisit if a real lifecycle
   caller emerges.
+
+## v0.47.0 — TUI slash ergonomics, `stado_ui_print`, `stado_ui_choose` input fields
+
+Headline shipping new operator and plugin surfaces:
+
+- **TUI slash ergonomics.** `/tool <name> [args]` (and `/t`) covers
+  bundled and installed tools in one path; `/alias create | list |
+  rm` lets operators define their own slash shortcuts with `{N}`
+  positional substitution. The long `/plugin:<name> <tool>` shape
+  is no longer the only manual-dispatch route, and bundled tools
+  finally have a TUI invocation path.
+- **`stado_ui_print`** — new fire-and-forget plain-text emit for
+  plugins, gated by a `ui:print` capability (F9a; TUI slice).
+- **`stado_ui_choose` input fields** — each option may carry a
+  `prefix` and an optional editable `input` field with a
+  validator (length / regex / int / path / multiline). Bare-input
+  shortcut renders single-option-with-input as a plain prompt.
+  TUI ships end-to-end; non-TUI bridges reject input-bearing
+  options pending follow-on (F10).
+- **Fixes:** `/plugin:<name>` resolves to the active installed
+  version (no `-<ver>` required); `stado tool list --json` emits a
+  single valid JSON document instead of NDJSON; `stado tool run`
+  refuses PTY-bound shell tools with an actionable advisory;
+  `stado mcp-server --help` documents newline-delimited JSON-RPC
+  framing and prints a startup advisory when stdin is a TTY.
+
+### Plugins
+
+- **`stado_ui_print` — fire-and-forget plain-text emit (F9a, TUI
+  slice).** Plugins emit text into the operator's view without
+  needing a structured payload. Wire shape:
+  `{text, severity?, eol?, stream_id?}` with severity in
+  `{"", "info", "warn", "error"}`. Text capped at 8 KiB per
+  call; larger payloads belong in `stado_ui_render` (F9b). Gated
+  by a new `ui:print` manifest capability.
+
+  TUI surface appends a system-style block per call with severity
+  prefixes (`[warn]` / `[error]`) so callouts stand out from
+  default info emits. Non-TUI bridges (ACP / MCP / headless) drop
+  on the floor for now — F9b lands proper non-TUI rendering and
+  the ACP `kind=text` payload extension.
+
+  `stream_id` is preserved on the wire but the renderer does not
+  yet coalesce successive same-id emits — that lands with F9b's
+  continuation rendering. Spec:
+  `.agent/specs/done/f9a-ui-print.md`.
+
+- **`stado_ui_choose` per-option input fields (F10).** Each option
+  may now declare a `prefix` decoration and an `input` field
+  carrying a `default` value plus an optional `validator`
+  (`length` / `regex` / `int` / `path` / `multiline`). The
+  response gains `input_value` for the chosen option's typed text;
+  pre-F10 callers (options without `prefix` / `input`) decode and
+  resolve identically to before. Bare-input shortcut: a single
+  option with `input` and no `label` renders as a plain TUI input
+  prompt instead of a one-row chooser.
+
+  TUI handles editing inline — printable runes and Backspace edit
+  the focused row's buffer; Enter validates against the option's
+  validator (re-prompts inline on failure) and commits with the
+  typed value. Multi-select with input fields is rejected at the
+  bridge with a structured error. Validators run host-side so
+  invalid input never reaches the plugin.
+
+  ACP / MCP / headless surfaces reject options carrying `input`
+  with `"channel does not yet support per-option input fields"` —
+  plugins targeting both TUI and ACP detect the error and fall
+  back to plain choice on the non-TUI path. Wiring the new fields
+  into the ACP `kind=choice` payload is a follow-on slice.
+  Spec: `.agent/specs/done/f10-ui-choice-input.md`.
+
+### TUI
+
+- **`/tool <name> [json-args]` (and `/t` alias).** Single command for
+  manual tool dispatch — bundled tools (`fs.read`, `agent.spawn`,
+  `http_request`) and installed plugin tools alike. Mirrors
+  `stado tool run` from the CLI so muscle memory carries across
+  surfaces. The existing management verbs
+  (`/tool ls / info / enable / disable / autoload / unautoload /
+  reload`) flow through the same command.
+  PTY-bound shell tools refused with the same advisory `stado tool run`
+  uses (B5 reasoning).
+- **`/alias create | list | rm` — operator-defined slash shortcuts.**
+  Aliases live globally in `~/.config/stado/config.toml` under
+  `[aliases]`. Names are written without the leading `/`; expansion
+  must start with `/`. Positional args use `{1}`, `{2}`, … in the
+  expansion and are substituted from the call site.
+  Example: `/alias create read /tool fs.read {"path":"{1}"}` lets
+  you type `/read foo.txt` instead.
+  Names that shadow a built-in slash command (e.g. `/help`,
+  `/tool`, `/plugin`) are rejected at create time. Hand-edited
+  config.toml entries that would shadow are defensively skipped at
+  resolution time. Calling an alias without enough positional args
+  surfaces a precise `{N}` error rather than a confused downstream
+  failure.
+
+### CLI
+
+- `stado mcp-server --help` now leads with a "WIRE FORMAT" section
+  explicitly stating that MCP v1 stdio uses newline-delimited
+  JSON-RPC, NOT LSP-style Content-Length framing. Adds a
+  copy-pasteable smoke test (`echo '{"jsonrpc":"2.0",…}' |
+  stado mcp-server | head -1`). When stdin is a TTY at startup
+  (operator typed the command directly with no client
+  connecting), the server now prints a stderr advisory pointing
+  at the smoke test and Ctrl+D — pre-fix this looked like a
+  hang. (B6)
+- `stado tool run` now refuses PTY-bound shell tools (`shell.spawn`
+  / `list` / `attach` / `read` / `write` / `detach` / `signal` /
+  `resize` / `destroy`) with an actionable advisory pointing at the
+  TUI, MCP server, and agent loop. The CLI is single-shot — its
+  Runtime (and the Runtime's `pty.Manager`) lives only for the
+  duration of one invocation, so a `shell.spawn` could never be
+  observed by a `shell.list` from a separate `tool run`. Pre-fix
+  behaviour was a confusing silent empty list. One-shot
+  `shell.exec` / `shell.bash` / `shell.sh` / `shell.zsh` continue
+  to work — they don't bind a PTY. The `--session` flag's help
+  now also clarifies that it carries session-aware capabilities
+  (audit log, memory, fork) but does NOT persist PTYs. (B5)
+- `stado tool list --json` now emits a single valid JSON document
+  (envelope: `{schema_version, count, tools[]}`) instead of NDJSON.
+  Pre-v0.46.2 behaviour broke `python3 -m json.tool`, `jq .`, and any
+  strict-JSON parser; operators relying on the streaming shape can
+  recover it with `stado tool list --json | jq -c '.tools[]'`. The
+  envelope's stability is now part of the project-wide commitments
+  above. (B4)
+- `/plugin:<name>` (bare name, no `-<version>` suffix) in the TUI
+  resolves to the active installed version, so
+  `/plugin:demo greet` runs the active demo's `greet` tool. The
+  literal `<name>-<version>` form continues to pin to a specific
+  installed version.
+
+### TUI
+
+- `/plugin` (bare) listing no longer clips after the first plugin when
+  any tool description is long. Two fixes:
+  1. The system-block renderer was capping body length at `width*6`
+     (~480 chars on a normal terminal), which was hiding subsequent
+     plugins entirely. The cap is removed — `lipgloss.Width(width)`
+     still wraps each visual line correctly, but no longer truncates
+     the total body.
+  2. Each tool's description is now summarised inline (whitespace
+     collapsed, capped at 120 runes with a `…` suffix when longer)
+     so a verbose `Description` field can't hard-wrap to column 0
+     and dismantle the indented `  /plugin:NAME` →
+     `    · TOOL — DESC` hierarchy. Operators get the full text via
+     `/plugin <name>` (per-plugin view, unchanged).
 
 ## v0.46.1 — Dependency bumps + CI maintenance
 
@@ -359,17 +551,43 @@ bundled tool surface).
   inbox-flush branch, several staticcheck nits, one unused helper).
   Cleaned out so CI's lint job goes green; no behaviour changes.
 
+### Removed surfaces
+
+- Host imports: `stado_fs_tool_read`, `stado_fs_tool_write`,
+  `stado_fs_tool_edit`, `stado_fs_tool_glob`, `stado_fs_tool_grep`,
+  `stado_fs_tool_read_context`. Step 7 replaces the
+  fs/readctx native-tool delegates with true wasm primitives —
+  the `stado_fs_*` family — plus a wasm-side `fs.wasm` plugin that
+  rebuilds glob/grep/edit/read_with_context on top of them.
+- Native packages: `internal/tools/{fs,readctx}` — the fs/readctx
+  native source is deleted; the model surface reaches `fs__*` and
+  `readctx__*` only through `internal/bundledplugins/modules/fs`.
+
 ### Plugin ABI migration note (for plugin authors)
 
-`v0.45.0` shipped the unified `pluginrun.Run` invocation path. Plugins
-built against the v0.44.x ABI continue to work unchanged: the wasm
-contract (`stado_alloc` / `stado_free` / `stado_tool_<name>` exports,
-return-len-or-negative-error wire format) is unchanged. New primitives
+The wasm calling contract (`stado_alloc` / `stado_free` /
+`stado_tool_<name>` exports, return-len-or-negative-error wire
+format) is unchanged. New primitives
 (`stado_fs_last_error`, `sandbox` arg on `stado_exec` / `stado_proc_spawn`,
 `stado_fs_readdir`, `stado_fs_stat`) are additive — old plugins that
 don't declare the new caps don't see them.
 
-For plugin authors rebuilding against v0.45.x:
+**Substitution table.** If your plugin imports a host function that no
+longer exists, swap as below:
+
+| Removed import (release) | Replacement | Notes |
+|---|---|---|
+| `stado_fs_tool_read` (v0.46.0) | `stado_fs_read` / `stado_fs_read_partial` | The `_partial` variant takes `(offset, length)` for paged reads; declare `fs:read:<path>` cap. |
+| `stado_fs_tool_write` (v0.46.0) | `stado_fs_write` | Declare `fs:write:<path>` cap; scope guard is enforced host-side. |
+| `stado_fs_tool_edit` (v0.46.0) | `stado_fs_read` + `stado_fs_write` | Read, mutate in-wasm, write back. Reference impl: `internal/bundledplugins/modules/fs/main.go`. |
+| `stado_fs_tool_glob` (v0.46.0) | `stado_fs_readdir` + `filepath.Match` | Walk dirs in-wasm; reference impl: `fs.wasm`'s `glob` entry. Or invoke the bundled `fs__glob` tool via `stado_tool_invoke`. |
+| `stado_fs_tool_grep` (v0.46.0) | `stado_fs_readdir` + `stado_fs_read` + regex | Walk + read + match in-wasm. Or invoke the bundled `fs__grep` tool via `stado_tool_invoke`. |
+| `stado_fs_tool_read_context` (v0.46.0) | `stado_fs_read` + line-window formatting | Format your own ±N-line context window around the hit. Or invoke the bundled `readctx__read` tool via `stado_tool_invoke`. |
+| `stado_http_get` (v0.45.0) | `stado_http_request` | The new primitive is method-agnostic; pass `"GET"` to keep behaviour. RFC1918 / loopback / link-local refusals carry over. |
+| `stado_exec_bash` (v0.45.0) | `stado_exec` (+ optional `sandbox` arg) | Drops the hardcoded bwrap policy; pass `sandbox: {...}` per call if you want the old policy back. Cap parse: `exec:bash` / `exec:shallow_bash` → `exec:proc:bash`. |
+| `stado_search_ripgrep` / `stado_search_ast_grep` (v0.45.0) | `stado_exec` with `rg` / `ast-grep`, or `stado_tool_invoke("rg__search", …)` | The bundled `rg.wasm` / `astgrep.wasm` plugins are reusable from another plugin via `stado_tool_invoke`. Cap parse: `exec:search` / `exec:ast_grep` → `exec:proc:rg` / `exec:proc:ast-grep`. |
+
+For plugin authors rebuilding against v0.46.x:
 
 1. Re-run your plugin build script — wasm bytes change with toolchain
    updates and the manifest's `wasm_sha256` must match.
@@ -379,7 +597,8 @@ For plugin authors rebuilding against v0.45.x:
 Stale-ABI plugins now fail fast with a single `session/new` error in
 ACP mode (see the ACP section above) and surface a clear `plugin ABI
 incomplete` message in CLI / agent-loop dispatch — no more silent
-retries.
+retries. The fail-fast error names the specific missing imports so you
+can map them to this table.
 
 ## v0.45.0 — No internal tools (Steps 0–5)
 

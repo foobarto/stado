@@ -57,10 +57,16 @@ var acpCmd = &cobra.Command{
 		"                  (fields: name, input — input is a JSON-encoded string)\n" +
 		"  kind=subagent   subagent lifecycle event (fields: phase, status, role,\n" +
 		"                  mode, child, childWorktree, parentSession, ...)\n" +
-		"  kind=choice     wasm plugin requested operator pick (Q3)\n" +
-		"                  fields: requestId, prompt, options[{id,label}], multi,\n" +
-		"                  default[]. Client must reply via session/choice_response\n" +
-		"                  with {sessionId, requestId, selected[], cancelled}.\n" +
+		"  kind=choice     wasm plugin requested operator pick (Q3 + F10)\n" +
+		"                  fields: requestId, prompt, options[], multi, default[].\n" +
+		"                  Each option: {id, label, prefix?, input?:{default,\n" +
+		"                  validator?:{kind, spec?}}}. Validator kinds:\n" +
+		"                  length / regex / int / path / multiline.\n" +
+		"                  Client must reply via session/choice_response with\n" +
+		"                  {sessionId, requestId, selected[], inputValue?,\n" +
+		"                  cancelled}. Server validates inputValue runtime-side\n" +
+		"                  before resolving; on validation failure returns an\n" +
+		"                  RPC error and leaves the request open for retry.\n" +
 		"  kind=approval   wasm plugin requested operator yes/no approval\n" +
 		"                  fields: requestId, title, body. Client must reply via\n" +
 		"                  session/approval_response with\n" +

@@ -1,7 +1,7 @@
 ---
 ep: 13
 title: Subagent Spawn Tool
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Superseded
 type: Standards
 created: 2026-04-24

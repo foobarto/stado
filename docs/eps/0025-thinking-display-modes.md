@@ -1,7 +1,7 @@
 ---
 ep: 25
 title: Thinking Display Modes
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-24

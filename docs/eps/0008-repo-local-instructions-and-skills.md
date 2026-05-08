@@ -1,7 +1,7 @@
 ---
 ep: 8
 title: Repo-Local Instructions and Skills
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

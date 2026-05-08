@@ -58,7 +58,12 @@ var statsCmd = &cobra.Command{
 		"commit trailers (Tokens-In/Tokens-Out/Cost-USD/Model). Source is the\n" +
 		"git-native audit log, not the OTel exporter — works offline and airgap.\n\n" +
 		"Default window: 7 days. Filter with --days, --session, --model. Use\n" +
-		"--tools to include a per-tool breakdown in addition to the totals.",
+		"--tools to include a per-tool breakdown in addition to the totals.\n\n" +
+		"JSON output (--json) carries \"schema_version\": 1. The schema is stable\n" +
+		"within a major version: pure additions (new keys) do not bump it;\n" +
+		"renames, removals, and value-type changes bump schema_version and are\n" +
+		"documented in CHANGELOG.md with a migration note. Pin against\n" +
+		"schema_version when scripting against the output.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {

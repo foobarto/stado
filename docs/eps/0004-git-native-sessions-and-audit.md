@@ -1,7 +1,7 @@
 ---
 ep: 4
 title: Git-Native Sessions and Audit Trail
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

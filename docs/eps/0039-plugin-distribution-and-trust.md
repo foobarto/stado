@@ -1,7 +1,7 @@
 ---
 ep: 39
 title: Plugin distribution and trust — anchor repo, versioned identity, lock file
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-05-05

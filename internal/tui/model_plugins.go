@@ -251,6 +251,25 @@ func (b tuiChoiceBridge) RequestChoice(ctx context.Context, req pluginRuntime.Ch
 	return b.model.requestPluginChoice(ctx, req)
 }
 
+// tuiPrintBridge implements pluginRuntime.PrintBridge over the TUI
+// model. Fire-and-forget: posts a pluginPrintMsg into the program
+// loop and returns nil. The model's Update handler appends a
+// system-styled block carrying the text + severity. Drop-on-floor
+// when m.program is nil so test models without a live tea.Program
+// don't deadlock waiting on a sendMsg into a missing program.
+// F9a.
+type tuiPrintBridge struct {
+	model *Model
+}
+
+func (b tuiPrintBridge) Print(_ context.Context, text string, opts pluginRuntime.PrintOpts) error {
+	if b.model == nil || b.model.program == nil {
+		return nil
+	}
+	b.model.sendMsg(pluginPrintMsg{text: text, opts: opts})
+	return nil
+}
+
 func (m *Model) turnCompleteEvent() []byte {
 	turn := 0
 	if m.session != nil {
@@ -293,6 +312,7 @@ type hostAdapter struct {
 	runner   sandbox.Runner
 	approval tuiApprovalBridge
 	choice   tuiChoiceBridge
+	print    tuiPrintBridge // F9a — stado_ui_print routing
 	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
 	// activate is the lazy-load activation hook. Called by the
 	// tools__describe / tools__activate / plugin__load meta-tools via
@@ -329,6 +349,15 @@ func (h hostAdapter) RequestApproval(ctx context.Context, title, body string) (b
 
 func (h hostAdapter) RequestChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
 	return h.choice.RequestChoice(ctx, req)
+}
+
+// Print implements pluginRuntime.PrintBridge so the host adapter
+// satisfies the interface assertion in attachLifecycleBridges,
+// which wires the print bridge onto the per-plugin runtime host.
+// Routes through tuiPrintBridge → pluginPrintMsg → Update handler.
+// F9a.
+func (h hostAdapter) Print(ctx context.Context, text string, opts pluginRuntime.PrintOpts) error {
+	return h.print.Print(ctx, text, opts)
 }
 
 func (h hostAdapter) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
@@ -642,12 +671,36 @@ func renderInstalledPluginList(pluginRoots ...string) string {
 		for _, t := range mf.Tools {
 			sb.WriteString("\n    · " + t.Name)
 			if t.Description != "" {
-				sb.WriteString(" — " + t.Description)
+				// Single-line description preview so a long body doesn't
+				// hard-wrap to column 0 and break the indented hierarchy.
+				// Operators get the full text via `/plugin <name>` (which
+				// uses renderPluginTools, not bound by this preview).
+				sb.WriteString(" — " + summariseToolDescription(t.Description, 120))
 			}
 		}
 	}
 	sb.WriteString("\n\nRun a tool with  /plugin:<name> <tool> [json-args]")
+	sb.WriteString("\nSee one plugin's full descriptions with  /plugin <name>")
 	return sb.String()
+}
+
+// summariseToolDescription returns at most max runes of desc with
+// trailing whitespace and any embedded newlines collapsed to single
+// spaces. Long bodies get truncated with a single-char ellipsis so the
+// listing stays one line per tool.
+func summariseToolDescription(desc string, max int) string {
+	desc = strings.Join(strings.Fields(desc), " ")
+	if max <= 0 {
+		return desc
+	}
+	runes := []rune(desc)
+	if len(runes) <= max {
+		return desc
+	}
+	if max < 2 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 // renderPluginTools formats one plugin's manifest tools for display

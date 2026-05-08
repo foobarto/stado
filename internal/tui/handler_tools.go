@@ -80,6 +80,16 @@ func onPluginChoiceRequest(m *Model, msg pluginChoiceRequestMsg) (tea.Model, tea
 	m.choiceCursor = 0
 	m.choiceFocused = true
 	m.choiceMarked = map[string]bool{}
+	// F10: seed per-option input values from each option's
+	// Input.Default. Non-input options stay at "" so the slice
+	// remains index-aligned with options.
+	m.choiceInputs = make([]string, len(msg.req.Options))
+	for i, opt := range msg.req.Options {
+		if opt.Input != nil {
+			m.choiceInputs[i] = opt.Input.Default
+		}
+	}
+	m.choiceValidationErr = ""
 	// Pre-toggle defaults. For single mode, the first id in Default
 	// sets the cursor; for multi mode, every listed id starts toggled
 	// on.
@@ -108,9 +118,30 @@ func onPluginChoiceCancel(m *Model, msg pluginChoiceCancelMsg) (tea.Model, tea.C
 		m.choiceFocused = false
 		m.choiceCursor = 0
 		m.choiceMarked = nil
+		m.choiceInputs = nil
+		m.choiceValidationErr = ""
 		m.state = stateIdle
 		m.renderBlocks()
 	}
+	return m, nil
+}
+
+// onPluginPrint handles a stado_ui_print fire-and-forget emit (F9a).
+// Append a system block with a severity prefix when one was set so
+// warn / error stand out without the renderer needing to know about
+// the per-emit metadata. stream_id is preserved on the wire but the
+// F9a slice does not coalesce — F9b lands proper continuation
+// rendering.
+func onPluginPrint(m *Model, msg pluginPrintMsg) (tea.Model, tea.Cmd) {
+	body := msg.text
+	switch msg.opts.Severity {
+	case "warn":
+		body = "[warn] " + body
+	case "error":
+		body = "[error] " + body
+	}
+	m.appendBlock(block{kind: "system", body: body})
+	m.renderBlocks()
 	return m, nil
 }
 

@@ -1,7 +1,7 @@
 ---
 ep: 6
 title: Signed WASM Plugin Runtime
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

@@ -89,6 +89,24 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", name)
 	}
 
+	// PTY-bound shell tools (shell.spawn / list / attach / read /
+	// write / detach / signal / resize / destroy) keep their state on
+	// the runtime's per-process pty.Manager. `stado tool run` is a
+	// single-shot CLI: the Runtime is created, the tool dispatches,
+	// the Runtime closes — and any PTYs go with it. So a `shell.spawn`
+	// from one invocation cannot be observed by a `shell.list` from
+	// another. --session does NOT bridge this; it only carries
+	// session-aware capabilities (audit log, memory, fork).
+	//
+	// Refuse here with an actionable advisory rather than letting the
+	// operator hit the silent empty-list / "session not found" path.
+	// B5.
+	if ptyBoundShellTool(registered.Name()) {
+		return fmt.Errorf(
+			"tool %q needs a host that holds PTY state across calls — `stado tool run` is single-shot and PTYs do not survive the invocation. Use the TUI (`stado`), MCP server (`stado mcp`), or the agent loop (`stado run`) for persistent shells. (--session does not bridge PTYs; it only carries session-aware capabilities.)",
+			runtime.LookupToolMetadata(registered.Name()).Canonical)
+	}
+
 	// Disabled-tool refusal: check both registered name and canonical
 	// form against [tools].disabled patterns. Pass --force to bypass.
 	if !opts.Force && cfg != nil {
@@ -185,6 +203,47 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	return fmt.Errorf("tool %q registered but its source plugin not found — try `stado plugin list`", registered.Name())
 }
 
+// ptyBoundShellTool reports whether a registered tool name maps to
+// the PTY-binding family of the bundled shell module. These tools
+// rely on the runtime's pty.Manager, which is per-Runtime — they
+// can't make sense in the single-shot `stado tool run` CLI path.
+// Both wire form (`shell__spawn`) and canonical form (`shell.spawn`)
+// are checked so the gate trips regardless of how the tool was
+// looked up.
+func ptyBoundShellTool(name string) bool {
+	canonical := name
+	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
+		canonical = md.Canonical
+	}
+	switch canonical {
+	case
+		"shell.spawn",
+		"shell.list",
+		"shell.attach",
+		"shell.read",
+		"shell.write",
+		"shell.detach",
+		"shell.signal",
+		"shell.resize",
+		"shell.destroy":
+		return true
+	}
+	switch name {
+	case
+		"shell__spawn",
+		"shell__list",
+		"shell__attach",
+		"shell__read",
+		"shell__write",
+		"shell__detach",
+		"shell__signal",
+		"shell__resize",
+		"shell__destroy":
+		return true
+	}
+	return false
+}
+
 // lookupToolInRegistry tries (in order): exact name match, canonical
 // → wire conversion (double-underscore, bundled convention), canonical-
 // metadata fallback, then single-underscore substitution. The last tier
@@ -250,7 +309,7 @@ func marshalSchemaJSON(schema map[string]any) string {
 
 func init() {
 	toolRunCmd.Flags().StringVar(&toolRunSession, "session", "",
-		"Bind the tool run to a persisted session ID so session-aware capabilities work on the CLI")
+		"Bind the tool run to a persisted session ID for session-aware capabilities (audit log, memory, fork). Does NOT persist PTYs — `stado tool run` is single-shot, so shell.spawn / list / attach / read / write / etc. cannot survive across invocations. Use the TUI, MCP server, or agent loop for persistent shells.")
 	_ = toolRunCmd.RegisterFlagCompletionFunc("session", completeSessionIDs)
 	toolRunCmd.Flags().StringVar(&toolRunWorkdir, "workdir", "",
 		"Override the tool's Workdir (default: cwd for bundled tools)")

@@ -1,7 +1,7 @@
 ---
 ep: 14
 title: Multi-Session TUI
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-24

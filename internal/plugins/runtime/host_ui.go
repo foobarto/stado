@@ -69,13 +69,31 @@ type chooseRequestWire struct {
 }
 
 type chooseOptionWire struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID     string           `json:"id"`
+	Label  string           `json:"label"`
+	Prefix string           `json:"prefix,omitempty"` // F10
+	Input  *chooseInputWire `json:"input,omitempty"`  // F10
+}
+
+// chooseInputWire is the JSON shape for a per-option editable
+// field. Optional; pre-F10 callers omit it entirely. F10.
+type chooseInputWire struct {
+	Default   string               `json:"default"`
+	Validator *chooseValidatorWire `json:"validator,omitempty"`
+}
+
+// chooseValidatorWire is the JSON shape for a runtime-side input
+// validator. Kind selects the family; Spec carries kind-specific
+// parameters. Optional. F10.
+type chooseValidatorWire struct {
+	Kind string `json:"kind"`
+	Spec string `json:"spec,omitempty"`
 }
 
 type chooseResponseWire struct {
-	Selected  []string `json:"selected"`
-	Cancelled bool     `json:"cancelled"`
+	Selected   []string `json:"selected"`
+	InputValue string   `json:"input_value,omitempty"` // F10
+	Cancelled  bool     `json:"cancelled"`
 }
 
 // registerUIChooseImport wires stado_ui_choose. Wire format:
@@ -140,7 +158,11 @@ func registerUIChooseImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			respWire := chooseResponseWire(resp)
+			respWire := chooseResponseWire{
+				Selected:   resp.Selected,
+				InputValue: resp.InputValue,
+				Cancelled:  resp.Cancelled,
+			}
 			if respWire.Selected == nil {
 				respWire.Selected = []string{}
 			}
@@ -160,9 +182,10 @@ func registerUIChooseImport(builder wazero.HostModuleBuilder, host *Host) {
 }
 
 // decodeChooseRequest validates the wire payload + applies the
-// per-spec limits (option count, label / id / prompt size). Centralised
-// so the host import keeps a tight body and the validation is
-// independently testable. Returns the runtime-shape ChoiceRequest.
+// per-spec limits (option count, label / id / prompt size, F10
+// prefix / input size + validator kind). Centralised so the host
+// import keeps a tight body and the validation is independently
+// testable. Returns the runtime-shape ChoiceRequest.
 func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 	if len(w.Prompt) > maxPluginRuntimeUIChoosePromptBytes {
 		return ChoiceRequest{}, fmt.Errorf("prompt exceeds %d bytes", maxPluginRuntimeUIChoosePromptBytes)
@@ -194,7 +217,33 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			return ChoiceRequest{}, fmt.Errorf("option %d: duplicate id %q", i, o.ID)
 		}
 		seen[o.ID] = true
-		out.Options = append(out.Options, ChoiceOption(o))
+
+		// F10: prefix / input. Both optional; both size-capped.
+		if len(o.Prefix) > maxPluginRuntimeUIChoosePrefixBytes {
+			return ChoiceRequest{}, fmt.Errorf("option %d: prefix exceeds %d bytes", i, maxPluginRuntimeUIChoosePrefixBytes)
+		}
+		var input *ChoiceInput
+		if o.Input != nil {
+			if len(o.Input.Default) > maxPluginRuntimeUIChooseInputDefaultBytes {
+				return ChoiceRequest{}, fmt.Errorf("option %d: input.default exceeds %d bytes", i, maxPluginRuntimeUIChooseInputDefaultBytes)
+			}
+			input = &ChoiceInput{Default: o.Input.Default}
+			if v := o.Input.Validator; v != nil {
+				if len(v.Spec) > maxPluginRuntimeUIChooseValidatorSpecBytes {
+					return ChoiceRequest{}, fmt.Errorf("option %d: validator.spec exceeds %d bytes", i, maxPluginRuntimeUIChooseValidatorSpecBytes)
+				}
+				if err := validateChoiceValidatorShape(v.Kind, v.Spec); err != nil {
+					return ChoiceRequest{}, fmt.Errorf("option %d: %w", i, err)
+				}
+				input.Validator = &ChoiceValidator{Kind: v.Kind, Spec: v.Spec}
+			}
+		}
+		out.Options = append(out.Options, ChoiceOption{
+			ID:     o.ID,
+			Label:  o.Label,
+			Prefix: o.Prefix,
+			Input:  input,
+		})
 	}
 	return out, nil
 }
