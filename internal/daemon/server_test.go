@@ -227,6 +227,40 @@ func TestShutdownClosesServer(t *testing.T) {
 	_ = c.Close()
 }
 
+// TestIsLikelyGoTestBinary locks down the fork-bomb defence in
+// EnsureRunning. The guard MUST flag .test suffixes and the standard
+// /tmp/go-build* path Go uses for test binaries; without it, a test
+// that exercises a PTY-bound CLI path (TestToolRun_RefusesPTYBoundShellTools
+// before this fix) recursively re-execs the test binary as a "daemon"
+// and re-runs the suite, forking exponentially. 2026-05-08: 351 leaked
+// stado.test processes / ~150 GiB virtual / kernel OOM-killed Chrome,
+// Claude, and gopls.
+func TestIsLikelyGoTestBinary(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// Standard Go test binary names.
+		{"/tmp/go-build1234/cmd_stado.test", true},
+		{"/home/me/foo.test", true},
+		{"./pkg.test", true},
+		// Real-shaped Go staging paths.
+		{"/tmp/go-build3850117851/b001/foo.test", true},
+		{"/var/folders/00/go-build/foo", true},
+		// Real binaries.
+		{"/usr/local/bin/stado", false},
+		{"/home/me/go/bin/stado", false},
+		{"./stado", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		got := isLikelyGoTestBinary(c.path)
+		if got != c.want {
+			t.Errorf("isLikelyGoTestBinary(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
 // TestVersionSkew: a client speaking an older protocol version than
 // MinClientVersion is rejected with ErrCodeVersionSkew before any
 // dispatch happens. Confirms the daemon can refuse to serve a

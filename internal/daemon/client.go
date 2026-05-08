@@ -9,10 +9,35 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// isLikelyGoTestBinary returns true when path looks like a Go test
+// binary: ends in ".test" (Go's `go test -c` output convention),
+// lives under a `/go-build` cache directory, or contains the
+// transient `go-buildNNN` segment that `go test` uses for its
+// staged binaries. Conservative — false-positives are fine; the
+// only consequence is forcing the operator/test to set
+// STADO_DAEMON=off explicitly.
+func isLikelyGoTestBinary(path string) bool {
+	if path == "" {
+		return false
+	}
+	base := path
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		base = path[i+1:]
+	}
+	if strings.HasSuffix(base, ".test") {
+		return true
+	}
+	if strings.Contains(path, "/go-build") {
+		return true
+	}
+	return false
+}
 
 // Client is a stateless wrapper around a UDS connection to the daemon.
 // One Client maps to one connection; safe to share across goroutines —
@@ -269,10 +294,25 @@ func (c *Client) SessionKill(ctx context.Context, params SessionKillParams) (*Se
 // continues running after this function (and the calling `stado tool run`)
 // exits. Pid 1 reaps it on session end; XDG_RUNTIME_DIR/tmpfs cleanup
 // removes the socket on logout.
+//
+// Defensive: refuses to auto-spawn when the host binary looks like a
+// Go test binary (`*.test` or under `/tmp/go-build*`). Without this
+// check, a test that exercises a PTY-bound CLI path would invoke this
+// function with stadoBinary == os.Executable() == the test binary,
+// which when re-run as a "daemon" silently re-runs the whole test
+// suite. Each test that triggers this re-runs forks again — fork
+// bomb. The single OOM that surfaced this on 2026-05-08 left 351
+// stado.test processes consuming ~150 GiB virtual before the kernel
+// killed Chrome / Claude / gopls. This guard makes test code that
+// forgot `STADO_DAEMON=off` fail loudly with an actionable error
+// instead of detonating.
 func EnsureRunning(ctx context.Context, socketPath, stadoBinary string, maxWait time.Duration) (*Client, *HandshakeResult, error) {
 	// Fast path: already up.
 	if c, h, err := DialAndHandshake(ctx, socketPath, "stado-tool-run"); err == nil {
 		return c, h, nil
+	}
+	if isLikelyGoTestBinary(stadoBinary) {
+		return nil, nil, fmt.Errorf("daemon auto-spawn refused: host binary %q looks like a Go test binary; spawning it as a daemon would re-run the test suite. Tests that exercise PTY-bound tools must set STADO_DAEMON=off (or wire a real stado binary)", stadoBinary)
 	}
 	// Try to clear a stale socket before spawning, otherwise the new
 	// daemon will refuse to bind.

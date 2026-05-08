@@ -114,13 +114,26 @@ func TestToolRun_ToolNotFound(t *testing.T) {
 	}
 }
 
-// TestToolRun_RefusesPTYBoundShellTools: PTY-binding shell.* tools
-// don't survive the single-shot CLI lifecycle (PTY manager is per-
-// runtime), so `stado tool run shell.spawn` would silently die at
-// process exit and a follow-up `shell.list` would see an empty
-// registry. The CLI refuses upfront with an advisory pointing at
-// the surfaces that DO hold PTY state across calls. B5.
+// TestToolRun_RefusesPTYBoundShellTools: with STADO_DAEMON=off, PTY-
+// binding shell.* tools refuse with the actionable advisory pointing
+// at the surfaces that DO hold PTY state across calls (TUI / MCP /
+// agent loop / daemon). When STADO_DAEMON is unset/auto, these tools
+// instead route through `stado daemon` — that's covered by the daemon
+// e2e tests, not here.
+//
+// CRITICAL: the t.Setenv("STADO_DAEMON", "off") below is load-bearing.
+// Without it, runToolByName tries dispatchViaDaemon → EnsureRunning →
+// cmd.Start(os.Executable()), which in tests resolves to the test
+// binary itself. Re-running the test binary with "daemon start" has
+// no effect on cobra (test binaries don't see flag.Parse) but DOES
+// re-run every TestXxx in the package, including this one, which
+// then re-forks: a fork bomb that took down a dev box on 2026-05-08
+// (351 stado.test processes / ~150 GiB virtual / kernel OOM-killed
+// Chrome + Claude + gopls). The daemon package's EnsureRunning has
+// a defensive isLikelyGoTestBinary guard now, but tests should still
+// disable daemon dispatch outright rather than rely on the guard.
 func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
+	t.Setenv("STADO_DAEMON", "off")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	cfg, err := config.Load()
@@ -147,11 +160,16 @@ func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected refusal for %q, got nil", name)
 			}
-			if !strings.Contains(err.Error(), "single-shot") {
-				t.Errorf("error should mention 'single-shot'; got: %q", err.Error())
+			// With STADO_DAEMON=off, errPTYRequiresDaemon's body
+			// names the canonical tool, points at the TUI/MCP/
+			// run alternates, and explains the off mode. Assert
+			// the cross-cutting bits.
+			msg := err.Error()
+			if !strings.Contains(msg, "TUI") {
+				t.Errorf("error should point at the TUI; got: %q", msg)
 			}
-			if !strings.Contains(err.Error(), "TUI") {
-				t.Errorf("error should point at the TUI; got: %q", err.Error())
+			if !strings.Contains(msg, "STADO_DAEMON") {
+				t.Errorf("error should reference STADO_DAEMON env var; got: %q", msg)
 			}
 		})
 	}
