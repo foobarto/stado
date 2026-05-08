@@ -18,7 +18,8 @@
 | 3.2 (B2) bundled-tool schema builder | DONE | `bfcf586` + `1c28fa4` |
 | 3.3 (B3) bridge lifecycle | SKIPPED (audit captured) | — |
 | 2.2 (A1) Model + overlays | DONE (8 in-package extractions) | `06574a6` `321d8c3` `3e36adb` `0c9eaaf` `19c93df` `20fc54f` |
-| Smaller wins addendum | DONE (audit + dead-interface cleanup) | `e1fc00f` |
+| Smaller wins addendum | DONE (audit + dead-interface cleanup + tests) | `e1fc00f` `e68df32` |
+| Polish pass (CHANGELOG, EP history, race tests) | DONE | `0968f60` `a164852` |
 
 ### Smaller wins addendum (post-program cleanup)
 
@@ -122,10 +123,14 @@ Every commit in this run:
 - Smoke: `stado --version` + `stado --help` + `stado run --help`
   render
 
+End-of-program:
+- `go test -race -count=1 ./...` — 71 packages, zero failures.
+
 Not verified autonomously:
 - Interactive `stado run` smoke (operator's pre-merge step)
 - Full `golangci-lint run ./...` (per-package clean; tree-wide
-  panic on toolchain mismatch unrelated to changes)
+  panic on toolchain mismatch — golangci-lint built with Go
+  1.25, runtime is 1.26, unrelated to changes)
 
 ## Blocked / open
 
