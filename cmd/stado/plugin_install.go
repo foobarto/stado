@@ -195,7 +195,8 @@ func copyDir(src, dst string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("source is not a directory: %s", src)
 	}
-	srcRoot, err := workdirpath.OpenRootUnderUserConfig(src)
+	uc := workdirpath.NewUserConfigResolver()
+	srcRoot, err := uc.OpenRoot(src)
 	if err != nil {
 		return err
 	}
@@ -206,10 +207,10 @@ func copyDir(src, dst string) error {
 	if !filepath.IsLocal(dstName) || strings.ContainsAny(dstName, `/\`) || dstName == "." || dstName == ".." {
 		return fmt.Errorf("invalid destination directory name: %q", dstName)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(dstParent, 0o700); err != nil {
+	if err := uc.MkdirAll(dstParent, 0o700); err != nil {
 		return err
 	}
-	dstParentRoot, err := workdirpath.OpenRootUnderUserConfig(dstParent)
+	dstParentRoot, err := uc.OpenRoot(dstParent)
 	if err != nil {
 		return err
 	}

@@ -581,7 +581,7 @@ func writeLearningDocument(repoRoot, rel string, data []byte) error {
 	if rel == ".learnings" || !strings.HasPrefix(rel, ".learnings"+string(os.PathSeparator)) {
 		return errors.New("document path must stay under .learnings")
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(repoRoot)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -617,7 +617,7 @@ func writeLearningDocument(repoRoot, rel string, data []byte) error {
 		if err := rejectLearningSymlinkDirs(learningRoot, dir); err != nil {
 			return err
 		}
-		if err := workdirpath.MkdirAllRootNoSymlink(learningRoot, dir, 0o750); err != nil {
+		if err := workdirpath.NewRootResolver(learningRoot).MkdirAll(dir, 0o750); err != nil {
 			return err
 		}
 	}
@@ -991,12 +991,12 @@ func readCurrentRepoPin(dir string) string {
 	if strings.TrimSpace(dir) == "" {
 		return ""
 	}
-	root, err := workdirpath.OpenRootUnderUserConfig(dir)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(dir)
 	if err != nil {
 		return ""
 	}
 	defer func() { _ = root.Close() }()
-	data, err := workdirpath.ReadRootRegularFileLimited(root, filepath.Join(".stado", "user-repo"), maxLearningRepoPinFileBytes)
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(filepath.Join(".stado", "user-repo"), maxLearningRepoPinFileBytes)
 	if err != nil {
 		return ""
 	}

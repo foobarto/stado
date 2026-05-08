@@ -68,13 +68,14 @@ var pluginInitCmd = &cobra.Command{
 			{name: "build.sh", body: renderBuildSh(name), mode: 0o755, exactMode: true},
 			{name: "README.md", body: renderReadme(name), mode: 0o644},
 		}
+		rr := workdirpath.NewRootResolver(root)
 		for _, f := range files {
-			write := workdirpath.WriteRootFileAtomic
+			write := rr.WriteFileAtomic
 			if f.exactMode {
-				write = workdirpath.WriteRootFileAtomicExactMode
+				write = rr.WriteFileAtomicExactMode
 			}
 			path := filepath.Join(dir, f.name)
-			if err := write(root, f.name, []byte(f.body), f.mode); err != nil {
+			if err := write(f.name, []byte(f.body), f.mode); err != nil {
 				return fmt.Errorf("init: write %s: %w", path, err)
 			}
 		}
@@ -107,7 +108,8 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 		if !force {
 			return nil, fmt.Errorf("init: %s already exists (use --force to overwrite)", dir)
 		}
-		root, err := workdirpath.OpenRootUnderUserConfig(cleanDir)
+		uc := workdirpath.NewUserConfigResolver()
+		root, err := uc.OpenRoot(cleanDir)
 		if err != nil {
 			return nil, fmt.Errorf("init: open %s: %w", dir, err)
 		}
@@ -119,10 +121,11 @@ func openPluginInitRoot(dir string, force bool) (*os.Root, error) {
 	if !filepath.IsLocal(name) || strings.ContainsAny(name, `/\`) || name == "." || name == ".." || strings.Contains(name, "\x00") {
 		return nil, fmt.Errorf("init: invalid output dir %q", dir)
 	}
-	if err := workdirpath.MkdirAllUnderUserConfig(parent, 0o750); err != nil {
+	uc := workdirpath.NewUserConfigResolver()
+	if err := uc.MkdirAll(parent, 0o750); err != nil {
 		return nil, fmt.Errorf("init: mkdir %s: %w", parent, err)
 	}
-	parentRoot, err := workdirpath.OpenRootUnderUserConfig(parent)
+	parentRoot, err := uc.OpenRoot(parent)
 	if err != nil {
 		return nil, fmt.Errorf("init: open %s: %w", parent, err)
 	}
