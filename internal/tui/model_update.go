@@ -356,6 +356,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderBlocks()
 		return m, m.toolTickCmd()
 
+	case pluginPrintMsg:
+		// stado_ui_print emit. Append a system block with a severity
+		// prefix when one was set so warn / error stand out without
+		// the renderer needing to know about the per-emit metadata.
+		// stream_id is preserved on the wire but the F9a slice does
+		// not coalesce — F9b lands proper continuation rendering.
+		body := msg.text
+		switch msg.opts.Severity {
+		case "warn":
+			body = "[warn] " + body
+		case "error":
+			body = "[error] " + body
+		}
+		m.appendBlock(block{kind: "system", body: body})
+		m.renderBlocks()
+		return m, nil
+
 	case pluginRunResultMsg:
 		// /plugin:<name>-<ver> <tool> [args] finished. Render outcome
 		// as a system block and leave conversation state untouched —

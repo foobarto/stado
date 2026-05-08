@@ -36,6 +36,25 @@ become semver guarantees.
 
 ### Plugins
 
+- **`stado_ui_print` — fire-and-forget plain-text emit (F9a, TUI
+  slice).** Plugins emit text into the operator's view without
+  needing a structured payload. Wire shape:
+  `{text, severity?, eol?, stream_id?}` with severity in
+  `{"", "info", "warn", "error"}`. Text capped at 8 KiB per
+  call; larger payloads belong in `stado_ui_render` (F9b). Gated
+  by a new `ui:print` manifest capability.
+
+  TUI surface appends a system-style block per call with severity
+  prefixes (`[warn]` / `[error]`) so callouts stand out from
+  default info emits. Non-TUI bridges (ACP / MCP / headless) drop
+  on the floor for now — F9b lands proper non-TUI rendering and
+  the ACP `kind=text` payload extension.
+
+  `stream_id` is preserved on the wire but the renderer does not
+  yet coalesce successive same-id emits — that lands with F9b's
+  continuation rendering. Spec:
+  `.agent/specs/done/f9a-ui-print.md`.
+
 - **`stado_ui_choose` per-option input fields (F10).** Each option
   may now declare a `prefix` decoration and an `input` field
   carrying a `default` value plus an optional `validator`

@@ -964,6 +964,9 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 		choice: tuiChoiceBridge{
 			model: m,
 		},
+		print: tuiPrintBridge{
+			model: m,
+		},
 		spawn: m.buildSubagentSpawner(),
 		activate: func(name string) {
 			if m.activatedTools == nil {

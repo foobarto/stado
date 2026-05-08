@@ -34,6 +34,12 @@ const (
 	maxPluginRuntimeUIChoosePrefixBytes        int = 64
 	maxPluginRuntimeUIChooseInputDefaultBytes  int = 4 << 10
 	maxPluginRuntimeUIChooseValidatorSpecBytes int = 256
+	// stado_ui_print limits. F9a.
+	// Text capped at 8 KiB per call (per F9 spec); larger payloads
+	// belong in stado_ui_render with a code body (F9b). stream_id
+	// is a short label for renderer coalescing.
+	maxPluginRuntimeUIPrintTextBytes     uint32 = 8 << 10
+	maxPluginRuntimeUIPrintStreamIDBytes int    = 64
 	maxPluginRuntimeMemoryPayloadBytes   uint32 = 1 << 20
 	maxPluginRuntimeToolArgsBytes        uint32 = 1 << 20
 	maxPluginRuntimeLLMPromptBytes       uint32 = 1 << 20

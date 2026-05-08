@@ -105,7 +105,18 @@ Resolution order `{cwd}/.stado/personas → <config-dir>/personas → bundled`
 means any downstream toolkit can drop a persona file under `.stado/personas/`
 without forking stado.
 
-### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice
+### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice ~~PARTIAL: F9a print TUI shipped~~
+
+**Status (2026-05-08).** F9a (`stado_ui_print`) ships TUI-only:
+new `ui:print` capability, JSON wire `{text, severity?, eol?,
+stream_id?}` with 8 KiB text cap, fire-and-forget into the TUI
+scrollback as a system block with severity prefix. Non-TUI bridges
+drop on the floor for this slice. ACP `kind=text` extension and
+MCP/headless rendering tracked as the F9b follow-on. F9b
+(`stado_ui_render` — structured panel with text/kv/list/code/
+table/diff body kinds) is the remaining heavy lifting.
+
+
 
 **Context (2026-05-08).** Plugins driving multi-step interactive workflows
 need to (a) display structured information panels, (b) stream plain text

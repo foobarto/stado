@@ -81,6 +81,13 @@ type Host struct {
 	// ApprovalBridge; gated by ui:choice cap. Q3 (2026-05-07).
 	ChoiceBridge ChoiceBridge
 
+	// PrintBridge powers stado_ui_print — plain-text fire-and-forget
+	// emit into the operator's view. Same nil-means-unavailable
+	// contract as ApprovalBridge; gated by ui:print cap. Drop-on-floor
+	// when nil so plugins on non-interactive surfaces don't block
+	// (fire-and-forget by spec). F9a (2026-05-08).
+	PrintBridge PrintBridge
+
 	// ToolHost is the runtime host surface native tool wrappers call
 	// through when a plugin uses the public built-in tool imports.
 	// Nil is valid in non-session contexts like `stado plugin run`;
@@ -131,6 +138,10 @@ type Host struct {
 	// multi-choice picker. Declared via ui:choice in the manifest.
 	// Q3 (2026-05-07).
 	UIChoice bool
+	// UIPrint gates stado_ui_print — plain-text fire-and-forget
+	// emit into the operator's view. Declared via ui:print in the
+	// manifest. F9a (2026-05-08).
+	UIPrint bool
 
 	// PTYManager is the runtime-shared registry of PTY-backed
 	// processes; survives plugin instantiation freshness so a session
@@ -436,6 +447,35 @@ type ChoiceResponse struct {
 	Cancelled  bool
 }
 
+// PrintBridge is the operator-facing surface for stado_ui_print.
+// Implementations route the text + opts to whatever channel the
+// host runs on (TUI scrollback, ACP session/update, MCP tool
+// result, etc.). Spec: F9. F9a (2026-05-08) wires the TUI route;
+// non-TUI bridges land in the F9 follow-on slice.
+//
+// Returning a non-nil error surfaces the import call as a negative
+// payload to the plugin (size violation, channel rejection); a nil
+// return is a successful fire-and-forget emit. Implementations
+// should NOT block on operator visibility — print is non-blocking
+// by spec, so a backed-up channel should drop or buffer rather
+// than block the plugin.
+type PrintBridge interface {
+	Print(ctx context.Context, text string, opts PrintOpts) error
+}
+
+// PrintOpts is the optional decoration on a stado_ui_print call.
+// Severity is one of "" (default = info) | "info" | "warn" | "error";
+// renderers may style accordingly or ignore. EOL appends a newline
+// (default true). StreamID is an opaque label so a renderer can
+// coalesce successive calls with the same id into one block (TUI
+// inline scrollback may render same-stream prints as a continuation).
+// F9a.
+type PrintOpts struct {
+	Severity string
+	EOL      bool
+	StreamID string
+}
+
 // FleetBridge is the capability-checked surface the bundled agent plugin
 // calls through for stado_agent_* operations. EP-0038 §D Tier 1+.
 // Nil on surfaces without a live runtime fleet.
@@ -707,6 +747,8 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.UIApproval = true
 			case "choice":
 				h.UIChoice = true
+			case "print":
+				h.UIPrint = true
 			}
 		case "cfg":
 			// Read-only configuration introspection. EP-0029. Each

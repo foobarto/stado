@@ -200,6 +200,14 @@ type (
 	pluginChoiceCancelMsg struct {
 		response chan pluginRuntime.ChoiceResponse
 	}
+	// pluginPrintMsg carries a stado_ui_print fire-and-forget emit
+	// into the TUI loop. The Update handler appends a system block
+	// with the text + severity styling. Fire-and-forget: no response
+	// channel — print is a one-way primitive by spec. F9a.
+	pluginPrintMsg struct {
+		text string
+		opts pluginRuntime.PrintOpts
+	}
 	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
 	// back to the Update loop. Rendered as a system block so the user
 	// sees the tool's return value alongside the conversation flow.
