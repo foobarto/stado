@@ -144,6 +144,25 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	// where /plugin and /skill silently swallowed their output.
 	defer m.renderBlocks()
 
+	// F-alias: expand operator-defined slash aliases before built-in
+	// dispatch. Single-level only — an alias whose expansion starts
+	// with another alias's name does not chain (operator can write
+	// the full expansion if they want that). /alias create already
+	// rejects names that shadow built-ins, so this resolution is a
+	// no-op for built-in slashes; tryExpandAlias also defensively
+	// skips reserved names.
+	if expanded, matched, aliasErr := tryExpandAlias(parts, m.cfg); matched {
+		if aliasErr != nil {
+			m.appendBlock(block{kind: "system", body: parts[0] + ": " + aliasErr.Error()})
+			return nil
+		}
+		text = expanded
+		parts = strings.Fields(text)
+		if len(parts) == 0 {
+			return nil
+		}
+	}
+
 	// /plugin and /plugin:<name>[-<ver>] [<tool> [json-args]] — routed
 	// before the switch since the plugin-name suffix is dynamic.
 	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {

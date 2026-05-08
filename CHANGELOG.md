@@ -79,6 +79,31 @@ become semver guarantees.
   into the ACP `kind=choice` payload is a follow-on slice.
   Spec: `.agent/specs/done/f10-ui-choice-input.md`.
 
+### TUI
+
+- **`/tool <name> [json-args]` (and `/t` alias).** Single command for
+  manual tool dispatch — bundled tools (`fs.read`, `agent.spawn`,
+  `http_request`) and installed plugin tools alike. Mirrors
+  `stado tool run` from the CLI so muscle memory carries across
+  surfaces. The existing management verbs
+  (`/tool ls / info / enable / disable / autoload / unautoload /
+  reload`) flow through the same command.
+  PTY-bound shell tools refused with the same advisory `stado tool run`
+  uses (B5 reasoning).
+- **`/alias create | list | rm` — operator-defined slash shortcuts.**
+  Aliases live globally in `~/.config/stado/config.toml` under
+  `[aliases]`. Names are written without the leading `/`; expansion
+  must start with `/`. Positional args use `{1}`, `{2}`, … in the
+  expansion and are substituted from the call site.
+  Example: `/alias create read /tool fs.read {"path":"{1}"}` lets
+  you type `/read foo.txt` instead.
+  Names that shadow a built-in slash command (e.g. `/help`,
+  `/tool`, `/plugin`) are rejected at create time. Hand-edited
+  config.toml entries that would shadow are defensively skipped at
+  resolution time. Calling an alias without enough positional args
+  surfaces a precise `{N}` error rather than a confused downstream
+  failure.
+
 ### CLI
 
 - `stado tool run` now refuses PTY-bound shell tools (`shell.spawn`

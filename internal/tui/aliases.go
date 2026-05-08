@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -201,6 +203,80 @@ func (m *Model) handleAliasRemove(args []string) tea.Cmd {
 		body: fmt.Sprintf("/alias rm: removed /%s (or no-op if absent) from %s", name, path),
 	})
 	return nil
+}
+
+// positionalRefRE matches `{N}` where N is one or more digits.
+// Used by substituteAliasPositionals to expand operator-supplied
+// positional args into the alias's expansion template. F-alias.
+var positionalRefRE = regexp.MustCompile(`\{(\d+)\}`)
+
+// substituteAliasPositionals replaces {1}, {2}, … in template with
+// args[N-1]. Returns an error when a {N} reference exceeds the
+// supplied arg count so an operator typing `/read` (no positional)
+// against an alias `/tool fs.read {"path":"{1}"}` gets a clear
+// error rather than literal `{1}` reaching the dispatcher. F-alias.
+func substituteAliasPositionals(template string, args []string) (string, error) {
+	var firstErr error
+	out := positionalRefRE.ReplaceAllStringFunc(template, func(match string) string {
+		// match is `{N}`; trim the braces and parse.
+		n, err := strconv.Atoi(match[1 : len(match)-1])
+		if err != nil || n < 1 {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("invalid positional reference %s in alias expansion", match)
+			}
+			return match
+		}
+		if n > len(args) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("alias references %s but only %d positional arg(s) supplied", match, len(args))
+			}
+			return match
+		}
+		return args[n-1]
+	})
+	if firstErr != nil {
+		return "", firstErr
+	}
+	return out, nil
+}
+
+// tryExpandAlias inspects the first token of parts. If the token
+// (without leading "/") matches an alias in cfg AND that name does
+// not collide with a built-in slash command, returns the expanded
+// command line with positional substitution applied.
+//
+// The defensive built-in shadow check exists because /alias create
+// already rejects collisions; this guards against an operator who
+// hand-edited config.toml to plant a shadow.
+//
+// Returns (expanded, ok, err):
+//   - ok=false when no alias matched or input was empty;
+//   - ok=true, err=nil when the alias expanded cleanly;
+//   - ok=true, err!=nil when a {N} positional couldn't be filled.
+//
+// Caller uses the err to surface a precise message and skip
+// downstream dispatch. F-alias.
+func tryExpandAlias(parts []string, cfg *config.Config) (string, bool, error) {
+	if len(parts) == 0 || cfg == nil || len(cfg.Aliases) == 0 {
+		return "", false, nil
+	}
+	first := parts[0]
+	if !strings.HasPrefix(first, "/") {
+		return "", false, nil
+	}
+	if IsReservedSlashName(first) {
+		return "", false, nil
+	}
+	name := strings.TrimPrefix(first, "/")
+	expansion, ok := cfg.Aliases[name]
+	if !ok {
+		return "", false, nil
+	}
+	expanded, err := substituteAliasPositionals(expansion, parts[1:])
+	if err != nil {
+		return "", true, err
+	}
+	return expanded, true, nil
 }
 
 // renderAliasList formats the cfg.Aliases map as a stable tabular
