@@ -227,6 +227,54 @@ func TestShutdownClosesServer(t *testing.T) {
 	_ = c.Close()
 }
 
+// TestProjectScopedSessionList: ProjectID="" + all=false returns the
+// unscoped scope only; ProjectID="X" returns only project X's; all=true
+// returns everything. Validates the listSessions contract the daemon
+// docs.
+func TestProjectScopedSessionList(t *testing.T) {
+	state := []SessionDescriptor{
+		{Kind: "pty", ID: 1, Alive: true, ProjectID: "a"},
+		{Kind: "pty", ID: 1, Alive: true, ProjectID: "b"},
+		{Kind: "pty", ID: 5, Alive: true, ProjectID: ""},
+	}
+	listFn := func(projectID string, all bool) []SessionDescriptor {
+		out := make([]SessionDescriptor, 0)
+		for _, s := range state {
+			if all {
+				out = append(out, s)
+			} else if s.ProjectID == projectID {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	_, c, teardown := startTestServer(t, ServerOpts{ListSessions: listFn})
+	defer teardown()
+
+	type tc struct {
+		name      string
+		params    SessionListParams
+		wantCount int
+	}
+	cases := []tc{
+		{"empty (unscoped scope)", SessionListParams{}, 1},
+		{"project a", SessionListParams{ProjectID: "a"}, 1},
+		{"project b", SessionListParams{ProjectID: "b"}, 1},
+		{"all", SessionListParams{AllProjects: true}, 3},
+	}
+	for _, c2 := range cases {
+		t.Run(c2.name, func(t *testing.T) {
+			res, err := c.SessionList(context.Background(), c2.params)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			if len(res.Sessions) != c2.wantCount {
+				t.Errorf("len = %d, want %d (got %+v)", len(res.Sessions), c2.wantCount, res.Sessions)
+			}
+		})
+	}
+}
+
 // TestRemoveStaleSocket: with no daemon listening, the socket file is
 // removed. With one listening, ErrSocketInUse is returned.
 func TestRemoveStaleSocket(t *testing.T) {

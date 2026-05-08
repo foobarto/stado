@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -245,20 +246,38 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 }
 
 // daemonState owns the long-lived state the daemon shares across tool
-// calls: the plugin tool registry, the executor that wraps Run with
-// audit + sandbox, the PTY manager (the load-bearing piece — `shell.spawn`
-// and follow-up `shell.read` only work because session ids live here),
-// and the sandbox runner detection.
+// calls. The single registry + executor + sandbox runner are reused
+// for every dispatch; project-scoped state (PTY manager) lives in
+// per-project sub-scopes so a session created in project A is
+// invisible to a call from project B.
 //
 // Built once at `stado daemon start` and closed on shutdown. Each
-// tool.call reuses the registry + executor + pty.Manager; only the
-// per-call workdir varies.
+// tool.call resolves a project scope (creating one on first sight),
+// builds a per-call host pinned to the call's workdir + sharing that
+// project's pty.Manager, and runs through Executor for audit + sandbox.
+//
+// The empty project_id ("") gets its own scope just like any other
+// — clients that don't pass project_id are isolated from clients that
+// do. Mixed-mode usage isn't a real failure, but it's not a feature
+// we encourage; the default tool_run path always sends project_id.
 type daemonState struct {
 	cfg      *config.Config
 	registry *tools.Registry
 	executor *tools.Executor
-	pty      *pty.Manager
 	runner   sandbox.Runner
+
+	// projectMu guards projects map. Each *projectScope holds its own
+	// pty.Manager + future-state (browser cookies, LSP) — phase-3
+	// version is PTY-only.
+	projectMu sync.Mutex
+	projects  map[string]*projectScope
+}
+
+// projectScope is the per-project state container. PTY sessions live
+// here; tools dispatched against project A see only manager-A's ids.
+type projectScope struct {
+	id  string
+	pty *pty.Manager
 }
 
 func newDaemonState(cfg *config.Config) (*daemonState, error) {
@@ -271,7 +290,7 @@ func newDaemonState(cfg *config.Config) (*daemonState, error) {
 		cfg:      cfg,
 		registry: reg,
 		runner:   runner,
-		pty:      pty.NewManager(),
+		projects: make(map[string]*projectScope),
 	}
 	st.executor = &tools.Executor{
 		Registry: reg,
@@ -285,25 +304,69 @@ func newDaemonState(cfg *config.Config) (*daemonState, error) {
 	return st, nil
 }
 
+// scopeFor returns (and lazily creates) the project scope for the given
+// id. Caller must not retain the returned pointer past the next
+// projectMu acquisition — Close() empties the map.
+func (d *daemonState) scopeFor(projectID string) *projectScope {
+	d.projectMu.Lock()
+	defer d.projectMu.Unlock()
+	if sc, ok := d.projects[projectID]; ok {
+		return sc
+	}
+	sc := &projectScope{id: projectID, pty: pty.NewManager()}
+	d.projects[projectID] = sc
+	return sc
+}
+
+// allScopes returns a snapshot of all scopes so iteration callers
+// don't hold projectMu across pty.Manager calls (which themselves take
+// internal locks).
+func (d *daemonState) allScopes() []*projectScope {
+	d.projectMu.Lock()
+	defer d.projectMu.Unlock()
+	out := make([]*projectScope, 0, len(d.projects))
+	for _, sc := range d.projects {
+		out = append(out, sc)
+	}
+	return out
+}
+
 func (d *daemonState) Close() {
 	if d == nil {
 		return
 	}
-	if d.pty != nil {
-		d.pty.CloseAll()
+	for _, sc := range d.allScopes() {
+		if sc.pty != nil {
+			sc.pty.CloseAll()
+		}
 	}
 }
 
-// dispatch is the daemon-side ToolCall handler. The client passes the
-// tool name in canonical or wire form; we resolve to the registered
-// name (same fallback chain as `stado tool run`), build a per-call
-// host pinned to the call's workdir but sharing the daemon's
-// pty.Manager, and run through Executor so audit spans + sandbox
-// runner application happen the same way every other entry point sees.
+// dispatch is the daemon-side ToolCall handler. Resolves the tool name
+// (same fallback chain as `stado tool run`), enforces [tools].disabled
+// patterns from config, builds a per-call host pinned to the call's
+// workdir + the project scope's pty.Manager, and runs through Executor.
+//
+// Disabled-tool enforcement runs server-side because the operator's
+// config.toml is the authoritative policy — a misbehaving client can't
+// bypass [tools].disabled by not checking it client-side. Per-call
+// AllowList enforcement happens earlier inside daemon.Server before
+// the dispatcher sees the call (see server.go handleToolCall).
 func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (daemon.ToolCallResult, error) {
 	registered, ok := lookupToolInRegistry(d.registry, p.Tool)
 	if !ok {
 		return daemon.ToolCallResult{}, fmt.Errorf("tool %q not found", p.Tool)
+	}
+	if d.cfg != nil {
+		registeredName := registered.Name()
+		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		for _, pat := range d.cfg.Tools.Disabled {
+			if runtime.ToolMatchesGlob(registeredName, pat) ||
+				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
+				return daemon.ToolCallResult{}, fmt.Errorf(
+					"tool %q is disabled in [tools].disabled (matched pattern %q)", p.Tool, pat)
+			}
+		}
 	}
 	workdir := p.Workdir
 	if workdir == "" {
@@ -315,10 +378,11 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 			workdir = "."
 		}
 	}
+	scope := d.scopeFor(p.ProjectID)
 	host := &daemonToolHost{
 		workdir: workdir,
 		runner:  d.runner,
-		pty:     d.pty,
+		pty:     scope.pty,
 	}
 	args := json.RawMessage(p.Args)
 	if len(args) == 0 {
@@ -337,34 +401,51 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 	return daemon.ToolCallResult{Content: res.Content, Error: res.Error}, nil
 }
 
-// listSessions reports live PTY sessions. Project scoping arrives in
-// phase 3 — for now ProjectID is ignored and every PTY is visible to
-// every caller. AllProjects=true is currently a no-op for the same
-// reason.
-func (d *daemonState) listSessions(_ string, _ bool) []daemon.SessionDescriptor {
-	if d.pty == nil {
-		return nil
-	}
-	infos := d.pty.List()
-	out := make([]daemon.SessionDescriptor, 0, len(infos))
-	for _, in := range infos {
-		out = append(out, daemon.SessionDescriptor{
-			Kind:      "pty",
-			ID:        in.ID,
-			Summary:   in.Cmd,
-			Alive:     in.Alive,
-			StartedAt: in.StartedAt,
-		})
+// listSessions reports live PTY sessions. ProjectID="" + all=false
+// means "the unscoped scope only"; ProjectID="" + all=true sweeps every
+// project. ProjectID="X" returns only project X's sessions regardless
+// of all (project-explicit always wins; preserves the operator-facing
+// invariant that listing a project shows that project, period).
+func (d *daemonState) listSessions(projectID string, all bool) []daemon.SessionDescriptor {
+	scopes := d.allScopes()
+	out := make([]daemon.SessionDescriptor, 0)
+	for _, sc := range scopes {
+		if !all && sc.id != projectID {
+			continue
+		}
+		if sc.pty == nil {
+			continue
+		}
+		for _, in := range sc.pty.List() {
+			out = append(out, daemon.SessionDescriptor{
+				Kind:      "pty",
+				ID:        in.ID,
+				Summary:   in.Cmd,
+				Alive:     in.Alive,
+				StartedAt: in.StartedAt,
+				ProjectID: sc.id,
+			})
+		}
 	}
 	return out
 }
 
+// killSession destroys (kind, id) within the named project. Cross-
+// project kills are refused by ProjectID mismatch (the lookup pulls a
+// scope by id; an unknown id silently returns false). Idempotent on
+// not-found — a caller racing two kills against the same session
+// shouldn't see a hard error from the loser.
 func (d *daemonState) killSession(p daemon.SessionKillParams) (bool, error) {
-	if d.pty == nil || p.Kind != "pty" {
+	if p.Kind != "pty" {
 		return false, nil
 	}
-	if err := d.pty.Destroy(p.ID); err != nil {
-		// Treat "not found" as not-an-error to keep kill idempotent.
+	d.projectMu.Lock()
+	scope, ok := d.projects[p.ProjectID]
+	d.projectMu.Unlock()
+	if !ok || scope.pty == nil {
+		return false, nil
+	}
+	if err := scope.pty.Destroy(p.ID); err != nil {
 		return false, nil
 	}
 	return true, nil

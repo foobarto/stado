@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -136,22 +138,75 @@ func dispatchViaDaemon(ctx context.Context, registered, argsJSON string, opts to
 }
 
 // deriveProjectID returns a stable identifier for the working
-// directory the call is rooted at. Phase-2 implementation is
-// intentionally minimal — the workdir path itself, with no git-root
-// resolution. Phase 3 (project-scoped routing) will tighten this to
-// hash(git_root_or_cwd) so a session in repo A is invisible to a call
-// from repo B.
+// directory the call is rooted at. Resolution order:
 //
-// STADO_SESSION_ID overrides — caller takes responsibility for keeping
-// it stable across the call group.
+//  1. STADO_SESSION_ID env var (operator/agent override; most
+//     fine-grained — multiple cwds inside the same agent context
+//     share state).
+//  2. Git repository root that contains workdir, hashed.
+//  3. workdir itself, hashed (non-git directories).
+//
+// Hashing collapses the path into a 16-hex-char identifier so the
+// daemon's session listings don't leak the operator's directory tree
+// to log scrapers. The hash is stable across runs for the same path
+// — `stado tool run` from /home/me/proj-a always lands in the same
+// scope.
 func deriveProjectID(workdir string) string {
 	if v := strings.TrimSpace(os.Getenv("STADO_SESSION_ID")); v != "" {
 		return v
 	}
+	root := projectRoot(workdir)
+	if root == "" {
+		return ""
+	}
+	return hashProjectRoot(root)
+}
+
+// projectRoot walks upward from workdir looking for a .git/ marker.
+// Returns the directory containing .git, or workdir itself if no git
+// repo is found (or workdir is empty). Walks at most 64 parents to
+// bound runtime in pathological cases.
+func projectRoot(workdir string) string {
 	if workdir == "" {
 		return ""
 	}
+	dir := workdir
+	for i := 0; i < 64; i++ {
+		if _, err := os.Stat(dir + "/.git"); err == nil {
+			return dir
+		}
+		parent := parentDir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 	return workdir
+}
+
+// parentDir returns dir's parent. Avoids importing path/filepath just
+// for Dir(); the manual split is fine for the simple cases we care
+// about (absolute paths with forward-slash separators on the unix
+// targets the daemon ships on).
+func parentDir(dir string) string {
+	for i := len(dir) - 1; i > 0; i-- {
+		if dir[i] == '/' {
+			return dir[:i]
+		}
+	}
+	if len(dir) > 0 && dir[0] == '/' {
+		return "/"
+	}
+	return dir
+}
+
+// hashProjectRoot returns a 16-hex-char SHA-256 prefix for path. The
+// truncation is a deliberate trade — full 64-char hashes are unwieldy
+// in operator-facing UIs and 16 hex (= 64 bits) is collision-free for
+// the realistic project counts a single daemon serves.
+func hashProjectRoot(path string) string {
+	sum := sha256.Sum256([]byte(path))
+	return hex.EncodeToString(sum[:8])
 }
 
 // errPTYRequiresDaemon shapes the actionable error the operator sees
