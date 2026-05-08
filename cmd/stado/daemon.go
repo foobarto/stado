@@ -29,7 +29,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
+	"github.com/foobarto/stado/internal/plugins/runtime/pty"
+	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/telemetry"
+	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 var (
@@ -144,19 +151,24 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Phase 1: scaffolding only — the daemon accepts connections and
-	// responds to handshake/status/shutdown but tool.call routes through
-	// a stub Dispatcher that returns a not-yet-wired error. Phase 2
-	// swaps this for the real plugin runtime.
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("daemon: load config: %w", err)
+	}
+	state, err := newDaemonState(cfg)
+	if err != nil {
+		return fmt.Errorf("daemon: build state: %w", err)
+	}
+	defer state.Close()
+
 	srv := daemon.NewServer(daemon.ServerOpts{
-		SocketPath:  socketPath,
-		IdleTimeout: daemonStartIdle,
-		Logger:      logger,
-		Dispatcher:  daemonDispatcher,
-		ListSessions: func(_ string, _ bool) []daemon.SessionDescriptor {
-			return nil
-		},
-		ListTools: func() []daemon.ToolDescriptor { return nil },
+		SocketPath:   socketPath,
+		IdleTimeout:  daemonStartIdle,
+		Logger:       logger,
+		Dispatcher:   state.dispatch,
+		ListSessions: state.listSessions,
+		KillSession:  state.killSession,
+		ListTools:    state.listTools,
 	})
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -232,14 +244,171 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	return tw.Flush()
 }
 
-// daemonDispatcher is the Phase-1 stub Dispatcher. It rejects every
-// tool.call with a clear message — Phase 2 replaces this with the
-// plugin runtime + shared pty.Manager. The stub is intentionally not
-// silent: a client that sees this error knows the daemon is up but
-// the state-service wiring isn't finished.
-func daemonDispatcher(_ context.Context, p daemon.ToolCallParams) (daemon.ToolCallResult, error) {
-	return daemon.ToolCallResult{}, fmt.Errorf("daemon: tool.call %q not yet wired (phase 2)", p.Tool)
+// daemonState owns the long-lived state the daemon shares across tool
+// calls: the plugin tool registry, the executor that wraps Run with
+// audit + sandbox, the PTY manager (the load-bearing piece — `shell.spawn`
+// and follow-up `shell.read` only work because session ids live here),
+// and the sandbox runner detection.
+//
+// Built once at `stado daemon start` and closed on shutdown. Each
+// tool.call reuses the registry + executor + pty.Manager; only the
+// per-call workdir varies.
+type daemonState struct {
+	cfg      *config.Config
+	registry *tools.Registry
+	executor *tools.Executor
+	pty      *pty.Manager
+	runner   sandbox.Runner
 }
+
+func newDaemonState(cfg *config.Config) (*daemonState, error) {
+	reg, err := runtime.BuildRegistryWithPlugins(cfg)
+	if err != nil {
+		return nil, err
+	}
+	runner := sandbox.Detect()
+	st := &daemonState{
+		cfg:      cfg,
+		registry: reg,
+		runner:   runner,
+		pty:      pty.NewManager(),
+	}
+	st.executor = &tools.Executor{
+		Registry: reg,
+		Session:  nil, // daemon dispatch isn't bound to a stadogit session.
+		Runner:   runner,
+		Metrics:  telemetry.Metrics{},
+		Agent:    "stado-daemon",
+		Model:    cfg.Defaults.Model,
+		ReadLog:  nil,
+	}
+	return st, nil
+}
+
+func (d *daemonState) Close() {
+	if d == nil {
+		return
+	}
+	if d.pty != nil {
+		d.pty.CloseAll()
+	}
+}
+
+// dispatch is the daemon-side ToolCall handler. The client passes the
+// tool name in canonical or wire form; we resolve to the registered
+// name (same fallback chain as `stado tool run`), build a per-call
+// host pinned to the call's workdir but sharing the daemon's
+// pty.Manager, and run through Executor so audit spans + sandbox
+// runner application happen the same way every other entry point sees.
+func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (daemon.ToolCallResult, error) {
+	registered, ok := lookupToolInRegistry(d.registry, p.Tool)
+	if !ok {
+		return daemon.ToolCallResult{}, fmt.Errorf("tool %q not found", p.Tool)
+	}
+	workdir := p.Workdir
+	if workdir == "" {
+		// Sensible fallback: the daemon's cwd at start. The CLI
+		// normally fills this in from the calling process's cwd.
+		if cw, err := os.Getwd(); err == nil {
+			workdir = cw
+		} else {
+			workdir = "."
+		}
+	}
+	host := &daemonToolHost{
+		workdir: workdir,
+		runner:  d.runner,
+		pty:     d.pty,
+	}
+	args := json.RawMessage(p.Args)
+	if len(args) == 0 {
+		args = json.RawMessage("{}")
+	}
+	res, err := d.executor.Run(ctx, registered.Name(), args, host)
+	if err != nil {
+		// Forward the executor error string but also keep tool.Result's
+		// own Error so the client gets the richer message when present.
+		msg := err.Error()
+		if res.Error != "" {
+			msg = res.Error
+		}
+		return daemon.ToolCallResult{Content: res.Content, Error: msg}, nil
+	}
+	return daemon.ToolCallResult{Content: res.Content, Error: res.Error}, nil
+}
+
+// listSessions reports live PTY sessions. Project scoping arrives in
+// phase 3 — for now ProjectID is ignored and every PTY is visible to
+// every caller. AllProjects=true is currently a no-op for the same
+// reason.
+func (d *daemonState) listSessions(_ string, _ bool) []daemon.SessionDescriptor {
+	if d.pty == nil {
+		return nil
+	}
+	infos := d.pty.List()
+	out := make([]daemon.SessionDescriptor, 0, len(infos))
+	for _, in := range infos {
+		out = append(out, daemon.SessionDescriptor{
+			Kind:      "pty",
+			ID:        in.ID,
+			Summary:   in.Cmd,
+			Alive:     in.Alive,
+			StartedAt: in.StartedAt,
+		})
+	}
+	return out
+}
+
+func (d *daemonState) killSession(p daemon.SessionKillParams) (bool, error) {
+	if d.pty == nil || p.Kind != "pty" {
+		return false, nil
+	}
+	if err := d.pty.Destroy(p.ID); err != nil {
+		// Treat "not found" as not-an-error to keep kill idempotent.
+		return false, nil
+	}
+	return true, nil
+}
+
+// listTools returns the daemon's current tool catalogue. The returned
+// schema is the JSON-marshalled form of each tool's Schema() map.
+func (d *daemonState) listTools() []daemon.ToolDescriptor {
+	all := d.registry.All()
+	out := make([]daemon.ToolDescriptor, 0, len(all))
+	for _, t := range all {
+		md := runtime.LookupToolMetadata(t.Name())
+		schema, _ := json.Marshal(t.Schema())
+		out = append(out, daemon.ToolDescriptor{
+			Name:        t.Name(),
+			Canonical:   md.Canonical,
+			Description: t.Description(),
+			Schema:      schema,
+			Class:       d.registry.ClassOf(t.Name()).String(),
+		})
+	}
+	return out
+}
+
+// daemonToolHost is the tool.Host the dispatcher hands to Executor.Run.
+// Auto-approve (the calling client is the authorisation boundary —
+// same posture as stado mcp-server), per-call workdir, daemon-shared
+// pty.Manager. PriorRead/RecordRead are no-ops; per-call dedup makes
+// little sense for daemon-served calls (each `stado tool run` is its
+// own caller, so deduping the read across them would surprise).
+type daemonToolHost struct {
+	workdir string
+	runner  sandbox.Runner
+	pty     *pty.Manager
+}
+
+func (h *daemonToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
+	return tool.DecisionAllow, nil
+}
+func (h *daemonToolHost) Workdir() string                                 { return h.workdir }
+func (h *daemonToolHost) Runner() sandbox.Runner                          { return h.runner }
+func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
+func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)       {}
+func (h *daemonToolHost) PTYManager() any                                  { return h.pty }
 
 // openDaemonLog returns a writable log file under the same dir as the
 // socket, named daemon.log. The file is created/appended at mode 0600.

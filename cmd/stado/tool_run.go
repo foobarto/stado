@@ -90,21 +90,26 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	}
 
 	// PTY-bound shell tools (shell.spawn / list / attach / read /
-	// write / detach / signal / resize / destroy) keep their state on
-	// the runtime's per-process pty.Manager. `stado tool run` is a
-	// single-shot CLI: the Runtime is created, the tool dispatches,
-	// the Runtime closes — and any PTYs go with it. So a `shell.spawn`
-	// from one invocation cannot be observed by a `shell.list` from
-	// another. --session does NOT bridge this; it only carries
-	// session-aware capabilities (audit log, memory, fork).
+	// write / snapshot / signal / resize / destroy) need a host that
+	// holds the pty.Manager across calls. The daemon (`stado daemon`)
+	// is exactly that host: route PTY-bound tools through the daemon,
+	// auto-spawning it when STADO_DAEMON allows.
 	//
-	// Refuse here with an actionable advisory rather than letting the
-	// operator hit the silent empty-list / "session not found" path.
-	// B5.
+	// When the daemon is unavailable AND auto-spawn is disabled (or
+	// fails), refuse PTY-bound tools with the same actionable message
+	// the original B5 fix carried — letting the bundled plugin run
+	// in-process would silently produce a fresh empty pty.Manager and
+	// the operator would hit the "session not found" path next call.
 	if ptyBoundShellTool(registered.Name()) {
-		return fmt.Errorf(
-			"tool %q needs a host that holds PTY state across calls — `stado tool run` is single-shot and PTYs do not survive the invocation. Use the TUI (`stado`), MCP server (`stado mcp`), or the agent loop (`stado run`) for persistent shells. (--session does not bridge PTYs; it only carries session-aware capabilities.)",
-			runtime.LookupToolMetadata(registered.Name()).Canonical)
+		mode := daemonMode()
+		if mode == daemonModeOff {
+			return errPTYRequiresDaemon(registered.Name(),
+				"STADO_DAEMON=off — daemon dispatch disabled; the single-shot CLI cannot host live PTYs.")
+		}
+		if err := dispatchViaDaemon(ctx, registered.Name(), argsJSON, opts, mode); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// Disabled-tool refusal: check both registered name and canonical
