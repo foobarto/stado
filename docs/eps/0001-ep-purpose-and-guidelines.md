@@ -1,7 +1,7 @@
 ---
 ep: 1
 title: EP Purpose and Guidelines
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Accepted
 type: Process
 created: 2026-04-22

@@ -1,7 +1,7 @@
 ---
 ep: 3
 title: Provider-Native Agent Interface
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-23

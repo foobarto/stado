@@ -1,7 +1,7 @@
 ---
 ep: 38
 title: ABI v2, bundled wasm tools, and runtime surface
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-05-05

@@ -1,7 +1,7 @@
 ---
 ep: 16
 title: Learning and Self-Improvement Plugin
-author: Bartosz Ptaszynski <foobarto@gmail.com>
+author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-04-24
