@@ -64,14 +64,27 @@ one CLI run can be observed by another would be a multi-day
 project — track separately if operators need `stado` as a tmux
 replacement from the CLI.
 
-### B6: Verify/document MCP stdio framing
+### B6: Verify/document MCP stdio framing ~~RESOLVED (documented + interactive advisory)~~
 
-During the Aero HTB run, direct `stado mcp-server` testing worked reliably with
-newline-delimited JSON-RPC messages, but a Content-Length framed stdio request
-did not produce a usable response. Since `mcp-server --help` describes this as
-an MCP v1 stdio server, verify whether standard MCP clients expect
-Content-Length framing here. If newline framing is intentional, document it
-explicitly; if not, add Content-Length support or a clear protocol error.
+**Verified.** `stado mcp-server` uses newline-delimited JSON-RPC
+2.0 (one JSON message per line) — that's the MCP v1 stdio
+contract; LSP's Content-Length framing is a different transport.
+Confirmed by reading `mcp-go/server/stdio.go` (line 506:
+`reader.ReadString('\n')`).
+
+**Documented.** `mcp-server --help` now leads with a "WIRE FORMAT"
+section explicitly calling out newline framing and warning against
+Content-Length preludes. Added a copy-pasteable smoke test:
+`echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | stado mcp-server | head -1`.
+
+**Catch the common-confusion case.** When stdin is a TTY at startup
+(operator typed `stado mcp-server` directly with no client
+connecting), the server now prints a stderr advisory pointing at
+the smoke test and how to exit with Ctrl+D — pre-fix this looked
+like a hang.
+
+True Content-Length framing support would be a transport-layer
+change in mcp-go upstream; out of scope for stado.
 
 ## Missing features
 

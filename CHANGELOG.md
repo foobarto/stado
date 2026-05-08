@@ -106,6 +106,15 @@ become semver guarantees.
 
 ### CLI
 
+- `stado mcp-server --help` now leads with a "WIRE FORMAT" section
+  explicitly stating that MCP v1 stdio uses newline-delimited
+  JSON-RPC, NOT LSP-style Content-Length framing. Adds a
+  copy-pasteable smoke test (`echo '{"jsonrpc":"2.0",…}' |
+  stado mcp-server | head -1`). When stdin is a TTY at startup
+  (operator typed the command directly with no client
+  connecting), the server now prints a stderr advisory pointing
+  at the smoke test and Ctrl+D — pre-fix this looked like a
+  hang. (B6)
 - `stado tool run` now refuses PTY-bound shell tools (`shell.spawn`
   / `list` / `attach` / `read` / `write` / `detach` / `signal` /
   `resize` / `destroy`) with an actionable advisory pointing at the

@@ -25,6 +25,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
@@ -46,13 +47,20 @@ var mcpServerCmd = &cobra.Command{
 	Long: "Run stado as an MCP v1 server on stdio. Every bundled stado tool\n" +
 		"(read, grep, ripgrep, ast-grep, bash, webfetch, tasks, file ops, LSP-find)\n" +
 		"is registered with the server and callable via MCP tools/call.\n\n" +
+		"WIRE FORMAT: newline-delimited JSON-RPC 2.0 (one JSON message per line\n" +
+		"on stdin / stdout). MCP v1 stdio uses newline framing — NOT the\n" +
+		"Content-Length headers that LSP uses. Sending a Content-Length\n" +
+		"prelude will fail at the JSON-RPC parser; reconfigure your client\n" +
+		"to send raw newline-framed messages instead.\n\n" +
 		"[tools].enabled / [tools].disabled in config.toml trim the exposed set\n" +
 		"same as the TUI and run paths — an MCP client only sees the tools\n" +
 		"stado is currently configured to offer.\n\n" +
 		"Tool execution uses an auto-approve host rooted at the process cwd.\n" +
 		"The MCP client is responsible for authorization; stado trusts the\n" +
 		"caller in mcp-server mode. For human-in-the-loop approval, use the\n" +
-		"TUI or `stado run` without --tools.",
+		"TUI or `stado run` without --tools.\n\n" +
+		"Smoke test: echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' \\\n" +
+		"  | stado mcp-server | head -1",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -111,6 +119,18 @@ var mcpServerCmd = &cobra.Command{
 			}
 			fmt.Fprintf(os.Stderr, "stado mcp-server: serving %d tool(s) on stdio (sandbox: %s)\n",
 				len(reg.All()), runner.Name())
+			// stdin-is-a-TTY advisory: the operator probably typed
+			// `stado mcp-server` directly (no client connecting). Without
+			// this, the server appears to hang waiting for newline-framed
+			// JSON-RPC that's never coming. B6.
+			if isatty.IsTerminal(os.Stdin.Fd()) {
+				fmt.Fprintln(os.Stderr,
+					"stado mcp-server: stdin is a terminal — the server expects newline-delimited\n"+
+						"JSON-RPC from a client process. Pipe a client into stdin, or run a\n"+
+						"smoke test like:\n"+
+						"  echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}' | stado mcp-server | head -1\n"+
+						"Press Ctrl+D to exit.")
+			}
 			return server.ServeStdio(srv)
 		})
 	},
