@@ -23,10 +23,44 @@ var toolCmd = &cobra.Command{
 
 var toolJSONFlag bool
 
+// ToolListJSONSchemaVersion pins the `stado tool list --json` output
+// shape. Bumped on rename / remove changes to top-level keys; pure
+// additions (new keys) do not bump it. See CHANGELOG.md "Stability
+// commitments" for the project-wide contract.
+const ToolListJSONSchemaVersion = 1
+
+// toolListEntry mirrors one row in the `stado tool list --json`
+// response. Field names are snake_case so jq pipelines stay clean.
+type toolListEntry struct {
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	Plugin     string `json:"plugin"`
+	Categories string `json:"categories"`
+}
+
+// toolListJSON is the envelope `stado tool list --json` emits — a
+// single JSON document so `python3 -m json.tool`, `jq .`, and any
+// other strict-JSON parser accept the output. Pre-v0.46.2 behaviour
+// was NDJSON (one row per line); operators relying on streaming can
+// `jq -c '.tools[]'` to recover the legacy shape.
+type toolListJSON struct {
+	SchemaVersion int             `json:"schema_version"`
+	Count         int             `json:"count"`
+	Tools         []toolListEntry `json:"tools"`
+}
+
 var toolListCmd = &cobra.Command{
 	Use:     "list [glob]",
 	Aliases: []string{"ls"},
 	Short:   "List tools with state, plugin source, and categories",
+	Long: "List tools with state, plugin source, and categories.\n\n" +
+		"JSON output (--json) carries \"schema_version\": 1 and a single\n" +
+		"\"tools\" array. The schema is stable within a major version: pure\n" +
+		"additions (new keys) do not bump schema_version; renames, removals,\n" +
+		"and value-type changes bump it and are documented in CHANGELOG.md\n" +
+		"with a migration note. Pin against schema_version when scripting\n" +
+		"against the output. (Pre-v0.46.2 emitted NDJSON; recover that shape\n" +
+		"with `stado tool list --json | jq -c '.tools[]'`.)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
 		if err != nil {
@@ -75,16 +109,24 @@ var toolListCmd = &cobra.Command{
 		sort.Slice(rows, func(i, j int) bool { return rows[i].canonical < rows[j].canonical })
 
 		if toolJSONFlag {
-			for _, r := range rows {
-				entry := map[string]any{
-					"name":       r.canonical,
-					"state":      r.state,
-					"plugin":     r.plugin,
-					"categories": r.categories,
-				}
-				b, _ := json.Marshal(entry)
-				fmt.Println(string(b))
+			out := toolListJSON{
+				SchemaVersion: ToolListJSONSchemaVersion,
+				Count:         len(rows),
+				Tools:         make([]toolListEntry, 0, len(rows)),
 			}
+			for _, r := range rows {
+				out.Tools = append(out.Tools, toolListEntry{
+					Name:       r.canonical,
+					State:      r.state,
+					Plugin:     r.plugin,
+					Categories: r.categories,
+				})
+			}
+			b, err := json.MarshalIndent(out, "", "  ")
+			if err != nil {
+				return fmt.Errorf("tool list --json: %w", err)
+			}
+			fmt.Println(string(b))
 			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)

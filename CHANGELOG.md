@@ -16,6 +16,12 @@ become semver guarantees.
   ones) are allowed without bumping. Renames, removals, and type
   changes bump `schema_version` and ship with a migration note in this
   changelog under the release that bumps it. Current: schema 1.
+- **`stado tool list --json` schema.** Output carries
+  `"schema_version": N` and the envelope
+  `{schema_version, count, tools[]}`. Same rules as
+  `stado stats --json`: additions are free, renames / removals / value-
+  type changes bump `schema_version` and ship with a migration note.
+  Current: schema 1.
 - **Plugin wasm calling contract.** The exports a plugin must provide
   (`stado_alloc`, `stado_free`, `stado_tool_<name>` per ToolDef) and
   the return-length-or-negative-error wire format are stable across
@@ -27,6 +33,21 @@ become semver guarantees.
   with the specific missing imports — no silent retries.
 
 ## Unreleased
+
+### CLI
+
+- `stado tool list --json` now emits a single valid JSON document
+  (envelope: `{schema_version, count, tools[]}`) instead of NDJSON.
+  Pre-v0.46.2 behaviour broke `python3 -m json.tool`, `jq .`, and any
+  strict-JSON parser; operators relying on the streaming shape can
+  recover it with `stado tool list --json | jq -c '.tools[]'`. The
+  envelope's stability is now part of the project-wide commitments
+  above. (B4)
+- `/plugin:<name>` (bare name, no `-<version>` suffix) in the TUI
+  resolves to the active installed version, so
+  `/plugin:demo greet` runs the active demo's `greet` tool. The
+  literal `<name>-<version>` form continues to pin to a specific
+  installed version.
 
 ### TUI
 
