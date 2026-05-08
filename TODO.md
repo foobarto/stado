@@ -216,7 +216,19 @@ separate choice), no plugin-controlled layout, no rich HTML.
 renderers + schema validation. Sessions already record tool-exec events
 verbatim, so audit serialization is mostly free.
 
-### F10: Collapse `stado_ui_input` into `stado_ui_choice` — each option carries an optional editable field ~~RESOLVED (TUI slice)~~
+### F10: Collapse `stado_ui_input` into `stado_ui_choice` — each option carries an optional editable field ~~RESOLVED (TUI + ACP)~~
+
+**Status update (2026-05-08, post-v0.47.0).** ACP follow-on shipped:
+`session/update kind=choice` carries per-option `prefix` + `input`
+metadata; `session/choice_response` accepts `inputValue`. The server
+validates `inputValue` against the chosen option's validator before
+resolving — failure returns an RPC error and keeps the request open
+for retry. ACP clients that don't yet render input fields ignore
+the metadata and resolve with empty `inputValue` (graceful
+degradation). MCP / headless surfaces still inherit the unmodified
+pluginrun bridge — those channels don't have a real choice rendering
+layer yet, so input fields silently no-op there until those surfaces
+grow choice support.
 
 **Status (2026-05-08).** TUI surface ships end-to-end:
 `{prefix, input{default, validator}}` per option, validators run

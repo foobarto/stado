@@ -15,7 +15,7 @@ import (
 
 func TestPendingChoiceRegistry_AllocateResolveDelivers(t *testing.T) {
 	r := newPendingChoiceRegistry()
-	id, ch := r.allocate("sess-1")
+	id, ch := r.allocate("sess-1", pluginRuntime.ChoiceRequest{})
 	if id == "" {
 		t.Fatal("empty id")
 	}
@@ -39,9 +39,9 @@ func TestPendingChoiceRegistry_ResolveUnknownReturnsFalse(t *testing.T) {
 
 func TestPendingChoiceRegistry_CancelSessionDelivers(t *testing.T) {
 	r := newPendingChoiceRegistry()
-	idA, chA := r.allocate("sess-1")
-	idB, chB := r.allocate("sess-1")
-	idC, chC := r.allocate("sess-2")
+	idA, chA := r.allocate("sess-1", pluginRuntime.ChoiceRequest{})
+	idB, chB := r.allocate("sess-1", pluginRuntime.ChoiceRequest{})
+	idC, chC := r.allocate("sess-2", pluginRuntime.ChoiceRequest{})
 	r.cancelSession("sess-1")
 
 	for _, p := range []struct {
@@ -138,6 +138,164 @@ func TestServerHandleSessionChoiceResponse_UnknownIDErrors(t *testing.T) {
 	}
 	if rpcErr, ok := err.(*RPCError); !ok || rpcErr.Code != CodeInvalidParams {
 		t.Errorf("err = %v, want CodeInvalidParams", err)
+	}
+}
+
+// TestServerHandleSessionChoiceResponse_F10InputFields_RoundTrip:
+// the F10 ACP follow-on extends the wire format with per-option
+// prefix + input + validator on the outbound notification, and
+// inputValue on the inbound response. Asserts both directions
+// flow through and the bridge response carries InputValue back to
+// the plugin.
+func TestServerHandleSessionChoiceResponse_F10InputFields_RoundTrip(t *testing.T) {
+	out := newWriterSync()
+	srv := NewServer(nil, nil)
+	srv.conn = NewConn(strings.NewReader(""), out)
+
+	bridgeResp := make(chan pluginRuntime.ChoiceResponse, 1)
+	go func() {
+		resp, _ := srv.requestChoice(context.Background(), "sess-1", pluginRuntime.ChoiceRequest{
+			Prompt: "Run with what model?",
+			Options: []pluginRuntime.ChoiceOption{
+				{
+					ID: "go", Label: "Run", Prefix: "model:",
+					Input: &pluginRuntime.ChoiceInput{
+						Default: "claude-sonnet-4-6",
+					},
+				},
+				{ID: "skip", Label: "Skip"},
+			},
+		})
+		bridgeResp <- resp
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), `"kind":"choice"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("notification not seen; buffer: %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Wire format assertion: outbound notification carries the new
+	// prefix + input fields. Trim and parse.
+	var notif Notification
+	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &notif); err != nil {
+		t.Fatalf("notification json: %v\n%s", err, out.String())
+	}
+	params := notif.Params.(map[string]any)
+	options, _ := params["options"].([]any)
+	if len(options) != 2 {
+		t.Fatalf("options len = %d, want 2", len(options))
+	}
+	first, _ := options[0].(map[string]any)
+	if first["prefix"] != "model:" {
+		t.Errorf("first.prefix = %v, want %q", first["prefix"], "model:")
+	}
+	input, ok := first["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("first.input not present or wrong type: %v", first["input"])
+	}
+	if input["default"] != "claude-sonnet-4-6" {
+		t.Errorf("first.input.default = %v", input["default"])
+	}
+
+	requestID, _ := params["requestId"].(string)
+	respPayload := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["go"],"inputValue":"claude-opus-4-7"}`)
+	if _, err := srv.handleSessionChoiceResponse(respPayload); err != nil {
+		t.Fatalf("handleSessionChoiceResponse: %v", err)
+	}
+	select {
+	case got := <-bridgeResp:
+		if got.Cancelled {
+			t.Errorf("cancelled = true, want false")
+		}
+		if len(got.Selected) != 1 || got.Selected[0] != "go" {
+			t.Errorf("selected = %v, want [go]", got.Selected)
+		}
+		if got.InputValue != "claude-opus-4-7" {
+			t.Errorf("input_value = %q, want %q", got.InputValue, "claude-opus-4-7")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge did not return after response")
+	}
+}
+
+// TestServerHandleSessionChoiceResponse_F10InputValidatorRejectsAndAllowsRetry:
+// when the chosen option carries a validator and the client sends
+// input_value that fails it, the server returns an RPC error and
+// LEAVES the pending entry in the registry so the client can retry
+// with corrected input. Asserts both halves: failure surface +
+// successful retry against the same requestId.
+func TestServerHandleSessionChoiceResponse_F10InputValidatorRejectsAndAllowsRetry(t *testing.T) {
+	out := newWriterSync()
+	srv := NewServer(nil, nil)
+	srv.conn = NewConn(strings.NewReader(""), out)
+
+	bridgeResp := make(chan pluginRuntime.ChoiceResponse, 1)
+	go func() {
+		resp, _ := srv.requestChoice(context.Background(), "sess-1", pluginRuntime.ChoiceRequest{
+			Prompt: "Turns?",
+			Options: []pluginRuntime.ChoiceOption{
+				{
+					ID: "n", Label: "Run with budget",
+					Input: &pluginRuntime.ChoiceInput{
+						Default:   "5",
+						Validator: &pluginRuntime.ChoiceValidator{Kind: "int"},
+					},
+				},
+			},
+		})
+		bridgeResp <- resp
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), `"kind":"choice"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("notification not seen; buffer: %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var notif Notification
+	_ = json.Unmarshal(bytes.TrimSpace(out.Bytes()), &notif)
+	requestID, _ := notif.Params.(map[string]any)["requestId"].(string)
+
+	// First attempt: input_value="abc" fails the int validator.
+	bad := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["n"],"inputValue":"abc"}`)
+	_, err := srv.handleSessionChoiceResponse(bad)
+	if err == nil {
+		t.Fatal("expected RPC error for validator failure")
+	}
+	rpcErr, ok := err.(*RPCError)
+	if !ok || rpcErr.Code != CodeInvalidParams {
+		t.Errorf("err = %v, want CodeInvalidParams RPCError", err)
+	}
+	if !strings.Contains(err.Error(), "integer") {
+		t.Errorf("err = %q, should mention integer validator", err.Error())
+	}
+
+	// Bridge must NOT have returned — entry stays in registry.
+	select {
+	case got := <-bridgeResp:
+		t.Fatalf("bridge resolved on validator failure: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Retry with valid input_value resolves cleanly.
+	good := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["n"],"inputValue":"7"}`)
+	if _, err := srv.handleSessionChoiceResponse(good); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	select {
+	case got := <-bridgeResp:
+		if got.InputValue != "7" {
+			t.Errorf("input_value = %q, want 7", got.InputValue)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge did not return after valid retry")
 	}
 }
 

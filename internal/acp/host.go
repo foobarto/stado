@@ -55,19 +55,27 @@ func (h *acpHost) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 // registry. Implements pluginRuntime.ChoiceBridge — picked up by
 // pluginrun's attachLifecycleBridges via interface assertion.
 //
-// F10: per-option Input fields are not yet wired through the ACP
-// `session/update kind=choice` payload, so the bridge rejects any
-// request carrying Input on an option. Plugins targeting both TUI
-// and ACP detect the structured error and fall back to plain choice
-// for the ACP path. Removing this guard is part of the F10 ACP
-// follow-on slice.
+// F10 ACP follow-on (2026-05-08): per-option `prefix` and `input`
+// fields now flow through `session/update kind=choice`, and the
+// response shape carries `inputValue`. The TUI-only rejection guard
+// is gone; ACP clients that don't yet handle input render the
+// option's `label` and ignore the input metadata, which is a
+// graceful degradation.
+//
+// Multi-select with input fields is still rejected here — same
+// reason as the TUI requestPluginChoice gate: the semantics of
+// typing into N rows of a multi-select are unsolved and the F10
+// spec doesn't address the combo. Plugins should pick one or the
+// other.
 func (h *acpHost) RequestChoice(ctx context.Context, req pluginRuntime.ChoiceRequest) (pluginRuntime.ChoiceResponse, error) {
 	if h.server == nil {
 		return pluginRuntime.ChoiceResponse{}, errors.New("acp host has no server reference")
 	}
-	for _, o := range req.Options {
-		if o.Input != nil {
-			return pluginRuntime.ChoiceResponse{}, errors.New("acp channel does not yet support per-option input fields (F10 TUI-only slice)")
+	if req.Multi {
+		for _, o := range req.Options {
+			if o.Input != nil {
+				return pluginRuntime.ChoiceResponse{}, errors.New("multi-select choice with per-option input fields is not supported")
+			}
 		}
 	}
 	return h.server.requestChoice(ctx, h.sessionID, req)

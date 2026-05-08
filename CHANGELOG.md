@@ -32,6 +32,23 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased
+
+### Plugins
+
+- **F10 ACP wire format extension.** `session/update kind=choice`
+  notifications now carry the per-option `prefix` and `input`
+  metadata; `session/choice_response` accepts an `inputValue`
+  field. The server validates `inputValue` against the chosen
+  option's validator before resolving — on failure returns an RPC
+  error and keeps the request open so the client can correct the
+  input and resend with the same `requestId`. The previous
+  rejection of input-bearing options on the ACP bridge is gone;
+  ACP clients that don't yet implement input rendering ignore the
+  metadata and resolve with an empty `inputValue` (graceful
+  degradation). `stado acp --help` updated to enumerate the new
+  fields. Multi-select with input fields stays unsupported.
+
 ## v0.47.0 — TUI slash ergonomics, `stado_ui_print`, `stado_ui_choose` input fields
 
 Headline shipping new operator and plugin surfaces:
