@@ -101,6 +101,77 @@ func TestPluginSlash_ListsInstalled(t *testing.T) {
 	}
 }
 
+// TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins guards the
+// /plugin rendering against the bug where a plugin with very long
+// tool descriptions earlier in the list would push the body past the
+// system block's render-side truncate ceiling, hiding subsequent
+// plugins entirely. Verifies all installed plugin IDs land in the
+// listing regardless of description length, and that long
+// descriptions are summarised inline (no embedded newlines that would
+// break the indented hierarchy).
+func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
+	m := newPluginTestModel(t)
+	verbose := strings.Repeat("Generate a complex command with many options. ", 12) // ~560 chars
+	installFakePlugin(t, "ad-attacks-0.1.0", plugins.Manifest{
+		Name:    "ad-attacks",
+		Version: "0.1.0",
+		Author:  "test",
+		Tools: []plugins.ToolDef{
+			{Name: "ad_pth_command", Description: verbose},
+			{Name: "ad_certipy_command", Description: verbose},
+			{Name: "ad_kerberoast", Description: verbose},
+		},
+	})
+	installFakePlugin(t, "second-plugin-0.0.1", plugins.Manifest{
+		Name:    "second-plugin",
+		Version: "0.0.1",
+		Author:  "test",
+		Tools:   []plugins.ToolDef{{Name: "tail_marker", Description: "should be visible"}},
+	})
+
+	m.handleSlash("/plugin")
+	body := m.blocks[len(m.blocks)-1].body
+
+	for _, want := range []string{"ad-attacks-0.1.0", "ad_kerberoast", "second-plugin-0.0.1", "tail_marker"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q (likely clipped); body length=%d", want, len(body))
+		}
+	}
+	// Long descriptions get summarised — should contain the ellipsis,
+	// not the full repeated phrase.
+	if !strings.Contains(body, "…") {
+		t.Errorf("long descriptions should be summarised with ellipsis, got: %q", body)
+	}
+	// Each tool listing must stay one line; the previewed description
+	// must not introduce newlines that would dismantle the indented
+	// `  /plugin:NAME` → `    · TOOL` hierarchy.
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "·") && strings.Count(line, "\n") > 0 {
+			t.Errorf("tool line carries embedded newline: %q", line)
+		}
+	}
+}
+
+func TestSummariseToolDescription(t *testing.T) {
+	cases := []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"short", 120, "short"},
+		{"line\none\nline two", 120, "line one line two"},
+		{"line\none\nline two", 4, "lin…"},
+		{strings.Repeat("a", 130), 10, strings.Repeat("a", 9) + "…"},
+		{"x", 1, "x"},
+		{"abc", 0, "abc"},
+	}
+	for _, tc := range cases {
+		if got := summariseToolDescription(tc.in, tc.max); got != tc.want {
+			t.Errorf("summariseToolDescription(%q,%d) = %q, want %q", tc.in, tc.max, got, tc.want)
+		}
+	}
+}
+
 // TestPluginSlash_PerPluginListsTools: `/plugin:<name-ver>` without a
 // tool argument lists that plugin's tools only.
 func TestPluginSlash_PerPluginListsTools(t *testing.T) {

@@ -1768,6 +1768,11 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		})
 	case "system":
 		tone := systemBlockTone(blk.body)
+		// System blocks are server-side strings the operator explicitly
+		// asked for (e.g. /plugin lists, /status output). Don't cap the
+		// rendered length — clipping mid-message hides plugins past the
+		// first one when the body exceeds the prior `width*6` ceiling.
+		// lipgloss's Width(width) still wraps each visual line correctly.
 		return lipgloss.NewStyle().
 			Background(m.theme.Bg("surface").GetBackground()).
 			Border(lipgloss.Border{Left: "│"}, false, false, false, true).
@@ -1775,7 +1780,7 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			Foreground(m.theme.Fg("text").GetForeground()).
 			Padding(0, 1).
 			Width(width).
-			Render(truncate(blk.body, width*6)) + "\n", nil
+			Render(blk.body) + "\n", nil
 	case "btw":
 		return lipgloss.NewStyle().
 			Background(m.theme.Bg("surface").GetBackground()).

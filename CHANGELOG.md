@@ -4,7 +4,45 @@ Notable changes to stado, reverse-chronological. Pre-1.0; breaking
 changes still allowed between tags. Sections: UX / CLI / TUI /
 Plugins / Infra / Fixes.
 
+## Stability commitments
+
+These hold across all releases until stado hits 1.0; after 1.0 they
+become semver guarantees.
+
+- **`stado stats --json` schema.** Output carries `"schema_version": N`.
+  Within a major schema version, the shape is stable: no key is
+  renamed or removed, no value type changes, no semantic re-meaning of
+  an existing key. Pure additions (new keys appearing alongside existing
+  ones) are allowed without bumping. Renames, removals, and type
+  changes bump `schema_version` and ship with a migration note in this
+  changelog under the release that bumps it. Current: schema 1.
+- **Plugin wasm calling contract.** The exports a plugin must provide
+  (`stado_alloc`, `stado_free`, `stado_tool_<name>` per ToolDef) and
+  the return-length-or-negative-error wire format are stable across
+  pre-1.0 releases. Host-side imports under the `stado` namespace may
+  be added (additive) or removed (breaking). Removals ship in the
+  release's `### Removed surfaces` section with substitutions in the
+  release's `### Plugin ABI migration note`. Eager ABI verify at
+  `session/new` (when `--tools` is set) surfaces stale-ABI plugins
+  with the specific missing imports — no silent retries.
+
 ## Unreleased
+
+### TUI
+
+- `/plugin` (bare) listing no longer clips after the first plugin when
+  any tool description is long. Two fixes:
+  1. The system-block renderer was capping body length at `width*6`
+     (~480 chars on a normal terminal), which was hiding subsequent
+     plugins entirely. The cap is removed — `lipgloss.Width(width)`
+     still wraps each visual line correctly, but no longer truncates
+     the total body.
+  2. Each tool's description is now summarised inline (whitespace
+     collapsed, capped at 120 runes with a `…` suffix when longer)
+     so a verbose `Description` field can't hard-wrap to column 0
+     and dismantle the indented `  /plugin:NAME` →
+     `    · TOOL — DESC` hierarchy. Operators get the full text via
+     `/plugin <name>` (per-plugin view, unchanged).
 
 ## v0.46.1 — Dependency bumps + CI maintenance
 
@@ -272,17 +310,43 @@ bundled tool surface).
   inbox-flush branch, several staticcheck nits, one unused helper).
   Cleaned out so CI's lint job goes green; no behaviour changes.
 
+### Removed surfaces
+
+- Host imports: `stado_fs_tool_read`, `stado_fs_tool_write`,
+  `stado_fs_tool_edit`, `stado_fs_tool_glob`, `stado_fs_tool_grep`,
+  `stado_fs_tool_read_context`. Step 7 replaces the
+  fs/readctx native-tool delegates with true wasm primitives —
+  the `stado_fs_*` family — plus a wasm-side `fs.wasm` plugin that
+  rebuilds glob/grep/edit/read_with_context on top of them.
+- Native packages: `internal/tools/{fs,readctx}` — the fs/readctx
+  native source is deleted; the model surface reaches `fs__*` and
+  `readctx__*` only through `internal/bundledplugins/modules/fs`.
+
 ### Plugin ABI migration note (for plugin authors)
 
-`v0.45.0` shipped the unified `pluginrun.Run` invocation path. Plugins
-built against the v0.44.x ABI continue to work unchanged: the wasm
-contract (`stado_alloc` / `stado_free` / `stado_tool_<name>` exports,
-return-len-or-negative-error wire format) is unchanged. New primitives
+The wasm calling contract (`stado_alloc` / `stado_free` /
+`stado_tool_<name>` exports, return-len-or-negative-error wire
+format) is unchanged. New primitives
 (`stado_fs_last_error`, `sandbox` arg on `stado_exec` / `stado_proc_spawn`,
 `stado_fs_readdir`, `stado_fs_stat`) are additive — old plugins that
 don't declare the new caps don't see them.
 
-For plugin authors rebuilding against v0.45.x:
+**Substitution table.** If your plugin imports a host function that no
+longer exists, swap as below:
+
+| Removed import (release) | Replacement | Notes |
+|---|---|---|
+| `stado_fs_tool_read` (v0.46.0) | `stado_fs_read` / `stado_fs_read_partial` | The `_partial` variant takes `(offset, length)` for paged reads; declare `fs:read:<path>` cap. |
+| `stado_fs_tool_write` (v0.46.0) | `stado_fs_write` | Declare `fs:write:<path>` cap; scope guard is enforced host-side. |
+| `stado_fs_tool_edit` (v0.46.0) | `stado_fs_read` + `stado_fs_write` | Read, mutate in-wasm, write back. Reference impl: `internal/bundledplugins/modules/fs/main.go`. |
+| `stado_fs_tool_glob` (v0.46.0) | `stado_fs_readdir` + `filepath.Match` | Walk dirs in-wasm; reference impl: `fs.wasm`'s `glob` entry. Or invoke the bundled `fs__glob` tool via `stado_tool_invoke`. |
+| `stado_fs_tool_grep` (v0.46.0) | `stado_fs_readdir` + `stado_fs_read` + regex | Walk + read + match in-wasm. Or invoke the bundled `fs__grep` tool via `stado_tool_invoke`. |
+| `stado_fs_tool_read_context` (v0.46.0) | `stado_fs_read` + line-window formatting | Format your own ±N-line context window around the hit. Or invoke the bundled `readctx__read` tool via `stado_tool_invoke`. |
+| `stado_http_get` (v0.45.0) | `stado_http_request` | The new primitive is method-agnostic; pass `"GET"` to keep behaviour. RFC1918 / loopback / link-local refusals carry over. |
+| `stado_exec_bash` (v0.45.0) | `stado_exec` (+ optional `sandbox` arg) | Drops the hardcoded bwrap policy; pass `sandbox: {...}` per call if you want the old policy back. Cap parse: `exec:bash` / `exec:shallow_bash` → `exec:proc:bash`. |
+| `stado_search_ripgrep` / `stado_search_ast_grep` (v0.45.0) | `stado_exec` with `rg` / `ast-grep`, or `stado_tool_invoke("rg__search", …)` | The bundled `rg.wasm` / `astgrep.wasm` plugins are reusable from another plugin via `stado_tool_invoke`. Cap parse: `exec:search` / `exec:ast_grep` → `exec:proc:rg` / `exec:proc:ast-grep`. |
+
+For plugin authors rebuilding against v0.46.x:
 
 1. Re-run your plugin build script — wasm bytes change with toolchain
    updates and the manifest's `wasm_sha256` must match.
@@ -292,7 +356,8 @@ For plugin authors rebuilding against v0.45.x:
 Stale-ABI plugins now fail fast with a single `session/new` error in
 ACP mode (see the ACP section above) and surface a clear `plugin ABI
 incomplete` message in CLI / agent-loop dispatch — no more silent
-retries.
+retries. The fail-fast error names the specific missing imports so you
+can map them to this table.
 
 ## v0.45.0 — No internal tools (Steps 0–5)
 

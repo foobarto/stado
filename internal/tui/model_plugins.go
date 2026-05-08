@@ -642,12 +642,36 @@ func renderInstalledPluginList(pluginRoots ...string) string {
 		for _, t := range mf.Tools {
 			sb.WriteString("\n    · " + t.Name)
 			if t.Description != "" {
-				sb.WriteString(" — " + t.Description)
+				// Single-line description preview so a long body doesn't
+				// hard-wrap to column 0 and break the indented hierarchy.
+				// Operators get the full text via `/plugin <name>` (which
+				// uses renderPluginTools, not bound by this preview).
+				sb.WriteString(" — " + summariseToolDescription(t.Description, 120))
 			}
 		}
 	}
 	sb.WriteString("\n\nRun a tool with  /plugin:<name> <tool> [json-args]")
+	sb.WriteString("\nSee one plugin's full descriptions with  /plugin <name>")
 	return sb.String()
+}
+
+// summariseToolDescription returns at most max runes of desc with
+// trailing whitespace and any embedded newlines collapsed to single
+// spaces. Long bodies get truncated with a single-char ellipsis so the
+// listing stays one line per tool.
+func summariseToolDescription(desc string, max int) string {
+	desc = strings.Join(strings.Fields(desc), " ")
+	if max <= 0 {
+		return desc
+	}
+	runes := []rune(desc)
+	if len(runes) <= max {
+		return desc
+	}
+	if max < 2 {
+		return string(runes[:max])
+	}
+	return string(runes[:max-1]) + "…"
 }
 
 // renderPluginTools formats one plugin's manifest tools for display
