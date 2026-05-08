@@ -394,3 +394,123 @@ This is more infrastructure but covers all four contracts with
 the same shape. Estimating ~150 LoC for a focused encoder
 supporting i32 params/results + memory + simple thunks. Wasm
 binary format is straightforward enough.
+
+## 2026-05-08 (session 2) — 2.1.e finished, 2.1.X landed
+
+Picked up from STATE.md's "Up next when resuming" list.
+
+### Drift from prior state file
+
+State file said cmd/stado had 5 files left (`learning.go`,
+`plugin_init.go`, `selfupdate.go`, `session_export.go`,
+`session_fork.go`). Two surprises once I started the
+verification grep:
+
+1. **plugin_install.go was only partly migrated.** State file
+   marked it done, but the 2.1.f commit only touched the one
+   `RemoveAll` call. Three other calls remained
+   (`OpenRootUnderUserConfig` ×2, `MkdirAllUnderUserConfig`).
+   Fixed in `dcaf422`.
+2. **Test files weren't migrated.** Around 13 callers of the
+   leaf helper `workdirpath.OpenRootNoSymlink` lived in
+   tests across `fs/`, `skills/`, `state/git/`,
+   `tui/render/`, `cmd/stado/`. Earlier 2.1.e batches
+   migrated production code in those packages but didn't
+   sweep the tests. Routed all to
+   `NewStrictResolver().OpenRoot` (same delegation under the
+   hood — `strict_resolver.go:85`). One self-contained
+   commit, `05ca9c9`.
+
+Verification grep after the two commits returns only the
+allowed new-API + repo-discovery identifiers:
+
+```
+74 workdirpath.NewUserConfigResolver
+24 workdirpath.NewRootResolver
+15 workdirpath.New
+14 workdirpath.NewStrictResolver
+ 5 workdirpath.LooksLikeRepoRoot
+ 3 workdirpath.FindRepoRoot
+ 1 workdirpath.FindRepoRootOrEmpty
+```
+
+The single comment hit on `workdirpath.Resolve` in
+`host_lsp.go` (where it referenced "lspfind's
+workdirpath.Resolve") was tightened to `Resolver.Resolve` to
+match the actual call shape in `lspfind/*.go`.
+
+### Pattern hits worth noting
+
+- **`replace_all=true` is not whitespace-aware.** First pass
+  on `session_fork.go` used the same `old_string` for two
+  `MkdirAllUnderUserConfig` calls that differed only in
+  leading indent (line 91 inside a closure, line 153 at
+  top-level). The replace_all only matched the indented one;
+  line 153 needed a separate edit. Lesson: when batching
+  with replace_all, check the diff stat afterwards
+  (or the post-edit grep) before assuming it caught
+  everything.
+- **plugin_init.go's function-pointer pattern was
+  ergonomic.** Original code used `write :=
+  workdirpath.WriteRootFileAtomic` then
+  `write = workdirpath.WriteRootFileAtomicExactMode`
+  conditionally. With method values bound to a single
+  `*RootResolver`, the same shape works:
+  `rr := workdirpath.NewRootResolver(root); write :=
+  rr.WriteFileAtomic; if exactMode { write =
+  rr.WriteFileAtomicExactMode }`. Method values on a shared
+  receiver have identical signatures, so the `func` variable
+  binds cleanly. Codex/gemini round-2 had questioned how
+  variable-typed delegations would translate; this is the
+  proof.
+
+### 2.1.X Deprecated markers
+
+23 markers, one per exported legacy fn, last paragraph of
+each godoc:
+
+```
+// Deprecated: use <new-API equivalent> instead. Removed in 2.1.Y.
+```
+
+Each names the specific replacement (`New(workdir).Resolve`,
+`NewStrictResolver().OpenRoot`, etc.). The `OpenReadFile`
+marker also notes the new `Resolver.OpenRegularFile`
+additionally rejects non-regular files (the round-final fix
+from 2026-05-07) so a future migrator who hits a behavior
+diff knows it's intentional.
+
+Lint check: `golangci-lint run ./internal/workdirpath/...`
+returns 0 issues. Staticcheck SA1019 doesn't flag
+same-package deprecated use, so the in-package delegations
+(new resolver methods → legacy fns until 2.1.Y) don't
+trigger the warning. Out-of-tree callers (forks, pre-merge
+branches) will get the warning if they re-introduce a
+legacy call.
+
+Full repo `go test ./...` green. Doc-only commit `816ebd8`.
+
+### Tooling note (not actionable)
+
+`golangci-lint run ./...` panics with "file requires newer
+Go version go1.26 (application built with go1.25)". The
+tool's bundled toolchain is older than something in the
+codebase — pre-existing tooling state, unrelated to this
+session's edits. Per-package runs work fine. Probably worth
+a separate ticket to bump the lint binary, but not in this
+batch.
+
+### Next when resuming
+
+2.1.Y. Pre-flight: re-run the verification grep
+(`grep -rEho 'workdirpath\.[A-Z]' --include='*.go' | grep -v
+internal/workdirpath` should return only `New*Resolver` /
+`New` / `LooksLikeRepoRoot` / `FindRepoRoot{,OrEmpty}`).
+Then move every legacy function body into the corresponding
+new-type method, delete the legacy exports, and consolidate
+the 29 legacy tests with the 56 new-type tests. Most of this
+is mechanical — the new methods are already thin delegators,
+so the move is copy-the-body + delete the wrapper. Internal
+helpers (`splitAbsoluteRoot`, `userTrustAnchor`,
+`removeAllUnderUserConfig`, `writeRootFileAtomic`) stay
+unexported in whichever file makes sense.
