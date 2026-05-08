@@ -142,7 +142,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	// where /plugin and /skill silently swallowed their output.
 	defer m.renderBlocks()
 
-	// /plugin and /plugin:<name>-<ver> [<tool> [json-args]] — routed
+	// /plugin and /plugin:<name>[-<ver>] [<tool> [json-args]] — routed
 	// before the switch since the plugin-name suffix is dynamic.
 	if parts[0] == "/plugin" || strings.HasPrefix(parts[0], "/plugin:") {
 		return m.handlePluginSlash(parts)
@@ -955,12 +955,19 @@ func (m *Model) handleDescribeSlash(parts []string) {
 	m.appendBlock(block{kind: "system", body: "description set: " + text})
 }
 
-// handlePluginSlash routes `/plugin` and `/plugin:<name>-<ver>` forms:
+// handlePluginSlash routes `/plugin` and `/plugin:<name>[-<ver>]` forms:
 //
 //	/plugin                                      → list installed plugins
-//	/plugin:<name>-<ver>                         → list that plugin's tools
-//	/plugin:<name>-<ver> <tool>                  → run with args={}
-//	/plugin:<name>-<ver> <tool> {"key":"val",…}  → run with supplied JSON
+//	/plugin:<name>                               → list active version's tools
+//	/plugin:<name> <tool>                        → run active version with args={}
+//	/plugin:<name>-<ver>                         → list that pinned version's tools
+//	/plugin:<name>-<ver> <tool>                  → run pinned version with args={}
+//	/plugin:<name> <tool> {"key":"val",…}        → run with supplied JSON
+//
+// Bare-name resolution uses runtime.ResolveInstalledPluginDir so the
+// active version (per `stado plugin use`, otherwise highest semver)
+// is selected. The literal `<name>-<version>` form remains for pinning
+// to a specific installed version.
 //
 // Verifies manifest signature + wasm digest against the trust store on
 // every invocation (cheap, and catches a tampered-after-install plugin
@@ -1052,22 +1059,38 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	if nameVer == "" {
 		m.appendBlock(block{
 			kind: "system",
-			body: "usage: /plugin:<name>-<version> <tool> [json-args]  (see /plugin to list installed)",
+			body: "usage: /plugin:<name> <tool> [json-args]  (append -<version> to pin; see /plugin to list installed)",
 		})
 		return nil
 	}
 
+	// Resolve the install directory. Two-tier order, mirroring
+	// handlePluginReload: try the literal `<name>-<version>` form
+	// across all plugin roots first; if that path doesn't exist on
+	// disk, fall back to bare-name → active-version resolution.
+	// Bare-name lookup is single-root (global state-dir/plugins) by
+	// ResolveInstalledPluginDir's design — to address a project-local
+	// pinned version, operators must use the literal form.
+	//
+	// InstalledDirInAny only fails on syntactically invalid ids
+	// (containing path separators, ".", "..") — a missing dir falls
+	// through to roots[0]'s joined path with err=nil. So existence
+	// is checked separately below and drives the bare-name fallback.
 	pluginDir, err := plugins.InstalledDirInAny(pluginRoots, nameVer)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "plugin: " + err.Error()})
 		return nil
 	}
-	if _, err := os.Stat(pluginDir); err != nil {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("plugin %q not installed (run `stado plugin install <dir>` first)", nameVer),
-		})
-		return nil
+	if _, statErr := os.Stat(pluginDir); statErr != nil {
+		if dir, ok := runtime.ResolveInstalledPluginDir(cfg, nameVer); ok {
+			pluginDir = dir
+		} else {
+			m.appendBlock(block{
+				kind: "system",
+				body: fmt.Sprintf("plugin %q not installed (run `stado plugin install <dir>` first)", nameVer),
+			})
+			return nil
+		}
 	}
 
 	mf, sig, err := plugins.LoadFromDir(pluginDir)

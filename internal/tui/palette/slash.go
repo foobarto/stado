@@ -46,7 +46,7 @@ var Commands = []Command{
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
-	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name>-<ver> <tool> [json]", "", "Session"},
+	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name> <tool> [json] (append -<ver> to pin)", "", "Session"},
 	{"/switch", "Open the session manager", "ctrl+x l", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
 	{"/subagents", "List recent spawned child sessions, status, and adoption commands", "", "Session"},

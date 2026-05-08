@@ -199,6 +199,57 @@ func TestPluginSlash_PerPluginListsTools(t *testing.T) {
 	}
 }
 
+// TestPluginSlash_BareNameResolvesToActiveVersion: `/plugin:<name>`
+// (no `-<version>` suffix) must resolve to the installed active
+// version. Previously the slash handler only accepted the literal
+// `<name>-<version>` directory id and surfaced "not installed" for
+// the bare-name form, even when the listing block (and the trailing
+// hint) advertised /plugin:<name>.
+func TestPluginSlash_BareNameResolvesToActiveVersion(t *testing.T) {
+	m := newPluginTestModel(t)
+	installFakePlugin(t, "demo-0.0.1", plugins.Manifest{
+		Name:    "demo",
+		Version: "0.0.1",
+		Author:  "test",
+		Tools:   []plugins.ToolDef{{Name: "greet", Description: "say hi"}},
+	})
+
+	// Bare-name run should land past resolution and into the
+	// signature-verify path (the fake plugin is unsigned, so verify
+	// fails — that's the same advisory the literal-form test asserts).
+	m.handleSlash("/plugin:demo greet")
+	body := m.blocks[len(m.blocks)-1].body
+	if strings.Contains(body, "not installed") {
+		t.Fatalf("bare name should resolve via active-version pin, got %q", body)
+	}
+	if !strings.Contains(body, "signature") && !strings.Contains(body, "trust") {
+		t.Errorf("expected signature/trust error after bare-name resolves, got %q", body)
+	}
+}
+
+// TestPluginSlash_BareNameListsTools: `/plugin:<name>` with no tool
+// argument must reach the per-plugin tools listing route via active-
+// version resolution. Asserts the same surface as the literal-form
+// list test (signature-error, since the fixture is unsigned).
+func TestPluginSlash_BareNameListsTools(t *testing.T) {
+	m := newPluginTestModel(t)
+	installFakePlugin(t, "demo-0.0.1", plugins.Manifest{
+		Name:    "demo",
+		Version: "0.0.1",
+		Author:  "test",
+		Tools:   []plugins.ToolDef{{Name: "greet", Description: "say hi"}},
+	})
+
+	m.handleSlash("/plugin:demo")
+	body := m.blocks[len(m.blocks)-1].body
+	if strings.Contains(body, "not installed") {
+		t.Fatalf("bare-name list should resolve, got %q", body)
+	}
+	if !strings.Contains(body, "signature") && !strings.Contains(body, "trust") {
+		t.Errorf("expected signature/trust error after bare-name resolves, got %q", body)
+	}
+}
+
 // TestPluginSlash_UnknownToolName: the per-plugin route resolves but
 // the named tool isn't declared — must produce a clear hint pointing
 // back at /plugin:<name> for discovery.
