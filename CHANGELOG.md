@@ -6,6 +6,93 @@ Plugins / Infra / Fixes.
 
 ## Unreleased
 
+Code-quality refactor program (2026-Q2). Behaviour-preserving
+across the program except where explicitly noted; the public CLI
++ ABI surface is unchanged. Plan in
+`docs/superpowers/plans/2026-05-07-refactor-program.md`.
+
+### Infra
+
+- **`internal/workdirpath` API simplification (A2).** The 23
+  exported legacy fns (`Resolve`, `OpenRootNoSymlink`,
+  `MkdirAllUnderUserConfig`, the `*Root*` family, etc.) are gone
+  from the public surface. Four narrow resolver types
+  (`Resolver`, `UserConfigResolver`, `StrictResolver`,
+  `RootResolver`) own the API by trust model. Callers across
+  17 packages migrated. Internal impls preserved as private
+  package-helpers — same security-critical no-symlink walks, just
+  visibility-narrowed. Phase 2.1 / commits through `492e0de`.
+- **TUI `Update` dispatcher split (A3).** `internal/tui/model_update.go`
+  was a single 1544-line `Update()` with a giant type-switch.
+  Now ~100 LoC dispatcher routing to per-family handlers in 5
+  sibling files: `handler_lifecycle.go` (window/title/log/loop/
+  monitor/recovery), `handler_stream.go` (provider streaming),
+  `handler_tools.go` (tool/plugin events), `handler_picker_response.go`
+  (picker-active KeyMsg dispatch), `handler_input.go`
+  (KeyMsg + MouseMsg). Phase 2.3 / commit `6f2208f`.
+- **TUI `model_render.go` shrink (A1).** From 1937 to 302 LoC.
+  Eight per-concern in-package extractions: `sidebar.go`,
+  `landing.go`, `quit_confirm.go`, `input_box.go`, `approval.go`,
+  `choice.go`, `status_bar.go`, `blocks_render.go`. The plan's
+  unified `Overlay`/`Picker` interface goal was deliberately
+  scoped out (decision D14): the 5 "overlays" turned out to have
+  3 different composition models in `View()` and a single
+  interface couldn't honestly cover them. Phase 2.2 / commits
+  through `20fc54f`.
+- **`internal/config/config.go` split (B1).** From 986 to 735 LoC.
+  System-prompt-template lifecycle moved to
+  `system_prompt_template.go`; per-config-dir / per-state-dir
+  path resolution moved to `paths.go`. Phase 3.1 / commit
+  `8ea8ab1`.
+- **Bundled tool schema builder (B2).** New
+  `internal/runtime/schema` package with composable helpers
+  (`Object`, `Props`, `String`, `Integer`, `Array`,
+  `StringEnum`, `Empty`). All 34 bundled wasm tools' input
+  schemas migrated from inline `map[string]any` literals
+  (143 → 1 deliberate any-shape literal). Phase 3.2 /
+  commits `bfcf586` + `1c28fa4`.
+- **Phase 1 plugin-host bridge contract tests** (already shipped
+  in earlier work; this branch carries forward 47 + 13 + 17
+  contract tests as the regression baseline for the program).
+
+### Fixes
+
+- **Bazzite / Atomic-Fedora `RemoveAll` gap.** EP-0028 added
+  `*UnderUserConfig` resolution for read/open/mkdir but missed
+  RemoveAll. Five caller sites
+  (`cmd/stado/{session,agents,plugin_gc,plugin_install}.go`,
+  `internal/tui/model_sessions.go`) were broken on hosts where
+  `/home → /var/home` is a system symlink — `stado session
+  delete` and friends rejected at the `/home` component.
+  `UserConfigResolver.RemoveAll` closes the gap. Behavior change
+  carve-out (D13). Commit `b1b0b23`.
+- **`tools__list_categories` and `tools__in_category` always
+  returned empty.** A `toolCategoried` interface in
+  `internal/runtime/meta_tools.go` had zero implementations;
+  every type-assertion fell through silently. Rewired to use
+  `LookupToolMetadata(name).Categories` per EP-0037 §C — the
+  two meta tools now actually surface the bundled tool taxonomy.
+  `tools__list` / `tools__describe` outputs now include a
+  `categories` field for tools with metadata. Commit `e1fc00f`.
+
+### Internal
+
+- Code paths that pass the workdirpath migration are quietly
+  cleaner: per-package callers now hold a `*Resolver` /
+  `*UserConfigResolver` instead of repeating workdir / anchor
+  args in every call. No semantic change.
+
+### Not landing in this release
+
+- **B3 (bridge lifecycle interface).** The plan called for a
+  shared `Bridge` interface (Init/Dispose/Name) on
+  `Session/Memory/Approval/Choice/Fleet`. Audit found zero
+  bridges with Close/Dispose work, no shared setup loop to
+  factor, no log line that would benefit from `Name()`. Skipped
+  — adding the interface as no-ops would be ceremony without
+  consolidation. Notes in journal; revisit if a real lifecycle
+  caller emerges.
+
 ## v0.46.1 — Dependency bumps + CI maintenance
 
 Patch release: dependabot backlog cleared, no behaviour changes for
