@@ -50,6 +50,74 @@ func TestMetaCategories_ValidJSON(t *testing.T) {
 	}
 }
 
+// TestMetaCategories_SurfacesBundledTaxonomy regresses the bug where
+// `tools__categories` always returned an empty list. The underlying
+// type-assertion `t.(toolCategoried)` had zero matching
+// implementations; now metaCategories reads from
+// LookupToolMetadata(name).Categories per EP-0037 §C, so the bundled
+// fs/code-edit/code-search/etc. taxonomy is visible. (Post commit
+// e1fc00f.)
+func TestMetaCategories_SurfacesBundledTaxonomy(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaCategories{reg: reg}
+	res, err := tool.Run(context.Background(), []byte(`{}`), nil)
+	if err != nil {
+		t.Fatalf("metaCategories.Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("res.Error = %q", res.Error)
+	}
+	// Bundled fs.* tools declare "filesystem"; bundled fs.write +
+	// fs.edit also declare "code-edit"; bundled fs.grep declares
+	// "code-search". At least one should land — the test pins that
+	// the underlying lookup is wired, not that any single category is
+	// load-bearing.
+	if !strings.Contains(res.Content, `"filesystem"`) &&
+		!strings.Contains(res.Content, `"code-edit"`) &&
+		!strings.Contains(res.Content, `"code-search"`) {
+		t.Fatalf("expected bundled taxonomy entries; got: %s", res.Content)
+	}
+}
+
+// TestMetaInCategory_FindsBundledMembers regresses the same bug for
+// `tools__in_category`. Pre-fix the tool always returned [] regardless
+// of input.
+func TestMetaInCategory_FindsBundledMembers(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaInCategory{reg: reg}
+	res, err := tool.Run(context.Background(), []byte(`{"name":"filesystem"}`), nil)
+	if err != nil {
+		t.Fatalf("metaInCategory.Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("res.Error = %q", res.Error)
+	}
+	// fs.read / fs.write / fs.edit / fs.glob / fs.grep all carry the
+	// "filesystem" category in tool_metadata.go.
+	if !strings.Contains(res.Content, `"fs__read"`) {
+		t.Fatalf("expected fs__read in filesystem category; got: %s", res.Content)
+	}
+}
+
+// TestMetaSearch_IncludesCategoriesField confirms the pass-through
+// surface change: tools__search (the per-tool list output) now
+// includes a "categories" field for tools whose metadata has them.
+// Pre-fix the field never appeared.
+func TestMetaSearch_IncludesCategoriesField(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	tool := &metaSearch{reg: reg}
+	res, err := tool.Run(context.Background(), []byte(`{"limit":200}`), nil)
+	if err != nil {
+		t.Fatalf("metaSearch.Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("res.Error = %q", res.Error)
+	}
+	if !strings.Contains(res.Content, `"categories"`) {
+		t.Fatalf("expected `categories` field in tools__search output; got: %s", res.Content)
+	}
+}
+
 // TestMetaDescribe_SingleName: `name` (string) selects one tool.
 func TestMetaDescribe_SingleName(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
