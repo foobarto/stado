@@ -590,7 +590,15 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 // module under its capability-bound Host, invokes the tool, and posts
 // the outcome back via pluginRunResultMsg. Hard-capped at 30s so a
 // runaway plugin can't wedge the TUI.
-func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, wasmBytes []byte, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge) tea.Cmd {
+//
+// `print` and `render` bridges are attached when non-nil so plugins
+// declaring `ui:print` / `ui:render` from the /tool or /plugin: slash
+// path see the operator's surface (F9a, F9b). Pre-fix these were
+// only wired through the agent loop's hostAdapter — operator-driven
+// invocations never saw the panel/print emit because pluginrun.Run
+// uses attachLifecycleBridges to pick them off the host, and the
+// host built here didn't carry them.
+func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, wasmBytes []byte, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge, print pluginRuntime.PrintBridge, render pluginRuntime.RenderBridge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -607,6 +615,16 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, td
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
 		host.ApprovalBridge = approval
+		// F9a / F9b: attach print + render bridges when supplied, so
+		// plugins emitting via `stado_ui_print` / `stado_ui_render`
+		// from operator-driven invocations (/tool, /plugin:) reach
+		// the TUI surface — not just from agent-loop tool calls.
+		if print != nil {
+			host.PrintBridge = print
+		}
+		if render != nil {
+			host.RenderBridge = render
+		}
 		attachMemoryBridge(cfg, host, mf.Name)
 		// Attach the session bridge only when the plugin declared at
 		// least one session/LLM capability AND the caller supplied a

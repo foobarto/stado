@@ -10,7 +10,7 @@ import (
 
 func TestRunPluginToolAsyncRejectsOversizedArgsBeforeRuntime(t *testing.T) {
 	cmd := runPluginToolAsync(nil, "", nil, plugins.ToolDef{Name: "compact"},
-		strings.Repeat("x", toolinput.MaxBytes+1), "test-plugin", nil, nil, nil)
+		strings.Repeat("x", toolinput.MaxBytes+1), "test-plugin", nil, nil, nil, nil, nil)
 
 	msg, ok := cmd().(pluginRunResultMsg)
 	if !ok {

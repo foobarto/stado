@@ -1175,7 +1175,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	})
 	m.renderBlocks()
 
-	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m})
+	return runPluginToolAsync(m.cfg, pluginDir, mf, *tdef, argsJSON, nameVer, wasmBytes, m.buildPluginBridge(mf.Name), tuiApprovalBridge{model: m}, tuiPrintBridge{model: m}, tuiRenderBridge{model: m})
 }
 
 // toolManageVerbs is the set of /tool sub-verbs that flow to the
@@ -1307,7 +1307,8 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 		})
 		m.renderBlocks()
 		return runPluginToolAsync(cfg, cwd, &manifest, bareToolDef, argsJSON,
-			manifest.Name, wasmBytes, m.buildPluginBridge(manifest.Name), approval)
+			manifest.Name, wasmBytes, m.buildPluginBridge(manifest.Name), approval,
+			tuiPrintBridge{model: m}, tuiRenderBridge{model: m})
 	}
 
 	// Installed-plugin tool dispatch.
@@ -1342,7 +1343,8 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 		m.renderBlocks()
 		return runPluginToolAsync(cfg, filepath.Dir(wasmPath), &mfst, *tdef, argsJSON,
 			mfst.Name+"-"+mfst.Version, wasmBytes,
-			m.buildPluginBridge(mfst.Name), approval)
+			m.buildPluginBridge(mfst.Name), approval,
+			tuiPrintBridge{model: m}, tuiRenderBridge{model: m})
 	}
 
 	m.appendBlock(block{

@@ -27,7 +27,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -385,6 +387,207 @@ func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
 			}
 			t.Logf("✓ %s", sc.name)
 		}
+		return nil
+	})
+}
+
+// TestBridgeE2E_Stado_RendersPanel is the F9b end-to-end visual
+// check: install render-demo-go via `stado plugin dev`, spawn stado
+// in the bridge, type `/tool render_demo`, snapshot the rendered
+// terminal, and assert the bordered panel from
+// internal/tui/panel_render.go appears with the expected body kinds.
+//
+// This is the "real panel emit through xterm.js" path — covers the
+// chain plugin SDK → stado_ui_render host import → tuiRenderBridge
+// → onPluginRender → renderPanelASCII → bubbletea View() →
+// terminal escape codes → xterm.js → snapshot. The unit tests in
+// internal/tui/render_panel_test.go cover the renderer in isolation;
+// this test covers everything *around* the renderer.
+//
+// Skips when:
+//   - STADO_PTY_BRIDGE_E2E unset (same as the other E2E tests)
+//   - Chrome binary not findable (same as the other E2E tests)
+//   - STADO_BIN not pointing at a real binary
+//   - the render-demo-go source can't be located (test runs outside
+//     the repo, e.g. installed copy of the bridge)
+//   - the wasip1 toolchain isn't available (`go build` for wasm)
+//
+// Allow ~10s walltime: ~3s for the wasip1 wasm build, ~2s for
+// plugin dev (sign + trust + install), ~3s for the bridge + stado
+// startup, ~2s for the snapshot polling. Whichever is slowest sets
+// the floor.
+func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
+	stadoBin := os.Getenv("STADO_BIN")
+	if stadoBin == "" {
+		stadoBin = "stado"
+	}
+	stadoBinAbs, err := exeLookup(stadoBin)
+	if err != nil {
+		t.Skipf("STADO_BIN not found: %v", err)
+	}
+
+	// Locate the render-demo-go source. The test file lives at
+	// <repo>/hack/pty-bridge/bridge_uat_test.go; the demo lives at
+	// <repo>/plugins/examples/render-demo-go/. runtime.Caller(0)
+	// gives us the test file's path so we can derive the repo root
+	// without env-var ceremony.
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("runtime.Caller failed; cannot locate render-demo-go source")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
+	demoSrc := filepath.Join(repoRoot, "plugins", "examples", "render-demo-go")
+	if _, err := os.Stat(filepath.Join(demoSrc, "main.go")); err != nil {
+		t.Skipf("render-demo-go source not found at %s: %v", demoSrc, err)
+	}
+
+	// Isolate XDG so the dev install only touches our scratch.
+	// Bridge inherits env from this test process via os.Environ()
+	// (hack/pty-bridge/main.go::spawnPTY), so the spawned stado
+	// sees the temp XDG too. Don't override HOME — Chrome lookup
+	// (findChrome / chromeUserDataDir) reads ~/.local/bin/chrome
+	// and ~/Downloads, both of which need the real home dir to
+	// work. With all three XDG vars set, stado falls back to those
+	// rather than HOME-derived defaults.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	// Stage the demo into a temp dir so we don't mutate the
+	// source-controlled plugin directory (`stado plugin dev`
+	// generates plugin.wasm, plugin.manifest.json, and the dev seed
+	// alongside the source).
+	stagingDir := t.TempDir()
+	for _, name := range []string{"main.go", "go.mod", "plugin.manifest.template.json"} {
+		src := filepath.Join(demoSrc, name)
+		dst := filepath.Join(stagingDir, name)
+		body, readErr := os.ReadFile(src)
+		if readErr != nil {
+			t.Fatalf("copy %s: %v", name, readErr)
+		}
+		if writeErr := os.WriteFile(dst, body, 0o644); writeErr != nil {
+			t.Fatalf("write %s: %v", dst, writeErr)
+		}
+	}
+
+	// Build the wasm. The dev install path computes wasm_sha256 from
+	// the bytes on disk, so the wasm has to exist before the dev
+	// command runs.
+	buildCmd := exec.Command("go", "build",
+		"-buildmode=c-shared",
+		// -buildvcs=false because the staging dir isn't under git;
+		// without it, `go build` aborts with "error obtaining VCS
+		// status" on Go ≥1.21.
+		"-buildvcs=false",
+		"-o", filepath.Join(stagingDir, "plugin.wasm"),
+		".")
+	buildCmd.Dir = stagingDir
+	buildCmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Skipf("wasm build failed (no wasip1 toolchain?): %v\n%s", err, out)
+	}
+
+	// Run `stado plugin dev` to sign + trust + install. Captures
+	// stderr too so failures surface in the test log.
+	devCmd := exec.Command(stadoBinAbs, "plugin", "dev", stagingDir)
+	if out, err := devCmd.CombinedOutput(); err != nil {
+		t.Fatalf("stado plugin dev failed: %v\n%s", err, out)
+	}
+
+	// Sanity check: tool list should now show render_demo.
+	listCmd := exec.Command(stadoBinAbs, "tool", "list")
+	listOut, _ := listCmd.CombinedOutput()
+	if !strings.Contains(string(listOut), "render_demo") {
+		t.Fatalf("render_demo not in tool list after `plugin dev`:\n%s", listOut)
+	}
+
+	// Drive the bridge + stado.
+	baseURL, token := startBridgeInProcess(t)
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		startCmd := fmt.Sprintf(`(function(){
+			document.getElementById('cmd').value = %q;
+			document.getElementById('args').value = '';
+			window.bridge.connect();
+			return true;
+		})()`, stadoBinAbs)
+		if err := chromedp.Run(ctx, chromedp.Evaluate(startCmd, nil)); err != nil {
+			return fmt.Errorf("connect stado: %w", err)
+		}
+
+		// Wait for the landing screen.
+		landingMatch := pollEval(ctx, t,
+			`window.bridge && window.bridge.snapshot ? (window.bridge.snapshot().toLowerCase().indexOf('ctrl+p') >= 0) : false`,
+			15*time.Second, 100*time.Millisecond)
+		if !landingMatch {
+			var snap string
+			_ = chromedp.Run(ctx, chromedp.Evaluate(`window.bridge ? window.bridge.snapshot() : 'no bridge'`, &snap))
+			return fmt.Errorf("landing screen never showed; snapshot:\n%s", snap)
+		}
+
+		// Type `/tool render_demo` then Enter. Each char goes through
+		// the bridge sendKeys path; the trailing \r is the canonical
+		// Enter encoding the bridge already documents in its README.
+		// Backslash-encoded as literal escape so the shell doesn't
+		// reinterpret the carriage return inside the JS string
+		// literal.
+		typeCmd := `window.bridge.sendKeys('/tool render_demo\r')`
+		if err := chromedp.Run(ctx, chromedp.Evaluate(typeCmd, nil)); err != nil {
+			return fmt.Errorf("type /tool render_demo: %w", err)
+		}
+
+		// Wait for the panel to render. The TUI's bordered system
+		// block from panel_render.go uses lipgloss.RoundedBorder
+		// box chars. Bubbletea runs in the terminal's alt-screen
+		// (no scrollback), and the rendered panel is significantly
+		// taller than the xterm.js viewport — by the time the plugin
+		// returns and we snapshot, the conversation pane has scrolled
+		// to keep the latest content (result line + tail of the
+		// panel) in view. The structural top of the panel
+		// (╭ + title) and the bottom corners (╰ ╯) typically fall
+		// outside the visible alt-screen rectangle.
+		//
+		// What we *can* always observe post-emit:
+		//  (a) the plugin's tool-result confirmation line
+		//      ("render_demo: panel emitted (8 sections)")
+		//  (b) at least one box-drawing │ vertical bar (the panel
+		//      body's left edge)
+		//  (c) at least one section heading from render-demo's
+		//      payload (proof the renderer actually walked the
+		//      sections, not just emitted the title bar)
+		// Together these prove "the panel reached the TUI renderer
+		// AND its body content materialised in the conversation
+		// pane" — which is the F9b end-to-end claim. Pre-the-bridge-
+		// wiring-fix in this same commit, the result line appeared
+		// but no panel content did because runPluginToolAsync
+		// dropped the RenderBridge.
+		panelPredicate := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			// xterm.js wraps at the viewport width, so a long result
+			// line ("plugin render-demo-go-0.1.0/render_demo →
+			// render_demo: panel emitted (8 sections)") splits across
+			// rows in the snapshot — for example "...panel\n
+			// emitted...". Match the two halves independently rather
+			// than relying on byte-contiguity.
+			var resultParts = s.indexOf('render_demo: panel') >= 0 &&
+				s.indexOf('emitted') >= 0 &&
+				s.indexOf('sections') >= 0;
+			var hasBorder = s.indexOf('│') >= 0;
+			var headings = ['Plain text', 'Key/value pairs', 'Numbered list',
+				'Bullet list', 'Checklist', 'Code (language hint)', 'Table', 'Diff'];
+			var sawHeading = false;
+			for (var i = 0; i < headings.length; i++) {
+				if (s.indexOf(headings[i]) >= 0) { sawHeading = true; break; }
+			}
+			return resultParts && hasBorder && sawHeading;
+		})()`
+		panelMatch := pollEval(ctx, t, panelPredicate, 20*time.Second, 200*time.Millisecond)
+		if !panelMatch {
+			var snap string
+			_ = chromedp.Run(ctx, chromedp.Evaluate(`window.bridge.snapshot()`, &snap))
+			return fmt.Errorf("panel never appeared; snapshot:\n%s", snap)
+		}
+		t.Logf("✓ panel reached renderer: result line + border char + at least one section heading visible")
 		return nil
 	})
 }
