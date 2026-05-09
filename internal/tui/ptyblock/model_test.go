@@ -210,6 +210,73 @@ func (f *fakeResizer) Resize(id uint64, cols, rows uint16) error {
 	return nil
 }
 
+// fakeVersionedSnap implements VersionedSnapshotter and counts
+// SnapshotIfChanged calls so tests can assert the model used the
+// versioned path. Always returns the configured frame; the version
+// it produces increments only when bumpVersion is called externally.
+type fakeVersionedSnap struct {
+	frame   *pty.Screen
+	version uint64
+	calls   int
+	calls2  int // versioned-path calls
+}
+
+func (f *fakeVersionedSnap) Snapshot(uint64) (*pty.Screen, error) {
+	f.calls++
+	if f.frame != nil {
+		f.frame.Version = f.version
+	}
+	return f.frame, nil
+}
+func (f *fakeVersionedSnap) SnapshotIfChanged(_, sinceVersion uint64) (*pty.Screen, uint64, error) {
+	f.calls2++
+	if sinceVersion == f.version {
+		return nil, sinceVersion, nil
+	}
+	if f.frame != nil {
+		f.frame.Version = f.version
+	}
+	return f.frame, f.version, nil
+}
+
+// TestModel_UsesVersionedSnapshotterWhenAvailable: when the wired
+// Snapshotter implements VersionedSnapshotter, the tick uses
+// SnapshotIfChanged and frame=nil from "no change" replies leaves
+// the cached frame intact. Locks the perf-critical path that lets
+// many idle blocks coexist without burning host snapshot cycles.
+func TestModel_UsesVersionedSnapshotterWhenAvailable(t *testing.T) {
+	frame := fixture("hello")
+	snap := &fakeVersionedSnap{frame: frame, version: 1}
+	m := New(1, 80, 24, snap, nil)
+
+	// Initial snapshotMsg with the first frame.
+	m, _ = m.Update(snapshotMsg{frame: frame, version: 1})
+	if m.lastVersion != 1 {
+		t.Errorf("lastVersion after first snapshot = %d, want 1", m.lastVersion)
+	}
+
+	// "No change" snapshotMsg: frame=nil, version=1. Cached frame
+	// must remain — view should still render "hello."
+	m, _ = m.Update(snapshotMsg{frame: nil, version: 1})
+	if m.frame == nil {
+		t.Errorf("Update(no-change) cleared cached frame; should keep it")
+	}
+	if !strings.Contains(stripANSI(m.View()), "hello") {
+		t.Errorf("View after no-change tick lost the cached content")
+	}
+
+	// "Changed" snapshotMsg: new frame, new version. Cached frame
+	// updates.
+	frame2 := fixture("world")
+	m, _ = m.Update(snapshotMsg{frame: frame2, version: 2})
+	if !strings.Contains(stripANSI(m.View()), "world") {
+		t.Errorf("Update(new frame) didn't refresh cached content")
+	}
+	if m.lastVersion != 2 {
+		t.Errorf("lastVersion = %d, want 2", m.lastVersion)
+	}
+}
+
 type fakeWriter struct {
 	writes [][]byte
 }

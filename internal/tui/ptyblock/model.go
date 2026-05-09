@@ -22,6 +22,22 @@ type Snapshotter interface {
 	Snapshot(id uint64) (*pty.Screen, error)
 }
 
+// VersionedSnapshotter is the optional Snapshotter extension that
+// supports cheap "did anything change" checks via a per-session
+// version counter. When wired, the Model uses SnapshotIfChanged
+// instead of Snapshot — at 30 Hz × N visible blocks, skipping the
+// full cell-grid copy on no-change ticks is the difference between
+// a TUI that hums along with 10 live PTYs and one that pegs a CPU.
+//
+// pty.Manager satisfies this since the version-aware snapshot work;
+// daemon-routed snapshots will gain it via a future wire-protocol
+// extension. A snapshotter that only implements the basic interface
+// keeps working — Model falls back to full Snapshot per tick.
+type VersionedSnapshotter interface {
+	Snapshotter
+	SnapshotIfChanged(id, sinceVersion uint64) (*pty.Screen, uint64, error)
+}
+
 // Writer is the optional interface for sending keystrokes to a session.
 // Day 2 (this commit) doesn't drive input yet — the block is read-only
 // until Day 3 wires the TAB/SHIFT-TAB input router. Defining the
@@ -80,6 +96,14 @@ type Model struct {
 	// frame is the most recent snapshot. nil before the first tick;
 	// View handles that case with an empty placeholder.
 	frame *pty.Screen
+
+	// lastVersion tracks frame's pty.Screen.Version. When the
+	// Snapshotter implements VersionedSnapshotter (production path),
+	// the tick uses SnapshotIfChanged(lastVersion) so unchanged
+	// sessions skip the full grid copy + render. Stays 0 (the
+	// version pty.Manager assigns to fresh sessions before any drain
+	// output) until the first frame arrives.
+	lastVersion uint64
 
 	// state distinguishes polling from ended. Once ended, no more
 	// ticks are queued; View() renders the last frame statically.
@@ -270,11 +294,18 @@ func (m Model) tickEvery() time.Duration {
 }
 
 // snapshotMsg is the bubbletea message produced by each tick. Carries
-// either the new frame or the snapshot error (typed separately so
-// session-ended is distinguishable from a transient lookup miss).
+// either a new frame, an empty-but-valid "no change" signal, or the
+// snapshot error (typed separately so session-ended is distinguishable
+// from a transient lookup miss).
+//
+// frame=nil + err=nil means "no change" — Update keeps the cached
+// frame and just queues the next tick. version is the latest
+// observed value regardless of whether a frame was returned, so
+// lastVersion stays current for the next SnapshotIfChanged call.
 type snapshotMsg struct {
-	frame *pty.Screen
-	err   error
+	frame   *pty.Screen
+	version uint64
+	err     error
 }
 
 // Init queues the first snapshot tick. Bubbletea calls this when the
@@ -286,15 +317,30 @@ func (m Model) Init() tea.Cmd {
 }
 
 // tick returns a tea.Cmd that fires after the focus-aware interval
-// and produces a snapshotMsg. The cmd captures m.snap and m.id at
-// scheduling time; the model's tick rate / snapshotter cannot change
-// mid-tick (next tick picks up the new values, including any focus
-// state change since the last tick).
+// and produces a snapshotMsg. The cmd captures m.snap, m.id, and
+// the current lastVersion at scheduling time; the model's tick rate
+// / snapshotter cannot change mid-tick.
+//
+// When m.snap implements VersionedSnapshotter (production path),
+// uses SnapshotIfChanged so unchanged sessions skip the full
+// cell-grid copy + render. The msg's frame is nil in that case,
+// which Update treats as "keep the cached frame, no redraw needed."
 func (m Model) tick() tea.Cmd {
 	interval := m.tickEvery()
+	snap := m.snap
+	id := m.id
+	lastVersion := m.lastVersion
 	return tea.Tick(interval, func(time.Time) tea.Msg {
-		frame, err := m.snap.Snapshot(m.id)
-		return snapshotMsg{frame: frame, err: err}
+		if v, ok := snap.(VersionedSnapshotter); ok {
+			frame, ver, err := v.SnapshotIfChanged(id, lastVersion)
+			return snapshotMsg{frame: frame, version: ver, err: err}
+		}
+		frame, err := snap.Snapshot(id)
+		var ver uint64
+		if frame != nil {
+			ver = frame.Version
+		}
+		return snapshotMsg{frame: frame, version: ver, err: err}
 	})
 }
 
@@ -320,7 +366,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			return m, m.tick()
 		}
 		m.lastErr = nil
-		m.frame = msg.frame
+		m.lastVersion = msg.version
+		// frame=nil from a successful snapshot means "no change since
+		// lastVersion" — keep the cached frame and just re-tick. Avoids
+		// the full View() re-render that would otherwise happen on
+		// every tick for an idle PTY (cat sitting at a prompt =
+		// 30 useless re-renders/sec at the focused tick rate).
+		if msg.frame != nil {
+			m.frame = msg.frame
+		}
 		return m, m.tick()
 	case tea.WindowSizeMsg:
 		// Embedding TUI's WindowSizeMsg is the parent terminal size,

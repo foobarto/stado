@@ -195,6 +195,19 @@ type session struct {
 	// a quick command whose child exits before the client attaches
 	// would lose its final buffered output to the watchdog.
 	closedAt time.Time
+
+	// version is monotonically incremented on every drain write
+	// (every chunk of bytes produced by the underlying PTY's
+	// child process). Snapshot consumers use it to skip the full
+	// cell-grid copy when nothing's changed since their last
+	// snapshot — see SnapshotVersion below + ptyblock.Model's
+	// version-aware tick.
+	//
+	// Bumped under s.mu like everything else. Wrap-around at 2^64
+	// is a non-concern: at one bump per drain chunk, even a hot
+	// PTY emitting bytes at every kernel tick takes hundreds of
+	// thousands of years.
+	version uint64
 }
 
 // defaultClosedReapGrace is the production default for ManagerOpts.
@@ -488,6 +501,7 @@ func (s *session) drain() {
 			dropped := s.ring.Write(buf[:n])
 			s.dropped += dropped
 			_, _ = s.vt.Write(buf[:n])
+			s.version++ // bump for SnapshotVersion-aware consumers
 			// Drain output is observability-only: it tells List a
 			// session is producing bytes. It does NOT refresh the
 			// orphan clock — a noisy-but-abandoned process should

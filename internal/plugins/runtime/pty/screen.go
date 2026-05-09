@@ -24,6 +24,11 @@ import "github.com/hinshun/vt10x"
 // pulling a snapshot during another caller's read race-free; vt10x's
 // internal state is read while we hold session.mu, which the drain
 // goroutine also takes before writing.
+//
+// The Version field on the returned Screen lets polling consumers
+// (TUI ptyblock, etc.) skip work when nothing's changed: cache the
+// last-seen Version, then call SnapshotVersion before re-allocating
+// a full grid. See SnapshotIfChanged for the convenience wrapper.
 func (m *Manager) Snapshot(id uint64) (*Screen, error) {
 	s, err := m.get(id)
 	if err != nil {
@@ -32,6 +37,64 @@ func (m *Manager) Snapshot(id uint64) (*Screen, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.touch()
+	return snapshotLocked(s), nil
+}
+
+// SnapshotVersion returns the current per-session change counter
+// without copying the cell grid. Counter increments on every drain
+// chunk (see session.version). Cheap — just a lock + uint64 read.
+//
+// Caller pattern:
+//
+//	v, err := mgr.SnapshotVersion(id)
+//	if err != nil { return err }
+//	if v == lastSeen { return /* no change */ }
+//	scr, err := mgr.Snapshot(id) // will return Version v
+//	lastSeen = scr.Version
+//
+// Or use SnapshotIfChanged for the same shape in one call.
+//
+// Note: SnapshotVersion does NOT touch lastClientTouch — it's a
+// read-only peek and shouldn't keep an otherwise-idle session alive
+// against the watchdog. Snapshot does touch (active client interest).
+func (m *Manager) SnapshotVersion(id uint64) (uint64, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	v := s.version
+	s.mu.Unlock()
+	return v, nil
+}
+
+// SnapshotIfChanged returns the current screen iff its Version
+// differs from sinceVersion. When unchanged, returns (nil, sinceVersion,
+// nil) — the caller's existing frame is still authoritative. When
+// changed (or sinceVersion is 0 / not yet known), allocates and
+// returns the fresh screen.
+//
+// Always touches lastClientTouch (the caller is actively polling),
+// regardless of whether a snapshot was produced. Without this,
+// version-poll consumers would silently fall behind the watchdog.
+func (m *Manager) SnapshotIfChanged(id, sinceVersion uint64) (*Screen, uint64, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return nil, 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.touch()
+	if s.version == sinceVersion {
+		return nil, sinceVersion, nil
+	}
+	return snapshotLocked(s), s.version, nil
+}
+
+// snapshotLocked builds a Screen from the session's emulator state.
+// Caller must hold s.mu. Shared between Snapshot and
+// SnapshotIfChanged so both paths produce identical output.
+func snapshotLocked(s *session) *Screen {
 	cols := int(s.cols)
 	rows := int(s.rows)
 	cells := make([][]Cell, rows)
@@ -50,23 +113,30 @@ func (m *Manager) Snapshot(id uint64) (*Screen, error) {
 	}
 	cur := s.vt.Cursor()
 	return &Screen{
-		Cols:   cols,
-		Rows:   rows,
-		Cells:  cells,
-		Cursor: CursorPos{X: cur.X, Y: cur.Y, Visible: s.vt.CursorVisible()},
-		Title:  s.vt.Title(),
-	}, nil
+		Cols:    cols,
+		Rows:    rows,
+		Cells:   cells,
+		Cursor:  CursorPos{X: cur.X, Y: cur.Y, Visible: s.vt.CursorVisible()},
+		Title:   s.vt.Title(),
+		Version: s.version,
+	}
 }
 
 // Screen is a render-time-frozen view of the emulator. Cells is
 // indexed [row][col]; both axes are 0-based. Cells outside the grid
 // (e.g. when a row is short of cols) are not represented — every row
 // is exactly Cols wide.
+//
+// Version is the per-session change counter at the time of snapshot.
+// Polling consumers cache the last-seen Version and skip the next
+// full snapshot when SnapshotVersion (or SnapshotIfChanged) reports
+// no change. Bumps once per drain chunk; never wraps in practice.
 type Screen struct {
 	Cols, Rows int
 	Cells      [][]Cell
 	Cursor     CursorPos
 	Title      string
+	Version    uint64
 }
 
 // Cell is one grid position. Char==0 means the glyph slot is empty
