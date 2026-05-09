@@ -1052,6 +1052,73 @@ func TestBridgeE2E_Stado_PaletteFilter(t *testing.T) {
 	})
 }
 
+// TestBridgeE2E_Stado_LandingReflow verifies that the bare landing
+// screen reflows correctly at multiple terminal widths (no popup,
+// no conversation). Bridge-only because:
+//   - The landing layout (banner + footer + input box) depends on
+//     terminal width for its positioning math; teatest's fixed
+//     virtual grid can't sweep widths.
+//   - The complementary TestBridgeE2E_Stado_QuitConfirmCentering
+//     covers the popup-overlay reflow at the same three widths,
+//     but with a popup composited on top — this test isolates
+//     base-frame reflow without the overlay distraction.
+//
+// At each width the landing must show the input placeholder
+// (proving the input box rendered at the new width) AND the
+// Plan/Do mode marker in the footer. At the narrow 80×24 size
+// the "ctrl+p commands" hint may wrap; we don't assert it —
+// the input placeholder is the load-bearing signal that the
+// frame is laid out.
+//
+// Spec: AC4 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+func TestBridgeE2E_Stado_LandingReflow(t *testing.T) {
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+
+	for _, dim := range []struct {
+		name          string
+		width, height int64
+	}{
+		{"narrow-80x24", 80, 24},
+		{"normal-120x40", 120, 40},
+		{"wide-160x50", 160, 50},
+	} {
+		t.Run(dim.name, func(t *testing.T) {
+			baseURL, token := startBridgeInProcess(t)
+			driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+				if err := emulateViewport(ctx, dim.width*7, dim.height*16); err != nil {
+					return fmt.Errorf("emulateViewport: %w", err)
+				}
+				if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+					return err
+				}
+				// Two anchors that should always be visible on the
+				// landing screen regardless of viewport width:
+				//   - "Type a message" — the input placeholder text
+				//   - "Do " (with trailing space) — the mode marker
+				//     in the footer (Plan/Do mode indicator)
+				// The "ctrl+p commands" hint sometimes wraps at
+				// narrow widths so we don't anchor on it here.
+				predicate := `(function(){
+					if (!window.bridge || !window.bridge.snapshot) return false;
+					var s = window.bridge.snapshot();
+					var hasInput = s.indexOf('Type a message') >= 0;
+					var hasMode = s.indexOf('Do ') >= 0 || s.indexOf('Plan ') >= 0;
+					return hasInput && hasMode;
+				})()`
+				snap, err := waitForSnapshot(ctx, t, predicate, 10*time.Second)
+				if err != nil {
+					return fmt.Errorf("landing never reflowed at %dx%d: %w; snapshot:\n%s",
+						dim.width, dim.height, err, snap)
+				}
+				t.Logf("✓ landing reflowed at %dx%d (input placeholder + mode marker visible)",
+					dim.width, dim.height)
+				return nil
+			})
+		})
+	}
+}
+
 // TestBridgeE2E_StadoDebug is the diagnostic variant — connects,
 // waits 5s, dumps whatever stado rendered. No assertions; useful
 // when the rendering behaviour changes and you need to see what
