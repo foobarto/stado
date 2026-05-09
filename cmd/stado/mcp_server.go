@@ -186,14 +186,33 @@ func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, ex
 		if err := toolinput.CheckLen(len(argsJSON)); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		res, err := executor.Run(ctx, name, argsJSON, host)
+		// Per-call render bridge collects any stado_ui_render emits
+		// from wasm plugins this dispatch reaches; after Run we pack
+		// them into the CallToolResult alongside the normal content.
+		// One bridge per call so concurrent dispatches don't share
+		// panels. F9b.4.
+		callHost := mcpHostWithRender{
+			stadoMCPHost: host,
+			bridge:       &mcpRenderBridge{},
+		}
+		res, err := executor.Run(ctx, name, argsJSON, callHost)
+		panels := callHost.bridge.drain()
 		if err != nil {
 			return mcp.NewToolResultErrorFromErr("tool run", err), nil
 		}
 		if res.Error != "" {
 			return mcp.NewToolResultError(res.Error), nil
 		}
-		return mcp.NewToolResultText(res.Content), nil
+		// Pack panels alongside the textual content. Per MCP spec,
+		// StructuredContent SHOULD be accompanied by "functionally
+		// equivalent unstructured content" — so the panels are also
+		// rendered to ASCII and appended to the text output for
+		// clients that don't decode the structured field.
+		out := mcp.NewToolResultText(renderPanelsForUnstructuredContent(res.Content, panels))
+		if structured := panelsToStructured(panels); structured != nil {
+			out.StructuredContent = structured
+		}
+		return out, nil
 	})
 }
 

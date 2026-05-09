@@ -32,6 +32,17 @@ const (
 	sectionDivider = "─"
 )
 
+// RenderPanelASCIIPublic exposes renderPanelASCII for callers outside
+// this package (currently the MCP server: it renders panels as the
+// "functionally equivalent unstructured content" the MCP spec asks
+// to accompany StructuredContent). The internal renderPanelASCII
+// stays private as the canonical entry point — public wrapper kept
+// thin so adding theme/width parameters later doesn't churn the
+// public surface unnecessarily. F9b.4.
+func RenderPanelASCIIPublic(panel pluginRuntime.Panel) string {
+	return renderPanelASCII(panel)
+}
+
 // renderPanelASCII renders a Panel into a multi-line bordered string.
 //
 // Layout shape:
