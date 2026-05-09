@@ -376,65 +376,60 @@ result. Expected: a spawned PTY remains visible to `shell.list` and readable by
 `shell.read` for the same `--session`, or `shell.spawn` returns a failure if it
 cannot persist.
 
-## BUG: MCP `web_tech_detect` returns low-level `stado_http_request` error on HTTPS PWM
+## BUG: MCP `web__fetch` returns `stado_http_request returned -1` ~~RESOLVED~~
 
-Observed from the Kali VM while validating HTB Authority with
-`/home/john/bin/stado` version
-`v0.46.2-0.20260508090149-4b5a09d79163+dirty` via a long-lived
-`stado mcp-server`.
+(Folds in the paired `web_tech_detect` report above — same root cause.)
 
-Tool call:
+**Root cause.** `stado_http_request` host import uses a negative-return
+convention to surface structured errors: when the call fails (capability
+denied / host-allowlist mismatch / dial-guard refusal / network error /
+backend HTTP error), the host writes a human-readable error message
+into the plugin's response buffer and returns `-n` where `n` is the
+length of that message (see
+`internal/plugins/runtime/host_imports.go::encodeToolSidePayload` and
+the leading comment block in `host_http_request.go`). Every other
+plugin in this repo that calls `stado_http_request` (`browser`,
+`http-session`, `web-search`, `mcp-client`) reads the message back via
+`respBuf[:-n]` and surfaces it; the bundled `web` module
+(`internal/bundledplugins/modules/web/main.go`) was the lone outlier —
+it just emitted the literal string `"web.fetch: stado_http_request
+returned -1"` and dropped the host-side reason on the floor. Operators
+saw an opaque `-1` instead of e.g. `denied: insufficient capabilities
+…` or `private network address … denied` or the upstream HTTP error.
 
-```json
-{
-  "name": "web_tech_detect",
-  "arguments": {
-    "url": "https://10.129.29.235:8443/pwm/",
-    "insecure": true
-  }
-}
-```
+**Resolution.** Read the host's structured payload back from the buffer
+when `n < 0` and surface it: `respBuf[:-n]` is the message, prefixed
+with `web.fetch: `. Same shape every other plugin already uses; the
+bundled `web` module is now consistent. With this fix the AC2
+reproducer (`stado tool run web.fetch '{"url":"http://10.129.227.148/"}'`)
+returns the real HTTP body when reachable, or a structured failure
+message naming the actual cause when not.
 
-Result:
+**Re. the paired `web_tech_detect` AC1 report.** That tool is a
+third-party plugin not in this repo; we cannot patch it directly.
+However, the `web__fetch` fix demonstrates the canonical pattern, the
+host's negative-return convention is now documented inline at the
+fix site, and `docs/plugins/host-imports.md`'s ABI conventions
+section already describes `-1` semantics. The third-party plugin
+authors should adopt the same `string(respBuf[:-n])` pattern; once
+they rebuild, `web_tech_detect` will surface real errors too. No
+host-side change is required for AC1 — the host has been writing
+structured payloads all along; consumer plugins were silently
+discarding them.
 
-```json
-{"error":"stado_http_request returned -1 (capability missing or buffer too small)"}
-```
+**Tests.** `TestBundledWebFetch_PropagatesHostStructuredError` in
+`internal/runtime/bundled_plugin_tools_test.go` exercises the failure
+path via a loopback URL (the bundled web manifest declares
+`net:http_request` but not `net:http_request_private`, so the dial
+guard refuses with a deterministic structured error); asserts the
+old `"returned -1"` text is gone and a host-side reason
+("127.0.0.1" / "private" / "denied" / etc.) actually propagates.
 
-Expected: either a normal technology-detection result for the PWM page or a
-structured HTTP/TLS/tool error. The current error looks like an internal
-capability/buffer failure and does not give the operator enough information to
-distinguish target behavior from plugin/runtime failure.
-
-## BUG: MCP `web__fetch` returns `stado_http_request returned -1` on plain HTTP
-
-Observed from the Kali VM while validating HTB Backend with
-`/home/john/bin/stado` version
-`v0.46.2-0.20260508090149-4b5a09d79163+dirty` via a long-lived
-`stado mcp-server`.
-
-`curl` to the same target succeeded:
-
-```bash
-curl -i http://10.129.227.148/
-# HTTP/1.1 200 OK
-# server: uvicorn
-# {"msg":"UHC API Version 1.0"}
-```
-
-But MCP tool calls failed:
-
-```json
-{"name":"web__fetch","arguments":{"url":"http://10.129.227.148/"}}
-```
-
-```text
-web.fetch: stado_http_request returned -1
-```
-
-The same failure occurred for `/docs` and `/api/v1/openapi.json`. Expected:
-`web__fetch` should return the HTTP response, or at least a structured
-network/tool error instead of exposing the low-level host import failure.
+**Bundled wasm artefacts:** `internal/bundledplugins/wasm/web.wasm`
+rebuilt via `internal/bundledplugins/build.sh`; per project
+convention all 13 bundled wasm files are rebuilt and committed
+together (see commits `003cea7`, `f5d45bc`, `09c8002` for prior
+batch-rebuild precedent).
 
 ## BUG: `tools.describe` is registered but `tool run` cannot find its source plugin ~~RESOLVED~~
 

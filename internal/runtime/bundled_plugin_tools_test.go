@@ -184,3 +184,67 @@ func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 		t.Fatalf("ClassOf(agent__spawn) = %v, want %v", got, tool.ClassExec)
 	}
 }
+
+// TestBundledWebFetch_PropagatesHostStructuredError reproduces the
+// AC2 bug: pre-fix, web__fetch dropped the host-side error message
+// and emitted a useless "stado_http_request returned -1". The host
+// uses a negative-return convention (see
+// internal/plugins/runtime/host_imports.go::encodeToolSidePayload)
+// to signal "this is an error message of length |-n| bytes already
+// in the response buffer." Every other plugin in this repo
+// (browser, http-session, web-search, mcp-client) reads back
+// respBuf[:-n]; the bundled web module didn't.
+//
+// We trigger the failure path by pointing web.fetch at an
+// RFC1918/loopback address: the bundled web manifest declares
+// net:http_request (broad public) but NOT net:http_request_private,
+// so the dial guard inside httpreq.Do refuses with a structured
+// error that the host then writes back via encodeToolSidePayload.
+// Pre-fix the operator saw "returned -1"; post-fix they see the
+// real reason (e.g. mention of the URL or "private" / "denied" /
+// "refused" / "blocked").
+func TestBundledWebFetch_PropagatesHostStructuredError(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	got, ok := reg.Get("web__fetch")
+	if !ok {
+		t.Fatal("web__fetch missing from registry")
+	}
+
+	// Loopback URL on a closed port. With NetHTTPRequestPrivate=false
+	// (default for the bundled web manifest), the dial guard refuses
+	// before any TCP attempt, producing a deterministic error
+	// message regardless of whether port 1 is actually listening.
+	res, err := got.Run(context.Background(),
+		json.RawMessage(`{"url":"http://127.0.0.1:1/"}`),
+		bundledToolHost{workdir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Run returned err (expected structured error in res.Content/Error): %v", err)
+	}
+
+	body := res.Content
+	if body == "" {
+		body = res.Error
+	}
+	t.Logf("web.fetch error body: %q", body)
+
+	// Pre-fix marker — must NOT appear post-fix.
+	if strings.Contains(body, "stado_http_request returned -1") {
+		t.Fatalf("regression: web.fetch is still dropping the host's structured error and emitting the generic text; got: %q", body)
+	}
+	// Post-fix the surface should mention the host (127.0.0.1) OR a
+	// private-address rejection word. We accept either since the
+	// exact wording lives in httpreq.Do and may evolve; what we're
+	// asserting is "the host-side reason actually propagates," not
+	// its precise phrasing.
+	hostMentioned := strings.Contains(body, "127.0.0.1")
+	low := strings.ToLower(body)
+	privateMentioned := strings.Contains(low, "private") ||
+		strings.Contains(low, "loopback") ||
+		strings.Contains(low, "denied") ||
+		strings.Contains(low, "refused") ||
+		strings.Contains(low, "blocked") ||
+		strings.Contains(low, "rfc1918")
+	if !hostMentioned && !privateMentioned {
+		t.Errorf("expected host-side reason in error body; got: %q", body)
+	}
+}

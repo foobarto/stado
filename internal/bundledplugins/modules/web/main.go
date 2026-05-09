@@ -77,7 +77,20 @@ func stadoToolFetch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 		uint32(len(respBuf)),
 	)
 	if n < 0 {
-		return writeError(resPtr, resCap, "web.fetch: stado_http_request returned -1")
+		// Host signals "this is an error message of length |-n| bytes
+		// already written into respBuf" via the negative-return
+		// convention (see internal/plugins/runtime/host_imports.go::
+		// encodeToolSidePayload). Read it back instead of dropping it
+		// — every other plugin that calls stado_http_request
+		// (browser, http-session, web-search, mcp-client) does this;
+		// this module was the lone outlier and operators saw a
+		// useless "returned -1" instead of e.g. "denied: insufficient
+		// capabilities …" or the underlying network error.
+		errLen := -int(n)
+		if errLen > len(respBuf) {
+			errLen = len(respBuf)
+		}
+		return writeError(resPtr, resCap, "web.fetch: "+string(respBuf[:errLen]))
 	}
 	resp := respBuf[:n]
 
