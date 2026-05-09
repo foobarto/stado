@@ -230,7 +230,8 @@ func ptyBoundShellTool(name string) bool {
 		"shell.detach",
 		"shell.signal",
 		"shell.resize",
-		"shell.destroy":
+		"shell.destroy",
+		"shell.snapshot":
 		return true
 	}
 	switch name {
@@ -243,7 +244,8 @@ func ptyBoundShellTool(name string) bool {
 		"shell__detach",
 		"shell__signal",
 		"shell__resize",
-		"shell__destroy":
+		"shell__destroy",
+		"shell__snapshot":
 		return true
 	}
 	return false

@@ -151,6 +151,13 @@ func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
+		// shell.snapshot was added AFTER the original ptyBoundShellTool
+		// list was written; without an explicit case here, it routed to
+		// the in-process bundled path with a fresh empty pty.Manager
+		// that didn't know any of the daemon's session ids — and the
+		// operator saw "session not found" while shell.list cheerfully
+		// reported the same id alive. Caught during UAT 2026-05-09.
+		"shell.snapshot",
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
