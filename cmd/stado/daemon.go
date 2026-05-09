@@ -44,11 +44,12 @@ import (
 var (
 	daemonStartQuiet      bool
 	daemonStartIdle       time.Duration
+	daemonStartPTYIdle    time.Duration
 	daemonStartSocketPath string
 
 	daemonStopForce bool
 
-	daemonStatusJSON  bool
+	daemonStatusJSON   bool
 	daemonStatusSocket string
 )
 
@@ -96,6 +97,8 @@ func init() {
 		"Detach + suppress stdout. Used by auto-spawn from `stado tool run`.")
 	daemonStartCmd.Flags().DurationVar(&daemonStartIdle, "idle-timeout", daemon.DefaultIdleTimeout,
 		"Exit after this much idle time (zero live sessions, zero in-flight calls). 0 = no timeout.")
+	daemonStartCmd.Flags().DurationVar(&daemonStartPTYIdle, "pty-idle-timeout", 24*time.Hour,
+		"Destroy PTY sessions untouched for this long. Touch = any client read/write/snapshot/attach/resize/signal OR drain output. Catches orphan PTYs from clients that died between shell.spawn and shell.destroy. 0 = no watchdog (legacy behaviour).")
 	daemonStartCmd.Flags().StringVar(&daemonStartSocketPath, "socket", "",
 		"UDS path to bind (default: $STADO_DAEMON_SOCKET or $XDG_RUNTIME_DIR/stado/daemon.sock)")
 
@@ -157,7 +160,7 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("daemon: load config: %w", err)
 	}
-	state, err := newDaemonState(cfg)
+	state, err := newDaemonState(cfg, pty.ManagerOpts{IdleTimeout: daemonStartPTYIdle})
 	if err != nil {
 		return fmt.Errorf("daemon: build state: %w", err)
 	}
@@ -267,6 +270,12 @@ type daemonState struct {
 	executor *tools.Executor
 	runner   sandbox.Runner
 
+	// ptyOpts is applied to every project scope's pty.Manager so the
+	// idle-watchdog runs uniformly across projects. Configured at
+	// daemon-start from --pty-idle-timeout. Zero IdleTimeout =
+	// watchdog disabled (legacy behaviour).
+	ptyOpts pty.ManagerOpts
+
 	// projectMu guards projects map. Each *projectScope holds its own
 	// pty.Manager + future-state (browser cookies, LSP) — phase-3
 	// version is PTY-only.
@@ -281,7 +290,7 @@ type projectScope struct {
 	pty *pty.Manager
 }
 
-func newDaemonState(cfg *config.Config) (*daemonState, error) {
+func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts) (*daemonState, error) {
 	reg, err := runtime.BuildRegistryWithPlugins(cfg)
 	if err != nil {
 		return nil, err
@@ -291,6 +300,7 @@ func newDaemonState(cfg *config.Config) (*daemonState, error) {
 		cfg:      cfg,
 		registry: reg,
 		runner:   runner,
+		ptyOpts:  ptyOpts,
 		projects: make(map[string]*projectScope),
 	}
 	st.executor = &tools.Executor{
@@ -314,7 +324,7 @@ func (d *daemonState) scopeFor(projectID string) *projectScope {
 	if sc, ok := d.projects[projectID]; ok {
 		return sc
 	}
-	sc := &projectScope{id: projectID, pty: pty.NewManager()}
+	sc := &projectScope{id: projectID, pty: pty.NewManagerWithOpts(d.ptyOpts)}
 	d.projects[projectID] = sc
 	return sc
 }

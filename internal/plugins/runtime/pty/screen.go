@@ -31,6 +31,7 @@ func (m *Manager) Snapshot(id uint64) (*Screen, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.touch()
 	cols := int(s.cols)
 	rows := int(s.rows)
 	cells := make([][]Cell, rows)

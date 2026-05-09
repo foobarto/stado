@@ -36,10 +36,37 @@ const (
 )
 
 // Manager is a thread-safe registry of live PTY sessions.
+//
+// Optional idle-watchdog: when ManagerOpts.IdleTimeout > 0, a
+// background goroutine periodically destroys sessions whose
+// lastTouched is older than the threshold. "Touched" means any
+// client-driven activity (Read, Write, Snapshot, Attach, Resize,
+// Signal) OR any drain output from the underlying PTY. Without the
+// watchdog, an orphan session — child still running, no client
+// remembering it — pins the daemon's idle-exit because List
+// reports it alive forever.
 type Manager struct {
-	mu       sync.Mutex
-	nextID   uint64
-	sessions map[uint64]*session
+	mu          sync.Mutex
+	nextID      uint64
+	sessions    map[uint64]*session
+	idleTimeout time.Duration
+	stopWatchdog chan struct{}
+}
+
+// ManagerOpts configures NewManagerWithOpts. Zero values pick
+// reasonable defaults: no watchdog (operator-explicit cleanup),
+// 1-minute tick when watchdog is enabled.
+type ManagerOpts struct {
+	// IdleTimeout > 0 enables the watchdog. Sessions idle longer
+	// than this are destroyed by the background goroutine. Idle
+	// counts as "no client touch and no drain output." Zero =
+	// watchdog disabled (matches NewManager's behaviour).
+	IdleTimeout time.Duration
+
+	// WatchdogTick is the watchdog's check cadence. 0 → 1 minute.
+	// Tests use a much smaller value (e.g. 10 ms) to make idle
+	// expiry observable in single-digit-millisecond windows.
+	WatchdogTick time.Duration
 }
 
 // SpawnOpts are the create-time parameters. Either Argv or Cmd is
@@ -108,11 +135,98 @@ type session struct {
 	closed   bool
 	exitCode *int
 	attached bool
+
+	// lastTouched is the wall-clock of the most recent client-driven
+	// operation (Read/Write/Snapshot/Attach/Resize/Signal) OR drain
+	// output. The watchdog destroys sessions whose lastTouched is
+	// older than Manager.idleTimeout. Updated under mu so the
+	// watchdog's read is consistent with the touch path.
+	lastTouched time.Time
 }
 
-// NewManager allocates an empty registry.
+// touch updates lastTouched to now. Caller must hold s.mu.
+func (s *session) touch() {
+	s.lastTouched = time.Now()
+}
+
+// touchLocked updates lastTouched while taking the lock. Used from
+// public Manager methods that need a one-shot touch outside an
+// already-held lock.
+func (s *session) touchLocked() {
+	s.mu.Lock()
+	s.lastTouched = time.Now()
+	s.mu.Unlock()
+}
+
+// NewManager allocates an empty registry without a watchdog. Use
+// NewManagerWithOpts to enable orphan-PTY cleanup.
 func NewManager() *Manager {
 	return &Manager{sessions: make(map[uint64]*session)}
+}
+
+// NewManagerWithOpts allocates a Manager with the supplied
+// configuration. When opts.IdleTimeout > 0, starts a background
+// watchdog goroutine that destroys sessions idle longer than the
+// threshold. CloseAll stops the watchdog.
+func NewManagerWithOpts(opts ManagerOpts) *Manager {
+	m := &Manager{
+		sessions:    make(map[uint64]*session),
+		idleTimeout: opts.IdleTimeout,
+	}
+	if opts.IdleTimeout > 0 {
+		tick := opts.WatchdogTick
+		if tick <= 0 {
+			tick = time.Minute
+		}
+		m.stopWatchdog = make(chan struct{})
+		go m.watchdogLoop(tick)
+	}
+	return m
+}
+
+// watchdogLoop runs until CloseAll. Every tick, scans sessions and
+// destroys any whose lastTouched is older than idleTimeout. Snapshots
+// the (id, lastTouched) pairs while holding Manager.mu, then iterates
+// without it — avoids deadlock against per-session mu inside Destroy.
+func (m *Manager) watchdogLoop(tick time.Duration) {
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-m.stopWatchdog:
+			return
+		case <-t.C:
+			m.reapIdle()
+		}
+	}
+}
+
+// reapIdle destroys every session whose lastTouched is older than
+// the idle threshold. Splits the work into "snapshot under mu" then
+// "destroy without mu" so the per-session mu inside terminate()
+// doesn't deadlock against the manager mu we hold while iterating.
+func (m *Manager) reapIdle() {
+	if m.idleTimeout <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-m.idleTimeout)
+	type idleCandidate struct {
+		id          uint64
+		lastTouched time.Time
+	}
+	var candidates []idleCandidate
+	m.mu.Lock()
+	for id, s := range m.sessions {
+		s.mu.Lock()
+		if s.lastTouched.Before(cutoff) {
+			candidates = append(candidates, idleCandidate{id: id, lastTouched: s.lastTouched})
+		}
+		s.mu.Unlock()
+	}
+	m.mu.Unlock()
+	for _, c := range candidates {
+		_ = m.Destroy(c.id)
+	}
 }
 
 // Spawn forks a child PTY and registers it. Session starts detached.
@@ -175,16 +289,18 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	if rows == 0 {
 		rows = 24
 	}
+	now := time.Now()
 	s := &session{
-		id:        atomic.AddUint64(&m.nextID, 1),
-		cmd:       fmtCmd(argv),
-		startedAt: time.Now(),
-		proc:      cmd,
-		master:    master,
-		ring:      newRingBuffer(bufBytes),
-		vt:        vt10x.New(vt10x.WithSize(int(cols), int(rows))),
-		cols:      cols,
-		rows:      rows,
+		id:          atomic.AddUint64(&m.nextID, 1),
+		cmd:         fmtCmd(argv),
+		startedAt:   now,
+		lastTouched: now,
+		proc:        cmd,
+		master:      master,
+		ring:        newRingBuffer(bufBytes),
+		vt:          vt10x.New(vt10x.WithSize(int(cols), int(rows))),
+		cols:        cols,
+		rows:        rows,
 	}
 	s.cond = sync.NewCond(&s.mu)
 
@@ -212,6 +328,7 @@ func (s *session) drain() {
 			dropped := s.ring.Write(buf[:n])
 			s.dropped += dropped
 			_, _ = s.vt.Write(buf[:n])
+			s.touch() // PTY produced output → not idle
 			s.cond.Broadcast()
 			s.mu.Unlock()
 		}
@@ -257,6 +374,7 @@ func (m *Manager) Attach(id uint64, opts AttachOpts) error {
 		return ErrAlreadyAttached
 	}
 	s.attached = true
+	s.touch()
 	return nil
 }
 
@@ -287,6 +405,7 @@ func (m *Manager) Write(id uint64, data []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, ErrClosed
 	}
+	s.touch()
 	s.mu.Unlock()
 	return s.master.Write(data)
 }
@@ -323,6 +442,7 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 		s.condWaitTimeout(remaining)
 	}
 	out := s.ring.ReadN(maxBytes)
+	s.touch()
 	return out, nil
 }
 
@@ -335,6 +455,7 @@ func (m *Manager) Signal(id uint64, sig syscall.Signal) error {
 	if s.proc.Process == nil {
 		return ErrClosed
 	}
+	s.touchLocked()
 	return s.proc.Process.Signal(sig)
 }
 
@@ -353,6 +474,7 @@ func (m *Manager) Resize(id uint64, cols, rows uint16) error {
 	s.vt.Resize(int(cols), int(rows))
 	s.cols = cols
 	s.rows = rows
+	s.touch()
 	s.mu.Unlock()
 	return nil
 }
@@ -423,10 +545,23 @@ func (m *Manager) List() []SessionInfo {
 	return out
 }
 
-// CloseAll terminates every registered session. Called from
-// Runtime.Close — last-resort reaper for orphans.
+// CloseAll terminates every registered session and stops the
+// idle-watchdog goroutine if running. Called from Runtime.Close —
+// last-resort reaper for orphans. Idempotent: subsequent calls are
+// no-ops.
 func (m *Manager) CloseAll() {
 	m.mu.Lock()
+	if m.stopWatchdog != nil {
+		// Closing the channel signals the loop. select-case in the
+		// watchdog handles already-closed by hitting the default
+		// branch on next tick.
+		select {
+		case <-m.stopWatchdog:
+			// Already closed.
+		default:
+			close(m.stopWatchdog)
+		}
+	}
 	ids := make([]uint64, 0, len(m.sessions))
 	for id := range m.sessions {
 		ids = append(ids, id)
