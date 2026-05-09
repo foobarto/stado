@@ -168,7 +168,10 @@ func registerHTTPResponseReadImport(builder wazero.HostModuleBuilder, host *Host
 			// bound for slow servers is the request-level timeout.
 			// timeout_ms is currently advisory — surface for future use.
 			_ = timeoutMs
-			buf := make([]byte, outMax)
+			buf := boundedAlloc(outMax)
+			if buf == nil {
+				return 0
+			}
 			n, err := stream.body.Read(buf)
 			if n > 0 {
 				if !mod.Memory().Write(uint32(outPtr), buf[:n]) {

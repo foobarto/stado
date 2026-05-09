@@ -351,7 +351,10 @@ func registerNetReadImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 			} else {
 				_ = conn.c.SetReadDeadline(time.Time{})
 			}
-			buf := make([]byte, outMax)
+			buf := boundedAlloc(outMax)
+			if buf == nil {
+				return 0
+			}
 			n, err := conn.c.Read(buf)
 			if err != nil && n == 0 {
 				if errors.Is(err, net.ErrClosed) {
@@ -690,7 +693,10 @@ func registerNetRecvfromImport(builder wazero.HostModuleBuilder, host *Host, rt 
 			_ = lst.pc.SetReadDeadline(time.Now().Add(timeout))
 			defer func() { _ = lst.pc.SetReadDeadline(time.Time{}) }()
 
-			buf := make([]byte, bodyMax)
+			buf := boundedAlloc(bodyMax)
+			if buf == nil {
+				return packRecvResult(0, 0)
+			}
 			n, peer, err := lst.pc.ReadFrom(buf)
 			if err != nil {
 				if ne, ok := err.(net.Error); ok && ne.Timeout() {
