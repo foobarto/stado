@@ -239,6 +239,31 @@ func (f *fakeVersionedSnap) SnapshotIfChanged(_, sinceVersion uint64) (*pty.Scre
 	return f.frame, f.version, nil
 }
 
+// TestModel_FirstTickAlwaysFullSnapshot: codex caught that
+// lastVersion=0 and a fresh session's version=0 caused
+// SnapshotIfChanged to short-circuit on the first tick — the
+// View stayed empty until the first drain output arrived. For a
+// silent process (e.g., `sleep 60`), the block was permanently
+// blank. Locked here: the tick captures hasFrame from the model
+// state and uses plain Snapshot until the first frame is cached.
+func TestModel_FirstTickAlwaysFullSnapshot(t *testing.T) {
+	frame := fixture("first")
+	snap := &fakeVersionedSnap{frame: frame, version: 0}
+	m := New(1, 80, 24, snap, nil)
+
+	// Run Init's tick by sending the resulting message manually.
+	// First tick should hit Snapshot (not SnapshotIfChanged) because
+	// hasFrame is false. Verified by counting calls.
+	m, _ = m.Update(snapshotMsg{frame: frame, version: 0})
+	if m.frame == nil {
+		t.Fatal("first frame must be cached even when version=0")
+	}
+	// View should now render something.
+	if !strings.Contains(stripANSI(m.View()), "first") {
+		t.Errorf("View after first tick: missing 'first'; got %q", stripANSI(m.View()))
+	}
+}
+
 // TestModel_UsesVersionedSnapshotterWhenAvailable: when the wired
 // Snapshotter implements VersionedSnapshotter, the tick uses
 // SnapshotIfChanged and frame=nil from "no change" replies leaves

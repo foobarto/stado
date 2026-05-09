@@ -321,20 +321,33 @@ func (m Model) Init() tea.Cmd {
 // the current lastVersion at scheduling time; the model's tick rate
 // / snapshotter cannot change mid-tick.
 //
-// When m.snap implements VersionedSnapshotter (production path),
-// uses SnapshotIfChanged so unchanged sessions skip the full
-// cell-grid copy + render. The msg's frame is nil in that case,
-// which Update treats as "keep the cached frame, no redraw needed."
+// When m.snap implements VersionedSnapshotter (production path) AND
+// the model already has at least one cached frame, uses
+// SnapshotIfChanged so unchanged sessions skip the full cell-grid
+// copy. Update treats msg.frame=nil as "keep cached frame."
+//
+// First-frame caveat (codex caught): lastVersion starts at 0 and a
+// fresh session's version is also 0, so SnapshotIfChanged would
+// short-circuit on the very first tick and the View would stay
+// empty until the first drain output arrived. Forcing a plain
+// Snapshot while m.frame is nil ensures the first tick always
+// produces a real frame.
 func (m Model) tick() tea.Cmd {
 	interval := m.tickEvery()
 	snap := m.snap
 	id := m.id
 	lastVersion := m.lastVersion
+	hasFrame := m.frame != nil
 	return tea.Tick(interval, func(time.Time) tea.Msg {
-		if v, ok := snap.(VersionedSnapshotter); ok {
+		if v, ok := snap.(VersionedSnapshotter); ok && hasFrame {
 			frame, ver, err := v.SnapshotIfChanged(id, lastVersion)
 			return snapshotMsg{frame: frame, version: ver, err: err}
 		}
+		// Plain Snapshot: either the snapshotter doesn't support
+		// versioned peeks, or the model has no frame yet (first
+		// tick after construction or after a transient failure
+		// cleared it). Always returns a real frame so View can
+		// render.
 		frame, err := snap.Snapshot(id)
 		var ver uint64
 		if frame != nil {
@@ -367,11 +380,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		m.lastErr = nil
 		m.lastVersion = msg.version
-		// frame=nil from a successful snapshot means "no change since
-		// lastVersion" — keep the cached frame and just re-tick. Avoids
-		// the full View() re-render that would otherwise happen on
-		// every tick for an idle PTY (cat sitting at a prompt =
-		// 30 useless re-renders/sec at the focused tick rate).
+		// frame=nil from a successful snapshot means "no change
+		// since lastVersion" — keep the cached frame and just
+		// re-tick. The optimisation skips the full cell-grid
+		// allocation + frame replacement; bubbletea still calls
+		// View() after each Update, but lipgloss caches its
+		// styled output so re-rendering the same frame is cheap
+		// (an internal bubbletea concern, not avoidable from
+		// here). The load-bearing win is "no PTY snapshot
+		// allocation under s.mu when nothing changed."
 		if msg.frame != nil {
 			m.frame = msg.frame
 		}
