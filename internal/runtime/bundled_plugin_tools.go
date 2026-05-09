@@ -209,6 +209,16 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"svg_font_px": schema.Integer("SVG font-size px (default 13)"),
 		}),
 		shellSessionCaps))
+	r.Register(newBundledWasmTool("shell", "stado_tool_expect", "shell__expect",
+		"Read from a PTY session until one of the configured patterns matches, the timeout elapses, or the process exits. Replaces the read+substring-check loop with a single call. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Substring matches operate on the raw byte stream; for full-screen TUIs use shell.snapshot instead. Requires attach.",
+		tool.ClassNonMutating,
+		schema.Object([]string{"id", "patterns"}, schema.Props{
+			"id":         schema.Integer(),
+			"patterns":   schema.Array(schema.String(), "1..16 patterns. With regex=true, each is RE2."),
+			"regex":      schema.Boolean("Compile patterns as RE2 (default false; substring matching)."),
+			"timeout_ms": schema.Integer("Total wait budget in ms (default 30000; 0 = check buffer only)."),
+		}),
+		shellSessionCaps))
 
 	// EP-no-internal-tools Step 4: shell.exec / shell.bash / shell.sh /
 	// shell.zsh — one-shot exec via stado_exec. Replaces the native

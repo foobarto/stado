@@ -172,6 +172,70 @@ func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
 	}
 }
 
+// TestBundledShellExpect_RoundTripsThroughWasm: shell__expect dispatched
+// via the bundled wasm path returns the host's match envelope unchanged.
+// Drives the path the agent actually uses: tool registry → wasm wrapper →
+// stado_terminal_expect → manager.Expect → JSON response.
+func TestBundledShellExpect_RoundTripsThroughWasm(t *testing.T) {
+	if _, err := exec.LookPath("printf"); err != nil {
+		t.Skip("requires `printf` binary")
+	}
+	sharedMgr := pty.NewManager()
+	defer sharedMgr.CloseAll()
+
+	host := bundledToolHostWithPTY{
+		bundledToolHost: bundledToolHost{
+			workdir: t.TempDir(),
+			runner:  sandbox.NoneRunner{},
+		},
+		pty: sharedMgr,
+	}
+
+	reg := BuildDefaultRegistry(nil)
+	expectTool, ok := reg.Get("shell__expect")
+	if !ok {
+		t.Fatal("shell__expect missing from registry")
+	}
+
+	id, err := sharedMgr.Spawn(pty.SpawnOpts{Cmd: "printf 'PROMPT> '; sleep 30"})
+	if err != nil {
+		t.Skipf("Spawn requires runnable shell environment: %v", err)
+	}
+	defer sharedMgr.Destroy(id)
+	if err := sharedMgr.Attach(id, pty.AttachOpts{}); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	args := json.RawMessage(`{"id":` + strconv.FormatUint(id, 10) + `,"patterns":["PROMPT> "],"timeout_ms":2000}`)
+	res, err := expectTool.Run(context.Background(), args, host)
+	if err != nil {
+		t.Fatalf("expect Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("expect tool error: %s (content=%s)", res.Error, res.Content)
+	}
+
+	var got struct {
+		Matched      bool   `json:"matched"`
+		PatternIndex int    `json:"pattern_index"`
+		Match        string `json:"match"`
+	}
+	if err := json.Unmarshal([]byte(res.Content), &got); err != nil {
+		t.Fatalf("response not JSON: %v\ncontent=%q", err, res.Content)
+	}
+	if !got.Matched {
+		t.Fatalf("Matched=false; want true. content=%q", res.Content)
+	}
+	if got.PatternIndex != 0 {
+		t.Errorf("PatternIndex=%d; want 0", got.PatternIndex)
+	}
+	// match field is base64-encoded "PROMPT> ".
+	wantB64 := "UFJPTVBUPiA="
+	if got.Match != wantB64 {
+		t.Errorf("match=%q; want %q (base64 of 'PROMPT> ')", got.Match, wantB64)
+	}
+}
+
 func TestBundledPluginTool_ClassPreserved(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	if got := reg.ClassOf("fs__read"); got != tool.ClassNonMutating {

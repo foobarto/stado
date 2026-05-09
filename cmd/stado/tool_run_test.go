@@ -250,6 +250,9 @@ func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
 		// operator saw "session not found" while shell.list cheerfully
 		// reported the same id alive. Caught during UAT 2026-05-09.
 		"shell.snapshot",
+		// shell.expect — same PTY-binding gate, same reasoning:
+		// the session id only exists in the runtime that spawned it.
+		"shell.expect",
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {

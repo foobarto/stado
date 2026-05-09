@@ -70,6 +70,11 @@ func stadoTerminalClose(argsPtr, argsLen, resPtr, resCap uint32) int32
 //go:wasmimport stado stado_terminal_snapshot
 func stadoTerminalSnapshot(argsPtr, argsLen, resPtr, resCap uint32) int32
 
+// stado_terminal_expect takes (idLo, idHi, argsPtr, argsLen, resPtr, resCap).
+//
+//go:wasmimport stado stado_terminal_expect
+func stadoTerminalExpect(idLo, idHi, argsPtr, argsLen, resPtr, resCap uint32) int32
+
 // ── ABI ────────────────────────────────────────────────────────────────────
 
 //go:wasmexport stado_alloc
@@ -326,6 +331,69 @@ func stadoToolResize(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //go:wasmexport stado_tool_destroy
 func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalClose, "destroy")
+}
+
+// shell_expect — block until a configured pattern matches against the
+// session's post-output byte stream, the timeout elapses, or the
+// process exits. args: {"id": uint64, "patterns": ["foo", "bar"],
+//
+//	"regex"?: false, "timeout_ms"?: 30000}
+//
+// Returns the host-supplied JSON discriminator unchanged:
+//
+//	match  : {"matched": true, "pattern_index": N, "before": <b64>, "match": <b64>}
+//	timeout: {"matched": false, "timeout": true, "before": <b64>}
+//	eof    : {"matched": false, "eof": true, "before": <b64>, "exit_code": N}
+//
+// `before` and `match` are base64 because PTY output routinely
+// includes ANSI escapes and other non-UTF8 sequences that JSON
+// strings can't carry losslessly. Requires attach (same contract as
+// shell_read).
+//
+//go:wasmexport stado_tool_expect
+func stadoToolExpect(argsPtr, argsLen, resPtr, resCap int32) int32 {
+	var req struct {
+		ID        uint64   `json:"id"`
+		Patterns  []string `json:"patterns"`
+		Regex     bool     `json:"regex"`
+		TimeoutMs int      `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal(sdk.Bytes(argsPtr, argsLen), &req); err != nil || req.ID == 0 {
+		return writeErr(resPtr, resCap, "id is required")
+	}
+	if len(req.Patterns) == 0 {
+		return writeErr(resPtr, resCap, "patterns is required")
+	}
+
+	// Repackage args for the host import — id rides on the i32 pair
+	// (matching the read/write convention for sessions whose i64 id
+	// can't sit alongside a payload pointer in i32 stack slots), so
+	// the JSON only carries patterns / regex / timeout_ms.
+	hostArgs, _ := json.Marshal(map[string]any{
+		"patterns":   req.Patterns,
+		"regex":      req.Regex,
+		"timeout_ms": req.TimeoutMs,
+	})
+	argPtr := sdk.Alloc(int32(len(hostArgs)))
+	defer sdk.Free(argPtr, int32(len(hostArgs)))
+	sdk.Write(argPtr, hostArgs)
+
+	const cap = 1 << 20 // 1 MiB — Expect can return arbitrarily large `before` slabs
+	buf := sdk.Alloc(cap)
+	defer sdk.Free(buf, cap)
+
+	idLo := uint32(req.ID & 0xFFFFFFFF)
+	idHi := uint32(req.ID >> 32)
+	n := stadoTerminalExpect(idLo, idHi, uint32(argPtr), uint32(len(hostArgs)), uint32(buf), cap)
+	if n < 0 {
+		// Negative = -byte_count of the host's error string at buf.
+		errLen := -n
+		if errLen > 0 && errLen <= cap {
+			return writeErr(resPtr, resCap, "expect: "+string(sdk.Bytes(buf, errLen)))
+		}
+		return writeErr(resPtr, resCap, "expect failed")
+	}
+	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
 // shell_snapshot — capture the rendered terminal screen of a session.

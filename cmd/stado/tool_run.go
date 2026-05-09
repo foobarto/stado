@@ -257,7 +257,11 @@ func ptyBoundShellTool(name string) bool {
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
-		"shell.snapshot":
+		"shell.snapshot",
+		// shell.expect rides the same per-Runtime pty.Manager that
+		// the rest of the PTY family does — a one-shot CLI invocation
+		// can't reach a session id created in another process.
+		"shell.expect":
 		return true
 	}
 	switch name {
@@ -271,7 +275,8 @@ func ptyBoundShellTool(name string) bool {
 		"shell__signal",
 		"shell__resize",
 		"shell__destroy",
-		"shell__snapshot":
+		"shell__snapshot",
+		"shell__expect":
 		return true
 	}
 	return false

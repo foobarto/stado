@@ -2,10 +2,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,6 +17,12 @@ import (
 
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 )
+
+// expectMaxPatterns caps how many patterns one Expect call may scan
+// for. 16 is a generous ceiling — multi-pattern expect is mostly used
+// for "either a prompt or an error" two- or three-way branching, not
+// long lists. The cap also bounds regex compilation cost.
+const expectMaxPatterns = 16
 
 const (
 	maxPluginRuntimePTYInputBytes  uint32 = 64 << 10
@@ -60,6 +69,7 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerPTYDestroy(builder, host, "stado_terminal_close")
 	registerPTYSnapshot(builder, host, "stado_pty_snapshot")
 	registerPTYSnapshot(builder, host, "stado_terminal_snapshot")
+	registerPTYExpect(builder, host, "stado_terminal_expect")
 }
 
 // ptyDenied returns the i64-encoded error response for PTY handlers when
@@ -463,3 +473,114 @@ func decodePTYArgs(mod api.Module, ptr, length uint32, dst any) error {
 	}
 	return nil
 }
+
+// stado_terminal_expect(idLo, idHi, argsPtr, argsLen, resPtr, resCap) → i32
+//
+// Reads from an existing PTY session until a configured pattern matches,
+// the timeout elapses, or the underlying process exits. Args JSON shape:
+//
+//	{"patterns": ["password:", "$ "], "regex"?: false, "timeout_ms"?: 30000}
+//
+// Returns byte count of the result JSON written at resPtr, or
+// -byte_count with an error string at resPtr on validation / dispatch
+// failure. Result JSON discriminates on matched/timeout/eof:
+//
+//	match  : {"matched": true, "pattern_index": N, "before": <b64>, "match": <b64>}
+//	timeout: {"matched": false, "timeout": true, "before": <b64>}
+//	eof    : {"matched": false, "eof": true, "before": <b64>, "exit_code": N}
+//
+// Pattern bytes are base64-encoded because PTY output routinely
+// includes non-UTF8 sequences (ANSI escapes, terminal control codes).
+// JSON-string encoding would corrupt them.
+//
+// Cap-gated by exec:pty (terminal:open) — same gate as Read/Write.
+func registerPTYExpect(builder wazero.HostModuleBuilder, host *Host, exportName string) {
+	builder.NewFunctionBuilder().
+		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
+			idLo := api.DecodeU32(stack[0])
+			idHi := api.DecodeU32(stack[1])
+			argsPtr := api.DecodeU32(stack[2])
+			argsLen := api.DecodeU32(stack[3])
+			resPtr := api.DecodeU32(stack[4])
+			resCap := api.DecodeU32(stack[5])
+			id := uint64(idHi)<<32 | uint64(idLo)
+
+			var req struct {
+				Patterns  []string `json:"patterns"`
+				Regex     bool     `json:"regex"`
+				TimeoutMs int      `json:"timeout_ms"`
+			}
+			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			if len(req.Patterns) == 0 {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte("expect: patterns required")))
+				return
+			}
+			if len(req.Patterns) > expectMaxPatterns {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte("expect: too many patterns")))
+				return
+			}
+			if req.TimeoutMs < 0 {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte("expect: timeout_ms must be >= 0")))
+				return
+			}
+
+			patterns := make([]pty.Pattern, 0, len(req.Patterns))
+			for i, raw := range req.Patterns {
+				if raw == "" {
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte("expect: empty pattern")))
+					return
+				}
+				if req.Regex {
+					re, err := regexp.Compile(raw)
+					if err != nil {
+						msg := "expect: pattern[" + strconv.Itoa(i) + "]: invalid regex: " + err.Error()
+						stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(msg)))
+						return
+					}
+					patterns = append(patterns, pty.Pattern{Regex: re})
+				} else {
+					patterns = append(patterns, pty.Pattern{Bytes: []byte(raw)})
+				}
+			}
+
+			if !host.ExecPTY || host.PTYManager == nil {
+				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
+				return
+			}
+
+			timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+			res, err := host.PTYManager.Expect(id, patterns, timeout)
+			if err != nil {
+				host.Logger.Warn("stado_terminal_expect failed", slog.String("err", err.Error()))
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+
+			out := map[string]any{
+				"matched": res.Matched,
+				"before":  base64.StdEncoding.EncodeToString(res.Before),
+			}
+			switch {
+			case res.Matched:
+				out["pattern_index"] = res.PatternIndex
+				out["match"] = base64.StdEncoding.EncodeToString(res.Match)
+			case res.Timeout:
+				out["timeout"] = true
+			case res.EOF:
+				out["eof"] = true
+				out["exit_code"] = res.ExitCode
+			}
+			payload, err := json.Marshal(out)
+			if err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
+		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
+		Export(exportName)
+}
+

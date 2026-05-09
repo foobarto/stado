@@ -70,6 +70,7 @@ var canonicalToolMetadata = map[string]ToolMetadata{
 	"shell.attach":   {Canonical: "shell.attach", Plugin: "shell", Categories: []string{"shell"}},
 	"shell.detach":   {Canonical: "shell.detach", Plugin: "shell", Categories: []string{"shell"}},
 	"shell.snapshot": {Canonical: "shell.snapshot", Plugin: "shell", Categories: []string{"shell"}},
+	"shell.expect":   {Canonical: "shell.expect", Plugin: "shell", Categories: []string{"shell"}},
 
 	// code search
 	"rg.search":      {Canonical: "rg.search", Plugin: "rg", Categories: []string{"code-search"}},
