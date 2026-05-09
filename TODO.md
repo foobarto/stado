@@ -127,7 +127,7 @@ Resolution order `{cwd}/.stado/personas → <config-dir>/personas → bundled`
 means any downstream toolkit can drop a persona file under `.stado/personas/`
 without forking stado.
 
-### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice ~~PARTIAL: F9a print TUI shipped~~
+### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice ~~PARTIAL: F9a print TUI shipped; F9b spec landed~~
 
 **Status (2026-05-08).** F9a (`stado_ui_print`) ships TUI-only:
 new `ui:print` capability, JSON wire `{text, severity?, eol?,
@@ -137,6 +137,19 @@ drop on the floor for this slice. ACP `kind=text` extension and
 MCP/headless rendering tracked as the F9b follow-on. F9b
 (`stado_ui_render` — structured panel with text/kv/list/code/
 table/diff body kinds) is the remaining heavy lifting.
+
+**Status (2026-05-09).** F9b decomposed into a written spec at
+`.agent/specs/open/f9b-ui-render.md` — twelve acceptance criteria
+across host scaffolding, TUI / ACP / MCP / headless renderers,
+plugin SDK helper, and docs. Phasing inside the spec splits the
+work into six independently-shippable slices (F9b.1 host
+scaffolding → F9b.6 SDK + docs). Phases land via separate commits;
+TODO entry flips to `~~RESOLVED~~` only when the spec's done
+definition is satisfied (including the SDK helper + the
+host-imports.md doc update). The `ui` umbrella capability
+mentioned in the original F9 design is captured as out-of-scope
+in the spec — defer to a future consolidation rather than re-
+litigate three already-shipped per-primitive caps.
 
 
 
