@@ -97,8 +97,8 @@ func init() {
 		"Detach + suppress stdout. Used by auto-spawn from `stado tool run`.")
 	daemonStartCmd.Flags().DurationVar(&daemonStartIdle, "idle-timeout", daemon.DefaultIdleTimeout,
 		"Exit after this much idle time (zero live sessions, zero in-flight calls). 0 = no timeout.")
-	daemonStartCmd.Flags().DurationVar(&daemonStartPTYIdle, "pty-idle-timeout", 24*time.Hour,
-		"Destroy PTY sessions untouched for this long. Touch = any client read/write/snapshot/attach/resize/signal OR drain output. Catches orphan PTYs from clients that died between shell.spawn and shell.destroy. 0 = no watchdog (legacy behaviour).")
+	daemonStartCmd.Flags().DurationVar(&daemonStartPTYIdle, "pty-idle-timeout", 4*time.Hour,
+		"Destroy PTY sessions untouched by any client for this long. Touch = client read/write/snapshot/attach/detach/resize/signal. Drain output (the process producing bytes) does NOT count — a noisy abandoned process is exactly the orphan we want to reap. Closed-and-unattached sessions also get a 30s grace period before reap so quick commands' final output remains readable. 0 = no watchdog (legacy behaviour).")
 	daemonStartCmd.Flags().StringVar(&daemonStartSocketPath, "socket", "",
 		"UDS path to bind (default: $STADO_DAEMON_SOCKET or $XDG_RUNTIME_DIR/stado/daemon.sock)")
 

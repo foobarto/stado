@@ -35,38 +35,60 @@ const (
 	destroyGrace       = 2 * time.Second
 )
 
+// closedReapGrace is the per-Manager grace between child-exit and
+// watchdog-eligible reap. Set from ManagerOpts.ClosedReapGrace at
+// construction; defaultClosedReapGrace when unset.
+//
 // Manager is a thread-safe registry of live PTY sessions.
 //
 // Optional idle-watchdog: when ManagerOpts.IdleTimeout > 0, a
 // background goroutine periodically destroys sessions whose
-// lastTouched is older than the threshold. "Touched" means any
-// client-driven activity (Read, Write, Snapshot, Attach, Resize,
-// Signal) OR any drain output from the underlying PTY. Without the
+// lastClientTouch is older than the threshold. Only client-driven
+// activity (Read/Write/Snapshot/Attach/Detach/Resize/Signal) counts —
+// drain output does NOT refresh the orphan clock; a noisy abandoned
+// process is exactly the orphan we want to reap. Without the
 // watchdog, an orphan session — child still running, no client
 // remembering it — pins the daemon's idle-exit because List
 // reports it alive forever.
+//
+// Closed-and-unattached sessions get a short grace period
+// (closedReapGrace) before being reaped, so quick commands like
+// `bash -c 'echo result'` whose child exits before the client
+// attaches don't lose their final buffered output.
 type Manager struct {
-	mu          sync.Mutex
-	nextID      uint64
-	sessions    map[uint64]*session
-	idleTimeout time.Duration
-	stopWatchdog chan struct{}
+	mu              sync.Mutex
+	nextID          uint64
+	sessions        map[uint64]*session
+	idleTimeout     time.Duration
+	closedReapGrace time.Duration
+	stopWatchdog    chan struct{}
 }
 
 // ManagerOpts configures NewManagerWithOpts. Zero values pick
 // reasonable defaults: no watchdog (operator-explicit cleanup),
-// 1-minute tick when watchdog is enabled.
+// 1-minute tick when watchdog is enabled, 30-second grace period
+// before reaping closed-and-unattached sessions.
 type ManagerOpts struct {
 	// IdleTimeout > 0 enables the watchdog. Sessions idle longer
 	// than this are destroyed by the background goroutine. Idle
-	// counts as "no client touch and no drain output." Zero =
-	// watchdog disabled (matches NewManager's behaviour).
+	// counts as "no client touch" — drain output does NOT refresh
+	// the orphan clock. Zero = watchdog disabled (matches
+	// NewManager's behaviour).
 	IdleTimeout time.Duration
 
 	// WatchdogTick is the watchdog's check cadence. 0 → 1 minute.
 	// Tests use a much smaller value (e.g. 10 ms) to make idle
 	// expiry observable in single-digit-millisecond windows.
 	WatchdogTick time.Duration
+
+	// ClosedReapGrace is the delay between a child process exiting
+	// and the watchdog being allowed to reap the closed-and-
+	// unattached session. Lets quick-command patterns
+	// (`bash -c 'echo result'` then attach + read) capture final
+	// output even when the agent's attach lands after the process
+	// exits. 0 → 30 seconds (production default). Tests use much
+	// smaller values to avoid 30-second waits.
+	ClosedReapGrace time.Duration
 }
 
 // SpawnOpts are the create-time parameters. Either Argv or Cmd is
@@ -83,15 +105,24 @@ type SpawnOpts struct {
 }
 
 // SessionInfo is the public view of a session — what List returns.
+//
+// LastClientTouch and LastDrainOutput let observers distinguish
+// "client is actively driving this session" from "process is
+// producing output but no client is reading." The watchdog uses
+// only the former; UIs and operator dashboards can show both to
+// help spot abandoned-but-noisy sessions before they hit the
+// orphan timeout.
 type SessionInfo struct {
-	ID        uint64    `json:"id"`
-	Cmd       string    `json:"cmd"`
-	Alive     bool      `json:"alive"`
-	Attached  bool      `json:"attached"`
-	StartedAt time.Time `json:"started_at"`
-	Buffered  int       `json:"buffered"`
-	Dropped   uint64    `json:"dropped"`
-	ExitCode  *int      `json:"exit_code,omitempty"`
+	ID              uint64    `json:"id"`
+	Cmd             string    `json:"cmd"`
+	Alive           bool      `json:"alive"`
+	Attached        bool      `json:"attached"`
+	StartedAt       time.Time `json:"started_at"`
+	Buffered        int       `json:"buffered"`
+	Dropped         uint64    `json:"dropped"`
+	ExitCode        *int      `json:"exit_code,omitempty"`
+	LastClientTouch time.Time `json:"last_client_touch"`
+	LastDrainOutput time.Time `json:"last_drain_output"`
 }
 
 // AttachOpts gates the attach behaviour. Force=true steals an
@@ -157,7 +188,21 @@ type session struct {
 	lastClientTouch time.Time
 	lastDrainTouch  time.Time
 	readWaiters     int
+
+	// closedAt records when s.closed was set to true (drain saw EOF
+	// from the master fd). The watchdog's closed-and-unattached
+	// reap path uses this to enforce closedReapGrace — without it,
+	// a quick command whose child exits before the client attaches
+	// would lose its final buffered output to the watchdog.
+	closedAt time.Time
 }
+
+// defaultClosedReapGrace is the production default for ManagerOpts.
+// ClosedReapGrace. Long enough for an agent pattern like
+// `shell.spawn bash -c 'echo result'` followed by `shell.attach +
+// shell.read` to capture the output; short enough that genuine
+// zombies don't accumulate.
+const defaultClosedReapGrace = 30 * time.Second
 
 // touch updates lastClientTouch to now. Caller must hold s.mu. This
 // is the watchdog-visible signal that "a client cares about this
@@ -193,9 +238,14 @@ func NewManager() *Manager {
 // watchdog goroutine that destroys sessions idle longer than the
 // threshold. CloseAll stops the watchdog.
 func NewManagerWithOpts(opts ManagerOpts) *Manager {
+	grace := opts.ClosedReapGrace
+	if grace <= 0 {
+		grace = defaultClosedReapGrace
+	}
 	m := &Manager{
-		sessions:    make(map[uint64]*session),
-		idleTimeout: opts.IdleTimeout,
+		sessions:        make(map[uint64]*session),
+		idleTimeout:     opts.IdleTimeout,
+		closedReapGrace: grace,
 	}
 	if opts.IdleTimeout > 0 {
 		tick := opts.WatchdogTick
@@ -228,23 +278,26 @@ func (m *Manager) watchdogLoop(tick time.Duration) {
 // reapIdle destroys sessions that the watchdog considers orphans.
 // Two reasons trigger destruction:
 //
-//  1. Closed-and-unattached: the child process exited (s.closed=true)
-//     and no client is currently attached. No reason to keep it
-//     around — it's a corpse pinning the daemon's idle-exit. Reaped
-//     immediately regardless of idleTimeout.
+//  1. Closed-and-unattached past grace period: the child process
+//     exited (s.closed=true), no client is attached, AND it's been
+//     longer than closedReapGrace since the close. The grace exists
+//     so quick commands (`bash -c 'echo result'`) whose child exits
+//     before the agent attaches don't lose their final output to
+//     the watchdog. Without grace, attaching one millisecond too
+//     late = data lost.
 //
 //  2. Idle: lastClientTouch older than idleTimeout. ONLY client
 //     activity counts; drain output (the process producing bytes)
-//     does not refresh the orphan clock. This is the second-pass
-//     review correction: a hung process emitting periodic noise is
-//     EXACTLY the orphan we want to reap.
+//     does not refresh the orphan clock. A hung process emitting
+//     periodic noise is EXACTLY the orphan we want to reap.
 //
-// Race-safety: the candidate-collect phase no longer holds m.mu
-// while acquiring per-session mu (snapshot ptrs only). The destroy
-// phase takes s.mu before tearing down to re-validate that
-// lastClientTouch hasn't moved between candidate-collect and
-// destroy — a Write/Snapshot landing in the gap pre-empts the kill,
-// preventing the data-loss race codex flagged.
+// Race-safety: the previous version had a TOCTOU window —
+// candidate selection re-checked under s.mu, but Destroy was called
+// outside that lock; a Write could land between the re-check and
+// Destroy, getting its master fd closed mid-syscall. Closed by
+// destroyIfIdle which re-validates AND tears the session down
+// while atomically holding the manager-side delete with the
+// per-session lock; details there.
 func (m *Manager) reapIdle() {
 	if m.idleTimeout <= 0 {
 		return
@@ -262,33 +315,63 @@ func (m *Manager) reapIdle() {
 	m.mu.Unlock()
 
 	for _, s := range all {
-		// Re-check under s.mu. Race-safe: a touch lands either before
-		// our Lock (so we see a fresh lastClientTouch and skip) or
-		// after our Unlock (so the destroy proceeds, but a follow-up
-		// client call sees ErrNotFound — same as if the watchdog had
-		// run a microsecond earlier; acceptable). The TOCTOU window
-		// is no wider than one Lock/Unlock pair.
-		s.mu.Lock()
-		shouldReap := false
-		switch {
-		case s.readWaiters > 0:
-			// Active Read in progress; client is claiming the
-			// session even though lastClientTouch may be stale
-			// while cond.WaitTimeout sleeps. Don't reap.
-		case s.closed && !s.attached:
-			shouldReap = true
-		case s.lastClientTouch.Before(cutoff):
-			shouldReap = true
-		}
-		s.mu.Unlock()
-		if !shouldReap {
-			continue
-		}
-		// Destroy outside any lock — terminate() takes s.mu
-		// internally. Errors here are best-effort; the watchdog
-		// will retry on the next tick if Destroy somehow fails.
-		_ = m.Destroy(s.id)
+		_ = m.destroyIfIdle(s.id, cutoff)
 	}
+}
+
+// destroyIfIdle removes a session from the registry and terminates
+// it ONLY if it's still idle when locked. Closes the TOCTOU that the
+// previous reapIdle had: candidate-decide and destroy now happen
+// inside the same s.mu acquisition, so a Write's touch under s.mu
+// either lands before our Lock (we see fresh lastClientTouch and
+// skip) or after our Unlock (we already removed the session and
+// the Write's get(id) returns ErrNotFound — clean error path).
+//
+// Returns true on actual destruction. Used only by the watchdog;
+// public Destroy stays unconditional (operator-explicit kills must
+// always succeed).
+func (m *Manager) destroyIfIdle(id uint64, cutoff time.Time) bool {
+	// Acquire m.mu first so we can delete from sessions atomically
+	// with the per-session check. Lock order: m.mu → s.mu (matches
+	// other paths). Holding m.mu briefly is fine — destroyIfIdle is
+	// not on the hot path; reapIdle calls it serially.
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	s.mu.Lock()
+	shouldReap := false
+	switch {
+	case s.readWaiters > 0:
+		// Active Read in progress; client is claiming the session
+		// even though lastClientTouch may be stale while
+		// cond.WaitTimeout sleeps. Don't reap.
+	case s.closed && !s.attached:
+		// Quick-command final-output preservation: only reap once
+		// closedReapGrace has elapsed since the child exited.
+		if time.Since(s.closedAt) >= m.closedReapGrace {
+			shouldReap = true
+		}
+	case s.lastClientTouch.Before(cutoff):
+		shouldReap = true
+	}
+	if !shouldReap {
+		s.mu.Unlock()
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.sessions, id)
+	s.mu.Unlock()
+	m.mu.Unlock()
+	// Terminate outside any lock — terminate() takes s.mu itself
+	// for the closed/attached writes. Once we've removed the
+	// session from m.sessions, no new client calls can reach it
+	// (get returns ErrNotFound), so the in-flight-client risk is
+	// closed.
+	s.terminate()
+	return true
 }
 
 // Spawn forks a child PTY and registers it. Session starts detached.
@@ -402,6 +485,7 @@ func (s *session) drain() {
 		if err != nil {
 			s.mu.Lock()
 			s.closed = true
+			s.closedAt = time.Now()
 			s.cond.Broadcast()
 			s.mu.Unlock()
 			return
@@ -608,14 +692,16 @@ func (m *Manager) List() []SessionInfo {
 			exitCopy = &v
 		}
 		out = append(out, SessionInfo{
-			ID:        s.id,
-			Cmd:       s.cmd,
-			Alive:     !s.closed,
-			Attached:  s.attached,
-			StartedAt: s.startedAt,
-			Buffered:  s.ring.Len(),
-			Dropped:   s.dropped,
-			ExitCode:  exitCopy,
+			ID:              s.id,
+			Cmd:             s.cmd,
+			Alive:           !s.closed,
+			Attached:        s.attached,
+			StartedAt:       s.startedAt,
+			Buffered:        s.ring.Len(),
+			Dropped:         s.dropped,
+			ExitCode:        exitCopy,
+			LastClientTouch: s.lastClientTouch,
+			LastDrainOutput: s.lastDrainTouch,
 		})
 		s.mu.Unlock()
 	}

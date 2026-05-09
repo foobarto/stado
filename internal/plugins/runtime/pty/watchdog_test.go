@@ -196,25 +196,46 @@ func TestWatchdog_NoisyOrphansGetReaped(t *testing.T) {
 	t.Errorf("noisy orphan never reaped within 500ms — drain output should NOT refresh the orphan clock")
 }
 
-// TestWatchdog_ClosedUnattachedReapedImmediately: a child that
-// exited stays in the registry until idleTimeout in the original
-// design. Gemini caught it: closed-AND-unattached sessions are
-// corpses pinning the daemon for no reason. They should be reaped
-// regardless of idleTimeout, on the next watchdog tick.
-func TestWatchdog_ClosedUnattachedReapedImmediately(t *testing.T) {
+// TestWatchdog_ClosedUnattachedReapedAfterGrace: a child that exits
+// stays in the registry for at least ClosedReapGrace, then gets
+// reaped. The grace lets quick-command patterns ("spawn echo →
+// attach → read") capture final output even when the attach lands
+// after the child exits. Without the grace (codex+gemini caught
+// the original "reap immediately" version), output gets discarded.
+//
+// Test uses a 50ms grace so we don't have to wait the production
+// 30s. Asserts the session is still alive within grace, then gone
+// after grace.
+func TestWatchdog_ClosedUnattachedReapedAfterGrace(t *testing.T) {
 	m := NewManagerWithOpts(ManagerOpts{
-		IdleTimeout:  10 * time.Hour, // far past anything we'd wait for
-		WatchdogTick: 10 * time.Millisecond,
+		IdleTimeout:     10 * time.Hour, // far past anything we'd wait for
+		WatchdogTick:    10 * time.Millisecond,
+		ClosedReapGrace: 50 * time.Millisecond,
 	})
 	defer m.CloseAll()
 
-	// `true` exits immediately. Don't attach. The reap goroutine
-	// marks closed=true; combined with attached=false, the watchdog
-	// reaps next tick despite the 10-hour idle timeout.
 	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/true"}})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
+
+	// Within grace: session should still be present so a late attach
+	// could read final output. Wait ~25ms for the child to exit and
+	// closed=true to propagate.
+	time.Sleep(25 * time.Millisecond)
+	stillThere := false
+	for _, info := range m.List() {
+		if info.ID == id {
+			stillThere = true
+			break
+		}
+	}
+	if !stillThere {
+		t.Errorf("session reaped before grace expired — output would be lost")
+	}
+
+	// After grace: session must be gone. Allow generous slack on
+	// scheduler noise.
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		found := false
@@ -229,7 +250,54 @@ func TestWatchdog_ClosedUnattachedReapedImmediately(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Errorf("closed-unattached session not reaped within 500ms despite 10h idleTimeout")
+	t.Errorf("closed-unattached session not reaped within %s past grace; should have hit the closed-and-unattached path",
+		400*time.Millisecond)
+}
+
+// TestWatchdog_QuickCommandFinalOutputCapture: the design rationale
+// for the closed-reap grace. Sequence: spawn `echo result`; let it
+// exit; THEN attach + read. Result should be capturable (the bug the
+// grace fixes — without it, the watchdog reaped before the agent
+// could grab the output).
+func TestWatchdog_QuickCommandFinalOutputCapture(t *testing.T) {
+	m := NewManagerWithOpts(ManagerOpts{
+		IdleTimeout:     10 * time.Hour,
+		WatchdogTick:    10 * time.Millisecond,
+		ClosedReapGrace: 200 * time.Millisecond, // generous for the test
+	})
+	defer m.CloseAll()
+
+	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/sh", "-c", "echo qcmd-marker"}})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	// Let the child exit + drain to flush.
+	time.Sleep(50 * time.Millisecond)
+
+	// Now attach and read — grace is still active.
+	if err := m.Attach(id, AttachOpts{}); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	got, err := m.Read(id, 4096, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !bytesContains(got, "qcmd-marker") {
+		t.Errorf("expected output 'qcmd-marker' in read; got %q", got)
+	}
+}
+
+func bytesContains(b []byte, s string) bool {
+	return string(b) != "" && (len(b) >= len(s)) &&
+		(stringIndex(string(b), s) >= 0)
+}
+func stringIndex(haystack, needle string) int {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return i
+		}
+	}
+	return -1
 }
 
 // TestWatchdog_ReadDoesNotGetKilledMidWait: codex caught that Read
