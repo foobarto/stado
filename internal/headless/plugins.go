@@ -166,6 +166,18 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 			host.SessionBridge = bridge
 		}
 	}
+	// F9b.5: wasm plugins declaring ui:render emit panels via
+	// stado_ui_render. Wire the headless render bridge so each emit
+	// becomes a session.update kind=panel notification on the
+	// existing JSON-RPC stream — same channel the kind=plugin_fork /
+	// kind=context_warning notifications already use. No new flag,
+	// no new file output — keeps the headless surface a single wire.
+	if host.UIRender {
+		host.RenderBridge = &headlessRenderBridge{
+			server:    s,
+			sessionID: p.SessionID,
+		}
+	}
 	if err := pluginRuntime.InstallHostImports(runCtx, rt, host); err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "host imports: " + err.Error()}
 	}
