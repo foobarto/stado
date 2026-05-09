@@ -1,9 +1,39 @@
 # State
 
-**Mode:** Feature / Refactor (program complete; ready for operator review + merge)
+**Mode:** Feature (TODO/BUGS drained; ready for operator review)
 
-**Current item:** All program phases addressed. Worktree merge-ready.
-**Plan:** `docs/superpowers/plans/2026-05-07-refactor-program.md`
+**Current item:** Goal `2026-05-09-clear-drafted-todo-bugs-features`
+delivered all 5 ACs across 9 commits on `main`. TODO.md / BUGS.md /
+PLAN.md current product gaps now only show items explicitly listed
+under the goal's Non-goals (Windows sandbox v2 deferred for
+hardware reasons; sandbox-multilayer-composition spec parked; PR Q
+external infra deferred). Detailed evidence in
+`.claude/goals/2026-05-09-clear-drafted-todo-bugs-features/
+progress.md`.
+
+## Goal completion summary (2026-05-09)
+
+| AC | Slice / commit | Outcome |
+|----|----------------|---------|
+| AC3 | `b3ca142` | `tools.describe` & all native meta-tools dispatch correctly via `stado tool run` |
+| AC1+AC2 | `ae21aaa` | bundled `web.fetch` propagates host's structured errors instead of "returned -1" |
+| AC4 spec | `7048886` | F9b decomposed into 12 ACs / 6 phases |
+| AC4 F9b.1 | `897b457` | host scaffolding — `stado_ui_render` + cap + decode + 14 tests |
+| AC4 F9b.2 | `e5e3444` | TUI renderer — `panel_render.go` + bridge + 14 tests |
+| AC4 F9b.3 | `40b8adc` | ACP wire — `session/update kind=panel` + 3 tests |
+| AC4 F9b.4 | `697a233` | MCP wire — `CallToolResult.StructuredContent` + ASCII fallback + 7 tests |
+| AC4 F9b.5 | `f1830df` | headless wire — `session.update kind=panel` (spec deviation: skipped `--ui-render-file`) + 3 tests |
+| AC4 F9b.6 + AC5 | (this commit) | `render-demo-go/` example + `host-imports.md` + TODO closure + spec → done/ |
+
+## Worktree merge-ready (prior 2026-Q2 refactor)
+
+The earlier refactor program completion still applies — the
+worktree at `.claude/worktrees/refactor+quality-2026-q2` is
+merge-ready pending the operator's interactive `stado run` smoke
+session (D8). That program is independent of this goal; it
+predates the 2026-05-09 work above.
+
+**Plan (refactor):** `docs/superpowers/plans/2026-05-07-refactor-program.md`
 
 ## Where we are at end of 2026-05-08 (autonomous session 4)
 
