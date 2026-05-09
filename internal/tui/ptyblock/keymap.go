@@ -28,9 +28,19 @@ import (
 //     TUI doesn't yet wire. Most TUI programs operators care about
 //     (vim, htop, less) work without Alt.
 //
-//   - The TAB / SHIFT-TAB keys themselves — those are intercepted by
-//     the parent TUI's input router as the enter / leave gestures
-//     for shell-input mode. They never reach the PTY.
+// Reserved (NOT translated, but for a different reason):
+//
+//   - Ctrl+] → the leave-mode gesture. Model.HandleKey intercepts
+//     it before reaching this translator and returns handled=false
+//     so the parent TUI sees it. Operators hit Ctrl+] to leave
+//     shell-input mode; everything else (Esc, Tab, SHIFT-TAB,
+//     function keys, control bytes) reaches the PTY.
+//
+// History note: a previous version of the model reserved Esc / Tab /
+// SHIFT-TAB instead, which broke vim (Esc = exit insert mode), shell
+// autocomplete (Tab), and editor normal-mode navigation (SHIFT-TAB →
+// \x1b[Z). The 2026-05-09 second-pass review caught that and the
+// reserved set switched to Ctrl+] only.
 //
 // Returns (bytes, true) when the key is recognised. Unrecognised keys
 // return (nil, false) so the caller can decide whether to swallow or

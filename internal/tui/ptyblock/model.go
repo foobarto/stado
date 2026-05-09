@@ -185,14 +185,25 @@ func (m Model) Focused() bool { return m.focused }
 // re-process the key. When unfocused, returns handled=false and the
 // parent gets to handle it (e.g. TAB → m.Focus()).
 //
-// The TAB / SHIFT-TAB keys are NEVER consumed here even when focused.
-// The parent TUI must route them to Blur() / Focus() as the
-// enter/leave gesture; consuming them in shell-input mode would trap
-// the operator with no way out. Esc is also passed through so
-// readline-style "exit insert mode" doesn't accidentally land on the
-// PTY when the operator meant to leave the block.
+// Reserved leave-mode gesture: Ctrl+]. The 2026-05-09 second-pass
+// review (codex) caught that the original Esc / Tab / SHIFT-TAB
+// reservation killed vim and shell autocomplete:
 //
-// Note: bytes that fail to write don't panic — the error is dropped
+//   - vim users hit Esc constantly to exit insert mode; if Esc is
+//     reserved by the parent TUI, every Esc kicks them out of the
+//     PTY block instead.
+//   - shell autocomplete is bound to TAB; reserving TAB for "leave
+//     mode" means TAB never reaches the shell.
+//   - SHIFT-TAB sends the xterm sequence \x1b[Z which vim and other
+//     editors use in normal mode; reserving it breaks that too.
+//
+// Ctrl+] is the convention from telnet / socat / picocom: a key
+// combination terminals never produce naturally, universally
+// recognised as "escape to outer system." Operators in shell-input
+// mode hit Ctrl+] to leave; everything else (Esc, Tab, SHIFT-TAB,
+// arrows, function keys, control bytes) reaches the PTY untouched.
+//
+// Bytes that fail to write don't panic — the error is dropped
 // silently because the snapshot tick will surface a "session ended"
 // error within ~100 ms anyway, which is the right diagnostic for
 // "the PTY went away" scenarios.
@@ -200,11 +211,17 @@ func (m Model) HandleKey(msg tea.KeyMsg) (Model, bool) {
 	if !m.focused || m.writer == nil {
 		return m, false
 	}
-	// Always-passthrough keys: TAB / SHIFT-TAB / Esc are reserved for
-	// the parent TUI's mode toggle. Returning handled=false routes
-	// them to the parent's keymap.
-	switch msg.Type {
-	case tea.KeyTab, tea.KeyShiftTab, tea.KeyEsc:
+	// After the session has ended, the writer points at a destroyed
+	// PTY — every Write fails silently. Keys that would otherwise
+	// route here should pass through to the parent so the operator
+	// can leave the dead block rather than have their keystrokes
+	// silently swallowed.
+	if m.state == stateEnded {
+		return m, false
+	}
+	// Ctrl+] is the always-passthrough leave gesture. Every other
+	// key (including Esc, Tab, SHIFT-TAB) routes to the PTY.
+	if msg.Type == tea.KeyCtrlCloseBracket {
 		return m, false
 	}
 	bytes, ok := keyMsgToBytes(msg)

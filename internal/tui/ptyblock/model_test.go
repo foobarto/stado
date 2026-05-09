@@ -300,6 +300,33 @@ func TestHandleKey_FocusedTranslatesAndWrites(t *testing.T) {
 	}
 }
 
+// TestHandleKey_AfterEndPassesThrough: once the session has ended,
+// the writer points at a destroyed PTY and every Write fails
+// silently. Keys must pass through to the parent so the operator
+// can leave the dead block (TAB / Blur, etc.) rather than have
+// keystrokes silently swallowed. Caught in 2026-05-09 second-pass
+// review (codex).
+func TestHandleKey_AfterEndPassesThrough(t *testing.T) {
+	w := &fakeWriter{}
+	m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
+	// Drive into ended state.
+	m, _ = m.Update(snapshotMsg{err: pty.ErrNotFound})
+	if !m.Ended() {
+		t.Fatal("model should be Ended")
+	}
+	if !m.Focused() {
+		t.Fatal("model should still be focused (Ended is orthogonal)")
+	}
+	// Any key now: handled=false even though focused; no write.
+	_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if handled {
+		t.Errorf("HandleKey after end should pass through; got handled=true")
+	}
+	if len(w.writes) != 0 {
+		t.Errorf("HandleKey after end should not write; got %d writes", len(w.writes))
+	}
+}
+
 // TestTickEvery_FocusAware confirms the snapshot interval switches
 // based on focus state. Day 4 split the single tickEvery into two
 // rates (focused fast, unfocused slow) so the daemon doesn't take
@@ -325,27 +352,49 @@ func TestTickEvery_FocusAware(t *testing.T) {
 	}
 }
 
-// TestHandleKey_ReservedKeysPassthrough: TAB / SHIFT-TAB / Esc are
-// the parent TUI's mode-toggle gestures and must NOT be consumed by
-// the block even when focused. Returning handled=false lets the
-// parent's handler set Blur(). Without this passthrough, an operator
-// who accidentally hit TAB to enter the block would have no way out.
-func TestHandleKey_ReservedKeysPassthrough(t *testing.T) {
-	for _, key := range []tea.KeyMsg{
-		{Type: tea.KeyTab},
-		{Type: tea.KeyShiftTab},
-		{Type: tea.KeyEsc},
-	} {
+// TestHandleKey_LeaveModeGestureIsCtrlCloseBracket: the only key
+// that's NOT consumed by the block when focused is Ctrl+] — the
+// telnet/socat/picocom leave-mode convention. Esc, Tab, SHIFT-TAB
+// MUST reach the PTY (vim, shell autocomplete, editor normal-mode
+// navigation depend on it). The 2026-05-09 second-pass review caught
+// that an earlier version reserved all four keys, breaking real
+// terminal usage. This test prevents regression.
+func TestHandleKey_LeaveModeGestureIsCtrlCloseBracket(t *testing.T) {
+	t.Run("Ctrl+] passes through (leave gesture)", func(t *testing.T) {
 		w := &fakeWriter{}
 		m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
-		_, handled := m.HandleKey(key)
+		_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyCtrlCloseBracket})
 		if handled {
-			t.Errorf("reserved key %v should not be consumed; got handled=true", key)
+			t.Errorf("Ctrl+] should pass through; got handled=true")
 		}
 		if len(w.writes) != 0 {
-			t.Errorf("reserved key %v should not write to PTY; got %d writes", key, len(w.writes))
+			t.Errorf("Ctrl+] should not write to PTY; got %d writes", len(w.writes))
 		}
-	}
+	})
+
+	t.Run("Esc / Tab / SHIFT-TAB reach PTY (vim + shell compat)", func(t *testing.T) {
+		cases := []struct {
+			name string
+			key  tea.KeyMsg
+			want []byte
+		}{
+			{"Esc", tea.KeyMsg{Type: tea.KeyEsc}, []byte{0x1B}},
+			{"Tab", tea.KeyMsg{Type: tea.KeyTab}, []byte{'\t'}},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				w := &fakeWriter{}
+				m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
+				_, handled := m.HandleKey(c.key)
+				if !handled {
+					t.Errorf("%s should be consumed (sent to PTY); got handled=false", c.name)
+				}
+				if len(w.writes) != 1 || string(w.writes[0]) != string(c.want) {
+					t.Errorf("%s wrote %q, want %q", c.name, w.writes, c.want)
+				}
+			})
+		}
+	})
 }
 
 // wrapErr returns an error that fmt.Errorf-wraps the inner one with

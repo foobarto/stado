@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestBuildSandboxedCmd_NilPolicyRunsUnsandboxed locks down the
@@ -109,22 +110,106 @@ func TestResolveSandboxPolicy(t *testing.T) {
 	}
 }
 
-// TestNewDefaultSandboxPolicy_ShapeIsRunner confirms the host-default
-// builder produces a policy that resolveSandboxPolicy accepts and
-// hands to buildSandboxedCmd. We don't run the resulting cmd here
-// (that requires bwrap detection); the shape check + roundtrip is
-// the load-bearing contract.
-func TestNewDefaultSandboxPolicy_ShapeIsRunner(t *testing.T) {
+// TestNewDefaultSandboxPolicy_PermissiveByDefault locks the default
+// host policy values. Pre-2026-05-09 second-pass: the function
+// returned `&sandboxPolicy{CWD: workdir}` and claimed that produced
+// "no FS / net restrictions." Two bugs: (a) empty Net string fell
+// through both translation cases, leaving sandbox.NetPolicy at zero
+// = NetDenyAll → bwrap got --unshare-net; (b) /bin and /sbin were
+// not bound, so on distros without /bin → /usr/bin symlink, the
+// shell wasm's literal /bin/sh / /bin/bash invocations failed at
+// execvp. Both confirmed empirically by codex.
+//
+// The corrected default sets Net="allow" explicitly and binds
+// /bin /sbin /tmp /var/tmp /run via FSRead so common shell patterns
+// work. This test fails if anyone reverts to the old shape.
+func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 	policy := NewDefaultSandboxPolicy("/some/workdir")
-	if policy == nil {
-		t.Fatal("NewDefaultSandboxPolicy returned nil")
-	}
 	resolved := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: policy}, nil)
 	if resolved == nil {
 		t.Fatal("resolveSandboxPolicy didn't accept the default policy")
 	}
 	if resolved.CWD != "/some/workdir" {
 		t.Errorf("default policy CWD = %q, want /some/workdir", resolved.CWD)
+	}
+	if resolved.Net != "allow" {
+		t.Errorf("default policy Net = %q, want \"allow\" (network passthrough). "+
+			"Empty string falls through buildSandboxedCmd's switch and produces NetDenyAll — "+
+			"that's the bug fixed in the 2026-05-09 second pass.", resolved.Net)
+	}
+	wantReads := map[string]bool{"/bin": true, "/sbin": true, "/tmp": true, "/var/tmp": true, "/run": true}
+	got := map[string]bool{}
+	for _, p := range resolved.FSRead {
+		got[p] = true
+	}
+	for p := range wantReads {
+		if !got[p] {
+			t.Errorf("default policy FSRead missing %q. Without it, /bin/sh / /bin/bash literals fail to execvp under bwrap on distros where /bin isn't a symlink to /usr/bin.", p)
+		}
+	}
+	if len(resolved.FSWrite) == 0 {
+		t.Errorf("default policy FSWrite is empty — plugins writing to /tmp will fail")
+	}
+}
+
+// TestResolveSandboxPolicy_UnsandboxedOptOut: a guest plugin that
+// sets `sandbox.unsandboxed=true` opts out of any host-default
+// policy. The resolver returns nil, which buildSandboxedCmd then
+// runs unsandboxed. Without an explicit Unsandboxed field, JSON
+// unmarshal can't distinguish "absent" from "explicit null" — both
+// yield (*sandboxPolicy)(nil), which the resolver treats as "use
+// host default." Caught in 2026-05-09 second pass; the CHANGELOG
+// claim that you could "set sandbox: null to opt out" was false.
+func TestResolveSandboxPolicy_UnsandboxedOptOut(t *testing.T) {
+	hostDefault := NewDefaultSandboxPolicy("/host")
+	host := &Host{DefaultSandboxPolicy: hostDefault}
+
+	// Absent guest: host default applies.
+	if got := resolveSandboxPolicy(host, nil); got == nil {
+		t.Errorf("absent guest with host default: want host default, got nil")
+	}
+
+	// Explicit Unsandboxed=true: bypass host default.
+	guest := &sandboxPolicy{Unsandboxed: true}
+	if got := resolveSandboxPolicy(host, guest); got != nil {
+		t.Errorf("Unsandboxed=true: want nil (bypass host default); got %+v", got)
+	}
+
+	// Unsandboxed=true with other fields: still bypass. Operator
+	// might fill the struct out of habit; the flag still wins.
+	guest = &sandboxPolicy{Unsandboxed: true, Net: "deny", FSRead: []string{"/etc"}}
+	if got := resolveSandboxPolicy(host, guest); got != nil {
+		t.Errorf("Unsandboxed=true with fields: want nil; got %+v", got)
+	}
+}
+
+// TestNewDefaultSandboxPolicy_ActuallyRunsBash is the integration test
+// that would have caught the "default policy doesn't actually run
+// /bin/sh under bwrap" bug shipped in 7e20c07. Builds an exec.Cmd
+// from the host-default policy and runs `/bin/sh -c 'echo ok'`. If
+// the policy is misconfigured (FSRead missing /bin, Net=DenyAll
+// silently), the cmd either fails to execvp or hangs.
+//
+// Skips cleanly when bwrap / sandbox-exec aren't available — keeps
+// the test environment-agnostic. The exit code, stdout match, and
+// completion within a few seconds are the load-bearing assertions.
+func TestNewDefaultSandboxPolicy_ActuallyRunsBash(t *testing.T) {
+	if !hasSandboxRunner() {
+		t.Skip("native sandbox runner not detected; integration test requires bwrap or sandbox-exec")
+	}
+	policy := NewDefaultSandboxPolicy("/tmp").(*sandboxPolicy)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd, err := buildSandboxedCmd(ctx, policy, "/tmp", []string{"/bin/sh", "-c", "echo ok"}, nil)
+	if err != nil {
+		t.Fatalf("buildSandboxedCmd with default policy: %v", err)
+	}
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		t.Fatalf("running /bin/sh -c 'echo ok' under default policy failed: %v\noutput: %s", runErr, out)
+	}
+	if !strings.Contains(string(out), "ok") {
+		t.Errorf("expected 'ok' in output; got %q", out)
 	}
 }
 

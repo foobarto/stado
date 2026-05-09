@@ -32,9 +32,15 @@ import (
 // harness validates the package is sound before that happens.
 
 // wrapperModel is a minimal bubbletea program that hosts one PTYBlock
-// plus a focus indicator. TAB → Focus, SHIFT-TAB → Blur, q → quit.
-// Forwards key events to the block when focused; otherwise consumes
-// the focus toggle and ignores everything else.
+// plus a focus indicator. TAB (when unfocused) → Focus, Ctrl+] (when
+// focused) → Blur, q → quit. Forwards key events to the block when
+// focused; otherwise consumes the focus toggle and ignores everything
+// else.
+//
+// Why Ctrl+] for leave: telnet/socat/picocom convention. Reserving
+// SHIFT-TAB / Esc would break real shell + vim usage (the
+// 2026-05-09 second-pass review caught that and the convention
+// switched).
 type wrapperModel struct {
 	block PTYBlockShim
 	width int
@@ -66,14 +72,16 @@ func (m wrapperModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.block.Focused() && msg.Type == tea.KeyRunes && len(msg.Runes) > 0 && msg.Runes[0] == 'q' {
 			return m, tea.Quit
 		}
-		// Mode-toggle gestures take priority.
+		// Mode-toggle gestures: TAB (unfocused) enters; Ctrl+] (focused)
+		// leaves. SHIFT-TAB / Esc / Tab while focused all reach the
+		// PTY via HandleKey below.
 		switch msg.Type {
 		case tea.KeyTab:
 			if !m.block.Focused() {
 				m.block = m.block.Focus()
 				return m, nil
 			}
-		case tea.KeyShiftTab, tea.KeyEsc:
+		case tea.KeyCtrlCloseBracket:
 			if m.block.Focused() {
 				m.block = m.block.Blur()
 				return m, nil
@@ -97,7 +105,7 @@ func (m wrapperModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m wrapperModel) View() string {
 	indicator := "[ READ ONLY ] press TAB to enter shell"
 	if m.block.Focused() {
-		indicator = "[ SHELL ] press SHIFT+TAB or Esc to leave"
+		indicator = "[ SHELL ] press Ctrl+] to leave"
 	}
 	return indicator + "\n" + m.block.View()
 }
@@ -151,8 +159,8 @@ func TestIntegration_LiveCatRoundTrip(t *testing.T) {
 		return strings.Contains(string(out), "ping")
 	}, teatest.WithDuration(2*time.Second), teatest.WithCheckInterval(20*time.Millisecond))
 
-	// 4. SHIFT+TAB to leave shell-input mode.
-	tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
+	// 4. Ctrl+] to leave shell-input mode (telnet/socat convention).
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlCloseBracket})
 
 	// 5. q to quit the wrapper.
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
@@ -169,7 +177,7 @@ func TestIntegration_LiveCatRoundTrip(t *testing.T) {
 		t.Fatalf("FinalModel = %T, want wrapperModel", final)
 	}
 	if wm.block.Focused() {
-		t.Errorf("wrapper exited focused — SHIFT+TAB should have blurred")
+		t.Errorf("wrapper exited focused — Ctrl+] should have blurred")
 	}
 }
 

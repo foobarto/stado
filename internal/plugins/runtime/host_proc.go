@@ -356,16 +356,37 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 
 // NewDefaultSandboxPolicy returns the host-default sandbox policy for
 // entry points that auto-confine stado_exec / stado_proc_spawn calls
-// (mcp-server, daemon). The policy is conservatively permissive — it
-// runs the child under bwrap / sandbox-exec for PID + uid namespace
-// isolation but doesn't restrict filesystem access. That's a real
-// step up from "no policy" (which runs the child as the operator's
-// uid in the operator's PID space) without breaking common usage
-// patterns where plugins shell out to system utilities.
+// (mcp-server, daemon). The policy is conservatively permissive — runs
+// the child under bwrap / sandbox-exec for PID + uid namespace
+// isolation, allows reading the system paths bash typically needs
+// (/bin, /sbin, /tmp, /run; /usr, /lib, /lib64, /etc, /proc, /dev are
+// bound automatically by the runner), and lets network through.
 //
-// Operators wanting tighter rules supply explicit FSRead / FSWrite /
-// Net via the wasm-side `sandbox` field on each stado_exec request,
-// or override the host default in a future config-driven path.
+// Earlier versions of this function returned `&sandboxPolicy{CWD:
+// workdir}` and claimed that produced unrestricted FS/net. That was
+// wrong on two counts (caught in 2026-05-09 second-pass review):
+//
+//   - sandboxPolicy.Net is a string; the empty default falls through
+//     both translation cases in buildSandboxedCmd's switch, leaving
+//     sandbox.NetPolicy.Kind at its zero value of NetDenyAll → bwrap
+//     gets --unshare-net. So "no net restrictions" actually meant
+//     "no network at all".
+//
+//   - The runner mounts /usr, /lib, /lib64, /etc but NOT /bin or
+//     /sbin. The shell wasm calls /bin/sh and /bin/bash literals; on
+//     distros where /bin isn't symlinked through /usr (Debian, some
+//     containers), `bwrap … /bin/sh` fails with "execvp: No such file
+//     or directory" before the command runs.
+//
+// The values below fix both. /bin and /sbin are bound (--ro-bind-try
+// is a no-op when they don't exist or are already covered by /usr's
+// symlink resolution). /tmp + /var/tmp are writable so plugins that
+// scratch there work. Net is explicit "allow".
+//
+// Operators wanting tighter rules either (a) supply an explicit
+// `sandbox` field on each stado_exec request from the wasm side, or
+// (b) opt the plugin OUT of host policy entirely with
+// `sandbox: {unsandboxed: true}` — see resolveSandboxPolicy below.
 //
 // Returns *sandboxPolicy as any so cmd/stado can stash it on a
 // tool.Host without depending on the unexported type. The runtime's
@@ -373,35 +394,66 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 func NewDefaultSandboxPolicy(workdir string) any {
 	return &sandboxPolicy{
 		CWD: workdir,
-		// FSRead / FSWrite intentionally nil — the bwrap / sandbox-exec
-		// runner's defaults still apply. Net unset → runner default.
-		// Env unset → runner default (whitelist).
+		// /bin + /sbin matter for bash's literal /bin/sh / /bin/bash
+		// argv[0] paths. /tmp + /var/tmp + /run cover scratch space
+		// commonly read by plugins. /usr / /lib / /lib64 / /etc /
+		// /proc / /dev are bound by the runner unconditionally.
+		FSRead:  []string{"/bin", "/sbin", "/tmp", "/var/tmp", "/run"},
+		FSWrite: []string{"/tmp", "/var/tmp"},
+		// Network: passthrough. Operators wanting deny set "deny"
+		// explicitly; per-host allowlists are a future config-driven
+		// surface, not the default.
+		Net: "allow",
 	}
 }
 
 // sandboxPolicy is the wasm-side wire shape for the optional `sandbox`
 // field on stado_exec / stado_proc_spawn requests. Mirrors sandbox.Policy
 // but with JSON tags + nil-when-unset semantics (the field is omitempty).
+//
+// Unsandboxed is the explicit opt-out signal: a plugin author who
+// knows their tool needs to bypass host policy (rare; mostly debug
+// scenarios and bootstrap utilities) sets it true and resolveSandboxPolicy
+// returns nil regardless of any host default. Without this field
+// there's no way for the wasm guest to distinguish "use host default"
+// from "no sandbox needed" — `null` and absent both unmarshal to
+// (*sandboxPolicy)(nil).
 type sandboxPolicy struct {
-	FSRead  []string `json:"fs_read"`
-	FSWrite []string `json:"fs_write"`
-	Exec    []string `json:"exec"`
-	Net     string   `json:"net"` // "deny" | "allow" — anything else = unset
-	CWD     string   `json:"cwd"`
-	Env     []string `json:"env"` // env vars to keep
+	FSRead      []string `json:"fs_read"`
+	FSWrite     []string `json:"fs_write"`
+	Exec        []string `json:"exec"`
+	Net         string   `json:"net"` // "deny" | "allow" — anything else = unset
+	CWD         string   `json:"cwd"`
+	Env         []string `json:"env"` // env vars to keep
+	Unsandboxed bool     `json:"unsandboxed,omitempty"`
 }
 
 // resolveSandboxPolicy picks the effective sandbox policy for a
-// stado_exec / stado_proc_spawn call: guest-supplied wins when set;
-// otherwise the host's default applies (set by mcp-server / daemon
-// entry points via the SandboxPolicyProvider interface). Both nil =
-// run unsandboxed (legacy behaviour, preserved for stado run / stado
-// tool run / TUI which don't supply a default).
+// stado_exec / stado_proc_spawn call:
 //
-// Why this lives next to buildSandboxedCmd: the resolution semantics
-// are part of "what does it mean to ask for a sandbox here?" and
-// reading them together makes the layered policy obvious.
+//   - guest.Unsandboxed=true  → return nil. Plugin author has
+//     explicitly opted out (debug / bootstrap scenarios). Bypasses
+//     any host default.
+//   - guest non-nil otherwise → guest wins (legacy "guest specifies
+//     its own policy" path).
+//   - guest nil + host default → host default.
+//   - guest nil + no host default → nil = unsandboxed.
+//
+// Note on the priority order: today's "guest wins" is intentionally
+// the wrong direction long-term — a malicious plugin could downgrade
+// host policy by supplying a more permissive own. The right shape is
+// "host is a ceiling; guest can only intersect/tighten." That's
+// flagged as a follow-up; landing it requires designing the policy-
+// intersection semantics (FSRead union? exec subset?). For now,
+// auto-confine still beats the prior "no auto-confine at all" state
+// for the common case (plugin authors don't supply a sandbox field;
+// host default applies), and the explicit Unsandboxed opt-out gives
+// authors a clean escape hatch instead of having to weaken the
+// policy implicitly.
 func resolveSandboxPolicy(host *Host, guest *sandboxPolicy) *sandboxPolicy {
+	if guest != nil && guest.Unsandboxed {
+		return nil
+	}
 	if guest != nil {
 		return guest
 	}
@@ -432,8 +484,16 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 		return cmd, nil
 	}
 	runner := sandbox.Detect()
-	if runner.Name() == "none" {
-		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available (install bubblewrap on Linux or sandbox-exec on macOS)")
+	// "none" means no runner at all (Linux without bwrap, macOS
+	// without sandbox-exec). "windows-passthrough" is the Windows
+	// runner that runs unsandboxed because we don't yet have a
+	// native confinement story there. Both must hard-fail when a
+	// policy was requested — silent fall-back-to-unsandboxed would
+	// defeat the plugin author's intent and, worse, give MCP/daemon
+	// callers the false impression that confinement is active when
+	// it isn't.
+	if name := runner.Name(); name == "none" || name == "windows-passthrough" {
+		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available on %s (install bubblewrap on Linux or sandbox-exec on macOS; Windows confinement is not yet supported — set sandbox.unsandboxed=true to opt out explicitly)", name)
 	}
 	cwd := policy.CWD
 	if cwd == "" {

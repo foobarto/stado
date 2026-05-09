@@ -49,18 +49,33 @@ become semver guarantees.
   default — operator-explicit invocations preserve legacy unsandboxed
   semantics.
 
+  Default policy values: PID + uid namespace isolation, network
+  passthrough (`Net="allow"`), filesystem reads of `/bin /sbin /tmp
+  /var/tmp /run` plus the runner's automatic `/usr /lib /lib64 /etc
+  /proc /dev` mounts, writes to `/tmp /var/tmp` and the workdir's
+  CWD. An earlier draft of this commit shipped `&sandboxPolicy{CWD:
+  workdir}` and claimed it was permissive; in fact the empty Net
+  string fell through the translation switch leaving NetDenyAll
+  (full network deny) and `/bin` / `/sbin` weren't bound, so
+  literal `/bin/sh` invocations failed at execvp. Both bugs caught
+  in the 2026-05-09 second-pass review and fixed here.
+
   Behaviour change: bash invocations through MCP / daemon previously
   ran with the operator's full UID privileges; they now run in a bwrap
-  process namespace by default. Plugin authors relying on direct
-  access to the operator's PID space or process tree should set
-  `sandbox: null` in their stado_exec request explicitly (the
-  resolver honours guest-supplied policy first; nil-from-guest falls
-  back to host default).
+  process namespace by default. Plugin authors who need to bypass
+  the host policy (debug / bootstrap scenarios) set
+  `"sandbox": {"unsandboxed": true}` in their stado_exec request —
+  this is a distinct field from absence/null because JSON unmarshal
+  collapses both into `*sandboxPolicy(nil)`, which the resolver
+  treats as "use host default."
 
-  The default policy is conservatively permissive — no FS / network
-  restrictions yet, just the namespace isolation the runner gives for
-  free. Tightening to read-only-root + rw-cwd + net-deny is a future
-  config-driven path.
+  Cross-platform: the host-default policy enforcement requires a
+  real sandbox runner. On Linux without bwrap or macOS without
+  sandbox-exec or any Windows host (which currently has no native
+  confinement story), `stado_exec` with a non-nil policy returns an
+  explicit error rather than silently passing through unsandboxed.
+  Operators who need stado_exec on those platforms set
+  `sandbox.unsandboxed=true` per call.
 
 ### CLI
 
