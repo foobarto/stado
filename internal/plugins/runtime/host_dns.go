@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,6 +13,8 @@ import (
 	"github.com/miekg/dns"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/netguard"
 )
 
 func registerDNSImports(builder wazero.HostModuleBuilder, host *Host) {
@@ -100,33 +103,21 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 // destinations when the caller doesn't hold dns:axfr_private. Returns
 // "" on accept, a denial message on refuse.
 //
-// Resolution policy mirrors host_net.dialIP: walk every address that
-// the destination resolves to (not just the first — DNS can return
-// public + private records, and we want to refuse if ANY of them is
-// private; otherwise the caller could TOCTOU between resolve and
-// dial). Server strings without a port get :53 appended to match
-// dnsAXFR's later normalisation.
+// Delegates to netguard.ResolveAndGuard so the resolve-and-walk-all-IPs
+// behaviour is shared with HTTP / raw-socket guards. Uses the broad
+// definition (multicast / unspecified also refused) — AXFR to those
+// is non-actionable and, for AXFR-via-multicast specifically, exotic
+// enough to be more likely a probe than a legitimate query.
 func guardAXFRTarget(ctx context.Context, server string) string {
 	hostStr := server
 	if h, _, err := net.SplitHostPort(server); err == nil {
 		hostStr = h
 	}
-	// If hostStr is already an IP literal, validate it directly.
-	if ip := net.ParseIP(hostStr); ip != nil {
-		if isPrivateIP(ip) {
-			return "axfr to private address " + ip.String() + " denied: dns:axfr_private capability required"
+	if _, err := netguard.ResolveAndGuard(ctx, hostStr, false /*allowPrivate*/, true /*broad*/); err != nil {
+		if errors.Is(err, netguard.ErrPrivateAddress) {
+			return "axfr to private destination denied (dns:axfr_private capability required): " + err.Error()
 		}
-		return ""
-	}
-	// Hostname: resolve and check every result.
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
-	if err != nil {
 		return "axfr server lookup failed: " + err.Error()
-	}
-	for _, ip := range ips {
-		if isPrivateIP(ip) {
-			return "axfr server " + hostStr + " resolves to private address " + ip.String() + " denied: dns:axfr_private capability required"
-		}
 	}
 	return ""
 }

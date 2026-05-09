@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/net/publicsuffix"
+
+	"github.com/foobarto/stado/internal/netguard"
 )
 
 // Sentinel errors returned by Client methods.
@@ -83,10 +85,35 @@ func New(opts ClientOptions) (*Client, error) {
 			if err != nil {
 				return nil, err
 			}
-			if err := c.guardDial(host); err != nil {
+			// Resolve + guard via netguard. The returned IP slice is
+			// what we dial — not the original hostname. Dialing the
+			// hostname re-runs DNS resolution inside the dialer with
+			// no guard, which was the rebinding window flagged in the
+			// 2026-05-09 review: a hostname could resolve to a public
+			// IP at guard time and a private IP at dial time, and the
+			// caller never noticed.
+			ips, err := netguard.ResolveAndGuard(ctx, host, c.opts.AllowPrivate, false)
+			if err != nil {
+				if errors.Is(err, netguard.ErrPrivateAddress) {
+					return nil, ErrPrivateAddress
+				}
 				return nil, err
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(host, port))
+			if len(c.opts.AllowedHosts) > 0 && !matchesAllowedHosts(host, c.opts.AllowedHosts) {
+				return nil, ErrHostNotAllowed
+			}
+			// Try each validated IP in order; first success wins.
+			// Dialing IPs directly bypasses the dialer's own DNS step
+			// (it sees an IP literal in the addr).
+			var lastErr error
+			for _, ip := range ips {
+				conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if derr == nil {
+					return conn, nil
+				}
+				lastErr = derr
+			}
+			return nil, lastErr
 		},
 	}
 
@@ -118,31 +145,14 @@ func New(opts ClientOptions) (*Client, error) {
 	return c, nil
 }
 
-// guardDial checks AllowedHosts and AllowPrivate for host (which may be a hostname or literal IP).
-// It is called from the DialContext hook, after the host has been extracted from the addr.
-func (c *Client) guardDial(host string) error {
-	// Resolve to IP(s) if not already a literal IP.
-	ip := net.ParseIP(host)
-	if ip == nil {
-		addrs, err := net.LookupHost(host)
-		if err != nil || len(addrs) == 0 {
-			return err
-		}
-		ip = net.ParseIP(addrs[0])
-	}
-
-	if ip != nil && !c.opts.AllowPrivate {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-			return ErrPrivateAddress
-		}
-	}
-
-	if len(c.opts.AllowedHosts) > 0 && !matchesAllowedHosts(host, c.opts.AllowedHosts) {
-		return ErrHostNotAllowed
-	}
-
-	return nil
-}
+// guardDial was the previous in-place dial guard. Removed when the
+// DialContext was rewritten to resolve via netguard.ResolveAndGuard
+// and dial the validated IP slice directly — the previous helper
+// only checked addrs[0] and dialed the original hostname, which let
+// DNS rebinding move the actual connection between guard and dial.
+// The current behaviour is documented inline at the DialContext
+// callback in New(); keeping this comment as a tombstone so a
+// reviewer searching for "guardDial" finds the migration history.
 
 // matchesAllowedHosts returns true if host matches any pattern in allowed.
 // Patterns may be exact hostnames or "*.<domain>" suffix wildcards.

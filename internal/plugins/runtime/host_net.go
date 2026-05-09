@@ -37,7 +37,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,6 +46,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/netguard"
 )
 
 const (
@@ -889,15 +890,13 @@ func (r *Runtime) closeAllNetConns(ctx context.Context) {
 }
 
 // isPrivateIP reports whether ip is in any of the standard private,
-// loopback, or link-local prefixes. Mirrors the dial guard in
-// internal/tools/httpreq.
+// loopback, or link-local prefixes — the broad definition that
+// includes multicast / unspecified for raw-socket contexts where
+// reaching those would also be undesirable. Delegates to
+// internal/netguard so this package's HTTP/DNS callers and the
+// raw-socket / ICMP callers all share one IP classification.
 func isPrivateIP(ip net.IP) bool {
-	a, ok := netip.AddrFromSlice(ip.To16())
-	if !ok {
-		return false
-	}
-	return a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() ||
-		a.IsLinkLocalMulticast() || a.IsMulticast() || a.IsUnspecified()
+	return netguard.IsPrivateBroad(ip)
 }
 
 // errPrivateAddr is returned by the dial guard for clarity in tests.
