@@ -629,6 +629,63 @@ func TestBridgeE2E_StadoDebug(t *testing.T) {
 	t.Logf("final:\n%s", got)
 }
 
+// connectStado fills the bridge's launch form, clicks connect, and
+// waits for stado to render its landing screen (the "ctrl+p
+// commands" hint in the bottom row is the most-stable post-startup
+// marker). Returns an error if the landing screen never appears.
+// Most TUI-surface tests start with this; extracted so each test
+// stays focused on the assertions that distinguish it.
+func connectStado(ctx context.Context, t *testing.T, stadoBinAbs string) error {
+	t.Helper()
+	startCmd := fmt.Sprintf(`(function(){
+		document.getElementById('cmd').value = %q;
+		document.getElementById('args').value = '';
+		window.bridge.connect();
+		return true;
+	})()`, stadoBinAbs)
+	if err := chromedp.Run(ctx, chromedp.Evaluate(startCmd, nil)); err != nil {
+		return fmt.Errorf("connect stado: %w", err)
+	}
+	if !pollEval(ctx, t,
+		`window.bridge && window.bridge.snapshot ? (window.bridge.snapshot().toLowerCase().indexOf('ctrl+p') >= 0) : false`,
+		15*time.Second, 100*time.Millisecond) {
+		var snap string
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`window.bridge ? window.bridge.snapshot() : 'no bridge'`, &snap))
+		return fmt.Errorf("landing screen never showed; snapshot:\n%s", snap)
+	}
+	return nil
+}
+
+// snapshot returns the current xterm.js buffer as a string, or
+// "<error: …>" / "<no bridge>" when something's wrong. Helper to
+// keep failure paths short in the per-test bodies.
+func snapshot(ctx context.Context, t *testing.T) string {
+	t.Helper()
+	var s string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(
+		`window.bridge && window.bridge.snapshot ? window.bridge.snapshot() : '<no bridge>'`, &s)); err != nil {
+		return "<error: " + err.Error() + ">"
+	}
+	return s
+}
+
+// stadoBinForTest returns an absolute path to the stado binary
+// configured via $STADO_BIN, or signals the test to skip when
+// unavailable. Centralises the env-var-and-skip dance every TUI-
+// surface test starts with.
+func stadoBinForTest(t *testing.T) string {
+	t.Helper()
+	stadoBin := os.Getenv("STADO_BIN")
+	if stadoBin == "" {
+		stadoBin = "stado"
+	}
+	abs, err := exeLookup(stadoBin)
+	if err != nil {
+		t.Skipf("STADO_BIN not found: %v", err)
+	}
+	return abs
+}
+
 // pollEval evaluates a JS expression repeatedly until it returns
 // truthy (bool true / non-zero number / non-empty string), the
 // timeout elapses, or the context cancels. Returns whether the
