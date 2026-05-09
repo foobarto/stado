@@ -400,3 +400,55 @@ exposure lands.
   prior art for how Expect waits for new bytes.
 - The original design discussion that surfaced this gap is in
   the conversation transcript, not in tree.
+
+## Handoff
+
+**What shipped.** All 12 ACs landed across 2 commits:
+
+- `b22511b` — Phase 1: `Manager.Expect`, `ringBuffer.Unshift`,
+  reap-broadcast on exit-code (so `waitExitCode` wakes
+  promptly), 9 Expect tests + 4 ring tests, race-clean.
+- `88f9cce` — Phase 2: `stado_terminal_expect` host import,
+  `stado_tool_expect` plugin wrapper, `shell.expect` tool
+  registration + canonical-metadata entry, PTY-bound refusal
+  lists in `cmd/stado/tool_run.go` + the TUI /tool gate
+  (one-shot dispatch can't reach a session id created
+  elsewhere). Bundled wasm rebuilt. End-to-end test
+  `TestBundledShellExpect_RoundTripsThroughWasm` exercises
+  the full agent path.
+- Phase 3 (this commit): `docs/plugins/host-imports.md` adds
+  the `stado_terminal_expect` row + request/response shapes;
+  CHANGELOG Unreleased Plugins entry; `plugins/examples/
+  expect-demo-go/` with the canonical spawn → expect → write
+  → expect → EOF demonstration (~250 LOC including all wasm
+  boilerplate).
+
+**Spec deviations.**
+
+- Wire shape per spec line 209-210 used (id rides on `(idLo,
+  idHi)` i32 pair; the JSON args carry only patterns / regex /
+  timeout_ms). Matches `stado_terminal_read` / `_write`.
+- Concurrent Expect-Expect rejection implemented via a session
+  `expectInProgress` flag rather than reusing attach
+  exclusivity (attach is a coarser lock than Expect needs;
+  Read+Expect coexists by design, with the documented caveat
+  that the two will fight for ring bytes).
+
+**What's left.** Nothing in scope. AC11 (-race) covered by Phase
+1's test pass; AC12 (docs) covered by Phase 3.
+
+**What surprised me.** The `reap` goroutine wasn't broadcasting
+on exit-code set — drain set `closed` and broadcast, but reap
+silently set `exitCode` afterwards. Without reap broadcasting,
+`waitExitCode` would have spun until its 100 ms fallback timer
+on every EOF case (AC7). The fix is one extra
+`s.cond.Broadcast()` in reap; minimal blast radius.
+
+**What to watch.** None of the tests exercise extreme corner
+cases: very large `before` slabs (>1 MiB; the host buffer caps
+at 1 MiB and would truncate), or a session whose ring has
+wrapped around at the moment of Expect entry (covered indirectly
+by `TestRingUnshift_PreservesAfterWraparound` but not in the
+Expect path itself). If those become real, the spec's "next
+slice" — `against: "rendered" | "raw"` arg — is the natural
+extension.

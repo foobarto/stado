@@ -151,8 +151,41 @@ name; `stado_pty_*` is the legacy alias kept for backward compat.
 | `stado_pty_signal` | `stado_terminal_signal` | 0/-1 | Posix signal (out-of-band) |
 | `stado_pty_resize` | `stado_terminal_resize` | 0/-1 | Cols + rows |
 | `stado_pty_destroy` | `stado_terminal_close` | 0 | Kill + free |
+| — | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen: `{text, cols, rows, cursor, title, svg?}` |
+| — | `stado_terminal_expect(id_lo, id_hi, args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Read until pattern match / timeout / EOF — see below |
 
 Capability: `terminal:open` (broad) — gates all PTY ops.
+
+**`stado_terminal_expect` request shape:**
+
+```jsonc
+{
+  "patterns":   ["password:", "$ "],   // 1..16 strings
+  "regex":      false,                  // RE2 when true; substring otherwise
+  "timeout_ms": 30000                   // total budget; 0 = check buffer only
+}
+```
+
+**Response shapes** (discriminated on `matched` / `timeout` / `eof`):
+
+```jsonc
+// Match
+{"matched": true, "pattern_index": 0, "before": "<base64>", "match": "<base64>"}
+// Timeout
+{"matched": false, "timeout": true, "before": "<base64>"}
+// EOF (process exited)
+{"matched": false, "eof": true, "before": "<base64>", "exit_code": 0}
+```
+
+`before` and `match` are base64 because PTY output routinely includes
+non-UTF8 sequences (ANSI escapes, terminal control codes) JSON strings
+can't carry losslessly. After-match bytes are pushed back into the
+ring; subsequent `stado_terminal_read` returns them.
+
+Across patterns, the EARLIEST byte position wins; ties go to the
+lower `patterns[i]` index. Concurrent `stado_terminal_expect` on the
+same session is rejected with a structured error. Requires attach
+(same contract as read).
 
 ### stado_bundled_bin
 

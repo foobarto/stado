@@ -139,6 +139,30 @@ become semver guarantees.
 
 ### Plugins
 
+- **`shell.expect` — read-until-pattern PTY primitive.** A new bundled
+  tool that reads from an existing `shell.spawn` session until one of
+  a configured set of patterns matches, the timeout elapses, or the
+  process exits. Replaces the model loop of `shell.read with timeout
+  → substring-check → loop` (typically 3–7 turns per prompt-wait)
+  with a single tool call. Args: `id`, `patterns` (1..16 strings),
+  `regex?` (default false; when true, patterns are RE2),
+  `timeout_ms?` (default 30000; 0 = check buffer only). Response is
+  one of three discriminated shapes — match (`{matched:true,
+  pattern_index, before, match}`), timeout (`{matched:false,
+  timeout:true, before}`), or eof (`{matched:false, eof:true,
+  before, exit_code}`). `before` and `match` are base64 because PTY
+  output routinely includes non-UTF8 sequences. After-match bytes
+  are pushed back into the session's ring so subsequent
+  `shell.read` / `shell.expect` see them. Across patterns, the
+  earliest byte position wins; ties go to the lower index — useful
+  for "either a prompt or an error" branching without two separate
+  calls. New host import `stado_terminal_expect` gated behind the
+  existing `terminal:open` capability; plugins that already declare
+  it gain access without manifest changes. For full-screen TUIs use
+  `shell.snapshot` instead — `shell.expect` operates on the raw byte
+  stream where ANSI escapes interleave with content. Demo plugin
+  ships at `plugins/examples/expect-demo-go/`.
+
 - **`shell.snapshot` — rendered terminal screen capture.** A new
   bundled tool feeds every byte read from a PTY session through a
   `vt10x` emulator alongside the existing ring buffer, then exposes

@@ -1,0 +1,22 @@
+{
+  "name": "expect-demo-go",
+  "version": "0.1.0",
+  "author": "stado example",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "terminal:open",
+    "exec:proc:bash"
+  ],
+  "tools": [
+    {
+      "name": "expect_demo",
+      "description": "Manual test tool only. Do not use unless a human explicitly asks to demo the stado_terminal_expect primitive. Spawns bash, expects 'DEMO> ', writes 'hello', expects 'got=hello', then waits for EOF — and reports the per-step match envelope.",
+      "class": "Exec",
+      "schema": "{\"type\":\"object\",\"properties\":{}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-05-09T00:00:00Z",
+  "nonce": "expect-demo-go-001"
+}
