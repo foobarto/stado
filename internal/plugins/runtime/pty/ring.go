@@ -82,6 +82,60 @@ func (b *ringBuffer) ReadN(n int) []byte {
 	return out
 }
 
+// Unshift pushes p onto the FRONT of the ring so subsequent ReadN sees
+// it before any existing unread bytes. Used by Expect to put the post-
+// match tail back after consuming bytes for pattern matching.
+//
+// Overflow semantics: if len(p)+Len() > Cap(), drop bytes from the END
+// of the combined sequence (the tail of the existing buffered data).
+// p is preserved up to Cap(); existing data shifts right and the
+// trailing bytes that don't fit are discarded. Returns the count of
+// dropped bytes. Mirrors Write's "newer wins" intuition: the bytes
+// being put back ARE the newest from the caller's perspective (they
+// were just observed), so they're kept even when the ring is small.
+//
+// Caller holds s.mu (same as Write/ReadN).
+func (b *ringBuffer) Unshift(p []byte) uint64 {
+	cap := len(b.buf)
+	if cap == 0 || len(p) == 0 {
+		return 0
+	}
+	existing := b.peekAll()
+	combined := make([]byte, 0, len(p)+len(existing))
+	combined = append(combined, p...)
+	combined = append(combined, existing...)
+	dropped := uint64(0)
+	if len(combined) > cap {
+		dropped = uint64(len(combined) - cap)
+		combined = combined[:cap]
+	}
+	// Reset to a linear layout starting at offset 0 — simpler than
+	// trying to preserve wraparound across an Unshift, and Unshift is
+	// not on the hot path (one call per matched Expect).
+	copy(b.buf, combined)
+	b.r = 0
+	b.w = len(combined) % cap
+	b.full = len(combined) == cap
+	return dropped
+}
+
+// peekAll snapshots the unread bytes in read order without consuming.
+// Caller holds s.mu.
+func (b *ringBuffer) peekAll() []byte {
+	n := b.Len()
+	if n == 0 {
+		return nil
+	}
+	out := make([]byte, n)
+	cap := len(b.buf)
+	rr := b.r
+	for i := 0; i < n; i++ {
+		out[i] = b.buf[rr]
+		rr = (rr + 1) % cap
+	}
+	return out
+}
+
 // condWaitTimeout blocks the session's cond up to d. Wakes early on
 // any Broadcast. Caller must hold s.mu.
 func (s *session) condWaitTimeout(d time.Duration) {

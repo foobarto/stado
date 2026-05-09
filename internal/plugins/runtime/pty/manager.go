@@ -189,6 +189,15 @@ type session struct {
 	lastDrainTouch  time.Time
 	readWaiters     int
 
+	// expectInProgress is set while Expect holds the session's read
+	// stream. The flag is exclusivity-only — it does NOT block the
+	// drain goroutine (which is the only writer) or Read/Write/Signal
+	// (which would race anyway against any concurrent reader). It
+	// rejects a SECOND concurrent Expect on the same session because
+	// two expects competing for ring bytes would non-deterministically
+	// split the input stream.
+	expectInProgress bool
+
 	// closedAt records when s.closed was set to true (drain saw EOF
 	// from the master fd). The watchdog's closed-and-unattached
 	// reap path uses this to enforce closedReapGrace — without it,
@@ -537,6 +546,11 @@ func (s *session) reap() {
 	s.exitCode = &exit
 	// drain goroutine will mark closed once master EOFs after the
 	// child exits; race-safe to set both here.
+	//
+	// Broadcast so observers blocked in waitExitCode (e.g. Expect on
+	// EOF) wake the moment exitCode is set rather than spinning until
+	// their fallback timer fires.
+	s.cond.Broadcast()
 	s.mu.Unlock()
 }
 
