@@ -429,44 +429,157 @@ type sandboxPolicy struct {
 }
 
 // resolveSandboxPolicy picks the effective sandbox policy for a
-// stado_exec / stado_proc_spawn call:
+// stado_exec / stado_proc_spawn call. Host-as-ceiling semantics:
+// when the host supplies a default, the guest can only TIGHTEN it —
+// a malicious or buggy plugin cannot weaken host policy by claiming
+// looser rules. The previous "guest wins" direction was flagged in
+// the original 2026-05-09 review and the follow-up consults; this
+// commit is the redesign.
 //
-//   - guest.Unsandboxed=true  → return nil. Plugin author has
-//     explicitly opted out (debug / bootstrap scenarios). Bypasses
-//     any host default.
-//   - guest non-nil otherwise → guest wins (legacy "guest specifies
-//     its own policy" path).
-//   - guest nil + host default → host default.
-//   - guest nil + no host default → nil = unsandboxed.
+// Resolution table:
 //
-// Note on the priority order: today's "guest wins" is intentionally
-// the wrong direction long-term — a malicious plugin could downgrade
-// host policy by supplying a more permissive own. The right shape is
-// "host is a ceiling; guest can only intersect/tighten." That's
-// flagged as a follow-up; landing it requires designing the policy-
-// intersection semantics (FSRead union? exec subset?). For now,
-// auto-confine still beats the prior "no auto-confine at all" state
-// for the common case (plugin authors don't supply a sandbox field;
-// host default applies), and the explicit Unsandboxed opt-out gives
-// authors a clean escape hatch instead of having to weaken the
-// policy implicitly.
+//   host=nil  guest=nil               → nil (unsandboxed)
+//   host=nil  guest=Unsandboxed=true  → nil (explicit opt-out honored)
+//   host=nil  guest non-nil           → guest (no ceiling to enforce)
+//   host non-nil  guest=nil           → host (default applies)
+//   host non-nil  guest=Unsandboxed=true → host (opt-out IGNORED — host
+//                                         policy is mandatory; if
+//                                         operators want to allow opt-
+//                                         outs they remove the default
+//                                         host-side, not via plugin
+//                                         claim)
+//   host non-nil  guest non-nil       → intersect(host, guest)
+//                                         (guest can only narrow)
+//
+// The Unsandboxed-ignored case is the security-relevant one. With
+// "guest wins," any plugin author could shrug off mcp-server's
+// auto-confine by setting Unsandboxed=true in their stado_exec args.
+// With "host as ceiling," operator policy is the floor; plugin
+// claims can only restrict further.
 func resolveSandboxPolicy(host *Host, guest *sandboxPolicy) *sandboxPolicy {
-	if guest != nil && guest.Unsandboxed {
+	hostPolicy, _ := hostDefaultPolicy(host)
+	switch {
+	case hostPolicy == nil && guest == nil:
+		return nil
+	case hostPolicy == nil:
+		if guest.Unsandboxed {
+			return nil
+		}
+		return guest
+	case guest == nil:
+		return hostPolicy
+	default:
+		// Host non-nil; Unsandboxed is intentionally ignored here.
+		return intersectPolicies(hostPolicy, guest)
+	}
+}
+
+// hostDefaultPolicy extracts the typed *sandboxPolicy from Host's
+// any-typed DefaultSandboxPolicy field. Returns (nil, false) when no
+// default is set OR when the host wired something that isn't
+// *sandboxPolicy (misconfigured entry point — treat as no policy
+// rather than panic).
+func hostDefaultPolicy(host *Host) (*sandboxPolicy, bool) {
+	if host == nil || host.DefaultSandboxPolicy == nil {
+		return nil, false
+	}
+	p, ok := host.DefaultSandboxPolicy.(*sandboxPolicy)
+	if !ok {
+		return nil, false
+	}
+	return p, true
+}
+
+// intersectPolicies returns the strict intersection of host and guest
+// policies — guest can only tighten, never loosen. Per-field
+// semantics:
+//
+//   - FSRead, FSWrite, Exec, Env: result keeps only entries that
+//     appear in BOTH lists (path-string equality, no prefix
+//     matching). An empty host list explicitly means "no extra
+//     access"; intersect with anything yields empty. Symmetric for
+//     guest.
+//   - Net: "deny" wins. If either side is "deny" the result is "deny".
+//     If host is "allow" and guest is "" the result is "allow"
+//     (host's permissiveness; guest didn't pick). If host is "" and
+//     guest sets a value, host has no opinion → guest's value applies
+//     (only when host policy is otherwise active; this branch is
+//     reached only when both are non-nil).
+//   - CWD: host wins. Operator chose the workdir; a plugin shouldn't
+//     redirect process state into a different directory.
+//   - Unsandboxed: ignored — see resolveSandboxPolicy doc.
+//
+// The function never returns a nil — at least the host's CWD comes
+// through. Callers see a real *sandboxPolicy that may be very
+// restrictive but is always a valid policy.
+func intersectPolicies(host, guest *sandboxPolicy) *sandboxPolicy {
+	out := &sandboxPolicy{
+		FSRead:  intersectStringList(host.FSRead, guest.FSRead),
+		FSWrite: intersectStringList(host.FSWrite, guest.FSWrite),
+		Exec:    intersectStringList(host.Exec, guest.Exec),
+		Env:     intersectStringList(host.Env, guest.Env),
+		Net:     intersectNet(host.Net, guest.Net),
+		CWD:     host.CWD,
+	}
+	return out
+}
+
+// intersectStringList returns the field-level intersection of host
+// and guest lists with nil-vs-empty semantics that match operator
+// intuition:
+//
+//   - guest=nil → "guest didn't specify" → inherit host's list.
+//     Without this, an agent that adds `"net": "deny"` to its
+//     stado_exec args would lose ALL of host's FSRead permissions
+//     just by being silent on FSRead.
+//   - guest=[] (non-nil empty) → "guest explicitly wants nothing"
+//     → return nil (no permissions). JSON `[]` unmarshals to a
+//     non-nil empty slice, distinct from absent (nil), so callers
+//     CAN signal this if they want to lock themselves down.
+//   - host=nil + guest non-empty → host has no opinion on this
+//     field → guest's list applies (still a tighten relative to
+//     "no policy on this field").
+//   - both non-empty → strict intersection (only entries in both).
+//
+// Order follows host's so operators reading the resulting policy
+// see their values first.
+func intersectStringList(host, guest []string) []string {
+	if guest == nil {
+		return host
+	}
+	if len(guest) == 0 {
 		return nil
 	}
-	if guest != nil {
+	if len(host) == 0 {
 		return guest
 	}
-	if host == nil || host.DefaultSandboxPolicy == nil {
+	guestSet := make(map[string]struct{}, len(guest))
+	for _, g := range guest {
+		guestSet[g] = struct{}{}
+	}
+	out := make([]string, 0, len(host))
+	for _, h := range host {
+		if _, ok := guestSet[h]; ok {
+			out = append(out, h)
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	if p, ok := host.DefaultSandboxPolicy.(*sandboxPolicy); ok {
-		return p
+	return out
+}
+
+// intersectNet picks the stricter of host and guest. "deny" >
+// "allow" > "" (no opinion). The strictest value any side specified
+// wins; host can clamp to "deny" regardless of what guest claims.
+func intersectNet(host, guest string) string {
+	if host == "deny" || guest == "deny" {
+		return "deny"
 	}
-	// Wrong type — host wired something that isn't *sandboxPolicy.
-	// Treat as nil rather than panicking; a misconfigured entry
-	// point shouldn't crash the runtime.
-	return nil
+	if host == "allow" || guest == "allow" {
+		return "allow"
+	}
+	return ""
 }
 
 // buildSandboxedCmd constructs the *exec.Cmd. When policy is nil, runs

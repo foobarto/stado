@@ -74,8 +74,25 @@ become semver guarantees.
   sandbox-exec or any Windows host (which currently has no native
   confinement story), `stado_exec` with a non-nil policy returns an
   explicit error rather than silently passing through unsandboxed.
-  Operators who need stado_exec on those platforms set
-  `sandbox.unsandboxed=true` per call.
+
+  Host-as-ceiling (mid-day update): when a host default is set,
+  guest plugin policy can only TIGHTEN it — never weaken. The
+  resolver intersects the two policies field by field: FSRead /
+  FSWrite / Exec / Env keep only entries in BOTH lists; Net "deny"
+  wins from either side; CWD is host's (operator-chosen, plugin
+  can't redirect). Pre-fix, `Unsandboxed: true` from the wasm
+  guest weakened any host default to nil; that hole is now closed
+  — Unsandboxed is honored only when there's no host default to
+  enforce (stado run / stado tool run / TUI). Plugin authors who
+  truly need to bypass operator policy work with the operator to
+  remove the host default, not via an in-band claim.
+
+  nil-vs-empty list semantics: an absent guest field (JSON omitted,
+  unmarshals to nil slice) means "no opinion" → inherits host's
+  list. An explicit `[]` (non-nil empty slice) means "lock down to
+  nothing." So an agent can paranoid-restrict by sending
+  `"fs_read": []` while still inheriting default network/CWD
+  policy.
 
 ### CLI
 

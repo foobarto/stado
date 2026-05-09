@@ -78,36 +78,59 @@ func TestResolveSandboxPolicy(t *testing.T) {
 	guest := &sandboxPolicy{Net: "deny", CWD: "/guest"}
 	hostDefault := NewDefaultSandboxPolicy("/host").(*sandboxPolicy)
 
-	// 1. Guest non-nil: guest always wins, even if host has a default.
-	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, guest); got != guest {
-		t.Errorf("guest-supplied policy should win; got %+v", got)
-	}
-	if got := resolveSandboxPolicy(&Host{}, guest); got != guest {
-		t.Errorf("guest-supplied policy with no host default: got %+v", got)
-	}
+	t.Run("no host: guest wins", func(t *testing.T) {
+		// Without a host default, there's no ceiling to enforce.
+		// Guest's policy applies as-is. Matches stado run /
+		// stado tool run / TUI behaviour where the operator
+		// invocation is explicit.
+		if got := resolveSandboxPolicy(&Host{}, guest); got != guest {
+			t.Errorf("guest-supplied policy with no host default: got %+v want %+v", got, guest)
+		}
+	})
 
-	// 2. Guest nil + host default set: host default applies.
-	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, nil); got != hostDefault {
-		t.Errorf("nil guest + host default: want host default, got %+v", got)
-	}
+	t.Run("host + nil guest: host default", func(t *testing.T) {
+		if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, nil); got != hostDefault {
+			t.Errorf("nil guest + host default: want host default, got %+v", got)
+		}
+	})
 
-	// 3. Guest nil + host default nil: legacy unsandboxed (returns nil).
-	if got := resolveSandboxPolicy(&Host{}, nil); got != nil {
-		t.Errorf("both nil: want nil (unsandboxed); got %+v", got)
-	}
+	t.Run("host + guest: intersection (CWD = host's)", func(t *testing.T) {
+		// Post-redesign: guest can no longer replace host policy;
+		// it can only intersect/tighten. CWD field specifically:
+		// host wins (operator chose it; plugin can't escape).
+		got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, guest)
+		if got == nil {
+			t.Fatal("intersection returned nil; want non-nil result")
+		}
+		if got == guest {
+			t.Errorf("guest-supplied policy must NOT win unchanged when host has default — that was the security hole. Want intersection.")
+		}
+		if got.CWD != hostDefault.CWD {
+			t.Errorf("CWD = %q, want host's %q (operator-chosen)", got.CWD, hostDefault.CWD)
+		}
+		if got.Net != "deny" {
+			t.Errorf("Net = %q, want deny (deny wins; either side suffices)", got.Net)
+		}
+	})
 
-	// 4. Defensive: host default of wrong type returns nil rather than
-	//    panicking. A misconfigured entry point shouldn't crash the
-	//    runtime.
-	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: "not a policy"}, nil); got != nil {
-		t.Errorf("wrong-typed host default: want nil, got %+v", got)
-	}
+	t.Run("both nil: unsandboxed", func(t *testing.T) {
+		if got := resolveSandboxPolicy(&Host{}, nil); got != nil {
+			t.Errorf("both nil: want nil (unsandboxed); got %+v", got)
+		}
+	})
 
-	// 5. Nil host (defensive — shouldn't happen in production but the
-	//    helper handles it).
-	if got := resolveSandboxPolicy(nil, nil); got != nil {
-		t.Errorf("nil host: want nil, got %+v", got)
-	}
+	t.Run("wrong-typed host default → nil", func(t *testing.T) {
+		// Defensive: misconfigured entry point shouldn't panic.
+		if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: "not a policy"}, nil); got != nil {
+			t.Errorf("wrong-typed host default: want nil, got %+v", got)
+		}
+	})
+
+	t.Run("nil host: nil result", func(t *testing.T) {
+		if got := resolveSandboxPolicy(nil, nil); got != nil {
+			t.Errorf("nil host: want nil, got %+v", got)
+		}
+	})
 }
 
 // TestNewDefaultSandboxPolicy_PermissiveByDefault locks the default
@@ -152,35 +175,145 @@ func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 	}
 }
 
-// TestResolveSandboxPolicy_UnsandboxedOptOut: a guest plugin that
-// sets `sandbox.unsandboxed=true` opts out of any host-default
-// policy. The resolver returns nil, which buildSandboxedCmd then
-// runs unsandboxed. Without an explicit Unsandboxed field, JSON
-// unmarshal can't distinguish "absent" from "explicit null" — both
-// yield (*sandboxPolicy)(nil), which the resolver treats as "use
-// host default." Caught in 2026-05-09 second pass; the CHANGELOG
-// claim that you could "set sandbox: null to opt out" was false.
-func TestResolveSandboxPolicy_UnsandboxedOptOut(t *testing.T) {
+// TestResolveSandboxPolicy_HostAsCeiling locks the redesigned
+// semantics: when the host has a default policy, the guest can
+// only TIGHTEN it; Unsandboxed=true is honored only when there's
+// no host default to enforce. Pre-redesign (commit 7e20c07 +
+// dde15dc): "guest wins" meant a plugin could weaken host policy
+// by setting Unsandboxed=true. The current commit makes host the
+// floor; security-relevant fix.
+func TestResolveSandboxPolicy_HostAsCeiling(t *testing.T) {
 	hostDefault := NewDefaultSandboxPolicy("/host")
 	host := &Host{DefaultSandboxPolicy: hostDefault}
 
-	// Absent guest: host default applies.
-	if got := resolveSandboxPolicy(host, nil); got == nil {
-		t.Errorf("absent guest with host default: want host default, got nil")
-	}
+	t.Run("absent guest: host default applies", func(t *testing.T) {
+		if got := resolveSandboxPolicy(host, nil); got == nil {
+			t.Errorf("absent guest + host default: want host default, got nil")
+		}
+	})
 
-	// Explicit Unsandboxed=true: bypass host default.
-	guest := &sandboxPolicy{Unsandboxed: true}
-	if got := resolveSandboxPolicy(host, guest); got != nil {
-		t.Errorf("Unsandboxed=true: want nil (bypass host default); got %+v", got)
-	}
+	t.Run("Unsandboxed=true with host default: IGNORED", func(t *testing.T) {
+		guest := &sandboxPolicy{Unsandboxed: true}
+		got := resolveSandboxPolicy(host, guest)
+		if got == nil {
+			t.Errorf("Unsandboxed=true must NOT bypass host default — that was the security hole. Want host policy, got nil.")
+		}
+	})
 
-	// Unsandboxed=true with other fields: still bypass. Operator
-	// might fill the struct out of habit; the flag still wins.
-	guest = &sandboxPolicy{Unsandboxed: true, Net: "deny", FSRead: []string{"/etc"}}
-	if got := resolveSandboxPolicy(host, guest); got != nil {
-		t.Errorf("Unsandboxed=true with fields: want nil; got %+v", got)
-	}
+	t.Run("Unsandboxed=true with host default + other fields: IGNORED", func(t *testing.T) {
+		guest := &sandboxPolicy{Unsandboxed: true, Net: "deny", FSRead: []string{"/etc"}}
+		got := resolveSandboxPolicy(host, guest)
+		if got == nil {
+			t.Errorf("Unsandboxed must not weaken host policy regardless of other fields. Want intersection, got nil.")
+		}
+	})
+
+	t.Run("Unsandboxed=true with NO host default: honored", func(t *testing.T) {
+		// stado run / stado tool run path: no host default. Plugin
+		// can opt out — operator-explicit invocation.
+		hostNoDefault := &Host{}
+		guest := &sandboxPolicy{Unsandboxed: true}
+		if got := resolveSandboxPolicy(hostNoDefault, guest); got != nil {
+			t.Errorf("Unsandboxed=true with no host default: want nil (legacy opt-out path); got %+v", got)
+		}
+	})
+}
+
+// TestResolveSandboxPolicy_GuestCanOnlyTighten covers the
+// intersection contract field by field. Each subcase: host wants X,
+// guest wants Y, expected = intersect(X, Y).
+func TestResolveSandboxPolicy_GuestCanOnlyTighten(t *testing.T) {
+	t.Run("FSRead: guest cannot expand", func(t *testing.T) {
+		host := &sandboxPolicy{FSRead: []string{"/bin", "/usr"}}
+		guest := &sandboxPolicy{FSRead: []string{"/bin", "/etc"}} // wants /etc, host doesn't permit
+		got := intersectPolicies(host, guest)
+		if len(got.FSRead) != 1 || got.FSRead[0] != "/bin" {
+			t.Errorf("FSRead intersect = %v, want [/bin] only", got.FSRead)
+		}
+	})
+
+	t.Run("FSWrite: guest can subset", func(t *testing.T) {
+		host := &sandboxPolicy{FSWrite: []string{"/tmp", "/var/tmp"}}
+		guest := &sandboxPolicy{FSWrite: []string{"/tmp"}} // narrower
+		got := intersectPolicies(host, guest)
+		if len(got.FSWrite) != 1 || got.FSWrite[0] != "/tmp" {
+			t.Errorf("FSWrite intersect = %v, want [/tmp]", got.FSWrite)
+		}
+	})
+
+	t.Run("FSWrite: nil host = no opinion, guest's value applies", func(t *testing.T) {
+		// Host with no FSWrite list = "no opinion on this field."
+		// Guest specifying FSWrite=[/tmp] is a tighten relative to
+		// "no policy at all" — fine to apply. (Contrast with
+		// host's *runner-level* defaults like /tmp being writable
+		// via CWD bind; those are unaffected by FSWrite list
+		// content.)
+		host := &sandboxPolicy{FSWrite: nil}
+		guest := &sandboxPolicy{FSWrite: []string{"/tmp"}}
+		got := intersectPolicies(host, guest)
+		if len(got.FSWrite) != 1 || got.FSWrite[0] != "/tmp" {
+			t.Errorf("FSWrite intersect with nil host = %v, want [/tmp]", got.FSWrite)
+		}
+	})
+
+	t.Run("Net: deny wins (either side)", func(t *testing.T) {
+		cases := []struct {
+			host, guest, want string
+		}{
+			{"deny", "allow", "deny"},
+			{"allow", "deny", "deny"},
+			{"deny", "deny", "deny"},
+			{"allow", "allow", "allow"},
+			{"allow", "", "allow"},
+			{"", "deny", "deny"},
+			{"", "", ""},
+		}
+		for _, c := range cases {
+			h := &sandboxPolicy{Net: c.host}
+			g := &sandboxPolicy{Net: c.guest}
+			got := intersectPolicies(h, g).Net
+			if got != c.want {
+				t.Errorf("intersectNet(%q, %q) = %q, want %q", c.host, c.guest, got, c.want)
+			}
+		}
+	})
+
+	t.Run("CWD: host wins (operator chose it)", func(t *testing.T) {
+		host := &sandboxPolicy{CWD: "/operator/path"}
+		guest := &sandboxPolicy{CWD: "/plugin/escape"}
+		got := intersectPolicies(host, guest)
+		if got.CWD != "/operator/path" {
+			t.Errorf("CWD intersect = %q, want host's /operator/path (plugin can't redirect)", got.CWD)
+		}
+	})
+
+	t.Run("FSRead: nil guest inherits host (guest had no opinion)", func(t *testing.T) {
+		// JSON `nil` (absent field) means "guest didn't specify."
+		// Inheriting host's list matches operator intuition: an
+		// agent adding `"net": "deny"` shouldn't lose its
+		// filesystem reads as a side effect. Explicit empty `[]`
+		// (next subtest) is how a paranoid plugin locks itself
+		// down.
+		host := &sandboxPolicy{FSRead: []string{"/bin", "/usr"}}
+		guest := &sandboxPolicy{FSRead: nil}
+		got := intersectPolicies(host, guest)
+		if len(got.FSRead) != 2 {
+			t.Errorf("nil guest FSRead intersect = %v, want host's [/bin /usr]", got.FSRead)
+		}
+	})
+
+	t.Run("FSRead: explicit empty guest = lock down (paranoid plugin)", func(t *testing.T) {
+		// An agent that wants to deny ALL filesystem reads in its
+		// stado_exec sets "fs_read": []. JSON unmarshal yields a
+		// non-nil empty slice — distinct from nil. Result: nil
+		// (no reads beyond the runner's auto-mounts).
+		host := &sandboxPolicy{FSRead: []string{"/bin"}}
+		guest := &sandboxPolicy{FSRead: []string{}} // explicit empty
+		got := intersectPolicies(host, guest)
+		if len(got.FSRead) != 0 {
+			t.Errorf("explicit empty FSRead intersect = %v, want nil (paranoid lock-down)", got.FSRead)
+		}
+	})
 }
 
 // TestNewDefaultSandboxPolicy_ActuallyRunsBash is the integration test
