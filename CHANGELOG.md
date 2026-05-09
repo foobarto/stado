@@ -32,7 +32,7 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased
+## v0.48.0 — `stado daemon`, host-default sandbox, `shell.expect` + `shell.snapshot` — 2026-05-09
 
 ### Security
 
