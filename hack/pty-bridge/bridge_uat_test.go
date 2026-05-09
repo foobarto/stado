@@ -867,6 +867,191 @@ func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
 	})
 }
 
+// TestBridgeE2E_Stado_SlashFilter verifies that typing `/sid` from
+// idle opens the inline slash suggestions and narrows them so that
+// /sidebar appears AND /theme does NOT (filtered out by the
+// substring match). Bridge-only because:
+//   - The inline-suggestions popup is layout-pinned above the input
+//     box; teatest tests that suggestions are computed but not
+//     that the rendered list updates correctly per keystroke.
+//   - The previous F9b-regression-suite drop of this scenario flaked
+//     on chained Ctrl+P → Esc → / timing. Fresh-idle approach
+//     (no preceding palette open) avoids that hazard, and
+//     waitForSnapshot polls until the post-typing snapshot is
+//     stable.
+//
+// Spec: AC5 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+func TestBridgeE2E_Stado_SlashFilter(t *testing.T) {
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		// Wait for stado to be fully ready before sending / —
+		// the auto-compact background plugin loads ~1s after
+		// startup, and the landing-screen "ctrl+p" hint that
+		// connectStado polls for can appear BEFORE plugin loading
+		// completes. During plugin init, early printable
+		// keypresses can be swallowed before the input handler
+		// is wired. The "Type a message..." input placeholder
+		// appearing alongside the landing footer means the input
+		// component is rendered and ready.
+		ready := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			return s.indexOf('Type a message') >= 0 &&
+				s.indexOf('ctrl+p commands') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, ready, 10*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("input never became ready: %w; snapshot:\n%s", err, snap)
+		}
+		// Extra settle so background plugin loading finishes.
+		// Empirically the auto-compact plugin loads at ~T+1s and
+		// the keypress before that often gets dropped. 1500ms
+		// covers the longest observed plugin init path.
+		time.Sleep(1500 * time.Millisecond)
+
+		// Send '/' alone first. The trigger in handler_input.go::245
+		// fires only when the keypress is a single rune AND
+		// m.input.Value() is empty — so we can't send '/sid' as one
+		// batch (sendKeys writes bytes contiguously to PTY, which
+		// bubbletea may parse as a multi-rune paste event that fails
+		// the len(msg.Runes) == 1 check).
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('/')`, nil)); err != nil {
+			return fmt.Errorf("send /: %w", err)
+		}
+		// Wait for the slash popup to materialise before typing
+		// the filter chars. Several canonical slash commands +
+		// rounded border together is the strongest "popup is open"
+		// signal — works whether stado renders it as inline
+		// suggestions (unit-test default) OR a modal command
+		// palette (observed in bridge mode for some configs);
+		// either is fine for the filter-narrowing assertion.
+		if _, err := waitForSnapshot(ctx, t,
+			`(function(){
+				if (!window.bridge || !window.bridge.snapshot) return false;
+				var s = window.bridge.snapshot();
+				var hasCorner = s.indexOf('╭') >= 0 || s.indexOf('╮') >= 0 ||
+					s.indexOf('╰') >= 0 || s.indexOf('╯') >= 0;
+				var slashCount = 0;
+				var names = ['/sidebar','/theme','/help','/tool','/agents',
+					'/model','/persona','/skill','/loop','/monitor','/session',
+					'/budget','/thinking','/debug','/split','/clear','/retry'];
+				for (var i = 0; i < names.length; i++) {
+					if (s.indexOf(names[i]) >= 0) slashCount++;
+				}
+				return hasCorner && slashCount >= 2;
+			})()`, 10*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("slash popup never opened after /: %w; snapshot:\n%s", err, snap)
+		}
+		// Now type 'sid' to filter — this batch is fine because the
+		// trigger condition has already fired and we're just
+		// updating the filter input.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('sid')`, nil)); err != nil {
+			return fmt.Errorf("type 'sid' filter: %w", err)
+		}
+		// Predicate: /sidebar visible (the substring match
+		// candidate) AND /theme NOT visible (would be in the
+		// unfiltered list). The negative half is what makes this a
+		// FILTER assertion rather than just an "open" assertion.
+		predicate := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			var hasSidebar = s.indexOf('/sidebar') >= 0;
+			var hasTheme = s.indexOf('/theme') >= 0;
+			return hasSidebar && !hasTheme;
+		})()`
+		snap, err := waitForSnapshot(ctx, t, predicate, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("/sid filter never produced /sidebar-only suggestions: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ /sid filter narrowed inline suggestions to /sidebar (excluded /theme)")
+		return nil
+	})
+}
+
+// TestBridgeE2E_Stado_PaletteFilter verifies that opening the
+// command palette via Ctrl+P then typing `the` filters the entries
+// so /theme appears AND /sidebar does NOT. Bridge-only because:
+//   - The palette is a modal popup with its own filter input;
+//     teatest tests palette state but not the rendered filtering
+//     transitions per keystroke.
+//   - Combining Ctrl+P + character input through real escape codes
+//     exercises the alt-screen redraw path that broke the original
+//     slash-suggest test attempt — this version isolates the
+//     palette open from the filter typing rather than chaining
+//     keypresses.
+//
+// Spec: AC5 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+func TestBridgeE2E_Stado_PaletteFilter(t *testing.T) {
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		// Open the palette first; wait for it to render with the
+		// canonical command names before sending filter input. This
+		// avoids the chained-keypress timing hazard that flaked the
+		// original slash test.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x10')`, nil)); err != nil {
+			return fmt.Errorf("send Ctrl+P: %w", err)
+		}
+		paletteOpen := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			// Palette body shows several canonical names; require
+			// /sidebar AND /theme together so we know we're seeing
+			// the unfiltered palette (post-filter only one will
+			// remain, so this captures the pre-filter baseline).
+			return s.indexOf('/sidebar') >= 0 && s.indexOf('/theme') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, paletteOpen, 10*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("palette never opened pre-filter: %w; snapshot:\n%s", err, snap)
+		}
+
+		// Now type 'the' to filter. The palette has its own filter
+		// input that consumes characters while open.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('the')`, nil)); err != nil {
+			return fmt.Errorf("type filter 'the': %w", err)
+		}
+		// Predicate: /theme visible AND /sidebar NOT visible — the
+		// "the" substring matches /theme but not /sidebar.
+		predicate := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			var hasTheme = s.indexOf('/theme') >= 0;
+			var hasSidebar = s.indexOf('/sidebar') >= 0;
+			return hasTheme && !hasSidebar;
+		})()`
+		snap, err := waitForSnapshot(ctx, t, predicate, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("'the' filter never narrowed palette to /theme-only: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ palette filter 'the' narrowed entries to /theme (excluded /sidebar)")
+
+		// Esc to close the palette so test cleanup doesn't leave
+		// stado wedged in the modal.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x1b')`, nil)); err != nil {
+			return fmt.Errorf("send Esc: %w", err)
+		}
+		return nil
+	})
+}
+
 // TestBridgeE2E_StadoDebug is the diagnostic variant — connects,
 // waits 5s, dumps whatever stado rendered. No assertions; useful
 // when the rendering behaviour changes and you need to see what
