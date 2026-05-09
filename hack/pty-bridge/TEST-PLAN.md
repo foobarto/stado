@@ -85,16 +85,22 @@ for what got built, not as outstanding work. Status per item:
 
 - ✅ #1 Help overlay → `TestBridgeE2E_Stado_HelpOverlay` (entry 6)
 - ✅ #2 Theme picker → `TestBridgeE2E_Stado_ThemePicker` (entry 7)
-- ⏸ #3 Sidebar toggle → deferred. Requires either (a) submitting
-  a real prompt via a stub LLM provider to leave the landing
-  screen, OR (b) finding a sidebar-toggle path that works on the
-  landing screen itself (none exists today — `/sidebar` toggles
-  but on the landing the right pane is suppressed regardless).
-  Not shipping unless the operator wants the stub-provider work.
+- ✅ #3 Sidebar toggle → `TestBridgeE2E_Stado_SidebarTogglePostTurn`
+  (entry 16). The original scenario was deferred for needing a
+  stub LLM provider; the stub provider landed and the test now
+  exists. Submits a prompt via the stub, asserts sidebar reveal
+  post-turn, then Ctrl+T toggles it off + on with the "Repo"
+  marker tracking.
 - ✅ #4 Quit-confirm centering → `TestBridgeE2E_Stado_QuitConfirmCentering` (entry 8)
 - ✅ #5 Approval drawer → `TestBridgeE2E_Stado_ApprovalDrawer` (entry 9)
 - ✅ #6 Choice drawer multi-select → `TestBridgeE2E_Stado_ChoiceDrawerMultiSelect` (entry 10)
-- ⏸ #7 Streaming + queued-prompt → deferred (stub-provider gap)
+- ✅ #7 Streaming + queued-prompt →
+  `TestBridgeE2E_Stado_StreamingTextDelta` (entry 14) +
+  `TestBridgeE2E_Stado_QueuedPrompt` (entry 15). Both use the
+  in-process stub LLM provider (`stubLLMServer` +
+  `configureStadoStub` helpers); chunked SSE with 50ms inter-
+  chunk delay so the streaming visual is observable in the
+  bridge.
 
 Also shipped beyond the original P1 + P2:
 
@@ -331,30 +337,16 @@ func installDemoPlugin(t *testing.T, stadoBin, demoName string)
 The `installDemoPlugin` helper is the highest-leverage one — three
 of the proposed scenarios need it.
 
-## Cost summary
+## Cost summary (as-shipped)
 
-| Phase | Scenarios | Total walltime |
-|-------|-----------|----------------|
-| P1 (cheap, high signal) | 1-4 | ~12s |
-| P2 (medium, demo-plugin install) | 5-7 | ~15s |
-| P3 (touch-only) | (skip default) | — |
+| Bucket | Scenarios | Walltime |
+|--------|-----------|----------|
+| Bridge plumbing + landing | entries 1-2 | ~6s |
+| F9b + diagnostic | entries 3-5 | ~13s |
+| Pure keypress (overlay, picker, popup, filter, reflow) | entries 6, 7, 8, 11, 12, 13 | ~31s |
+| Demo-plugin (render / approval / choice) | entries 4, 9, 10 | ~9s (panel test counted in F9b above) |
+| Stub-provider streaming (text / queued / sidebar / markdown / mode) | entries 14-18 | ~19s |
+| **Total end-to-end** | | **~76s** |
 
-Adding all P1+P2 to the existing 5 takes the bridge suite from
-~19s to ~46s. Manageable as a `go test`-time gate (still under
-60s); too long for every-PR CI without the existing
-`STADO_PTY_BRIDGE_E2E=1` opt-in.
-
-## Implementation order (when revived)
-
-1. Extract `waitForSnapshot` from the existing `pollEval` so
-   subsequent tests can match on the snapshot string itself, not
-   a predicate-bool.
-2. Extract `installDemoPlugin` from
-   `TestBridgeE2E_Stado_RendersPanel`.
-3. Land scenarios 1 (help overlay) + 2 (theme picker) — pure
-   keypress drives, no plugin needed.
-4. Land scenario 3 (sidebar toggle) — needs the
-   `STADO_UAT_PROVIDER` stub provider env from `hack/tmux-uat.sh`.
-5. Land scenario 4 (quit-confirm centering) — needs
-   `chromedp.EmulateViewport`.
-6. Land scenarios 5-7 — needs the demo-plugin helper from step 2.
+Opt-in via `STADO_PTY_BRIDGE_E2E=1`. Too long for every-PR CI
+without that gate; manageable as a nightly or pre-merge check.

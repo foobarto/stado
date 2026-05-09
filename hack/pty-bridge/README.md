@@ -47,9 +47,9 @@ gets it they're inside.
 ## Build + run
 
 ```bash
-cd ~/Dokumenty/stado-pty-bridge
-go build -o stado-pty-bridge .
-./stado-pty-bridge -addr 127.0.0.1:7878
+cd hack/pty-bridge
+go build -o pty-bridge .
+./pty-bridge -addr 127.0.0.1:7878
 # stdout prints:
 #   open this URL in your browser:
 #       http://127.0.0.1:7878/?token=<64 hex chars>
@@ -65,11 +65,19 @@ For a fixed token (CI / scripted use): `-token <hex>`.
 ## Headless-Chrome E2E tests
 
 `bridge_uat_test.go` drives a real headless Chrome via `chromedp`
-to assert end-to-end:
+to assert end-to-end. Quick start:
 
 ```bash
-STADO_PTY_BRIDGE_E2E=1 go test -v -run TestBridgeE2E_Bash
-STADO_PTY_BRIDGE_E2E=1 STADO_BIN=/path/to/stado go test -v -run TestBridgeE2E_Stado
+# Build stado first so the tests can drive it
+go build -o /tmp/stado ./cmd/stado    # from repo root
+
+# Run all bridge tests (~76s end-to-end)
+cd hack/pty-bridge
+STADO_PTY_BRIDGE_E2E=1 STADO_BIN=/tmp/stado go test -timeout 300s
+
+# Run a single scenario
+STADO_PTY_BRIDGE_E2E=1 STADO_BIN=/tmp/stado \
+  go test -v -run TestBridgeE2E_Stado_RendersPanel
 ```
 
 The tests:
@@ -80,17 +88,30 @@ The tests:
    `filesystems=` context — `/tmp` isn't). On non-Flatpak Chrome
    the path is just unused scratch.
 3. Navigate Chrome to the bridge URL with the token.
-4. Click connect, send keystrokes, snapshot the rendered terminal
-   via `window.bridge.snapshot()`.
-5. Assert the expected text appears.
+4. Click connect, send keystrokes, poll
+   `window.bridge.snapshot()` against per-test predicates.
+5. Assert the predicate matches within a timeout.
 
-`TestBridgeE2E_Bash` validates the round-trip plumbing without
-depending on stado being built. `TestBridgeE2E_Stado` confirms
-stado renders its landing screen and that Ctrl+P opens the
-command palette.
+The catalogue of scenarios + their per-test cost lives in
+[`TEST-PLAN.md`](TEST-PLAN.md). At time of writing: 14 top-level
+test functions / 24 sub-scenarios, ~76s walltime end-to-end.
 
-Skips when `STADO_PTY_BRIDGE_E2E` is unset — the package's `go test`
-stays fast and offline by default.
+Skips when `STADO_PTY_BRIDGE_E2E` is unset OR no Chrome binary
+is findable — the package's `go test` stays fast and offline
+by default.
+
+### Pre-requisites for running the tests
+
+- A `STADO_BIN` env var pointing at a built `stado` binary
+  (or `stado` on `$PATH`).
+- A Chrome / Chromium binary at `~/.local/bin/chrome`, OR set
+  `STADO_PTY_BRIDGE_CHROME=/path/to/chrome`.
+- For the demo-plugin scenarios (render / approval / choice
+  drawer): `GOOS=wasip1 GOARCH=wasm go build` toolchain (any
+  recent Go on a host with the wasip1 target — bundled).
+- For the streaming scenarios (text-delta / queued / sidebar /
+  markdown / mode toggle): no extra setup — they use an
+  in-process `httptest.Server` as a stub LLM provider.
 
 ## Browser-side automation API
 
@@ -101,7 +122,7 @@ stays fast and offline by default.
 | `bridge.connect()` | open WS + spawn the configured cmd |
 | `bridge.disconnect()` | kill the child |
 | `bridge.sendKeys(s)` | send `s` to the PTY (raw bytes; escape codes OK) |
-| `bridge.snapshot()` | full xterm buffer (incl. scrollback) as one string |
+| `bridge.snapshot()` | xterm.js buffer as one string — see scrollback caveat below |
 | `bridge.visible()` | just the on-screen viewport rectangle |
 | `bridge.cols()` / `bridge.rows()` | current size |
 | `bridge.connected()` | bool |
@@ -110,11 +131,50 @@ Send keys use raw byte literals — `bridge.sendKeys("\x10")` for
 Ctrl+P, `bridge.sendKeys("\x1b")` for Esc, `bridge.sendKeys("hello\r")`
 to type and submit, `bridge.sendKeys("\x1b[A")` for an up arrow.
 
+**Scrollback caveat.** `bridge.snapshot()` returns the xterm.js
+buffer including whatever scrollback xterm.js has retained.
+**However**, full-screen TUIs that switch to the **alternate
+screen buffer** (bubbletea apps like stado, vim, htop, less)
+have NO scrollback inside the alt-screen — when the application
+scrolls a long panel up out of view, the older rows are gone for
+good. Tests that assert content "must appear in the snapshot"
+should pick markers that stay near the BOTTOM of the alt-screen
+buffer at predicate-eval time (e.g. the most recent block, the
+current input row, the status bar) rather than markers that are
+likely to scroll off the top. The F9b panel-render test learned
+this the hard way; see the comment in
+`TestBridgeE2E_Stado_RendersPanel`.
+
+### Sending printable characters from idle
+
+stado's slash trigger
+(`internal/tui/handler_input.go::245`) requires
+`len(msg.Runes) == 1` for the `/` keypress to open inline
+suggestions. Sending `'/foo'` as one `sendKeys` batch arrives
+at bubbletea as a multi-rune paste event and fails this guard.
+
+If you're testing slash-suggestion-style scenarios, send the
+trigger key alone first (e.g. `'/'`), wait for the popup to
+materialise via `waitForSnapshot`, THEN send the filter chars
+as a batch (the trigger has already fired so the multi-rune
+paste is fine for filtering).
+
+Also: stado's auto-compact background plugin loads ~1s after
+startup. Printable keypresses sent during that window can be
+swallowed before the input handler is wired. Wait for both
+"Type a message" + "ctrl+p commands" markers before sending,
+plus a 1500ms settle. Control characters (Ctrl+P, Ctrl+D, etc.)
+are unaffected — control-char dispatch is wired earlier in the
+lifecycle.
+
+See `TestBridgeE2E_Stado_SlashFilter` for the canonical pattern.
+
 ## Files
 
 ```
 main.go              # bridge HTTP/WS server + bearer auth
 index.html           # xterm.js + window.bridge JS API
 bridge_uat_test.go   # headless Chrome E2E (chromedp)
+TEST-PLAN.md         # scenario catalogue + cost table + future plan
 go.mod / go.sum      # deps: creack/pty, gorilla/websocket, chromedp
 ```

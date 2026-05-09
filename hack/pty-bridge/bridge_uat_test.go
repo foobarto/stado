@@ -55,21 +55,38 @@ func findChrome(t *testing.T) string {
 	return ""
 }
 
-// chromeUserDataDir returns a path under the user's Downloads folder
-// for the Chrome --user-data-dir. This works around Chrome-via-
-// Flatpak sandboxing that blocks /tmp; xdg-download is whitelisted
-// in the Flatpak's filesystems= context. Outside Flatpak, the path
-// is just an unused folder and Chrome happily uses it.
+// chromeUserDataDir returns a UNIQUE path under the user's Downloads
+// folder for the Chrome --user-data-dir. Per-test uniqueness
+// matters because Chrome takes a lock on the user-data-dir; two
+// concurrent test runs (or two parallel sub-tests using the same
+// path) would deadlock on the lock and chromedp would time out.
+//
+// Why under ~/Downloads instead of t.TempDir(): Chrome-via-Flatpak
+// sandboxing blocks /tmp (which is what t.TempDir uses); xdg-
+// download is whitelisted in the Flatpak's filesystems= context.
+// Outside Flatpak, the path is just an unused folder and Chrome
+// happily uses it. Cleanup happens via t.Cleanup, so the unique
+// subdir is removed at test end and no Downloads litter accrues.
+//
+// Uniqueness comes from t.TempDir-style randomness via
+// crypto/rand, not from t.Name (sub-test names with `/` would
+// create nested dirs Chrome can't open).
 func chromeUserDataDir(t *testing.T) string {
 	t.Helper()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("home dir: %v", err)
 	}
-	dir := filepath.Join(home, "Downloads", "stado-pty-bridge-chrome")
+	suffix := make([]byte, 8)
+	if _, err := rand.Read(suffix); err != nil {
+		t.Fatalf("rand for user-data-dir suffix: %v", err)
+	}
+	parent := filepath.Join(home, "Downloads", "stado-pty-bridge-chrome")
+	dir := filepath.Join(parent, hex.EncodeToString(suffix))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir user-data-dir: %v", err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
 
@@ -164,6 +181,7 @@ func driveChrome(t *testing.T, bridgeURL string, scenario func(ctx context.Conte
 // the round-trip plumbing without depending on stado being built.
 // Sends `echo HELLO_FROM_TEST<Enter>` and asserts the output appears.
 func TestBridgeE2E_Bash(t *testing.T) {
+	requireBridgeE2E(t)
 	baseURL, token := startBridgeInProcess(t)
 
 	got := driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
@@ -200,6 +218,7 @@ func TestBridgeE2E_Bash(t *testing.T) {
 // interaction reaches the TUI. Skipped if STADO_BIN isn't set or
 // the binary doesn't exist.
 func TestBridgeE2E_Stado(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -294,6 +313,7 @@ func TestBridgeE2E_Stado(t *testing.T) {
 // bytes render. Drive that path manually if a regression is
 // suspected.
 func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -418,6 +438,7 @@ func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
 // startup, ~2s for the snapshot polling. Whichever is slowest sets
 // the floor.
 func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	installDemoPlugin(t, stadoBinAbs, "render-demo-go", "render_demo")
@@ -474,14 +495,24 @@ func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
 			var resultParts = s.indexOf('render_demo: panel') >= 0 &&
 				s.indexOf('emitted') >= 0 &&
 				s.indexOf('sections') >= 0;
-			var hasBorder = s.indexOf('│') >= 0;
+			// A single vertical bar is everywhere in the TUI
+			// (sidebar borders, status row separators, even
+			// kv-section column dividers inside the panel itself).
+			// Per gemini review the lone vertical-bar predicate
+			// would false-positive on any frame that happens to
+			// render the sidebar. Tighten to require at least one
+			// horizontal border RUN of 4+ box-drawing dashes —
+			// only the panel renderer emits those long horizontal
+			// runs. Combined with the result-line + heading
+			// checks, a panel had to render.
+			var hasPanelBorder = s.indexOf('────') >= 0;
 			var headings = ['Plain text', 'Key/value pairs', 'Numbered list',
 				'Bullet list', 'Checklist', 'Code (language hint)', 'Table', 'Diff'];
 			var sawHeading = false;
 			for (var i = 0; i < headings.length; i++) {
 				if (s.indexOf(headings[i]) >= 0) { sawHeading = true; break; }
 			}
-			return resultParts && hasBorder && sawHeading;
+			return resultParts && hasPanelBorder && sawHeading;
 		})()`
 		panelMatch := pollEval(ctx, t, panelPredicate, 20*time.Second, 200*time.Millisecond)
 		if !panelMatch {
@@ -508,6 +539,7 @@ func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
 // Spec: TEST-PLAN.md P1 #1.
 // Goal: AC2 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_HelpOverlay(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
@@ -568,6 +600,7 @@ func TestBridgeE2E_Stado_HelpOverlay(t *testing.T) {
 // Spec: TEST-PLAN.md P1 #2.
 // Goal: AC2 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_ThemePicker(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
@@ -640,6 +673,7 @@ func TestBridgeE2E_Stado_ThemePicker(t *testing.T) {
 // Spec: TEST-PLAN.md P1 #4.
 // Goal: AC2 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_QuitConfirmCentering(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 
@@ -724,6 +758,7 @@ func TestBridgeE2E_Stado_QuitConfirmCentering(t *testing.T) {
 // Spec: TEST-PLAN.md P2 #5.
 // Goal: AC3 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_ApprovalDrawer(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	installDemoPlugin(t, stadoBinAbs, "approval-demo-go", "approval_demo")
@@ -804,6 +839,7 @@ func TestBridgeE2E_Stado_ApprovalDrawer(t *testing.T) {
 // Spec: TEST-PLAN.md P2 #6.
 // Goal: AC3 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	installDemoPlugin(t, stadoBinAbs, "choose-demo-go", "choose_demo")
@@ -883,6 +919,7 @@ func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
 //
 // Spec: AC5 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_SlashFilter(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
@@ -992,6 +1029,7 @@ func TestBridgeE2E_Stado_SlashFilter(t *testing.T) {
 //
 // Spec: AC5 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_PaletteFilter(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
@@ -1073,6 +1111,7 @@ func TestBridgeE2E_Stado_PaletteFilter(t *testing.T) {
 //
 // Spec: AC4 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_LandingReflow(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 
@@ -1149,6 +1188,7 @@ func stubChunksMarkdown(marker string) []string {
 //
 // AC4 + AC3 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_StreamingTextDelta(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	endpoint := stubLLMServer(t, stubChunksMarkdown("Hello"))
@@ -1183,15 +1223,18 @@ func TestBridgeE2E_Stado_StreamingTextDelta(t *testing.T) {
 			return fmt.Errorf("send Enter: %w", err)
 		}
 
-		// Predicate: assistant content appears. We chose
-		// "bold text" because it lands in the SECOND chunk —
-		// observing it proves the second SSE frame was processed,
-		// not just the first. The marker "Hello" from the heading
-		// would also work but is in the first chunk.
+		// Predicate: BOTH chunk 1 ("Hello" heading) AND chunk 2
+		// ("bold" body word) reach the snapshot. Codex caught
+		// the original `bold || Hello` predicate as too weak —
+		// it would have passed when only chunk 1 arrived (which
+		// happens via a single non-streaming response too).
+		// Requiring both proves the second SSE frame was actually
+		// processed by the consumer, which is the whole point of
+		// the streaming-text-delta test.
 		predicate := `(function(){
 			if (!window.bridge || !window.bridge.snapshot) return false;
 			var s = window.bridge.snapshot();
-			return s.indexOf('bold') >= 0 || s.indexOf('Hello') >= 0;
+			return s.indexOf('Hello') >= 0 && s.indexOf('bold') >= 0;
 		})()`
 		snap, err := waitForSnapshot(ctx, t, predicate, 15*time.Second)
 		if err != nil {
@@ -1211,16 +1254,32 @@ func TestBridgeE2E_Stado_StreamingTextDelta(t *testing.T) {
 //
 // AC3 of the goal.
 func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
-	// Long-running stub: many chunks with longer delays so we
-	// have time to submit a second prompt during stream.
+	// Long-running stub: many chunks with extra delays so the
+	// second prompt has time to submit + queue WHILE the first
+	// is still streaming. Codex caught the original 5-chunk x
+	// 50ms (250ms total window) as too tight: by the time we
+	// wait for first-stream-visible THEN type+submit a second
+	// prompt, the first stream had likely completed and the
+	// second was just dispatched as a fresh turn (not queued).
+	// Add filler chunks AND increase the per-chunk delay so the
+	// streaming window is closer to ~3s — wide enough for the
+	// human-paced sendKeys + the queue dispatch to land while
+	// the stream is genuinely active.
 	chunks := []string{
 		`{"choices":[{"index":0,"delta":{"role":"assistant","content":"first "}}]}`,
 		`{"choices":[{"index":0,"delta":{"content":"second "}}]}`,
 		`{"choices":[{"index":0,"delta":{"content":"third "}}]}`,
-		`{"choices":[{"index":0,"delta":{"content":"fourth"}}]}`,
-		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":4,"total_tokens":8}}`,
+		`{"choices":[{"index":0,"delta":{"content":"fourth "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"fifth "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"sixth "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"seventh "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"eighth "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"ninth "}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"tenth"}}]}`,
+		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":10,"total_tokens":14}}`,
 	}
 	endpoint := stubLLMServer(t, chunks)
 	configureStadoStub(t, endpoint)
@@ -1255,20 +1314,25 @@ func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
 			return fmt.Errorf("send queued: %w", err)
 		}
 
-		// Predicate: a "queued" indicator appears in the snapshot.
-		// The exact marker text varies — could be "queued" tag,
-		// "queued prompt" echoed in the input area as a queued
-		// block, etc. Match on the text we typed appearing
-		// SOMEWHERE in addition to the streaming response.
+		// Predicate: the user-block template stado renders for a
+		// queued message (internal/tui/render/templates/
+		// message_user.tmpl line 5: "⋯ queued — runs when the
+		// current turn finishes") appears in the snapshot.
+		// Codex caught the original "typed text + streaming text
+		// both visible" predicate as too weak — that would also
+		// pass if the second prompt was dispatched as a fresh
+		// turn instead of being queued. The "⋯ queued" marker
+		// is rendered ONLY when the user block has the
+		// queued=true field, which only fires through the
+		// queued-prompt code path.
 		predicate := `(function(){
 			if (!window.bridge || !window.bridge.snapshot) return false;
 			var s = window.bridge.snapshot();
-			var hasQueuedText = s.indexOf('queued prompt') >= 0;
-			var hasStreaming = s.indexOf('first ') >= 0 ||
-				s.indexOf('second ') >= 0 ||
-				s.indexOf('third ') >= 0 ||
-				s.indexOf('fourth') >= 0;
-			return hasQueuedText && hasStreaming;
+			// Match either marker — the message_user.tmpl tag OR
+			// the status.tmpl indicator — both are rendered only
+			// when a real queued block exists.
+			return s.indexOf('queued — runs when') >= 0 ||
+				s.indexOf('queued:') >= 0;
 		})()`
 		snap, err := waitForSnapshot(ctx, t, predicate, 10*time.Second)
 		if err != nil {
@@ -1289,6 +1353,7 @@ func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
 //
 // AC2 #3 + AC4 of the goal.
 func TestBridgeE2E_Stado_SidebarTogglePostTurn(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	endpoint := stubLLMServer(t, stubChunksMarkdown("Reply"))
@@ -1374,6 +1439,7 @@ func TestBridgeE2E_Stado_SidebarTogglePostTurn(t *testing.T) {
 //
 // AC4 of the goal.
 func TestBridgeE2E_Stado_MarkdownRendering(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	endpoint := stubLLMServer(t, stubChunksMarkdown("MARKDOWN_HEADING"))
@@ -1431,6 +1497,7 @@ func TestBridgeE2E_Stado_MarkdownRendering(t *testing.T) {
 //
 // AC4 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
 func TestBridgeE2E_Stado_PlanDoModeToggle(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
@@ -1505,6 +1572,7 @@ func TestBridgeE2E_Stado_PlanDoModeToggle(t *testing.T) {
 // when the rendering behaviour changes and you need to see what
 // the new output looks like.
 func TestBridgeE2E_StadoDebug(t *testing.T) {
+	requireBridgeE2E(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -1535,6 +1603,28 @@ func TestBridgeE2E_StadoDebug(t *testing.T) {
 		return nil
 	})
 	t.Logf("final:\n%s", got)
+}
+
+// requireBridgeE2E is the gate every E2E test must call FIRST,
+// before any setup that does real work (sockets, wasm builds,
+// plugin dev installs, stub HTTP servers, Chrome launches). The
+// previous pattern of letting `driveChrome` perform the skip
+// meant heavyweight setup ran before the gate fired — codex
+// review confirmed `installDemoPlugin` (wasm build + plugin
+// dev) executed for ~1.5s before the skip in TestBridgeE2E_
+// Stado_RendersPanel with STADO_PTY_BRIDGE_E2E unset, contra-
+// dicting the README's "stays fast and offline by default"
+// claim. This function is the single source of truth for the
+// e2e gate; only `driveChrome` may skip after it (Chrome
+// binary discovery is the Chrome-side prerequisite that
+// belongs there).
+//
+// Cost when env is unset: a single os.Getenv call.
+func requireBridgeE2E(t *testing.T) {
+	t.Helper()
+	if os.Getenv("STADO_PTY_BRIDGE_E2E") == "" {
+		t.Skip("STADO_PTY_BRIDGE_E2E unset; skipping headless-Chrome integration")
+	}
 }
 
 // stubLLMServer stands up an in-process httptest.Server that
@@ -1786,10 +1876,21 @@ func emulateViewport(ctx context.Context, width, height int64) error {
 
 // pollEval evaluates a JS expression repeatedly until it returns
 // truthy (bool true / non-zero number / non-empty string), the
-// timeout elapses, or the context cancels. Returns whether the
-// predicate matched. Hand-rolled because chromedp.Poll's
-// expression-wrapping semantics didn't reliably surface bool
-// results in our test harness.
+// timeout elapses, the context cancels, or Chrome reports a
+// terminal error (target closed / context cancelled — there's
+// no recovering from those, so polling further wastes the
+// remaining timeout). Returns whether the predicate matched.
+//
+// Hand-rolled because chromedp.Poll's expression-wrapping
+// semantics didn't reliably surface bool results in our test
+// harness.
+//
+// Per gemini review: terminal Chrome errors used to be
+// swallowed and the loop kept re-trying for the full timeout —
+// a Chrome crash or PTY death would manifest as a 15s hang
+// followed by the predicate timeout, hiding the real failure
+// mode. Now we bail immediately on those errors so the test
+// fails closer to the actual cause.
 func pollEval(ctx context.Context, t *testing.T, expr string, timeout, interval time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -1801,6 +1902,22 @@ func pollEval(ctx context.Context, t *testing.T, expr string, timeout, interval 
 		err := chromedp.Run(ctx, chromedp.Evaluate(expr, &ok))
 		if err == nil && ok {
 			return true
+		}
+		// Bail on terminal errors. "context canceled" / "context
+		// deadline exceeded" come from the test ctx itself; the
+		// chromedp-specific "target closed" / "websocket: close"
+		// indicate Chrome went away. Either way the predicate
+		// will never match — no point burning the rest of the
+		// timeout polling a dead browser.
+		if err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "context canceled") ||
+				strings.Contains(msg, "context deadline exceeded") ||
+				strings.Contains(msg, "target closed") ||
+				strings.Contains(msg, "websocket: close") {
+				t.Logf("pollEval bailing on terminal error: %v", err)
+				return false
+			}
 		}
 		time.Sleep(interval)
 	}
