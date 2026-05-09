@@ -94,6 +94,18 @@ type Host struct {
 	// imports that require it return an error payload.
 	ToolHost tool.Host
 
+	// DefaultSandboxPolicy is the sandbox policy applied to stado_exec
+	// / stado_proc_spawn calls when the wasm guest doesn't supply its
+	// own. Nil = legacy "guest opt-in only" posture (the wasm shell
+	// runs unsandboxed). Set by mcp-server / daemon entry points that
+	// want auto-confinement. Resolved via attachLifecycleBridges from
+	// the caller's tool.Host (interface SandboxPolicyProvider).
+	//
+	// Type is *sandboxPolicy (defined in host_proc.go); kept as `any`
+	// here to avoid a forward reference in this file's import block.
+	// buildSandboxedCmd does the type assertion on the way through.
+	DefaultSandboxPolicy any
+
 	// Public built-in tool capability bits. These map thin host
 	// wrappers to the underlying native implementation while keeping
 	// manifests narrow and auditable.

@@ -121,7 +121,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			cmd, cmdErr := buildSandboxedCmd(execCtx, req.Sandbox, host.Workdir, req.Argv, req.Env)
+			cmd, cmdErr := buildSandboxedCmd(execCtx, resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
 			if cmdErr != nil {
 				type errResult struct {
 					Error string `json:"error"`
@@ -188,7 +188,7 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 				stack[0] = 0
 				return
 			}
-			cmd, cmdErr := buildSandboxedCmd(ctx, req.Sandbox, host.Workdir, req.Argv, req.Env)
+			cmd, cmdErr := buildSandboxedCmd(ctx, resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
 			if cmdErr != nil {
 				host.Logger.Warn("stado_proc_spawn sandbox build failed", slog.String("err", cmdErr.Error()))
 				stack[0] = 0
@@ -354,6 +354,31 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 		Export("stado_proc_close")
 }
 
+// NewDefaultSandboxPolicy returns the host-default sandbox policy for
+// entry points that auto-confine stado_exec / stado_proc_spawn calls
+// (mcp-server, daemon). The policy is conservatively permissive — it
+// runs the child under bwrap / sandbox-exec for PID + uid namespace
+// isolation but doesn't restrict filesystem access. That's a real
+// step up from "no policy" (which runs the child as the operator's
+// uid in the operator's PID space) without breaking common usage
+// patterns where plugins shell out to system utilities.
+//
+// Operators wanting tighter rules supply explicit FSRead / FSWrite /
+// Net via the wasm-side `sandbox` field on each stado_exec request,
+// or override the host default in a future config-driven path.
+//
+// Returns *sandboxPolicy as any so cmd/stado can stash it on a
+// tool.Host without depending on the unexported type. The runtime's
+// resolveSandboxPolicy does the type assertion.
+func NewDefaultSandboxPolicy(workdir string) any {
+	return &sandboxPolicy{
+		CWD: workdir,
+		// FSRead / FSWrite intentionally nil — the bwrap / sandbox-exec
+		// runner's defaults still apply. Net unset → runner default.
+		// Env unset → runner default (whitelist).
+	}
+}
+
 // sandboxPolicy is the wasm-side wire shape for the optional `sandbox`
 // field on stado_exec / stado_proc_spawn requests. Mirrors sandbox.Policy
 // but with JSON tags + nil-when-unset semantics (the field is omitempty).
@@ -364,6 +389,32 @@ type sandboxPolicy struct {
 	Net     string   `json:"net"` // "deny" | "allow" — anything else = unset
 	CWD     string   `json:"cwd"`
 	Env     []string `json:"env"` // env vars to keep
+}
+
+// resolveSandboxPolicy picks the effective sandbox policy for a
+// stado_exec / stado_proc_spawn call: guest-supplied wins when set;
+// otherwise the host's default applies (set by mcp-server / daemon
+// entry points via the SandboxPolicyProvider interface). Both nil =
+// run unsandboxed (legacy behaviour, preserved for stado run / stado
+// tool run / TUI which don't supply a default).
+//
+// Why this lives next to buildSandboxedCmd: the resolution semantics
+// are part of "what does it mean to ask for a sandbox here?" and
+// reading them together makes the layered policy obvious.
+func resolveSandboxPolicy(host *Host, guest *sandboxPolicy) *sandboxPolicy {
+	if guest != nil {
+		return guest
+	}
+	if host == nil || host.DefaultSandboxPolicy == nil {
+		return nil
+	}
+	if p, ok := host.DefaultSandboxPolicy.(*sandboxPolicy); ok {
+		return p
+	}
+	// Wrong type — host wired something that isn't *sandboxPolicy.
+	// Treat as nil rather than panicking; a misconfigured entry
+	// point shouldn't crash the runtime.
+	return nil
 }
 
 // buildSandboxedCmd constructs the *exec.Cmd. When policy is nil, runs

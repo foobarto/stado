@@ -68,6 +68,66 @@ func TestBuildSandboxedCmd_PolicyWithoutRunnerErrors(t *testing.T) {
 	}
 }
 
+// TestResolveSandboxPolicy covers the layered policy resolution that
+// closes the gap the original mcp_server.go comment overstated:
+// guest-supplied policy still wins (unchanged), but a nil guest now
+// falls back to the host's default when one is set. Without a host
+// default, behaviour is the legacy "run unsandboxed".
+func TestResolveSandboxPolicy(t *testing.T) {
+	guest := &sandboxPolicy{Net: "deny", CWD: "/guest"}
+	hostDefault := NewDefaultSandboxPolicy("/host").(*sandboxPolicy)
+
+	// 1. Guest non-nil: guest always wins, even if host has a default.
+	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, guest); got != guest {
+		t.Errorf("guest-supplied policy should win; got %+v", got)
+	}
+	if got := resolveSandboxPolicy(&Host{}, guest); got != guest {
+		t.Errorf("guest-supplied policy with no host default: got %+v", got)
+	}
+
+	// 2. Guest nil + host default set: host default applies.
+	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: hostDefault}, nil); got != hostDefault {
+		t.Errorf("nil guest + host default: want host default, got %+v", got)
+	}
+
+	// 3. Guest nil + host default nil: legacy unsandboxed (returns nil).
+	if got := resolveSandboxPolicy(&Host{}, nil); got != nil {
+		t.Errorf("both nil: want nil (unsandboxed); got %+v", got)
+	}
+
+	// 4. Defensive: host default of wrong type returns nil rather than
+	//    panicking. A misconfigured entry point shouldn't crash the
+	//    runtime.
+	if got := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: "not a policy"}, nil); got != nil {
+		t.Errorf("wrong-typed host default: want nil, got %+v", got)
+	}
+
+	// 5. Nil host (defensive — shouldn't happen in production but the
+	//    helper handles it).
+	if got := resolveSandboxPolicy(nil, nil); got != nil {
+		t.Errorf("nil host: want nil, got %+v", got)
+	}
+}
+
+// TestNewDefaultSandboxPolicy_ShapeIsRunner confirms the host-default
+// builder produces a policy that resolveSandboxPolicy accepts and
+// hands to buildSandboxedCmd. We don't run the resulting cmd here
+// (that requires bwrap detection); the shape check + roundtrip is
+// the load-bearing contract.
+func TestNewDefaultSandboxPolicy_ShapeIsRunner(t *testing.T) {
+	policy := NewDefaultSandboxPolicy("/some/workdir")
+	if policy == nil {
+		t.Fatal("NewDefaultSandboxPolicy returned nil")
+	}
+	resolved := resolveSandboxPolicy(&Host{DefaultSandboxPolicy: policy}, nil)
+	if resolved == nil {
+		t.Fatal("resolveSandboxPolicy didn't accept the default policy")
+	}
+	if resolved.CWD != "/some/workdir" {
+		t.Errorf("default policy CWD = %q, want /some/workdir", resolved.CWD)
+	}
+}
+
 // hasSandboxRunner returns true when the host has a real sandbox
 // runner detected (bwrap on Linux, sandbox-exec on macOS). Used to
 // skip tests that depend on the absence of a runner.

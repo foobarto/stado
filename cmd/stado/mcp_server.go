@@ -11,28 +11,29 @@ package main
 // call routes through the shared Executor so otel audit spans emit
 // per call.
 //
-// Sandboxing posture (post EP-no-internal-tools Step 4 — corrected
-// 2026-05-09 review):
+// Sandboxing posture (post EP-no-internal-tools Step 4 + 2026-05-09
+// runner-plumb-through):
 //
 // The legacy in-process bash tool consulted Runner() on the host to
-// confine itself with bubblewrap / sandbox-exec. That tool no longer
-// exists — `bash` is now the wasm tool `shell.exec`, which routes
-// through stado_exec. stado_exec only sandboxes when the wasm guest
-// supplies a `sandbox` policy in its request JSON; the bundled shell
-// wasm in internal/bundledplugins/modules/shell/main.go does NOT set
-// `sandbox`, so commands run with the operator's full UID privileges.
-// host_proc.go:buildSandboxedCmd treats nil policy as "run unsandboxed".
+// confine itself with bubblewrap / sandbox-exec. That tool is gone —
+// `bash` is now the wasm tool `shell.exec`, which routes through
+// stado_exec. The original 2026-05-09 review caught a comment here
+// claiming Runner() still confined bash; it didn't, because the wasm
+// shell never set the `sandbox` field in its stado_exec request.
 //
-// In short: mcp-server today does NOT auto-confine bash via bwrap.
-// The Runner field below is plumbed through to the Executor for the
-// audit-trail's tool.runner attribute (so observability still works)
-// and as a hook for any future legacy tools that are sandbox-aware,
-// but the wasm shell path bypasses it.
+// Now: the host implements tool.SandboxPolicyProvider (see method
+// below) which returns a default protective policy from
+// pluginRuntime.NewDefaultSandboxPolicy. host_proc.go:resolveSandboxPolicy
+// applies this default when the wasm guest doesn't supply its own.
+// Net effect: bash invocations through MCP run under bwrap /
+// sandbox-exec by default (PID + uid namespace isolation).
 //
-// To enforce confinement on stado_exec calls from MCP, the host needs
-// to plumb a default sandbox policy through the wasm boundary so a
-// nil guest sandbox falls back to host policy. Tracked as a follow-up
-// to the 2026-05-09 review.
+// Plugins supplying an explicit `sandbox` field still win — guest-
+// provided policy beats host default. Operators wanting tighter rules
+// (FSRead / FSWrite restrictions, etc.) can patch the default policy
+// in pluginRuntime.NewDefaultSandboxPolicy or wire a config-driven
+// override. The current default is conservatively permissive (no FS
+// restrictions) so common stado_exec usage doesn't break.
 //
 // Phase B of EP-0032 spawns this binary as the wrapped agent's
 // `mcpServers` mount; the audit upgrade here is what gives ACP-wrapped
@@ -50,6 +51,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -167,8 +169,8 @@ var mcpServerCmd = &cobra.Command{
 // surface every other stado entry point uses (TUI, `stado run`,
 // plugin-run with --with-tool-host). MCP clients now show up in the
 // audit trail with `tool.name` + `tool.outcome` + `tool.duration_ms`
-// like any other caller. The wasm shell path is NOT auto-sandboxed
-// here — see the file-level comment for the corrected posture.
+// like any other caller. The wasm shell path picks up bwrap /
+// sandbox-exec confinement via the host's DefaultSandboxPolicy.
 func registerStadoTool(srv *server.MCPServer, t tool.Tool, host stadoMCPHost, executor *tools.Executor) {
 	mcpTool := mcp.NewToolWithRawSchema(t.Name(), t.Description(), rawSchema(t.Schema()))
 	name := t.Name()
@@ -239,6 +241,19 @@ func (h stadoMCPHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 // pty.* tools reuse the server-lifetime manager via this hook so
 // session ids survive across MCP calls.
 func (h stadoMCPHost) PTYManager() any { return h.pty }
+
+// DefaultSandboxPolicy implements tool.SandboxPolicyProvider. Plugins
+// calling stado_exec / stado_proc_spawn from MCP without supplying
+// their own `sandbox` field get the host-default protective policy
+// (PID + uid namespace isolation via bwrap / sandbox-exec, no
+// filesystem restrictions yet — see runtime.NewDefaultSandboxPolicy).
+//
+// Closes the gap the file-level comment used to overstate. Plugins
+// supplying an explicit `sandbox` field still win — the resolver
+// honours guest-supplied policy first, host default second.
+func (h stadoMCPHost) DefaultSandboxPolicy() any {
+	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
+}
 
 func mustCwd() string {
 	cwd, err := os.Getwd()

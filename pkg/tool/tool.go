@@ -149,6 +149,25 @@ type PTYProvider interface {
 	PTYManager() any
 }
 
+// SandboxPolicyProvider is the optional Host interface that supplies a
+// default sandbox policy for stado_exec / stado_proc_spawn calls when
+// the wasm guest doesn't provide its own. Without this, host imports
+// run unsandboxed under bash via wasm — see the 2026-05-09 review's
+// finding on the mcp-server stale comment.
+//
+// Returns an opaque any (the actual type is *sandboxPolicy in the
+// runtime package; pkg/tool can't import it without a cycle). Callers
+// that don't supply a default may return nil — that's the legacy
+// "guest opt-in only" posture.
+//
+// Entry points that auto-confine: mcp-server, daemon. Entry points
+// that don't: stado run (operator's filesystem; explicit), stado tool
+// run (operator-invoked; explicit), TUI (operator watching; pending
+// follow-up).
+type SandboxPolicyProvider interface {
+	DefaultSandboxPolicy() any
+}
+
 // ReadKey identifies a read for deduplication. Range is a canonical string:
 // "" for full-file, "<start>:<end>" for ranged reads (1-indexed, inclusive).
 // The read tool is responsible for resolving any alternative input shapes

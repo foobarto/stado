@@ -32,6 +32,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -490,6 +491,20 @@ func (h *daemonToolHost) Runner() sandbox.Runner                          { retu
 func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
 func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)       {}
 func (h *daemonToolHost) PTYManager() any                                  { return h.pty }
+
+// DefaultSandboxPolicy implements tool.SandboxPolicyProvider — plugins
+// calling stado_exec / stado_proc_spawn through the daemon get the
+// host-default protective policy (bwrap / sandbox-exec PID + uid
+// namespace isolation) without having to supply their own `sandbox`
+// field. Matches the mcp-server posture; both surfaces hand tool calls
+// to autonomous agents that we want confined by default.
+//
+// stado run + stado tool run + TUI deliberately do NOT set this — the
+// operator is invoking explicitly there and the legacy "operator's
+// filesystem" semantics still apply.
+func (h *daemonToolHost) DefaultSandboxPolicy() any {
+	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
+}
 
 // openDaemonLog returns a writable log file under the same dir as the
 // socket, named daemon.log. The file is created/appended at mode 0600.

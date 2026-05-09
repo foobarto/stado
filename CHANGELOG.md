@@ -34,6 +34,34 @@ become semver guarantees.
 
 ## Unreleased
 
+### Security
+
+- **`stado_exec` / `stado_proc_spawn` auto-sandbox under MCP and
+  daemon.** Plugins calling these host imports without supplying their
+  own `sandbox` field now get the host-default protective policy
+  (bwrap / sandbox-exec PID + uid namespace isolation) when invoked
+  from `stado mcp-server` or `stado daemon`. The 2026-05-09 review
+  flagged that the mcp-server header comment claimed this happened —
+  it didn't, because there was no plumbing. The plumbing is now
+  there: `tool.SandboxPolicyProvider` interface, `Host.DefaultSandboxPolicy`
+  field, `runtime.NewDefaultSandboxPolicy(workdir)` constructor.
+  `stado run` / `stado tool run` / TUI deliberately do NOT set a
+  default — operator-explicit invocations preserve legacy unsandboxed
+  semantics.
+
+  Behaviour change: bash invocations through MCP / daemon previously
+  ran with the operator's full UID privileges; they now run in a bwrap
+  process namespace by default. Plugin authors relying on direct
+  access to the operator's PID space or process tree should set
+  `sandbox: null` in their stado_exec request explicitly (the
+  resolver honours guest-supplied policy first; nil-from-guest falls
+  back to host default).
+
+  The default policy is conservatively permissive — no FS / network
+  restrictions yet, just the namespace isolation the runner gives for
+  free. Tightening to read-only-root + rw-cwd + net-deny is a future
+  config-driven path.
+
 ### CLI
 
 - **`stado daemon` — long-running peer for stateful tool calls.** New
