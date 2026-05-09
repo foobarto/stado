@@ -219,6 +219,25 @@ func TestResolveSandboxPolicy_HostAsCeiling(t *testing.T) {
 	})
 }
 
+// TestIntersectStringList_ExplicitEmptyHostLocksDown: codex caught
+// the asymmetric handling of "explicit empty" between host and
+// guest. Originally guest=[] meant lock-down (good), but host=[]
+// returned guest's list — letting an operator who explicitly
+// denied everything get overridden by any plugin claim. Now both
+// sides have symmetric semantics: nil = "no opinion," non-nil empty
+// = "lock down." Verify the host side specifically.
+func TestIntersectStringList_ExplicitEmptyHostLocksDown(t *testing.T) {
+	host := []string{} // explicit empty: lock down
+	guest := []string{"sh", "bash"}
+	got := intersectStringList(host, guest)
+	if got == nil {
+		t.Fatal("explicit-empty host with guest list returned nil — runner would treat as no-policy and allow ALL (the codex regression)")
+	}
+	if len(got) != 0 {
+		t.Errorf("explicit-empty host: want non-nil empty (deny-all marker), got %v", got)
+	}
+}
+
 // TestIntersectPolicies_ExecNoOverlapStillEnforces locks the codex
 // catch from the third pass: when host has Exec=[A] and guest has
 // Exec=[B] with no overlap, the intersection must NOT silently

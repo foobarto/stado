@@ -383,10 +383,12 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // symlink resolution). /tmp + /var/tmp are writable so plugins that
 // scratch there work. Net is explicit "allow".
 //
-// Operators wanting tighter rules either (a) supply an explicit
-// `sandbox` field on each stado_exec request from the wasm side, or
-// (b) opt the plugin OUT of host policy entirely with
-// `sandbox: {unsandboxed: true}` — see resolveSandboxPolicy below.
+// Operators wanting tighter rules supply an explicit `sandbox` field
+// on each stado_exec request from the wasm side. The intersection
+// resolver (resolveSandboxPolicy below) ensures the guest can only
+// TIGHTEN this default — never weaken it. Plugin authors cannot opt
+// out of host policy via the wasm side; if a host default is set,
+// `unsandboxed: true` is ignored.
 //
 // Returns *sandboxPolicy as any so cmd/stado can stash it on a
 // tool.Host without depending on the unexported type. The runtime's
@@ -411,13 +413,17 @@ func NewDefaultSandboxPolicy(workdir string) any {
 // field on stado_exec / stado_proc_spawn requests. Mirrors sandbox.Policy
 // but with JSON tags + nil-when-unset semantics (the field is omitempty).
 //
-// Unsandboxed is the explicit opt-out signal: a plugin author who
-// knows their tool needs to bypass host policy (rare; mostly debug
-// scenarios and bootstrap utilities) sets it true and resolveSandboxPolicy
-// returns nil regardless of any host default. Without this field
-// there's no way for the wasm guest to distinguish "use host default"
-// from "no sandbox needed" — `null` and absent both unmarshal to
-// (*sandboxPolicy)(nil).
+// Unsandboxed is the explicit opt-out signal. It's honored ONLY
+// when there is no host default to enforce — i.e., from stado run /
+// stado tool run / TUI entry points where the operator's invocation
+// is explicit. With a host default set (mcp-server / daemon),
+// Unsandboxed=true is IGNORED and the host policy still applies.
+// This was the security hole flagged in the third-pass review:
+// otherwise any plugin author could shrug off host confinement.
+//
+// Without this field there's no way for the wasm guest to
+// distinguish "use host default" from "no sandbox needed" — `null`
+// and absent both unmarshal to (*sandboxPolicy)(nil).
 type sandboxPolicy struct {
 	FSRead      []string `json:"fs_read"`
 	FSWrite     []string `json:"fs_write"`
@@ -496,15 +502,12 @@ func hostDefaultPolicy(host *Host) (*sandboxPolicy, bool) {
 //
 //   - FSRead, FSWrite, Exec, Env: result keeps only entries that
 //     appear in BOTH lists (path-string equality, no prefix
-//     matching). An empty host list explicitly means "no extra
-//     access"; intersect with anything yields empty. Symmetric for
-//     guest.
-//   - Net: "deny" wins. If either side is "deny" the result is "deny".
-//     If host is "allow" and guest is "" the result is "allow"
-//     (host's permissiveness; guest didn't pick). If host is "" and
-//     guest sets a value, host has no opinion → guest's value applies
-//     (only when host policy is otherwise active; this branch is
-//     reached only when both are non-nil).
+//     matching). nil-vs-empty-non-nil semantics handled
+//     symmetrically for both sides — see intersectStringList for
+//     the table.
+//   - Net: "deny" wins from either side. host="" is treated as
+//     "deny" because the runner's zero-valued NetPolicy translates
+//     to NetDenyAll — see intersectNet.
 //   - CWD: host wins. Operator chose the workdir; a plugin shouldn't
 //     redirect process state into a different directory.
 //   - Unsandboxed: ignored — see resolveSandboxPolicy doc.
@@ -544,18 +547,32 @@ func intersectPolicies(host, guest *sandboxPolicy) *sandboxPolicy {
 // Order follows host's so operators reading the resulting policy
 // see their values first.
 func intersectStringList(host, guest []string) []string {
+	// Symmetric nil-vs-empty handling — `nil` means "no opinion,"
+	// non-nil empty means "lock down to nothing." Apply this to BOTH
+	// host and guest sides; previously only guest got the explicit-
+	// empty interpretation, which let an explicit-empty host
+	// (operator deliberately denying everything) be loosened by any
+	// guest list. Codex caught it on the fourth pass.
 	if guest == nil {
 		return host
 	}
 	if len(guest) == 0 {
-		// Explicit empty: lock-down. Return non-nil empty so the
+		// Guest explicit empty: lock-down. Return non-nil empty so the
 		// caller's enforcement gate (`Exec != nil` etc.) treats
 		// this as "policy specified, list is empty, deny all"
 		// rather than "no policy."
 		return []string{}
 	}
-	if len(host) == 0 {
+	if host == nil {
+		// Host has no opinion on this field; guest's tighter list
+		// applies.
 		return guest
+	}
+	if len(host) == 0 {
+		// Host explicit empty: ceiling is "nothing allowed."
+		// Intersection with anything = nothing. Return non-nil empty
+		// so the runner's `!= nil` enforcement gate triggers.
+		return []string{}
 	}
 	guestSet := make(map[string]struct{}, len(guest))
 	for _, g := range guest {
