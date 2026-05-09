@@ -76,7 +76,18 @@ var acpCmd = &cobra.Command{
 		"                  lastTool (string), lastError (bool). At most one\n" +
 		"                  per session/prompt; never fires when text was emitted.\n" +
 		"                  Lets clients build a minimal reply when the model\n" +
-		"                  did its work entirely through tools.\n\n" +
+		"                  did its work entirely through tools.\n" +
+		"  kind=panel      wasm plugin emitted a structured panel via\n" +
+		"                  stado_ui_render (F9b). Fire-and-forget — no client\n" +
+		"                  response expected. Fields: panel:{title, sections[],\n" +
+		"                  variant?, id?, footer?}. Each section:\n" +
+		"                  {kind, heading?, <body>} where kind selects the body\n" +
+		"                  field — text(string) | kv([{label,value}]) |\n" +
+		"                  list({marker?,items[]}) | code({language?,content}) |\n" +
+		"                  table({columns[],rows[][]}) | diff({before,after}).\n" +
+		"                  Clients that don't render panels yet can fall back to\n" +
+		"                  panel.title + first text section to construct a\n" +
+		"                  minimal text view.\n\n" +
 		"Tool-only turns produce empty session/prompt text:\n" +
 		"  Some models chain tool calls without producing any text deltas, so\n" +
 		"  the session/update stream has zero kind=text events and the\n" +
