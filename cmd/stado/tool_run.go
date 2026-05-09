@@ -135,6 +135,32 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		stderr = os.Stderr
 	}
 
+	// Meta-tool path (tools.search / tools.describe / tools.categories /
+	// tools.in_category / tools.activate / tools.deactivate /
+	// plugin.load / plugin.unload). These are native Go implementations
+	// in internal/runtime/meta_tools.go — no WASM module backs them, so
+	// the bundled / installed lookups below would fall through and the
+	// caller would see "registered but its source plugin not found"
+	// despite the tool being live in every other surface (TUI, MCP,
+	// agent loop). Dispatch directly against the registered Go object
+	// using NullHost; activation-style meta-tools (activate / load /
+	// etc.) detect the missing host capability and return a structured
+	// "current host does not support activation" error of their own.
+	if runtime.IsMetaTool(registered.Name()) {
+		res, err := registered.Run(ctx, json.RawMessage(argsJSON), tools.NullHost{})
+		if err != nil {
+			if res.Error != "" {
+				fmt.Fprintln(stderr, res.Error)
+			}
+			return err
+		}
+		if res.Error != "" {
+			return fmt.Errorf("%s", res.Error)
+		}
+		fmt.Fprintln(stdout, res.Content)
+		return nil
+	}
+
 	// Bundled path.
 	if info, ok := bundledplugins.LookupModuleByToolName(registered.Name()); ok {
 		pluginName := bundledplugins.ManifestNamePrefix + "-" + info.Name

@@ -436,33 +436,36 @@ The same failure occurred for `/docs` and `/api/v1/openapi.json`. Expected:
 `web__fetch` should return the HTTP response, or at least a structured
 network/tool error instead of exposing the low-level host import failure.
 
-## BUG: `tools.describe` is registered but `tool run` cannot find its source plugin
+## BUG: `tools.describe` is registered but `tool run` cannot find its source plugin ~~RESOLVED~~
 
-Observed from `/var/home/foobarto/Dokumenty/htb-writeups` while testing the
-current source build copied to Kali for `shell.snapshot`.
+**Root cause.** Meta-tools (`tools.search` / `tools.describe` /
+`tools.categories` / `tools.in_category` / `tools.activate` /
+`tools.deactivate` / `plugin.load` / `plugin.unload`) are native Go
+implementations in `internal/runtime/meta_tools.go`. They have no WASM
+module backing them, so `cmd/stado/tool_run.go`'s lookup pipeline —
+which dispatches via `bundledplugins.LookupModuleByToolName` first,
+then `runtime.LookupInstalledModule` — always fell through to the
+generic "tool registered but its source plugin not found" message even
+though the tool was live in every other surface (TUI, MCP server,
+agent loop, headless RPC).
 
-Versions:
+**Resolution.** Added a meta-tool short-circuit in `runToolByName`
+(`cmd/stado/tool_run.go`) that runs the registered Go implementation
+directly with `tools.NullHost{}` when `runtime.IsMetaTool` returns
+true. NullHost satisfies `tool.Host` but does *not* implement
+`pkgtool.ToolActivator` / `ToolDeactivator`, so the four
+non-session-aware meta-tools (`search` / `describe` / `categories` /
+`in_category`) work standalone in `tool run`, while the four
+session-aware ones (`activate` / `deactivate` / `plugin.load` /
+`plugin.unload`) surface their existing structured "current host does
+not support activation" error rather than silently no-op.
 
-```bash
-/tmp/stado-current --version
-# stado version v0.47.1-0.20260508160952-003cea728007+dirty
-ssh john@192.168.122.203 '~/bin/stado-current --version'
-# stado version v0.47.1-0.20260508160952-003cea728007+dirty
-```
+**Tests.** `TestToolRun_DispatchesMetaToolDescribe` (covers the
+original reproducer with both wire and canonical forms),
+`TestToolRun_DispatchesMetaToolSearch`,
+`TestToolRun_MetaToolActivateReportsHostMissing`. All in
+`cmd/stado/tool_run_test.go`.
 
-`tools.describe` is visible in `tool list`/MCP tool lists, but direct CLI
-invocation fails:
-
-```bash
-/tmp/stado-current tool run tools.describe '{"name":"shell__snapshot"}'
-# Error: tool "tools__describe" registered but its source plugin not found — try `stado plugin list`
-
-ssh john@192.168.122.203 \
-  '~/bin/stado-current tool run tools.describe "{\"name\":\"shell__snapshot\"}"'
-# Error: tool "tools__describe" registered but its source plugin not found — try `stado plugin list`
-```
-
-Expected: `tools.describe` should return the schema/description for the named
-tool, or it should not be advertised as runnable. This is separate from the
-new terminal functionality: `shell__spawn` + `shell__snapshot` worked via a
-long-lived MCP server in the same build.
+**Note on the public surface.** `internal/runtime.isMetaTool` was
+exported as `IsMetaTool` for the dispatch wire-up. Internal-only API
+within the project; no semver impact.

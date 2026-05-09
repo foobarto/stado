@@ -136,7 +136,7 @@ func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 	seen := map[string]bool{}
 	var out []pkgtool.Tool
 	for _, t := range reg.All() {
-		if isMetaTool(t.Name()) {
+		if IsMetaTool(t.Name()) {
 			if !seen[t.Name()] {
 				out = append(out, t)
 				seen[t.Name()] = true
@@ -171,10 +171,11 @@ func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
 	return out
 }
 
-// isMetaTool reports whether name is one of the dispatch kernel tools.
+// IsMetaTool reports whether name is one of the dispatch kernel tools.
 // All meta-tools are unconditionally autoloaded — they're how the model
-// discovers and activates the rest of the surface.
-func isMetaTool(name string) bool {
+// discovers and activates the rest of the surface. Exported so the CLI
+// `tool run` path can natively dispatch meta-tools (no WASM backing).
+func IsMetaTool(name string) bool {
 	switch name {
 	case "tools__search", "tools__describe", "tools__categories", "tools__in_category",
 		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload":

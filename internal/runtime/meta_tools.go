@@ -54,7 +54,7 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 	q := strings.ToLower(req.Query)
 	var out []map[string]any
 	for _, t := range m.reg.All() {
-		if isMetaTool(t.Name()) {
+		if IsMetaTool(t.Name()) {
 			continue
 		}
 		if q != "" {

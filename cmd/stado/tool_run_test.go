@@ -114,6 +114,98 @@ func TestToolRun_ToolNotFound(t *testing.T) {
 	}
 }
 
+// TestToolRun_DispatchesMetaToolDescribe verifies the meta-tool
+// dispatch path — pre-fix, `stado tool run tools.describe '{...}'`
+// returned "tool registered but its source plugin not found" because
+// meta-tools are native Go (no WASM module). Now they short-circuit
+// via NullHost dispatch and return their schema/result envelope.
+// Reproducer for the AC3 bug in TODO.md.
+func TestToolRun_DispatchesMetaToolDescribe(t *testing.T) {
+	t.Setenv("STADO_DAEMON", "off")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	// Both wire form and canonical form must reach the dispatch.
+	for _, name := range []string{"tools.describe", "tools__describe"} {
+		t.Run(name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := runToolByName(t.Context(), name,
+				`{"name":"shell__snapshot"}`,
+				toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+			if err != nil {
+				t.Fatalf("runToolByName(%q): %v\nstderr: %s",
+					name, err, stderr.String())
+			}
+			out := stdout.String()
+			// Result is a JSON array of {name, description, schema, …}
+			// objects. The shell__snapshot entry must appear with a
+			// real schema, not as `{"error":"not found"}`.
+			if !strings.Contains(out, `"name":"shell__snapshot"`) {
+				t.Errorf("expected shell__snapshot in describe output; got: %q", out)
+			}
+			if !strings.Contains(out, `"schema"`) {
+				t.Errorf("expected schema field in describe output; got: %q", out)
+			}
+			if strings.Contains(out, `"error":"not found"`) {
+				t.Errorf("describe should resolve shell__snapshot, not return not-found; got: %q", out)
+			}
+		})
+	}
+}
+
+// TestToolRun_DispatchesMetaToolSearch: tools.search has no Host
+// dependency at all and should produce a tools list when invoked
+// from the CLI.
+func TestToolRun_DispatchesMetaToolSearch(t *testing.T) {
+	t.Setenv("STADO_DAEMON", "off")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runToolByName(t.Context(), "tools.search", `{"query":"shell"}`,
+		toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr}); err != nil {
+		t.Fatalf("runToolByName(tools.search): %v\nstderr: %s", err, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `"tools"`) {
+		t.Errorf("expected 'tools' key in search output; got: %q", out)
+	}
+	// shell tools should match the query.
+	if !strings.Contains(out, "shell") {
+		t.Errorf("expected shell tools in search output for query=shell; got: %q", out)
+	}
+}
+
+// TestToolRun_MetaToolActivateReportsHostMissing: activate-class
+// meta-tools require a session-aware host. From the CLI (NullHost)
+// they should surface a structured error rather than silently
+// claiming success — the meta-tool itself enforces this contract.
+func TestToolRun_MetaToolActivateReportsHostMissing(t *testing.T) {
+	t.Setenv("STADO_DAEMON", "off")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	err = runToolByName(t.Context(), "tools.activate", `{"name":"fs__read"}`,
+		toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
+	if err == nil {
+		t.Fatalf("expected error from CLI tools.activate (no session host); stdout=%q", stdout.String())
+	}
+	if !strings.Contains(err.Error(), "does not support activation") {
+		t.Errorf("expected 'does not support activation' in error; got: %v", err)
+	}
+}
+
 // TestToolRun_RefusesPTYBoundShellTools: with STADO_DAEMON=off, PTY-
 // binding shell.* tools refuse with the actionable advisory pointing
 // at the surfaces that DO hold PTY state across calls (TUI / MCP /
