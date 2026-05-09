@@ -22,6 +22,7 @@ require (
 	github.com/mark3labs/mcp-go v0.52.0
 	github.com/mattn/go-isatty v0.0.22
 	github.com/miekg/dns v1.1.72
+	github.com/muesli/termenv v0.16.0
 	github.com/openai/openai-go v1.12.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pkoukk/tiktoken-go v0.1.8
@@ -106,7 +107,6 @@ require (
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
