@@ -27,8 +27,9 @@ import (
 )
 
 // RenderOpts overrides the default style choices. Zero-valued fields
-// fall back to defaults: dark theme matching the bridge's xterm.js
-// palette, no cursor marker (caller can layer one on top), no border.
+// fall back to defaults: dark theme matching `hack/pty-bridge`'s
+// xterm.js palette, no cursor marker (caller can layer one on top),
+// no border.
 type RenderOpts struct {
 	// DefaultBg is the canvas background color rendered for cells that
 	// don't have an explicit BG (or whose BG resolves to the
@@ -53,19 +54,20 @@ type RenderOpts struct {
 	MaxCols int
 }
 
-// Default style values. These match the bridge's xterm.js theme and
-// the SVG renderer's defaults (internal/plugins/runtime/pty/svg.go),
-// so a snapshot rendered as text in the TUI looks like the same
-// snapshot rendered as SVG outside it. cursorBg is exported as a
-// constant for callers building RenderOpts (the embedding TUI's
-// PTY block component picks it up when the operator hits TAB to
-// enter the shell).
+// Default style values. These match `hack/pty-bridge`'s xterm.js
+// theme and the SVG renderer's defaults
+// (internal/plugins/runtime/pty/svg.go), so a snapshot rendered as
+// text in the TUI looks like the same snapshot rendered as SVG
+// outside it. cursorBg is exported as a constant for callers
+// building RenderOpts (the embedding TUI's PTY block component
+// picks it up when the operator hits TAB to enter the shell).
 const (
 	defaultBg = "#0E1117"
 	defaultFg = "#E8EAED"
-	// CursorBgDefault is the bridge's xterm.js cursor color. Exported
-	// so callers can spell `RenderOpts{CursorBg: ptyblock.CursorBgDefault}`
-	// without re-typing the hex literal.
+	// CursorBgDefault is `hack/pty-bridge`'s xterm.js cursor color.
+	// Exported so callers can spell
+	// `RenderOpts{CursorBg: ptyblock.CursorBgDefault}` without
+	// re-typing the hex literal.
 	CursorBgDefault = "#9AA4B1"
 )
 

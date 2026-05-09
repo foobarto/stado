@@ -1,0 +1,7 @@
+# Built binary — produced by `go build -o pty-bridge .`
+pty-bridge
+
+# Chrome user-data-dir created by the headless E2E tests, only when
+# the test runs from this directory. Lives under ~/Downloads in
+# normal use; this catch is for stray sandbox-leakage scenarios.
+chrome-user-data/

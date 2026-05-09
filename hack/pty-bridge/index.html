@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>stado-pty-bridge</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+      }
+      html, body { margin: 0; padding: 0; height: 100%; background: #11131a; color: #d4d4d4; }
+      body { display: flex; flex-direction: column; }
+      header {
+        padding: 6px 10px;
+        background: #181b22;
+        border-bottom: 1px solid #2a2e38;
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        font-size: 13px;
+      }
+      header label { font-size: 12px; opacity: 0.7; }
+      header input {
+        background: #0e1117; color: inherit;
+        border: 1px solid #2a2e38;
+        padding: 3px 6px; font: inherit; font-size: 12px;
+        border-radius: 3px;
+      }
+      header input:focus { outline: none; border-color: #6c97e0; }
+      header button {
+        background: #2a3a55; color: #e8eaed;
+        border: 1px solid #3b5078;
+        padding: 3px 10px; font: inherit; font-size: 12px;
+        border-radius: 3px; cursor: pointer;
+      }
+      header button:hover { background: #3b5078; }
+      header button:disabled { opacity: 0.4; cursor: default; }
+      header .status {
+        font-size: 11px; opacity: 0.7; margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      header .status.connected { color: #7fc99a; opacity: 1; }
+      header .status.error { color: #e07b75; opacity: 1; }
+      #term {
+        flex: 1;
+        padding: 4px;
+        overflow: hidden;
+      }
+      #term .xterm { height: 100%; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <label>cmd</label>
+      <input id="cmd" value="stado" size="20" />
+      <label>args</label>
+      <input id="args" value="" size="30" placeholder="(space-separated)" />
+      <label>cwd</label>
+      <input id="cwd" size="35" placeholder="(default: bridge cwd)" />
+      <button id="connect">connect</button>
+      <button id="disconnect" disabled>disconnect</button>
+      <span id="status" class="status">idle</span>
+    </header>
+    <div id="term"></div>
+    <script>
+      const term = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        scrollback: 5000,
+        theme: {
+          background: "#0e1117",
+          foreground: "#e8eaed",
+          cursor: "#9aa4b1",
+          black: "#11131a",
+          red: "#e07b75",
+          green: "#7fc99a",
+          yellow: "#e1c282",
+          blue: "#6c97e0",
+          magenta: "#c389d9",
+          cyan: "#7cc7d1",
+          white: "#d4d4d4",
+        },
+        allowProposedApi: true,
+      });
+      const fit = new FitAddon.FitAddon();
+      term.loadAddon(fit);
+      term.loadAddon(new WebLinksAddon.WebLinksAddon());
+      term.open(document.getElementById("term"));
+      fit.fit();
+
+      const cmdInp = document.getElementById("cmd");
+      const argsInp = document.getElementById("args");
+      const cwdInp = document.getElementById("cwd");
+      const connectBtn = document.getElementById("connect");
+      const disconnectBtn = document.getElementById("disconnect");
+      const statusEl = document.getElementById("status");
+
+      let ws = null;
+      let connected = false;
+
+      // Capture the bearer token from the URL (`?token=<hex>`) on
+      // page load. Stash it in memory ONLY — not localStorage / not
+      // a cookie — so closing the tab forgets it. Subsequent requests
+      // (the WebSocket upgrade) include it via the same query param.
+      const authToken = new URLSearchParams(location.search).get("token") || "";
+
+      function setStatus(text, klass) {
+        statusEl.textContent = text;
+        statusEl.className = "status" + (klass ? " " + klass : "");
+      }
+
+      function setButtons() {
+        connectBtn.disabled = connected;
+        disconnectBtn.disabled = !connected;
+      }
+
+      function connect() {
+        if (ws) return;
+        if (!authToken) {
+          setStatus("missing token in URL", "error");
+          term.writeln("\r\n\x1b[31m[bridge] no auth token in URL — append ?token=<hex>\x1b[0m");
+          return;
+        }
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        // Browsers can't set custom Authorization headers on the
+        // WebSocket handshake — pass the token via query string,
+        // which the bridge accepts as an alternative to the header.
+        ws = new WebSocket(proto + "//" + location.host + "/ws?token=" + encodeURIComponent(authToken));
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          connected = true;
+          setStatus("connected", "connected");
+          setButtons();
+          // Tell the server which command + size to spawn.
+          const start = {
+            type: "start",
+            cmd: cmdInp.value,
+            args: argsInp.value,
+            cwd: cwdInp.value,
+            cols: term.cols,
+            rows: term.rows,
+          };
+          ws.send(JSON.stringify(start));
+          term.focus();
+        };
+
+        ws.onmessage = (ev) => {
+          if (typeof ev.data === "string") {
+            try {
+              const c = JSON.parse(ev.data);
+              if (c.type === "exit") {
+                term.writeln("\r\n\x1b[33m[bridge] child exited\x1b[0m");
+                cleanup();
+                return;
+              }
+            } catch (_) {
+              term.write(ev.data);
+              return;
+            }
+          } else {
+            term.write(new Uint8Array(ev.data));
+          }
+        };
+
+        ws.onerror = () => setStatus("ws error", "error");
+        ws.onclose = () => {
+          if (connected) {
+            term.writeln("\r\n\x1b[33m[bridge] disconnected\x1b[0m");
+          }
+          cleanup();
+        };
+      }
+
+      function cleanup() {
+        connected = false;
+        if (ws) {
+          try { ws.close(); } catch (_) {}
+          ws = null;
+        }
+        setStatus("idle");
+        setButtons();
+      }
+
+      connectBtn.addEventListener("click", connect);
+      disconnectBtn.addEventListener("click", () => {
+        if (ws) {
+          ws.send(JSON.stringify({ type: "kill" }));
+          ws.close();
+        }
+        cleanup();
+      });
+
+      // Keystrokes: forward as binary frames so xterm/PTY get the raw
+      // sequences (arrow keys → ESC[A etc., Ctrl+P → 0x10, etc.).
+      term.onData((data) => {
+        if (!ws || !connected) return;
+        ws.send(new TextEncoder().encode(data));
+      });
+
+      // Resize: tell the server the new dimensions. Debounced via
+      // requestAnimationFrame so dragging the window doesn't flood.
+      let resizePending = false;
+      function syncSize() {
+        if (resizePending) return;
+        resizePending = true;
+        requestAnimationFrame(() => {
+          resizePending = false;
+          fit.fit();
+          if (ws && connected) {
+            ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+          }
+        });
+      }
+      window.addEventListener("resize", syncSize);
+
+      // Expose a tiny API for automated drivers (CDP / Puppeteer /
+      // claude-in-chrome). They can call window.bridge.{connect,
+      // sendKeys, snapshot, ...} from javascript_tool.
+      window.bridge = {
+        connect,
+        disconnect: () => disconnectBtn.click(),
+        // sendKeys takes a raw string, including escape sequences:
+        //   bridge.sendKeys("\x1b")          // ESC
+        //   bridge.sendKeys("\x10")          // Ctrl+P
+        //   bridge.sendKeys("hello\r")       // type + Enter
+        sendKeys: (s) => {
+          if (!ws || !connected) return false;
+          ws.send(new TextEncoder().encode(s));
+          return true;
+        },
+        // snapshot returns the visible terminal content as one string,
+        // suitable for assertions or read_page-style probes.
+        snapshot: () => {
+          const buf = term.buffer.active;
+          const out = [];
+          for (let y = 0; y < buf.length; y++) {
+            const line = buf.getLine(y);
+            if (!line) continue;
+            out.push(line.translateToString(true));
+          }
+          return out.join("\n");
+        },
+        // visible returns just the on-screen window (no scrollback).
+        visible: () => {
+          const buf = term.buffer.active;
+          const out = [];
+          for (let y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
+            const line = buf.getLine(y);
+            if (!line) continue;
+            out.push(line.translateToString(true));
+          }
+          return out.join("\n");
+        },
+        cols: () => term.cols,
+        rows: () => term.rows,
+        connected: () => connected,
+      };
+    </script>
+  </body>
+</html>

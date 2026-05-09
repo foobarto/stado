@@ -187,11 +187,11 @@ func ColorRGB(c uint32) uint32 {
 }
 
 // ansiPalette is the 16-color ANSI palette used when a cell carries
-// an indexed color. The values match the bridge's xterm.js theme so a
-// snapshot rendered as SVG looks like what an operator would see in a
-// live xterm-256color session. Order matches the SGR/ECMA-48 sequence:
-// black, red, green, yellow, blue, magenta, cyan, white, then the 8
-// bright variants.
+// an indexed color. The values match `hack/pty-bridge`'s xterm.js
+// theme so a snapshot rendered as SVG looks like what an operator
+// would see in a live xterm-256color session. Order matches the
+// SGR/ECMA-48 sequence: black, red, green, yellow, blue, magenta,
+// cyan, white, then the 8 bright variants.
 var ansiPalette = [16]uint32{
 	0x000000, // 0 black
 	0xCD3131, // 1 red

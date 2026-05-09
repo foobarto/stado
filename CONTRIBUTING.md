@@ -31,13 +31,28 @@ runs at release time via `.goreleaser.yaml`.
 go test ./...               # full suite
 go test -race ./...         # CI runs this
 hack/tmux-uat.sh all        # real-PTY TUI harness (16 scenarios)
+cd hack/pty-bridge && \
+  STADO_PTY_BRIDGE_E2E=1 STADO_BIN=$PWD/../../stado go test -v
+                            # xterm.js + headless Chrome harness
 ```
 
-The tmux harness spawns `./stado` in a detached session, asserts
-against the rendered pane, and catches regressions in the termios +
-cancelreader path that teatest can't (the virtual terminal fakes
-those layers). Skip it with `STADO_SKIP_TMUX_UAT=1` if tmux isn't
-installed.
+Three layers of TUI test coverage with different cost/coverage
+trade-offs:
+
+- **`internal/tui/uat_*_test.go`** — fastest, runs in `go test ./...`.
+  Drives the bubbletea Update loop directly via teatest. Catches
+  message-routing and Model-state regressions, can't see ANSI
+  escape codes or terminal redraws.
+- **`hack/tmux-uat.sh`** — real PTY via tmux, asserts against the
+  rendered pane via grep. Catches termios + cancelreader
+  regressions teatest can't. Skip with `STADO_SKIP_TMUX_UAT=1` if
+  tmux isn't installed.
+- **`hack/pty-bridge/`** — full visual rendering through xterm.js
+  in headless Chrome via `chromedp`. Catches escape-code +
+  real-terminal-width layout regressions the other two can't.
+  Costs a Chrome dependency and ~3-15s per scenario; opt-in via
+  `STADO_PTY_BRIDGE_E2E=1`. Lives in its own go.mod so chromedp +
+  gorilla/websocket stay out of the main module.
 
 When you touch bundled wasm tools under `internal/bundledplugins/`,
 verify both the host build and the `wasip1` build. The shared SDK in
