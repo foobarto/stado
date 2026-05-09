@@ -103,13 +103,32 @@ for production keys intended for distribution.`,
 			fmt.Fprintf(cmd.OutOrStdout(), "Using existing dev seed at %s\n", seedPath)
 		}
 
-		// Step 2: sign manifest with dev seed.
+		// Step 2: seed plugin.manifest.json from the template, then
+		// sign it. The install path (Step 4) reads
+		// plugin.manifest.json — NOT the template — so signing the
+		// template directly leaves the install-time manifest with
+		// stale (or empty) wasm_sha256 and triggers a "wasm digest
+		// mismatch" failure inside verifyInstalledPluginCopy. Seed
+		// the canonical name first; sign overwrites it with the
+		// computed hash + author fingerprint + signature
+		// (plugin sign rewrites its input file in place per
+		// plugin_sign.go::pluginSignCmd). The template stays
+		// untouched as the source-of-truth shape.
 		fmt.Fprintln(cmd.OutOrStdout(), "Signing manifest...")
+		templatePath := filepath.Join(dir, "plugin.manifest.template.json")
+		manifestPath := filepath.Join(dir, "plugin.manifest.json")
+		templateBytes, readErr := os.ReadFile(templatePath)
+		if readErr != nil {
+			return fmt.Errorf("plugin dev: read template %s: %w", templatePath, readErr)
+		}
+		if writeErr := os.WriteFile(manifestPath, templateBytes, 0o644); writeErr != nil {
+			return fmt.Errorf("plugin dev: seed manifest %s: %w", manifestPath, writeErr)
+		}
 		origKey := pluginSignKeyPath
 		origWasm := pluginSignWasm
 		pluginSignKeyPath = seedPath
 		pluginSignWasm = ""
-		signErr := pluginSignCmd.RunE(pluginSignCmd, []string{filepath.Join(dir, "plugin.manifest.template.json")})
+		signErr := pluginSignCmd.RunE(pluginSignCmd, []string{manifestPath})
 		pluginSignKeyPath = origKey
 		pluginSignWasm = origWasm
 		if signErr != nil {
