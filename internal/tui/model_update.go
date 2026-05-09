@@ -75,6 +75,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onToolTick(m, msg)
 	case pluginPrintMsg:
 		return onPluginPrint(m, msg)
+	case pluginRenderMsg:
+		return onPluginRender(m, msg)
 	case pluginApprovalRequestMsg:
 		return onPluginApprovalRequest(m, msg)
 	case pluginApprovalCancelMsg:

@@ -270,6 +270,25 @@ func (b tuiPrintBridge) Print(_ context.Context, text string, opts pluginRuntime
 	return nil
 }
 
+// tuiRenderBridge implements pluginRuntime.RenderBridge over the TUI
+// model. Fire-and-forget: posts a pluginRenderMsg carrying the
+// decoded Panel into the program loop and returns nil. The model's
+// Update handler renders the panel to ASCII (bordered per body kind)
+// and appends it as a system block. Same drop-on-nil-program guard
+// the print bridge uses, for the same reason. Spec: F9b.2
+// (.agent/specs/open/f9b-ui-render.md).
+type tuiRenderBridge struct {
+	model *Model
+}
+
+func (b tuiRenderBridge) Render(_ context.Context, panel pluginRuntime.Panel) error {
+	if b.model == nil || b.model.program == nil {
+		return nil
+	}
+	b.model.sendMsg(pluginRenderMsg{panel: panel})
+	return nil
+}
+
 func (m *Model) turnCompleteEvent() []byte {
 	turn := 0
 	if m.session != nil {
@@ -312,7 +331,8 @@ type hostAdapter struct {
 	runner   sandbox.Runner
 	approval tuiApprovalBridge
 	choice   tuiChoiceBridge
-	print    tuiPrintBridge // F9a — stado_ui_print routing
+	print    tuiPrintBridge  // F9a — stado_ui_print routing
+	render   tuiRenderBridge // F9b.2 — stado_ui_render routing
 	spawn    func(context.Context, subagent.Request) (subagent.Result, error)
 	// activate is the lazy-load activation hook. Called by the
 	// tools__describe / tools__activate / plugin__load meta-tools via
@@ -358,6 +378,13 @@ func (h hostAdapter) RequestChoice(ctx context.Context, req pluginRuntime.Choice
 // F9a.
 func (h hostAdapter) Print(ctx context.Context, text string, opts pluginRuntime.PrintOpts) error {
 	return h.print.Print(ctx, text, opts)
+}
+
+// Render implements pluginRuntime.RenderBridge so attachLifecycleBridges
+// wires the render bridge onto the per-plugin runtime host. Routes
+// through tuiRenderBridge → pluginRenderMsg → Update handler. F9b.2.
+func (h hostAdapter) Render(ctx context.Context, panel pluginRuntime.Panel) error {
+	return h.render.Render(ctx, panel)
 }
 
 func (h hostAdapter) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {

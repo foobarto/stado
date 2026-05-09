@@ -145,6 +145,26 @@ func onPluginPrint(m *Model, msg pluginPrintMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// onPluginRender handles a stado_ui_render fire-and-forget panel emit
+// (F9b.2). The decoded Panel is rendered to a multi-line bordered
+// ASCII string by renderPanelASCII (panel_render.go), then appended
+// as a system block. Per-channel render variations (TUI styling
+// upgrades, colour per Variant) can layer on later without changing
+// this handler's contract — the system block is just text by the
+// time it arrives.
+//
+// Per spec, render is fire-and-forget: no response, no state change
+// beyond appending the block. Variant colour styling is a future
+// enhancement; today the variant is shown as a parenthetical in the
+// title bar so warn / error / etc. still surface visually without
+// requiring theme integration.
+func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
+	body := renderPanelASCII(msg.panel)
+	m.appendBlock(block{kind: "system", body: body})
+	m.renderBlocks()
+	return m, nil
+}
+
 func onPluginApprovalCancel(m *Model, msg pluginApprovalCancelMsg) (tea.Model, tea.Cmd) {
 	if m.approval != nil && m.approval.response == msg.response {
 		m.approval = nil

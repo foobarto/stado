@@ -208,6 +208,14 @@ type (
 		text string
 		opts pluginRuntime.PrintOpts
 	}
+	// pluginRenderMsg carries a stado_ui_render fire-and-forget panel
+	// emit into the TUI loop. The Update handler renders the panel
+	// to ASCII (bordered widget per body kind) and appends it as a
+	// system block. Fire-and-forget like print — no response channel.
+	// F9b.2 (.agent/specs/open/f9b-ui-render.md).
+	pluginRenderMsg struct {
+		panel pluginRuntime.Panel
+	}
 	// pluginRunResultMsg carries the outcome of a `/plugin:...` invocation
 	// back to the Update loop. Rendered as a system block so the user
 	// sees the tool's return value alongside the conversation flow.

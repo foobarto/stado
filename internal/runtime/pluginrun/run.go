@@ -258,6 +258,9 @@ func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
 	if bridge, ok := h.(pluginRuntime.PrintBridge); ok {
 		rtHost.PrintBridge = bridge
 	}
+	if bridge, ok := h.(pluginRuntime.RenderBridge); ok {
+		rtHost.RenderBridge = bridge
+	}
 	// SandboxPolicyProvider plumbs a host-default sandbox policy into
 	// stado_exec / stado_proc_spawn. mcp-server / daemon set this so
 	// guest plugins that don't supply their own `sandbox` field still
