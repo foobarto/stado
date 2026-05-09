@@ -22,6 +22,7 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
   - [stado_session_*](#stado_session_)
   - [stado_llm_invoke](#stado_llm_invoke)
   - [stado_ui_approve](#stado_ui_approve)
+  - [stado_ui_render](#stado_ui_render)
   - [stado_cfg_state_dir](#stado_cfg_state_dir)
 - [Tier 2 — stateful conveniences](#tier-2--stateful-conveniences)
   - [stado_http_client_*](#stado_http_client_)
@@ -47,7 +48,7 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
 Tier 1 — capability primitives  (host_log, host_fs, host_proc,
                                   host_pty, host_bundled_bin,
                                   host_session, host_llm, host_ui,
-                                  host_cfg)
+                                  host_ui_render, host_cfg)
 
 Tier 2 — stateful conveniences  (host_http_client, host_dns,
                                   host_secrets) + tool-bridging
@@ -225,6 +226,58 @@ has no session bridge attached (e.g., plugin run outside a session).
 Surfaces an approval prompt to the operator via the TUI's approval
 bridge. Returns -1 when running outside a TUI (headless, plugin
 run); plugin should fail safely.
+
+### stado_ui_render
+
+| Field | Value |
+|---|---|
+| File | `host_ui_render.go` |
+| Signature | `stado_ui_render(req_ptr, req_len, err_ptr, err_cap) → i32` |
+| Capability | `ui:render` |
+| Returns | 0 on success; `-n` where n bytes of error message are at err_ptr |
+
+Fire-and-forget structured-panel emit. The plugin marshals a Panel
+JSON envelope and the runtime translates per-channel: TUI renders a
+bordered system block; ACP emits `session/update kind=panel`; MCP
+returns the panel struct in `CallToolResult.StructuredContent`
+alongside an ASCII rendering in the text content; headless emits
+`session.update kind=panel` on the JSON-RPC notification stream.
+
+Wire envelope (size cap: 64 KiB total / 32 KiB per section):
+
+```json
+{
+  "title":   "string (≤80 chars, required)",
+  "sections": [
+    {
+      "kind":   "text | kv | list | code | table | diff",
+      "heading": "string (≤80 chars, optional)",
+      // exactly one body field per kind:
+      "text":  "string",
+      "kv":    [{"label": "...", "value": "..."}],
+      "list":  {"marker?": "bullet|numbered|check", "items": ["..."]},
+      "code":  {"language?": "...", "content": "..."},
+      "table": {"columns": ["..."], "rows": [["..."]]},
+      "diff":  {"before": "...", "after": "..."}
+    }
+  ],
+  "variant": "info | ok | warn | error | recommendation",
+  "id":      "string (≤64 bytes, optional, referenceable from a later choice)",
+  "footer":  "string (≤200 chars, optional)"
+}
+```
+
+Validation failures (cap denied / size exceeded / wrong body for
+kind / unknown enum value / table row × col over caps) return `-n`
+with a structured human-readable message at err_ptr. Same negative-
+return convention every other host import in this codebase uses.
+
+Drop-on-floor when no render bridge is attached (e.g., plugin run
+outside a session, MCP server with no per-call bridge): success
+returns silently. Per F9 spec: "if channel disconnected, emit
+succeeds silently."
+
+Reference example: `plugins/examples/render-demo-go/`.
 
 ### stado_cfg_state_dir
 
@@ -906,7 +959,8 @@ session:fork
 llm:invoke[:<budget>]
 agent:fleet
 memory:read                memory:write
-ui:approval
+ui:approval                ui:choice
+ui:print                   ui:render
 terminal:open
 bundled-bin:<name>
 cfg:state_dir

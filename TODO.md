@@ -127,29 +127,76 @@ Resolution order `{cwd}/.stado/personas → <config-dir>/personas → bundled`
 means any downstream toolkit can drop a persona file under `.stado/personas/`
 without forking stado.
 
-### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice ~~PARTIAL: F9a print TUI shipped; F9b spec landed~~
+### F9: stado_ui_render + stado_ui_print — companions to existing stado_ui_choice ~~RESOLVED~~
 
-**Status (2026-05-08).** F9a (`stado_ui_print`) ships TUI-only:
-new `ui:print` capability, JSON wire `{text, severity?, eol?,
+**F9a (`stado_ui_print`)** ships TUI-only (2026-05-08): new
+`ui:print` capability, JSON wire `{text, severity?, eol?,
 stream_id?}` with 8 KiB text cap, fire-and-forget into the TUI
-scrollback as a system block with severity prefix. Non-TUI bridges
-drop on the floor for this slice. ACP `kind=text` extension and
-MCP/headless rendering tracked as the F9b follow-on. F9b
-(`stado_ui_render` — structured panel with text/kv/list/code/
-table/diff body kinds) is the remaining heavy lifting.
+scrollback as a system block with severity prefix. Non-TUI
+print routing remains a separate F9a follow-on (independently
+landable; not in scope for this F9 closure).
 
-**Status (2026-05-09).** F9b decomposed into a written spec at
-`.agent/specs/open/f9b-ui-render.md` — twelve acceptance criteria
-across host scaffolding, TUI / ACP / MCP / headless renderers,
-plugin SDK helper, and docs. Phasing inside the spec splits the
-work into six independently-shippable slices (F9b.1 host
-scaffolding → F9b.6 SDK + docs). Phases land via separate commits;
-TODO entry flips to `~~RESOLVED~~` only when the spec's done
-definition is satisfied (including the SDK helper + the
-host-imports.md doc update). The `ui` umbrella capability
-mentioned in the original F9 design is captured as out-of-scope
-in the spec — defer to a future consolidation rather than re-
-litigate three already-shipped per-primitive caps.
+**F9b (`stado_ui_render`)** ships across all four channels
+(2026-05-09):
+
+- **F9b.1** host scaffolding (`internal/plugins/runtime/
+  host_ui_render.go` + capability + `Panel` types + size /
+  schema validation, ~125 LOC + 14 tests).
+- **F9b.2** TUI renderer (`internal/tui/panel_render.go` +
+  bridge wiring; bordered system-block widget per body kind;
+  matches existing rounded-overlay aesthetic; 14 tests).
+- **F9b.3** ACP wire (`internal/acp/render_bridge.go`):
+  `session/update kind=panel` notification, fire-and-forget.
+  Documented in `acp --help`'s notification-kind enumeration.
+  3 tests.
+- **F9b.4** MCP wire (`cmd/stado/mcp_render_bridge.go`):
+  per-call panel accumulator + `CallToolResult.StructuredContent`
+  + ASCII fallback in text content. 7 tests.
+- **F9b.5** Headless wire (`internal/headless/render_bridge.go`):
+  `session.update kind=panel` on the existing JSON-RPC
+  notification stream (deviation from spec's original
+  `--ui-render-file` flag — unifying on the existing wire is
+  cleaner; documented in commit `f1830df`). 3 tests.
+- **F9b.6** Demo plugin + docs: `plugins/examples/render-demo-go/`
+  (canonical pattern for plugin authors), `docs/plugins/
+  host-imports.md` updated with the `stado_ui_render` row +
+  `ui:render` in the capability vocabulary table. Spec at
+  `.agent/specs/open/f9b-ui-render.md` reflects the as-shipped
+  scope.
+
+**Body kinds shipped:** text / kv / list (bullet, numbered, check)
+/ code (with optional language tag) / table (with column-width
+detection + proportional narrowing on overflow) / diff (-/+
+markers).
+
+**Size caps enforced at the WASM boundary:** 64 KiB total payload,
+32 KiB per section, 200 rows × 16 cols on tables, 80-char title /
+200-char footer / 64-char id per spec.
+
+**Wire shape symmetry:** ACP, MCP, and headless all emit the same
+panel JSON envelope (with three lightly-coupled `panelToWire`
+helpers — one per surface; if a fourth surface needs the same
+helper it graduates to a shared package per the project's
+"don't speculatively abstract" discipline).
+
+**Two known follow-on slices captured as future work, not as
+unresolved AC items in this entry:**
+
+- **F9a non-TUI print routing** — `ui:print` currently drops on the
+  floor for ACP / MCP / headless. Independent of F9b.
+- **F9b.5b agent-loop tool dispatch** — `headless.pluginRun` wires
+  RenderBridge directly. Plugins that emit panels DURING
+  `runtime.AgentLoop` tool dispatch (i.e. the agent calls a tool
+  that emits a panel) need an explicit `opts.Host` carrying the
+  bridge — a separable refactor inside `internal/runtime/agentloop.go`.
+
+**The `ui` umbrella capability** mentioned in the original F9 design
+is intentionally NOT introduced. Per-primitive caps (`ui:approval`,
+`ui:choice`, `ui:print`, `ui:render`) remain canonical; introducing
+a coarser-grained umbrella now would force rewriting three
+already-shipped manifests for marginal ergonomic value. Captured
+as out-of-scope in the f9b spec; revisit when consolidation has
+clearer demand.
 
 
 
