@@ -64,12 +64,18 @@ type Resizer interface {
 // orthogonal to the snapshot tick loop — focused blocks still poll;
 // the only difference is that key events no longer pass through.
 type Model struct {
-	id         uint64       // PTY session id
-	cols, rows int          // viewport geometry in cells
+	id         uint64 // PTY session id
+	cols, rows int    // viewport geometry in cells
 	snap       Snapshotter
 	resizer    Resizer
 	writer     Writer
-	tickEvery  time.Duration
+
+	// Focus-aware refresh rates. tickEvery() picks one based on
+	// whether the block is currently focused. Either can be tuned by
+	// the embedding TUI via WithTickEvery (sets both to the same
+	// value) or by directly assigning fields in tests.
+	focusedTickEvery   time.Duration
+	unfocusedTickEvery time.Duration
 
 	// frame is the most recent snapshot. nil before the first tick;
 	// View handles that case with an empty placeholder.
@@ -101,26 +107,36 @@ const (
 	stateEnded
 )
 
-// New constructs a Model. tickEvery sets the snapshot refresh rate;
-// 100 ms (10 Hz) is a sensible default for an unfocused block.
-// Day 4 will rate-tune this based on focus state. id must reference a
-// live PTY in snap; the model doesn't validate at construction (caller
-// has just-spawned-id from `shell.spawn` and that contract is the
-// caller's responsibility).
+// Default tick intervals. Focused = 33 ms (~30 Hz), the cadence htop
+// and vim refresh at; the operator's eye sees fluid updates. Unfocused
+// = 200 ms (5 Hz), enough to track long-running output without
+// pegging the daemon's snapshot path. The two values together cap
+// the daemon's snapshot rate at ~30 calls/sec per visible block,
+// regardless of how the block is rendered.
+const (
+	defaultFocusedTickEvery   = 33 * time.Millisecond
+	defaultUnfocusedTickEvery = 200 * time.Millisecond
+)
+
+// New constructs a Model. The snapshot refresh rate is focus-aware
+// (30 Hz focused / 5 Hz unfocused) by default; WithTickEvery overrides
+// for tests or special cases. id must reference a live PTY in snap;
+// the model doesn't validate at construction (caller has just-spawned-
+// id from `shell.spawn` and that contract is the caller's responsibility).
 func New(id uint64, cols, rows int, snap Snapshotter, opts *RenderOpts) Model {
-	tick := 100 * time.Millisecond
 	var ro RenderOpts
 	if opts != nil {
 		ro = *opts
 	}
 	return Model{
-		id:         id,
-		cols:       cols,
-		rows:       rows,
-		snap:       snap,
-		tickEvery:  tick,
-		state:      statePolling,
-		renderOpts: ro,
+		id:                  id,
+		cols:                cols,
+		rows:                rows,
+		snap:                snap,
+		focusedTickEvery:    defaultFocusedTickEvery,
+		unfocusedTickEvery:  defaultUnfocusedTickEvery,
+		state:               statePolling,
+		renderOpts:          ro,
 	}
 }
 
@@ -202,15 +218,38 @@ func (m Model) HandleKey(msg tea.KeyMsg) (Model, bool) {
 	return m, true
 }
 
-// WithTickEvery overrides the default refresh rate. Day 4's focus-
-// aware ticker will set this dynamically; Day 2 callers can tune it
-// for tests (a 1 ms tick + a fake clock makes assertion of redraws
-// straightforward).
+// WithTickEvery overrides BOTH the focused and unfocused refresh
+// rates to the same value. Useful in tests where a 1 ms tick plus a
+// fake clock makes redraw timing predictable. For production tuning,
+// use WithTickEveryRange to set the two rates independently.
 func (m Model) WithTickEvery(d time.Duration) Model {
 	if d > 0 {
-		m.tickEvery = d
+		m.focusedTickEvery = d
+		m.unfocusedTickEvery = d
 	}
 	return m
+}
+
+// WithTickEveryRange sets the focused and unfocused refresh rates
+// independently. The block uses focused when shell-input mode is
+// active, unfocused otherwise. Either zero falls back to the
+// package default.
+func (m Model) WithTickEveryRange(focused, unfocused time.Duration) Model {
+	if focused > 0 {
+		m.focusedTickEvery = focused
+	}
+	if unfocused > 0 {
+		m.unfocusedTickEvery = unfocused
+	}
+	return m
+}
+
+// tickEvery picks the right interval for the current focus state.
+func (m Model) tickEvery() time.Duration {
+	if m.focused {
+		return m.focusedTickEvery
+	}
+	return m.unfocusedTickEvery
 }
 
 // snapshotMsg is the bubbletea message produced by each tick. Carries
@@ -229,12 +268,14 @@ func (m Model) Init() tea.Cmd {
 	return m.tick()
 }
 
-// tick returns a tea.Cmd that fires after m.tickEvery and produces a
-// snapshotMsg. The cmd captures m.snap and m.id at scheduling time;
-// the model's tick rate / snapshotter cannot change mid-tick (next
-// tick picks up the new values).
+// tick returns a tea.Cmd that fires after the focus-aware interval
+// and produces a snapshotMsg. The cmd captures m.snap and m.id at
+// scheduling time; the model's tick rate / snapshotter cannot change
+// mid-tick (next tick picks up the new values, including any focus
+// state change since the last tick).
 func (m Model) tick() tea.Cmd {
-	return tea.Tick(m.tickEvery, func(time.Time) tea.Msg {
+	interval := m.tickEvery()
+	return tea.Tick(interval, func(time.Time) tea.Msg {
 		frame, err := m.snap.Snapshot(m.id)
 		return snapshotMsg{frame: frame, err: err}
 	})

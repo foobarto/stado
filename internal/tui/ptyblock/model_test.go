@@ -300,6 +300,31 @@ func TestHandleKey_FocusedTranslatesAndWrites(t *testing.T) {
 	}
 }
 
+// TestTickEvery_FocusAware confirms the snapshot interval switches
+// based on focus state. Day 4 split the single tickEvery into two
+// rates (focused fast, unfocused slow) so the daemon doesn't take
+// 30 Hz of snapshot calls per visible block when the operator is
+// reading them passively. Locks the contract.
+func TestTickEvery_FocusAware(t *testing.T) {
+	w := &fakeWriter{}
+	m := New(1, 80, 24, &fakeSnapshotter{}, nil).
+		WithWriter(w).
+		WithTickEveryRange(20*time.Millisecond, 500*time.Millisecond)
+
+	// Unfocused: should pick the slow interval.
+	if got := m.tickEvery(); got != 500*time.Millisecond {
+		t.Errorf("unfocused tickEvery = %v, want 500ms", got)
+	}
+	m = m.Focus()
+	if got := m.tickEvery(); got != 20*time.Millisecond {
+		t.Errorf("focused tickEvery = %v, want 20ms", got)
+	}
+	m = m.Blur()
+	if got := m.tickEvery(); got != 500*time.Millisecond {
+		t.Errorf("blurred tickEvery = %v, want 500ms", got)
+	}
+}
+
 // TestHandleKey_ReservedKeysPassthrough: TAB / SHIFT-TAB / Esc are
 // the parent TUI's mode-toggle gestures and must NOT be consumed by
 // the block even when focused. Returning handled=false lets the
