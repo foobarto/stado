@@ -706,6 +706,167 @@ func TestBridgeE2E_Stado_QuitConfirmCentering(t *testing.T) {
 	}
 }
 
+// TestBridgeE2E_Stado_ApprovalDrawer verifies that
+// `/tool approval_demo` opens the approval drawer with the title,
+// body, and Allow/Deny buttons rendered. Bridge-only because:
+//   - The drawer is a layout-pinned component blending colours +
+//     box-drawing; teatest tests the pluginApprovalRequestMsg
+//     routing but doesn't see the drawer's rendered styling.
+//   - The Allow/Deny buttons render with NormalBorder boxes inside
+//     the outer drawer — confirming both shapes prove the layout
+//     composed correctly through real terminal escape codes.
+//
+// The drawer blocks waiting for the operator; we Esc to dismiss
+// after asserting so test cleanup doesn't leave stado wedged in
+// stateApproval.
+//
+// Spec: TEST-PLAN.md P2 #5.
+// Goal: AC3 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+func TestBridgeE2E_Stado_ApprovalDrawer(t *testing.T) {
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	installDemoPlugin(t, stadoBinAbs, "approval-demo-go", "approval_demo")
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		// Pass an explicit title + body so the predicate has stable
+		// strings to match. The plugin's defaults are also fine but
+		// we control the wire here for assertion clarity. Use a
+		// distinctive marker ("UAT_APPROVE_MARKER") to rule out
+		// false-positive matches against any other rendered text.
+		invocation := `(function(){
+			window.bridge.sendKeys('/tool approval_demo {"title":"UAT_APPROVE_TITLE","body":"UAT_APPROVE_BODY_marker"}\r');
+			return true;
+		})()`
+		if err := chromedp.Run(ctx, chromedp.Evaluate(invocation, nil)); err != nil {
+			return fmt.Errorf("invoke /tool approval_demo: %w", err)
+		}
+		// Predicate: the drawer renders the title, body, and the
+		// Allow/Deny labels. Match Allow + Deny + Y + N keycaps;
+		// Y/N alone would match noise (sidebar, status bar) so
+		// require all four together.
+		predicate := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			var title = s.indexOf('UAT_APPROVE_TITLE') >= 0;
+			var body = s.indexOf('UAT_APPROVE_BODY') >= 0; // wrapping safe — short
+			var allow = s.indexOf('Allow') >= 0;
+			var deny = s.indexOf('Deny') >= 0;
+			return title && body && allow && deny;
+		})()`
+		snap, err := waitForSnapshot(ctx, t, predicate, 15*time.Second)
+		if err != nil {
+			return fmt.Errorf("approval drawer never rendered title+body+Allow+Deny: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ approval drawer rendered with title + body + Allow + Deny labels")
+
+		// Esc dismisses the drawer (handler_input.go path).
+		// Important — without this, stado exits cleanup wedged in
+		// stateApproval and the test process leaks.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x1b')`, nil)); err != nil {
+			return fmt.Errorf("send Esc: %w", err)
+		}
+		// Confirm dismissal — the drawer's title text should disappear
+		// from the visible viewport (or at minimum the Allow/Deny
+		// buttons should). Loose check: title text is gone OR
+		// "ctrl+p commands" footer is back (idle landing footer).
+		dismissed := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			return s.indexOf('Allow') < 0 || s.indexOf('ctrl+p commands') >= 0;
+		})()`
+		if !pollEval(ctx, t, dismissed, 5*time.Second, 100*time.Millisecond) {
+			t.Logf("warning: Esc may not have dismissed the drawer cleanly (test still passed core assertions)")
+		}
+		return nil
+	})
+}
+
+// TestBridgeE2E_Stado_ChoiceDrawerMultiSelect verifies that
+// `/tool choose_demo` with multi=true renders the multi-select
+// drawer with checkboxes, option labels, and the navigation hint.
+// Bridge-only because:
+//   - Checkboxes render as `[ ]` / `[x]` text, but the cursor
+//     marker `▸` and accent-coloured highlights are styled — the
+//     visual composition is bridge-only.
+//   - The drawer's bottom hint "Space toggle · Enter confirm · Esc
+//     cancel" is a styled muted line; teatest doesn't validate
+//     that it was added to the View output.
+//
+// Sends Space to toggle the cursor row's checkbox, then Esc to
+// cancel (avoids leaving stado wedged in stateChoice).
+//
+// Spec: TEST-PLAN.md P2 #6.
+// Goal: AC3 of `2026-05-09-full-tui-test-coverage-via-pty-bridge`.
+func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	installDemoPlugin(t, stadoBinAbs, "choose-demo-go", "choose_demo")
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		// Three options + multi-select. Distinctive label markers
+		// rule out coincidental matches against other surfaces.
+		invocation := `(function(){
+			window.bridge.sendKeys('/tool choose_demo {"prompt":"UAT_CHOOSE_PROMPT","multi":true,"options":[{"id":"a","label":"UAT_OPT_ALPHA"},{"id":"b","label":"UAT_OPT_BRAVO"},{"id":"c","label":"UAT_OPT_CHARLIE"}]}\r');
+			return true;
+		})()`
+		if err := chromedp.Run(ctx, chromedp.Evaluate(invocation, nil)); err != nil {
+			return fmt.Errorf("invoke /tool choose_demo: %w", err)
+		}
+		// Drawer rendering predicate: prompt, all three labels,
+		// at least one empty checkbox, and the multi-select hint.
+		predicate := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			var prompt = s.indexOf('UAT_CHOOSE_PROMPT') >= 0;
+			var alpha = s.indexOf('UAT_OPT_ALPHA') >= 0;
+			var bravo = s.indexOf('UAT_OPT_BRAVO') >= 0;
+			var charlie = s.indexOf('UAT_OPT_CHARLIE') >= 0;
+			var checkbox = s.indexOf('[ ]') >= 0;
+			var hint = s.indexOf('Space') >= 0 && s.indexOf('toggle') >= 0;
+			return prompt && alpha && bravo && charlie && checkbox && hint;
+		})()`
+		snap, err := waitForSnapshot(ctx, t, predicate, 15*time.Second)
+		if err != nil {
+			return fmt.Errorf("choice drawer never rendered prompt+options+checkboxes+hint: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ choice drawer rendered: prompt + 3 labels + [ ] checkbox + Space/toggle hint")
+
+		// Send Space to toggle the cursor row's checkbox. After
+		// the toggle, [x] should appear somewhere AND [ ] should
+		// also still appear (the other two options stay unchecked).
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys(' ')`, nil)); err != nil {
+			return fmt.Errorf("send Space: %w", err)
+		}
+		toggled := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			return s.indexOf('[x]') >= 0 && s.indexOf('[ ]') >= 0;
+		})()`
+		if _, err := waitForSnapshot(ctx, t, toggled, 5*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("Space toggle didn't switch a checkbox to [x]: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ Space toggled a checkbox: both [x] and [ ] now visible")
+
+		// Cancel with Esc to free stado from stateChoice.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x1b')`, nil)); err != nil {
+			return fmt.Errorf("send Esc: %w", err)
+		}
+		return nil
+	})
+}
+
 // TestBridgeE2E_StadoDebug is the diagnostic variant — connects,
 // waits 5s, dumps whatever stado rendered. No assertions; useful
 // when the rendering behaviour changes and you need to see what

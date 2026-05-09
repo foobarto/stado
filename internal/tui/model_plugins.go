@@ -598,7 +598,7 @@ func (m *Model) pluginForkAt(pluginName string) func(ctx context.Context, atTurn
 // invocations never saw the panel/print emit because pluginrun.Run
 // uses attachLifecycleBridges to pick them off the host, and the
 // host built here didn't carry them.
-func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, wasmBytes []byte, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge, print pluginRuntime.PrintBridge, render pluginRuntime.RenderBridge) tea.Cmd {
+func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, tdef plugins.ToolDef, argsJSON, pluginID string, wasmBytes []byte, bridge *pluginRuntime.SessionBridgeImpl, approval pluginRuntime.ApprovalBridge, print pluginRuntime.PrintBridge, render pluginRuntime.RenderBridge, choice pluginRuntime.ChoiceBridge) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -615,15 +615,19 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, td
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
 		host.ApprovalBridge = approval
-		// F9a / F9b: attach print + render bridges when supplied, so
-		// plugins emitting via `stado_ui_print` / `stado_ui_render`
-		// from operator-driven invocations (/tool, /plugin:) reach
-		// the TUI surface — not just from agent-loop tool calls.
+		// F9a / F9b / Q3: attach print + render + choice bridges when
+		// supplied, so plugins emitting via `stado_ui_print` /
+		// `stado_ui_render` / `stado_ui_choose` from operator-driven
+		// invocations (/tool, /plugin:) reach the TUI surface — not
+		// just from agent-loop tool calls.
 		if print != nil {
 			host.PrintBridge = print
 		}
 		if render != nil {
 			host.RenderBridge = render
+		}
+		if choice != nil {
+			host.ChoiceBridge = choice
 		}
 		attachMemoryBridge(cfg, host, mf.Name)
 		// Attach the session bridge only when the plugin declared at
