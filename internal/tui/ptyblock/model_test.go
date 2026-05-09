@@ -210,6 +210,119 @@ func (f *fakeResizer) Resize(id uint64, cols, rows uint16) error {
 	return nil
 }
 
+type fakeWriter struct {
+	writes [][]byte
+}
+
+func (f *fakeWriter) Write(_ uint64, data []byte) (int, error) {
+	dup := make([]byte, len(data))
+	copy(dup, data)
+	f.writes = append(f.writes, dup)
+	return len(data), nil
+}
+
+// TestFocusBlur_IdempotentAndWriterRequired locks the focus toggle's
+// preconditions: Focus is a no-op without a writer (the block stays
+// read-only); Blur always works; both are idempotent.
+func TestFocusBlur_IdempotentAndWriterRequired(t *testing.T) {
+	noWriter := New(1, 80, 24, &fakeSnapshotter{}, nil)
+	noWriter = noWriter.Focus()
+	if noWriter.Focused() {
+		t.Errorf("Focus without writer should be a no-op; got focused=true")
+	}
+
+	w := &fakeWriter{}
+	withWriter := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w)
+	withWriter = withWriter.Focus()
+	if !withWriter.Focused() {
+		t.Errorf("Focus with writer should set focused=true")
+	}
+	withWriter = withWriter.Focus() // idempotent
+	if !withWriter.Focused() {
+		t.Errorf("Focus is idempotent")
+	}
+	withWriter = withWriter.Blur()
+	if withWriter.Focused() {
+		t.Errorf("Blur should clear focused")
+	}
+	withWriter = withWriter.Blur() // idempotent
+	if withWriter.Focused() {
+		t.Errorf("Blur is idempotent")
+	}
+}
+
+// TestHandleKey_UnfocusedPassesThrough: when the block is NOT in
+// shell-input mode, every key returns handled=false so the parent
+// TUI's input router gets to decide. No bytes hit the PTY.
+func TestHandleKey_UnfocusedPassesThrough(t *testing.T) {
+	w := &fakeWriter{}
+	m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w) // focused=false
+
+	_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if handled {
+		t.Errorf("unfocused HandleKey should return handled=false")
+	}
+	if len(w.writes) != 0 {
+		t.Errorf("unfocused HandleKey should not write to PTY; got %d writes", len(w.writes))
+	}
+}
+
+// TestHandleKey_FocusedTranslatesAndWrites: with focus + writer wired,
+// keystrokes translate via keymap.go and reach the PTY. Spot-check the
+// three families: rune, control byte, ANSI escape sequence.
+func TestHandleKey_FocusedTranslatesAndWrites(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyMsg
+		want []byte
+	}{
+		{"rune 'h'", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, []byte("h")},
+		{"Ctrl+C", tea.KeyMsg{Type: tea.KeyCtrlC}, []byte{0x03}},
+		{"Up arrow", tea.KeyMsg{Type: tea.KeyUp}, []byte("\x1b[A")},
+		{"Enter", tea.KeyMsg{Type: tea.KeyEnter}, []byte("\r")},
+		{"Backspace", tea.KeyMsg{Type: tea.KeyBackspace}, []byte{0x7F}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := &fakeWriter{}
+			m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
+			_, handled := m.HandleKey(c.key)
+			if !handled {
+				t.Errorf("focused HandleKey(%v) should be handled", c.key)
+			}
+			if len(w.writes) != 1 {
+				t.Fatalf("expected 1 write; got %d", len(w.writes))
+			}
+			if string(w.writes[0]) != string(c.want) {
+				t.Errorf("wrote %q, want %q", w.writes[0], c.want)
+			}
+		})
+	}
+}
+
+// TestHandleKey_ReservedKeysPassthrough: TAB / SHIFT-TAB / Esc are
+// the parent TUI's mode-toggle gestures and must NOT be consumed by
+// the block even when focused. Returning handled=false lets the
+// parent's handler set Blur(). Without this passthrough, an operator
+// who accidentally hit TAB to enter the block would have no way out.
+func TestHandleKey_ReservedKeysPassthrough(t *testing.T) {
+	for _, key := range []tea.KeyMsg{
+		{Type: tea.KeyTab},
+		{Type: tea.KeyShiftTab},
+		{Type: tea.KeyEsc},
+	} {
+		w := &fakeWriter{}
+		m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
+		_, handled := m.HandleKey(key)
+		if handled {
+			t.Errorf("reserved key %v should not be consumed; got handled=true", key)
+		}
+		if len(w.writes) != 0 {
+			t.Errorf("reserved key %v should not write to PTY; got %d writes", key, len(w.writes))
+		}
+	}
+}
+
 // wrapErr returns an error that fmt.Errorf-wraps the inner one with
 // %w, so errors.Is recovers the inner sentinel. Used by the test
 // table to construct a "snapshot: pty: session not found" wrap that

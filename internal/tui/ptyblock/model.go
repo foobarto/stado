@@ -54,11 +54,21 @@ type Resizer interface {
 // state and stops polling. View() shows the last good frame plus a
 // muted "[process exited]" footer. The embedding TUI can dispose of
 // the block at that point.
+//
+// Input routing (Day 3): when the embedding TUI calls Focus() the
+// block enters "shell-input mode" — subsequent key events fed to
+// HandleKey are translated to PTY bytes via keymap.go and written to
+// the session's stdin via Writer. Blur() pops the mode. The parent
+// TUI typically maps TAB to Focus and SHIFT-TAB / Esc to Blur as the
+// gemini-cli-style enter/leave gesture. The mode toggle is
+// orthogonal to the snapshot tick loop — focused blocks still poll;
+// the only difference is that key events no longer pass through.
 type Model struct {
 	id         uint64       // PTY session id
 	cols, rows int          // viewport geometry in cells
 	snap       Snapshotter
 	resizer    Resizer
+	writer     Writer
 	tickEvery  time.Duration
 
 	// frame is the most recent snapshot. nil before the first tick;
@@ -68,6 +78,12 @@ type Model struct {
 	// state distinguishes polling from ended. Once ended, no more
 	// ticks are queued; View() renders the last frame statically.
 	state state
+
+	// focused = shell-input mode active. HandleKey translates
+	// keystrokes to PTY bytes and writes them when set; otherwise
+	// HandleKey is a no-op that returns handled=false so the parent
+	// TUI's normal input router gets the message.
+	focused bool
 
 	// renderOpts carries colour / cursor highlight choices.
 	renderOpts RenderOpts
@@ -115,6 +131,75 @@ func New(id uint64, cols, rows int, snap Snapshotter, opts *RenderOpts) Model {
 func (m Model) WithResizer(r Resizer) Model {
 	m.resizer = r
 	return m
+}
+
+// WithWriter attaches a Writer so the block can drive the PTY's
+// stdin in shell-input mode (Day 3). Without a Writer, Focus() is a
+// no-op (the block stays read-only) — keeps the panic-free contract
+// for embedders that haven't wired input yet.
+func (m Model) WithWriter(w Writer) Model {
+	m.writer = w
+	return m
+}
+
+// Focus enters shell-input mode. Subsequent HandleKey calls translate
+// keystrokes to PTY bytes and write them. Idempotent. Without a
+// Writer wired, Focus is a no-op (HandleKey stays read-only).
+func (m Model) Focus() Model {
+	if m.writer != nil {
+		m.focused = true
+	}
+	return m
+}
+
+// Blur exits shell-input mode. Idempotent.
+func (m Model) Blur() Model {
+	m.focused = false
+	return m
+}
+
+// Focused reports whether the block is currently consuming key input.
+// The parent TUI uses this to decide whether to render the focus
+// indicator (border highlight, status-bar mode marker).
+func (m Model) Focused() bool { return m.focused }
+
+// HandleKey is the input-mode entry point. When focused AND a writer
+// is wired, translates the key to PTY bytes and writes to stdin;
+// returns handled=true so the parent TUI's input router doesn't
+// re-process the key. When unfocused, returns handled=false and the
+// parent gets to handle it (e.g. TAB → m.Focus()).
+//
+// The TAB / SHIFT-TAB keys are NEVER consumed here even when focused.
+// The parent TUI must route them to Blur() / Focus() as the
+// enter/leave gesture; consuming them in shell-input mode would trap
+// the operator with no way out. Esc is also passed through so
+// readline-style "exit insert mode" doesn't accidentally land on the
+// PTY when the operator meant to leave the block.
+//
+// Note: bytes that fail to write don't panic — the error is dropped
+// silently because the snapshot tick will surface a "session ended"
+// error within ~100 ms anyway, which is the right diagnostic for
+// "the PTY went away" scenarios.
+func (m Model) HandleKey(msg tea.KeyMsg) (Model, bool) {
+	if !m.focused || m.writer == nil {
+		return m, false
+	}
+	// Always-passthrough keys: TAB / SHIFT-TAB / Esc are reserved for
+	// the parent TUI's mode toggle. Returning handled=false routes
+	// them to the parent's keymap.
+	switch msg.Type {
+	case tea.KeyTab, tea.KeyShiftTab, tea.KeyEsc:
+		return m, false
+	}
+	bytes, ok := keyMsgToBytes(msg)
+	if !ok {
+		// Unrecognised key — let the parent decide what to do with
+		// it (probably nothing). Returning false rather than swallowing
+		// preserves operator agency.
+		return m, false
+	}
+	_, _ = m.writer.Write(m.id, bytes)
+	return m, true
 }
 
 // WithTickEvery overrides the default refresh rate. Day 4's focus-
