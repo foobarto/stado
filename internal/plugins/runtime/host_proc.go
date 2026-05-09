@@ -548,7 +548,11 @@ func intersectStringList(host, guest []string) []string {
 		return host
 	}
 	if len(guest) == 0 {
-		return nil
+		// Explicit empty: lock-down. Return non-nil empty so the
+		// caller's enforcement gate (`Exec != nil` etc.) treats
+		// this as "policy specified, list is empty, deny all"
+		// rather than "no policy."
+		return []string{}
 	}
 	if len(host) == 0 {
 		return guest
@@ -563,16 +567,39 @@ func intersectStringList(host, guest []string) []string {
 			out = append(out, h)
 		}
 	}
-	if len(out) == 0 {
-		return nil
-	}
+	// Non-nil empty when both sides specified non-empty lists with
+	// zero overlap. The codex-caught Exec-allows-all bug: previous
+	// `len(p.Exec) > 0` enforcement gate couldn't distinguish "nil =
+	// no policy" from "[] = deny all," so an intersection-shrunk-to-
+	// zero-entries Exec accidentally allowed every binary. Returning
+	// non-nil empty + the runner's new `Exec != nil` gate fixes it.
 	return out
 }
 
-// intersectNet picks the stricter of host and guest. "deny" >
-// "allow" > "" (no opinion). The strictest value any side specified
-// wins; host can clamp to "deny" regardless of what guest claims.
+// intersectNet picks the stricter of host and guest, with one
+// runner-level subtlety: an empty host string ("") translates to
+// NetDenyAll inside buildSandboxedCmd's switch (the zero-valued
+// NetPolicy.Kind is NetDenyAll). So host="" effectively MEANS deny
+// at the runtime layer; treating it as "no opinion" in the
+// intersection would let a guest "allow" loosen the host's de-facto
+// deny. Codex caught this on the third pass.
+//
+// Rules:
+//   - host="" → treat as host="deny" for ceiling purposes.
+//   - host="deny" OR guest="deny" → "deny" (strictest wins).
+//   - host="allow" + guest="allow" → "allow" (both agree).
+//   - host="allow" + guest="" → "allow" (host's permissive choice
+//     stands; guest didn't specify).
+//
+// Operators wanting host="" to behave as "no opinion / inherit
+// runner default" should explicitly set host="allow" or change the
+// runner-side translation. The asymmetry exists because the runner
+// today defaults the zero NetPolicy to NetDenyAll.
 func intersectNet(host, guest string) string {
+	if host == "" {
+		// Empty host = de-facto deny at the runner level.
+		return "deny"
+	}
 	if host == "deny" || guest == "deny" {
 		return "deny"
 	}

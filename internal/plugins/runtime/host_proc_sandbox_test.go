@@ -219,6 +219,60 @@ func TestResolveSandboxPolicy_HostAsCeiling(t *testing.T) {
 	})
 }
 
+// TestIntersectPolicies_ExecNoOverlapStillEnforces locks the codex
+// catch from the third pass: when host has Exec=[A] and guest has
+// Exec=[B] with no overlap, the intersection must NOT silently
+// allow all binaries — that would invert the policy. The intersection
+// returns a non-nil empty slice so the runner's `Exec != nil` gate
+// catches it as "policy specified, list empty, deny all."
+func TestIntersectPolicies_ExecNoOverlapStillEnforces(t *testing.T) {
+	host := &sandboxPolicy{Exec: []string{"cat"}}
+	guest := &sandboxPolicy{Exec: []string{"sh"}}
+	got := intersectPolicies(host, guest)
+	if got.Exec == nil {
+		t.Fatal("Exec intersect with no overlap returned nil — would let runner allow ALL binaries (the codex regression)")
+	}
+	if len(got.Exec) != 0 {
+		t.Errorf("Exec intersect with no overlap = %v, want non-nil empty slice (deny-all marker)", got.Exec)
+	}
+	// Sanity-check the runner gate on the same shape: with non-nil
+	// empty Exec, ResolveBinary should refuse any name.
+	// (Direct test of ResolveBinary lives in the sandbox package;
+	// here we just confirm the shape we produce is what the runner
+	// expects.)
+}
+
+// TestIntersectNet_HostEmptyMeansDeny covers codex's Net="" loosening.
+// At the runner level, an empty Net string in sandbox.Policy.Net falls
+// through buildSandboxedCmd's switch and leaves NetPolicy.Kind at its
+// zero value of NetDenyAll. So host="" effectively means deny.
+// Treating it as "no opinion" in the intersection let a guest "allow"
+// loosen the host's de-facto deny. Now host="" → "deny" in the
+// intersection.
+func TestIntersectNet_HostEmptyMeansDeny(t *testing.T) {
+	cases := []struct {
+		host, guest, want string
+		desc              string
+	}{
+		{"", "allow", "deny", "host empty + guest allow → deny (host is de-facto deny at runner)"},
+		{"", "deny", "deny", "host empty + guest deny → deny"},
+		{"", "", "deny", "both empty → deny (still de-facto)"},
+		// Non-empty host: existing semantics preserved.
+		{"allow", "deny", "deny", "guest deny tightens host allow"},
+		{"deny", "allow", "deny", "host deny clamps guest"},
+		{"allow", "allow", "allow", "both agree"},
+		{"allow", "", "allow", "host allow + guest unspecified"},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			got := intersectNet(c.host, c.guest)
+			if got != c.want {
+				t.Errorf("intersectNet(%q, %q) = %q, want %q", c.host, c.guest, got, c.want)
+			}
+		})
+	}
+}
+
 // TestResolveSandboxPolicy_GuestCanOnlyTighten covers the
 // intersection contract field by field. Each subcase: host wants X,
 // guest wants Y, expected = intersect(X, Y).
@@ -265,8 +319,11 @@ func TestResolveSandboxPolicy_GuestCanOnlyTighten(t *testing.T) {
 			{"deny", "deny", "deny"},
 			{"allow", "allow", "allow"},
 			{"allow", "", "allow"},
+			// host="" means de-facto deny at the runner level (see
+			// TestIntersectNet_HostEmptyMeansDeny). The intersection
+			// reflects that, not a literal "" pass-through.
 			{"", "deny", "deny"},
-			{"", "", ""},
+			{"", "", "deny"},
 		}
 		for _, c := range cases {
 			h := &sandboxPolicy{Net: c.host}

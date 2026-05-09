@@ -28,12 +28,16 @@ package main
 // Net effect: bash invocations through MCP run under bwrap /
 // sandbox-exec by default (PID + uid namespace isolation).
 //
-// Plugins supplying an explicit `sandbox` field still win — guest-
-// provided policy beats host default. Operators wanting tighter rules
-// (FSRead / FSWrite restrictions, etc.) can patch the default policy
-// in pluginRuntime.NewDefaultSandboxPolicy or wire a config-driven
-// override. The current default is conservatively permissive (no FS
-// restrictions) so common stado_exec usage doesn't break.
+// Host-as-ceiling (post-2026-05-09 redesign): when a guest supplies
+// its own `sandbox` field, the resolver intersects host and guest —
+// the guest can only TIGHTEN host policy, never weaken it. A plugin
+// that sets `unsandboxed: true` to bypass confinement is IGNORED
+// when a host default exists; operators who want to allow opt-outs
+// remove the host default explicitly. See
+// host_proc.go:resolveSandboxPolicy + intersectPolicies for the
+// per-field rules. Operators wanting tighter defaults patch
+// pluginRuntime.NewDefaultSandboxPolicy or wire a config-driven
+// override.
 //
 // Phase B of EP-0032 spawns this binary as the wrapped agent's
 // `mcpServers` mount; the audit upgrade here is what gives ACP-wrapped
@@ -245,12 +249,12 @@ func (h stadoMCPHost) PTYManager() any { return h.pty }
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider. Plugins
 // calling stado_exec / stado_proc_spawn from MCP without supplying
 // their own `sandbox` field get the host-default protective policy
-// (PID + uid namespace isolation via bwrap / sandbox-exec, no
-// filesystem restrictions yet — see runtime.NewDefaultSandboxPolicy).
+// (PID + uid namespace isolation via bwrap / sandbox-exec, plus the
+// FSRead/FSWrite/Net values defined by NewDefaultSandboxPolicy).
 //
-// Closes the gap the file-level comment used to overstate. Plugins
-// supplying an explicit `sandbox` field still win — the resolver
-// honours guest-supplied policy first, host default second.
+// Plugins supplying an explicit `sandbox` field intersect with this
+// default — they can only TIGHTEN host policy, never weaken it. The
+// resolver lives at host_proc.go:resolveSandboxPolicy + intersectPolicies.
 func (h stadoMCPHost) DefaultSandboxPolicy() any {
 	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
 }

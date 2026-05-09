@@ -58,10 +58,23 @@ type Denied struct {
 
 func (d Denied) Error() string { return "sandbox: denied: " + d.Reason }
 
-// ResolveBinary looks up `name` on PATH and returns the absolute path. If the
-// policy's Exec allow-list is non-empty, the binary must appear there.
+// ResolveBinary looks up `name` on PATH and returns the absolute path.
+//
+// Exec list semantics (post-2026-05-09 host-as-ceiling fix):
+//
+//   - Exec == nil: no restriction (no policy specified for exec).
+//   - Exec is non-nil but empty (`[]`): explicit deny-all. Caused by
+//     a host policy intersection where host had a non-empty allow-
+//     list but no overlap with guest's request — codex caught the
+//     prior `len(p.Exec) > 0` gate inverting that case to allow-all.
+//   - Exec is non-empty: only listed binaries allowed.
+//
+// The pre-fix gate `len(Exec) > 0` couldn't distinguish "nil = no
+// policy" from "[] = deny all," so the intersection-shrunk-to-empty
+// case bypassed all enforcement. Now the gate is `Exec != nil`,
+// which handles both meaningfully.
 func ResolveBinary(p Policy, name string) (string, error) {
-	if len(p.Exec) > 0 {
+	if p.Exec != nil {
 		allowed := false
 		for _, a := range p.Exec {
 			if a == name {
