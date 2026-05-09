@@ -42,10 +42,11 @@ import (
 )
 
 var (
-	daemonStartQuiet      bool
-	daemonStartIdle       time.Duration
-	daemonStartPTYIdle    time.Duration
-	daemonStartSocketPath string
+	daemonStartQuiet         bool
+	daemonStartIdle          time.Duration
+	daemonStartPTYIdle       time.Duration
+	daemonStartPTYClosedReap time.Duration
+	daemonStartSocketPath    string
 
 	daemonStopForce bool
 
@@ -98,7 +99,9 @@ func init() {
 	daemonStartCmd.Flags().DurationVar(&daemonStartIdle, "idle-timeout", daemon.DefaultIdleTimeout,
 		"Exit after this much idle time (zero live sessions, zero in-flight calls). 0 = no timeout.")
 	daemonStartCmd.Flags().DurationVar(&daemonStartPTYIdle, "pty-idle-timeout", 4*time.Hour,
-		"Destroy PTY sessions untouched by any client for this long. Touch = client read/write/snapshot/attach/detach/resize/signal. Drain output (the process producing bytes) does NOT count — a noisy abandoned process is exactly the orphan we want to reap. Closed-and-unattached sessions also get a 30s grace period before reap so quick commands' final output remains readable. 0 = no watchdog (legacy behaviour).")
+		"Destroy PTY sessions untouched by any client for this long. Touch = client read/write/snapshot/attach/detach/resize/signal. Drain output (the process producing bytes) does NOT count — a noisy abandoned process is exactly the orphan we want to reap. 0 = no watchdog (legacy behaviour).")
+	daemonStartCmd.Flags().DurationVar(&daemonStartPTYClosedReap, "pty-closed-reap-grace", 30*time.Second,
+		"Grace period between a child process exiting and the watchdog reaping its closed-and-unattached session. Lets quick-command patterns (`bash -c 'echo result'` then attach + read) capture final output even when the agent's attach lands after the child exits. Larger values let humans take longer breaks before final output is lost; 0 disables grace (immediate reap).")
 	daemonStartCmd.Flags().StringVar(&daemonStartSocketPath, "socket", "",
 		"UDS path to bind (default: $STADO_DAEMON_SOCKET or $XDG_RUNTIME_DIR/stado/daemon.sock)")
 
@@ -160,7 +163,10 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("daemon: load config: %w", err)
 	}
-	state, err := newDaemonState(cfg, pty.ManagerOpts{IdleTimeout: daemonStartPTYIdle})
+	state, err := newDaemonState(cfg, pty.ManagerOpts{
+		IdleTimeout:     daemonStartPTYIdle,
+		ClosedReapGrace: daemonStartPTYClosedReap,
+	})
 	if err != nil {
 		return fmt.Errorf("daemon: build state: %w", err)
 	}

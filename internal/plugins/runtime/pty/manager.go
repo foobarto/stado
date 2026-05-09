@@ -327,6 +327,20 @@ func (m *Manager) reapIdle() {
 // skip) or after our Unlock (we already removed the session and
 // the Write's get(id) returns ErrNotFound — clean error path).
 //
+// Residual race that's worth knowing about (codex caught it on the
+// third pass): a client that ALREADY held a *session pointer from
+// before destroyIfIdle ran can complete its Write under s.mu, drop
+// s.mu, and call s.master.Write(data) — which may succeed (n =
+// len(data), err = nil) before terminate() closes the master.
+// The data was delivered to the fd but the session is gone, so any
+// follow-up Read returns ErrNotFound and the buffered output is
+// lost. This is "false success" rather than corruption: the caller
+// believes the write landed; objectively it did, but nobody can
+// observe the result. Closing this fully would mean holding s.mu
+// through master.Write, which would serialise every write against
+// the watchdog. The session was reapable (idle 4h+ by default);
+// losing a write that just barely raced is acceptable.
+//
 // Returns true on actual destruction. Used only by the watchdog;
 // public Destroy stays unconditional (operator-explicit kills must
 // always succeed).
