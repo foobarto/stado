@@ -40,6 +40,22 @@ const (
 	// is a short label for renderer coalescing.
 	maxPluginRuntimeUIPrintTextBytes     uint32 = 8 << 10
 	maxPluginRuntimeUIPrintStreamIDBytes int    = 64
+	// stado_ui_render limits. F9b spec
+	// (.agent/specs/open/f9b-ui-render.md). Per-section ceiling is
+	// half the total so a single oversized section can't consume the
+	// whole envelope; row × column caps on table bodies bound the
+	// rendering cost in TUI / ACP. Per-string limits keep one
+	// runaway field from filling the section budget.
+	maxPluginRuntimeUIRenderRequestBytes uint32 = 64 << 10
+	maxPluginRuntimeUIRenderSectionBytes uint32 = 32 << 10
+	maxPluginRuntimeUIRenderTitleBytes   int    = 80
+	maxPluginRuntimeUIRenderHeadingBytes int    = 80
+	maxPluginRuntimeUIRenderFooterBytes  int    = 200
+	maxPluginRuntimeUIRenderIDBytes      int    = 64
+	maxPluginRuntimeUIRenderKVLabelBytes int    = 64
+	maxPluginRuntimeUIRenderKVValueBytes int    = 1 << 10
+	maxPluginRuntimeUIRenderTableRows    int    = 200
+	maxPluginRuntimeUIRenderTableCols    int    = 16
 	maxPluginRuntimeMemoryPayloadBytes   uint32 = 1 << 20
 	maxPluginRuntimeToolArgsBytes        uint32 = 1 << 20
 	maxPluginRuntimeLLMPromptBytes       uint32 = 1 << 20

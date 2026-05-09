@@ -88,6 +88,15 @@ type Host struct {
 	// (fire-and-forget by spec). F9a (2026-05-08).
 	PrintBridge PrintBridge
 
+	// RenderBridge powers stado_ui_render — structured panel emit
+	// across TUI / ACP / MCP / headless. Same nil-means-unavailable
+	// contract as PrintBridge: a nil bridge here yields silent
+	// success so plugins on disconnected channels stay non-blocking
+	// (fire-and-forget per F9 spec). Per-channel renderers land in
+	// later F9b phases; the host scaffolding (this field, the cap
+	// gate, the wire-decode + size validation) ships in F9b.1.
+	RenderBridge RenderBridge
+
 	// ToolHost is the runtime host surface native tool wrappers call
 	// through when a plugin uses the public built-in tool imports.
 	// Nil is valid in non-session contexts like `stado plugin run`;
@@ -161,6 +170,11 @@ type Host struct {
 	// emit into the operator's view. Declared via ui:print in the
 	// manifest. F9a (2026-05-08).
 	UIPrint bool
+	// UIRender gates stado_ui_render — structured panel emit
+	// (title + typed sections: text / kv / list / code / table /
+	// diff). Declared via ui:render in the manifest. Spec:
+	// .agent/specs/open/f9b-ui-render.md. F9b.1 (2026-05-09).
+	UIRender bool
 
 	// PTYManager is the runtime-shared registry of PTY-backed
 	// processes; survives plugin instantiation freshness so a session
@@ -495,6 +509,95 @@ type PrintOpts struct {
 	StreamID string
 }
 
+// RenderBridge is the operator-facing surface for stado_ui_render —
+// structured panels with typed sections. Implementations route the
+// Panel to whatever channel the host runs on (TUI bordered widget,
+// ACP session/update kind=panel, MCP tool-result envelope, headless
+// NDJSON). Returning a non-nil error surfaces the import call as a
+// negative payload to the plugin (channel rejection); nil = silent
+// success. Implementations should NOT block on operator visibility —
+// render is non-blocking by spec, so a backed-up channel should drop
+// or buffer rather than block the plugin. Spec: F9b
+// (.agent/specs/open/f9b-ui-render.md). F9b.1 (2026-05-09).
+type RenderBridge interface {
+	Render(ctx context.Context, panel Panel) error
+}
+
+// Panel is the wire-decoded structured-panel payload emitted by a
+// plugin via stado_ui_render. Variant carries optional styling intent
+// ("info" / "ok" / "warn" / "error" / "recommendation") that
+// renderers may colour, prefix, or ignore. ID is an opaque label
+// useful when a later choice references this panel ("re. the diff
+// shown above"). Footer is a short trailing line (status, hint).
+// F9b.1.
+type Panel struct {
+	Title    string
+	Sections []Section
+	Variant  string
+	ID       string
+	Footer   string
+}
+
+// Section is one body of a Panel. Exactly one of the body-shape
+// fields is meaningful per Kind; the wire decoder validates that
+// the right field is populated for the declared kind so renderers
+// can switch on Kind safely. F9b.1.
+type Section struct {
+	Kind    string // text | kv | list | code | table | diff
+	Heading string
+	// Per-kind body fields. The decoder ensures only the matching
+	// field is populated for a given Kind; renderers MUST switch on
+	// Kind rather than peeking at field zero-ness.
+	Text  string
+	KV    []KVPair
+	List  ListBody
+	Code  CodeBody
+	Table TableBody
+	Diff  DiffBody
+}
+
+// KVPair is one row of a kv-kind Section body. F9b.1.
+type KVPair struct {
+	Label string
+	Value string
+}
+
+// ListBody is the body of a list-kind Section. Marker controls
+// renderer styling: "bullet" (default), "numbered", or "check"
+// (operator-facing checklist). F9b.1.
+type ListBody struct {
+	Marker string
+	Items  []string
+}
+
+// CodeBody is the body of a code-kind Section. Language is an
+// optional renderer hint (TUI may apply syntax-tinted colouring,
+// ACP / MCP carry it through verbatim). F9b.1.
+type CodeBody struct {
+	Language string
+	Content  string
+}
+
+// TableBody is the body of a table-kind Section. Columns names
+// the header row; Rows is a list of cell-value rows. The decoder
+// caps Rows × Cols at maxPluginRuntimeUIRenderTableRows ×
+// maxPluginRuntimeUIRenderTableCols. Renderers truncate narrower
+// terminals at their own discretion. F9b.1.
+type TableBody struct {
+	Columns []string
+	Rows    [][]string
+}
+
+// DiffBody is the body of a diff-kind Section. Renderers compute
+// or display a before/after view; Plain Before/After strings keep
+// the wire shape simple and let each renderer choose its own
+// algorithm (TUI uses Myers via go-difflib; ACP carries strings
+// verbatim and lets the client diff). F9b.1.
+type DiffBody struct {
+	Before string
+	After  string
+}
+
 // FleetBridge is the capability-checked surface the bundled agent plugin
 // calls through for stado_agent_* operations. EP-0038 §D Tier 1+.
 // Nil on surfaces without a live runtime fleet.
@@ -772,6 +875,8 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				h.UIChoice = true
 			case "print":
 				h.UIPrint = true
+			case "render":
+				h.UIRender = true
 			}
 		case "cfg":
 			// Read-only configuration introspection. EP-0029. Each
