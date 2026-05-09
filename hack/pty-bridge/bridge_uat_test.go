@@ -417,119 +417,20 @@ func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
 // startup, ~2s for the snapshot polling. Whichever is slowest sets
 // the floor.
 func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
-	stadoBin := os.Getenv("STADO_BIN")
-	if stadoBin == "" {
-		stadoBin = "stado"
-	}
-	stadoBinAbs, err := exeLookup(stadoBin)
-	if err != nil {
-		t.Skipf("STADO_BIN not found: %v", err)
-	}
-
-	// Locate the render-demo-go source. The test file lives at
-	// <repo>/hack/pty-bridge/bridge_uat_test.go; the demo lives at
-	// <repo>/plugins/examples/render-demo-go/. runtime.Caller(0)
-	// gives us the test file's path so we can derive the repo root
-	// without env-var ceremony.
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Skip("runtime.Caller failed; cannot locate render-demo-go source")
-	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
-	demoSrc := filepath.Join(repoRoot, "plugins", "examples", "render-demo-go")
-	if _, err := os.Stat(filepath.Join(demoSrc, "main.go")); err != nil {
-		t.Skipf("render-demo-go source not found at %s: %v", demoSrc, err)
-	}
-
-	// Isolate XDG so the dev install only touches our scratch.
-	// Bridge inherits env from this test process via os.Environ()
-	// (hack/pty-bridge/main.go::spawnPTY), so the spawned stado
-	// sees the temp XDG too. Don't override HOME — Chrome lookup
-	// (findChrome / chromeUserDataDir) reads ~/.local/bin/chrome
-	// and ~/Downloads, both of which need the real home dir to
-	// work. With all three XDG vars set, stado falls back to those
-	// rather than HOME-derived defaults.
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-
-	// Stage the demo into a temp dir so we don't mutate the
-	// source-controlled plugin directory (`stado plugin dev`
-	// generates plugin.wasm, plugin.manifest.json, and the dev seed
-	// alongside the source).
-	stagingDir := t.TempDir()
-	for _, name := range []string{"main.go", "go.mod", "plugin.manifest.template.json"} {
-		src := filepath.Join(demoSrc, name)
-		dst := filepath.Join(stagingDir, name)
-		body, readErr := os.ReadFile(src)
-		if readErr != nil {
-			t.Fatalf("copy %s: %v", name, readErr)
-		}
-		if writeErr := os.WriteFile(dst, body, 0o644); writeErr != nil {
-			t.Fatalf("write %s: %v", dst, writeErr)
-		}
-	}
-
-	// Build the wasm. The dev install path computes wasm_sha256 from
-	// the bytes on disk, so the wasm has to exist before the dev
-	// command runs.
-	buildCmd := exec.Command("go", "build",
-		"-buildmode=c-shared",
-		// -buildvcs=false because the staging dir isn't under git;
-		// without it, `go build` aborts with "error obtaining VCS
-		// status" on Go ≥1.21.
-		"-buildvcs=false",
-		"-o", filepath.Join(stagingDir, "plugin.wasm"),
-		".")
-	buildCmd.Dir = stagingDir
-	buildCmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
-	if out, err := buildCmd.CombinedOutput(); err != nil {
-		t.Skipf("wasm build failed (no wasip1 toolchain?): %v\n%s", err, out)
-	}
-
-	// Run `stado plugin dev` to sign + trust + install. Captures
-	// stderr too so failures surface in the test log.
-	devCmd := exec.Command(stadoBinAbs, "plugin", "dev", stagingDir)
-	if out, err := devCmd.CombinedOutput(); err != nil {
-		t.Fatalf("stado plugin dev failed: %v\n%s", err, out)
-	}
-
-	// Sanity check: tool list should now show render_demo.
-	listCmd := exec.Command(stadoBinAbs, "tool", "list")
-	listOut, _ := listCmd.CombinedOutput()
-	if !strings.Contains(string(listOut), "render_demo") {
-		t.Fatalf("render_demo not in tool list after `plugin dev`:\n%s", listOut)
-	}
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	installDemoPlugin(t, stadoBinAbs, "render-demo-go", "render_demo")
 
 	// Drive the bridge + stado.
 	baseURL, token := startBridgeInProcess(t)
 	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
-		startCmd := fmt.Sprintf(`(function(){
-			document.getElementById('cmd').value = %q;
-			document.getElementById('args').value = '';
-			window.bridge.connect();
-			return true;
-		})()`, stadoBinAbs)
-		if err := chromedp.Run(ctx, chromedp.Evaluate(startCmd, nil)); err != nil {
-			return fmt.Errorf("connect stado: %w", err)
-		}
-
-		// Wait for the landing screen.
-		landingMatch := pollEval(ctx, t,
-			`window.bridge && window.bridge.snapshot ? (window.bridge.snapshot().toLowerCase().indexOf('ctrl+p') >= 0) : false`,
-			15*time.Second, 100*time.Millisecond)
-		if !landingMatch {
-			var snap string
-			_ = chromedp.Run(ctx, chromedp.Evaluate(`window.bridge ? window.bridge.snapshot() : 'no bridge'`, &snap))
-			return fmt.Errorf("landing screen never showed; snapshot:\n%s", snap)
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
 		}
 
 		// Type `/tool render_demo` then Enter. Each char goes through
 		// the bridge sendKeys path; the trailing \r is the canonical
 		// Enter encoding the bridge already documents in its README.
-		// Backslash-encoded as literal escape so the shell doesn't
-		// reinterpret the carriage return inside the JS string
-		// literal.
 		typeCmd := `window.bridge.sendKeys('/tool render_demo\r')`
 		if err := chromedp.Run(ctx, chromedp.Evaluate(typeCmd, nil)); err != nil {
 			return fmt.Errorf("type /tool render_demo: %w", err)
@@ -684,6 +585,126 @@ func stadoBinForTest(t *testing.T) string {
 		t.Skipf("STADO_BIN not found: %v", err)
 	}
 	return abs
+}
+
+// waitForSnapshot polls window.bridge.snapshot() against the
+// predicate (a JS expression that should return truthy when the
+// expected state is reached) until it matches or the timeout
+// elapses. On success returns the matched snapshot string for
+// further inspection; on timeout returns the LAST snapshot the
+// poll saw plus a non-nil error. Saves the four-line
+// "pollEval + chromedp.Run(snapshot)" boilerplate every test
+// otherwise repeats. The error path returns the snapshot too so
+// callers can include it in t.Fatalf without a second round-trip.
+func waitForSnapshot(ctx context.Context, t *testing.T, predicate string, timeout time.Duration) (string, error) {
+	t.Helper()
+	if pollEval(ctx, t, predicate, timeout, 100*time.Millisecond) {
+		return snapshot(ctx, t), nil
+	}
+	return snapshot(ctx, t), fmt.Errorf("predicate never satisfied within %v", timeout)
+}
+
+// isolateXDG points the test process's XDG state at fresh temp
+// directories so any state stado creates (config, plugin install
+// dir, sessions) is sandboxed. The bridge inherits the test
+// process env via os.Environ() — the spawned stado sees these
+// values too. Don't override HOME: the chromedp Chrome lookup
+// needs the real one (~/.local/bin/chrome and ~/Downloads
+// chrome-user-data-dir).
+func isolateXDG(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+}
+
+// installDemoPlugin builds + signs + installs a plugin from
+// `plugins/examples/<demoName>/` into the test process's XDG
+// (which `isolateXDG` should have already pointed at scratch).
+// Workflow:
+//
+//  1. Locate the demo source via runtime.Caller — the test file
+//     lives at <repo>/hack/pty-bridge/, the demo at
+//     <repo>/plugins/examples/<name>/. Skips when the source can't
+//     be found (e.g. test running outside the repo).
+//  2. Stage main.go + go.mod + plugin.manifest.template.json into
+//     a temp dir. Avoids mutating the source-controlled directory
+//     that `stado plugin dev` would otherwise drop signing
+//     artefacts into.
+//  3. Build plugin.wasm (GOOS=wasip1 GOARCH=wasm,
+//     -buildvcs=false because staging isn't under git, -buildmode=
+//     c-shared per the bundled-plugin convention). Skips when
+//     the wasip1 toolchain isn't available.
+//  4. Run `stado plugin dev <staging>` to sign + trust + install.
+//     Fails the test on a non-zero exit (the dev workflow is
+//     load-bearing for the test).
+//  5. Sanity-check `stado tool list` includes the expected
+//     registered tool name.
+//
+// Returns the staging directory path (rarely needed) so callers
+// can introspect the build artefacts on failure. Used by
+// `TestBridgeE2E_Stado_RendersPanel` and the drawer scenarios
+// (approval-demo-go, choose-demo-go).
+func installDemoPlugin(t *testing.T, stadoBin, demoName, expectedToolName string) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("runtime.Caller failed; cannot locate demo plugin source")
+	}
+	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
+	demoSrc := filepath.Join(repoRoot, "plugins", "examples", demoName)
+	if _, err := os.Stat(filepath.Join(demoSrc, "main.go")); err != nil {
+		t.Skipf("plugin source not found at %s: %v", demoSrc, err)
+	}
+
+	stagingDir := t.TempDir()
+	for _, name := range []string{"main.go", "go.mod", "plugin.manifest.template.json"} {
+		src := filepath.Join(demoSrc, name)
+		dst := filepath.Join(stagingDir, name)
+		body, readErr := os.ReadFile(src)
+		if readErr != nil {
+			t.Fatalf("copy %s: %v", name, readErr)
+		}
+		if writeErr := os.WriteFile(dst, body, 0o644); writeErr != nil {
+			t.Fatalf("write %s: %v", dst, writeErr)
+		}
+	}
+
+	buildCmd := exec.Command("go", "build",
+		"-buildmode=c-shared",
+		"-buildvcs=false",
+		"-o", filepath.Join(stagingDir, "plugin.wasm"),
+		".")
+	buildCmd.Dir = stagingDir
+	buildCmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm")
+	if out, err := buildCmd.CombinedOutput(); err != nil {
+		t.Skipf("wasm build failed (no wasip1 toolchain?): %v\n%s", err, out)
+	}
+
+	devCmd := exec.Command(stadoBin, "plugin", "dev", stagingDir)
+	if out, err := devCmd.CombinedOutput(); err != nil {
+		t.Fatalf("stado plugin dev failed for %s: %v\n%s", demoName, err, out)
+	}
+
+	listCmd := exec.Command(stadoBin, "tool", "list")
+	listOut, _ := listCmd.CombinedOutput()
+	if !strings.Contains(string(listOut), expectedToolName) {
+		t.Fatalf("%s not in tool list after `plugin dev`:\n%s", expectedToolName, listOut)
+	}
+	return stagingDir
+}
+
+// emulateViewport drives chromedp.EmulateViewport on the current
+// browser tab, used by tests that sweep multiple terminal sizes
+// (quit-confirm centering, sidebar reflow, etc.). The PTY child's
+// terminal size doesn't auto-track this — emulateViewport paints
+// xterm.js into the new window dims; tests that need stado to
+// SIGWINCH at the new cols/rows would also need to send the
+// matching `bridge.sendKeys` resize sequence (xterm.js by default
+// reports its size to the connected backend on resize, which the
+// bridge forwards as a TIOCSWINSZ to the child).
+func emulateViewport(ctx context.Context, width, height int64) error {
+	return chromedp.Run(ctx, chromedp.EmulateViewport(width, height))
 }
 
 // pollEval evaluates a JS expression repeatedly until it returns

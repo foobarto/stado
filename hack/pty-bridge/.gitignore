@@ -1,5 +1,6 @@
-# Built binary — produced by `go build -o pty-bridge .`
+# Built binaries — produced by `go build [-o pty-bridge | -o stado-pty-bridge] .`
 pty-bridge
+stado-pty-bridge
 
 # Chrome user-data-dir created by the headless E2E tests, only when
 # the test runs from this directory. Lives under ~/Downloads in
