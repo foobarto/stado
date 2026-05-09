@@ -136,25 +136,49 @@ type session struct {
 	exitCode *int
 	attached bool
 
-	// lastTouched is the wall-clock of the most recent client-driven
-	// operation (Read/Write/Snapshot/Attach/Resize/Signal) OR drain
-	// output. The watchdog destroys sessions whose lastTouched is
-	// older than Manager.idleTimeout. Updated under mu so the
-	// watchdog's read is consistent with the touch path.
-	lastTouched time.Time
+	// lastClientTouch is the wall-clock of the most recent client-driven
+	// operation (Read/Write/Snapshot/Attach/Detach/Resize/Signal). The
+	// watchdog uses this — and ONLY this — as the orphan signal. A
+	// process producing drain output without a client touching it is
+	// still an orphan: nobody's reading the output, so it shouldn't
+	// pin the daemon forever. Codex + gemini caught the original
+	// "drain-as-touch" design as defeating the watchdog's purpose for
+	// noisy-but-abandoned processes.
+	//
+	// lastDrainTouch is the wall-clock of the most recent drain output.
+	// Tracked separately so List/observability can show "session is
+	// alive AND producing output" without conflating that with "client
+	// still cares about it."
+	//
+	// readWaiters counts clients currently blocked inside Read awaiting
+	// output. The watchdog skips sessions with waiters > 0 — a Read
+	// blocked on a slow process is an active claim even though
+	// lastClientTouch ages while cond.WaitTimeout sleeps.
+	lastClientTouch time.Time
+	lastDrainTouch  time.Time
+	readWaiters     int
 }
 
-// touch updates lastTouched to now. Caller must hold s.mu.
+// touch updates lastClientTouch to now. Caller must hold s.mu. This
+// is the watchdog-visible signal that "a client cares about this
+// session right now." Drain output uses touchDrain instead.
 func (s *session) touch() {
-	s.lastTouched = time.Now()
+	s.lastClientTouch = time.Now()
 }
 
-// touchLocked updates lastTouched while taking the lock. Used from
+// touchDrain updates lastDrainTouch — the "process is producing
+// output" signal. NOT consulted by the watchdog; surfaced via List
+// for observability. Caller must hold s.mu.
+func (s *session) touchDrain() {
+	s.lastDrainTouch = time.Now()
+}
+
+// touchLocked updates lastClientTouch while taking the lock. Used from
 // public Manager methods that need a one-shot touch outside an
 // already-held lock.
 func (s *session) touchLocked() {
 	s.mu.Lock()
-	s.lastTouched = time.Now()
+	s.lastClientTouch = time.Now()
 	s.mu.Unlock()
 }
 
@@ -201,31 +225,69 @@ func (m *Manager) watchdogLoop(tick time.Duration) {
 	}
 }
 
-// reapIdle destroys every session whose lastTouched is older than
-// the idle threshold. Splits the work into "snapshot under mu" then
-// "destroy without mu" so the per-session mu inside terminate()
-// doesn't deadlock against the manager mu we hold while iterating.
+// reapIdle destroys sessions that the watchdog considers orphans.
+// Two reasons trigger destruction:
+//
+//  1. Closed-and-unattached: the child process exited (s.closed=true)
+//     and no client is currently attached. No reason to keep it
+//     around — it's a corpse pinning the daemon's idle-exit. Reaped
+//     immediately regardless of idleTimeout.
+//
+//  2. Idle: lastClientTouch older than idleTimeout. ONLY client
+//     activity counts; drain output (the process producing bytes)
+//     does not refresh the orphan clock. This is the second-pass
+//     review correction: a hung process emitting periodic noise is
+//     EXACTLY the orphan we want to reap.
+//
+// Race-safety: the candidate-collect phase no longer holds m.mu
+// while acquiring per-session mu (snapshot ptrs only). The destroy
+// phase takes s.mu before tearing down to re-validate that
+// lastClientTouch hasn't moved between candidate-collect and
+// destroy — a Write/Snapshot landing in the gap pre-empts the kill,
+// preventing the data-loss race codex flagged.
 func (m *Manager) reapIdle() {
 	if m.idleTimeout <= 0 {
 		return
 	}
 	cutoff := time.Now().Add(-m.idleTimeout)
-	type idleCandidate struct {
-		id          uint64
-		lastTouched time.Time
-	}
-	var candidates []idleCandidate
+
+	// Snapshot session pointers under m.mu only. Don't hold m.mu
+	// while acquiring s.mu — a slow Write or Snapshot would block
+	// the entire manager.
 	m.mu.Lock()
-	for id, s := range m.sessions {
-		s.mu.Lock()
-		if s.lastTouched.Before(cutoff) {
-			candidates = append(candidates, idleCandidate{id: id, lastTouched: s.lastTouched})
-		}
-		s.mu.Unlock()
+	all := make([]*session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		all = append(all, s)
 	}
 	m.mu.Unlock()
-	for _, c := range candidates {
-		_ = m.Destroy(c.id)
+
+	for _, s := range all {
+		// Re-check under s.mu. Race-safe: a touch lands either before
+		// our Lock (so we see a fresh lastClientTouch and skip) or
+		// after our Unlock (so the destroy proceeds, but a follow-up
+		// client call sees ErrNotFound — same as if the watchdog had
+		// run a microsecond earlier; acceptable). The TOCTOU window
+		// is no wider than one Lock/Unlock pair.
+		s.mu.Lock()
+		shouldReap := false
+		switch {
+		case s.readWaiters > 0:
+			// Active Read in progress; client is claiming the
+			// session even though lastClientTouch may be stale
+			// while cond.WaitTimeout sleeps. Don't reap.
+		case s.closed && !s.attached:
+			shouldReap = true
+		case s.lastClientTouch.Before(cutoff):
+			shouldReap = true
+		}
+		s.mu.Unlock()
+		if !shouldReap {
+			continue
+		}
+		// Destroy outside any lock — terminate() takes s.mu
+		// internally. Errors here are best-effort; the watchdog
+		// will retry on the next tick if Destroy somehow fails.
+		_ = m.Destroy(s.id)
 	}
 }
 
@@ -291,16 +353,17 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	}
 	now := time.Now()
 	s := &session{
-		id:          atomic.AddUint64(&m.nextID, 1),
-		cmd:         fmtCmd(argv),
-		startedAt:   now,
-		lastTouched: now,
-		proc:        cmd,
-		master:      master,
-		ring:        newRingBuffer(bufBytes),
-		vt:          vt10x.New(vt10x.WithSize(int(cols), int(rows))),
-		cols:        cols,
-		rows:        rows,
+		id:              atomic.AddUint64(&m.nextID, 1),
+		cmd:             fmtCmd(argv),
+		startedAt:       now,
+		lastClientTouch: now,
+		lastDrainTouch:  now,
+		proc:            cmd,
+		master:          master,
+		ring:            newRingBuffer(bufBytes),
+		vt:              vt10x.New(vt10x.WithSize(int(cols), int(rows))),
+		cols:            cols,
+		rows:            rows,
 	}
 	s.cond = sync.NewCond(&s.mu)
 
@@ -328,7 +391,11 @@ func (s *session) drain() {
 			dropped := s.ring.Write(buf[:n])
 			s.dropped += dropped
 			_, _ = s.vt.Write(buf[:n])
-			s.touch() // PTY produced output → not idle
+			// Drain output is observability-only: it tells List a
+			// session is producing bytes. It does NOT refresh the
+			// orphan clock — a noisy-but-abandoned process should
+			// still get reaped. Codex+gemini second-pass correction.
+			s.touchDrain()
 			s.cond.Broadcast()
 			s.mu.Unlock()
 		}
@@ -378,7 +445,10 @@ func (m *Manager) Attach(id uint64, opts AttachOpts) error {
 	return nil
 }
 
-// Detach releases the attach lock. No-op if not attached.
+// Detach releases the attach lock. No-op if not attached. Also
+// counts as a client touch — semantically "leave this running, I
+// might come back" rather than "I'm done with this." A client that
+// truly wants the session reaped calls Destroy.
 func (m *Manager) Detach(id uint64) error {
 	s, err := m.get(id)
 	if err != nil {
@@ -386,6 +456,7 @@ func (m *Manager) Detach(id uint64) error {
 	}
 	s.mu.Lock()
 	s.attached = false
+	s.touch()
 	s.mu.Unlock()
 	return nil
 }
@@ -428,6 +499,14 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 	if !s.attached {
 		return nil, ErrNotAttached
 	}
+	// Touch on entry; bump readWaiters so the watchdog knows a client
+	// is actively blocked here even while cond.WaitTimeout sleeps with
+	// s.mu released. Without the counter, a 5-minute Read on a silent
+	// process would let lastClientTouch age past idleTimeout and the
+	// watchdog would reap the session mid-wait.
+	s.touch()
+	s.readWaiters++
+	defer func() { s.readWaiters--; s.touch() }()
 	for s.ring.Len() == 0 {
 		if s.closed {
 			return nil, io.EOF
@@ -442,7 +521,6 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 		s.condWaitTimeout(remaining)
 	}
 	out := s.ring.ReadN(maxBytes)
-	s.touch()
 	return out, nil
 }
 

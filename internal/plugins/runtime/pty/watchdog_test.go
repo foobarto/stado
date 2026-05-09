@@ -2,6 +2,7 @@ package pty
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -109,26 +110,59 @@ loop:
 // TestWatchdog_StopsOnCloseAll: CloseAll signals the watchdog to
 // exit; subsequent operations don't trigger a panic via "send on
 // closed channel" or similar. Locks the goroutine-lifecycle contract.
+//
+// Also covers the codex critique: the original test only called
+// CloseAll serially. Concurrent CloseAll must also not panic on
+// "close of closed channel" — the m.mu lock around the
+// select-against-stopWatchdog block is what makes that safe; this
+// test exercises it.
 func TestWatchdog_StopsOnCloseAll(t *testing.T) {
-	m := NewManagerWithOpts(ManagerOpts{
-		IdleTimeout:  50 * time.Millisecond,
-		WatchdogTick: 10 * time.Millisecond,
+	t.Run("serial double-close", func(t *testing.T) {
+		m := NewManagerWithOpts(ManagerOpts{
+			IdleTimeout:  50 * time.Millisecond,
+			WatchdogTick: 10 * time.Millisecond,
+		})
+		m.CloseAll()
+		m.CloseAll() // idempotent
 	})
-	m.CloseAll()
-	// Idempotent: double-close shouldn't panic.
-	m.CloseAll()
+
+	t.Run("concurrent CloseAll does not panic", func(t *testing.T) {
+		m := NewManagerWithOpts(ManagerOpts{
+			IdleTimeout:  50 * time.Millisecond,
+			WatchdogTick: 10 * time.Millisecond,
+		})
+		// Spawn a session so CloseAll has real work to do.
+		_, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/cat"}})
+		if err != nil {
+			t.Fatalf("Spawn: %v", err)
+		}
+		// Fire 8 concurrent CloseAll calls. Without the m.mu-guarded
+		// select-default in CloseAll, the second and later closers
+		// would hit "close of closed channel" and panic.
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				m.CloseAll()
+			}()
+		}
+		wg.Wait()
+	})
 }
 
-// TestWatchdog_DrainOutputCountsAsTouch: a session producing PTY
-// output (e.g., a long-running script) should NOT be reaped just
-// because no client is touching it. Drain output is a sign the
-// process is alive and the operator might be reading the snapshot
-// later.
+// TestWatchdog_NoisyOrphansGetReaped: a session producing PTY output
+// without any client touching it IS the orphan we want to reap. A
+// crashed-client scenario with a still-spinning child process should
+// NOT keep the daemon pinned. The codex+gemini second-pass review
+// caught that the original "drain-as-touch" design defeated the
+// watchdog's whole point: a hung loop emitting progress noise stayed
+// alive forever.
 //
-// The setup: spawn `sh -c 'while sleep 0.02; do echo .; done'` which
-// emits output every 20 ms. With a 50 ms idle timeout, the drain
-// touches keep lastTouched fresh; no client touch needed.
-func TestWatchdog_DrainOutputCountsAsTouch(t *testing.T) {
+// Setup: spawn a sh loop that echoes every 20 ms; never attach,
+// never touch. With a 50 ms idle timeout, the watchdog should reap
+// the session within ~100-200 ms despite the drain output.
+func TestWatchdog_NoisyOrphansGetReaped(t *testing.T) {
 	m := NewManagerWithOpts(ManagerOpts{
 		IdleTimeout:  50 * time.Millisecond,
 		WatchdogTick: 10 * time.Millisecond,
@@ -141,14 +175,90 @@ func TestWatchdog_DrainOutputCountsAsTouch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
-	// Don't attach; don't touch from the client side. Wait long
-	// enough for several watchdog ticks. If drain output isn't
-	// counted as a touch, the session would be reaped and Snapshot
-	// would fail. (We use Snapshot rather than List to verify the
-	// session is reachable — but Snapshot itself touches; that's
-	// fine because we only check once at the end.)
-	time.Sleep(300 * time.Millisecond)
-	if _, err := m.Snapshot(id); err != nil {
-		t.Errorf("output-producing session was reaped despite drain activity: %v", err)
+	// Don't attach, don't touch. Wait long enough for the watchdog
+	// to fire several times. We deliberately don't use Snapshot
+	// (that would touch); poll List instead and look for the session
+	// disappearing from it.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		found := false
+		for _, info := range m.List() {
+			if info.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return // expected — orphan reaped despite drain noise
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("noisy orphan never reaped within 500ms — drain output should NOT refresh the orphan clock")
+}
+
+// TestWatchdog_ClosedUnattachedReapedImmediately: a child that
+// exited stays in the registry until idleTimeout in the original
+// design. Gemini caught it: closed-AND-unattached sessions are
+// corpses pinning the daemon for no reason. They should be reaped
+// regardless of idleTimeout, on the next watchdog tick.
+func TestWatchdog_ClosedUnattachedReapedImmediately(t *testing.T) {
+	m := NewManagerWithOpts(ManagerOpts{
+		IdleTimeout:  10 * time.Hour, // far past anything we'd wait for
+		WatchdogTick: 10 * time.Millisecond,
+	})
+	defer m.CloseAll()
+
+	// `true` exits immediately. Don't attach. The reap goroutine
+	// marks closed=true; combined with attached=false, the watchdog
+	// reaps next tick despite the 10-hour idle timeout.
+	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/true"}})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		found := false
+		for _, info := range m.List() {
+			if info.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return // expected
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("closed-unattached session not reaped within 500ms despite 10h idleTimeout")
+}
+
+// TestWatchdog_ReadDoesNotGetKilledMidWait: codex caught that Read
+// only touches when bytes return; a client blocked in Read for the
+// timeout could be reaped while waiting. Now Read touches on entry
+// AND on each cond.Wait wake.
+func TestWatchdog_ReadDoesNotGetKilledMidWait(t *testing.T) {
+	m := NewManagerWithOpts(ManagerOpts{
+		IdleTimeout:  100 * time.Millisecond,
+		WatchdogTick: 10 * time.Millisecond,
+	})
+	defer m.CloseAll()
+
+	// `sleep 1` produces no output. A client blocked in Read should
+	// stay alive even though no drain or other client touch occurs.
+	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/sleep", "1"}})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if err := m.Attach(id, AttachOpts{}); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	// Block in Read for 300 ms — three idleTimeouts.
+	_, err = m.Read(id, 4096, 300*time.Millisecond)
+	if err == ErrNotFound {
+		t.Errorf("Read mid-wait was killed by watchdog; codex's TOCTOU bug")
+	}
+	// Session should still be reachable after the read returns.
+	if _, err := m.Snapshot(id); err == ErrNotFound {
+		t.Errorf("session unexpectedly reaped after Read returned")
 	}
 }
