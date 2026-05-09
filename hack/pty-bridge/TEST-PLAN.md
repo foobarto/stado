@@ -20,7 +20,7 @@ screen"** — not "what state the Model is in." Scenarios that don't
 have a visual signal beyond what teatest already asserts should NOT
 be added here.
 
-## Existing scenarios (15 — all passing as of 2026-05-09)
+## Existing scenarios (24 sub-scenarios across 14 top-level functions — all passing as of 2026-05-09)
 
 | # | Test | What | Time |
 |---|------|------|------|
@@ -37,16 +37,32 @@ be added here.
 | 11 | `TestBridgeE2E_Stado_SlashFilter` | `/sid` narrows inline suggestions to /sidebar (excludes /theme). | ~4s |
 | 12 | `TestBridgeE2E_Stado_PaletteFilter` | Ctrl+P then `the` narrows palette to /theme (excludes /sidebar). | ~3s |
 | 13 | `TestBridgeE2E_Stado_LandingReflow` | Bare landing reflow at 80×24 / 120×40 / 160×50 (3 sub-tests). | ~9s |
+| 14 | `TestBridgeE2E_Stado_StreamingTextDelta` | Stub LLM provider; submit prompt, assert streamed deltas reach xterm.js. | ~3.7s |
+| 15 | `TestBridgeE2E_Stado_QueuedPrompt` | Submit during streaming; assert queued prompt visible alongside in-flight stream. | ~3.8s |
+| 16 | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | Submit; after sidebar reveal, Ctrl+T hides + restores it (Repo marker tracks). | ~3.7s |
+| 17 | `TestBridgeE2E_Stado_MarkdownRendering` | Assistant block with markdown heading + bold materialises in glamour-rendered output. | ~3.6s |
+| 18 | `TestBridgeE2E_Stado_PlanDoModeToggle` | Tab toggles Do→Plan→Do; status-bar mode marker text tracks. | ~3.7s |
 
-**Suite total:** 15 tests including sub-tests. Walltime ~56s
-end-to-end (33s headroom against the goal's 90s budget). Opt-in
-via `STADO_PTY_BRIDGE_E2E=1`.
+**Suite total:** ~24 sub-scenarios across 14 top-level functions
+(plus the diagnostic). Walltime ~76s end-to-end (14s headroom
+against the goal's 90s budget). Opt-in via
+`STADO_PTY_BRIDGE_E2E=1`.
 
 **Surfaces validated:** landing screen + reflow, Ctrl+P + Esc
 palette path, /help overlay, /theme picker, /tool slash, plugin
 dev install, render panel ASCII, approval drawer, choice drawer
 multi-select + checkbox toggle, slash inline suggestions, palette
-filter input, viewport-driven popup centering.
+filter input, viewport-driven popup centering, **streaming text
+deltas (chunked SSE → cancelreader → bubbletea → render)**,
+**queued prompt while streaming**, **sidebar reveal + toggle
+post-turn**, **markdown rendering through glamour**, **Plan/Do
+mode toggle via Tab**.
+
+**Stub LLM provider:** `stubLLMServer(t, chunks)` +
+`configureStadoStub(t, endpoint)` give bridge tests an in-process
+deterministic LLM via `[inference.presets.stub]`. Used by tests
+14-17. The previous "Deferred: surfaces that need a stub LLM
+provider" section's gaps are all now closed.
 
 **Bugs caught + fixed during the bridge UAT work:**
 
@@ -232,37 +248,43 @@ bridge-UAT-only vs. teatest), and **cost** (rough seconds).
   (`TestUAT_SlashOpensInlineSuggestions`) which doesn't fight
   the same timing.
 
-## Deferred: surfaces that need a stub LLM provider
+## Stub LLM provider — landed (was deferred)
 
-Three surfaces have genuine bridge-UAT value but can't be tested
-without a deterministic LLM that emits responses (real or stub).
-The goal's Non-goals declared a stub provider as "build a tiny
-one if needed"; building it is itself substantial scope and was
-deferred at AC4 to keep the suite shippable.
+This section originally documented five surfaces deferred for
+lack of a deterministic LLM provider. The stub provider was
+built (commit `1c2ea71`) using `httptest.Server` + a custom
+`[inference.presets.stub]` config; all five surfaces now have
+bridge tests (entries 14-18 in the table above):
 
-What would unblock them:
+| Gap | Test | Status |
+|-----|------|--------|
+| Streaming text-delta visual | `TestBridgeE2E_Stado_StreamingTextDelta` | ✅ shipped |
+| Markdown rendering in assistant blocks | `TestBridgeE2E_Stado_MarkdownRendering` | ✅ shipped |
+| Plan/Do mode toggle | `TestBridgeE2E_Stado_PlanDoModeToggle` | ✅ shipped (text-marker assertion; color tint not asserted via plain snapshot — needs ANSI parsing) |
+| Sidebar toggle width recompute | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | ✅ shipped |
+| Queued-prompt visual marker | `TestBridgeE2E_Stado_QueuedPrompt` | ✅ shipped |
 
-- Either a `STADO_DEFAULTS_PROVIDER=stub` value that emits a
-  configurable fixed response (synchronous and / or streaming
-  with text-delta timing).
-- Or a localhost OAI-compat HTTP mock the bridge tests start
-  in-process before launching stado (similar pattern to the
-  bridge starting in-process — `httptest.Server` with a stub
-  handler).
+The stub helpers live in `bridge_uat_test.go` alongside the
+other test infrastructure:
 
-The deferred surfaces:
+- `stubLLMServer(t, chunks)` — returns base URL of an in-process
+  httptest.Server emitting chunked SSE per the OAI-compat
+  `/v1/chat/completions` contract. Each chunk delays 50ms so
+  streaming is observable in the bridge.
+- `configureStadoStub(t, endpoint)` — writes `config.toml` to
+  `$XDG_CONFIG_HOME/stado/` pointing at the stub endpoint,
+  sets `STADO_STUB_API_KEY` for auth.
+- `stubChunksMarkdown(marker)` — common chunk fixture with
+  heading + bold + code; used by tests 14, 16, 17.
 
-| Gap | Trigger | Why bridge | Why deferred |
-|-----|---------|------------|--------------|
-| Streaming text-delta visual | submit a prompt; bytes arrive over time and the assistant block ticks them in | Live tick rendering is bridge-only — teatest sees the final state, not the per-frame delta growth | Needs stub provider that emits chunked deltas with realistic timing |
-| Markdown rendering in assistant blocks | submit a prompt that produces `# Heading` + ```code``` blocks | glamour renders to real terminal escape codes; bridge sees the styled output, teatest doesn't | Same — needs the assistant block to actually receive markdown content from a provider |
-| Plan/Do mode border tint | Tab toggles mode | Border-color difference (yellow vs green) is the only visual signal; assertion needs colour decoding from snapshot or a sentinel test plugin | Mode toggle needs the input box to be in a specific state; visual-color assertion via xterm.js snapshot needs investigation (snapshot returns plain text by default) |
-| Sidebar toggle width recompute | submit a prompt → reveal sidebar; Ctrl+T toggles | Width recompute affects conversation-pane wrap | Needs stub provider to leave landing |
-| Queued-prompt visual marker | submit during streaming → second submit queues with visible "queued: …" tag | Tag visibility is bridge-only | Needs stub provider |
-
-These are documented here rather than left as silent gaps so the
-next operator who picks this up has the unblock path written
-down. If the stub provider lands, all five become 1-2 hour tests.
+One residual nuance: color-tinted bridge assertions still aren't
+covered. The Plan/Do mode toggle test asserts the TEXT change
+("Do " ↔ "Plan ") because plain snapshot text doesn't preserve
+lipgloss color. ANSI-parsing snapshot mode would unblock real
+color assertions; not done because the text-change check is a
+sufficient regression signal for the toggle dispatch + render
+path. Open a follow-on if color regressions become a real
+concern.
 
 ## Surfaces explicitly out of scope for bridge UAT
 
