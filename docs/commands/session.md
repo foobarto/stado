@@ -163,7 +163,7 @@ session-aware plugin against it with:
 stado plugin run --session <id> <plugin-id> <tool> [json-args]
 ```
 
-The example `plugins/default/auto-compact/` plugin uses
+The example `plugins/bundled/auto-compact/` plugin uses
 `session:read`, `llm:invoke`, and `session:fork` to create a compacted
 child session without mutating the parent. The same source also backs
 the bundled default background plugin that the TUI/headless server load

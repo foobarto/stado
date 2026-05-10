@@ -239,8 +239,8 @@ stado plugin run --session <sid> <id> <tool> '{...}'  # session-aware plugin CLI
 
 `plugin list` shows trusted authors; `plugin installed` shows runnable
 plugin IDs (`<name>-<version>`). The shipped bundled plugin catalog
-lives under [plugins/](plugins/): `plugins/default/auto-compact/` is on
-by default, while [plugins/examples/](plugins/examples/) are opt-in
+lives under [plugins/](plugins/): `plugins/bundled/auto-compact/` is on
+by default, while [plugins/optional/](plugins/optional/) are opt-in
 authoring samples.
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
@@ -301,8 +301,8 @@ surface itself is shipped and stable enough to wire into Zed today.
   `/home → /var/home` symlink no longer triggers
   `Error: config: create config dir: directory component is a
   symlink: home`).
-- Two new bundled examples — [`plugins/examples/webfetch-cached/`](plugins/examples/webfetch-cached/)
-  and [`plugins/examples/state-dir-info/`](plugins/examples/state-dir-info/)
+- Two new bundled examples — [`plugins/optional/webfetch-cached/`](plugins/optional/webfetch-cached/)
+  and [`plugins/optional/state-dir-info/`](plugins/optional/state-dir-info/)
   — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
 - See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
   for the full rollup, EP-0027/0028/0029/0031 references, and the

@@ -15,7 +15,7 @@ var sessionCompactCmd = &cobra.Command{
 		"core rewrite path. Resolve the target session ID, then run a\n" +
 		"session-aware plugin against it with:\n\n" +
 		"  stado plugin run --session <id> <plugin-id> <tool> [json-args]\n\n" +
-		"The example auto-compact plugin in plugins/default/auto-compact/\n" +
+		"The example auto-compact plugin in plugins/bundled/auto-compact/\n" +
 		"uses session:read + llm:invoke + session:fork to create a compacted\n" +
 		"child session without mutating the parent.",
 	Args: cobra.ExactArgs(1),

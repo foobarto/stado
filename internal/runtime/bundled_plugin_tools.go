@@ -52,7 +52,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 	}
 	// approval_demo and choose_demo were previously bundled as static
 	// tools to manually exercise the ui:approval / ui:choice primitives.
-	// They are now shipped as plugins/examples/{approval-demo-go,
+	// They are now shipped as plugins/optional/{approval-demo-go,
 	// choose-demo-go} — installed manually via `stado plugin install`.
 	// Demos shouldn't live in the bundled tool surface (the model can
 	// see them otherwise) and the example layout is the project's

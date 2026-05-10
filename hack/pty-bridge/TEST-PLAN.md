@@ -193,7 +193,7 @@ bridge-UAT-only vs. teatest), and **cost** (rough seconds).
 #### 5. Approval drawer styling
 
 - **Trigger:** `/tool approval_demo` (assuming
-  `plugins/examples/approval-demo-go` installed via the same
+  `plugins/optional/approval-demo-go` installed via the same
   `stado plugin dev` pattern `TestBridgeE2E_Stado_RendersPanel`
   uses).
 - **Assertion:** snapshot contains the warning indicator (⚠ or
@@ -322,7 +322,7 @@ When the new scenarios start landing, extract these helpers from
 func waitForSnapshot(ctx context.Context, t *testing.T, predicate string,
     timeout time.Duration) (snapshot string, err error)
 
-// installDemoPlugin builds + signs + installs a plugins/examples/<name>
+// installDemoPlugin builds + signs + installs a plugins/optional/<name>
 // plugin into the test process's XDG via `stado plugin dev`. Returns
 // once `tool list` shows the registered tool. Used by render-demo,
 // approval-demo, choose-demo, etc.

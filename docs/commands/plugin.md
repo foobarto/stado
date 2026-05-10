@@ -27,7 +27,7 @@ session-aware capabilities work on the CLI too.
 
 The repo also ships a product-facing plugin catalog under
 [`plugins/`](../../plugins/). The bundled default plugin source is
-[`plugins/default/auto-compact/`](../../plugins/default/auto-compact/):
+[`plugins/bundled/auto-compact/`](../../plugins/bundled/auto-compact/):
 stado loads that one automatically as a background plugin in the TUI
 and headless server, and you can also build/install it manually if you
 want an explicit `plugin run --session` flow.
@@ -207,6 +207,6 @@ Relevant `config.toml` sections:
 - [README.md](../../README.md) — install channels and high-level plugin summary
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog
-- [plugins/examples/README.md](../../plugins/examples/README.md) — concrete opt-in plugin examples
+- [plugins/optional/README.md](../../plugins/optional/README.md) — concrete opt-in plugin examples
 - [memory.md](memory.md) — review plugin-proposed persistent memories
 - [learning.md](learning.md) — propose reviewable operational lessons

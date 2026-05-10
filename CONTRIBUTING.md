@@ -54,16 +54,22 @@ trade-offs:
   `STADO_PTY_BRIDGE_E2E=1`. Lives in its own go.mod so chromedp +
   gorilla/websocket stay out of the main module.
 
-When you touch bundled wasm tools under `internal/bundledplugins/`,
-verify both the host build and the `wasip1` build. The shared SDK in
+When you touch bundled wasm tools under `plugins/bundled/`, verify
+both the host build and the `wasip1` build. The shared SDK at
 `internal/bundledplugins/sdk/` is imported by `GOOS=wasip1` modules,
 but host-side tests and linters still load the package, so the real
 pointer-based implementation must stay behind `//go:build wasip1`
 with a safe host stub for `!wasip1`.
 
+The host-side registry that wires the embedded wasm into the
+runtime stays at `internal/bundledplugins/` (Go's `//go:embed` only
+sees siblings of the importing file). Only the wasm sources moved
+to `plugins/bundled/`.
+
 ```sh
 go test ./internal/bundledplugins/sdk
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared ./internal/bundledplugins/modules/approval_demo
+GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared ./plugins/bundled/shell
+bash plugins/bundled/build.sh   # rebuild all bundled wasm at once
 ```
 
 ## Lint

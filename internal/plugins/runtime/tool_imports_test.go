@@ -167,7 +167,7 @@ func TestPublicToolImports_ApprovalDemoWorksWithCapability(t *testing.T) {
 	}
 }
 
-// buildExampleWasm compiles plugins/examples/<name>/main.go to a
+// buildExampleWasm compiles plugins/optional/<name>/main.go to a
 // wasip1 wasm module and returns the bytes. Skips the test when no
 // `go` toolchain is on PATH or the example dir doesn't exist (covers
 // the trimmed-tree distribution case). The example sources are the
@@ -206,7 +206,7 @@ func buildExampleWasm(t *testing.T, exampleDir, expectedExport string) []byte {
 
 // findRepoRootForTest walks up from the test's working directory
 // looking for go.mod. Used by buildExampleWasm to resolve the
-// plugins/examples path independent of where `go test` was launched.
+// plugins/optional path independent of where `go test` was launched.
 func findRepoRootForTest() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {

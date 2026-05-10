@@ -12,7 +12,7 @@ import (
 // 2026-05-09 review correction: with no guest-supplied sandbox policy
 // the resulting *exec.Cmd has no sandbox runner wrapping it. This is
 // the contract that lets the bundled shell wasm in
-// internal/bundledplugins/modules/shell/main.go (which never sets
+// plugins/bundled/shell/main.go (which never sets
 // `sandbox` in its stado_exec request) run with the operator's full
 // UID privileges, even under mcp-server / TUI / daemon entry points
 // that detect bwrap.

@@ -9,7 +9,7 @@ testing.
 Lives under `hack/` (operator-facing dev tool, not part of the stado
 binary surface) with its own go.mod so chromedp + gorilla/websocket
 stay out of the main module's `go.sum`. Same isolation pattern as
-`plugins/examples/*`.
+`plugins/optional/*`.
 
 Companion to the in-tree UAT options:
 

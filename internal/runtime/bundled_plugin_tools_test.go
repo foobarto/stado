@@ -71,13 +71,13 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 		t.Fatalf("fs__read capabilities = %v, want [fs:read:.]", pt.manifest.Capabilities)
 	}
 	// approval_demo / choose_demo are no longer bundled — they live as
-	// implementation demos under plugins/examples/{approval-demo-go,
+	// implementation demos under plugins/optional/{approval-demo-go,
 	// choose-demo-go} and must NOT appear in the default registry.
 	if _, ok := reg.Get("approval_demo"); ok {
-		t.Error("approval_demo should not be in the bundled registry; it is a plugins/examples/ demo")
+		t.Error("approval_demo should not be in the bundled registry; it is a plugins/optional/ demo")
 	}
 	if _, ok := reg.Get("choose_demo"); ok {
-		t.Error("choose_demo should not be in the bundled registry; it is a plugins/examples/ demo")
+		t.Error("choose_demo should not be in the bundled registry; it is a plugins/optional/ demo")
 	}
 	if got, ok := reg.Get("agent__spawn"); !ok {
 		t.Fatal("agent__spawn tool missing")

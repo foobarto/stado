@@ -1786,13 +1786,13 @@ func isolateXDG(t *testing.T) {
 }
 
 // installDemoPlugin builds + signs + installs a plugin from
-// `plugins/examples/<demoName>/` into the test process's XDG
+// `plugins/optional/<demoName>/` into the test process's XDG
 // (which `isolateXDG` should have already pointed at scratch).
 // Workflow:
 //
 //  1. Locate the demo source via runtime.Caller — the test file
 //     lives at <repo>/hack/pty-bridge/, the demo at
-//     <repo>/plugins/examples/<name>/. Skips when the source can't
+//     <repo>/plugins/optional/<name>/. Skips when the source can't
 //     be found (e.g. test running outside the repo).
 //  2. Stage main.go + go.mod + plugin.manifest.template.json into
 //     a temp dir. Avoids mutating the source-controlled directory

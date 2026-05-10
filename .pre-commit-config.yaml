@@ -23,6 +23,6 @@ repos:
       - id: detect-private-key
       # Trim trailing whitespace + ensure final newline.
       - id: trailing-whitespace
-        exclude: '\.golden$|\.testdata/|^plugins/examples/.*\.wasm$'
+        exclude: '\.golden$|\.testdata/|^plugins/optional/.*\.wasm$'
       - id: end-of-file-fixer
-        exclude: '\.golden$|\.testdata/|^plugins/examples/.*\.wasm$'
+        exclude: '\.golden$|\.testdata/|^plugins/optional/.*\.wasm$'

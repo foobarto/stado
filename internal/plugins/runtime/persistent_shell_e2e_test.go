@@ -12,10 +12,10 @@ package runtime_test
 //   - read returns the bytes the child wrote to stdout, base64-encoded.
 //
 // Skipped if plugin.wasm or plugin.manifest.json don't exist — those
-// are operator-built artifacts (see plugins/examples/persistent-shell/
+// are operator-built artifacts (see plugins/optional/persistent-shell/
 // build.sh), not committed to the repo. To run locally:
 //
-//   cd plugins/examples/persistent-shell && ./build.sh
+//   cd plugins/optional/persistent-shell && ./build.sh
 //   go test -count=1 -timeout=30s -run TestPersistentShellPlugin_E2E \
 //     ./internal/plugins/runtime/...
 
@@ -38,10 +38,10 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
 	manifestPath := filepath.Join(pluginDir, "plugin.manifest.json")
 	if _, err := os.Stat(wasmPath); err != nil {
-		t.Skipf("plugin.wasm not built (%v) — run plugins/examples/persistent-shell/build.sh", err)
+		t.Skipf("plugin.wasm not built (%v) — run plugins/optional/persistent-shell/build.sh", err)
 	}
 	if _, err := os.Stat(manifestPath); err != nil {
-		t.Skipf("plugin.manifest.json missing (%v) — run plugins/examples/persistent-shell/build.sh", err)
+		t.Skipf("plugin.manifest.json missing (%v) — run plugins/optional/persistent-shell/build.sh", err)
 	}
 
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -347,7 +347,7 @@ func loadPersistentShell(t *testing.T) (*runtime.Runtime, *runtime.Host, *runtim
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
 	manifestPath := filepath.Join(pluginDir, "plugin.manifest.json")
 	if _, err := os.Stat(wasmPath); err != nil {
-		t.Skipf("plugin.wasm not built (%v) — run plugins/examples/persistent-shell/build.sh", err)
+		t.Skipf("plugin.wasm not built (%v) — run plugins/optional/persistent-shell/build.sh", err)
 	}
 	wasmBytes, err := os.ReadFile(wasmPath)
 	if err != nil {

@@ -45,7 +45,7 @@ func TestPluginDev_SignsCanonicalManifestNotTemplate(t *testing.T) {
 	dir := t.TempDir()
 
 	// Minimal valid template — same shape as
-	// plugins/examples/render-demo-go/plugin.manifest.template.json.
+	// plugins/optional/render-demo-go/plugin.manifest.template.json.
 	templateBody := []byte(`{
   "name": "test-dev-plugin",
   "version": "0.0.1",

@@ -32,6 +32,35 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.1 — Plugin tree consolidation — 2026-05-10
+
+### Infra
+
+- **All plugin source under `plugins/`.** Bundled plugin sources moved
+  from `internal/bundledplugins/modules/<name>/` to
+  `plugins/bundled/<name>/`; the build script and the `auto-compact`
+  module moved alongside. Optional plugins moved from
+  `plugins/examples/` to `plugins/optional/`. The `plugins/default/
+  browser/` plugin moved to `plugins/optional/browser/` (the production
+  tier-1+tier-2 implementation); the smaller demo formerly at
+  `plugins/examples/browser/` moved to `plugins/optional/browser-minimal/`
+  to disambiguate. `plugins/default/` is gone.
+
+  The host-side registry code (`embed.go`, `list.go`, `auto_compact.go`)
+  stays at `internal/bundledplugins/` because Go's `//go:embed` only
+  sees siblings of the importing file — the compiled wasm artefacts
+  still land at `internal/bundledplugins/wasm/`. Only sources moved.
+
+  No behaviour change. The bundled tool surface, capability vocabulary,
+  and tool registrations are identical. Plugin authors who reference
+  `plugins/examples/` paths in scripts or documentation should retarget
+  to `plugins/optional/`. Dependabot config updated to match the new
+  layout.
+
+  New [`plugins/README.md`](plugins/README.md) documents the
+  bundled-vs-optional split and points authors at the right tree for a
+  given plugin's lifecycle.
+
 ## v0.48.0 — `stado daemon`, host-default sandbox, `shell.expect` + `shell.snapshot` — 2026-05-09
 
 ### Security
