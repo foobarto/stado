@@ -3,6 +3,19 @@
 // process startup, reads the bundle payload from the running binary,
 // and registers each entry with internal/plugins/bundled so the rest of
 // the runtime sees those tools identically to upstream-shipped plugins.
+//
+// User-bundled entries are distinguishable from upstream-shipped ones
+// because the registry stores their wasm bytes inline (Info.WasmSource
+// is set) rather than reading them from bundled's embed.FS. Aside from
+// that the lookup paths are identical.
+//
+// Trust model: each bundle is signed with an Ed25519 key. The bundler's
+// public key is exposed via the package-level Bundler var after a
+// successful load; signature verification happens in
+// internal/bundlepayload, this package only registers what
+// bundlepayload returned. The --unsafe-skip-bundle-verify flag (or the
+// STADO_UNSAFE_SKIP_BUNDLE_VERIFY env var) bypasses verification —
+// dev only, sets SkipVerifyApplied true and emits a warning to stderr.
 package userbundled
 
 import (

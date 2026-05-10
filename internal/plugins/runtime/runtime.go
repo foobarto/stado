@@ -19,6 +19,20 @@
 // currently ships wazero too (it's ~5 MB, pure Go, offline). Kept as a
 // tag so we can swap in a no-op stub if the airgap binary ever needs to
 // strip wasm support.
+//
+// Origin-agnostic. The runtime operates on wasm bytes and a manifest
+// regardless of where the bytes came from — bundled (compiled into the
+// binary), userbundled (appended at bundle time), or installed (signed
+// payload pulled from a registry). The bundled and userbundled packages
+// know which wasm exists; this package knows how to run it. The
+// BackgroundPlugin type here is the lifecycle scaffolding (Load / Tick
+// / Close); host-side policy that decides which background plugins to
+// start by default lives in internal/runtime, not here.
+//
+// Naming note: this package is wasm-host plumbing.
+// internal/runtime (no /plugins/) is the agent-loop runtime — executor,
+// conversation, fleet, sessions. Different layers; both keep their
+// names. See the umbrella doc at internal/plugins for the full picture.
 package runtime
 
 import (

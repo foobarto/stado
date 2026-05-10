@@ -1,15 +1,10 @@
-// Package plugins implements stado's plugin packaging, signing, and trust
-// model (PLAN §7). The wazero runtime that actually executes plugin wasm
-// is deferred — this package is the manifest + signing + trust layer that
-// would prevent an unsigned or tampered plugin from ever reaching the
-// runtime anyway.
-//
+package plugins
+
 // Plugin layout on disk:
 //
 //	plugin.wasm           // the wasm binary
 //	plugin.manifest.json  // canonicalised JSON manifest
 //	plugin.manifest.sig   // Ed25519 signature over manifest.json bytes
-package plugins
 
 import (
 	"bytes"
