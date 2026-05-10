@@ -116,3 +116,90 @@ runtime cost worth measuring.
   (auto-compact's one-liner) while the others get registered by
   `internal/runtime/bundled_plugin_tools.go` at runtime startup.
   That inconsistency is real but orthogonal to manifest dedup.
+
+---
+
+## Handoff (2026-05-10)
+
+### What shipped
+
+Option A landed in commit `7549f37`. The auto-compact manifest
+now has a single canonical source — the template at
+`plugins/bundled/auto-compact/plugin.manifest.template.json`.
+`internal/runtime/background_defaults.go::autoCompactManifest()`
+and `autoCompactSchema()` are gone, replaced by a call to
+`bundled.MustManifest("auto-compact")`.
+
+New host-side surface in `internal/plugins/bundled/`:
+
+- `manifest.go` — `Manifest(name)` / `MustManifest(name)` parallel
+  to the existing `Wasm(name)` / `MustWasm(name)`.
+- `manifests/auto-compact.json` — embed-friendly copy of the
+  template, committed so a fresh clone builds without first
+  running `build.sh`.
+
+`plugins/bundled/build.sh` adds a `MANIFEST_OUT` path and a copy
+step at the end that keeps `manifests/<name>.json` in sync with
+each plugin's `plugin.manifest.template.json`. Today the loop
+covers just `auto-compact`; future background plugins are added
+to that loop.
+
+The template was brought in line with the production values the
+Go code had been overriding (author `stado`, short tool
+description, nonce `bundled-auto-compact`). Two fields that the
+Go code overrode with `version.Version` are now stable:
+`version: "0.1.0"` and `min_stado_version: "0.1.0"`. That's the
+plugin's own functional version, decoupled from the stado binary
+release version. User-visible side-effect: `stado plugin list`
+shows `auto-compact v0.1.0` instead of `auto-compact v0.48.4`.
+
+### What's left
+
+- **Option C — manifest-flag refactor** stays deferred. The
+  trigger is a second background plugin (`token-budget`,
+  `telemetry-bridge`, etc.). When that lands, add `background:
+  bool` to the manifest schema, have the host enumerate
+  `bundled.List()` and start flagged plugins, and delete
+  `DefaultBackgroundPlugins`/`LookupBackgroundPlugin`/
+  `BundledBackgroundPlugin` along with whatever's left of
+  `background_defaults.go`. Today's `for name in auto-compact;
+  do …; done` loop in `build.sh` already generalises to N
+  plugins for free.
+
+- **Inventory registration inconsistency** flagged in the spec's
+  Out-of-scope section is unchanged: auto-compact registers via
+  `init()` in the bundled package, the others register from
+  `internal/runtime/bundled_plugin_tools.go` at runtime startup.
+  Orthogonal to manifest dedup; left for whoever picks up the
+  Option C refactor.
+
+### What surprised
+
+- The template carried real divergence from the Go code's effective
+  behaviour, not just a stale copy. Three different fields
+  (`author`, `description`, `nonce`) plus the version overrides.
+  The template was effectively a phase-7.1b demo artefact never
+  retrofitted to production; the Go code had been the de-facto
+  canonical source while the template lay drifting. This refactor
+  flipped the polarity — template is canonical now.
+- Wasm-rebuild byte drift on the verification rebuild: identical
+  trap as Phase C of v0.48.2 (Go toolchain produces non-byte-stable
+  output between runs). Reverted via `git checkout HEAD --
+  internal/plugins/bundled/wasm/` before commit. Same fix as last
+  time; possibly worth a build-script flag to suppress the
+  rebuild during `make build` flows that don't need it.
+
+### What to watch
+
+- **Plugin authors who edit `plugin.manifest.template.json`** for
+  auto-compact will now see their changes reflected at runtime
+  after `bash plugins/bundled/build.sh`. Without running the build
+  script, the embedded copy at
+  `internal/plugins/bundled/manifests/auto-compact.json` stays
+  stale — both files are committed, so fresh clones get the
+  current state, but in-place edits need `build.sh` to propagate.
+  Worth noting in `CONTRIBUTING.md` if/when one exists.
+- **Version-string change.** Anywhere downstream that parsed
+  auto-compact's manifest version (probably nowhere) would now
+  see `0.1.0` instead of the binary version. Caught only on
+  release-cut for the next session if it surfaces.

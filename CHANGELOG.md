@@ -32,6 +32,37 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.5 — Auto-compact manifest dedup — 2026-05-10
+
+### Infra
+
+- **One canonical source for the auto-compact manifest.** The Go-coded
+  duplicate at `internal/runtime/background_defaults.go::autoCompactManifest()`
+  is gone, replaced by `bundled.MustManifest("auto-compact")` reading
+  from `internal/plugins/bundled/manifests/auto-compact.json` — copied
+  from `plugins/bundled/auto-compact/plugin.manifest.template.json` by
+  the build script. New host-side surface
+  `bundled.Manifest(name)`/`bundled.MustManifest(name)` parallel to the
+  existing `bundled.Wasm`/`bundled.MustWasm`.
+
+  Closes the v0.48.2 carry-over follow-up
+  (`.agent/specs/done/kill-autocompact-manifest-duplication.md`),
+  Option A interim. Option C (manifest-flag refactor that would kill
+  the whole host-side per-plugin policy file) stays deferred — the
+  trigger is a second background plugin.
+
+  **User-visible side effect.** `stado plugin list` now shows
+  `auto-compact v0.1.0` (the plugin's own functional version, stable)
+  instead of the stado-binary version (e.g. `v0.48.4`) the Go code
+  had been substituting. The previous behaviour was a fiction —
+  auto-compact's wasm doesn't actually change between stado releases.
+  No capability or trust check changes.
+
+  Build-script change: `plugins/bundled/build.sh` now copies
+  background-plugin manifest templates into the embed-friendly
+  location after the wasm builds. Today the loop covers only
+  `auto-compact`; future background plugins are added to that loop.
+
 ## v0.48.4 — Land doc/cross-ref updates omitted from v0.48.3 — 2026-05-10
 
 ### Fixes
