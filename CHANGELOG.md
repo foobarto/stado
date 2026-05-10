@@ -51,12 +51,16 @@ become semver guarantees.
   the whole host-side per-plugin policy file) stays deferred — the
   trigger is a second background plugin.
 
-  **User-visible side effect.** `stado plugin list` now shows
-  `auto-compact v0.1.0` (the plugin's own functional version, stable)
-  instead of the stado-binary version (e.g. `v0.48.4`) the Go code
-  had been substituting. The previous behaviour was a fiction —
-  auto-compact's wasm doesn't actually change between stado releases.
-  No capability or trust check changes.
+  Pure refactor — no user-visible behaviour change. The
+  `BundledBackgroundPlugin.Manifest.Version` field is now `"0.1.0"`
+  (from the template) instead of the runtime `internal/version.Version`
+  string, but no user-facing display reads that field for auto-compact.
+  `stado plugin list` shows `auto-compact v0.0.0-dev` before and
+  after, because that view is sourced from `bundled.Info.Version`
+  which is unchanged. *(The original cut of this CHANGELOG entry as
+  shipped at the v0.48.5 tag claimed the plugin-list display would
+  change to `v0.1.0`; that was wrong — corrected on main after
+  release.)*
 
   Build-script change: `plugins/bundled/build.sh` now copies
   background-plugin manifest templates into the embed-friendly
