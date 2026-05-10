@@ -1,4 +1,4 @@
-package bundledplugins
+package bundled
 
 import (
 	"reflect"

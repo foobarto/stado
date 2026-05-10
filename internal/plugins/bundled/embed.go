@@ -1,4 +1,4 @@
-package bundledplugins
+package bundled
 
 import (
 	"embed"
@@ -34,7 +34,7 @@ func Wasm(toolName string) ([]byte, error) {
 func MustWasm(toolName string) []byte {
 	data, err := Wasm(toolName)
 	if err != nil {
-		panic(fmt.Sprintf("bundledplugins: missing wasm for %s: %v", toolName, err))
+		panic(fmt.Sprintf("bundled: missing wasm for %s: %v", toolName, err))
 	}
 	return data
 }

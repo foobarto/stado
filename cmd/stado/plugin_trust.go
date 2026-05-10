@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime"
 )
 
@@ -139,7 +139,7 @@ var pluginListCmd = &cobra.Command{
 		}
 
 		// Also enumerate bundled plugins.
-		for _, b := range bundledplugins.List() {
+		for _, b := range bundled.List() {
 			toolsList := strings.Join(b.Tools, ", ")
 			if len(toolsList) > 40 {
 				toolsList = toolsList[:37] + "..."

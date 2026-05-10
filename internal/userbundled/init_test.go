@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/bundlepayload"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 )
 
 // makeEntry builds a properly signed bundlepayload.Entry for testing.
@@ -24,7 +24,7 @@ func makeEntry(t *testing.T, bareName, toolName string, caps []string) bundlepay
 	wasm := []byte("\x00asm\x01\x00\x00\x00") // minimal valid wasm magic
 	wasmHash := sha256.Sum256(wasm)
 	mf := plugins.Manifest{
-		Name:         bundledplugins.ManifestNamePrefix + "-" + bareName,
+		Name:         bundled.ManifestNamePrefix + "-" + bareName,
 		Version:      "0.1.0",
 		Author:       "test",
 		Capabilities: caps,
@@ -45,9 +45,9 @@ func makeEntry(t *testing.T, bareName, toolName string, caps []string) bundlepay
 }
 
 // TestLoadAndRegister_HappyPath: a binary with a valid bundle appended
-// causes loadAndRegister to register tools in bundledplugins.
+// causes loadAndRegister to register tools in bundled.
 func TestLoadAndRegister_HappyPath(t *testing.T) {
-	bundledplugins.ResetForTest(t)
+	bundled.ResetForTest(t)
 
 	bundlerPub, bundlerPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestLoadAndRegister_HappyPath(t *testing.T) {
 		t.Fatalf("loadAndRegister: %v", err)
 	}
 
-	list := bundledplugins.List()
+	list := bundled.List()
 	found := false
 	for _, info := range list {
 		if info.Name == "myplugin" {
@@ -93,14 +93,14 @@ func TestLoadAndRegister_HappyPath(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("'myplugin' not found in bundledplugins.List(); got %+v", list)
+		t.Errorf("'myplugin' not found in bundled.List(); got %+v", list)
 	}
 }
 
 // TestLoadAndRegister_VanillaIsNoOp: a binary with no bundle payload
 // produces no error and no registrations.
 func TestLoadAndRegister_VanillaIsNoOp(t *testing.T) {
-	bundledplugins.ResetForTest(t)
+	bundled.ResetForTest(t)
 
 	dir := t.TempDir()
 	vanillaBin := filepath.Join(dir, "stado-vanilla")
@@ -112,7 +112,7 @@ func TestLoadAndRegister_VanillaIsNoOp(t *testing.T) {
 		t.Fatalf("loadAndRegister on vanilla binary: %v", err)
 	}
 
-	if got := bundledplugins.List(); len(got) != 0 {
+	if got := bundled.List(); len(got) != 0 {
 		t.Errorf("expected empty list for vanilla binary; got %+v", got)
 	}
 }

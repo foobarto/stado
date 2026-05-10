@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
 	"github.com/foobarto/stado/internal/runtime/schema"
 	"github.com/foobarto/stado/internal/toolinput"
@@ -407,23 +407,23 @@ func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
 	caps := bundledToolCapabilities(native.Name())
 	t := &bundledPluginTool{
 		manifest: plugins.Manifest{
-			Name:         bundledplugins.ManifestNamePrefix + "-" + native.Name(),
+			Name:         bundled.ManifestNamePrefix + "-" + native.Name(),
 			Version:      version.Version,
-			Author:       bundledplugins.Author,
+			Author:       bundled.Author,
 			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
 		def:    def,
 		schema: schema,
 		class:  class,
-		wasm:   bundledplugins.MustWasm(native.Name()),
+		wasm:   bundled.MustWasm(native.Name()),
 	}
-	bundledplugins.RegisterModule(native.Name(), native.Name(), caps)
+	bundled.RegisterModule(native.Name(), native.Name(), caps)
 	return t
 }
 
 // newBundledWasmTool registers one tool from a multi-tool wasm module.
-// wasmName: the .wasm file basename in internal/bundledplugins/wasm/.
+// wasmName: the .wasm file basename in internal/plugins/bundled/wasm/.
 // toolExport: the wasm export name; either the full "stado_tool_<X>" form
 // or the bare "<X>" suffix — both work, the prefix is stripped here.
 // The dispatcher in internal/plugins/runtime/tool.go:Run prepends
@@ -444,18 +444,18 @@ func newBundledWasmTool(wasmName, toolExport, registeredName, desc string, class
 	}
 	t := &bundledPluginTool{
 		manifest: plugins.Manifest{
-			Name:         bundledplugins.ManifestNamePrefix + "-" + wasmName,
+			Name:         bundled.ManifestNamePrefix + "-" + wasmName,
 			Version:      version.Version,
-			Author:       bundledplugins.Author,
+			Author:       bundled.Author,
 			Capabilities: caps,
 			Tools:        []plugins.ToolDef{def},
 		},
 		def:    def,
 		schema: parsed,
 		class:  class,
-		wasm:   bundledplugins.MustWasm(wasmName),
+		wasm:   bundled.MustWasm(wasmName),
 	}
-	bundledplugins.RegisterModule(wasmName, registeredName, caps)
+	bundled.RegisterModule(wasmName, registeredName, caps)
 	// Override the visible name for the registry (wire form).
 	return &renamedTool{inner: t, name: registeredName}
 }

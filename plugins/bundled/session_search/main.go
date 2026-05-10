@@ -15,7 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/foobarto/stado/plugins/bundled/session_search/searchcore"
-	"github.com/foobarto/stado/internal/bundledplugins/sdk"
+	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
 )
 
 func main() {}

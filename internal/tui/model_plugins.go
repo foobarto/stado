@@ -12,10 +12,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
@@ -68,11 +68,11 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 
 func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
 	if cfg == nil {
-		return bundledplugins.DefaultBackgroundPlugins()
+		return bundled.DefaultBackgroundPlugins()
 	}
 	var ids []string
 	seen := map[string]struct{}{}
-	for _, id := range bundledplugins.DefaultBackgroundPlugins() {
+	for _, id := range bundled.DefaultBackgroundPlugins() {
 		if _, ok := seen[id]; ok {
 			continue
 		}
@@ -94,7 +94,7 @@ func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
 // failure OR on successful load so the user knows the plugin is
 // active. nil plugin signals "skip this one."
 func (m *Model) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, cfg *config.Config, pluginRoots []string, id string) (*pluginRuntime.BackgroundPlugin, string) {
-	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
+	if bundled, ok := bundled.LookupBackgroundPlugin(id); ok {
 		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
 		host.ApprovalBridge = tuiApprovalBridge{model: m}
 		attachMemoryBridge(cfg, host, bundled.Manifest.Name)

@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime"
 )
 
@@ -33,11 +33,11 @@ var pluginInfoCmd = &cobra.Command{
 		}
 		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
 		// Bundled-first lookup: a name like "auto-compact" resolves via
-		// bundledplugins.LookupByName to the synthetic manifest baked
+		// bundled.LookupByName to the synthetic manifest baked
 		// into the binary.
-		if info, _, ok := bundledplugins.LookupByName(args[0]); ok {
+		if info, _, ok := bundled.LookupByName(args[0]); ok {
 			mf := plugins.Manifest{
-				Name:         bundledplugins.ManifestNamePrefix + "-" + info.Name,
+				Name:         bundled.ManifestNamePrefix + "-" + info.Name,
 				Version:      info.Version,
 				Author:       info.Author,
 				Capabilities: info.Capabilities,
@@ -86,11 +86,11 @@ func init() {
 }
 
 // bundledToolDefsFromList synthesises minimal ToolDef entries from a
-// bundledplugins.Info. Schema/description aren't tracked at the Info
+// bundled.Info. Schema/description aren't tracked at the Info
 // level; the resulting ToolDefs carry just the tool name. Operators
 // reading `plugin info` for a bundled module should also use
 // `stado tool info <toolname>` for full schema detail.
-func bundledToolDefsFromList(info bundledplugins.Info) []plugins.ToolDef {
+func bundledToolDefsFromList(info bundled.Info) []plugins.ToolDef {
 	out := make([]plugins.ToolDef, 0, len(info.Tools))
 	for _, name := range info.Tools {
 		out = append(out, plugins.ToolDef{

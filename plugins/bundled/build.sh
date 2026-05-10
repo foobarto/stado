@@ -5,14 +5,14 @@ set -euo pipefail
 #
 # Sources live next to this script (one subdirectory per plugin); the
 # host-side embed.FS that picks them up at compile time still lives at
-# internal/bundledplugins/wasm/. //go:embed only sees siblings of the
+# internal/plugins/bundled/wasm/. //go:embed only sees siblings of the
 # importing Go file, so the compiled artefacts have to land there even
 # though the sources moved here.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
-WASM_OUT="$REPO_ROOT/internal/bundledplugins/wasm"
+WASM_OUT="$REPO_ROOT/internal/plugins/bundled/wasm"
 
 GO_BIN="${GO:-go}"
 if ! command -v "$GO_BIN" >/dev/null 2>&1; then

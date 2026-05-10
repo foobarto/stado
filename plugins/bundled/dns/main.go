@@ -10,7 +10,7 @@
 //   dns:resolve[:<glob>]
 package main
 
-import "github.com/foobarto/stado/internal/bundledplugins/sdk"
+import "github.com/foobarto/stado/internal/plugins/bundled/sdk"
 
 func main() {}
 

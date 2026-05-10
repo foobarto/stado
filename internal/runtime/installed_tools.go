@@ -326,7 +326,7 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 
 // LookupInstalledModule returns the manifest + wasm path for the
 // named installed-plugin tool. Symmetric with
-// bundledplugins.LookupModuleByToolName. Used by cmd/stado/tool_run.go
+// bundled.LookupModuleByToolName. Used by cmd/stado/tool_run.go
 // to dispatch installed-plugin invocation through runPluginInvocation.
 func LookupInstalledModule(toolName string) (plugins.Manifest, string, bool) {
 	installedRegistryMu.Lock()

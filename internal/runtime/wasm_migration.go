@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/tools"
 	pkgtool "github.com/foobarto/stado/pkg/tool"
@@ -210,7 +210,7 @@ func ApplyWasmMigration(reg *tools.Registry, cfg *config.Config) {
 		}
 		fam := entry.family
 		// Check the wasm binary is available before removing native tools.
-		wasmBytes, err := bundledplugins.Wasm(fam.wasmAlias)
+		wasmBytes, err := bundled.Wasm(fam.wasmAlias)
 		if err != nil {
 			continue // wasm not built yet — skip silently
 		}

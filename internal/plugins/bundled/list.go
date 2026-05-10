@@ -1,4 +1,4 @@
-package bundledplugins
+package bundled
 
 import (
 	"sort"
@@ -9,12 +9,12 @@ import (
 )
 
 // Info describes one bundled plugin (a wasm module shipped with the
-// stado binary). One Info per .wasm file in internal/bundledplugins/wasm/,
+// stado binary). One Info per .wasm file in internal/plugins/bundled/wasm/,
 // produced by aggregating RegisterModule calls made at registration time.
 type Info struct {
 	Name         string   // wasm module basename (e.g. "fs", "shell")
 	Version      string   // stado release version (version.Version)
-	Author       string   // bundledplugins.Author == "stado"
+	Author       string   // bundled.Author == "stado"
 	Tools        []string // registered tool names attributable to this module, sorted
 	Capabilities []string // declared caps, deduped across all tools, sorted
 	// WasmSource carries raw wasm bytes for user-bundled plugins
@@ -68,7 +68,7 @@ func RegisterModuleWithWasm(wasmName, toolName string, caps []string, wasmSource
 // ResetForTest clears the registry and installs a t.Cleanup that
 // restores the previous state. Exported for use in external test
 // packages (e.g. internal/userbundled). Behaviour is identical to the
-// package-internal resetForTest used by bundledplugins tests.
+// package-internal resetForTest used by bundled tests.
 func ResetForTest(t *testing.T) {
 	t.Helper()
 	registryMu.Lock()

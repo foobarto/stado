@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/tools"
 )
 
@@ -51,7 +51,7 @@ func TestPublicToolImports_DenyWithoutCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("fs"), mf)
+	mod, err := rt.Instantiate(ctx, bundled.MustWasm("fs"), mf)
 	if err != nil {
 		t.Fatalf("instantiate should succeed (link-time): got %v", err)
 	}
@@ -99,7 +99,7 @@ func TestPublicToolImports_ReadWorksWithCapability(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("fs"), mf)
+	mod, err := rt.Instantiate(ctx, bundled.MustWasm("fs"), mf)
 	if err != nil {
 		t.Fatalf("Instantiate: %v", err)
 	}

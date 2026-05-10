@@ -1,7 +1,7 @@
 // Package userbundled loads user-bundled plugins appended to the stado
 // binary via `stado plugin bundle`. The package-level init() runs at
 // process startup, reads the bundle payload from the running binary,
-// and registers each entry with internal/bundledplugins so the rest of
+// and registers each entry with internal/plugins/bundled so the rest of
 // the runtime sees those tools identically to upstream-shipped plugins.
 package userbundled
 
@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/bundlepayload"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 )
 
 // Bundler is the Ed25519 public key of the identity that signed the
@@ -54,7 +54,7 @@ func skipVerifyRequested() bool {
 }
 
 // loadAndRegister reads the bundle from path and registers each plugin
-// entry with bundledplugins. Returns nil when the binary has no bundle
+// entry with bundled. Returns nil when the binary has no bundle
 // (vanilla binary — not an error).
 func loadAndRegister(path string, skip bool) error {
 	bundle, err := bundlepayload.LoadFromFile(path, skip)
@@ -76,13 +76,13 @@ func loadAndRegister(path string, skip bool) error {
 		// Manifest.Name is expected to be "<ManifestNamePrefix>-<bareName>".
 		// Strip the prefix to obtain the wasm module name used as the
 		// registry key.
-		bareName := strings.TrimPrefix(e.Manifest.Name, bundledplugins.ManifestNamePrefix+"-")
+		bareName := strings.TrimPrefix(e.Manifest.Name, bundled.ManifestNamePrefix+"-")
 
 		caps := make([]string, 0, len(e.Manifest.Capabilities))
 		caps = append(caps, e.Manifest.Capabilities...)
 
 		for _, tool := range e.Manifest.Tools {
-			bundledplugins.RegisterModuleWithWasm(bareName, tool.Name, caps, e.Wasm)
+			bundled.RegisterModuleWithWasm(bareName, tool.Name, caps, e.Wasm)
 		}
 	}
 	return nil

@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
@@ -162,8 +162,8 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	}
 
 	// Bundled path.
-	if info, ok := bundledplugins.LookupModuleByToolName(registered.Name()); ok {
-		pluginName := bundledplugins.ManifestNamePrefix + "-" + info.Name
+	if info, ok := bundled.LookupModuleByToolName(registered.Name()); ok {
+		pluginName := bundled.ManifestNamePrefix + "-" + info.Name
 		bareToolDef := toolDefFromRegistered(registered)
 		manifest := plugins.Manifest{
 			Name:         pluginName,
@@ -172,7 +172,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 			Capabilities: info.Capabilities,
 			Tools:        []plugins.ToolDef{bareToolDef},
 		}
-		wasmBytes, err := bundledplugins.Wasm(info.Name)
+		wasmBytes, err := bundled.Wasm(info.Name)
 		if err != nil {
 			return fmt.Errorf("bundled wasm load: %w", err)
 		}

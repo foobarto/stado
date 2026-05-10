@@ -28,7 +28,7 @@ func TestPluginList_ShowsBundled(t *testing.T) {
 		t.Errorf("output should mention 'bundled' status; got:\n%s", out)
 	}
 	// The auto-compact module is always registered (init() in
-	// internal/bundledplugins/auto_compact.go).
+	// internal/plugins/bundled/auto_compact.go).
 	if !strings.Contains(out, "auto-compact") {
 		t.Errorf("output should list 'auto-compact' bundled module; got:\n%s", out)
 	}

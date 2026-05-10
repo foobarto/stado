@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -355,11 +355,11 @@ func (s *Server) loadBackgroundPlugins(ctx context.Context) {
 
 func headlessBackgroundPluginIDs(cfg *config.Config) []string {
 	if cfg == nil {
-		return bundledplugins.DefaultBackgroundPlugins()
+		return bundled.DefaultBackgroundPlugins()
 	}
 	var ids []string
 	seen := map[string]struct{}{}
-	for _, id := range bundledplugins.DefaultBackgroundPlugins() {
+	for _, id := range bundled.DefaultBackgroundPlugins() {
 		if _, ok := seen[id]; ok {
 			continue
 		}
@@ -377,7 +377,7 @@ func headlessBackgroundPluginIDs(cfg *config.Config) []string {
 }
 
 func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) *pluginRuntime.BackgroundPlugin {
-	if bundled, ok := bundledplugins.LookupBackgroundPlugin(id); ok {
+	if bundled, ok := bundled.LookupBackgroundPlugin(id); ok {
 		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
 		bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, bundled.WASM, host)
 		if err != nil {

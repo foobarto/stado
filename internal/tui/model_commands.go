@@ -14,11 +14,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/memory"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
@@ -1282,15 +1282,15 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 	approval := tuiApprovalBridge{model: m}
 
 	// Bundled-tool dispatch.
-	if info, ok := bundledplugins.LookupModuleByToolName(registered.Name()); ok {
-		wasmBytes, err := bundledplugins.Wasm(info.Name)
+	if info, ok := bundled.LookupModuleByToolName(registered.Name()); ok {
+		wasmBytes, err := bundled.Wasm(info.Name)
 		if err != nil {
 			m.appendBlock(block{kind: "system", body: "tool: bundled wasm load: " + err.Error()})
 			return nil
 		}
 		bareToolDef := bundledToolDefForSlash(registered)
 		manifest := plugins.Manifest{
-			Name:         bundledplugins.ManifestNamePrefix + "-" + info.Name,
+			Name:         bundled.ManifestNamePrefix + "-" + info.Name,
 			Version:      info.Version,
 			Author:       info.Author,
 			Capabilities: info.Capabilities,

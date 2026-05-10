@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 )
 
 // TestShellSnapshotE2E drives the full chain: instantiate the bundled
@@ -48,7 +48,7 @@ func TestShellSnapshotE2E(t *testing.T) {
 	if err := InstallHostImports(ctx, rt, host); err != nil {
 		t.Fatalf("InstallHostImports: %v", err)
 	}
-	mod, err := rt.Instantiate(ctx, bundledplugins.MustWasm("shell"), mf)
+	mod, err := rt.Instantiate(ctx, bundled.MustWasm("shell"), mf)
 	if err != nil {
 		t.Fatalf("Instantiate: %v", err)
 	}

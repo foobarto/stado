@@ -9,10 +9,10 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/dotenv"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/internal/userbundled"
 )
@@ -28,7 +28,7 @@ func formatVersion() string {
 	if userbundled.Bundler != nil {
 		fpr := plugins.Fingerprint(userbundled.Bundler)
 		var n int
-		for _, info := range bundledplugins.List() {
+		for _, info := range bundled.List() {
 			if info.WasmSource != nil {
 				n++
 			}

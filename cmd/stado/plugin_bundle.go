@@ -15,10 +15,10 @@ import (
 	"github.com/knadh/koanf/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/bundlepayload"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime"
 )
 
@@ -239,7 +239,7 @@ func checkShadowing(entries []bundlepayload.Entry, allowShadow bool) error {
 		return nil
 	}
 	registered := map[string]string{}
-	for _, info := range bundledplugins.List() {
+	for _, info := range bundled.List() {
 		for _, t := range info.Tools {
 			registered[t] = info.Name
 		}
@@ -309,7 +309,7 @@ func runInfoAction(cmd *cobra.Command) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "  Bundler:  %s\n", plugins.Fingerprint(bundle.BundlerPubkey)[:16])
 	fmt.Fprintf(cmd.OutOrStdout(), "  Plugins (%d):\n", len(bundle.Entries))
 	for _, e := range bundle.Entries {
-		bare := strings.TrimPrefix(e.Manifest.Name, bundledplugins.ManifestNamePrefix+"-")
+		bare := strings.TrimPrefix(e.Manifest.Name, bundled.ManifestNamePrefix+"-")
 		fmt.Fprintf(cmd.OutOrStdout(), "    • %-20s v%-10s  %d tools, %d KB wasm\n",
 			bare, e.Manifest.Version, len(e.Manifest.Tools), len(e.Wasm)/1024)
 	}

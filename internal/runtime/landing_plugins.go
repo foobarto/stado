@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/foobarto/stado/internal/bundledplugins"
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -60,7 +60,7 @@ func pluginNameOf(t tool.Tool) string {
 // "stado-builtin-tool-<name>" prefix; installed plugins use their
 // manifest name unchanged.
 func displayPluginName(manifestName string) string {
-	if rest, ok := strings.CutPrefix(manifestName, bundledplugins.ManifestNamePrefix+"-"); ok {
+	if rest, ok := strings.CutPrefix(manifestName, bundled.ManifestNamePrefix+"-"); ok {
 		return rest
 	}
 	return manifestName

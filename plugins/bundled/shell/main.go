@@ -28,7 +28,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
-	"github.com/foobarto/stado/internal/bundledplugins/sdk"
+	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
 )
 
 func main() {}
