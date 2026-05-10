@@ -193,7 +193,7 @@ bridge-UAT-only vs. teatest), and **cost** (rough seconds).
 #### 5. Approval drawer styling
 
 - **Trigger:** `/tool approval_demo` (assuming
-  `plugins/optional/approval-demo-go` installed via the same
+  `plugins/demos/approval-demo-go` installed via the same
   `stado plugin dev` pattern `TestBridgeE2E_Stado_RendersPanel`
   uses).
 - **Assertion:** snapshot contains the warning indicator (⚠ or

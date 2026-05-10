@@ -691,7 +691,7 @@ func renderInstalledPluginList(pluginRoots ...string) string {
 		}
 	}
 	if len(allDirs) == 0 {
-		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see plugins/optional/hello/."
+		return "No plugins installed. Run `stado plugin install <dir>` to add one, or see plugins/demos/hello/."
 	}
 	pluginsRoot := pluginRoots[0]
 

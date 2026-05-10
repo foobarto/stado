@@ -147,7 +147,7 @@ integrity.
 
 Step-by-step for maintainers who want to publish an offline-signed
 plugin. Assumes you already have working `plugin.wasm` +
-`plugin.manifest.json` templates — see `plugins/optional/hello/` for a
+`plugin.manifest.json` templates — see `plugins/demos/hello/` for a
 minimal starting point and `plugins/bundled/auto-compact/` for the
 full session-capable shape.
 

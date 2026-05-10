@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build.sh — compile main.go to plugin.wasm and re-sign the manifest.
-# Run from plugins/optional/state-dir-info/.
+# Run from plugins/demos/state-dir-info/.
 #
 # Prerequisites:
 #   - Go 1.24+ on $PATH (1.25+ recommended)

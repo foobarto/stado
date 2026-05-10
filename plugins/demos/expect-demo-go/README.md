@@ -24,7 +24,7 @@ the discriminator, exit code on EOF).
 ## Build, sign, install
 
 ```sh
-cd plugins/optional/expect-demo-go
+cd plugins/demos/expect-demo-go
 stado plugin gen-key expect-demo-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

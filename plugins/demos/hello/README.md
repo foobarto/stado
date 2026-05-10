@@ -7,7 +7,7 @@ The source is ~120 lines of Zig; the compiled module is ~800 bytes.
 Layout:
 
 ```
-plugins/optional/hello/
+plugins/demos/hello/
 ├── README.md                       — this file
 ├── build.sh                        — compile + sign helper
 ├── plugin.manifest.template.json   — committed, empty digest/fpr

@@ -14,7 +14,7 @@ to manually exercise the choose UI.
 ## Build, sign, install
 
 ```sh
-cd plugins/optional/choose-demo-go
+cd plugins/demos/choose-demo-go
 stado plugin gen-key choose-demo-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

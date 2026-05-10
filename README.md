@@ -302,7 +302,7 @@ surface itself is shipped and stable enough to wire into Zed today.
   `Error: config: create config dir: directory component is a
   symlink: home`).
 - Two new bundled examples — [`plugins/optional/webfetch-cached/`](plugins/optional/webfetch-cached/)
-  and [`plugins/optional/state-dir-info/`](plugins/optional/state-dir-info/)
+  and [`plugins/demos/state-dir-info/`](plugins/demos/state-dir-info/)
   — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
 - See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
   for the full rollup, EP-0027/0028/0029/0031 references, and the

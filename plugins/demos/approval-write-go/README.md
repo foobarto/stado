@@ -5,7 +5,7 @@ Example override plugin for `write`. It is not loaded by default.
 Build, sign, install:
 
 ```sh
-cd plugins/optional/approval-write-go
+cd plugins/demos/approval-write-go
 stado plugin gen-key approval-write-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

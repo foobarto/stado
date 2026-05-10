@@ -10,7 +10,7 @@
 // with the summary as seed.
 //
 // Build target: GOOS=wasip1 GOARCH=wasm -buildmode=c-shared (same
-// reactor pattern as plugins/optional/hello-go/). ~120 lines of
+// reactor pattern as plugins/demos/hello-go/). ~120 lines of
 // plugin logic.
 package main
 

@@ -75,6 +75,6 @@ stado plugin run --with-tool-host encode-zig-0.1.0 encode \
 
 ## See also
 
-- [`plugins/optional/hello/`](../hello/) — minimal Zig plugin (800 bytes)
+- [`plugins/demos/hello/`](../../demos/hello/) — minimal Zig plugin (800 bytes)
 - [`plugins/optional/http-session/`](../http-session/) — Go plugin (~3.5 MB) for comparison
 - [`docs/features/plugin-authoring.md`](../../../docs/features/plugin-authoring.md) — capability table

@@ -5,7 +5,7 @@ Example override plugin for `ast_grep`. It is not loaded by default.
 Build, sign, install:
 
 ```sh
-cd plugins/optional/approval-ast-grep-go
+cd plugins/demos/approval-ast-grep-go
 stado plugin gen-key approval-ast-grep-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

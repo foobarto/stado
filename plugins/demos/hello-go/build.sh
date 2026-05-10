@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build.sh — compile main.go to plugin.wasm and re-sign the manifest.
-# Run from plugins/optional/hello-go/.
+# Run from plugins/demos/hello-go/.
 #
 # Prerequisites:
 #   - Go 1.24+ on $PATH (1.25+ recommended; earlier versions lack

@@ -61,5 +61,5 @@ pub extern "C" fn stado_tool_hash_identify(
 ## See also
 
 - [`plugins/optional/encode-zig/`](../encode-zig/) — Zig SDK proof (4.7 KB)
-- [`plugins/optional/hello/`](../hello/) — minimal Zig plugin (800 B)
+- [`plugins/demos/hello/`](../../demos/hello/) — minimal Zig plugin (800 B)
 - [`htb-toolkit/hash/`](../../../../htb-writeups/htb-toolkit/hash/) — full-featured Go version

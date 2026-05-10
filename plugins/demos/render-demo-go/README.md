@@ -29,7 +29,7 @@ to manually exercise the render UI.
 ## Build, sign, install
 
 ```sh
-cd plugins/optional/render-demo-go
+cd plugins/demos/render-demo-go
 stado plugin gen-key render-demo-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

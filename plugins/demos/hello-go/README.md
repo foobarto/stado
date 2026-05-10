@@ -14,7 +14,7 @@ TinyGo when wasm size matters.
 ## Layout
 
 ```
-plugins/optional/hello-go/
+plugins/demos/hello-go/
 ├── README.md                      — this file
 ├── build.sh                       — compile + sign helper
 ├── go.mod                         — standalone module so stado's go.sum

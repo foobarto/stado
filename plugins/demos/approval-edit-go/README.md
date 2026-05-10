@@ -5,7 +5,7 @@ Example override plugin for `edit`. It is not loaded by default.
 Build, sign, install:
 
 ```sh
-cd plugins/optional/approval-edit-go
+cd plugins/demos/approval-edit-go
 stado plugin gen-key approval-edit-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

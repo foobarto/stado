@@ -12,7 +12,7 @@ to manually exercise the approval UI.
 ## Build, sign, install
 
 ```sh
-cd plugins/optional/approval-demo-go
+cd plugins/demos/approval-demo-go
 stado plugin gen-key approval-demo-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

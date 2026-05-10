@@ -5,7 +5,7 @@ Example override plugin for `bash`. It is not loaded by default.
 Build, sign, install:
 
 ```sh
-cd plugins/optional/approval-bash-go
+cd plugins/demos/approval-bash-go
 stado plugin gen-key approval-bash-go.seed
 ./build.sh
 stado plugin trust <pubkey-hex-from-gen-key>

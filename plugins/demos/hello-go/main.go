@@ -1,5 +1,5 @@
 // hello-go — Go version of the stado plugin example. Mirrors the
-// semantics of plugins/optional/hello (Zig) so you can see the same
+// semantics of plugins/demos/hello (Zig) so you can see the same
 // tool implemented in both languages against the same ABI.
 //
 // Build target: wasip1 + `-buildmode=c-shared`, which produces a WASI

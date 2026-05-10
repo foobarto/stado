@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build.sh — compile main.go to plugin.wasm and re-sign the manifest.
-# Same pattern as plugins/optional/hello-go/.
+# Same pattern as plugins/demos/hello-go/.
 #
 # Prerequisites:
 #   - Go 1.24+ on $PATH (`-buildmode=c-shared` for wasip1)

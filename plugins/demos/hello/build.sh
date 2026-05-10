@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build.sh — compile src/hello.zig to plugin.wasm and re-sign the
-# manifest. Run from plugins/optional/hello/.
+# manifest. Run from plugins/demos/hello/.
 #
 # Prerequisites:
 #   - zig on $PATH (tested with 0.15.x)

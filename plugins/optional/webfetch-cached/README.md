@@ -82,8 +82,8 @@ periodically belong in a different tool.
   — why `--with-tool-host` exists and what it does NOT enable
 - [`docs/eps/0027-repo-root-discovery.md`](../../../docs/eps/0027-repo-root-discovery.md)
   — why workdir-rooted fs capabilities need `--workdir`
-- [`plugins/optional/hello-go/`](../hello-go/) — minimal Go plugin
+- [`plugins/demos/hello-go/`](../../demos/hello-go/) — minimal Go plugin
   template, no host imports
-- [`plugins/optional/approval-bash-go/`](../approval-bash-go/) —
+- [`plugins/demos/approval-bash-go/`](../../demos/approval-bash-go/) —
   alternative bundled-tool wrapping pattern (uses `ui:approval`
   before delegating)
