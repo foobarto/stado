@@ -32,6 +32,33 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.4 — Land doc/cross-ref updates omitted from v0.48.3 — 2026-05-10
+
+### Fixes
+
+- **`plugins/README.md` now matches the actual layout.** v0.48.3's
+  cleanup commit captured the file moves and the `optional/ls`
+  deletion but missed staging the sed-pass updates to non-renamed
+  files. As shipped in v0.48.3, `plugins/README.md` still said
+  "Two flavors" and pointed at the pre-v0.48.2
+  `internal/bundledplugins/` paths; `plugins/optional/README.md`'s
+  table still listed the demo rows; the empty-plugin-list TUI
+  message in `internal/tui/model_plugins.go:694` still referenced
+  `plugins/optional/hello/` which no longer exists.
+
+  This release lands those edits — three lanes documented,
+  `internal/plugins/bundled/` paths corrected, optional/ table
+  rewritten without demo rows, TUI message retargeted to
+  `plugins/demos/hello/`. Cross-refs across `README.md`,
+  `SECURITY.md`, `cmd/stado/plugin_init.go`,
+  `cmd/stado/plugin_use_dev_test.go`,
+  `docs/plugins/host-imports.md`,
+  `hack/pty-bridge/TEST-PLAN.md`, plus relative refs inside
+  remaining `optional/` plugins, all caught up.
+
+  No code-behaviour change. The miss was purely doc + one TUI
+  string; the file-system layout has been correct since v0.48.3.
+
 ## v0.48.3 — Demos lane + ls dedup — 2026-05-10
 
 ### Infra
