@@ -32,6 +32,40 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.3 — Demos lane + ls dedup — 2026-05-10
+
+### Infra
+
+- **Three plugin lanes** under `plugins/`: `bundled/` (in-binary,
+  unchanged), `optional/` (user-facing installable, unchanged), and
+  the new `demos/` for plugin-author showcases and approval-flow test
+  fixtures. Eleven plugins moved out of `optional/` into `demos/`:
+  `approval-{ast-grep,bash,demo,edit,write}-go`, `choose-demo-go`,
+  `expect-demo-go`, `render-demo-go`, `hello`, `hello-go`,
+  `state-dir-info`. Each is `// Manual test tool only` or a minimal
+  greeter — keeping them in `optional/` was crowding the user-facing
+  surface. The new `plugins/demos/README.md` indexes them with what
+  each demo validates and notes the retire-when-superseded rule.
+
+- **Drop `plugins/optional/ls/`.** Identical body to
+  `plugins/bundled/ls/` (both arrived in `01648d8`); the bundled
+  lane supersedes it. The `fs.ls` tool surface is unchanged.
+
+- **Doc and cross-reference cleanup.** `plugins/README.md` now lists
+  three lanes; stale `internal/bundledplugins/` paths fixed to
+  `internal/plugins/bundled/` (carry-over from the v0.48.2 package
+  consolidation that the original commit didn't touch). Cross-refs
+  inside stado source (`README.md`, `SECURITY.md`,
+  `cmd/stado/plugin_init.go`, `internal/tui/model_plugins.go`,
+  `hack/pty-bridge/TEST-PLAN.md`, `docs/plugins/host-imports.md`)
+  and inside remaining `optional/` plugin READMEs / build scripts
+  retargeted to the new `demos/` paths.
+
+  No behaviour change. The `optional/README.md` table now also
+  lists `encode-zig`, `hash-id-rust`, `http-session`, and
+  `persistent-shell`, which were already present in the directory
+  but missing from the table.
+
 ## v0.48.2 — Plugin host-side package consolidation — 2026-05-10
 
 ### Infra
