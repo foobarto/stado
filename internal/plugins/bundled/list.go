@@ -18,7 +18,7 @@ type Info struct {
 	Tools        []string // registered tool names attributable to this module, sorted
 	Capabilities []string // declared caps, deduped across all tools, sorted
 	// WasmSource carries raw wasm bytes for user-bundled plugins
-	// (registered via internal/userbundled). When non-nil, Wasm()
+	// (registered via internal/plugins/userbundled). When non-nil, Wasm()
 	// returns these bytes directly instead of consulting the embed.FS.
 	// nil for upstream-shipped bundled plugins.
 	WasmSource []byte
@@ -67,7 +67,7 @@ func RegisterModuleWithWasm(wasmName, toolName string, caps []string, wasmSource
 
 // ResetForTest clears the registry and installs a t.Cleanup that
 // restores the previous state. Exported for use in external test
-// packages (e.g. internal/userbundled). Behaviour is identical to the
+// packages (e.g. internal/plugins/userbundled). Behaviour is identical to the
 // package-internal resetForTest used by bundled tests.
 func ResetForTest(t *testing.T) {
 	t.Helper()

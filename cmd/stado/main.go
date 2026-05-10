@@ -13,8 +13,8 @@ import (
 	"github.com/foobarto/stado/internal/dotenv"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
+	"github.com/foobarto/stado/internal/plugins/userbundled"
 	"github.com/foobarto/stado/internal/tui"
-	"github.com/foobarto/stado/internal/userbundled"
 )
 
 var version = "0.0.0-dev"
