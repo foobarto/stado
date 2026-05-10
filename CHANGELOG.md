@@ -32,6 +32,24 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.6 — Dual-license (MIT OR Apache-2.0) — 2026-05-10
+
+### License
+
+- **stado is now dual-licensed under MIT OR Apache-2.0** at the
+  recipient's option. Strictly more permissive than the prior
+  Apache-2.0-only license — everyone who held a valid Apache-2.0
+  license to v0.48.5 still does, and now also has the option of
+  taking the work under MIT instead.
+- The single `LICENSE` file is replaced by `LICENSE-APACHE` and
+  `LICENSE-MIT` at the repo root, following the Rust ecosystem
+  convention. The README's License section now points at both
+  files and notes the at-your-option choice.
+- `## Contribution` section added to the README: contributions are
+  dual-licensed under the same terms unless explicitly stated
+  otherwise. The standard Apache-2.0 §5 boilerplate.
+- No code change.
+
 ## v0.48.5 — Auto-compact manifest dedup — 2026-05-10
 
 ### Infra
