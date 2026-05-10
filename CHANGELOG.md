@@ -32,6 +32,48 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.2 — Plugin host-side package consolidation — 2026-05-10
+
+### Infra
+
+- **Plugin packages consolidated under `internal/plugins/`.** The
+  three sibling packages `internal/plugins`, `internal/bundledplugins`,
+  `internal/userbundled` become an umbrella with origin-flavored
+  subpackages: `internal/plugins/{bundled,userbundled,runtime}`.
+  Package `bundledplugins` renamed to `bundled` to match its directory.
+  Package `userbundled` directory moved; package name unchanged.
+
+  The split is principled, not cosmetic: `plugins/` is the install/trust
+  pipeline (manifest, identity, rekor, crl, lockfile), `plugins/bundled/`
+  is the embedded asset store and inventory for in-binary wasm,
+  `plugins/userbundled/` is operator-supplied wasm appended at bundle
+  time, `plugins/runtime/` is the wasm host machinery (origin-agnostic).
+  Naming relationship `internal/plugins/runtime/` (wasm-host plumbing)
+  vs `internal/runtime/` (agent-loop runtime) documented in the umbrella
+  package doc rather than renamed away.
+
+- **Auto-compact host-side policy lifted out of the bundled package.**
+  `DefaultBackgroundPlugins`, `LookupBackgroundPlugin`,
+  `BundledBackgroundPlugin`, and the auto-compact manifest helpers
+  move to `internal/runtime/background_defaults.go`. The bundled
+  package's `auto_compact.go` shrinks to its inventory `init()` call
+  alone — the bundled package now owns *what wasm ships in the binary*
+  and nothing else. The Go-coded `autoCompactManifest()` duplicates
+  `plugins/bundled/auto-compact/plugin.manifest.template.json`; the
+  duplication is preserved as-is and tracked as a follow-up
+  (`.agent/specs/open/kill-autocompact-manifest-duplication.md`).
+
+- **Package boundary docs added.** New `internal/plugins/doc.go` and
+  `internal/plugins/bundled/doc.go`; existing package docs on
+  `manifest.go`, `userbundled/init.go`, and `runtime/runtime.go`
+  extended with explicit boundary statements naming what belongs in
+  each package and what doesn't.
+
+  No behaviour change. No public API change (these are `internal/`
+  packages — `bundledplugins.X` callers don't exist outside the repo).
+  Bundled tool surface, capability vocabulary, host imports, default
+  background plugins all identical.
+
 ## v0.48.1 — Plugin tree consolidation — 2026-05-10
 
 ### Infra
