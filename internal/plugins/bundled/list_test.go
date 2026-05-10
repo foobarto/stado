@@ -112,7 +112,7 @@ func TestList_AutoCompactRegistered(t *testing.T) {
 	got := List()
 	found := false
 	for _, info := range got {
-		if info.Name == autoCompactID {
+		if info.Name == "auto-compact" {
 			found = true
 			if !contains(info.Tools, "compact") {
 				t.Errorf("auto-compact module should expose 'compact' tool; got %v", info.Tools)
