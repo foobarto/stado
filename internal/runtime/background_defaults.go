@@ -8,21 +8,14 @@
 //
 // The split with internal/plugins/bundled is deliberate: the bundled
 // package owns *what wasm ships in the binary* (assets + inventory).
-// This file owns *which of those the host turns on, and with what
-// declared manifest*. Keeping host-side policy out of bundled lets that
-// package stay an asset store rather than a policy store.
-//
-// TODO: dedupe autoCompactManifest() with
-// plugins/bundled/auto-compact/plugin.manifest.template.json — see
-// follow-up spec kill-autocompact-manifest-duplication. Today the
-// canonical manifest is duplicated in two source-of-truth locations
-// and they can drift.
+// This file owns *which of those the host turns on*. Manifest content
+// is loaded from the bundled package's embedded manifests/ tree, which
+// is sourced from each plugin's plugin.manifest.template.json — single
+// canonical source per plugin.
 
 package runtime
 
 import (
-	"encoding/json"
-
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/version"
@@ -48,43 +41,16 @@ func LookupBackgroundPlugin(id string) (*BundledBackgroundPlugin, bool) {
 	}
 	return &BundledBackgroundPlugin{
 		ID:       autoCompactID,
-		Manifest: autoCompactManifest(),
+		Manifest: bundled.MustManifest(autoCompactID),
 		WASM:     bundled.MustWasm(autoCompactID),
 	}, true
 }
 
+// isAutoCompactID accepts both the bare id and the version-suffixed
+// form ("auto-compact-<stado-version>"). The suffixed form is a
+// runtime ID convention (used when matching installed-plugin
+// directory names that carry the stado release version); it is not
+// tied to the manifest's own version field.
 func isAutoCompactID(id string) bool {
 	return id == autoCompactID || id == autoCompactID+"-"+version.Version
-}
-
-func autoCompactManifest() plugins.Manifest {
-	return plugins.Manifest{
-		Name:         autoCompactID,
-		Version:      version.Version,
-		Author:       bundled.Author,
-		Capabilities: []string{"session:observe", "session:read", "session:fork", "llm:invoke:30000"},
-		Tools: []plugins.ToolDef{{
-			Name:        "compact",
-			Description: "Summarise the current session and fork into a fresh session seeded with the summary. Skips when token_count is below threshold_tokens unless invoked as hard-threshold recovery.",
-			Schema:      autoCompactSchema(),
-		}},
-		MinStadoVersion: version.Version,
-		Nonce:           "bundled-auto-compact",
-	}
-}
-
-func autoCompactSchema() string {
-	raw, err := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"threshold_tokens": map[string]any{
-				"type":        "integer",
-				"description": "Skip compaction if session token count is below this; default 10000.",
-			},
-		},
-	})
-	if err != nil {
-		return `{"type":"object"}`
-	}
-	return string(raw)
 }

@@ -13,6 +13,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 WASM_OUT="$REPO_ROOT/internal/plugins/bundled/wasm"
+MANIFEST_OUT="$REPO_ROOT/internal/plugins/bundled/manifests"
 
 GO_BIN="${GO:-go}"
 if ! command -v "$GO_BIN" >/dev/null 2>&1; then
@@ -84,3 +85,20 @@ echo "building auto-compact.wasm"
 
 rm -f "$WASM_OUT"/*.wasm
 mv "$tmpdir"/*.wasm "$WASM_OUT/"
+
+# Sync manifest templates for plugins whose host-side code needs to
+# read the manifest before any wasm has run (background plugins).
+# The bundled package's manifestFS embed.FS picks these up at compile
+# time. Files are committed to git so a fresh clone builds without
+# having to run this script first.
+mkdir -p "$MANIFEST_OUT"
+for name in auto-compact; do
+  src="$ROOT/${name}/plugin.manifest.template.json"
+  dst="$MANIFEST_OUT/${name}.json"
+  if [[ -f "$src" ]]; then
+    cp "$src" "$dst"
+    echo "copied manifest: ${name}"
+  else
+    echo "WARN: missing manifest template for ${name} at $src" >&2
+  fi
+done
