@@ -9,6 +9,11 @@
 /CLAUDE.md
 .claude/
 
+# Agent-only working trees. Kept locally for the agent to read across
+# sessions but excluded from version control per operator request.
+/.agent/
+/.learnings/
+
 # Project-local scratch directory for the coding agent (consult dumps,
 # build artefacts, throwaway transcripts). Per project CLAUDE.md.
 /.tmp/
@@ -37,12 +42,3 @@
 .env
 NOTES*.md
 
-# Agent working state — see .agent/.gitignore for the per-path
-# safe-list (active state files like STATE.md and journal.md
-# excluded; locked specs under .agent/specs/* still tracked).
-# Listing the inner gitignore here so a fresh clone propagates
-# it; without this, the inner file would itself be untracked on
-# a new machine and the agent state files would re-appear as
-# candidates for commit. Per the global CLAUDE.md two-layer
-# pattern.
-.agent/.gitignore
