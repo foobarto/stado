@@ -32,6 +32,46 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.8 — Plugin cfg:* capability fixes — 2026-05-21
+
+### Plugins
+
+- **`cfg:state_dir` now resolves on every execution surface.** The
+  `stado_cfg_state_dir` host import (EP-0029) only had its value
+  populated on the path that runs through `pluginrun.Run` — the CLI,
+  installed tools, registry overrides, and bundled plugins. Two
+  execution paths bypass that wiring and left the value empty: the
+  TUI's operator-driven `/tool` / `/plugin:` invocations and the
+  EP-0038b builtin-as-wasm migration tool. A plugin declaring
+  `cfg:state_dir` invoked from the TUI read an empty string. Both
+  paths now populate it from the active config, so the capability
+  behaves identically everywhere a plugin can run. A `writeCfgValue`
+  contract test now covers the host import's value-flow (correct
+  length, empty → 0, over-buffer / over-ceiling → -1).
+- **`fs:read:cfg:state_dir/…` path-templates honor symlinked state
+  dirs (EP-0031).** On systems where the state-dir crosses a symlink
+  — Fedora Atomic / Silverblue, where `/home → /var/home` — the
+  templated capability was silently denied. `cfg.StateDir()` returns
+  the `/home/…` (symlink) form from `os.UserHomeDir()`, while fs host
+  imports resolve the requested path through `EvalSymlinks` to the
+  `/var/home/…` form, so the allow-list prefix compare missed. Literal
+  cap paths already aliased both forms at parse time; cfg-templated
+  caps resolve at check time and now apply the same symlink alias
+  there. This was the exact case the EP exists to solve — verified
+  end-to-end on Atomic Fedora, where a plugin reading
+  `<state-dir>/plugins` went from denied to listing the install
+  directory.
+
+### Infra
+
+- Dependency bumps: `golang.org/x/net` 0.53.0 → 0.54.0 (host and
+  plugin trees), `golang.org/x/crypto` 0.50.0 → 0.51.0,
+  `github.com/sahilm/fuzzy` 0.1.1 → 0.1.2,
+  `github.com/fsnotify/fsnotify`, and the go_modules group; CI
+  `sigstore/cosign-installer` 4.1.1 → 4.1.2.
+- EP-0027 (repo-root discovery consolidation) marked Implemented;
+  docs spring-cleaning. No behaviour change.
+
 ## v0.48.7 — Release pipeline fix + lint cleanup — 2026-05-21
 
 ### Fixes
