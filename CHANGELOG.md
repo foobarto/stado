@@ -32,6 +32,35 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.7 — Release pipeline fix + lint cleanup — 2026-05-21
+
+### Fixes
+
+- **goreleaser now packages the split LICENSE files.** v0.48.6's
+  dual-license commit replaced `LICENSE` with `LICENSE-APACHE` +
+  `LICENSE-MIT` but left `.goreleaser.yaml` globbing the old
+  single-file name, so the v0.48.6 release run aborted with
+  `globbing failed for pattern LICENSE: matching "./LICENSE":
+  file does not exist`. Archives and nfpms (.deb/.rpm) contents now
+  reference both files; the nfpms `license:` field is the SPDX
+  expression `MIT OR Apache-2.0`. v0.48.7 is what v0.48.6 was
+  supposed to ship — the dual-license content reaches users this
+  tag.
+- **Lint clean on `main`.** Seven golangci-lint findings that had
+  been red since v0.48.6 — three `errcheck` on `defer c.Close()`
+  paths in `cmd/stado/daemon.go` / `tool_run_daemon.go`, two
+  `staticcheck` S1016 redundant struct-literals
+  (`internal/plugins/runtime/host_ui*.go`), one ST1021 doc-comment
+  ordering on `pty.Manager`, one SA4006 dead assignment in
+  `internal/tui/ptyblock/model_test.go` — are fixed. Unblocks
+  dependabot PRs that inherit the lint job from `main`.
+
+### Infra
+
+- `.learnings/` and `.agent/specs/done/` snapshot directories are
+  removed from the repo tree (already-archived design notes were
+  carrying weight in git status). No behaviour change.
+
 ## v0.48.6 — Dual-license (MIT OR Apache-2.0) — 2026-05-10
 
 ### License
