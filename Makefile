@@ -6,8 +6,21 @@
 
 GO       ?= go
 GOFLAGS  ?=
-# Redirect Go's build temp dir off /tmp — per-user quota is tight on this host.
-export GOTMPDIR ?= $(CURDIR)/.tmp
+# Go roots `t.TempDir()` at GOTMPDIR. Several suites walk parent dirs
+# looking for .git / .env / AGENTS.md / CLAUDE.md, and the fs/grep walk
+# guards reject symlinked path components — so GOTMPDIR must sit where no
+# such marker appears in any ancestor (NOT inside this repo, whose root
+# carries .git/.env/CLAUDE.md) and on a real, non-symlinked path (NOT
+# under $HOME on Fedora Atomic, where /home -> /var/home). It must also
+# stay off /tmp (per-user quota is tight on this host). /var/tmp fits on
+# every count. Override with `make GOTMPDIR=/path ...`.
+GOTMPDIR ?= /var/tmp/stado-gotmp-$(shell id -u)
+# An inherited GOTMPDIR inside the repo would make those parent-walk
+# suites escape into the repo's own files; force it back out.
+ifneq (,$(findstring $(CURDIR),$(GOTMPDIR)))
+GOTMPDIR := /var/tmp/stado-gotmp-$(shell id -u)
+endif
+export GOTMPDIR
 _ := $(shell mkdir -p $(GOTMPDIR))
 PKG      ?= ./cmd/stado
 BIN      ?= stado

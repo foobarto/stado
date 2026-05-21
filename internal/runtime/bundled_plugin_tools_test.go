@@ -37,19 +37,6 @@ type bundledToolHostWithPTY struct {
 
 func (h bundledToolHostWithPTY) PTYManager() any { return h.pty }
 
-type recordingRunner struct {
-	called bool
-	policy sandbox.Policy
-}
-
-func (r *recordingRunner) Name() string    { return "recording" }
-func (r *recordingRunner) Available() bool { return true }
-func (r *recordingRunner) Command(ctx context.Context, p sandbox.Policy, cmd string, args []string, env []string) (*exec.Cmd, error) {
-	r.called = true
-	r.policy = p
-	return exec.CommandContext(ctx, "bash", "-lc", "printf runner-ok"), nil
-}
-
 func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	got, ok := reg.Get("fs__read")

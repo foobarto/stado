@@ -18,8 +18,7 @@ import (
 // inspect both the tool_call notification AND the synthetic
 // tool_summary at end-of-turn.
 type toolOnlyProvider struct {
-	toolName  string
-	toolError bool
+	toolName string
 }
 
 func (p toolOnlyProvider) Name() string                     { return "tool-only" }
