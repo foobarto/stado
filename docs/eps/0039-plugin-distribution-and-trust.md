@@ -738,7 +738,7 @@ globally:
 - `.stado/plugin-lock.toml` records the active version per
   identity for the project. When the project's stado loads, the
   lock file's pinned versions take effect for that project.
-- For operator CLI usage outside any project (`stado plugin run
+- For operator CLI usage outside any project (`stado tool run
   ...` without a CWD-detected `.stado/`), the user-level
   `~/.config/stado/plugin-state.toml` records a per-user default
   active version. `plugin use <repo> <version>` without a project

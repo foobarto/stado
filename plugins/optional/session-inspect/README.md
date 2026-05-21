@@ -55,17 +55,17 @@ stado plugin trust <pubkey-hex> "stado example"
 stado plugin install .
 
 # Run. The output varies by context:
-stado plugin run session-inspect-0.1.0 inspect '{}'
+stado tool run inspect '{}'
 ```
 
 ### Output in different contexts
 
-**`stado plugin run` (one-shot CLI)** — no live session, so
+**`stado tool run` (one-shot CLI)** — no live session, so
 `session:read` returns errors from the bridge and the plugin renders
 mostly-empty fields:
 
 ```
-stado plugin run: session-aware capabilities declared; note that the
+stado tool run: session-aware capabilities declared; note that the
 one-shot CLI has no live session — session:read returns zeroed fields,
 session:fork + llm:invoke are unavailable
 

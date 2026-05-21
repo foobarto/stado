@@ -410,7 +410,7 @@ func (h hostAdapter) RecordRead(key tool.ReadKey, info tool.PriorReadInfo) {
 // ActivateTool implements pkg/tool.ToolActivator — surfaces a named tool
 // into the next turn's tool surface. Called by tools__describe /
 // tools__activate / plugin__load. When the activate hook isn't wired
-// (no Model context, e.g. plugin run), the activation is silently dropped.
+// (no Model context, e.g. tool run), the activation is silently dropped.
 func (h hostAdapter) ActivateTool(name string) {
 	if h.activate != nil {
 		h.activate(name)
@@ -442,7 +442,7 @@ func (h hostAdapter) PTYManager() any { return h.pty }
 // behind a SessionBridgeImpl so plugins that declared session/LLM
 // capabilities see real conversation state. Returns nil when the TUI
 // has no session or provider — plugins with those capabilities will
-// error cleanly at call time, matching the `stado plugin run` CLI
+// error cleanly at call time, matching the `stado tool run` CLI
 // path's behaviour. `pluginName` populates the `Plugin:` audit
 // trailer so plugin-initiated LLM calls + forks are attributable in
 // the trace log.

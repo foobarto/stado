@@ -217,7 +217,7 @@ func TestBuildPluginDoctorReport_ClearOutput(t *testing.T) {
 		"bundled-tool import (stado_http_get)",
 		"fs:write:/var/cache/x",
 		"absolute path",
-		"stado plugin run --with-tool-host demo-1.2.3 fetch",
+		"stado tool run fetch '<json-args>'",
 	} {
 		if !strings.Contains(report, want) {
 			t.Errorf("doctor report missing %q:\n%s", want, report)
@@ -225,8 +225,9 @@ func TestBuildPluginDoctorReport_ClearOutput(t *testing.T) {
 	}
 }
 
-// TestBuildPluginDoctorReport_ExecBashMarkedFullLoopOnly verifies
-// the EP-0028 "exec:bash refused under --with-tool-host" callout.
+// TestBuildPluginDoctorReport_ExecBashMarkedFullLoopOnly verifies that
+// exec:bash plugins are refused on every `tool run` row and routed to
+// the TUI / `stado run`.
 func TestBuildPluginDoctorReport_ExecBashMarkedFullLoopOnly(t *testing.T) {
 	mf := &plugins.Manifest{
 		Name:         "needs-bash",
@@ -239,11 +240,11 @@ func TestBuildPluginDoctorReport_ExecBashMarkedFullLoopOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPluginDoctorReport: %v", err)
 	}
-	// Every plugin run row must be ✗ for exec:bash plugins.
+	// Every tool run row must be ✗ for exec:bash plugins.
 	for _, line := range []string{
-		"✗ stado plugin run     ",
-		"✗ stado plugin run --workdir=$PWD",
-		"✗ stado plugin run --with-tool-host",
+		"✗ stado tool run     ",
+		"✗ stado tool run --workdir=$PWD",
+		"✗ stado tool run --session <id>",
 	} {
 		if !strings.Contains(report, line) {
 			t.Errorf("expected refusal row %q in:\n%s", line, report)

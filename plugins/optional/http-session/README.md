@@ -70,26 +70,22 @@ The pubkey is printed by `gen-key` and also written to `author.pubkey`.
 
 ```sh
 # 1. Open a session against a public API:
-stado plugin run --with-tool-host --workdir=$PWD \
-  http-session-0.1.0 http_session_open \
+stado tool run --workdir=$PWD http_session_open \
   '{"base_url":"https://httpbin.org","default_headers":{"User-Agent":"stado-demo"}}'
 
 # Suppose the response was {"session_id":"s-ab12cd","base_url":"https://httpbin.org"}.
 
 # 2. Make a relative-URL request inside the session:
-stado plugin run --with-tool-host --workdir=$PWD \
-  http-session-0.1.0 http_session_request \
+stado tool run --workdir=$PWD http_session_request \
   '{"session_id":"s-ab12cd","method":"GET","url":"/cookies/set?demo=42"}'
 
 # 3. Subsequent same-host requests automatically carry the demo cookie:
-stado plugin run --with-tool-host --workdir=$PWD \
-  http-session-0.1.0 http_session_request \
+stado tool run --workdir=$PWD http_session_request \
   '{"session_id":"s-ab12cd","method":"GET","url":"/cookies"}'
 # → response body shows {"cookies": {"demo": "42"}}
 
 # 4. Free the session state:
-stado plugin run --with-tool-host --workdir=$PWD \
-  http-session-0.1.0 http_session_close '{"session_id":"s-ab12cd"}'
+stado tool run --workdir=$PWD http_session_close '{"session_id":"s-ab12cd"}'
 ```
 
 ## Cookie jar semantics
@@ -119,7 +115,8 @@ new host surface area.
 - [`docs/features/plugin-authoring.md`](../../../docs/features/plugin-authoring.md)
   — capability table and first-time-author walkthrough
 - [`docs/eps/0028-plugin-run-tool-host.md`](../../../docs/eps/0028-plugin-run-tool-host.md)
-  — why `--with-tool-host` and `--workdir` are required
+  — why the tool host (formerly the `--with-tool-host` flag, now the
+  default) and `--workdir` are needed
 - [`plugins/optional/webfetch-cached/`](../webfetch-cached/) — same
   disk-cache-for-state pattern, on top of `stado_http_get`
 - [`CHANGELOG.md`](../../../CHANGELOG.md#v0310) — `net:http_request_private`

@@ -9,8 +9,10 @@ Three v0.26.0 plugin-surface features in one ~140-line plugin:
 
 1. **Wrapping a bundled-tool host import.** Calls `stado_http_get`
    from inside the wasm sandbox; when invoked via
-   `stado plugin run --with-tool-host` (or from any agent loop),
-   the host wires the bundled tool's transport through. EP-0028.
+   `stado tool run` (or from any agent loop), the host wires the
+   bundled tool's transport through — no flag needed, the tool host
+   is always attached (the old `--with-tool-host` from EP-0028 became
+   the default under EP-0038).
 
 2. **Workdir-rooted fs capabilities.** Declares `fs:read:.cache/stado-webfetch`
    and `fs:write:.cache/stado-webfetch` (relative paths, resolved
@@ -43,12 +45,10 @@ the `author.pubkey` file build.sh writes alongside the seed.
 
 ```sh
 # First call — cache miss, real HTTPS fetch:
-stado plugin run --with-tool-host --workdir=$PWD \
-  webfetch-cached-0.1.0 webfetch '{"url":"https://example.com"}'
+stado tool run --workdir=$PWD webfetch '{"url":"https://example.com"}'
 
 # Second call — cache hit, instant:
-stado plugin run --with-tool-host --workdir=$PWD \
-  webfetch-cached-0.1.0 webfetch '{"url":"https://example.com"}'
+stado tool run --workdir=$PWD webfetch '{"url":"https://example.com"}'
 ```
 
 Output is JSON with `cache_hit: true|false` and the body. The cache
@@ -79,7 +79,9 @@ periodically belong in a different tool.
 - [`docs/features/plugin-authoring.md`](../../../docs/features/plugin-authoring.md)
   — first-time-author walkthrough
 - [`docs/eps/0028-plugin-run-tool-host.md`](../../../docs/eps/0028-plugin-run-tool-host.md)
-  — why `--with-tool-host` exists and what it does NOT enable
+  — why `--with-tool-host` existed and what it did NOT enable (now
+  the default; the flag was removed when `plugin run` became
+  `stado tool run`)
 - [`docs/eps/0027-repo-root-discovery.md`](../../../docs/eps/0027-repo-root-discovery.md)
   — why workdir-rooted fs capabilities need `--workdir`
 - [`plugins/demos/hello-go/`](../../demos/hello-go/) — minimal Go plugin

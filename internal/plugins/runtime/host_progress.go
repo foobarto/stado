@@ -10,7 +10,7 @@
 // atomicity in current LLM contracts and are explicitly out of scope.
 //
 // Wiring: Host.Progress is a callback the host caller (TUI, headless,
-// `stado plugin run`) populates. When nil, the import drops silently
+// `stado tool run`) populates. When nil, the import drops silently
 // — the plugin shouldn't fail because the operator surface isn't
 // hooked up.
 package runtime

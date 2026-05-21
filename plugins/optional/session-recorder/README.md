@@ -48,7 +48,7 @@ stado plugin install .
 ## One-shot invocation
 
 ```sh
-stado plugin run session-recorder-0.1.0 snapshot '{"note":"pre-deploy checkpoint"}'
+stado tool run snapshot '{"note":"pre-deploy checkpoint"}'
 # → {"status":"ok","path":".stado/session-recordings.jsonl","recorded_bytes":147}
 ```
 

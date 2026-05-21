@@ -44,7 +44,7 @@ stado plugin gen-key auto-compact-demo.seed
 ./build.sh
 stado plugin trust <pubkey-hex> "stado example"
 stado plugin install .
-stado plugin run --session <session-id> auto-compact-0.1.0 compact '{}'
+stado tool run --session <session-id> compact '{}'
 ```
 
 That manual path is useful for authoring or explicit persisted-session

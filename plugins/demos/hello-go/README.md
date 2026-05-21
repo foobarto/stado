@@ -54,7 +54,7 @@ stado plugin verify .
 stado plugin install .
 
 # 5. Run.
-stado plugin run hello-go-0.1.0 greet '{"name":"Ada"}'
+stado tool run greet '{"name":"Ada"}'
 # → {"message":"Hello, Ada!"}
 ```
 

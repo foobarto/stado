@@ -31,12 +31,13 @@ stado plugin install .
 ## Run
 
 ```sh
-stado plugin run --with-tool-host \
-  web-search-0.1.0 web_search '{"query":"hackthebox writeups","max_results":5}'
+stado tool run web_search '{"query":"hackthebox writeups","max_results":5}'
 ```
 
-The `--with-tool-host` flag is required because the plugin imports
-the bundled `stado_http_request` (see `EP-0028`).
+No flag is needed even though the plugin imports the bundled
+`stado_http_request`: the tool host is attached on every
+`stado tool run` (the old `--with-tool-host` flag became the default
+under EP-0038).
 
 ## Capabilities
 

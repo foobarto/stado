@@ -255,7 +255,7 @@ stado plugin trust <pubkey-hex-from-gen-key>
 stado plugin install .
 
 # Run the demo tool.
-stado plugin run ` + name + `-0.1.0 greet '{"name":"world"}'
+stado tool run greet '{"name":"world"}'
 ` + "```\n" +
 		`
 ## Next steps

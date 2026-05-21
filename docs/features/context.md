@@ -123,7 +123,7 @@ conversation produces a new, tighter summary on top.
 
 Persisted-session CLI compaction is intentionally plugin-driven rather
 than a built-in core rewrite path. Use a session-aware plugin with
-`stado plugin run --session <id> <plugin-id> <tool> [json-args]`; the
+`stado tool run --session <id> <tool> [json-args]`; the
 canonical source is `plugins/bundled/auto-compact/`: it uses
 fork-based recovery and seeds the child session's persisted
 conversation with the generated summary.

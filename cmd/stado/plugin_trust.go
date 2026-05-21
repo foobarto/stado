@@ -226,7 +226,7 @@ var pluginListCmd = &cobra.Command{
 // pluginInstalledCmd lists plugin IDs installed under the state dir.
 // Separate from `plugin list` (which shows pinned authors) because
 // dogfood #14 found users conflate the two. The output format matches
-// the directory names that `plugin run <id>` expects.
+// the directory names that `plugin doctor` / `plugin info` <id> expect.
 var pluginInstalledCmd = &cobra.Command{
 	Use:   "installed",
 	Short: "List installed plugins (matches directory names under state/plugins)",

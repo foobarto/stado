@@ -25,7 +25,7 @@ matches the toolchain you already have.
 | [`session-inspect/`](session-inspect/) | Go | ~3 MB | Read current session shape — id, message count, token count, last turn ref. Single-cap (`session:read`) demo. |
 | [`session-recorder/`](session-recorder/) | Go | ~3 MB | Background plugin: appends one JSONL row per turn to `.stado/session-recordings.jsonl`. Capability mix `session:read` + `fs:write` + `stado_plugin_tick` — the second background plugin after auto-compact. |
 | [`web-search/`](web-search/) | Go | ~4 MB | DuckDuckGo HTML / SearXNG search wrapper. No API key. Returns `{title, url, snippet}` triples. |
-| [`webfetch-cached/`](webfetch-cached/) | Go | ~3.4 MB | Wraps `stado_http_get` behind a SHA-256-keyed disk cache. Showcases `--with-tool-host`, workdir-rooted fs caps, and bundled-tool overrides. |
+| [`webfetch-cached/`](webfetch-cached/) | Go | ~3.4 MB | Wraps `stado_http_get` behind a SHA-256-keyed disk cache. Showcases wrapping a bundled-tool host import, workdir-rooted fs caps, and bundled-tool overrides. |
 
 ## Bigger picture
 

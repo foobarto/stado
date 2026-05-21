@@ -233,8 +233,8 @@ stado plugin verify .                   # signature + digest + rollback/CRL/Reko
 stado plugin install .                  # copy into state/plugins/
 stado plugin list                       # pinned signer keys
 stado plugin installed                  # installed plugin IDs
-stado plugin run <id> <tool> '{...}'    # invoke a plugin tool directly
-stado plugin run --session <sid> <id> <tool> '{...}'  # session-aware plugin CLI
+stado tool run <tool> '{...}'           # invoke a plugin tool directly
+stado tool run --session <sid> <tool> '{...}'  # session-aware tool CLI
 ```
 
 `plugin list` shows trusted authors; `plugin installed` shows runnable
@@ -291,7 +291,9 @@ surface itself is shipped and stable enough to wire into Zed today.
 
 - Five new CLI flags: top-level `--version`, `--provider`/`--model`
   global overrides, `plugin run --workdir <path>`, `plugin run
-  --with-tool-host`. Three new plugin subcommands: `plugin gc`,
+  --with-tool-host` (the `plugin run` command was later removed in
+  c2cd90d and replaced by `stado tool run`; `--with-tool-host` became
+  the default). Three new plugin subcommands: `plugin gc`,
   `plugin doctor`, `plugin info`.
 - New `cfg:*` capability vocabulary for read-only configuration
   introspection (`cfg:state_dir` ships first); `fs:read` /

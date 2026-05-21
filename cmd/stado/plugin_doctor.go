@@ -15,17 +15,18 @@ import (
 // pluginDoctorCmd inspects an installed plugin and emits a
 // surface-compatibility report. Solves the "I built a plugin, ran
 // it, got `stado_http_get returned -1` — now what?" first-time-author
-// pain that motivated the EP-0028 `--with-tool-host` work in the
-// first place. Doctor parses the manifest's declared capabilities
-// and tells the operator which `stado plugin run` flag combination
-// (or which surface entirely) the plugin needs.
+// pain. Doctor parses the manifest's declared capabilities and tells
+// the operator which `stado tool run` flag combination (or which
+// surface entirely) the plugin needs. (`plugin run` was removed in
+// favour of `tool run` — c2cd90d; the EP-0028 `--with-tool-host` flag
+// became default behaviour under EP-0038.)
 var pluginDoctorCmd = &cobra.Command{
 	Use:   "doctor <plugin-id>",
 	Short: "Inspect an installed plugin and explain which surfaces / flags it needs",
 	Long: "Reads the plugin's manifest from `<state-dir>/plugins/<id>/`,\n" +
 		"classifies each declared capability, and prints a checklist\n" +
 		"of compatible surfaces with the exact flags to pass. Useful\n" +
-		"when `plugin run` returns the documented \"plugin host has no\n" +
+		"when `tool run` returns the documented \"plugin host has no\n" +
 		"tool runtime context\" or \"stado_fs_read failed\" errors and\n" +
 		"the operator wants to know which knob to flip.",
 	Args: cobra.ExactArgs(1),
@@ -74,7 +75,7 @@ type pluginRequirement int
 const (
 	requireNothing       pluginRequirement = iota // satisfied on any surface
 	requireWorkdir                                // needs `--workdir <path>` (or full agent loop)
-	requireToolHost                               // needs `--with-tool-host` (or full agent loop)
+	requireToolHost                               // bundled-tool import — auto-provided on `stado tool run` + agent loop
 	requireSession                                // needs `--session <id>` (or full agent loop)
 	requireFullAgentLoop                          // ONLY works in TUI / `stado run`
 	requireUIApproval                             // needs an approval bridge — TUI/headless agent loop
@@ -102,24 +103,24 @@ func classifyCapability(cap string) capabilityNote {
 		return cn
 	case cap == "net:http_get" || strings.HasPrefix(cap, "net:"):
 		cn.requirement = requireToolHost
-		cn.note = "bundled-tool import (stado_http_get); needs `--with-tool-host` on plugin run"
+		cn.note = "bundled-tool import (stado_http_get); provided by `stado tool run`"
 		return cn
 	case cap == "exec:bash" || cap == "exec:shallow_bash":
 		cn.requirement = requireFullAgentLoop
-		cn.note = "needs sandbox.Runner — only available in TUI / `stado run`. EP-0028 refuses this under --with-tool-host."
+		cn.note = "needs sandbox.Runner — `stado tool run` refuses this when no runner is available; use TUI / `stado run`"
 		return cn
 	case strings.HasPrefix(cap, "exec:"):
 		cn.requirement = requireToolHost
-		cn.note = "bundled-tool import (search / ast-grep); needs `--with-tool-host`"
+		cn.note = "bundled-tool import (search / ast-grep); provided by `stado tool run`"
 		return cn
 	case cap == "lsp:query":
 		cn.requirement = requireToolHost
-		cn.note = "bundled-tool import (LSP); needs `--with-tool-host`"
+		cn.note = "bundled-tool import (LSP); provided by `stado tool run`"
 		return cn
 	case strings.HasPrefix(cap, "session:") || cap == "llm:invoke" || strings.HasPrefix(cap, "llm:invoke:") ||
 		strings.HasPrefix(cap, "memory:"):
 		cn.requirement = requireSession
-		cn.note = "session-aware capability; needs `--session <id>` on plugin run (or run inside agent loop)"
+		cn.note = "session-aware capability; needs `--session <id>` on `stado tool run` (or run inside agent loop)"
 		return cn
 	case cap == "ui:approval":
 		cn.requirement = requireUIApproval
@@ -370,7 +371,6 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 	// Classify capabilities and aggregate per-surface requirements.
 	notes := make([]capabilityNote, 0, len(mf.Capabilities))
 	hasWorkdir := false
-	hasToolHost := false
 	hasSession := false
 	hasFullLoopOnly := false
 	hasUIApproval := false
@@ -381,7 +381,10 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 		case requireWorkdir:
 			hasWorkdir = true
 		case requireToolHost:
-			hasToolHost = true
+			// Tool host is auto-attached on `stado tool run` (and the
+			// agent loop), so a bundled-tool import imposes no surface
+			// constraint and needs no flag. EP-0028 (--with-tool-host)
+			// folded into default behaviour under EP-0038.
 		case requireSession:
 			hasSession = true
 		case requireFullAgentLoop:
@@ -412,36 +415,30 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 	b.WriteString("Compatible surfaces:\n")
 	fmt.Fprintf(&b, "  %s stado run / TUI                       full agent loop — always satisfies every capability above\n", "✓")
 
-	plainOK := !hasWorkdir && !hasToolHost && !hasSession && !hasFullLoopOnly && !hasUIApproval
+	plainOK := !hasWorkdir && !hasSession && !hasFullLoopOnly && !hasUIApproval
 	mark := func(ok bool) string {
 		if ok {
 			return "✓"
 		}
 		return "✗"
 	}
-	fmt.Fprintf(&b, "  %s stado plugin run                      %s\n",
+	fmt.Fprintf(&b, "  %s stado tool run                        %s\n",
 		mark(plainOK),
-		surfaceReason(plainOK, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly, hasUIApproval, "plain"))
+		surfaceReason(plainOK, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval, "plain"))
 
-	workdirOK := !hasToolHost && !hasSession && !hasFullLoopOnly && !hasUIApproval
-	fmt.Fprintf(&b, "  %s stado plugin run --workdir=$PWD       %s\n",
+	workdirOK := !hasSession && !hasFullLoopOnly && !hasUIApproval
+	fmt.Fprintf(&b, "  %s stado tool run --workdir=$PWD         %s\n",
 		mark(workdirOK),
-		surfaceReason(workdirOK, false, hasToolHost, hasSession, hasFullLoopOnly, hasUIApproval, "workdir"))
-
-	toolHostOK := !hasFullLoopOnly && !hasSession && !hasUIApproval
-	fmt.Fprintf(&b, "  %s stado plugin run --with-tool-host%s    %s\n",
-		mark(toolHostOK),
-		spaceForWorkdir(hasWorkdir),
-		surfaceReason(toolHostOK, false, false, hasSession, hasFullLoopOnly, hasUIApproval, "toolhost"))
+		surfaceReason(workdirOK, false, hasSession, hasFullLoopOnly, hasUIApproval, "workdir"))
 
 	sessionOK := !hasFullLoopOnly && !hasUIApproval
-	fmt.Fprintf(&b, "  %s stado plugin run --session <id>%s     %s\n",
+	fmt.Fprintf(&b, "  %s stado tool run --session <id>%s        %s\n",
 		mark(sessionOK),
-		spaceForFlags(hasWorkdir, hasToolHost),
-		surfaceReason(sessionOK, false, false, false, hasFullLoopOnly, hasUIApproval, "session"))
+		spaceForWorkdir(hasWorkdir),
+		surfaceReason(sessionOK, false, false, hasFullLoopOnly, hasUIApproval, "session"))
 
 	b.WriteString("\nSuggested invocation:\n  ")
-	b.WriteString(suggestInvocation(mf, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly, hasUIApproval))
+	b.WriteString(suggestInvocation(mf, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval))
 	b.WriteString("\n")
 	return b.String(), nil
 }
@@ -453,18 +450,7 @@ func spaceForWorkdir(hasWorkdir bool) string {
 	return ""
 }
 
-func spaceForFlags(hasWorkdir, hasToolHost bool) string {
-	var s string
-	if hasWorkdir {
-		s += " --workdir=$PWD"
-	}
-	if hasToolHost {
-		s += " --with-tool-host"
-	}
-	return s
-}
-
-func surfaceReason(ok bool, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly, hasUIApproval bool, surface string) string {
+func surfaceReason(ok bool, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval bool, surface string) string {
 	if ok {
 		switch surface {
 		case "plain":
@@ -472,11 +458,6 @@ func surfaceReason(ok bool, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly
 		case "workdir":
 			if hasWorkdir {
 				return "satisfies the workdir-rooted fs capability"
-			}
-			return "(more flags than this plugin needs — same outcome as the minimal row above)"
-		case "toolhost":
-			if hasToolHost {
-				return "satisfies bundled-tool import(s)"
 			}
 			return "(more flags than this plugin needs — same outcome as the minimal row above)"
 		case "session":
@@ -491,14 +472,11 @@ func surfaceReason(ok bool, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly
 	if hasWorkdir && surface == "plain" {
 		why = append(why, "needs --workdir")
 	}
-	if hasToolHost && (surface == "plain" || surface == "workdir") {
-		why = append(why, "needs --with-tool-host")
-	}
-	if hasSession && (surface == "plain" || surface == "workdir" || surface == "toolhost") {
+	if hasSession && (surface == "plain" || surface == "workdir") {
 		why = append(why, "needs --session")
 	}
 	if hasFullLoopOnly {
-		why = append(why, "exec:bash (or similar) refused by all `plugin run` paths — use TUI / `stado run`")
+		why = append(why, "exec:bash (or similar) refused by all `tool run` paths — use TUI / `stado run`")
 	}
 	if hasUIApproval {
 		why = append(why, "ui:approval needs the agent loop's approval bridge — TUI / `stado run`")
@@ -506,11 +484,10 @@ func surfaceReason(ok bool, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly
 	return strings.Join(why, "; ")
 }
 
-func suggestInvocation(mf *plugins.Manifest, hasWorkdir, hasToolHost, hasSession, hasFullLoopOnly, hasUIApproval bool) string {
+func suggestInvocation(mf *plugins.Manifest, hasWorkdir, hasSession, hasFullLoopOnly, hasUIApproval bool) string {
 	if hasFullLoopOnly || hasUIApproval {
-		return "Use the TUI / `stado run`. Plugins with `exec:bash` or `ui:approval` cannot run from `plugin run`."
+		return "Use the TUI / `stado run`. Plugins with `exec:bash` or `ui:approval` cannot run from `tool run`."
 	}
-	id := mf.Name + "-" + mf.Version
 	tool := "<tool>"
 	if len(mf.Tools) == 1 {
 		tool = mf.Tools[0].Name
@@ -519,11 +496,8 @@ func suggestInvocation(mf *plugins.Manifest, hasWorkdir, hasToolHost, hasSession
 	if hasWorkdir {
 		flags += " --workdir=$PWD"
 	}
-	if hasToolHost {
-		flags += " --with-tool-host"
-	}
 	if hasSession {
 		flags += " --session <id>"
 	}
-	return fmt.Sprintf("stado plugin run%s %s %s '<json-args>'", flags, id, tool)
+	return fmt.Sprintf("stado tool run%s %s '<json-args>'", flags, tool)
 }

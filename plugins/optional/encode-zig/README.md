@@ -41,25 +41,25 @@ stado plugin install .
 
 ```sh
 # Encode
-stado plugin run --with-tool-host encode-zig-0.1.0 encode \
+stado tool run encode \
   '{"data":"Hello, world!","format":"base64"}'
 # → {"result":"SGVsbG8sIHdvcmxkIQ==","format":"base64","direction":"encode"}
 
 # Decode
-stado plugin run --with-tool-host encode-zig-0.1.0 encode \
+stado tool run encode \
   '{"data":"SGVsbG8sIHdvcmxkIQ==","format":"base64","direction":"decode"}'
 # → {"result":"Hello, world!","format":"base64","direction":"decode"}
 
 # HTML escaping
-stado plugin run --with-tool-host encode-zig-0.1.0 encode \
+stado tool run encode \
   '{"data":"<script>alert(1)</script>","format":"html"}'
 
 # URL percent-encoding
-stado plugin run --with-tool-host encode-zig-0.1.0 encode \
+stado tool run encode \
   '{"data":"hello world/path?q=1","format":"url"}'
 
 # Hex
-stado plugin run --with-tool-host encode-zig-0.1.0 encode \
+stado tool run encode \
   '{"data":"deadbeef","format":"hex","direction":"decode"}'
 ```
 

@@ -40,6 +40,13 @@ history:
 
 # EP-0028: `stado plugin run --with-tool-host` + HOME-rooted MkdirAll
 
+> **Status note (historical):** The `stado plugin run` command described
+> below was removed in c2cd90d and replaced by `stado tool run` (which
+> takes the tool name only, not a plugin-id). The `--with-tool-host`
+> flag became the default — the tool host is now attached on every
+> `stado tool run` (EP-0038). The text below is preserved as the
+> original EP-0028 design record.
+
 ## Problem
 
 Two distinct but adjacent gaps in the plugin authoring + boot

@@ -352,7 +352,7 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:multicast:udp` | `stado_net_setopt` keys: broadcast, multicast_join/leave/loopback/ttl |
 | `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
 | `net:<host>` | Generic `stado_http_get` host allowlist (deprecated; prefer `net:http_request:<host>`) |
-| `exec:bash` / `exec:shallow_bash` | `stado_exec_bash` (refused on `plugin run` — needs an agent loop's sandbox runner) |
+| `exec:bash` / `exec:shallow_bash` | `stado_exec_bash` (refused on `tool run` — needs an agent loop's sandbox runner) |
 | `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist) |
 | `exec:search` | bundled ripgrep via `stado_search_ripgrep` |
 | `exec:ast_grep` | bundled ast-grep via `stado_search_ast_grep` |
@@ -392,7 +392,7 @@ Host globs are case-insensitive. Paths are exact-segment.
 
 Every gated import call is auditable. The `stado plugin doctor`
 subcommand parses a manifest's caps and emits a per-surface table
-explaining what each cap unlocks and which `plugin run` flags are
+explaining what each cap unlocks and which `tool run` flags are
 needed to exercise it.
 
 ---
@@ -468,7 +468,7 @@ session ends; tools dispatch through the same long-lived runtime.
 
 ### 10.1 Per-call vs long-lived runtime
 
-By default each `stado plugin run` invocation builds a fresh runtime,
+By default each `stado tool run` invocation builds a fresh runtime,
 calls one tool, and closes. Background plugins (declared via
 `[plugins].background`) keep a long-lived runtime and accumulate
 state across ticks. Bundled plugins behave like the per-call mode —
@@ -494,9 +494,8 @@ optional interfaces on the host they pass into `tool.Run`:
 
 When a host doesn't implement these, the bundled-plugin Run path
 falls back gracefully (per-call manager, nil callback drop, deny
-approval). Single-shot CLI invocations (`stado plugin run`,
-`stado tool run`) are short-lived processes anyway, so the fallback
-is appropriate for them.
+approval). Single-shot CLI invocations (`stado tool run`) are
+short-lived processes anyway, so the fallback is appropriate for them.
 
 ---
 

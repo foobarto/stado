@@ -49,7 +49,7 @@ two unappealing options:
    problem htb-cve-lookup hit + worked around with v0.2.0.
 2. **Take the state-dir as a runtime arg** — shifts the awkward
    bootstrap onto the operator (must invoke
-   `stado plugin run --workdir=$(stado config show | jq ...)`),
+   `stado tool run --workdir=$(stado config show | jq ...)`),
    and `--workdir` only resolves one path-prefix per invocation.
 
 Neither is friendly. Operator-tooling plugins need a way to

@@ -23,15 +23,15 @@ var pluginRunBuildProvider = tui.BuildProvider
 func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, pluginName string, needProvider bool) (*pluginRuntime.SessionBridgeImpl, string, error) {
 	id, err := resolveSessionID(cfg, query)
 	if err != nil {
-		return nil, "", fmt.Errorf("plugin run --session: %w", err)
+		return nil, "", fmt.Errorf("tool run --session: %w", err)
 	}
 	sc, sess, err := openPersistedSession(cfg, id)
 	if err != nil {
-		return nil, "", fmt.Errorf("plugin run --session: open %s: %w", id, err)
+		return nil, "", fmt.Errorf("tool run --session: open %s: %w", id, err)
 	}
 	msgs, err := runtime.LoadConversation(sess.WorktreePath)
 	if err != nil {
-		return nil, "", fmt.Errorf("plugin run --session: load conversation: %w", err)
+		return nil, "", fmt.Errorf("tool run --session: load conversation: %w", err)
 	}
 
 	var (
@@ -41,9 +41,9 @@ func buildPluginRunBridge(ctx context.Context, cfg *config.Config, query, plugin
 	prov, err = pluginRunBuildProvider(cfg)
 	if err != nil {
 		if needProvider {
-			return nil, "", fmt.Errorf("plugin run --session: provider: %w", err)
+			return nil, "", fmt.Errorf("tool run --session: provider: %w", err)
 		}
-		note = "stado plugin run --session: provider unavailable; llm:invoke is disabled and token_count will report 0"
+		note = "stado tool run --session: provider unavailable; llm:invoke is disabled and token_count will report 0"
 		prov = nil
 	}
 

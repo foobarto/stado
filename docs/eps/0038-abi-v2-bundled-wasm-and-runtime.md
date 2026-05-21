@@ -222,7 +222,7 @@ What this means in code:
 | `internal/runtime/bundled_plugin_tools.go` registers `fs.ReadTool{}`, `bash.BashTool{}`, etc. | File deletes. Bundled wasm plugins register through the same path as user-installed plugins. |
 | `internal/tools/{fs,bash,webfetch,httpreq,rg,astgrep,lspfind,readctx,tasktool,subagent}` exists as `tool.Tool` types | These directories migrate to `internal/host/*` as host-import implementation only. The Go code survives; it's no longer a registered tool surface. |
 | `newBundledPluginTool` wrapper presents native tools as plugin-shaped to the model | Wrapper deletes. Wasm plugins are plugin-shaped natively. |
-| `exec:bash` capability-gated tool plugin via `--with-tool-host` flag (EP-0028) | `exec:proc` host import + `shell` plugin. `--with-tool-host` becomes default for any plugin run. |
+| `exec:bash` capability-gated tool plugin via `--with-tool-host` flag (EP-0028) | `exec:proc` host import + `shell` plugin. `--with-tool-host` becomes default for any plugin run (the `plugin run` command was later renamed to `stado tool run` in c2cd90d). |
 
 Migration plan (from §F migration / rollout below) ships the bundled
 wasm plugins alongside the host-import additions in one EP-0038
@@ -1237,7 +1237,8 @@ both are referenced.
 needed an opt-in to bridge the bundled-tool host imports to plugin
 invocations from the CLI. With EP-0038, every tool is a wasm
 plugin; there is no "bundled tool" anymore as distinct from "plugin
-tool." `stado plugin run <name> <tool>` always wires the tool host;
+tool." `stado plugin run <name> <tool>` always wires the tool host
+(the command was later renamed to `stado tool run <tool>` in c2cd90d, dropping the plugin-id argument);
 the flag becomes the default and the CLI accepts but ignores it
 for compatibility (with deprecation warning). One release cycle
 later: removed.
@@ -1489,7 +1490,7 @@ backstop value. Neither condition is satisfied as of 2026-05-06.
   path, capability-not-declared, malformed args, lifetime cleanup
   on plugin instance termination.
 - **Bundled-plugin smoke tests:** each shipped wasm plugin gets
-  invoked through stado plugin run with a fixture scenario,
+  invoked through stado plugin run (later `stado tool run`, c2cd90d) with a fixture scenario,
   asserting tool output matches the previous native
   implementation's expected output.
 - **Agent surface tests:**

@@ -20,17 +20,17 @@ plugin can run, stado verifies:
 - optional Rekor transparency-log inclusion (`[plugins].rekor_url`)
 
 Once verified, `stado plugin install` copies the plugin directory into
-`$XDG_DATA_HOME/stado/plugins/<name>-<version>/`. `stado plugin run`
-instantiates the module in the wazero runtime and invokes one declared
-tool. Add `--session <id>` to bind the run to a persisted session so
-session-aware capabilities work on the CLI too.
+`$XDG_DATA_HOME/stado/plugins/<name>-<version>/`. `stado tool run`
+instantiates the owning module in the wazero runtime and invokes one
+declared tool by name. Add `--session <id>` to bind the run to a
+persisted session so session-aware capabilities work on the CLI too.
 
 The repo also ships a product-facing plugin catalog under
 [`plugins/`](../../plugins/). The bundled default plugin source is
 [`plugins/bundled/auto-compact/`](../../plugins/bundled/auto-compact/):
 stado loads that one automatically as a background plugin in the TUI
 and headless server, and you can also build/install it manually if you
-want an explicit `plugin run --session` flow.
+want an explicit `tool run --session` flow.
 
 ## Why it exists
 
@@ -93,12 +93,13 @@ and optional Rekor lookup.
 ```sh
 stado plugin install .
 stado plugin installed
-stado plugin run my-plugin-0.1.0 greet '{"name":"Ada"}'
-stado plugin run --session abc123 auto-compact-0.1.0 compact '{"threshold_tokens":5000}'
+stado tool run greet '{"name":"Ada"}'
+stado tool run --session abc123 compact '{"threshold_tokens":5000}'
 ```
 
-Installed plugin IDs match the directory names under the state dir, so
-`plugin installed` prints exactly what `plugin run` expects.
+Installed plugin IDs match the directory names under the state dir.
+`plugin installed` lists those IDs; `stado tool run` then takes the
+tool name (not the plugin ID) and resolves the owning plugin for you.
 
 ## Command reference
 
@@ -119,7 +120,7 @@ Installed plugin IDs match the directory names under the state dir, so
 | `stado plugin update <plugin-id>` | Pull and install the latest tagged version of an installed plugin (EP-0039) |
 | `stado plugin use <plugin-id>` | Switch the active version for an installed plugin (per-project) |
 | `stado plugin reload <plugin-id>` | Re-read a plugin's tools and capabilities; effective inside a TUI session via `/plugin reload` |
-| `stado plugin run [--session <id>] [--workdir <path>] [--with-tool-host] <plugin-id> <tool> [json-args]` | Invoke one tool from one installed plugin, optionally against a persisted session |
+| `stado tool run [--session <id>] [--workdir <path>] <tool> [json-args]` | Invoke one installed tool by name (the owning plugin is resolved automatically), optionally against a persisted session. The tool host is always attached. |
 | `stado plugin bundle [--out <file>] [<plugin-id> …]` | Bundle installed plugins into a portable stado binary (no Go toolchain required at the destination) |
 | `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
 | `stado plugin doctor <plugin-id>` | Inspect manifest + emit per-surface compatibility table with the exact flags to pass |
@@ -134,7 +135,7 @@ Installed plugin IDs match the directory names under the state dir, so
 - `[plugins].background` loads extra installed plugins that tick
   alongside that default.
 
-`stado plugin run --session <id>` binds the plugin to the target
+`stado tool run --session <id>` binds the tool's plugin to the target
 session's persisted conversation and worktree, so `session:read`,
 `session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
 declare `memory:propose`, `memory:read`, or `memory:write` are wired to
@@ -173,17 +174,17 @@ Relevant `config.toml` sections:
   under the same signer is rejected.
 - **Plugin packages must be plain files.** Symlinks and special files in
   the plugin directory are rejected at install time.
-- **`plugin run` without `--session` is not a live session.** If a
+- **`tool run` without `--session` is not a live session.** If a
   plugin needs `session:*` or `llm:invoke`, either pass `--session <id>`
   or run it from the TUI/headless surfaces.
-- **`plugin run` without `--with-tool-host` can't invoke bundled tool
-  imports.** Plugins that import `stado_http_get`, `stado_fs_tool_*`,
-  `stado_lsp_*`, or `stado_search_*` see a "plugin host has no tool
-  runtime context" error unless `--with-tool-host` is passed. The
-  flag is opt-in because it widens the host import surface; it
-  refuses plugins that declare `exec:bash` (no `sandbox.Runner` is
-  available — use `stado run` for those). EP-0028.
-- **`plugin run --workdir` defaults to the plugin's install dir, not
+- **Bundled tool imports work without any flag.** Plugins that import
+  `stado_http_get`, `stado_fs_tool_*`, `stado_lsp_*`, or
+  `stado_search_*` run fine: the tool host is attached on every
+  `stado tool run` (the old opt-in `--with-tool-host` flag from EP-0028
+  became the default under EP-0038). Plugins that declare `exec:bash`
+  are still refused — no `sandbox.Runner` is available; use `stado run`
+  for those.
+- **`tool run --workdir` defaults to the plugin's install dir, not
   the operator's CWD.** Plugins that scope `fs:read:.` to project
   files (htb-cve-lookup-style lookups against the operator's repo)
   need `--workdir=$PWD` to resolve relative paths against the

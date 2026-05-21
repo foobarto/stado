@@ -46,19 +46,16 @@ mkdir -p $PWD/.cache/stado-mcp
 
 ```sh
 # initialize
-stado plugin run --with-tool-host --workdir $PWD \
-  mcp-client-0.1.0 mcp_init \
+stado tool run --workdir $PWD mcp_init \
   '{"endpoint":"https://my-mcp.example.com/mcp",
     "headers":{"Authorization":"Bearer $TOKEN"}}'
 
 # list tools
-stado plugin run --with-tool-host --workdir $PWD \
-  mcp-client-0.1.0 mcp_list_tools \
+stado tool run --workdir $PWD mcp_list_tools \
   '{"session_id":"<from-init>"}'
 
 # call a tool
-stado plugin run --with-tool-host --workdir $PWD \
-  mcp-client-0.1.0 mcp_call_tool \
+stado tool run --workdir $PWD mcp_call_tool \
   '{"session_id":"<from-init>",
     "name":"echo",
     "arguments":{"msg":"hi"}}'

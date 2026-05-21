@@ -72,24 +72,19 @@ mkdir -p $PWD/.cache/stado-browser
 
 ```sh
 # fetch a page
-stado plugin run --with-tool-host --workdir $PWD \
-  browser-0.1.0 browser_open '{"url":"https://news.ycombinator.com"}'
+stado tool run --workdir $PWD browser_open '{"url":"https://news.ycombinator.com"}'
 # → {session_id: "8c13...", title: "Hacker News", links: [...], ...}
 
 # follow the third link from the result
-stado plugin run --with-tool-host --workdir $PWD \
-  browser-0.1.0 browser_click '{"session_id":"8c13...", "link_index":2}'
+stado tool run --workdir $PWD browser_click '{"session_id":"8c13...", "link_index":2}'
 
 # fish a CSS selection out of the current page
-stado plugin run --with-tool-host --workdir $PWD \
-  browser-0.1.0 browser_eval '{"session_id":"8c13...", "selector":".titleline a", "attr":"href"}'
+stado tool run --workdir $PWD browser_eval '{"session_id":"8c13...", "selector":".titleline a", "attr":"href"}'
 
 # submit a form (httpbin example)
-stado plugin run --with-tool-host --workdir $PWD \
-  browser-0.1.0 browser_open '{"url":"https://httpbin.org/forms/post"}'
+stado tool run --workdir $PWD browser_open '{"url":"https://httpbin.org/forms/post"}'
 # (note the session_id, then…)
-stado plugin run --with-tool-host --workdir $PWD \
-  browser-0.1.0 browser_submit '{
+stado tool run --workdir $PWD browser_submit '{
     "session_id":"<sid>",
     "fields":{"custname":"Ada","custemail":"ada@example.com","size":"large"}
   }'

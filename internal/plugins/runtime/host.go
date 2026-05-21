@@ -68,7 +68,7 @@ type Host struct {
 	// agent plugin's stado_agent_* host imports (EP-0038 §D Tier 1+).
 	// Only the bundled agent plugin may declare agent:fleet cap; user
 	// plugins are blocked at install time.
-	// Nil on surfaces without a live runtime fleet (e.g. plugin run).
+	// Nil on surfaces without a live runtime fleet (e.g. tool run).
 	FleetBridge FleetBridge
 
 	// ApprovalBridge powers explicit plugin-requested human approval
@@ -99,7 +99,7 @@ type Host struct {
 
 	// ToolHost is the runtime host surface native tool wrappers call
 	// through when a plugin uses the public built-in tool imports.
-	// Nil is valid in non-session contexts like `stado plugin run`;
+	// Nil is valid in non-session contexts like `stado tool run`;
 	// imports that require it return an error payload.
 	ToolHost tool.Host
 
@@ -345,7 +345,7 @@ func (s *SecretsAccess) Audit(ev SecretsAuditEvent) {
 // through. Every method corresponds to one host import gated by a
 // matching `session:*` or `llm:*` capability in the plugin manifest.
 // A nil SessionBridge is valid — it means the runtime doesn't have a
-// session (e.g. `stado plugin run` outside a session context); the
+// session (e.g. `stado tool run` outside a session context); the
 // host imports return -1 with a diagnostic.
 type SessionBridge interface {
 	// NextEvent blocks until the next session event (or ctx deadline)

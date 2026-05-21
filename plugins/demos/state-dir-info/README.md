@@ -25,7 +25,7 @@ stado plugin install .
 ## Run
 
 ```sh
-stado plugin run state-dir-info-0.1.0 state_dir '{}'
+stado tool run state_dir '{}'
 ```
 
 Output (example, paths vary by operator):

@@ -28,7 +28,7 @@ stado plugin install .
 ## Run
 
 ```sh
-stado plugin run image-info-0.1.0 image_info \
+stado tool run image_info \
   '{"path":"assets/screenshots/agent.png"}' \
   --workdir $PWD
 ```

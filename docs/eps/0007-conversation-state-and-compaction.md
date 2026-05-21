@@ -65,7 +65,7 @@ edits, and only rewrites the active conversation state after
 confirmation. Other shipped surfaces differ in mechanics: headless
 `session.compact` applies immediately to the in-memory session, while
 persisted-session CLI compaction is intentionally plugin-driven via
-`stado plugin run --session <id> ...` so fork-based recovery can stay
+`stado tool run --session <id> ...` so fork-based recovery can stay
 in plugin space instead of shipping a second core rewrite path. The
 bundled default `auto-compact` background plugin follows that same
 fork-based path and the TUI now replays blocked hard-threshold prompts

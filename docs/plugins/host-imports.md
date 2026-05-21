@@ -245,7 +245,7 @@ the plugin instance makes; default 10000 tokens when no suffix is
 declared on the cap (`llm:invoke` ≡ `llm:invoke:10000`). Once
 exhausted, further calls return -1 immediately without consulting
 the provider. Returns -1 with no token consumption when the host
-has no session bridge attached (e.g., plugin run outside a session).
+has no session bridge attached (e.g., tool run outside a session).
 
 ### stado_ui_approve
 
@@ -305,7 +305,7 @@ kind / unknown enum value / table row × col over caps) return `-n`
 with a structured human-readable message at err_ptr. Same negative-
 return convention every other host import in this codebase uses.
 
-Drop-on-floor when no render bridge is attached (e.g., plugin run
+Drop-on-floor when no render bridge is attached (e.g., tool run
 outside a session, MCP server with no per-call bridge): success
 returns silently. Per F9 spec: "if channel disconnected, emit
 succeeds silently."
@@ -744,12 +744,12 @@ atomicity in current LLM contracts and is explicitly out of scope
 for v1.
 
 **Wiring — operator surface.** The host caller (TUI, headless run,
-`stado plugin run`) provides a callback `(plugin, text) → void`.
+`stado tool run`) provides a callback `(plugin, text) → void`.
 When the callback isn't set the import returns 0 and silently drops
 — the plugin shouldn't fail because the operator surface isn't
 connected.
 
-- `stado plugin run` prints `[plugin] text` to stderr.
+- `stado tool run` prints `[plugin] text` to stderr.
 - The TUI surfaces progress lines in the sidebar log tail tagged
   `PROGRESS [plugin] text`. Progress entries always show regardless
   of `--sidebar-debug` (the plugin author chose to emit them).

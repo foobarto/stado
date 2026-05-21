@@ -71,10 +71,10 @@ stado plugin verify .
 stado plugin install .
 
 # 5. Run the tool.
-stado plugin run hello-0.1.0 greet '{"name":"Ada"}'
+stado tool run greet '{"name":"Ada"}'
 # → {"message":"Hello, Ada!"}
 
-stado plugin run hello-0.1.0 greet '{}'
+stado tool run greet '{}'
 # → {"message":"Hello, world!"}   (default name when none provided)
 ```
 

@@ -25,7 +25,7 @@ func TestSessionCompact_AdvisesPluginRun(t *testing.T) {
 	}
 	for _, want := range []string{
 		"compaction is plugin-driven",
-		"stado plugin run --session compact-target <plugin-id> <tool> [json-args]",
+		"stado tool run --session compact-target <tool> [json-args]",
 	} {
 		if !strings.Contains(errBuf.String(), want) {
 			t.Fatalf("stderr missing %q: %q", want, errBuf.String())

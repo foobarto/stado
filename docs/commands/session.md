@@ -160,7 +160,7 @@ a built-in core rewrite path. Resolve the target session, then run a
 session-aware plugin against it with:
 
 ```sh
-stado plugin run --session <id> <plugin-id> <tool> [json-args]
+stado tool run --session <id> <tool> [json-args]
 ```
 
 The example `plugins/bundled/auto-compact/` plugin uses
@@ -248,6 +248,6 @@ Session data layout:
 - **Zero-turn session cleanup**: `session list` hides them by default
   but the worktrees stay on disk. Run `session gc --apply` periodically.
 - **`session compact`** is advisory by design. For CLI compaction, use a
-  session-aware plugin via `stado plugin run --session <id> ...`; the
+  session-aware tool via `stado tool run --session <id> ...`; the
   example auto-compact plugin forks a child session and seeds the
   child's persisted conversation with the summary.
