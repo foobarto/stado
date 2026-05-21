@@ -2,13 +2,28 @@
 ep: 0031
 title: Path-templated fs capabilities — `fs:read:cfg:state_dir/...`
 author: Bartosz Ptaszynski
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-04
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Direct extension of EP-0029 surfaced by the round-8 state-dir-info example.
+  - date: 2026-05-21
+    status: Implemented
+    note: >-
+      Parser (cfg:-prefixed fs paths stored verbatim), check-time
+      expansion (pathAllowedExpanded → expandFSEntry), cap-pairing, and
+      the four named tests landed in b0693a8. Fixed this session: cfg:*
+      templates skipped the symlinkAlias that literal cap paths get at
+      parse time, so on Fedora Atomic (/home → /var/home) StateDir came
+      from os.UserHomeDir() in symlink form while allowRead received the
+      EvalSymlinks-resolved form — the exact case the Problem section
+      names was still denied. pathAllowedExpanded now aliases the
+      expanded cfg value and retries; added
+      TestFSCap_CfgPathTemplateSymlinkedStateDir (red-then-green). The
+      doctor-as-plugin migration that exercises this on a real consumer
+      remains the named out-of-scope follow-up.
 see-also: [0005, 0006, 0029]
 ---
 

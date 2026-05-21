@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -114,5 +116,44 @@ func TestFSCap_CfgPathTemplateUnknownName(t *testing.T) {
 	h.StateDir = "/var/lib/stado-test"
 	if h.allowRead("/var/lib/stado-test/sub") {
 		t.Error("allowRead should refuse unknown cfg:* name")
+	}
+}
+
+// TestFSCap_CfgPathTemplateSymlinkedStateDir is the regression for the
+// Fedora Atomic case the EP-0031 Problem section names: StateDir comes
+// from os.UserHomeDir() in the *symlink* form (e.g. /home/u, where
+// /home → /var/home), but fs host imports run the requested path through
+// realPath/EvalSymlinks, so allowRead receives the *resolved* form
+// (/var/home/u/...). Literal cap paths get a symlinkAlias appended at
+// parse time; cfg:* templates expand at check time, so the alias has to
+// be applied there too — otherwise the templated read is denied on the
+// operator's own machine.
+func TestFSCap_CfgPathTemplateSymlinkedStateDir(t *testing.T) {
+	// root/real/stado/plugins/foo  (the EvalSymlinks-resolved target)
+	// root/link -> root/real        (the symlink StateDir is expressed through)
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(filepath.Join(real, "stado", "plugins", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+
+	m := plugins.Manifest{
+		Name: "atomic",
+		Capabilities: []string{
+			"cfg:state_dir",
+			"fs:read:cfg:state_dir/plugins",
+		},
+	}
+	h := NewHost(m, root, nil)
+	h.StateDir = filepath.Join(link, "stado") // symlink form, as os.UserHomeDir() yields
+
+	// The path a real fs read presents to allowRead, after realPath.
+	resolved := filepath.Join(real, "stado", "plugins", "foo")
+	if !h.allowRead(resolved) {
+		t.Errorf("allowRead(%q) = false; templated cfg:state_dir path must match the EvalSymlinks-resolved form (Fedora Atomic regression)", resolved)
 	}
 }

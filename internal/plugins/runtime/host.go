@@ -1048,11 +1048,30 @@ func (h *Host) pathAllowedExpanded(abs string, allow []string) bool {
 		if expanded == "" {
 			continue
 		}
-		if expanded == abs || strings.HasPrefix(abs, strings.TrimRight(expanded, "/")+"/") {
+		if pathPrefixMatch(abs, expanded) {
 			return true
+		}
+		// cfg:* templates resolve at check time, so the symlink-alias
+		// that literal cap paths receive at parse time (see NewHost's
+		// symlinkAlias append) has to be applied here. abs arrives
+		// EvalSymlinks-resolved via realPath, while StateDir is the
+		// symlink form straight from os.UserHomeDir(); on Fedora Atomic
+		// (/home → /var/home) the literal compare above misses. Alias the
+		// expanded value and retry against the resolved form.
+		if strings.HasPrefix(a, "cfg:") {
+			if alias := symlinkAlias(expanded); alias != "" && pathPrefixMatch(abs, alias) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// pathPrefixMatch reports whether abs equals entry or lies under it
+// (entry treated as a directory prefix). Shared by the literal and
+// cfg-template allow-list checks.
+func pathPrefixMatch(abs, entry string) bool {
+	return entry == abs || strings.HasPrefix(abs, strings.TrimRight(entry, "/")+"/")
 }
 
 // expandFSEntry resolves a `cfg:<name>[/<sub-path>]` path-template
