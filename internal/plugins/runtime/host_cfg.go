@@ -55,21 +55,32 @@ func registerCfgStateDirImport(builder wazero.HostModuleBuilder, host *Host) {
 		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
 			bufPtr := api.DecodeU32(stack[0])
 			bufCap := api.DecodeU32(stack[1])
-			value := host.StateDir
-			if uint32(len(value)) > bufCap {
-				host.Logger.Warn("stado_cfg_state_dir truncation",
-					slog.Int("value_bytes", len(value)),
-					slog.Uint64("buf_cap", uint64(bufCap)))
-				stack[0] = api.EncodeI32(-1)
-				return
-			}
-			if uint32(len(value)) > maxPluginRuntimeCfgValueBytes {
-				host.Logger.Warn("stado_cfg_state_dir denied — value exceeds maxPluginRuntimeCfgValueBytes",
-					slog.Int("value_bytes", len(value)))
-				stack[0] = api.EncodeI32(-1)
-				return
-			}
-			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, []byte(value)))
+			stack[0] = api.EncodeI32(writeCfgValue(mod, bufPtr, bufCap, host.StateDir, "stado_cfg_state_dir", host.Logger))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, []api.ValueType{api.ValueTypeI32}).
 		Export("stado_cfg_state_dir")
+}
+
+// writeCfgValue implements the shared write-into-caller-buffer contract
+// every cfg:* host import follows: it writes value into mod's linear
+// memory at [bufPtr, bufPtr+bufCap) and returns the bytes written, or -1
+// when value won't fit the caller's buffer or exceeds the
+// maxPluginRuntimeCfgValueBytes ceiling. An empty value writes nothing
+// and returns 0 (the caller didn't populate the field — the plugin sees
+// "" and falls back to whatever degraded path it has). importName names
+// the import in the warn logs. Factored out of the import closure so the
+// value-flow contract is unit-testable without a guest module that
+// imports the symbol.
+func writeCfgValue(mod api.Module, bufPtr, bufCap uint32, value, importName string, logger *slog.Logger) int32 {
+	if uint32(len(value)) > bufCap {
+		logger.Warn(importName+" truncation",
+			slog.Int("value_bytes", len(value)),
+			slog.Uint64("buf_cap", uint64(bufCap)))
+		return -1
+	}
+	if uint32(len(value)) > maxPluginRuntimeCfgValueBytes {
+		logger.Warn(importName+" denied — value exceeds maxPluginRuntimeCfgValueBytes",
+			slog.Int("value_bytes", len(value)))
+		return -1
+	}
+	return writeBytes(mod, bufPtr, bufCap, []byte(value))
 }

@@ -2,13 +2,32 @@
 ep: 0029
 title: Config-introspection host imports — `cfg:*` capability vocabulary
 author: Bartosz Ptaszynski
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-04
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to v0.26.0 + the lean-core architectural steer.
+  - date: 2026-05-21
+    status: Implemented
+    note: >-
+      cfg:state_dir primitive landed in 6344a87 (CfgStateDir/StateDir
+      fields + cap parser in host.go, registerCfgStateDirImport in
+      host_cfg.go, fs:read:cfg:state_dir/… path templating via
+      expandFSEntry). Host-side wiring centralised through
+      internal/runtime/pluginrun.Run (sets StateDir from cfg.StateDir())
+      rather than the three caller files the draft named — every
+      installed/override/bundled/CLI execution routes through it.
+      Follow-up this session: populated StateDir in the two direct
+      execution paths that bypass pluginrun.Run (the TUI /tool path in
+      model_plugins.go and the EP-0038b wasm-migration tool), per D4's
+      "callers populate unconditionally"; extracted the import closure
+      into a testable writeCfgValue helper and added
+      TestWriteCfgValue_Contract covering the write / empty-→0 /
+      over-buffer-→-1 / over-ceiling-→-1 value-flow contract. The
+      doctor/gc plugin migration that proves the capability on a real
+      consumer remains the named out-of-scope follow-up.
 see-also: [0002, 0005, 0006, 0028]
 ---
 

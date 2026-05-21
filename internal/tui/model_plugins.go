@@ -613,6 +613,13 @@ func runPluginToolAsync(cfg *config.Config, dir string, mf *plugins.Manifest, td
 		defer func() { _ = rt.Close(ctx) }()
 
 		host := pluginRuntime.NewHost(*mf, dir, nil)
+		// EP-0029 D4: this operator-driven (/tool, /plugin:) path runs
+		// the plugin directly rather than via pluginrun.Run, so populate
+		// StateDir here too — otherwise a plugin declaring cfg:state_dir
+		// invoked from the TUI would read an empty string.
+		if cfg != nil {
+			host.StateDir = cfg.StateDir()
+		}
 		host.ApprovalBridge = approval
 		// F9a / F9b / Q3: attach print + render + choice bridges when
 		// supplied, so plugins emitting via `stado_ui_print` /

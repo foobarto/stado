@@ -271,6 +271,13 @@ func (t *wasmMigrationTool) Run(ctx context.Context, args json.RawMessage, h pkg
 	defer func() { _ = rt.Close(ctx) }()
 
 	host := pluginRuntime.NewHost(manifest, h.Workdir(), nil)
+	// EP-0029 D4: populate StateDir unconditionally so a builtin tool
+	// migrated to wasm that declares cfg:state_dir reads the real path.
+	// This path doesn't route through pluginrun.Run, which wires it for
+	// the installed/override/CLI surfaces.
+	if t.cfg != nil {
+		host.StateDir = t.cfg.StateDir()
+	}
 	host.ToolHost = h
 	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
 		host.ApprovalBridge = bridge
