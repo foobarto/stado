@@ -2,13 +2,21 @@
 ep: 0027
 title: Repo-root discovery — single predicate, single helper
 author: Bartosz Ptaszynski
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-04
 history:
   - date: 2026-05-04
     status: Draft
     note: Initial draft. Companion to the shakedown patch in branch shakedown-2026-05-04.
+  - date: 2026-05-21
+    status: Implemented
+    note: >-
+      Landed in 9ad32bf. internal/workdirpath/repodisco.go provides
+      LooksLikeRepoRoot, FindRepoRoot, and FindRepoRootOrEmpty; all six
+      walk sites delegate to them. Regression tests
+      (TestSessionGC_ApplyActuallyDeletes, TestLearningCLI_*) and the
+      workdirpath predicate tests pass.
 see-also: [0004]
 ---
 
