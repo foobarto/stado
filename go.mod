@@ -27,7 +27,7 @@ require (
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/pkoukk/tiktoken-go-loader v0.0.2
-	github.com/sahilm/fuzzy v0.1.1
+	github.com/sahilm/fuzzy v0.1.2
 	github.com/spf13/cobra v1.10.2
 	github.com/tetratelabs/wazero v1.11.0
 	go.opentelemetry.io/otel v1.43.0
