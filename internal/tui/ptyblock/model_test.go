@@ -127,7 +127,7 @@ func TestSetSize_ResizerCalled(t *testing.T) {
 	}
 
 	// Different size: one call with the new dims.
-	m, _ = m.SetSize(120, 40)
+	_, _ = m.SetSize(120, 40)
 	if resizer.calls != 1 {
 		t.Errorf("SetSize change: want 1 resize call, got %d", resizer.calls)
 	}

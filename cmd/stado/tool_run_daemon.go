@@ -106,7 +106,7 @@ func dispatchViaDaemon(ctx context.Context, registered, argsJSON string, opts to
 		}
 		c = cl
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	workdir := opts.Workdir
 	if workdir == "" {

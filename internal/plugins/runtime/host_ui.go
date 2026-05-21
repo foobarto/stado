@@ -158,11 +158,7 @@ func registerUIChooseImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			respWire := chooseResponseWire{
-				Selected:   resp.Selected,
-				InputValue: resp.InputValue,
-				Cancelled:  resp.Cancelled,
-			}
+			respWire := chooseResponseWire(resp)
 			if respWire.Selected == nil {
 				respWire.Selected = []string{}
 			}

@@ -35,10 +35,6 @@ const (
 	destroyGrace       = 2 * time.Second
 )
 
-// closedReapGrace is the per-Manager grace between child-exit and
-// watchdog-eligible reap. Set from ManagerOpts.ClosedReapGrace at
-// construction; defaultClosedReapGrace when unset.
-//
 // Manager is a thread-safe registry of live PTY sessions.
 //
 // Optional idle-watchdog: when ManagerOpts.IdleTimeout > 0, a
@@ -52,9 +48,11 @@ const (
 // reports it alive forever.
 //
 // Closed-and-unattached sessions get a short grace period
-// (closedReapGrace) before being reaped, so quick commands like
-// `bash -c 'echo result'` whose child exits before the client
-// attaches don't lose their final buffered output.
+// (closedReapGrace, set from ManagerOpts.ClosedReapGrace at
+// construction; defaultClosedReapGrace when unset) before being
+// reaped, so quick commands like `bash -c 'echo result'` whose
+// child exits before the client attaches don't lose their final
+// buffered output.
 type Manager struct {
 	mu              sync.Mutex
 	nextID          uint64

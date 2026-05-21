@@ -255,7 +255,7 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 			if len(p.Value) > maxPluginRuntimeUIRenderKVValueBytes {
 				return Section{}, fmt.Errorf("section %d: kv pair %d value exceeds %d bytes", i, j, maxPluginRuntimeUIRenderKVValueBytes)
 			}
-			sec.KV = append(sec.KV, KVPair{Label: p.Label, Value: p.Value})
+			sec.KV = append(sec.KV, KVPair(p))
 		}
 	case "list":
 		if err := requireOnlyBody(i, sw, "list"); err != nil {

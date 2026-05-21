@@ -204,7 +204,7 @@ func runDaemonStop(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("stado daemon: not running (or unreachable): %w", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	if err := c.Shutdown(ctx, daemonStopForce, "operator"); err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 		}
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	st, err := c.Status(ctx)
 	if err != nil {
 		return err

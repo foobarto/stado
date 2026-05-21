@@ -84,7 +84,8 @@ archives:
         formats:
           - zip
     files:
-      - LICENSE
+      - LICENSE-APACHE
+      - LICENSE-MIT
       - README.md
 
 # nfpms produces .deb (apt) and .rpm (dnf/yum) packages per PLAN §10.7.
@@ -101,7 +102,7 @@ nfpms:
       stado — sandboxed, git-native coding-agent runtime.
       Signed commits as audit log. WASM plugins. OpenAI-, Anthropic-,
       Google-, and OAI-compat providers.
-    license: MIT
+    license: MIT OR Apache-2.0
     formats:
       - deb
       - rpm
@@ -111,8 +112,10 @@ nfpms:
       - stado
     bindir: /usr/bin
     contents:
-      - src: LICENSE
-        dst: /usr/share/doc/stado/LICENSE
+      - src: LICENSE-APACHE
+        dst: /usr/share/doc/stado/LICENSE-APACHE
+      - src: LICENSE-MIT
+        dst: /usr/share/doc/stado/LICENSE-MIT
       - src: README.md
         dst: /usr/share/doc/stado/README.md
     rpm:
