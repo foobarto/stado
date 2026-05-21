@@ -12,7 +12,11 @@
 > - `docs/eps/0037-*.md` and `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`
 >   which contain the EP-final designs, including superseding decisions
 >   the chat preceded
-> - `docs/superpowers/specs/` where the per-feature specs live
+>
+> The dated per-feature specs that originally sat at
+> `docs/superpowers/specs/` were removed in the 2026-05-21 docs spring
+> cleaning once the EPs above subsumed them; they remain in git
+> history.
 >
 > If you need the original transcript for archaeological purposes, it's
 > in git history before the security/PII audit commit; refer to

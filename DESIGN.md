@@ -369,7 +369,8 @@ Rules, enforced at the code level:
   way providers surface hit/miss. These feed the `stado_cache_hit_ratio`
   histogram defined in the telemetry spec.
 
-Cross-refs: §"Provider interface" (events + usage fields); PLAN.md §6.3
+Cross-refs: §"Provider interface" (events + usage fields);
+[EP-0011](docs/eps/0011-observability-and-telemetry.md)
 (`stado_cache_hit_ratio`).
 
 ### Token accounting

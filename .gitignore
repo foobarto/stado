@@ -42,3 +42,11 @@
 .env
 NOTES*.md
 
+.crush/
+.codex
+
+# Per-machine MCP / language-server config. .mcp.json embeds absolute
+# paths so it's local-only; .serena/ holds per-project LSP indexes and
+# the operator's own project.local.yml.
+/.mcp.json
+/.serena/

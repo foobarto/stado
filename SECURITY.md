@@ -129,7 +129,7 @@ also signed unconditionally).
 ## Plugin signing
 
 Third-party plugins follow the same Ed25519 pattern at a different
-scope. See [PLAN §7](PLAN.md#phase-7--wasm-plugin-runtime--signed-manifest--v1)
+scope. See [EP-0006](docs/eps/0006-signed-wasm-plugin-runtime.md)
 for the manifest + trust-store + CRL + Rekor layers. Summary:
 
 - Plugin authors generate their own keypair (`stado plugin gen-key`).

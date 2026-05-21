@@ -87,6 +87,40 @@ build — fix warnings before pushing.
 depending on raw wasm pointer casts again, lint will fail even if the
 `wasip1` module still compiles.
 
+## External AI review (optional)
+
+For pre-release or post-large-refactor passes, running `claude` and
+`codex` CLIs as independent quality scanners catches issues each
+tool misses on its own. Codex tends to find concurrency hazards
+(Go-specific), Claude tends to find security/architectural ones.
+
+```sh
+# Verify both are authenticated first
+claude --permission-mode bypassPermissions -p "What is 2+2?"
+codex --full-auto exec "What is 2+2?"
+```
+
+The prompt:
+
+> Review the Go project stado for overall quality. Focus, most to
+> least important: 1) concurrent data races / goroutine hazards;
+> 2) error handling — silent drops or unactionable wrapping;
+> 3) security — plugin sandboxing / trust / secrets; 4) leaking
+> abstractions and tight coupling; 5) testing gaps; 6) allocation
+> hot paths; 7) UX polish. For each finding give severity
+> (P1/P2/P3), file:line range, one-sentence impact, one-sentence
+> fix idea. Limit ~15. Be specific.
+
+Run:
+
+```sh
+codex --full-auto exec review "$(cat /tmp/review-prompt.txt)" > /tmp/codex-review.out
+claude --permission-mode bypassPermissions -p "$(cat /tmp/review-prompt.txt)" > /tmp/claude-review.out
+```
+
+Diff the two outputs by finding; converging signals are the ones to
+take seriously first.
+
 ## Run locally
 
 ```sh

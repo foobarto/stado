@@ -1,8 +1,8 @@
 # No Internal Tools
 
 **Status as of 2026-05-07:** Steps 0–7 shipped. Steps 8–10 remain
-planned. Spec:
-[`docs/superpowers/specs/2026-05-06-no-internal-tools-design.md`](../superpowers/specs/2026-05-06-no-internal-tools-design.md).
+planned. See [EP-0002 — All Tools as WASM Plugins](../eps/0002-all-tools-as-plugins.md)
+and [EP-0037 — Tool dispatch and operator surface](../eps/0037-tool-dispatch-and-operator-surface.md).
 
 The model-facing tool surface in stado is plugin-shaped end-to-end.
 Stado without any wasm plugins exposes only an LLM chat plus a tight
