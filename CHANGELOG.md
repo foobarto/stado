@@ -32,6 +32,51 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.48.9 — plugin run → tool run cleanup + dev-loop fixes — 2026-05-21
+
+### Plugins
+
+- **`plugin doctor` now emits correct `stado tool run` advice.** It was
+  still printing the removed `stado plugin run` command — along with the
+  old `<plugin-id> <tool>` argument shape and the removed
+  `--with-tool-host` flag — left over from the `plugin run` → `tool run`
+  migration (c2cd90d). The surface-compatibility table, the per-capability
+  notes, and the suggested invocation now use `stado tool run <tool>` with
+  the correct flags (`--workdir`, `--session`); bundled-tool imports no
+  longer claim to need a flag (the tool host is attached on every
+  `tool run`).
+
+### Fixes
+
+- **`make test` no longer fails on parent-walk suites.** The Makefile
+  defaulted `GOTMPDIR` to `$(CURDIR)/.tmp` — inside the repo. Because
+  `go test` roots `t.TempDir()` at `GOTMPDIR`, suites that walk parent
+  directories for `.git` / `.env` / `AGENTS.md` / `CLAUDE.md` (dotenv,
+  instructions, memory, learning) escaped their temp dir into the repo's
+  own files and failed deterministically. CI was unaffected — it leaves
+  `GOTMPDIR` at the default `/tmp` (clean ancestors). `GOTMPDIR` now
+  defaults to `/var/tmp/stado-gotmp-$(id -u)`: off `/tmp` (per-user quota
+  on the dev host), outside the repo tree, and a real path rather than one
+  under the Fedora-Atomic `/home → /var/home` symlink (which the fs/grep
+  walk guards reject). A guard forces any repo-internal `GOTMPDIR` back
+  out.
+
+### Docs
+
+- Completed the `plugin run` → `tool run` migration across user docs:
+  14 plugin READMEs and the command / feature / plugin reference docs now
+  use `stado tool run <tool>` (tool name only, no plugin-id) with
+  `--with-tool-host` removed. Historical records (EP-0028, EP-0038, the
+  v0.26.0 release notes) carry supersession notes rather than rewrites.
+
+### Infra
+
+- Cleared the `make lint` (staticcheck) backlog: dropped an unused test
+  field (`toolError`) and helper type (`recordingRunner`); replaced a
+  nil-literal context with a nil-valued variable in the
+  `ProgressFromContext` guard test so the SA1012 check passes under direct
+  `staticcheck` (not just golangci-lint's `//nolint`).
+
 ## v0.48.8 — Plugin cfg:* capability fixes — 2026-05-21
 
 ### Plugins
