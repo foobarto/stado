@@ -32,6 +32,17 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.50.0 — wider inline command palette — 2026-05-22
+
+### TUI
+
+- **Inline `/` command palette now uses the full width.** It was capped at 110
+  columns (a budget shared with the centred modal), which truncated long command
+  descriptions even though the input frame directly below it spans the full
+  width. The inline popup is anchored to that frame, so it now matches its width;
+  descriptions render untruncated on wide terminals. The `Ctrl+P` modal keeps its
+  cap (it's centred and benefits from the whitespace guard).
+
 ## v0.49.1 — inline command-palette wrap fix — 2026-05-22
 
 ### Fixes
