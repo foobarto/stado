@@ -43,24 +43,31 @@ LDFLAGS  := -X main.version=$(VERSION) -X github.com/foobarto/stado/internal/ver
 .DEFAULT_GOAL := build
 
 # Bundled wasm are built from source (EP-0042 Part B), not committed. The
-# embed at internal/plugins/bundled/embed.go needs them present at compile
-# time, so build/install/test depend on `wasm`. `fs.wasm` is the staleness
-# sentinel: rebuild whenever ANYTHING under the bundled source trees changes
-# (build.sh, plugin .go, nested go.mod/go.sum, manifest templates), the shared
-# wasm SDK, or the root module graph — all of which can alter the compiled
-# wasm or the synced manifests. Conservative (any change triggers a rebuild),
-# which is the safe default for embedded artefacts.
+# embed at internal/plugins/bundled/embed.go needs ALL of them present at
+# compile time, so build/install/test depend on `wasm`. The target rebuilds
+# when: (a) any output is missing (partial/interrupted build — a single-file
+# sentinel would miss this and let `go build` succeed only to panic at
+# startup in MustWasm), or (b) any source changed — ANYTHING under the bundled
+# source trees (build.sh, plugin .go, nested go.mod/go.sum, manifest
+# templates), the shared wasm SDK, or the root module graph. Conservative;
+# the right default for embedded artefacts.
 WASM_DIR        := internal/plugins/bundled/wasm
-WASM_SENTINEL   := $(WASM_DIR)/fs.wasm
+WASM_STAMP      := $(WASM_DIR)/.wasm.stamp
+# Count of wasm build.sh produces — keep in sync with its TOOLS/EP38_TOOLS/
+# EP38_RENAMED/EXTRA_WASM lists + auto-compact (4+6+1+1+1).
+WASM_COUNT      := 13
 WASM_SRC        := $(shell find plugins/bundled internal/plugins/bundled/sdk -type f -not -path '*/.wasm-build*' 2>/dev/null) go.mod go.sum
 
 # Pass GO through so `make GO=/path/to/go` and the wasm build use the same
-# toolchain (build.sh reads $GO, defaulting to `go` on PATH).
-$(WASM_SENTINEL): $(WASM_SRC)
-	GO=$(GO) bash plugins/bundled/build.sh
-
+# toolchain (build.sh reads $GO, defaulting to `go` on PATH). Stamp is touched
+# only after a successful build (build.sh is `set -e`, so it builds all or fails).
 .PHONY: wasm
-wasm: $(WASM_SENTINEL) ## Build the bundled wasm into internal/plugins/bundled/wasm/
+wasm: ## Build the bundled wasm if any output is missing or any source changed
+	@if [ ! -f $(WASM_STAMP) ] \
+	   || [ "$$(ls $(WASM_DIR)/*.wasm 2>/dev/null | wc -l)" -lt $(WASM_COUNT) ] \
+	   || [ -n "$$(find $(WASM_SRC) -newer $(WASM_STAMP) 2>/dev/null)" ]; then \
+		GO=$(GO) bash plugins/bundled/build.sh && touch $(WASM_STAMP); \
+	fi
 
 .PHONY: build
 build: wasm ## Compile ./stado (default target)

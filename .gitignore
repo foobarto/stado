@@ -59,3 +59,4 @@ NOTES*.md
 # into the signed stado binary; no separate signing. `go install` is not a
 # supported path for this reason — use `git clone && make`.
 /internal/plugins/bundled/wasm/*.wasm
+/internal/plugins/bundled/wasm/.wasm.stamp
