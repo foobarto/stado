@@ -102,12 +102,38 @@ func loadFile(path string) bool {
 		if !ok {
 			continue
 		}
+		if sensitiveEnvKey(k) {
+			// A .env (often repo-committed, untrusted) must not set keys that
+			// hijack the dynamic loader, PATH, or stado's own config — e.g.
+			// LD_PRELOAD=evil.so executes in every child process (#044). The
+			// "existing env wins" rule below doesn't cover these because they
+			// usually aren't pre-set.
+			continue
+		}
 		if _, present := os.LookupEnv(k); present {
 			continue // existing env wins
 		}
 		_ = os.Setenv(k, v)
 	}
 	return true
+}
+
+// sensitiveEnvKey reports whether an env key is too dangerous to accept from a
+// .env file: the dynamic loader (LD_*/DYLD_*) and PATH. These are code-execution
+// / binary-hijack vectors that no legitimate .env sets — LD_PRELOAD=evil.so
+// would run in every child process. (STADO_* is intentionally NOT filtered:
+// configuring stado via .env is a supported feature; the config-injection
+// concern there is a separate posture question.)
+func sensitiveEnvKey(k string) bool {
+	if k == "PATH" {
+		return true
+	}
+	for _, p := range []string{"LD_", "DYLD_"} {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseLine extracts a (key, value) pair from one .env line. Returns

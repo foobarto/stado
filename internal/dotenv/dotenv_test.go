@@ -146,3 +146,31 @@ ANOTHER_GOOD="quoted value"
 	_ = os.Unsetenv("GOOD")
 	_ = os.Unsetenv("ANOTHER_GOOD")
 }
+
+// TestLoadFile_FiltersSensitiveKeys: a .env must not inject dynamic-loader keys
+// (#044) — LD_PRELOAD etc. would run in every child process.
+func TestLoadFile_FiltersSensitiveKeys(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	body := "LD_PRELOAD=/tmp/evil.so\nDYLD_INSERT_LIBRARIES=/tmp/evil.dylib\nAPP_OK=fine\n"
+	if err := os.WriteFile(envPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Ensure none are pre-set so only the filter (not "existing env wins") gates them.
+	for _, k := range []string{"LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "APP_OK"} {
+		os.Unsetenv(k)
+	}
+	if !loadFile(envPath) {
+		t.Fatal("loadFile should read the file")
+	}
+	for _, k := range []string{"LD_PRELOAD", "DYLD_INSERT_LIBRARIES"} {
+		if v, ok := os.LookupEnv(k); ok {
+			t.Errorf("loader key %s must not be set from .env (got %q)", k, v)
+			os.Unsetenv(k)
+		}
+	}
+	if os.Getenv("APP_OK") != "fine" {
+		t.Error("non-sensitive key should still load")
+	}
+	os.Unsetenv("APP_OK")
+}
