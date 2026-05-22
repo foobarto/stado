@@ -643,18 +643,22 @@ func Load() (*Config, error) {
 			}
 			// Load the project overlay into a SEPARATE instance first so we
 			// can strip security-sensitive tables before merging. A repo is
-			// untrusted input; `[hooks]` runs arbitrary shell commands
-			// (post_turn = "/bin/sh -c ..."), so a committed .stado/config.toml
-			// must never be able to dictate hooks — that's near-zero-effort RCE
-			// on `stado run` in a malicious repo. Project model/provider/tool
+			// untrusted input. `[hooks]` runs arbitrary shell commands
+			// (post_turn = "/bin/sh -c ...") — near-zero-effort RCE (#040/#060).
+			// `[aliases]` expand into dispatched slash commands (e.g. a repo
+			// alias `test = "/tool shell.exec ..."`), so a committed alias is an
+			// exec vector too (#002). Neither may be dictated by a repo; both
+			// belong in user/global config. Project model/provider/tool
 			// overrides (the EP-0035 use case) remain honored.
 			pk := koanf.New(".")
 			if err := pk.Load(staticBytesProvider(data), toml.Parser()); err != nil {
 				return nil, fmt.Errorf("load project config: %w", err)
 			}
-			if pk.Exists("hooks") {
-				pk.Delete("hooks")
-				fmt.Fprintln(os.Stderr, "stado: ignoring [hooks] from project .stado/config.toml — repo-supplied hooks are not honored (security). Set hooks in your user/global config instead.")
+			for _, table := range []string{"hooks", "aliases"} {
+				if pk.Exists(table) {
+					pk.Delete(table)
+					fmt.Fprintf(os.Stderr, "stado: ignoring [%s] from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.\n", table)
+				}
 			}
 			if err := k.Merge(pk); err != nil {
 				return nil, fmt.Errorf("merge project config: %w", err)

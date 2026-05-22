@@ -1015,7 +1015,15 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "/plugin reload: no executor (run inside a session)"})
 		return nil
 	}
-	newReg := runtime.BuildDefaultRegistry(m.cfg)
+	// Use the full composition (MCP attach + wasm migration + overrides +
+	// tool filter), not the bare default registry — otherwise /plugin reload
+	// re-registers tools the operator disabled via [tools].enabled/disabled,
+	// re-exposing them on the next turn (#028).
+	newReg, err := runtime.BuildRegistryWithPlugins(m.cfg)
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "/plugin reload: " + err.Error()})
+		return nil
+	}
 	m.executor.Registry = newReg
 
 	if len(args) == 0 {

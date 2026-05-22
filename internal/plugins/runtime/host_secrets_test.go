@@ -12,7 +12,7 @@ import (
 // --- SecretsAccess unit tests ---
 
 func TestSecretsAccess_CanRead_Broad(t *testing.T) {
-	s := &SecretsAccess{} // empty ReadGlobs → broad
+	s := &SecretsAccess{ReadDeclared: true} // declared broad read
 	if !s.CanRead("anything") {
 		t.Error("broad read should allow any name")
 	}
@@ -22,7 +22,7 @@ func TestSecretsAccess_CanRead_Broad(t *testing.T) {
 }
 
 func TestSecretsAccess_CanRead_Glob(t *testing.T) {
-	s := &SecretsAccess{ReadGlobs: []string{"api_*"}}
+	s := &SecretsAccess{ReadDeclared: true, ReadGlobs: []string{"api_*"}}
 	if !s.CanRead("api_token") {
 		t.Error("api_* should match api_token")
 	}
@@ -38,14 +38,14 @@ func TestSecretsAccess_CanRead_Glob(t *testing.T) {
 }
 
 func TestSecretsAccess_CanWrite_Broad(t *testing.T) {
-	s := &SecretsAccess{} // empty WriteGlobs → broad
+	s := &SecretsAccess{WriteDeclared: true} // declared broad write
 	if !s.CanWrite("anything") {
 		t.Error("broad write should allow any name")
 	}
 }
 
 func TestSecretsAccess_CanWrite_Glob(t *testing.T) {
-	s := &SecretsAccess{WriteGlobs: []string{"cache_*"}}
+	s := &SecretsAccess{WriteDeclared: true, WriteGlobs: []string{"cache_*"}}
 	if !s.CanWrite("cache_token") {
 		t.Error("cache_* should match cache_token")
 	}
@@ -55,21 +55,21 @@ func TestSecretsAccess_CanWrite_Glob(t *testing.T) {
 }
 
 func TestSecretsAccess_CanList_Broad(t *testing.T) {
-	s := &SecretsAccess{} // empty ReadGlobs → broad
+	s := &SecretsAccess{ReadDeclared: true} // declared broad read
 	if !s.CanList() {
 		t.Error("broad read should allow list")
 	}
 }
 
 func TestSecretsAccess_CanList_StarGlob(t *testing.T) {
-	s := &SecretsAccess{ReadGlobs: []string{"*"}}
+	s := &SecretsAccess{ReadDeclared: true, ReadGlobs: []string{"*"}}
 	if !s.CanList() {
 		t.Error("secrets:read:* should allow list")
 	}
 }
 
 func TestSecretsAccess_CanList_NarrowGlob(t *testing.T) {
-	s := &SecretsAccess{ReadGlobs: []string{"api_*"}}
+	s := &SecretsAccess{ReadDeclared: true, ReadGlobs: []string{"api_*"}}
 	if s.CanList() {
 		t.Error("narrow glob api_* should NOT allow list")
 	}
@@ -211,7 +211,7 @@ func TestSecretsAccess_Integration_ReadAllowed(t *testing.T) {
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
 		Store:      store,
-		ReadGlobs:  []string{"api_*"},
+		ReadDeclared: true, ReadGlobs:  []string{"api_*"},
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
 			events = append(events, ev)
@@ -241,7 +241,7 @@ func TestSecretsAccess_Integration_ReadDenied(t *testing.T) {
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
 		Store:      store,
-		ReadGlobs:  []string{"api_*"},
+		ReadDeclared: true, ReadGlobs:  []string{"api_*"},
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
 			events = append(events, ev)
@@ -270,7 +270,7 @@ func TestSecretsAccess_Integration_WriteDenied(t *testing.T) {
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
 		Store:      store,
-		WriteGlobs: []string{"cache_*"}, // only cache_* writable
+		WriteDeclared: true, WriteGlobs: []string{"cache_*"}, // only cache_* writable
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
 			events = append(events, ev)
@@ -292,7 +292,7 @@ func TestSecretsAccess_Integration_BroadRead(t *testing.T) {
 
 	sa := &SecretsAccess{
 		Store:      store,
-		ReadGlobs:  nil, // broad
+		ReadDeclared: true, ReadGlobs:  nil, // broad
 		PluginName: "myplugin",
 	}
 	if !sa.CanRead("anything") {
@@ -300,5 +300,34 @@ func TestSecretsAccess_Integration_BroadRead(t *testing.T) {
 	}
 	if !sa.CanRead("db_password") {
 		t.Error("broad read should allow db_password")
+	}
+}
+
+// TestSecretsAccess_UndeclaredDenied: declaring only one of read/write must not
+// confer the other (#029 — empty globs previously meant match-all even when the
+// capability was never declared).
+func TestSecretsAccess_UndeclaredDenied(t *testing.T) {
+	writeOnly := &SecretsAccess{WriteDeclared: true} // secrets:write only
+	if writeOnly.CanRead("api_token") {
+		t.Error("write-only grant must NOT confer read")
+	}
+	if writeOnly.CanList() {
+		t.Error("write-only grant must NOT confer list")
+	}
+	if !writeOnly.CanWrite("anything") {
+		t.Error("declared broad write should allow write")
+	}
+
+	readOnly := &SecretsAccess{ReadDeclared: true} // secrets:read only
+	if readOnly.CanWrite("api_token") {
+		t.Error("read-only grant must NOT confer write")
+	}
+	if !readOnly.CanRead("anything") {
+		t.Error("declared broad read should allow read")
+	}
+
+	none := &SecretsAccess{} // neither declared
+	if none.CanRead("x") || none.CanWrite("x") || none.CanList() {
+		t.Error("a SecretsAccess with nothing declared must deny everything")
 	}
 }

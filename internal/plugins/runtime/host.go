@@ -271,11 +271,13 @@ type Host struct {
 // stado_secrets_* host imports. Constructed lazily by NewHost when the
 // manifest declares at least one secrets:* capability.
 type SecretsAccess struct {
-	Store        *secrets.Store
-	ReadGlobs    []string // patterns from secrets:read:<glob>; empty = broad match-all
-	WriteGlobs   []string // patterns from secrets:write:<glob>; empty = broad match-all
-	AuditEmitter func(SecretsAuditEvent) // optional; nil = no-op
-	PluginName   string                  // manifest.Name; included in audit events
+	Store         *secrets.Store
+	ReadDeclared  bool                    // secrets:read granted at all (vs. not declared)
+	WriteDeclared bool                    // secrets:write granted at all (vs. not declared)
+	ReadGlobs     []string                // patterns from secrets:read:<glob>; empty+declared = broad
+	WriteGlobs    []string                // patterns from secrets:write:<glob>; empty+declared = broad
+	AuditEmitter  func(SecretsAuditEvent) // optional; nil = no-op
+	PluginName    string                  // manifest.Name; included in audit events
 }
 
 // SecretsAuditEvent is the structured record emitted for every
@@ -293,6 +295,9 @@ type SecretsAuditEvent struct {
 // declared secrets:read[:<glob>] capabilities. Empty ReadGlobs means
 // broad (match-all). Uses filepath.Match for shell-glob semantics.
 func (s *SecretsAccess) CanRead(name string) bool {
+	if !s.ReadDeclared {
+		return false // secrets:read not granted — declaring only secrets:write must not confer read
+	}
 	if len(s.ReadGlobs) == 0 {
 		return true
 	}
@@ -308,6 +313,9 @@ func (s *SecretsAccess) CanRead(name string) bool {
 // declared secrets:write[:<glob>] capabilities. Empty WriteGlobs means
 // broad (match-all).
 func (s *SecretsAccess) CanWrite(name string) bool {
+	if !s.WriteDeclared {
+		return false // secrets:write not granted — declaring only secrets:read must not confer write
+	}
 	if len(s.WriteGlobs) == 0 {
 		return true
 	}
@@ -323,6 +331,9 @@ func (s *SecretsAccess) CanWrite(name string) bool {
 // Requires either broad read (empty ReadGlobs) or a pattern that
 // matches "*" (covering all names).
 func (s *SecretsAccess) CanList() bool {
+	if !s.ReadDeclared {
+		return false // secrets:read not granted
+	}
 	if len(s.ReadGlobs) == 0 {
 		return true // broad read
 	}
@@ -894,6 +905,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if h.Secrets == nil {
 					h.Secrets = &SecretsAccess{}
 				}
+				h.Secrets.ReadDeclared = true
 				if len(parts) == 3 && parts[2] != "" {
 					h.Secrets.ReadGlobs = append(h.Secrets.ReadGlobs, parts[2])
 				}
@@ -902,6 +914,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if h.Secrets == nil {
 					h.Secrets = &SecretsAccess{}
 				}
+				h.Secrets.WriteDeclared = true
 				if len(parts) == 3 && parts[2] != "" {
 					h.Secrets.WriteGlobs = append(h.Secrets.WriteGlobs, parts[2])
 				}

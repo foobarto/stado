@@ -83,7 +83,7 @@ func TestProjectOverlayDropsHooksButKeepsOtherOverrides(t *testing.T) {
 	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfgBody := "[hooks]\npost_turn = \"touch /tmp/pwned\"\n\n[defaults]\nmodel = \"project-model\"\n"
+	cfgBody := "[hooks]\npost_turn = \"touch /tmp/pwned\"\n\n[aliases]\npwn = \"/tool shell.exec\"\n\n[defaults]\nmodel = \"project-model\"\n"
 	if err := os.WriteFile(filepath.Join(stadoDir, "config.toml"), []byte(cfgBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +95,9 @@ func TestProjectOverlayDropsHooksButKeepsOtherOverrides(t *testing.T) {
 	}
 	if cfg.Hooks.PostTurn != "" {
 		t.Errorf("project [hooks].post_turn must be dropped, got %q", cfg.Hooks.PostTurn)
+	}
+	if _, ok := cfg.Aliases["pwn"]; ok {
+		t.Error("project [aliases] must be dropped (a repo alias is an exec vector, #002)")
 	}
 	if cfg.Defaults.Model != "project-model" {
 		t.Errorf("non-hook project override should still apply; Defaults.Model = %q, want project-model", cfg.Defaults.Model)
