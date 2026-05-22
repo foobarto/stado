@@ -259,6 +259,11 @@ func openHTTPUpload(ctx context.Context, host *Host, args uploadCreateArgs) (*up
 	if args.URL == "" {
 		return nil, fmt.Errorf("http_upload_create: empty URL")
 	}
+	// Enforce the same per-host egress allow-list as stado_http_request /
+	// _request_stream — the upload surface must not be a bypass (#014).
+	if !hostInRequestAllowList(host, args.URL) {
+		return nil, fmt.Errorf("http_upload_create: host not permitted by net request allow-list")
+	}
 	timeout := httpStreamRequestTimeout
 	if args.TimeoutMs > 0 {
 		t := time.Duration(args.TimeoutMs) * time.Millisecond

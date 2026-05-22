@@ -71,6 +71,15 @@ func registerHTTPRequestImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
 				return
 			}
+			// The proxy host is dialed (and sees the request, incl. any creds),
+			// so it must clear the same allow-list — otherwise proxy_url is an
+			// egress bypass to an attacker-controlled host (#022).
+			if args.ProxyURL != "" && !hostInRequestAllowList(host, args.ProxyURL) {
+				u, _ := url.Parse(args.ProxyURL)
+				msg := []byte("proxy host \"" + strings.ToLower(u.Hostname()) + "\" denied by manifest")
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
+				return
+			}
 
 			resp, err := httpreq.Do(ctx, args, host.NetHTTPRequestPrivate)
 			if err != nil {

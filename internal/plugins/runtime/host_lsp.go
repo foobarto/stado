@@ -49,6 +49,18 @@ func registerLSPHoverImport(builder wazero.HostModuleBuilder, host *Host) {
 // registerLSPPositionalImport wires find_definition + hover — the two
 // imports that take {path, line, column}. References has an extra
 // include_declaration flag and is registered separately.
+// lspPathAllowed gates the requested file against the plugin's fs:read SCOPE,
+// not just workdir containment (which lspfind already enforces). Without it a
+// plugin with a narrow fs:read (e.g. fs:read:onlythisfile.go) could LSP-query
+// any file in the workdir (#012).
+func lspPathAllowed(host *Host, path string) bool {
+	abs, err := realPath(host.Workdir, path)
+	if err != nil {
+		return false
+	}
+	return host.allowRead(abs)
+}
+
 func registerLSPPositionalImport(builder wazero.HostModuleBuilder, host *Host, exportName string,
 	fn func(context.Context, lspfind.Args, string) (string, error)) {
 	builder.NewFunctionBuilder().
@@ -72,6 +84,11 @@ func registerLSPPositionalImport(builder wazero.HostModuleBuilder, host *Host, e
 			var args lspfind.Args
 			if err := json.Unmarshal(argsBytes, &args); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			if !lspPathAllowed(host, args.Path) {
+				msg := []byte(exportName + " denied: path outside the plugin's fs:read scope")
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
 				return
 			}
 			out, err := fn(ctx, args, host.Workdir)
@@ -115,6 +132,11 @@ func registerLSPFindReferencesImport(builder wazero.HostModuleBuilder, host *Hos
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
+			if !lspPathAllowed(host, args.Path) {
+				msg := []byte("stado_lsp_find_references denied: path outside the plugin's fs:read scope")
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
+				return
+			}
 			out, err := lspfind.FindReferences(ctx, args, host.Workdir)
 			if err != nil {
 				host.Logger.Warn("stado_lsp_find_references failed", slog.String("err", err.Error()))
@@ -154,6 +176,11 @@ func registerLSPDocumentSymbolsImport(builder wazero.HostModuleBuilder, host *Ho
 			var args lspfind.SymbolsArgs
 			if err := json.Unmarshal(argsBytes, &args); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			if !lspPathAllowed(host, args.Path) {
+				msg := []byte("stado_lsp_document_symbols denied: path outside the plugin's fs:read scope")
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
 				return
 			}
 			out, err := lspfind.DocumentSymbols(ctx, args, host.Workdir)
