@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/github/go-mod/go-version/foobarto/stado" alt="Go version">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/foobarto/stado" alt="License"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/foobarto/stado"><img src="https://api.securityscorecards.dev/projects/github.com/foobarto/stado/badge" alt="OpenSSF Scorecard"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-brightgreen" alt="Security Policy"></a>
 </p>
 
 # stado

@@ -1,0 +1,46 @@
+name: scorecard
+
+# OpenSSF Scorecard supply-chain analysis. The README badge
+# (api.securityscorecards.dev/.../badge) only populates once this workflow
+# runs with publish_results: true — previously the badge was present but had
+# no backing run, so it showed as unknown/broken.
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '20 7 * * 1' # weekly, Monday 07:20 UTC
+  push:
+    branches: [main]
+
+# Read-all by default; the analysis job opts into the two writes it needs.
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload SARIF to code scanning
+      id-token: write # publish results to the OpenSSF API (badge)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish to api.securityscorecards.dev so the README badge resolves.
+          publish_results: true
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
