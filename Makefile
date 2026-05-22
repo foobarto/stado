@@ -42,16 +42,30 @@ LDFLAGS  := -X main.version=$(VERSION) -X github.com/foobarto/stado/internal/ver
 
 .DEFAULT_GOAL := build
 
+# Bundled wasm are built from source (EP-0042 Part B), not committed. The
+# embed at internal/plugins/bundled/embed.go needs them present at compile
+# time, so build/install/test depend on `wasm`. `fs.wasm` is the staleness
+# sentinel: rebuild whenever build.sh or any bundled-plugin source changes.
+WASM_DIR        := internal/plugins/bundled/wasm
+WASM_SENTINEL   := $(WASM_DIR)/fs.wasm
+WASM_SRC        := $(shell find plugins/bundled -name '*.go' 2>/dev/null) plugins/bundled/build.sh
+
+$(WASM_SENTINEL): $(WASM_SRC)
+	bash plugins/bundled/build.sh
+
+.PHONY: wasm
+wasm: $(WASM_SENTINEL) ## Build the bundled wasm into internal/plugins/bundled/wasm/
+
 .PHONY: build
-build: ## Compile ./stado (default target)
+build: wasm ## Compile ./stado (default target)
 	$(GO) build $(GOFLAGS) -ldflags='$(LDFLAGS)' -o $(BIN) $(PKG)
 
 .PHONY: install
-install: ## Install ./stado into $(GOPATH)/bin
+install: wasm ## Install ./stado into $(GOPATH)/bin
 	$(GO) install $(GOFLAGS) -ldflags='$(LDFLAGS)' $(PKG)
 
 .PHONY: test
-test: ## Run the full test suite
+test: wasm ## Run the full test suite
 	$(GO) test -count=1 -timeout 180s ./...
 
 .PHONY: lint

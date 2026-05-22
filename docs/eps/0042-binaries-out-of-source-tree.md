@@ -122,6 +122,18 @@ the files to exist at compile time**. Today every `go build`, `make`, `go test`,
 and CI run works only because the bytes are committed. Removing them means a
 wasm-build step must precede any compile that needs the embed.
 
+**Consequence — `go install` is dropped (D6).** The embed is unconditional and
+has no PATH fallback (unlike the native rg/ast-grep, which are build-tag-gated).
+`go install …/cmd/stado@latest` builds from the module cache with no hook to run
+`build.sh`, so it cannot produce the wasm and the embed fails. The wasm are
+first-party core tools, so signing them is theatre (they ride the binary's
+cosign/minisign signature) and EP-39's trust model does not apply; the only
+reason to commit them was `go install`. We accept dropping `go install` — the
+"from source" path becomes `git clone && make`; release binaries (install.sh /
+brew, via the goreleaser before-hook) are unaffected. Fetching the wasm from
+`stado-plugins` was considered and rejected: it would obscure provenance and
+bolt needless trust machinery onto first-party code.
+
 Mechanism:
 
 1. **`make wasm`** (new target) runs `plugins/bundled/build.sh`, writing the 13
@@ -249,6 +261,27 @@ Phased; each phase ships independently and leaves the tree working.
   unpinned action, and workflow-edit path. EP-12 already keeps the analogous
   minisign trust root offline; the plugin anchor gets the same posture. Keyless
   OIDC is stronger still but is deferred future work (EP-39 §C item 2).
+
+### D6. Bundled wasm built from source; `go install` dropped
+
+- **Decided:** the 13 bundled wasm are built from source at build time
+  (`make wasm` / `//go:generate` / goreleaser before-hook / CI step),
+  gitignored, never committed, never signed, never fetched. `go install
+  …/cmd/stado@latest` is dropped; the "from source" path is `git clone && make`.
+- **Alternatives:** keep them committed + dismiss the BinaryArtifacts alerts as
+  by-design (preserves `go install`); fetch pre-built wasm from `stado-plugins`.
+- **Why:** committing embed assets obscures provenance (the binary embeds an
+  opaque blob, not auditably the source's output) and is the *only* reason
+  `go install` worked. Signing is theatre (the wasm ride the signed binary;
+  no author→installer boundary, so EP-39 does not apply). Fetching from
+  `stado-plugins` was rejected — same obscuring, plus needless trust machinery
+  on first-party code. Building from source makes the embed provably == source,
+  removes the binaries from the tree (clears 13 BinaryArtifacts), and a dep bump
+  is the whole fix. Cost: `go install` no longer works (accepted) and a
+  wasm-build step precedes every compile (Makefile/CI/goreleaser carry it).
+- **Settled 2026-05-22 (operator, twice). Do not re-litigate** — see the
+  surfaced decision index. Contrast: the native rg/ast-grep are third-party,
+  cannot be built from stado source, so they are fetched + sha256-verified.
 
 ## Related
 

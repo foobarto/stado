@@ -126,16 +126,19 @@ For the fully manual airgapped minisign flow, see
 ### From source
 
 ```sh
-go install github.com/foobarto/stado/cmd/stado@latest
-# or, from a clone:
 git clone https://github.com/foobarto/stado && cd stado && make
 ```
 
-Go 1.25+. Pure Go, `CGO_ENABLED=0` works. No native deps — official
-release binaries bundle `rg` and `ast-grep` via `go:embed` (extracted
-on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified). Source
-builds (`go install` / `make`) skip the embed and fall back to the
-system PATH; `gopls` is optional and always resolved via PATH.
+Build via `make`, not bare `go build`/`go install`: the bundled wasm tools are
+compiled from source (`make wasm`) and `//go:embed`'d into the binary, so a
+checkout is required — `go install …@latest` is **not** supported (the embed
+has no committed wasm to find; EP-0042). Go 1.25+, pure Go (`CGO_ENABLED=0`).
+Native `rg`/`ast-grep` are fetched + embedded only in official release builds
+(extracted on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified);
+source/`make` builds fall back to the system PATH. `gopls` is optional, always
+via PATH. Dev/source builds do not pin the release minisign roots unless you
+pass the release ldflags. `make help` lists the dev-loop targets
+(`test`, `lint`, `check`, etc.).
 Dev/source builds do not pin the release minisign roots unless you
 pass the release ldflags. `make help` lists the dev-loop targets
 (`test`, `lint`, `check`, etc.).
