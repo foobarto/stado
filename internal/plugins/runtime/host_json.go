@@ -7,15 +7,15 @@
 //
 // Surface kept narrow on purpose:
 //
-//   stado_json_get(json, dotted_path, out, out_max) → i32
-//     Extracts one value at the dotted path. Returns canonical JSON
-//     bytes of the extracted value (so a number is `42`, a string is
-//     `"hello"` with quotes, an object/array is round-trippable).
-//     -1 on malformed input / missing path / out_max too small.
+//	stado_json_get(json, dotted_path, out, out_max) → i32
+//	  Extracts one value at the dotted path. Returns canonical JSON
+//	  bytes of the extracted value (so a number is `42`, a string is
+//	  `"hello"` with quotes, an object/array is round-trippable).
+//	  -1 on malformed input / missing path / out_max too small.
 //
-//   stado_json_format(json, indent, out, out_max) → i32
-//     Pretty-prints (indent > 0 = N-space indent; 0 = compact).
-//     -1 on malformed input / out_max too small.
+//	stado_json_format(json, indent, out, out_max) → i32
+//	  Pretty-prints (indent > 0 = N-space indent; 0 = compact).
+//	  -1 on malformed input / out_max too small.
 //
 // No `_set`, `_parse` (implicit), or jq-style queries — out of scope
 // for v1. Plugins compose multiple `_get` calls when needed.
@@ -108,7 +108,8 @@ func registerJSONFormatImport(builder wazero.HostModuleBuilder, host *Host) {
 }
 
 // stado_json_set(json_ptr, json_len, path_ptr, path_len,
-//                value_ptr, value_len, out_ptr, out_max) → i32
+//
+//	value_ptr, value_len, out_ptr, out_max) → i32
 //
 // Sets the value at the dotted path in the JSON document. The
 // `value` payload must itself be valid JSON — it's parsed and

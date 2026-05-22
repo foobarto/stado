@@ -80,9 +80,9 @@ func BuildRequestHandler(cfg ToolHostConfig) acp.RequestHandler {
 // acpPermissionParams matches session/request_permission params:
 // `{sessionId, toolCall: {toolCallId, ...}, options: [{optionId, name, kind}]}`.
 type acpPermissionParams struct {
-	SessionID string                   `json:"sessionId"`
-	ToolCall  map[string]any           `json:"toolCall"`
-	Options   []acpPermissionOption    `json:"options"`
+	SessionID string                `json:"sessionId"`
+	ToolCall  map[string]any        `json:"toolCall"`
+	Options   []acpPermissionOption `json:"options"`
 }
 
 type acpPermissionOption struct {

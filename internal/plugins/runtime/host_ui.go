@@ -62,10 +62,10 @@ func registerUIApprovalImport(builder wazero.HostModuleBuilder, host *Host) {
 // Mirrors ChoiceRequest but uses lowercased field names so plugin
 // authors writing JSON literals don't trip on Go capitalisation.
 type chooseRequestWire struct {
-	Prompt  string                  `json:"prompt"`
-	Options []chooseOptionWire      `json:"options"`
-	Multi   bool                    `json:"multi"`
-	Default []string                `json:"default"`
+	Prompt  string             `json:"prompt"`
+	Options []chooseOptionWire `json:"options"`
+	Multi   bool               `json:"multi"`
+	Default []string           `json:"default"`
 }
 
 type chooseOptionWire struct {

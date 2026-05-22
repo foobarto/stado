@@ -502,11 +502,13 @@ type daemonToolHost struct {
 func (h *daemonToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h *daemonToolHost) Workdir() string                                 { return h.workdir }
-func (h *daemonToolHost) Runner() sandbox.Runner                          { return h.runner }
-func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
-func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)       {}
-func (h *daemonToolHost) PTYManager() any                                  { return h.pty }
+func (h *daemonToolHost) Workdir() string        { return h.workdir }
+func (h *daemonToolHost) Runner() sandbox.Runner { return h.runner }
+func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
+func (h *daemonToolHost) PTYManager() any                             { return h.pty }
 
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider — plugins
 // calling stado_exec / stado_proc_spawn through the daemon get the

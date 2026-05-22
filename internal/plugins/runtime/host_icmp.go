@@ -5,9 +5,9 @@
 //
 // ABI:
 //
-//   stado_net_icmp_echo(args_json, out, out_max) → i32
-//   args: {host, timeout_ms, count?, payload_size?}
-//   result: {rtts_ms: [...], sent, received, error?}
+//	stado_net_icmp_echo(args_json, out, out_max) → i32
+//	args: {host, timeout_ms, count?, payload_size?}
+//	result: {rtts_ms: [...], sent, received, error?}
 //
 // Capability: net:icmp.
 //

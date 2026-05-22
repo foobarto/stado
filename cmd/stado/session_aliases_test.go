@@ -11,8 +11,8 @@ import (
 // alias while refactoring the Use/Short fields.
 func TestSessionAliases_ShortcutsAttached(t *testing.T) {
 	cases := []struct {
-		name    string
-		cmd     *struct {
+		name string
+		cmd  *struct {
 			aliases []string
 			use     string
 		}

@@ -138,4 +138,3 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	fmt.Fprintln(in.Stdout, res.Content)
 	return nil
 }
-

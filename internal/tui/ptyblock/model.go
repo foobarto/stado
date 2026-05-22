@@ -153,14 +153,14 @@ func New(id uint64, cols, rows int, snap Snapshotter, opts *RenderOpts) Model {
 		ro = *opts
 	}
 	return Model{
-		id:                  id,
-		cols:                cols,
-		rows:                rows,
-		snap:                snap,
-		focusedTickEvery:    defaultFocusedTickEvery,
-		unfocusedTickEvery:  defaultUnfocusedTickEvery,
-		state:               statePolling,
-		renderOpts:          ro,
+		id:                 id,
+		cols:               cols,
+		rows:               rows,
+		snap:               snap,
+		focusedTickEvery:   defaultFocusedTickEvery,
+		unfocusedTickEvery: defaultUnfocusedTickEvery,
+		state:              statePolling,
+		renderOpts:         ro,
 	}
 }
 

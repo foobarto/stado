@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	stateMaxValueBytes = 1 << 20 // 1 MB per key
+	stateMaxValueBytes = 1 << 20  // 1 MB per key
 	stateMaxTotalBytes = 16 << 20 // 16 MB per plugin
 )
 
@@ -80,7 +80,7 @@ func (s *StateAccess) CanWrite(key string) bool {
 type InstanceStore struct {
 	mu      sync.Mutex
 	entries map[string]map[string][]byte // pluginName → key → value
-	totals  map[string]int                // pluginName → cumulative bytes
+	totals  map[string]int               // pluginName → cumulative bytes
 }
 
 // NewInstanceStore returns an empty in-memory KV store.

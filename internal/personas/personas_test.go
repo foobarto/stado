@@ -58,14 +58,14 @@ func TestParsePersona_UnclosedFrontmatter(t *testing.T) {
 
 func TestValidName(t *testing.T) {
 	cases := map[string]bool{
-		"":                     false,
-		"a":                    true,
-		"prose-writer":         true,
-		"prose_writer":         true,
-		"PROSE":                false, // uppercase
-		"writer.exe":           false,
-		"../escape":            false,
-		"writer/sub":           false,
+		"":                      false,
+		"a":                     true,
+		"prose-writer":          true,
+		"prose_writer":          true,
+		"PROSE":                 false, // uppercase
+		"writer.exe":            false,
+		"../escape":             false,
+		"writer/sub":            false,
 		strings.Repeat("a", 65): false,
 	}
 	for in, want := range cases {

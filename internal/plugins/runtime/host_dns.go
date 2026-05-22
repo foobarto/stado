@@ -257,8 +257,8 @@ func registerDNSResolveImport(builder wazero.HostModuleBuilder, host *Host) {
 			payload, _ := json.Marshal(res)
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_dns_resolve")
 }
 

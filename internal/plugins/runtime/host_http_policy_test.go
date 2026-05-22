@@ -14,10 +14,10 @@ import "testing"
 // Malformed URLs fail closed.
 func TestHostInRequestAllowList(t *testing.T) {
 	cases := []struct {
-		name        string
-		netReqHost  []string
-		url         string
-		want        bool
+		name       string
+		netReqHost []string
+		url        string
+		want       bool
 	}{
 		{
 			name:       "empty allowlist (broad cap) lets any host through",

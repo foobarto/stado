@@ -112,9 +112,9 @@ func TestRender_ControlCharsBecomeSpaces(t *testing.T) {
 // `\x1b[ … m` introducers.
 func TestRender_StyleEscapesEmitted(t *testing.T) {
 	cases := []struct {
-		name      string
-		attrs     uint16
-		wantSGR   string // single SGR digit we expect to appear in a CSI
+		name    string
+		attrs   uint16
+		wantSGR string // single SGR digit we expect to appear in a CSI
 	}{
 		{"bold", pty.AttrBold, "1"},
 		{"italic", pty.AttrItalic, "3"},

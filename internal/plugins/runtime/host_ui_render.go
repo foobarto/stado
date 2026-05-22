@@ -16,11 +16,11 @@ import (
 //
 // Spec: F9b (.agent/specs/open/f9b-ui-render.md). F9b.1 (2026-05-09).
 type renderRequestWire struct {
-	Title    string             `json:"title"`
-	Sections []sectionWire      `json:"sections"`
-	Variant  string             `json:"variant,omitempty"`
-	ID       string             `json:"id,omitempty"`
-	Footer   string             `json:"footer,omitempty"`
+	Title    string        `json:"title"`
+	Sections []sectionWire `json:"sections"`
+	Variant  string        `json:"variant,omitempty"`
+	ID       string        `json:"id,omitempty"`
+	Footer   string        `json:"footer,omitempty"`
 	// reserved for forward-compat: when adding optional metadata,
 	// extend renderRequestWire here, not via untagged map["any"].
 	_ struct{} `json:"-"`

@@ -80,9 +80,11 @@ type NullHost struct{}
 func (NullHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (NullHost) Workdir() string                                        { return "" }
-func (NullHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool)      { return tool.PriorReadInfo{}, false }
-func (NullHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)            {}
+func (NullHost) Workdir() string { return "" }
+func (NullHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (NullHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 // Compile-time assertion that NullHost satisfies the interface.
 var _ tool.Host = NullHost{}

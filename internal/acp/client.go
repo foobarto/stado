@@ -133,11 +133,11 @@ func (c *Client) readLoop() {
 		// or a Notification (has method, no id). Both share the
 		// jsonrpc field.
 		var probe struct {
-			ID     *int64           `json:"id"`
-			Method string           `json:"method"`
-			Result json.RawMessage  `json:"result"`
-			Error  *RPCError        `json:"error"`
-			Params json.RawMessage  `json:"params"`
+			ID     *int64          `json:"id"`
+			Method string          `json:"method"`
+			Result json.RawMessage `json:"result"`
+			Error  *RPCError       `json:"error"`
+			Params json.RawMessage `json:"params"`
 		}
 		if err := json.Unmarshal(line, &probe); err != nil {
 			// malformed — ignore (some agents print non-JSON greetings)

@@ -211,9 +211,6 @@ func (m *Model) layout() {
 
 // Sidebar rendering + width management moved to sidebar.go.
 
-
-
-
 // renderStatus runs the bottom status template (right-aligned muted
 // tokens/cost + ctrl+p commands hint, plus an optional left-side
 // state indicator when busy).

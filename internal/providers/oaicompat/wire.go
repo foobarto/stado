@@ -31,11 +31,11 @@ type chatFunctionSpec struct {
 }
 
 type chatMessage struct {
-	Role       string            `json:"role"`
-	Content    any               `json:"content,omitempty"` // string | []contentPart | null
-	ToolCalls  []chatToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
-	Name       string            `json:"name,omitempty"`
+	Role       string         `json:"role"`
+	Content    any            `json:"content,omitempty"` // string | []contentPart | null
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	Name       string         `json:"name,omitempty"`
 }
 
 type contentPart struct {
@@ -62,16 +62,16 @@ type chatFunctionCall struct {
 
 // Streaming response chunk.
 type chatChunk struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
+	ID      string        `json:"id"`
+	Object  string        `json:"object"`
 	Choices []chunkChoice `json:"choices"`
-	Usage   *usageWire   `json:"usage,omitempty"`
+	Usage   *usageWire    `json:"usage,omitempty"`
 }
 
 type chunkChoice struct {
-	Index        int       `json:"index"`
+	Index        int        `json:"index"`
 	Delta        chunkDelta `json:"delta"`
-	FinishReason *string   `json:"finish_reason,omitempty"`
+	FinishReason *string    `json:"finish_reason,omitempty"`
 }
 
 type chunkDelta struct {

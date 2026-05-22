@@ -95,11 +95,11 @@ func TestSecretsAccess_Audit_CallsEmitter(t *testing.T) {
 
 func TestNewHost_SecretsCapParsing(t *testing.T) {
 	tests := []struct {
-		name        string
-		caps        []string
-		wantNil     bool
-		readGlobs   []string
-		writeGlobs  []string
+		name       string
+		caps       []string
+		wantNil    bool
+		readGlobs  []string
+		writeGlobs []string
 	}{
 		{
 			name:    "no secrets caps → Secrets nil",
@@ -210,8 +210,8 @@ func TestSecretsAccess_Integration_ReadAllowed(t *testing.T) {
 
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
-		Store:      store,
-		ReadDeclared: true, ReadGlobs:  []string{"api_*"},
+		Store:        store,
+		ReadDeclared: true, ReadGlobs: []string{"api_*"},
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
 			events = append(events, ev)
@@ -240,8 +240,8 @@ func TestSecretsAccess_Integration_ReadDenied(t *testing.T) {
 
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
-		Store:      store,
-		ReadDeclared: true, ReadGlobs:  []string{"api_*"},
+		Store:        store,
+		ReadDeclared: true, ReadGlobs: []string{"api_*"},
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
 			events = append(events, ev)
@@ -269,7 +269,7 @@ func TestSecretsAccess_Integration_WriteDenied(t *testing.T) {
 	store, _ := makeSecretsStore(t)
 	var events []SecretsAuditEvent
 	sa := &SecretsAccess{
-		Store:      store,
+		Store:         store,
 		WriteDeclared: true, WriteGlobs: []string{"cache_*"}, // only cache_* writable
 		PluginName: "myplugin",
 		AuditEmitter: func(ev SecretsAuditEvent) {
@@ -291,8 +291,8 @@ func TestSecretsAccess_Integration_BroadRead(t *testing.T) {
 	putSecret(t, store, stateDir, "anything", "val")
 
 	sa := &SecretsAccess{
-		Store:      store,
-		ReadDeclared: true, ReadGlobs:  nil, // broad
+		Store:        store,
+		ReadDeclared: true, ReadGlobs: nil, // broad
 		PluginName: "myplugin",
 	}
 	if !sa.CanRead("anything") {

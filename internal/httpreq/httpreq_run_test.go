@@ -5,7 +5,7 @@ package httpreq
 import (
 	"context"
 	"encoding/base64"
-	
+
 	"io"
 	"net"
 	"net/http"
@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 )
-
 
 // withTestServer swaps the dial guard so the test server (loopback)
 // is reachable. Restored on cleanup. Real-world dial guard remains

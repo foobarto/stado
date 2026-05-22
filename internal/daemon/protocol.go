@@ -61,29 +61,29 @@ const MaxRequestBytes = 32 << 20
 // for protocol-level errors; we use -32000…-32099 for stado-specific ones
 // so they don't collide with parse-error etc.
 const (
-	ErrCodeParse             = -32700
-	ErrCodeInvalidRequest    = -32600
-	ErrCodeMethodNotFound    = -32601
-	ErrCodeInvalidParams     = -32602
-	ErrCodeInternal          = -32603
-	ErrCodeServerShutdown    = -32000
-	ErrCodeVersionSkew       = -32001
-	ErrCodeToolNotFound      = -32010
-	ErrCodeToolDenied        = -32011
-	ErrCodeSessionNotFound   = -32012
-	ErrCodeProjectMismatch   = -32013
+	ErrCodeParse           = -32700
+	ErrCodeInvalidRequest  = -32600
+	ErrCodeMethodNotFound  = -32601
+	ErrCodeInvalidParams   = -32602
+	ErrCodeInternal        = -32603
+	ErrCodeServerShutdown  = -32000
+	ErrCodeVersionSkew     = -32001
+	ErrCodeToolNotFound    = -32010
+	ErrCodeToolDenied      = -32011
+	ErrCodeSessionNotFound = -32012
+	ErrCodeProjectMismatch = -32013
 )
 
 // JSON-RPC method names. Every request carries a method from this list;
 // unknown methods get ErrCodeMethodNotFound.
 const (
-	MethodHandshake     = "daemon.handshake"
-	MethodStatus        = "daemon.status"
-	MethodShutdown      = "daemon.shutdown"
-	MethodToolCall      = "tool.call"
-	MethodToolList      = "tool.list"
-	MethodSessionList   = "session.list"
-	MethodSessionKill   = "session.kill"
+	MethodHandshake   = "daemon.handshake"
+	MethodStatus      = "daemon.status"
+	MethodShutdown    = "daemon.shutdown"
+	MethodToolCall    = "tool.call"
+	MethodToolList    = "tool.list"
+	MethodSessionList = "session.list"
+	MethodSessionKill = "session.kill"
 )
 
 // Request is a JSON-RPC 2.0 request envelope. ID is a raw json.RawMessage
@@ -145,17 +145,17 @@ type HandshakeResult struct {
 // StatusResult is the daemon.status payload. Suitable for `stado daemon
 // status` rendering and operator-facing observability.
 type StatusResult struct {
-	ServerVersion string    `json:"server_version"`
-	StadoVersion  string    `json:"stado_version"`
-	StartedAt     time.Time `json:"started_at"`
-	UptimeSec     int64     `json:"uptime_sec"`
-	DaemonPID     int       `json:"daemon_pid"`
-	SocketPath    string    `json:"socket_path"`
-	Projects      int       `json:"projects"`
-	LiveSessions  int       `json:"live_sessions"`
-	TotalCalls    uint64    `json:"total_calls"`
-	IdleSec       int64     `json:"idle_sec"`
-	IdleTimeoutSec int64    `json:"idle_timeout_sec"`
+	ServerVersion  string    `json:"server_version"`
+	StadoVersion   string    `json:"stado_version"`
+	StartedAt      time.Time `json:"started_at"`
+	UptimeSec      int64     `json:"uptime_sec"`
+	DaemonPID      int       `json:"daemon_pid"`
+	SocketPath     string    `json:"socket_path"`
+	Projects       int       `json:"projects"`
+	LiveSessions   int       `json:"live_sessions"`
+	TotalCalls     uint64    `json:"total_calls"`
+	IdleSec        int64     `json:"idle_sec"`
+	IdleTimeoutSec int64     `json:"idle_timeout_sec"`
 }
 
 // ShutdownParams is the payload for daemon.shutdown. Force=true skips the

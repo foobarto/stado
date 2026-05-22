@@ -52,8 +52,8 @@ func registerAgentSpawnImport(builder wazero.HostModuleBuilder, host *Host) {
 			payload, _ := json.Marshal(result)
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_spawn")
 }
 
@@ -76,8 +76,8 @@ func registerAgentListImport(builder wazero.HostModuleBuilder, host *Host) {
 			payload, _ := json.Marshal(entries)
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_list")
 }
 
@@ -117,8 +117,8 @@ func registerAgentReadMessagesImport(builder wazero.HostModuleBuilder, host *Hos
 			payload, _ := json.Marshal(msgs)
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_read_messages")
 }
 
@@ -154,8 +154,8 @@ func registerAgentSendMessageImport(builder wazero.HostModuleBuilder, host *Host
 			}
 			stack[0] = api.EncodeI32(0)
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_send_message")
 }
 
@@ -191,7 +191,7 @@ func registerAgentCancelImport(builder wazero.HostModuleBuilder, host *Host) {
 			payload, _ := json.Marshal(map[string]bool{"ok": true})
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_agent_cancel")
 }

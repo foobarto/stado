@@ -14,16 +14,16 @@ import (
 // fakeTool captures Run() inputs for assertion and returns canned
 // outputs.
 type fakeTool struct {
-	name        string
-	gotArgs     json.RawMessage
-	gotHost     tool.Host
-	returnRes   tool.Result
-	returnErr   error
+	name      string
+	gotArgs   json.RawMessage
+	gotHost   tool.Host
+	returnRes tool.Result
+	returnErr error
 }
 
-func (f *fakeTool) Name() string                      { return f.name }
-func (f *fakeTool) Description() string               { return "" }
-func (f *fakeTool) Schema() map[string]any            { return nil }
+func (f *fakeTool) Name() string           { return f.name }
+func (f *fakeTool) Description() string    { return "" }
+func (f *fakeTool) Schema() map[string]any { return nil }
 func (f *fakeTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (tool.Result, error) {
 	f.gotArgs = args
 	f.gotHost = h
@@ -38,15 +38,17 @@ type stubHost struct{ workdir string }
 func (h *stubHost) Approve(ctx context.Context, req tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h *stubHost) Workdir() string                                  { return h.workdir }
-func (h *stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
-func (h *stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)       {}
+func (h *stubHost) Workdir() string { return h.workdir }
+func (h *stubHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h *stubHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 
 func TestRequestHandler_UnknownMethod_ReturnsMethodNotFound(t *testing.T) {
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: &fakeTool{name: "read"},
+		ReadTool:  &fakeTool{name: "read"},
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	_, err := h(context.Background(), "does/not/exist", json.RawMessage(`{}`))
 	var rpcErr *acp.RPCError
@@ -61,9 +63,9 @@ func TestRequestHandler_UnknownMethod_ReturnsMethodNotFound(t *testing.T) {
 func TestReadTextFile_FullFile_TranslatesPath(t *testing.T) {
 	read := &fakeTool{name: "read", returnRes: tool.Result{Content: "hello\nworld\n"}}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{workdir: "/tmp"},
+		Host:      &stubHost{workdir: "/tmp"},
 	})
 	params := json.RawMessage(`{"sessionId":"s1","path":"/abs/file.txt"}`)
 	got, err := h(context.Background(), "fs/read_text_file", params)
@@ -101,9 +103,9 @@ func TestReadTextFile_FullFile_TranslatesPath(t *testing.T) {
 func TestReadTextFile_LineAndLimit_TranslatesToStartEnd(t *testing.T) {
 	read := &fakeTool{name: "read", returnRes: tool.Result{Content: "x"}}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	// line=10, limit=5 → start=10, end=14
 	params := json.RawMessage(`{"sessionId":"s1","path":"/x","line":10,"limit":5}`)
@@ -129,9 +131,9 @@ func TestReadTextFile_LineAndLimit_TranslatesToStartEnd(t *testing.T) {
 func TestReadTextFile_LineOnly_NoLimit_OmitsEnd(t *testing.T) {
 	read := &fakeTool{name: "read", returnRes: tool.Result{Content: "x"}}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	params := json.RawMessage(`{"sessionId":"s1","path":"/x","line":5}`)
 	if _, err := h(context.Background(), "fs/read_text_file", params); err != nil {
@@ -153,9 +155,9 @@ func TestReadTextFile_LineOnly_NoLimit_OmitsEnd(t *testing.T) {
 
 func TestReadTextFile_MissingPath_ReturnsInvalidParams(t *testing.T) {
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: &fakeTool{name: "read"},
+		ReadTool:  &fakeTool{name: "read"},
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	_, err := h(context.Background(), "fs/read_text_file", json.RawMessage(`{"sessionId":"s1"}`))
 	var rpcErr *acp.RPCError
@@ -170,9 +172,9 @@ func TestReadTextFile_MissingPath_ReturnsInvalidParams(t *testing.T) {
 func TestReadTextFile_ToolReturnsError_BecomesInternalError(t *testing.T) {
 	read := &fakeTool{name: "read", returnErr: errors.New("permission denied")}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	_, err := h(context.Background(), "fs/read_text_file", json.RawMessage(`{"sessionId":"s1","path":"/x"}`))
 	var rpcErr *acp.RPCError
@@ -192,9 +194,9 @@ func TestReadTextFile_ToolResultErrorString_Surfaces(t *testing.T) {
 	// error string should still surface in the ACP response.
 	read := &fakeTool{name: "read", returnRes: tool.Result{Error: "file not found"}}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	_, err := h(context.Background(), "fs/read_text_file", json.RawMessage(`{"sessionId":"s1","path":"/x"}`))
 	var rpcErr *acp.RPCError
@@ -209,9 +211,9 @@ func TestReadTextFile_ToolResultErrorString_Surfaces(t *testing.T) {
 func TestWriteTextFile_TranslatesArgs(t *testing.T) {
 	write := &fakeTool{name: "write"}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: &fakeTool{name: "read"},
+		ReadTool:  &fakeTool{name: "read"},
 		WriteTool: write,
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	params := json.RawMessage(`{"sessionId":"s1","path":"/abs/x","content":"new\n"}`)
 	got, err := h(context.Background(), "fs/write_text_file", params)
@@ -239,9 +241,9 @@ func TestWriteTextFile_TranslatesArgs(t *testing.T) {
 
 func TestWriteTextFile_MissingPath_InvalidParams(t *testing.T) {
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: &fakeTool{name: "read"},
+		ReadTool:  &fakeTool{name: "read"},
 		WriteTool: &fakeTool{name: "write"},
-		Host:     &stubHost{},
+		Host:      &stubHost{},
 	})
 	_, err := h(context.Background(), "fs/write_text_file", json.RawMessage(`{"sessionId":"s1","content":"x"}`))
 	var rpcErr *acp.RPCError
@@ -372,9 +374,9 @@ func TestReadTextFile_HostPassedThrough(t *testing.T) {
 	read := &fakeTool{name: "read", returnRes: tool.Result{Content: "x"}}
 	host := &stubHost{workdir: "/specific"}
 	h := BuildRequestHandler(ToolHostConfig{
-		ReadTool: read,
+		ReadTool:  read,
 		WriteTool: &fakeTool{name: "write"},
-		Host:     host,
+		Host:      host,
 	})
 	if _, err := h(context.Background(), "fs/read_text_file", json.RawMessage(`{"sessionId":"s1","path":"/x"}`)); err != nil {
 		t.Fatalf("unexpected error: %v", err)

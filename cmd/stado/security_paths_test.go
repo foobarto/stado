@@ -96,4 +96,3 @@ func TestSessionLand_RejectsInvalidBranchName(t *testing.T) {
 		t.Fatalf("branch ref = %q", got)
 	}
 }
-

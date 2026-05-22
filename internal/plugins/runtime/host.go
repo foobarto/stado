@@ -129,10 +129,10 @@ type Host struct {
 	// opts.AllowedHosts is empty (allow-all), the client can only reach hosts
 	// the operator approved via net:http_request:<host>.
 	NetHTTPClient bool
-	ExecBash    bool
-	ExecSearch  bool
-	ExecASTGrep bool
-	ExecPTY     bool
+	ExecBash      bool
+	ExecSearch    bool
+	ExecASTGrep   bool
+	ExecPTY       bool
 	// ExecProc gates stado_proc_* and stado_exec (EP-0038 §B Tier 1).
 	// ExecProcGlobs, when non-empty, restricts to any of the listed
 	// exec:proc:<glob> patterns. An empty list means broad exec:proc.
@@ -159,7 +159,7 @@ type Host struct {
 	// CryptoHash gates stado_hash and stado_hmac (EP-0038 §B Tier 3).
 	CryptoHash bool
 	// Compress gates stado_compress / stado_decompress (Tier 3).
-	Compress bool
+	Compress   bool
 	LSPQuery   bool
 	UIApproval bool
 	// UIChoice gates stado_ui_choose — operator-facing single /
@@ -457,8 +457,8 @@ type ChoiceRequest struct {
 type ChoiceOption struct {
 	ID     string
 	Label  string
-	Prefix string        // F10: read-only decoration shown alongside the input field
-	Input  *ChoiceInput  // F10: nil = pure choice row (pre-F10 behaviour)
+	Prefix string       // F10: read-only decoration shown alongside the input field
+	Input  *ChoiceInput // F10: nil = pure choice row (pre-F10 behaviour)
 }
 
 // ChoiceInput is the optional editable field on a ChoiceOption.
@@ -628,12 +628,12 @@ type FleetBridge interface {
 
 // AgentSpawnRequest is the input to FleetBridge.AgentSpawn.
 type AgentSpawnRequest struct {
-	Prompt        string
-	Model         string
-	Async         bool
-	Ephemeral     bool
-	ParentSession string // empty = use caller's session
-	AllowedTools  []string
+	Prompt         string
+	Model          string
+	Async          bool
+	Ephemeral      bool
+	ParentSession  string // empty = use caller's session
+	AllowedTools   []string
 	SandboxProfile string
 	// Persona names the operating manual the child runs under.
 	// Empty = inherit the parent's active persona. Empty +
@@ -652,13 +652,13 @@ type AgentSpawnResult struct {
 
 // AgentListEntry is one entry from FleetBridge.AgentList.
 type AgentListEntry struct {
-	ID          string  `json:"id"`
-	SessionID   string  `json:"session_id"`
-	Status      string  `json:"status"`
-	Model       string  `json:"model"`
-	StartedAt   string  `json:"started_at"`
-	LastTurnAt  string  `json:"last_turn_at,omitempty"`
-	CostUSD     float64 `json:"cost_usd,omitempty"`
+	ID         string  `json:"id"`
+	SessionID  string  `json:"session_id"`
+	Status     string  `json:"status"`
+	Model      string  `json:"model"`
+	StartedAt  string  `json:"started_at"`
+	LastTurnAt string  `json:"last_turn_at,omitempty"`
+	CostUSD    float64 `json:"cost_usd,omitempty"`
 }
 
 // AgentMessages is the result of FleetBridge.AgentReadMessages.
@@ -670,11 +670,11 @@ type AgentMessages struct {
 
 // AgentMessage is one item in AgentMessages.
 type AgentMessage struct {
-	Role    string          `json:"role"`             // "assistant" or "external_input"
-	Content string          `json:"content,omitempty"`
-	Source  string          `json:"source,omitempty"` // for external_input events
-	Offset  int             `json:"offset,omitempty"`
-	Summary string          `json:"summary,omitempty"`
+	Role    string `json:"role"` // "assistant" or "external_input"
+	Content string `json:"content,omitempty"`
+	Source  string `json:"source,omitempty"` // for external_input events
+	Offset  int    `json:"offset,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 // NewHost parses a manifest's capabilities into a Host.

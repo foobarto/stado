@@ -54,7 +54,7 @@ func registerBundledBinImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, []byte(path)))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_bundled_bin")
 }

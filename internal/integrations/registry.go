@@ -116,13 +116,13 @@ func KnownIntegrations() []Integration {
 			ACPArgs:     []string{"--acp"},
 		},
 		{
-			Name:              "codex",
-			DisplayName:       "Codex CLI (OpenAI)",
-			Binaries:          []string{"codex"},
-			ConfigPaths:       []string{".codex", ".config/codex"},
-			Protocols:         []Protocol{ProtocolACP, ProtocolMCP}, // ACP listed for parity but unimplemented; MCP is the wrap path
-			HelpURL:           "https://github.com/openai/codex",
-			VersionArg:        "--version",
+			Name:        "codex",
+			DisplayName: "Codex CLI (OpenAI)",
+			Binaries:    []string{"codex"},
+			ConfigPaths: []string{".codex", ".config/codex"},
+			Protocols:   []Protocol{ProtocolACP, ProtocolMCP}, // ACP listed for parity but unimplemented; MCP is the wrap path
+			HelpURL:     "https://github.com/openai/codex",
+			VersionArg:  "--version",
 			// codex doesn't expose a stdio ACP-agent mode; ACPArgs left empty
 			// so the auto-fallback won't synthesize a broken acp provider.
 			MCPWrapTools:      [2]string{"codex", "codex-reply"},

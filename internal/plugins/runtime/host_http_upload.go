@@ -11,22 +11,22 @@
 //
 // Three imports:
 //
-//   stado_http_upload_create(args_json, out, out_max) → i32
-//     Opens an upload. Returns JSON `{"upload_handle": <u32>}` on
-//     success (positive byte count). args: method/url/headers/
-//     timeout_ms/content_length. Body is NOT in args.
+//	stado_http_upload_create(args_json, out, out_max) → i32
+//	  Opens an upload. Returns JSON `{"upload_handle": <u32>}` on
+//	  success (positive byte count). args: method/url/headers/
+//	  timeout_ms/content_length. Body is NOT in args.
 //
-//   stado_http_upload_write(upload_handle, data, data_len) → i32
-//     Writes one chunk to the request body. Returns bytes written
-//     or -1 on error / unknown handle. Plugin loops calling this
-//     until the body is fully delivered.
+//	stado_http_upload_write(upload_handle, data, data_len) → i32
+//	  Writes one chunk to the request body. Returns bytes written
+//	  or -1 on error / unknown handle. Plugin loops calling this
+//	  until the body is fully delivered.
 //
-//   stado_http_upload_finish(upload_handle, out, out_max) → i32
-//     Closes the body writer, waits for the in-flight request to
-//     return, writes the response JSON `{status, headers,
-//     body_handle}` to out, frees the upload handle. The returned
-//     body_handle is a httpresp:<id> the plugin drains via
-//     stado_http_response_read/_response_close.
+//	stado_http_upload_finish(upload_handle, out, out_max) → i32
+//	  Closes the body writer, waits for the in-flight request to
+//	  return, writes the response JSON `{status, headers,
+//	  body_handle}` to out, frees the upload handle. The returned
+//	  body_handle is a httpresp:<id> the plugin drains via
+//	  stado_http_response_read/_response_close.
 //
 // Handle type: HandleTypeHTTPUpload ("httpup"). Per-Runtime cap:
 // maxHTTPUploadsPerRuntime (8). Reaper: closeAllHTTPUploads.

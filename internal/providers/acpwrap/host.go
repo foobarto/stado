@@ -36,7 +36,9 @@ func NewDefaultHost(workdir string, runner sandbox.Runner) DefaultHost {
 func (h DefaultHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
 	return tool.DecisionAllow, nil
 }
-func (h DefaultHost) Workdir() string                                  { return h.workdir }
-func (h DefaultHost) Runner() sandbox.Runner                           { return h.runner }
-func (h DefaultHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) { return tool.PriorReadInfo{}, false }
-func (h DefaultHost) RecordRead(tool.ReadKey, tool.PriorReadInfo)       {}
+func (h DefaultHost) Workdir() string        { return h.workdir }
+func (h DefaultHost) Runner() sandbox.Runner { return h.runner }
+func (h DefaultHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h DefaultHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}

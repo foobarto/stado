@@ -16,16 +16,16 @@ import (
 // leave its flag zero-valued.
 func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 	cases := []struct {
-		name      string
-		caps      []string
-		wantObs   bool
-		wantRead  bool
-		wantFork  bool
-		wantLLM   int
+		name     string
+		caps     []string
+		wantObs  bool
+		wantRead bool
+		wantFork bool
+		wantLLM  int
 	}{
 		{
-			name: "all-four-with-default-budget",
-			caps: []string{"session:observe", "session:read", "session:fork", "llm:invoke"},
+			name:    "all-four-with-default-budget",
+			caps:    []string{"session:observe", "session:read", "session:fork", "llm:invoke"},
 			wantObs: true, wantRead: true, wantFork: true,
 			wantLLM: 10000, // default when no suffix
 		},
@@ -50,13 +50,13 @@ func TestNewHost_ParsesSessionCapabilities(t *testing.T) {
 			wantLLM: 10000,
 		},
 		{
-			name: "read-only-plugin",
-			caps: []string{"session:read"},
+			name:     "read-only-plugin",
+			caps:     []string{"session:read"},
 			wantRead: true,
 		},
 		{
-			name: "fs-and-session-mixed",
-			caps: []string{"fs:read:/tmp", "session:observe", "llm:invoke:5000"},
+			name:    "fs-and-session-mixed",
+			caps:    []string{"fs:read:/tmp", "session:observe", "llm:invoke:5000"},
 			wantObs: true,
 			wantLLM: 5000,
 		},

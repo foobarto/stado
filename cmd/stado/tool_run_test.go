@@ -440,9 +440,9 @@ func TestLookupToolInRegistry_DirectMatchWins(t *testing.T) {
 // tests; Run is unreachable in these tests.
 type stubLookupTool struct{ name string }
 
-func (s *stubLookupTool) Name() string             { return s.name }
-func (s *stubLookupTool) Description() string      { return "stub" }
-func (s *stubLookupTool) Schema() map[string]any   { return map[string]any{"type": "object"} }
+func (s *stubLookupTool) Name() string           { return s.name }
+func (s *stubLookupTool) Description() string    { return "stub" }
+func (s *stubLookupTool) Schema() map[string]any { return map[string]any{"type": "object"} }
 func (s *stubLookupTool) Run(_ context.Context, _ json.RawMessage, _ pkgtool.Host) (pkgtool.Result, error) {
 	return pkgtool.Result{}, nil
 }

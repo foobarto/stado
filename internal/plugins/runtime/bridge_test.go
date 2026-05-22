@@ -230,8 +230,8 @@ type fakeStreamProvider struct {
 	err    error
 }
 
-func (fakeStreamProvider) Name() string                      { return "fake" }
-func (fakeStreamProvider) Capabilities() agent.Capabilities  { return agent.Capabilities{} }
+func (fakeStreamProvider) Name() string                     { return "fake" }
+func (fakeStreamProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 func (p fakeStreamProvider) StreamTurn(ctx context.Context, _ agent.TurnRequest) (<-chan agent.Event, error) {
 	if p.err != nil {
 		return nil, p.err

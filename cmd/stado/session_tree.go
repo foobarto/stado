@@ -21,10 +21,11 @@ import (
 // any shell independent of whether the main TUI is running.
 //
 // Keybindings:
-//   ↑ / k     move cursor up
-//   ↓ / j     move cursor down
-//   f / enter fork a new session rooted at the highlighted turn
-//   q / esc   quit
+//
+//	↑ / k     move cursor up
+//	↓ / j     move cursor down
+//	f / enter fork a new session rooted at the highlighted turn
+//	q / esc   quit
 var sessionTreeCmd = &cobra.Command{
 	Use:   "tree <id>",
 	Short: "Browse a session's turn history and fork from a chosen turn",
@@ -89,10 +90,10 @@ type treeModel struct {
 }
 
 type forkOutcome struct {
-	childID       string
-	worktreePath  string
-	atCommit      string
-	fromTurn      int
+	childID      string
+	worktreePath string
+	atCommit     string
+	fromTurn     int
 }
 
 func (m *treeModel) Init() tea.Cmd { return nil }

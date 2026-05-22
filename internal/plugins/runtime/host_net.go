@@ -214,7 +214,8 @@ func registerNetImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtim
 }
 
 // stado_net_dial(transport_ptr, transport_len, host_ptr, host_len, port_i32,
-//                timeout_ms i32) → i64
+//
+//	timeout_ms i32) → i64
 //
 // transport: "tcp" | "udp" | "unix". For "unix", host carries the
 // socket path and port is ignored.
@@ -430,7 +431,8 @@ func lookupNetConn(rt *Runtime, handle uint32) (*netConn, bool) {
 }
 
 // stado_net_listen(transport_ptr, transport_len, host_ptr, host_len,
-//                  port_i32) → i64
+//
+//	port_i32) → i64
 //
 // transport: "tcp" | "unix". For "unix", host carries the socket path
 // and port is ignored. Returns the listener handle as i64, or -1 on
@@ -610,7 +612,8 @@ func lookupNetListener(rt *Runtime, handle uint32) (*netListener, bool) {
 }
 
 // stado_net_sendto(lst_handle, host_ptr, host_len, port_i32,
-//                  data_ptr, data_len) → i32
+//
+//	data_ptr, data_len) → i32
 //
 // Sends one UDP packet to the (host, port) peer. Cap-gated by the
 // SAME net:dial:udp:<peer-host>:<peer-port> globs as connect-mode UDP
@@ -659,11 +662,14 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 }
 
 // stado_net_recvfrom(lst_handle, timeout_ms, body_ptr, body_max,
-//                    addr_ptr, addr_max) → i64
+//
+//	addr_ptr, addr_max) → i64
 //
 // Reads one packet. Returns a packed i64:
-//   high 32 = body bytes written (or -1 / -2 sentinel as int32)
-//   low  32 = address-string bytes written (host:port form)
+//
+//	high 32 = body bytes written (or -1 / -2 sentinel as int32)
+//	low  32 = address-string bytes written (host:port form)
+//
 // On error / timeout, body sentinel is set; caller can ignore the
 // addr buffer. -2 = timeout (recoverable), -1 = error.
 func registerNetRecvfromImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
@@ -727,17 +733,17 @@ func packRecvResult(bodyLen, addrLen int32) int64 {
 //
 // Initial keys (EP-0038i):
 //
-//   "broadcast"            → "true"/"false" — toggle SO_BROADCAST.
-//                            Required for sendto to broadcast addrs
-//                            (255.255.255.255 or subnet broadcasts).
-//   "multicast_join"       → "<group_ip>[,<iface_name>]" — join the
-//                            multicast group on the named interface
-//                            (default any).
-//   "multicast_leave"      → "<group_ip>[,<iface_name>]"
-//   "multicast_loopback"   → "true"/"false" — whether multicast we
-//                            send is looped back to us.
-//   "multicast_ttl"        → "<int 0..255>" — TTL/hop-limit on
-//                            outgoing multicast packets.
+//	"broadcast"            → "true"/"false" — toggle SO_BROADCAST.
+//	                         Required for sendto to broadcast addrs
+//	                         (255.255.255.255 or subnet broadcasts).
+//	"multicast_join"       → "<group_ip>[,<iface_name>]" — join the
+//	                         multicast group on the named interface
+//	                         (default any).
+//	"multicast_leave"      → "<group_ip>[,<iface_name>]"
+//	"multicast_loopback"   → "true"/"false" — whether multicast we
+//	                         send is looped back to us.
+//	"multicast_ttl"        → "<int 0..255>" — TTL/hop-limit on
+//	                         outgoing multicast packets.
 //
 // All five keys require net:multicast:udp in the manifest. The
 // listener must be UDP (net.PacketConn).

@@ -34,9 +34,9 @@ func TestRender_PopulatedSummary(t *testing.T) {
 			"claude-haiku-4-5": {Calls: 4, TokensIn: 450, TokensOut: 200, CostUSD: 0.0231},
 		},
 		ByTool: map[string]ToolStats{
-			"fs__read":  {Calls: 6, DurationMs: 320},
+			"fs__read":    {Calls: 6, DurationMs: 320},
 			"shell__bash": {Calls: 3, DurationMs: 5800},
-			"fs__write": {Calls: 3, DurationMs: 1230},
+			"fs__write":   {Calls: 3, DurationMs: 1230},
 		},
 	}
 	var buf bytes.Buffer
@@ -45,11 +45,11 @@ func TestRender_PopulatedSummary(t *testing.T) {
 
 	mustContain := []string{
 		"session summary",
-		"uptime",     // header label
-		"12m34s",     // formatted uptime
-		"12",         // total calls
-		"3.5k",       // tokens in
-		"$0.42",      // total cost
+		"uptime", // header label
+		"12m34s", // formatted uptime
+		"12",     // total calls
+		"3.5k",   // tokens in
+		"$0.42",  // total cost
 		"by model",
 		"by tool",
 		"claude-opus-4-7",
@@ -143,14 +143,14 @@ func TestTruncMid(t *testing.T) {
 
 func TestLocaleIsUTF8(t *testing.T) {
 	cases := map[string]bool{
-		"en_US.UTF-8":     true,
-		"C.UTF-8":         true,
-		"en_GB.utf8":      true,
-		"pl_PL.UTF-8@x":   true,
-		"C":               false,
-		"POSIX":           false,
+		"en_US.UTF-8":      true,
+		"C.UTF-8":          true,
+		"en_GB.utf8":       true,
+		"pl_PL.UTF-8@x":    true,
+		"C":                false,
+		"POSIX":            false,
 		"en_US.ISO-8859-1": false,
-		"":                false,
+		"":                 false,
 	}
 	for in, want := range cases {
 		if got := localeIsUTF8(in); got != want {

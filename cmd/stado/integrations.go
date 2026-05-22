@@ -105,4 +105,3 @@ func init() {
 	integrationsCmd.Flags().BoolVar(&integrationsJSON, "json", false, "Emit JSON instead of the human-readable listing")
 	rootCmd.AddCommand(integrationsCmd)
 }
-

@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing"
+	otel "go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
-	otel "go.opentelemetry.io/otel"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
@@ -21,12 +21,12 @@ import (
 
 // TestForkWritesTraceparent_ChildLoadsIt exercises the Phase 9.4/9.5
 // cross-process span link end-to-end:
-//   1. Install an SDK tracer so the fork span gets a real trace/span id.
-//   2. Run createSessionAt inside a parent span.
-//   3. Assert the child worktree contains a .stado-span-context whose
-//      traceparent names the fork span's IDs.
-//   4. runtime.RootContext(childWorktree) → a context whose attached
-//      span reference matches the fork span's trace id.
+//  1. Install an SDK tracer so the fork span gets a real trace/span id.
+//  2. Run createSessionAt inside a parent span.
+//  3. Assert the child worktree contains a .stado-span-context whose
+//     traceparent names the fork span's IDs.
+//  4. runtime.RootContext(childWorktree) → a context whose attached
+//     span reference matches the fork span's trace id.
 func TestForkWritesTraceparent_ChildLoadsIt(t *testing.T) {
 	// Isolate XDG paths.
 	root := t.TempDir()

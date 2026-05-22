@@ -185,7 +185,7 @@ func buildBwrapArgs(cfg WrapConfig, selfPath string) ([]string, error) {
 		args = append(args, "--unshare-net")
 	case "off":
 		args = append(args, "--unshare-net", "--unshare-uts")
-	// "host" (default): no network flag
+		// "host" (default): no network flag
 	}
 	// Self binary.
 	args = append(args, "--ro-bind", selfPath, selfPath)
@@ -295,4 +295,3 @@ func wrapperCandidates() []string {
 		return nil
 	}
 }
-

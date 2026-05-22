@@ -293,4 +293,3 @@ func lookupAgentCheck(agentBinary string) (agentMCPCheck, bool) {
 func formatRegisterDescription(check agentMCPCheck, stadoBin string) string {
 	return strings.ReplaceAll(check.RegisterDescription, "{STADO_BIN}", stadoBin)
 }
-

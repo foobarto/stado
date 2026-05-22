@@ -26,20 +26,20 @@ import (
 )
 
 var (
-	runPrompt      string
-	runMaxTurns    int
-	runNoTurnLimit bool
-	runJSON        bool
-	runQuiet       bool
-	runNoTools     bool
-	runSandboxFS       bool
-	runMode            string // --mode harness mode (EP-0030)
-	runTools           string // --tools (whitelist; comma-separated globs)
-	runToolsAutoload   string // --tools-autoload
-	runToolsDisable    string // --tools-disable
-	runSessionID       string
-	runSkill       string
-	runPersona     string // --persona; empty = config default → bundled default
+	runPrompt        string
+	runMaxTurns      int
+	runNoTurnLimit   bool
+	runJSON          bool
+	runQuiet         bool
+	runNoTools       bool
+	runSandboxFS     bool
+	runMode          string // --mode harness mode (EP-0030)
+	runTools         string // --tools (whitelist; comma-separated globs)
+	runToolsAutoload string // --tools-autoload
+	runToolsDisable  string // --tools-disable
+	runSessionID     string
+	runSkill         string
+	runPersona       string // --persona; empty = config default → bundled default
 	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
 	runTemperature float64
 	runTopP        float64
@@ -256,20 +256,20 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					}
 				}
 				// EP-0030: harness mode flag overrides config.
-			if runMode != "" {
-				cfg.Harness.Mode = runMode
-			}
+				if runMode != "" {
+					cfg.Harness.Mode = runMode
+				}
 				// EP-0037: CLI flags override [tools] config before building executor.
-			if runTools != "" {
-				cfg.Tools.Enabled = splitComma(runTools)
-			}
-			if runToolsAutoload != "" {
-				cfg.Tools.Autoload = splitComma(runToolsAutoload)
-			}
-			if runToolsDisable != "" {
-				cfg.Tools.Disabled = append(cfg.Tools.Disabled, splitComma(runToolsDisable)...)
-			}
-			opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
+				if runTools != "" {
+					cfg.Tools.Enabled = splitComma(runTools)
+				}
+				if runToolsAutoload != "" {
+					cfg.Tools.Autoload = splitComma(runToolsAutoload)
+				}
+				if runToolsDisable != "" {
+					cfg.Tools.Disabled = append(cfg.Tools.Disabled, splitComma(runToolsDisable)...)
+				}
+				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
 				if err != nil {
 					return fmt.Errorf("tools: %w", err)
 				}

@@ -10,8 +10,8 @@ import "testing"
 // for non-canonical inputs. Lock all three in.
 func TestLookupToolMetadata_ResolutionOrder(t *testing.T) {
 	cases := []struct {
-		name        string
-		input       string
+		name          string
+		input         string
 		wantCanonical string
 		wantPlugin    string
 	}{

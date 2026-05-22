@@ -583,4 +583,3 @@ func registerPTYExpect(builder wazero.HostModuleBuilder, host *Host, exportName 
 			[]api.ValueType{api.ValueTypeI32}).
 		Export(exportName)
 }
-

@@ -36,7 +36,7 @@ type Tool struct {
 	ConfigDir string
 }
 
-func (Tool) Name() string        { return "llm__invoke" }
+func (Tool) Name() string { return "llm__invoke" }
 func (Tool) Description() string {
 	return "Run a single LLM completion against stado's configured provider. " +
 		"Optionally select a persona (operating manual / system prompt) and override the model. " +

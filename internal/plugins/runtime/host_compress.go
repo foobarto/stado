@@ -47,12 +47,12 @@ func registerCompressImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, compressed))
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_compress")
 }
 
@@ -83,12 +83,12 @@ func registerDecompressImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, decompressed))
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_decompress")
 }
 

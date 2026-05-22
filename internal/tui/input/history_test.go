@@ -6,7 +6,7 @@ func TestHistoryPush(t *testing.T) {
 	h := NewHistory()
 	h.Push("msg1")
 	h.Push("msg2")
-	
+
 	if len(h.entries) != 2 {
 		t.Errorf("Expected 2 entries, got %d", len(h.entries))
 	}
@@ -27,12 +27,12 @@ func TestHistoryPrevNext(t *testing.T) {
 	if !ok || val != "msg2" {
 		t.Errorf("Expected 'msg2', got %q", val)
 	}
-	
+
 	val, ok = h.Prev(val)
 	if !ok || val != "msg1" {
 		t.Errorf("Expected 'msg1', got %q", val)
 	}
-	
+
 	_, ok = h.Prev(val)
 	if ok {
 		t.Errorf("Expected false when reached start of history")

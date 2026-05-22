@@ -133,7 +133,7 @@ func TestRenderPanelASCII_ListMarkers(t *testing.T) {
 		marker string
 		want   string
 	}{
-		{"", "•"},        // default
+		{"", "•"}, // default
 		{"bullet", "•"},
 		{"numbered", "1."},
 		{"check", "[ ]"},

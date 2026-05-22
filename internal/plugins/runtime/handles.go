@@ -84,13 +84,13 @@ func (r *handleRegistry) isType(handle uint32, typeTag string) bool {
 type HandleType string
 
 const (
-	HandleTypeProc     HandleType = "proc"
-	HandleTypeTerminal HandleType = "term"
-	HandleTypeAgent    HandleType = "agent"
-	HandleTypeSession  HandleType = "session"
-	HandleTypePlugin   HandleType = "plugin"
-	HandleTypeConn     HandleType = "conn"     // reserved — Tier 1 net (BACKLOG #11)
-	HandleTypeListen   HandleType = "listen"   // reserved — Tier 1 net (BACKLOG #11)
+	HandleTypeProc       HandleType = "proc"
+	HandleTypeTerminal   HandleType = "term"
+	HandleTypeAgent      HandleType = "agent"
+	HandleTypeSession    HandleType = "session"
+	HandleTypePlugin     HandleType = "plugin"
+	HandleTypeConn       HandleType = "conn"     // reserved — Tier 1 net (BACKLOG #11)
+	HandleTypeListen     HandleType = "listen"   // reserved — Tier 1 net (BACKLOG #11)
 	HandleTypeHTTPResp   HandleType = "httpresp" // EP-0038h — open HTTP response body
 	HandleTypeHTTPUpload HandleType = "httpup"   // EP-0038i — in-flight HTTP request body writer
 )
@@ -106,10 +106,10 @@ var knownHandleTypes = map[HandleType]bool{
 // dot is still an owned ID with an empty plugin owner; for the
 // other (free-standing) types, the payload is an opaque string.
 var ownedHandleTypes = map[HandleType]bool{
-	HandleTypeProc:     true,
-	HandleTypeTerminal: true,
-	HandleTypeConn:     true,
-	HandleTypeListen:   true,
+	HandleTypeProc:       true,
+	HandleTypeTerminal:   true,
+	HandleTypeConn:       true,
+	HandleTypeListen:     true,
 	HandleTypeHTTPResp:   true,
 	HandleTypeHTTPUpload: true,
 }

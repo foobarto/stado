@@ -170,7 +170,7 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"web__fetch", "webfetch", true}, // hidden-superseded
 		{"shell__exec", "bash", true},    // renamed alias bash → shell.exec
 		{"fs__read", "read", true},
-		{"fs__ls", "ls", true}, // hidden-superseded
+		{"fs__ls", "ls", true},           // hidden-superseded
 		{"web__fetch", "ripgrep", false}, // unrelated legacy name must NOT match
 		// Empty inputs.
 		{"", "", true},

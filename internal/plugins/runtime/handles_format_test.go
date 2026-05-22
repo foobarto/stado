@@ -153,9 +153,9 @@ func TestParseHandleID_RoundTripFreeStanding(t *testing.T) {
 		typ HandleType
 		id  string
 	}{
-		{HandleTypeAgent, "bf3eabcd"},   // 8-char id, no truncation
-		{HandleTypeSession, "abc"},      // short id, no truncation
-		{HandleTypePlugin, "fs"},        // plugin name as id
+		{HandleTypeAgent, "bf3eabcd"}, // 8-char id, no truncation
+		{HandleTypeSession, "abc"},    // short id, no truncation
+		{HandleTypePlugin, "fs"},      // plugin name as id
 	}
 	for _, c := range cases {
 		s := FormatFreeStandingHandleID(c.typ, c.id)

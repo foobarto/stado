@@ -15,8 +15,8 @@ func TestJSONGetByPath(t *testing.T) {
 		{"user.name", `"alice"`, false},
 		{"user.tags.0", `"admin"`, false},
 		{"user.tags.1", `"ops"`, false},
-		{"user.tags.2", "", true},  // out of range
-		{"user.tags.x", "", true},  // not numeric
+		{"user.tags.2", "", true}, // out of range
+		{"user.tags.x", "", true}, // not numeric
 		{"count", "42", false},
 		{"active", "true", false},
 		{"meta", "null", false},

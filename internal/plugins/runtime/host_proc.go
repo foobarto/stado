@@ -158,8 +158,8 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			})
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_exec")
 }
 
@@ -221,8 +221,8 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			}
 			stack[0] = uint64(h)
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_proc_spawn")
 }
 
@@ -252,8 +252,8 @@ func registerProcReadImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, buf[:n]))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_proc_read")
 }
 
@@ -287,8 +287,8 @@ func registerProcWriteImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 			}
 			stack[0] = encoded
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_proc_write")
 }
 
@@ -313,8 +313,8 @@ func registerProcWaitImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 			}
 			stack[0] = api.EncodeI32(0)
 		}),
-		[]api.ValueType{api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_proc_wait")
 }
 
@@ -330,8 +330,8 @@ func registerProcKillImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 				}
 			}
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{}).
 		Export("stado_proc_kill")
 }
 
@@ -349,8 +349,8 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 			}
 			rt.handles.free(h)
 		}),
-		[]api.ValueType{api.ValueTypeI32},
-		[]api.ValueType{}).
+			[]api.ValueType{api.ValueTypeI32},
+			[]api.ValueType{}).
 		Export("stado_proc_close")
 }
 
@@ -444,18 +444,18 @@ type sandboxPolicy struct {
 //
 // Resolution table:
 //
-//   host=nil  guest=nil               → nil (unsandboxed)
-//   host=nil  guest=Unsandboxed=true  → nil (explicit opt-out honored)
-//   host=nil  guest non-nil           → guest (no ceiling to enforce)
-//   host non-nil  guest=nil           → host (default applies)
-//   host non-nil  guest=Unsandboxed=true → host (opt-out IGNORED — host
-//                                         policy is mandatory; if
-//                                         operators want to allow opt-
-//                                         outs they remove the default
-//                                         host-side, not via plugin
-//                                         claim)
-//   host non-nil  guest non-nil       → intersect(host, guest)
-//                                         (guest can only narrow)
+//	host=nil  guest=nil               → nil (unsandboxed)
+//	host=nil  guest=Unsandboxed=true  → nil (explicit opt-out honored)
+//	host=nil  guest non-nil           → guest (no ceiling to enforce)
+//	host non-nil  guest=nil           → host (default applies)
+//	host non-nil  guest=Unsandboxed=true → host (opt-out IGNORED — host
+//	                                      policy is mandatory; if
+//	                                      operators want to allow opt-
+//	                                      outs they remove the default
+//	                                      host-side, not via plugin
+//	                                      claim)
+//	host non-nil  guest non-nil       → intersect(host, guest)
+//	                                      (guest can only narrow)
 //
 // The Unsandboxed-ignored case is the security-relevant one. With
 // "guest wins," any plugin author could shrug off mcp-server's

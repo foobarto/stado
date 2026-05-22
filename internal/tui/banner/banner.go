@@ -3,10 +3,10 @@
 // are embedded at compile time:
 //
 //   - banner.ansi: chafa-generated 256-color block art (the preferred
-//                  form when the terminal supports colour)
+//     form when the terminal supports colour)
 //   - banner.txt:  plain unicode-block render (5-level ramp, no
-//                  escape sequences) used when colour is disabled
-//                  (NO_COLOR env / non-tty output / 16-color terms)
+//     escape sequences) used when colour is disabled
+//     (NO_COLOR env / non-tty output / 16-color terms)
 //
 // Resolution honours the cross-vendor `NO_COLOR` convention: any
 // non-empty value returns the plain variant. FORCE_COLOR is ignored

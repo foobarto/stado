@@ -160,8 +160,8 @@ func registerHTTPClientCreate(builder wazero.HostModuleBuilder, host *Host, r *R
 			atomic.AddInt64(&r.httpClientCount, 1)
 			stack[0] = api.EncodeI64(int64(handle))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI64}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI64}).
 		Export("stado_http_client_create")
 }
 
@@ -196,8 +196,8 @@ func registerHTTPClientClose(builder wazero.HostModuleBuilder, host *Host, r *Ru
 			atomic.AddInt64(&r.httpClientCount, -1)
 			stack[0] = api.EncodeI32(0)
 		}),
-		[]api.ValueType{api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_http_client_close")
 }
 
@@ -308,14 +308,14 @@ func registerHTTPClientRequest(builder wazero.HostModuleBuilder, host *Host, r *
 			n := writeBytes(mod, respOutPtr, respMax, payload)
 			stack[0] = api.EncodeI32(n)
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_http_client_request")
 }
 

@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	defaultMaxResults  = 50
-	maxAllowedResults  = 1000
-	defaultSnippetLen  = 80
-	maxAllowedSnippet  = 400
+	defaultMaxResults = 50
+	maxAllowedResults = 1000
+	defaultSnippetLen = 80
+	maxAllowedSnippet = 400
 )
 
 // HistoryMessage matches the JSON shape the session:read "history"
@@ -28,12 +28,12 @@ type HistoryMessage struct {
 
 // Args is the JSON args plugin callers pass.
 type Args struct {
-	Query           string   `json:"query"`
-	IsRegex         bool     `json:"is_regex,omitempty"`
-	CaseSensitive   bool     `json:"case_sensitive,omitempty"`
-	Roles           []string `json:"roles,omitempty"`
-	MaxResults      int      `json:"max_results,omitempty"`
-	SnippetChars    int      `json:"snippet_chars,omitempty"`
+	Query         string   `json:"query"`
+	IsRegex       bool     `json:"is_regex,omitempty"`
+	CaseSensitive bool     `json:"case_sensitive,omitempty"`
+	Roles         []string `json:"roles,omitempty"`
+	MaxResults    int      `json:"max_results,omitempty"`
+	SnippetChars  int      `json:"snippet_chars,omitempty"`
 }
 
 // Match is one hit. Index is the 0-based position in the input
@@ -190,4 +190,3 @@ func ExtractSnippet(text string, matchStart, matchLen, total int) string {
 	}
 	return out
 }
-

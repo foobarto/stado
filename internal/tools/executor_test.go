@@ -341,10 +341,10 @@ type progressEmittingTool struct {
 	name string
 }
 
-func (p progressEmittingTool) Name() string           { return p.name }
-func (progressEmittingTool) Description() string      { return "stub" }
-func (progressEmittingTool) Schema() map[string]any   { return map[string]any{"type": "object"} }
-func (progressEmittingTool) Class() tool.Class        { return tool.ClassNonMutating }
+func (p progressEmittingTool) Name() string         { return p.name }
+func (progressEmittingTool) Description() string    { return "stub" }
+func (progressEmittingTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (progressEmittingTool) Class() tool.Class      { return tool.ClassNonMutating }
 func (p progressEmittingTool) Run(ctx context.Context, _ json.RawMessage, _ tool.Host) (tool.Result, error) {
 	if pc := tool.ProgressFromContext(ctx); pc != nil {
 		pc.Append("scanner", "checking 1/3")

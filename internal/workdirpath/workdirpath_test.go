@@ -235,7 +235,7 @@ func TestWriteFileRejectsSymlinkParentEscape(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "linkdir")); err != nil {
 		t.Skipf("symlink not supported: %v", err)
 	}
-	err := writeFile(root,filepath.Join("linkdir", "out.txt"), []byte("pwned"), 0o644)
+	err := writeFile(root, filepath.Join("linkdir", "out.txt"), []byte("pwned"), 0o644)
 	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
 		t.Fatalf("WriteFile error = %v, want workdir escape", err)
 	}
@@ -254,7 +254,7 @@ func TestWriteFileRejectsInRootFinalSymlink(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := writeFile(root,"link.txt", []byte("pwned"), 0o644)
+	err := writeFile(root, "link.txt", []byte("pwned"), 0o644)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("WriteFile error = %v, want symlink rejection", err)
 	}
@@ -269,7 +269,7 @@ func TestWriteFileRejectsInRootFinalSymlink(t *testing.T) {
 
 func TestWriteFileCreatesNestedMissingPathInsideWorkdir(t *testing.T) {
 	root := t.TempDir()
-	if err := writeFile(root,filepath.Join("sub", "new", "file.txt"), []byte("ok"), 0o644); err != nil {
+	if err := writeFile(root, filepath.Join("sub", "new", "file.txt"), []byte("ok"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "sub", "new", "file.txt"))
@@ -416,7 +416,7 @@ func TestWriteFilePreservesExistingMode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeFile(root,"script.sh", []byte("#!/bin/sh\necho ok\n"), 0o644); err != nil {
+	if err := writeFile(root, "script.sh", []byte("#!/bin/sh\necho ok\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	info, err := os.Stat(path)

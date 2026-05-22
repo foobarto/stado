@@ -90,8 +90,8 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 			})
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outMax, val))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_secrets_get")
 }
 
@@ -171,8 +171,8 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 			})
 			stack[0] = api.EncodeI32(0)
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_secrets_put")
 }
 
@@ -231,8 +231,8 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 			payload := []byte(strings.Join(names, "\n"))
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outMax, payload))
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_secrets_list")
 }
 
@@ -288,7 +288,7 @@ func registerSecretsDeleteImport(builder wazero.HostModuleBuilder, host *Host) {
 			})
 			stack[0] = api.EncodeI32(0)
 		}),
-		[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_secrets_delete")
 }

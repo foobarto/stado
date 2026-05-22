@@ -259,7 +259,7 @@ func writeKV(b *strings.Builder, w int, pairs []pluginRuntime.KVPair) {
 			labelW = len(p.Label)
 		}
 	}
-	indent := "    "                                  // body indent
+	indent := "    "                                    // body indent
 	valIndent := indent + strings.Repeat(" ", labelW+2) // continuation rows align under value
 	for _, p := range pairs {
 		labelPad := strings.Repeat(" ", labelW-len(p.Label))

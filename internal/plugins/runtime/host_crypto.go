@@ -57,12 +57,12 @@ func registerHashImport(builder wazero.HostModuleBuilder, host *Host) {
 			digest := hex.EncodeToString(h.Sum(nil))
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, []byte(digest)))
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_hash")
 }
 
@@ -104,13 +104,13 @@ func registerHMACImport(builder wazero.HostModuleBuilder, host *Host) {
 			digest := hex.EncodeToString(mac.Sum(nil))
 			stack[0] = api.EncodeI32(writeBytes(mod, outPtr, outCap, []byte(digest)))
 		}),
-		[]api.ValueType{
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-			api.ValueTypeI32, api.ValueTypeI32,
-		},
-		[]api.ValueType{api.ValueTypeI32}).
+			[]api.ValueType{
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+				api.ValueTypeI32, api.ValueTypeI32,
+			},
+			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_hmac")
 }
 

@@ -13,11 +13,11 @@ import (
 
 func TestNetDialAccess_CanDialTCP(t *testing.T) {
 	cases := []struct {
-		name   string
-		globs  []NetDialPattern
-		host   string
-		port   string
-		want   bool
+		name  string
+		globs []NetDialPattern
+		host  string
+		port  string
+		want  bool
 	}{
 		{"empty patterns = no match", nil, "example.com", "443", false},
 		{"exact match", []NetDialPattern{{"api.example.com", "443"}}, "api.example.com", "443", true},
@@ -244,12 +244,12 @@ func TestDialNet_UnixCapDenied(t *testing.T) {
 // TestValidateUnixSocketPath: refuses traversal + over-long paths.
 func TestValidateUnixSocketPath(t *testing.T) {
 	cases := map[string]bool{
-		"":                                       false,
-		"/tmp/sock":                              true,
-		"/tmp/../etc/sock":                       false, // traversal
-		"/tmp/" + strings.Repeat("a", 200):       false, // > 104
-		strings.Repeat("/x", 50) + "/sock":       false, // > 104
-		strings.Repeat("/a", 30) + "/x.sock":     true,  // exactly within bound
+		"":                                   false,
+		"/tmp/sock":                          true,
+		"/tmp/../etc/sock":                   false, // traversal
+		"/tmp/" + strings.Repeat("a", 200):   false, // > 104
+		strings.Repeat("/x", 50) + "/sock":   false, // > 104
+		strings.Repeat("/a", 30) + "/x.sock": true,  // exactly within bound
 	}
 	for path, wantOK := range cases {
 		err := validateUnixSocketPath(path)
@@ -353,7 +353,7 @@ func TestRuntime_ListenerCapEnforced(t *testing.T) {
 }
 
 // helpers — keep tests independent of atomic-package imports.
-func atomicLoadListener(r *Runtime) int64 { return r.netListenerCount }
+func atomicLoadListener(r *Runtime) int64   { return r.netListenerCount }
 func atomicAddListener(r *Runtime, d int64) { r.netListenerCount += d }
 
 // TestListenNet_UDPRoundTrip: UDP listen returns a PacketConn-backed
