@@ -1,0 +1,54 @@
+name: codeql
+
+# GitHub CodeQL static security analysis for Go → results land in the repo's
+# code-scanning tab and back the README CodeQL badge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '30 7 * * 1' # weekly, Monday 07:30 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: CodeQL analyze (go)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload analysis results
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25.10"
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          build-mode: manual
+
+      # Explicit build (matches CI): pure-Go, no cgo, host platform only.
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:go"
