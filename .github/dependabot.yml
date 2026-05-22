@@ -2,7 +2,7 @@
 #
 # Goals:
 #   1. Trigger explicit security-update + version-bump PRs against
-#      the parent module + every example plugin subdir.
+#      the parent module (bundled plugins share its go.mod).
 #   2. Force a rescan on every push to one of these manifests so
 #      alerts auto-flip to "fixed" promptly after a fix lands.
 #

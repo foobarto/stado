@@ -207,7 +207,7 @@ Relevant `config.toml` sections:
 - [docs/plugins/host-imports.md](../plugins/host-imports.md) — function-by-function reference for every host import
 - [README.md](../../README.md) — install channels and high-level plugin summary
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
-- [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog
+- [plugins/README.md](../../plugins/README.md) — bundled plugin catalog (opt-in plugins live in [stado-plugins](https://github.com/foobarto/stado-plugins))
 - [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) — concrete opt-in plugin examples (installable)
 - [memory.md](memory.md) — review plugin-proposed persistent memories
 - [learning.md](learning.md) — propose reviewable operational lessons
