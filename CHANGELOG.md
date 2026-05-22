@@ -32,6 +32,26 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.0 — security hardening (review-item decisions) — 2026-05-22
+
+The three Codex findings that needed an operator design decision, now resolved.
+
+### Security
+
+- **`tool:invoke` caller-cap inheritance (#021).** A nested tool invocation now
+  runs the callee under the *caller's* capabilities, not the callee's own
+  manifest. A plugin holding only `tool:invoke:bash` can no longer gain
+  shell/fs/net by invoking the bundled bash tool — no privilege escalation by
+  delegating to a more-powerful tool.
+- **Session-scoped shell PTYs (#015).** Switching sessions now tears down the
+  prior session's live PTYs, so a session can't read/write shells spawned under
+  another session.
+- **Live-cwd audit fidelity (#030).** TUI live-cwd execution is intended; the
+  audit now builds the signed tree from the directory actually written
+  (`h.Workdir()`) instead of the unchanged sidecar worktree, so the tree ref
+  reflects reality. A failed snapshot degrades gracefully (skips the audit tree,
+  never fails the tool).
+
 ## v0.51.1 — security hardening (batch 2 of Codex triage) — 2026-05-22
 
 ### Security
