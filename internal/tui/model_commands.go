@@ -1424,16 +1424,19 @@ func ptyBoundShellToolName(name string) bool {
 	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
 		canonical = md.Canonical
 	}
+	// NOTE: shell.screenshot is deliberately ABSENT — it is read-only and
+	// needs no attach, so a one-off /tool dispatch can serve it from the
+	// in-process pty.Manager. Only attach-requiring PTY tools are refused.
 	switch canonical {
 	case "shell.spawn", "shell.list", "shell.attach", "shell.read",
 		"shell.write", "shell.detach", "shell.signal", "shell.resize",
-		"shell.destroy", "shell.expect":
+		"shell.destroy", "shell.read_until":
 		return true
 	}
 	switch name {
 	case "shell__spawn", "shell__list", "shell__attach", "shell__read",
 		"shell__write", "shell__detach", "shell__signal", "shell__resize",
-		"shell__destroy", "shell__expect":
+		"shell__destroy", "shell__read_until":
 		return true
 	}
 	return false
