@@ -32,6 +32,16 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.50.1 — wider / palette on the landing page — 2026-05-22
+
+### Fixes
+
+- **Inline `/` palette is now wide on the landing page too.** v0.50.0 uncapped
+  the palette, but the landing page renders the input through a compact 64-col
+  centred card, so the nested palette stayed narrow and truncated descriptions
+  there. The landing card now widens while the palette is open and returns to
+  its compact size when closed.
+
 ## v0.50.0 — wider inline command palette — 2026-05-22
 
 ### TUI
