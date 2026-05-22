@@ -97,7 +97,7 @@ func main() {
 // --- ripgrep ---
 
 func fetchRipgrep(version string) error {
-	out := filepath.Join("internal", "tools", "rg", "bundled")
+	out := filepath.Join("internal", "rg", "bundled")
 	m := manifest{Version: version, SHA256: map[string]string{}}
 
 	for _, t := range matrix {
@@ -120,7 +120,7 @@ func fetchRipgrep(version string) error {
 		}
 		sha := sha256hex(b)
 		m.SHA256[filepath.Base(dst)] = sha
-		if err := writeEmbedFile(filepath.Join("internal", "tools", "rg"), "rg", "rg", t.GOOS, t.GOARCH, sha); err != nil {
+		if err := writeEmbedFile(filepath.Join("internal", "rg"), "rg", "rg", t.GOOS, t.GOARCH, sha); err != nil {
 			return err
 		}
 	}
@@ -153,7 +153,7 @@ func ripgrepAsset(v string, t target) (string, string, string) {
 // --- ast-grep ---
 
 func fetchAstGrep(version string) error {
-	out := filepath.Join("internal", "tools", "astgrep", "bundled")
+	out := filepath.Join("internal", "astgrep", "bundled")
 	m := manifest{Version: version, SHA256: map[string]string{}}
 	digests, err := fetchGitHubExpandedAssetDigests("ast-grep/ast-grep", version)
 	if err != nil {
@@ -180,7 +180,7 @@ func fetchAstGrep(version string) error {
 		}
 		sha := sha256hex(b)
 		m.SHA256[filepath.Base(dst)] = sha
-		if err := writeEmbedFile(filepath.Join("internal", "tools", "astgrep"), "astgrep", "ast-grep", t.GOOS, t.GOARCH, sha); err != nil {
+		if err := writeEmbedFile(filepath.Join("internal", "astgrep"), "astgrep", "ast-grep", t.GOOS, t.GOARCH, sha); err != nil {
 			return err
 		}
 	}
