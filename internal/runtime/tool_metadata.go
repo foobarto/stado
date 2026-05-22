@@ -168,6 +168,26 @@ var hiddenLegacyTools = map[string]struct{}{
 	"webfetch": {}, // superseded by web__fetch
 }
 
+// legacyFilterCanonical maps a pre-EP-0038 bare tool name — as an operator
+// might still write it in [tools].enabled / [tools].disabled — to its current
+// canonical name. Without this, a filter keyed on an old name (e.g.
+// "webfetch", "bash", "read") silently fails to match the wasm tool that
+// replaced it, so the filter is a no-op. Covers both the renamed aliases and
+// the hidden-superseded tools. To disable every variant of a family use the
+// dotted wildcard instead (e.g. "shell.*").
+func legacyFilterCanonical(name string) (string, bool) {
+	if c, ok := legacyBareAliases[name]; ok {
+		return c, true
+	}
+	switch name {
+	case "webfetch":
+		return "web.fetch", true
+	case "ls":
+		return "fs.ls", true
+	}
+	return "", false
+}
+
 // LookupToolMetadata returns the display metadata for a tool. Resolution
 // order: hidden → canonical literal → wire-form parse → legacy bare
 // alias → unknown bare (best-effort split). Each step is one map

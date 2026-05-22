@@ -105,6 +105,14 @@ func ToolMatchesGlob(toolName, pattern string) bool {
 		dotPrefix := rest + "."
 		return strings.HasPrefix(toolName, wirePrefix) || strings.HasPrefix(toolName, dotPrefix)
 	}
+	// Legacy bare-name pattern (pre-EP-0038): translate the operator's old
+	// name to its canonical and re-match, so [tools].disabled=["webfetch"]
+	// (etc.) still hides the wasm tool that replaced it instead of being a
+	// silent no-op. The canonical is never itself a legacy bare name, so this
+	// recurses at most once.
+	if canonical, ok := legacyFilterCanonical(pattern); ok {
+		return ToolMatchesGlob(toolName, canonical)
+	}
 	return false
 }
 

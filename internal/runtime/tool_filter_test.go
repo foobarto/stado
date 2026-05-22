@@ -164,6 +164,14 @@ func TestToolMatchesGlob(t *testing.T) {
 		{"fs__read", "shell.bash", false},
 		// Canonical-with-dash: alias "htb-lab" → wire "htb_lab"
 		{"htb_lab__spawn", "htb-lab.spawn", false}, // exact canonical doesn't normalise dashes; pattern must use the wire-segment form. Documented behaviour.
+		// Legacy bare-name PATTERN (operator wrote the pre-EP-0038 name in
+		// the filter) must still match the wasm tool that replaced it —
+		// otherwise [tools].disabled is a silent no-op (security finding).
+		{"web__fetch", "webfetch", true}, // hidden-superseded
+		{"shell__exec", "bash", true},    // renamed alias bash → shell.exec
+		{"fs__read", "read", true},
+		{"fs__ls", "ls", true}, // hidden-superseded
+		{"web__fetch", "ripgrep", false}, // unrelated legacy name must NOT match
 		// Empty inputs.
 		{"", "", true},
 		{"fs__read", "", false},
