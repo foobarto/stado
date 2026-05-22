@@ -369,3 +369,48 @@ func (progressThenErrorTool) Run(ctx context.Context, _ json.RawMessage, _ tool.
 	}
 	return tool.Result{Content: "tool failed", Error: "internal failure"}, nil
 }
+
+// TestExecutor_LiveCwd_AuditsRealDir: when the tool host's workdir differs
+// from the sidecar worktree (TUI live-cwd mode, #030), the audit tree is built
+// from the dir the tool actually wrote, not the unchanged worktree.
+func TestExecutor_LiveCwd_AuditsRealDir(t *testing.T) {
+	ex, sess, wt := newExecutorFixture(t)
+	realCwd := t.TempDir()
+	if realCwd == wt {
+		t.Fatal("precondition: realCwd must differ from worktree")
+	}
+	ex.Registry.Register(stubTool{
+		name:  "stublivewrite",
+		class: tool.ClassMutating,
+		effect: func(workdir string) (tool.Result, error) {
+			return tool.Result{Content: "ok"}, os.WriteFile(filepath.Join(workdir, "real.txt"), []byte("live"), 0o644)
+		},
+	})
+
+	if _, err := ex.Run(context.Background(), "stublivewrite", json.RawMessage(`{}`), stubHost{workdir: realCwd}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The audit tree must reflect realCwd (has real.txt), not the empty
+	// worktree. Compare the committed tree-head's snapshot to a fresh build
+	// of each candidate dir.
+	tree, _ := sess.TreeHead()
+	if tree.IsZero() {
+		t.Fatal("live-cwd mutating tool should produce an audit tree")
+	}
+	fromReal, err := sess.BuildTreeFromDir(realCwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromWorktree, err := sess.BuildTreeFromDir(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromReal == fromWorktree {
+		t.Fatal("precondition: realCwd and worktree trees should differ (realCwd has real.txt)")
+	}
+	// The tool wrote only to realCwd, so the worktree must still be empty of it.
+	if _, statErr := os.Stat(filepath.Join(wt, "real.txt")); statErr == nil {
+		t.Fatal("tool unexpectedly wrote to the worktree")
+	}
+}

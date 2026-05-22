@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -73,10 +74,31 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	// result.Content so the model sees the trail. EP-0038i.
 	ctx, progCollector := tool.ContextWithProgress(ctx)
 
+	// #030: in TUI live-cwd mode tools write the real checkout (h.Workdir()),
+	// not the sidecar worktree, so auditing WorktreePath records an unchanged
+	// tree that doesn't match what was mutated. Audit the directory actually
+	// written. Scoped to live-cwd (workdir != worktree) so isolated/headless
+	// sessions keep their existing semantics.
+	auditDir := ""
+	liveCwd := false
+	if e.Session != nil {
+		auditDir = e.Session.WorktreePath
+		if wd := h.Workdir(); wd != "" && wd != e.Session.WorktreePath {
+			auditDir = wd
+			liveCwd = true
+		}
+	}
+
 	// Capture pre-state for Exec diff-then-commit.
 	var preTree plumbing.Hash
 	if e.Session != nil && class == tool.ClassExec {
-		pre, err := e.Session.CurrentTree()
+		var pre plumbing.Hash
+		var err error
+		if liveCwd {
+			pre, err = e.Session.BuildTreeFromDir(auditDir)
+		} else {
+			pre, err = e.Session.CurrentTree()
+		}
 		if err == nil {
 			preTree = pre
 		}
@@ -144,21 +166,23 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 
 	// tree ref policy.
 	var treeHash plumbing.Hash
+	// A failed audit snapshot (e.g. a live cwd exceeding the tree-entry cap)
+	// must not fail the user's tool call — the tree ref is best-effort audit.
 	switch class {
 	case tool.ClassMutating:
 		if runErr == nil && res.Error == "" {
-			post, err := e.Session.BuildTreeFromDir(e.Session.WorktreePath)
+			post, err := e.Session.BuildTreeFromDir(auditDir)
 			if err != nil {
-				return res, fmt.Errorf("build tree: %w", err)
+				e.logBuildTreeSkip(auditDir, err)
+			} else {
+				treeHash = post
 			}
-			treeHash = post
 		}
 	case tool.ClassExec:
-		post, err := e.Session.BuildTreeFromDir(e.Session.WorktreePath)
+		post, err := e.Session.BuildTreeFromDir(auditDir)
 		if err != nil {
-			return res, fmt.Errorf("build tree: %w", err)
-		}
-		if post != preTree && !post.IsZero() {
+			e.logBuildTreeSkip(auditDir, err)
+		} else if post != preTree && !post.IsZero() {
 			treeHash = post
 		}
 	}
@@ -169,6 +193,12 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	}
 
 	return res, runErr
+}
+
+// logBuildTreeSkip records that an audit tree snapshot was skipped (e.g. the
+// live cwd exceeded the tree-entry cap). Best-effort audit: never fatal.
+func (e *Executor) logBuildTreeSkip(dir string, err error) {
+	slog.Default().Warn("audit: skipped tree snapshot; tool result unaffected", "dir", dir, "err", err)
 }
 
 func shortArgOf(args json.RawMessage) string {
