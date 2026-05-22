@@ -32,7 +32,7 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased
+## v0.49.1 — inline command-palette wrap fix — 2026-05-22
 
 ### Fixes
 
