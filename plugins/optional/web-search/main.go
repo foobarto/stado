@@ -9,13 +9,13 @@
 //
 // Tool:
 //
-//   web_search {query, max_results?, backend?, instance_url?}
-//     → {results: [{title, url, snippet}], backend}
+//	web_search {query, max_results?, backend?, instance_url?}
+//	  → {results: [{title, url, snippet}], backend}
 //
 // Capabilities:
 //   - net:http_request           — broad cap (any public host).
-//                                  Tighten to net:http_request:html.duckduckgo.com
-//                                  or your specific SearXNG host if you prefer.
+//     Tighten to net:http_request:html.duckduckgo.com
+//     or your specific SearXNG host if you prefer.
 package main
 
 import (

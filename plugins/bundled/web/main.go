@@ -3,10 +3,12 @@
 // web — bundled stado plugin for HTTP fetching.
 //
 // Tools:
-//   web__fetch (display: web.fetch) — HTTP GET, returns response body
+//
+//	web__fetch (display: web.fetch) — HTTP GET, returns response body
 //
 // Capabilities:
-//   net:http_request[:<host>]
+//
+//	net:http_request[:<host>]
 //
 // EP-no-internal-tools Step 2: rewritten to use the stado_http_request
 // primitive (was a thin shim over the deleted stado_http_get delegate).

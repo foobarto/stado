@@ -5,12 +5,12 @@
 //
 // Tools:
 //
-//   http_session_open  {base_url?, default_headers?}
-//     → {session_id, base_url}
-//   http_session_request {session_id, method, url, headers?, body_b64?, timeout_ms?}
-//     → {status, headers, body_b64, body_truncated, cookies, session_id}
-//   http_session_close {session_id}
-//     → {ok, session_id}
+//	http_session_open  {base_url?, default_headers?}
+//	  → {session_id, base_url}
+//	http_session_request {session_id, method, url, headers?, body_b64?, timeout_ms?}
+//	  → {status, headers, body_b64, body_truncated, cookies, session_id}
+//	http_session_close {session_id}
+//	  → {ok, session_id}
 //
 // Why a plugin instead of plain stado_http_request: REST APIs that
 // need a logged-in session (login → cookie → authenticated calls)
@@ -36,11 +36,11 @@
 //
 // Cache layout (relative to operator's workdir):
 //
-//   <workdir>/.cache/stado-http-session/<session-id>.json
+//	<workdir>/.cache/stado-http-session/<session-id>.json
 //
 // Operator-side setup is one mkdir:
 //
-//   mkdir -p <workdir>/.cache/stado-http-session
+//	mkdir -p <workdir>/.cache/stado-http-session
 package main
 
 import (

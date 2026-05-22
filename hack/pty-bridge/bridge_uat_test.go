@@ -1170,7 +1170,7 @@ func stubChunksMarkdown(marker string) []string {
 	// OAI-compat shape stado expects.
 	return []string{
 		fmt.Sprintf(`{"choices":[{"index":0,"delta":{"role":"assistant","content":"# %s\n\nThis is "}}]}`, marker),
-		`{"choices":[{"index":0,"delta":{"content":"**bold** text with `+"`code`"+`."}}]}`,
+		`{"choices":[{"index":0,"delta":{"content":"**bold** text with ` + "`code`" + `."}}]}`,
 		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":12,"total_tokens":16}}`,
 	}
 }

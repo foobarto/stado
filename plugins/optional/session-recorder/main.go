@@ -5,20 +5,20 @@
 //
 // Combines:
 //
-//   session:read       → read token_count, message_count, session_id, last_turn_ref
-//   fs:read:.stado     → read the prior recording file
-//   fs:write:.stado    → write the appended recording file
-//   (no llm:invoke, no session:fork)
+//	session:read       → read token_count, message_count, session_id, last_turn_ref
+//	fs:read:.stado     → read the prior recording file
+//	fs:write:.stado    → write the appended recording file
+//	(no llm:invoke, no session:fork)
 //
 // Both invocation modes supported:
 //
-//   one-shot tool: `/plugin:session-recorder-0.1.0 snapshot` captures
-//                  the current session state as a single line.
+//	one-shot tool: `/plugin:session-recorder-0.1.0 snapshot` captures
+//	               the current session state as a single line.
 //
-//   background:    add the plugin ID to [plugins].background and the
-//                  tick fires on every turn boundary, emitting one
-//                  JSONL line per turn into
-//                  `<worktree>/.stado/session-recordings.jsonl`.
+//	background:    add the plugin ID to [plugins].background and the
+//	               tick fires on every turn boundary, emitting one
+//	               JSONL line per turn into
+//	               `<worktree>/.stado/session-recordings.jsonl`.
 //
 // The recording file is an append-only JSONL log — one object per
 // line — suitable for `jq -s '.[]'` or stream processing.
@@ -180,10 +180,10 @@ type snapshotArgs struct {
 }
 
 type snapshotResult struct {
-	Status    string `json:"status"`          // "ok" | "error"
-	Reason    string `json:"reason,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Recorded  int    `json:"recorded_bytes,omitempty"`
+	Status   string `json:"status"` // "ok" | "error"
+	Reason   string `json:"reason,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Recorded int    `json:"recorded_bytes,omitempty"`
 }
 
 //go:wasmexport stado_tool_snapshot

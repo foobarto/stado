@@ -4,10 +4,12 @@
 // EP-0038 §C.
 //
 // Tools:
-//   dns_resolve — A/AAAA/TXT/MX/NS/PTR record lookup
+//
+//	dns_resolve — A/AAAA/TXT/MX/NS/PTR record lookup
 //
 // Capabilities:
-//   dns:resolve[:<glob>]
+//
+//	dns:resolve[:<glob>]
 package main
 
 import "github.com/foobarto/stado/internal/plugins/bundled/sdk"

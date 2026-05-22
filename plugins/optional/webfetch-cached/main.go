@@ -18,7 +18,7 @@
 //
 // Cache layout (relative to operator's workdir / session worktree):
 //
-//   <workdir>/.cache/stado-webfetch/<sha256-of-url>.json
+//	<workdir>/.cache/stado-webfetch/<sha256-of-url>.json
 //
 // File format: { "url": "<orig>", "body": "<bytes>" }
 //

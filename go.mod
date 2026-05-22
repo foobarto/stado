@@ -1,6 +1,6 @@
 module github.com/foobarto/stado
 
-go 1.25.5
+go 1.26.3
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.40.0

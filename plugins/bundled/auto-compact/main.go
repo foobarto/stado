@@ -41,8 +41,9 @@ func stadoSessionNextEvent(bufPtr, bufCap uint32) int32
 //go:wasmimport stado stado_session_fork
 func stadoSessionFork(atPtr, atLen, seedPtr, seedLen, outPtr, outCap uint32) int32
 
-//go:wasmimport stado stado_llm_invoke
 // args is JSON: {prompt, persona?, model?, system?, max_tokens?, temperature?}.
+//
+//go:wasmimport stado stado_llm_invoke
 func stadoLLMInvoke(argsPtr, argsLen, outPtr, outCap uint32) int32
 
 // ---- helpers ----------------------------------------------------------

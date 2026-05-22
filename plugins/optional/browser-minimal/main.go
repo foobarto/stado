@@ -23,35 +23,35 @@
 //
 // Tools:
 //
-//   browser_open {url, profile?, headers?}
-//     → {session_id, url, status, headers, title, links, forms, cookies, text, html}
+//	browser_open {url, profile?, headers?}
+//	  → {session_id, url, status, headers, title, links, forms, cookies, text, html}
 //
-//   browser_click {session_id, link_index?, selector?, text_match?}
-//     → same shape as browser_open
+//	browser_click {session_id, link_index?, selector?, text_match?}
+//	  → same shape as browser_open
 //
-//   browser_submit {session_id, form_index?, selector?, fields, click?}
-//     → same shape as browser_open
+//	browser_submit {session_id, form_index?, selector?, fields, click?}
+//	  → same shape as browser_open
 //
-//   browser_screenshot {session_id}
-//     → {url, title, text, html, dom_summary}
+//	browser_screenshot {session_id}
+//	  → {url, title, text, html, dom_summary}
 //
-//   browser_eval {session_id, selector, attr?}
-//     → {matches: [{html, text, attrs}]}
-//       Lets a caller fish a value out of the current page without
-//       another round-trip. attr=null returns text + outerHTML.
+//	browser_eval {session_id, selector, attr?}
+//	  → {matches: [{html, text, attrs}]}
+//	    Lets a caller fish a value out of the current page without
+//	    another round-trip. attr=null returns text + outerHTML.
 //
 // "profile" picks a header bundle: chrome (default), firefox, safari.
 //
 // Capabilities:
 //   - net:http_request
 //   - net:http_request_private  (optional — drop if you only hit
-//                                public sites; keeps strict dial guard)
+//     public sites; keeps strict dial guard)
 //   - fs:read:.cache/stado-browser
 //   - fs:write:.cache/stado-browser
 //
 // Operator-side setup:
 //
-//   mkdir -p <workdir>/.cache/stado-browser
+//	mkdir -p <workdir>/.cache/stado-browser
 package main
 
 import (
@@ -125,7 +125,7 @@ const (
 
 type sessionState struct {
 	ID          string                       `json:"id"`
-	Profile     string                       `json:"profile"`           // chrome | firefox | safari
+	Profile     string                       `json:"profile"` // chrome | firefox | safari
 	ExtraHdrs   map[string]string            `json:"extra_headers,omitempty"`
 	Cookies     map[string]map[string]string `json:"cookies,omitempty"` // host → name → value
 	CurrentURL  string                       `json:"current_url,omitempty"`

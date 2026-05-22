@@ -8,7 +8,8 @@
 // plugins, the memory store, the worktree dir, etc.) start here.
 //
 // Capabilities (declared in plugin.manifest.json):
-//   cfg:state_dir
+//
+//	cfg:state_dir
 //
 // No other capabilities — this plugin doesn't read or write
 // anything. It's purely a "what is your state-dir, stado?" tool.

@@ -9,15 +9,15 @@
 //
 // Tool:
 //
-//   ls {path?, hidden?}
-//     → {path, entries: [{name, type, size, mode, mtime}]}
+//	ls {path?, hidden?}
+//	  → {path, entries: [{name, type, size, mode, mtime}]}
 //
-//     hidden=true  also lists dot-files (default false).
+//	  hidden=true  also lists dot-files (default false).
 //
 // Capabilities:
 //   - exec:bash       — invokes `ls -la --time-style=long-iso`
 //   - fs:read:.       — required for `exec:bash` plugins to navigate
-//                       the workdir under the sandbox policy
+//     the workdir under the sandbox policy
 //
 // Implementation note: this is a wrapper around `ls -la`, not a
 // reimplementation of directory enumeration. wazero doesn't preopen
@@ -187,11 +187,11 @@ func exec(argv ...string) (string, error) {
 //
 // Sample input:
 //
-//   stdout:
-//   total 12
-//   drwxr-xr-x 2 user user 4096 2026-05-04 12:30 docs
-//   -rw-r--r-- 1 user user  128 2026-05-04 12:31 README.md
-//   lrwxrwxrwx 1 user user    7 2026-05-04 12:32 link -> README.md
+//	stdout:
+//	total 12
+//	drwxr-xr-x 2 user user 4096 2026-05-04 12:30 docs
+//	-rw-r--r-- 1 user user  128 2026-05-04 12:31 README.md
+//	lrwxrwxrwx 1 user user    7 2026-05-04 12:32 link -> README.md
 //
 // The bash tool wraps stdout/stderr labels around the raw output, so
 // we strip a leading "stdout:\n" and trailing "stderr:\n…" if present.
@@ -226,8 +226,8 @@ func parseLsLong(raw string) ([]lsEntry, error) {
 
 // parseLsLine parses one row of `ls -l --time-style=long-iso`:
 //
-//   drwxr-xr-x 2 user user 4096 2026-05-04 12:30 some-name
-//   ^perm     ^nlink ^owner ^group ^size ^date  ^time ^name (rest)
+//	drwxr-xr-x 2 user user 4096 2026-05-04 12:30 some-name
+//	^perm     ^nlink ^owner ^group ^size ^date  ^time ^name (rest)
 //
 // On a symlink the name part is "<name> -> <target>" — we keep only the
 // name. Any line that doesn't match the layout is skipped silently.

@@ -3,26 +3,28 @@
 //
 // MCP has two wire transports:
 //
-//   1. stdio — child process over stdin/stdout. Not feasible from a
-//      wasm plugin: wazero has no subprocess facility.
-//   2. Streamable HTTP — JSON-RPC 2.0 over POST. Server may respond
-//      with application/json (single response) or text/event-stream
-//      (SSE-framed responses). This plugin implements the HTTP path
-//      via stado_http_request.
+//  1. stdio — child process over stdin/stdout. Not feasible from a
+//     wasm plugin: wazero has no subprocess facility.
+//  2. Streamable HTTP — JSON-RPC 2.0 over POST. Server may respond
+//     with application/json (single response) or text/event-stream
+//     (SSE-framed responses). This plugin implements the HTTP path
+//     via stado_http_request.
 //
 // Tools:
 //
-//   mcp_init {endpoint, headers?}
-//     → {session_id, server_info, capabilities}
+//	mcp_init {endpoint, headers?}
+//	  → {session_id, server_info, capabilities}
 //
-//   mcp_list_tools {session_id}
-//     → {tools: [{name, description, input_schema}]}
+//	mcp_list_tools {session_id}
+//	  → {tools: [{name, description, input_schema}]}
 //
-//   mcp_call_tool {session_id, name, arguments?}
-//     → {content: [...], is_error?: bool}
+//	mcp_call_tool {session_id, name, arguments?}
+//	  → {content: [...], is_error?: bool}
 //
 // Session caching: each `mcp_init` writes a record to
-//   <workdir>/.cache/stado-mcp/<session-id>.json
+//
+//	<workdir>/.cache/stado-mcp/<session-id>.json
+//
 // containing the endpoint URL, the Mcp-Session-Id header value (if
 // the server set one), and any extra headers the caller supplied
 // (Authorization, X-API-Key, etc). Subsequent calls look up that
@@ -36,7 +38,7 @@
 //
 // Operator-side setup is one mkdir:
 //
-//   mkdir -p <workdir>/.cache/stado-mcp
+//	mkdir -p <workdir>/.cache/stado-mcp
 package main
 
 import (
@@ -101,13 +103,13 @@ const (
 )
 
 type session struct {
-	ID            string            `json:"id"`
-	Endpoint      string            `json:"endpoint"`
-	McpSessionID  string            `json:"mcp_session_id,omitempty"`
-	ExtraHeaders  map[string]string `json:"extra_headers,omitempty"`
-	ServerInfo    json.RawMessage   `json:"server_info,omitempty"`
-	Capabilities  json.RawMessage   `json:"capabilities,omitempty"`
-	CreatedUnix   int64             `json:"created_unix"`
+	ID           string            `json:"id"`
+	Endpoint     string            `json:"endpoint"`
+	McpSessionID string            `json:"mcp_session_id,omitempty"`
+	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
+	ServerInfo   json.RawMessage   `json:"server_info,omitempty"`
+	Capabilities json.RawMessage   `json:"capabilities,omitempty"`
+	CreatedUnix  int64             `json:"created_unix"`
 }
 
 type errResult struct {

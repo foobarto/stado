@@ -12,8 +12,8 @@
 //
 // Tool:
 //
-//   image_info {path}
-//     → {path, format, width, height, color_depth?, animated?, size_bytes}
+//	image_info {path}
+//	  → {path, format, width, height, color_depth?, animated?, size_bytes}
 //
 // Capabilities:
 //   - fs:read:. — read inside the workdir

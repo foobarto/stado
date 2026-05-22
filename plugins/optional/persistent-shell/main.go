@@ -12,12 +12,12 @@
 //
 // Mental model:
 //
-//   id = shell.create({argv: ["/bin/bash"]})       // detached, output buffering
-//   shell.attach({id: id})                          // claim it
-//   shell.write({id: id, data: "id\n"})             // bytes in
-//   bytes = shell.read({id: id, timeout_ms: 500})   // bytes out (incl. ring replay)
-//   shell.detach({id: id})                          // release; PTY keeps running
-//   shell.destroy({id: id})                         // SIGTERM → grace → SIGKILL
+//	id = shell.create({argv: ["/bin/bash"]})       // detached, output buffering
+//	shell.attach({id: id})                          // claim it
+//	shell.write({id: id, data: "id\n"})             // bytes in
+//	bytes = shell.read({id: id, timeout_ms: 500})   // bytes out (incl. ring replay)
+//	shell.detach({id: id})                          // release; PTY keeps running
+//	shell.destroy({id: id})                         // SIGTERM → grace → SIGKILL
 //
 // Single-attach-at-a-time per session. attach({force: true}) steals
 // the lock from a previous attacher (the recovery path for "subagent
@@ -199,9 +199,9 @@ func stadoToolShellDetach(argsPtr, argsLen, resultPtr, resultCap int32) int32 {
 // sequences) into the stream.
 
 type writeArgs struct {
-	ID       uint64 `json:"id"`
-	Data     string `json:"data,omitempty"`         // plain UTF-8 (newlines preserved)
-	DataB64  string `json:"data_b64,omitempty"`     // for raw bytes
+	ID      uint64 `json:"id"`
+	Data    string `json:"data,omitempty"`     // plain UTF-8 (newlines preserved)
+	DataB64 string `json:"data_b64,omitempty"` // for raw bytes
 }
 
 type writeResult struct {

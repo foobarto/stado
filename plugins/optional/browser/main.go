@@ -4,36 +4,39 @@
 //
 // Two tiers, one plugin:
 //
-//   Tier 1 — HTTP browser (always available, no deps):
-//     Fetches pages via stado_http_request, parses HTML, manages a
-//     cookie jar, spoofs Chrome/Firefox/Safari headers. Works on any
-//     site that doesn't require JavaScript or advanced fingerprinting.
+//	Tier 1 — HTTP browser (always available, no deps):
+//	  Fetches pages via stado_http_request, parses HTML, manages a
+//	  cookie jar, spoofs Chrome/Firefox/Safari headers. Works on any
+//	  site that doesn't require JavaScript or advanced fingerprinting.
 //
-//   Tier 2 — Chrome CDP (requires chromium or google-chrome on PATH):
-//     Spawns a real headless Chrome via stado_proc_spawn, connects to
-//     its DevTools WebSocket, and drives it via CDP. Full JavaScript
-//     execution, real rendering, real cookie/storage API, screenshots.
-//     Anti-detection: launched with --disable-blink-features=AutomationControlled
-//     and a spoofed UA. Handles most DataDome / Akamai cases that don't
-//     require behavioral mouse simulation.
+//	Tier 2 — Chrome CDP (requires chromium or google-chrome on PATH):
+//	  Spawns a real headless Chrome via stado_proc_spawn, connects to
+//	  its DevTools WebSocket, and drives it via CDP. Full JavaScript
+//	  execution, real rendering, real cookie/storage API, screenshots.
+//	  Anti-detection: launched with --disable-blink-features=AutomationControlled
+//	  and a spoofed UA. Handles most DataDome / Akamai cases that don't
+//	  require behavioral mouse simulation.
 //
 // Tools (tier 1 — always available):
-//   browser_open     {url, profile?, headers?, js_detect?}
-//   browser_click    {session_id, link_index?, selector?, text_match?}
-//   browser_submit   {session_id, form_index?, selector?, fields?, click?}
-//   browser_query    {session_id, selector, attr?}
-//   browser_text     {session_id}
+//
+//	browser_open     {url, profile?, headers?, js_detect?}
+//	browser_click    {session_id, link_index?, selector?, text_match?}
+//	browser_submit   {session_id, form_index?, selector?, fields?, click?}
+//	browser_query    {session_id, selector, attr?}
+//	browser_text     {session_id}
 //
 // Tools (tier 2 — requires Chrome; error if not installed):
-//   browser_cdp_open       {url, wait_for?, timeout_ms?}
-//   browser_cdp_eval       {session_id, js, timeout_ms?}
-//   browser_cdp_screenshot {session_id}
-//   browser_cdp_close      {session_id}
+//
+//	browser_cdp_open       {url, wait_for?, timeout_ms?}
+//	browser_cdp_eval       {session_id, js, timeout_ms?}
+//	browser_cdp_screenshot {session_id}
+//	browser_cdp_close      {session_id}
 //
 // Capabilities:
-//   net:http_request, net:http_request_private
-//   exec:proc         (for spawning Chrome — operator may scope to chrome path)
-//   net:dial:tcp:127.0.0.1:*   (CDP WebSocket)
+//
+//	net:http_request, net:http_request_private
+//	exec:proc         (for spawning Chrome — operator may scope to chrome path)
+//	net:dial:tcp:127.0.0.1:*   (CDP WebSocket)
 //
 // Operator note: stado_proc_spawn requires exec:proc capability. If you
 // need to scope it, use exec:proc:/usr/bin/chromium or similar.
@@ -119,10 +122,10 @@ func stadoFree(ptr int32, _ int32) {
 
 const (
 	cacheDir   = ".cache/stado-browser"
-	httpBufCap = 8 << 20   // 8 MiB HTTP response buffer
-	netBufCap  = 4 << 20   // 4 MiB CDP/WebSocket buffer
+	httpBufCap = 8 << 20 // 8 MiB HTTP response buffer
+	netBufCap  = 4 << 20 // 4 MiB CDP/WebSocket buffer
 	maxRedirs  = 10
-	cdpPort    = 0          // 0 = let Chrome pick a random port
+	cdpPort    = 0 // 0 = let Chrome pick a random port
 )
 
 // ── logging ────────────────────────────────────────────────────────────────
@@ -195,7 +198,7 @@ type pageResult struct {
 	Cookies   map[string]string `json:"cookies,omitempty"`
 	Text      string            `json:"text,omitempty"`
 	HTML      string            `json:"html,omitempty"`
-	NeedsJS   bool              `json:"needs_js,omitempty"`   // hint: page likely requires JS
+	NeedsJS   bool              `json:"needs_js,omitempty"` // hint: page likely requires JS
 }
 
 // ── tier-2 (CDP) types ────────────────────────────────────────────────────
@@ -211,12 +214,12 @@ type cdpSession struct {
 }
 
 type cdpPageResult struct {
-	SessionID string   `json:"session_id"`
-	URL       string   `json:"url"`
-	Title     string   `json:"title,omitempty"`
-	Text      string   `json:"text,omitempty"`
-	HTML      string   `json:"html,omitempty"`
-	Links     []string `json:"links,omitempty"`
+	SessionID string      `json:"session_id"`
+	URL       string      `json:"url"`
+	Title     string      `json:"title,omitempty"`
+	Text      string      `json:"text,omitempty"`
+	HTML      string      `json:"html,omitempty"`
+	Links     []string    `json:"links,omitempty"`
 	Cookies   []cdpCookie `json:"cookies,omitempty"`
 }
 
@@ -270,17 +273,17 @@ func saveCDPSession(s *cdpSession) {
 var profiles = map[string]map[string]string{
 	"chrome": {
 		"User-Agent":                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-		"Accept":                   "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-		"Accept-Language":          "en-US,en;q=0.9",
-		"Sec-Ch-Ua":                `"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"`,
-		"Sec-Ch-Ua-Mobile":         "?0",
-		"Sec-Ch-Ua-Platform":       `"Linux"`,
-		"Sec-Fetch-Dest":           "document",
-		"Sec-Fetch-Mode":           "navigate",
-		"Sec-Fetch-Site":           "none",
-		"Sec-Fetch-User":           "?1",
+		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+		"Accept-Language":           "en-US,en;q=0.9",
+		"Sec-Ch-Ua":                 `"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"`,
+		"Sec-Ch-Ua-Mobile":          "?0",
+		"Sec-Ch-Ua-Platform":        `"Linux"`,
+		"Sec-Fetch-Dest":            "document",
+		"Sec-Fetch-Mode":            "navigate",
+		"Sec-Fetch-Site":            "none",
+		"Sec-Fetch-User":            "?1",
 		"Upgrade-Insecure-Requests": "1",
-		"DNT":                      "1",
+		"DNT":                       "1",
 	},
 	"firefox": {
 		"User-Agent":      "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
@@ -552,7 +555,7 @@ func spawnChrome() (procHandle uint32, wsURL string, err error) {
 				"--disable-gpu",
 				"--no-sandbox",
 				"--disable-dev-shm-usage",
-				"--remote-debugging-port=0",                   // random port; printed to stderr
+				"--remote-debugging-port=0", // random port; printed to stderr
 				"--disable-blink-features=AutomationControlled",
 				"--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 				"--disable-extensions",
@@ -989,9 +992,9 @@ func stadoToolBrowserOpen(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //go:wasmexport stado_tool_browser_click
 func stadoToolBrowserClick(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
-		SessionID  string `json:"session_id"`
-		LinkIndex  *int   `json:"link_index"`
-		TextMatch  string `json:"text_match"`
+		SessionID string `json:"session_id"`
+		LinkIndex *int   `json:"link_index"`
+		TextMatch string `json:"text_match"`
 	}
 	if err := json.Unmarshal(readArgs(argsPtr, argsLen), &req); err != nil {
 		return writeError(resPtr, resCap, "invalid args")
@@ -1115,9 +1118,9 @@ func stadoToolBrowserCDPOpen(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //go:wasmexport stado_tool_browser_cdp_eval
 func stadoToolBrowserCDPEval(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
-		SessionID string `json:"session_id"`
-		JS        string `json:"js"`
-		AwaitPromise bool `json:"await_promise"`
+		SessionID    string `json:"session_id"`
+		JS           string `json:"js"`
+		AwaitPromise bool   `json:"await_promise"`
 	}
 	if err := json.Unmarshal(readArgs(argsPtr, argsLen), &req); err != nil || req.JS == "" {
 		return writeError(resPtr, resCap, "js is required")
@@ -1184,9 +1187,9 @@ func stadoToolBrowserCDPScreenshot(argsPtr, argsLen, resPtr, resCap int32) int32
 	}
 	data, _ := result["data"].(string) // base64-encoded image
 	return writeResult(resPtr, resCap, map[string]any{
-		"format":  req.Format,
+		"format":   req.Format,
 		"data_b64": data,
-		"url":     sess.url,
+		"url":      sess.url,
 	})
 }
 
@@ -1252,7 +1255,7 @@ func stadoToolBrowserCDPClickElement(argsPtr, argsLen, resPtr, resCap int32) int
 	var req struct {
 		SessionID string `json:"session_id"`
 		Selector  string `json:"selector"` // CSS selector
-		Index     int    `json:"index"`     // nth match (0-based, default 0)
+		Index     int    `json:"index"`    // nth match (0-based, default 0)
 	}
 	if err := json.Unmarshal(readArgs(argsPtr, argsLen), &req); err != nil || req.Selector == "" {
 		return writeError(resPtr, resCap, "session_id and selector are required")
@@ -1344,11 +1347,11 @@ func stadoToolBrowserCDPClickElement(argsPtr, argsLen, resPtr, resCap int32) int
 //go:wasmexport stado_tool_browser_cdp_type
 func stadoToolBrowserCDPType(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
-		SessionID string `json:"session_id"`
-		Text      string `json:"text"`       // text to type (printable characters)
-		Selector  string `json:"selector"`   // optional: focus this element first
-		Key       string `json:"key"`        // optional special key: Enter, Tab, Escape, Backspace, ArrowDown, ...
-		ClearFirst bool  `json:"clear_first"` // select-all + delete before typing
+		SessionID  string `json:"session_id"`
+		Text       string `json:"text"`        // text to type (printable characters)
+		Selector   string `json:"selector"`    // optional: focus this element first
+		Key        string `json:"key"`         // optional special key: Enter, Tab, Escape, Backspace, ArrowDown, ...
+		ClearFirst bool   `json:"clear_first"` // select-all + delete before typing
 	}
 	if err := json.Unmarshal(readArgs(argsPtr, argsLen), &req); err != nil {
 		return writeError(resPtr, resCap, "invalid args")
@@ -1441,7 +1444,7 @@ func keyCode(key string) string {
 func stadoToolBrowserCDPScroll(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
 		SessionID string `json:"session_id"`
-		Selector  string `json:"selector"`   // optional: scroll within this element
+		Selector  string `json:"selector"`    // optional: scroll within this element
 		X         int    `json:"x"`           // target scroll X (pixels from left)
 		Y         int    `json:"y"`           // target scroll Y (pixels from top)
 		Delta     int    `json:"delta"`       // relative scroll amount (positive = down)
