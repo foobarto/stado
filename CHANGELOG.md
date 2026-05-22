@@ -32,15 +32,7 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased
-
-### Fixes
-
-- **Command palette no longer scrambles long rows.** Non-selected rows didn't
-  truncate long descriptions (the selected-row path did), so at narrow terminal
-  widths the row overflowed its box and the `/name` + keybinding wrapped onto the
-  next line — scattered fragments mixed into the palette. Both row variants now
-  truncate consistently.
+## v0.49.0 — shell tool affordance rename + palette long-row fix — 2026-05-22
 
 ### Plugins
 
@@ -52,6 +44,14 @@ become semver guarantees.
   siblings. Behavior and output shapes are unchanged; only the agent-facing tool
   names changed (the `stado_terminal_expect` / `stado_terminal_snapshot` host
   imports keep their names). Old names removed outright — no aliases (pre-1.0).
+
+### Fixes
+
+- **Command palette no longer scrambles long rows.** Non-selected rows didn't
+  truncate long descriptions (the selected-row path did), so at narrow terminal
+  widths the row overflowed its box and the `/name` + keybinding wrapped onto the
+  next line — scattered fragments mixed into the palette. Both row variants now
+  truncate consistently.
 
 ## v0.48.9 — plugin run → tool run cleanup + dev-loop fixes — 2026-05-21
 
