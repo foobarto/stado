@@ -1,16 +1,19 @@
 # stado — Threat model
 
-> Last reviewed: 2026-04-25. Reflects the pre-EP-0037/EP-0038
-> architecture where tools were a mix of native Go (`internal/tools/*`)
-> and wasm plugins. Post-reset, native tools are gone and every tool is
-> a signed wasm plugin with capability-gated host imports — see
-> `docs/eps/0037-tool-dispatch-and-operator-surface.md` and
-> `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`. Most attack
-> surfaces below still apply; the in-process-tool risk now lives behind
-> the plugin sandbox + manifest trust chain. Update when re-walking.
+> Last reviewed: 2026-05-22 (re-walked against the all-wasm tool
+> architecture). **Every tool is now a signed wasm plugin** dispatched
+> through capability-gated host imports — there are no in-process native
+> tools (the pre-EP-0037/0038 `internal/tools/*` surface is gone). See
+> `docs/eps/0037-tool-dispatch-and-operator-surface.md`,
+> `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`,
+> `docs/eps/0005-capability-based-sandboxing.md`, and
+> `docs/eps/0030-security-research-default-harness.md`. The central shift
+> since the 2026-04-25 review: filesystem and network access are gated by
+> per-plugin **capabilities** enforced at the host-import boundary, not
+> left to in-process trust. Update when re-walking.
 
 ## Overview
-stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthropic/OpenAI/Google/OAI‑compatible), maintains a git‑sidecar session state, and executes tools (read/write/edit/grep/glob, bash, ripgrep/ast‑grep, webfetch, LSP/MCP/plugin tools). Sessions are stored in a sidecar bare repo with signed audit logs; mutations are materialized in a worktree and only applied to the user repo when `session land` is invoked. It supports a JSON‑RPC ACP server, headless `stado run`, and a WASM plugin runtime with signed manifests. Optional OS sandboxing (bwrap + landlock/seccomp on Linux, sandbox‑exec on macOS; Windows is currently unsandboxed) and network allow‑listing exist but are best‑effort and sometimes opt‑in.
+stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthropic/OpenAI/Google/OAI‑compatible), maintains a git‑sidecar session state, and executes tools — all of which are **signed wasm plugins** (fs read/write/edit/glob/grep, shell exec + PTY sessions, ripgrep/ast‑grep, webfetch, LSP, agent spawn, plus user plugins) reached through capability-gated host imports. Sessions are stored in a sidecar bare repo with signed audit logs; mutations are materialized in a worktree and only applied to the user repo when `session land` is invoked. It supports a JSON‑RPC ACP server, headless `stado run`, and a WASM plugin runtime with signed manifests. OS sandboxing (bwrap + landlock/seccomp on Linux, sandbox‑exec on macOS; Windows is currently unsandboxed) is **default-on for `stado_exec`/`stado_proc_spawn` under `stado mcp-server` and `stado daemon`** (host-default protective policy, EP-0030) and opt-in for direct `stado run` (`--sandbox-fs`); network allow‑listing via a local CONNECT proxy is best‑effort.
 
 ## Threat model, Trust boundaries and assumptions
 **Attacker‑controlled inputs**
@@ -32,34 +35,38 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 **Assumptions / constraints**
 - stado runs as a single local user; there is no multi‑tenant or network‑exposed service surface.
 - The OS user is the security boundary; tool execution inherits user privileges unless a sandbox is enabled.
-- Tool approvals are currently auto‑allow in the codebase (TUI and headless), so safety relies on operator tool‑filtering and sandboxing.
-- Sandboxing is platform‑dependent and optional (Linux `--sandbox-fs` landlock, bwrap for exec; macOS sandbox‑exec; Windows unsandboxed).
+- **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. Human approval still exists but as an **opt-in capability** (`stado_ui_approve`) a plugin invokes deliberately, not a blanket gate.
+- Sandboxing is platform‑dependent (Linux landlock + bwrap, macOS sandbox‑exec; Windows unsandboxed). It is **default-on** for `stado_exec`/`stado_proc_spawn` under `stado mcp-server`/`stado daemon` (host-default policy: PID+uid namespace isolation, restricted FS, network passthrough), and **opt-in** for direct `stado run` (`--sandbox-fs`, default NONE).
 
 ## Attack surface, mitigations and attacker stories
 ### Tool execution & filesystem access
-**Surface:** `read/write/edit/glob/grep`, `bash`, `ripgrep`, `ast-grep`, `read_with_context`, LSP tools. Paths are joined with workdir but accept absolute/`..` paths; in-process tools do not enforce an allow‑list.
+**Surface:** the `fs.*` (read/write/edit/glob/grep), `shell.*` (exec + PTY sessions), `rg`/`astgrep`, `readctx`, and `lsp.*` wasm tools. FS-touching host imports resolve the requested path (symlink-aware, EP-0031) and gate it against the calling plugin's declared `fs:read:`/`fs:write:` capability scopes via `host.allowRead` / `host.allowWrite` (`internal/plugins/runtime/host_fs.go`). A plugin with no `fs:read:<path>` capability covering the resolved path is denied — the gate is not "join to workdir," it is an explicit per-path capability check.
 
 **Risks/attacker stories:**
-- Prompt‑injected instructions cause `read` to access `~/.ssh`, cloud credentials, or other non‑repo secrets; or `bash` to exfiltrate data.
-- Malicious repo content coerces the agent into modifying files outside the intended worktree or running destructive shell commands.
+- Prompt‑injected instructions try to make `fs.read` access `~/.ssh`, cloud credentials, or other non‑repo secrets; or `shell.exec` exfiltrate data. The reach is bounded by the capability scopes the enabled tools actually hold — a tool granted only `fs:read:<workdir>/**` cannot read `~/.ssh` regardless of what the model asks.
+- A broadly-scoped capability (e.g. an operator granting `fs:read:/` to a convenience plugin) re-widens this; the trust then rests on the manifest the operator approved.
+- Malicious repo content coerces the agent into destructive `shell.exec` commands within whatever the exec sandbox allows.
 
 **Mitigations:**
+- **Capability gating at the host-import boundary** (EP-0005, paths EP-0031): FS/exec/net reach is bounded by each plugin's declared, operator-approved capabilities — this is the primary containment, not a future plan.
 - Work is done in a sidecar worktree; user repo stays pristine until `session land`.
-- Output truncation budgets in `internal/tools/budget` limit bulk exfiltration.
-- Operator tool filters (`[tools] enabled/disabled`) can remove `bash`/`webfetch`.
-- Optional Linux landlock with `stado run --sandbox-fs` restricts writes to the worktree + /tmp (reads remain broad).
-- Future approval workflow is planned but not active; treat tool calls as trusted only when operating in a trusted repo/model.
+- Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
+- Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
+- `stado run --sandbox-fs` adds Linux landlock restricting writes to the worktree + /tmp (reads remain broad at the landlock layer — the capability gate is the tighter read control).
+- Residual risk: capabilities are declared per plugin and approved at install/trust time; an over-broad grant or a trusted-but-coerced tool still operates within its granted scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control
 **Surface:** `internal/sandbox` runners (bwrap, sandbox‑exec), landlock/seccomp, HTTPS proxy allow‑list.
 
 **Risks/attacker stories:**
-- On Windows or hosts without bwrap/sandbox‑exec, subprocesses run unsandboxed.
-- Misconfigured or missing capability manifests for MCP servers allow full host access.
+- On Windows, or hosts without bwrap/sandbox‑exec, subprocesses run unsandboxed even where a host-default policy is requested (the policy is a no-op without an enforcing runner).
+- Direct `stado run` defaults to NO sandbox (`run.go`: default policy NONE), so exec from an interactive session inherits full user privileges unless `--sandbox-fs` is set.
+- An explicit per-call `sandbox` field on `stado_exec` can opt out of the host default.
 
 **Mitigations:**
-- Capability policy format for MCP servers; enforcement via sandbox runner when provided.
-- Network allow‑listing via local CONNECT proxy (host allow‑list).
+- **Host-default protective policy** (EP-0030, v0.48.0): under `stado mcp-server` / `stado daemon`, `stado_exec`/`stado_proc_spawn` calls that don't supply their own `sandbox` field get bwrap/sandbox‑exec PID+uid namespace isolation, a restricted FS view (`/bin /sbin /tmp /var/tmp /run` reads, writes to `/tmp /var/tmp` + workdir), and network passthrough — applied by default rather than opt-in.
+- Network allow‑listing via a local CONNECT proxy (host allow‑list).
+- Operators running the higher-risk surfaces (MCP server for untrusted clients, daemon) get the protective default without configuration; direct-`stado run` operators must opt in.
 
 ### Network access and web fetching
 **Surface:** LLM provider HTTP clients, OAI‑compat endpoints, `webfetch`.
