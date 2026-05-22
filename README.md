@@ -9,7 +9,7 @@
   <a href="https://goreportcard.com/report/github.com/foobarto/stado"><img src="https://goreportcard.com/badge/github.com/foobarto/stado" alt="Go Report Card"></a>
   <a href="https://pkg.go.dev/github.com/foobarto/stado"><img src="https://pkg.go.dev/badge/github.com/foobarto/stado.svg" alt="Go Reference"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/foobarto/stado" alt="Go version">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/foobarto/stado" alt="License"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT OR Apache-2.0"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/foobarto/stado"><img src="https://api.securityscorecards.dev/projects/github.com/foobarto/stado/badge" alt="OpenSSF Scorecard"></a>
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-brightgreen" alt="Security Policy"></a>
 </p>
@@ -241,9 +241,10 @@ stado tool run --session <sid> <tool> '{...}'  # session-aware tool CLI
 
 `plugin list` shows trusted authors; `plugin installed` shows runnable
 plugin IDs (`<name>-<version>`). The shipped bundled plugin catalog
-lives under [plugins/](plugins/): `plugins/bundled/auto-compact/` is on
-by default, while [plugins/optional/](plugins/optional/) are opt-in
-authoring samples.
+lives under [plugins/bundled/](plugins/bundled/): `plugins/bundled/auto-compact/`
+is on by default. Opt-in plugins (the former `optional/` + `demos/`) now live in
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) and install
+via `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>`.
 
 Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
@@ -305,8 +306,8 @@ surface itself is shipped and stable enough to wire into Zed today.
   `/home → /var/home` symlink no longer triggers
   `Error: config: create config dir: directory component is a
   symlink: home`).
-- Two new bundled examples — [`plugins/optional/webfetch-cached/`](plugins/optional/webfetch-cached/)
-  and [`plugins/demos/state-dir-info/`](plugins/demos/state-dir-info/)
+- Two new examples — `webfetch-cached` and `state-dir-info` (now in
+  [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins))
   — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
 - See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
   for the full rollup, EP-0027/0028/0029/0031 references, and the
@@ -574,6 +575,8 @@ Licensed under either of
   <http://opensource.org/licenses/MIT>)
 
 at your option.
+
+`SPDX-License-Identifier: MIT OR Apache-2.0`
 
 ### Contribution
 

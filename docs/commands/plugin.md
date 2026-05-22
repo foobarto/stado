@@ -208,6 +208,6 @@ Relevant `config.toml` sections:
 - [README.md](../../README.md) — install channels and high-level plugin summary
 - [SECURITY.md](../../SECURITY.md) — plugin-publish cookbook and trust model
 - [plugins/README.md](../../plugins/README.md) — bundled/default vs example plugin catalog
-- [plugins/optional/README.md](../../plugins/optional/README.md) — concrete opt-in plugin examples
+- [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) — concrete opt-in plugin examples (installable)
 - [memory.md](memory.md) — review plugin-proposed persistent memories
 - [learning.md](learning.md) — propose reviewable operational lessons

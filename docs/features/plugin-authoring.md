@@ -378,8 +378,9 @@ must respect this.
 
 ## Inspecting an existing plugin
 
-For a plugin you didn't write (a teammate's, an example bundled
-under `plugins/optional/`, or one you forgot the details of):
+For a plugin you didn't write (a teammate's, an example from
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins), or one
+you forgot the details of):
 
 ```sh
 stado plugin doctor <id>           # surfaces + capabilities + suggested invocation
@@ -425,7 +426,7 @@ whether to trust the plugin.
   + the `exec:bash` refusal rule.
 - [`SECURITY.md`](../../SECURITY.md) — plugin-publish cookbook,
   trust model, distribution recommendations.
-- [`plugins/optional/`](../../plugins/optional/) — opt-in example
-  plugins covering `hello`, `hello-go`, `session-inspect`,
-  `auto-compact`, the `approval-*-go` family for bundled-tool
-  approval wrappers, and `session-recorder`.
+- [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) — opt-in
+  example plugins covering `hello`, `hello-go`, `session-inspect`,
+  the `approval-*-go` family for bundled-tool approval wrappers, and
+  `session-recorder`.
