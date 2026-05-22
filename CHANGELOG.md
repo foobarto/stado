@@ -32,6 +32,30 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.51.0 — security hardening (batch 1 of Codex triage) — 2026-05-22
+
+First batch of fixes from the Codex security review (`.tmp/security-todo/`).
+
+### Security
+
+- **Critical: rg/ast_grep flag-injection RCE.** `rg.search` appended arbitrary
+  ripgrep flags verbatim while holding only `exec:proc:rg`; `--pre` /
+  `--search-zip` / `--hostname-bin` make ripgrep execute an attacker-named
+  program (`stado_exec` validates only `argv[0]`). Now denylists exec-spawning
+  flags. Both `rg` and `ast_grep` also constrain the search/target path to the
+  workdir (no absolute / `..`), closing ast_grep's `--update-all` write-escape.
+- **Project config `[hooks]` RCE.** A repo-committed `.stado/config.toml` could
+  set `[hooks].post_turn = "/bin/sh -c …"` for near-zero-effort RCE on
+  `stado run`. The project overlay now strips `[hooks]` (with a notice); legit
+  project model/provider/tool overrides still apply.
+- **Tool-filter bypass.** `[tools].disabled=["bash"|"webfetch"|…]` (pre-EP-0038
+  bare names) was a silent no-op, leaving the wasm replacement live. Legacy
+  filter names now translate to their canonical and match.
+- **DNS-rebinding / fail-open dial guards.** Plugin TCP/UDP dial + `sendto` and
+  the http client validated then re-dialed the hostname (rebind window); sendto
+  failed open on lookup error. All now resolve+guard once and dial the validated
+  IP (fail closed), and the http guard also blocks `0.0.0.0`/multicast.
+
 ## v0.50.2 — docs refresh: personas, threat model, EP-0041 — 2026-05-22
 
 ### Docs
