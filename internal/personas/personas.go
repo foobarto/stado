@@ -103,6 +103,9 @@ func (r Resolver) loadResolved(name string, visited map[string]bool) (*Persona, 
 	return &p, nil
 }
 
+// maxPersonaBytes caps a persona markdown file (bundled ones average 6–10 KB).
+const maxPersonaBytes int64 = 1 << 20
+
 // readSource walks the resolution order and returns the raw file
 // bytes plus the source path. Bundled lookups produce SourcePath="".
 func (r Resolver) readSource(name string) ([]byte, string, error) {
@@ -111,6 +114,14 @@ func (r Resolver) readSource(name string) ([]byte, string, error) {
 	}
 	for _, dir := range r.dirs() {
 		path := filepath.Join(dir, name+".md")
+		// Reject symlinks (Lstat + IsRegular) and oversize files: project
+		// .stado/personas/ is repo-controlled, and a bare ReadFile would
+		// follow a symlinked default.md to an arbitrary local file and splice
+		// it into the system prompt (exfil).
+		info, lerr := os.Lstat(path)
+		if lerr != nil || !info.Mode().IsRegular() || info.Size() > maxPersonaBytes {
+			continue
+		}
 		if data, err := os.ReadFile(path); err == nil {
 			return data, path, nil
 		}

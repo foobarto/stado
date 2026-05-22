@@ -65,13 +65,22 @@ code. No over-engineering. Minimum viable for the task at hand.`
 // loadSecurityHarness returns the security harness system prompt addition.
 // Checks for .stado/harness/security.md in the project first; falls back
 // to the built-in template.
+// maxHarnessBytes caps the project harness override (1 MiB; the builtin is
+// a few KB).
+const maxHarnessBytes int64 = 1 << 20
+
 func loadSecurityHarness(workdir string) string {
 	if workdir != "" {
 		custom := filepath.Join(workdir, ".stado", "harness", "security.md")
-		if data, err := os.ReadFile(custom); err == nil {
-			content := strings.TrimSpace(string(data))
-			if content != "" {
-				return content
+		// Reject symlinks (Lstat + IsRegular) and oversize files: this path is
+		// repo-controlled, and a bare ReadFile would follow a symlink to e.g.
+		// ~/.ssh/id_rsa and splice it into the system prompt (exfil).
+		if info, err := os.Lstat(custom); err == nil && info.Mode().IsRegular() && info.Size() <= maxHarnessBytes {
+			if data, err := os.ReadFile(custom); err == nil {
+				content := strings.TrimSpace(string(data))
+				if content != "" {
+					return content
+				}
 			}
 		}
 	}

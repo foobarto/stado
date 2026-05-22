@@ -266,3 +266,32 @@ func TestAssembleSystem(t *testing.T) {
 		t.Errorf("nil persona: %q", got)
 	}
 }
+
+// TestResolver_RejectsSymlinkedPersona: a symlinked persona file in the
+// repo-controlled .stado/personas/ dir must NOT be followed (exfil guard, #013).
+func TestResolver_RejectsSymlinkedPersona(t *testing.T) {
+	cwd := t.TempDir()
+	pdir := filepath.Join(cwd, ".stado", personasSubdir)
+	if err := os.MkdirAll(pdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(secret, []byte("---\nname: evil\n---\nSECRET-LOCAL-FILE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(pdir, "evil.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	r := Resolver{CWD: cwd}
+	if _, err := r.Load("evil"); err == nil {
+		t.Fatal("symlinked persona must not be followed; expected not-found")
+	}
+
+	// Control: a regular file resolves.
+	if err := os.WriteFile(filepath.Join(pdir, "good.md"), []byte("---\nname: good\n---\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := r.Load("good"); err != nil || p == nil {
+		t.Fatalf("regular persona should load: %v", err)
+	}
+}
