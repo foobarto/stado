@@ -139,9 +139,6 @@ source/`make` builds fall back to the system PATH. `gopls` is optional, always
 via PATH. Dev/source builds do not pin the release minisign roots unless you
 pass the release ldflags. `make help` lists the dev-loop targets
 (`test`, `lint`, `check`, etc.).
-Dev/source builds do not pin the release minisign roots unless you
-pass the release ldflags. `make help` lists the dev-loop targets
-(`test`, `lint`, `check`, etc.).
 
 ---
 

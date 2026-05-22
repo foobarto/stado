@@ -12,7 +12,7 @@ import (
 // `make wasm`, the goreleaser before-hook, or `go generate ./...` produce
 // them. A plain `go build`/`go install` from a tree without them fails the
 // embed; build via `git clone && make` (go install is not supported for this
-// reason). See docs/eps/0042.
+// reason). See docs/eps/0042-binaries-out-of-source-tree.md.
 //
 //go:generate bash ../../../plugins/bundled/build.sh
 //go:embed wasm/*.wasm

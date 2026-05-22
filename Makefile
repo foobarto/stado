@@ -45,13 +45,17 @@ LDFLAGS  := -X main.version=$(VERSION) -X github.com/foobarto/stado/internal/ver
 # Bundled wasm are built from source (EP-0042 Part B), not committed. The
 # embed at internal/plugins/bundled/embed.go needs them present at compile
 # time, so build/install/test depend on `wasm`. `fs.wasm` is the staleness
-# sentinel: rebuild whenever build.sh or any bundled-plugin source changes.
+# sentinel: rebuild whenever build.sh, any bundled-plugin source, the shared
+# wasm SDK, or the module graph (go.mod/go.sum) changes — all of which can
+# alter the compiled wasm.
 WASM_DIR        := internal/plugins/bundled/wasm
 WASM_SENTINEL   := $(WASM_DIR)/fs.wasm
-WASM_SRC        := $(shell find plugins/bundled -name '*.go' 2>/dev/null) plugins/bundled/build.sh
+WASM_SRC        := $(shell find plugins/bundled internal/plugins/bundled/sdk -name '*.go' 2>/dev/null) plugins/bundled/build.sh go.mod go.sum
 
+# Pass GO through so `make GO=/path/to/go` and the wasm build use the same
+# toolchain (build.sh reads $GO, defaulting to `go` on PATH).
 $(WASM_SENTINEL): $(WASM_SRC)
-	bash plugins/bundled/build.sh
+	GO=$(GO) bash plugins/bundled/build.sh
 
 .PHONY: wasm
 wasm: $(WASM_SENTINEL) ## Build the bundled wasm into internal/plugins/bundled/wasm/
