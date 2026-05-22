@@ -275,8 +275,8 @@ func ptyBoundShellTool(name string) bool {
 		"shell__signal",
 		"shell__resize",
 		"shell__destroy",
-		"shell__snapshot",
-		"shell__expect":
+		"shell__screenshot",
+		"shell__read_until":
 		return true
 	}
 	return false

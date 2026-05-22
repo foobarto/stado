@@ -32,6 +32,19 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased
+
+### Plugins
+
+- **shell tool affordance (breaking): `shell.expect` → `shell.read_until`,
+  `shell.snapshot` → `shell.screenshot`.** Renamed for tool-selection
+  affordance — agents pick PTY-output tools by name, and `expect` / `snapshot`
+  weren't the words they reached for, so they defaulted to `shell.read` and got
+  raw ANSI escapes. `shell.read`'s description now cross-references both
+  siblings. Behavior and output shapes are unchanged; only the agent-facing tool
+  names changed (the `stado_terminal_expect` / `stado_terminal_snapshot` host
+  imports keep their names). Old names removed outright — no aliases (pre-1.0).
+
 ## v0.48.9 — plugin run → tool run cleanup + dev-loop fixes — 2026-05-21
 
 ### Plugins

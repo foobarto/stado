@@ -11,19 +11,19 @@ import (
 	"github.com/foobarto/stado/internal/plugins/bundled"
 )
 
-// TestShellSnapshotE2E drives the full chain: instantiate the bundled
+// TestShellScreenshotE2E drives the full chain: instantiate the bundled
 // shell.wasm, spawn a `cat` PTY, write a known string, then call
-// stado_tool_snapshot and verify the host JSON makes it back through
+// stado_tool_screenshot and verify the host JSON makes it back through
 // the wasm boundary intact. Catches regressions in:
 //   - host import wire format (id round-trip, JSON shape)
-//   - bundled plugin's stadoToolSnapshot dispatch + buffer sizing
-//   - vt10x integration (text actually shows up in the snapshot)
+//   - bundled plugin's stadoToolScreenshot dispatch + buffer sizing
+//   - vt10x integration (text actually shows up in the screenshot)
 //
 // One module instance drives every tool call — wazero refuses
 // duplicate instantiations of the same {name, version} and the PTY
 // registry lives on the host anyway, so re-instantiation gains
 // nothing.
-func TestShellSnapshotE2E(t *testing.T) {
+func TestShellScreenshotE2E(t *testing.T) {
 	ctx := context.Background()
 	rt, err := New(ctx)
 	if err != nil {

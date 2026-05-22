@@ -1,5 +1,5 @@
 // Package ptyblock renders a pty.Screen (the cell grid produced by
-// shell.snapshot's vt10x emulator) as styled terminal text suitable
+// shell.screenshot's vt10x emulator) as styled terminal text suitable
 // for embedding inside the TUI's tool-output area.
 //
 // The output is a sequence of strings — one per visible row — each

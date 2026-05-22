@@ -3,7 +3,7 @@
 Minimal example of the `stado_terminal_expect` host primitive — the
 read-until-pattern PTY operation that replaces the model loop of
 `shell.read with timeout → substring-check → loop` with a single tool
-call. The bundled `shell.expect` tool exposes the same primitive
+call. The bundled `shell.read_until` tool exposes the same primitive
 without writing a plugin; this demo shows the host-import glue plugin
 authors need when scripting an interactive program from wasm.
 

@@ -7,7 +7,7 @@
 //
 // Plugin authors copy this shape when they need to script a real
 // interactive program (REPL, ssh prompt, msfconsole). The bundled
-// `shell.expect` tool exposes the same primitive without writing a
+// `shell.read_until` tool exposes the same primitive without writing a
 // plugin; this demo exists so authors can see the end-to-end glue.
 package main
 
