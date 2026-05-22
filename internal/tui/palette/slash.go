@@ -426,8 +426,20 @@ func renderRow(width int, c Command, selected bool) string {
 	} else {
 		right = lipgloss.NewStyle().Foreground(theme.Muted).Render(name)
 	}
-	pad := max(width-lipgloss.Width(c.Desc)-lipgloss.Width(rightCol), 1)
-	return lipgloss.NewStyle().Foreground(theme.Text).Render(c.Desc) +
+	// Truncate the description when desc+right would overflow, mirroring
+	// rowTwoCol (the selected-row path). Without this, a long row exceeds
+	// the box width and lipgloss wraps the right column (the /name +
+	// keybinding) onto the next line — the scattered "junk" in the palette.
+	desc := c.Desc
+	if lipgloss.Width(desc)+lipgloss.Width(rightCol)+1 > width {
+		budget := width - lipgloss.Width(rightCol) - 2
+		if budget < 3 {
+			budget = 3
+		}
+		desc = truncateVisible(desc, budget)
+	}
+	pad := max(width-lipgloss.Width(desc)-lipgloss.Width(rightCol), 1)
+	return lipgloss.NewStyle().Foreground(theme.Text).Render(desc) +
 		strings.Repeat(" ", pad) +
 		right
 }

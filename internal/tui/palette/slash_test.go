@@ -5,7 +5,31 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// TestRenderRow_RespectsWidth pins the palette-junk bug: the non-selected
+// row path did not truncate long descriptions the way the selected path
+// (rowTwoCol) does, so `desc + name + shortcut` overflowed the box width and
+// lipgloss wrapped the right column (the /name + keybinding) onto a new line —
+// the scattered fragments in the friend's screenshot. Both row variants must
+// fit within the given width.
+func TestRenderRow_RespectsWidth(t *testing.T) {
+	const width = 40
+	long := Command{
+		Name:     "/model",
+		Desc:     "Open a model picker (no args) or set a specific id (/model <id>)",
+		Shortcut: "ctrl+x m",
+		Group:    "Session",
+	}
+	for _, selected := range []bool{false, true} {
+		row := renderRow(width, long, selected)
+		if w := lipgloss.Width(row); w > width {
+			t.Errorf("selected=%v: row visible width %d exceeds box width %d: %q",
+				selected, w, width, row)
+		}
+	}
+}
 
 func TestOpenShowsAllCommands(t *testing.T) {
 	m := New()
