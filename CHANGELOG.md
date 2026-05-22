@@ -34,6 +34,14 @@ become semver guarantees.
 
 ## Unreleased
 
+### Fixes
+
+- **Command palette no longer scrambles long rows.** Non-selected rows didn't
+  truncate long descriptions (the selected-row path did), so at narrow terminal
+  widths the row overflowed its box and the `/name` + keybinding wrapped onto the
+  next line — scattered fragments mixed into the palette. Both row variants now
+  truncate consistently.
+
 ### Plugins
 
 - **shell tool affordance (breaking): `shell.expect` → `shell.read_until`,
