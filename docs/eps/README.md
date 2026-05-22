@@ -64,6 +64,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Implemented |
 | 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
+| 0041 | [Shell PTY tool naming — read_until and screenshot](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 
