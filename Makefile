@@ -34,7 +34,11 @@ STATICCHECK ?= staticcheck
 #   v0.31.0-3-gabc1234-dirty           (... with uncommitted changes)
 #   abc1234-dirty                      (no tag reachable, dirty)
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
-LDFLAGS  := -X main.version=$(VERSION)
+# Set BOTH version vars: cmd/stado's `main.version` (used by `stado --version`)
+# and internal/version.Version (used by the TUI status bar / landing / sidebar).
+# Previously only main.version was set here, so `make`-built binaries showed the
+# right `--version` but 0.0.0-dev in the TUI. goreleaser already sets both.
+LDFLAGS  := -X main.version=$(VERSION) -X github.com/foobarto/stado/internal/version.Version=$(VERSION)
 
 .DEFAULT_GOAL := build
 

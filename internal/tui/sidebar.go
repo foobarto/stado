@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/version"
 )
 
 const sidebarResizeStep = 4
@@ -96,7 +97,7 @@ func (m *Model) renderSidebar(width int) string {
 	}
 	data := map[string]any{
 		"Title":        "stado",
-		"Version":      "0.0.0-dev",
+		"Version":      version.Version,
 		"SessionLabel": sessionLabel,
 		"SessionMeta":  m.sidebarSessionMeta(),
 		"NowLines":     m.sidebarNowLines(),
