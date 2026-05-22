@@ -53,3 +53,10 @@ NOTES*.md
 
 # Plugin signing seeds (Ed25519 private keys) — never commit any.
 **/*.seed
+
+# Bundled wasm are built from source at build time (make wasm / goreleaser
+# before-hook / go generate), not committed (EP-0042 Part B). They're embedded
+# into the signed stado binary; no separate signing. `go install` is not a
+# supported path for this reason — use `git clone && make`.
+/internal/plugins/bundled/wasm/*.wasm
+/internal/plugins/bundled/wasm/.wasm.stamp

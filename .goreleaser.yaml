@@ -10,6 +10,10 @@ before:
     # below sets -tags stado_embed_binaries so each cross-compile picks
     # up exactly one of these files.
     - go run ./hack/fetch-binaries.go
+    # Build the bundled wasm plugins from source (EP-0042 Part B). They are
+    # //go:embed'd into the binary at internal/plugins/bundled/wasm/ but not
+    # committed, so the release build must produce them here.
+    - bash plugins/bundled/build.sh
 
 builds:
   - id: stado

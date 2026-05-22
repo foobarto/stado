@@ -44,6 +44,11 @@ jobs:
           languages: go
           build-mode: manual
 
+      # Bundled wasm are built from source (EP-0042 Part B), not committed —
+      # the //go:embed needs them present before any go build.
+      - name: Build bundled wasm (EP-0042 Part B)
+        run: bash plugins/bundled/build.sh
+
       # Explicit build (matches CI): pure-Go, no cgo, host platform only.
       - name: Build
         run: CGO_ENABLED=0 go build ./...
