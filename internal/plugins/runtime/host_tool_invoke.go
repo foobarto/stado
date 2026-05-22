@@ -79,6 +79,27 @@ func WithInvokeDepth(ctx context.Context, depth int) context.Context {
 	return context.WithValue(ctx, invokeDepthKey{}, &d)
 }
 
+// inheritedCapsKey threads the CALLER's capability strings into a nested
+// stado_tool_invoke so the callee runs under the caller's caps.
+type inheritedCapsKey struct{}
+
+// WithInheritedCaps marks ctx so a tool invoked via stado_tool_invoke runs
+// under the caller's capabilities instead of its own manifest's. This is the
+// caller-cap-inheritance model: a plugin holding only `tool:invoke:bash`
+// confers no exec/fs/net on the inner bash tool — the caller cannot hitch a
+// ride on the callee's broader declared caps to escalate.
+func WithInheritedCaps(ctx context.Context, caps []string) context.Context {
+	return context.WithValue(ctx, inheritedCapsKey{}, caps)
+}
+
+// InheritedCaps returns the caller capabilities to apply to a nested invoke,
+// and whether an override is present. When present, the callee's own manifest
+// caps are NOT used for gating.
+func InheritedCaps(ctx context.Context) ([]string, bool) {
+	v, ok := ctx.Value(inheritedCapsKey{}).([]string)
+	return v, ok
+}
+
 // registerToolInvokeImport wires the stado_tool_invoke host import.
 func registerToolInvokeImport(builder wazero.HostModuleBuilder, host *Host) {
 	builder.NewFunctionBuilder().
@@ -104,8 +125,10 @@ func registerToolInvokeImport(builder wazero.HostModuleBuilder, host *Host) {
 			argsCopy := make([]byte, len(argsBytes))
 			copy(argsCopy, argsBytes)
 
-			// Increment depth for any nested invocation.
-			invokeCtx := WithInvokeDepth(ctx, depth+1)
+			// Increment depth, and pin the CALLER's caps onto the ctx so the
+			// invoked tool runs under them (caller-cap inheritance) rather than
+			// its own — no privilege escalation by invoking a broader tool.
+			invokeCtx := WithInheritedCaps(WithInvokeDepth(ctx, depth+1), host.Manifest.Capabilities)
 			result, err := host.ToolInvoke.Invoke(invokeCtx, name, json.RawMessage(argsCopy))
 			if err != nil {
 				// Wrap the error in a JSON envelope so the plugin can

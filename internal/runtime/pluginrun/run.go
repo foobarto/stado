@@ -108,7 +108,14 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 		return tool.Result{Error: "pluginrun: nil host"}, fmt.Errorf("pluginrun: nil host")
 	}
 
-	rtHost := pluginRuntime.NewHost(args.Manifest, args.Workdir, nil)
+	// Caller-cap inheritance: when this run is a nested stado_tool_invoke, gate
+	// the inner tool with the CALLER's capabilities, not its own manifest's,
+	// so a plugin can't escalate by invoking a more-powerful tool (#021).
+	mf := args.Manifest
+	if inherited, ok := pluginRuntime.InheritedCaps(ctx); ok {
+		mf.Capabilities = inherited
+	}
+	rtHost := pluginRuntime.NewHost(mf, args.Workdir, nil)
 	if args.Cfg != nil {
 		rtHost.StateDir = args.Cfg.StateDir()
 	}
