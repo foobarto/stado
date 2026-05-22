@@ -32,6 +32,22 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.50.2 — docs refresh: personas, threat model, EP-0041 — 2026-05-22
+
+### Docs
+
+- **Personas:** gave the `/persona` slash command its own prominent section and
+  corrected the false "session-only" claim — an in-chat switch persists to
+  `[defaults].persona` and survives restarts.
+- **Threat model** re-walked for the all-wasm architecture: every tool is a
+  signed wasm plugin with capability-gated FS/exec/net at the host-import
+  boundary (bundled tools default to workdir-scoped caps); containment is
+  capability-based not approval-based; host-default exec sandbox under
+  mcp-server/daemon.
+- **EP-0041** (shell PTY tool naming) added, capturing the v0.49.0
+  `read_until`/`screenshot` rename; removed the `docs/superpowers/plans` scratch
+  dir and stale `docs/reports/` artifacts.
+
 ## v0.50.1 — wider / palette on the landing page — 2026-05-22
 
 ### Fixes
