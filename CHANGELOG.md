@@ -32,6 +32,17 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.5 — fix TUI version display — 2026-05-22
+
+### Fixes
+
+- **TUI showed `0.0.0-dev`.** The TUI reads `internal/version.Version`, but the
+  Makefile only ldflag-set `main.version` (used by `stado --version`), so
+  `make`-built binaries displayed the right `--version` yet `0.0.0-dev` in the
+  status bar/landing. The Makefile now sets both (goreleaser already did). Also
+  fixed the sidebar/status modal, which hardcoded `"0.0.0-dev"` instead of
+  reading the version var — that affected released binaries too.
+
 ## v0.52.4 — security hardening (batch 5: caps / ACP / trust / sandbox) — 2026-05-22
 
 ### Security
