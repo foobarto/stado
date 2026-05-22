@@ -90,7 +90,7 @@ everything needed to install them remotely:
   owner, as EP-39 §C requires). Per EP-39 §A monorepo subdir tags, each plugin
   versions independently (`<plugin>/v0.1.0`).
 - The full current set (`plugins/optional/*`, `plugins/demos/*`) relocates
-  there — their sources, manifests, build scripts, and the `.wasm` artifacts
+  there — their sources, manifests, build scripts, and the `.wasm` artefacts
   themselves. Binaries legitimately live in the distribution repo: EP-39 §E
   resolves a plugin from either **tier 1** (CI builds the wasm deterministically,
   the operator signs the manifest **offline**, signed manifest + wasm published
@@ -125,12 +125,13 @@ wasm-build step must precede any compile that needs the embed.
 Mechanism:
 
 1. **`make wasm`** (new target) runs `plugins/bundled/build.sh`, writing the 13
-   `.wasm` (+ manifests) into `internal/plugins/bundled/wasm/`. `make build`,
+   `.wasm` into `internal/plugins/bundled/wasm/` and manifest templates into
+   `internal/plugins/bundled/manifests/` (matching the current script). `make build`,
    `make test`, and `make install` depend on it.
 2. **`//go:generate`** directive next to `embed.go` invokes the same build, so
    `go generate ./...` produces them for contributors who don't use `make`.
 3. **goreleaser before-hook** gains the wasm build (alongside `go mod tidy` +
-   `fetch-binaries.go`) so release artefacts embed freshly-built wasm.
+   `go run ./hack/fetch-binaries.go`) so release artefacts embed freshly-built wasm.
 4. **`.gitignore`** covers `internal/plugins/bundled/wasm/*.wasm`. The 13
    committed files are deleted from the tree.
 5. **A compile-time guard**: a tiny `//go:build` sentinel or a generated
@@ -188,7 +189,7 @@ Phased; each phase ships independently and leaves the tree working.
   plugin from source and publishes per-subdir releases.
 - **Phase 2 (Part A).** Relocate the entire `plugins/optional/*` +
   `plugins/demos/*` set — sources, manifests, build scripts, and `.wasm`
-  artifacts — into `stado-plugins`; publish first releases (tier 1) or commit
+  artefacts — into `stado-plugins`; publish first releases (tier 1) or commit
   `dist/` (tier 2); update main-repo docs/READMEs to the `stado plugin install`
   form; delete them from the main tree.
 - **Phase 3 (Part B).** Add `make wasm` + `go:generate` + goreleaser hook +
