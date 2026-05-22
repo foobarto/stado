@@ -32,6 +32,17 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.1 — security hardening (batch 3: host-import gates) — 2026-05-22
+
+### Security
+
+- **HTTP upload egress bypass (#014).** `stado_http_upload_create` now enforces
+  the same per-host net allow-list as `stado_http_request`.
+- **Proxy egress bypass (#022).** `proxy_url`'s host is now checked against the
+  manifest allow-list (the proxy is dialed and sees the request + any creds).
+- **LSP fs-scope bypass (#012).** `stado_lsp_*` now gate the requested path
+  through the plugin's `fs:read` scope, not just workdir containment.
+
 ## v0.52.0 — security hardening (review-item decisions) — 2026-05-22
 
 The three Codex findings that needed an operator design decision, now resolved.
