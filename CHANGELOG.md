@@ -32,6 +32,25 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.2 — security hardening (batch 4) — 2026-05-22
+
+### Security
+
+- **Detection no longer execs untrusted binaries (#047/#053).** Integration
+  version-probing only runs binaries resolved from trusted well-known install
+  paths, not PATH — opening `/model` or running `doctor` in a repo with a
+  shadowing `./bin` is no longer arbitrary code execution.
+- **Git-status probe hardened (#057).** The TUI status bar overrides
+  `core.fsmonitor`/`core.hooksPath` and sets `GIT_CONFIG_NOSYSTEM` so a malicious
+  repo `.git/config` can't exec on open.
+- **Secret capability tri-state (#029).** Declaring only `secrets:write` no
+  longer confers read of any secret (and vice-versa); an undeclared read/write
+  is now denied instead of treated as broad.
+- **`/plugin reload` honors tool filters (#028).** Reload routes through the
+  full registry composition, so disabled tools stay disabled.
+- **Project aliases dropped (#002).** A repo's `.stado/config.toml [aliases]`
+  (an exec vector via slash-command expansion) is stripped, like `[hooks]`.
+
 ## v0.52.1 — security hardening (batch 3: host-import gates) — 2026-05-22
 
 ### Security
