@@ -32,6 +32,20 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased
+
+### Fixes
+
+- **Command palette inline (`/`) view no longer wraps rows — the actual fix.**
+  v0.49.0 truncated long descriptions but missed the real cause the tester
+  reported: `InlineView`/`View` built the box with `.Width(boxW)` assuming that
+  was the total outer width. In this lipgloss version `.Width` is content+padding
+  and the rounded border adds 2 cols on top, so the box rendered `boxW+2` wide.
+  Nested in the input frame (no slack), the overflow made lipgloss word-wrap
+  each row, spilling the `/name`+keybinding onto the next line. Now reserves the
+  border width (`.Width(boxW-2)`). Also fixes the modal (`Ctrl+P`) on terminals
+  ≤66 cols, where the floored modal width overflowed the same way.
+
 ## v0.49.0 — shell tool affordance rename + palette long-row fix — 2026-05-22
 
 ### Plugins
