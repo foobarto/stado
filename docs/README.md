@@ -55,12 +55,6 @@ Shorter forms live in:
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |
 | Enhancement Proposals | [eps/README.md](eps/README.md) | Durable design records for major architectural decisions |
 
-## Reports
-
-- [opencode TUI UAT report — 2026-04-24](reports/2026-04-24-opencode-tui-uat.md)
-- [v0.26.0 release notes — 2026-05-04](reports/2026-05-04-v0.26.0-release-notes.md)
-- [First-time-user feedback — Bazzite + LMStudio — 2026-05-04](reports/2026-05-04-first-time-user-bazzite.md)
-
 ## Status
 
 `stado <cmd> --help` remains authoritative for exact flag spelling, but
