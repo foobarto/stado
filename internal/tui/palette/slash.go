@@ -207,12 +207,15 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	// command name without truncation.
 	modalW := clampInt(screenWidth*2/3, 64, 110)
 	body := m.renderBody(modalW - 4) // -4 for border+padding
+	// Width sets content+padding; the rounded border adds 2 cols on top, so
+	// reserve 2 to keep the total at modalW (otherwise the modal is modalW+2
+	// and overflows a narrow screen — same wrap bug as the inline view).
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Background(theme.Background).
 		Padding(0, 1).
-		Width(modalW).
+		Width(modalW - 2).
 		Render(body)
 	return lipgloss.Place(screenWidth, screenHeight,
 		lipgloss.Center, lipgloss.Center,
@@ -237,12 +240,16 @@ func (m *Model) InlineView(maxWidth int) string {
 		boxW = 24
 	}
 	body := m.renderInlineBody(boxW - 4)
+	// Width sets content+padding; the rounded border adds 2 cols on TOP of
+	// it. So reserve 2 here, otherwise the box renders boxW+2 wide, overflows
+	// the input frame it's nested in, and lipgloss word-wraps each row —
+	// spilling the right column (/name + keybinding) onto the next line.
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Background(theme.Background).
 		Padding(0, 1).
-		Width(boxW).
+		Width(boxW - 2).
 		Render(body)
 }
 
