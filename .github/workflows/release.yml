@@ -31,27 +31,27 @@ jobs:
     outputs:
       hashes: ${{ steps.checksums.outputs.hashes }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: "1.26.3"
           cache: true
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: v3.0.6
 
       - name: Install syft (SBOM)
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
 
       - name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@v7
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
         with:
           distribution: goreleaser
           version: v2.15.4
