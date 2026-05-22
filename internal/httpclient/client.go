@@ -92,7 +92,10 @@ func New(opts ClientOptions) (*Client, error) {
 			// 2026-05-09 review: a hostname could resolve to a public
 			// IP at guard time and a private IP at dial time, and the
 			// caller never noticed.
-			ips, err := netguard.ResolveAndGuard(ctx, host, c.opts.AllowPrivate, false)
+			// broad=true also rejects unspecified (0.0.0.0/::) and multicast,
+			// which are not valid outbound HTTP targets and were previously
+			// reachable through this guard.
+			ips, err := netguard.ResolveAndGuard(ctx, host, c.opts.AllowPrivate, true)
 			if err != nil {
 				if errors.Is(err, netguard.ErrPrivateAddress) {
 					return nil, ErrPrivateAddress

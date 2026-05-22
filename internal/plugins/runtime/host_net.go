@@ -313,20 +313,18 @@ const maxUnixSocketPath = 104
 // dialIP runs the IP-based dial path: pre-resolve, private-IP guard,
 // then dial. Used by tcp + udp variants.
 func dialIP(ctx context.Context, host *Host, network, hostStr, portStr string, timeout time.Duration) (net.Conn, error) {
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
+	// Resolve + guard ONCE, then dial the validated IP — never re-dial the
+	// hostname. Re-resolving inside the dialer reopens a DNS-rebinding window
+	// where the guarded IP and the dialed IP can differ. broad=true applies
+	// raw-socket strictness (also blocks multicast/unspecified). When a caller
+	// layers TLS on top (httpStreamDialContext), SNI/cert still use hostStr,
+	// which the http.Transport supplies from the request URL.
+	ips, err := netguard.ResolveAndGuard(ctx, hostStr, host.NetHTTPRequestPrivate, true /*broad*/)
 	if err != nil {
 		return nil, err
 	}
-	if !host.NetHTTPRequestPrivate {
-		for _, ip := range ips {
-			if isPrivateIP(ip) {
-				return nil, errPrivateAddr
-			}
-		}
-	}
 	d := net.Dialer{Timeout: timeout}
-	addr := net.JoinHostPort(hostStr, portStr)
-	return d.DialContext(ctx, network, addr)
+	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), portStr))
 }
 
 // errCapDenied is returned by the dial helpers for cap-glob mismatch.
@@ -639,25 +637,19 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if !host.NetDial.CanDialUDP(peerHost, portStr) {
 				return -1
 			}
-			// Private-IP guard — same as dial.
-			if !host.NetHTTPRequestPrivate {
-				if ips, err := net.DefaultResolver.LookupIP(context.Background(), "ip", peerHost); err == nil {
-					for _, ip := range ips {
-						if isPrivateIP(ip) {
-							return -1
-						}
-					}
-				}
+			// Resolve + guard ONCE, fail CLOSED on lookup error, and send to
+			// the validated IP — the old guard skipped on lookup error (fail
+			// open) and re-resolved peerHost in ResolveUDPAddr, reopening a
+			// rebind window. broad=true: raw-socket strictness.
+			validated, gerr := netguard.ResolveAndGuard(context.Background(), peerHost, host.NetHTTPRequestPrivate, true /*broad*/)
+			if gerr != nil {
+				return -1
 			}
 			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
 			if !ok {
 				return -1
 			}
-			addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(peerHost, portStr))
-			if err != nil {
-				return -1
-			}
-			n, err := lst.pc.WriteTo(data, addr)
+			n, err := lst.pc.WriteTo(data, &net.UDPAddr{IP: validated[0], Port: int(port)})
 			if err != nil {
 				return -1
 			}
