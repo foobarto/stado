@@ -32,6 +32,24 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.3 — .env loader guard, gofmt sweep, Scorecard workflow — 2026-05-22
+
+### Security
+
+- **`.env` can't inject dynamic-loader keys (#044).** A repo-committed `.env`
+  auto-loaded from cwd could set `LD_PRELOAD`/`LD_LIBRARY_PATH`/`DYLD_*` (or
+  `PATH`) — code execution in every child process. These keys are now filtered
+  from `.env`. (`STADO_*` remains loadable — configuring stado via `.env` is a
+  supported feature.)
+
+### CI / Docs
+
+- **OpenSSF Scorecard workflow added** — the README badge had no backing run; it
+  now publishes results so the badge resolves. SARIF uploaded to code scanning.
+- **Security Policy badge** linking `SECURITY.md`.
+- **gofmt sweep** — formatted 39 files with the go.mod-pinned toolchain (gofmt
+  was not lint-enforced, so drift had accumulated).
+
 ## v0.52.2 — security hardening (batch 4) — 2026-05-22
 
 ### Security
