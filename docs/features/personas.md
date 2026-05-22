@@ -17,14 +17,27 @@ Personas are markdown files with optional YAML frontmatter. stado ships eight; y
 | `researcher` | Literature reviews, hypothesis-driven inquiry, fact-checking |
 | `offsec` | Bug bounty, CTF, engagement work |
 
+## Switching personas in a chat: `/persona`
+
+**In an interactive `stado run` session, switch persona at any time — mid-conversation — with the `/persona` slash command.** This is the everyday way to change personas; you don't need to restart or edit config.
+
+- **`/persona`** (no argument) — opens the **persona picker**: every resolvable persona (project → user → bundled), each labelled with its source. Select and press Enter.
+- **`/persona <name>`** — switches straight to that persona, skipping the picker. E.g. `/persona prose-editor`.
+
+What happens on a switch:
+
+- It takes effect on your **next turn** — the new operating-manual body replaces the previous one (your `AGENTS.md` / `CLAUDE.md` still applies on top).
+- The **status line** updates to show the active persona.
+- The system prints a confirmation block: `persona: software-engineer → prose-editor`.
+- The choice is **saved to `[defaults].persona`**, so it also becomes your default for future sessions. `/persona` is both an in-session switch *and* the no-hand-editing way to set your default.
+
 ## Selecting a persona
 
 Resolution order, highest first:
 
-1. Per-call override (CLI flag, `agent.spawn` arg, MCP tool arg)
-2. Session-active persona (set via TUI `/persona`, persists per session)
-3. `[defaults].persona` in `config.toml`
-4. Bundled `default`
+1. **Per-call override** — `--persona` CLI flag (at launch), the `persona` arg on `agent.spawn`, or the `persona` arg on a server's `session.new` / `stado_llm_invoke` call.
+2. **`[defaults].persona`** in `config.toml` — your saved default. The interactive `/persona` command (above) writes here, so an in-chat switch sticks across restarts.
+3. **Bundled `default`** — the fallback when nothing else resolves.
 
 ### CLI
 
@@ -33,7 +46,7 @@ stado run --persona prose-writer "Draft a 600-word post about ..."
 stado mcp-server --persona software-engineer
 ```
 
-`--persona` on `mcp-server` pins the default for the server's lifetime. Clients can override per-call via the `persona` arg on `llm.invoke` / `agent.spawn`.
+`--persona` on `mcp-server` pins the default for the server's lifetime. Clients can override per-call via the `persona` arg on `llm.invoke` / `agent.spawn`. (To switch persona *inside* an interactive session, use `/persona` — see above.)
 
 ### Config
 
