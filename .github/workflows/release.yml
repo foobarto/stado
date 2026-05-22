@@ -19,15 +19,19 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
+# Least privilege at the top; jobs opt into the writes they need
+# (Scorecard Token-Permissions). The provenance job sets its own below.
 permissions:
-  contents: write    # upload release artifacts
-  packages: write    # publish to GHCR (Homebrew tap push comes later)
-  id-token: write    # OIDC for cosign keyless + SLSA provenance
+  contents: read
 
 jobs:
   release:
     name: goreleaser
     runs-on: ubuntu-latest
+    permissions:
+      contents: write    # upload release artifacts
+      packages: write    # publish to GHCR (Homebrew tap push comes later)
+      id-token: write    # OIDC for cosign keyless + SLSA provenance
     outputs:
       hashes: ${{ steps.checksums.outputs.hashes }}
     steps:
