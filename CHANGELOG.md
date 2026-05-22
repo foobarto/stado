@@ -32,6 +32,15 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.6 — `stado tool ls` plugin column — 2026-05-22
+
+### Fixes
+
+- **`stado tool ls` now shows the plugin for autoloaded tools.** The PLUGIN
+  column was blank for user-plugin tools (only bundled tools populated it); it
+  now falls back to the tool's `PluginName()`, so every plugin-backed tool lists
+  its source consistently (and in `--json`).
+
 ## v0.52.5 — fix TUI version display — 2026-05-22
 
 ### Fixes
