@@ -132,6 +132,73 @@ func TestNewHost_FSCapAliasesSymlinkedWorkdir(t *testing.T) {
 	}
 }
 
+// #016: a scoped fs cap whose final component is a repo-controlled
+// symlink must NOT have its symlink target baked into the allow-list.
+// Aliasing the full cap path used to run EvalSymlinks over the suffix,
+// so a repo making src → <secret> appended <secret> to FSRead,
+// defeating the per-access realPath() symlink check.
+func TestNewHost_FSCapDoesNotFollowRepoControlledSuffixSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	workdir := filepath.Join(tmp, "repo")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatalf("mkdir workdir: %v", err)
+	}
+	secret := filepath.Join(tmp, "secret")
+	if err := os.MkdirAll(secret, 0o755); err != nil {
+		t.Fatalf("mkdir secret: %v", err)
+	}
+	// Malicious repo: src inside the workdir is a symlink to <secret>.
+	if err := os.Symlink(secret, filepath.Join(workdir, "src")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+
+	m := plugins.Manifest{Name: "demo", Capabilities: []string{"fs:read:src"}}
+	h := NewHost(m, workdir, nil)
+
+	// The secret target must never be authorized via the cap.
+	resolvedSecret, err := filepath.EvalSymlinks(secret)
+	if err != nil {
+		t.Fatalf("eval secret: %v", err)
+	}
+	for _, entry := range h.FSRead {
+		if entry == secret || entry == resolvedSecret {
+			t.Fatalf("FSRead leaked symlink target %q (entry %q); FSRead=%v", secret, entry, h.FSRead)
+		}
+		if pathPrefixMatch(filepath.Join(secret, "id_rsa"), entry) {
+			t.Fatalf("FSRead entry %q authorizes a file under the secret dir; FSRead=%v", entry, h.FSRead)
+		}
+	}
+	// The literal in-workdir path is still allowed (the cap is honored;
+	// only the symlink-following escape is rejected).
+	if !pathAllowed(filepath.Join(workdir, "src"), h.FSRead) {
+		t.Errorf("literal cap path %q should still be allowed; FSRead=%v", filepath.Join(workdir, "src"), h.FSRead)
+	}
+}
+
+// #016: when the workdir prefix crosses a symlink but the cap suffix
+// does not, only the prefix is aliased — the suffix stays literal.
+func TestWorkdirSymlinkAlias_PrefixOnly(t *testing.T) {
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "realhome", "user", "repo")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir real: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(tmp, "realhome"), filepath.Join(tmp, "linkhome")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	workdir := filepath.Join(tmp, "linkhome", "user", "repo")
+
+	got := workdirSymlinkAlias(workdir, "src")
+	want := filepath.Join(realDir, "src")
+	if got != want {
+		t.Errorf("workdirSymlinkAlias(%q, src) = %q, want %q", workdir, got, want)
+	}
+	// Absolute caps have no workdir prefix to alias.
+	if got := workdirSymlinkAlias(workdir, "/etc/passwd"); got != "" {
+		t.Errorf("absolute cap should produce no alias; got %q", got)
+	}
+}
+
 func TestSymlinkAlias_NonExistentPathReturnsEmpty(t *testing.T) {
 	if got := symlinkAlias("/definitely/not/here/at/all"); got != "" {
 		t.Errorf("missing path should return empty; got %q", got)

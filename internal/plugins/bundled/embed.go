@@ -31,6 +31,27 @@ func Wasm(toolName string) ([]byte, error) {
 	return wasmFS.ReadFile("wasm/" + toolName + ".wasm")
 }
 
+// IsEmbeddedModule reports whether name corresponds to an upstream-
+// shipped wasm module compiled into the binary's embed.FS (i.e. a
+// trusted built-in such as "auto-compact"). #027: userbundled uses
+// this to refuse appended-bundle entries whose stripped bare name
+// collides with a built-in — otherwise a self-signed bundle entry
+// named stado-builtin-tool-auto-compact could override the embedded
+// auto-compact.wasm and run with its hard-coded privileged manifest.
+// Checks the embed.FS only (not the mutable registry), so it reports
+// the immutable trusted set regardless of registration order.
+func IsEmbeddedModule(name string) bool {
+	if name == "" {
+		return false
+	}
+	f, err := wasmFS.Open("wasm/" + name + ".wasm")
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	return true
+}
+
 func MustWasm(toolName string) []byte {
 	data, err := Wasm(toolName)
 	if err != nil {

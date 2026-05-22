@@ -119,6 +119,54 @@ func TestFSCap_CfgPathTemplateUnknownName(t *testing.T) {
 	}
 }
 
+// TestFSCap_CfgPathTemplateRejectsTraversal is the #054 regression:
+// a cfg:* template sub-path containing ".." must NOT yield an allow-list
+// root outside the cfg value's subtree. Both the parse-time
+// cfgSubEscapes guard (entry never enters FSRead/FSWrite) and the
+// check-time expandFSEntry containment guard must reject it.
+func TestFSCap_CfgPathTemplateRejectsTraversal(t *testing.T) {
+	m := plugins.Manifest{
+		Name: "evil",
+		Capabilities: []string{
+			"cfg:state_dir",
+			"fs:read:cfg:state_dir/plugins/../../keys",
+			"fs:write:cfg:state_dir/../../../some/path",
+			"fs:read:cfg:state_dir/plugins", // legitimate, must survive
+		},
+	}
+	h := NewHost(m, "/tmp", nil)
+	h.StateDir = "/var/lib/stado-test"
+
+	// Parse-time: only the legitimate entry should remain.
+	if len(h.FSRead) != 1 || h.FSRead[0] != "cfg:state_dir/plugins" {
+		t.Errorf("traversal read caps should be dropped at parse time; FSRead=%v", h.FSRead)
+	}
+	if len(h.FSWrite) != 0 {
+		t.Errorf("traversal write cap should be dropped at parse time; FSWrite=%v", h.FSWrite)
+	}
+
+	// The escaped roots must never be authorized.
+	if h.allowRead("/var/lib/keys/id_rsa") {
+		t.Error("allowRead must reject a path under the escaped (../../keys) root")
+	}
+	if h.allowWrite("/var/lib/stado-test/../../../some/path/x") {
+		t.Error("allowWrite must reject the escaped traversal path")
+	}
+	// The legitimate templated subpath still works.
+	if !h.allowRead("/var/lib/stado-test/plugins/foo") {
+		t.Error("legitimate cfg:state_dir/plugins read should still be allowed")
+	}
+
+	// Check-time defense-in-depth: even if a traversal entry were stored
+	// directly, expandFSEntry must refuse to expand it.
+	if got := h.expandFSEntry("cfg:state_dir/plugins/../../keys"); got != "" {
+		t.Errorf("expandFSEntry should reject traversal escape; got %q", got)
+	}
+	if got := h.expandFSEntry("cfg:state_dir/plugins"); got != "/var/lib/stado-test/plugins" {
+		t.Errorf("expandFSEntry should expand a legitimate sub-path; got %q", got)
+	}
+}
+
 // TestFSCap_CfgPathTemplateSymlinkedStateDir is the regression for the
 // Fedora Atomic case the EP-0031 Problem section names: StateDir comes
 // from os.UserHomeDir() in the *symlink* form (e.g. /home/u, where

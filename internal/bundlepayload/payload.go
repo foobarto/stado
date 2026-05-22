@@ -210,9 +210,23 @@ func DecodeBytes(raw []byte, skipVerify bool) (Bundle, error) {
 			if !ed25519.Verify(e.Pubkey, canon, e.Sig) {
 				return Bundle{}, fmt.Errorf("entry %d (%s): %w", i, e.Manifest.Name, ErrEntrySigInvalid)
 			}
+			// #026: the author signature covers only the canonical manifest
+			// bytes; WASMSHA256 is the *sole* cryptographic binding between
+			// the signed manifest and the wasm bytes shipped alongside it.
+			// The previous `!= ""` guard meant a manifest signed with an
+			// empty wasm_sha256 had no binding to e.Wasm at all — any wasm
+			// would pass per-entry verification. Always require a non-empty,
+			// well-formed (64 hex chars) digest and always compare it to
+			// sha256(e.Wasm). The bundler/signer always populates this field
+			// (cmd/stado/plugin_sign.go), so a missing/malformed digest only
+			// arises from a hand-crafted bundle — reject it.
 			wasmHash := sha256.Sum256(e.Wasm)
 			wasmHashHex := hex.EncodeToString(wasmHash[:])
-			if e.Manifest.WASMSHA256 != "" && e.Manifest.WASMSHA256 != wasmHashHex {
+			if !isWASMDigestWellFormed(e.Manifest.WASMSHA256) {
+				return Bundle{}, fmt.Errorf("entry %d (%s): %w: manifest wasm_sha256 missing or malformed (got %q)",
+					i, e.Manifest.Name, ErrEntrySigInvalid, e.Manifest.WASMSHA256)
+			}
+			if e.Manifest.WASMSHA256 != wasmHashHex {
 				return Bundle{}, fmt.Errorf("entry %d (%s): %w: wasm sha256 mismatch (manifest %s, actual %s)",
 					i, e.Manifest.Name, ErrEntrySigInvalid, e.Manifest.WASMSHA256, wasmHashHex)
 			}
@@ -224,6 +238,24 @@ func DecodeBytes(raw []byte, skipVerify bool) (Bundle, error) {
 		Entries:       entries,
 		SkipVerified:  skipVerify,
 	}, nil
+}
+
+// isWASMDigestWellFormed reports whether s is a lowercase 64-char hex
+// SHA-256 digest (the form cmd/stado/plugin_sign.go emits via
+// hex.EncodeToString). Used by #026 to reject empty or malformed
+// wasm_sha256 fields before comparing against sha256(e.Wasm).
+func isWASMDigestWellFormed(s string) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func decodeEntries(body []byte) ([]Entry, error) {

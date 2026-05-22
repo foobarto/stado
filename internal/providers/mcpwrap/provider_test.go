@@ -2,6 +2,8 @@ package mcpwrap
 
 import (
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -133,6 +135,75 @@ func TestExtractContentAndThread_RoundTripStructuredContentJSON(t *testing.T) {
 	if text != "text" || thread != "t1" {
 		t.Errorf("got (%q, %q), want (%q, %q)", text, thread, "text", "t1")
 	}
+}
+
+// #048: the subprocess env must NOT be the full inherited
+// os.Environ() — only the safelist plus explicit extras. An inherited
+// secret-looking var must be dropped.
+func TestScrubbedEnv_DropsNonSafelistedVars(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "super-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-leak")
+
+	env := scrubbedEnv(nil)
+
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "AWS_SECRET_ACCESS_KEY") {
+		t.Error("AWS_SECRET_ACCESS_KEY leaked into scrubbed env (#048)")
+	}
+	if strings.Contains(joined, "ANTHROPIC_API_KEY") {
+		t.Error("ANTHROPIC_API_KEY leaked into scrubbed env (#048)")
+	}
+	if !envHas(env, "HOME", "/home/test") {
+		t.Error("HOME (safelisted) should be forwarded")
+	}
+	if !envHas(env, "PATH", "/usr/bin") {
+		t.Error("PATH (safelisted) should be forwarded")
+	}
+}
+
+// #048: operator-supplied Config.Env entries are appended and can add
+// vars outside the safelist (explicit opt-in).
+func TestScrubbedEnv_AppendsExtra(t *testing.T) {
+	t.Setenv("HOME", "/h")
+	env := scrubbedEnv([]string{"CUSTOM_TOKEN=abc"})
+	if !envHas(env, "CUSTOM_TOKEN", "abc") {
+		t.Error("explicit Config.Env entry should be forwarded")
+	}
+}
+
+// #048: the safelist itself must not contain obvious secret-bearing
+// names — guards against someone widening it carelessly later.
+func TestEnvSafelist_NoSecretBearingNames(t *testing.T) {
+	for _, k := range envSafelist {
+		up := strings.ToUpper(k)
+		for _, bad := range []string{"KEY", "SECRET", "TOKEN", "PASSWORD", "CRED"} {
+			if strings.Contains(up, bad) {
+				t.Errorf("safelist entry %q looks secret-bearing (%q) — should not be inherited", k, bad)
+			}
+		}
+	}
+}
+
+func envHas(env []string, key, val string) bool {
+	want := key + "=" + val
+	for _, e := range env {
+		if e == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Sanity: the Config carries Cwd/Env fields wired in #048 so the
+// caller (TUI provider builder) can pin the worktree + scrub env.
+func TestConfig_HasIsolationFields(t *testing.T) {
+	c := Config{Binary: "/bin/true", CallTool: "x", Cwd: "/wt", Env: []string{"A=b"}}
+	if c.Cwd != "/wt" || len(c.Env) != 1 {
+		t.Error("Config must carry Cwd + Env for worktree isolation (#048)")
+	}
+	_ = os.Environ // keep os imported even if other tests change
 }
 
 func TestExtractErrText_PrefersFirstNonEmptyText(t *testing.T) {

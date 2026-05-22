@@ -184,3 +184,40 @@ func TestNew_DefaultToolsIsAgent(t *testing.T) {
 		t.Errorf("default Tools should not be %q (would silently enable phase B)", "stado")
 	}
 }
+
+// #052: reproduce the send-on-closed-channel race. The fix nils
+// p.updates under mu before closing the per-turn channel, and
+// handleUpdate sends under the same mu — so a late session/update can
+// never send on a closed channel. This test hammers handleUpdate
+// concurrently with the teardown sequence many times; run with -race
+// it must not panic or report a data race.
+func TestHandleUpdate_NoSendOnClosedChannel(t *testing.T) {
+	for iter := 0; iter < 200; iter++ {
+		p := &Provider{}
+		turnUpdates := make(chan json.RawMessage, 4)
+		p.mu.Lock()
+		p.updates = turnUpdates
+		p.mu.Unlock()
+
+		done := make(chan struct{})
+		go func() {
+			// Mimic handleUpdate being driven by the ACP read loop.
+			for i := 0; i < 50; i++ {
+				p.handleUpdate("session/update", json.RawMessage(`{"x":1}`))
+			}
+			close(done)
+		}()
+
+		// Mimic StreamTurn teardown: detach under mu, THEN close.
+		p.mu.Lock()
+		if p.updates == turnUpdates {
+			p.updates = nil
+		}
+		p.mu.Unlock()
+		close(turnUpdates)
+
+		// Late update after close — must be dropped, not panic.
+		p.handleUpdate("session/update", json.RawMessage(`{"late":1}`))
+		<-done
+	}
+}

@@ -8,19 +8,21 @@ package acpwrap
 // to fs/* capabilities only.
 //
 // At provider startup, this layer detects which agent is being
-// wrapped (from the Binary path basename), checks whether stado is
-// already registered via the agent's `mcp list` command, and if
-// missing, automatically runs the `mcp add` command at user scope
-// to register it. Each step emits a one-line stderr log so the
-// operator can see what happened.
+// wrapped (from the Binary path basename) and checks whether stado is
+// already registered. If missing, it only WRITES the agent's global
+// config when the operator has explicitly opted in
+// (acp.providers.<name>.register_mcp = true → consent passed to
+// CheckMCPRegistration). Without consent it prints the exact command
+// and the cross-session exposure caveat, and writes nothing.
 //
 // Auto-registration writes to the user's global config for the
-// wrapped agent (~/.gemini/settings.json,
-// ~/.claude.json or similar, ~/.codex/config.toml). To prevent
-// stado from registering itself, deregister manually after the fact
-// (`<agent> mcp remove stado`) or pin a different agent. There is
-// no opt-out flag yet — registration is idempotent (no-op when
-// already present) and reversible.
+// wrapped agent (~/.gemini/settings.json, ~/.claude.json or similar,
+// ~/.codex/config.toml). #049: because user-scope registration
+// persists an auto-approving stado tool server into ALL future direct
+// sessions of that agent (reachable by a later prompt-injection), the
+// write is gated behind explicit operator consent and announced
+// BEFORE it happens. Registration is idempotent and reversible
+// (`<agent> mcp remove stado`).
 //
 // Findings backing the per-agent table below come from
 // docs/acp-agent-compatibility.md — see that file for the smoke
@@ -161,30 +163,37 @@ func tomlMcpServersHasStado(parsed any) bool {
 }
 
 // CheckMCPRegistration verifies the wrapped agent has stado
-// registered as an MCP server, and auto-registers it if missing.
-// Behavior:
+// registered as an MCP server. It NEVER modifies the agent's global
+// config unless the operator has explicitly consented (consent ==
+// true). Behavior:
 //
 //   - Agent's binary basename matches a known Honors=true agent →
 //     no-op (session/new.mcpServers works directly).
-//   - Agent matches a Honors=false agent with ConfigPath set →
-//     read the config file. If stado already present, no-op. If
-//     absent (or config missing), run RegisterArgs and emit a
-//     stderr line announcing the action (so the operator knows
-//     their agent's config was modified).
-//   - Agent doesn't match any known entry → no-op (we don't know
-//     what to check; let the existing wire-level fallback handle
-//     it).
+//   - Agent matches a Honors=false agent and stado is already
+//     present in its config → no-op.
+//   - stado is absent AND consent == false (the default) → print the
+//     exact `mcp add` command and stop. We do NOT write the agent's
+//     global config. This is the #049 fix: a one-off opt-in for a
+//     single wrapped session must not silently persist a powerful,
+//     auto-approving stado MCP server into ALL future direct sessions
+//     of that agent.
+//   - stado is absent AND consent == true → announce BEFORE writing,
+//     then run RegisterArgs.
+//   - Agent doesn't match any known entry → no-op.
 //
-// All steps are best-effort and emit only stderr — never an error.
-// The wrapped agent will still launch and stado's
-// session/new.mcpServers entry will still be sent regardless of
-// whether registration succeeded, so a failed auto-registration
-// degrades cleanly into "agent uses its own tools" rather than
-// blocking the launch.
+// All steps emit only stderr — never an error. The wrapped agent
+// still launches and stado's session/new.mcpServers entry is still
+// sent regardless, so without registration the integration degrades
+// cleanly into "agent uses its own tools" rather than blocking.
 //
 // stadoBin is the absolute path to the running stado binary
 // (typically os.Executable() result from BuildStadoMCPMount).
-func CheckMCPRegistration(ctx context.Context, agentBinary, stadoBin string) {
+//
+// #049: the consent gate. Persisting a user-scope MCP server that
+// exposes stado's full tool registry under an auto-approve host is a
+// security-relevant, durable, cross-session change — it requires the
+// operator to opt in (config flag / env), not a silent default.
+func CheckMCPRegistration(ctx context.Context, agentBinary, stadoBin string, consent bool) {
 	check, ok := lookupAgentCheck(agentBinary)
 	if !ok {
 		return
@@ -207,10 +216,29 @@ func CheckMCPRegistration(ctx context.Context, agentBinary, stadoBin string) {
 		if err == nil && registered {
 			return
 		}
-		// On err (config file missing, parse failure) — fall through
-		// to register. The agent's `mcp add` is idempotent so this
-		// is benign in the worst case.
+		// On err (config file missing, parse failure) — fall through.
 	}
+
+	// #049: without explicit consent, DO NOT modify the agent's
+	// global config. Surface the exact command and the security
+	// implication so the operator can run it deliberately.
+	if !consent {
+		fmt.Fprintf(os.Stderr,
+			"acpwrap: %s does not have stado registered as an MCP server, and auto-registration is OFF.\n"+
+				"  stado's tools won't be visible to this %s session unless you register them.\n"+
+				"  NOTE: user-scope registration persists an auto-approving stado tool server into ALL future %s sessions (a later prompt-injection could invoke it). Register only if you accept that.\n"+
+				"  To register manually:\n    %s\n"+
+				"  Or enable auto-registration for this provider (acp.providers.<name>.register_mcp = true).\n",
+			check.Name, check.Name, check.Name,
+			formatRegisterDescription(check, stadoBin))
+		return
+	}
+
+	// Consent granted — announce BEFORE modifying the global config
+	// (#049: the prior code only printed AFTER the write).
+	fmt.Fprintf(os.Stderr,
+		"acpwrap: registering stado as %s MCP server at USER scope (operator consent given). This persists across future %s sessions. Equivalent: %s\n",
+		check.Name, check.Name, formatRegisterDescription(check, stadoBin))
 
 	regArgs := substituteStadoBin(check.RegisterArgs, stadoBin)
 	regCtx, regCancel := context.WithTimeout(ctx, 15*time.Second)
@@ -225,8 +253,8 @@ func CheckMCPRegistration(ctx context.Context, agentBinary, stadoBin string) {
 		return
 	}
 	fmt.Fprintf(os.Stderr,
-		"acpwrap: registered stado as %s MCP server at user scope (auto). Equivalent: %s\n",
-		check.Name, formatRegisterDescription(check, stadoBin))
+		"acpwrap: registered stado as %s MCP server at user scope. To remove: %s mcp remove stado\n",
+		check.Name, check.Name)
 }
 
 // isStadoRegisteredInConfig reads the wrapped agent's config file

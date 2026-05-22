@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -193,6 +194,25 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 
 	// Installed-plugin path.
 	if mfst, wasmPath, ok := runtime.LookupInstalledModule(registered.Name()); ok {
+		// #023: registry construction (registerInstalledPluginTools) only
+		// checks the trust-store signature + wasm sha — it does NOT consult
+		// the configured CRL or transparency log. Without re-running the
+		// full installed-plugin verifier here, a plugin that was trusted at
+		// install time but has since been revoked (added to the operator's
+		// CRL) would still run via `stado tool run <name>`. Re-verify
+		// through the same path the runtime overrides + TUI /plugin use so
+		// the revocation/transparency policy is enforced uniformly. The
+		// sig isn't carried in the lookup table, so reload it from disk;
+		// VerifyInstalledPlugin degrades CRL/Rekor unavailability the same
+		// advisory way consultOverrideCRL/Rekor already do (air-gap safe).
+		pluginDir := filepath.Dir(wasmPath)
+		diskMfst, sig, loadErr := plugins.LoadFromDir(pluginDir)
+		if loadErr != nil {
+			return fmt.Errorf("verify: load installed plugin %q: %w", mfst.Name, loadErr)
+		}
+		if err := runtime.VerifyInstalledPlugin(ctx, cfg, pluginDir, diskMfst, sig); err != nil {
+			return fmt.Errorf("verify: installed plugin %q: %w", mfst.Name, err)
+		}
 		wasmBytes, err := plugins.ReadVerifiedWASM(mfst.WASMSHA256, wasmPath)
 		if err != nil {
 			return fmt.Errorf("verify: %w", err)

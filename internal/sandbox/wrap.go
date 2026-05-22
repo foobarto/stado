@@ -90,7 +90,7 @@ func doRewrap(cfg WrapConfig) error {
 		return fmt.Errorf("sandbox wrap: resolve self: %w", err)
 	}
 
-	runner := pickRunner(cfg.Runner)
+	runner := pickRunner(cfg.Runner, cfg)
 	if runner == "" {
 		msg := "Sandbox mode 'wrap' configured but no wrapper found.\n" +
 			"Install bwrap (apt install bubblewrap / dnf install bubblewrap)\n" +
@@ -193,14 +193,50 @@ func buildBwrapArgs(cfg WrapConfig, selfPath string) ([]string, error) {
 	return args, nil
 }
 
+// firejailCanEnforce reports whether firejail can faithfully enforce the
+// configured filesystem contract. #035: unlike bwrap, firejail has no simple
+// "only these paths exist" allow-list primitive — its default is full
+// filesystem visibility, and replicating bwrap's explicit mount list via
+// --whitelist gymnastics is error-prone and silently under-confines when it's
+// wrong. firejail CAN faithfully express read-only constraints (--read-only),
+// but it cannot express "everything is hidden except this RW set". So when the
+// operator declares BindRW (an explicit RW allow-list firejail can't honor) we
+// treat firejail as unable to enforce the policy and fail closed elsewhere
+// rather than wrapping a process that ignores the contract.
+func firejailCanEnforce(cfg WrapConfig) bool {
+	return len(cfg.BindRW) == 0
+}
+
 func buildFirejailArgs(cfg WrapConfig, selfPath string) ([]string, error) {
 	fj, err := exec.LookPath("firejail")
 	if err != nil {
 		return nil, err
 	}
-	args := []string{fj, "--quiet"}
+	return firejailArgsWith(fj, cfg, selfPath)
+}
+
+// firejailArgsWith builds the firejail argv given an already-resolved binary
+// path. Split from buildFirejailArgs so the #035 policy logic (fail-closed on
+// unenforceable BindRW, faithful BindRO → --read-only) is unit-testable
+// without firejail installed on the test host.
+func firejailArgsWith(fjPath string, cfg WrapConfig, selfPath string) ([]string, error) {
+	// #035: refuse to build a firejail invocation that would silently ignore
+	// the configured FS allow-list. pickRunner already excludes firejail in
+	// this case; this guard is defense-in-depth so no caller can route an
+	// unenforceable policy through firejail and believe it's confined.
+	if !firejailCanEnforce(cfg) {
+		return nil, fmt.Errorf(
+			"firejail cannot enforce the configured read-write bind allow-list (%d bind(s)); "+
+				"install bwrap for full filesystem confinement or remove [sandbox] bind_rw", len(cfg.BindRW))
+	}
+	args := []string{fjPath, "--quiet"}
 	if cfg.Network == "off" || cfg.Network == "namespaced" {
 		args = append(args, "--net=none")
+	}
+	// #035: honor BindRO via --read-only, the one FS-policy primitive firejail
+	// expresses faithfully. Mirrors the intent of buildBwrapArgs' --ro-bind.
+	for _, p := range cfg.BindRO {
+		args = append(args, "--read-only="+expandHome(p))
 	}
 	args = append(args, "--", selfPath)
 	return args, nil
@@ -211,18 +247,59 @@ func buildSandboxExecArgs(cfg WrapConfig, selfPath string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Minimal sandbox-exec profile: allow read-everywhere, write only /tmp.
-	profile := `(version 1)(allow default)(deny file-write*)(allow file-write* (subpath "/tmp"))`
-	args := []string{se, "-p", profile, selfPath}
-	return args, nil
+	return []string{se, "-p", sandboxExecProfile(cfg), selfPath}, nil
+}
+
+// sandboxExecProfile builds the sandbox-exec SBPL profile. Split out so the
+// #035 BindRW handling is unit-testable without sandbox-exec installed.
+//
+// Allows read-everywhere, write only /tmp, the stado data dirs, and
+// operator-declared BindRW paths. #035: prior to this the profile ignored
+// cfg.BindRW entirely, so a writable path the operator declared was silently
+// denied (over-restrictive, not a bypass — but still wrong relative to the
+// configured contract). BindRO needs no rule: reads are allowed by
+// (allow default).
+func sandboxExecProfile(cfg WrapConfig) string {
+	var b strings.Builder
+	b.WriteString(`(version 1)(allow default)(deny file-write*)(allow file-write* (subpath "/tmp"))`)
+	writeSubpaths := append([]string(nil), xdgStatoDirs()...)
+	for _, p := range cfg.BindRW {
+		writeSubpaths = append(writeSubpaths, expandHome(p))
+	}
+	for _, p := range writeSubpaths {
+		if p == "" {
+			continue
+		}
+		b.WriteString(`(allow file-write* (subpath "` + p + `"))`)
+	}
+	return b.String()
 }
 
 // pickRunner returns the first available wrapper name matching cfg.Runner.
-func pickRunner(preference string) string {
+//
+// #035: a runner is only acceptable if it can faithfully enforce the
+// configured filesystem contract. firejail cannot express an arbitrary
+// read-write allow-list (see firejailCanEnforce), so when BindRW is set it is
+// dropped from the candidate set — even if the operator explicitly requested
+// runner = "firejail". This makes RefuseNoRunner fail closed on a bwrap-less
+// host instead of silently handing back an unconfined wrap. The cost: an
+// operator who pinned firejail with bind_rw set now gets an explicit error
+// rather than false confinement, which is the correct trade for a security
+// boundary.
+func pickRunner(preference string, cfg WrapConfig) string {
 	candidates := wrapperCandidates()
+	canEnforce := func(c string) bool {
+		if c == "firejail" {
+			return firejailCanEnforce(cfg)
+		}
+		return true
+	}
 	if preference != "" && preference != "auto" {
 		for _, c := range candidates {
 			if c == preference {
+				if !canEnforce(c) {
+					return "" // requested runner can't enforce the policy → fail closed
+				}
 				if _, err := exec.LookPath(c); err == nil {
 					return c
 				}
@@ -231,6 +308,9 @@ func pickRunner(preference string) string {
 		return "" // requested runner not available
 	}
 	for _, c := range candidates {
+		if !canEnforce(c) {
+			continue
+		}
 		if _, err := exec.LookPath(c); err == nil {
 			return c
 		}

@@ -85,6 +85,18 @@ type Config struct {
 	// EP-0032 phase B "Tool-call routing semantics".
 	Tools string
 
+	// RegisterMCP, when true, grants consent for stado to write the
+	// wrapped agent's USER-scope global config (`<agent> mcp add`) so
+	// stado's MCP tool server is auto-discovered. Default false: #049
+	// — user-scope registration persists an auto-approving stado tool
+	// server into ALL future direct sessions of that agent (reachable
+	// by a later prompt-injection), so the durable global-config write
+	// must be an explicit operator opt-in, not a silent default. When
+	// false and stado isn't already registered, the provider prints
+	// the exact registration command + the exposure caveat and writes
+	// nothing. Maps to acp.providers.<name>.register_mcp in config.
+	RegisterMCP bool
+
 	// ToolHostCfg supplies the read/write tools and Host that
 	// inbound fs/* ACP requests dispatch to. Required when
 	// Tools = "stado"; ignored otherwise. Caller (the higher-level
@@ -207,6 +219,19 @@ func (p *Provider) StreamTurn(ctx context.Context, req agent.TurnRequest) (<-cha
 		// SessionPrompt has returned — drain any straggler updates
 		// (the agent typically sends a final "agent_message" or
 		// "agent_message_chunk" right before completion).
+		//
+		// #052: detach the channel from handleUpdate BEFORE closing
+		// it. handleUpdate sends under mu (see below), so once we've
+		// niled p.updates under mu no in-flight handleUpdate can still
+		// be holding turnUpdates — closing it after is race-free. A
+		// late session/update arriving after this point finds
+		// p.updates == nil and is dropped rather than panicking on a
+		// send to a closed channel.
+		p.mu.Lock()
+		if p.updates == turnUpdates {
+			p.updates = nil
+		}
+		p.mu.Unlock()
 		close(turnUpdates)
 		<-done
 
@@ -267,7 +292,15 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 		ClientInfo:      &acp.ClientInfo{Name: "stado", Version: "0.27.0"},
 	}
 	if p.cfg.Tools == "stado" {
-		client.SetRequestHandler(BuildRequestHandler(p.cfg.ToolHostCfg))
+		// #051: scope session/request_permission auto-approve to
+		// stado's own mounted MCP server. If the caller didn't pin a
+		// name, the handler defaults to the canonical "stado" (matches
+		// BuildStadoMCPMount), so the scope is never wide-open.
+		thc := p.cfg.ToolHostCfg
+		if strings.TrimSpace(thc.MCPServerName) == "" {
+			thc.MCPServerName = stadoMCPServerName
+		}
+		client.SetRequestHandler(BuildRequestHandler(thc))
 		initParams.ClientCapabilities = acp.ClientCapabilities{
 			FS: &acp.ClientFSCapabilities{
 				ReadTextFile:  true,
@@ -309,8 +342,11 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 		// silent integration degradation into actionable diagnostics.
 		// Best-effort, no error: failed lookups are still warnings.
 		// Skipped silently for agents that honor the wire (opencode,
-		// zed) and for unrecognised binaries.
-		CheckMCPRegistration(ctx, p.cfg.Binary, mount.Command)
+		// zed) and for unrecognised binaries. #049: the wrapped
+		// agent's global config is modified ONLY when the operator
+		// opted in via RegisterMCP; otherwise this just surfaces the
+		// command + exposure caveat without writing.
+		CheckMCPRegistration(ctx, p.cfg.Binary, mount.Command, p.cfg.RegisterMCP)
 	}
 
 	sessionID, err := client.SessionNewWithMCPServers(ctx, cwd, mcpServers)
@@ -334,14 +370,21 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 // the per-turn updates channel under mu and DROP if no turn is in
 // flight (orphan updates from after-cancel are noise).
 func (p *Provider) handleUpdate(_ string, raw json.RawMessage) {
+	// #052: the non-blocking send happens UNDER mu, against p.updates
+	// directly. StreamTurn nils p.updates under mu before closing the
+	// per-turn channel, so while we hold the lock the channel we send
+	// to is guaranteed non-nil and not-yet-closed. Releasing the lock
+	// before the send (the previous shape) allowed a window where the
+	// channel was closed between the read and the send → send on
+	// closed channel → panic. Sending under the lock is a buffered,
+	// non-blocking `select`, so we never hold mu across a blocking op.
 	p.mu.Lock()
-	ch := p.updates
-	p.mu.Unlock()
-	if ch == nil {
+	defer p.mu.Unlock()
+	if p.updates == nil {
 		return
 	}
 	select {
-	case ch <- raw:
+	case p.updates <- raw:
 	default:
 		// Buffer full — drop. This is rare in practice; 32-deep
 		// buffer is enough for most reasoning rates. If we see

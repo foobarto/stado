@@ -10,6 +10,9 @@ package acpwrap
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/pkg/tool"
@@ -42,3 +45,32 @@ func (h DefaultHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 	return tool.PriorReadInfo{}, false
 }
 func (h DefaultHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
+
+// CheckWritePath implements tool.WritePathGuard. The fs WriteTool/
+// EditTool confine writes to Workdir() via workdirpath, but when the
+// caller roots this Host at the real checkout (rather than a session
+// worktree), a prompt-injected wrapped agent could still clobber
+// repository metadata under .git/ inside that workdir. #050 calls
+// this out specifically ("including repository metadata such as .git
+// paths"). Until ACP fs/* writes are routed through the session
+// worktree Executor (the full #050 fix, which lives in the TUI
+// provider wiring outside this package), block writes that resolve
+// into a .git directory as defense-in-depth — corrupting .git is the
+// highest-impact write a wrapped agent can make and is never a
+// legitimate fs/write_text_file target.
+func (h DefaultHost) CheckWritePath(path string) error {
+	// Resolve against the workdir the same way the fs tools do, so the
+	// segment check sees the effective target rather than a relative
+	// fragment.
+	resolved := path
+	if !filepath.IsAbs(resolved) && h.workdir != "" {
+		resolved = filepath.Join(h.workdir, resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
+		if seg == ".git" {
+			return fmt.Errorf("acpwrap: refusing fs write into git metadata path %q (#050)", path)
+		}
+	}
+	return nil
+}

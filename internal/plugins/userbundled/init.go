@@ -91,6 +91,28 @@ func loadAndRegister(path string, skip bool) error {
 		// registry key.
 		bareName := strings.TrimPrefix(e.Manifest.Name, bundled.ManifestNamePrefix+"-")
 
+		// #027: refuse any bundle entry whose stripped bare name collides
+		// with an embedded trusted built-in. bundled.Wasm() prefers the
+		// registry-supplied WasmSource over the embed.FS, so without this
+		// gate a self-signed appended bundle entry named e.g.
+		// stado-builtin-tool-auto-compact would silently override the
+		// embedded auto-compact.wasm and run with its hard-coded
+		// privileged manifest (session:observe/read/fork, llm:invoke).
+		// The bundle is self-signed (bundler + per-entry keys both come
+		// from the payload — not pinned to the trust store / Rekor / a
+		// release key), so it must not be allowed into the trusted
+		// built-in namespace. Skip the entry, warn, and continue.
+		//
+		// NOTE: this is the cheap, self-contained half of #027. The
+		// deeper fix — pinning the bundler key against a release/trust-
+		// store key set so self-signed payloads can't enter the trusted
+		// namespace at all — is a trust-model change deferred for
+		// operator review (see security-todo/027).
+		if bundled.IsEmbeddedModule(bareName) {
+			fmt.Fprintf(os.Stderr, "WARNING: userbundled: refusing bundle entry %q — name collides with trusted built-in module %q; not registered\n", e.Manifest.Name, bareName)
+			continue
+		}
+
 		caps := make([]string, 0, len(e.Manifest.Capabilities))
 		caps = append(caps, e.Manifest.Capabilities...)
 

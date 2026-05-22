@@ -700,6 +700,14 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			path := parts[2]
 			var scope string
 			if strings.HasPrefix(path, "cfg:") {
+				// #054: reject cfg:* sub-paths containing ".." at
+				// parse time so a traversal cap (e.g.
+				// fs:read:cfg:state_dir/../../keys) never enters the
+				// allow-list. expandFSEntry also guards containment at
+				// check time; this is defense-in-depth.
+				if cfgSubEscapes(path) {
+					continue
+				}
 				// Path-template prefix; resolution is deferred to
 				// allowRead/allowWrite because the host caller may
 				// populate the cfg field (h.StateDir, etc.) AFTER
@@ -721,7 +729,16 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			// matches at allow-time.
 			scopes := []string{scope}
 			if !strings.HasPrefix(scope, "cfg:") {
-				if alias := symlinkAlias(scope); alias != "" {
+				// #016: alias only the workdir *prefix* and re-append
+				// the cap's relative suffix literally. Resolving the
+				// whole cap path with EvalSymlinks would follow a
+				// repo-controlled symlink in the suffix (e.g. a manifest
+				// fs:read:src where the repo makes src → ~/.ssh), baking
+				// the escape target into the allow-list and sidestepping
+				// realPath()'s per-access symlink defense. Absolute caps
+				// have no workdir prefix to alias, so they keep only the
+				// literal form.
+				if alias := workdirSymlinkAlias(workdir, path); alias != "" {
 					scopes = append(scopes, alias)
 				}
 			}
@@ -1117,7 +1134,40 @@ func (h *Host) expandFSEntry(raw string) string {
 	if sub == "" {
 		return value
 	}
-	return filepath.Clean(value + "/" + sub)
+	expanded := filepath.Clean(value + "/" + sub)
+	// #054: verify the cleaned result stays under the cfg value. Without
+	// this, a manifest cap like fs:read:cfg:state_dir/../../keys cleans to
+	// an allow-list root OUTSIDE the state-dir subtree, and
+	// pathAllowedExpanded would then treat that escaped prefix as
+	// authorized. Mirror the pathInRoot guard in host_fs.go: reject when
+	// the relative path escapes (".."-prefixed) or resolves to an
+	// absolute path. cfgSubEscapes also rejects ".." segments at parse
+	// time as defense-in-depth (see NewHost).
+	rel, err := filepath.Rel(filepath.Clean(value), expanded)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return ""
+	}
+	return expanded
+}
+
+// cfgSubEscapes reports whether a cfg:* capability sub-path contains a
+// ".." traversal segment. #054 defense-in-depth: such caps are dropped
+// at manifest-parse time (NewHost) so they never enter the allow-list,
+// in addition to the check-time containment guard in expandFSEntry.
+func cfgSubEscapes(rawCfg string) bool {
+	if !strings.HasPrefix(rawCfg, "cfg:") {
+		return false
+	}
+	_, sub, _ := strings.Cut(rawCfg[len("cfg:"):], "/")
+	if sub == "" {
+		return false
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(sub), "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func pathAllowed(abs string, allow []string) bool {
@@ -1139,14 +1189,48 @@ func normaliseCapabilityPath(workdir, path string) string {
 	return resolveAbs(workdir, path)
 }
 
+// workdirSymlinkAlias aliases the *workdir prefix* of a manifest fs
+// capability path, preserving the cap's relative suffix literally.
+//
+// #016: the previous code aliased the fully-resolved cap path via
+// symlinkAlias(<workdir>/<sub>), which ran EvalSymlinks over the final
+// components too. A malicious repo could then make a scoped cap target
+// (e.g. fs:read:src) a symlink to a sensitive directory (~/.ssh); the
+// resolved escape target got appended to the allow-list, defeating the
+// per-access realPath() symlink check. Here we only resolve symlinks in
+// the workdir (which the host controls, not the repo) and re-join the
+// literal relative suffix, so the Fedora-Atomic /home → /var/home
+// aliasing still works while repo-controlled suffix symlinks are never
+// followed at parse time.
+//
+// Returns "" for absolute caps (no workdir prefix to alias), when the
+// workdir doesn't resolve differently, or when the workdir can't be
+// evaluated — the caller falls back to the literal entry.
+func workdirSymlinkAlias(workdir, path string) string {
+	if path == "" || filepath.IsAbs(path) {
+		return ""
+	}
+	resolvedWorkdir, err := filepath.EvalSymlinks(workdir)
+	if err != nil {
+		return ""
+	}
+	resolvedWorkdir = filepath.Clean(resolvedWorkdir)
+	if resolvedWorkdir == filepath.Clean(workdir) {
+		return ""
+	}
+	// Re-attach the literal (un-resolved) relative suffix.
+	return filepath.Clean(filepath.Join(resolvedWorkdir, path))
+}
+
 // symlinkAlias returns the EvalSymlinks-resolved form of an absolute
 // path when it differs from the literal, or "" when the path doesn't
 // resolve differently / doesn't exist / can't be evaluated. Used to
-// alias fs:read / fs:write cap entries on systems where the workdir
-// crosses a symlink (Fedora Atomic /home → /var/home is the canonical
-// case). Best-effort: a missing path or EvalSymlinks failure is not
-// fatal — the caller falls back to the literal entry, which may still
-// match if the runtime's realPath also fails on the access side.
+// alias cfg:* path-template entries (expanded at check time) on systems
+// where the state-dir crosses a symlink (Fedora Atomic /home →
+// /var/home is the canonical case). Best-effort: a missing path or
+// EvalSymlinks failure is not fatal — the caller falls back to the
+// literal entry, which may still match if the runtime's realPath also
+// fails on the access side.
 func symlinkAlias(absPath string) string {
 	if absPath == "" || !filepath.IsAbs(absPath) {
 		return ""

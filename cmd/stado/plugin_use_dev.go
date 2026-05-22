@@ -117,11 +117,19 @@ for production keys intended for distribution.`,
 		fmt.Fprintln(cmd.OutOrStdout(), "Signing manifest...")
 		templatePath := filepath.Join(dir, "plugin.manifest.template.json")
 		manifestPath := filepath.Join(dir, "plugin.manifest.json")
-		templateBytes, readErr := os.ReadFile(templatePath)
+		// #004: use the signer's no-symlink, size-limited primitives for
+		// the seed copy. Plain os.ReadFile/os.WriteFile follow symlinks and
+		// have no size limit, so a plugin dir with plugin.manifest.json
+		// symlinked to e.g. ~/.bashrc would let `stado plugin dev <dir>`
+		// overwrite that target with template bytes, and a symlinked
+		// template could trigger an unbounded read / exfiltrate a local
+		// file. readRegularFileNoSymlinkMax + writeRegularFileAtomic both
+		// lstat-reject symlinks and bound the size, matching plugin sign.
+		templateBytes, readErr := readRegularFileNoSymlinkMax(templatePath, maxPluginSignManifestBytes)
 		if readErr != nil {
 			return fmt.Errorf("plugin dev: read template %s: %w", templatePath, readErr)
 		}
-		if writeErr := os.WriteFile(manifestPath, templateBytes, 0o644); writeErr != nil {
+		if writeErr := writeRegularFileAtomic(manifestPath, templateBytes, 0o644); writeErr != nil {
 			return fmt.Errorf("plugin dev: seed manifest %s: %w", manifestPath, writeErr)
 		}
 		origKey := pluginSignKeyPath

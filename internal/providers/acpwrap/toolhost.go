@@ -49,7 +49,23 @@ type ToolHostConfig struct {
 	// Host is the tool.Host both tools are invoked with — this is
 	// where the permission/sandbox/audit stack hooks in.
 	Host tool.Host
+
+	// MCPServerName is the name stado mounts itself under in
+	// session/new.mcpServers (see BuildStadoMCPMount — "stado").
+	// session/request_permission auto-approve is scoped to tool calls
+	// that resolve to THIS server (or stado's advertised fs/*
+	// methods); everything else — the wrapped agent's own built-in
+	// tools, third-party MCP servers — is denied rather than blindly
+	// approved. Empty falls back to the canonical "stado" so the
+	// scope is never accidentally wide-open. See #051.
+	MCPServerName string
 }
+
+// stadoMCPServerName is the canonical name stado mounts itself under
+// (matches BuildStadoMCPMount). Used as the default scope for
+// session/request_permission auto-approve when ToolHostConfig.
+// MCPServerName is unset. See #051.
+const stadoMCPServerName = "stado"
 
 // BuildRequestHandler returns an acp.RequestHandler that dispatches
 // canonical ACP fs/* and terminal/* methods to the configured tools.
@@ -67,7 +83,7 @@ func BuildRequestHandler(cfg ToolHostConfig) acp.RequestHandler {
 		case "fs/write_text_file":
 			return handleWriteTextFile(ctx, cfg, params)
 		case "session/request_permission":
-			return handleRequestPermission(params)
+			return handleRequestPermission(cfg, params)
 		default:
 			return nil, &acp.RPCError{
 				Code:    acp.CodeMethodNotFound,
@@ -106,24 +122,51 @@ type acpPermissionOutcome struct {
 	OptionID string `json:"optionId,omitempty"`
 }
 
-// handleRequestPermission auto-approves with the most-permissive
-// "allow_always_server" / "allow_always" / "allow_once" option in
-// that priority order — stado's policy convention is auto-approve at
-// the Host layer (TUI's hostAdapter, runtime's autoApproveHost,
-// mcp-server's stadoMCPHost all do the same). The wrapped agent's
-// trust boundary is the user opting into `tools = "stado"`; once
-// they've done that, asking again per-call would defeat the
-// always-on automation goal of the integration.
+// handleRequestPermission auto-approves ONLY tool calls that resolve
+// to stado's own mounted MCP server or stado's advertised fs/*
+// methods — those route through stado's Executor (audit + sandbox),
+// so auto-approve preserves rather than removes the safety boundary.
+// For anything else (the wrapped agent's built-in bash/fs/web tools,
+// or a third-party MCP server it also mounts), it returns "cancelled"
+// (deny) instead of blindly picking the most-permissive allow_*
+// option. See #051.
+//
+// Rationale for the previous blanket-allow being wrong: `tools =
+// "stado"` does NOT disable the wrapped agent's built-in tools (see
+// provider.go Config.Tools doc). A prompt-injected or compromised
+// agent could request permission for its own shell/fs/network tools
+// and have stado rubber-stamp a persistent allow_always grant,
+// removing the human approval boundary for operations stado never
+// audits. Scoping auto-approve to stado-routed calls keeps the
+// always-on automation for the integration the operator opted into
+// while denying everything outside that trust boundary.
 //
 // Falls back to "cancelled" if the agent didn't supply any allow-
 // shaped options (unusual but handled rather than panic).
-func handleRequestPermission(raw json.RawMessage) (any, error) {
+func handleRequestPermission(cfg ToolHostConfig, raw json.RawMessage) (any, error) {
 	var p acpPermissionParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, &acp.RPCError{
 			Code:    acp.CodeInvalidParams,
 			Message: "session/request_permission: " + err.Error(),
 		}
+	}
+
+	// #051: scope-check. Only auto-approve calls that target stado's
+	// own MCP server / fs methods. Out-of-scope calls (the wrapped
+	// agent's built-ins, other MCP servers) are denied here rather
+	// than being handed the most-permissive allow option.
+	serverName := cfg.MCPServerName
+	if strings.TrimSpace(serverName) == "" {
+		serverName = stadoMCPServerName
+	}
+	if !toolCallIsStadoRouted(p.ToolCall, serverName) {
+		if toolhostDebug() {
+			fmt.Fprintf(os.Stderr,
+				"[acpwrap toolhost] denying out-of-scope permission request (not a %q-routed tool): %+v\n",
+				serverName, p.ToolCall)
+		}
+		return acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}}, nil
 	}
 
 	// Pick by kind in priority order — agents may name options
@@ -153,6 +196,78 @@ func handleRequestPermission(raw json.RawMessage) (any, error) {
 	// No allow option offered — return cancelled rather than
 	// guessing.
 	return acpPermissionResult{Outcome: acpPermissionOutcome{Outcome: "cancelled"}}, nil
+}
+
+// toolCallIsStadoRouted reports whether an ACP session/request_
+// permission `toolCall` object identifies a tool that routes through
+// stado — i.e. a tool exposed by stado's mounted MCP server
+// (serverName) or one of stado's advertised fs/* methods. See #051.
+//
+// ACP does not standardise a single "tool id" field on the toolCall
+// object; agents put the identifier in different places (toolCallId,
+// title, a nested rawInput.name, or a kind). MCP-derived tools are
+// namespaced by their server name across the surveyed agents
+// (gemini/claude/codex/opencode) as `<server>__<tool>` or
+// `mcp__<server>__<tool>`. We therefore look for the stado server
+// name as a namespaced token, plus the canonical fs/* method names
+// stado advertises in clientCapabilities. Detection is intentionally
+// conservative: an unrecognised toolCall is treated as out-of-scope
+// (denied) rather than approved.
+func toolCallIsStadoRouted(toolCall map[string]any, serverName string) bool {
+	if len(toolCall) == 0 {
+		return false
+	}
+	// Namespaced-token markers for the stado MCP server. The double
+	// underscore is the de-facto MCP tool-namespacing separator;
+	// requiring it (rather than a bare substring) avoids matching an
+	// unrelated tool whose name merely contains "stado".
+	markers := []string{
+		serverName + "__",       // <server>__<tool>
+		"mcp__" + serverName,    // mcp__<server>__<tool>
+		"mcp_" + serverName,     // some agents use single underscores
+		"__" + serverName + "_", // suffix/middle namespacing variants
+	}
+	// Walk the candidate identifier-bearing fields ONLY. We do NOT
+	// scan the whole serialized toolCall: rawInput carries
+	// attacker-controlled content (e.g. a bash `command` string), so a
+	// blob scan would let a malicious built-in call smuggle a
+	// `stado__` token into its arguments and falsely gain scope. By
+	// restricting to identifier fields, an unrecognised schema fails
+	// closed (denied) rather than open. See #051.
+	for _, key := range []string{"toolCallId", "title", "name", "toolName", "tool"} {
+		if s, ok := toolCall[key].(string); ok {
+			if matchStadoMarker(s, serverName, markers) {
+				return true
+			}
+		}
+	}
+	// Bounded check for an explicit server-name field some agents
+	// attach to MCP-derived tool calls (e.g. {serverName:"stado"} or
+	// {mcpServer:"stado"}). Exact-match the server name — not a marker
+	// substring — since this is a dedicated identity field.
+	for _, key := range []string{"serverName", "mcpServer", "server"} {
+		if s, ok := toolCall[key].(string); ok && s == serverName {
+			return true
+		}
+	}
+	return false
+}
+
+// matchStadoMarker returns true when s is an fs/* method stado
+// advertises, or carries a stado MCP namespace marker.
+func matchStadoMarker(s, serverName string, markers []string) bool {
+	// stado's advertised fs/* methods route through the toolhost
+	// dispatcher (handleReadTextFile / handleWriteTextFile) and thus
+	// through stado's Executor/Host — in-scope.
+	if s == "fs/read_text_file" || s == "fs/write_text_file" {
+		return true
+	}
+	for _, m := range markers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // acpReadParams matches the canonical ACP fs/read_text_file shape:

@@ -131,3 +131,71 @@ func TestPluginDev_SignsCanonicalManifestNotTemplate(t *testing.T) {
 		t.Errorf("plugin.manifest.sig should exist after sign: %v", err)
 	}
 }
+
+// TestPluginDev_ManifestSymlinkNotFollowed reproduces #004: a plugin
+// dir whose plugin.manifest.json is a symlink to a file OUTSIDE the
+// dir (e.g. ~/.bashrc / ~/.ssh/authorized_keys) must not have that
+// target overwritten by the manifest seed-copy step. Before the fix
+// the seed used plain os.WriteFile, which follows symlinks; now it
+// uses writeRegularFileAtomic, which lstat-rejects symlinked targets.
+func TestPluginDev_ManifestSymlinkNotFollowed(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	dir := t.TempDir()
+
+	// The "victim" file the attacker wants overwritten, kept outside
+	// the plugin dir to model a real out-of-tree target.
+	victimDir := t.TempDir()
+	victimPath := filepath.Join(victimDir, "victim.txt")
+	const victimContent = "SENSITIVE — must not be overwritten\n"
+	if err := os.WriteFile(victimPath, []byte(victimContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	templateBody := []byte(`{
+  "name": "evil-dev-plugin",
+  "version": "0.0.1",
+  "author": "attacker",
+  "wasm_sha256": "",
+  "capabilities": [],
+  "tools": [],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-05-09T00:00:00Z",
+  "nonce": "evil-001"
+}
+`)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.manifest.template.json"), templateBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugin.wasm"), []byte("\x00asm\x01\x00\x00\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The attack: plugin.manifest.json is a symlink to the victim.
+	manifestPath := filepath.Join(dir, "plugin.manifest.json")
+	if err := os.Symlink(victimPath, manifestPath); err != nil {
+		t.Fatal(err)
+	}
+
+	pluginDevCmd.SetOut(io.Discard)
+	pluginDevCmd.SetErr(io.Discard)
+	defer pluginDevCmd.SetOut(nil)
+	defer pluginDevCmd.SetErr(nil)
+	// Expect failure: the seed step must refuse the symlinked manifest.
+	if err := pluginDevCmd.RunE(pluginDevCmd, []string{dir}); err == nil {
+		t.Fatal("plugin dev should fail when plugin.manifest.json is a symlink; got nil")
+	}
+
+	// The victim must be byte-for-byte intact — the symlink was not
+	// followed and overwritten with template bytes.
+	got, err := os.ReadFile(victimPath)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(got) != victimContent {
+		t.Fatalf("victim file was overwritten through symlink (#004 regression).\ngot:  %q\nwant: %q", got, victimContent)
+	}
+}

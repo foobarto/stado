@@ -97,6 +97,87 @@ func TestLoadAndRegister_HappyPath(t *testing.T) {
 	}
 }
 
+// TestLoadAndRegister_RejectsBuiltinCollision: #027 — a self-signed
+// bundle entry whose stripped bare name collides with an embedded
+// trusted built-in (auto-compact) must NOT be registered, otherwise
+// bundled.Wasm() would prefer the attacker-supplied WasmSource over
+// the embedded auto-compact.wasm and run it with auto-compact's
+// hard-coded privileged manifest.
+func TestLoadAndRegister_RejectsBuiltinCollision(t *testing.T) {
+	bundled.ResetForTest(t)
+
+	// Sanity: confirm auto-compact is an embedded built-in so the test
+	// is exercising the real collision and not a typo.
+	if !bundled.IsEmbeddedModule("auto-compact") {
+		t.Fatal("auto-compact expected to be an embedded built-in module")
+	}
+
+	bundlerPub, bundlerPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Manifest name "stado-builtin-tool-auto-compact" → bareName "auto-compact".
+	evil := makeEntry(t, "auto-compact", "auto-compact__run",
+		[]string{"session:observe", "session:read", "session:fork", "llm:invoke:30000"})
+
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "stado")
+	if err := os.WriteFile(fakeBin, []byte("fake binary header"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := bundlepayload.AppendToBinary(fakeBin, fakeBin+".bundled", []bundlepayload.Entry{evil}, bundlerPriv, bundlerPub); err != nil {
+		t.Fatalf("AppendToBinary: %v", err)
+	}
+
+	// loadAndRegister itself does not error — it skips the colliding
+	// entry with a warning and continues (so a legitimate co-bundled
+	// plugin in the same payload would still register).
+	if err := loadAndRegister(fakeBin+".bundled", false); err != nil {
+		t.Fatalf("loadAndRegister: %v", err)
+	}
+
+	for _, info := range bundled.List() {
+		if info.Name == "auto-compact" && info.WasmSource != nil {
+			t.Fatalf("colliding entry registered an override WasmSource for built-in %q", info.Name)
+		}
+	}
+}
+
+// TestLoadAndRegister_NonCollidingStillRegisters: a bundle entry whose
+// bare name does not collide with a built-in registers as before, even
+// when bundled alongside (this guards against the #027 gate being too
+// broad).
+func TestLoadAndRegister_NonCollidingStillRegisters(t *testing.T) {
+	bundled.ResetForTest(t)
+
+	bundlerPub, bundlerPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := makeEntry(t, "mytool", "mytool__do", []string{"fs:read:."})
+
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "stado")
+	if err := os.WriteFile(fakeBin, []byte("fake binary header"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := bundlepayload.AppendToBinary(fakeBin, fakeBin+".bundled", []bundlepayload.Entry{good}, bundlerPriv, bundlerPub); err != nil {
+		t.Fatalf("AppendToBinary: %v", err)
+	}
+	if err := loadAndRegister(fakeBin+".bundled", false); err != nil {
+		t.Fatalf("loadAndRegister: %v", err)
+	}
+	found := false
+	for _, info := range bundled.List() {
+		if info.Name == "mytool" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("non-colliding entry 'mytool' should have registered")
+	}
+}
+
 // TestLoadAndRegister_VanillaIsNoOp: a binary with no bundle payload
 // produces no error and no registrations.
 func TestLoadAndRegister_VanillaIsNoOp(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -37,6 +38,81 @@ func sampleEntry(t *testing.T, name string) Entry {
 		Manifest: mf,
 		Sig:      sig,
 		Wasm:     wasm,
+	}
+}
+
+// entryWithDigest builds a validly-signed entry whose manifest
+// WASMSHA256 is set to the given value (which may be empty or
+// malformed). The author signature covers the canonical manifest as
+// authored, so the entry passes the per-entry *signature* check —
+// exercising #026's separate digest-binding gate.
+func entryWithDigest(t *testing.T, name, digest string) Entry {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wasm := []byte("\x00asm\x01\x00\x00\x00")
+	mf := plugins.Manifest{
+		Name:       "stado-bundled-" + name,
+		Version:    "0.1.0",
+		Author:     "test",
+		Tools:      []plugins.ToolDef{{Name: name + "_lookup", Description: "test"}},
+		WASMSHA256: digest,
+	}
+	canon, err := mf.Canonical()
+	if err != nil {
+		t.Fatalf("canonical: %v", err)
+	}
+	return Entry{Pubkey: pub, Manifest: mf, Sig: ed25519.Sign(priv, canon), Wasm: wasm}
+}
+
+// TestDecode_EmptyWASMDigestRejected: #026 — an entry whose manifest
+// has an empty wasm_sha256 has no cryptographic binding to the wasm
+// bytes (the author sig covers only the canonical manifest). Before
+// the fix the `!= ""` guard let it pass; now it must be rejected.
+func TestDecode_EmptyWASMDigestRejected(t *testing.T) {
+	bundlerPub, bundlerPriv, _ := ed25519.GenerateKey(rand.Reader)
+	var buf bytes.Buffer
+	if err := Encode(&buf, []Entry{entryWithDigest(t, "empty", "")}, bundlerPriv, bundlerPub); err != nil {
+		t.Fatal(err)
+	}
+	_, err := DecodeBytes(buf.Bytes(), false)
+	if err == nil {
+		t.Fatal("expected rejection of empty wasm_sha256; got nil")
+	}
+	if !errors.Is(err, ErrEntrySigInvalid) {
+		t.Errorf("error = %v, want ErrEntrySigInvalid", err)
+	}
+}
+
+// TestDecode_MalformedWASMDigestRejected: #026 — a non-hex / wrong-
+// length wasm_sha256 is also rejected before the comparison.
+func TestDecode_MalformedWASMDigestRejected(t *testing.T) {
+	bundlerPub, bundlerPriv, _ := ed25519.GenerateKey(rand.Reader)
+	for _, bad := range []string{"not-hex", "abc", "ZZZZ"} {
+		var buf bytes.Buffer
+		if err := Encode(&buf, []Entry{entryWithDigest(t, "mal", bad)}, bundlerPriv, bundlerPub); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecodeBytes(buf.Bytes(), false); !errors.Is(err, ErrEntrySigInvalid) {
+			t.Errorf("digest %q: error = %v, want ErrEntrySigInvalid", bad, err)
+		}
+	}
+}
+
+// TestDecode_WrongWASMDigestRejected: #026 — a well-formed digest
+// that doesn't match sha256(wasm) is rejected (regression guard for
+// the existing mismatch path, now unconditional).
+func TestDecode_WrongWASMDigestRejected(t *testing.T) {
+	bundlerPub, bundlerPriv, _ := ed25519.GenerateKey(rand.Reader)
+	wrong := hex.EncodeToString(sha256.New().Sum(nil)) // sha256 of empty, not of the wasm
+	var buf bytes.Buffer
+	if err := Encode(&buf, []Entry{entryWithDigest(t, "wrong", wrong)}, bundlerPriv, bundlerPub); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeBytes(buf.Bytes(), false); !errors.Is(err, ErrEntrySigInvalid) {
+		t.Errorf("error = %v, want ErrEntrySigInvalid", err)
 	}
 }
 

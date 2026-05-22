@@ -40,11 +40,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/foobarto/stado/pkg/agent"
@@ -96,7 +98,67 @@ type Config struct {
 	// this is where things like `model`, `sandbox`, `approval-policy`
 	// land if the operator wants to pin them). Operator-supplied,
 	// passed through verbatim.
+	//
+	// SECURITY (#048): these overrides are advisory only — stado
+	// passes them to the external agent but cannot enforce them. The
+	// wrapped agent runs its own fs/shell/network tool stack with the
+	// privileges of the launched subprocess; a value like
+	// sandbox="read-only" is honored only if the agent chooses to.
 	CallToolOverrides map[string]any
+
+	// Cwd is the working directory the wrapped MCP server subprocess
+	// runs in. #048: set this to the session's worktree path so the
+	// wrapped agent's filesystem tools default to the sidecar rather
+	// than stado's inherited process cwd (the real checkout). Empty =
+	// inherit stado's cwd (legacy behavior; logs a startup warning so
+	// the operator knows the isolation boundary is not in place).
+	Cwd string
+
+	// Env, when set, REPLACES the scrubbed-safelist environment passed
+	// to the subprocess (it is not appended to os.Environ()). #048:
+	// the wrapped subprocess no longer inherits the full parent
+	// environment by default — only a small safelist (HOME, PATH,
+	// USER, XDG_*, TERM) plus these explicit entries — so inherited
+	// secrets (API keys, tokens) are not handed to an external agent
+	// stado cannot audit. Each entry is "KEY=value".
+	Env []string
+}
+
+// envSafelist is the set of environment variables passed through to
+// the wrapped MCP server subprocess. #048: we deliberately do NOT
+// inherit the full os.Environ() — an external agent stado can't audit
+// should not receive arbitrary inherited secrets (cloud creds, API
+// tokens, etc.). Only variables the subprocess plausibly needs to
+// locate config / a shell / a terminal are forwarded; the operator
+// adds anything else explicitly via Config.Env.
+var envSafelist = []string{
+	"HOME",
+	"PATH",
+	"USER",
+	"LOGNAME",
+	"SHELL",
+	"TERM",
+	"LANG",
+	"LC_ALL",
+	"TMPDIR",
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_STATE_HOME",
+	"XDG_CACHE_HOME",
+}
+
+// scrubbedEnv builds the subprocess environment: the safelisted
+// entries pulled from the current process, with extra appended/
+// overriding. #048.
+func scrubbedEnv(extra []string) []string {
+	out := make([]string, 0, len(envSafelist)+len(extra))
+	for _, key := range envSafelist {
+		if v, ok := os.LookupEnv(key); ok {
+			out = append(out, key+"="+v)
+		}
+	}
+	out = append(out, extra...)
+	return out
 }
 
 // Provider is the agent.Provider implementation.
@@ -156,11 +218,43 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 		return nil
 	}
 
+	// #048: do NOT inherit the full parent environment. Pass a
+	// scrubbed safelist (+ operator-supplied Config.Env) so an
+	// external agent stado can't audit doesn't receive arbitrary
+	// inherited secrets. The CommandFunc below also sets the
+	// subprocess working directory to Cwd (the session worktree, when
+	// wired) instead of stado's inherited process cwd.
+	env := scrubbedEnv(p.cfg.Env)
+
+	if strings.TrimSpace(p.cfg.Cwd) == "" {
+		// Visibility: with no Cwd the subprocess runs in stado's cwd
+		// (typically the real checkout), so the wrapped agent's fs
+		// tools operate outside the sidecar boundary. #048.
+		fmt.Fprintf(os.Stderr,
+			"mcpwrap: warning: %s launched without a worktree Cwd — wrapped agent runs in stado's cwd, outside the sidecar/audit boundary (#048)\n",
+			p.cfg.Name)
+	}
+
+	// cmdFunc builds the subprocess so we control Dir + Env. mcp-go's
+	// default path appends env to os.Environ(); WithCommandFunc lets
+	// us replace the environment outright and pin the working dir.
+	cmdFunc := func(ctx context.Context, command string, cmdEnv []string, args []string) (*exec.Cmd, error) {
+		cmd := exec.CommandContext(ctx, command, args...) // #nosec G204 — operator-supplied agent binary is the point of this provider
+		cmd.Env = cmdEnv
+		if dir := strings.TrimSpace(p.cfg.Cwd); dir != "" {
+			cmd.Dir = dir
+		}
+		return cmd, nil
+	}
+
 	// Stdio MCP client: spawns the subprocess, pipes stdin/stdout,
 	// runs JSON-RPC. Uses mark3labs/mcp-go's stdio transport which
 	// matches what stado's existing `internal/mcp/client.go` and
 	// `cmd/stado/mcp_server.go` use — same wire format.
-	c, err := client.NewStdioMCPClient(p.cfg.Binary, os.Environ(), p.cfg.Args...)
+	c, err := client.NewStdioMCPClientWithOptions(
+		p.cfg.Binary, env, p.cfg.Args,
+		transport.WithCommandFunc(cmdFunc),
+	)
 	if err != nil {
 		return fmt.Errorf("mcpwrap: spawn %s: %w", p.cfg.Binary, err)
 	}
