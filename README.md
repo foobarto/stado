@@ -132,7 +132,7 @@ git clone https://github.com/foobarto/stado && cd stado && make
 Build via `make`, not bare `go build`/`go install`: the bundled wasm tools are
 compiled from source (`make wasm`) and `//go:embed`'d into the binary, so a
 checkout is required — `go install …@latest` is **not** supported (the embed
-has no committed wasm to find; EP-0042). Go 1.25+, pure Go (`CGO_ENABLED=0`).
+has no committed wasm to find; EP-0042). Go 1.26+ (per `go.mod`), pure Go (`CGO_ENABLED=0`).
 Native `rg`/`ast-grep` are fetched + embedded only in official release builds
 (extracted on first use to `$XDG_CACHE_HOME/stado/bin/`, sha256-verified);
 source/`make` builds fall back to the system PATH. `gopls` is optional, always
