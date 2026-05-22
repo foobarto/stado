@@ -25,6 +25,38 @@ func stadoAlloc(size int32) int32 { return sdk.Alloc(size) }
 //go:wasmexport stado_free
 func stadoFree(ptr int32, size int32) { sdk.Free(ptr, size) }
 
+// rgFlagDangerous reports whether a ripgrep flag executes an external
+// program (and so escapes the exec:proc:rg capability). Matches both
+// `--flag` and `--flag=value` forms.
+func rgFlagDangerous(f string) bool {
+	base := f
+	if i := strings.IndexByte(f, '='); i >= 0 {
+		base = f[:i]
+	}
+	switch base {
+	case "--pre", "--pre-glob", "--search-zip", "-z", "--hostname-bin":
+		return true
+	}
+	return false
+}
+
+// pathWithinWorkdir reports whether p is a workdir-relative path with no
+// absolute prefix, home expansion, or `..` segment.
+func pathWithinWorkdir(p string) bool {
+	if p == "" {
+		return true
+	}
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 //go:wasmexport stado_tool_search
 func stadoToolSearch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	args := sdk.Bytes(argsPtr, argsLen)
@@ -35,6 +67,22 @@ func stadoToolSearch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	}
 	if err := json.Unmarshal(args, &req); err != nil || req.Pattern == "" {
 		return writeError(resPtr, resCap, "pattern is required")
+	}
+
+	// SECURITY: this tool holds only exec:proc:rg and is NonMutating, but
+	// stado_exec validates only argv[0]. Ripgrep has flags that execute an
+	// external program per file (--pre, --search-zip, --hostname-bin), which
+	// would turn rg.search into arbitrary command execution. Reject them
+	// before they reach argv.
+	for _, f := range req.Flags {
+		if rgFlagDangerous(f) {
+			return writeError(resPtr, resCap, "flag not allowed (executes external programs): "+f)
+		}
+	}
+	// SECURITY: keep the search path inside the workdir — absolute or `..`
+	// paths let rg read outside the intended tree.
+	if !pathWithinWorkdir(req.Path) {
+		return writeError(resPtr, resCap, "path must be relative to the workdir (no absolute paths or '..')")
 	}
 
 	// Resolve ripgrep binary path.

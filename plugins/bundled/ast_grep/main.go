@@ -27,6 +27,23 @@ func stadoAlloc(size int32) int32 { return sdk.Alloc(size) }
 //go:wasmexport stado_free
 func stadoFree(ptr int32, size int32) { sdk.Free(ptr, size) }
 
+// pathWithinWorkdir reports whether p is a workdir-relative path with no
+// absolute prefix, home expansion, or `..` segment.
+func pathWithinWorkdir(p string) bool {
+	if p == "" {
+		return true
+	}
+	if strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
 //go:wasmexport stado_tool_search
 func stadoToolSearch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	args := sdk.Bytes(argsPtr, argsLen)
@@ -38,6 +55,12 @@ func stadoToolSearch(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	}
 	if err := json.Unmarshal(args, &req); err != nil || req.Pattern == "" {
 		return writeError(resPtr, resCap, "pattern is required")
+	}
+	// SECURITY: keep the target path inside the workdir. With `rewrite`,
+	// ast-grep runs `--update-all` and edits files in place, so an absolute
+	// or `..` path would let it WRITE outside the sidecar worktree.
+	if !pathWithinWorkdir(req.Path) {
+		return writeError(resPtr, resCap, "path must be relative to the workdir (no absolute paths or '..')")
 	}
 
 	name := []byte("ast-grep")
