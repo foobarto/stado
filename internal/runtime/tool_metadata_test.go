@@ -17,12 +17,14 @@ func TestLookupToolMetadata_ResolutionOrder(t *testing.T) {
 	}{
 		// 1. Canonical literal hits the canonical map directly.
 		{"canonical fs.read", "fs.read", "fs.read", "fs"},
-		{"canonical shell.snapshot", "shell.snapshot", "shell.snapshot", "shell"},
+		{"canonical shell.screenshot", "shell.screenshot", "shell.screenshot", "shell"},
+		{"canonical shell.read_until", "shell.read_until", "shell.read_until", "shell"},
 		{"canonical browser.cdp_eval", "browser.cdp_eval", "browser.cdp_eval", "browser"},
 
 		// 2. Wire form parses and reaches the canonical map.
 		{"wire fs__read", "fs__read", "fs.read", "fs"},
-		{"wire shell__snapshot", "shell__snapshot", "shell.snapshot", "shell"},
+		{"wire shell__screenshot", "shell__screenshot", "shell.screenshot", "shell"},
+		{"wire shell__read_until", "shell__read_until", "shell.read_until", "shell"},
 		{"wire agent__send_message", "agent__send_message", "agent.send_message", "agent"},
 
 		// 3. Legacy bare alias → canonical (the pre-EP-0038 surface).

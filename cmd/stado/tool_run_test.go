@@ -134,7 +134,7 @@ func TestToolRun_DispatchesMetaToolDescribe(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			err := runToolByName(t.Context(), name,
-				`{"name":"shell__snapshot"}`,
+				`{"name":"shell__screenshot"}`,
 				toolRunOptions{Cfg: cfg, Stdout: &stdout, Stderr: &stderr})
 			if err != nil {
 				t.Fatalf("runToolByName(%q): %v\nstderr: %s",
@@ -142,16 +142,16 @@ func TestToolRun_DispatchesMetaToolDescribe(t *testing.T) {
 			}
 			out := stdout.String()
 			// Result is a JSON array of {name, description, schema, …}
-			// objects. The shell__snapshot entry must appear with a
+			// objects. The shell__screenshot entry must appear with a
 			// real schema, not as `{"error":"not found"}`.
-			if !strings.Contains(out, `"name":"shell__snapshot"`) {
-				t.Errorf("expected shell__snapshot in describe output; got: %q", out)
+			if !strings.Contains(out, `"name":"shell__screenshot"`) {
+				t.Errorf("expected shell__screenshot in describe output; got: %q", out)
 			}
 			if !strings.Contains(out, `"schema"`) {
 				t.Errorf("expected schema field in describe output; got: %q", out)
 			}
 			if strings.Contains(out, `"error":"not found"`) {
-				t.Errorf("describe should resolve shell__snapshot, not return not-found; got: %q", out)
+				t.Errorf("describe should resolve shell__screenshot, not return not-found; got: %q", out)
 			}
 		})
 	}
@@ -243,16 +243,19 @@ func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
-		// shell.snapshot was added AFTER the original ptyBoundShellTool
-		// list was written; without an explicit case here, it routed to
-		// the in-process bundled path with a fresh empty pty.Manager
-		// that didn't know any of the daemon's session ids — and the
-		// operator saw "session not found" while shell.list cheerfully
-		// reported the same id alive. Caught during UAT 2026-05-09.
-		"shell.snapshot",
-		// shell.expect — same PTY-binding gate, same reasoning:
-		// the session id only exists in the runtime that spawned it.
-		"shell.expect",
+		// shell.screenshot (formerly shell.snapshot) was added AFTER the
+		// original ptyBoundShellTool list was written; without an explicit
+		// case here, it routed to the in-process bundled path with a fresh
+		// empty pty.Manager that didn't know any of the daemon's session
+		// ids — and the operator saw "session not found" while shell.list
+		// cheerfully reported the same id alive. Caught during UAT
+		// 2026-05-09. (CLI single-shot can't reach daemon PTYs even for a
+		// read-only screenshot; the TUI /tool path does serve it in-process.)
+		"shell.screenshot",
+		// shell.read_until (formerly shell.expect) — same PTY-binding gate,
+		// same reasoning: the session id only exists in the runtime that
+		// spawned it.
+		"shell.read_until",
 	}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {

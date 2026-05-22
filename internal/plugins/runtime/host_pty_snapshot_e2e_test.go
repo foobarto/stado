@@ -39,7 +39,7 @@ func TestShellSnapshotE2E(t *testing.T) {
 			{Name: "spawn", Class: "Exec"},
 			{Name: "attach", Class: "Exec"},
 			{Name: "write", Class: "Exec"},
-			{Name: "snapshot", Class: "NonMutating"},
+			{Name: "screenshot", Class: "NonMutating"},
 			{Name: "destroy", Class: "Exec"},
 		},
 	}
@@ -103,7 +103,7 @@ func TestShellSnapshotE2E(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var lastSnap string
 	for time.Now().Before(deadline) {
-		lastSnap = invoke("snapshot", `{"id":`+id+`}`)
+		lastSnap = invoke("screenshot", `{"id":`+id+`}`)
 		if strings.Contains(lastSnap, "snapshot-marker") {
 			break
 		}
@@ -132,7 +132,7 @@ func TestShellSnapshotE2E(t *testing.T) {
 	}
 
 	// 5. with_svg=true: SVG payload should be present and well-formed.
-	withSVG := invoke("snapshot", `{"id":`+id+`,"with_svg":true}`)
+	withSVG := invoke("screenshot", `{"id":`+id+`,"with_svg":true}`)
 	if err := json.Unmarshal([]byte(withSVG), &snap); err != nil {
 		t.Fatalf("with_svg snapshot unmarshal: %v", err)
 	}

@@ -159,11 +159,13 @@ func TestBundledPluginTool_HonoursPTYProvider(t *testing.T) {
 	}
 }
 
-// TestBundledShellExpect_RoundTripsThroughWasm: shell__expect dispatched
-// via the bundled wasm path returns the host's match envelope unchanged.
-// Drives the path the agent actually uses: tool registry → wasm wrapper →
-// stado_terminal_expect → manager.Expect → JSON response.
-func TestBundledShellExpect_RoundTripsThroughWasm(t *testing.T) {
+// TestBundledShellReadUntil_RoundTripsThroughWasm: shell__read_until
+// dispatched via the bundled wasm path returns the host's match envelope
+// unchanged. Drives the path the agent actually uses: tool registry → wasm
+// wrapper → stado_terminal_expect → manager.Expect → JSON response. (The
+// host import keeps the name stado_terminal_expect; only the agent-facing
+// tool was renamed expect → read_until.)
+func TestBundledShellReadUntil_RoundTripsThroughWasm(t *testing.T) {
 	if _, err := exec.LookPath("printf"); err != nil {
 		t.Skip("requires `printf` binary")
 	}
@@ -179,9 +181,9 @@ func TestBundledShellExpect_RoundTripsThroughWasm(t *testing.T) {
 	}
 
 	reg := BuildDefaultRegistry(nil)
-	expectTool, ok := reg.Get("shell__expect")
+	expectTool, ok := reg.Get("shell__read_until")
 	if !ok {
-		t.Fatal("shell__expect missing from registry")
+		t.Fatal("shell__read_until missing from registry")
 	}
 
 	id, err := sharedMgr.Spawn(pty.SpawnOpts{Cmd: "printf 'PROMPT> '; sleep 30"})
