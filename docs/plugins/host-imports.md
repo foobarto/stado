@@ -310,7 +310,7 @@ outside a session, MCP server with no per-call bridge): success
 returns silently. Per F9 spec: "if channel disconnected, emit
 succeeds silently."
 
-Reference example: `plugins/demos/render-demo-go/`.
+Reference example: `render-demo-go` in [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins).
 
 ### stado_cfg_state_dir
 

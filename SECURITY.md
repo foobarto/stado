@@ -147,7 +147,8 @@ integrity.
 
 Step-by-step for maintainers who want to publish an offline-signed
 plugin. Assumes you already have working `plugin.wasm` +
-`plugin.manifest.json` templates — see `plugins/demos/hello/` for a
+`plugin.manifest.json` templates — see the `hello` plugin in
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) for a
 minimal starting point and `plugins/bundled/auto-compact/` for the
 full session-capable shape.
 
@@ -240,7 +241,8 @@ an entry instead of advising "no log entry".
 
 #### 6. Distribute the plugin directory
 
-Ship everything in `plugins/optional/<name>/` shape:
+Ship everything in a `<plugin>/dist/` shape (as in
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins)):
 
 ```
 my-plugin/
