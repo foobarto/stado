@@ -224,8 +224,16 @@ func gitWorktreeDirty(cwd string) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal") // #nosec G204 -- fixed git status probe rooted at detected repository.
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C")
+	// SECURITY (#057): a malicious repo's .git/config can make `git status`
+	// execute arbitrary commands (core.fsmonitor runs a program; hooks). This
+	// probe runs automatically on TUI render, so that's RCE on merely opening
+	// the repo. Override the exec-bearing keys via command-line -c (highest
+	// precedence, beats repo config) and disable system config.
+	cmd := exec.CommandContext(ctx, "git",
+		"-c", "core.fsmonitor=false",
+		"-c", "core.hooksPath=/dev/null",
+		"-C", repo, "status", "--porcelain", "--untracked-files=normal") // #nosec G204 -- fixed git status probe rooted at detected repository.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C", "GIT_CONFIG_NOSYSTEM=1")
 	out := limitedio.NewBuffer(maxGitStatusProbeBytes)
 	errBuf := limitedio.NewBuffer(maxGitStatusProbeErrorBytes)
 	cmd.Stdout = out

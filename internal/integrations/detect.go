@@ -52,11 +52,19 @@ func Detect(ctx context.Context) []Detection {
 	for _, in := range known {
 		d := Detection{Integration: in}
 		d.BinaryPath = lookupFirstWellKnown(in.WellKnownPaths)
+		// trustedPath: resolved from a well-known absolute install location
+		// (the user's own install), not a PATH lookup. Only execute
+		// (probeVersion) trusted-path binaries — a PATH-resolved binary can be
+		// shadowed by a repo-local ./bin or .envrc dir, so probing it on a
+		// passive action (opening /model, running doctor) is arbitrary code
+		// execution in an untrusted repo (#047/#053). Presence is still
+		// reported for PATH-resolved binaries; only the version probe is gated.
+		trustedPath := d.BinaryPath != ""
 		if d.BinaryPath == "" {
 			d.BinaryPath = lookupFirstBinary(in.Binaries)
 		}
 		d.ConfigPathsFound = findExistingConfigPaths(in.ConfigPaths)
-		if d.BinaryPath != "" && in.VersionArg != "" {
+		if d.BinaryPath != "" && in.VersionArg != "" && trustedPath {
 			d.Version = probeVersion(ctx, d.BinaryPath, in.VersionArg)
 		}
 		out = append(out, d)
