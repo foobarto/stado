@@ -56,11 +56,25 @@ func landingInputWidth(width int) int {
 	return target
 }
 
+// landingInputW is the landing input-card width. While the inline `/` command
+// palette is open it widens (with a small margin) so command descriptions
+// render untruncated — the compact 64-col landing card otherwise clips them.
+// The card returns to its compact width once the palette closes.
+func (m *Model) landingInputW(width int) int {
+	base := landingInputWidth(width)
+	if m.slash.Visible && m.slashInline {
+		if wide := width - 8; wide > base {
+			return wide
+		}
+	}
+	return base
+}
+
 func (m *Model) renderLanding(width, height int) string {
 	if width < 1 {
 		return ""
 	}
-	input := strings.TrimRight(m.renderInputBox(landingInputWidth(width)), "\n")
+	input := strings.TrimRight(m.renderInputBox(m.landingInputW(width)), "\n")
 	hint := landingHint(m.theme)
 	plugins := m.landingPluginsHint()
 	bodyH := height - 1

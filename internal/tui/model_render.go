@@ -56,7 +56,7 @@ func (m *Model) View() string {
 	m.input.Model.SetHeight(inputH)
 	inputFrameW := mainW
 	if landing {
-		inputFrameW = landingInputWidth(mainW)
+		inputFrameW = m.landingInputW(mainW)
 	}
 	if textW := inputFrameW - 4; textW > 0 {
 		m.input.Model.SetWidth(textW)
