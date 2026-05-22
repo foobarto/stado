@@ -32,6 +32,22 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.51.1 — security hardening (batch 2 of Codex triage) — 2026-05-22
+
+### Security
+
+- **Plugin signing seeds no longer committed.** 11 Ed25519 private signing
+  seeds were tracked under `plugins/demos`/`plugins/optional`; untracked and
+  `**/*.seed` gitignored. The plugin install copy now excludes `*.seed` and the
+  dev-only `.stado/` dir so `plugin use-dev`'s `dev.seed` can't ship into an
+  installed package. (Keys remain in history — treat as compromised; rotation /
+  deny-listing is tracked separately.)
+- **Repo-controlled prompt files no longer follow symlinks.** The security
+  harness override (`.stado/harness/security.md`) and persona files
+  (`.stado/personas/*.md`) used bare reads; a symlinked override would be
+  followed to an arbitrary local file (e.g. `~/.ssh/id_rsa`) and spliced into
+  the system prompt. Both now reject symlinks and cap size.
+
 ## v0.51.0 — security hardening (batch 1 of Codex triage) — 2026-05-22
 
 First batch of fixes from the Codex security review (`.tmp/security-todo/`).
