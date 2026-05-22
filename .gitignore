@@ -50,3 +50,6 @@ NOTES*.md
 # the operator's own project.local.yml.
 /.mcp.json
 /.serena/
+
+# Plugin signing seeds (Ed25519 private keys) — never commit any.
+**/*.seed

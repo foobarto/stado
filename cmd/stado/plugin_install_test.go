@@ -289,6 +289,37 @@ func TestCopyPluginFileRejectsOversizedFile(t *testing.T) {
 	}
 }
 
+func TestCopyDirExcludesSeedsAndStadoDir(t *testing.T) {
+	// `plugin use-dev` writes .stado/dev.seed beside the plugin source; the
+	// install copy must never ship a private signing seed (#034).
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "plugin.wasm"), []byte("wasm"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "demo.seed"), []byte("private-key-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, ".stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".stado", "dev.seed"), []byte("dev-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "installed")
+	if err := copyDir(src, dst); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "plugin.wasm")); err != nil {
+		t.Errorf("plugin.wasm should be copied: %v", err)
+	}
+	for _, leaked := range []string{"demo.seed", ".stado/dev.seed", ".stado"} {
+		if _, err := os.Stat(filepath.Join(dst, leaked)); !os.IsNotExist(err) {
+			t.Errorf("%s must NOT be in the installed copy (err=%v)", leaked, err)
+		}
+	}
+}
+
 func TestCopyDirRejectsSourceSymlinkEscape(t *testing.T) {
 	src := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.txt")

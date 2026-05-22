@@ -272,6 +272,13 @@ func copyRootDirDepth(srcRoot, dstRoot *os.Root, rel string, state *pluginInstal
 				return fmt.Errorf("plugin package contains more than %d entries", maxPluginInstallEntries)
 			}
 			name := e.Name()
+			// Never copy signing seeds (private keys) or the dev-only .stado/
+			// dir into the installed package. `plugin use-dev` writes
+			// .stado/dev.seed next to the source; copying it would ship a
+			// private signing key into the install tree.
+			if strings.HasSuffix(name, ".seed") || name == ".stado" {
+				continue
+			}
 			if !filepath.IsLocal(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
 				return fmt.Errorf("invalid plugin package entry name: %q", name)
 			}
