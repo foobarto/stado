@@ -165,7 +165,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_read", "shell__read",
-		"Read buffered output from a PTY session. Args: id, max_bytes?, timeout_ms?. Returns {data?, data_b64, n, eof?}. Requires attach.",
+		"Read whatever output is currently buffered from a PTY session and return immediately. Args: id, max_bytes?, timeout_ms?. Returns {data?, data_b64, n, eof?}. This is the RAW byte stream including ANSI escape sequences — if you're driving a full-screen or interactive program (vim, htop, an installer, a menu) and the output looks like escape-code garbage, use shell.screenshot to see the rendered screen instead. To block until a specific prompt or pattern appears (rather than returning whatever is buffered now), use shell.read_until. Requires attach.",
 		tool.ClassNonMutating,
 		schema.Object([]string{"id"}, schema.Props{
 			"id":         schema.Integer(),
@@ -198,8 +198,8 @@ func buildBundledPluginRegistry() *tools.Registry {
 		tool.ClassExec,
 		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
 		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_snapshot", "shell__snapshot",
-		"Capture the rendered terminal screen of a PTY session — text plus optional SVG. Useful for inspecting full-screen TUIs (vim, htop, gdb-tui) where shell.read returns ANSI escapes that are hard to interpret. Returns {text, cols, rows, cursor:{x,y,visible}, title, svg?}. Args: id, with_svg? (default false; SVG is ~30–60 KB for 120×32). Read-only: no attach required.",
+	r.Register(newBundledWasmTool("shell", "stado_tool_screenshot", "shell__screenshot",
+		"Capture the rendered terminal screen of a PTY session — what a human would actually see on screen, with ANSI escapes already resolved. Use this, not shell.read, whenever a session is running a full-screen or interactive program: TUIs (vim, htop, gdb-tui), curses menus, installers, progress bars — anything that repaints the screen. Returns {text, cols, rows, cursor:{x,y,visible}, title, svg?}. Args: id, with_svg? (default false; SVG is ~30–60 KB for 120×32). Read-only: no attach required.",
 		tool.ClassNonMutating,
 		schema.Object([]string{"id"}, schema.Props{
 			"id":          schema.Integer(),
@@ -209,8 +209,8 @@ func buildBundledPluginRegistry() *tools.Registry {
 			"svg_font_px": schema.Integer("SVG font-size px (default 13)"),
 		}),
 		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_expect", "shell__expect",
-		"Read from a PTY session until one of the configured patterns matches, the timeout elapses, or the process exits. Replaces the read+substring-check loop with a single call. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Substring matches operate on the raw byte stream; for full-screen TUIs use shell.snapshot instead. Requires attach.",
+	r.Register(newBundledWasmTool("shell", "stado_tool_read_until", "shell__read_until",
+		"Read the raw byte stream from a PTY session until one of the given patterns matches, the timeout elapses, or the process exits — the one-call replacement for a read-and-check loop. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Matching operates on the raw byte stream; for full-screen TUIs use shell.screenshot instead. Requires attach.",
 		tool.ClassNonMutating,
 		schema.Object([]string{"id", "patterns"}, schema.Props{
 			"id":         schema.Integer(),
