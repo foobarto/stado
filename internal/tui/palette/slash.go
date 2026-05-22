@@ -230,12 +230,11 @@ func (m *Model) InlineView(maxWidth int) string {
 		return ""
 	}
 	boxW := maxWidth
-	// Same width budget as the modal — see View. Inline gets a slightly
-	// higher cap because it's anchored above the textarea (no centring
-	// whitespace) and benefits from showing the full description.
-	if boxW > 110 {
-		boxW = 110
-	}
+	// No upper cap (unlike the centred modal in View, which caps at 110 to
+	// avoid flying off into whitespace on ultra-wide terminals). The inline
+	// popup is anchored above the textarea and spans the same width as the
+	// input frame below it, so it should use the full available width — that
+	// space is what lets long command descriptions render untruncated.
 	if boxW < 24 {
 		boxW = 24
 	}

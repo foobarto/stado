@@ -47,3 +47,25 @@ func TestInlineViewNestedInInputFrameDoesNotWrap(t *testing.T) {
 		}
 	}
 }
+
+// TestInlineViewUncapped pins that the inline popup is no longer capped at 110
+// (it was, which truncated long command descriptions on wide terminals). It
+// should use the full available width — while still never exceeding it.
+func TestInlineViewUncapped(t *testing.T) {
+	m := New()
+	m.Open()
+	const W = 160
+	out := m.InlineView(W)
+	maxLine := 0
+	for _, ln := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(ln); w > maxLine {
+			maxLine = w
+		}
+	}
+	if maxLine <= 112 { // old cap (110) + border
+		t.Errorf("InlineView(%d) maxLine=%d — still near the old 110 cap; expected full width", W, maxLine)
+	}
+	if maxLine > W {
+		t.Errorf("InlineView(%d) maxLine=%d exceeds budget", W, maxLine)
+	}
+}
