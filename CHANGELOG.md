@@ -32,6 +32,32 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.4 — security hardening (batch 5: caps / ACP / trust / sandbox) — 2026-05-22
+
+### Security
+
+- **Capability path containment** — fs symlink caps no longer escape the workdir
+  via a repo-controlled suffix symlink (#016); `cfg:*` path templates are
+  contained under the cfg value and reject `..` (#054).
+- **Plugin trust on every run** — `stado tool run` of an installed plugin now
+  re-verifies digest + signature + revocation (CRL/Rekor) (#023); the bundle
+  verifier always requires a valid wasm digest (no empty-digest bypass, #026);
+  user bundles can't shadow a trusted built-in wasm by name (#027).
+- **ACP/MCP isolation** — ACP permission auto-approve is scoped to stado's own
+  MCP/fs methods and fails closed otherwise (#051); the ACP wrapper's
+  send-on-closed-channel panic is fixed (#052); MCP-wrapped subprocesses get a
+  scrubbed env + worktree cwd (#048); global MCP auto-registration requires
+  explicit consent (#049); ACP fs writes into `.git/` are refused (#050,
+  defense-in-depth).
+- **Sandbox fail-closed** — firejail wrap mode no longer returns an unconfined
+  wrap when it can't enforce the filesystem policy (#035).
+- **Plugin dev** — the manifest-seed copy uses symlink-safe, size-limited writes
+  (#004).
+
+Several related findings (#008 nested-invoke audit, #036/#056 unsandboxed
+exec/LSP posture, #027 bundler-key pinning, #050 full worktree routing) are
+deferred pending a design decision.
+
 ## v0.52.3 — .env loader guard, gofmt sweep, Scorecard workflow — 2026-05-22
 
 ### Security
