@@ -98,10 +98,21 @@ var toolListCmd = &cobra.Command{
 			if autoloadSet[t.Name()] {
 				state = "autoloaded"
 			}
+			// The PLUGIN column was blank for autoloaded user-plugin tools:
+			// LookupToolMetadata only knows the bundled tools, so user plugins
+			// fell through to the unknown-bare branch (empty Plugin). Fall back
+			// to the tool's own PluginName() so every plugin-backed tool shows
+			// its source consistently (#031 — `stado tool ls` display cleanup).
+			plugin := md.Plugin
+			if plugin == "" {
+				if pn, ok := t.(interface{ PluginName() string }); ok {
+					plugin = pn.PluginName()
+				}
+			}
 			rows = append(rows, row{
 				canonical:  md.Canonical,
 				state:      state,
-				plugin:     md.Plugin,
+				plugin:     plugin,
 				categories: strings.Join(md.Categories, ", "),
 				desc:       t.Description(),
 			})
