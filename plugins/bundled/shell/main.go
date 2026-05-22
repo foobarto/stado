@@ -333,7 +333,7 @@ func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalClose, "destroy")
 }
 
-// shell_expect — block until a configured pattern matches against the
+// shell_read_until — block until a configured pattern matches against the
 // session's post-output byte stream, the timeout elapses, or the
 // process exits. args: {"id": uint64, "patterns": ["foo", "bar"],
 //
@@ -350,8 +350,8 @@ func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
 // strings can't carry losslessly. Requires attach (same contract as
 // shell_read).
 //
-//go:wasmexport stado_tool_expect
-func stadoToolExpect(argsPtr, argsLen, resPtr, resCap int32) int32 {
+//go:wasmexport stado_tool_read_until
+func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
 		ID        uint64   `json:"id"`
 		Patterns  []string `json:"patterns"`
@@ -389,14 +389,14 @@ func stadoToolExpect(argsPtr, argsLen, resPtr, resCap int32) int32 {
 		// Negative = -byte_count of the host's error string at buf.
 		errLen := -n
 		if errLen > 0 && errLen <= cap {
-			return writeErr(resPtr, resCap, "expect: "+string(sdk.Bytes(buf, errLen)))
+			return writeErr(resPtr, resCap, "read_until: "+string(sdk.Bytes(buf, errLen)))
 		}
-		return writeErr(resPtr, resCap, "expect failed")
+		return writeErr(resPtr, resCap, "read_until failed")
 	}
 	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
-// shell_snapshot — capture the rendered terminal screen of a session.
+// shell_screenshot — capture the rendered terminal screen of a session.
 // args: {"id": uint64, "with_svg"?: bool, "svg_cell_w"?: float,
 //
 //	"svg_cell_h"?: float, "svg_font_px"?: int}
@@ -405,8 +405,8 @@ func stadoToolExpect(argsPtr, argsLen, resPtr, resCap int32) int32 {
 // untouched. Snapshot is read-only — no attach required, safe to call
 // concurrently with shell_read on the same session.
 //
-//go:wasmexport stado_tool_snapshot
-func stadoToolSnapshot(argsPtr, argsLen, resPtr, resCap int32) int32 {
+//go:wasmexport stado_tool_screenshot
+func stadoToolScreenshot(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	// Result can be large (a 120×32 SVG snapshot is 30–60 KB) so the
 	// scratch buf needs to be sized for that.
 	const cap = 256 * 1024
@@ -414,7 +414,7 @@ func stadoToolSnapshot(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	defer sdk.Free(buf, cap)
 	n := stadoTerminalSnapshot(uint32(argsPtr), uint32(argsLen), uint32(buf), cap)
 	if n < 0 {
-		return writeErr(resPtr, resCap, "snapshot: "+string(sdk.Bytes(buf, -n)))
+		return writeErr(resPtr, resCap, "screenshot: "+string(sdk.Bytes(buf, -n)))
 	}
 	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
