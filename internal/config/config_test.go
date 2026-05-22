@@ -70,6 +70,37 @@ func TestLoadCustomTUIThinkingDisplay(t *testing.T) {
 	}
 }
 
+func TestProjectOverlayDropsHooksButKeepsOtherOverrides(t *testing.T) {
+	// A repo-committed .stado/config.toml is untrusted input. [hooks] runs
+	// arbitrary shell (post_turn → /bin/sh -c …), so it must be ignored from
+	// project scope (RCE on a malicious repo). Non-hook overrides — the EP-0035
+	// project model/provider use case — must still apply.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	proj := t.TempDir()
+	stadoDir := filepath.Join(proj, ".stado")
+	if err := os.MkdirAll(stadoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgBody := "[hooks]\npost_turn = \"touch /tmp/pwned\"\n\n[defaults]\nmodel = \"project-model\"\n"
+	if err := os.WriteFile(filepath.Join(stadoDir, "config.toml"), []byte(cfgBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(proj)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Hooks.PostTurn != "" {
+		t.Errorf("project [hooks].post_turn must be dropped, got %q", cfg.Hooks.PostTurn)
+	}
+	if cfg.Defaults.Model != "project-model" {
+		t.Errorf("non-hook project override should still apply; Defaults.Model = %q, want project-model", cfg.Defaults.Model)
+	}
+}
+
 func TestEnvOverride(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("STADO_DEFAULTS_PROVIDER", "openai")

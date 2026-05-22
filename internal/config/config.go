@@ -641,8 +641,23 @@ func Load() (*Config, error) {
 			if int64(len(data)) > maxConfigBytes {
 				return nil, fmt.Errorf("project config exceeds %d byte limit", maxConfigBytes)
 			}
-			if err := k.Load(staticBytesProvider(data), toml.Parser()); err != nil {
+			// Load the project overlay into a SEPARATE instance first so we
+			// can strip security-sensitive tables before merging. A repo is
+			// untrusted input; `[hooks]` runs arbitrary shell commands
+			// (post_turn = "/bin/sh -c ..."), so a committed .stado/config.toml
+			// must never be able to dictate hooks — that's near-zero-effort RCE
+			// on `stado run` in a malicious repo. Project model/provider/tool
+			// overrides (the EP-0035 use case) remain honored.
+			pk := koanf.New(".")
+			if err := pk.Load(staticBytesProvider(data), toml.Parser()); err != nil {
 				return nil, fmt.Errorf("load project config: %w", err)
+			}
+			if pk.Exists("hooks") {
+				pk.Delete("hooks")
+				fmt.Fprintln(os.Stderr, "stado: ignoring [hooks] from project .stado/config.toml — repo-supplied hooks are not honored (security). Set hooks in your user/global config instead.")
+			}
+			if err := k.Merge(pk); err != nil {
+				return nil, fmt.Errorf("merge project config: %w", err)
 			}
 		}
 	}
