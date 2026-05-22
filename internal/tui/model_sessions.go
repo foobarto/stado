@@ -372,6 +372,13 @@ func (m *Model) restoreSessionProviderState(state sessionUIState) {
 }
 
 func (m *Model) resetForSession(sess *stadogit.Session) {
+	// Session-scoped PTYs (#015): tear down the previous session's live PTYs
+	// on a session switch so the incoming session can't read/write shells
+	// spawned under another session. The manager is reused, just emptied; the
+	// new session spawns fresh. (No-op on first activation — manager is empty.)
+	if m.ptyManager != nil {
+		m.ptyManager.CloseAll()
+	}
 	m.session = sess
 	// Keep the launch CWD as m.cwd — tools should operate on the user's
 	// real filesystem, not the session's audit worktree. The worktree is
