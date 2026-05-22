@@ -32,6 +32,17 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.52.7 — bump golang.org/x/net (GO-2026-5026) — 2026-05-22
+
+### Infra
+
+- **Bump `golang.org/x/net` v0.54.0 → v0.55.0** (and `golang.org/x/sys`
+  v0.44.0 → v0.45.0 transitively) to clear `GO-2026-5026` — idna's failure
+  to reject ASCII-only Punycode-encoded labels, reached via
+  `httpclient.Client.Request → http.Client.Do → idna.ToASCII`. The
+  govulncheck CI step flagged it on the v0.52.6 run; `govulncheck ./...`
+  is now clean again.
+
 ## v0.52.6 — `stado tool ls` plugin column — 2026-05-22
 
 ### Fixes
