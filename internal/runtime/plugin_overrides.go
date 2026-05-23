@@ -140,16 +140,15 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 
 func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir string, mf *plugins.Manifest, sig string) (ed25519.PublicKey, error) {
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
-	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
-		return nil, err
-	}
-
-	// Hard-deny revoked fingerprints — this path re-implements trust
+	// Hard-deny revoked fingerprints first — this path re-implements trust
 	// verification and would otherwise bypass the deny-list in trust.go
 	// (SECURITY.md: "no escape hatch" requires every verification entry
-	// point to consult IsRevoked).
+	// point to consult IsRevoked). Cheap check before the wasm I/O.
 	if rev, _ := plugins.IsRevoked(mf.AuthorPubkeyFpr); rev {
 		return nil, plugins.RevokedError(mf.AuthorPubkeyFpr)
+	}
+	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
+		return nil, err
 	}
 
 	ts := plugins.NewTrustStore(cfg.StateDir())

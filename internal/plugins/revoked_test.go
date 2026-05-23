@@ -51,14 +51,18 @@ func TestErrRevoked_messageMentionsSeedAndSecurityMD(t *testing.T) {
 
 // Defensive: RevokedError called with a non-revoked fingerprint shouldn't
 // falsely claim revocation with an empty source. Should flag the caller bug.
+// Assertion is *positive* (matches the bug-path message prefix) — checking
+// for the absence of the legitimate-revoked phrasing is brittle, because
+// the punctuation in that message has drifted before ("is revoked:" → "is
+// revoked —") and a substring-absence check can silently regress.
 func TestErrRevoked_unknownFingerprintReportsCallerBug(t *testing.T) {
 	err := RevokedError("0000000000000000")
 	msg := err.Error()
-	if strings.Contains(msg, "is revoked:") {
-		t.Errorf("should not falsely claim revocation for unknown fpr: %q", msg)
+	if !strings.HasPrefix(msg, "plugins: RevokedError called for non-revoked fingerprint") {
+		t.Errorf("expected internal-error prefix message for unknown fpr, got: %q", msg)
 	}
-	if !strings.Contains(msg, "internal error") {
-		t.Errorf("should flag the caller bug: %q", msg)
+	if strings.Contains(msg, "leaked in git history") {
+		t.Errorf("should not include legitimate-revoked phrasing for unknown fpr: %q", msg)
 	}
 }
 
