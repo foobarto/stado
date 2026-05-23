@@ -255,10 +255,18 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	case m.keys.Matches(msg, keys.SessionInterrupt):
 		// Esc / Ctrl+G — readline + Emacs canonical cancel.
-		// Priority: clear queued prompt > cancel in-flight stream.
-		// Mirrors the Ctrl+C (InputClear) behaviour for the
-		// empty-input case so all three keys converge on a
-		// consistent /cancel semantic.
+		// Priority: clear queued prompt > cancel in-flight stream
+		// AND in-flight tool. Mirrors the Ctrl+C (InputClear)
+		// behaviour for the empty-input case so all three keys
+		// converge on a consistent /cancel semantic.
+		//
+		// Codex #105 caught that this branch only fired streamCancel,
+		// missing toolCancel — during the tool-execution phase
+		// streamCancel is nil (cleared at streamDoneMsg) but the tool's
+		// context is held by toolCancel, so the operator had no kill
+		// switch for a runaway bash / network / plugin tool. Fix:
+		// fire both via the cancelRunningStream / cancelRunningTool
+		// helpers (see cancel.go).
 		if m.queuedPrompt != "" {
 			m.queuedPrompt = ""
 			for i := len(m.blocks) - 1; i >= 0; i-- {
@@ -271,9 +279,14 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.renderBlocks()
 			return m, nil, true
 		}
-		if m.state == stateStreaming && m.streamCancel != nil {
-			m.streamCancel()
-			m.appendBlock(block{kind: "system", body: "turn cancelled"})
+		streamCancelled := m.cancelRunningStream()
+		toolCancelled := m.cancelRunningTool()
+		if streamCancelled || toolCancelled {
+			body := "turn cancelled"
+			if toolCancelled {
+				body = "turn cancelled (running tool interrupted)"
+			}
+			m.appendBlock(block{kind: "system", body: body})
 			m.renderBlocks()
 			return m, nil, true
 		}
