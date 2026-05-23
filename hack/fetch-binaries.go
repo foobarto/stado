@@ -39,6 +39,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/workdirpath"
@@ -86,15 +87,20 @@ type pinnedDigests struct {
 }
 
 func main() {
-	pins, err := loadPinnedDigests()
-	if err != nil {
-		fatal("load pinned digests: %v", err)
-	}
-
 	rgVer := flag.String("ripgrep-version", defaultRipgrepVersion, "ripgrep release tag (without v)")
 	sgVer := flag.String("ast-grep-version", defaultAstGrepVersion, "ast-grep release tag (without v)")
 	only := flag.String("only", "", "'rg' or 'ast-grep' to limit; default fetches both")
 	flag.Parse()
+
+	// Copilot review (#58): parse flags before loading the pin file so
+	// `-h`, `--help`, and bad-flag invocations don't trip on a missing /
+	// malformed hack/binary-pins.json that the user isn't about to use.
+	// The pin file is still required for the actual fetch — load lazily
+	// here, hard-fail if unreadable or malformed.
+	pins, err := loadPinnedDigests()
+	if err != nil {
+		fatal("load pinned digests: %v", err)
+	}
 
 	if *only == "" || *only == "rg" {
 		if err := fetchRipgrep(*rgVer, pins); err != nil {
@@ -114,6 +120,13 @@ func main() {
 // known field on pinnedDigests). Returns an error rather than
 // defaulting to empty pins — a missing pin file should hard-fail the
 // release build rather than silently downgrade to no pinning.
+//
+// Also normalizes each digest in-place (trim, lowercase) and rejects
+// malformed entries up-front (not 64 hex chars). Copilot review (#58):
+// without this a typo in the pin file surfaces later as a generic
+// "digest mismatch" after the full download, which is hard to diagnose
+// and wastes network. Catching at load means the operator sees the
+// exact bad asset before any fetch starts.
 func loadPinnedDigests() (pinnedDigests, error) {
 	b, err := os.ReadFile(filepath.Join("hack", "binary-pins.json"))
 	if err != nil {
@@ -123,7 +136,36 @@ func loadPinnedDigests() (pinnedDigests, error) {
 	if err := json.Unmarshal(b, &pins); err != nil {
 		return pinnedDigests{}, err
 	}
+	if err := normalizeAndValidateDigests("ripgrep", pins.Ripgrep); err != nil {
+		return pinnedDigests{}, err
+	}
+	if err := normalizeAndValidateDigests("ast-grep", pins.AstGrep); err != nil {
+		return pinnedDigests{}, err
+	}
 	return pins, nil
+}
+
+// normalizeAndValidateDigests mutates the map in place, lowercasing
+// and trimming each digest, and returns an error naming the first
+// asset whose value isn't a valid 64-char SHA256 hex string. Empty
+// digests are also rejected — a placeholder pin is a bug, not a
+// "skip this asset" signal.
+func normalizeAndValidateDigests(tool string, byVersion map[string]map[string]string) error {
+	for version, assets := range byVersion {
+		for name, raw := range assets {
+			d := strings.ToLower(strings.TrimSpace(raw))
+			if len(d) != sha256.Size*2 {
+				return fmt.Errorf("%s@%s: digest for %q is not %d hex chars (got %d: %q)",
+					tool, version, name, sha256.Size*2, len(d), raw)
+			}
+			if _, err := hex.DecodeString(d); err != nil {
+				return fmt.Errorf("%s@%s: digest for %q is not valid hex (%v): %q",
+					tool, version, name, err, raw)
+			}
+			assets[name] = d
+		}
+	}
+	return nil
 }
 
 // pinnedDigestFor returns the committed digest for an asset basename
