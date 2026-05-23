@@ -139,6 +139,15 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 }
 
 func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir string, mf *plugins.Manifest, sig string) (ed25519.PublicKey, error) {
+	// Defensive nil checks — this is reachable from the exported
+	// VerifyInstalledPlugin, so a nil caller arg must produce an error
+	// rather than panic. Matches the guards in (*TrustStore).VerifyManifest.
+	if mf == nil {
+		return nil, fmt.Errorf("verify: nil manifest")
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("verify: nil config")
+	}
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
 	// Hard-deny revoked fingerprints first — this path re-implements trust
 	// verification and would otherwise bypass the deny-list in trust.go
