@@ -54,8 +54,10 @@ per least-privilege; one operator-facing change documented under
 
 - **Firejail `bind_rw` policy fail-closed** (PR #57 — Cluster S, Codex
   HIGH/HIGH). Pre-fix `pickRunner` returned an empty string when
-  `runner="firejail"` + `bind_rw` non-empty (firejail can't enforce
-  read-write binds without `--private`); `doRewrap` then treated empty
+  `runner="firejail"` + `bind_rw` non-empty (`firejailCanEnforce`
+  returns false for any non-empty `BindRW` — firejail can't faithfully
+  enforce an arbitrary RW allow-list at all; no firejail flag
+  combination makes this configuration safe); `doRewrap` then treated empty
   runner as the "no wrapper installed" case and, with default
   `RefuseNoRunner=false`, warned + returned nil → tools ran **fully
   unsandboxed**. Operators who configured `mode="wrap"` +
@@ -152,11 +154,14 @@ per least-privilege; one operator-facing change documented under
 ### Breaking surfaces (one — pre-1.0 no-kid-gloves)
 
 - **`mode="wrap"` + `runner="firejail"` + `bind_rw="..."`** now hard-errors
-  at sandbox-setup time instead of silently running unsandboxed. The
-  operator must either drop `bind_rw`, switch runner to `bwrap`, or set
-  `RefuseNoRunner=true` (which is also stricter post-fix because the
-  policy-unenforceable case no longer routes through that flag — it
-  errors regardless). The pre-fix behavior was a fail-open vulnerability;
+  at sandbox-setup time instead of silently running unsandboxed. There
+  is no firejail flag that fixes this — the operator must either drop
+  `bind_rw`, or switch runner to `bwrap` (which can enforce arbitrary
+  RW binds). `RefuseNoRunner=true` does NOT remediate this case: the
+  policy-unenforceable path now hard-errors regardless of that flag.
+  (`RefuseNoRunner` still controls the separate "no runner installed at
+  all" case: default `false` warns + continues unsandboxed, `true`
+  hard-errors.) The pre-fix behavior was a fail-open vulnerability;
   there is no compatibility carve-out.
 
 ### Removed surfaces
