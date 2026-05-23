@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 // sessionToolOverrides holds in-memory edits to the [tools] section
@@ -32,10 +33,23 @@ func (o sessionToolOverrides) effectiveTools(cfg *config.Config) config.Tools {
 	if cfg != nil {
 		base = cfg.Tools
 	}
+	// Codex #088: `/tool unautoload bash` on a default-empty config
+	// previously did nothing — applyOverride produced an empty
+	// Autoload, which runtime.AutoloadedTools then read as "use
+	// defaults," autoloading bash again. Materialize the runtime
+	// defaults into the override-input here so the remove (or an
+	// add) actually takes effect. Only materialize when there's an
+	// autoload override AND the base list is empty — otherwise we'd
+	// re-introduce defaults the operator had explicitly cleared at
+	// the config level.
+	autoloadBase := base.Autoload
+	if len(autoloadBase) == 0 && (len(o.autoloadAdd) > 0 || len(o.autoloadRemove) > 0) {
+		autoloadBase = runtime.DefaultAutoloadNames()
+	}
 	return config.Tools{
 		Enabled:   applyOverride(base.Enabled, o.enableAdd, o.enableRemove),
 		Disabled:  applyOverride(base.Disabled, o.disableAdd, o.disableRemove),
-		Autoload:  applyOverride(base.Autoload, o.autoloadAdd, o.autoloadRemove),
+		Autoload:  applyOverride(autoloadBase, o.autoloadAdd, o.autoloadRemove),
 		Overrides: base.Overrides,
 	}
 }

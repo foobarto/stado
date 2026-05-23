@@ -1274,9 +1274,29 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 		argsJSON = strings.Join(parts[2:], " ")
 	}
 
+	// Codex #064: apply the operator's [tools].enabled/.disabled +
+	// in-memory session overrides BEFORE lookup. Pre-fix the slash
+	// dispatch used the raw default registry, so /tool <name> ran
+	// anything bundled or installed regardless of config — a direct
+	// bypass of a security control the operator expects everywhere
+	// the tool surface is exposed. effectiveConfig() folds session
+	// overrides into the on-disk cfg; ApplyToolFilter drops the
+	// disabled / not-enabled tools.
+	eff := m.effectiveConfig()
+	if eff == nil {
+		eff = cfg
+	}
 	reg := runtime.BuildDefaultRegistry(cfg)
+	runtime.ApplyToolFilter(reg, eff)
 	registered, ok := lookupToolForSlashDispatch(reg, name)
 	if !ok {
+		// Distinguish "session hid this" from "doesn't exist" — the
+		// former is operator-fixable via /tool enable rather than
+		// a discovery hunt.
+		if m.sessionToolOverrideHidesTool(name) {
+			m.appendBlock(block{kind: "system", body: fmt.Sprintf("tool %q is hidden by the session override (use /tool enable %s to restore)", name, name)})
+			return nil
+		}
 		// Not found: surface both the discovery hint AND the management-
 		// verb cheatsheet so a typo'd verb (`/tool unauotload …`) gets a
 		// helpful list rather than a dead end. Mirrors the verb help the

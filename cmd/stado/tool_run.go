@@ -113,17 +113,51 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		return nil
 	}
 
-	// Disabled-tool refusal: check both registered name and canonical
-	// form against [tools].disabled patterns. Pass --force to bypass.
+	// Disabled-tool refusal: check registered name, canonical form, AND
+	// the user-typed query against [tools].disabled patterns. Pass
+	// --force to bypass.
+	//
+	// Codex #089: pre-fix only registered + canonical were checked, so
+	// `disabled=["gtfobins.lookup"]` did NOT block `stado tool run
+	// gtfobins.lookup` — the registered name was `gtfobins_lookup`
+	// (single underscore, no canonical mapping in LookupToolMetadata),
+	// and the pattern's `.` prevented any match. Matching the
+	// user-typed `name` too means the operator's intent ("block this
+	// tool by the dotted name I see in /tools") actually fires.
 	if !opts.Force && cfg != nil {
 		registeredName := registered.Name()
 		canonical := runtime.LookupToolMetadata(registeredName).Canonical
 		for _, pat := range cfg.Tools.Disabled {
 			if runtime.ToolMatchesGlob(registeredName, pat) ||
-				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
+				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) ||
+				runtime.ToolMatchesGlob(name, pat) {
 				return fmt.Errorf("tool %q is disabled in [tools].disabled (matched pattern %q); remove it from disabled, or re-run with --force",
 					name, pat)
 			}
+		}
+	}
+
+	// Codex #123: symmetric allowlist refusal. When [tools].enabled is
+	// non-empty, refuse unless the registered / canonical / query name
+	// matches an allow pattern. Pre-fix `tool run` ignored .enabled
+	// entirely (only consulted .disabled), so `enabled=["read","grep"]`
+	// + `stado tool run bash` ran bash — silently bypassing the
+	// operator's allowlist. Same --force escape as the disabled path.
+	if !opts.Force && cfg != nil && len(cfg.Tools.Enabled) > 0 {
+		registeredName := registered.Name()
+		canonical := runtime.LookupToolMetadata(registeredName).Canonical
+		allowed := false
+		for _, pat := range cfg.Tools.Enabled {
+			if runtime.ToolMatchesGlob(registeredName, pat) ||
+				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) ||
+				runtime.ToolMatchesGlob(name, pat) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("tool %q not in [tools].enabled allowlist %v; add it to enabled, or re-run with --force",
+				name, cfg.Tools.Enabled)
 		}
 	}
 

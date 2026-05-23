@@ -76,6 +76,106 @@ func TestEffectiveTools_AutoloadAddRemove(t *testing.T) {
 	}
 }
 
+// Codex #088: when the operator runs `/tool unautoload bash` on a
+// default-empty config, the override must take effect. Pre-fix,
+// applyOverride returned an empty Autoload, AutoloadedTools fell
+// back to defaultAutoloadNames, and bash was still autoloaded.
+// Post-fix, effectiveTools materializes the runtime defaults into
+// the override-input before applying the remove, so the resulting
+// Autoload is `defaults - bash` — and AutoloadedTools sees that
+// non-empty list and uses it directly.
+func TestEffectiveTools_AutoloadRemove_OnEmptyBase_MaterializesDefaults(t *testing.T) {
+	cfg := &config.Config{} // empty Autoload (operator never set [tools].autoload)
+	ov := sessionToolOverrides{
+		autoloadRemove: []string{"shell__bash"},
+	}
+	got := ov.effectiveTools(cfg)
+
+	// Result must be non-empty (else AutoloadedTools would silently
+	// fall back to defaults — the very bug we're fixing).
+	if len(got.Autoload) == 0 {
+		t.Fatal("autoload remove on empty base should materialize defaults — Autoload empty would silently revert")
+	}
+	// shell__bash should be gone.
+	for _, n := range got.Autoload {
+		if n == "shell__bash" {
+			t.Errorf("shell__bash should be removed; still present in %v", got.Autoload)
+		}
+	}
+	// Other defaults should still be present (e.g. fs__read).
+	found := false
+	for _, n := range got.Autoload {
+		if n == "fs__read" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("other defaults should remain after removing one; got %v", got.Autoload)
+	}
+}
+
+// Parity: /tool autoload --save on a default-empty config must also
+// produce defaults + the new addition, NOT just the addition (which
+// would silently drop every default the operator was relying on).
+func TestEffectiveTools_AutoloadAdd_OnEmptyBase_MaterializesDefaults(t *testing.T) {
+	cfg := &config.Config{}
+	ov := sessionToolOverrides{
+		autoloadAdd: []string{"mcp__llm__invoke"},
+	}
+	got := ov.effectiveTools(cfg)
+
+	// New addition present.
+	found := false
+	for _, n := range got.Autoload {
+		if n == "mcp__llm__invoke" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("autoload add should include the new tool; got %v", got.Autoload)
+	}
+	// Defaults still present.
+	foundDef := false
+	for _, n := range got.Autoload {
+		if n == "fs__read" {
+			foundDef = true
+			break
+		}
+	}
+	if !foundDef {
+		t.Errorf("autoload add on empty base should not drop defaults; got %v", got.Autoload)
+	}
+}
+
+// When base.Autoload is NON-empty (operator explicitly configured),
+// the materialization must NOT trigger — the operator's narrowed
+// list is the source of truth. Defends the "don't widen operator's
+// explicit narrowing" invariant.
+func TestEffectiveTools_AutoloadRemove_OnNonEmptyBase_NoMaterialization(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"my_only_tool"}
+	ov := sessionToolOverrides{
+		autoloadRemove: []string{"my_only_tool"},
+	}
+	got := ov.effectiveTools(cfg)
+
+	if len(got.Autoload) != 0 {
+		t.Errorf("operator's narrowed list should not be re-widened by materialization; got %v", got.Autoload)
+	}
+}
+
+// No override at all → result is identical to base, no materialization.
+func TestEffectiveTools_AutoloadNoOverride_NoMaterialization(t *testing.T) {
+	cfg := &config.Config{} // empty Autoload
+	var ov sessionToolOverrides
+	got := ov.effectiveTools(cfg)
+	if len(got.Autoload) != 0 {
+		t.Errorf("no override should leave Autoload empty (deferring to AutoloadedTools defaults); got %v", got.Autoload)
+	}
+}
+
 func TestEffectiveTools_NilConfig(t *testing.T) {
 	// Nil cfg is allowed; result is the override-add lists only.
 	ov := sessionToolOverrides{enableAdd: []string{"x"}}

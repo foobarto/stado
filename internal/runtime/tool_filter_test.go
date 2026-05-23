@@ -67,16 +67,60 @@ func TestApplyToolFilter_DisabledRemovesNamed(t *testing.T) {
 
 // TestApplyToolFilter_EnabledWinsOverDisabled: when both are set,
 // Enabled is authoritative (allowlist) and Disabled is ignored.
-func TestApplyToolFilter_EnabledWinsOverDisabled(t *testing.T) {
+// TestApplyToolFilter_DisabledWinsOverEnabled: when both lists name the
+// same tool, the more-restrictive list (disabled) wins. Codex #096
+// caught the inverse — enabled previously won, which meant an
+// allowlist of `*` plus a disable of `bash` left bash registered. The
+// fix applies disabled as a subtractive pass after the enabled
+// allowlist; this test pins the new semantic so a future "tidy up"
+// that reverts the order regresses loudly. Replaces the prior
+// TestApplyToolFilter_EnabledWinsOverDisabled which pinned the bug.
+func TestApplyToolFilter_DisabledWinsOverEnabled(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"fs__read"}
-	cfg.Tools.Disabled = []string{"fs__read"} // would conflict if honoured
+	cfg.Tools.Disabled = []string{"fs__read"}
 	ApplyToolFilter(reg, cfg)
 
 	tools := reg.All()
-	if len(tools) != 1 || tools[0].Name() != "fs__read" {
-		t.Errorf("Enabled allowlist should win; got %v", tools)
+	for _, t0 := range tools {
+		if t0.Name() == "fs__read" {
+			t.Errorf("expected fs__read removed by disabled-after-allowlist pass; still registered")
+		}
+	}
+}
+
+// TestApplyToolFilter_DisabledSubtractsFromGlobAllowlist: the realistic
+// configuration Codex #096 highlighted — broad allowlist plus a few
+// specific denies. Pre-fix `["*"]` + disable `bash` left bash
+// registered (allow matched everything, disabled was unreachable).
+// Now bash is removed; other tools the allowlist matched stay.
+func TestApplyToolFilter_DisabledSubtractsFromGlobAllowlist(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	beforeReadPresent := false
+	for _, t0 := range reg.All() {
+		if t0.Name() == "fs__read" {
+			beforeReadPresent = true
+			break
+		}
+	}
+	if !beforeReadPresent {
+		t.Skip("default registry doesn't include fs__read on this build")
+	}
+
+	cfg := &config.Config{}
+	cfg.Tools.Enabled = []string{"*"}
+	cfg.Tools.Disabled = []string{"fs__read"}
+	ApplyToolFilter(reg, cfg)
+
+	for _, t0 := range reg.All() {
+		if t0.Name() == "fs__read" {
+			t.Errorf("[tools].enabled=[\"*\"] + disable=[\"fs__read\"] should remove fs__read via subtractive pass; still registered")
+		}
+	}
+	// At least one non-fs__read tool should remain (allowlist still matched).
+	if len(reg.All()) == 0 {
+		t.Error("subtractive disabled pass should not empty the registry when allowlist matched other tools")
 	}
 }
 

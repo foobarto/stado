@@ -45,6 +45,18 @@ var defaultAutoloadNames = []string{
 	"agent__spawn",
 }
 
+// DefaultAutoloadNames returns a copy of the runtime's built-in
+// autoload set. Exposed for callers (notably the TUI session-override
+// path) that need to materialize the defaults into an effective Autoload
+// list when the operator has cleared / removed entries via `/tool
+// unautoload`, so the override actually takes effect instead of
+// reverting to the implicit defaults (Codex #088).
+func DefaultAutoloadNames() []string {
+	out := make([]string, len(defaultAutoloadNames))
+	copy(out, defaultAutoloadNames)
+	return out
+}
+
 // BuildDefaultRegistry returns a Registry preloaded with stado's
 // bundled tools (fs, shell, web, dns, agent, etc.), the meta-tools
 // (tools__search/describe/categories/in_category), and — when cfg
@@ -265,6 +277,20 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		}
 		for name := range known {
 			if !allow[name] {
+				reg.Unregister(name)
+			}
+		}
+		// Codex #096: when both lists are populated, apply Disabled
+		// as a subtractive pass after the allowlist. Without this, an
+		// allowlist of [`*`] + disable of `bash` left bash registered
+		// (allow matched everything; Disabled was unreachable). Same
+		// pattern for ["fs.*"] + disable ["fs.write"]: now fs.write
+		// is correctly removed even though fs.* allowed it.
+		for name := range known {
+			if !allow[name] {
+				continue
+			}
+			if toolMatchesAny(name, cfg.Tools.Disabled) {
 				reg.Unregister(name)
 			}
 		}
