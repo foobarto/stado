@@ -279,10 +279,16 @@ before the `.seed` gitignore landed (the seeds were untracked in v0.51.1,
 but history retains them forever). Any clone or mirror has the seeds, so
 anyone can forge a manifest signature matching these fingerprints.
 
-`(*TrustStore).VerifyManifest` and `(*TrustStore).TrustVerified` consult `IsRevoked()`
-(`internal/plugins/revoked.go`) and refuse to verify a manifest under a
+Every trust-verification entry point consults `IsRevoked()`
+(`internal/plugins/revoked.go`) and refuses to verify a manifest under a
 revoked fingerprint **even if the operator has trusted it** via
-`stado plugin trust`. This is a hard deny — there is no escape hatch.
+`stado plugin trust`. The covered paths are `(*TrustStore).VerifyManifest`
+(standard verify), `(*TrustStore).TrustVerified` (TOFU/pin), and
+`internal/runtime.verifyPluginOverride` (runtime override / installed-plugin
+path). All return the same `plugins.RevokedError` so behavior is uniform.
+This is a hard deny — there is no escape hatch. If you add a new
+verification entry point, it MUST consult `IsRevoked` too, or this
+guarantee is silently lost.
 
 The 12 revoked fingerprints (each maps to a leaked demo-seed file
 preserved in git history):

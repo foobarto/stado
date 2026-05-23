@@ -39,15 +39,24 @@ func IsRevoked(fpr string) (bool, string) {
 	return ok, src
 }
 
-// errRevoked returns a user-facing error for a revoked fingerprint.
+// RevokedError returns the user-facing error for a revoked fingerprint.
+// Exported because non-plugins packages (internal/runtime's
+// verifyPluginOverride, etc.) also need to produce the same consistent
+// error message — keeping the deny-list non-bypassable across every
+// trust-verification entry point.
+//
 // Defensive: if called with a non-revoked fpr (a caller bug — they should
-// IsRevoked-check first), the message says so rather than falsely claiming
-// revocation with an empty source.
-func errRevoked(fpr string) error {
+// IsRevoked-check first), the message reports the internal error rather
+// than falsely claiming revocation with an empty source.
+//
+// The "verify:" prefix matches the convention other errors in this
+// package use (untrust:, plugins:), so callers / users can tell at a
+// glance which stage rejected.
+func RevokedError(fpr string) error {
 	src, ok := revokedFingerprints[fpr]
 	if !ok {
-		return fmt.Errorf("plugins: errRevoked called for non-revoked fingerprint %s (internal error — caller should IsRevoked() first)", fpr)
+		return fmt.Errorf("plugins: RevokedError called for non-revoked fingerprint %s (internal error — caller should IsRevoked() first)", fpr)
 	}
-	return fmt.Errorf("author fingerprint %s is revoked: corresponding Ed25519 seed leaked in git history (%s). See SECURITY.md; treat as compromised. The plugin author must rotate keys before manifests under this fingerprint will verify",
+	return fmt.Errorf("verify: author fingerprint %s is revoked — corresponding Ed25519 seed leaked in git history (%s); see SECURITY.md. Treat as compromised; the plugin author must rotate keys before manifests under this fingerprint will verify",
 		fpr, src)
 }

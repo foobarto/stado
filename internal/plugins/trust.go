@@ -92,7 +92,7 @@ func (s *TrustStore) TrustVerified(key string, author string, m *Manifest, sigB6
 	// SECURITY.md). Refuse before pinning so a TOFU install can't anchor
 	// a known-compromised key.
 	if rev, _ := IsRevoked(m.AuthorPubkeyFpr); rev {
-		return TrustEntry{}, errRevoked(m.AuthorPubkeyFpr)
+		return TrustEntry{}, RevokedError(m.AuthorPubkeyFpr)
 	}
 	entry, pub, store, err := s.entryForKey(key, author)
 	if err != nil {
@@ -170,7 +170,7 @@ func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 	// to verify a manifest signed by a key whose private seed leaked in
 	// git history (see SECURITY.md).
 	if rev, _ := IsRevoked(m.AuthorPubkeyFpr); rev {
-		return errRevoked(m.AuthorPubkeyFpr)
+		return RevokedError(m.AuthorPubkeyFpr)
 	}
 	store, err := s.Load()
 	if err != nil {

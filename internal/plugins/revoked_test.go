@@ -36,7 +36,7 @@ func TestRevokedList_count(t *testing.T) {
 }
 
 func TestErrRevoked_messageMentionsSeedAndSecurityMD(t *testing.T) {
-	err := errRevoked("6c48b56f20c9c344")
+	err := RevokedError("6c48b56f20c9c344")
 	msg := err.Error()
 	if !strings.Contains(msg, "browser-demo.seed") {
 		t.Errorf("error should name the leaked seed file: %q", msg)
@@ -49,10 +49,10 @@ func TestErrRevoked_messageMentionsSeedAndSecurityMD(t *testing.T) {
 	}
 }
 
-// Defensive: errRevoked called with a non-revoked fingerprint shouldn't
+// Defensive: RevokedError called with a non-revoked fingerprint shouldn't
 // falsely claim revocation with an empty source. Should flag the caller bug.
 func TestErrRevoked_unknownFingerprintReportsCallerBug(t *testing.T) {
-	err := errRevoked("0000000000000000")
+	err := RevokedError("0000000000000000")
 	msg := err.Error()
 	if strings.Contains(msg, "is revoked:") {
 		t.Errorf("should not falsely claim revocation for unknown fpr: %q", msg)

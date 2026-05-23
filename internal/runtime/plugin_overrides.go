@@ -144,6 +144,14 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 		return nil, err
 	}
 
+	// Hard-deny revoked fingerprints — this path re-implements trust
+	// verification and would otherwise bypass the deny-list in trust.go
+	// (SECURITY.md: "no escape hatch" requires every verification entry
+	// point to consult IsRevoked).
+	if rev, _ := plugins.IsRevoked(mf.AuthorPubkeyFpr); rev {
+		return nil, plugins.RevokedError(mf.AuthorPubkeyFpr)
+	}
+
 	ts := plugins.NewTrustStore(cfg.StateDir())
 	store, err := ts.Load()
 	if err != nil {
