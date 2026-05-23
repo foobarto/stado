@@ -43,8 +43,10 @@ func (s *Signer) Public() ed25519.PublicKey {
 // extension interface so the author / committer / timestamps are
 // bound too.
 //
-// Verify accepts both forms — v2 first, v1 fallback — so existing
-// audit history signed with this method still verifies.
+// Sigs produced by this method verify via [Verify] (v1-only path) and
+// also via [VerifyV2] (which falls back to v1 after the v2 check
+// fails), so existing audit history signed with this method
+// continues to verify after callers migrate to VerifyV2.
 func (s *Signer) Sign(treeHash string, parents []string, body string) (sigB64 string) {
 	if s == nil || s.priv == nil {
 		return ""
@@ -137,8 +139,8 @@ type SignedIdentity struct {
 
 // CanonicalBytes returns the v1 audit-signature payload. Kept for
 // backward-compat verification of signatures produced before #138.
-// New signatures use [CanonicalBytesV2]; [Verify] tries v2 first and
-// falls back to v1 so pre-fix audit history still verifies.
+// New signatures use [CanonicalBytesV2]; [VerifyV2] tries v2 first
+// and falls back to v1 so pre-fix audit history still verifies.
 func CanonicalBytes(treeHash string, parents []string, body string) []byte {
 	body = StripSignatureTrailer(body)
 	body = strings.TrimRight(body, "\n")
@@ -234,8 +236,9 @@ func Verify(pub ed25519.PublicKey, treeHash string, parents []string, body strin
 // trying v2 (author/committer/timestamps bound — see
 // [CanonicalBytesV2]) first and falling back to v1 (tree+parents+body
 // only — see [CanonicalBytes]) so pre-#138 audit history still
-// verifies after the scheme bump. Returns a sentinel error wrapping
-// the underlying ed25519 failure on mismatch.
+// verifies after the scheme bump. Returns a non-nil error on
+// mismatch (plain string — neither v2 nor v1 carry distinguishable
+// error states that callers would handle differently).
 //
 // Callers that have access to the commit's author/committer info
 // SHOULD use VerifyV2 (`audit verify` does). Callers that don't

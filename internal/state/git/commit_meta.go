@@ -121,14 +121,16 @@ func (c CompactionMeta) formatMessage(ts time.Time) string {
 	b.WriteString("Compaction: ")
 	b.WriteString(title)
 	b.WriteString("\n\n")
-	if c.Summary != "" {
-		// Codex #143: indent each summary line with two spaces so a
-		// summary containing `"Tool: bash"` doesn't inject a fake
-		// `Tool` trailer (audit/export.go parseMessage treats every
-		// `K: V` line after the first blank as a trailer; indented
-		// lines don't match the trailer regex). Git-tooling-friendly
-		// — git's own trailer parser also skips indented lines.
-		for _, line := range strings.Split(strings.TrimSpace(c.Summary), "\n") {
+	if trimmed := strings.TrimSpace(c.Summary); trimmed != "" {
+		// Codex #143: indent each summary line with two spaces +
+		// pair with the audit/export.go parseMessage tightening
+		// (defense in depth — parser is the load-bearing layer that
+		// rejects indented `K: V` lines as fake trailers). Git's own
+		// trailer parser also skips indented lines, so the indented
+		// summary remains human-readable through `git log`.
+		// Trim FIRST so a whitespace-only Summary doesn't produce an
+		// empty indented blank line.
+		for _, line := range strings.Split(trimmed, "\n") {
 			b.WriteString("  ")
 			b.WriteString(line)
 			b.WriteByte('\n')

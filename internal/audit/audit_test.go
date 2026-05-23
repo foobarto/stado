@@ -177,19 +177,19 @@ func TestSignV2AndVerifyV2_RoundTrip(t *testing.T) {
 		authorEmail   = "bartosz@foobarto.me"
 		authorUnix    = int64(1779600000)
 		committerName = "Bartosz Ptaszynski"
-		commiterEmail = "bartosz@foobarto.me"
-		commiterUnix  = int64(1779600005)
+		committerEmail = "bartosz@foobarto.me"
+		committerUnix  = int64(1779600005)
 	)
 	sig := signer.SignV2("deadbeef", []string{"parent1"}, body,
 		authorName, authorEmail, authorUnix,
-		committerName, commiterEmail, commiterUnix)
+		committerName, committerEmail, committerUnix)
 	if sig == "" {
 		t.Fatal("empty sig from non-nil signer")
 	}
 	withSig := AppendTrailer(body, sig)
 	ident := SignedIdentity{
 		AuthorName: authorName, AuthorEmail: authorEmail, AuthorUnix: authorUnix,
-		CommitterName: committerName, CommitterEmail: commiterEmail, CommitterUnix: commiterUnix,
+		CommitterName: committerName, CommitterEmail: committerEmail, CommitterUnix: committerUnix,
 	}
 	if err := VerifyV2(signer.Public(), "deadbeef", []string{"parent1"}, withSig, ident); err != nil {
 		t.Errorf("verify v2: %v", err)
