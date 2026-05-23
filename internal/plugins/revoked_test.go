@@ -26,12 +26,15 @@ func TestIsRevoked_unknown(t *testing.T) {
 }
 
 func TestRevokedList_count(t *testing.T) {
-	// Guard against accidentally shrinking the list. 12 demo seeds were
-	// committed to history (browser/encode-zig/hello/hello-go/http-session/
-	// image-info/ls/mcp-client/persistent-shell/state-dir-info/
-	// webfetch-cached/web-search).
-	if got, want := len(revokedFingerprints), 12; got != want {
-		t.Errorf("revokedFingerprints: have %d entries, want %d", got, want)
+	// Shrink-only guard: 12 demo seeds were committed to history
+	// (browser/encode-zig/hello/hello-go/http-session/image-info/ls/
+	// mcp-client/persistent-shell/state-dir-info/webfetch-cached/
+	// web-search). Expanding the list is fine — additions are exactly
+	// what a deny-list is for; shrinking would silently revoke a previous
+	// revocation. When adding entries, also extend SECURITY.md's table.
+	const minEntries = 12
+	if got := len(revokedFingerprints); got < minEntries {
+		t.Errorf("revokedFingerprints: have %d entries, must not shrink below %d", got, minEntries)
 	}
 }
 
