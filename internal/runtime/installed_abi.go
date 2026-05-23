@@ -181,14 +181,28 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 			continue
 		}
 		wasmPath := filepath.Join(dir, "plugin.wasm")
-		bytes, err := os.ReadFile(wasmPath)
+		// Load + verify in one read. The bytes passed to CompileModule
+		// MUST be the bytes whose SHA-256 was checked — otherwise:
+		//   (a) ReadVerifiedWASM's containment + size + regular-file
+		//       guards (workdirpath.OpenRoot for path confinement,
+		//       openRootRegularPackageFile for symlink/special-file
+		//       rejection, readLimitedPackageFile for the size cap)
+		//       don't gate the compile path; an os.ReadFile would
+		//       follow a symlink to /dev/zero or pull an oversized
+		//       file straight into memory before any check applied;
+		//   (b) a TOCTOU between two reads lets an attacker swap the
+		//       file after the verify and have CompileModule parse
+		//       different bytes.
+		// Codex #074 caught the previous two-read pattern where
+		// os.ReadFile happened first (unverified) and ReadVerifiedWASM
+		// was called purely for its error effect with the return
+		// discarded; CompileModule then compiled the first (unverified)
+		// bytes. Single verified read is the only correct shape.
+		verifiedBytes, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath)
 		if err != nil {
 			continue
 		}
-		if _, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath); err != nil {
-			continue
-		}
-		compiled, err := rt.CompileModule(ctx, bytes)
+		compiled, err := rt.CompileModule(ctx, verifiedBytes)
 		if err != nil {
 			issues = append(issues, ABIIssue{
 				Plugin:       name,
