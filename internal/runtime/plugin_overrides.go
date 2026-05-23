@@ -139,7 +139,23 @@ func loadPluginOverrideTool(cfg *config.Config, target, pluginRef string) (tool.
 }
 
 func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir string, mf *plugins.Manifest, sig string) (ed25519.PublicKey, error) {
+	// Defensive nil checks — this is reachable from the exported
+	// VerifyInstalledPlugin, so a nil caller arg must produce an error
+	// rather than panic. Matches the guards in (*TrustStore).VerifyManifest.
+	if mf == nil {
+		return nil, fmt.Errorf("verify: nil manifest")
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("verify: nil config")
+	}
 	wasmPath := filepath.Join(pluginDir, "plugin.wasm")
+	// Hard-deny revoked fingerprints first — this path re-implements trust
+	// verification and would otherwise bypass the deny-list in trust.go
+	// (SECURITY.md: "no escape hatch" requires every verification entry
+	// point to consult IsRevoked). Cheap check before the wasm I/O.
+	if rev, _ := plugins.IsRevoked(mf.AuthorPubkeyFpr); rev {
+		return nil, plugins.RevokedError(mf.AuthorPubkeyFpr)
+	}
 	if err := plugins.VerifyWASMDigest(mf.WASMSHA256, wasmPath); err != nil {
 		return nil, err
 	}
@@ -158,6 +174,16 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 		return nil, fmt.Errorf("verify: trust-store pubkey malformed")
 	}
 	pub := ed25519.PublicKey(pubBytes)
+	// Fingerprint consistency — protects against a tampered/corrupted
+	// trusted_keys.json that substitutes an arbitrary pubkey under a
+	// pinned fingerprint (the manifest claims fpr=X, the store has
+	// fpr=X but pubkey of some other key Y, mf.Verify(Y, sig) would
+	// pass if the attacker signed with Y). Matches the check in
+	// (*TrustStore).VerifyManifest so both paths are equivalent.
+	if got := plugins.Fingerprint(pub); got != entry.Fingerprint {
+		return nil, fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
+			got, entry.Fingerprint)
+	}
 	if err := mf.Verify(pub, sig); err != nil {
 		return nil, err
 	}

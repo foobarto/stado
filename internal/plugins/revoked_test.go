@@ -1,0 +1,140 @@
+package plugins
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestIsRevoked_known(t *testing.T) {
+	// One of the 12 leaked demo-seed fingerprints (browser-demo.seed).
+	rev, src := IsRevoked("6c48b56f20c9c344")
+	if !rev {
+		t.Fatal("expected revoked=true for browser-demo.seed fingerprint")
+	}
+	if !strings.Contains(src, "browser-demo.seed") {
+		t.Errorf("expected source to name browser-demo.seed, got %q", src)
+	}
+}
+
+func TestIsRevoked_unknown(t *testing.T) {
+	if rev, src := IsRevoked("0000000000000000"); rev || src != "" {
+		t.Errorf("expected not-revoked, got rev=%v src=%q", rev, src)
+	}
+	if rev, _ := IsRevoked(""); rev {
+		t.Error("empty fingerprint should not be revoked")
+	}
+}
+
+// Case-insensitivity: a tampered manifest could supply UPPERCASE hex to
+// slip past a case-sensitive map lookup while still presenting a valid
+// signature. IsRevoked must normalize before comparing.
+func TestIsRevoked_caseInsensitive(t *testing.T) {
+	// 6c48b56f20c9c344 is the lowercase canonical form (browser-demo.seed).
+	cases := []string{
+		"6c48b56f20c9c344",
+		"6C48B56F20C9C344",
+		"6c48b56F20c9C344",
+	}
+	for _, fpr := range cases {
+		rev, src := IsRevoked(fpr)
+		if !rev {
+			t.Errorf("IsRevoked(%q) should match the lowercase canonical form", fpr)
+		}
+		if src == "" {
+			t.Errorf("IsRevoked(%q) should return the source filename", fpr)
+		}
+	}
+}
+
+func TestRevokedList_count(t *testing.T) {
+	// Shrink-only guard: 12 demo seeds were committed to history
+	// (browser/encode-zig/hello/hello-go/http-session/image-info/ls/
+	// mcp-client/persistent-shell/state-dir-info/webfetch-cached/
+	// web-search). Expanding the list is fine — additions are exactly
+	// what a deny-list is for. Shrinking would silently un-revoke a
+	// previously denied fingerprint (re-enabling trust in a compromised
+	// key), which is precisely the regression we don't want. When adding
+	// entries, also extend SECURITY.md's table.
+	const minEntries = 12
+	if got := len(revokedFingerprints); got < minEntries {
+		t.Errorf("revokedFingerprints: have %d entries, must not shrink below %d", got, minEntries)
+	}
+}
+
+func TestErrRevoked_messageMentionsSeedAndSecurityMD(t *testing.T) {
+	err := RevokedError("6c48b56f20c9c344")
+	msg := err.Error()
+	if !strings.Contains(msg, "browser-demo.seed") {
+		t.Errorf("error should name the leaked seed file: %q", msg)
+	}
+	if !strings.Contains(msg, "SECURITY.md") {
+		t.Errorf("error should point at SECURITY.md: %q", msg)
+	}
+	if !strings.Contains(msg, "revoked") {
+		t.Errorf("error should say revoked: %q", msg)
+	}
+}
+
+// Defensive: RevokedError called with a non-revoked fingerprint shouldn't
+// falsely claim revocation with an empty source. Should flag the caller bug.
+// Assertion is *positive* (matches the bug-path message prefix) — checking
+// for the absence of the legitimate-revoked phrasing is brittle, because
+// the punctuation in that message has drifted before ("is revoked:" → "is
+// revoked —") and a substring-absence check can silently regress.
+func TestErrRevoked_unknownFingerprintReportsCallerBug(t *testing.T) {
+	err := RevokedError("0000000000000000")
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "plugins: RevokedError called for non-revoked fingerprint") {
+		t.Errorf("expected internal-error prefix message for unknown fpr, got: %q", msg)
+	}
+	if strings.Contains(msg, "leaked in git history") {
+		t.Errorf("should not include legitimate-revoked phrasing for unknown fpr: %q", msg)
+	}
+}
+
+// Integration: VerifyManifest must reject a revoked fingerprint BEFORE
+// consulting the trust store — i.e. even if the operator has explicitly
+// trusted the key, the hard deny stands. (Trust path security guarantee.)
+func TestVerifyManifest_revokedFingerprintRejectedEvenIfPinned(t *testing.T) {
+	ts := NewTrustStore(t.TempDir())
+	const revokedFpr = "6c48b56f20c9c344" // browser-demo.seed
+	// Pre-populate the trust store with the revoked fpr (simulating an
+	// operator who trusted it before the deny-list landed).
+	if err := ts.Save(map[string]TrustEntry{
+		revokedFpr: {
+			Fingerprint: revokedFpr,
+			Pubkey:      "db9710dd6dda135e5729f74cf2cdc8121a0628003ab8c89ea92986ec2922f67b",
+		},
+	}); err != nil {
+		t.Fatalf("seed trust store: %v", err)
+	}
+	err := ts.VerifyManifest(&Manifest{AuthorPubkeyFpr: revokedFpr}, "")
+	if err == nil {
+		t.Fatal("expected revoked error, got nil")
+	}
+	if !strings.Contains(err.Error(), "revoked") || !strings.Contains(err.Error(), "browser-demo.seed") {
+		t.Errorf("expected revoked-error naming the leaked seed, got %v", err)
+	}
+}
+
+// Integration: TrustVerified must reject before pinning — a TOFU install
+// path cannot leave a revoked fingerprint in the trust store.
+func TestTrustVerified_revokedFingerprintRejected_storeUnchanged(t *testing.T) {
+	ts := NewTrustStore(t.TempDir())
+	const revokedFpr = "6c48b56f20c9c344"
+	_, err := ts.TrustVerified("", "", &Manifest{AuthorPubkeyFpr: revokedFpr}, "")
+	if err == nil {
+		t.Fatal("expected revoked error, got nil")
+	}
+	if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("expected revoked error, got %v", err)
+	}
+	// Store must remain empty — the deny runs before any Save.
+	entries, err := ts.Load()
+	if err != nil {
+		t.Fatalf("load trust store: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("trust store should be untouched, got %d entries", len(entries))
+	}
+}

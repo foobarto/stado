@@ -88,6 +88,12 @@ func (s *TrustStore) TrustVerified(key string, author string, m *Manifest, sigB6
 	if m == nil {
 		return TrustEntry{}, fmt.Errorf("verify: nil manifest")
 	}
+	// Hard-deny revoked fingerprints (seed leaked in git history; see
+	// SECURITY.md). Refuse before pinning so a TOFU install can't anchor
+	// a known-compromised key.
+	if rev, _ := IsRevoked(m.AuthorPubkeyFpr); rev {
+		return TrustEntry{}, RevokedError(m.AuthorPubkeyFpr)
+	}
 	entry, pub, store, err := s.entryForKey(key, author)
 	if err != nil {
 		return TrustEntry{}, err
@@ -159,6 +165,12 @@ func (s *TrustStore) Untrust(fingerprint string) error {
 func (s *TrustStore) VerifyManifest(m *Manifest, sigB64 string) error {
 	if m == nil {
 		return fmt.Errorf("verify: nil manifest")
+	}
+	// Hard-deny revoked fingerprints — even if previously trusted, refuse
+	// to verify a manifest signed by a key whose private seed leaked in
+	// git history (see SECURITY.md).
+	if rev, _ := IsRevoked(m.AuthorPubkeyFpr); rev {
+		return RevokedError(m.AuthorPubkeyFpr)
 	}
 	store, err := s.Load()
 	if err != nil {

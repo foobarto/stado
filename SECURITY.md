@@ -271,6 +271,56 @@ After revocation:
 3. Re-sign + re-distribute every still-supported plugin version.
 4. Users re-run `stado plugin trust <new-pubkey>` + re-install.
 
+##### Built-in deny-list (project-managed)
+
+stado ships a hardcoded deny-list of Ed25519 *fingerprints* whose
+corresponding private seeds were committed to this repo's git history
+before the `.seed` gitignore landed (the seeds were untracked in v0.51.1,
+but history retains them forever). Any clone or mirror has the seeds, so
+anyone can forge a manifest signature matching these fingerprints.
+
+Every trust-verification entry point consults `IsRevoked()`
+(`internal/plugins/revoked.go`) and refuses to verify a manifest under a
+revoked fingerprint **even if the operator has trusted it** via
+`stado plugin trust`. The covered paths are `(*TrustStore).VerifyManifest`
+(standard verify), `(*TrustStore).TrustVerified` (TOFU/pin), and
+`internal/runtime.verifyPluginOverride` (runtime override / installed-plugin
+path). All return the same `plugins.RevokedError` so behavior is uniform.
+This is a hard deny — there is no escape hatch. If you add a new
+verification entry point, it MUST consult `IsRevoked` too, or this
+guarantee is silently lost.
+
+The currently-revoked fingerprints (each maps to a leaked demo-seed file
+preserved in git history; the list may grow over time as more keys are
+revoked — see `internal/plugins/revoked.go` for the live set):
+
+| Fingerprint | Leaked seed |
+|---|---|
+| `6c48b56f20c9c344` | `plugins/examples/browser/browser-demo.seed` |
+| `65eae6fb74279268` | `plugins/examples/encode-zig/encode-zig-demo.seed` |
+| `5bc3855d455e44c4` | `plugins/examples/hello/hello-demo.seed` |
+| `08aa1288d1af3d9a` | `plugins/examples/hello-go/hello-go-demo.seed` |
+| `28f0fa4d25503211` | `plugins/examples/http-session/http-session-demo.seed` |
+| `6c9bf7180872f90c` | `plugins/examples/image-info/image-info-demo.seed` |
+| `effd536ec1e7eb14` | `plugins/examples/ls/ls-demo.seed` |
+| `f701ee55897ada64` | `plugins/examples/mcp-client/mcp-client-demo.seed` |
+| `45016a163a795f9f` | `plugins/examples/persistent-shell/persistent-shell-demo.seed` |
+| `ff8436c9d0ab8450` | `plugins/examples/state-dir-info/state-dir-info-demo.seed` |
+| `33ecd5793539691c` | `plugins/examples/webfetch-cached/webfetch-cached-demo.seed` |
+| `a3128a188d7af698` | `plugins/examples/web-search/web-search-demo.seed` |
+
+The corresponding plugins moved to
+[`foobarto/stado-plugins`](https://github.com/foobarto/stado-plugins) under
+a *new* anchor key (fingerprint `57a3e58ce484c5e5`); the demo seeds above
+are not used by anything stado ships today. The deny-list is a
+belt-and-suspenders defense against an older install that pinned one of
+these keys, or an attacker forging a plugin under one of them.
+
+To remediate as a plugin maintainer who lost a seed: same flow as the
+project-managed CRL above — generate a fresh key, publish a rotation
+notice, re-sign, re-distribute. The deny-list refusal *cannot* be
+overridden from the operator side; the only path forward is a new key.
+
 #### 8. Rotating without compromise (hygiene)
 
 Annual rotation is good practice even without an incident. Same flow
