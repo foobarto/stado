@@ -7,6 +7,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // renderRequestWire is the JSON shape plugins send via stado_ui_render.
@@ -195,11 +197,29 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 		return Panel{}, fmt.Errorf("at least one section required")
 	}
 
+	// Sanitize every plugin-supplied string at the trust boundary
+	// (wasm guest → host). Codex C2/J-c P1 — PR #49 sibling miss:
+	// pre-fix `panel_render.go` rendered Title / Footer / Heading
+	// (and downstream the section body strings) without any
+	// terminal-escape scrubbing, so an attacker-controlled or buggy
+	// plugin could emit OSC52 (clipboard hijack), OSC8 (clickable
+	// link), CSI cursor moves, etc. via stado_ui_render. Sanitize
+	// once at the decode boundary so the rendered Panel struct is
+	// fully trustable downstream.
+	//
+	// Single-line zones (header / footer / id / variant / heading,
+	// row + cell fields, identifier-like strings) use
+	// StripControlChars — newlines included — because the renderer
+	// composes them into rows/cells that break visually on \n.
+	// Multi-line prose zones (Text body, Code.Content, Diff
+	// before/after, KV value text) use SanitizeForTerminal which
+	// preserves \n / \t / \r so legitimate wrapped text survives.
+	// Variant is enum-validated above so it doesn't need sanitizing.
 	out := Panel{
-		Title:    w.Title,
+		Title:    textutil.StripControlChars(w.Title),
 		Variant:  w.Variant,
-		ID:       w.ID,
-		Footer:   w.Footer,
+		ID:       textutil.StripControlChars(w.ID),
+		Footer:   textutil.StripControlChars(w.Footer),
 		Sections: make([]Section, 0, len(w.Sections)),
 	}
 	for i, sw := range w.Sections {
@@ -234,13 +254,17 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 			i, len(sb), maxPluginRuntimeUIRenderSectionBytes)
 	}
 
-	sec := Section{Kind: sw.Kind, Heading: sw.Heading}
+	// Same sanitize rule as decodeRenderRequest above: single-line
+	// zones strip control chars (incl. \n), multi-line prose zones
+	// preserve \n / \t / \r via SanitizeForTerminal. Section Kind is
+	// enum-validated and Heading is a single header row.
+	sec := Section{Kind: sw.Kind, Heading: textutil.StripControlChars(sw.Heading)}
 	switch sw.Kind {
 	case "text":
 		if err := requireOnlyBody(i, sw, "text"); err != nil {
 			return Section{}, err
 		}
-		sec.Text = sw.Text
+		sec.Text = textutil.SanitizeForTerminal(sw.Text)
 	case "kv":
 		if err := requireOnlyBody(i, sw, "kv"); err != nil {
 			return Section{}, err
@@ -255,7 +279,10 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 			if len(p.Value) > maxPluginRuntimeUIRenderKVValueBytes {
 				return Section{}, fmt.Errorf("section %d: kv pair %d value exceeds %d bytes", i, j, maxPluginRuntimeUIRenderKVValueBytes)
 			}
-			sec.KV = append(sec.KV, KVPair(p))
+			sec.KV = append(sec.KV, KVPair{
+				Label: textutil.StripControlChars(p.Label),
+				Value: textutil.SanitizeForTerminal(p.Value),
+			})
 		}
 	case "list":
 		if err := requireOnlyBody(i, sw, "list"); err != nil {
@@ -270,7 +297,11 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 		if len(sw.List.Items) == 0 {
 			return Section{}, fmt.Errorf("section %d: list body requires at least one item", i)
 		}
-		sec.List = ListBody{Marker: sw.List.Marker, Items: append([]string(nil), sw.List.Items...)}
+		items := make([]string, len(sw.List.Items))
+		for j, it := range sw.List.Items {
+			items[j] = textutil.StripControlChars(it)
+		}
+		sec.List = ListBody{Marker: sw.List.Marker, Items: items}
 	case "code":
 		if err := requireOnlyBody(i, sw, "code"); err != nil {
 			return Section{}, err
@@ -278,7 +309,10 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 		if sw.Code == nil {
 			return Section{}, fmt.Errorf("section %d: code body required", i)
 		}
-		sec.Code = CodeBody{Language: sw.Code.Language, Content: sw.Code.Content}
+		sec.Code = CodeBody{
+			Language: textutil.StripControlChars(sw.Code.Language),
+			Content:  textutil.SanitizeForTerminal(sw.Code.Content),
+		}
 	case "table":
 		if err := requireOnlyBody(i, sw, "table"); err != nil {
 			return Section{}, err
@@ -303,10 +337,18 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 					i, r, len(row), len(sw.Table.Columns))
 			}
 		}
-		sec.Table = TableBody{
-			Columns: append([]string(nil), sw.Table.Columns...),
-			Rows:    cloneRows(sw.Table.Rows),
+		cols := make([]string, len(sw.Table.Columns))
+		for j, c := range sw.Table.Columns {
+			cols[j] = textutil.StripControlChars(c)
 		}
+		rows := make([][]string, len(sw.Table.Rows))
+		for r, row := range sw.Table.Rows {
+			rows[r] = make([]string, len(row))
+			for c, cell := range row {
+				rows[r][c] = textutil.StripControlChars(cell)
+			}
+		}
+		sec.Table = TableBody{Columns: cols, Rows: rows}
 	case "diff":
 		if err := requireOnlyBody(i, sw, "diff"); err != nil {
 			return Section{}, err
@@ -314,7 +356,10 @@ func decodeSection(i int, sw sectionWire) (Section, error) {
 		if sw.Diff == nil {
 			return Section{}, fmt.Errorf("section %d: diff body required", i)
 		}
-		sec.Diff = DiffBody{Before: sw.Diff.Before, After: sw.Diff.After}
+		sec.Diff = DiffBody{
+			Before: textutil.SanitizeForTerminal(sw.Diff.Before),
+			After:  textutil.SanitizeForTerminal(sw.Diff.After),
+		}
 	}
 	return sec, nil
 }

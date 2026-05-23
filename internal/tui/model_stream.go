@@ -647,14 +647,25 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			m.failStreamBudget(err)
 			return
 		}
-		m.turnThinking += ev.Text
+		// Sanitize before storing — the thinking stream is model-prose
+		// from the same trust boundary as EvTextDelta (sanitized at
+		// lines 632 + 642 above). PR #49's sibling-miss audit (Codex
+		// G3/J-a P0) flagged this case as the only one in the EvX
+		// switch that appended raw `ev.Text` into the block body, so
+		// OSC52 / OSC8 / CSI escapes in the thinking trace reached
+		// the renderer unchecked. Sanitize at both the per-turn
+		// accumulator (used for in-flight budget + final-trace
+		// recording) and the rendered block body. The signature is
+		// not text and stays unsanitized.
+		sanitizedThinking := textutil.SanitizeForTerminal(ev.Text)
+		m.turnThinking += sanitizedThinking
 		m.turnThinkSig += ev.ThinkingSig
-		if ev.Text != "" {
+		if sanitizedThinking != "" {
 			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
 				m.blocks = append(m.blocks, block{kind: "thinking"})
 			}
 			last := len(m.blocks) - 1
-			m.blocks[last].body += ev.Text
+			m.blocks[last].body += sanitizedThinking
 			m.invalidateBlockCache(last)
 		}
 

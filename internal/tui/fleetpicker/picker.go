@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
 
@@ -224,14 +225,26 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// FleetEntry fields come from agent runs (operator-typed prompts,
+// model-emitted text + tool outputs, errors from agent execution).
+// All untrusted from the terminal-escape perspective: an attacker-
+// influenced prompt can inject OSC52 (clipboard hijack), OSC8
+// (clickable-link injection), CSI cursor moves, etc. Both the row and
+// detail-pane renderers display fields on a single line (the
+// `strings.ReplaceAll(... "\n", " ")` + `truncate(...)` wrappers
+// collapse newlines for layout). Strip all control runes — newlines
+// included — so embedded escapes can't reach the terminal even if a
+// truncate boundary happens to land between a CSI lead and its final
+// byte. Codex G4/J-b P0: PR #49 sibling-miss in the fleetpicker
+// render path.
 func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 	statusPill := fmt.Sprintf("[%-9s]", e.Status)
 	short := e.FleetID
 	if len(short) >= 8 {
 		short = short[:8]
 	}
-	prompt := truncate(strings.ReplaceAll(strings.TrimSpace(e.Prompt), "\n", " "), 50)
-	last := e.LastTool
+	prompt := truncate(textutil.StripControlChars(strings.TrimSpace(e.Prompt)), 50)
+	last := textutil.StripControlChars(e.LastTool)
 	if last == "" {
 		last = "—"
 	}
@@ -244,26 +257,26 @@ func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Prompt: "))
-	b.WriteString(truncate(strings.ReplaceAll(e.Prompt, "\n", " "), maxInt(innerW-8, 30)))
+	b.WriteString(truncate(textutil.StripControlChars(e.Prompt), maxInt(innerW-8, 30)))
 	b.WriteString("\n")
 	if e.SessionID != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Session: "))
-		b.WriteString(e.SessionID)
+		b.WriteString(textutil.StripControlChars(e.SessionID))
 		b.WriteString("\n")
 	}
 	if e.LastText != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Last text: "))
-		b.WriteString(truncate(strings.ReplaceAll(e.LastText, "\n", " "), maxInt(innerW-12, 30)))
+		b.WriteString(truncate(textutil.StripControlChars(e.LastText), maxInt(innerW-12, 30)))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusError && e.Error != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Error: "))
-		b.WriteString(truncate(e.Error, maxInt(innerW-8, 30)))
+		b.WriteString(truncate(textutil.StripControlChars(e.Error), maxInt(innerW-8, 30)))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusCompleted && e.Result != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Result: "))
-		b.WriteString(truncate(strings.ReplaceAll(e.Result, "\n", " "), maxInt(innerW-9, 30)))
+		b.WriteString(truncate(textutil.StripControlChars(e.Result), maxInt(innerW-9, 30)))
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")

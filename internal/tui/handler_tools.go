@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -49,9 +50,17 @@ func onPluginApprovalRequest(m *Model, msg pluginApprovalRequestMsg) (tea.Model,
 		}
 		return m, nil
 	}
+	// Sanitize at store-time so the approval drawer renderer can trust
+	// what's in m.approval. Codex C2/J-c P1 — PR #49 sibling miss:
+	// stado_ui_approve flowed plugin-controlled title/body straight to
+	// lipgloss.Render at approval.go:45/47, so a malicious or buggy
+	// plugin could emit OSC52 / OSC8 / CSI in the approval dialog. The
+	// title is shown as a single bold header line → StripControlChars.
+	// The body is rendered as a multi-line description → SanitizeForTerminal
+	// keeps legitimate \n / \t formatting.
 	m.approval = &approvalRequest{
-		title:    msg.title,
-		body:     msg.body,
+		title:    textutil.StripControlChars(msg.title),
+		body:     textutil.SanitizeForTerminal(msg.body),
 		response: msg.response,
 	}
 	m.approvalFocused = false
