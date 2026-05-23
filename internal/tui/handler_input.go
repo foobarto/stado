@@ -255,10 +255,18 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	case m.keys.Matches(msg, keys.SessionInterrupt):
 		// Esc / Ctrl+G — readline + Emacs canonical cancel.
-		// Priority: clear queued prompt > cancel in-flight stream.
-		// Mirrors the Ctrl+C (InputClear) behaviour for the
-		// empty-input case so all three keys converge on a
-		// consistent /cancel semantic.
+		// Priority: clear queued prompt > cancel in-flight stream
+		// AND in-flight tool. Mirrors the Ctrl+C (InputClear)
+		// behaviour for the empty-input case so all three keys
+		// converge on a consistent /cancel semantic.
+		//
+		// Codex #105 caught that this branch only fired streamCancel,
+		// missing toolCancel — during the tool-execution phase
+		// streamCancel is nil (cleared at streamDoneMsg) but the tool's
+		// context is held by toolCancel, so the operator had no kill
+		// switch for a runaway bash / network / plugin tool. Fix:
+		// fire both via the cancelRunningStream / cancelRunningTool
+		// helpers (see cancel.go).
 		if m.queuedPrompt != "" {
 			m.queuedPrompt = ""
 			for i := len(m.blocks) - 1; i >= 0; i-- {
@@ -271,9 +279,18 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			m.renderBlocks()
 			return m, nil, true
 		}
-		if m.state == stateStreaming && m.streamCancel != nil {
-			m.streamCancel()
-			m.appendBlock(block{kind: "system", body: "turn cancelled"})
+		streamCancelled := m.cancelRunningStream()
+		toolCancelled := m.cancelRunningTool()
+		pendingDropped := m.clearPendingToolQueue()
+		if streamCancelled || toolCancelled || pendingDropped > 0 {
+			body := "turn cancelled"
+			if toolCancelled {
+				body = "turn cancelled (running tool interrupted)"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s, %d pending tool(s) dropped", body, pendingDropped)
+			}
+			m.appendBlock(block{kind: "system", body: body})
 			m.renderBlocks()
 			return m, nil, true
 		}
@@ -283,16 +300,35 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// current turn (its existing cleanup drains the queue
 		// and dispatches the queued prompt), so the next thing
 		// the user sees is their just-submitted message running.
+		//
+		// Same kit as Esc/Ctrl+G and /cancel: stream + tool +
+		// pending-queue all dropped. Copilot caught that the prior
+		// version only checked streamCancel, so force-queue during
+		// tool execution silently no-op'd and the queued prompt waited
+		// for the tool to finish naturally.
 		if m.queuedPrompt == "" {
 			m.appendBlock(block{kind: "system", body: "force-queue: no queued prompt"})
 			m.renderBlocks()
 			return m, nil, true
 		}
-		if m.state == stateStreaming && m.streamCancel != nil {
-			m.streamCancel()
-			m.appendBlock(block{kind: "system", body: "force-queue: cancelled current turn; queued prompt running"})
+		streamCancelled := m.cancelRunningStream()
+		toolCancelled := m.cancelRunningTool()
+		pendingDropped := m.clearPendingToolQueue()
+		if streamCancelled || toolCancelled || pendingDropped > 0 {
+			body := "force-queue: cancelled current turn; queued prompt running"
+			if toolCancelled {
+				body = "force-queue: cancelled current tool; queued prompt running"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s (%d pending tool(s) dropped)", body, pendingDropped)
+			}
+			m.appendBlock(block{kind: "system", body: body})
 			m.renderBlocks()
 		}
+		// No turn in flight + queued prompt set: nothing to cancel, but
+		// the queued prompt will dispatch on the next natural state
+		// transition. Return handled so we don't accidentally insert
+		// Alt+Enter as a literal into the textarea.
 		return m, nil, true
 
 	case m.keys.Matches(msg, keys.ToolExpand):

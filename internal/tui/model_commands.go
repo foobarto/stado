@@ -244,18 +244,29 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// queued prompt is preserved — it'll fire when the current
 		// turn's cleanup completes, exactly as if the turn had ended
 		// normally.
-		m.streamMu.Lock()
-		hadStream := m.streamCancel != nil
-		if hadStream {
-			m.streamCancel()
-		}
-		m.streamMu.Unlock()
-		if hadStream {
-			m.appendBlock(block{kind: "system", body: "cancel: in-flight turn cancelled (queued prompt, if any, will run next)"})
-		} else if m.queuedPrompt != "" {
+		//
+		// Codex #106 caught that the prior version only fired
+		// streamCancel, so /cancel during the tool-execution phase
+		// reported "no in-flight turn" while the tool kept running.
+		// Fire both via the cancelRunningStream / cancelRunningTool
+		// helpers (see cancel.go).
+		streamCancelled := m.cancelRunningStream()
+		toolCancelled := m.cancelRunningTool()
+		pendingDropped := m.clearPendingToolQueue()
+		switch {
+		case streamCancelled || toolCancelled || pendingDropped > 0:
+			body := "cancel: in-flight turn cancelled (queued prompt, if any, will run next)"
+			if toolCancelled {
+				body = "cancel: in-flight tool cancelled (queued prompt, if any, will run next)"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s; %d pending tool(s) dropped", body, pendingDropped)
+			}
+			m.appendBlock(block{kind: "system", body: body})
+		case m.queuedPrompt != "":
 			m.queuedPrompt = ""
 			m.appendBlock(block{kind: "system", body: "cancel: cleared queued prompt"})
-		} else {
+		default:
 			m.appendBlock(block{kind: "system", body: "cancel: no in-flight turn or queued prompt"})
 		}
 	case "/queue-now", "/force":
@@ -265,17 +276,27 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// after the current turn was already mid-tool-call and
 		// wants to skip the rest of the current turn to get to
 		// their new request.
+		//
+		// Like /cancel above, the prior version only fired
+		// streamCancel and so during tool-execution did nothing — the
+		// queued prompt would wait for the tool to finish naturally
+		// instead of jumping to the new request. Codex #106. Fire
+		// both stream and tool cancel.
 		if m.queuedPrompt == "" {
 			m.appendBlock(block{kind: "system", body: "queue-now: no queued prompt to force"})
 		} else {
-			m.streamMu.Lock()
-			hadStream := m.streamCancel != nil
-			if hadStream {
-				m.streamCancel()
-			}
-			m.streamMu.Unlock()
-			if hadStream {
-				m.appendBlock(block{kind: "system", body: "queue-now: in-flight turn cancelled; queued prompt will run on cleanup"})
+			streamCancelled := m.cancelRunningStream()
+			toolCancelled := m.cancelRunningTool()
+			pendingDropped := m.clearPendingToolQueue()
+			if streamCancelled || toolCancelled || pendingDropped > 0 {
+				body := "queue-now: in-flight turn cancelled; queued prompt will run on cleanup"
+				if toolCancelled {
+					body = "queue-now: in-flight tool cancelled; queued prompt will run on cleanup"
+				}
+				if pendingDropped > 0 {
+					body = fmt.Sprintf("%s (%d pending tool(s) dropped)", body, pendingDropped)
+				}
+				m.appendBlock(block{kind: "system", body: body})
 			} else {
 				m.appendBlock(block{kind: "system", body: "queue-now: no in-flight turn — queued prompt will run on next dispatch"})
 			}
