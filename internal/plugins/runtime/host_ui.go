@@ -8,6 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 func registerUIApprovalImport(builder wazero.HostModuleBuilder, host *Host) {
@@ -194,7 +196,11 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 	}
 	seen := make(map[string]bool, len(w.Options))
 	out := ChoiceRequest{
-		Prompt:  w.Prompt,
+		// Prompt is the question text shown above the choice list —
+		// untrusted plugin text reaching the operator terminal verbatim.
+		// SanitizeForTerminal keeps newlines (legitimate multi-line
+		// prompts are common) while stripping ESC/CSI/OSC/BEL.
+		Prompt:  textutil.SanitizeForTerminal(w.Prompt),
 		Multi:   w.Multi,
 		Default: append([]string(nil), w.Default...),
 		Options: make([]ChoiceOption, 0, len(w.Options)),
@@ -223,7 +229,7 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			if len(o.Input.Default) > maxPluginRuntimeUIChooseInputDefaultBytes {
 				return ChoiceRequest{}, fmt.Errorf("option %d: input.default exceeds %d bytes", i, maxPluginRuntimeUIChooseInputDefaultBytes)
 			}
-			input = &ChoiceInput{Default: o.Input.Default}
+			input = &ChoiceInput{Default: textutil.SanitizeForTerminal(o.Input.Default)}
 			if v := o.Input.Validator; v != nil {
 				if len(v.Spec) > maxPluginRuntimeUIChooseValidatorSpecBytes {
 					return ChoiceRequest{}, fmt.Errorf("option %d: validator.spec exceeds %d bytes", i, maxPluginRuntimeUIChooseValidatorSpecBytes)
@@ -235,9 +241,12 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			}
 		}
 		out.Options = append(out.Options, ChoiceOption{
-			ID:     o.ID,
-			Label:  o.Label,
-			Prefix: o.Prefix,
+			ID: o.ID,
+			// Label is the visible per-option text in the choice list.
+			// Same untrusted-plugin-text-to-operator-terminal flow as
+			// Prefix and Default — sanitize for the same reason.
+			Label:  textutil.SanitizeForTerminal(o.Label),
+			Prefix: textutil.SanitizeForTerminal(o.Prefix),
 			Input:  input,
 		})
 	}

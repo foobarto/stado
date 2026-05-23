@@ -23,6 +23,7 @@ import (
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/pkg/agent"
@@ -1744,7 +1745,7 @@ func fetchPresetModelIDs(ctx context.Context, endpoint, apiKey string) []string 
 	out := make([]string, 0, len(parsed.Data))
 	for _, d := range parsed.Data {
 		if d.ID != "" {
-			out = append(out, d.ID)
+			out = append(out, textutil.StripControlChars(d.ID))
 		}
 	}
 	return out

@@ -8,6 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // printRequestWire is the JSON shape plugins send via stado_ui_print.
@@ -94,7 +96,7 @@ func registerUIPrintImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			if err := host.PrintBridge.Print(ctx, text, opts); err != nil {
+			if err := host.PrintBridge.Print(ctx, textutil.SanitizeForTerminal(text), opts); err != nil {
 				host.Logger.Warn("stado_ui_print bridge failed", "err", err)
 				fail("print rejected: " + err.Error())
 				return

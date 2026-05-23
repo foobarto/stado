@@ -37,6 +37,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 var (
@@ -233,7 +234,7 @@ func walkSessionTrace(sc *stadogit.Sidecar, sessionID string, since, until time.
 		}
 
 		if inWindow {
-			model := parsed["model"]
+			model := textutil.StripControlChars(parsed["model"])
 			if model == "" {
 				model = "(unknown)"
 			}
