@@ -336,11 +336,21 @@ func pickRunner(preference string, cfg WrapConfig) (string, error) {
 		}
 		return "", nil // requested runner not available — generic missing-wrapper path
 	}
-	firejailUnsafe := false
+	firejailInstalledButUnsafe := false
 	for _, c := range candidates {
 		if !canEnforce(c) {
 			if c == "firejail" {
-				firejailUnsafe = true
+				// Copilot + Codex round 1 catch: only flag firejail
+				// as unsafe if it's ACTUALLY installed. Otherwise
+				// this is the generic "no wrapper found" case (the
+				// host happens to be Linux so firejail is in the
+				// candidate list, but it's not installed), and the
+				// operator should get the missing-wrapper path
+				// (warn-and-continue per RefuseNoRunner), not a
+				// misleading "firejail can't enforce" error.
+				if _, err := exec.LookPath(c); err == nil {
+					firejailInstalledButUnsafe = true
+				}
 			}
 			continue
 		}
@@ -348,11 +358,12 @@ func pickRunner(preference string, cfg WrapConfig) (string, error) {
 			return c, nil
 		}
 	}
-	if firejailUnsafe {
-		// auto-mode: firejail was a candidate but can't enforce bind_rw,
-		// and no other compatible wrapper is installed. Fail closed even
-		// under RefuseNoRunner=false — operator asked for confinement,
-		// we can't deliver it, refusing to silently drop the boundary.
+	if firejailInstalledButUnsafe {
+		// auto-mode: firejail is INSTALLED but can't enforce bind_rw,
+		// and no other compatible wrapper is available. Fail closed
+		// even under RefuseNoRunner=false — operator asked for
+		// confinement, the only installed candidate can't deliver
+		// it, refusing to silently drop the boundary.
 		return "", errors.New(
 			"configured sandbox policy requires bind_rw confinement that firejail cannot enforce, " +
 				"and no compatible runner was found; install bwrap or remove [sandbox.wrap].bind_rw")
