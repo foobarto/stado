@@ -1,0 +1,166 @@
+name: Update homepage version
+
+# After a non-prerelease tag is published, bump the three version
+# anchors in docs/index.html (nav, footer brand, release receipt) so
+# the landing page on stado.foobarto.me reflects the latest release
+# without a manual edit. Opens a PR (main is PR-only); enables
+# squash auto-merge so it lands as soon as CI passes.
+on:
+  release:
+    types: [published]
+  # Manual re-run for the most recent stable release (useful if the
+  # release-triggered run failed mid-flight or the page drifted).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync the page to (e.g. v0.52.8). Leave blank to use the latest non-prerelease."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: bump docs/index.html
+    runs-on: ubuntu-latest
+    # Skip prereleases — landing page tracks the latest stable.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    permissions:
+      contents: write       # push the version-bump branch
+      pull-requests: write  # open the PR + enable auto-merge
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # All GitHub-event values arrive via env to avoid shell injection
+      # through the ${{ ... }} expansion (the dispatch `tag` input is
+      # operator-controllable; the release fields are GitHub-set but the
+      # discipline is uniform).
+      - name: Resolve target tag + date
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "release" ]]; then
+            tag="$RELEASE_TAG"
+            published_at="$RELEASE_PUBLISHED_AT"
+          else
+            if [[ -n "$DISPATCH_TAG" ]]; then
+              tag="$DISPATCH_TAG"
+            else
+              # Latest non-prerelease, non-draft release.
+              tag="$(gh release list --limit 20 --json tagName,isPrerelease,isDraft \
+                --jq 'map(select(.isPrerelease==false and .isDraft==false))[0].tagName')"
+            fi
+            # gh CLI handles the tag as a positional arg — but only after
+            # we've vetted it against the regex below.
+            published_at=""
+          fi
+          # Validate BEFORE handing to any subprocess. Hard-reject anything
+          # that isn't a strict semver-ish tag.
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::bad tag: $tag"
+            exit 1
+          fi
+          if [[ -z "$published_at" ]]; then
+            published_at="$(gh release view -- "$tag" --json publishedAt --jq .publishedAt)"
+          fi
+          date="${published_at%%T*}"  # YYYY-MM-DD
+          if [[ ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "::error::bad date: $date"
+            exit 1
+          fi
+          echo "tag=$tag"   >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$tag date=$date"
+
+      - name: Patch docs/index.html
+        id: patch
+        env:
+          NEW_TAG: ${{ steps.meta.outputs.tag }}
+          NEW_DATE: ${{ steps.meta.outputs.date }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os, re, pathlib, sys
+          tag  = os.environ["NEW_TAG"]
+          date = os.environ["NEW_DATE"]
+          # Belt-and-suspenders: re-validate after env crossing.
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?", tag):
+              sys.exit(f"refusing bad tag at patch step: {tag!r}")
+          if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date):
+              sys.exit(f"refusing bad date at patch step: {date!r}")
+          path = pathlib.Path("docs/index.html")
+          html = path.read_text()
+          orig = html
+
+          # Nav + footer brand: <span class="ver">vX.Y.Z[-suffix]</span>
+          html = re.sub(
+              r'(<span class="ver">)v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(</span>)',
+              rf'\g<1>{tag}\g<2>',
+              html,
+          )
+          # Release receipt row: <span class="v">vX.Y.Z · YYYY-MM-DD</span>
+          html = re.sub(
+              r'(<span class="v">)v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?'
+              r' · [0-9]{4}-[0-9]{2}-[0-9]{2}(</span>)',
+              rf'\g<1>{tag} · {date}\g<2>',
+              html,
+          )
+
+          if html == orig:
+              print(f"no-op: page already matches {tag} {date}")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write("changed=false\n")
+              sys.exit(0)
+
+          path.write_text(html)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("changed=true\n")
+          print(f"patched docs/index.html -> {tag} {date}")
+          PY
+
+      - name: Open auto-merge PR
+        if: steps.patch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.meta.outputs.tag }}
+          NEW_DATE: ${{ steps.meta.outputs.date }}
+        run: |
+          set -euo pipefail
+          branch="chore/bump-homepage-${NEW_TAG}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # If a prior failed run left this branch behind, reuse it
+          # by force-resetting from main; otherwise create fresh.
+          git checkout -B "$branch"
+          git add docs/index.html
+          git commit -m "docs: bump homepage to ${NEW_TAG} (${NEW_DATE})"
+          git push --force-with-lease origin "$branch"
+
+          # Open a PR if one isn't already open for this branch.
+          existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "$existing" ]]; then
+            body="Automated landing-page version sync. Bumps the three \`<span class=\"ver\">\` / receipt anchors in \`docs/index.html\` to **${NEW_TAG}** (released ${NEW_DATE}). Generated by \`.github/workflows/update-homepage-version.yml\`."
+            gh pr create \
+              --head "$branch" \
+              --base main \
+              --title "docs: bump homepage to ${NEW_TAG}" \
+              --body "$body"
+            existing="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
+          fi
+
+          # Enable squash auto-merge. Requires repo-level auto-merge
+          # to be enabled in Settings → General; if disabled this step
+          # logs a warning but the PR still sits open for manual merge.
+          gh pr merge "$existing" --auto --squash || \
+            echo "::warning::auto-merge could not be enabled (repo setting?); PR $existing left open for manual merge"
