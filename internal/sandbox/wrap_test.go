@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -75,30 +76,97 @@ func TestPickRunner_FirejailDroppedWhenPolicyUnenforceable(t *testing.T) {
 	bwrapAvail := func() bool { _, err := exec.LookPath("bwrap"); return err == nil }()
 	fjAvail := func() bool { _, err := exec.LookPath("firejail"); return err == nil }()
 
-	// Explicit firejail preference + RW bind → must refuse (return "") so
-	// RefuseNoRunner fails closed instead of handing back an unconfined wrap.
-	if got := pickRunner("firejail", WrapConfig{BindRW: []string{"/work"}}); got != "" {
+	// Explicit firejail preference + RW bind → must return a HARD ERROR
+	// (Codex finding post-#035). Pre-fix this returned ""+nil, which
+	// doRewrap then treated as the generic missing-wrapper path and
+	// silently continued unwrapped under RefuseNoRunner=false. Now the
+	// error short-circuits before that path runs.
+	got, err := pickRunner("firejail", WrapConfig{BindRW: []string{"/work"}})
+	if err == nil {
+		t.Fatal("pickRunner(firejail, BindRW) expected hard error, got nil")
+	}
+	if got != "" {
 		t.Fatalf("pickRunner(firejail, BindRW) = %q, want \"\" (fail closed)", got)
 	}
 
 	// auto + RW bind: must never resolve to firejail. Either bwrap (if
-	// installed) or "" — firejail is excluded.
-	got := pickRunner("auto", WrapConfig{BindRW: []string{"/work"}})
+	// installed) or a hard error — firejail is excluded.
+	got, err = pickRunner("auto", WrapConfig{BindRW: []string{"/work"}})
 	if got == "firejail" {
 		t.Fatalf("pickRunner(auto, BindRW) resolved to firejail; must be excluded")
 	}
-	if bwrapAvail && got != "bwrap" {
-		t.Fatalf("pickRunner(auto, BindRW) = %q, want bwrap when bwrap installed", got)
-	}
-	if !bwrapAvail && got != "" {
-		t.Fatalf("pickRunner(auto, BindRW) = %q, want \"\" when only firejail/none available", got)
+	switch {
+	case bwrapAvail:
+		if err != nil {
+			t.Fatalf("pickRunner(auto, BindRW) unexpected error with bwrap installed: %v", err)
+		}
+		if got != "bwrap" {
+			t.Fatalf("pickRunner(auto, BindRW) = %q, want bwrap when bwrap installed", got)
+		}
+	case fjAvail:
+		// firejail-only host: now hard-fail rather than silently drop
+		// confinement.
+		if err == nil {
+			t.Fatal("pickRunner(auto, BindRW) expected hard error when only firejail available")
+		}
+		if got != "" {
+			t.Fatalf("pickRunner(auto, BindRW) = %q, want \"\" with error", got)
+		}
+	default:
+		// No wrapper installed at all: this isn't an
+		// unenforceable-policy case (no firejail to be tempted by).
+		// Generic missing-wrapper path applies → ""+nil.
+		if err != nil {
+			t.Fatalf("pickRunner(auto, BindRW, no wrappers) unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Fatalf("pickRunner(auto, BindRW, no wrappers) = %q, want \"\"", got)
+		}
 	}
 
 	// Sanity: with no binds, firejail preference resolves when installed.
 	if fjAvail {
-		if got := pickRunner("firejail", WrapConfig{}); got != "firejail" {
+		got, err := pickRunner("firejail", WrapConfig{})
+		if err != nil {
+			t.Fatalf("pickRunner(firejail, no binds) unexpected error: %v", err)
+		}
+		if got != "firejail" {
 			t.Fatalf("pickRunner(firejail, no binds) = %q, want firejail", got)
 		}
+	}
+}
+
+// Codex validated finding (post-#035): MaybeRewrap must propagate the
+// unenforceable-policy error UNCONDITIONALLY — not fall through to the
+// generic missing-wrapper warn-and-continue path that RefuseNoRunner=false
+// triggers. This pins the load-bearing invariant: an operator who
+// configures `mode=wrap` + `bind_rw` + `runner=firejail` on a
+// bwrap-less host gets an explicit hard error, not silent loss of
+// confinement.
+func TestMaybeRewrap_FirejailBindRW_HardFailsRegardlessOfRefuseNoRunner(t *testing.T) {
+	if GOOS != "linux" {
+		t.Skip("firejail candidate path is linux-only")
+	}
+	// Ensure no rewrap marker is set — otherwise MaybeRewrap returns
+	// nil immediately as "already wrapped".
+	t.Setenv(RewrappedEnvVar, "")
+	_ = os.Unsetenv(RewrappedEnvVar)
+
+	cfg := WrapConfig{
+		Mode:           "wrap",
+		Runner:         "firejail",
+		BindRW:         []string{"/work"},
+		RefuseNoRunner: false, // load-bearing: default value, the fail-open trigger
+	}
+	err := MaybeRewrap(cfg)
+	if err == nil {
+		t.Fatal("MaybeRewrap with unenforceable firejail policy + RefuseNoRunner=false must return error (fail closed)")
+	}
+	// Sanity: error mentions firejail / bind_rw so the operator
+	// understands what to change.
+	msg := err.Error()
+	if !strings.Contains(msg, "firejail") || !strings.Contains(msg, "bind_rw") {
+		t.Errorf("error should mention firejail + bind_rw, got: %q", msg)
 	}
 }
 
