@@ -512,6 +512,18 @@ type Model struct {
 	// tool is actively running; reset in toolResultMsg or streamCancel.
 	toolCancel context.CancelFunc
 	toolMu     sync.Mutex
+
+	// supervisorProvider caches the lazily-built supervisor-lane
+	// provider so an ACP/MCP-wrapped supervisor (whose buildProviderByName
+	// spawns a subprocess and runs a session handshake) doesn't get
+	// re-spun on every BTW call. Codex P1 caught the per-call rebuild
+	// breaking those provider classes. Built on first cachedSupervisorLookup
+	// call; held for the life of the Model. Lives behind a mutex because
+	// startBtw fires from the Bubble Tea Update goroutine but the
+	// provider it produces is used inside the per-call StreamTurn
+	// goroutine, and we want concurrent BTWs to share the same instance.
+	supervisorProvider   agent.Provider
+	supervisorProviderMu sync.Mutex
 	// toolTickTimer is the handle for the live-elapsed update while a
 	// tool runs. Cancelled when the toolResultMsg arrives.
 	toolTickTimer *time.Timer

@@ -227,14 +227,30 @@ func msgsToBlocks(msgs []agent.Message) []block {
 // startBtw fires an async BTW query: a StreamTurn that does NOT mutate
 // m.msgs.  The conversation history is snapshotted for context; the
 // reply is rendered as a "btw" block when it arrives via btwResultMsg.
+//
+// EP-0033 #098: BTW is the supervisor lane today. When [supervisor]
+// is configured, [resolveSupervisorLane] redirects this call to the
+// supervisor provider so the transcript doesn't leak to the worker
+// endpoint. Lookup failure surfaces as a btw result error rather than
+// silent fallback to the worker — silent fallback would defeat the
+// documented trust boundary.
 func (m *Model) startBtw(question string) tea.Cmd {
 	if !m.ensureProvider() {
 		return nil
 	}
 
-	// Show the user's question immediately as a btw block.
+	// Show the user's question immediately as a btw block — happens
+	// regardless of supervisor-lane resolution success, so the operator
+	// sees their input echoed even when the dispatch fails.
 	m.appendBlock(block{kind: "btw", body: question + "\n"})
 	m.renderBlocks()
+
+	supProvider, supModel, supErr := resolveSupervisorLane(m.cfg, m.provider, m.model, m.cachedSupervisorLookup)
+	if supErr != nil {
+		return func() tea.Msg {
+			return btwResultMsg{question: question, errMsg: supErr.Error()}
+		}
+	}
 
 	// Snapshot the conversation for context.  Keep all prior messages
 	// (including system/tool) — the model needs enough context to answer.
@@ -264,16 +280,16 @@ func (m *Model) startBtw(question string) tea.Cmd {
 		defer cancel()
 
 		req := agent.TurnRequest{
-			Model:    m.model,
+			Model:    supModel,
 			System:   m.turnSystemPrompt(question),
 			Messages: msgs,
 			Tools:    tools,
 		}
-		if m.provider.Capabilities().SupportsPromptCache && len(msgs) > 1 {
+		if supProvider.Capabilities().SupportsPromptCache && len(msgs) > 1 {
 			req.CacheHints = []agent.CachePoint{{MessageIndex: len(msgs) - 2}}
 		}
 
-		ch, err := m.provider.StreamTurn(ctx, req)
+		ch, err := supProvider.StreamTurn(ctx, req)
 		if err != nil {
 			m.sendMsg(btwResultMsg{question: question, errMsg: err.Error()})
 			return
