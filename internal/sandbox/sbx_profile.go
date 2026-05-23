@@ -68,7 +68,15 @@ func RenderSandboxProfile(p Policy) string {
 	}
 	if p.CWD != "" {
 		fmt.Fprintf(&b, "(allow file-read* (subpath %s))\n", sbxString(p.CWD))
-		fmt.Fprintf(&b, "(allow process-exec (subpath %s))\n", sbxString(p.CWD))
+		// Gemini deep-dive (post-v0.54.0): the prior
+		// `(allow process-exec (subpath %s))` here was a sandbox
+		// escape vector. A tool with `fs.write` access to the workdir
+		// could drop a script or binary and execute it, completely
+		// bypassing the per-binary [Policy.Exec] allow-list that the
+		// loop further down emits as `(literal "<absolute>")` rules.
+		// Only the binaries the operator explicitly declares in
+		// Policy.Exec should be exec'able; the CWD itself stays
+		// readable for dyld / source loading but not exec'able.
 	}
 
 	// User-declared FS read/write.
