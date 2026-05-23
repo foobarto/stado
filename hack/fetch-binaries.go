@@ -39,9 +39,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
-	"github.com/foobarto/stado/internal/releaseassets"
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
@@ -49,11 +49,9 @@ const (
 	defaultRipgrepVersion = "14.1.1"
 	defaultAstGrepVersion = "0.38.7"
 
-	maxFetchSidecarBytes  int64 = 64 << 10
-	maxFetchMetadataBytes int64 = 1 << 20
-	maxFetchArchiveBytes  int64 = 128 << 20
-	maxFetchBinaryBytes   int64 = 256 << 20
-	fetchHTTPTimeout            = 30 * time.Second
+	maxFetchArchiveBytes int64 = 128 << 20
+	maxFetchBinaryBytes  int64 = 256 << 20
+	fetchHTTPTimeout           = 30 * time.Second
 )
 
 var fetchHTTPClient = &http.Client{Timeout: fetchHTTPTimeout}
@@ -75,35 +73,127 @@ type manifest struct {
 	SHA256  map[string]string `json:"sha256"` // filename → hex digest
 }
 
+// pinnedDigests is the shape of hack/binary-pins.json. Per-version,
+// per-asset SHA256 hex digests for the upstream native binaries embedded
+// into release builds. Committed to source so digests are independently
+// reviewable — codex validated finding (HIGH attack-path): pre-fix the
+// expected digests were fetched live from the SAME upstream release
+// source as the binaries (ripgrep `.sha256` sidecars + ast-grep
+// `expanded_assets` HTML), giving zero protection against upstream
+// account/release compromise.
+type pinnedDigests struct {
+	Ripgrep map[string]map[string]string `json:"ripgrep"`
+	AstGrep map[string]map[string]string `json:"ast-grep"`
+}
+
 func main() {
 	rgVer := flag.String("ripgrep-version", defaultRipgrepVersion, "ripgrep release tag (without v)")
 	sgVer := flag.String("ast-grep-version", defaultAstGrepVersion, "ast-grep release tag (without v)")
 	only := flag.String("only", "", "'rg' or 'ast-grep' to limit; default fetches both")
 	flag.Parse()
 
+	// Copilot review (#58): parse flags before loading the pin file so
+	// `-h`, `--help`, and bad-flag invocations don't trip on a missing /
+	// malformed hack/binary-pins.json that the user isn't about to use.
+	// The pin file is still required for the actual fetch — load lazily
+	// here, hard-fail if unreadable or malformed.
+	pins, err := loadPinnedDigests()
+	if err != nil {
+		fatal("load pinned digests: %v", err)
+	}
+
 	if *only == "" || *only == "rg" {
-		if err := fetchRipgrep(*rgVer); err != nil {
+		if err := fetchRipgrep(*rgVer, pins); err != nil {
 			fatal("ripgrep: %v", err)
 		}
 	}
 	if *only == "" || *only == "ast-grep" {
-		if err := fetchAstGrep(*sgVer); err != nil {
+		if err := fetchAstGrep(*sgVer, pins); err != nil {
 			fatal("ast-grep: %v", err)
 		}
 	}
 	fmt.Println("done.")
 }
 
+// loadPinnedDigests reads hack/binary-pins.json. Allows a leading
+// `_comment` JSON field (skipped by the unmarshaler since it's not a
+// known field on pinnedDigests). Returns an error rather than
+// defaulting to empty pins — a missing pin file should hard-fail the
+// release build rather than silently downgrade to no pinning.
+//
+// Also normalizes each digest in-place (trim, lowercase) and rejects
+// malformed entries up-front (not 64 hex chars). Copilot review (#58):
+// without this a typo in the pin file surfaces later as a generic
+// "digest mismatch" after the full download, which is hard to diagnose
+// and wastes network. Catching at load means the operator sees the
+// exact bad asset before any fetch starts.
+func loadPinnedDigests() (pinnedDigests, error) {
+	b, err := os.ReadFile(filepath.Join("hack", "binary-pins.json"))
+	if err != nil {
+		return pinnedDigests{}, err
+	}
+	var pins pinnedDigests
+	if err := json.Unmarshal(b, &pins); err != nil {
+		return pinnedDigests{}, err
+	}
+	if err := normalizeAndValidateDigests("ripgrep", pins.Ripgrep); err != nil {
+		return pinnedDigests{}, err
+	}
+	if err := normalizeAndValidateDigests("ast-grep", pins.AstGrep); err != nil {
+		return pinnedDigests{}, err
+	}
+	return pins, nil
+}
+
+// normalizeAndValidateDigests mutates the map in place, lowercasing
+// and trimming each digest, and returns an error naming the first
+// asset whose value isn't a valid 64-char SHA256 hex string. Empty
+// digests are also rejected — a placeholder pin is a bug, not a
+// "skip this asset" signal.
+func normalizeAndValidateDigests(tool string, byVersion map[string]map[string]string) error {
+	for version, assets := range byVersion {
+		for name, raw := range assets {
+			d := strings.ToLower(strings.TrimSpace(raw))
+			if len(d) != sha256.Size*2 {
+				return fmt.Errorf("%s@%s: digest for %q is not %d hex chars (got %d: %q)",
+					tool, version, name, sha256.Size*2, len(d), raw)
+			}
+			if _, err := hex.DecodeString(d); err != nil {
+				return fmt.Errorf("%s@%s: digest for %q is not valid hex (%v): %q",
+					tool, version, name, err, raw)
+			}
+			assets[name] = d
+		}
+	}
+	return nil
+}
+
+// pinnedDigestFor returns the committed digest for an asset basename
+// at a specific version. Hard-errors when the digest is missing —
+// the release build refuses to proceed rather than fall back to a
+// live-fetched value.
+func pinnedDigestFor(d map[string]map[string]string, version, asset string) (string, error) {
+	assets, ok := d[version]
+	if !ok {
+		return "", fmt.Errorf("no pinned digests for version %q in hack/binary-pins.json", version)
+	}
+	digest, ok := assets[asset]
+	if !ok || digest == "" {
+		return "", fmt.Errorf("no pinned digest for %s@%s in hack/binary-pins.json", asset, version)
+	}
+	return digest, nil
+}
+
 // --- ripgrep ---
 
-func fetchRipgrep(version string) error {
+func fetchRipgrep(version string, pins pinnedDigests) error {
 	out := filepath.Join("internal", "rg", "bundled")
 	m := manifest{Version: version, SHA256: map[string]string{}}
 
 	for _, t := range matrix {
 		url, archiveKind, innerPath := ripgrepAsset(version, t)
 		fmt.Printf("ripgrep %s/%s: %s\n", t.GOOS, t.GOARCH, url)
-		wantDigest, err := fetchSHA256Sidecar(url+".sha256", filepath.Base(url))
+		wantDigest, err := pinnedDigestFor(pins.Ripgrep, version, filepath.Base(url))
 		if err != nil {
 			return fmt.Errorf("%s/%s digest: %w", t.GOOS, t.GOARCH, err)
 		}
@@ -152,13 +242,9 @@ func ripgrepAsset(v string, t target) (string, string, string) {
 
 // --- ast-grep ---
 
-func fetchAstGrep(version string) error {
+func fetchAstGrep(version string, pins pinnedDigests) error {
 	out := filepath.Join("internal", "astgrep", "bundled")
 	m := manifest{Version: version, SHA256: map[string]string{}}
-	digests, err := fetchGitHubExpandedAssetDigests("ast-grep/ast-grep", version)
-	if err != nil {
-		return err
-	}
 
 	for _, t := range matrix {
 		url, kind := astGrepAsset(version, t)
@@ -167,7 +253,11 @@ func fetchAstGrep(version string) error {
 		if t.GOOS == "windows" {
 			inner = "ast-grep.exe"
 		}
-		b, err := downloadArchiveFile(url, kind, inner, digests[filepath.Base(url)])
+		wantDigest, err := pinnedDigestFor(pins.AstGrep, version, filepath.Base(url))
+		if err != nil {
+			return fmt.Errorf("%s/%s digest: %w", t.GOOS, t.GOARCH, err)
+		}
+		b, err := downloadArchiveFile(url, kind, inner, wantDigest)
 		if err != nil {
 			return fmt.Errorf("%s/%s: %w", t.GOOS, t.GOARCH, err)
 		}
@@ -317,21 +407,11 @@ func readLimitedFetchBody(r io.Reader, label string, maxBytes int64) ([]byte, er
 	return data, nil
 }
 
-func fetchSHA256Sidecar(url, assetName string) (string, error) {
-	body, err := fetchURLLimited(url, filepath.Base(url), maxFetchSidecarBytes)
-	if err != nil {
-		return "", err
-	}
-	return releaseassets.ParseSHA256Sidecar(body, assetName)
-}
-
-func fetchGitHubExpandedAssetDigests(repo, tag string) (map[string]string, error) {
-	body, err := fetchURLLimited("https://github.com/"+repo+"/releases/expanded_assets/"+tag, "expanded assets", maxFetchMetadataBytes)
-	if err != nil {
-		return nil, err
-	}
-	return releaseassets.ParseGitHubExpandedAssetsDigests(body)
-}
+// (helpers fetchSHA256Sidecar + fetchGitHubExpandedAssetDigests
+// removed — Cluster T closed the supply-chain regression by
+// switching to committed pins in hack/binary-pins.json. Live-fetched
+// digests from the same upstream source as the binaries provided no
+// independent protection against upstream account/release compromise.)
 
 // --- embed generator ---
 

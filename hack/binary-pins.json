@@ -1,0 +1,22 @@
+{
+  "_comment": "SHA-256 digests for the upstream native binaries embedded into release builds via the stado_embed_binaries build tag. Pinned per version per asset filename — independent of any digest the upstream release page advertises at fetch time. Reviewable in source control (this file is the audit anchor); changing a digest requires a reviewable commit that names the new upstream version. Reasoning: pre-Cluster-T fetch-binaries.go fetched .sha256 sidecars (ripgrep) and expanded_assets HTML (ast-grep) from the SAME GitHub upstream release source as the binaries themselves — an upstream account compromise could replace BOTH the asset AND its advertised digest, and stado release builds would embed the swapped bytes with a self-consistent SHA. Codex validated finding (HIGH attack-path) closed by switching to these committed pins.",
+
+  "ripgrep": {
+    "14.1.1": {
+      "ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz": "4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e",
+      "ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz": "c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f",
+      "ripgrep-14.1.1-x86_64-apple-darwin.tar.gz":       "fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3",
+      "ripgrep-14.1.1-aarch64-apple-darwin.tar.gz":      "24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be",
+      "ripgrep-14.1.1-x86_64-pc-windows-msvc.zip":       "d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1"
+    }
+  },
+  "ast-grep": {
+    "0.38.7": {
+      "app-x86_64-unknown-linux-gnu.zip":  "96f96336dd715674dd46b4d68f5b9ae1bb0e8d728e65da00a87f31b66d7caf2e",
+      "app-aarch64-unknown-linux-gnu.zip": "0ffff3c23345fbaa6613d57fc2af41307e7e3f1943788c22a89f35651a6f11f2",
+      "app-x86_64-apple-darwin.zip":       "add804dc5c0575038fd8cc2549629246dc08c83d074cd1e464224360c62a031d",
+      "app-aarch64-apple-darwin.zip":      "3324d9a52f05cbdae7c3abd8fdce5224190910c12c04b91c7937e6414d89f420",
+      "app-x86_64-pc-windows-msvc.zip":    "6d1ceae2574e96ab9acd9bc767075303fd6d8036bce6f0cce8d607cacde86d4a"
+    }
+  }
+}
