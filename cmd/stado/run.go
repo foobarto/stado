@@ -117,6 +117,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		}); err != nil {
 			return err
 		}
+		// EP-0042 follow-up: emit a once-per-process warning when running
+		// without process-containment. After MaybeRewrap, so wrapped
+		// children (RewrappedEnvVar=1) stay silent and unwrapped parents
+		// see the warning.
+		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		// Root --provider/--model are persistent flags; honour them
 		// here too so `stado run --provider ollama-cloud --model
 		// kimi-k2.6 --prompt …` works without editing config.toml.

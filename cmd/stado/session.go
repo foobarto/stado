@@ -14,6 +14,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui"
@@ -425,6 +426,10 @@ var sessionResumeCmd = &cobra.Command{
 		if err := os.Chdir(wt); err != nil {
 			return fmt.Errorf("resume: chdir %s: %w", wt, err)
 		}
+		// EP-0042 follow-up: warn once when resuming unsandboxed —
+		// session resume goes through the same tui.Run path as the bare
+		// command and likewise skips MaybeRewrap.
+		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		// Launch the same entry point `stado` uses for its default
 		// TUI. runtime.OpenSession sees that cwd is a session
 		// worktree and takes the resume-on-cwd branch.

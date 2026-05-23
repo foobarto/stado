@@ -348,6 +348,53 @@ they've pinned your real pubkey.
 
 ---
 
+## Host sandbox
+
+stado spawns host subprocesses from many places — the TUI shell, plugin
+runners, LSP servers, the daemon, post-turn hooks, scheduled tasks, MCP
+wrappers, ACP providers. Those subprocesses inherit the host's
+filesystem and network access unless stado is itself wrapped under a
+process-containment sandbox. Supported wrappers: **bwrap** and
+**firejail** on Linux, **sandbox-exec** on macOS
+(`internal/sandbox/wrap.go` → `pickRunner`).
+
+The wrap is opt-in via `[sandbox] mode = "wrap"` in `config.toml`.
+Default is `off`. Only `stado run` re-execs itself under the wrapper
+today (`internal/sandbox/wrap.go` → `MaybeRewrap`); the bare TUI,
+`stado session resume`, and `stado headless` do NOT re-exec yet — they
+run unwrapped even with `mode = "wrap"` configured.
+
+To make this observable, all four entry points call
+`sandbox.WarnIfHostUnsandboxed` (`internal/sandbox/announce.go`) once
+per process.
+
+**Emits a warning to stderr when:**
+
+- `mode = "off"` / unset (the default) — host is unsandboxed; warning
+  points at the `[sandbox]` config knob and the supported wrappers.
+- `mode = "wrap"` but not the wrapped child — flags the gap that only
+  `stado run` re-execs today, so TUI / headless / session-resume still
+  run unwrapped under this config.
+- `mode = "external"` but no wrapper evidence is detected (i.e.
+  `STADO_REWRAPPED` is unset AND `looksWrapped()` returns false) — the
+  operator claims to handle wrapping externally but the entry point
+  doesn't appear to be running under one. Only `stado run` validates
+  this today via `MaybeRewrap`; the other entry points need the warning.
+
+**Suppressed silently when:**
+
+- `STADO_REWRAPPED=1` — we ARE the wrapped child; the sandbox is
+  active around us, warning would be a lie.
+- `STADO_SUPPRESS_SANDBOX_WARN=1` — operator/CI opt-out.
+- `mode = "external"` AND the process IS wrapped — the operator's
+  external setup is honored.
+
+The warning is a sync.Once across the process — three calls to the
+helper produce exactly one block, not three. Setting
+`STADO_SUPPRESS_SANDBOX_WARN=1` is the intended way to silence it for
+operators who knowingly accept the posture (e.g. running on a host
+that's already containerised, or in CI).
+
 ## Reporting a vulnerability
 
 Open a GitHub security advisory on

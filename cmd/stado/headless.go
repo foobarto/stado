@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/headless"
 	"github.com/foobarto/stado/internal/personas"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -49,6 +50,11 @@ var headlessCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// EP-0042 follow-up: headless does not call MaybeRewrap today,
+		// so the JSON-RPC server runs unwrapped under mode=off and also
+		// under mode=wrap. Warn once so an integrator wiring stado into
+		// another harness sees the containment posture on stderr.
+		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		var defaultPersona *personas.Persona
 		if headlessPersona != "" {
 			p, err := resolvePersona(headlessPersona, cfg)
