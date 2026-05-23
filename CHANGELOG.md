@@ -47,7 +47,7 @@ Six security fixes (one P0 cluster A pair, one P0 cluster F single, one P0 clust
 
 ### Sandbox
 
-- **`stado.WarnIfHostUnsandboxed` — once-per-process warning at every TUI / run / headless / session-resume entry point** (PR #42, `internal/sandbox/announce.go`). Surfaces "host subprocesses are inheriting the host's FS + network" when no process-containment is active. Suppress with `STADO_SUPPRESS_SANDBOX_WARN=1`. Distinct messages for `mode=off`, `mode=wrap` (configured-but-not-rewrapped — TUI/headless/resume don't re-exec today), and `mode=external` (operator-managed-but-no-wrapper-evidence). See SECURITY.md "Host sandbox".
+- **`sandbox.WarnIfHostUnsandboxed` — once-per-process warning at every TUI / run / headless / session-resume entry point** (PR #42, `internal/sandbox/announce.go`). Surfaces "host subprocesses are inheriting the host's FS + network" when no process-containment is active. Suppress with `STADO_SUPPRESS_SANDBOX_WARN=1`. Distinct messages for `mode=off`, `mode=wrap` (configured-but-not-rewrapped — TUI/headless/resume don't re-exec today), and `mode=external` (operator-managed-but-no-wrapper-evidence). See SECURITY.md "Host sandbox".
 
 - **`sandbox.DenyAll()` actually denies exec** (PR #43). The constructor literally named "DenyAll" returned `Policy{Exec: nil}`, which `ResolveBinary` treats as "no restriction" — DenyAll allowed every binary. Now returns `Exec: []string{}` explicitly so the deny path engages. Test `TestDenyAll_DeniesExec` pins the invariant against future regression. Same fix for `ReadOnlyFS()`.
 
