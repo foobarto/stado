@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	"crypto/ed25519"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -198,7 +198,6 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	}
 }
 
-
 // VerifyInstalledPlugin is the exported runtime entry for plugin
 // verification (TUI override / installed-plugin path). It funnels through
 // verifyPluginOverride, which (a) refuses nil arguments and (b) hard-denies
@@ -255,7 +254,6 @@ func TestVerifyInstalledPlugin_revokedFingerprintRejectedBeforeAnyIO(t *testing.
 		t.Errorf("revoked deny should fire BEFORE any filesystem I/O, but error suggests I/O happened: %v", err)
 	}
 }
-
 
 // Fingerprint-consistency check: a tampered trusted_keys.json shouldn't
 // be able to substitute an arbitrary pubkey under a pinned fingerprint
