@@ -83,7 +83,13 @@ func (c CommitMeta) formatMessage() string {
 		if t.v == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "%s: %s\n", t.k, t.v)
+		// Codex #143/#144: strip newlines + control chars so an
+		// attacker-controllable value (plugin name, tool error,
+		// model-generated content in a Summary) can't inject extra
+		// `Key: Value` lines that the audit parser
+		// (audit/export.go parseMessage) would honor under
+		// last-write-wins.
+		fmt.Fprintf(&b, "%s: %s\n", cleanTrailerKey(t.k), cleanTrailerValue(t.v))
 	}
 	return b.String()
 }
@@ -116,8 +122,18 @@ func (c CompactionMeta) formatMessage(ts time.Time) string {
 	b.WriteString(title)
 	b.WriteString("\n\n")
 	if c.Summary != "" {
-		b.WriteString(strings.TrimSpace(c.Summary))
-		b.WriteString("\n\n")
+		// Codex #143: indent each summary line with two spaces so a
+		// summary containing `"Tool: bash"` doesn't inject a fake
+		// `Tool` trailer (audit/export.go parseMessage treats every
+		// `K: V` line after the first blank as a trailer; indented
+		// lines don't match the trailer regex). Git-tooling-friendly
+		// — git's own trailer parser also skips indented lines.
+		for _, line := range strings.Split(strings.TrimSpace(c.Summary), "\n") {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteByte('\n')
+		}
+		b.WriteString("\n")
 	}
 	trailers := []struct{ k, v string }{
 		{"Compaction-From-Turn", fmt.Sprintf("%d", c.FromTurn)},
@@ -135,7 +151,13 @@ func (c CompactionMeta) formatMessage(ts time.Time) string {
 		if t.v == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "%s: %s\n", t.k, t.v)
+		// Codex #143/#144: strip newlines + control chars so an
+		// attacker-controllable value (plugin name, tool error,
+		// model-generated content in a Summary) can't inject extra
+		// `Key: Value` lines that the audit parser
+		// (audit/export.go parseMessage) would honor under
+		// last-write-wins.
+		fmt.Fprintf(&b, "%s: %s\n", cleanTrailerKey(t.k), cleanTrailerValue(t.v))
 	}
 	return b.String()
 }
@@ -154,4 +176,57 @@ func boolStr(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// cleanTrailerValue strips newlines and other control characters from a
+// trailer value before it goes into the commit message. Without this,
+// an attacker-controllable value (plugin name, tool error string,
+// model output that lands in a Summary line) could embed `\n` to
+// inject extra `Key: Value` lines that the audit parser
+// ([internal/audit/export.go] parseMessage) would treat as real
+// trailers, overwriting attribution under last-write-wins semantics.
+//
+// Codex #143 + #144: pre-fix the formatters used raw `fmt.Fprintf`
+// with `%s` for every trailer value. A malicious `Plugin: "evil\nTool:
+// bash\nAgent: legit"` produced three trailer lines; a compaction
+// summary containing `"Tool: bash"` injected a fake tool trailer.
+//
+// Replaces newlines with space (preserves trailer-line wrapping
+// semantics while eliminating injection); strips other C0/C1
+// controls outright (BEL, ESC, DEL, etc.) — none have legitimate
+// meaning in a trailer value.
+func cleanTrailerValue(v string) string {
+	var b strings.Builder
+	b.Grow(len(v))
+	for _, r := range v {
+		switch r {
+		case '\n', '\r':
+			b.WriteByte(' ')
+		case '\t':
+			b.WriteByte(' ')
+		default:
+			if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+				continue // strip other C0 + DEL + C1 silently
+			}
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// cleanTrailerKey enforces the strict trailer-key grammar so a
+// malicious tool name (`Tool: ev:il\nFake: bash`) can't slip a colon
+// into the key. Keys are constants in the formatters today, but
+// passing them through this helper future-proofs against a future
+// caller that derives the key from untrusted data. ASCII alnum,
+// hyphen, and underscore only — git-trailer convention.
+func cleanTrailerKey(k string) string {
+	var b strings.Builder
+	b.Grow(len(k))
+	for _, r := range k {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

@@ -127,19 +127,32 @@ func (s *Session) commitOnRef(ref plumbing.ReferenceName, tree plumbing.Hash, me
 	}
 
 	msg := meta.formatMessage()
+	now := time.Now()
+	sig := s.signature(now)
 	if s.Signer != nil {
 		parentStrs := make([]string, len(parents))
 		for i, p := range parents {
 			parentStrs[i] = p.String()
 		}
-		sigValue := s.Signer.Sign(tree.String(), parentStrs, msg)
+		// Codex #138: prefer V2 signing (binds author/committer/
+		// timestamps into the signed payload) when the signer
+		// supports it. Fall back to v1 only for legacy stub signers
+		// in older tests that haven't been migrated. Author/committer
+		// are materialized BEFORE signing so the timestamp bound into
+		// the signature matches what go-git later writes into the
+		// commit object.
+		var sigValue string
+		if v2, ok := s.Signer.(CommitSignerV2); ok {
+			sigValue = v2.SignV2(tree.String(), parentStrs, msg,
+				sig.Name, sig.Email, sig.When.Unix(),
+				sig.Name, sig.Email, sig.When.Unix())
+		} else {
+			sigValue = s.Signer.Sign(tree.String(), parentStrs, msg)
+		}
 		if sigValue != "" {
 			msg = appendSignatureTrailer(msg, sigValue)
 		}
 	}
-
-	now := time.Now()
-	sig := s.signature(now)
 	commit := &object.Commit{
 		Author:    sig,
 		Committer: sig,
