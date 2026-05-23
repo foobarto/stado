@@ -196,7 +196,11 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 	}
 	seen := make(map[string]bool, len(w.Options))
 	out := ChoiceRequest{
-		Prompt:  w.Prompt,
+		// Prompt is the question text shown above the choice list —
+		// untrusted plugin text reaching the operator terminal verbatim.
+		// SanitizeForTerminal keeps newlines (legitimate multi-line
+		// prompts are common) while stripping ESC/CSI/OSC/BEL.
+		Prompt:  textutil.SanitizeForTerminal(w.Prompt),
 		Multi:   w.Multi,
 		Default: append([]string(nil), w.Default...),
 		Options: make([]ChoiceOption, 0, len(w.Options)),
@@ -237,8 +241,11 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			}
 		}
 		out.Options = append(out.Options, ChoiceOption{
-			ID:     o.ID,
-			Label:  o.Label,
+			ID: o.ID,
+			// Label is the visible per-option text in the choice list.
+			// Same untrusted-plugin-text-to-operator-terminal flow as
+			// Prefix and Default — sanitize for the same reason.
+			Label:  textutil.SanitizeForTerminal(o.Label),
 			Prefix: textutil.SanitizeForTerminal(o.Prefix),
 			Input:  input,
 		})

@@ -61,7 +61,13 @@ func emitProgress(host *Host, text string) int32 {
 		return 0
 	}
 	if host.Progress != nil {
-		host.Progress(host.Manifest.Name, textutil.SanitizeForTerminal(text))
+		// host.Manifest.Name is operator-pinned text but still untrusted
+		// — a misconfigured / malicious manifest can embed ESC/OSC/CSI
+		// in the name and reach the operator terminal via the progress
+		// log. StripControlChars (not SanitizeForTerminal) because plugin
+		// names are identifiers; a newline-bearing "name" is itself a
+		// red flag worth flattening.
+		host.Progress(textutil.StripControlChars(host.Manifest.Name), textutil.SanitizeForTerminal(text))
 	}
 	return 0
 }
