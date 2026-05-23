@@ -100,10 +100,13 @@ func TestResolveSupervisorLane_EnabledWithProvider_LookupReturnsSupervisor(t *te
 	}
 }
 
-// When supervisor.Model is empty, the worker model is used. The provider
-// may reject it upstream (no overlap in supported models), which is the
-// right loud failure to give the operator — better than silent leakage.
-func TestResolveSupervisorLane_EmptySupervisorModel_FallsBackToWorkerModel(t *testing.T) {
+// Per the config contract (`Supervisor.Model` doc: "Empty = use the
+// provider's default"), the helper must return "" when Model is empty
+// so the supervisor provider applies its own default. Returning the
+// worker model would force the supervisor to honor a model name
+// chosen for a DIFFERENT provider, usually a mismatch. Copilot caught
+// the prior fallback-to-worker behavior on round 1.
+func TestResolveSupervisorLane_EmptySupervisorModel_ReturnsEmptyForProviderDefault(t *testing.T) {
 	cfg := &config.Config{Supervisor: config.Supervisor{
 		Enabled:  true,
 		Provider: "ollama-local",
@@ -116,8 +119,61 @@ func TestResolveSupervisorLane_EmptySupervisorModel_FallsBackToWorkerModel(t *te
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotM != "worker-model" {
-		t.Errorf("model = %q, want worker-model fallback", gotM)
+	if gotM != "" {
+		t.Errorf("model = %q, want empty so the supervisor provider applies its default", gotM)
+	}
+}
+
+// Defensive: nil lookup must produce an error (not a panic) when
+// supervisor is configured. Caller bug surfaces predictably.
+// Sanity-checked at the bottom: nil lookup with supervisor DISABLED
+// stays the supported "no supervisor here" sentinel and short-circuits
+// to fallback before dereferencing.
+func TestResolveSupervisorLane_NilLookup_ReturnsError(t *testing.T) {
+	cfg := &config.Config{Supervisor: config.Supervisor{
+		Enabled:  true,
+		Provider: "ollama-local",
+		Model:    "llama3.2",
+	}}
+	gotP, gotM, err := resolveSupervisorLane(cfg, &fakeProvider{}, "worker-model", nil)
+	if err == nil {
+		t.Fatal("expected error for nil lookup with configured supervisor, got nil")
+	}
+	if gotP != nil || gotM != "" {
+		t.Errorf("on error, expected zero values; got provider=%v model=%q", gotP, gotM)
+	}
+	if !strings.Contains(err.Error(), "nil lookup") {
+		t.Errorf("error should mention nil lookup; got %v", err)
+	}
+
+	off := &config.Config{Supervisor: config.Supervisor{Enabled: false}}
+	worker := &fakeProvider{name: "worker"}
+	if p, m, err := resolveSupervisorLane(off, worker, "worker-model", nil); err != nil || p != worker || m != "worker-model" {
+		t.Errorf("disabled+nil-lookup should return fallback cleanly; got p=%v m=%q err=%v", p, m, err)
+	}
+}
+
+// Defensive: lookup returning (nil, nil) is a buggy lookup impl, but
+// propagating nil to startBtw would crash on Capabilities() /
+// StreamTurn downstream. Fail closed here with a descriptive error
+// instead of pushing the nil into the call site.
+func TestResolveSupervisorLane_LookupReturnsNilProvider_ReturnsError(t *testing.T) {
+	cfg := &config.Config{Supervisor: config.Supervisor{
+		Enabled:  true,
+		Provider: "ollama-local",
+		Model:    "llama3.2",
+	}}
+	lookup := func(_ *config.Config, _ string) (agent.Provider, error) { return nil, nil }
+
+	gotP, gotM, err := resolveSupervisorLane(cfg, &fakeProvider{}, "worker-model", lookup)
+	if err == nil {
+		t.Fatal("expected error for (nil, nil) lookup return, got nil")
+	}
+	if gotP != nil || gotM != "" {
+		t.Errorf("on error, expected zero values; got provider=%v model=%q", gotP, gotM)
+	}
+	if !strings.Contains(err.Error(), "nil provider") {
+		t.Errorf("error should mention nil provider; got %v", err)
 	}
 }
 

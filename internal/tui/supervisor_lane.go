@@ -31,12 +31,22 @@ type providerLookup func(cfg *config.Config, name string) (agent.Provider, error
 // consulted cfg.Supervisor.{Provider,Model}; every BTW question went
 // to the worker regardless of supervisor config.
 //
-// Model selection:
+// Model selection follows the config contract documented at
+// [config.Supervisor.Model] ("Empty = use the provider's default"):
+//
 //   - cfg.Supervisor.Model set → use it.
-//   - cfg.Supervisor.Model empty → fall back to fallbackModel (the
-//     worker's model). The supervisor provider may reject it as
-//     "unknown model," surfacing a clear actionable error to the
-//     operator instead of silent leakage.
+//   - cfg.Supervisor.Model empty → return "" so the supervisor
+//     provider applies its own default. Returning the worker's model
+//     here would force the supervisor to honor a model name picked
+//     for a different provider, which usually fails and contradicts
+//     the documented contract. Copilot caught this on round 1.
+//
+// Defensive guards (also from Copilot round 1):
+//
+//   - nil lookup → error rather than panic. Caller bug, surface it.
+//   - lookup returns (nil, nil) → error rather than propagate nil.
+//     Downstream callers dereference the provider for [Capabilities]
+//     and [StreamTurn]; a nil here would crash there with no context.
 func resolveSupervisorLane(
 	cfg *config.Config,
 	fallbackProvider agent.Provider,
@@ -46,13 +56,51 @@ func resolveSupervisorLane(
 	if cfg == nil || !cfg.Supervisor.Enabled || cfg.Supervisor.Provider == "" {
 		return fallbackProvider, fallbackModel, nil
 	}
+	if lookup == nil {
+		return nil, "", fmt.Errorf("supervisor provider %q: nil lookup (internal: caller did not pass a provider builder)", cfg.Supervisor.Provider)
+	}
 	p, err := lookup(cfg, cfg.Supervisor.Provider)
 	if err != nil {
 		return nil, "", fmt.Errorf("supervisor provider %q: %w", cfg.Supervisor.Provider, err)
 	}
-	model := cfg.Supervisor.Model
-	if model == "" {
-		model = fallbackModel
+	if p == nil {
+		return nil, "", fmt.Errorf("supervisor provider %q: lookup returned nil provider with no error", cfg.Supervisor.Provider)
 	}
-	return p, model, nil
+	return p, cfg.Supervisor.Model, nil
+}
+
+// cachedSupervisorLookup is the [providerLookup] startBtw passes to
+// [resolveSupervisorLane]. It builds the supervisor provider via
+// [buildProviderByName] on first call and caches the result on the
+// Model so subsequent BTW calls reuse the same instance.
+//
+// Why caching matters: ACP- and MCP-wrapped providers
+// (`internal/providers/acpwrap`, `mcpwrap`) spawn a subprocess and run
+// a session handshake in their constructor. Per-call rebuild would
+// fork a new subprocess for every BTW question, plus discard the
+// previous session's MCP state, plus leak file descriptors. Codex P1
+// caught this on #45 round 1.
+//
+// Build errors are NOT cached — a transient failure (e.g. ACP binary
+// briefly missing) shouldn't permanently block the supervisor lane;
+// next BTW retries.
+func (m *Model) cachedSupervisorLookup(cfg *config.Config, name string) (agent.Provider, error) {
+	m.supervisorProviderMu.Lock()
+	defer m.supervisorProviderMu.Unlock()
+	if m.supervisorProvider != nil {
+		return m.supervisorProvider, nil
+	}
+	p, err := buildProviderByName(cfg, name)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		// buildProviderByName's contract returns either a non-nil
+		// provider or a non-nil error. Defending the contract here so
+		// a future regression doesn't silently cache nil and break
+		// every subsequent BTW until restart.
+		return nil, fmt.Errorf("buildProviderByName(%q) returned nil with no error", name)
+	}
+	m.supervisorProvider = p
+	return p, nil
 }

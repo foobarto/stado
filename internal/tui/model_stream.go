@@ -245,7 +245,7 @@ func (m *Model) startBtw(question string) tea.Cmd {
 	m.appendBlock(block{kind: "btw", body: question + "\n"})
 	m.renderBlocks()
 
-	supProvider, supModel, supErr := resolveSupervisorLane(m.cfg, m.provider, m.model, buildProviderByName)
+	supProvider, supModel, supErr := resolveSupervisorLane(m.cfg, m.provider, m.model, m.cachedSupervisorLookup)
 	if supErr != nil {
 		return func() tea.Msg {
 			return btwResultMsg{question: question, errMsg: supErr.Error()}
