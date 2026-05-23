@@ -17,8 +17,14 @@ package sandbox
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 )
+
+// execLookPath is the variable form of [exec.LookPath] so tests can stub
+// the resolver for host-independent assertions about the rendered
+// profile. Production callers always hit the real PATH lookup.
+var execLookPath = exec.LookPath
 
 // RenderSandboxProfile produces a .sb profile that:
 //   - denies everything by default
@@ -74,9 +80,31 @@ func RenderSandboxProfile(p Policy) string {
 		fmt.Fprintf(&b, "(allow file-write* (subpath %s))\n", sbxString(path))
 	}
 
-	// Exec allow-list.
+	// Exec allow-list. sandbox-exec's `(literal "...")` predicate matches
+	// against the ABSOLUTE path of the executed binary, not the basename.
+	// [Policy.Exec] is conventionally populated with basenames (e.g.
+	// `exec:git` from [internal/mcp.ParseCapabilities] yields
+	// `Exec: ["git"]`) and the runner resolves via [exec.LookPath]
+	// before spawning. To make the allowlist match what sandbox-exec
+	// actually sees, resolve each entry here too: absolute entries pass
+	// through unchanged; bare names go through [execLookPath]. A lookup
+	// failure emits the entry as-given so a typo deny-fails predictably
+	// (rather than silently widening the sandbox by skipping the rule).
+	//
+	// Symlink nuance: if the binary itself is a symlink (e.g. /bin/sh →
+	// /usr/local/bin/dash), sandbox-exec's literal matches against the
+	// path the kernel records for the exec, which is the symlink path
+	// (not the resolved target). Resolving via LookPath gives us the
+	// PATH-found symlink path, which is what the runner will also pass
+	// to the child via /bin/sh-style invocation — so they line up.
 	for _, bin := range p.Exec {
-		fmt.Fprintf(&b, "(allow process-exec (literal %s))\n", sbxString(bin))
+		resolved := bin
+		if !strings.HasPrefix(bin, "/") {
+			if abs, err := execLookPath(bin); err == nil {
+				resolved = abs
+			}
+		}
+		fmt.Fprintf(&b, "(allow process-exec (literal %s))\n", sbxString(resolved))
 	}
 
 	// Network policy.

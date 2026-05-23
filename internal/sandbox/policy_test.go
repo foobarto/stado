@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -62,9 +63,14 @@ func TestDenyAll_DeniesExec(t *testing.T) {
 	if p.Exec == nil {
 		t.Fatal("DenyAll().Exec is nil — ResolveBinary will allow every binary")
 	}
-	if _, err := ResolveBinary(p, "sh"); err == nil {
-		t.Error("ResolveBinary(DenyAll(),\"sh\") returned nil error — DenyAll is not actually denying exec")
-	} else if _, ok := err.(Denied); !ok {
+	_, err := ResolveBinary(p, "sh")
+	if err == nil {
+		t.Fatal("ResolveBinary(DenyAll(),\"sh\") returned nil error — DenyAll is not actually denying exec")
+	}
+	// errors.As (not direct type assertion) so future wrapping with
+	// fmt.Errorf("...: %w", err) won't silently regress the test.
+	var denied Denied
+	if !errors.As(err, &denied) {
 		t.Errorf("ResolveBinary(DenyAll(),\"sh\") returned %T %v, want Denied", err, err)
 	}
 }
@@ -91,9 +97,12 @@ func TestReadOnlyFS_DeniesExec(t *testing.T) {
 	if p.Exec == nil {
 		t.Fatal("ReadOnlyFS().Exec is nil — ResolveBinary will allow every binary")
 	}
-	if _, err := ResolveBinary(p, "sh"); err == nil {
-		t.Error("ResolveBinary(ReadOnlyFS(\"/etc\"),\"sh\") returned nil error — ReadOnlyFS is not actually denying exec")
-	} else if _, ok := err.(Denied); !ok {
+	_, err := ResolveBinary(p, "sh")
+	if err == nil {
+		t.Fatal("ResolveBinary(ReadOnlyFS(\"/etc\"),\"sh\") returned nil error — ReadOnlyFS is not actually denying exec")
+	}
+	var denied Denied
+	if !errors.As(err, &denied) {
 		t.Errorf("ResolveBinary(ReadOnlyFS,\"sh\") returned %T %v, want Denied", err, err)
 	}
 }

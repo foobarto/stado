@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -76,5 +77,90 @@ func TestRenderSandboxProfile_DenyDefault(t *testing.T) {
 	profile := RenderSandboxProfile(Policy{})
 	if !strings.Contains(profile, "(deny default)") {
 		t.Errorf("profile missing `(deny default)`:\n%s", profile)
+	}
+}
+
+// Basename entries in Policy.Exec must be resolved to absolute paths
+// before going into the `(literal ...)` predicate — sandbox-exec
+// matches against the executed binary's absolute path, not the
+// basename. Otherwise an `exec:git` capability yields a literal of
+// "git" which never matches /usr/bin/git and the tool is denied at
+// runtime.
+//
+// Codex P1 + Copilot ×2 caught this regression introduced when the
+// wildcard was removed. Stubbing execLookPath keeps the test
+// host-independent (no real /usr/bin lookup, no cross-platform skew).
+func TestRenderSandboxProfile_BasenameResolvedToAbsolute(t *testing.T) {
+	orig := execLookPath
+	defer func() { execLookPath = orig }()
+	stub := map[string]string{
+		"git": "/usr/bin/git",
+		"sh":  "/bin/sh",
+	}
+	execLookPath = func(name string) (string, error) {
+		if abs, ok := stub[name]; ok {
+			return abs, nil
+		}
+		return "", errors.New("not found")
+	}
+
+	p := Policy{Exec: []string{"git", "sh"}}
+	profile := RenderSandboxProfile(p)
+
+	for _, want := range []string{
+		`(allow process-exec (literal "/usr/bin/git"))`,
+		`(allow process-exec (literal "/bin/sh"))`,
+	} {
+		if !strings.Contains(profile, want) {
+			t.Errorf("profile missing resolved-basename allow %q:\n%s", want, profile)
+		}
+	}
+	for _, unwanted := range []string{
+		`(allow process-exec (literal "git"))`,
+		`(allow process-exec (literal "sh"))`,
+	} {
+		if strings.Contains(profile, unwanted) {
+			t.Errorf("profile contains unresolved basename %q — sandbox-exec literal won't match the executed absolute path:\n%s", unwanted, profile)
+		}
+	}
+}
+
+// Absolute paths in Policy.Exec pass through unchanged (don't go
+// through LookPath). Operator-declared absolute paths should be honored
+// literally.
+func TestRenderSandboxProfile_AbsolutePathsPassThrough(t *testing.T) {
+	orig := execLookPath
+	defer func() { execLookPath = orig }()
+	execLookPath = func(name string) (string, error) {
+		t.Errorf("execLookPath should not be called for absolute paths; got %q", name)
+		return "", errors.New("unexpected")
+	}
+
+	p := Policy{Exec: []string{"/opt/custom/bin/tool"}}
+	profile := RenderSandboxProfile(p)
+
+	want := `(allow process-exec (literal "/opt/custom/bin/tool"))`
+	if !strings.Contains(profile, want) {
+		t.Errorf("profile missing absolute-path allow %q:\n%s", want, profile)
+	}
+}
+
+// LookPath failure on a basename must emit the entry as-given (will
+// fail to match at runtime), NOT skip the rule entirely. Skipping
+// would silently widen the sandbox by removing a deny — a typo
+// should fail loudly at exec time, not become "allow everything else."
+func TestRenderSandboxProfile_LookupFailureEmitsAsGiven(t *testing.T) {
+	orig := execLookPath
+	defer func() { execLookPath = orig }()
+	execLookPath = func(name string) (string, error) {
+		return "", errors.New("not found")
+	}
+
+	p := Policy{Exec: []string{"nonexistent-binary-xyzzy"}}
+	profile := RenderSandboxProfile(p)
+
+	want := `(allow process-exec (literal "nonexistent-binary-xyzzy"))`
+	if !strings.Contains(profile, want) {
+		t.Errorf("profile must emit unresolved entry as-given so the rule deny-fails predictably:\n%s", profile)
 	}
 }
