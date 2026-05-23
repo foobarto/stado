@@ -183,9 +183,13 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		wasmPath := filepath.Join(dir, "plugin.wasm")
 		// Load + verify in one read. The bytes passed to CompileModule
 		// MUST be the bytes whose SHA-256 was checked — otherwise:
-		//   (a) the size/symlink/regular-file guards inside
-		//       ReadVerifiedWASM (filepath.Clean, max 64 MiB,
-		//       fs.Mode().IsRegular()) don't gate the compile path;
+		//   (a) ReadVerifiedWASM's containment + size + regular-file
+		//       guards (workdirpath.OpenRoot for path confinement,
+		//       openRootRegularPackageFile for symlink/special-file
+		//       rejection, readLimitedPackageFile for the size cap)
+		//       don't gate the compile path; an os.ReadFile would
+		//       follow a symlink to /dev/zero or pull an oversized
+		//       file straight into memory before any check applied;
 		//   (b) a TOCTOU between two reads lets an attacker swap the
 		//       file after the verify and have CompileModule parse
 		//       different bytes.
