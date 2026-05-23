@@ -198,6 +198,19 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 				} else {
 					res.Error = res.Error + "; " + skipNote
 				}
+				// Snapshot failure means the audit trail for this
+				// mutation is incomplete — promote outcome to error
+				// so telemetry, the trace commit's Summary, and the
+				// OTel span status all match the surfaced res.Error.
+				// Codex P2 + Copilot both caught the gap: pre-fix
+				// outcome stayed "ok", meta.Summary stayed
+				// "mutating [ok]", and the span reported OK even
+				// though an Error: trailer was about to be written,
+				// so downstream consumers keyed on Summary/span saw
+				// success.
+				meta.Summary = fmt.Sprintf("%s [%s]", class.String(), "error")
+				span.SetAttributes(attribute.String("tool.outcome", "error"))
+				span.SetStatus(codes.Error, skipNote)
 				e.logBuildTreeSkip(auditDir, err)
 			} else {
 				treeHash = post
