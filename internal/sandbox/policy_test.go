@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -51,6 +52,29 @@ func TestDenyAll(t *testing.T) {
 	}
 }
 
+// TestDenyAll_DeniesExec is the load-bearing assertion: DenyAll is
+// supposed to deny every exec, not just zero-length-ly omit the list.
+// ResolveBinary distinguishes Exec=nil ("no policy, allow everything")
+// from Exec=[] ("explicit deny-all") — the constructor must produce
+// the latter or the function silently allows every binary. Regression
+// test for the bug Codex flagged as #116 ("DenyAll allows everything").
+func TestDenyAll_DeniesExec(t *testing.T) {
+	p := DenyAll()
+	if p.Exec == nil {
+		t.Fatal("DenyAll().Exec is nil — ResolveBinary will allow every binary")
+	}
+	_, err := ResolveBinary(p, "sh")
+	if err == nil {
+		t.Fatal("ResolveBinary(DenyAll(),\"sh\") returned nil error — DenyAll is not actually denying exec")
+	}
+	// errors.As (not direct type assertion) so future wrapping with
+	// fmt.Errorf("...: %w", err) won't silently regress the test.
+	var denied Denied
+	if !errors.As(err, &denied) {
+		t.Errorf("ResolveBinary(DenyAll(),\"sh\") returned %T %v, want Denied", err, err)
+	}
+}
+
 func TestReadOnlyFS(t *testing.T) {
 	p := ReadOnlyFS("/etc", "/usr")
 	if len(p.FSRead) != 2 {
@@ -61,6 +85,25 @@ func TestReadOnlyFS(t *testing.T) {
 	}
 	if len(p.FSWrite) != 0 {
 		t.Error("ReadOnlyFS should have no write paths")
+	}
+}
+
+// Same load-bearing invariant as TestDenyAll_DeniesExec — ReadOnlyFS is
+// documented as "no exec," but the original code left Exec=nil which
+// ResolveBinary treats as "no restriction." The constructor must
+// produce Exec=[] for the deny path to engage.
+func TestReadOnlyFS_DeniesExec(t *testing.T) {
+	p := ReadOnlyFS("/etc")
+	if p.Exec == nil {
+		t.Fatal("ReadOnlyFS().Exec is nil — ResolveBinary will allow every binary")
+	}
+	_, err := ResolveBinary(p, "sh")
+	if err == nil {
+		t.Fatal("ResolveBinary(ReadOnlyFS(\"/etc\"),\"sh\") returned nil error — ReadOnlyFS is not actually denying exec")
+	}
+	var denied Denied
+	if !errors.As(err, &denied) {
+		t.Errorf("ResolveBinary(ReadOnlyFS,\"sh\") returned %T %v, want Denied", err, err)
 	}
 }
 

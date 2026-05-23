@@ -105,16 +105,30 @@ func (n NetPolicy) Describe() string {
 
 // DenyAll returns the most restrictive policy — no FS, no net, no exec.
 // Useful as the default when a tool doesn't declare one.
+//
+// The empty-slice Exec is load-bearing: [ResolveBinary] treats Exec=nil
+// as "no policy" (allow any binary on PATH) and Exec=[] as "explicit
+// deny-all". Leaving Exec at the zero value would make this constructor
+// silently allow every binary — the opposite of its name. The test
+// `TestDenyAll_DeniesExec` pins this invariant against future
+// refactors.
 func DenyAll() Policy {
-	return Policy{Net: NetPolicy{Kind: NetDenyAll}}
+	return Policy{
+		Net:  NetPolicy{Kind: NetDenyAll},
+		Exec: []string{},
+	}
 }
 
 // ReadOnlyFS builds a read-only FS policy from the given read paths with
 // net denied and no exec. Handy for query-class tools.
+//
+// Same Exec-must-be-empty-slice invariant as [DenyAll]; see that
+// constructor's comment for why the zero value would be wrong here.
 func ReadOnlyFS(readGlobs ...string) Policy {
 	return Policy{
 		FSRead: readGlobs,
 		Net:    NetPolicy{Kind: NetDenyAll},
+		Exec:   []string{},
 	}
 }
 
