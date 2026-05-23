@@ -25,6 +25,27 @@ func TestIsRevoked_unknown(t *testing.T) {
 	}
 }
 
+// Case-insensitivity: a tampered manifest could supply UPPERCASE hex to
+// slip past a case-sensitive map lookup while still presenting a valid
+// signature. IsRevoked must normalize before comparing.
+func TestIsRevoked_caseInsensitive(t *testing.T) {
+	// 6c48b56f20c9c344 is the lowercase canonical form (browser-demo.seed).
+	cases := []string{
+		"6c48b56f20c9c344",
+		"6C48B56F20C9C344",
+		"6c48b56F20c9C344",
+	}
+	for _, fpr := range cases {
+		rev, src := IsRevoked(fpr)
+		if !rev {
+			t.Errorf("IsRevoked(%q) should match the lowercase canonical form", fpr)
+		}
+		if src == "" {
+			t.Errorf("IsRevoked(%q) should return the source filename", fpr)
+		}
+	}
+}
+
 func TestRevokedList_count(t *testing.T) {
 	// Shrink-only guard: 12 demo seeds were committed to history
 	// (browser/encode-zig/hello/hello-go/http-session/image-info/ls/

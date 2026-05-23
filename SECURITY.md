@@ -290,8 +290,9 @@ This is a hard deny — there is no escape hatch. If you add a new
 verification entry point, it MUST consult `IsRevoked` too, or this
 guarantee is silently lost.
 
-The 12 revoked fingerprints (each maps to a leaked demo-seed file
-preserved in git history):
+The currently-revoked fingerprints (each maps to a leaked demo-seed file
+preserved in git history; the list may grow over time as more keys are
+revoked — see `internal/plugins/revoked.go` for the live set):
 
 | Fingerprint | Leaked seed |
 |---|---|

@@ -1,6 +1,9 @@
 package plugins
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // revokedFingerprints names plugin-author Ed25519 fingerprints whose
 // corresponding *private seeds* were committed to this repo's git history
@@ -34,8 +37,13 @@ var revokedFingerprints = map[string]string{
 
 // IsRevoked reports whether the fingerprint is on the deny-list. The second
 // return is the source filename of the leaked seed (empty when not revoked).
+//
+// Lookup is case-insensitive (fingerprints are canonically lowercase hex, but
+// a tampered/malicious manifest could supply uppercase to slip past a
+// case-sensitive map lookup while still presenting a valid signature). The
+// CRL code already compares hex case-insensitively for the same reason.
 func IsRevoked(fpr string) (bool, string) {
-	src, ok := revokedFingerprints[fpr]
+	src, ok := revokedFingerprints[strings.ToLower(fpr)]
 	return ok, src
 }
 
@@ -58,7 +66,7 @@ func IsRevoked(fpr string) (bool, string) {
 // trust.go's parsePubkey, manifest.go's load/parse — so the convention
 // isn't perfectly uniform across the file.)
 func RevokedError(fpr string) error {
-	src, ok := revokedFingerprints[fpr]
+	src, ok := revokedFingerprints[strings.ToLower(fpr)]
 	if !ok {
 		return fmt.Errorf("plugins: RevokedError called for non-revoked fingerprint %s (internal error — caller should IsRevoked() first)", fpr)
 	}

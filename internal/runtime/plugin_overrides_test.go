@@ -264,12 +264,18 @@ func TestVerifyInstalledPlugin_trustStoreFingerprintMismatch(t *testing.T) {
 	cfg := isolatedRuntimeConfig(t)
 	ts := plugins.NewTrustStore(cfg.StateDir())
 	const pinnedFpr = "aaaaaaaaaaaaaaaa"
-	// A valid 32-byte ed25519 pubkey whose Fingerprint() is NOT pinnedFpr
-	// (this is the foobarto-anchor pubkey from this session; its real fpr
-	// is 57a3e58ce484c5e5).
-	const realPubHex = "49bf2aa1ae268e2cab7f8e328202244262e62aba8ac4b2653f22f7683118a18e"
+	// Generate a fresh ed25519 keypair so the test isn't tied to any
+	// session-specific key. Its real fingerprint is overwhelmingly unlikely
+	// to collide with pinnedFpr (2^-64); guard explicitly anyway.
+	realPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ed25519 key: %v", err)
+	}
+	if plugins.Fingerprint(realPub) == pinnedFpr {
+		t.Fatal("astronomical collision — re-run the test")
+	}
 	if err := ts.Save(map[string]plugins.TrustEntry{
-		pinnedFpr: {Fingerprint: pinnedFpr, Pubkey: realPubHex},
+		pinnedFpr: {Fingerprint: pinnedFpr, Pubkey: hex.EncodeToString(realPub)},
 	}); err != nil {
 		t.Fatalf("seed tampered trust store: %v", err)
 	}
