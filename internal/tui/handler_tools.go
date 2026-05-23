@@ -231,6 +231,24 @@ func onPluginFork(m *Model, msg pluginForkMsg) (tea.Model, tea.Cmd) {
 }
 
 func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
+	// Codex validated finding (post-#46): when the operator pressed
+	// a kill-switch key during this turn (Esc/Ctrl+G, Alt+Enter,
+	// /cancel, /queue-now, /force, /stop), the cancelled tool's
+	// `context.Canceled` came back as a normal toolResultMsg, the
+	// (now-empty) queue drained, and this handler unconditionally
+	// re-started the provider stream — letting the model request
+	// another tool and continue the turn the operator just stopped.
+	// Refuse the re-stream when the cancellation flag is set;
+	// dispatch any queued operator prompt instead so the operator's
+	// next-turn intent still fires.
+	if m.turnCancelled {
+		m.turnCancelled = false
+		m.renderBlocks()
+		if m.state == stateIdle && m.queuedPrompt != "" {
+			return m, m.promoteQueuedPrompt()
+		}
+		return m, nil
+	}
 	m.annotateLastAssistantToolResults(msg.results)
 	// EP-0037 lazy-load: when the model called tools.describe, parse
 	// the result and add the described tools to this session's

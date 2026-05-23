@@ -543,6 +543,17 @@ type Model struct {
 	// a toolsExecutedMsg and the agent loop continues.
 	pendingCalls   []agent.ToolUseBlock
 	pendingResults []agent.ToolResultBlock
+	// turnCancelled records that an operator kill-switch path
+	// (Esc/Ctrl+G, Alt+Enter, /cancel, /queue-now, /force, /stop)
+	// fired during this turn. Cleared at startStream. Codex caught
+	// the bypass: pre-fix, cancelRunningTool / clearPendingToolQueue
+	// only stopped the current tool, but the cancelled tool's
+	// `context.Canceled` was converted into a normal
+	// toolResultMsg{Content: "cancelled by user"} → advanceToolQueue
+	// drained the (empty) queue → toolsExecutedMsg → onToolsExecuted
+	// unconditionally called startStream() → model could request
+	// another tool. Operator-pressed kill switch defeated.
+	turnCancelled bool
 
 	// systemPrompt is the project-root AGENTS.md / CLAUDE.md body
 	// resolved at TUI startup and passed into the system-prompt

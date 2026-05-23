@@ -127,3 +127,67 @@ func TestClearPendingToolQueue_LeavesPendingResultsAlone(t *testing.T) {
 		t.Errorf("clearPendingToolQueue should not touch pendingResults; got %+v", m.pendingResults)
 	}
 }
+
+// Codex validated finding (post-#46): both cancel helpers must SET
+// m.turnCancelled so onToolsExecuted refuses to re-start the provider
+// stream when the cancelled tool's `context.Canceled` drains the
+// (now-empty) queue. Without this flag the operator-pressed kill
+// switch was effectively a no-op: the model just got a "cancelled
+// by user" tool result and continued the turn.
+func TestCancelRunningStream_SetsTurnCancelled(t *testing.T) {
+	cancel, _ := recordCancel()
+	m := &Model{streamCancel: cancel}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	if !m.cancelRunningStream() {
+		t.Fatal("cancelRunningStream should report cancellation")
+	}
+	if !m.turnCancelled {
+		t.Error("cancelRunningStream must set m.turnCancelled = true")
+	}
+}
+
+func TestCancelRunningTool_SetsTurnCancelled(t *testing.T) {
+	cancel, _ := recordCancel()
+	m := &Model{toolCancel: cancel}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	if !m.cancelRunningTool() {
+		t.Fatal("cancelRunningTool should report cancellation")
+	}
+	if !m.turnCancelled {
+		t.Error("cancelRunningTool must set m.turnCancelled = true")
+	}
+}
+
+// Load-bearing regression: onToolsExecuted with turnCancelled set must
+// NOT call startStream — that's the agent-loop bypass Codex validated.
+// The handler should clear the flag, refresh the render, and return
+// without dispatching the next provider request (or, if a queued
+// prompt is sitting in m.queuedPrompt, promote it instead).
+//
+// Test asserts indirectly via the returned Cmd shape: when no queued
+// prompt + turnCancelled was set, the cmd should be nil (no startStream
+// kicked off). Without the gate this test would see a non-nil Cmd —
+// the regression vector codex's PoC demonstrated.
+func TestOnToolsExecuted_GatedByTurnCancelled(t *testing.T) {
+	m := &Model{}
+	m.turnCancelled = true
+	// No queued prompt; ensure no streamCmd kicked off.
+	_, cmd := onToolsExecuted(m, toolsExecutedMsg{results: []agent.ToolResultBlock{
+		{ToolUseID: "x", Content: "cancelled by user", IsError: true},
+	}})
+	if cmd != nil {
+		t.Error("onToolsExecuted with turnCancelled set must return nil cmd (no startStream); got non-nil")
+	}
+	if m.turnCancelled {
+		t.Error("onToolsExecuted should clear m.turnCancelled after handling")
+	}
+	// Sanity: the tool result was NOT appended to m.msgs (the gate
+	// short-circuits before annotateLastAssistantToolResults).
+	if len(m.msgs) != 0 {
+		t.Errorf("cancelled-turn results should not be persisted to m.msgs; got %d", len(m.msgs))
+	}
+}

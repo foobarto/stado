@@ -21,6 +21,11 @@ func (m *Model) cancelRunningStream() bool {
 		return false
 	}
 	m.streamCancel()
+	// Codex validated finding (post-#46): mark the turn cancelled so
+	// onToolsExecuted refuses to restart the provider stream when any
+	// in-flight tool's `context.Canceled` result drains the queue.
+	// See Model.turnCancelled doc for the full agent-loop bypass.
+	m.turnCancelled = true
 	return true
 }
 
@@ -43,6 +48,9 @@ func (m *Model) cancelRunningTool() bool {
 	}
 	m.toolCancel()
 	m.toolCancel = nil
+	// Codex validated finding (post-#46): see cancelRunningStream
+	// for the agent-loop bypass this guards against.
+	m.turnCancelled = true
 	return true
 }
 
