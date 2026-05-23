@@ -94,21 +94,13 @@ more-restrictive per least-privilege).
   hijack), OSC 8 (clickable-hyperlink injection), CSI cursor moves
   reach a terminal that's no longer eating escapes.
 
-- **Tool kill-switch restored for in-flight tools AND pending tool queue**
-  (PR #46 was prelude in v0.53.0; this round only adds Cluster B's
-  follow-up Codex P1 — the pending-queue clear). The Codex P1 catch:
-  cancelling a running tool only stopped the current one; pending
-  tool calls from the same multi-tool turn kept executing via
-  `advanceToolQueue` after the cancelled tool's result arrived. Now
-  all four cancel paths (Esc/Ctrl+G, Alt+Enter, /cancel, /queue-now)
-  also drop `m.pendingCalls`.
-
 ### Tool dispatch
 
 - **Six `[tools].enabled/.disabled` bypasses fixed** (PR #50 —
   Cluster E). `ApplyToolFilter` now applies Disabled as a subtractive
-  pass after the Enabled allowlist — pre-fix `enabled=["*"]` +
-  `disable=["bash"]` left bash registered (Codex #096). `/tool` slash
+  pass after the Enabled allowlist — pre-fix
+  `[tools].enabled = ["*"]` + `[tools].disabled = ["bash"]` left bash
+  registered (Codex #096). `/tool` slash
   dispatch now consults the filter (Codex #064, P0 — direct bypass
   of operator security control). `/tool unautoload <name>` on a
   default config now actually removes from the autoload set (Codex
