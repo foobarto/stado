@@ -140,6 +140,103 @@ func TestExecutor_Mutating_CommitsBothRefs(t *testing.T) {
 	}
 }
 
+// Codex validated finding (Cluster U): when a mutating tool succeeds
+// but BuildTreeFromDir fails (workdir exceeds 256 MiB blob cap or
+// 200000 entry cap), the pre-fix executor returned the tool's success
+// silently and only slog-warned about the missing audit tree ref. The
+// mutation happened but the signed tree audit lost it — `audit verify`
+// wouldn't notice. New contract: snapshot failure on a mutating tool
+// augments meta.Error AND res.Error so both the audit log and the
+// model see the gap; mutation itself stays committed (already
+// happened, can't be undone).
+//
+// Reproduces with a sparse file exceeding the 256 MiB blob cap —
+// fast to create on tmpfs, triggers `info.Size() > maxTreeBlobBytes`
+// before any byte is read.
+func TestExecutor_Mutating_SnapshotFailureSurfacedInError(t *testing.T) {
+	ex, sess, wt := newExecutorFixture(t)
+	ex.Registry.Register(stubTool{
+		name:  "stubwrite-with-oversize",
+		class: tool.ClassMutating,
+		effect: func(workdir string) (tool.Result, error) {
+			// Real mutation (the legitimate tool output).
+			if err := os.WriteFile(filepath.Join(workdir, "ok.txt"), []byte("real mutation"), 0o644); err != nil {
+				return tool.Result{}, err
+			}
+			// Trip the audit-snapshot cap: sparse file > 256 MiB.
+			// Workdir-write tools could be coerced into creating
+			// this via prompt injection on a permissive config;
+			// the audit cap is the operator's defense and the
+			// fix surfaces the resulting gap.
+			f, err := os.Create(filepath.Join(workdir, "too-large.bin"))
+			if err != nil {
+				return tool.Result{}, err
+			}
+			defer f.Close()
+			// 256 MiB + 1 byte — one byte over the cap, no actual data written.
+			if err := f.Truncate(int64(256)<<20 + 1); err != nil {
+				return tool.Result{}, err
+			}
+			return tool.Result{Content: "ok"}, nil
+		},
+	})
+
+	res, err := ex.Run(context.Background(), "stubwrite-with-oversize",
+		json.RawMessage(`{}`), stubHost{workdir: wt})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// The tool's mutation IS visible (already happened — can't be
+	// undone). What changed: the snapshot failure now surfaces.
+	if res.Error == "" {
+		t.Fatal("snapshot failure on mutating tool must surface in res.Error so the model sees the audit gap")
+	}
+	if !strings.Contains(res.Error, "audit snapshot failed") {
+		t.Errorf("res.Error should mention `audit snapshot failed`; got %q", res.Error)
+	}
+	if !strings.Contains(res.Error, "tree-ref skipped") {
+		t.Errorf("res.Error should note the tree-ref was skipped; got %q", res.Error)
+	}
+
+	// Trace commit was written — operator audit log captures the
+	// note via meta.Error (which the trace-commit message embeds).
+	trace, _ := sess.TraceHead()
+	if trace.IsZero() {
+		t.Fatal("trace ref must still be written; audit log must capture the audit-skip")
+	}
+	// Pull the trace commit and check its body carries the note.
+	commit, err := object.GetCommit(sess.Sidecar.Repo().Storer, trace)
+	if err != nil {
+		t.Fatalf("read trace commit: %v", err)
+	}
+	if !strings.Contains(commit.Message, "audit snapshot failed") {
+		t.Errorf("trace commit body should embed the audit-skip note; got:\n%s", commit.Message)
+	}
+
+	// Codex P2 + Copilot round-1 catch: the trace commit Summary must
+	// reflect the surfaced error, not the pre-snapshot success. Pre-fix
+	// the commit body said `mutating [ok]` next to an `Error:` trailer,
+	// so operator dashboards keyed on Summary (rather than the Error
+	// trailer) saw the call as successful — undermining the "loudly
+	// incomplete" guarantee. Same gap applied to the OTel span: outcome
+	// stayed ok + span.OK. After fix, both reflect `error`.
+	if !strings.Contains(commit.Message, "mutating [error]") {
+		t.Errorf("trace commit Summary must reflect snapshot failure (mutating [error]); got:\n%s", commit.Message)
+	}
+	if strings.Contains(commit.Message, "mutating [ok]") {
+		t.Errorf("trace commit Summary must NOT show [ok] when snapshot failed and Error: trailer is present; got:\n%s", commit.Message)
+	}
+
+	// Tree commit must NOT be written — there's no valid post-state
+	// to sign. This is the silent-drop the operator could rely on
+	// pre-fix; now it's loudly absent + the result.Error explains.
+	tree, _ := sess.TreeHead()
+	if !tree.IsZero() {
+		t.Error("tree ref must NOT be written when snapshot failed; would be uncovered post-state")
+	}
+}
+
 func TestExecutor_Exec_NoDiff_OnlyTrace(t *testing.T) {
 	ex, sess, wt := newExecutorFixture(t)
 	// Seed a baseline tree by committing once.

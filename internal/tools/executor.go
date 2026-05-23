@@ -159,20 +159,58 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		return res, runErr
 	}
 
-	// trace ref always.
-	if _, err := e.Session.CommitToTrace(meta); err != nil {
-		return res, fmt.Errorf("commit trace: %w", err)
-	}
-
-	// tree ref policy.
+	// Build the audit-tree snapshot BEFORE the trace commit so its
+	// failure can surface in the trace metadata AND on the wire to
+	// the model. Codex validated finding (MEDIUM): pre-fix, snapshot
+	// failure on a successful mutating tool produced only a slog
+	// warning and the tool was reported back as a normal success —
+	// the signed tree ref was silently absent, breaking the
+	// tamper-evident-audit invariant for that mutation. An
+	// attacker-influenced prompt could force the snapshot cap
+	// (256 MiB blob or 200000 entries via BuildTreeFromDir's limits)
+	// then mutate; the audit log captured the trace but not the
+	// post-state tree, so `audit verify` wouldn't notice.
+	//
+	// New contract: snapshot failure on a MUTATING tool augments
+	// meta.Error AND res.Error so the audit log + the model both see
+	// the gap. The mutation itself already happened — that's not
+	// undone — but the operator gets told via the trace commit's
+	// `Error:` trailer, and the model sees `tool_result.Error` and
+	// can adjust strategy (e.g. stop generating files). For EXEC
+	// tools the snapshot is informational (used only to detect
+	// changes from preTree); failure stays a slog warn and the tree
+	// ref is skipped, but no error surfaces — exec tools aren't
+	// supposed to mutate the audited dir anyway.
 	var treeHash plumbing.Hash
-	// A failed audit snapshot (e.g. a live cwd exceeding the tree-entry cap)
-	// must not fail the user's tool call — the tree ref is best-effort audit.
 	switch class {
 	case tool.ClassMutating:
 		if runErr == nil && res.Error == "" {
 			post, err := e.Session.BuildTreeFromDir(auditDir)
 			if err != nil {
+				skipNote := fmt.Sprintf("audit snapshot failed (tree-ref skipped, mutation NOT in signed audit): %v", err)
+				if meta.Error == "" {
+					meta.Error = skipNote
+				} else {
+					meta.Error = meta.Error + "; " + skipNote
+				}
+				if res.Error == "" {
+					res.Error = skipNote
+				} else {
+					res.Error = res.Error + "; " + skipNote
+				}
+				// Snapshot failure means the audit trail for this
+				// mutation is incomplete — promote outcome to error
+				// so telemetry, the trace commit's Summary, and the
+				// OTel span status all match the surfaced res.Error.
+				// Codex P2 + Copilot both caught the gap: pre-fix
+				// outcome stayed "ok", meta.Summary stayed
+				// "mutating [ok]", and the span reported OK even
+				// though an Error: trailer was about to be written,
+				// so downstream consumers keyed on Summary/span saw
+				// success.
+				meta.Summary = fmt.Sprintf("%s [%s]", class.String(), "error")
+				span.SetAttributes(attribute.String("tool.outcome", "error"))
+				span.SetStatus(codes.Error, skipNote)
 				e.logBuildTreeSkip(auditDir, err)
 			} else {
 				treeHash = post
@@ -186,6 +224,13 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 			treeHash = post
 		}
 	}
+
+	// trace ref always — now carries the audit-skip note in
+	// meta.Error if the snapshot failed above for a mutating tool.
+	if _, err := e.Session.CommitToTrace(meta); err != nil {
+		return res, fmt.Errorf("commit trace: %w", err)
+	}
+
 	if !treeHash.IsZero() {
 		if _, err := e.Session.CommitToTree(treeHash, meta); err != nil {
 			return res, fmt.Errorf("commit tree: %w", err)
