@@ -41,9 +41,18 @@ func RenderSandboxProfile(p Policy) string {
 	// Always allow reading the system libraries + dynamic-link machinery.
 	// Without these, almost every command (including /bin/sh) fails to
 	// start.
+	//
+	// Exec is intentionally NOT blanket-allowed here. The original
+	// `(allow process-exec*)` defeated the per-binary allow-list at the
+	// bottom of this function — sandbox-exec's union semantics mean
+	// `(allow process-exec*)` cannot be narrowed by adding more allow
+	// rules. Callers that need to spawn /bin/sh / /usr/bin/git / etc.
+	// MUST declare them in Policy.Exec; this profile's job is to
+	// enforce the allow-list, not paper over policy gaps. The host
+	// process retains `(allow process-fork)` so the wrapped command
+	// can itself fork; only the spawn-a-new-binary capability is gated.
 	b.WriteString(";; System libraries — needed for dyld + libc.\n")
 	b.WriteString("(allow process-fork)\n")
-	b.WriteString("(allow process-exec*)\n")
 	b.WriteString("(allow file-read-metadata)\n")
 	for _, prefix := range []string{
 		"/usr/lib", "/usr/bin", "/System", "/Library/Frameworks",
