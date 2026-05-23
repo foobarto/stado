@@ -40,6 +40,29 @@ func TestRenderSandboxProfile_NoBlanketProcessExec(t *testing.T) {
 	}
 }
 
+// Gemini deep-dive (post-v0.54.0): the CWD block previously
+// emitted `(allow process-exec (subpath p.CWD))` alongside the
+// file-read* allow. A tool with fs.write access to the workdir
+// could drop a script and exec it, bypassing the per-binary
+// allowlist that the loop further down emits. The CWD must stay
+// readable (dyld + source loading) but NOT exec'able — only the
+// binaries operator-declared in Policy.Exec are exec'able. This
+// test pins the invariant against re-introduction.
+func TestRenderSandboxProfile_CWDNotProcessExecable(t *testing.T) {
+	p := Policy{CWD: "/tmp/work"}
+	profile := RenderSandboxProfile(p)
+
+	// CWD must be file-read*-allowed for dyld/source.
+	if !strings.Contains(profile, `(allow file-read* (subpath "/tmp/work"))`) {
+		t.Errorf("CWD should be file-read* allowed:\n%s", profile)
+	}
+	// CWD must NOT be process-exec subpath-allowed (the sandbox-
+	// escape vector — drop binary in CWD, exec it).
+	if strings.Contains(profile, `(allow process-exec (subpath "/tmp/work"))`) {
+		t.Errorf("CWD subpath process-exec re-introduced — sandbox escape via fs.write+exec:\n%s", profile)
+	}
+}
+
 // Per-binary allowlist entries from Policy.Exec must still appear in
 // the profile. The fix for #142 dropped the wildcard but kept the
 // per-binary loop; verify the per-binary path is intact and the literal
