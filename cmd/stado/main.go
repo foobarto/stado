@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/plugins/userbundled"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -72,6 +73,11 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("config: %w", err)
 		}
 		applyRootProviderOverrides(cfg)
+		// EP-0042 follow-up: warn once when the TUI runs unsandboxed.
+		// `stado run` calls MaybeRewrap before this point; the bare-TUI
+		// path does not, so we surface the gap (mode=off OR mode=wrap
+		// configured-but-not-rewrapped) here.
+		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
 			return tui.Run(cfg)
 		})
