@@ -50,10 +50,10 @@ var memoryListCmd = &cobra.Command{
 		fmt.Fprintln(cmd.OutOrStdout(), "ID                   SCOPE    STATUS      SENS      UPDATED           SUMMARY")
 		for _, item := range items {
 			fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-8s %-11s %-9s %-17s %s\n",
-				shortMemory(item.ID, 20),
-				item.Scope,
-				item.Confidence,
-				item.Sensitivity,
+				shortMemory(textutil.StripControlChars(item.ID), 20),
+				textutil.StripControlChars(item.Scope),
+				textutil.StripControlChars(item.Confidence),
+				textutil.StripControlChars(item.Sensitivity),
 				formatMemoryTime(item.UpdatedAt),
 				shortMemory(textutil.StripControlChars(item.Summary), 80),
 			)

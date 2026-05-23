@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 var pluginInfoJSON bool
@@ -107,12 +108,12 @@ func bundledToolDefsFromList(info bundled.Info) []plugins.ToolDef {
 // sha256) are omitted with sentinel values, and the per-tool schema
 // section is replaced with a hint to use `stado tool info`.
 func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundled bool) error {
-	header := fmt.Sprintf("📦 %s  v%s", mf.Name, mf.Version)
+	header := fmt.Sprintf("📦 %s  v%s", textutil.StripControlChars(mf.Name), textutil.StripControlChars(mf.Version))
 	if bundled {
 		header += "  (bundled)"
 	}
 	fmt.Fprintln(o, header)
-	fmt.Fprintf(o, "   Author:       %s\n", mf.Author)
+	fmt.Fprintf(o, "   Author:       %s\n", textutil.StripControlChars(mf.Author))
 	if bundled {
 		fmt.Fprintln(o, "   Fingerprint:  -  (built into stado binary)")
 	} else {
@@ -127,7 +128,7 @@ func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundl
 	// Capabilities
 	fmt.Fprintf(o, "Capabilities (%d):\n", len(mf.Capabilities))
 	for _, c := range mf.Capabilities {
-		fmt.Fprintf(o, "  • %s\n", c)
+		fmt.Fprintf(o, "  • %s\n", textutil.StripControlChars(c))
 	}
 	fmt.Fprintln(o)
 
@@ -135,7 +136,7 @@ func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundl
 	if bundled {
 		fmt.Fprintf(o, "Tools (%d):\n", len(mf.Tools))
 		for _, t := range mf.Tools {
-			fmt.Fprintf(o, "  %-30s  %s\n", t.Name, truncateStr(t.Description, 80))
+			fmt.Fprintf(o, "  %-30s  %s\n", textutil.StripControlChars(t.Name), truncateStr(textutil.SanitizeForTerminal(t.Description), 80))
 		}
 	} else {
 		fmt.Fprintf(o, "Tools (%d):\n", len(mf.Tools))
@@ -146,7 +147,7 @@ func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundl
 			if params != "" {
 				paramsStr = "  " + params
 			}
-			fmt.Fprintf(w, "  %-30s\t%s\n", t.Name+paramsStr, truncateStr(t.Description, 80))
+			fmt.Fprintf(w, "  %-30s\t%s\n", textutil.StripControlChars(t.Name)+paramsStr, truncateStr(textutil.SanitizeForTerminal(t.Description), 80))
 		}
 		_ = w.Flush()
 
@@ -155,9 +156,9 @@ func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundl
 			fmt.Fprintln(o)
 			fmt.Fprintln(o, "Tool schemas:")
 			for _, t := range mf.Tools {
-				fmt.Fprintf(o, "\n  %s\n", t.Name)
+				fmt.Fprintf(o, "\n  %s\n", textutil.StripControlChars(t.Name))
 				fmt.Fprintf(o, "  %s\n", strings.Repeat("─", min(len(t.Name)+2, 60)))
-				for _, line := range wordWrap(t.Description, 72) {
+				for _, line := range wordWrap(textutil.SanitizeForTerminal(t.Description), 72) {
 					fmt.Fprintf(o, "  %s\n", line)
 				}
 				if t.Schema != "" {
@@ -240,9 +241,9 @@ func prettySchema(schema string) string {
 		if len(prop.Enum) > 0 {
 			typeStr = strings.Join(prop.Enum, "|")
 		}
-		sb.WriteString(fmt.Sprintf("    %-22s %s%s\n", name, typeStr, req))
+		sb.WriteString(fmt.Sprintf("    %-22s %s%s\n", textutil.StripControlChars(name), textutil.StripControlChars(typeStr), req))
 		if prop.Description != "" {
-			for _, line := range wordWrap(prop.Description, 64) {
+			for _, line := range wordWrap(textutil.SanitizeForTerminal(prop.Description), 64) {
 				sb.WriteString(fmt.Sprintf("    %-22s   %s\n", "", line))
 			}
 		}

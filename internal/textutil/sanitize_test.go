@@ -9,6 +9,47 @@ func TestStripControlChars_RemovesEscapeSequences(t *testing.T) {
 	}
 }
 
+// SanitizeForTerminal keeps the three layout-bearing whitespace runes
+// (\n, \t, \r) but strips every other unicode.IsControl rune. The
+// load-bearing assertion is that ESC (0x1B), the CSI/OSC introducers,
+// BEL (0x07), and DEL (0x7F) are removed — those are the actual
+// escape-injection vectors.
+func TestSanitizeForTerminal_KeepsWhitespaceStripsEscapes(t *testing.T) {
+	in := "first\n\tsecond\r\x1b]52;clip\x07third\x7ffourth"
+	got := SanitizeForTerminal(in)
+	want := "first\n\tsecond\r]52;clipthirdfourth"
+	if got != want {
+		t.Fatalf("SanitizeForTerminal = %q, want %q", got, want)
+	}
+}
+
+// C1 control bytes (U+0080–U+009F) are alternate forms of ESC + ASCII —
+// some terminals interpret them. Strip them too.
+func TestSanitizeForTerminal_StripsC1Controls(t *testing.T) {
+	in := "before\u009bdangerafter"
+	got := SanitizeForTerminal(in)
+	want := "beforedangerafter"
+	if got != want {
+		t.Fatalf("SanitizeForTerminal = %q, want %q", got, want)
+	}
+}
+
+// Empty / pure-whitespace / plain-printable cases shouldn't be touched.
+func TestSanitizeForTerminal_PassthroughCases(t *testing.T) {
+	cases := []string{
+		"",
+		"plain ascii",
+		"multi\nline\nprose",
+		"with\ttabs",
+		"unicode: éñ漢",
+	}
+	for _, in := range cases {
+		if got := SanitizeForTerminal(in); got != in {
+			t.Errorf("SanitizeForTerminal(%q) = %q, want unchanged", in, got)
+		}
+	}
+}
+
 func TestHasControlChars(t *testing.T) {
 	if HasControlChars("plain.txt") {
 		t.Fatal("plain text should not report controls")

@@ -8,6 +8,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 func registerUIApprovalImport(builder wazero.HostModuleBuilder, host *Host) {
@@ -223,7 +225,7 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 			if len(o.Input.Default) > maxPluginRuntimeUIChooseInputDefaultBytes {
 				return ChoiceRequest{}, fmt.Errorf("option %d: input.default exceeds %d bytes", i, maxPluginRuntimeUIChooseInputDefaultBytes)
 			}
-			input = &ChoiceInput{Default: o.Input.Default}
+			input = &ChoiceInput{Default: textutil.SanitizeForTerminal(o.Input.Default)}
 			if v := o.Input.Validator; v != nil {
 				if len(v.Spec) > maxPluginRuntimeUIChooseValidatorSpecBytes {
 					return ChoiceRequest{}, fmt.Errorf("option %d: validator.spec exceeds %d bytes", i, maxPluginRuntimeUIChooseValidatorSpecBytes)
@@ -237,7 +239,7 @@ func decodeChooseRequest(w chooseRequestWire) (ChoiceRequest, error) {
 		out.Options = append(out.Options, ChoiceOption{
 			ID:     o.ID,
 			Label:  o.Label,
-			Prefix: o.Prefix,
+			Prefix: textutil.SanitizeForTerminal(o.Prefix),
 			Input:  input,
 		})
 	}

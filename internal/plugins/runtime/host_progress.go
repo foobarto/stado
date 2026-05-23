@@ -20,6 +20,8 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // maxProgressTextBytes bounds a single progress emission. Bigger
@@ -59,7 +61,7 @@ func emitProgress(host *Host, text string) int32 {
 		return 0
 	}
 	if host.Progress != nil {
-		host.Progress(host.Manifest.Name, text)
+		host.Progress(host.Manifest.Name, textutil.SanitizeForTerminal(text))
 	}
 	return 0
 }

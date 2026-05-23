@@ -21,6 +21,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // Summary is the single-session aggregation produced by Walk.
@@ -217,7 +218,7 @@ func Render(w io.Writer, s *Summary, uptime time.Duration) {
 		})
 		for _, r := range rows {
 			fmt.Fprintf(w, "    %-30s  %4d calls  %s in / %s out  %s\n",
-				truncMid(r.name, 30, g.ellipsis),
+				truncMid(textutil.StripControlChars(r.name), 30, g.ellipsis),
 				r.stats.Calls,
 				fmtThousands(r.stats.TokensIn),
 				fmtThousands(r.stats.TokensOut),
@@ -243,7 +244,7 @@ func Render(w io.Writer, s *Summary, uptime time.Duration) {
 		})
 		for _, r := range rows {
 			fmt.Fprintf(w, "    %-30s  %4d calls  %s\n",
-				truncMid(r.name, 30, g.ellipsis),
+				truncMid(textutil.StripControlChars(r.name), 30, g.ellipsis),
 				r.stats.Calls,
 				fmtMs(r.stats.DurationMs),
 			)

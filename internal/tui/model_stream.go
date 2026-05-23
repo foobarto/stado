@@ -623,7 +623,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			m.pendingCompactionSummary += ev.Text
 			if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == "assistant" {
 				last := len(m.blocks) - 1
-				m.blocks[last].body += ev.Text
+				m.blocks[last].body += textutil.SanitizeForTerminal(ev.Text)
 				m.invalidateBlockCache(last)
 			}
 			return
@@ -633,7 +633,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			m.blocks = append(m.blocks, block{kind: "assistant"})
 		}
 		last := len(m.blocks) - 1
-		m.blocks[last].body += ev.Text
+		m.blocks[last].body += textutil.SanitizeForTerminal(ev.Text)
 		m.invalidateBlockCache(last)
 
 	case agent.EvThinkingDelta:
