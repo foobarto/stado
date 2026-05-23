@@ -255,3 +255,46 @@ func TestVerifyInstalledPlugin_revokedFingerprintRejectedBeforeAnyIO(t *testing.
 		t.Errorf("revoked deny should fire BEFORE any filesystem I/O, but error suggests I/O happened: %v", err)
 	}
 }
+
+
+// Fingerprint-consistency check: a tampered trusted_keys.json shouldn't
+// be able to substitute an arbitrary pubkey under a pinned fingerprint
+// (the asymmetry between this path and (*TrustStore).VerifyManifest that
+// Copilot caught on PR #40). Pre-populate the trust store with a
+// deliberately-mismatched entry and assert the override verifier refuses.
+func TestVerifyInstalledPlugin_trustStoreFingerprintMismatch(t *testing.T) {
+	cfg := isolatedRuntimeConfig(t)
+	ts := plugins.NewTrustStore(cfg.StateDir())
+	const pinnedFpr = "aaaaaaaaaaaaaaaa"
+	// A valid 32-byte ed25519 pubkey whose Fingerprint() is NOT pinnedFpr
+	// (this is the foobarto-anchor pubkey from this session; its real fpr
+	// is 57a3e58ce484c5e5).
+	const realPubHex = "49bf2aa1ae268e2cab7f8e328202244262e62aba8ac4b2653f22f7683118a18e"
+	if err := ts.Save(map[string]plugins.TrustEntry{
+		pinnedFpr: {Fingerprint: pinnedFpr, Pubkey: realPubHex},
+	}); err != nil {
+		t.Fatalf("seed tampered trust store: %v", err)
+	}
+	// Provide a real wasm file matching the manifest's SHA so the
+	// wasm-digest check passes and execution reaches the trust-store
+	// fingerprint-consistency check we're testing.
+	pluginDir := t.TempDir()
+	wasmContent := []byte("test-wasm-content")
+	wasmSum := sha256.Sum256(wasmContent)
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.wasm"), wasmContent, 0o644); err != nil {
+		t.Fatalf("write plugin.wasm: %v", err)
+	}
+	err := VerifyInstalledPlugin(
+		context.Background(),
+		cfg,
+		pluginDir,
+		&plugins.Manifest{AuthorPubkeyFpr: pinnedFpr, WASMSHA256: hex.EncodeToString(wasmSum[:])},
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected fingerprint-mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "fingerprint mismatch") {
+		t.Errorf("expected 'fingerprint mismatch', got %v", err)
+	}
+}

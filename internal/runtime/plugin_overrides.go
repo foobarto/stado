@@ -174,6 +174,16 @@ func verifyPluginOverride(ctx context.Context, cfg *config.Config, pluginDir str
 		return nil, fmt.Errorf("verify: trust-store pubkey malformed")
 	}
 	pub := ed25519.PublicKey(pubBytes)
+	// Fingerprint consistency — protects against a tampered/corrupted
+	// trusted_keys.json that substitutes an arbitrary pubkey under a
+	// pinned fingerprint (the manifest claims fpr=X, the store has
+	// fpr=X but pubkey of some other key Y, mf.Verify(Y, sig) would
+	// pass if the attacker signed with Y). Matches the check in
+	// (*TrustStore).VerifyManifest so both paths are equivalent.
+	if got := plugins.Fingerprint(pub); got != entry.Fingerprint {
+		return nil, fmt.Errorf("verify: trust-store pubkey fingerprint mismatch: got %s, want %s",
+			got, entry.Fingerprint)
+	}
 	if err := mf.Verify(pub, sig); err != nil {
 		return nil, err
 	}
