@@ -1,0 +1,1992 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stado — sandboxed, git-native coding agent for the terminal</title>
+<meta name="description" content="stado — a sandboxed, git-native coding agent for the terminal. Sessions live in a sidecar repo until you explicitly land them. Signed audit log. Capability-gated OS sandbox.">
+<meta property="og:title" content="stado — sandboxed, git-native coding agent for the terminal">
+<meta property="og:description" content="A herd of agents that keep your working tree clean. Sidecar sessions, signed tool-call audit log, capability sandbox, signed wasm plugins.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://foobarto.github.io/stado/">
+<meta property="og:image" content="https://foobarto.github.io/stado/assets/img/stado-three-sheep-standing-guard.webp">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" sizes="180x180" href="assets/img/stado-sheep-mark-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<style>/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-06-5090a5f1.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-02-16f1ae76.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-13-94329ba2.woff2") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-16-bc141e9b.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-05-4ab76f2b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-10-8ab4eeaf.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-14-952f7d63.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-06-5090a5f1.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-02-16f1ae76.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-13-94329ba2.woff2") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-16-bc141e9b.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-05-4ab76f2b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-10-8ab4eeaf.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-14-952f7d63.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-06-5090a5f1.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-02-16f1ae76.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-13-94329ba2.woff2") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-16-bc141e9b.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-05-4ab76f2b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-10-8ab4eeaf.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-14-952f7d63.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-04-423b5361.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-07-60bf94b9.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-08-70484ed7.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-01-09664508.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-15-9f18ba2a.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-09-818decbb.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-04-423b5361.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-07-60bf94b9.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-08-70484ed7.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-01-09664508.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-15-9f18ba2a.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-09-818decbb.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-04-423b5361.woff2") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-07-60bf94b9.woff2") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-08-70484ed7.woff2") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-01-09664508.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-15-9f18ba2a.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-09-818decbb.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-00-06db769b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-17-d98573c9.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("assets/fonts/font-03-27f8d827.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-00-06db769b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-17-d98573c9.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("assets/fonts/font-03-27f8d827.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-00-06db769b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-17-d98573c9.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("assets/fonts/font-03-27f8d827.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("assets/fonts/font-00-06db769b.woff2") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("assets/fonts/font-17-d98573c9.woff2") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("assets/fonts/font-03-27f8d827.woff2") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>
+  :root{
+    /* dark forest palette pulled from the brand artwork */
+    --bg:        oklch(0.165 0.020 155);   /* deep forest near-black */
+    --bg-2:      oklch(0.200 0.020 155);
+    --bg-3:      oklch(0.240 0.022 155);
+    --bg-4:      oklch(0.290 0.024 155);
+
+    --fg:        oklch(0.965 0.008 150);   /* paper-white, hint of green */
+    --fg-2:      oklch(0.840 0.012 150);
+    --mute:      oklch(0.620 0.018 155);
+    --mute-2:    oklch(0.480 0.018 155);
+
+    --line:      oklch(0.300 0.020 155);
+    --line-2:    oklch(0.380 0.022 155);
+
+    /* terminal-lime accent, the >_ color */
+    --lime:      oklch(0.86 0.20 142);
+    --lime-soft: oklch(0.74 0.16 142);
+    --lime-dim:  oklch(0.55 0.13 142);
+
+    /* paper invert for one breakout section */
+    --paper:     oklch(0.965 0.008 150);
+    --paper-2:   oklch(0.930 0.012 150);
+    --ink:       oklch(0.180 0.020 155);
+
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    --display: "Space Grotesk", "Inter", ui-sans-serif, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+  a{ color: inherit; }
+  ::selection{ background: var(--lime); color: var(--ink); }
+
+  .wrap{ max-width: 1280px; margin: 0 auto; padding: 0 32px; }
+
+  /* ─── shared bits ───────────────────────────────── */
+  .mono { font-family: var(--mono); font-feature-settings: "ss01","zero"; }
+  .small-caps {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--mute);
+    font-weight: 500;
+  }
+  .small-caps .cube{
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--lime);
+    margin-right: 8px;
+    vertical-align: 1px;
+    box-shadow:
+      2px 0 0 oklch(0.55 0.13 142),
+      0 2px 0 oklch(0.40 0.10 142),
+      2px 2px 0 oklch(0.30 0.08 142);
+  }
+
+  .chip{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    padding: 6px 11px;
+    border: 1px solid var(--line);
+    background: var(--bg-2);
+    color: var(--fg-2);
+  }
+  .chip .sq{
+    width: 7px; height: 7px;
+    background: var(--lime);
+    box-shadow: 0 0 8px var(--lime);
+  }
+  .chip.muted .sq{ background: var(--mute); box-shadow: none; }
+
+  .btn{
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 14px 20px;
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
+    transition: transform .15s ease, background .15s ease, border-color .15s ease, color .15s ease;
+    position: relative;
+  }
+  .btn-primary{
+    background: var(--lime);
+    color: var(--ink);
+    box-shadow: 4px 4px 0 oklch(0.55 0.13 142);
+  }
+  .btn-primary:hover{
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 oklch(0.55 0.13 142);
+  }
+  .btn-ghost{
+    background: transparent;
+    color: var(--fg);
+    border-color: var(--line-2);
+  }
+  .btn-ghost:hover{ border-color: var(--lime); color: var(--lime); }
+  .btn .arrow{ font-family: var(--mono); }
+
+  /* ─── nav ───────────────────────────────────────── */
+  nav.top{
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(10px);
+    background: color-mix(in oklch, var(--bg) 88%, transparent);
+    border-bottom: 1px solid var(--line);
+  }
+  nav.top .wrap{
+    display: flex; align-items: center; justify-content: space-between;
+    height: 64px;
+  }
+  .brand{
+    display: flex; align-items: center; gap: 12px;
+    text-decoration: none;
+    color: var(--fg);
+  }
+  .brand .sheep{
+    width: 36px; height: 36px;
+    object-fit: contain;
+    display: block;
+    filter: drop-shadow(0 0 14px oklch(0.86 0.20 142 / 0.25));
+  }
+  .brand .mark{
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .brand .ver{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--lime);
+    letter-spacing: 0.06em;
+    padding: 3px 7px;
+    border: 1px solid var(--lime-dim);
+    margin-left: 4px;
+  }
+  nav.top ul{
+    list-style: none; margin: 0; padding: 0;
+    display: flex; gap: 28px; align-items: center;
+  }
+  nav.top a.link{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-2);
+    text-decoration: none;
+    letter-spacing: 0.05em;
+  }
+  nav.top a.link:hover{ color: var(--lime); }
+  nav.top a.gh{
+    display: inline-flex; gap: 6px; align-items: center;
+    padding: 7px 12px;
+    border: 1px solid var(--line-2);
+    color: var(--fg);
+  }
+  nav.top a.gh:hover{ border-color: var(--lime); color: var(--lime); }
+
+  /* ─── meta strip ────────────────────────────────── */
+  .meta-strip{
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--mute);
+    background: var(--bg-2);
+  }
+  .meta-strip .wrap{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+  }
+  .meta-strip .cell{
+    padding: 11px 0;
+    border-left: 1px dashed var(--line);
+    padding-left: 18px;
+    display: flex; gap: 10px; align-items: center;
+  }
+  .meta-strip .cell:first-child{ border-left: 0; padding-left: 0; }
+  .meta-strip .cell b{
+    color: var(--fg-2);
+    font-weight: 500;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+  .meta-strip .cell .ok{
+    width: 6px; height: 6px;
+    background: var(--lime); box-shadow: 0 0 8px var(--lime);
+  }
+
+  /* ─── HERO ──────────────────────────────────────── */
+  .hero{
+    position: relative;
+    padding: 64px 0 88px;
+    overflow: hidden;
+  }
+  /* faint cube grid in the background */
+  .hero::before{
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, oklch(0.86 0.20 142 / 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(0.86 0.20 142 / 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, black, transparent 75%);
+    pointer-events: none;
+  }
+  .hero-art-wrap{
+    position: relative;
+    margin: 0 auto 56px;
+    max-width: 1180px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px oklch(0.86 0.20 142 / 0.10),
+      0 30px 60px -20px oklch(0 0 0 / 0.6),
+      inset 0 0 80px oklch(0 0 0 / 0.4);
+  }
+  .hero-art{
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  /* corner ticks on the hero art */
+  .hero-art-wrap .tick{
+    position: absolute;
+    width: 16px; height: 16px;
+    border: 2px solid var(--lime);
+  }
+  .hero-art-wrap .tl{ top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+  .hero-art-wrap .tr{ top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+  .hero-art-wrap .bl{ bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+  .hero-art-wrap .br{ bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+  .hero-art-wrap .stamp{
+    position: absolute;
+    bottom: 14px; right: 14px;
+    background: oklch(0.165 0.020 155 / 0.85);
+    border: 1px solid var(--lime-dim);
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--lime);
+    text-transform: uppercase;
+    backdrop-filter: blur(4px);
+  }
+
+  .hero-copy{
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 56px;
+    align-items: end;
+    position: relative;
+  }
+  .hero h1{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(48px, 6.4vw, 88px);
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    margin: 22px 0 28px;
+    color: var(--fg);
+    text-wrap: balance;
+  }
+  .hero h1 em{
+    font-style: normal;
+    color: var(--lime);
+    position: relative;
+  }
+  .hero h1 em::after{
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0.08em;
+    height: 2px;
+    background: var(--lime);
+    opacity: 0.4;
+  }
+  .hero .lede{
+    color: var(--fg-2);
+    font-size: 18px;
+    line-height: 1.55;
+    max-width: 48ch;
+    margin: 0 0 32px;
+  }
+  .hero .cta{
+    display: flex; gap: 18px; flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .hero .signals{
+    margin-top: 22px;
+    display: flex; flex-wrap: wrap; gap: 10px;
+  }
+
+  /* terminal mock — appears below the hero artwork */
+  .terminal-row{
+    margin-top: 88px;
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 48px;
+    align-items: start;
+  }
+  .terminal-row .copy h3{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 32px;
+    letter-spacing: -0.02em;
+    margin: 18px 0 14px;
+    text-wrap: balance;
+  }
+  .terminal-row .copy h3 em{ font-style: normal; color: var(--lime); }
+  .terminal-row .copy p{
+    color: var(--fg-2);
+    max-width: 38ch;
+    margin: 0 0 18px;
+  }
+  .terminal-row .copy .signals{ flex-direction: column; align-items: flex-start; }
+
+  .term{
+    background: #0a0d0a;
+    border: 1px solid var(--line-2);
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px oklch(0.86 0.20 142 / 0.10),
+      0 30px 60px -20px oklch(0 0 0 / 0.6);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .term .bar{
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 9px 14px;
+    background: oklch(0.18 0.015 155);
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--mute);
+  }
+  .term .bar .dots{ display: flex; gap: 6px; }
+  .term .bar .dots i{ width: 10px; height: 10px; background: oklch(0.40 0.020 155); display: inline-block; }
+  .term .bar .title{ justify-self: center; font-family: var(--mono); letter-spacing: 0.04em; }
+  .term .bar .right{ justify-self: end; letter-spacing: 0.06em; color: var(--lime); }
+  .term .body{
+    padding: 20px 22px 22px;
+    color: var(--fg);
+    min-height: 380px;
+    background:
+      radial-gradient(900px 200px at 80% -20%, oklch(0.86 0.20 142 / 0.06), transparent 60%),
+      #0a0d0a;
+  }
+  .term .row{ display: block; white-space: pre; }
+  .term .prompt{ color: var(--lime); }
+  .term .user  { color: var(--paper); }
+  .term .ok    { color: var(--lime); }
+  .term .warn  { color: oklch(0.80 0.15 80); }
+  .term .muted { color: var(--mute); }
+  .term .arrow { color: var(--lime-soft); }
+  .term .label { color: oklch(0.78 0.06 180); }
+  .term .hash  { color: oklch(0.78 0.06 280); }
+  .term .em    { color: var(--paper); font-weight: 500; }
+
+  .caret{
+    display: inline-block;
+    width: 8px; height: 14px;
+    background: var(--lime);
+    vertical-align: -2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink{ to { opacity: 0; } }
+
+  /* ─── principles ────────────────────────────────── */
+  .principles{
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+    padding: 36px 0;
+  }
+  .principles .wrap{
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 56px;
+    align-items: start;
+  }
+  .principles h2{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 20px;
+    color: var(--fg);
+    margin: 0;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+  .principles h2 span{
+    display: block;
+    margin-bottom: 10px;
+  }
+  .principles .list{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 28px;
+  }
+  .principles .item{
+    border-left: 2px solid var(--line-2);
+    padding: 4px 0 4px 18px;
+  }
+  .principles .item:hover{ border-left-color: var(--lime); }
+  .principles .num{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--lime);
+    letter-spacing: 0.14em;
+    margin-bottom: 8px;
+  }
+  .principles .item h4{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 6px;
+    color: var(--fg);
+  }
+  .principles .item p{
+    margin: 0;
+    color: var(--fg-2);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ─── section heads ────────────────────────────── */
+  .how, .providers{ padding: 96px 0; }
+  .section-head{
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 56px;
+    align-items: end;
+    margin-bottom: 48px;
+  }
+  .section-head h2{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(36px, 4vw, 52px);
+    line-height: 1;
+    letter-spacing: -0.025em;
+    margin: 0;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+  .section-head h2 em{ font-style: normal; color: var(--lime); }
+
+  /* ─── features grid ─────────────────────────────── */
+  .features{
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .feature{
+    background: var(--bg);
+    padding: 36px 32px 32px;
+    position: relative;
+    display: flex; flex-direction: column;
+    min-height: 280px;
+  }
+  .feature.span-7{ grid-column: span 7; }
+  .feature.span-5{ grid-column: span 5; }
+  .feature.span-4{ grid-column: span 4; }
+  .feature.span-8{ grid-column: span 8; }
+  .feature.span-6{ grid-column: span 6; }
+
+  .feature .tag{
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mute);
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 24px;
+  }
+  .feature .tag .idx{ color: var(--lime); }
+  .feature .tag .sep{ color: var(--line-2); }
+  .feature h3{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 0 0 14px;
+    color: var(--fg);
+    max-width: 22ch;
+  }
+  .feature h3 em{ font-style: normal; color: var(--lime); }
+  .feature p{
+    color: var(--fg-2);
+    margin: 0 0 18px;
+    font-size: 15px;
+    max-width: 50ch;
+  }
+  .feature .extras{
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line-2);
+    display: flex; flex-direction: column; gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-2);
+  }
+  .feature .extras .k{ color: var(--mute); margin-right: 12px; }
+  .feature .extras .v{ color: var(--fg); }
+
+  /* diagram for sidecar */
+  .diagram{
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--fg-2);
+  }
+  .diagram .box{
+    border: 1px solid var(--line-2);
+    padding: 10px 14px;
+    background: var(--bg-2);
+    position: relative;
+  }
+  .diagram .box .head{
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mute);
+    margin-bottom: 6px;
+  }
+  .diagram .row{ display: flex; gap: 12px; margin-top: 10px; }
+  .diagram .row .box{ flex: 1; }
+  .diagram .link{
+    text-align: center;
+    color: var(--lime);
+    margin: 6px 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+  .diagram .pill{
+    display: inline-block;
+    border: 1px solid var(--lime-dim);
+    color: var(--lime);
+    padding: 1px 8px;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+
+  /* audit log mini */
+  .audit{
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.8;
+    color: var(--fg-2);
+  }
+  .audit .ln{ display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); align-items: center;}
+  .audit .ln:last-child{ border-bottom: 0; }
+  .audit .h{ color: var(--lime-soft); }
+  .audit .a{ color: var(--fg); }
+  .audit .sig{ color: var(--lime); font-size: 11px; display: flex; align-items: center; gap: 5px; }
+  .audit .sig .sq{ width: 7px; height: 7px; background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+
+  /* sandbox matrix */
+  .matrix{
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 13px;
+    margin-top: 8px;
+  }
+  .matrix th, .matrix td{
+    text-align: left;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .matrix th{
+    font-weight: 500;
+    color: var(--mute);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .matrix td.os{ color: var(--fg); }
+  .matrix td .ok{ color: var(--lime); }
+  .matrix td .pending{ color: oklch(0.80 0.15 80); }
+  .matrix td .desc{ color: var(--mute); font-size: 12px; display: block; margin-top: 2px; }
+
+  /* ─── install (paper section) ──────────────────── */
+  .install{
+    background: var(--paper);
+    color: var(--ink);
+    padding: 96px 0;
+    position: relative;
+  }
+  .install::before{
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, oklch(0.55 0.13 142 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(0.55 0.13 142 / 0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+  }
+  .install .wrap{ position: relative; }
+  .install .section-head h2{ color: var(--ink); }
+  .install .small-caps{ color: var(--mute-2); }
+  .install .small-caps .cube{
+    background: var(--lime-dim);
+    box-shadow:
+      2px 0 0 oklch(0.40 0.10 142),
+      0 2px 0 oklch(0.30 0.08 142),
+      2px 2px 0 oklch(0.20 0.06 142);
+  }
+
+  .install-grid{
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 28px;
+  }
+  .ic{
+    grid-column: span 4;
+    background: var(--paper-2);
+    border: 1px solid oklch(0.85 0.012 150);
+    padding: 30px 28px 24px;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .ic::before{
+    content: "";
+    position: absolute;
+    top: -1px; left: -1px;
+    width: 12px; height: 12px;
+    border-top: 2px solid var(--lime-dim);
+    border-left: 2px solid var(--lime-dim);
+  }
+  .ic .step{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--lime-dim);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .ic h4{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 22px;
+    margin: 10px 0 8px;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+  }
+  .ic p{
+    color: oklch(0.42 0.012 150);
+    margin: 0 0 18px;
+    font-size: 14px;
+  }
+  .ic .cmd{
+    margin-top: auto;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    white-space: pre;
+    border-left: 3px solid var(--lime);
+    position: relative;
+  }
+  .ic .cmd::before{
+    content: "$";
+    color: var(--lime);
+    margin-right: 8px;
+  }
+  .ic .req{
+    display: flex; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 18px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--mute-2);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .ic .req span{
+    padding: 2px 8px;
+    border: 1px solid oklch(0.82 0.012 150);
+  }
+
+  .verify-note{
+    margin-top: 36px;
+    border: 1px solid oklch(0.82 0.012 150);
+    background: oklch(0.92 0.012 150);
+    padding: 28px 32px;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 36px;
+    align-items: center;
+    position: relative;
+    border-left: 4px solid var(--lime-dim);
+  }
+  .verify-note h5{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 18px;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .verify-note p{
+    margin: 0;
+    color: oklch(0.42 0.012 150);
+    font-size: 14px;
+  }
+  .verify-note .seal{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--mute-2);
+    text-align: right;
+    letter-spacing: 0.06em;
+    line-height: 1.7;
+  }
+  .verify-note .seal b{
+    display: block;
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+  }
+
+  /* ─── providers & surfaces ─────────────────────── */
+  .providers{ border-top: 1px solid var(--line); }
+  .pgrid{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .provider{
+    background: var(--bg);
+    padding: 28px 24px;
+    min-height: 150px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    transition: background .15s ease;
+  }
+  .provider:hover{ background: var(--bg-2); }
+  .provider .pname{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .provider .pmeta{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--mute);
+    letter-spacing: 0.06em;
+    margin-top: 4px;
+  }
+  .provider .penv{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--lime);
+    margin-top: 12px;
+  }
+
+  .surfaces{
+    margin-top: 64px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 18px;
+  }
+  .surface{
+    border: 1px solid var(--line);
+    padding: 22px 20px;
+    background: var(--bg-2);
+    transition: border-color .15s ease;
+  }
+  .surface:hover{ border-color: var(--lime-dim); }
+  .surface .sicon{
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--lime);
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .surface h5{
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 6px;
+    color: var(--fg);
+  }
+  .surface p{
+    margin: 0;
+    font-size: 13px;
+    color: var(--fg-2);
+  }
+
+  /* ─── release ──────────────────────────────────── */
+  .release{
+    background: var(--bg-2);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 64px 0;
+  }
+  .release .wrap{
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+    gap: 64px;
+    align-items: center;
+  }
+  .release h3{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 38px;
+    line-height: 1.05;
+    margin: 14px 0 14px;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .release h3 em{ font-style: normal; color: var(--lime); }
+  .release p{ color: var(--fg-2); max-width: 50ch; margin: 0; }
+  .release .receipt{
+    border: 1px solid var(--line-2);
+    padding: 22px 24px;
+    background: var(--bg);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--fg-2);
+    border-left: 3px solid var(--lime);
+  }
+  .release .receipt .row{
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 18px;
+    padding: 5px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .release .receipt .row:last-child{ border-bottom: 0; }
+  .release .receipt .row .k{
+    color: var(--mute);
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+  .release .receipt .row .v{ color: var(--fg); word-break: break-all; }
+  .release .receipt .row .v.good{ color: var(--lime); }
+
+  /* ─── footer pull-quote with brand artwork (paper) ─ */
+  .pullquote{
+    position: relative;
+    padding: 88px 0 0;
+    overflow: hidden;
+    background: var(--paper);
+    color: var(--ink);
+    border-top: 1px solid var(--line);
+  }
+  .pullquote::before{
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, oklch(0.55 0.13 142 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(0.55 0.13 142 / 0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+  }
+  .pullquote .wrap{
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    text-align: center;
+  }
+  .pullquote .small-caps{ justify-self: center; color: var(--mute-2); }
+  .pullquote .small-caps .cube{
+    background: var(--lime-dim);
+    box-shadow:
+      2px 0 0 oklch(0.40 0.10 142),
+      0 2px 0 oklch(0.30 0.08 142),
+      2px 2px 0 oklch(0.20 0.06 142);
+  }
+  .pullquote h2{
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(40px, 5vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin: 0 auto;
+    max-width: 20ch;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+  .pullquote h2 em{ font-style: normal; color: var(--lime-dim); }
+  .pullquote .gloss{
+    color: oklch(0.42 0.012 150);
+    max-width: 56ch;
+    margin: 0 auto;
+    font-size: 16px;
+  }
+  .pullquote .footer-art{
+    display: block;
+    width: 100%;
+    max-width: 1280px;
+    margin: 36px auto 0;
+  }
+
+  /* ─── footer ──────────────────────────────────── */
+  footer{
+    padding: 56px 0 40px;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+  }
+  footer .wrap{
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) repeat(3, 1fr);
+    gap: 56px;
+  }
+  footer h6{
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--mute);
+    margin: 0 0 18px;
+    font-weight: 500;
+  }
+  footer ul{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  footer ul a{
+    text-decoration: none;
+    color: var(--fg-2);
+    font-family: var(--sans);
+    font-size: 14px;
+  }
+  footer ul a:hover{ color: var(--lime); }
+  footer .blurb{
+    color: var(--fg-2);
+    max-width: 36ch;
+    font-size: 14px;
+    margin: 12px 0 0;
+  }
+  footer .legal{
+    margin-top: 48px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--mute);
+    letter-spacing: 0.08em;
+  }
+
+  /* ─── breakpoints ─────────────────────────────── */
+  @media (max-width: 1080px){
+    .hero-copy, .terminal-row{ grid-template-columns: 1fr; gap: 36px; }
+    .principles .wrap, .section-head, .release .wrap{ grid-template-columns: 1fr; gap: 24px; }
+    .principles .list{ grid-template-columns: repeat(2, 1fr); }
+    .feature.span-7, .feature.span-5, .feature.span-4, .feature.span-6, .feature.span-8 { grid-column: span 12; }
+    .pgrid{ grid-template-columns: repeat(2, 1fr); }
+    .surfaces{ grid-template-columns: repeat(2, 1fr); }
+    .ic{ grid-column: span 12; }
+    .verify-note{ grid-template-columns: 1fr; }
+    .verify-note .seal{ text-align: left; }
+    footer .wrap{ grid-template-columns: 1fr 1fr; }
+    .meta-strip .wrap{ grid-template-columns: repeat(2, 1fr); }
+    .meta-strip .cell{ border-left: 0; padding-left: 0; }
+  }
+  @media (max-width: 640px){
+    .wrap{ padding: 0 20px; }
+    nav.top ul{ gap: 14px; }
+    nav.top ul li:not(:last-child){ display: none; }
+    .hero{ padding: 32px 0 56px; }
+    .hero-art-wrap{ margin-bottom: 36px; }
+    .principles .list{ grid-template-columns: 1fr; }
+    .pgrid{ grid-template-columns: 1fr; }
+    .surfaces{ grid-template-columns: 1fr; }
+    footer .wrap{ grid-template-columns: 1fr; }
+    .release .receipt .row{ grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+
+</head>
+<body>
+
+<!-- ─── NAV ─────────────────────────────────────────── -->
+<nav class="top">
+  <div class="wrap">
+    <a class="brand" href="#">
+      <img class="sheep" src="assets/img/stado-sheep-mark.webp" alt="stado sheep mark">
+      <span class="mark">stado</span>
+      <span class="ver">v0.52.7</span>
+    </a>
+    <ul>
+      <li><a class="link" href="#how">how it works</a></li>
+      <li><a class="link" href="#install">install</a></li>
+      <li><a class="link" href="#providers">providers</a></li>
+      <li><a class="link" href="#release">verify</a></li>
+      <li><a class="gh" href="https://github.com/foobarto/stado"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.72.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.04 11.04 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.73.81 1.18 1.84 1.18 3.1 0 4.43-2.7 5.41-5.26 5.69.41.36.78 1.06.78 2.14 0 1.55-.01 2.79-.01 3.17 0 .31.21.67.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"></path></svg>github&nbsp;↗</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ─── META STRIP ─────────────────────────────────── -->
+<div class="meta-strip">
+  <div class="wrap">
+    <div class="cell"><span class="ok"></span><b>status</b>pre-1.0 · shipping</div>
+    <div class="cell"><b>license</b>MIT or Apache-2.0</div>
+    <div class="cell"><b>runtime</b>go 1.26 · CGO=0</div>
+    <div class="cell"><b>release</b>reproducible · cosign-signed</div>
+  </div>
+</div>
+
+<!-- ─── HERO ───────────────────────────────────────── -->
+<header class="hero">
+  <div class="wrap">
+
+    <!-- Brand artwork as hero -->
+    <div class="hero-art-wrap">
+      <img class="hero-art" src="assets/img/stado-three-sheep-standing-guard.webp" alt="stado — three sheep standing guard amid a low-poly digital landscape of monitors and blocks">
+      <span class="tick tl"></span>
+      <span class="tick tr"></span>
+      <span class="tick bl"></span>
+      <span class="tick br"></span>
+      <span class="stamp">▍ stado / brand 01</span>
+    </div>
+
+    <!-- Hero copy -->
+    <div class="hero-copy">
+      <div>
+        <span class="small-caps"><span class="cube"></span>noun · stado · <span style="color:var(--lime)">/ˈsta.do/</span> · flock, herd</span>
+        <h1>A herd of agents that keep your <em>working tree</em> clean.</h1>
+      </div>
+      <div>
+        <p class="lede">
+          stado is a sandboxed, git-native coding agent for the terminal.
+          Sessions live in a sidecar repo until you explicitly land them.
+          Every tool call is committed to a signed audit log. Tool execution
+          is capability-gated through the OS sandbox.
+        </p>
+        <div class="cta">
+          <a class="btn btn-primary" href="#install">
+            install stado
+            <span class="arrow">→</span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/foobarto/stado">
+            view on github
+          </a>
+        </div>
+        <div class="signals">
+          <span class="chip"><span class="sq"></span>signed wasm plugins</span>
+          <span class="chip"><span class="sq"></span>forkable session graph</span>
+          <span class="chip"><span class="sq"></span>capability sandbox</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terminal demo below -->
+    <div class="terminal-row">
+      <div class="copy">
+        <span class="small-caps"><span class="cube"></span>a session, in flight</span>
+        <h3>Streamed in the TUI. <em>Signed</em> on the way out.</h3>
+        <p>
+          Streaming responses. Bundled tools. Every read, edit, and shell
+          invocation lands as a signed commit on the session's <span class="mono">trace</span> ref.
+        </p>
+        <div class="signals">
+          <span class="chip"><span class="sq"></span>anthropic · openai · google · local</span>
+          <span class="chip"><span class="sq"></span>tui · acp · mcp · headless</span>
+          <span class="chip muted"><span class="sq"></span>15 bundled plugins</span>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="bar">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <div class="title">~/code/myproject — stado</div>
+          <div class="right">▍ session · react-hook-fix</div>
+        </div>
+        <div class="body mono">
+<span class="row"><span class="prompt">$</span> <span class="user">stado</span></span>
+<span class="row"><span class="muted">▍ session  </span><span class="hash">7a3f9c2</span> <span class="muted">(new)</span></span>
+<span class="row"><span class="muted">▍ provider </span><span class="em">anthropic · claude-sonnet-4-6</span></span>
+<span class="row"><span class="muted">▍ sandbox  </span><span class="ok">landlock + bubblewrap + seccomp</span></span>
+<span class="row"><span class="muted">▍ tools    </span><span class="em">15 bundled · auto-compact on</span></span>
+<span class="row"> </span>
+<span class="row"><span class="arrow">›</span> <span class="user">refactor useEffect in src/hooks/useScroll.ts to handle StrictMode</span></span>
+<span class="row"> </span>
+<span class="row"><span class="label">▸ read</span>      <span class="muted">src/hooks/useScroll.ts</span>           <span class="ok">✓ ok</span></span>
+<span class="row"><span class="label">▸ grep</span>      <span class="muted">"useScroll" — 7 callsites</span>     <span class="ok">✓ ok</span></span>
+<span class="row"><span class="label">▸ edit</span>      <span class="muted">src/hooks/useScroll.ts +18 −9</span>  <span class="ok">✓ ok</span></span>
+<span class="row"><span class="label">▸ bash</span>      <span class="muted">pnpm test useScroll</span>            <span class="ok">✓ 12/12 pass</span></span>
+<span class="row"> </span>
+<span class="row"><span class="muted">─ audit ────────────────────────────────────────</span></span>
+<span class="row"><span class="muted">turns/4</span>  <span class="hash">a1f2…cc91</span>  <span class="ok">▮</span> signed · ed25519</span>
+<span class="row"><span class="muted">trace/4</span>  <span class="hash">9b8e…2701</span>  <span class="ok">▮</span> signed · ed25519</span>
+<span class="row"> </span>
+<span class="row"><span class="arrow">›</span> <span class="user">land into branch fix/strict-mode-scroll</span><span class="caret"></span></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+<!-- ─── PRINCIPLES ─────────────────────────────────── -->
+<section class="principles">
+  <div class="wrap">
+    <h2>
+      <span class="small-caps"><span class="cube"></span>commitments</span>
+      Four principles, on every architectural decision.
+    </h2>
+    <div class="list">
+      <div class="item">
+        <div class="num">// 01</div>
+        <h4>Read-only repo.</h4>
+        <p>Agent state lives outside your working tree. Landing is always explicit.</p>
+      </div>
+      <div class="item">
+        <div class="num">// 02</div>
+        <h4>Tamper-evident.</h4>
+        <p>No unsigned commits, no un-logged tool calls, no "trust us."</p>
+      </div>
+      <div class="item">
+        <div class="num">// 03</div>
+        <h4>OS enforces.</h4>
+        <p>Capabilities declared in the manifest. The kernel — not a promise — keeps tools in their lane.</p>
+      </div>
+      <div class="item">
+        <div class="num">// 04</div>
+        <h4>No lossy abstraction.</h4>
+        <p>Thinking blocks, prompt caching, provider-native features round-trip verbatim.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── HOW ────────────────────────────────────────── -->
+<section class="how" id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <span class="small-caps"><span class="cube"></span>§ how it works</span>
+      </div>
+      <h2>Four primitives. <em>Bend</em> any of them to your shape.</h2>
+    </div>
+
+    <div class="features">
+
+      <!-- 1: sidecar sessions -->
+      <article class="feature span-7">
+        <div class="tag"><span class="idx">▍ 01</span><span class="sep">/</span> git-native sessions</div>
+        <h3>Every turn is a <em>commit</em>. Fork from any of them.</h3>
+        <p>
+          Sessions live as a sidecar bare repo with per-session <span class="mono">tree</span> and <span class="mono">trace</span>
+          refs that grow with every turn. The history is a branching graph you can walk, resume, search, and replay —
+          not a flat chat log. Rewind to any earlier turn into a fresh session; the parent is never modified.
+        </p>
+        <div class="diagram" style="font-size: 12.5px;">
+          <div class="box" style="padding: 14px 18px;">
+            <div class="head" style="margin-bottom: 10px;">refs/sessions/7a3f9c2/tree · ~/code/myproject</div>
+<pre style="margin:0;font-family:var(--mono);color:var(--fg-2);line-height:1.7;white-space:pre;">* <span style="color:var(--lime)">turns/6</span>  edit CHANGELOG.md            <span style="color:var(--mute)">a1f2…cc91</span>
+* <span style="color:var(--lime)">turns/5</span>  bash pnpm test useScroll     <span style="color:var(--mute)">9b8e…2701</span>
+* <span style="color:var(--lime)">turns/4</span>  edit src/hooks/useScroll.ts  <span style="color:var(--mute)">3c4d…f80a</span>
+│  ╲
+│   ╲── <span style="color:var(--lime-soft)">fork → session a4e1b0</span>  <span style="color:var(--mute)">(--at turns/4)</span>
+│        * turns/4'  alt: useSyncExternalStore
+│
+* <span style="color:var(--lime)">turns/3</span>  grep "useScroll" — 7 sites   <span style="color:var(--mute)">6e21…0042</span>
+* <span style="color:var(--lime)">turns/2</span>  read useScroll.ts            <span style="color:var(--mute)">f9aa…b1c4</span>
+* <span style="color:var(--lime)">turns/1</span>  session start                <span style="color:var(--mute)">0000…7a3f</span></pre>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 12px;">
+            <span class="pill">signed · ed25519 / commit</span>
+            <span class="pill">trace ref · every tool call</span>
+            <span class="pill">tree ref · mutating turns</span>
+            <span class="pill">parent never rewritten</span>
+          </div>
+        </div>
+        <div class="extras">
+          <div><span class="k">cmd</span><span class="v">stado session fork &lt;id&gt; --at turns/4</span></div>
+          <div><span class="k">cmd</span><span class="v">stado session tree &lt;id&gt;     # interactive picker</span></div>
+          <div><span class="k">cmd</span><span class="v">stado session land &lt;id&gt; fix/strict-mode-scroll   <span style="color:var(--mute)">(when you're ready)</span></span></div>
+        </div>
+      </article>
+
+      <!-- 2: plugins, not internals -->
+      <article class="feature span-5">
+        <div class="tag"><span class="idx">▍ 02</span><span class="sep">/</span> plugins, not internals</div>
+        <h3>Almost nothing is built in. <em>Swap</em> any tool.</h3>
+        <p>
+          Stado core is the runtime, capability sandbox, and signed-distribution lifecycle.
+          <span class="mono">fs.read</span>, <span class="mono">shell.bash</span>, <span class="mono">web.fetch</span>,
+          <span class="mono">rg.search</span> — even <span class="mono">auto-compact</span> — ship as signed WASM plugins.
+          Don't like one? Rewrite it in any language that targets wasm.
+        </p>
+        <div class="audit">
+          <div class="ln"><span class="h">fs.read</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
+          <div class="ln"><span class="h">shell.bash</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
+          <div class="ln"><span class="h">web.fetch</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
+          <div class="ln"><span class="h">rg.search</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
+          <div class="ln"><span class="h">auto-compact</span><span class="a"><span class="muted">wasm · go</span></span><span class="sig"><span class="sq"></span>swappable</span></div>
+        </div>
+        <div style="margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap;">
+          <span class="pill" style="border:1px solid var(--line-2); color: var(--fg-2); padding: 2px 9px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;">Go</span>
+          <span class="pill" style="border:1px solid var(--line-2); color: var(--fg-2); padding: 2px 9px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;">Zig · 800 B</span>
+          <span class="pill" style="border:1px solid var(--line-2); color: var(--fg-2); padding: 2px 9px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;">Rust</span>
+          <span class="pill" style="border:1px solid var(--line-2); color: var(--fg-2); padding: 2px 9px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;">any wasip1</span>
+          <span class="pill" style="border:1px solid var(--lime-dim); color: var(--lime); padding: 2px 9px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;">ed25519 · trust-pinned</span>
+        </div>
+        <div class="extras">
+          <div><span class="k">cfg</span><span class="v">[tools].overrides = { webfetch = "webfetch-cached-0.1.0" }</span></div>
+          <div><span class="k">cmd</span><span class="v">stado plugin init my-plugin · sign · trust · install</span></div>
+        </div>
+      </article>
+
+      <!-- 3: sandbox -->
+      <article class="feature span-8">
+        <div class="tag"><span class="idx">▍ 03</span><span class="sep">/</span> capability sandbox</div>
+        <h3>Declared in the manifest. <em>Enforced</em> by the kernel.</h3>
+        <p>
+          Tool execution is gated through real OS sandboxing — not a promise the agent makes about itself.
+          Subprocess networking is mediated through a CONNECT-allowlist proxy in a private netns; plugins run
+          inside <span class="mono">wazero</span> with capabilities declared in the signed manifest.
+        </p>
+        <table class="matrix">
+          <thead>
+            <tr><th style="width:120px">os</th><th>subprocess sandbox</th><th style="width:120px">status</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="os">linux</td>
+              <td>landlock · bubblewrap · seccomp BPF · pasta CONNECT proxy<span class="desc">strongest path; whole-process <span class="mono">--sandbox-fs</span> available</span></td>
+              <td><span class="ok">▮ shipped</span></td>
+            </tr>
+            <tr>
+              <td class="os">macos</td>
+              <td>sandbox-exec with generated profiles<span class="desc">same capability vocabulary; no whole-process path</span></td>
+              <td><span class="ok">▮ shipped</span></td>
+            </tr>
+            <tr>
+              <td class="os">windows</td>
+              <td>warning-only passthrough<span class="desc">v2: job objects + restricted tokens — phase 3.6</span></td>
+              <td><span class="pending">◐ v2 planned</span></td>
+            </tr>
+            <tr>
+              <td class="os">wasm</td>
+              <td>wazero with manifest-declared capabilities<span class="desc">fs:read · fs:write · net:&lt;host&gt; · exec · env</span></td>
+              <td><span class="ok">▮ shipped</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <!-- 4: MCP server -->
+      <article class="feature span-4">
+        <div class="tag"><span class="idx">▍ 04</span><span class="sep">/</span> mcp server</div>
+        <h3>Bring stado's tools to your <em>other</em> agent.</h3>
+        <p>
+          <span class="mono">stado mcp-server</span> exposes your entire installed registry over stdio MCP.
+          Mount it in Claude Code, Codex, or anything that speaks MCP — and inherit every plugin you've signed and trusted locally.
+        </p>
+        <div class="audit" style="font-size: 11.5px;">
+          <div class="ln"><span class="h">shell.bash</span><span class="a"><span class="muted">persistent PTY + VT100</span></span><span class="sig"><span class="sq"></span>mcp</span></div>
+          <div class="ln"><span class="h">web.client</span><span class="a"><span class="muted">stateful · cookie jar</span></span><span class="sig"><span class="sq"></span>mcp</span></div>
+          <div class="ln"><span class="h">rg · ast-grep</span><span class="a"><span class="muted">code search</span></span><span class="sig"><span class="sq"></span>mcp</span></div>
+          <div class="ln"><span class="h">lsp.find</span><span class="a"><span class="muted">definitions · refs</span></span><span class="sig"><span class="sq"></span>mcp</span></div>
+          <div class="ln"><span class="h">your-plugin</span><span class="a"><span class="muted">whatever you install</span></span><span class="sig"><span class="sq"></span>mcp</span></div>
+        </div>
+        <div class="extras">
+          <div><span class="k">cmd</span><span class="v">stado mcp-server</span></div>
+          <div><span class="k">cfg</span><span class="v">[tools].overrides applies here too</span></div>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── INSTALL ────────────────────────────────────── -->
+<section class="install" id="install">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <span class="small-caps"><span class="cube"></span>§ install</span>
+      </div>
+      <h2>Three paths. Pick the one that fits your <em>threat model</em>.</h2>
+    </div>
+
+    <div class="install-grid">
+
+      <div class="ic">
+        <div class="step">▍ option i</div>
+        <h4>Install script</h4>
+        <p>One curl. Cosign-verified manifest. Lands in <span class="mono" style="color:var(--ink)">~/.local/bin</span> by default.</p>
+        <div class="req"><span>linux</span><span>macos</span><span>curl</span><span>cosign</span></div>
+        <pre class="cmd">curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | bash</pre>
+      </div>
+
+      <div class="ic">
+        <div class="step">▍ option ii</div>
+        <h4>Homebrew</h4>
+        <p>For folks who already trust the tap. Updates land through <span class="mono" style="color:var(--ink)">brew upgrade</span>.</p>
+        <div class="req"><span>macos</span><span>linux</span><span>brew</span></div>
+        <pre class="cmd">brew install foobarto/tap/stado</pre>
+      </div>
+
+      <div class="ic">
+        <div class="step">▍ option iii</div>
+        <h4>From source</h4>
+        <p>Go 1.26+. Pure Go, <span class="mono" style="color:var(--ink)">CGO_ENABLED=0</span>. Bundled wasm tools are built at <span class="mono" style="color:var(--ink)">make</span> time.</p>
+        <div class="req"><span>go 1.26+</span><span>any os</span></div>
+        <pre class="cmd">git clone https://github.com/foobarto/stado &amp;&amp; cd stado &amp;&amp; make</pre>
+      </div>
+
+    </div>
+
+    <div class="verify-note">
+      <div>
+        <h5>Verify what you're running.</h5>
+        <p>
+          Release archives ship with <span class="mono">checksums.txt.sig</span> + <span class="mono">checksums.txt.cert</span> (cosign keyless, Rekor-logged).
+          The minisign root is embedded in tagged stado builds — <span class="mono">stado verify --show-builtin-keys</span> prints it offline,
+          with no network call. CI-side minisign signing of the checksum manifest is planned, so the airgap-verify path lands end-to-end.
+        </p>
+      </div>
+      <div class="seal">
+        <b>cosign keyless · minisign-ready</b>
+        keyless cert · GHA OIDC issuer<br>
+        sha256 manifest · per-asset · Rekor-logged
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ─── PROVIDERS & SURFACES ───────────────────────── -->
+<section class="providers" id="providers">
+  <div class="wrap">
+    <div class="section-head">
+      <div>
+        <span class="small-caps"><span class="cube"></span>§ providers · surfaces</span>
+      </div>
+      <h2>Point it at any model. Drive it from any <em>shell</em>.</h2>
+    </div>
+
+    <div class="pgrid">
+      <div class="provider">
+        <div>
+          <div class="pname">Anthropic</div>
+          <div class="pmeta">claude · provider-native thinking</div>
+        </div>
+        <div class="penv">$ ANTHROPIC_API_KEY</div>
+      </div>
+      <div class="provider">
+        <div>
+          <div class="pname">OpenAI</div>
+          <div class="pmeta">gpt · reasoning content preserved</div>
+        </div>
+        <div class="penv">$ OPENAI_API_KEY</div>
+      </div>
+      <div class="provider">
+        <div>
+          <div class="pname">Google</div>
+          <div class="pmeta">gemini · prompt caching round-trips</div>
+        </div>
+        <div class="penv">$ GOOGLE_API_KEY</div>
+      </div>
+      <div class="provider">
+        <div>
+          <div class="pname">Local · OpenAI-compat</div>
+          <div class="pmeta">ollama · lmstudio · llama.cpp · vllm</div>
+        </div>
+        <div class="penv">$ STADO_DEFAULTS_PROVIDER</div>
+      </div>
+    </div>
+
+    <div class="surfaces">
+      <div class="surface">
+        <span class="sicon">‹ tui ›</span>
+        <h5>Terminal UI</h5>
+        <p>Bubbletea. Streaming. Slash commands. Model picker. Theme picker. Task manager.</p>
+      </div>
+      <div class="surface">
+        <span class="sicon">‹ run ›</span>
+        <h5>One-shot CLI</h5>
+        <p><span class="mono">stado run --prompt "…"</span>. With or without the audited tool loop.</p>
+      </div>
+      <div class="surface">
+        <span class="sicon">‹ acp ›</span>
+        <h5>Editor (ACP)</h5>
+        <p>Speaks Zed's Agent Client Protocol. Drive from your editor.</p>
+      </div>
+      <div class="surface">
+        <span class="sicon">‹ mcp ›</span>
+        <h5>MCP · both ways</h5>
+        <p>Run as a server (<span class="mono">mcp-server</span>) or consume capability-gated MCP servers via config.</p>
+      </div>
+      <div class="surface">
+        <span class="sicon">‹ rpc ›</span>
+        <h5>Headless JSON-RPC</h5>
+        <p>Long-running daemon. Drive from any JSON-RPC 2.0 client.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── RELEASE RECEIPT ────────────────────────────── -->
+<section class="release" id="release">
+  <div class="wrap">
+    <div>
+      <span class="small-caps"><span class="cube"></span>§ supply chain</span>
+      <h3>A release you can <em>verify</em> from an airgapped laptop.</h3>
+      <p>
+        Reproducible builds. Cosign-keyless signatures over a per-asset
+        <span class="mono" style="color:var(--fg)">checksums.txt</span>, Rekor-logged. The minisign
+        root is embedded in tagged binaries so once CI starts publishing
+        <span class="mono" style="color:var(--fg)">checksums.txt.minisig</span>,
+        <span class="mono" style="color:var(--fg)">self-update</span> verifies it without
+        ever falling back to unsigned manifest verification — airgap-friendly. Audit the chain yourself.
+      </p>
+    </div>
+    <div class="receipt">
+      <div class="row"><span class="k">version</span><span class="v">v0.52.7 · 2026-05-23</span></div>
+      <div class="row"><span class="k">manifest</span><span class="v">checksums.txt · 17 assets</span></div>
+      <div class="row"><span class="k">cosign</span><span class="v good">▮ keyless · GHA OIDC · token.actions.githubusercontent.com</span></div>
+      <div class="row"><span class="k">minisign</span><span class="v">▮ embedded root in binary · CI signing planned</span></div>
+      <div class="row"><span class="k">scorecard</span><span class="v good">▮ openssf · best practices</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PULL QUOTE + FOOTER ART ─────────────────── -->
+<section class="pullquote">
+  <div class="wrap">
+    <span class="small-caps"><span class="cube"></span>break from the flock</span>
+    <h2>Ship from the herd. Or run <em>ahead</em> of it.</h2>
+    <p class="gloss">
+      Pre-1.0 and shipping fast. Open source. Built by people who didn't want
+      to choose between agent velocity and a clean working tree.
+    </p>
+  </div>
+  <img class="footer-art" src="assets/img/a-single-sheep-breaking-away-fro.webp" alt="A single sheep breaking away from the herd">
+</section>
+
+<!-- ─── FOOTER ─────────────────────────────────────── -->
+<footer>
+  <div class="wrap">
+    <div>
+      <a class="brand" href="#" style="margin-bottom:6px">
+        <img class="sheep" src="assets/img/stado-sheep-mark.webp" alt="">
+        <span class="mark">stado</span>
+        <span class="ver">v0.52.7</span>
+      </a>
+      <p class="blurb">
+        A sandboxed, git-native coding agent for the terminal. Pre-1.0.
+        MIT or Apache-2.0, at your option.
+      </p>
+    </div>
+    <div>
+      <h6>Project</h6>
+      <ul>
+        <li><a href="https://github.com/foobarto/stado">GitHub</a></li>
+        <li><a href="https://github.com/foobarto/stado/releases">Releases</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/PLAN.md">Roadmap</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/CHANGELOG.md">Changelog</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Docs</h6>
+      <ul>
+        <li><a href="https://github.com/foobarto/stado/blob/main/docs/README.md">Guide index</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/DESIGN.md">DESIGN.md</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/docs/commands/session.md">Sessions</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/docs/features/plugin-authoring.md">Plugin authoring</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Trust</h6>
+      <ul>
+        <li><a href="https://github.com/foobarto/stado/blob/main/SECURITY.md">SECURITY.md</a></li>
+        <li><a href="https://securityscorecards.dev/viewer/?uri=github.com/foobarto/stado">OpenSSF Scorecard</a></li>
+        <li><a href="https://www.bestpractices.dev/projects/12944">Best Practices</a></li>
+        <li><a href="https://github.com/foobarto/stado/blob/main/CONTRIBUTING.md">Contributing</a></li>
+      </ul>
+    </div>
+
+    <div class="legal" style="grid-column: 1 / -1;">
+      <span>© 2026 stado · MIT or Apache-2.0</span>
+      <span>build · go 1.26 · CGO_ENABLED=0 · reproducible</span>
+    </div>
+  </div>
+</footer>
+
+
+
+</body></html>
