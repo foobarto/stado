@@ -65,10 +65,15 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 	host := newPluginRunToolHost(workdir, runner, false)
 
 	// stado_tool_invoke dispatch from this CLI invocation routes
-	// against the live BuildDefaultRegistry — same set the agent loop
-	// would see. Per-call construction is fine for the CLI single-shot
-	// path (no surrounding executor with filters).
+	// against the live BuildDefaultRegistry. Codex #071: per-call
+	// construction was bypassing [tools].disabled / .enabled because
+	// the prior code didn't call ApplyToolFilter — so a plugin using
+	// stado_tool_invoke from `stado tool run` / `stado plugin invoke`
+	// could reach tools the agent-loop / MCP-server paths (which go
+	// through BuildRegistryWithPlugins → ApplyToolFilter) refused.
+	// Apply the filter so the inner-invoke surface matches outer.
 	invokeReg := runtime.BuildDefaultRegistry(cfg)
+	runtime.ApplyToolFilter(invokeReg, cfg)
 
 	args := pluginrun.RunArgs{
 		Manifest:  in.Manifest,
