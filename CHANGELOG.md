@@ -32,6 +32,165 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.55.0 — security hardening cluster H+R+S+T+U — 2026-05-23
+
+Clears all four validated-Codex findings dropped post-v0.54.0 plus the
+deep-dive's macOS sandbox escape (H). Five PRs (#55–#59), 3 HIGH /
+2 MEDIUM criticality. Backward-compatible (audit v2 signatures, the
+sandbox-profile and tool-filter behaviors are strictly more-restrictive
+per least-privilege; one operator-facing change documented under
+*Breaking surfaces* below).
+
+### Sandbox
+
+- **CWD `(allow process-exec (subpath cwd))` clause dropped** (PR #55 —
+  Cluster H, deep-dive finding). The macOS `sbx_profile` allowed
+  arbitrary process-exec under the operator's checkout — a write tool
+  that planted a binary at `<cwd>/foo` could exec it from inside the
+  sandbox, breaking the per-tool exec allowlist. Removed the clause;
+  `Policy.Exec` is now the only path to exec. `TestRenderSandboxProfile_CWDNotProcessExecable`
+  pins the invariant. Tools that legitimately need to exec their
+  output must list the path in their `Policy.Exec` allowlist.
+
+- **Firejail `bind_rw` policy fail-closed** (PR #57 — Cluster S, Codex
+  HIGH/HIGH). Pre-fix `pickRunner` returned an empty string when
+  `runner="firejail"` + `bind_rw` non-empty (`firejailCanEnforce`
+  returns false for any non-empty `BindRW` — firejail can't faithfully
+  enforce an arbitrary RW allow-list at all; no firejail flag
+  combination makes this configuration safe); `doRewrap` then treated empty
+  runner as the "no wrapper installed" case and, with default
+  `RefuseNoRunner=false`, warned + returned nil → tools ran **fully
+  unsandboxed**. Operators who configured `mode="wrap"` +
+  `runner="firejail"` + `bind_rw="..."` silently lost all sandbox
+  confinement.
+
+  `pickRunner` now returns `(string, error)` and emits a hard error for
+  the unenforceable-policy case. `doRewrap` checks the policy error
+  before the missing-wrapper warn-and-continue path. The "no runner
+  installed at all" path keeps the prior warn+nil behavior under
+  `RefuseNoRunner=false`. Copilot/Codex round-1 catch: the
+  `firejailInstalledButUnsafe` heuristic now only fires when
+  `exec.LookPath("firejail")` actually finds the binary.
+
+### TUI
+
+- **Kill-switch can no longer be defeated by tool-cancel race** (PR #56 —
+  Cluster R, Codex HIGH/HIGH, regression of #46). Pre-fix
+  `cancelRunningTool` + `clearPendingToolQueue` cleared the tool context
+  and dropped the queue, but `executeCallAsync` converted the
+  `context.Canceled` into a normal `toolResultMsg{Content: "cancelled
+  by user"}`. `onToolResult` then appended it → `advanceToolQueue`
+  drained the (empty) queue → `toolsExecutedMsg` → `onToolsExecuted`
+  unconditionally called `startStream()` → the model could request
+  another bash/network tool. Operator-pressed Esc was effectively a
+  no-op.
+
+  New `Model.turnCancelled` flag, set by both cancel helpers and by
+  `clearPendingToolQueue` when work was dropped, cleared at
+  `startStream`. `onToolsExecuted` checks the flag before dispatching
+  the next provider request — when set, it persists the `tool_result`
+  blocks to history (keeps the conversation paired so the next turn
+  isn't rejected by OpenAI), promotes any queued prompt instead, and
+  refuses to re-stream the cancelled turn.
+
+### Audit
+
+- **Snapshot failure on mutating tools surfaces as Error**
+  (PR #59 — Cluster U, Codex MEDIUM/MEDIUM). `BuildTreeFromDir` has
+  hard caps (256 MiB blob, 200000 entries, depth 128). Pre-fix a
+  mutating tool whose post-snapshot exceeded the cap got a `slog.Warn`
+  + no tree commit; trace ref was written but the signed post-state
+  tree was silently absent — `audit verify` doesn't notice missing
+  refs. An attacker-influenced prompt could create the oversized state
+  via auto-approved tools, then any subsequent mutation slipped past
+  the signed-audit invariant.
+
+  New contract: snapshot failure on a mutating tool now appends
+  `"audit snapshot failed (tree-ref skipped, mutation NOT in signed
+  audit): <reason>"` to BOTH `meta.Error` (visible in the trace
+  commit's `Error:` trailer and the JSON audit exporter) AND
+  `res.Error` (returned to the model). The mutation itself isn't
+  undone — it already happened — but downstream consumers see the
+  gap. Cluster U round-1 catch from both Codex P2 and Copilot: the
+  fix initially left `meta.Summary` stamped `[ok]` and the OTel span
+  at `OK` even with the `Error:` trailer present, so operator
+  dashboards keyed on Summary/span saw success. v0.55.0 restamps
+  Summary, the `tool.outcome` span attribute, and the span status
+  to match the surfaced error.
+
+  Exec tools' snapshots remain informational (used only to detect
+  preTree→postTree diff) — failure stays a slog warning, no
+  `res.Error` mutation.
+
+### Release
+
+- **Upstream binary digests pinned in source** (PR #58 — Cluster T,
+  Codex HIGH/HIGH, regression of EP-0042 Part B). Pre-fix
+  `hack/fetch-binaries.go` fetched the expected SHA256 digests live
+  from the SAME upstream release source as the binaries themselves
+  (ripgrep's `.sha256` sidecar; ast-grep's `expanded_assets` HTML).
+  If the upstream release/account was compromised, the attacker-
+  controlled bytes passed the same-source digest check; signed stado
+  release embedded them; bundled rg/ast-grep executed attacker
+  native code under user privileges. The generated digest pins were
+  `.gitignore`-d, so digests were not reviewable in source control.
+
+  New `hack/binary-pins.json` is committed and reviewable, with
+  per-version per-asset digests for ripgrep 14.1.1 and ast-grep 0.38.7
+  across the five-platform matrix (Linux amd64/arm64, Darwin
+  amd64/arm64, Windows amd64). `fetchRipgrep`/`fetchAstGrep` look up
+  the digest there; live-fetched sidecar/expanded-assets paths and
+  the `internal/releaseassets` helper are removed. Upstream account
+  compromise no longer leaks into the signed stado release —
+  reviewers see digest changes in PRs.
+
+  Copilot round-1 catches: `flag.Parse` runs before `loadPinnedDigests`
+  so `-h` / invalid-flag invocations no longer fail on a missing pin
+  file; `normalizeAndValidateDigests` trims, lowercases, and
+  hex.DecodeString-validates every entry at load time, naming the bad
+  asset by tool@version (typos surface before the full download
+  rather than as a generic post-download "digest mismatch").
+
+### Breaking surfaces (one — pre-1.0 no-kid-gloves)
+
+- **`mode="wrap"` + `runner="firejail"` + `bind_rw="..."`** now hard-errors
+  at sandbox-setup time instead of silently running unsandboxed. There
+  is no firejail flag that fixes this — the operator must either drop
+  `bind_rw`, or switch runner to `bwrap` (which can enforce arbitrary
+  RW binds). `RefuseNoRunner=true` does NOT remediate this case: the
+  policy-unenforceable path now hard-errors regardless of that flag.
+  (`RefuseNoRunner` still controls the separate "no runner installed at
+  all" case: default `false` warns + continues unsandboxed, `true`
+  hard-errors.) The pre-fix behavior was a fail-open vulnerability;
+  there is no compatibility carve-out.
+
+### Removed surfaces
+
+- `internal/releaseassets` package (depended on by the old live-fetched
+  digest path; no longer needed since digests are pinned in source).
+- `fetchSHA256Sidecar`, `fetchGitHubExpandedAssetDigests`,
+  `maxFetchSidecarBytes`, `maxFetchMetadataBytes` constants from
+  `hack/fetch-binaries.go`.
+
+### Plugin ABI migration note
+
+No host-import additions or removals. The wasm calling contract is
+unchanged.
+
+### Fixes
+
+- The `m.turnCancelled` flag is set even when `cancelRunningTool`
+  returns false (closes the timing window where `toolCancel` was nil
+  but `pendingCalls` was non-empty between `onToolResult` clearing
+  the pointer and `advanceToolQueue` starting the next tool —
+  Copilot round-1 catch on Cluster R).
+- Cancelled turns now persist the `tool_result` blocks to `m.msgs`
+  so the conversation history stays paired (the assistant message
+  containing the `tool_use` blocks is already persisted by
+  `onTurnComplete`; leaving the `tool_use` unpaired produces an
+  invalid history rejected by OpenAI Chat Completion on the next
+  turn — Copilot round-1 catch on Cluster R).
+
 ## v0.54.0 — security hardening cluster C+D+E — 2026-05-23
 
 Closes the 10/10 P0 sweep from the second-pass Codex triage with three
