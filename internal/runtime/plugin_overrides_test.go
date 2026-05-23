@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"crypto/ed25519"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -194,5 +195,63 @@ func TestApplyToolOverrides_ReadCapabilityPromotesClass(t *testing.T) {
 	}
 	if got := reg.ClassOf("fs__read"); got != tool.ClassExec {
 		t.Fatalf("ClassOf(read) = %v, want %v", got, tool.ClassExec)
+	}
+}
+
+
+// VerifyInstalledPlugin is the exported runtime entry for plugin
+// verification (TUI override / installed-plugin path). It funnels through
+// verifyPluginOverride, which (a) refuses nil arguments and (b) hard-denies
+// revoked fingerprints before any I/O. SECURITY.md's "no escape hatch"
+// guarantee for the deny-list depends on this — these tests pin both.
+
+func TestVerifyInstalledPlugin_nilManifest(t *testing.T) {
+	err := VerifyInstalledPlugin(context.Background(), &config.Config{}, "/nonexistent", nil, "")
+	if err == nil {
+		t.Fatal("expected error for nil manifest, got nil (would have panicked without the guard)")
+	}
+	if !strings.Contains(err.Error(), "verify: nil manifest") {
+		t.Errorf("expected 'verify: nil manifest', got %v", err)
+	}
+}
+
+func TestVerifyInstalledPlugin_nilConfig(t *testing.T) {
+	mf := &plugins.Manifest{AuthorPubkeyFpr: "deadbeefdeadbeef"}
+	err := VerifyInstalledPlugin(context.Background(), nil, "/nonexistent", mf, "")
+	if err == nil {
+		t.Fatal("expected error for nil config, got nil (would have panicked on cfg.StateDir())")
+	}
+	if !strings.Contains(err.Error(), "verify: nil config") {
+		t.Errorf("expected 'verify: nil config', got %v", err)
+	}
+}
+
+// The revoked-fingerprint deny runs BEFORE wasm-digest verification and
+// BEFORE the trust-store lookup — the "no escape hatch" guarantee.
+// Passing a non-existent pluginDir proves no I/O happens: if the deny ran
+// AFTER wasm-digest, we'd see a file-read error instead of RevokedError.
+func TestVerifyInstalledPlugin_revokedFingerprintRejectedBeforeAnyIO(t *testing.T) {
+	const revoked = "6c48b56f20c9c344" // browser-demo.seed
+	err := VerifyInstalledPlugin(
+		context.Background(),
+		&config.Config{},
+		"/nonexistent-plugin-dir-no-wasm-no-manifest",
+		&plugins.Manifest{AuthorPubkeyFpr: revoked},
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected revoked error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "revoked") {
+		t.Errorf("expected revoked error, got %v", err)
+	}
+	if !strings.Contains(msg, "browser-demo.seed") {
+		t.Errorf("error should name the leaked seed: %v", err)
+	}
+	// If the deny had run after wasm-digest, the error would mention the
+	// missing wasm file. Assert no I/O leaked through.
+	if strings.Contains(msg, "no such file") || strings.Contains(msg, "open ") {
+		t.Errorf("revoked deny should fire BEFORE any filesystem I/O, but error suggests I/O happened: %v", err)
 	}
 }
