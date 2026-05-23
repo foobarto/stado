@@ -45,3 +45,29 @@ func (m *Model) cancelRunningTool() bool {
 	m.toolCancel = nil
 	return true
 }
+
+// clearPendingToolQueue drops the queue of tool calls waiting to run
+// in the current turn (m.pendingCalls). Returns the number cleared.
+//
+// Why this matters: when an assistant turn emits multiple tool calls,
+// they queue in m.pendingCalls and advanceToolQueue runs them one at
+// a time as each tool returns. Cancelling only the currently-running
+// tool (via cancelRunningTool) leaves the queue intact — when the
+// cancelled tool's goroutine sends back its result, advanceToolQueue
+// picks the next pending call and keeps the turn running. The operator
+// who pressed Esc or typed /cancel doesn't get what they asked for.
+// Codex P1 caught this on #46 after the cancelRunningTool fix landed.
+//
+// Does NOT touch m.pendingResults — results already collected from
+// completed tools in this batch still need to flow to the next
+// toolsExecutedMsg so the post-turn cleanup path runs and the queued
+// prompt (if any) dispatches.
+//
+// No mutex: m.pendingCalls is only touched from the TUI event-loop
+// goroutine (Update + the Cmds it returns; advanceToolQueue itself
+// runs in the same goroutine via tea.Cmd machinery).
+func (m *Model) clearPendingToolQueue() int {
+	n := len(m.pendingCalls)
+	m.pendingCalls = nil
+	return n
+}

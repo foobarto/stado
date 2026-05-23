@@ -281,10 +281,14 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		streamCancelled := m.cancelRunningStream()
 		toolCancelled := m.cancelRunningTool()
-		if streamCancelled || toolCancelled {
+		pendingDropped := m.clearPendingToolQueue()
+		if streamCancelled || toolCancelled || pendingDropped > 0 {
 			body := "turn cancelled"
 			if toolCancelled {
 				body = "turn cancelled (running tool interrupted)"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s, %d pending tool(s) dropped", body, pendingDropped)
 			}
 			m.appendBlock(block{kind: "system", body: body})
 			m.renderBlocks()
@@ -296,16 +300,35 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// current turn (its existing cleanup drains the queue
 		// and dispatches the queued prompt), so the next thing
 		// the user sees is their just-submitted message running.
+		//
+		// Same kit as Esc/Ctrl+G and /cancel: stream + tool +
+		// pending-queue all dropped. Copilot caught that the prior
+		// version only checked streamCancel, so force-queue during
+		// tool execution silently no-op'd and the queued prompt waited
+		// for the tool to finish naturally.
 		if m.queuedPrompt == "" {
 			m.appendBlock(block{kind: "system", body: "force-queue: no queued prompt"})
 			m.renderBlocks()
 			return m, nil, true
 		}
-		if m.state == stateStreaming && m.streamCancel != nil {
-			m.streamCancel()
-			m.appendBlock(block{kind: "system", body: "force-queue: cancelled current turn; queued prompt running"})
+		streamCancelled := m.cancelRunningStream()
+		toolCancelled := m.cancelRunningTool()
+		pendingDropped := m.clearPendingToolQueue()
+		if streamCancelled || toolCancelled || pendingDropped > 0 {
+			body := "force-queue: cancelled current turn; queued prompt running"
+			if toolCancelled {
+				body = "force-queue: cancelled current tool; queued prompt running"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s (%d pending tool(s) dropped)", body, pendingDropped)
+			}
+			m.appendBlock(block{kind: "system", body: body})
 			m.renderBlocks()
 		}
+		// No turn in flight + queued prompt set: nothing to cancel, but
+		// the queued prompt will dispatch on the next natural state
+		// transition. Return handled so we don't accidentally insert
+		// Alt+Enter as a literal into the textarea.
 		return m, nil, true
 
 	case m.keys.Matches(msg, keys.ToolExpand):

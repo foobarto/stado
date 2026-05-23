@@ -252,11 +252,15 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		// helpers (see cancel.go).
 		streamCancelled := m.cancelRunningStream()
 		toolCancelled := m.cancelRunningTool()
+		pendingDropped := m.clearPendingToolQueue()
 		switch {
-		case streamCancelled || toolCancelled:
+		case streamCancelled || toolCancelled || pendingDropped > 0:
 			body := "cancel: in-flight turn cancelled (queued prompt, if any, will run next)"
 			if toolCancelled {
 				body = "cancel: in-flight tool cancelled (queued prompt, if any, will run next)"
+			}
+			if pendingDropped > 0 {
+				body = fmt.Sprintf("%s; %d pending tool(s) dropped", body, pendingDropped)
 			}
 			m.appendBlock(block{kind: "system", body: body})
 		case m.queuedPrompt != "":
@@ -283,10 +287,14 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		} else {
 			streamCancelled := m.cancelRunningStream()
 			toolCancelled := m.cancelRunningTool()
-			if streamCancelled || toolCancelled {
+			pendingDropped := m.clearPendingToolQueue()
+			if streamCancelled || toolCancelled || pendingDropped > 0 {
 				body := "queue-now: in-flight turn cancelled; queued prompt will run on cleanup"
 				if toolCancelled {
 					body = "queue-now: in-flight tool cancelled; queued prompt will run on cleanup"
+				}
+				if pendingDropped > 0 {
+					body = fmt.Sprintf("%s (%d pending tool(s) dropped)", body, pendingDropped)
 				}
 				m.appendBlock(block{kind: "system", body: body})
 			} else {
