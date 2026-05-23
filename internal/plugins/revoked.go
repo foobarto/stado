@@ -49,9 +49,11 @@ func IsRevoked(fpr string) (bool, string) {
 // IsRevoked-check first), the message reports the internal error rather
 // than falsely claiming revocation with an empty source.
 //
-// The "verify:" prefix matches the convention other errors in this
-// package use (untrust:, plugins:), so callers / users can tell at a
-// glance which stage rejected.
+// Follows this package's `<stage>:` error-prefix convention so users can
+// tell at a glance which stage rejected — `verify:` for the user-facing
+// revoked error (matching VerifyManifest / TrustVerified), `plugins:` for
+// the internal-error caller-bug message (matching ParsePubkey errors,
+// etc.). Different stages, same convention.
 func RevokedError(fpr string) error {
 	src, ok := revokedFingerprints[fpr]
 	if !ok {
