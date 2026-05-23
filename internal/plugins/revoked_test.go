@@ -30,8 +30,10 @@ func TestRevokedList_count(t *testing.T) {
 	// (browser/encode-zig/hello/hello-go/http-session/image-info/ls/
 	// mcp-client/persistent-shell/state-dir-info/webfetch-cached/
 	// web-search). Expanding the list is fine — additions are exactly
-	// what a deny-list is for; shrinking would silently revoke a previous
-	// revocation. When adding entries, also extend SECURITY.md's table.
+	// what a deny-list is for. Shrinking would silently un-revoke a
+	// previously denied fingerprint (re-enabling trust in a compromised
+	// key), which is precisely the regression we don't want. When adding
+	// entries, also extend SECURITY.md's table.
 	const minEntries = 12
 	if got := len(revokedFingerprints); got < minEntries {
 		t.Errorf("revokedFingerprints: have %d entries, must not shrink below %d", got, minEntries)
