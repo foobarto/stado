@@ -230,21 +230,31 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 // All untrusted from the terminal-escape perspective: an attacker-
 // influenced prompt can inject OSC52 (clipboard hijack), OSC8
 // (clickable-link injection), CSI cursor moves, etc. Both the row and
-// detail-pane renderers display fields on a single line (the
-// `strings.ReplaceAll(... "\n", " ")` + `truncate(...)` wrappers
-// collapse newlines for layout). Strip all control runes — newlines
-// included — so embedded escapes can't reach the terminal even if a
-// truncate boundary happens to land between a CSI lead and its final
-// byte. Codex G4/J-b P0: PR #49 sibling-miss in the fleetpicker
-// render path.
+// detail-pane renderers display fields on a single line. The
+// `singleLineSafe` helper collapses newlines into spaces FIRST
+// (preserving word boundaries — Copilot review #62: dropping the old
+// `strings.ReplaceAll(... "\n", " ")` would mash "two\nwords" into
+// "twowords") and THEN strips remaining control runes (including the
+// other whitespace controls that the row layout can't render). The
+// truncate happens after, so a boundary landing inside a CSI lead
+// can't smuggle the final byte through. Codex G4/J-b P0: PR #49
+// sibling-miss in the fleetpicker render path.
+func singleLineSafe(s string) string {
+	// Collapse \n → " " and \r → " " before StripControlChars eats
+	// them; the visible result reads with word boundaries instead
+	// of joined words. Tabs likewise become spaces.
+	s = strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
+	return textutil.StripControlChars(s)
+}
+
 func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 	statusPill := fmt.Sprintf("[%-9s]", e.Status)
 	short := e.FleetID
 	if len(short) >= 8 {
 		short = short[:8]
 	}
-	prompt := truncate(textutil.StripControlChars(strings.TrimSpace(e.Prompt)), 50)
-	last := textutil.StripControlChars(e.LastTool)
+	prompt := truncate(singleLineSafe(strings.TrimSpace(e.Prompt)), 50)
+	last := singleLineSafe(e.LastTool)
 	if last == "" {
 		last = "—"
 	}
@@ -257,21 +267,25 @@ func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 	var b strings.Builder
 	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Prompt: "))
-	b.WriteString(truncate(textutil.StripControlChars(e.Prompt), maxInt(innerW-8, 30)))
+	b.WriteString(truncate(singleLineSafe(e.Prompt), maxInt(innerW-8, 30)))
 	b.WriteString("\n")
 	if e.SessionID != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Session: "))
-		b.WriteString(textutil.StripControlChars(e.SessionID))
+		b.WriteString(singleLineSafe(e.SessionID))
 		b.WriteString("\n")
 	}
 	if e.LastText != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Last text: "))
-		b.WriteString(truncate(textutil.StripControlChars(e.LastText), maxInt(innerW-12, 30)))
+		b.WriteString(truncate(singleLineSafe(e.LastText), maxInt(innerW-12, 30)))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusError && e.Error != "" {
 		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Error: "))
-		b.WriteString(truncate(textutil.StripControlChars(e.Error), maxInt(innerW-8, 30)))
+		// Copilot review #62: pre-this-fix Error wasn't ReplaceAll'd
+		// either, so a multi-line error already broke the row layout
+		// before the security fix touched it. singleLineSafe now
+		// applies uniformly to every field so words stay readable.
+		b.WriteString(truncate(singleLineSafe(e.Error), maxInt(innerW-8, 30)))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusCompleted && e.Result != "" {

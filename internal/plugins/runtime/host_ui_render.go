@@ -207,14 +207,18 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	// once at the decode boundary so the rendered Panel struct is
 	// fully trustable downstream.
 	//
-	// Single-line zones (header / footer / id / variant / heading,
+	// Single-line zones (header / footer / id / heading,
 	// row + cell fields, identifier-like strings) use
 	// StripControlChars — newlines included — because the renderer
 	// composes them into rows/cells that break visually on \n.
 	// Multi-line prose zones (Text body, Code.Content, Diff
 	// before/after, KV value text) use SanitizeForTerminal which
 	// preserves \n / \t / \r so legitimate wrapped text survives.
-	// Variant is enum-validated above so it doesn't need sanitizing.
+	// Variant is enum-validated above (validRenderVariants) so the
+	// trust boundary is enforced via the rejection above rather than
+	// sanitization — it's passed through verbatim; per Copilot review
+	// #62 the comment listed it among the StripControlChars zones,
+	// which was misleading.
 	out := Panel{
 		Title:    textutil.StripControlChars(w.Title),
 		Variant:  w.Variant,

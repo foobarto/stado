@@ -183,7 +183,7 @@ func TestView_StripsControlCharsFromCatalogStrings(t *testing.T) {
 		{ID: "good\x1b]52;c;evil\x07id", Origin: "anthropic\x1b]8;;https://evil\x1b\\\\link\x1b]8;;\x1b\\\\", Note: "note\n\nwith\nnewlines"},
 	}, "")
 	out := m.View(120, 40)
-	for _, bad := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+	for _, bad := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("rendered picker leaks %q escape sequence: %q", bad, out)
 		}

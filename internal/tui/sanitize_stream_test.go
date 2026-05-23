@@ -16,7 +16,13 @@ const sanitizeProbeCSI = "\x1b[2K\x1b[1;1H"
 
 func assertNoEscapesIn(t *testing.T, label, got string) {
 	t.Helper()
-	for _, esc := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+	// Copilot review #62: include a bare ESC (0x1b) check so the
+	// assertion catches any escape byte that survives, not just the
+	// specific multi-byte prefixes we know about. SanitizeForTerminal /
+	// StripControlChars are both supposed to strip ESC unconditionally;
+	// if either fails to, this catches it even when the trailing bytes
+	// happen to differ from the OSC52/OSC8/CSI samples.
+	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(got, esc) {
 			t.Errorf("%s leaks %q escape: %q", label, esc, got)
 		}

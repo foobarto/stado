@@ -360,7 +360,7 @@ func TestDecodeRenderRequest_SanitizesEveryStringField(t *testing.T) {
 
 	// Helper: every escape we planted must be gone from the field.
 	assertClean := func(name, got string) {
-		for _, esc := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+		for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 			if strings.Contains(got, esc) {
 				t.Errorf("%s leaks %q: %q", name, esc, got)
 			}

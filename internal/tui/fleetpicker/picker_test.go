@@ -32,7 +32,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		LastTool: "bash" + osc8,
 	}
 	row := renderEntryRow(e, 120)
-	for _, esc := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(row, esc) {
 			t.Errorf("renderEntryRow leaks %q escape: %q", esc, row)
 		}
@@ -57,7 +57,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		Error:     "err " + csi,
 	}
 	detail := renderEntryDetail(d, 120)
-	for _, esc := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(detail, esc) {
 			t.Errorf("renderEntryDetail leaks %q escape: %q", esc, detail)
 		}
@@ -70,7 +70,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		Result:  "ok " + osc52,
 	}
 	rdetail := renderEntryDetail(r, 120)
-	for _, esc := range []string{"\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(rdetail, esc) {
 			t.Errorf("renderEntryDetail(Result) leaks %q escape: %q", esc, rdetail)
 		}
