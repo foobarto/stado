@@ -12,28 +12,33 @@ import (
 const SuppressEnvVar = "STADO_SUPPRESS_SANDBOX_WARN"
 
 // announceOnce gates the unsandboxed warning to exactly one emission per
-// process. The sync.Once is package-scoped (not per-entry-point) so a
-// process that hits more than one entry — e.g. headless command that
-// later spawns a TUI subprocess — still warns at most once.
+// process. Package-scoped (not per-entry-point) so a process that calls
+// the helper from multiple entry points in sequence still warns at most
+// once. Subprocesses are a different OS process and obviously do not
+// share this state — each warns independently if it reaches the helper.
 var announceOnce sync.Once
 
 // WarnIfHostUnsandboxed emits a one-time stderr warning describing the
-// host process's containment posture. Suppressed when:
+// host process's containment posture. Three branches:
+//
+//   - cfg.Mode = "wrap" but we are NOT the wrapped child — flags the
+//     gap that today only `stado run` calls [MaybeRewrap], so launching
+//     the TUI / headless / session-resume with mode=wrap leaves those
+//     code paths unwrapped.
+//   - cfg.Mode = "external" but the process is NOT wrapped (per
+//     [RewrappedEnvVar] / [looksWrapped]) — operator claims to handle
+//     wrapping externally but didn't. Only `stado run` validates this
+//     today via [MaybeRewrap]; the other entry points need the warning.
+//   - cfg.Mode = "off" or empty (the koanf default) — host is
+//     unsandboxed; points at the config knob.
+//
+// Suppressed when:
 //
 //   - [RewrappedEnvVar] = "1" — we ARE the wrapped child; the sandbox
 //     is active around us, no warning needed.
 //   - [SuppressEnvVar] = "1" — operator/CI/test opt-out.
-//   - cfg.Mode = "external" — operator runs stado under their own
-//     wrapper; [MaybeRewrap] already validates and errors if missing.
-//
-// When cfg.Mode = "wrap" but we are NOT the wrapped child, the warning
-// flags the gap: today only `stado run` calls [MaybeRewrap], so launching
-// the TUI / headless / session-resume with mode=wrap leaves those code
-// paths unwrapped. The operator needs to know.
-//
-// When cfg.Mode is "off" (or empty — the koanf default), the warning
-// states the host is unsandboxed and points at the config knob to enable
-// containment.
+//   - cfg.Mode = "external" AND the process IS wrapped — the operator's
+//     external setup is honored.
 //
 // Why one warning per process instead of one per spawn: stado spawns
 // subprocesses from many call sites (TUI shell, plugin runners, LSP
@@ -58,11 +63,22 @@ func WarnIfHostUnsandboxed(cfg WrapConfig) {
 			fmt.Fprintln(os.Stderr, "stado: warn: containment applies only to `stado run` today; TUI / session resume / headless run unwrapped.")
 			fmt.Fprintln(os.Stderr, "stado: warn: suppress with "+SuppressEnvVar+"=1.")
 		case "external":
-			return // operator manages sandboxing externally
+			// Operator claims to be running stado under an external
+			// wrapper. Only `stado run` validates this via MaybeRewrap;
+			// other entry points don't. If we can't see wrapper evidence
+			// (RewrappedEnvVar already returned silent above; looksWrapped
+			// checks the cgroup/proc/PID-1 heuristic), warn so the
+			// operator notices the unwrapped entry point.
+			if looksWrapped() {
+				return
+			}
+			fmt.Fprintln(os.Stderr, "stado: warn: [sandbox] mode = \"external\" but no wrapper evidence detected for this entry point.")
+			fmt.Fprintln(os.Stderr, "stado: warn: only `stado run` validates external-mode wrapping today; TUI / session resume / headless do not.")
+			fmt.Fprintln(os.Stderr, "stado: warn: launch this entry point under your wrapper (bwrap/firejail/sandbox-exec/container), or set mode = \"wrap\" to have stado re-exec itself. Suppress with "+SuppressEnvVar+"=1.")
 		default: // "off" or empty
 			fmt.Fprintln(os.Stderr, "stado: warn: running without a process-containment sandbox.")
 			fmt.Fprintln(os.Stderr, "stado: warn: host subprocesses (shell, plugin runners, LSP, daemon, hooks) inherit the host's filesystem and network access.")
-			fmt.Fprintln(os.Stderr, "stado: warn: install bwrap and set [sandbox] mode = \"wrap\" in stado.toml; today only `stado run` re-execs. Suppress with "+SuppressEnvVar+"=1.")
+			fmt.Fprintln(os.Stderr, "stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with "+SuppressEnvVar+"=1.")
 		}
 	})
 }

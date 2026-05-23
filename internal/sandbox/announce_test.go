@@ -8,9 +8,13 @@ import (
 	"testing"
 )
 
-// captureStderr swaps os.Stderr for a pipe for the duration of fn and
-// returns what was written. Restores os.Stderr via t.Cleanup so a
-// fatal in fn still puts stderr back.
+// captureStderr swaps os.Stderr for a pipe, runs fn, restores os.Stderr,
+// and returns what fn wrote. Restoration is immediate via defer (NOT
+// t.Cleanup) — otherwise a second captureStderr call in the same test
+// would race against a still-installed pipe-writer from the prior call
+// after fn returns, and any post-fn writes would land in a closed fd.
+// The pipe reader and writer are both closed explicitly to avoid fd
+// leaks across the test binary's many subtests.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	orig := os.Stderr
@@ -19,7 +23,8 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stderr = w
-	t.Cleanup(func() { os.Stderr = orig })
+	defer func() { os.Stderr = orig }()
+	defer r.Close()
 
 	fn()
 
@@ -111,19 +116,44 @@ func TestWarnIfHostUnsandboxed_modeWrapInsideChild_silent(t *testing.T) {
 	}
 }
 
-// mode=external: MaybeRewrap is the validator (errors if not wrapped).
-// We stay silent here — duplicating its check would emit a second line
-// for a case it already covers.
-func TestWarnIfHostUnsandboxed_modeExternal_silent(t *testing.T) {
+// mode=external + wrapper-evidence present (STADO_REWRAPPED=1):
+// operator's external setup is honored, silent.
+func TestWarnIfHostUnsandboxed_modeExternal_wrapped_silent(t *testing.T) {
 	resetAnnounceOnceForTest()
 	clearEnv(t)
+	t.Setenv(RewrappedEnvVar, "1")
 
 	out := captureStderr(t, func() {
 		WarnIfHostUnsandboxed(WrapConfig{Mode: "external"})
 	})
 
 	if out != "" {
-		t.Errorf("expected silence for mode=external (MaybeRewrap handles), got: %q", out)
+		t.Errorf("expected silence for mode=external inside wrapped child, got: %q", out)
+	}
+}
+
+// mode=external + no wrapper evidence: only `stado run` validates this
+// via MaybeRewrap; the TUI / headless / session-resume entry points
+// reach this helper without re-execing. Warn so the operator notices
+// their claimed external wrap isn't actually present.
+func TestWarnIfHostUnsandboxed_modeExternal_unwrapped_warns(t *testing.T) {
+	resetAnnounceOnceForTest()
+	clearEnv(t)
+	// Note: looksWrapped() may return true on a CI host that itself runs
+	// inside a container — that would make this test skip the warning
+	// branch and fail. Real CI is documented as expecting either branch
+	// to be acceptable; the assertion here is for the dev-machine path
+	// where neither marker is set and looksWrapped() returns false.
+	if looksWrapped() {
+		t.Skip("looksWrapped() returns true on this host; can't exercise the unwrapped-external warn branch")
+	}
+
+	out := captureStderr(t, func() {
+		WarnIfHostUnsandboxed(WrapConfig{Mode: "external"})
+	})
+
+	if !strings.Contains(out, "mode = \"external\" but no wrapper evidence") {
+		t.Errorf("expected external-no-evidence warning, got: %q", out)
 	}
 }
 
