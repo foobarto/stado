@@ -279,7 +279,7 @@ before the `.seed` gitignore landed (the seeds were untracked in v0.51.1,
 but history retains them forever). Any clone or mirror has the seeds, so
 anyone can forge a manifest signature matching these fingerprints.
 
-`(*TrustStore).VerifyManifest` and `TrustVerified` consult `IsRevoked()`
+`(*TrustStore).VerifyManifest` and `(*TrustStore).TrustVerified` consult `IsRevoked()`
 (`internal/plugins/revoked.go`) and refuse to verify a manifest under a
 revoked fingerprint **even if the operator has trusted it** via
 `stado plugin trust`. This is a hard deny — there is no escape hatch.

@@ -40,7 +40,14 @@ func IsRevoked(fpr string) (bool, string) {
 }
 
 // errRevoked returns a user-facing error for a revoked fingerprint.
+// Defensive: if called with a non-revoked fpr (a caller bug — they should
+// IsRevoked-check first), the message says so rather than falsely claiming
+// revocation with an empty source.
 func errRevoked(fpr string) error {
+	src, ok := revokedFingerprints[fpr]
+	if !ok {
+		return fmt.Errorf("plugins: errRevoked called for non-revoked fingerprint %s (internal error — caller should IsRevoked() first)", fpr)
+	}
 	return fmt.Errorf("author fingerprint %s is revoked: corresponding Ed25519 seed leaked in git history (%s). See SECURITY.md; treat as compromised. The plugin author must rotate keys before manifests under this fingerprint will verify",
-		fpr, revokedFingerprints[fpr])
+		fpr, src)
 }
