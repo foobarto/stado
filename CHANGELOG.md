@@ -32,6 +32,139 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.54.0 — security hardening cluster C+D+E — 2026-05-23
+
+Closes the 10/10 P0 sweep from the second-pass Codex triage with three
+substantial security PRs on top of v0.53.0. All three preserve backward
+compatibility (audit v1 signatures still verify; old `[tools].enabled`
+behavior is the only intentionally-narrowed surface — and that's strictly
+more-restrictive per least-privilege).
+
+### Audit
+
+- **Signature scheme bumped v1 → v2** (PR #51 — Cluster D, Codex #138).
+  Pre-fix the signed payload covered tree + parents + body. Author /
+  committer / timestamps were NOT bound — an attacker with sidecar write
+  could rewrite the author identity or backdate the commit time via
+  `git filter-branch` / `git replace --graft` / direct object surgery and
+  the signature on the unchanged tree+parents+body still verified.
+  Tamper-evidence broke silently.
+
+  v2 framing (`stado-audit-v2`) adds `author <name> <email> <unix-time>`
+  and `committer <name> <email> <unix-time>` lines after the parent
+  block — mirroring git's own commit-object format. Changing any field
+  invalidates the v2 signature. `audit.VerifyV2` tries v2 first then
+  falls back to v1, so pre-fix audit history continues to verify
+  cleanly after operators upgrade. `audit.Signer.Sign` (v1) is kept so
+  the existing `state/git.CommitSigner` interface stays stable for
+  legacy stub signers; production paths route through the new
+  `CommitSignerV2` extension interface via type assertion.
+
+- **Trailer-injection defense, two layers** (PR #51 — Cluster D,
+  Codex #143 + #144). Pre-fix `CommitMeta.formatMessage` wrote trailer
+  values verbatim — `Plugin: "evil\nTool: bash\nAgent: forged"` injected
+  three trailer lines that `audit/export.go`'s `parseMessage` honored
+  under last-write-wins. `CompactionMeta.formatMessage` wrote the
+  summary verbatim before the trailer block — `"Tool: bash"` in a
+  summary line injected a fake trailer.
+
+  Layer 1 (format-time): new `cleanTrailerValue` + `cleanTrailerKey`
+  helpers wrap every trailer write — values get newlines flattened to
+  spaces, C0/DEL/C1 control runes stripped; keys enforce ASCII
+  alnum/-/_ grammar. Compaction summary is two-space indented per
+  line. Layer 2 (parse-time): `parseMessage` rewritten to recognize
+  only the LAST contiguous run of well-formed (unindented, grammar-
+  matching) trailer lines — `[A-Za-z][-_A-Za-z0-9]*:` shape, no
+  whitespace trim on keys. Anything before that run is body. Codex
+  caught the layer-1-without-layer-2 gap on round 2.
+
+### TUI
+
+- **Terminal-escape sanitizer at every untrusted-text-to-terminal sink**
+  (PR #49 — Cluster C, Codex #077 P0 + 8 P1/P2 siblings). New
+  `textutil.SanitizeForTerminal(s)` strips control runes except
+  `\n`/`\t`/`\r` (prose-safe; existing `StripControlChars` keeps
+  stripping everything for single-line identifiers). Wired at nine
+  sinks across `sessionstats` (at-quit summary names), `tui` (model
+  picker, EvTextDelta assistant prose), plugin runtime (`stado_ui_print`,
+  `stado_progress`, choice prefix / default / label / prompt + manifest
+  `host.Manifest.Name`), CLI (`plugin info`, usage table model column,
+  memory list IDs). `#077` was P0 because the at-quit summary writes
+  to stderr AFTER Bubble Tea releases the terminal — OSC 52 (clipboard
+  hijack), OSC 8 (clickable-hyperlink injection), CSI cursor moves
+  reach a terminal that's no longer eating escapes.
+
+- **Tool kill-switch restored for in-flight tools AND pending tool queue**
+  (PR #46 was prelude in v0.53.0; this round only adds Cluster B's
+  follow-up Codex P1 — the pending-queue clear). The Codex P1 catch:
+  cancelling a running tool only stopped the current one; pending
+  tool calls from the same multi-tool turn kept executing via
+  `advanceToolQueue` after the cancelled tool's result arrived. Now
+  all four cancel paths (Esc/Ctrl+G, Alt+Enter, /cancel, /queue-now)
+  also drop `m.pendingCalls`.
+
+### Tool dispatch
+
+- **Six `[tools].enabled/.disabled` bypasses fixed** (PR #50 —
+  Cluster E). `ApplyToolFilter` now applies Disabled as a subtractive
+  pass after the Enabled allowlist — pre-fix `enabled=["*"]` +
+  `disable=["bash"]` left bash registered (Codex #096). `/tool` slash
+  dispatch now consults the filter (Codex #064, P0 — direct bypass
+  of operator security control). `/tool unautoload <name>` on a
+  default config now actually removes from the autoload set (Codex
+  #088, P0 — the prior empty Autoload fell back to defaults, silently
+  reverting the operator's intent). Plugin nested-invoke via
+  `stado_tool_invoke` honors `[tools].disabled` (Codex #071). `stado
+  tool run <X>` checks the user-typed query string against patterns
+  in addition to the resolved registered name (Codex #089) AND
+  enforces `[tools].enabled` with a `--force` escape (Codex #123).
+
+### Breaking surfaces (three — all per pre-1.0 no-kid-gloves norm)
+
+- **`[tools].enabled` + `[tools].disabled` with overlapping entries**
+  — DISABLED now wins (least-privilege). Pre-fix enabled won and was
+  pinned as intent by a test (the test was pinning a bug; replaced
+  by `TestApplyToolFilter_DisabledWinsOverEnabled`).
+
+- **`stado tool run <X>`** with `[tools].enabled` non-empty and `<X>`
+  not in the allowlist: previously ran; now refused with an actionable
+  error. `--force` escape preserves the operator-explicit override.
+
+- **macOS sandbox profile** (covered in v0.53.0 — restated for the
+  v0.54.0-aware audit migration note below): tools without an
+  explicit `Policy.Exec` allowlist hit "process-exec denied" inside
+  sandbox-exec. Matches the Linux side.
+
+### Audit migration note (third-party verifiers)
+
+The signed-payload framing bumped from `stado-audit-v1` to
+`stado-audit-v2`. Existing v1 signatures continue to verify via
+`audit.VerifyV2`'s fallback path; new commits produce v2 signatures.
+Third-party tooling that re-implements the audit signature scheme
+should accept BOTH framings during the migration window (try v2
+first, fall back to v1) and switch to v2-only emission when the
+operator has confirmed all historical commits in scope are v2.
+
+### Removed surfaces
+
+None — backward compatibility preserved at every layer.
+
+### Plugin ABI migration note
+
+No host-import additions or removals. The wasm calling contract is
+unchanged.
+
+### Fixes
+
+- `[tools].autoload` materialization now uses canonical-aware
+  matching, so `/tool unautoload shell.bash` removes the wire-form
+  `shell__bash` default (Copilot caught this on PR #50 round 2).
+- `sessionToolOverrideHidesTool` uses glob-aware matching, so
+  `disableAdd=["fs.*"]` correctly hides `fs__read` (Copilot, PR #50).
+- `handleToolExecSlash` builds its effective config from the
+  freshly-loaded disk cfg, not the possibly-stale in-memory snapshot
+  (Codex P1, PR #50).
+
 ## v0.53.0 — security hardening cluster + EP-0042 follow-on — 2026-05-23
 
 Six security fixes (one P0 cluster A pair, one P0 cluster F single, one P0 cluster G single, one P0 cluster B pair plus the queue-clear fix) on top of the previously-shipped EP-0042 (binaries-out-of-tree) work that hadn't been tagged yet. Three breaking surfaces — see "Breaking" below.
