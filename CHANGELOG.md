@@ -32,6 +32,70 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.53.0 — security hardening cluster + EP-0042 follow-on — 2026-05-23
+
+Six security fixes (one P0 cluster A pair, one P0 cluster F single, one P0 cluster G single, one P0 cluster B pair plus the queue-clear fix) on top of the previously-shipped EP-0042 (binaries-out-of-tree) work that hadn't been tagged yet. Three breaking surfaces — see "Breaking" below.
+
+### Plugins
+
+- **Seed deny-list for 12 leaked Ed25519 fingerprints** (`internal/plugins/revoked.go`, PR #40).
+  The example-plugin `.seed` files that were committed before the `.seed` gitignore landed are now hard-revoked. Trust path refuses to verify any manifest carrying those fingerprints — even if the operator previously trusted them — and the runtime-override path (verifyPluginOverride) now consults the same deny-list before any wasm-digest check, closing a bypass Copilot caught during review. Fingerprint lookup is case-insensitive. See SECURITY.md "Built-in deny-list" for the full list.
+
+- **EP-0042 Part A — optional/demo plugins moved to `foobarto/stado-plugins`** (PR #25). 23 plugins (browser, http-session, mcp-client, web-search, etc.) live in the separate signed-bundle repo; install with `stado plugin install github.com/foobarto/stado-plugins/<plugin>@v0.1.0`. The anchor pubkey (`.stado/author.pub`, fp `57a3e58c…`) is offline-held.
+
+- **EP-0042 Part B — bundled wasm built from source at build time, not committed** (PR #36). `make build` runs `plugins/bundled/build.sh` automatically; no `.wasm` files in the source tree. CI builds wasm before every job. The decision NOT to commit/sign/fetch the binary was settled (`docs/eps/0042-binaries-out-of-source-tree.md` D6) — see SECURITY.md for the provenance argument.
+
+### Sandbox
+
+- **`stado.WarnIfHostUnsandboxed` — once-per-process warning at every TUI / run / headless / session-resume entry point** (PR #42, `internal/sandbox/announce.go`). Surfaces "host subprocesses are inheriting the host's FS + network" when no process-containment is active. Suppress with `STADO_SUPPRESS_SANDBOX_WARN=1`. Distinct messages for `mode=off`, `mode=wrap` (configured-but-not-rewrapped — TUI/headless/resume don't re-exec today), and `mode=external` (operator-managed-but-no-wrapper-evidence). See SECURITY.md "Host sandbox".
+
+- **`sandbox.DenyAll()` actually denies exec** (PR #43). The constructor literally named "DenyAll" returned `Policy{Exec: nil}`, which `ResolveBinary` treats as "no restriction" — DenyAll allowed every binary. Now returns `Exec: []string{}` explicitly so the deny path engages. Test `TestDenyAll_DeniesExec` pins the invariant against future regression. Same fix for `ReadOnlyFS()`.
+
+- **macOS `sbx_profile` no longer emits a blanket `(allow process-exec*)`** (PR #43). The wildcard defeated the per-binary allowlist (sandbox-exec union semantics) — every exec was allowed on macOS regardless of `Policy.Exec`. Now drops the wildcard and resolves `Policy.Exec` basenames to absolute paths via `exec.LookPath` so the `(literal "...")` predicate matches what sandbox-exec actually sees.
+
+### Runtime
+
+- **ACP ABI verifier compiles the bytes that were actually verified** (PR #44, `internal/runtime/installed_abi.go`). Previously read the wasm twice: first with unguarded `os.ReadFile` (no size cap, follows symlinks), then with `ReadVerifiedWASM` whose return was discarded, then compiled the FIRST (unverified) bytes. A local attacker who could mutate the installed plugin dir could substitute a 4 GiB file or a symlink to `/dev/zero` and OOM the host, OR race a swap between the two reads. Single verified read now.
+
+### TUI
+
+- **BTW questions go through the configured supervisor provider** (PR #45). `[supervisor] provider = ...` + `[supervisor] enabled = true` was documented as a privacy partition (operator points the supervisor at a local Ollama, keeps a cloud worker for heavier turns) but `startBtw` ignored the config — every BTW question went to the worker, leaking the transcript. New `resolveSupervisorLane` helper at `internal/tui/supervisor_lane.go` redirects via a Model-level cached provider (so ACP/MCP supervisors that spawn subprocesses don't get re-spun per call). Lookup failure surfaces as a btwResultMsg error rather than silently falling back — defeating the trust boundary is worse than a loud failure.
+
+- **Cancel kill-switch restored for in-flight tools and pending tool queue** (PR #46). Esc/Ctrl+G, Alt+Enter, and the `/cancel`/`/stop`/`/queue-now`/`/force` slash commands previously only fired `m.streamCancel`, so during the tool-execution phase of a turn (when `streamCancel` is nil and the active tool's context is held by `toolCancel`) the operator had no way to stop a runaway bash, network, or plugin tool — the kill switch silently did nothing. New `cancelRunningTool` + `clearPendingToolQueue` helpers (`internal/tui/cancel.go`); all four cancel paths now drop the running tool AND the pending tool queue, reporting `(N pending tool(s) dropped)` in the system block when applicable.
+
+### Bundled tools
+
+- **`ls` + `fs` exec path-guarded to workdir** (PR #38). Operands resolving outside the operator's workdir are now refused with a clear error, closing a Codex finding about workdir-escape via crafted path operands.
+
+### Infra
+
+- **OpenSSF Scorecard hardening + Best-Practices badge** (PR #27). SHA-pinned actions, least-privilege token permissions, badge in README.
+
+- **Dependency bumps**: mcp-go, x/mod, x/crypto, anthropic-sdk-go (PR #34); google.golang.org/api 0.278.0 → 0.280.0 (#29); codeql-action 3.36.0 → 4.36.0 (#28).
+
+### Removed surfaces
+
+- All previously-committed `plugins/bundled/*.wasm` files (EP-0042 Part B). `make wasm` builds them on demand; `.gitignore` covers the output dir.
+- All `plugins/examples/*/` directories (EP-0042 Part A) — those plugins live in `foobarto/stado-plugins` now. Install via `stado plugin install github.com/foobarto/stado-plugins/<name>@v0.1.0`.
+- The unconditional `(allow process-exec*)` line in the macOS sandbox-exec profile (see Breaking below).
+
+### Plugin ABI migration note
+
+No host-import additions or removals. The wasm calling contract is unchanged.
+
+### Breaking
+
+- **macOS sandboxed tools that didn't declare an Exec allowlist** will now hit "process-exec denied" inside sandbox-exec. Previously the blanket `(allow process-exec*)` allowed everything; with that gone, callers MUST declare every binary they need to spawn in `Policy.Exec`. This is the intended capability semantics per DESIGN §"Capabilities are declared, the OS enforces" — the prior behavior was a bug, not a feature. Matches the Linux side.
+
+- **BTW questions now go to the supervisor provider when configured.** Operators who had `[supervisor]` configured but were relying on the bug (questions still going to the worker) will see their BTWs reach the supervisor for the first time. This is what the config was supposed to do all along; the migration is to make sure the supervisor provider is actually reachable.
+
+- **`/cancel`, `/stop`, `/queue-now`, `/force`, Esc/Ctrl+G, and Alt+Enter now also abort the pending tool queue.** Previously a multi-tool turn would continue through pending tools after the cancel; now the whole turn ends. Operators relying on the "cancel current, finish rest" semantic do not get it — that semantic wasn't intentional in the first place.
+
+### Fixes
+
+- **EP-0042 build-environment bug fixes** (PR #35): `hack/fetch-binaries.go` was writing to `internal/tools/{rg,astgrep}/` but the embed package lives at `internal/{rg,astgrep}/`; fixed plus stale `.gitignore` paths.
+- **Bundled wasm CI**: ci.yml + codeql.yml run `bash plugins/bundled/build.sh` before test/lint/build/CodeQL jobs.
+
 ## v0.52.7 — bump golang.org/x/net (GO-2026-5026) — 2026-05-22
 
 ### Infra
