@@ -388,16 +388,10 @@ func requireOnlyBody(i int, sw sectionWire, want string) error {
 	return nil
 }
 
-// cloneRows is a defensive deep-copy so the bridge implementation
-// can retain the Panel beyond the wasm invocation frame without
-// risk of in-place mutation by the caller.
-func cloneRows(in [][]string) [][]string {
-	if in == nil {
-		return nil
-	}
-	out := make([][]string, len(in))
-	for i, row := range in {
-		out[i] = append([]string(nil), row...)
-	}
-	return out
-}
+// cloneRows was a defensive deep-copy used by the table-section
+// decoder before C2/J-c added per-cell sanitization. The sanitize
+// loop now does both clone + scrub in one pass at the boundary,
+// so this helper became orphaned. Kept as a doc comment for the
+// invariant: any future re-use of `sw.Table.Rows` slices must
+// deep-copy first so plugin retention of the Panel doesn't risk
+// in-place mutation by the caller.

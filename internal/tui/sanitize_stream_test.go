@@ -10,9 +10,9 @@ import (
 // Helper: pad of escape sequences PR #49 documented as the real attack
 // surface (OSC52 = clipboard hijack, OSC8 = clickable link, CSI =
 // cursor move / clear). The three lead bytes the assertions check.
-const sanitizeProbe_OSC52 = "\x1b]52;c;ZXZpbA==\x07"
-const sanitizeProbe_OSC8 = "\x1b]8;;https://evil\x1b\\link\x1b]8;;\x1b\\"
-const sanitizeProbe_CSI = "\x1b[2K\x1b[1;1H"
+const sanitizeProbeOSC52 = "\x1b]52;c;ZXZpbA==\x07"
+const sanitizeProbeOSC8 = "\x1b]8;;https://evil\x1b\\link\x1b]8;;\x1b\\"
+const sanitizeProbeCSI = "\x1b[2K\x1b[1;1H"
 
 func assertNoEscapesIn(t *testing.T, label, got string) {
 	t.Helper()
@@ -98,8 +98,8 @@ func TestOnPluginApprovalRequest_SanitizesTitleAndBody(t *testing.T) {
 	m := scenarioModel(t)
 	resp := make(chan bool, 1)
 
-	titleProbe := "Plugin wants " + sanitizeProbe_OSC52
-	bodyProbe := "Allow?\n\nReason: " + sanitizeProbe_OSC8 + "\nFooter " + sanitizeProbe_CSI
+	titleProbe := "Plugin wants " + sanitizeProbeOSC52
+	bodyProbe := "Allow?\n\nReason: " + sanitizeProbeOSC8 + "\nFooter " + sanitizeProbeCSI
 
 	_, _ = m.Update(pluginApprovalRequestMsg{
 		title:    titleProbe,
