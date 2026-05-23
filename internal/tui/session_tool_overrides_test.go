@@ -3,6 +3,7 @@ package tui
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
@@ -163,6 +164,72 @@ func TestEffectiveTools_AutoloadRemove_OnNonEmptyBase_NoMaterialization(t *testi
 
 	if len(got.Autoload) != 0 {
 		t.Errorf("operator's narrowed list should not be re-widened by materialization; got %v", got.Autoload)
+	}
+}
+
+// Copilot caught this on #50 round 1: the materialization seeds with
+// runtime.DefaultAutoloadNames() (wire-form, e.g. `shell__bash`), but
+// /tool unautoload accepts canonical-form input (`shell.bash`). With
+// exact-string match in applyOverride the canonical remove never
+// matched the wire-form default, so the fix from #088 silently failed
+// for the realistic operator-typing case. The round-2 fix routes
+// applyOverride's match through runtime.ToolMatchesGlob so canonical-
+// vs-wire equivalence is recognized.
+func TestEffectiveTools_AutoloadRemove_CanonicalInputRemovesWireDefault(t *testing.T) {
+	cfg := &config.Config{}
+	ov := sessionToolOverrides{
+		autoloadRemove: []string{"shell.bash"}, // canonical, as a slash verb would supply
+	}
+	got := ov.effectiveTools(cfg)
+
+	if len(got.Autoload) == 0 {
+		t.Fatal("autoload remove on empty base should materialize defaults — Autoload empty would silently revert")
+	}
+	// The wire-form default shell__bash should be removed even though
+	// the operator typed the canonical name.
+	for _, n := range got.Autoload {
+		if n == "shell__bash" || n == "shell.bash" {
+			t.Errorf("shell.bash (canonical) should remove the wire-form shell__bash default; still present in %v", got.Autoload)
+		}
+	}
+	// Other defaults still present.
+	found := false
+	for _, n := range got.Autoload {
+		if n == "fs__read" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("other defaults should remain; got %v", got.Autoload)
+	}
+}
+
+// Same canonical-input test for the glob-pattern remove case: operator
+// types `/tool unautoload fs.*` and expects every fs__* default to
+// drop out.
+func TestEffectiveTools_AutoloadRemove_GlobPatternRemovesWireDefaults(t *testing.T) {
+	cfg := &config.Config{}
+	ov := sessionToolOverrides{
+		autoloadRemove: []string{"fs.*"},
+	}
+	got := ov.effectiveTools(cfg)
+
+	for _, n := range got.Autoload {
+		if strings.HasPrefix(n, "fs__") || strings.HasPrefix(n, "fs.") {
+			t.Errorf("fs.* should remove every fs__/fs. entry; %q still present in %v", n, got.Autoload)
+		}
+	}
+	// Non-fs defaults remain.
+	hasBash := false
+	for _, n := range got.Autoload {
+		if n == "shell__bash" {
+			hasBash = true
+			break
+		}
+	}
+	if !hasBash {
+		t.Errorf("non-fs defaults should survive fs.* removal; got %v", got.Autoload)
 	}
 }
 

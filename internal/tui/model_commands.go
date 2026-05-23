@@ -1279,10 +1279,15 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 	// dispatch used the raw default registry, so /tool <name> ran
 	// anything bundled or installed regardless of config — a direct
 	// bypass of a security control the operator expects everywhere
-	// the tool surface is exposed. effectiveConfig() folds session
-	// overrides into the on-disk cfg; ApplyToolFilter drops the
-	// disabled / not-enabled tools.
-	eff := m.effectiveConfig()
+	// the tool surface is exposed.
+	//
+	// effectiveConfigFromBase(cfg) — NOT effectiveConfig() — so the
+	// session-override merge sits on top of the FRESH disk-loaded
+	// cfg, not m.cfg. Codex P1 caught the staleness: if the operator
+	// just ran `/tool disable bash --save`, m.cfg may not yet
+	// reflect the disk write, and `effectiveConfig()` based on m.cfg
+	// would let bash through.
+	eff := m.effectiveConfigFromBase(cfg)
 	if eff == nil {
 		eff = cfg
 	}

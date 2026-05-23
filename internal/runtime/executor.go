@@ -57,6 +57,20 @@ func DefaultAutoloadNames() []string {
 	return out
 }
 
+// CanonicalToolName returns the canonical (dotted) form of a tool name
+// when the input is a wire-form (`fs__read` → `fs.read`). Pure
+// passthrough for inputs that are already canonical, single-segment, or
+// otherwise unparseable. Useful for canonical-equivalence dedup in
+// callers that need to treat `shell__bash` and `shell.bash` as the
+// same entry (e.g. the TUI session-override materializer per Copilot
+// review on #50 round 1).
+func CanonicalToolName(name string) string {
+	if alias, sub, ok := tools.ParseWireForm(name); ok {
+		return alias + "." + sub
+	}
+	return name
+}
+
 // BuildDefaultRegistry returns a Registry preloaded with stado's
 // bundled tools (fs, shell, web, dns, agent, etc.), the meta-tools
 // (tools__search/describe/categories/in_category), and — when cfg
@@ -206,8 +220,12 @@ func IsMetaTool(name string) bool {
 
 // ApplyToolFilter trims a registry per cfg.Tools. All tools are on by default;
 // Enabled acts as an allowlist (keep only these); Disabled removes specific
-// names. When both are set Enabled wins. Patterns support wildcard globs via
-// ToolMatchesGlob (e.g. "fs.*", "*"). Zero-match globs are silent no-ops.
+// names. When both are set DISABLED wins on overlap — Disabled is applied
+// as a subtractive pass after the Enabled allowlist (Codex #096; pre-fix
+// Enabled won, which made `enabled=["*"]` + `disable=["bash"]` leave bash
+// registered). Patterns support wildcard globs via ToolMatchesGlob (e.g.
+// "fs.*", "*"). Zero-match globs are silent no-ops; a non-empty Enabled
+// that matches no tool fails CLOSED (registry emptied + stderr advisory).
 //
 // Mutates the registry in place; safe to chain after BuildDefaultRegistry.
 func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
