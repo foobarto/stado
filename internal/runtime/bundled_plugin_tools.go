@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/runtime/pluginrun"
@@ -391,6 +392,16 @@ type bundledPluginTool struct {
 	schema   map[string]any
 	class    tool.Class
 	wasm     []byte
+
+	// Codex C4/Q P2 — per-tool cfg + invoke registry replace the
+	// package globals installedRunCfg / installedInvokeReg. Set by
+	// BuildDefaultRegistry / ApplyToolOverrides post-construction;
+	// bundled tools' Run() reads from these fields so an unrelated
+	// /tool info build (with its own separate registry instance) can
+	// no longer leak its cfg + registry view into a previously-built
+	// runtime's bundled-tool dispatch.
+	cfg       *config.Config
+	invokeReg *tools.Registry
 }
 
 func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
@@ -522,10 +533,23 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 		WasmBytes:      p.wasm,
 		ToolName:       p.def.Name,
 		Args:           args,
-		Cfg:            installedRunCfg, // bound at registry-build time
+		Cfg:            p.cfg, // per-tool, bound by setRuntime() in BuildDefaultRegistry
 		Workdir:        h.Workdir(),
-		InvokeRegistry: installedInvokeReg,
+		InvokeRegistry: p.invokeReg,
 	}, h)
+}
+
+// setRuntime is called by BuildDefaultRegistry (and ApplyToolOverrides
+// for override-shaped variants) AFTER the registry is fully composed,
+// before any Run() can be invoked. Wires cfg + the final composed
+// registry onto each bundled tool so its pluginrun dispatch sees the
+// same surface the operator's session sees — and so each registry
+// build's bundled tools are anchored to that build, not a later
+// /tool info build that happens to rebuild the registry separately.
+// Codex C4/Q P2.
+func (p *bundledPluginTool) setRuntime(cfg *config.Config, reg *tools.Registry) {
+	p.cfg = cfg
+	p.invokeReg = reg
 }
 
 func pluginClassName(class tool.Class) string {

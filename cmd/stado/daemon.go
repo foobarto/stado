@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"text/tabwriter"
@@ -384,6 +386,33 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 					"tool %q is disabled in [tools].disabled (matched pattern %q)", p.Tool, pat)
 			}
 		}
+		// Codex G2/I-a P0: pre-fix the daemon dispatcher only consulted
+		// [tools].disabled, not [tools].enabled. PR #50 fixed the same
+		// shape in `runToolByName`, `/tool` slash dispatch, and the
+		// mcp-server registry filter — the daemon was the surviving
+		// sibling miss. When [tools].enabled is non-empty the operator
+		// is asserting a strict allowlist; tools not in it must be
+		// refused even if also not in .disabled (the allowlist wins).
+		// The registry was built with the same filter at construction
+		// time, but `lookupToolInRegistry` will still resolve a tool
+		// that was added by a later registration (mcp-server's
+		// llm.invoke is exactly this shape — see Cluster C1/I-c) or a
+		// nested-invoke wrapper. Enforce a second-line check here so
+		// every dispatch path lands the same gate.
+		if len(d.cfg.Tools.Enabled) > 0 {
+			matched := false
+			for _, pat := range d.cfg.Tools.Enabled {
+				if runtime.ToolMatchesGlob(registeredName, pat) ||
+					(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return daemon.ToolCallResult{}, fmt.Errorf(
+					"tool %q is not in [tools].enabled allowlist", p.Tool)
+			}
+		}
 	}
 	workdir := p.Workdir
 	if workdir == "" {
@@ -509,6 +538,33 @@ func (h *daemonToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 }
 func (h *daemonToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 func (h *daemonToolHost) PTYManager() any                             { return h.pty }
+
+// CheckWritePath implements pkg/tool.WritePathGuard so the fs.write
+// tool refuses operations resolving into a .git directory.
+//
+// Codex K P0 — same fix as internal/acp/host.go: pre-fix the
+// WritePathGuard interface was implemented only on
+// internal/providers/acpwrap/host.go's DefaultHost, so a `stado tool
+// run fs.write` (or daemon-RPC fs.write from any client) bypassed
+// the .git guard that PR #050 + acpwrap shipped. Same defense:
+// resolve against workdir, walk path segments, refuse `.git`
+// anywhere in the resolved path. Daemon clients are autonomous +
+// untrusted in the same sense as ACP-wrapped agents — they must
+// not be able to corrupt the worktree's git metadata via the
+// daemon's auto-approve posture.
+func (h *daemonToolHost) CheckWritePath(path string) error {
+	resolved := path
+	if !filepath.IsAbs(resolved) && h.workdir != "" {
+		resolved = filepath.Join(h.workdir, resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
+		if seg == ".git" {
+			return fmt.Errorf("daemon host: refusing fs write into git metadata path %q (Codex K)", path)
+		}
+	}
+	return nil
+}
 
 // DefaultSandboxPolicy implements tool.SandboxPolicyProvider — plugins
 // calling stado_exec / stado_proc_spawn through the daemon get the

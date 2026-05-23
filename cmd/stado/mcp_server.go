@@ -115,6 +115,18 @@ var mcpServerCmd = &cobra.Command{
 				CWD:            mustCwd(),
 				ConfigDir:      config.ConfigDir(),
 			})
+			// Codex C1/I-c P1 — re-apply the tool filter after the
+			// mcp-server-only llm.invoke registration so [tools].enabled
+			// + [tools].disabled actually scope it. BuildRegistryWithPlugins
+			// runs ApplyToolFilter as its last step, so the registration
+			// above lands AFTER the filter pass; pre-fix
+			// `[tools].disabled=["llm.invoke"]` couldn't remove it (a
+			// config-bypass shaped the same as the bugs PR #50 closed).
+			// The filter is idempotent over already-filtered registries,
+			// so running it a second time is safe and removes only the
+			// freshly-registered llm.invoke if the operator denylisted /
+			// allowlisted it.
+			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())
 			runner := sandbox.Detect()

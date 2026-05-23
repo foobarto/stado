@@ -14,7 +14,9 @@ import (
 	"github.com/foobarto/stado/internal/tasks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/llmtool"
 	"github.com/foobarto/stado/internal/tools/tasktool"
+	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -120,5 +122,42 @@ func TestStadoMCPHost_RunnerInterfaceAssertable(t *testing.T) {
 	}
 	if rh.Runner() == nil {
 		t.Error("Runner() returned nil — bash will silently run unsandboxed")
+	}
+}
+
+// Codex C1/I-c P1 regression: the mcp-server registers llm.invoke
+// AFTER runtime.BuildRegistryWithPlugins → ApplyToolFilter has run.
+// Pre-fix that meant `[tools].disabled=["llm.invoke"]` couldn't
+// actually remove it (filter had already passed). Same shape as the
+// pre-#50 bugs PR #50 closed in /tool slash + runToolByName: every
+// dispatch surface must consult [tools]. After fix the mcp-server
+// re-runs ApplyToolFilter after the registration so the filter sees
+// llm.invoke. This test reproduces the registration order + asserts
+// the resulting registry honours [tools].disabled.
+func TestMCPServer_LLMInvokeRespectsDisabledFilter(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &config.Config{}
+	cfg.Tools.Disabled = []string{"llm.invoke"}
+
+	// Mirror the mcp-server registration order:
+	//   1. BuildRegistryWithPlugins (calls ApplyToolFilter internally)
+	//   2. reg.Register(llmtool.Tool{...})
+	//   3. ApplyToolFilter again (Codex C1/I-c fix)
+	reg, err := runtime.BuildRegistryWithPlugins(cfg)
+	if err != nil {
+		t.Fatalf("BuildRegistryWithPlugins: %v", err)
+	}
+	reg.Register(llmtool.Tool{
+		Provider:       func() (agent.Provider, error) { return nil, nil },
+		DefaultModel:   "test-model",
+		DefaultPersona: "default",
+		CWD:            t.TempDir(),
+		ConfigDir:      t.TempDir(),
+	})
+	runtime.ApplyToolFilter(reg, cfg)
+
+	if _, ok := reg.Get("llm__invoke"); ok {
+		t.Error("llm__invoke should be filtered out when [tools].disabled=[\"llm.invoke\"]; it is still registered")
 	}
 }

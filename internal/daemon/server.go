@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/version"
 )
 
@@ -502,9 +503,16 @@ func (s *Server) logf(format string, args ...any) {
 	fmt.Fprintf(s.logger, time.Now().Format(time.RFC3339)+" "+format+"\n", args...)
 }
 
+// toolInAllowList reports whether tool matches any glob pattern in
+// allow. Codex G7/I-b P1 — pre-fix this used `a == tool` exact-string
+// match, so `[tools].enabled=["shell.*"]` silently failed to match
+// `shell__bash` (the wire form): the operator's intended allowlist
+// was effectively a denylist for every tool. Routed through the
+// canonical runtime.ToolMatchesGlob so all daemon dispatch surfaces
+// share one matcher with the rest of stado.
 func toolInAllowList(tool string, allow []string) bool {
 	for _, a := range allow {
-		if a == tool {
+		if runtime.ToolMatchesGlob(tool, a) {
 			return true
 		}
 	}

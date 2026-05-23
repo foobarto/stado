@@ -37,6 +37,10 @@ type pluginOverrideTool struct {
 	class     tool.Class
 	wasm      []byte
 	cfg       *config.Config
+	// Codex C4/Q P2 — per-tool invoke registry. See bundledPluginTool
+	// comment. cfg was already per-tool here; only invokeReg needed
+	// hoisting off the deleted package global.
+	invokeReg *tools.Registry
 }
 
 func (p *pluginOverrideTool) Name() string        { return p.def.Name }
@@ -65,7 +69,7 @@ func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h to
 		Args:           args,
 		Cfg:            p.cfg,
 		Workdir:        h.Workdir(),
-		InvokeRegistry: installedInvokeReg,
+		InvokeRegistry: p.invokeReg,
 	}, h)
 }
 
@@ -345,6 +349,14 @@ func ApplyToolOverrides(reg *tools.Registry, cfg *config.Config) error {
 		pt, err := loadPluginOverrideTool(cfg, name, cfg.Tools.Overrides[name])
 		if err != nil {
 			return err
+		}
+		// Codex C4/Q P2: pin the override's invoke registry to THIS
+		// build's reg so a later /tool info build with a separate
+		// registry instance can't leak its tool surface into this
+		// override's nested invokes (replaces the deleted package
+		// global installedInvokeReg).
+		if pot, ok := pt.(*pluginOverrideTool); ok {
+			pot.invokeReg = reg
 		}
 		reg.Register(pt)
 	}

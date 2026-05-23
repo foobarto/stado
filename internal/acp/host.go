@@ -3,6 +3,9 @@ package acp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -91,4 +94,32 @@ func (h *acpHost) RequestApproval(ctx context.Context, title, body string) (bool
 		return false, errors.New("acp host has no server reference")
 	}
 	return h.server.requestApproval(ctx, h.sessionID, title, body)
+}
+
+// CheckWritePath implements pkg/tool.WritePathGuard so the fs.write
+// tool refuses operations that resolve into a .git directory.
+//
+// Codex K P0 — pre-fix the WritePathGuard interface was implemented
+// only on internal/providers/acpwrap/host.go's DefaultHost. The ACP
+// SERVER side host here (the *acpHost the ACP server hands to the
+// agent loop when handling tool-call RPCs from a wrapped agent) did
+// NOT implement it, so fs.write through this host bypassed the
+// .git-write guard that #050 + acpwrap had put in place. Copy the
+// same defense from acpwrap.DefaultHost.CheckWritePath verbatim:
+// resolve against the host workdir, walk path segments, refuse any
+// `.git` segment match. The mutation has to be refused at this
+// layer because by the time the fs.write tool runs there's no
+// per-call cancel hook that could undo a partial write.
+func (h *acpHost) CheckWritePath(path string) error {
+	resolved := path
+	if !filepath.IsAbs(resolved) && h.workdir != "" {
+		resolved = filepath.Join(h.workdir, resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
+		if seg == ".git" {
+			return fmt.Errorf("acp host: refusing fs write into git metadata path %q (Codex K)", path)
+		}
+	}
+	return nil
 }

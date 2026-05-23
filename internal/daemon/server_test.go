@@ -403,3 +403,37 @@ func TestRemoveStaleSocket(t *testing.T) {
 		t.Errorf("after Stop: removed=%v err=%v", removed, err)
 	}
 }
+
+// Codex G7/I-b P1 regression: pre-fix toolInAllowList used a==tool
+// exact match so a per-call AllowList of ["shell.*"] silently failed
+// to match the wire-form "shell__bash" — the operator's intended
+// allowlist behaved like a denylist (any tool dispatched through
+// this gate was rejected). Same shape as the pre-#50 ApplyToolFilter
+// bug for [tools].enabled. After the fix this helper delegates to
+// runtime.ToolMatchesGlob so wire/canonical/glob forms all line up
+// the same way as everywhere else in stado.
+func TestToolInAllowList_GlobPatternsMatch(t *testing.T) {
+	cases := []struct {
+		name    string
+		tool    string
+		allow   []string
+		wantHit bool
+	}{
+		{"exact wire match", "shell__bash", []string{"shell__bash"}, true},
+		{"exact canonical match", "shell__bash", []string{"shell.bash"}, true},
+		{"alias wildcard wire", "shell__bash", []string{"shell.*"}, true},
+		{"alias wildcard mismatch", "fs__read", []string{"shell.*"}, false},
+		{"universal wildcard", "anything", []string{"*"}, true},
+		{"empty allow", "fs__read", []string{}, false},
+		{"unrelated entry", "fs__read", []string{"shell.bash"}, false},
+		{"first-of-many", "fs__read", []string{"shell.*", "fs.read"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := toolInAllowList(c.tool, c.allow); got != c.wantHit {
+				t.Errorf("toolInAllowList(%q, %v) = %v, want %v",
+					c.tool, c.allow, got, c.wantHit)
+			}
+		})
+	}
+}
