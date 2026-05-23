@@ -127,3 +127,105 @@ func TestClearPendingToolQueue_LeavesPendingResultsAlone(t *testing.T) {
 		t.Errorf("clearPendingToolQueue should not touch pendingResults; got %+v", m.pendingResults)
 	}
 }
+
+// Codex validated finding (post-#46): both cancel helpers must SET
+// m.turnCancelled so onToolsExecuted refuses to re-start the provider
+// stream when the cancelled tool's `context.Canceled` drains the
+// (now-empty) queue. Without this flag the operator-pressed kill
+// switch was effectively a no-op: the model just got a "cancelled
+// by user" tool result and continued the turn.
+func TestCancelRunningStream_SetsTurnCancelled(t *testing.T) {
+	cancel, _ := recordCancel()
+	m := &Model{streamCancel: cancel}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	if !m.cancelRunningStream() {
+		t.Fatal("cancelRunningStream should report cancellation")
+	}
+	if !m.turnCancelled {
+		t.Error("cancelRunningStream must set m.turnCancelled = true")
+	}
+}
+
+func TestCancelRunningTool_SetsTurnCancelled(t *testing.T) {
+	cancel, _ := recordCancel()
+	m := &Model{toolCancel: cancel}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	if !m.cancelRunningTool() {
+		t.Fatal("cancelRunningTool should report cancellation")
+	}
+	if !m.turnCancelled {
+		t.Error("cancelRunningTool must set m.turnCancelled = true")
+	}
+}
+
+// Load-bearing regression: onToolsExecuted with turnCancelled set must
+// NOT call startStream — that's the agent-loop bypass Codex validated.
+// The handler should clear the flag, refresh the render, and return
+// without dispatching the next provider request (or, if a queued
+// prompt is sitting in m.queuedPrompt, promote it instead).
+//
+// Test asserts indirectly via the returned Cmd shape: when no queued
+// prompt + turnCancelled was set, the cmd should be nil (no startStream
+// kicked off). Without the gate this test would see a non-nil Cmd —
+// the regression vector codex's PoC demonstrated.
+func TestOnToolsExecuted_GatedByTurnCancelled(t *testing.T) {
+	m := &Model{}
+	m.turnCancelled = true
+	// No queued prompt; ensure no streamCmd kicked off.
+	_, cmd := onToolsExecuted(m, toolsExecutedMsg{results: []agent.ToolResultBlock{
+		{ToolUseID: "x", Content: "cancelled by user", IsError: true},
+	}})
+	if cmd != nil {
+		t.Error("onToolsExecuted with turnCancelled set must return nil cmd (no startStream); got non-nil")
+	}
+	if m.turnCancelled {
+		t.Error("onToolsExecuted should clear m.turnCancelled after handling")
+	}
+	// Conversation-history invariant (Copilot round 1 catch): the
+	// tool_result blocks MUST be persisted to m.msgs even on
+	// cancellation — the assistant message containing the tool_use
+	// blocks was already persisted by onTurnComplete, so leaving the
+	// tool_use unpaired produces an invalid history (rejected by
+	// OpenAI Chat Completion and others on the next turn). The
+	// re-stream is what's suppressed; the history stays well-formed.
+	if len(m.msgs) != 1 {
+		t.Fatalf("cancelled-turn must persist tool_result blocks to keep history paired; got %d msgs", len(m.msgs))
+	}
+	if m.msgs[0].Role != agent.RoleTool {
+		t.Errorf("persisted msg should be role=tool, got %q", m.msgs[0].Role)
+	}
+}
+
+// Copilot round 1: clearPendingToolQueue can run when toolCancel is
+// already nil (between onToolResult clearing it and advanceToolQueue
+// starting the next tool). In that window the cancel-helpers return
+// false → turnCancelled doesn't get set → bypass returns. The
+// clear-with-pending-work case must set the flag too.
+func TestClearPendingToolQueue_SetsTurnCancelledWhenWorkDropped(t *testing.T) {
+	m := &Model{pendingCalls: []agent.ToolUseBlock{{ID: "a"}, {ID: "b"}}}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	n := m.clearPendingToolQueue()
+	if n != 2 {
+		t.Fatalf("expected 2 cleared, got %d", n)
+	}
+	if !m.turnCancelled {
+		t.Error("clearPendingToolQueue should set turnCancelled when work was dropped (closes the toolCancel=nil/pending-non-empty timing window)")
+	}
+}
+
+// Inverse: when there was nothing to clear, don't set the flag —
+// it'd produce false positives (every Esc, even on idle, would mark
+// the next turn cancelled).
+func TestClearPendingToolQueue_NoOpDoesNotSetTurnCancelled(t *testing.T) {
+	m := &Model{}
+	_ = m.clearPendingToolQueue()
+	if m.turnCancelled {
+		t.Error("clearPendingToolQueue on empty queue must NOT set turnCancelled — would false-positive")
+	}
+}
