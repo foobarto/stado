@@ -48,8 +48,29 @@ type Session struct {
 // CommitSigner is the interface Session uses to sign a commit body. Wider
 // than a concrete type so tests can stub it and so audit/ doesn't need to
 // import state/git (would be a cycle).
+//
+// Sign covers tree+parents+body (the v1 form). Newer audit.Signer
+// instances also implement [CommitSignerV2] which binds author/
+// committer/timestamps into the signed payload (Codex #138);
+// commit_write.go prefers V2 via type assertion when available and
+// falls back to v1 for legacy stubs in older tests.
 type CommitSigner interface {
 	Sign(treeHash string, parents []string, body string) string
+}
+
+// CommitSignerV2 is the optional extension of [CommitSigner] that
+// binds the commit's author + committer identity + timestamps into
+// the audit-signature payload (v2). Production audit.Signer
+// implements it; Session.commitOnRef prefers it via type assertion.
+//
+// Takes primitives rather than a struct so state/git doesn't have to
+// drag an audit import (would be a cycle — see CommitSigner doc).
+// Timestamps are unix seconds, matching git's epoch-format committer
+// time field.
+type CommitSignerV2 interface {
+	SignV2(treeHash string, parents []string, body string,
+		authorName, authorEmail string, authorUnix int64,
+		committerName, committerEmail string, committerUnix int64) string
 }
 
 // SSHCommitSigner is an optional extension of CommitSigner: when a

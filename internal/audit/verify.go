@@ -62,7 +62,22 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 			for i, p := range commit.ParentHashes {
 				parents[i] = p.String()
 			}
-			if err := Verify(w.Pub, commit.TreeHash.String(), parents, commit.Message); err != nil {
+			// Codex #138: VerifyV2 checks v2 (author/committer/
+			// timestamps bound) first, then falls back to v1 so
+			// pre-fix audit history still verifies. A v1 signature
+			// on a commit whose author or timestamps were tampered
+			// will still validate via the v1 fallback — that's a
+			// pre-existing limitation of the v1 scheme, not a v2
+			// regression. New commits (v2) catch the tamper.
+			if err := VerifyV2(w.Pub, commit.TreeHash.String(), parents, commit.Message,
+				SignedIdentity{
+					AuthorName:     commit.Author.Name,
+					AuthorEmail:    commit.Author.Email,
+					AuthorUnix:     commit.Author.When.Unix(),
+					CommitterName:  commit.Committer.Name,
+					CommitterEmail: commit.Committer.Email,
+					CommitterUnix:  commit.Committer.When.Unix(),
+				}); err != nil {
 				res.Invalid++
 				if res.InvalidAt.IsZero() {
 					res.InvalidAt = cur

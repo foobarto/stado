@@ -166,6 +166,122 @@ func TestVerify_DetectsTamperedParents(t *testing.T) {
 	}
 }
 
+// v2 sign + verify roundtrip — author/committer/timestamps are part
+// of the signed payload.
+func TestSignV2AndVerifyV2_RoundTrip(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer := NewSigner(priv)
+	body := "tool(path): summary\n\nTool: write\nTurn: 1\n"
+	const (
+		authorName    = "Bartosz Ptaszynski"
+		authorEmail   = "bartosz@foobarto.me"
+		authorUnix    = int64(1779600000)
+		committerName = "Bartosz Ptaszynski"
+		committerEmail = "bartosz@foobarto.me"
+		committerUnix  = int64(1779600005)
+	)
+	sig := signer.SignV2("deadbeef", []string{"parent1"}, body,
+		authorName, authorEmail, authorUnix,
+		committerName, committerEmail, committerUnix)
+	if sig == "" {
+		t.Fatal("empty sig from non-nil signer")
+	}
+	withSig := AppendTrailer(body, sig)
+	ident := SignedIdentity{
+		AuthorName: authorName, AuthorEmail: authorEmail, AuthorUnix: authorUnix,
+		CommitterName: committerName, CommitterEmail: committerEmail, CommitterUnix: committerUnix,
+	}
+	if err := VerifyV2(signer.Public(), "deadbeef", []string{"parent1"}, withSig, ident); err != nil {
+		t.Errorf("verify v2: %v", err)
+	}
+}
+
+// Codex #138 regression: tampering the author identity must invalidate
+// a v2 signature even when tree/parents/body are unchanged.
+func TestVerifyV2_DetectsTamperedAuthorIdentity(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer := NewSigner(priv)
+	body := "tool(path): summary\n\nTool: write\nTurn: 1\n"
+	sig := signer.SignV2("tree", []string{"p"}, body,
+		"alice", "alice@example.com", 1779600000,
+		"alice", "alice@example.com", 1779600000)
+	withSig := AppendTrailer(body, sig)
+
+	// Verify with a DIFFERENT author identity — must fail.
+	bobIdent := SignedIdentity{
+		AuthorName: "bob", AuthorEmail: "bob@example.com", AuthorUnix: 1779600000,
+		CommitterName: "alice", CommitterEmail: "alice@example.com", CommitterUnix: 1779600000,
+	}
+	if err := VerifyV2(signer.Public(), "tree", []string{"p"}, withSig, bobIdent); err == nil {
+		t.Error("v2 verify should reject tampered author identity")
+	}
+}
+
+// Backdated author/committer timestamps must invalidate v2.
+func TestVerifyV2_DetectsBackdatedTimestamps(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer := NewSigner(priv)
+	body := "tool(path): summary\n\nTool: write\nTurn: 1\n"
+	sig := signer.SignV2("tree", nil, body,
+		"alice", "alice@example.com", 1779600000,
+		"alice", "alice@example.com", 1779600000)
+	withSig := AppendTrailer(body, sig)
+
+	backdated := SignedIdentity{
+		AuthorName: "alice", AuthorEmail: "alice@example.com", AuthorUnix: 1000000000,
+		CommitterName: "alice", CommitterEmail: "alice@example.com", CommitterUnix: 1000000000,
+	}
+	if err := VerifyV2(signer.Public(), "tree", nil, withSig, backdated); err == nil {
+		t.Error("v2 verify should reject backdated timestamps")
+	}
+}
+
+// V1 fallback: pre-#138 audit history (signed with the legacy
+// CanonicalBytes-only payload) still verifies through VerifyV2 even
+// when the caller passes an identity. The v1 fallback path ignores
+// the identity argument and re-checks against the tree+parents+body
+// payload.
+func TestVerifyV2_V1SignatureStillVerifies(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer := NewSigner(priv)
+	body := "legacy(commit): pre-138 audit entry\n\nTool: legacy\n"
+
+	// Produce a v1 signature via the legacy Sign method.
+	v1sig := signer.Sign("tree", []string{"p"}, body)
+	withSig := AppendTrailer(body, v1sig)
+
+	// VerifyV2 with an arbitrary identity — should still verify via
+	// the v1 fallback path.
+	ident := SignedIdentity{
+		AuthorName: "anybody", AuthorEmail: "any@x", AuthorUnix: 42,
+		CommitterName: "anybody", CommitterEmail: "any@x", CommitterUnix: 42,
+	}
+	if err := VerifyV2(signer.Public(), "tree", []string{"p"}, withSig, ident); err != nil {
+		t.Errorf("v2-verify of v1 sig should succeed via fallback: %v", err)
+	}
+}
+
+// V2 signature with the SAME canonical-bytes-formattable identity
+// produced by SignV2 vs. CanonicalBytesV2 must be byte-identical —
+// this is the implementation contract between Signer and verifier.
+func TestCanonicalBytesV2_StableShape(t *testing.T) {
+	ident := SignedIdentity{
+		AuthorName: "alice", AuthorEmail: "alice@x", AuthorUnix: 1779600000,
+		CommitterName: "alice", CommitterEmail: "alice@x", CommitterUnix: 1779600000,
+	}
+	got := CanonicalBytesV2("treehash", []string{"p1"}, "body\n", ident)
+	want := "stado-audit-v2\n" +
+		"tree treehash\n" +
+		"parent p1\n" +
+		"author alice <alice@x> 1779600000\n" +
+		"committer alice <alice@x> 1779600000\n" +
+		"\n" +
+		"body\n"
+	if string(got) != want {
+		t.Errorf("CanonicalBytesV2 mismatch:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
 func TestVerify_MissingSignatureReturnsError(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	if err := Verify(priv.Public().(ed25519.PublicKey), "t", nil, "no trailer"); err == nil {

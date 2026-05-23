@@ -78,31 +78,85 @@ func toRecord(refName string, hash plumbing.Hash, c *object.Commit) Record {
 	return rec
 }
 
-// parseMessage splits a commit message into (title, trailer-map). The title
-// is everything up to the first blank line; trailers are "Key: Value" lines
-// after the blank line.
+// parseMessage extracts the title (first non-empty line) and the
+// trailer block from a stado commit message. The trailer block is the
+// LAST contiguous run of well-formed trailer lines per [isTrailerLine]
+// (unindented `Key: Value` with key matching `[A-Za-z][-_A-Za-z0-9]*`)
+// — git-trailer convention, formalized here as defense layer 2 against
+// summary-injection (Codex #143 round 2).
+//
+// Pre-fix this parser treated every `K: V` line after the first blank
+// as a trailer AND `strings.TrimSpace`-ed the key, so an indented
+// compaction-summary line `  Tool: bash` parsed as a real `Tool`
+// trailer — overwriting the real value under last-write-wins. The
+// CompactionMeta.formatMessage two-space indent (defense layer 1) did
+// nothing because TrimSpace flattened the indent. This parser is now
+// defense layer 2 — only unindented lines in the final contiguous
+// block count.
 func parseMessage(msg string) (title string, trailers map[string]string) {
 	lines := strings.Split(msg, "\n")
 	trailers = map[string]string{}
-	var titleDone bool
+
+	// Title is the first non-empty line.
 	for _, line := range lines {
-		if !titleDone {
-			if line == "" {
-				titleDone = true
-				continue
-			}
-			if title == "" {
-				title = line
-			}
-			continue
-		}
-		if idx := strings.Index(line, ":"); idx > 0 {
-			k := strings.TrimSpace(line[:idx])
-			v := strings.TrimSpace(line[idx+1:])
-			if k != "" && k != "Signature" {
-				trailers[k] = v
-			}
+		if line != "" {
+			title = line
+			break
 		}
 	}
+
+	// Walk backward from the end to find the trailer block — a
+	// contiguous run of well-formed trailer lines, optionally with
+	// trailing blank lines after. Stops at the first line that
+	// isn't a trailer (indented summary lines, body text, blanks
+	// inside the body, etc.).
+	end := len(lines)
+	for end > 0 && lines[end-1] == "" {
+		end--
+	}
+	start := end
+	for start > 0 && isTrailerLine(lines[start-1]) {
+		start--
+	}
+	for _, line := range lines[start:end] {
+		if line == "" {
+			continue
+		}
+		idx := strings.Index(line, ":")
+		if idx <= 0 {
+			continue
+		}
+		k := line[:idx] // no TrimSpace — unindented is required by isTrailerLine
+		v := strings.TrimSpace(line[idx+1:])
+		if k == "" || k == "Signature" {
+			continue
+		}
+		trailers[k] = v
+	}
 	return title, trailers
+}
+
+// isTrailerLine reports whether a line is a well-formed trailer:
+// starts in column 0 (no leading whitespace), key matches
+// `[A-Za-z][-_A-Za-z0-9]*`, and a colon follows. Indented lines are
+// rejected so a compaction-summary line that happens to look like
+// `Key: Value` (Codex #143) doesn't get promoted to a real trailer.
+func isTrailerLine(line string) bool {
+	if line == "" || line[0] == ' ' || line[0] == '\t' {
+		return false
+	}
+	idx := strings.Index(line, ":")
+	if idx <= 0 {
+		return false
+	}
+	// First char must be a letter; rest must match alnum/-/_.
+	for i := 0; i < idx; i++ {
+		c := line[i]
+		ok := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
+		if !ok {
+			return false
+		}
+	}
+	first := line[0]
+	return (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
