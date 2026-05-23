@@ -354,6 +354,12 @@ func (m *Model) startStream() tea.Cmd {
 	m.turnThinking = ""
 	m.turnThinkSig = ""
 	m.turnToolCalls = nil
+	// Codex validated finding (post-#46): clear turnCancelled at
+	// the start of every new operator-initiated turn. The actual
+	// gate lives in onToolsExecuted (refuses to startStream when
+	// set); clearing here ensures a fresh turn isn't pre-aborted
+	// by a stale flag from the previous cancelled turn.
+	m.turnCancelled = false
 	m.turnMode = m.mode
 	m.turnModel = m.model
 	m.turnProvider = m.providerDisplayName()

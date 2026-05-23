@@ -231,6 +231,45 @@ func onPluginFork(m *Model, msg pluginForkMsg) (tea.Model, tea.Cmd) {
 }
 
 func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
+	// Codex validated finding (post-#46): when the operator pressed
+	// a kill-switch key during this turn (Esc/Ctrl+G, Alt+Enter,
+	// /cancel, /queue-now, /force, /stop), the cancelled tool's
+	// `context.Canceled` came back as a normal toolResultMsg, the
+	// (now-empty) queue drained, and this handler unconditionally
+	// re-started the provider stream — letting the model request
+	// another tool and continue the turn the operator just stopped.
+	// Refuse the re-stream when the cancellation flag is set;
+	// dispatch any queued operator prompt instead so the operator's
+	// next-turn intent still fires.
+	if m.turnCancelled {
+		m.turnCancelled = false
+		// Conversation-history invariant (Copilot review on Cluster R
+		// round 1): the assistant message containing the tool_use
+		// blocks was already persisted by onTurnComplete BEFORE this
+		// gate fires. If we don't also persist the matching
+		// tool_result blocks, the message history has an orphan
+		// tool_use → providers like OpenAI Chat Completion reject the
+		// next turn as malformed. So we DO append the role=tool
+		// message; we just don't re-stream the model. The results are
+		// real ("cancelled by user" errors from the goroutine), so
+		// the audit log + history reflect what actually happened —
+		// the operator just doesn't get an autonomous follow-up.
+		if len(msg.results) > 0 {
+			blocks := make([]agent.Block, 0, len(msg.results))
+			for _, r := range msg.results {
+				cpy := r
+				blocks = append(blocks, agent.Block{ToolResult: &cpy})
+			}
+			toolMsg := agent.Message{Role: agent.RoleTool, Content: blocks}
+			m.msgs = append(m.msgs, toolMsg)
+			m.persistMessage(toolMsg)
+		}
+		m.renderBlocks()
+		if m.state == stateIdle && m.queuedPrompt != "" {
+			return m, m.promoteQueuedPrompt()
+		}
+		return m, nil
+	}
 	m.annotateLastAssistantToolResults(msg.results)
 	// EP-0037 lazy-load: when the model called tools.describe, parse
 	// the result and add the described tools to this session's
