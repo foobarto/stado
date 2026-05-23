@@ -77,5 +77,17 @@ func (m *Model) cancelRunningTool() bool {
 func (m *Model) clearPendingToolQueue() int {
 	n := len(m.pendingCalls)
 	m.pendingCalls = nil
+	// Copilot review on Cluster R round 1: there's a timing window
+	// where m.toolCancel is already nil (onToolResult cleared it,
+	// before advanceToolQueue starts the next tool) but pendingCalls
+	// is non-empty. In that window, the kill-switch handlers see
+	// cancelRunningTool return false → m.turnCancelled NOT set →
+	// onToolsExecuted runs the unconditional startStream → bypass.
+	// Setting the flag here when the queue actually drained closes
+	// the window: any kill-switch path that observed pending work
+	// to drop also marks the turn cancelled.
+	if n > 0 {
+		m.turnCancelled = true
+	}
 	return n
 }

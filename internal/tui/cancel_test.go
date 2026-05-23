@@ -185,9 +185,47 @@ func TestOnToolsExecuted_GatedByTurnCancelled(t *testing.T) {
 	if m.turnCancelled {
 		t.Error("onToolsExecuted should clear m.turnCancelled after handling")
 	}
-	// Sanity: the tool result was NOT appended to m.msgs (the gate
-	// short-circuits before annotateLastAssistantToolResults).
-	if len(m.msgs) != 0 {
-		t.Errorf("cancelled-turn results should not be persisted to m.msgs; got %d", len(m.msgs))
+	// Conversation-history invariant (Copilot round 1 catch): the
+	// tool_result blocks MUST be persisted to m.msgs even on
+	// cancellation — the assistant message containing the tool_use
+	// blocks was already persisted by onTurnComplete, so leaving the
+	// tool_use unpaired produces an invalid history (rejected by
+	// OpenAI Chat Completion and others on the next turn). The
+	// re-stream is what's suppressed; the history stays well-formed.
+	if len(m.msgs) != 1 {
+		t.Fatalf("cancelled-turn must persist tool_result blocks to keep history paired; got %d msgs", len(m.msgs))
+	}
+	if m.msgs[0].Role != agent.RoleTool {
+		t.Errorf("persisted msg should be role=tool, got %q", m.msgs[0].Role)
+	}
+}
+
+// Copilot round 1: clearPendingToolQueue can run when toolCancel is
+// already nil (between onToolResult clearing it and advanceToolQueue
+// starting the next tool). In that window the cancel-helpers return
+// false → turnCancelled doesn't get set → bypass returns. The
+// clear-with-pending-work case must set the flag too.
+func TestClearPendingToolQueue_SetsTurnCancelledWhenWorkDropped(t *testing.T) {
+	m := &Model{pendingCalls: []agent.ToolUseBlock{{ID: "a"}, {ID: "b"}}}
+	if m.turnCancelled {
+		t.Fatal("turnCancelled should start false")
+	}
+	n := m.clearPendingToolQueue()
+	if n != 2 {
+		t.Fatalf("expected 2 cleared, got %d", n)
+	}
+	if !m.turnCancelled {
+		t.Error("clearPendingToolQueue should set turnCancelled when work was dropped (closes the toolCancel=nil/pending-non-empty timing window)")
+	}
+}
+
+// Inverse: when there was nothing to clear, don't set the flag —
+// it'd produce false positives (every Esc, even on idle, would mark
+// the next turn cancelled).
+func TestClearPendingToolQueue_NoOpDoesNotSetTurnCancelled(t *testing.T) {
+	m := &Model{}
+	_ = m.clearPendingToolQueue()
+	if m.turnCancelled {
+		t.Error("clearPendingToolQueue on empty queue must NOT set turnCancelled — would false-positive")
 	}
 }

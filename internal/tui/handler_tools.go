@@ -243,6 +243,27 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	// next-turn intent still fires.
 	if m.turnCancelled {
 		m.turnCancelled = false
+		// Conversation-history invariant (Copilot review on Cluster R
+		// round 1): the assistant message containing the tool_use
+		// blocks was already persisted by onTurnComplete BEFORE this
+		// gate fires. If we don't also persist the matching
+		// tool_result blocks, the message history has an orphan
+		// tool_use → providers like OpenAI Chat Completion reject the
+		// next turn as malformed. So we DO append the role=tool
+		// message; we just don't re-stream the model. The results are
+		// real ("cancelled by user" errors from the goroutine), so
+		// the audit log + history reflect what actually happened —
+		// the operator just doesn't get an autonomous follow-up.
+		if len(msg.results) > 0 {
+			blocks := make([]agent.Block, 0, len(msg.results))
+			for _, r := range msg.results {
+				cpy := r
+				blocks = append(blocks, agent.Block{ToolResult: &cpy})
+			}
+			toolMsg := agent.Message{Role: agent.RoleTool, Content: blocks}
+			m.msgs = append(m.msgs, toolMsg)
+			m.persistMessage(toolMsg)
+		}
 		m.renderBlocks()
 		if m.state == stateIdle && m.queuedPrompt != "" {
 			return m, m.promoteQueuedPrompt()
