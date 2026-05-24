@@ -32,6 +32,166 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.56.0 — deep-dive backlog sweep (I/J/K/L/M/N/O/Q clusters) — 2026-05-24
+
+Closes 12 of the 14 remaining deep-dive findings carried over from the
+post-v0.54.0 codex + gemini security review. Four bundled PRs (#62–#65),
+2 P0 / 7 P1 / 3 P2 across TUI rendering, tool-dispatch filter, sandbox
+host-guards, audit message parsing, provider env isolation, daemon
+resource caps, and supervisor caching. One finding (C8/P — audit v1
+signature downgrade) is **parked** for design review pending operator
+input on the v0.54.0-era v2 signature migration shape (see
+[internal/audit/PARKED-c8-p-v1-downgrade.md](internal/audit/PARKED-c8-p-v1-downgrade.md)).
+
+### TUI
+
+- **SanitizeForTerminal sweep — PR #49 sibling misses** (PR #62 —
+  Cluster J, Codex G3/J-a P0 + G4/J-b P0 + C2/J-c P1). Five remaining
+  unsanitized-text-to-terminal sites scrubbed at the earliest store
+  boundary:
+  - `model_stream.go` EvThinkingDelta accumulator + block body
+    (`m.turnThinking` was the lone case in handleStreamEvent's event
+    switch appending raw `ev.Text` after PR #49). Sanitize-before-
+    budget so the byte counter matches what's actually stored
+    (Codex round-1 catch — escape-heavy thinking streams were
+    false-positive-rejecting under the prior order).
+  - `modelpicker/picker.go` catalog row render — `it.ID`, `it.Origin`,
+    `it.Note` all `StripControlChars` (single-line table layout).
+  - `fleetpicker/picker.go` row + detail-pane field rendering —
+    helper `singleLineSafe` does `\n/\r/\t → " "` BEFORE
+    StripControlChars to keep word boundaries intact (Copilot
+    round-1 catch — bare StripControlChars mashed "two\nwords" into
+    "twowords").
+  - `host_ui_render.go` decode boundary — every plugin-supplied
+    string at the wasm→host trust boundary is sanitized once:
+    Title/Footer/ID + every Section body kind (text/kv/list/code/
+    table/diff). Header zones strip; multi-line prose zones preserve
+    \n/\t/\r.
+  - `handler_tools.go` `onPluginApprovalRequest` — title `StripControlChars`,
+    body `SanitizeForTerminal`. Approval drawer's lipgloss.Render
+    now sees a trustable struct.
+
+### Tool dispatch + sandbox host-guards
+
+- **`daemon dispatch` consults `[tools].enabled`** (PR #63 —
+  G2/I-a P0). PR #50 fixed the same shape in `/tool` slash dispatch,
+  `runToolByName`, and mcp-server registry; daemon dispatch was the
+  surviving sibling miss. When operator sets a non-empty Enabled
+  allowlist, tools outside it now refuse at dispatch.
+
+- **daemon `toolInAllowList` glob-matches via runtime.ToolMatchesGlob**
+  (PR #63 — G7/I-b P1). Pre-fix `a == tool` exact-string match
+  silently failed against wire-form names — `["shell.*"]` allowlist
+  rejected `shell__bash`. Routed through the canonical matcher so
+  wire / canonical / wildcard / legacy-bare forms all line up with
+  every other filter surface.
+
+- **mcp-server re-applies `ApplyToolFilter` after llm.invoke
+  registration** (PR #63 — C1/I-c P1). The mcp-server-only
+  `llm.invoke` tool was registered AFTER
+  `BuildRegistryWithPlugins`→`ApplyToolFilter` had run, so
+  `[tools].disabled=["llm.invoke"]` couldn't remove it.
+
+- **`acpHost` + `daemonToolHost` implement `WritePathGuard`** (PR #63
+  — K P0). Both hosts previously lacked `CheckWritePath`, so
+  `fs.write` through the ACP server's host or the daemon RPC
+  bypassed the `.git`-write guard #050 + acpwrap had in place.
+  Both now implement the same defense verbatim (walk path segments,
+  refuse any `.git` segment).
+
+- **Plugin runtime: per-tool cfg + invokeReg replace package
+  globals** (PR #63 — C4/Q P2). `installedRunCfg` /
+  `installedInvokeReg` were rebound by every
+  `registerInstalledPluginTools` call; `/tool info` triggering an
+  unfiltered registry build leaked its tool surface into the
+  in-flight session's nested-invoke dispatch. Refactored to
+  per-tool storage on `bundledPluginTool` / `installedPluginTool` /
+  `pluginOverrideTool` so each build's tools are anchored to that
+  build's registry pointer.
+
+### Audit
+
+- **`audit.ParseMessage` is the canonical parser; duplicate impls
+  removed** (PR #64 — G6/L P1). `cmd/stado/stats.go` +
+  `internal/runtime/sessionstats/sessionstats.go` each had a copy
+  using the pre-#51 `TrimSpace(line[:idx])` shape — the exact bug
+  Codex #143 round 2 hardened against. Both routed through the
+  canonical `audit.ParseMessage`; the false claim of an import
+  cycle that justified the duplicates is gone (cmd/stado has
+  imported internal/audit elsewhere for a long time).
+
+### Providers + resource caps
+
+- **ACP env scrub** (PR #65 — C3/M P1). The ACP wrapper inherited
+  the full `os.Environ()` by default (worst when `Config.Env` was
+  empty — Go's `os/exec` inherits everything if `cmd.Env` stays
+  nil). Extracted MCP's `scrubbedEnv`/`envSafelist` into shared
+  `internal/providers/envscrub`; ACP now uses the same scrub
+  unconditionally. Cloud creds / API keys / minisign secrets stop
+  at the trust boundary.
+
+- **stado_tool_invoke caps name + args at the wire boundary**
+  (PR #65 — C5/N-a P2). Pre-fix `nameLen` / `argsLen` were trusted
+  before any cap check — a plugin passing `argsLen=2GB` forced the
+  host to allocate the same. Now refuses up front against
+  `maxPluginRuntimeToolNameBytes` (1 KiB) + the existing
+  `maxPluginRuntimeToolArgsBytes` (1 MiB).
+
+- **daemon `readFramedLine` caps live allocation at
+  MaxRequestBytes** (PR #65 — C6/N-b P2). Pre-fix
+  `bufio.Reader.ReadBytes('\n')` buffered the ENTIRE line before
+  the MaxRequestBytes check — a same-UID peer sending a 32 MiB+
+  line forced the daemon to allocate the same. Replaced with
+  ReadSlice + chunked `append` (amortized O(n), not O(n²) per
+  Codex P2 round-1 catch); cap-overflow keeps consuming to the
+  frame's `\n` so the connection resyncs without separate drain
+  logic.
+
+- **Supervisor cache keyed by (provider, model)** (PR #65 — C7/O
+  P2). `cachedSupervisorLookup` returned the first cached provider
+  regardless of mid-session config changes — operator who
+  reconfigured supervisor kept hitting the stale instance until
+  restart. New `supervisorCacheKey{provider, model}` invalidates
+  on change; rotation closes the prior provider via `io.Closer`
+  assertion so ACP/MCP-wrapped subprocesses are reaped properly
+  (Codex P2 round-1 catch — naive overwrite leaked the old
+  subprocess + FDs).
+
+### Parked
+
+- **C8/P (audit v1 signature downgrade via ExtractSignature)** —
+  the codex-proposed fix (scheme marker + bounded v1 fallback)
+  breaks v0.54.0-era v2 signatures (no marker to distinguish them
+  from downgrade-attack targets; canonical bytes differ between
+  v1 and v2, so blanket "no v1 fallback when marker absent"
+  rejects legitimate v0.54.0 v2 sigs). Needs operator design
+  call between cutoff-date, body-marker-with-grace-period,
+  per-repo strict-pin, or re-sign-in-place. Tracked in
+  [internal/audit/PARKED-c8-p-v1-downgrade.md](internal/audit/PARKED-c8-p-v1-downgrade.md).
+
+### Breaking surfaces
+
+None this cycle — all fixes are defense additions over existing
+behavior. The bundled-tool runtime refactor (Q) preserves
+observable semantics; existing plugins see the same surface.
+
+### Removed surfaces
+
+- Local copies of `envSafelist` / `scrubbedEnv` in
+  `internal/providers/mcpwrap/provider.go` (replaced by thin
+  wrappers calling `envscrub.Scrub`).
+- Duplicate `parseCommitMessage` impls in `cmd/stado/stats.go` +
+  `internal/runtime/sessionstats/sessionstats.go` (replaced by
+  thin wrappers calling `audit.ParseMessage`).
+- Package globals `installedRunCfg` + `installedInvokeReg` in
+  `internal/runtime/installed_tools.go` (replaced by per-tool
+  fields).
+
+### Plugin ABI migration note
+
+No host-import additions or removals. The wasm calling contract
+is unchanged.
+
 ## v0.55.0 — security hardening cluster H+R+S+T+U — 2026-05-23
 
 Clears all four validated-Codex findings dropped post-v0.54.0 plus the
