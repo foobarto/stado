@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -281,4 +282,136 @@ func makeRows(rows, cols int) [][]string {
 		out[i] = makeRow(cols)
 	}
 	return out
+}
+
+// Codex C2/J-c P1 regression: plugin-supplied strings reaching the
+// stado_ui_render decoder are the wasm-host trust boundary. Pre-fix
+// every string field flowed through to the Panel struct verbatim,
+// so a malicious / buggy plugin could plant OSC52 (clipboard hijack),
+// OSC8 (clickable link), or CSI escapes in Title / Footer / Heading
+// and the renderer at panel_render.go would emit them to the
+// operator's terminal unchecked. After fix the decoder sanitizes at
+// the boundary using StripControlChars for header/cell zones and
+// SanitizeForTerminal for prose body zones.
+func TestDecodeRenderRequest_SanitizesEveryStringField(t *testing.T) {
+	// Trio of representative escapes. ESC = 0x1b, BEL = 0x07.
+	const osc52 = "\x1b]52;c;evil\x07"
+	const osc8 = "\x1b]8;;https://evil\x1b\\"
+	const csi = "\x1b[2K\x1b[1;1H"
+	bad := osc52 + osc8 + csi
+
+	w := renderRequestWire{
+		Title:   "Title" + bad,
+		Variant: "info",
+		ID:      "id-" + bad,
+		Footer:  "footer-" + bad,
+		Sections: []sectionWire{
+			{
+				Kind:    "text",
+				Heading: "Heading" + bad,
+				Text:    "prose with\nnewlines and " + bad,
+			},
+			{
+				Kind:    "kv",
+				Heading: "Pairs",
+				KV: []kvPairWire{
+					{Label: "key-" + bad, Value: "value-" + bad},
+				},
+			},
+			{
+				Kind:    "list",
+				Heading: "Items",
+				List: &listBodyWire{
+					Marker: "bullet",
+					Items:  []string{"item-" + bad, "item2"},
+				},
+			},
+			{
+				Kind:    "code",
+				Heading: "Snippet",
+				Code: &codeBodyWire{
+					Language: "go-" + bad,
+					Content:  "func main() {\n  // " + bad + "\n}",
+				},
+			},
+			{
+				Kind:    "table",
+				Heading: "Data",
+				Table: &tableBodyWire{
+					Columns: []string{"col-" + bad, "col2"},
+					Rows:    [][]string{{"cell-" + bad, "cell2"}},
+				},
+			},
+			{
+				Kind:    "diff",
+				Heading: "Change",
+				Diff: &diffBodyWire{
+					Before: "before\n" + bad,
+					After:  "after\n" + bad,
+				},
+			},
+		},
+	}
+
+	p, err := decodeRenderRequest(w)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Helper: every escape we planted must be gone from the field.
+	assertClean := func(name, got string) {
+		for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+			if strings.Contains(got, esc) {
+				t.Errorf("%s leaks %q: %q", name, esc, got)
+			}
+		}
+	}
+
+	assertClean("Panel.Title", p.Title)
+	assertClean("Panel.ID", p.ID)
+	assertClean("Panel.Footer", p.Footer)
+	for i, sec := range p.Sections {
+		assertClean(fmt.Sprintf("Section[%d].Heading", i), sec.Heading)
+		switch sec.Kind {
+		case "text":
+			assertClean("Section[0].Text", sec.Text)
+			// SanitizeForTerminal preserves \n in prose bodies.
+			if !strings.Contains(sec.Text, "prose with\nnewlines") {
+				t.Errorf("text section should preserve legitimate \\n; got %q", sec.Text)
+			}
+		case "kv":
+			assertClean("Section[1].KV[0].Label", sec.KV[0].Label)
+			assertClean("Section[1].KV[0].Value", sec.KV[0].Value)
+		case "list":
+			for j, it := range sec.List.Items {
+				assertClean(fmt.Sprintf("Section[2].List.Items[%d]", j), it)
+			}
+		case "code":
+			assertClean("Section[3].Code.Language", sec.Code.Language)
+			assertClean("Section[3].Code.Content", sec.Code.Content)
+		case "table":
+			for j, c := range sec.Table.Columns {
+				assertClean(fmt.Sprintf("Section[4].Table.Columns[%d]", j), c)
+			}
+			for r, row := range sec.Table.Rows {
+				for c, cell := range row {
+					assertClean(fmt.Sprintf("Section[4].Table.Rows[%d][%d]", r, c), cell)
+				}
+			}
+		case "diff":
+			assertClean("Section[5].Diff.Before", sec.Diff.Before)
+			assertClean("Section[5].Diff.After", sec.Diff.After)
+		}
+	}
+
+	// Single-line zones must NOT preserve any \n (a planted newline
+	// in Title / Heading / cell would break row layout); the test
+	// payloads above don't include literal \n in single-line zones
+	// but the implementation's StripControlChars guarantees this.
+	// Spot-check one cell:
+	for _, c := range p.Sections[4].Table.Columns {
+		if strings.Contains(c, "\n") {
+			t.Errorf("table column header leaked a newline: %q", c)
+		}
+	}
 }

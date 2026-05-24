@@ -643,18 +643,36 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		m.invalidateBlockCache(last)
 
 	case agent.EvThinkingDelta:
-		if err := streambudget.CheckAppend("assistant thinking", len(m.turnThinking), len(ev.Text), streambudget.MaxThinkingTextBytes); err != nil {
+		// Sanitize before the budget guard — the thinking stream is
+		// model-prose from the same trust boundary as EvTextDelta
+		// (sanitized at lines 632 + 642 above). PR #49's sibling-miss
+		// audit (Codex G3/J-a P0) flagged this case as the only one
+		// in the EvX switch that appended raw `ev.Text` into the
+		// block body, so OSC52 / OSC8 / CSI escapes in the thinking
+		// trace reached the renderer unchecked. Sanitize at both the
+		// per-turn accumulator (used for in-flight budget +
+		// final-trace recording) and the rendered block body.
+		//
+		// Codex P2 round 1: the budget guard must count what's
+		// actually stored (sanitized) — not what arrived (raw) — or
+		// an escape-heavy stream gets falsely rejected (current
+		// counted on sanitized, delta on raw; the guard ratchets
+		// faster than the stored content grows). Hence sanitize
+		// first, then `CheckAppend` against sanitized lengths. The
+		// signature is not text and stays unsanitized.
+		sanitizedThinking := textutil.SanitizeForTerminal(ev.Text)
+		if err := streambudget.CheckAppend("assistant thinking", len(m.turnThinking), len(sanitizedThinking), streambudget.MaxThinkingTextBytes); err != nil {
 			m.failStreamBudget(err)
 			return
 		}
-		m.turnThinking += ev.Text
+		m.turnThinking += sanitizedThinking
 		m.turnThinkSig += ev.ThinkingSig
-		if ev.Text != "" {
+		if sanitizedThinking != "" {
 			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
 				m.blocks = append(m.blocks, block{kind: "thinking"})
 			}
 			last := len(m.blocks) - 1
-			m.blocks[last].body += ev.Text
+			m.blocks[last].body += sanitizedThinking
 			m.invalidateBlockCache(last)
 		}
 

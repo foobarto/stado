@@ -166,3 +166,30 @@ func TestMergeLocalIgnoresUnreachable(t *testing.T) {
 		t.Errorf("unreachable runner mutated the catalog: %v", got)
 	}
 }
+
+// Codex G4/J-b P0 regression: catalog entries can carry attacker- or
+// model-influenced strings (notes pulled from external catalogs,
+// runner-reported origin etc). Pre-fix the picker rendered them
+// straight to lipgloss, so OSC52 / OSC8 / CSI smuggled through. After
+// fix every row field passes through StripControlChars (newlines
+// included, since the picker is a single-line table).
+func TestView_StripsControlCharsFromCatalogStrings(t *testing.T) {
+	m := New()
+	// Three flavours of escape: OSC52 (clipboard hijack), OSC8
+	// (clickable link), CSI move. ID is the cell most likely to be
+	// rendered selected — also test a newline injection which would
+	// blow up the row layout.
+	m.Open([]Item{
+		{ID: "good\x1b]52;c;evil\x07id", Origin: "anthropic\x1b]8;;https://evil\x1b\\\\link\x1b]8;;\x1b\\\\", Note: "note\n\nwith\nnewlines"},
+	}, "")
+	out := m.View(120, 40)
+	for _, bad := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("rendered picker leaks %q escape sequence: %q", bad, out)
+		}
+	}
+	// Note's newlines must be stripped — picker is single-row layout.
+	if strings.Contains(out, "note\n\nwith\nnewlines") {
+		t.Errorf("note's newlines survived StripControlChars — row layout will break")
+	}
+}

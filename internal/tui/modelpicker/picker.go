@@ -308,13 +308,22 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 		prevWasFav = it.Favorite
 
 		isSel := i == m.Cursor
-		left := it.ID
+		// Strip all control runes (incl. newlines) — these fields render
+		// as one row in the picker; any embedded \n / OSC / CSI would
+		// break the row layout or smuggle terminal escapes through
+		// catalog data. Codex G4/J-b P0: PR #49 sibling-miss in the
+		// modelpicker render path. ID + Origin are identifier-like;
+		// Note is short prose displayed inline. All three must stay
+		// single-line for the lipgloss row to compose correctly, so
+		// StripControlChars (no whitespace exemption) is the right
+		// variant rather than SanitizeForTerminal.
+		left := textutil.StripControlChars(it.ID)
 		if it.Current {
 			left = "* " + left
 		}
-		right := it.Origin
+		right := textutil.StripControlChars(it.Origin)
 		if it.Note != "" {
-			right += "  " + it.Note
+			right += "  " + textutil.StripControlChars(it.Note)
 		}
 		if it.Favorite {
 			right += "  favorite"
