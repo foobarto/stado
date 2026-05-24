@@ -522,8 +522,17 @@ type Model struct {
 	// startBtw fires from the Bubble Tea Update goroutine but the
 	// provider it produces is used inside the per-call StreamTurn
 	// goroutine, and we want concurrent BTWs to share the same instance.
-	supervisorProvider   agent.Provider
-	supervisorProviderMu sync.Mutex
+	//
+	// Codex C7/O P2 — cache key is now (provider name, model, config
+	// fingerprint) instead of "did we build anything yet". Pre-fix the
+	// cache returned the FIRST built provider regardless of subsequent
+	// name/config changes: the operator who reconfigured supervisor
+	// mid-session kept hitting the stale instance until restart.
+	// supervisorProviderKey is the identity the cached provider was
+	// built for; mismatch in cachedSupervisorLookup means rebuild.
+	supervisorProvider    agent.Provider
+	supervisorProviderKey supervisorCacheKey
+	supervisorProviderMu  sync.Mutex
 	// toolTickTimer is the handle for the live-elapsed update while a
 	// tool runs. Cancelled when the toolResultMsg arrives.
 	toolTickTimer *time.Timer

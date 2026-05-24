@@ -40,6 +40,7 @@ import (
 	"sync"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/providers/envscrub"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -261,9 +262,17 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 
 	cmd := exec.Command(p.cfg.Binary, p.cfg.Args...) // #nosec G204 — operator-supplied binary path is the whole point of this provider
 	cmd.Dir = cwd
-	if len(p.cfg.Env) > 0 {
-		cmd.Env = append(os.Environ(), p.cfg.Env...)
-	}
+	// Always scrub the inherited environment (Codex C3/M P1). Pre-fix
+	// this branch was conditional on Config.Env being non-empty AND
+	// used `os.Environ()` directly — leaking cloud creds / API keys /
+	// minisign secrets to the wrapped ACP subprocess (e.g.
+	// claude-code-acp, gemini-cli, codex). MCP wrapper already
+	// scrubbed via envscrub.Scrub at #048; ACP was the sibling miss.
+	// Always-scrub: even when cfg.Env is empty the subprocess should
+	// get the safelist (HOME / PATH / etc.) — pre-fix it inherited
+	// nothing in that branch, which would have broken auth flows
+	// that depend on $HOME etc.
+	cmd.Env = envscrub.Scrub(p.cfg.Env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("acpwrap: stdin pipe: %w", err)

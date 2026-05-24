@@ -206,3 +206,70 @@ func TestResolveSupervisorLane_LookupFails_ReturnsError(t *testing.T) {
 		t.Errorf("error should wrap lookup error, got %v", err)
 	}
 }
+
+// Codex C7/O P2 regression: cachedSupervisorLookup must rebuild when
+// the requested name/model differs from what was cached. Pre-fix the
+// cache returned the first cached provider regardless of subsequent
+// config changes, so an operator who reconfigured supervisor mid-
+// session kept hitting the stale instance until restart.
+//
+// The test uses a counter-wrapped buildProviderByName replacement to
+// observe rebuilds; the production buildProviderByName isn't
+// dependency-injectable yet, so the assertion is structural — set
+// up the Model with a known-cached provider+key, call
+// cachedSupervisorLookup with a different (name, model) combo, and
+// assert the cached identity got replaced.
+func TestCachedSupervisorLookup_RebuildsWhenNameOrModelChanges(t *testing.T) {
+	m := &Model{}
+	// Seed the cache as if "old-supervisor" + "old-model" had been
+	// looked up earlier this session.
+	oldProvider := &fakeProvider{name: "stale-supervisor"}
+	m.supervisorProvider = oldProvider
+	m.supervisorProviderKey = supervisorCacheKey{provider: "old-supervisor", model: "old-model"}
+
+	// Cache hit: same (name, model) returns the same instance.
+	cfgSame := &config.Config{}
+	cfgSame.Supervisor.Model = "old-model"
+	if got, err := m.cachedSupervisorLookup(cfgSame, "old-supervisor"); err != nil {
+		t.Fatalf("cache hit: %v", err)
+	} else if got != oldProvider {
+		t.Errorf("cache hit should return seeded provider; got %v want %v", got, oldProvider)
+	}
+
+	// Cache miss on name change: must NOT return the stale instance.
+	// buildProviderByName will fail (unknown provider "new-supervisor"),
+	// so we expect an error — but the key assertion is that the
+	// previously-cached provider is NOT returned silently.
+	cfgRenamed := &config.Config{}
+	cfgRenamed.Supervisor.Model = "old-model"
+	got, err := m.cachedSupervisorLookup(cfgRenamed, "new-supervisor")
+	if err == nil && got == oldProvider {
+		t.Error("name change must NOT return the stale cached provider")
+	}
+
+	// Re-seed for the model-change check.
+	m.supervisorProvider = oldProvider
+	m.supervisorProviderKey = supervisorCacheKey{provider: "old-supervisor", model: "old-model"}
+	cfgRemodel := &config.Config{}
+	cfgRemodel.Supervisor.Model = "new-model"
+	got2, err2 := m.cachedSupervisorLookup(cfgRemodel, "old-supervisor")
+	if err2 == nil && got2 == oldProvider {
+		t.Error("model change must NOT return the stale cached provider")
+	}
+}
+
+// supervisorKeyFor falls back to cfg.Defaults.Model when
+// cfg.Supervisor.Model is empty so the cache doesn't collide between
+// "explicit empty supervisor model" and "supervisor model defaulted
+// from worker model".
+func TestSupervisorKeyFor_FallsBackToDefaultsModel(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Defaults.Model = "default-model"
+	key := supervisorKeyFor(cfg, "my-supervisor")
+	if key.model != "default-model" {
+		t.Errorf("empty Supervisor.Model should fall back to Defaults.Model; got %q", key.model)
+	}
+	if key.provider != "my-supervisor" {
+		t.Errorf("provider name should be passed through; got %q", key.provider)
+	}
+}

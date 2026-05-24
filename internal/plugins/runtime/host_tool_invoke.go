@@ -111,6 +111,22 @@ func registerToolInvokeImport(builder wazero.HostModuleBuilder, host *Host) {
 			if depth >= toolInvokeMaxDepth {
 				return -1
 			}
+			// Codex C5/N-a P2 — cap BEFORE any host-side allocation.
+			// Pre-fix the wire lengths (nameLen, argsLen) were trusted:
+			// readMemoryString would readBytes(nameLen) without cap,
+			// then mod.Memory().Read(argsLen) → make([]byte, argsLen)
+			// → copy. A plugin (malicious or buggy) passing
+			// argsLen=2GB would force the host to allocate the same.
+			// The wire is uint32 → up to 4 GiB possible. Reject up
+			// front against the same caps every other tool-arg
+			// surface uses (maxPluginRuntimeToolArgsBytes = 1 MiB for
+			// args; tool name is identifier-sized, cap at 1 KiB).
+			if uint32(nameLen) > maxPluginRuntimeToolNameBytes {
+				return -1
+			}
+			if uint32(argsLen) > maxPluginRuntimeToolArgsBytes {
+				return -1
+			}
 			name, ok := readMemoryString(mod, uint32(namePtr), uint32(nameLen))
 			if !ok {
 				return -1
