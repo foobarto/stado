@@ -40,6 +40,7 @@ import (
 	"sync"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/providers/envscrub"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -261,9 +262,20 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 
 	cmd := exec.Command(p.cfg.Binary, p.cfg.Args...) // #nosec G204 — operator-supplied binary path is the whole point of this provider
 	cmd.Dir = cwd
-	if len(p.cfg.Env) > 0 {
-		cmd.Env = append(os.Environ(), p.cfg.Env...)
-	}
+	// Always scrub the inherited environment (Codex C3/M P1). Pre-fix
+	// this assignment was gated by `if len(p.cfg.Env) > 0` and used
+	// `append(os.Environ(), p.cfg.Env...)` inside the branch — leaking
+	// cloud creds / API keys / minisign secrets to the wrapped ACP
+	// subprocess (e.g. claude-code-acp, gemini-cli, codex). When
+	// cfg.Env was EMPTY the branch was skipped → cmd.Env stayed nil →
+	// Go's os/exec inherits the FULL parent environment by default
+	// (the leak was actually worse in the empty-Env branch — Copilot
+	// review #65 caught this in my prior commit text). MCP wrapper
+	// already scrubbed via envscrub.Scrub at #048; ACP was the
+	// sibling miss. Always-scrub unconditionally: cmd.Env explicitly
+	// set to the safelist + cfg.Env so the trust boundary holds
+	// regardless of whether the operator supplied per-config env.
+	cmd.Env = envscrub.Scrub(p.cfg.Env)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("acpwrap: stdin pipe: %w", err)

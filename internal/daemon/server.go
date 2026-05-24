@@ -240,8 +240,24 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 
 	first := true
 	for {
-		line, err := br.ReadBytes('\n')
+		// Codex C6/N-b P2 — read frames in chunks bounded by the buffer
+		// size, accumulating up to MaxRequestBytes. Pre-fix used
+		// `br.ReadBytes('\n')` which buffers the ENTIRE line in memory
+		// before returning, then checked the size cap after. A same-UID
+		// peer sending a 4 GiB line forced the daemon to allocate 4 GiB
+		// just to refuse it. The chunked approach below caps the live
+		// allocation at MaxRequestBytes and drains the rest of any
+		// over-cap line so the connection can recover for the next
+		// frame.
+		line, err := readFramedLine(br, MaxRequestBytes)
 		if err != nil {
+			if errors.Is(err, errFrameTooLarge) {
+				// readFramedLine already advanced the reader past the
+				// oversized frame's '\n' (drain-as-you-go); just refuse
+				// + continue reading subsequent frames.
+				s.writeErr(c, nil, ErrCodeInvalidRequest, "request too large")
+				continue
+			}
 			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
 				s.logf("daemon: read: %v", err)
 			}
@@ -250,13 +266,6 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 		if first {
 			_ = c.SetReadDeadline(time.Time{}) // clear deadline after handshake
 			first = false
-		}
-		// Cap a single message at MaxRequestBytes. ReadBytes returns
-		// the line including the trailing '\n', so the cap covers the
-		// whole framed payload.
-		if len(line) > MaxRequestBytes {
-			s.writeErr(c, nil, ErrCodeInvalidRequest, "request too large")
-			continue
 		}
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
@@ -268,6 +277,76 @@ func (s *Server) handleConn(ctx context.Context, c net.Conn) {
 			continue
 		}
 		s.dispatch(ctx, c, &req)
+	}
+}
+
+// errFrameTooLarge is the sentinel readFramedLine returns when the
+// accumulated bytes for a frame exceed the per-frame cap. The reader
+// is advanced past the frame regardless (drain-as-you-go), so the
+// connection can resync to the next frame without separate drain
+// machinery on the caller side.
+var errFrameTooLarge = errors.New("daemon: frame exceeds MaxRequestBytes")
+
+// readFramedLine reads bytes from br until '\n', refusing to allocate
+// past maxBytes. Returns the bytes including the trailing '\n' on
+// success. Returns errFrameTooLarge when the frame's total length
+// exceeds maxBytes; in that case the reader is still advanced past
+// the frame's '\n' (or to EOF) so the caller can resume reading
+// subsequent valid frames without additional drain logic.
+//
+// Codex C6/N-b P2: replaces the prior `bufio.Reader.ReadBytes('\n')`
+// which buffered the entire line (up to arbitrary size) BEFORE the
+// MaxRequestBytes check. ReadSlice returns bufio's internal buffer
+// without copying, so the per-call working set stays bounded by
+// bufio's buffer size (64 KiB at construction); the accumulator only
+// grows while under cap. Past cap we keep iterating ReadSlice (to
+// consume the rest of the oversized line) but stop appending so the
+// allocation stays at maxBytes regardless of the peer's actual frame
+// size.
+func readFramedLine(br *bufio.Reader, maxBytes int) ([]byte, error) {
+	var buf []byte
+	over := false
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if len(chunk) > 0 && !over {
+			if len(buf)+len(chunk) > maxBytes {
+				// Past cap: stop appending. We keep looping so the
+				// reader advances past the trailing '\n' (drain-as-
+				// you-go). The cap is on the *accumulator* allocation;
+				// bufio's internal buffer is bounded separately by
+				// the buffer size set at NewReaderSize.
+				over = true
+			} else {
+				// append copies chunk's bytes into buf with amortized
+				// growth — ReadSlice's slice is only valid until the
+				// next read, so the copy is mandatory; using append
+				// makes the total work O(n) instead of O(n²). Pre-fix
+				// used `make + two copies` per chunk: at 64 KiB
+				// ReadSlice chunks, a near-32 MiB valid request copied
+				// gigabytes redundantly, letting a local client induce
+				// high CPU even under cap (Codex P2 review #65 caught
+				// this in my prior commit).
+				buf = append(buf, chunk...)
+			}
+		}
+		if err == nil {
+			// Delimiter found. Frame complete.
+			if over {
+				return nil, errFrameTooLarge
+			}
+			return buf, nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			// No delimiter in current buffer fill; keep reading.
+			continue
+		}
+		// EOF / I/O error before any '\n'. If we were over cap we
+		// surface that; otherwise propagate whatever the reader gave
+		// us (typically io.EOF on clean disconnect).
+		if over {
+			return nil, errFrameTooLarge
+		}
+		return nil, err
 	}
 }
 

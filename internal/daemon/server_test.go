@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -435,5 +437,55 @@ func TestToolInAllowList_GlobPatternsMatch(t *testing.T) {
 					c.tool, c.allow, got, c.wantHit)
 			}
 		})
+	}
+}
+
+// Codex C6/N-b P2 regression: verify readFramedLine directly with
+// the bufio.Reader contract. The oversize-then-valid sequence
+// asserts that an over-cap frame is refused AND the reader is
+// advanced past the offending '\n' (drain-as-you-go), so the next
+// valid frame parses with no separate drain logic on the caller.
+func TestReadFramedLine_RefusesOversizeAndDrainsResyncs(t *testing.T) {
+	const capBytes = 64
+	// Build a stream: [<oversize line>\n][<valid line>\n].
+	var sb strings.Builder
+	for i := 0; i < capBytes+10; i++ {
+		sb.WriteByte('x')
+	}
+	sb.WriteByte('\n')
+	sb.WriteString("ok\n")
+
+	r := bufio.NewReaderSize(strings.NewReader(sb.String()), 16)
+
+	// First read: must error with errFrameTooLarge AND advance past
+	// the oversized frame's '\n' (drain-as-you-go), so a separate
+	// drainToNewline call isn't needed.
+	_, err := readFramedLine(r, capBytes)
+	if !errors.Is(err, errFrameTooLarge) {
+		t.Fatalf("first read should error with errFrameTooLarge; got %v", err)
+	}
+	// Second read: should now return the valid line directly — no
+	// drain helper called between calls.
+	line, err := readFramedLine(r, capBytes)
+	if err != nil {
+		t.Fatalf("second read after drain: %v", err)
+	}
+	if string(line) != "ok\n" {
+		t.Errorf("second read = %q, want %q (connection didn't resync)", line, "ok\n")
+	}
+}
+
+// Companion: a normal-sized frame round-trips.
+func TestReadFramedLine_NormalFrame(t *testing.T) {
+	r := bufio.NewReaderSize(strings.NewReader(`{"jsonrpc":"2.0"}`+"\n"), 16)
+	line, err := readFramedLine(r, 1024)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.HasSuffix(string(line), "\n") {
+		t.Errorf("readFramedLine should include trailing \\n; got %q", line)
+	}
+	if !strings.Contains(string(line), `"jsonrpc":"2.0"`) {
+		t.Errorf("body lost: %q", line)
 	}
 }

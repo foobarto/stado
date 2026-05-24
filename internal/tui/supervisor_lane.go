@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/pkg/agent"
@@ -84,10 +86,47 @@ func resolveSupervisorLane(
 // Build errors are NOT cached — a transient failure (e.g. ACP binary
 // briefly missing) shouldn't permanently block the supervisor lane;
 // next BTW retries.
+// supervisorCacheKey is the identity a cached supervisor provider is
+// pinned to. Two builds with the same Provider+Model+config fields
+// hash to the same key and the cache hit reuses the provider;
+// anything else invalidates the cache + rebuilds. Codex C7/O P2.
+type supervisorCacheKey struct {
+	provider string
+	model    string
+	// Future: extend with optional config knobs that affect provider
+	// initialisation (timeout, auth endpoint, persona, etc.) by
+	// hashing them into a single field. For v0.56.0 the
+	// Provider+Model pair covers every config shape that produces
+	// a different provider instance in buildProviderByName.
+}
+
+// supervisorKeyFor extracts the cache identity from the active config.
+// `name` is the provider name the lookup is asking for (the supervisor
+// override name, or the active provider name when supervisor is
+// unconfigured) — caller already resolved that via resolveSupervisorLane.
+func supervisorKeyFor(cfg *config.Config, name string) supervisorCacheKey {
+	model := ""
+	if cfg != nil {
+		model = cfg.Supervisor.Model
+		// Fall back to the default model so a config change that
+		// removes the supervisor-specific model doesn't share the
+		// cache with the supervisor-enabled state.
+		if model == "" {
+			model = cfg.Defaults.Model
+		}
+	}
+	return supervisorCacheKey{provider: name, model: model}
+}
+
 func (m *Model) cachedSupervisorLookup(cfg *config.Config, name string) (agent.Provider, error) {
 	m.supervisorProviderMu.Lock()
 	defer m.supervisorProviderMu.Unlock()
-	if m.supervisorProvider != nil {
+	// Codex C7/O P2: key the cache by (provider name, model). Pre-fix
+	// the first cached provider stuck around forever — operator
+	// reconfigured the supervisor name/model mid-session and BTW kept
+	// hitting the stale instance until restart.
+	wantKey := supervisorKeyFor(cfg, name)
+	if m.supervisorProvider != nil && m.supervisorProviderKey == wantKey {
 		return m.supervisorProvider, nil
 	}
 	p, err := buildProviderByName(cfg, name)
@@ -101,6 +140,26 @@ func (m *Model) cachedSupervisorLookup(cfg *config.Config, name string) (agent.P
 		// every subsequent BTW until restart.
 		return nil, fmt.Errorf("buildProviderByName(%q) returned nil with no error", name)
 	}
+	// Codex P2 review #65: rotating the cached provider on key change
+	// must Close() the prior instance, or ACP/MCP-wrapped supervisors
+	// leak their subprocess + stdio pipes every time the operator
+	// reconfigures supervisor mid-session. Type-assert for io.Closer
+	// rather than introducing a new interface on agent.Provider — the
+	// providers that own subprocesses (acpwrap, mcpwrap) already
+	// satisfy io.Closer; the pure-HTTP providers (anthropic, openai,
+	// etc.) don't and need no shutdown.
+	if old := m.supervisorProvider; old != nil {
+		if c, ok := old.(io.Closer); ok {
+			// Best-effort: errors logged to stderr but not surfaced —
+			// the rotation is part of a synchronous cachedSupervisorLookup
+			// call from the BTW path; a stuck Close() on a dead
+			// subprocess must not delay the new BTW question.
+			if err := c.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "stado: supervisor cache rotation: Close() old provider %T: %v\n", old, err)
+			}
+		}
+	}
 	m.supervisorProvider = p
+	m.supervisorProviderKey = wantKey
 	return p, nil
 }

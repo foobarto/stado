@@ -49,6 +49,7 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/foobarto/stado/internal/providers/envscrub"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -131,35 +132,15 @@ type Config struct {
 // tokens, etc.). Only variables the subprocess plausibly needs to
 // locate config / a shell / a terminal are forwarded; the operator
 // adds anything else explicitly via Config.Env.
-var envSafelist = []string{
-	"HOME",
-	"PATH",
-	"USER",
-	"LOGNAME",
-	"SHELL",
-	"TERM",
-	"LANG",
-	"LC_ALL",
-	"TMPDIR",
-	"XDG_CONFIG_HOME",
-	"XDG_DATA_HOME",
-	"XDG_STATE_HOME",
-	"XDG_CACHE_HOME",
-}
+// envSafelist + scrubbedEnv moved to internal/providers/envscrub so
+// ACP can share them (Codex C3/M P1 — pre-fix ACP inherited the full
+// os.Environ() while MCP scrubbed). Kept as thin wrappers for
+// in-package compatibility — the existing tests in this package and
+// the safelist-audit test (TestEnvSafelist_NoSecretBearingNames)
+// still exercise the names through these aliases.
+var envSafelist = envscrub.Safelist
 
-// scrubbedEnv builds the subprocess environment: the safelisted
-// entries pulled from the current process, with extra appended/
-// overriding. #048.
-func scrubbedEnv(extra []string) []string {
-	out := make([]string, 0, len(envSafelist)+len(extra))
-	for _, key := range envSafelist {
-		if v, ok := os.LookupEnv(key); ok {
-			out = append(out, key+"="+v)
-		}
-	}
-	out = append(out, extra...)
-	return out
-}
+func scrubbedEnv(extra []string) []string { return envscrub.Scrub(extra) }
 
 // Provider is the agent.Provider implementation.
 type Provider struct {
