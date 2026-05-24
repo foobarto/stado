@@ -395,11 +395,14 @@ type bundledPluginTool struct {
 
 	// Codex C4/Q P2 — per-tool cfg + invoke registry replace the
 	// package globals installedRunCfg / installedInvokeReg. Set by
-	// BuildDefaultRegistry / ApplyToolOverrides post-construction;
-	// bundled tools' Run() reads from these fields so an unrelated
-	// /tool info build (with its own separate registry instance) can
-	// no longer leak its cfg + registry view into a previously-built
-	// runtime's bundled-tool dispatch.
+	// BuildDefaultRegistry post-construction (the setRuntime loop
+	// at the end of that function). Bundled tools' Run() reads from
+	// these fields so an unrelated /tool info build (with its own
+	// separate registry instance) can no longer leak its cfg +
+	// registry view into a previously-built runtime's bundled-tool
+	// dispatch. ApplyToolOverrides operates on a different type
+	// (pluginOverrideTool) and wires those independently — see
+	// plugin_overrides.go's invokeReg pinning.
 	cfg       *config.Config
 	invokeReg *tools.Registry
 }
@@ -539,14 +542,16 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 	}, h)
 }
 
-// setRuntime is called by BuildDefaultRegistry (and ApplyToolOverrides
-// for override-shaped variants) AFTER the registry is fully composed,
-// before any Run() can be invoked. Wires cfg + the final composed
-// registry onto each bundled tool so its pluginrun dispatch sees the
-// same surface the operator's session sees — and so each registry
-// build's bundled tools are anchored to that build, not a later
-// /tool info build that happens to rebuild the registry separately.
-// Codex C4/Q P2.
+// setRuntime is called by BuildDefaultRegistry AFTER the registry is
+// fully composed (bundled + meta + installed), before any Run() can
+// be invoked. Wires cfg + the final composed registry onto each
+// bundled tool so its pluginrun dispatch sees the same surface the
+// operator's session sees — and so each registry build's bundled
+// tools are anchored to that build, not a later /tool info build
+// that happens to rebuild the registry separately. Codex C4/Q P2.
+// (ApplyToolOverrides operates only on pluginOverrideTool, not on
+// bundledPluginTool — overrides supply their own invokeReg pinning
+// at registration time; setRuntime here is bundled-only.)
 func (p *bundledPluginTool) setRuntime(cfg *config.Config, reg *tools.Registry) {
 	p.cfg = cfg
 	p.invokeReg = reg

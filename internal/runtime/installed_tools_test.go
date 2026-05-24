@@ -359,9 +359,15 @@ func TestResolveInstalledPluginDir_NilCfg(t *testing.T) {
 // calls produce two independent sets of bundled tools, each pointing
 // at the registry that built them. This test verifies that invariant.
 func TestBundledPluginTool_PerBuildRuntimeIsolation(t *testing.T) {
-	cfgA := &config.Config{}
+	// Copilot review #63: use isolated XDG dirs so registerInstalled-
+	// PluginTools doesn't scan the developer's real plugin install
+	// (which could shadow fs__read on CI runners with state from
+	// prior installs). isolatedRuntimeConfig sets up clean XDG_*
+	// roots; we then customize Tools.Enabled per cfg without reaching
+	// back into the user's installed plugins.
+	cfgA := isolatedRuntimeConfig(t)
 	cfgA.Tools.Enabled = []string{"fs.read"}
-	cfgB := &config.Config{}
+	cfgB := isolatedRuntimeConfig(t)
 	cfgB.Tools.Enabled = []string{"shell.bash"}
 
 	regA := BuildDefaultRegistry(cfgA)
