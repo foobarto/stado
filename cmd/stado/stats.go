@@ -33,12 +33,12 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/spf13/cobra"
 
+	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
@@ -345,33 +345,17 @@ func renderStats(w interface {
 	}
 }
 
-// parseCommitMessage mirrors internal/audit/export.go's parseMessage.
-// Copied here to keep cmd/stado free of an audit import cycle; the
-// logic is trivial enough that drift risk is low.
+// parseCommitMessage routes through audit.ParseMessage so cmd/stado
+// shares the canonical, trailer-injection-hardened parser. Pre-fix
+// this had its own copy using `TrimSpace(line[:idx])` — the
+// pre-#51 bug pattern that let an indented compaction-summary line
+// `  Tool: bash` parse as a real `Tool` trailer (Codex #143 round 2).
+// The comment that claimed an import-cycle risk was wrong: cmd/stado
+// already imports internal/audit elsewhere (audit.go, plugin_sign.go).
+// Now a thin wrapper for backward-compat at call sites; new code
+// should reach for audit.ParseMessage directly. Codex G6/L P1.
 func parseCommitMessage(msg string) (title string, trailers map[string]string) {
-	trailers = map[string]string{}
-	lines := strings.Split(msg, "\n")
-	var titleDone bool
-	for _, line := range lines {
-		if !titleDone {
-			if line == "" {
-				titleDone = true
-				continue
-			}
-			if title == "" {
-				title = line
-			}
-			continue
-		}
-		if idx := strings.Index(line, ":"); idx > 0 {
-			k := strings.TrimSpace(line[:idx])
-			v := strings.TrimSpace(line[idx+1:])
-			if k != "" && k != "Signature" {
-				trailers[k] = v
-			}
-		}
-	}
-	return title, trailers
+	return audit.ParseMessage(msg)
 }
 
 // filterStringSlice returns a one- or zero-element slice matching needle.

@@ -321,3 +321,33 @@ func TestAtofSafe_ParseTrailerFloats(t *testing.T) {
 		}
 	}
 }
+
+// Codex G6/L P1 regression: pre-fix cmd/stado/stats.go had its own
+// duplicate parseCommitMessage using `TrimSpace(line[:idx])` — the
+// exact pre-#51 bug pattern (Codex #143 round 2) that lets an
+// indented compaction-summary line `  Tool: bash` get promoted to a
+// real `Tool` trailer. After fix it routes through the canonical
+// audit.ParseMessage which uses the contiguous-final-trailer-block
+// walk + isTrailerLine grammar that rejects indented lines. This
+// test asserts the wrapper preserves the canonical's reject-indented
+// behaviour for stats consumers (`stado stats`, `stado session logs`).
+func TestParseCommitMessage_RejectsIndentedTrailerInjection(t *testing.T) {
+	body := "tool call\n\n" +
+		"  Tool: bash\n" + // attacker-style injection (indented)
+		"  Args: rm -rf /\n" +
+		"\n" +
+		"Tool: real-tool\n" + // real unindented trailer
+		"Duration-Ms: 42\n"
+	_, trailers := parseCommitMessage(body)
+	if trailers["Tool"] != "real-tool" {
+		t.Errorf("indented `  Tool: bash` was promoted to trailer; got Tool=%q, want %q",
+			trailers["Tool"], "real-tool")
+	}
+	if trailers["Args"] != "" {
+		t.Errorf("indented `  Args: ...` was promoted to trailer; got Args=%q, want \"\"",
+			trailers["Args"])
+	}
+	if trailers["Duration-Ms"] != "42" {
+		t.Errorf("real Duration-Ms trailer missing; got %q", trailers["Duration-Ms"])
+	}
+}

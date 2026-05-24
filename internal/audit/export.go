@@ -93,6 +93,17 @@ func toRecord(refName string, hash plumbing.Hash, c *object.Commit) Record {
 // nothing because TrimSpace flattened the indent. This parser is now
 // defense layer 2 — only unindented lines in the final contiguous
 // block count.
+// ParseMessage is the canonical commit-message parser. Exported so the
+// duplicate impls in cmd/stado/stats.go + internal/runtime/sessionstats
+// (both pre-#51 `TrimSpace(line[:idx])` shape — exactly the bug Codex
+// #143 round 2 hardened against) can route through this one. Codex
+// G6/L P1 — the duplicates kept the pre-fix behavior and were a
+// silent re-introduction of the trailer-injection vector for any
+// caller that read trailers via the cmd-side or sessionstats path.
+func ParseMessage(msg string) (title string, trailers map[string]string) {
+	return parseMessage(msg)
+}
+
 func parseMessage(msg string) (title string, trailers map[string]string) {
 	lines := strings.Split(msg, "\n")
 	trailers = map[string]string{}
