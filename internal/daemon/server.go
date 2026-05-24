@@ -317,12 +317,16 @@ func readFramedLine(br *bufio.Reader, maxBytes int) ([]byte, error) {
 				// the buffer size set at NewReaderSize.
 				over = true
 			} else {
-				// Copy because ReadSlice's returned slice is only
-				// valid until the next read.
-				grown := make([]byte, len(buf)+len(chunk))
-				copy(grown, buf)
-				copy(grown[len(buf):], chunk)
-				buf = grown
+				// append copies chunk's bytes into buf with amortized
+				// growth — ReadSlice's slice is only valid until the
+				// next read, so the copy is mandatory; using append
+				// makes the total work O(n) instead of O(n²). Pre-fix
+				// used `make + two copies` per chunk: at 64 KiB
+				// ReadSlice chunks, a near-32 MiB valid request copied
+				// gigabytes redundantly, letting a local client induce
+				// high CPU even under cap (Codex P2 review #65 caught
+				// this in my prior commit).
+				buf = append(buf, chunk...)
 			}
 		}
 		if err == nil {

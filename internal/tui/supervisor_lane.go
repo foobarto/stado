@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/pkg/agent"
@@ -137,6 +139,25 @@ func (m *Model) cachedSupervisorLookup(cfg *config.Config, name string) (agent.P
 		// a future regression doesn't silently cache nil and break
 		// every subsequent BTW until restart.
 		return nil, fmt.Errorf("buildProviderByName(%q) returned nil with no error", name)
+	}
+	// Codex P2 review #65: rotating the cached provider on key change
+	// must Close() the prior instance, or ACP/MCP-wrapped supervisors
+	// leak their subprocess + stdio pipes every time the operator
+	// reconfigures supervisor mid-session. Type-assert for io.Closer
+	// rather than introducing a new interface on agent.Provider — the
+	// providers that own subprocesses (acpwrap, mcpwrap) already
+	// satisfy io.Closer; the pure-HTTP providers (anthropic, openai,
+	// etc.) don't and need no shutdown.
+	if old := m.supervisorProvider; old != nil {
+		if c, ok := old.(io.Closer); ok {
+			// Best-effort: errors logged to stderr but not surfaced —
+			// the rotation is part of a synchronous cachedSupervisorLookup
+			// call from the BTW path; a stuck Close() on a dead
+			// subprocess must not delay the new BTW question.
+			if err := c.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "stado: supervisor cache rotation: Close() old provider %T: %v\n", old, err)
+			}
+		}
 	}
 	m.supervisorProvider = p
 	m.supervisorProviderKey = wantKey
