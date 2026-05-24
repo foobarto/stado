@@ -40,8 +40,8 @@ post-v0.54.0 codex + gemini security review. Four bundled PRs (#62–#65),
 host-guards, audit message parsing, provider env isolation, daemon
 resource caps, and supervisor caching. One finding (C8/P — audit v1
 signature downgrade) is **parked** for design review pending operator
-input on the v0.54.0-era v2 signature migration shape (see memory
-`sec_park_C8_P_v1_downgrade.md`).
+input on the v0.54.0-era v2 signature migration shape (see
+[internal/audit/PARKED-c8-p-v1-downgrade.md](internal/audit/PARKED-c8-p-v1-downgrade.md)).
 
 ### TUI
 
@@ -166,8 +166,8 @@ input on the v0.54.0-era v2 signature migration shape (see memory
   v1 and v2, so blanket "no v1 fallback when marker absent"
   rejects legitimate v0.54.0 v2 sigs). Needs operator design
   call between cutoff-date, body-marker-with-grace-period,
-  per-repo strict-pin, or re-sign-in-place. Tracked in memory
-  `sec_park_C8_P_v1_downgrade.md`.
+  per-repo strict-pin, or re-sign-in-place. Tracked in
+  [internal/audit/PARKED-c8-p-v1-downgrade.md](internal/audit/PARKED-c8-p-v1-downgrade.md).
 
 ### Breaking surfaces
 
