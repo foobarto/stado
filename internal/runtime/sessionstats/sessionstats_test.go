@@ -223,3 +223,37 @@ func TestRender_ASCIIFallbackOnLANGC(t *testing.T) {
 		t.Errorf("ASCII header missing dashes:\n%s", out)
 	}
 }
+
+// Codex G6/L P1 regression: pre-fix sessionstats had its own
+// duplicate parseCommitMessage using `TrimSpace(line[:idx])` — the
+// exact pre-#51 bug pattern (Codex #143 round 2) that lets an
+// indented compaction-summary line `  Tool: bash` get promoted to a
+// real `Tool` trailer. After fix sessionstats routes through the
+// canonical audit.ParseMessage which uses the contiguous-final-trailer-
+// block walk + isTrailerLine grammar that rejects indented lines.
+//
+// This test asserts that an injected `  Tool: bash` summary line
+// inside a commit body does NOT show up in the parsed trailers,
+// even though it has the K: V shape.
+func TestParseCommitMessage_RejectsIndentedTrailerInjection(t *testing.T) {
+	body := "tool call\n\n" +
+		"  Tool: bash\n" + // attacker-style injection (indented)
+		"  Args: rm -rf /\n" +
+		"\n" +
+		"Tool: real-tool\n" + // real unindented trailer
+		"Duration-Ms: 42\n"
+	_, trailers := parseCommitMessage(body)
+	if trailers["Tool"] != "real-tool" {
+		t.Errorf("indented `  Tool: bash` was promoted to trailer; got Tool=%q, want %q",
+			trailers["Tool"], "real-tool")
+	}
+	// Copilot review #64: comma-ok distinguishes missing key from
+	// present-but-empty value — the "indented line rejected" path
+	// must leave the key absent, not present with "".
+	if v, ok := trailers["Args"]; ok {
+		t.Errorf("indented `  Args: ...` was promoted to trailer; got Args=%q, want absent", v)
+	}
+	if trailers["Duration-Ms"] != "42" {
+		t.Errorf("real Duration-Ms trailer missing; got %q", trailers["Duration-Ms"])
+	}
+}

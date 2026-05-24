@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/foobarto/stado/internal/audit"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
 )
@@ -313,35 +314,16 @@ func truncMid(s string, max int, ellipsis string) string {
 	return s[:keep] + ellipsis + s[len(s)-keep:]
 }
 
-// parseCommitMessage extracts trailers from a commit body. Mirrors
-// the parser in cmd/stado/stats.go without depending on the package
-// main implementation. Trailers are key/value pairs after the first
-// blank line, separated by ":". The Signature trailer is stripped
-// because audit signatures aren't useful here.
+// parseCommitMessage routes through audit.ParseMessage so sessionstats
+// shares the canonical, trailer-injection-hardened parser. Pre-fix
+// this had its own copy using `TrimSpace(line[:idx])` — the
+// pre-#51 bug pattern that let an indented compaction-summary line
+// `  Tool: bash` parse as a real `Tool` trailer (Codex #143 round 2).
+// Now a thin wrapper for backward-compat at call sites within
+// sessionstats; new code should reach for audit.ParseMessage
+// directly. Codex G6/L P1.
 func parseCommitMessage(msg string) (title string, trailers map[string]string) {
-	trailers = map[string]string{}
-	lines := strings.Split(msg, "\n")
-	var titleDone bool
-	for _, line := range lines {
-		if !titleDone {
-			if line == "" {
-				titleDone = true
-				continue
-			}
-			if title == "" {
-				title = line
-			}
-			continue
-		}
-		if idx := strings.Index(line, ":"); idx > 0 {
-			k := strings.TrimSpace(line[:idx])
-			v := strings.TrimSpace(line[idx+1:])
-			if k != "" && k != "Signature" {
-				trailers[k] = v
-			}
-		}
-	}
-	return title, trailers
+	return audit.ParseMessage(msg)
 }
 
 func atoiSafe(s string) int {

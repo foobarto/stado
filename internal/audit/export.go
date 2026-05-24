@@ -78,6 +78,23 @@ func toRecord(refName string, hash plumbing.Hash, c *object.Commit) Record {
 	return rec
 }
 
+// ParseMessage is the exported entry point for the canonical
+// commit-message parser. Returns the title (first non-empty line)
+// and the trailer block (LAST contiguous run of well-formed,
+// unindented `Key: Value` lines per [isTrailerLine]).
+//
+// Exported in v0.56.0 (Codex G6/L P1) so the duplicate impls in
+// cmd/stado/stats.go + internal/runtime/sessionstats can route through
+// this canonical parser instead of carrying their own copies of the
+// pre-#51 `TrimSpace(line[:idx])` shape — exactly the bug Codex #143
+// round 2 hardened [parseMessage] against. The duplicates kept the
+// pre-fix behavior and were a silent re-introduction of the
+// trailer-injection vector for any consumer reached via the cmd-side
+// or sessionstats path. See [parseMessage] for the parsing algorithm.
+func ParseMessage(msg string) (title string, trailers map[string]string) {
+	return parseMessage(msg)
+}
+
 // parseMessage extracts the title (first non-empty line) and the
 // trailer block from a stado commit message. The trailer block is the
 // LAST contiguous run of well-formed trailer lines per [isTrailerLine]
@@ -93,6 +110,11 @@ func toRecord(refName string, hash plumbing.Hash, c *object.Commit) Record {
 // nothing because TrimSpace flattened the indent. This parser is now
 // defense layer 2 — only unindented lines in the final contiguous
 // block count.
+//
+// Signature trailers are dropped from the returned map — audit
+// signatures aren't useful to consumers that read trailers for
+// display / aggregation. [ExtractSignature] is the right entry point
+// when callers want the signature itself.
 func parseMessage(msg string) (title string, trailers map[string]string) {
 	lines := strings.Split(msg, "\n")
 	trailers = map[string]string{}
