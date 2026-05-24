@@ -69,7 +69,7 @@ func TestInstalledPluginTool_NameAndDescription(t *testing.T) {
 			Schema:      `{"type":"object"}`,
 		}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating)
+	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent/wasm/path", tool.ClassNonMutating, nil, nil)
 	if tl.Name() != "lookup" {
 		t.Errorf("Name() = %q, want lookup", tl.Name())
 	}
@@ -93,7 +93,7 @@ func TestInstalledPluginTool_RunDispatchesViaPluginrun(t *testing.T) {
 		Name: "test-plugin", Version: "v0.1.0",
 		Tools: []plugins.ToolDef{{Name: "lookup"}},
 	}
-	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating)
+	tl := newInstalledPluginTool(mf, mf.Tools[0], "/nonexistent", tool.ClassNonMutating, nil, nil)
 	res, err := tl.Run(context.Background(), nil, nil)
 	if err == nil {
 		t.Fatal("Run() with nonexistent wasm path should error")
@@ -342,4 +342,91 @@ func TestResolveInstalledPluginDir_NilCfg(t *testing.T) {
 	if _, ok := ResolveInstalledPluginDir(nil, "fs"); ok {
 		t.Error("ResolveInstalledPluginDir(nil, _) should be ok=false")
 	}
+}
+
+// Codex C4/Q P2 regression: pre-fix the package globals
+// installedRunCfg + installedInvokeReg were re-bound by every
+// BuildDefaultRegistry / registerInstalledPluginTools call. When
+// `/tool info` triggered an unfiltered registry build, the next
+// stado_tool_invoke from any plugin saw the freshly-rebound
+// unfiltered globals — silently widening that plugin's nested-invoke
+// surface past whatever [tools].enabled / .disabled scoped on the
+// session's actual registry.
+//
+// After fix: each bundled tool (and each pluginOverrideTool) holds
+// its own cfg + invokeReg pointers, set at build time by
+// BuildDefaultRegistry / ApplyToolOverrides. Two BuildDefaultRegistry
+// calls produce two independent sets of bundled tools, each pointing
+// at the registry that built them. This test verifies that invariant.
+func TestBundledPluginTool_PerBuildRuntimeIsolation(t *testing.T) {
+	// Copilot review #63: use isolated XDG dirs so registerInstalled-
+	// PluginTools doesn't scan the developer's real plugin install
+	// (which could shadow fs__read on CI runners with state from
+	// prior installs). isolatedRuntimeConfig sets up clean XDG_*
+	// roots; we then customize Tools.Enabled per cfg without reaching
+	// back into the user's installed plugins.
+	cfgA := isolatedRuntimeConfig(t)
+	cfgA.Tools.Enabled = []string{"fs.read"}
+	cfgB := isolatedRuntimeConfig(t)
+	cfgB.Tools.Enabled = []string{"shell.bash"}
+
+	regA := BuildDefaultRegistry(cfgA)
+	regB := BuildDefaultRegistry(cfgB)
+
+	// Pick the same tool name from both registries — fs__read is
+	// bundled, so it's a bundledPluginTool in both regs.
+	tA, okA := regA.Get("fs__read")
+	tB, okB := regB.Get("fs__read")
+	if !okA || !okB {
+		t.Fatalf("fs__read missing: A=%v B=%v", okA, okB)
+	}
+
+	// Bundled tools are wrapped in renamedTool to expose the wire-
+	// form name (fs__read instead of the inner bundledPluginTool's
+	// own Name()). Unwrap to compare cfg/invokeReg pointers — the
+	// per-build isolation has to hold on the inner instance since
+	// that's what's wired by BuildDefaultRegistry's setRuntime loop.
+	bA := unwrapBundled(t, tA)
+	bB := unwrapBundled(t, tB)
+
+	// Per-build isolation: each tool's invokeReg points at the
+	// registry that built it, not the most-recently-built registry.
+	if bA.invokeReg != regA {
+		t.Errorf("regA's fs__read.invokeReg should be regA; got %p (want %p)", bA.invokeReg, regA)
+	}
+	if bB.invokeReg != regB {
+		t.Errorf("regB's fs__read.invokeReg should be regB; got %p (want %p)", bB.invokeReg, regB)
+	}
+	// Defensive: regA and regB are different pointers, so the two
+	// invokeRegs must differ. If they don't, the global is back.
+	if bA.invokeReg == bB.invokeReg {
+		t.Error("regA and regB bundled tools share an invokeReg — package globals reintroduced")
+	}
+
+	// Same per-tool cfg isolation. cfgA and cfgB are distinct
+	// pointers; the per-build tools must hold their own.
+	if bA.cfg != cfgA {
+		t.Errorf("regA's fs__read.cfg should be cfgA; got %p", bA.cfg)
+	}
+	if bB.cfg != cfgB {
+		t.Errorf("regB's fs__read.cfg should be cfgB; got %p", bB.cfg)
+	}
+}
+
+// unwrapBundled walks past renamedTool wrappers to reach the underlying
+// *bundledPluginTool. Bundled tools registered under wire names go
+// through newBundledWasmTool → renamedTool{inner: bundledPluginTool},
+// so a direct .(*bundledPluginTool) assertion on a registry lookup
+// always misses. Fails the test fatally when the inner isn't bundled
+// (caller's intent: it must be, for the assertion to be meaningful).
+func unwrapBundled(t *testing.T, tl tool.Tool) *bundledPluginTool {
+	t.Helper()
+	if rt, ok := tl.(*renamedTool); ok {
+		tl = rt.inner
+	}
+	b, ok := tl.(*bundledPluginTool)
+	if !ok {
+		t.Fatalf("expected *bundledPluginTool after unwrap, got %T", tl)
+	}
+	return b
 }

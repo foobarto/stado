@@ -86,6 +86,28 @@ func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 	if cfg != nil {
 		registerInstalledPluginTools(reg, cfg)
 	}
+	// Codex C4/Q P2: bind cfg + the final composed registry onto every
+	// bundled tool that was registered above. Pre-fix the bundled
+	// pluginTool.Run path read process-wide globals
+	// (installedRunCfg / installedInvokeReg) that got REBOUND by every
+	// subsequent BuildDefaultRegistry call — e.g. a /tool info build's
+	// unfiltered registry leaked into the in-flight session's bundled
+	// dispatch surface, silently widening it past [tools].enabled. Now
+	// each build's bundled tools are anchored to their own build's
+	// registry pointer + cfg, so independent builds don't interfere.
+	// Unwrap renamedTool wrappers — bundled wasm tools registered via
+	// newBundledWasmTool are wrapped in *renamedTool{inner: *bundledPluginTool}
+	// to expose the wire-form name. A direct type-assert misses those
+	// and leaves the inner fields nil; walk past the wrapper.
+	for _, t := range reg.All() {
+		inner := t
+		if rt, ok := inner.(*renamedTool); ok {
+			inner = rt.inner
+		}
+		if b, ok := inner.(*bundledPluginTool); ok {
+			b.setRuntime(cfg, reg)
+		}
+	}
 	return reg
 }
 

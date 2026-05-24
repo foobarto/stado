@@ -95,19 +95,35 @@ type installedPluginTool struct {
 	schema   map[string]any
 	class    tool.Class
 	wasmPath string // <install-dir>/plugin.wasm
+
+	// Codex C4/Q P2 — pre-fix the cfg + invokeReg were package globals
+	// rebound by every registerInstalledPluginTools call. When a
+	// caller did `/tool info` (which builds an UNFILTERED registry to
+	// list every tool the operator could enable), the globals got
+	// rebound to that unfiltered registry; the next stado_tool_invoke
+	// from an installed plugin then dispatched against an unfiltered
+	// surface, silently expanding the plugin's tool surface past what
+	// [tools].enabled / .disabled scoped. Storing them per-tool ties
+	// each instance to the registry-build that created it; subsequent
+	// builds get their own instances with their own pointers, so
+	// nested invokes can't leak across builds.
+	cfg        *config.Config
+	invokeReg  *tools.Registry
 }
 
-func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class) tool.Tool {
+func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
 	var schema map[string]any
 	if def.Schema != "" {
 		_ = json.Unmarshal([]byte(def.Schema), &schema)
 	}
 	return &installedPluginTool{
-		manifest: mf,
-		def:      def,
-		schema:   schema,
-		class:    class,
-		wasmPath: wasmPath,
+		manifest:  mf,
+		def:       def,
+		schema:    schema,
+		class:     class,
+		wasmPath:  wasmPath,
+		cfg:       cfg,
+		invokeReg: invokeReg,
 	}
 }
 
@@ -142,8 +158,7 @@ func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h t
 	if err != nil {
 		return tool.Result{Error: err.Error()}, fmt.Errorf("installed %s: verify: %w", t.manifest.Name, err)
 	}
-	cfgPtr := installedRunCfg
-	if cfgPtr == nil {
+	if t.cfg == nil {
 		return tool.Result{Error: "installed plugin tool: no cfg bound"}, fmt.Errorf("installed %s: no cfg bound to runtime", t.manifest.Name)
 	}
 	return pluginrun.Run(ctx, pluginrun.RunArgs{
@@ -151,26 +166,16 @@ func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h t
 		WasmBytes: wasmBytes,
 		ToolName:  t.def.Name,
 		Args:      args,
-		Cfg:       cfgPtr,
+		Cfg:       t.cfg,
 		Workdir:   h.Workdir(),
 		// SessionID intentionally empty: the agent-loop tool.Host
 		// already carries any session bridge through the lifecycle
 		// wiring pluginrun's attachLifecycleBridges pulls off h.
 		// CLI invocations route through plugin_invoke_shared.go which
 		// builds a SessionBridgeBuilder from --session.
-		InvokeRegistry: installedInvokeReg,
+		InvokeRegistry: t.invokeReg,
 	}, h)
 }
-
-// installedRunCfg + installedInvokeReg carry per-process cfg + active
-// registry into the per-tool Run() method. installedPluginTool stores
-// only manifest+def to keep the value cheap; the registration path
-// binds these once at startup. Set by registerInstalledPluginTools so
-// Run() can reach them without storing a copy on every tool.
-var (
-	installedRunCfg    *config.Config
-	installedInvokeReg *tools.Registry
-)
 
 // groupInstalledByName scans pluginsDir for "<name>-<version>"
 // subdirectories and returns a map of name → versions. Entries that
@@ -267,13 +272,10 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 
 	ts := plugins.NewTrustStore(stateDir)
 
-	// Bind per-process cfg + the active registry so installedPluginTool.Run
-	// can dispatch via pluginrun.Run without storing a copy on every tool.
-	// The registry passed here is also the InvokeRegistry for any
-	// stado_tool_invoke calls from installed plugins — they see the
-	// same surface this build constructed.
-	installedRunCfg = cfg
-	installedInvokeReg = reg
+	// Codex C4/Q P2: per-tool cfg + reg storage (see installedPluginTool
+	// struct comment). The constructor receives cfg+reg below; the
+	// globals are gone so an unrelated /tool info build can't pollute
+	// the runtime view used by a previously-built tool's Run() path.
 
 	// Reset package-level lookup state for this build.
 	installedRegistryMu.Lock()
@@ -312,7 +314,7 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 					name, version, def.Name, err)
 				class = tool.ClassNonMutating
 			}
-			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class))
+			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class, cfg, reg))
 
 			installedRegistryMu.Lock()
 			installedByTool[def.Name] = installedRecord{

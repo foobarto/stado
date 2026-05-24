@@ -78,3 +78,39 @@ func TestACPHost_RequestChoice_RejectsMultiWithInput(t *testing.T) {
 		t.Errorf("err = %q, want 'multi-select' refusal", err.Error())
 	}
 }
+
+// Codex K P0 regression: pre-fix acpHost did NOT implement
+// pkg/tool.WritePathGuard, so an `fs.write` call routed through the
+// ACP server's host bypassed the .git-write guard that acpwrap's
+// DefaultHost had. The fs.write tool's runtime asserts the interface
+// and skips the check when absent — silently letting attacker-
+// influenced ACP clients corrupt the worktree's git metadata. After
+// fix acpHost.CheckWritePath enforces the same defense as acpwrap's
+// implementation; this test pins the contract.
+func TestACPHost_CheckWritePath_RefusesGitMetadata(t *testing.T) {
+	h := &acpHost{server: nil, sessionID: "x", workdir: "/work"}
+	cases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"absolute .git/HEAD", "/work/.git/HEAD", true},
+		{"relative .git/config", ".git/config", true},
+		{"nested .git in subdir", "src/.git/objects/foo", true},
+		{"path resolved through ..", "src/../.git/HEAD", true},
+		{"plain source file ok", "main.go", false},
+		{"absolute non-git ok", "/work/src/main.go", false},
+		{"file named gitignore (no .git seg) ok", "src/.gitignore", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := h.CheckWritePath(c.path)
+			if (err != nil) != c.wantErr {
+				t.Errorf("CheckWritePath(%q) err = %v, wantErr = %v", c.path, err, c.wantErr)
+			}
+			if c.wantErr && err != nil && !strings.Contains(err.Error(), ".git") {
+				t.Errorf("error should mention .git; got %q", err.Error())
+			}
+		})
+	}
+}
