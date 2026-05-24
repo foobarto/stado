@@ -343,9 +343,11 @@ func TestParseCommitMessage_RejectsIndentedTrailerInjection(t *testing.T) {
 		t.Errorf("indented `  Tool: bash` was promoted to trailer; got Tool=%q, want %q",
 			trailers["Tool"], "real-tool")
 	}
-	if trailers["Args"] != "" {
-		t.Errorf("indented `  Args: ...` was promoted to trailer; got Args=%q, want \"\"",
-			trailers["Args"])
+	// Copilot review #64: comma-ok distinguishes missing key from
+	// present-but-empty value — the "indented line rejected" path
+	// must leave the key absent, not present with "".
+	if v, ok := trailers["Args"]; ok {
+		t.Errorf("indented `  Args: ...` was promoted to trailer; got Args=%q, want absent", v)
 	}
 	if trailers["Duration-Ms"] != "42" {
 		t.Errorf("real Duration-Ms trailer missing; got %q", trailers["Duration-Ms"])
