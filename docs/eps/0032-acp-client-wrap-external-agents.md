@@ -137,11 +137,39 @@ args   = ["acp"]
 ```
 
 Set `[defaults].provider = "gemini-acp"` (or pass
-`--provider gemini-acp` on the CLI) to make it the default. The
-wrapped agent inherits the parent shell's auth env (e.g.
-`GEMINI_API_KEY` for gemini, OAuth tokens stored in
-`~/.gemini/`). Stado doesn't manage credentials for wrapped
-agents — that stays the operator's job per the trust model.
+`--provider gemini-acp` on the CLI) to make it the default.
+
+**Auth env (updated 2026-05-25 in v0.57.0):** the wrapped agent's
+environment is scrubbed to a minimal safelist (`HOME` / `PATH` /
+`USER` / `TERM` / `XDG_*` / etc. — see
+`internal/providers/envscrub/scrub.go`). Operators name additional
+parent-env keys to forward via `inherit_env`:
+
+```toml
+[acp.providers.gemini-acp]
+binary      = "gemini"
+args        = ["--acp"]
+inherit_env = ["GEMINI_API_KEY"]
+
+[acp.providers.claude-code-acp]
+binary      = "claude-code-acp"
+inherit_env = ["ANTHROPIC_API_KEY"]
+```
+
+Explicit `env = ["KEY=value"]` entries win on duplicate keys (so
+CI / sandbox runs can pin test-fixture values over inherited ones).
+
+Stado **manages credentials by enumeration**, not by blanket
+inheritance — that lets the operator audit which parent-env keys
+flow to each wrapped agent without dumping the full host
+environment into every subprocess. This replaces the pre-v0.56.0
+"inherits the parent shell's auth env" blanket model, which had no
+opt-in path and leaked unrelated parent-env secrets to wrapped
+agents stado can't audit. PR #65/M (v0.56.0) scrubbed without the
+opt-in path and silently broke auth for `gemini-acp` /
+`opencode-acp` / `codex-mcp` etc.; v0.57.0's `inherit_env` field
+reconciles. Decision file:
+`.agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md`.
 
 ### Provider implementation
 

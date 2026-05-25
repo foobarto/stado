@@ -538,6 +538,26 @@ type MCPProviderWrapped struct {
 	// — pin model, sandbox, approval-policy, etc. The prompt key is
 	// always supplied by stado and cannot be overridden here.
 	CallToolOverrides map[string]any `koanf:"call_tool_overrides"`
+	// Env adds explicit `KEY=value` entries to the wrapped MCP
+	// subprocess's environment. Layered on top of the envscrub
+	// safelist core + InheritEnv extracts. v0.57.0 reconciliation
+	// (see decision file
+	// .agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md) —
+	// brings MCPProviderWrapped to schema parity with ACPProvider.
+	Env []string `koanf:"env"`
+	// InheritEnv lists env-var NAMES to forward from the parent
+	// process to the wrapped MCP subprocess. Example:
+	//
+	//   [mcp.providers.codex-mcp]
+	//   binary = "codex"
+	//   args = ["mcp-server"]
+	//   call_tool = "codex"
+	//   continue_tool = "codex-reply"
+	//   inherit_env = ["OPENAI_API_KEY"]
+	//
+	// Required for wrapped agents that need parent-shell auth state.
+	// Env entries above win on duplicate keys.
+	InheritEnv []string `koanf:"inherit_env"`
 }
 
 // ACPProvider declares one wrapped-agent provider. Binary is the
@@ -552,9 +572,33 @@ type ACPProvider struct {
 	// CWD overrides the working directory the wrapped agent reports
 	// for its session. Empty = stado's cwd at first-stream time.
 	CWD string `koanf:"cwd"`
-	// Env adds entries to the wrapped agent's environment (parent
-	// PATH/HOME/etc inherit by default).
+	// Env adds explicit `KEY=value` entries to the wrapped agent's
+	// environment. Layered on top of the envscrub safelist core
+	// (HOME / PATH / USER / TERM / XDG_*) and any `InheritEnv` opt-
+	// in extracts. Pre-v0.56.0 stado inherited the parent env
+	// unconditionally (per EP-0032); v0.56.0 PR #65 scrubbed without
+	// flagging the breaking change; v0.57.0 added `InheritEnv` to
+	// reconcile (decision file:
+	// .agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md).
 	Env []string `koanf:"env"`
+	// InheritEnv lists env-var NAMES from the parent process to
+	// forward to the wrapped agent — per EP-0032's "operator's job
+	// to manage env" trust model. Common usage:
+	//
+	//   [acp.providers.gemini-acp]
+	//   binary = "gemini"
+	//   args = ["--acp"]
+	//   inherit_env = ["GEMINI_API_KEY"]
+	//
+	//   [acp.providers.claude-code-acp]
+	//   binary = "claude-code-acp"
+	//   inherit_env = ["ANTHROPIC_API_KEY"]
+	//
+	// Required for wrapped agents that read auth state from the
+	// parent shell. Explicit `Env` entries above win on duplicate
+	// keys (so an operator can pin a sandbox/CI-specific value over
+	// an inherited one).
+	InheritEnv []string `koanf:"inherit_env"`
 	// Tools selects the tool-host policy (EP-0032 phase B).
 	//   "" / "agent" — default; wrapped agent uses its own tools.
 	//   "stado"      — stado advertises fs.read/write capabilities
