@@ -11,8 +11,6 @@ package acpwrap
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/pkg/tool"
@@ -59,18 +57,11 @@ func (h DefaultHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 // highest-impact write a wrapped agent can make and is never a
 // legitimate fs/write_text_file target.
 func (h DefaultHost) CheckWritePath(path string) error {
-	// Resolve against the workdir the same way the fs tools do, so the
-	// segment check sees the effective target rather than a relative
-	// fragment.
-	resolved := path
-	if !filepath.IsAbs(resolved) && h.workdir != "" {
-		resolved = filepath.Join(h.workdir, resolved)
-	}
-	resolved = filepath.Clean(resolved)
-	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
-		if seg == ".git" {
-			return fmt.Errorf("acpwrap: refusing fs write into git metadata path %q (#050)", path)
-		}
+	if err := tool.DefaultGitWritePathGuard(h.workdir, path); err != nil {
+		// Wrap with #050 provenance prefix; the sentinel
+		// tool.ErrGitMetadataWrite survives the %w wrap so callers
+		// can errors.Is against it for guard-rejection-vs-other-IO.
+		return fmt.Errorf("acpwrap: %w (#050)", err)
 	}
 	return nil
 }

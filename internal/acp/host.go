@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -111,15 +109,8 @@ func (h *acpHost) RequestApproval(ctx context.Context, title, body string) (bool
 // layer because by the time the fs.write tool runs there's no
 // per-call cancel hook that could undo a partial write.
 func (h *acpHost) CheckWritePath(path string) error {
-	resolved := path
-	if !filepath.IsAbs(resolved) && h.workdir != "" {
-		resolved = filepath.Join(h.workdir, resolved)
-	}
-	resolved = filepath.Clean(resolved)
-	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
-		if seg == ".git" {
-			return fmt.Errorf("acp host: refusing fs write into git metadata path %q (Codex K)", path)
-		}
+	if err := tool.DefaultGitWritePathGuard(h.workdir, path); err != nil {
+		return fmt.Errorf("acp host: %w (Codex K)", err)
 	}
 	return nil
 }
