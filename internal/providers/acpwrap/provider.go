@@ -63,10 +63,42 @@ type Config struct {
 	// its session's cwd. Empty = stado's cwd at first-stream time.
 	CWD string
 
-	// Env adds entries to the wrapped agent's environment. Inherits
-	// the parent's PATH/HOME/etc by default; explicit entries here
-	// override.
+	// Env explicitly sets KEY=VALUE entries in the wrapped agent's
+	// environment. Layered on top of the `envscrub.Safelist` core
+	// (HOME / PATH / USER / TERM / XDG_* / etc.) and any
+	// `InheritEnv` extracts. Each entry is "KEY=value".
+	//
+	// Codex C3/M P1 (v0.56.0 PR #65) — see decision
+	// `.agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md`:
+	// the wrapped subprocess no longer inherits the FULL parent
+	// environment (was a leak of cloud creds + signing material to
+	// an external agent stado cannot audit). Operators who need
+	// specific parent-env vars passed through (per EP-0032's
+	// "operator's job to manage env" trust model) should list them
+	// in `InheritEnv`, not enumerate KEY=VALUE here for each.
 	Env []string
+
+	// InheritEnv lists env-var NAMES from the parent process to
+	// forward to the wrapped agent. Common usage:
+	//
+	//   [acp.providers.gemini-acp]
+	//   binary = "gemini"
+	//   args = ["--acp"]
+	//   inherit_env = ["GEMINI_API_KEY"]
+	//
+	//   [acp.providers.claude-code-acp]
+	//   binary = "claude-code-acp"
+	//   inherit_env = ["ANTHROPIC_API_KEY"]
+	//
+	// Restores EP-0032's documented "wrapped agent inherits the
+	// parent shell's auth env" model AFTER PR #65's defensive scrub
+	// (which broke that contract silently in v0.56.0; see
+	// `decision_acpwrap_env_scrub_breaks_ep0032`). InheritEnv lets
+	// operators name credentials per provider rather than dumping
+	// the full host env; Env (above) still wins on duplicate keys
+	// so an operator can pin an explicit value over an inherited
+	// one (e.g. for sandboxed/CI runs).
+	InheritEnv []string
 
 	// Tools selects the tool-host policy. Values:
 	//   "agent" (default) — wrapped agent uses its own tool stack;
@@ -262,20 +294,19 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 
 	cmd := exec.Command(p.cfg.Binary, p.cfg.Args...) // #nosec G204 — operator-supplied binary path is the whole point of this provider
 	cmd.Dir = cwd
-	// Always scrub the inherited environment (Codex C3/M P1). Pre-fix
-	// this assignment was gated by `if len(p.cfg.Env) > 0` and used
-	// `append(os.Environ(), p.cfg.Env...)` inside the branch — leaking
-	// cloud creds / API keys / minisign secrets to the wrapped ACP
-	// subprocess (e.g. claude-code-acp, gemini-cli, codex). When
-	// cfg.Env was EMPTY the branch was skipped → cmd.Env stayed nil →
-	// Go's os/exec inherits the FULL parent environment by default
-	// (the leak was actually worse in the empty-Env branch — Copilot
-	// review #65 caught this in my prior commit text). MCP wrapper
-	// already scrubbed via envscrub.Scrub at #048; ACP was the
-	// sibling miss. Always-scrub unconditionally: cmd.Env explicitly
-	// set to the safelist + cfg.Env so the trust boundary holds
-	// regardless of whether the operator supplied per-config env.
-	cmd.Env = envscrub.Scrub(p.cfg.Env)
+	// Always scrub the inherited environment + apply InheritEnv
+	// opt-in. PR #65/M (v0.56.0) scrubbed unconditionally, which
+	// broke EP-0032's documented "wrapped agent inherits parent
+	// shell's auth env" contract — operators using gemini-acp /
+	// opencode-acp / etc. silently lost API-key/OAuth env on
+	// upgrade. v0.57.0 reconciliation (decision file
+	// .agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md):
+	// keep the scrub baseline but let operators list specific
+	// parent-env keys to forward via `inherit_env = [...]` in their
+	// TOML provider config. Auth flows restored; the trust boundary
+	// is now operator-declared per provider instead of
+	// blanket-inherited-everything.
+	cmd.Env = envscrub.ScrubWithInherits(p.cfg.Env, p.cfg.InheritEnv)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("acpwrap: stdin pipe: %w", err)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/foobarto/stado/internal/providers/envscrub"
 )
 
 // Detection is the result of probing the host for one Integration.
@@ -168,6 +170,18 @@ func probeVersion(ctx context.Context, binary, arg string) string {
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, binary, arg)
+	// Codex P1 (2026-05-25 deep-dive) — scrub the env before the
+	// version probe. Probe only needs PATH/HOME to print a version;
+	// doesn't need any API-key env, so the envscrub safelist is
+	// sufficient. Pre-fix this exec left cmd.Env=nil → inherited the
+	// full parent env, which leaked the host's secrets to a
+	// PATH-shadowed or malicious agent binary at probe time. (Auto-
+	// registration in acpwrap/registration.go is a separate case —
+	// it legitimately needs the wrapped agent's auth env to register
+	// stado as an MCP server in the wrapped agent's config; deferred
+	// to a follow-up that needs the per-provider InheritEnv lookup
+	// from the matching ACPProvider entry.)
+	cmd.Env = envscrub.Scrub(nil)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
