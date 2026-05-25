@@ -162,9 +162,21 @@ func NormalizeWriteScope(entries []string) ([]string, error) {
 	return normalized, nil
 }
 
+// hasPathSegment reports whether `segment` appears as a `/`-delimited
+// segment in `p`. Compare is case-INSENSITIVE so `.GIT/HEAD` is
+// caught alongside `.git/HEAD` on macOS HFS+/APFS and Windows NTFS
+// where they address the same directory. Codex 2026-05-25 deep-dive
+// — same case-insensitive sibling-miss flagged on the 3 other
+// CheckWritePath impls (acpwrap / acp / daemon); those now factor
+// through tool.DefaultGitWritePathGuard. subagent's
+// `normalizedWriteTarget`+`workdirpath.ResolveAllowMissing` handles
+// the symlink leg via os.Root semantics, so only the case-fold needs
+// adding here. Used for `.git`, `.stado`, and `..` segment checks
+// — `..` is case-fold-equal to itself, no behavior change for the
+// scope-config-validator caller.
 func hasPathSegment(p, segment string) bool {
 	for _, part := range strings.Split(p, "/") {
-		if part == segment {
+		if strings.EqualFold(part, segment) {
 			return true
 		}
 	}

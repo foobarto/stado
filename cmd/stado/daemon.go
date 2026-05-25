@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"text/tabwriter"
@@ -553,15 +551,8 @@ func (h *daemonToolHost) PTYManager() any                             { return h
 // not be able to corrupt the worktree's git metadata via the
 // daemon's auto-approve posture.
 func (h *daemonToolHost) CheckWritePath(path string) error {
-	resolved := path
-	if !filepath.IsAbs(resolved) && h.workdir != "" {
-		resolved = filepath.Join(h.workdir, resolved)
-	}
-	resolved = filepath.Clean(resolved)
-	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
-		if seg == ".git" {
-			return fmt.Errorf("daemon host: refusing fs write into git metadata path %q (Codex K)", path)
-		}
+	if err := tool.DefaultGitWritePathGuard(h.workdir, path); err != nil {
+		return fmt.Errorf("daemon host: %w (Codex K)", err)
 	}
 	return nil
 }
