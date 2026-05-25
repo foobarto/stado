@@ -136,11 +136,27 @@ func TestScrubWithInherits_ExplicitEnvWinsOverInherit(t *testing.T) {
 
 // Inherit-key that isn't actually set in the parent env should be a
 // no-op (not error, not insert an empty value).
+//
+// Copilot #68 review caught that the prior `os.Unsetenv` without
+// restore creates test-order coupling (and would silently no-op
+// against a runner where the var happens to be set, then leak the
+// unset to subsequent tests). Capture + restore in t.Cleanup so the
+// assertion holds regardless of the runner environment.
 func TestScrubWithInherits_MissingInheritKeyIsNoOp(t *testing.T) {
-	os.Unsetenv("STADO_TEST_NEVER_SET_KEY")
-	got := ScrubWithInherits(nil, []string{"STADO_TEST_NEVER_SET_KEY"})
+	const key = "STADO_TEST_NEVER_SET_KEY"
+	prev, had := os.LookupEnv(key)
+	os.Unsetenv(key)
+	t.Cleanup(func() {
+		if had {
+			os.Setenv(key, prev)
+		} else {
+			os.Unsetenv(key)
+		}
+	})
+
+	got := ScrubWithInherits(nil, []string{key})
 	for _, e := range got {
-		if strings.HasPrefix(e, "STADO_TEST_NEVER_SET_KEY=") {
+		if strings.HasPrefix(e, key+"=") {
 			t.Errorf("missing inherit key should not appear; got %q", e)
 		}
 	}
