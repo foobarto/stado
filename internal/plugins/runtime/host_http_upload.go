@@ -109,7 +109,8 @@ func registerHTTPUploadCreateImport(builder wazero.HostModuleBuilder, host *Host
 			if argsLen <= 0 {
 				return -1
 			}
-			raw, ok := mod.Memory().Read(uint32(argsPtr), uint32(argsLen))
+			// Codex P2 (2026-05-25): cap args envelope pre-read.
+			raw, ok := readMemoryBytesCapped(mod, uint32(argsPtr), uint32(argsLen), maxPluginRuntimeHTTPRequestArgs)
 			if !ok {
 				return -1
 			}
@@ -167,7 +168,10 @@ func registerHTTPUploadWriteImport(builder wazero.HostModuleBuilder, host *Host,
 			if stream.closed {
 				return -1
 			}
-			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
+			// Codex P2 (2026-05-25): cap upload chunk pre-read. Reuses
+			// the net payload cap (1 MiB) — single chunk; large uploads
+			// stream as multiple writes.
+			data, ok := readMemoryBytesCapped(mod, uint32(dataPtr), uint32(dataLen), maxPluginRuntimeNetPayloadBytes)
 			if !ok {
 				return -1
 			}

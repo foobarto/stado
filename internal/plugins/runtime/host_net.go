@@ -230,11 +230,12 @@ func registerNetDialImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 			if host.NetDial == nil {
 				return -1
 			}
-			transport, ok := readMemoryString(mod, uint32(transportPtr), uint32(transportLen))
+			// Codex P2 (2026-05-25): cap transport + host pre-read.
+			transport, ok := readMemoryStringCapped(mod, uint32(transportPtr), uint32(transportLen), maxPluginRuntimeNetTransportBytes)
 			if !ok {
 				return -1
 			}
-			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			hostStr, ok := readMemoryStringCapped(mod, uint32(hostPtr), uint32(hostLen), maxPluginRuntimeNetHostBytes)
 			if !ok {
 				return -1
 			}
@@ -383,7 +384,8 @@ func registerNetWriteImport(builder wazero.HostModuleBuilder, host *Host, rt *Ru
 			if !ok {
 				return -1
 			}
-			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
+			// Codex P2 (2026-05-25): cap data pre-read on net_write.
+			data, ok := readMemoryBytesCapped(mod, uint32(dataPtr), uint32(dataLen), maxPluginRuntimeNetPayloadBytes)
 			if !ok {
 				return -1
 			}
@@ -445,11 +447,12 @@ func registerNetListenImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if host.NetListen == nil {
 				return -1
 			}
-			transport, ok := readMemoryString(mod, uint32(transportPtr), uint32(transportLen))
+			// Codex P2 (2026-05-25): cap transport + host pre-read.
+			transport, ok := readMemoryStringCapped(mod, uint32(transportPtr), uint32(transportLen), maxPluginRuntimeNetTransportBytes)
 			if !ok {
 				return -1
 			}
-			hostStr, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			hostStr, ok := readMemoryStringCapped(mod, uint32(hostPtr), uint32(hostLen), maxPluginRuntimeNetHostBytes)
 			if !ok {
 				return -1
 			}
@@ -632,7 +635,8 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if host.NetDial == nil {
 				return -1
 			}
-			peerHost, ok := readMemoryString(mod, uint32(hostPtr), uint32(hostLen))
+			// Codex P2 (2026-05-25): cap peerHost + data pre-read.
+			peerHost, ok := readMemoryStringCapped(mod, uint32(hostPtr), uint32(hostLen), maxPluginRuntimeNetHostBytes)
 			if !ok {
 				return -1
 			}
@@ -648,7 +652,7 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if gerr != nil {
 				return -1
 			}
-			data, ok := mod.Memory().Read(uint32(dataPtr), uint32(dataLen))
+			data, ok := readMemoryBytesCapped(mod, uint32(dataPtr), uint32(dataLen), maxPluginRuntimeNetPayloadBytes)
 			if !ok {
 				return -1
 			}
@@ -759,11 +763,15 @@ func registerNetSetoptImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if !host.NetMulticast {
 				return -1
 			}
-			key, ok := readMemoryString(mod, uint32(keyPtr), uint32(keyLen))
+			// Codex P2 (2026-05-25): cap key+value pre-read. setopt key
+			// vocabulary is short labels ("broadcast", "multicast_ttl"
+			// etc); val is short numerics / IPs. Reuse the transport
+			// (32 B) and host (1 KiB) caps as ceilings.
+			key, ok := readMemoryStringCapped(mod, uint32(keyPtr), uint32(keyLen), maxPluginRuntimeNetTransportBytes)
 			if !ok {
 				return -1
 			}
-			val, ok := readMemoryString(mod, uint32(valuePtr), uint32(valueLen))
+			val, ok := readMemoryStringCapped(mod, uint32(valuePtr), uint32(valueLen), maxPluginRuntimeNetHostBytes)
 			if !ok {
 				return -1
 			}
