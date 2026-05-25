@@ -81,11 +81,11 @@ func DefaultGitWritePathGuard(workdir, path string) error {
 // evalSymlinksBestEffort returns EvalSymlinks(p) when the path
 // exists; otherwise walks up to the longest existing ancestor,
 // EvalSymlinks that, and re-appends the missing tail. Returns
-// `p` unchanged when EvalSymlinks can't make progress (every
-// component is missing — typical for an absolute path that
-// doesn't yet exist, e.g. `/tmp/new/foo.txt` where `/tmp` is
-// the only existing piece). The point isn't perfect resolution
-// — it's "follow any symlink that exists on the way down so a
+// `p` unchanged when EvalSymlinks can't make progress (no
+// non-root ancestor exists to resolve before reaching the
+// filesystem root — e.g. an absolute path whose parents don't
+// exist yet beyond `/`). The point isn't perfect resolution —
+// it's "follow any symlink that exists on the way down so a
 // symlink-into-.git doesn't bypass the segment check."
 func evalSymlinksBestEffort(p string) string {
 	if real, err := filepath.EvalSymlinks(p); err == nil {
