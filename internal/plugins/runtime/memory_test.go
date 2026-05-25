@@ -94,8 +94,8 @@ func TestReadMemoryStringCapped_RejectsOversizeBeforeAlloc(t *testing.T) {
 // TestReadMemoryBytesCapped_RejectsOversizeBeforeAlloc — symmetrical
 // to the string variant. Used by stado_instance_set (value),
 // stado_net_write (data), stado_net_sendto (data),
-// stado_http_upload_write (data), stado_http_request_stream_start
-// (args), stado_http_upload_create (args).
+// stado_http_upload_write (data), stado_http_request_stream (args),
+// stado_http_upload_create (args).
 func TestReadMemoryBytesCapped_RejectsOversizeBeforeAlloc(t *testing.T) {
 	mod := instantiateMemoryTestModule(t)
 	if !mod.wasmMod.Memory().Write(0, []byte{1, 2, 3, 4, 5}) {

@@ -291,6 +291,12 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 			if !canBroadStateRead(host.State) {
 				return -1
 			}
+			// Copilot review on PR #70: reject negative prefixLen
+			// explicitly (was previously treated as "no prefix" → list
+			// all; inconsistent with other imports that reject < 0).
+			if prefixLen < 0 {
+				return -1
+			}
 			prefix := ""
 			if prefixLen > 0 {
 				// Codex P2 (2026-05-25): cap prefix pre-read.
@@ -364,10 +370,11 @@ func readMemoryString(mod api.Module, ptr, ln uint32) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	// Make a copy — wasm memory may be re-mapped.
-	out := make([]byte, len(b))
-	copy(out, b)
-	return string(out), true
+	// string([]byte) already copies — no need for an intermediate
+	// `out` slice (Copilot review on PR #70). Safe even if `b`
+	// aliases wasm memory because the conversion materialises a
+	// fresh string-backing array.
+	return string(b), true
 }
 
 // readMemoryStringCapped enforces maxBytes BEFORE allocating the
@@ -377,7 +384,15 @@ func readMemoryString(mod api.Module, ptr, ln uint32) (string, bool) {
 // (both are "guest passed a bad pair", both should return -1).
 // 2026-05-25 deep-dive Codex P2 sweep across host_state.go,
 // host_json.go, host_net.go.
+//
+// maxBytes is additionally clamped to the package-wide
+// maxPluginRuntimeImportBytes so even a buggy call site that passes
+// an oversized cap can't escape the global invariant (Copilot review
+// on PR #70, mirroring [readBytesLimited]).
 func readMemoryStringCapped(mod api.Module, ptr, ln, maxBytes uint32) (string, bool) {
+	if maxBytes > maxPluginRuntimeImportBytes {
+		maxBytes = maxPluginRuntimeImportBytes
+	}
 	if ln > maxBytes {
 		return "", false
 	}
@@ -387,8 +402,12 @@ func readMemoryStringCapped(mod api.Module, ptr, ln, maxBytes uint32) (string, b
 // readMemoryBytesCapped is the []byte variant — symmetrical to
 // readMemoryStringCapped for sites that don't want the string copy.
 // Returns the bytes as a fresh slice (the underlying wasm memory may
-// be re-mapped). Same cap semantics.
+// be re-mapped). Same cap semantics — including the
+// maxPluginRuntimeImportBytes clamp.
 func readMemoryBytesCapped(mod api.Module, ptr, ln, maxBytes uint32) ([]byte, bool) {
+	if maxBytes > maxPluginRuntimeImportBytes {
+		maxBytes = maxPluginRuntimeImportBytes
+	}
 	if ln > maxBytes {
 		return nil, false
 	}
