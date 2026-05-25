@@ -214,7 +214,10 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 			if host.State == nil || host.State.Store == nil {
 				return -1
 			}
-			key, ok := readMemoryString(mod, uint32(keyPtr), uint32(keyLen))
+			// Codex P2 (2026-05-25) sibling of N-a: cap key BEFORE
+			// allocating host-side copy. Plugin passing keyLen=2GiB
+			// would otherwise force a 2 GiB allocation.
+			key, ok := readMemoryStringCapped(mod, uint32(keyPtr), uint32(keyLen), maxPluginRuntimeStateKeyBytes)
 			if !ok {
 				return -1
 			}
@@ -241,14 +244,15 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 			if host.State == nil || host.State.Store == nil {
 				return -1
 			}
-			key, ok := readMemoryString(mod, uint32(keyPtr), uint32(keyLen))
+			// Codex P2 (2026-05-25): cap key + value pre-read.
+			key, ok := readMemoryStringCapped(mod, uint32(keyPtr), uint32(keyLen), maxPluginRuntimeStateKeyBytes)
 			if !ok {
 				return -1
 			}
 			if !host.State.CanWrite(key) {
 				return -1
 			}
-			val, ok := mod.Memory().Read(uint32(valPtr), uint32(valLen))
+			val, ok := readMemoryBytesCapped(mod, uint32(valPtr), uint32(valLen), maxPluginRuntimeStateValueBytes)
 			if !ok {
 				return -1
 			}
@@ -264,7 +268,8 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 			if host.State == nil || host.State.Store == nil {
 				return -1
 			}
-			key, ok := readMemoryString(mod, uint32(keyPtr), uint32(keyLen))
+			// Codex P2 (2026-05-25): cap key pre-read.
+			key, ok := readMemoryStringCapped(mod, uint32(keyPtr), uint32(keyLen), maxPluginRuntimeStateKeyBytes)
 			if !ok {
 				return -1
 			}
@@ -286,9 +291,16 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 			if !canBroadStateRead(host.State) {
 				return -1
 			}
+			// Copilot review on PR #70: reject negative prefixLen
+			// explicitly (was previously treated as "no prefix" → list
+			// all; inconsistent with other imports that reject < 0).
+			if prefixLen < 0 {
+				return -1
+			}
 			prefix := ""
 			if prefixLen > 0 {
-				p, ok := readMemoryString(mod, uint32(prefixPtr), uint32(prefixLen))
+				// Codex P2 (2026-05-25): cap prefix pre-read.
+				p, ok := readMemoryStringCapped(mod, uint32(prefixPtr), uint32(prefixLen), maxPluginRuntimeStatePrefixBytes)
 				if !ok {
 					return -1
 				}
@@ -344,13 +356,66 @@ func joinNL(strs []string) string {
 // readMemoryString reads len bytes from wasm memory at ptr and returns
 // the result as a Go string. Used by the state imports + others.
 // Returns ok=false on any out-of-bounds.
+// readMemoryString remains for callers that have ALREADY validated
+// length via an explicit cap check above. New callers should use
+// [readMemoryStringCapped] which folds the cap check into the read.
+// 2026-05-25 deep-dive: every previously-unbounded call site was
+// migrated to readMemoryStringCapped (Codex P2 + my agent P1, sibling
+// of N-a). This unbounded variant is kept ONLY for the few sites
+// where the cap is enforced by a different upstream check (e.g.
+// stado_tool_invoke has its own boundary cap on name/argsLen since
+// PR #65/N-a).
 func readMemoryString(mod api.Module, ptr, ln uint32) (string, bool) {
 	b, ok := mod.Memory().Read(ptr, ln)
 	if !ok {
 		return "", false
 	}
-	// Make a copy — wasm memory may be re-mapped.
+	// string([]byte) already copies — no need for an intermediate
+	// `out` slice (Copilot review on PR #70). Safe even if `b`
+	// aliases wasm memory because the conversion materialises a
+	// fresh string-backing array.
+	return string(b), true
+}
+
+// readMemoryStringCapped enforces maxBytes BEFORE allocating the
+// host-side string. Returns ("", false) when the guest-supplied
+// length exceeds the cap OR the memory read is out-of-bounds —
+// caller can't distinguish the two at the host-import boundary
+// (both are "guest passed a bad pair", both should return -1).
+// 2026-05-25 deep-dive Codex P2 sweep across host_state.go,
+// host_json.go, host_net.go.
+//
+// maxBytes is additionally clamped to the package-wide
+// maxPluginRuntimeImportBytes so even a buggy call site that passes
+// an oversized cap can't escape the global invariant (Copilot review
+// on PR #70, mirroring [readBytesLimited]).
+func readMemoryStringCapped(mod api.Module, ptr, ln, maxBytes uint32) (string, bool) {
+	if maxBytes > maxPluginRuntimeImportBytes {
+		maxBytes = maxPluginRuntimeImportBytes
+	}
+	if ln > maxBytes {
+		return "", false
+	}
+	return readMemoryString(mod, ptr, ln)
+}
+
+// readMemoryBytesCapped is the []byte variant — symmetrical to
+// readMemoryStringCapped for sites that don't want the string copy.
+// Returns the bytes as a fresh slice (the underlying wasm memory may
+// be re-mapped). Same cap semantics — including the
+// maxPluginRuntimeImportBytes clamp.
+func readMemoryBytesCapped(mod api.Module, ptr, ln, maxBytes uint32) ([]byte, bool) {
+	if maxBytes > maxPluginRuntimeImportBytes {
+		maxBytes = maxPluginRuntimeImportBytes
+	}
+	if ln > maxBytes {
+		return nil, false
+	}
+	b, ok := mod.Memory().Read(ptr, ln)
+	if !ok {
+		return nil, false
+	}
 	out := make([]byte, len(b))
 	copy(out, b)
-	return string(out), true
+	return out, true
 }

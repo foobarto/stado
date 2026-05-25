@@ -91,7 +91,8 @@ func registerHTTPRequestStreamImport(builder wazero.HostModuleBuilder, host *Hos
 			if argsLen <= 0 {
 				return -1
 			}
-			raw, ok := mod.Memory().Read(uint32(argsPtr), uint32(argsLen))
+			// Codex P2 (2026-05-25): cap args envelope pre-read.
+			raw, ok := readMemoryBytesCapped(mod, uint32(argsPtr), uint32(argsLen), maxPluginRuntimeHTTPRequestArgs)
 			if !ok {
 				return -1
 			}

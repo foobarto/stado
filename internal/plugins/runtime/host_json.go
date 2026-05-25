@@ -60,7 +60,10 @@ func registerJSONGetImport(builder wazero.HostModuleBuilder, host *Host) {
 			if !ok {
 				return -1
 			}
-			path, ok := readMemoryString(mod, uint32(pathPtr), uint32(pathLen))
+			// Codex P2 (2026-05-25): pathLen had no host-side cap;
+			// jsonLen is checked above against maxJSONInputBytes but
+			// pathLen could have been 2 GiB pre-fix.
+			path, ok := readMemoryStringCapped(mod, uint32(pathPtr), uint32(pathLen), maxPluginRuntimeJSONPathBytes)
 			if !ok {
 				return -1
 			}
@@ -136,7 +139,8 @@ func registerJSONSetImport(builder wazero.HostModuleBuilder, host *Host) {
 			if !ok {
 				return -1
 			}
-			path, ok := readMemoryString(mod, uint32(pathPtr), uint32(pathLen))
+			// Codex P2 (2026-05-25): pathLen cap.
+			path, ok := readMemoryStringCapped(mod, uint32(pathPtr), uint32(pathLen), maxPluginRuntimeJSONPathBytes)
 			if !ok {
 				return -1
 			}
