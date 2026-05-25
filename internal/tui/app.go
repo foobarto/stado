@@ -392,12 +392,13 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	if cfg.ACP.Providers != nil {
 		if p, ok := cfg.ACP.Providers[name]; ok && p.Binary != "" {
 			ac := acpwrap.Config{
-				Name:   name,
-				Binary: p.Binary,
-				Args:   p.Args,
-				CWD:    p.CWD,
-				Env:    p.Env,
-				Tools:  p.Tools,
+				Name:       name,
+				Binary:     p.Binary,
+				Args:       p.Args,
+				CWD:        p.CWD,
+				Env:        p.Env,
+				InheritEnv: p.InheritEnv,
+				Tools:      p.Tools,
 			}
 			// EP-0032 phase B: when tools = "stado" the provider
 			// needs a ToolHostConfig to dispatch inbound fs/* ACP
@@ -443,6 +444,8 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 				ContentResultKey:  p.ContentResultKey,
 				ThreadIDResultKey: p.ThreadIDResultKey,
 				CallToolOverrides: p.CallToolOverrides,
+				Env:               p.Env,
+				InheritEnv:        p.InheritEnv,
 			})
 		}
 	}

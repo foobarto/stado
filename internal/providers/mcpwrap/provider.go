@@ -115,14 +115,21 @@ type Config struct {
 	// the operator knows the isolation boundary is not in place).
 	Cwd string
 
-	// Env, when set, REPLACES the scrubbed-safelist environment passed
-	// to the subprocess (it is not appended to os.Environ()). #048:
-	// the wrapped subprocess no longer inherits the full parent
-	// environment by default — only a small safelist (HOME, PATH,
-	// USER, XDG_*, TERM) plus these explicit entries — so inherited
-	// secrets (API keys, tokens) are not handed to an external agent
-	// stado cannot audit. Each entry is "KEY=value".
+	// Env adds explicit `KEY=value` entries to the wrapped MCP
+	// subprocess's environment. Layered on top of the envscrub
+	// safelist core (HOME / PATH / USER / TERM / XDG_*) and any
+	// InheritEnv extracts. #048 introduced the scrub baseline; v0.57.0
+	// added InheritEnv to give the operator a declarative way to
+	// pass through specific parent-env keys per provider (decision
+	// .agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md).
 	Env []string
+
+	// InheritEnv lists env-var NAMES from the parent process to
+	// forward to the wrapped MCP subprocess — e.g. ["OPENAI_API_KEY"]
+	// for `codex-mcp`. Restores per-EP-0032 "operator's job to manage
+	// env" trust model after the unconditional scrub. Explicit Env
+	// entries above win on duplicate keys.
+	InheritEnv []string
 }
 
 // envSafelist is the set of environment variables passed through to
@@ -205,7 +212,7 @@ func (p *Provider) ensureLaunched(ctx context.Context) error {
 	// inherited secrets. The CommandFunc below also sets the
 	// subprocess working directory to Cwd (the session worktree, when
 	// wired) instead of stado's inherited process cwd.
-	env := scrubbedEnv(p.cfg.Env)
+	env := envscrub.ScrubWithInherits(p.cfg.Env, p.cfg.InheritEnv)
 
 	if strings.TrimSpace(p.cfg.Cwd) == "" {
 		// Visibility: with no Cwd the subprocess runs in stado's cwd

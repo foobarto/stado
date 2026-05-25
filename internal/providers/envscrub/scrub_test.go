@@ -1,6 +1,7 @@
 package envscrub
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -73,4 +74,90 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// v0.57.0 reconciliation regression: ScrubWithInherits restores
+// EP-0032's "operator's job to manage env" trust model that PR #65/M
+// silently broke. Operator names specific keys per provider via
+// `inherit_env = [...]`; those (and only those, plus the safelist +
+// explicit Config.Env entries) get forwarded to the wrapped agent.
+// Decision: .agent/decisions/2026-05-25-acpwrap-inherit-env-opt-in.md.
+func TestScrubWithInherits_ExtractsNamedKeysFromParentEnv(t *testing.T) {
+	t.Setenv("HOME", "/tmp/h")
+	t.Setenv("GEMINI_API_KEY", "sk-real-gemini")
+	t.Setenv("OPENAI_API_KEY", "sk-real-openai")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-real-anthropic")
+
+	// Only inherit GEMINI; others stay scrubbed.
+	got := ScrubWithInherits(nil, []string{"GEMINI_API_KEY"})
+
+	if !contains(got, "HOME=/tmp/h") {
+		t.Errorf("safelist should still pass HOME; got %v", got)
+	}
+	if !contains(got, "GEMINI_API_KEY=sk-real-gemini") {
+		t.Errorf("inherit_env should extract GEMINI_API_KEY; got %v", got)
+	}
+	for _, leak := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"} {
+		for _, e := range got {
+			if strings.HasPrefix(e, leak+"=") {
+				t.Errorf("inherit_env should NOT extract un-listed key %q; got %q", leak, e)
+			}
+		}
+	}
+}
+
+// Explicit Config.Env entry wins on duplicate keys against inherit_env
+// extraction — so a CI/sandbox operator can override a parent-env API
+// key with a test-fixture value without removing the inherit_env line.
+func TestScrubWithInherits_ExplicitEnvWinsOverInherit(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "sk-parent-real")
+
+	got := ScrubWithInherits(
+		[]string{"GEMINI_API_KEY=sk-sandbox-stub"},
+		[]string{"GEMINI_API_KEY"},
+	)
+
+	// The explicit entry from `extra` should win.
+	if !contains(got, "GEMINI_API_KEY=sk-sandbox-stub") {
+		t.Errorf("explicit Config.Env should win over inherit; got %v", got)
+	}
+	// No duplicate — the inherit-from-parent path should skip when
+	// the key is already present.
+	count := 0
+	for _, e := range got {
+		if strings.HasPrefix(e, "GEMINI_API_KEY=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly one GEMINI_API_KEY entry; got %d in %v", count, got)
+	}
+}
+
+// Inherit-key that isn't actually set in the parent env should be a
+// no-op (not error, not insert an empty value).
+//
+// Copilot #68 review caught that the prior `os.Unsetenv` without
+// restore creates test-order coupling (and would silently no-op
+// against a runner where the var happens to be set, then leak the
+// unset to subsequent tests). Capture + restore in t.Cleanup so the
+// assertion holds regardless of the runner environment.
+func TestScrubWithInherits_MissingInheritKeyIsNoOp(t *testing.T) {
+	const key = "STADO_TEST_NEVER_SET_KEY"
+	prev, had := os.LookupEnv(key)
+	os.Unsetenv(key)
+	t.Cleanup(func() {
+		if had {
+			os.Setenv(key, prev)
+		} else {
+			os.Unsetenv(key)
+		}
+	})
+
+	got := ScrubWithInherits(nil, []string{key})
+	for _, e := range got {
+		if strings.HasPrefix(e, key+"=") {
+			t.Errorf("missing inherit key should not appear; got %q", e)
+		}
+	}
 }
