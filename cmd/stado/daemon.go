@@ -172,14 +172,24 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	}
 	defer state.Close()
 
+	// v1 broker service. Loads policy.toml from $XDG_CONFIG_HOME/stado/
+	// or falls back to the binary-embedded permissive default. Phase 1
+	// is plumbing; the policy admits everything that today's daemon
+	// admits. Subsequent phases narrow specific purposes/profiles.
+	brokerSvc, brokerErr := buildBrokerService()
+	if brokerErr != nil {
+		return fmt.Errorf("daemon: build broker service: %w", brokerErr)
+	}
+
 	srv := daemon.NewServer(daemon.ServerOpts{
-		SocketPath:   socketPath,
-		IdleTimeout:  daemonStartIdle,
-		Logger:       logger,
-		Dispatcher:   state.dispatch,
-		ListSessions: state.listSessions,
-		KillSession:  state.killSession,
-		ListTools:    state.listTools,
+		SocketPath:       socketPath,
+		IdleTimeout:      daemonStartIdle,
+		Logger:           logger,
+		Dispatcher:       state.dispatch,
+		ListSessions:     state.listSessions,
+		KillSession:      state.killSession,
+		ListTools:        state.listTools,
+		BrokerDispatcher: brokerDispatcherBridge(brokerSvc),
 	})
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
