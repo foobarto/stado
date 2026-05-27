@@ -330,6 +330,69 @@ func TestCreateSession_EffectiveEqualsCeilingAtCreate(t *testing.T) {
 	}
 }
 
+func TestProjectCeiling_SubagentWriteScopeResolvedAgainstCWD(t *testing.T) {
+	// Regression test for Codex P2 review of PR #71. spawn_agent's
+	// write_scope is repo-relative ("src/foo"); the parent ceiling's
+	// FSWrite is absolute (/work). projectCeiling must resolve the
+	// relative entries against req.CWD before SubagentCeiling
+	// projects, otherwise normal worker scopes are always dropped.
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+
+	pol := projectCeiling(CapabilityRequest{
+		Purpose:    PurposeSubagent,
+		Profile:    ProfileDefault,
+		CWD:        "/work",
+		Role:       "worker",
+		Mode:       "workspace_write",
+		WriteScope: []string{"src/foo", "src/bar"},
+	})
+	wantWrites := map[string]bool{"/work/src/foo": true, "/work/src/bar": true}
+	if len(pol.FSWrite) != 2 {
+		t.Fatalf("FSWrite = %v, want %v (resolved against cwd)", pol.FSWrite, wantWrites)
+	}
+	for _, w := range pol.FSWrite {
+		if !wantWrites[w] {
+			t.Errorf("unexpected FSWrite %q (resolved against cwd /work)", w)
+		}
+		delete(wantWrites, w)
+	}
+	if len(wantWrites) != 0 {
+		t.Errorf("missing FSWrite paths: %v", wantWrites)
+	}
+}
+
+func TestResolveRelativeScope_Mix(t *testing.T) {
+	cases := []struct {
+		name  string
+		scope []string
+		cwd   string
+		want  []string
+	}{
+		{"empty", nil, "/work", nil},
+		{"all-relative", []string{"src", "pkg/foo"}, "/work", []string{"/work/src", "/work/pkg/foo"}},
+		{"absolute-passes-through", []string{"/etc"}, "/work", []string{"/etc"}},
+		{"mixed", []string{"src", "/tmp/cache"}, "/work", []string{"/work/src", "/tmp/cache"}},
+		{"empty-cwd-relative-passes", []string{"src"}, "", []string{"src"}},
+		{"empty-entry-dropped", []string{"", "src"}, "/work", []string{"/work/src"}},
+		{"clean", []string{"src/../pkg"}, "/work", []string{"/work/pkg"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveRelativeScope(tc.scope, tc.cwd)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d (got %v)", len(got), len(tc.want), got)
+			}
+			for i, w := range tc.want {
+				if got[i] != w {
+					t.Errorf("[%d] %q, want %q", i, got[i], w)
+				}
+			}
+		})
+	}
+}
+
 func TestProjectCeiling_SubagentNarrowerThanMainChat(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -372,7 +373,7 @@ func (s *Service) dispatchPolicyQuery(_ context.Context, raw json.RawMessage) (j
 // rather than silently ignoring it. The v1 IPC contract is strict
 // by design.
 func strictUnmarshal(raw json.RawMessage, v any) error {
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }

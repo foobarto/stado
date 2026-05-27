@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -26,9 +27,9 @@ var ErrSessionTerminated = errors.New("broker: session terminated")
 // sessionState is the broker-internal record of a minted session.
 // Held under sessions.mu. Not exposed across the IPC.
 type sessionState struct {
-	handle        SessionHandle
-	terminated    bool
-	terminated_at time.Time
+	handle       SessionHandle
+	terminated   bool
+	terminatedAt time.Time
 	// taint is the session's current provenance state (phase 6).
 	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
 	// for capability-grant decisions that should refuse when the
@@ -157,7 +158,7 @@ func (s *Service) TerminateSession(sessionID string) error {
 		return ErrSessionTerminated
 	}
 	st.terminated = true
-	st.terminated_at = s.now()
+	st.terminatedAt = s.now()
 	return nil
 }
 
@@ -224,10 +225,45 @@ func projectCeiling(req CapabilityRequest) sandbox.Policy {
 	}
 	base := MountTableFor(req.Profile, req.CWD).ToPolicy()
 	if req.Purpose == PurposeSubagent {
-		child, _ := SubagentCeiling(base, req.Role, req.Mode, req.WriteScope)
+		// Resolve write_scope entries against req.CWD before
+		// projecting. The spawn_agent contract makes write_scope
+		// repo-relative ("src/foo") but the parent ceiling's
+		// FSWrite is absolute (/work). Without this resolution
+		// step normal worker scopes would always be dropped —
+		// Codex P2 review of PR #71.
+		writes := resolveRelativeScope(req.WriteScope, req.CWD)
+		child, _ := SubagentCeiling(base, req.Role, req.Mode, writes)
 		return child
 	}
 	return base
+}
+
+// resolveRelativeScope turns each repo-relative entry in scope
+// into an absolute path joined against cwd. Already-absolute
+// entries pass through cleaned. Empty cwd means we can't resolve
+// — relative entries pass through as-is (they'll be dropped by
+// anyParentCovers, which is the right failure mode: refuse,
+// don't widen).
+func resolveRelativeScope(scope []string, cwd string) []string {
+	if len(scope) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(scope))
+	for _, s := range scope {
+		if s == "" {
+			continue
+		}
+		if filepath.IsAbs(s) {
+			out = append(out, filepath.Clean(s))
+			continue
+		}
+		if cwd == "" {
+			out = append(out, filepath.Clean(s))
+			continue
+		}
+		out = append(out, filepath.Clean(filepath.Join(cwd, s)))
+	}
+	return out
 }
 
 // traceRefFor returns the git ref name the broker would append

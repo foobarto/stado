@@ -59,29 +59,64 @@ func (p *Policy) Evaluate(req CapabilityRequest) Decision {
 		return Decision{Admit: false, Rule: "no-policy", Reason: ErrPolicyNotLoaded.Error()}
 	}
 
+	// Two-pass evaluation: explicit DENY anywhere wins over ALLOW
+	// elsewhere. This means an operator who sets `[profile]
+	// "no-sandbox" = false` can deny that profile even when the
+	// shipped default has `[purpose] main-chat = true` — the profile
+	// deny is consulted before purpose admits. Codex P1 review of
+	// PR #71.
+	//
+	// Order within each pass mirrors specificity: plugin (most
+	// specific) → purpose → profile (least specific in the
+	// per-request dimension). First match wins within each pass.
+
+	// Pass 1: explicit denies.
 	if req.Purpose == PurposeToolRun && req.PluginName != "" {
-		if admit, ok := p.PluginAdmits[req.PluginName]; ok {
+		if admit, ok := p.PluginAdmits[req.PluginName]; ok && !admit {
 			return Decision{
-				Admit:  admit,
+				Admit:  false,
 				Rule:   fmt.Sprintf("plugin:%s", req.PluginName),
-				Reason: decisionReason(admit, "plugin"),
+				Reason: decisionReason(false, "plugin"),
 			}
 		}
 	}
-
-	if admit, ok := p.PurposeAdmits[req.Purpose]; ok {
+	if admit, ok := p.PurposeAdmits[req.Purpose]; ok && !admit {
 		return Decision{
-			Admit:  admit,
+			Admit:  false,
 			Rule:   fmt.Sprintf("purpose:%s", req.Purpose),
-			Reason: decisionReason(admit, "purpose"),
+			Reason: decisionReason(false, "purpose"),
+		}
+	}
+	if admit, ok := p.ProfileAdmits[req.Profile]; ok && !admit {
+		return Decision{
+			Admit:  false,
+			Rule:   fmt.Sprintf("profile:%s", req.Profile),
+			Reason: decisionReason(false, "profile"),
 		}
 	}
 
-	if admit, ok := p.ProfileAdmits[req.Profile]; ok {
+	// Pass 2: explicit allows (no deny fired above).
+	if req.Purpose == PurposeToolRun && req.PluginName != "" {
+		if admit, ok := p.PluginAdmits[req.PluginName]; ok && admit {
+			return Decision{
+				Admit:  true,
+				Rule:   fmt.Sprintf("plugin:%s", req.PluginName),
+				Reason: "",
+			}
+		}
+	}
+	if admit, ok := p.PurposeAdmits[req.Purpose]; ok && admit {
 		return Decision{
-			Admit:  admit,
+			Admit:  true,
+			Rule:   fmt.Sprintf("purpose:%s", req.Purpose),
+			Reason: "",
+		}
+	}
+	if admit, ok := p.ProfileAdmits[req.Profile]; ok && admit {
+		return Decision{
+			Admit:  true,
 			Rule:   fmt.Sprintf("profile:%s", req.Profile),
-			Reason: decisionReason(admit, "profile"),
+			Reason: "",
 		}
 	}
 

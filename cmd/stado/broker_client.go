@@ -35,14 +35,16 @@ import (
 const brokerAttachTimeout = 3 * time.Second
 
 // envBrokerAttach gates whether orchestrator entry points attach to
-// the broker. v2 default: attach. Set to "0" / "false" / "off" / "no"
-// to opt out (development / unusual environments where the broker
-// won't reach).
+// the broker. v1 default in this release (phase 2 of the rollout):
+// **attach** — every entry point goes through the broker by default.
+// Set to "0" / "false" / "off" / "no" to opt out (development /
+// unusual environments where the broker won't reach).
 //
-// Phase 1 ran with the default off (existing tests stay green via
-// daemon.EnsureRunning's Go-test-binary refusal). Phase 2 flips the
-// default to on; test binaries still hit the Skipped fast-path via
-// the test-binary refusal so no test-infrastructure update is needed.
+// Test infrastructure: existing tests stay green automatically
+// because daemon.EnsureRunning refuses to auto-spawn the host
+// binary as a daemon when it detects a Go test binary; the helper
+// translates that into a Skipped session so no test setup needs to
+// know about the broker.
 const envBrokerAttach = "STADO_BROKER_ATTACH"
 
 // BrokerSession is what an orchestrator entry point holds after a

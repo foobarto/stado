@@ -1,7 +1,6 @@
 package broker
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,6 +207,51 @@ unknown-purpose = true
 	}
 }
 
+func TestPolicy_Evaluate_ProfileDenyOverridesPurposeAdmit(t *testing.T) {
+	// Codex P1 review of PR #71: the shipped default policy has
+	// [purpose] main-chat = true. An operator who wants to deny
+	// --no-sandbox via [profile] "no-sandbox" = false must be able
+	// to do so even though main-chat purpose admits. The two-pass
+	// evaluator (deny pass before admit pass) makes profile-deny
+	// win over purpose-admit.
+	p := &Policy{
+		DefaultAdmit:  false,
+		PurposeAdmits: map[Purpose]bool{PurposeMainChat: true},
+		ProfileAdmits: map[Profile]bool{ProfileNoSandbox: false},
+	}
+	d := p.Evaluate(CapabilityRequest{
+		Purpose: PurposeMainChat,
+		Profile: ProfileNoSandbox,
+	})
+	if d.Admit {
+		t.Errorf("expected deny (profile rule should win); got %#v", d)
+	}
+	if d.Rule != "profile:no-sandbox" {
+		t.Errorf("rule = %q, want profile:no-sandbox", d.Rule)
+	}
+}
+
+func TestPolicy_Evaluate_PluginDenyOverridesPurposeAdmit(t *testing.T) {
+	// Same precedence rule: plugin-deny overrides purpose-admit
+	// for tool-run requests.
+	p := &Policy{
+		DefaultAdmit:  true,
+		PurposeAdmits: map[Purpose]bool{PurposeToolRun: true},
+		PluginAdmits:  map[string]bool{"shell.spawn": false},
+	}
+	d := p.Evaluate(CapabilityRequest{
+		Purpose:    PurposeToolRun,
+		Profile:    ProfileDefault,
+		PluginName: "shell.spawn",
+	})
+	if d.Admit {
+		t.Errorf("expected deny (plugin rule should win); got %#v", d)
+	}
+	if d.Rule != "plugin:shell.spawn" {
+		t.Errorf("rule = %q, want plugin:shell.spawn", d.Rule)
+	}
+}
+
 func TestPolicy_Evaluate_PluginOverridesPurpose(t *testing.T) {
 	p := &Policy{
 		DefaultAdmit:  true,
@@ -250,7 +294,11 @@ func TestPolicy_Evaluate_NilPolicy(t *testing.T) {
 	if d.Admit {
 		t.Errorf("nil policy should deny, got %#v", d)
 	}
-	if !errors.Is(errors.New(d.Reason), ErrPolicyNotLoaded) && !strings.Contains(d.Reason, "policy not loaded") {
+	// The reason text echoes ErrPolicyNotLoaded.Error(); a substring
+	// check is sufficient. (Prior versions wrapped this in
+	// errors.Is(errors.New(d.Reason), ErrPolicyNotLoaded) which is
+	// always false — Copilot review of PR #71.)
+	if !strings.Contains(d.Reason, "policy not loaded") {
 		t.Errorf("reason = %q, want 'policy not loaded' related", d.Reason)
 	}
 }
