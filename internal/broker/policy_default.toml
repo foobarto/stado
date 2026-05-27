@@ -1,0 +1,38 @@
+# Default broker policy shipped with the binary. Permissive by
+# design — phase 1 of the v1 security architecture is plumbing,
+# not enforcement. Subsequent phases tighten this default and
+# operators may override with their own policy.toml at
+# $XDG_CONFIG_HOME/stado/policy.toml.
+#
+# Schema:
+#
+#   default   bool         global fallback when no more-specific
+#                          rule fires.
+#   purpose   {name: bool} per-purpose overrides. Keys are
+#                          purpose names: "main-chat", "subagent",
+#                          "tool-run".
+#   profile   {name: bool} per-profile overrides. Keys are
+#                          profile names: "default", "hardened",
+#                          "no-sandbox".
+#   plugin    {name: bool} per-plugin overrides for tool-run
+#                          requests. Keys are plugin names. The
+#                          plugin section is intentionally empty
+#                          in the shipped default — operators add
+#                          entries to deny specific plugins.
+
+default = true
+
+[purpose]
+main-chat = true
+subagent = true
+"tool-run" = true
+
+[profile]
+default = true
+hardened = true
+"no-sandbox" = true
+
+[plugin]
+# operator-defined per-plugin overrides go here.
+# example denying a specific plugin:
+#   "shell.spawn" = false
