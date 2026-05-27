@@ -119,10 +119,12 @@ func (s *Service) CreateSession(req CapabilityRequest) (SessionHandle, Decision,
 	}
 
 	now := s.now()
+	ceiling := projectCeiling(req)
 	handle := SessionHandle{
 		SessionID: id,
 		Purpose:   req.Purpose,
-		Ceiling:   projectCeiling(req),
+		Ceiling:   ceiling,
+		Effective: ceiling, // phase 4: initialize equal; narrows via NarrowEffective.
 		TraceRef:  traceRefFor(req, id),
 		ExpiresAt: time.Time{}, // phase 1: no broker-enforced expiry
 		CreatedAt: now,
@@ -196,19 +198,31 @@ func mintSessionID() (string, error) {
 
 // projectCeiling produces a sandbox.Policy from the mount-and-
 // namespace invariant table for the requested profile (see
-// mount_table.go). Phase 3 narrows reads from today's "/" to the
-// table-derived RO/RW set; phase 4 will tighten further from the
-// full request shape (e.g. sub-agent WriteScope).
+// mount_table.go), narrowed by the role/mode/write_scope for
+// sub-agent requests.
 //
 // ProfileNoSandbox returns an empty Policy — the runtime picks
 // NoneRunner and no namespace isolation is applied. The broker
 // has still admitted the request via Service.Evaluate, so the
 // decision is captured in the broker-decision log.
+//
+// PurposeSubagent: the projection uses SubagentCeiling against a
+// parent-ceiling baseline derived from the same profile's mount
+// table. Phase 4 doesn't yet thread the actual parent session's
+// ceiling through the IPC (the spawn_agent runner today bypasses
+// the broker — wiring that is a follow-up); when it does, the
+// parent's effective set should be passed here instead of the
+// mount-table baseline.
 func projectCeiling(req CapabilityRequest) sandbox.Policy {
 	if req.Profile == ProfileNoSandbox {
 		return sandbox.Policy{}
 	}
-	return MountTableFor(req.Profile, req.CWD).ToPolicy()
+	base := MountTableFor(req.Profile, req.CWD).ToPolicy()
+	if req.Purpose == PurposeSubagent {
+		child, _ := SubagentCeiling(base, req.Role, req.Mode, req.WriteScope)
+		return child
+	}
+	return base
 }
 
 // traceRefFor returns the git ref name the broker would append

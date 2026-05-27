@@ -110,8 +110,8 @@ type Decision struct {
 // ceiling to itself; it includes the handle when terminating.
 //
 // The handle is opaque to the orchestrator beyond the few fields
-// it actively uses (SessionID, Ceiling, TraceRef). The broker may
-// internally associate further state with the SessionID.
+// it actively uses (SessionID, Ceiling, Effective, TraceRef). The
+// broker may internally associate further state with the SessionID.
 type SessionHandle struct {
 	// SessionID is the broker-minted opaque identifier for this
 	// session. Stable for the session's lifetime.
@@ -121,11 +121,19 @@ type SessionHandle struct {
 	// convenience.
 	Purpose Purpose
 
-	// Ceiling is the projected maximal capability set for this
-	// session. In phase 1 this is a coarse approximation derived
-	// from Purpose+Profile; phase 4 tightens the projection from
-	// the full request shape.
+	// Ceiling is the immutable maximal capability set for this
+	// session, derived at session-creation from Purpose+Profile
+	// (and, for sub-agents, role/mode/write_scope). The ceiling
+	// never changes for the life of the session.
 	Ceiling sandbox.Policy
+
+	// Effective is the capability set the session currently holds.
+	// Initialized equal to Ceiling at session-creation; narrows
+	// monotonically via Service.NarrowEffective. Drop-only —
+	// widening requires forking a new session (see DESIGN.md
+	// §"Sessions and sub-agents" → "Capability ceiling and
+	// effective set").
+	Effective sandbox.Policy
 
 	// TraceRef is the git ref name the broker will append trace
 	// events to (phase 5 wires append-via-broker; phase 1 records
