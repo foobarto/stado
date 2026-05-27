@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -128,6 +129,15 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // forkAtCursor runs the fork synchronously and quits the program. The
 // bubbletea pattern is usually async, but a one-shot action that exits
 // the TUI is cleaner handled inline — we're quitting anyway.
+//
+// Phase 8 of the v1 security architecture: after the fork creates the
+// new sidecar session, register it with the broker so the broker's
+// decision log records the creation event. The actual sandbox
+// enforcement for the new session happens when the operator later
+// runs `stado run --resume <child-id>` (or equivalent) — that
+// invocation goes through attachToBroker via the normal entry-point
+// path. Phase 8 here only ensures session tree itself is broker-
+// mediated for the creation moment.
 func (m *treeModel) forkAtCursor() tea.Cmd {
 	if m.cursor < 0 || m.cursor >= len(m.turns) {
 		return nil
@@ -138,6 +148,12 @@ func (m *treeModel) forkAtCursor() tea.Cmd {
 		m.err = err
 		return tea.Quit
 	}
+	// Broker mediation (phase 8). Best-effort: if the broker is
+	// unreachable (auto-spawn refused in a test binary, opt-out,
+	// etc.) we still surface the fork to the operator — losing
+	// the decision-log record is preferable to losing the fork
+	// the operator just confirmed.
+	m.notifyBrokerOfFork(child.ID)
 	m.forked = &forkOutcome{
 		childID:      child.ID,
 		worktreePath: child.WorktreePath,
@@ -145,6 +161,29 @@ func (m *treeModel) forkAtCursor() tea.Cmd {
 		fromTurn:     t.Turn,
 	}
 	return tea.Quit
+}
+
+// notifyBrokerOfFork tells the broker about the newly-created
+// child session by issuing a session.create request and
+// immediately terminating it. The broker's decision log captures
+// the moment; no agent loop runs (the orchestrator that uses
+// this session for real work will attach via the normal entry-
+// point path). Errors are non-fatal — the fork itself already
+// succeeded at the sidecar layer.
+func (m *treeModel) notifyBrokerOfFork(childID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), brokerAttachTimeout)
+	defer cancel()
+	cwd, _ := os.Getwd()
+	sess, err := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "session tree: broker notify failed (fork %s still committed): %v\n", childID, err)
+		return
+	}
+	defer func() {
+		if closeErr := sess.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "session tree: broker session.terminate: %v\n", closeErr)
+		}
+	}()
 }
 
 func (m *treeModel) View() string {
