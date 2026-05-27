@@ -32,7 +32,7 @@ var (
 	runJSON          bool
 	runQuiet         bool
 	runNoTools       bool
-	runSandboxFS     bool
+	runNoSandbox     bool   // v1: inverted polarity from the retired --sandbox-fs flag
 	runMode          string // --mode harness mode (EP-0030)
 	runTools         string // --tools (whitelist; comma-separated globs)
 	runToolsAutoload string // --tools-autoload
@@ -75,17 +75,18 @@ Defaults at a glance:
 
   --tools          ""   (empty = all installed tools enabled; pass globs to whitelist)
   --no-tools       OFF  (pure-chat mode — no session, no audit)
-  --sandbox-fs     OFF  (agent operates on your actual filesystem)
+  --no-sandbox     OFF  (v1 default: sandboxed; pass to disable bwrap + Landlock)
 
 By default, bash + read/write/grep/etc. are available and every call
 commits to the session's git-native audit log. Pass --no-tools for
 pure-chat mode (no tools, no session, no audit). Pass --tools with a
 comma-separated glob list to whitelist a subset (e.g. --tools=fs.*).
 
-When --sandbox-fs is set, bash runs inside bwrap (Linux) and writes
-are landlock-confined to the session worktree + /tmp. Without it,
-tools run as direct subprocesses with full filesystem access — the
-agent can ls your home, cd anywhere, etc.
+By default in v1, bash runs inside bwrap (Linux) and writes are
+landlock-confined to the launch cwd + /tmp; the broker's mount table
+masks credential-bearing paths. Pass --no-sandbox to opt out — tools
+run as direct subprocesses with full filesystem access, intended for
+development scenarios and explicit operator override.
 
 Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -278,37 +279,39 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				if err != nil {
 					return fmt.Errorf("tools: %w", err)
 				}
-				// Default sandbox policy for `stado run`: NONE.
-				// BuildExecutor seeds Runner with sandbox.Detect()
-				// which picks bwrap on Linux, but the run-CLI default
-				// is the user-visible "agent operates on my actual
-				// filesystem" mode — bwrap-by-default surprised
-				// users who expected `ls ~/` to show their real home.
-				// Opt back into sandboxing via --sandbox-fs (which
-				// also applies landlock for defense-in-depth).
-				if !runSandboxFS {
+				// v1 sandbox policy for `stado run`:
+				//   default (runNoSandbox=false) → BwrapRunner via
+				//     sandbox.Detect() + Landlock writes-confined
+				//     to launch cwd + /tmp.
+				//   --no-sandbox (runNoSandbox=true) → NoneRunner,
+				//     no Landlock, agent operates on the actual
+				//     filesystem with no namespace isolation.
+				//
+				// Reverses an earlier UX-pressured retreat documented
+				// in DESIGN.md §Sandbox → "Reversal of an earlier UX
+				// retreat". The launch cwd is the writable boundary
+				// in BOTH modes — operators expect `cd ~/projects/foo
+				// && stado run` to operate on ~/projects/foo, not on
+				// a per-session scratch worktree.
+				opts.Workdir = cwd
+				if runNoSandbox {
 					opts.Executor.Runner = sandbox.NoneRunner{}
-					// Tools see the user's launch cwd, not the per-
-					// session scratch worktree. Without this override,
-					// `ls` in `stado run` lands in an empty directory
-					// because the loop defaults to Session.WorktreePath.
-					opts.Workdir = cwd
 				}
-				if runSandboxFS {
-					fmt.Fprintf(os.Stderr, "stado run: session %s (sandbox worktree %s)\n", sess.ID, sess.WorktreePath)
+				if runNoSandbox {
+					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [--no-sandbox]\n", sess.ID, cwd, sess.WorktreePath)
 				} else {
-					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s)\n", sess.ID, cwd, sess.WorktreePath)
+					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
 				}
 
-				if runSandboxFS {
-					if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(sess.WorktreePath)); err != nil {
+				if !runNoSandbox {
+					if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(cwd)); err != nil {
 						if errors.Is(err, sandbox.ErrLandlockUnavailable) {
-							fmt.Fprintln(os.Stderr, "stado run: --sandbox-fs requested but landlock unavailable on this kernel; continuing unsandboxed")
+							fmt.Fprintln(os.Stderr, "stado run: Landlock unavailable on this kernel; continuing without in-process write confinement (bwrap still applies at the runner layer)")
 						} else {
 							return fmt.Errorf("sandbox: %w", err)
 						}
 					} else {
-						fmt.Fprintln(os.Stderr, "stado run: landlock applied (writes confined to worktree + /tmp)")
+						fmt.Fprintln(os.Stderr, "stado run: Landlock applied (writes confined to cwd + /tmp)")
 					}
 				}
 			}
@@ -323,7 +326,11 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			// hold the handle for the agent loop's duration, terminate on
 			// exit. Phase 2 flips the default and wires the returned
 			// ceiling to actual sandbox enforcement.
-			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			profile := brokerProfileFromFlags()
+			if runNoSandbox {
+				profile = brokerProfileNoSandbox()
+			}
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), profile, cwd)
 			if brokerErr != nil {
 				return fmt.Errorf("stado run: %w", brokerErr)
 			}
@@ -421,8 +428,8 @@ func init() {
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,
 		"Disable tools — pure-chat mode (no session, no audit).")
-	runCmd.Flags().BoolVar(&runSandboxFS, "sandbox-fs", false,
-		"Sandbox tool execution: bash runs in bwrap (Linux) and writes are landlock-confined to the session worktree + /tmp. Off by default — `stado run` operates on your actual filesystem.")
+	runCmd.Flags().BoolVar(&runNoSandbox, "no-sandbox", false,
+		"Opt out of the v1 default sandbox: disable bwrap + Landlock for this run. The agent operates on your actual filesystem with no namespace isolation. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
 	// EP-0030: harness mode.
 	runCmd.Flags().StringVar(&runMode, "mode", "",
 		"Harness mode: \"\" (general, default) or \"security\" (security-research harness with recon discipline and abusability filters).")

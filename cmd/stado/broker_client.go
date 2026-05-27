@@ -181,11 +181,24 @@ func brokerPurposeFromFlags() broker.Purpose {
 }
 
 // brokerProfileFromFlags maps the current command's flags to a
-// broker.Profile. Phase 1: always ProfileDefault. Phase 1g wires
-// the new --no-sandbox flag to ProfileNoSandbox; phase 2/3 wires
-// --hardened (or equivalent operator opt-in) to ProfileHardened.
+// broker.Profile. Returns ProfileDefault unless the caller has
+// already evaluated --no-sandbox / --hardened (or equivalent) and
+// chosen otherwise via brokerProfileNoSandbox() / a future
+// brokerProfileHardened().
 func brokerProfileFromFlags() broker.Profile {
 	return broker.ProfileDefault
+}
+
+// brokerProfileNoSandbox returns the explicit operator opt-out
+// profile. Used by `stado run --no-sandbox` (phase 1g) and any
+// future surface that wires its own opt-out flag.
+//
+// Per DESIGN.md §"Broker" → "Non-session sandbox requests" the
+// broker still mediates the request — the operator's decision is
+// captured in the broker-decision log. ProfileNoSandbox configures
+// the runtime to use NoneRunner with no namespace isolation.
+func brokerProfileNoSandbox() broker.Profile {
+	return broker.ProfileNoSandbox
 }
 
 // isTestBinaryRefusal reports whether err is the test-binary
