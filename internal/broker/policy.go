@@ -1,0 +1,100 @@
+package broker
+
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrPolicyNotLoaded is returned by Evaluate when the broker
+// service has no policy file loaded (initial state or load failure).
+var ErrPolicyNotLoaded = errors.New("broker: policy not loaded")
+
+// Policy is the broker's loaded capability policy. Phase 1 ships
+// the permissive default; phase 1b fills in the TOML loader and
+// real evaluation semantics. The interface is stable across phases.
+type Policy struct {
+	// DefaultAdmit is the global fallback when no more-specific
+	// rule fires. Permissive in the phase-1 default policy.
+	DefaultAdmit bool
+
+	// PurposeAdmits maps Purpose → admit/deny. Missing key falls
+	// back to DefaultAdmit.
+	PurposeAdmits map[Purpose]bool
+
+	// ProfileAdmits maps Profile → admit/deny. Missing key falls
+	// back to DefaultAdmit.
+	ProfileAdmits map[Profile]bool
+
+	// PluginAdmits maps plugin name → admit/deny for PurposeToolRun
+	// requests. Missing key falls back to DefaultAdmit.
+	PluginAdmits map[string]bool
+}
+
+// DefaultPolicy returns the policy shipped in the binary when no
+// operator-provided policy.toml is present (or as a fallback when
+// the operator's policy fails to load — phase 1b decides whether to
+// fall back or refuse). All admissions default to true so phase 1
+// is a behavioural no-op for existing users.
+func DefaultPolicy() *Policy {
+	return &Policy{
+		DefaultAdmit:  true,
+		PurposeAdmits: map[Purpose]bool{},
+		ProfileAdmits: map[Profile]bool{},
+		PluginAdmits:  map[string]bool{},
+	}
+}
+
+// Evaluate evaluates req against p and returns a Decision. The
+// evaluation order is: plugin-specific override (for tool-run) →
+// purpose-specific → profile-specific → DefaultAdmit. The first
+// matching rule wins; Decision.Rule names which one.
+//
+// Phase 1: the default policy admits everything, so this function
+// always returns Admit=true with Rule="default". Phase 1b's TOML
+// loader populates the per-purpose / per-profile / per-plugin maps
+// and tightens the resolution; phase 1c adds the broker.v1.policy.query
+// dispatch path that exposes Evaluate over the IPC.
+func (p *Policy) Evaluate(req CapabilityRequest) Decision {
+	if p == nil {
+		return Decision{Admit: false, Rule: "no-policy", Reason: ErrPolicyNotLoaded.Error()}
+	}
+
+	if req.Purpose == PurposeToolRun && req.PluginName != "" {
+		if admit, ok := p.PluginAdmits[req.PluginName]; ok {
+			return Decision{
+				Admit:  admit,
+				Rule:   fmt.Sprintf("plugin:%s", req.PluginName),
+				Reason: decisionReason(admit, "plugin"),
+			}
+		}
+	}
+
+	if admit, ok := p.PurposeAdmits[req.Purpose]; ok {
+		return Decision{
+			Admit:  admit,
+			Rule:   fmt.Sprintf("purpose:%s", req.Purpose),
+			Reason: decisionReason(admit, "purpose"),
+		}
+	}
+
+	if admit, ok := p.ProfileAdmits[req.Profile]; ok {
+		return Decision{
+			Admit:  admit,
+			Rule:   fmt.Sprintf("profile:%s", req.Profile),
+			Reason: decisionReason(admit, "profile"),
+		}
+	}
+
+	return Decision{
+		Admit:  p.DefaultAdmit,
+		Rule:   "default",
+		Reason: decisionReason(p.DefaultAdmit, "default"),
+	}
+}
+
+func decisionReason(admit bool, ruleKind string) string {
+	if admit {
+		return ""
+	}
+	return "denied by " + ruleKind + " rule"
+}

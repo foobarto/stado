@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,12 +60,33 @@ type ServerOpts struct {
 	// ListTools returns the daemon's current tool catalogue. Phase 1
 	// returns an empty slice; Phase 2 wires BuildRegistryWithPlugins.
 	ListTools func() []ToolDescriptor
+
+	// BrokerDispatcher, when set, handles JSON-RPC methods under
+	// the broker.v1.* namespace (MethodBrokerPrefix). The caller
+	// constructs this closure from internal/broker.Service.Dispatch
+	// + an error-to-Error bridge; see cmd/stado/daemon.go.
+	//
+	// When nil, broker.v1.* methods return ErrCodeMethodNotFound —
+	// preserves backward compatibility for tests and pre-v1 callers
+	// that haven't built a broker service yet.
+	BrokerDispatcher BrokerDispatcher
 }
 
 // Dispatcher dispatches a tool.call to the plugin runtime. Implementations
 // in Phase 2 instantiate the wasm plugin against the daemon's shared host
 // (so PTY sessions persist) and return the rendered tool.Result content.
 type Dispatcher func(ctx context.Context, params ToolCallParams) (ToolCallResult, error)
+
+// BrokerDispatcher is the function signature ServerOpts uses to
+// route broker.v1.* JSON-RPC method calls. Returns the marshalled
+// success result on admit, or a non-nil *Error with the
+// JSON-RPC-shaped code+message on deny / validation failure /
+// internal error.
+//
+// The signature is deliberately decoupled from internal/broker so
+// internal/daemon does not depend on internal/broker (avoids
+// upward dependency from the protocol layer to the policy layer).
+type BrokerDispatcher func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *Error)
 
 // Server is a running daemon. Construct with NewServer; drive with
 // Serve; stop with Stop.
@@ -351,6 +373,14 @@ func readFramedLine(br *bufio.Reader, maxBytes int) ([]byte, error) {
 }
 
 func (s *Server) dispatch(ctx context.Context, c net.Conn, req *Request) {
+	// Broker.v1.* methods are routed to the optional BrokerDispatcher.
+	// The prefix check happens before the switch so the broker can
+	// own its own sub-routing (session.create vs session.terminate
+	// vs ...) without each method needing a case here.
+	if strings.HasPrefix(req.Method, MethodBrokerPrefix) {
+		s.handleBrokerDispatch(ctx, c, req)
+		return
+	}
 	switch req.Method {
 	case MethodHandshake:
 		s.handleHandshake(c, req)
@@ -369,6 +399,22 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, req *Request) {
 	default:
 		s.writeErr(c, req.ID, ErrCodeMethodNotFound, "unknown method: "+req.Method)
 	}
+}
+
+// handleBrokerDispatch routes a broker.v1.* JSON-RPC method call to
+// ServerOpts.BrokerDispatcher, or returns ErrCodeMethodNotFound if
+// no broker dispatcher has been configured.
+func (s *Server) handleBrokerDispatch(ctx context.Context, c net.Conn, req *Request) {
+	if s.opts.BrokerDispatcher == nil {
+		s.writeErr(c, req.ID, ErrCodeMethodNotFound, "broker not configured: "+req.Method)
+		return
+	}
+	result, brokerErr := s.opts.BrokerDispatcher(ctx, req.Method, req.Params)
+	if brokerErr != nil {
+		s.writeErr(c, req.ID, brokerErr.Code, brokerErr.Message)
+		return
+	}
+	s.writeResult(c, req.ID, result)
 }
 
 func (s *Server) handleHandshake(c net.Conn, req *Request) {
