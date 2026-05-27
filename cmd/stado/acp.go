@@ -156,6 +156,18 @@ var acpCmd = &cobra.Command{
 			defaultPersona = p
 		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			cwd, _ := os.Getwd()
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			if brokerErr != nil {
+				return fmt.Errorf("stado acp: %w", brokerErr)
+			}
+			defer func() {
+				if closeErr := brokerSession.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "stado acp: broker session.terminate: %v\n", closeErr)
+				}
+			}()
+
 			prov, provErr := tui.BuildProvider(cfg)
 			if provErr != nil {
 				fmt.Fprintf(os.Stderr, "stado acp: provider unavailable: %v\n", provErr)

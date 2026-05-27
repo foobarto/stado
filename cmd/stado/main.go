@@ -78,7 +78,19 @@ var rootCmd = &cobra.Command{
 		// path does not, so we surface the gap (mode=off OR mode=wrap
 		// configured-but-not-rewrapped) here.
 		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
-		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			cwd, _ := os.Getwd()
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			if brokerErr != nil {
+				return fmt.Errorf("stado: %w", brokerErr)
+			}
+			defer func() {
+				if closeErr := brokerSession.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
+				}
+			}()
+
 			return tui.Run(cfg)
 		})
 	},
