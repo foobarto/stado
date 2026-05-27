@@ -32,6 +32,176 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.57.0 — v1 security architecture: broker, sandbox-first default, mount table, ceiling/effective, taint substrate — 2026-05-27
+
+The v1 security architecture rollout. DESIGN.md §"Broker" and §"Sandbox"
+specify the model; PLAN.md §"v1 security architecture rollout" lists
+the phases; this release lands phases 0–8 as a single PR (operator
+ruling — the changes are far-reaching and shipping piecemeal would
+fight tests + CI).
+
+Decision record: see `docs/eps/0050-broker.md` for the design
+rationale. Brand-new EP describing phase 1 in detail with cross-
+references to DESIGN.md and PLAN.md.
+
+### v1 security architecture rollout
+
+- **Phase 0 — doc pass.** DESIGN.md grew §"Sessions and sub-agents",
+  §"Broker", §"Context management" → "Provenance and taint",
+  §"Audit" expansion (trust-root invariant, audit-trace writer
+  invariant, broker-decision log); revised §"Sandbox" with sandbox-
+  first default, `--no-sandbox` flag, launch-cwd RW boundary,
+  sandbox-mode startup announcement, mount-and-namespace invariant
+  table; replaced ASCII diagrams with mermaid. PLAN.md grew the
+  §"v1 security architecture rollout" section with phases 0–8 +
+  explicit non-goals table (proxy-as-floor / external policy engine
+  / HTTPS-git / content classifier / airgap integration / per-call
+  approval as containment).
+
+- **Phase 1 — broker substrate.** `internal/broker/` package with
+  `Service`, `Policy`, `SessionHandle`, `Purpose` (main-chat /
+  subagent / tool-run), `Profile` (default / hardened / no-sandbox),
+  `CapabilityRequest`, `Decision`, `DecisionWriter` / `DecisionRecord`,
+  `DispatchError`. New JSON-RPC method namespace `broker.v1.*` on
+  the existing daemon UDS socket: `session.create`, `session.terminate`,
+  `toolrun.sandbox`, `policy.query`. `internal/daemon/ServerOpts.BrokerDispatcher`
+  field routes the namespace to the broker via a typed-error bridge
+  in `cmd/stado/broker_bridge.go`. Operator policy file at
+  `$XDG_CONFIG_HOME/stado/policy.toml` (TOML), with a binary-embedded
+  permissive default. `cmd/stado/broker_client.go` `attachToBroker` +
+  `BrokerSession.Close()` helper; wired into every orchestrator entry
+  point: TUI (`stado`), `stado run`, `stado headless`, `stado acp`,
+  `stado mcp-server`. New e2e tests over real UDS daemon
+  (`cmd/stado/broker_e2e_test.go`).
+
+- **Phase 1g — `--sandbox-fs` retired, `--no-sandbox` added.**
+  Pre-1.0 breaking change with inverted polarity. The earlier
+  UX-pressured retreat (run.go:281–290 comment, now rewritten) is
+  reversed: sandboxed-by-default across all entry points; the
+  operator opts out via `--no-sandbox`. No deprecation alias. The
+  launch cwd is the writable boundary in both modes.
+
+- **Phase 2 — sandbox-first default enforcement.** `STADO_BROKER_ATTACH`
+  default flipped to on (set to `0`/`false`/`off`/`no` to opt out for
+  development scenarios). `BrokerSession.Ceiling` typed as
+  `sandbox.Policy` (was opaque `any`). New
+  `BrokerSession.AnnounceSandboxMode(w, surface)` banner emitted by
+  every interactive surface at startup: sandbox state, profile,
+  writable mount summary, credential-mask count.
+
+- **Phase 3 — mount-and-namespace invariant table.**
+  `internal/broker/mount_table.go` lifts DESIGN.md's table into code:
+  `MountMode` enum (`NotMounted` / `ReadOnly` / `ReadWrite` /
+  `BrokerOnly`), `DefaultMountTable(cwd)` + `HardenedMountTable(cwd)`,
+  `ToPolicy()` translation, `MaskedPaths()` for the announcement
+  banner. CI assertions in `mount_table_test.go` catch silent
+  widening — the "no ssh private key in FSRead" invariant is now a
+  runtime guarantee. `~/.ssh/config` decision: default profile
+  mounts RO as-is (operator ergonomics); hardened profile gets a
+  synthesised minimal config (no arbitrary-execution directives).
+
+- **Phase 4 — session capability model in code.** Ceiling /
+  effective vocabulary applied to `SessionHandle`. `Service.NarrowEffective`
+  enforces the drop-only invariant — attempts to widen return
+  `ErrEffectiveWiderThanCeiling` with operator-facing guidance
+  ("fork a new session instead"). `SubagentCeiling(parent, role,
+  mode, write_scope)` mechanically projects a child ceiling that
+  is GUARANTEED a subset of the parent. `IsSubsetOf` per-field
+  comparison with path-prefix semantics for FS sets (catches the
+  /workfoo vs /work separator-prefix bug class via test).
+
+- **Phase 5a — broker-decision log.**
+  `$XDG_DATA_HOME/stado/broker/decisions.jsonl` (mode 0600, parent
+  dir 0700). Every admit / deny / policy.query records a JSONL line
+  with timestamp + full CapabilityRequest + full Decision.
+  `cmd/stado/broker_bridge.go:buildBrokerService` opens the log
+  file; nil-writer path is restricted to tests.
+
+- **Phase 5c — broker ceiling threaded into Executor.Runner.**
+  `internal/sandbox/ceiling_runner.go` `CeilingRunner` decorator
+  wraps an existing Runner with a ceiling Policy; every per-tool-
+  call Policy is intersected with the ceiling before delegating.
+  Wired into `stado run` after `attachToBroker` (skipped for
+  Skipped sessions + `--no-sandbox`). The mount table now ACTUALLY
+  ENFORCES at the runner layer — bash can't reach paths the ceiling
+  denies.
+
+- **Phase 6 — taint substrate.** Per-session `Taint` state (Clean /
+  Tainted), `Service.SetTaint` / `Taint` / `EvaluateWithTaint`,
+  `broker.v1.session.taint` IPC method. Tainted context overlay
+  refuses elevated-capability sub-agent grants (`git-fetch` /
+  `git-sub-agent` roles reserved by `isElevatedSubagentRole` for
+  phase 7). Context-management ingestion-site wiring deferred to
+  phase 6b.
+
+- **Phase 7 substrate — ssh-agent + git sub-agent.** Per operator
+  ruling, the phase most expected to need tuning lands last. This
+  release ships the broker-side substrate: `RoleGitFetch` /
+  `RoleGitSubagent` constants, `GitSubagentSpec` (declared hosts +
+  key paths + write scope + egress mode), `ProjectGitSubagentCeiling`
+  (mechanical projection with attenuation guarantees + SSH_AUTH_SOCK
+  Env injection), `IsForbiddenForGitSubagent` (dispatch-side
+  fetch-not-push guard with allowlist + fail-safe default).
+  Runtime wiring (bwrap socket bind-mount, approval-once prompt,
+  hardened ssh-config synthesis, spawn_agent → broker integration)
+  flagged for phase 7b follow-up.
+
+- **Phase 8 — `stado session tree` as broker client.** The
+  standalone cobra subcommand notifies the broker of the
+  newly-forked session via `attachToBroker` + immediate `Close`
+  after the sidecar fork commits. Best-effort: broker-unreachable
+  scenarios print a stderr warning but don't fail the fork.
+
+### Non-goals (explicitly deferred — see EP-0050 + PLAN.md)
+
+- CONNECT / egress proxy as the v1 enforcement floor. The Linux
+  network namespace is the floor; `internal/sandbox/proxy.go` is
+  preserved byte-equal as a refinement layer.
+- External / relational policy engine (OPA, Rego). CAP model
+  sufficient for v1.
+- HTTPS-git credential confinement. Bearer-token reality;
+  documented honestly in DESIGN.md §"Git sub-agent" → "HTTPS-git
+  is a known limitation".
+- Content-safety classifier in the trust-critical path.
+- Airgap-mode (`-tags airgap`) integration. Deferred to future
+  phase.
+- Per-tool-call approval as the containment boundary. Tool calls
+  stay yolo-by-default for the chat session; the new approval is
+  capability-grant at session-creation for socket-bearing
+  sub-agents only.
+
+### Carry-overs from in-flight security work (#68 / #69 / #70)
+
+The v1 architecture branch was cut from main at commit `c9dfb2e`,
+which already carried these merged-but-unreleased security fixes:
+
+- **`#68` providers: `inherit_env` opt-in.** Reconciles PR #65/M
+  acpwrap env-scrub (v0.56.0) with EP-0032's auth-env inherit
+  contract. New per-provider `inherit_env = ["GEMINI_API_KEY",
+  "OPENAI_API_KEY", …]` opt-in to `[acp.providers.<name>]` and
+  `[mcp.providers.<name>]`; listed vars extracted from
+  `os.Environ()` and forwarded to wrapped subprocess. Restores
+  wrapped-agent auth flows (gemini-acp, opencode-acp, codex-mcp)
+  silently broken in v0.56.0. EP-0032 amended; CHANGELOG of
+  v0.56.0 retroactively flags the break.
+- **`#69` tool: `CheckWritePath` factored + hardened.** Symlink
+  + case-insensitive bypass closure (3-way convergent). Codex
+  P0 finding from the post-v0.56.0 review.
+- **`#70` runtime: wasm host imports capped before allocation.**
+  Codex P2 — prevents an attacker-influenced manifest from
+  exhausting wazero's import-resolution allocator at module-
+  instantiation time.
+
+### Infra
+
+- Branch: `sec/v1-architecture` (16 commits 62e6aef → 25c05f6
+  for the v1 work + commits since the v0.56.0 tag for #68/#69/#70).
+- All existing tests pass under `-race` (cmd/stado, internal/broker,
+  internal/daemon, internal/sandbox, internal/runtime). The
+  test-binary auto-spawn refusal in `daemon.EnsureRunning` means
+  every existing test transparently hits the Skipped broker path,
+  so the broker-attach default flip is regression-clean.
+
 ## v0.56.0 — deep-dive backlog sweep (I/J/K/L/M/N/O/Q clusters) — 2026-05-24
 
 Closes 12 of the 14 remaining deep-dive findings carried over from the
