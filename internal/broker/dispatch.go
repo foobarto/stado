@@ -17,6 +17,7 @@ import (
 const (
 	MethodSessionCreate    = "broker.v1.session.create"
 	MethodSessionTerminate = "broker.v1.session.terminate"
+	MethodSessionTaint     = "broker.v1.session.taint"
 	MethodToolRunSandbox   = "broker.v1.toolrun.sandbox"
 	MethodPolicyQuery      = "broker.v1.policy.query"
 )
@@ -70,6 +71,8 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 		return s.dispatchSessionCreate(ctx, params)
 	case MethodSessionTerminate:
 		return s.dispatchSessionTerminate(ctx, params)
+	case MethodSessionTaint:
+		return s.dispatchSessionTaint(ctx, params)
 	case MethodToolRunSandbox:
 		return s.dispatchToolRunSandbox(ctx, params)
 	case MethodPolicyQuery:
@@ -146,6 +149,21 @@ type PolicyQueryParams struct {
 // broker.v1.policy.query response.
 type PolicyQueryResult struct {
 	Decision Decision `json:"decision"`
+}
+
+// SessionTaintParams is the wire shape for broker.v1.session.taint.
+// Used by ingestion sites to mark a session tainted (untrusted span
+// entered the context) or to reset back to clean (operator-turn
+// boundary).
+type SessionTaintParams struct {
+	SessionID string `json:"session_id"`
+	Taint     string `json:"taint"` // "clean" | "tainted"
+}
+
+// SessionTaintResult is the wire shape for a successful
+// broker.v1.session.taint response.
+type SessionTaintResult struct {
+	OK bool `json:"ok"`
 }
 
 // ──── Dispatch handlers ──────────────────────────────────────────
@@ -288,6 +306,53 @@ func (s *Service) dispatchToolRunSandbox(_ context.Context, raw json.RawMessage)
 		Ceiling:       projectCeiling(req),
 		Rule:          decision.Rule,
 	})
+}
+
+func (s *Service) dispatchSessionTaint(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var params SessionTaintParams
+	if err := strictUnmarshal(raw, &params); err != nil {
+		return nil, &DispatchError{
+			Code:    ErrCodeInvalidParams,
+			Message: "broker.v1.session.taint: " + err.Error(),
+		}
+	}
+	if params.SessionID == "" {
+		return nil, &DispatchError{
+			Code:    ErrCodeInvalidParams,
+			Message: "broker.v1.session.taint: session_id required",
+		}
+	}
+	var t Taint
+	switch params.Taint {
+	case "clean":
+		t = TaintClean
+	case "tainted":
+		t = TaintTainted
+	default:
+		return nil, &DispatchError{
+			Code:    ErrCodeInvalidParams,
+			Message: fmt.Sprintf("broker.v1.session.taint: invalid taint %q (want 'clean' or 'tainted')", params.Taint),
+		}
+	}
+	if err := s.SetTaint(params.SessionID, t); err != nil {
+		switch {
+		case errors.Is(err, ErrSessionNotFound):
+			return nil, &DispatchError{
+				Code:    ErrCodeSessionNotFound,
+				Message: "broker.v1.session.taint: session not found",
+			}
+		case errors.Is(err, ErrSessionTerminated):
+			return nil, &DispatchError{
+				Code:    ErrCodeSessionTerminated,
+				Message: "broker.v1.session.taint: session terminated",
+			}
+		}
+		return nil, &DispatchError{
+			Code:    ErrCodeInternal,
+			Message: "broker.v1.session.taint: " + err.Error(),
+		}
+	}
+	return json.Marshal(SessionTaintResult{OK: true})
 }
 
 func (s *Service) dispatchPolicyQuery(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {

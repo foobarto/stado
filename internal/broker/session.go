@@ -29,6 +29,11 @@ type sessionState struct {
 	handle        SessionHandle
 	terminated    bool
 	terminated_at time.Time
+	// taint is the session's current provenance state (phase 6).
+	// Mutated via Service.SetTaint; read by Service.EvaluateWithTaint
+	// for capability-grant decisions that should refuse when the
+	// requesting context is tainted.
+	taint Taint
 }
 
 // Service is the broker's runtime state holder. One instance per
