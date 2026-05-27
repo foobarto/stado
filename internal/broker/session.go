@@ -194,41 +194,21 @@ func mintSessionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// projectCeiling produces a sandbox.Policy approximating what this
-// session may do. Phase 1: very coarse — most policy returned is
-// permissive, matching today's actual behaviour. Phase 2 wires
-// real mount-table-derived ceilings; phase 4 narrows from the
-// full request shape.
+// projectCeiling produces a sandbox.Policy from the mount-and-
+// namespace invariant table for the requested profile (see
+// mount_table.go). Phase 3 narrows reads from today's "/" to the
+// table-derived RO/RW set; phase 4 will tighten further from the
+// full request shape (e.g. sub-agent WriteScope).
+//
+// ProfileNoSandbox returns an empty Policy — the runtime picks
+// NoneRunner and no namespace isolation is applied. The broker
+// has still admitted the request via Service.Evaluate, so the
+// decision is captured in the broker-decision log.
 func projectCeiling(req CapabilityRequest) sandbox.Policy {
-	switch req.Profile {
-	case ProfileNoSandbox:
-		// No mounts asserted; runner-level NoneRunner will simply
-		// not apply any. The empty Policy is the right shape for
-		// "no constraints".
+	if req.Profile == ProfileNoSandbox {
 		return sandbox.Policy{}
-	case ProfileHardened:
-		// Phase 1 stub. Phase 2/3 produces the real hardened mount
-		// set. For now: same as default — placeholder.
-		return defaultCeiling(req)
-	case ProfileDefault:
-		return defaultCeiling(req)
 	}
-	return defaultCeiling(req)
-}
-
-func defaultCeiling(req CapabilityRequest) sandbox.Policy {
-	// Phase 1 default: writes confined to launch cwd + /tmp, reads
-	// everywhere (matches today's WorktreeWrite shape). Phase 3
-	// narrows reads per the mount table.
-	writes := []string{}
-	if req.CWD != "" {
-		writes = append(writes, req.CWD)
-	}
-	writes = append(writes, "/tmp")
-	return sandbox.Policy{
-		FSRead:  []string{"/"},
-		FSWrite: writes,
-	}
+	return MountTableFor(req.Profile, req.CWD).ToPolicy()
 }
 
 // traceRefFor returns the git ref name the broker would append

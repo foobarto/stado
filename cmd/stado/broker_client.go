@@ -212,6 +212,21 @@ func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
 	fmt.Fprintf(w, "%s: sandbox=%s session=%s (broker-mediated)\n", surface, profileTag, s.SessionID)
 	writableSummary := summarizeFSWrite(s.Ceiling.FSWrite)
 	fmt.Fprintf(w, "%s: writable: %s\n", surface, writableSummary)
+	if maskedCount := countMaskedPaths(s.Profile); maskedCount > 0 {
+		fmt.Fprintf(w, "%s: %d credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)\n",
+			surface, maskedCount)
+	}
+}
+
+// countMaskedPaths returns the count of credential-bearing paths
+// the mount table explicitly denies in this profile. Used by the
+// banner so operators see at-a-glance that secrets are masked
+// rather than having to inspect the full mount table.
+func countMaskedPaths(profile broker.Profile) int {
+	if profile == broker.ProfileNoSandbox || profile == "" {
+		return 0
+	}
+	return len(broker.MountTableFor(profile, "").MaskedPaths())
 }
 
 // summarizeFSWrite returns a short human-readable summary of the
