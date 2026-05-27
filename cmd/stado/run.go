@@ -341,6 +341,20 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				}
 			}()
 
+			// Phase 5c: wrap the Executor's runner with the broker's
+			// projected ceiling. Every per-tool-call Policy is now
+			// intersected with the ceiling at runner-construction
+			// time, so a tool whose per-call Policy exceeds the
+			// ceiling gets the intersection (which is bounded by the
+			// ceiling) — the mount table actually enforces.
+			//
+			// Skipped sessions (test binaries, opt-out) keep the
+			// existing un-wrapped runner. --no-sandbox keeps
+			// NoneRunner from the earlier override.
+			if !brokerSession.Skipped && !runNoSandbox && opts.Executor != nil {
+				opts.Executor.Runner = sandbox.NewCeilingRunner(opts.Executor.Runner, brokerSession.Ceiling)
+			}
+
 			_, finalMsgs, err := runAgentLoop(ctx, opts)
 			if err != nil {
 				if errors.Is(err, runtime.ErrCostCapExceeded) {
