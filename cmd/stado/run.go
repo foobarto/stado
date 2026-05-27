@@ -318,6 +318,21 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 			defer cancel()
 
+			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			// On opt-in: auto-spawn the broker, create a main-chat session,
+			// hold the handle for the agent loop's duration, terminate on
+			// exit. Phase 2 flips the default and wires the returned
+			// ceiling to actual sandbox enforcement.
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			if brokerErr != nil {
+				return fmt.Errorf("stado run: %w", brokerErr)
+			}
+			defer func() {
+				if closeErr := brokerSession.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "stado run: broker session.terminate: %v\n", closeErr)
+				}
+			}()
+
 			_, finalMsgs, err := runAgentLoop(ctx, opts)
 			if err != nil {
 				if errors.Is(err, runtime.ErrCostCapExceeded) {
