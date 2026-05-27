@@ -18,6 +18,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/foobarto/stado/internal/broker"
@@ -30,21 +32,57 @@ import (
 // embedded permissive default is used instead.
 const brokerPolicyFilename = "policy.toml"
 
+// brokerDecisionLogPath returns the canonical path the broker
+// appends decision records to: $XDG_DATA_HOME/stado/broker/
+// decisions.jsonl (mirrors the path the mount table reserves as
+// ModeBrokerOnly).
+func brokerDecisionLogPath(cfg *config.Config) string {
+	return filepath.Join(cfg.StateDir(), "broker", "decisions.jsonl")
+}
+
 // buildBrokerService loads the operator's policy file (or the
-// embedded default if absent), constructs a broker.Service, and
-// returns it ready to wire into ServerOpts.BrokerDispatcher via
-// brokerDispatcherBridge.
+// embedded default if absent), opens the broker-decision log
+// file for append, constructs a broker.Service wired to both,
+// and returns it ready to wire into ServerOpts.BrokerDispatcher
+// via brokerDispatcherBridge.
 //
-// Phase 1: no decision log writer is configured here (decisionsLog
-// is nil); phase 5 wires the canonical $XDG_DATA_HOME/stado/broker/
-// decisions.jsonl path.
-func buildBrokerService() (*broker.Service, error) {
+// Phase 5: the decision log is the canonical record of broker
+// admit/deny actions and is what operators inspect for forensic
+// walk-back. See DESIGN.md §"Audit" → "Broker-decision log".
+func buildBrokerService(cfg *config.Config) (*broker.Service, error) {
 	policyPath := filepath.Join(config.ConfigDir(), brokerPolicyFilename)
 	policy, err := broker.LoadOrDefault(policyPath)
 	if err != nil {
 		return nil, err
 	}
-	return broker.NewService(policy, nil), nil
+
+	writer, err := openBrokerDecisionLog(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open broker-decision log: %w", err)
+	}
+	return broker.NewService(policy, writer), nil
+}
+
+// openBrokerDecisionLog opens (or creates) the broker-decision log
+// file at the canonical path and returns a DecisionWriter ready to
+// append. The file is opened append-only with mode 0600 so only
+// the broker's owner can read/write it; the parent dir is created
+// if missing.
+//
+// If the file can't be opened for any reason (parent-dir creation
+// fails, etc.), returns the error. The caller surfaces it as a
+// fatal broker-startup failure rather than silently falling back
+// to MemoryWriter — losing the decision log defeats the purpose.
+func openBrokerDecisionLog(cfg *config.Config) (broker.DecisionWriter, error) {
+	path := brokerDecisionLogPath(cfg)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return broker.NewJSONLWriter(f), nil
 }
 
 // brokerDispatcherBridge wraps svc.Dispatch in the shape

@@ -173,10 +173,10 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	defer state.Close()
 
 	// v1 broker service. Loads policy.toml from $XDG_CONFIG_HOME/stado/
-	// or falls back to the binary-embedded permissive default. Phase 1
-	// is plumbing; the policy admits everything that today's daemon
-	// admits. Subsequent phases narrow specific purposes/profiles.
-	brokerSvc, brokerErr := buildBrokerService()
+	// or falls back to the binary-embedded permissive default. Opens
+	// the broker-decision log at $XDG_DATA_HOME/stado/broker/
+	// decisions.jsonl for append (phase 5).
+	brokerSvc, brokerErr := buildBrokerService(cfg)
 	if brokerErr != nil {
 		return fmt.Errorf("daemon: build broker service: %w", brokerErr)
 	}
