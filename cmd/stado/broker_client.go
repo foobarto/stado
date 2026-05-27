@@ -19,12 +19,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/foobarto/stado/internal/broker"
 	"github.com/foobarto/stado/internal/daemon"
+	"github.com/foobarto/stado/internal/sandbox"
 )
 
 // brokerAttachTimeout is the maximum wall-clock time the helper
@@ -33,10 +35,14 @@ import (
 const brokerAttachTimeout = 3 * time.Second
 
 // envBrokerAttach gates whether orchestrator entry points attach to
-// the broker. Default: unset → skip (phase 1 incremental rollout).
-// Phase 2 flips the default to attach. Set to "1" / "true" / "on"
-// to opt-in during phase 1; "0" / "false" / "off" / "no" to opt-out
-// in phase 2.
+// the broker. v2 default: attach. Set to "0" / "false" / "off" / "no"
+// to opt out (development / unusual environments where the broker
+// won't reach).
+//
+// Phase 1 ran with the default off (existing tests stay green via
+// daemon.EnsureRunning's Go-test-binary refusal). Phase 2 flips the
+// default to on; test binaries still hit the Skipped fast-path via
+// the test-binary refusal so no test-infrastructure update is needed.
 const envBrokerAttach = "STADO_BROKER_ATTACH"
 
 // BrokerSession is what an orchestrator entry point holds after a
@@ -47,8 +53,9 @@ const envBrokerAttach = "STADO_BROKER_ATTACH"
 type BrokerSession struct {
 	SessionID  string
 	Purpose    broker.Purpose
+	Profile    broker.Profile // mirrored from the request; useful for the startup banner
 	TraceRef   string
-	Ceiling    any // sandbox.Policy in JSON; opaque to entry-point code
+	Ceiling    sandbox.Policy // typed; phase 2 uses this to inform runner choice
 	Skipped    bool
 	SkipReason string
 
@@ -95,17 +102,18 @@ func (s *BrokerSession) Close() error {
 	return err
 }
 
-// brokerAttachOptIn reports whether the operator has opted into
-// broker attach for orchestrator entry points. Phase 1: default is
-// off so existing tests don't break. Phase 2 flips this default by
-// inverting the conditional.
+// brokerAttachOptIn reports whether the broker attach is enabled
+// for this orchestrator invocation. v2: defaults to on. Set
+// STADO_BROKER_ATTACH=0 (or false/off/no) to opt out — useful for
+// development scenarios where the broker can't be reached or for
+// debugging the pre-broker code paths.
 func brokerAttachOptIn() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(envBrokerAttach)))
 	switch v {
-	case "1", "true", "on", "yes":
-		return true
+	case "0", "false", "off", "no":
+		return false
 	}
-	return false
+	return true
 }
 
 // attachToBroker auto-spawns the broker if absent, dials it, and
@@ -165,10 +173,55 @@ func attachToBroker(ctx context.Context, purpose broker.Purpose, profile broker.
 	return &BrokerSession{
 		SessionID: result.SessionID,
 		Purpose:   result.Purpose,
+		Profile:   profile,
 		TraceRef:  result.TraceRef,
 		Ceiling:   result.Ceiling,
 		client:    cl,
 	}, nil
+}
+
+// AnnounceSandboxMode writes a one-time startup banner to w
+// describing the sandbox state for surface (TUI / stado run /
+// headless / ACP / mcp-server). Called from each entry point after
+// attachToBroker so the operator sees the active profile + mount
+// summary on stderr at every launch.
+//
+// When the broker attach is Skipped (test-binary refusal, env
+// opt-out, etc.) the message indicates that — the operator can see
+// from the banner whether the broker is or isn't in the path. This
+// is the positive counterpart to today's WarnIfHostUnsandboxed,
+// which only fires when sandboxing is NOT in place (DESIGN.md
+// §"Sandbox" → "Sandbox-mode startup announcement").
+func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
+	if w == nil {
+		return
+	}
+	if s == nil || s.Skipped {
+		reason := "(unknown reason)"
+		if s != nil && s.SkipReason != "" {
+			reason = "(" + s.SkipReason + ")"
+		}
+		fmt.Fprintf(w, "%s: broker attach skipped %s — sandbox not actively enforced for this session\n",
+			surface, reason)
+		return
+	}
+	profileTag := string(s.Profile)
+	if profileTag == "" {
+		profileTag = "(unknown)"
+	}
+	fmt.Fprintf(w, "%s: sandbox=%s session=%s (broker-mediated)\n", surface, profileTag, s.SessionID)
+	writableSummary := summarizeFSWrite(s.Ceiling.FSWrite)
+	fmt.Fprintf(w, "%s: writable: %s\n", surface, writableSummary)
+}
+
+// summarizeFSWrite returns a short human-readable summary of the
+// session's writable filesystem grant. Phase 2 default is launch
+// cwd + /tmp; phase 3's mount table tightens this.
+func summarizeFSWrite(writes []string) string {
+	if len(writes) == 0 {
+		return "(none — read-only sandbox)"
+	}
+	return strings.Join(writes, ", ")
 }
 
 // brokerPurposeFromFlags maps the current command's flags/context

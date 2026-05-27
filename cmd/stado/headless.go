@@ -71,6 +71,7 @@ var headlessCmd = &cobra.Command{
 			if brokerErr != nil {
 				return fmt.Errorf("stado headless: %w", brokerErr)
 			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "stado headless")
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado headless: broker session.terminate: %v\n", closeErr)

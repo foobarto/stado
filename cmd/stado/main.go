@@ -85,6 +85,7 @@ var rootCmd = &cobra.Command{
 			if brokerErr != nil {
 				return fmt.Errorf("stado: %w", brokerErr)
 			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "stado")
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)

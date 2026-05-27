@@ -162,6 +162,7 @@ var acpCmd = &cobra.Command{
 			if brokerErr != nil {
 				return fmt.Errorf("stado acp: %w", brokerErr)
 			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "stado acp")
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado acp: broker session.terminate: %v\n", closeErr)

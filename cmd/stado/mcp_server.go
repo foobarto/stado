@@ -100,6 +100,7 @@ var mcpServerCmd = &cobra.Command{
 			if brokerErr != nil {
 				return fmt.Errorf("mcp-server: %w", brokerErr)
 			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "mcp-server")
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "mcp-server: broker session.terminate: %v\n", closeErr)

@@ -2,36 +2,19 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/sandbox"
 )
 
-func TestAttachToBroker_OptOutDefaultsToSkipped(t *testing.T) {
+func TestAttachToBroker_DefaultOnTestBinaryRefused(t *testing.T) {
+	// v2 default: STADO_BROKER_ATTACH unset → attach. We're a Go
+	// test binary, so EnsureRunning refuses to auto-spawn ourselves
+	// as a daemon. The helper translates that into Skipped so the
+	// test infrastructure doesn't have to build a real stado binary.
 	t.Setenv(envBrokerAttach, "")
-	ctx := context.Background()
-	sess, err := attachToBroker(ctx, broker.PurposeMainChat, broker.ProfileDefault, "/work")
-	if err != nil {
-		t.Fatalf("attachToBroker: %v", err)
-	}
-	if !sess.Skipped {
-		t.Errorf("expected Skipped, got SessionID=%q", sess.SessionID)
-	}
-	if sess.SkipReason == "" {
-		t.Errorf("SkipReason empty")
-	}
-	if err := sess.Close(); err != nil {
-		t.Errorf("Close on skipped session: %v", err)
-	}
-}
-
-func TestAttachToBroker_OptInTestBinaryRefused(t *testing.T) {
-	// Setting STADO_BROKER_ATTACH=1 makes the helper try to attach.
-	// We're a Go test binary; EnsureRunning refuses to auto-spawn
-	// ourselves as a daemon. The helper translates that into a
-	// Skipped reason so existing tests don't have to build a real
-	// stado binary just to exercise this path.
-	t.Setenv(envBrokerAttach, "1")
 	ctx := context.Background()
 	sess, err := attachToBroker(ctx, broker.PurposeMainChat, broker.ProfileDefault, "/work")
 	if err != nil {
@@ -48,7 +31,27 @@ func TestAttachToBroker_OptInTestBinaryRefused(t *testing.T) {
 	}
 }
 
+func TestAttachToBroker_OptOutExplicitlyFalse(t *testing.T) {
+	// STADO_BROKER_ATTACH=0 → explicit opt-out → Skipped with
+	// reason "opt-out".
+	t.Setenv(envBrokerAttach, "0")
+	ctx := context.Background()
+	sess, err := attachToBroker(ctx, broker.PurposeMainChat, broker.ProfileDefault, "/work")
+	if err != nil {
+		t.Fatalf("attachToBroker: %v", err)
+	}
+	if !sess.Skipped {
+		t.Errorf("expected Skipped on opt-out")
+	}
+	if sess.SkipReason == "" {
+		t.Errorf("SkipReason empty")
+	}
+}
+
 func TestAttachToBroker_OptInForms(t *testing.T) {
+	// v2 default is on. Only the explicit opt-out values produce
+	// false; everything else (including unrecognized values) means
+	// attach.
 	cases := []struct {
 		envVal  string
 		wantOpt bool
@@ -58,12 +61,13 @@ func TestAttachToBroker_OptInForms(t *testing.T) {
 		{"TRUE", true},
 		{"on", true},
 		{"yes", true},
-		{"", false},
+		{"", true}, // v2 default
 		{"0", false},
 		{"false", false},
+		{"FALSE", false},
 		{"off", false},
 		{"no", false},
-		{"random", false},
+		{"random", true}, // unknown values default to on
 	}
 	for _, tc := range cases {
 		t.Run("env="+tc.envVal, func(t *testing.T) {
@@ -101,5 +105,75 @@ func TestBrokerPurposeFromFlags_PhaseOneAlwaysMainChat(t *testing.T) {
 func TestBrokerProfileFromFlags_PhaseOneAlwaysDefault(t *testing.T) {
 	if got := brokerProfileFromFlags(); got != broker.ProfileDefault {
 		t.Errorf("brokerProfileFromFlags() = %q, want %q (phase 1 always default; phase 1g wires --no-sandbox)", got, broker.ProfileDefault)
+	}
+}
+
+func TestAnnounceSandboxMode_Skipped(t *testing.T) {
+	var buf strings.Builder
+	sess := &BrokerSession{Skipped: true, SkipReason: "test-binary auto-spawn refused"}
+	sess.AnnounceSandboxMode(&buf, "stado")
+	got := buf.String()
+	if !strings.Contains(got, "skipped") {
+		t.Errorf("announcement %q lacks 'skipped'", got)
+	}
+	if !strings.Contains(got, "test-binary auto-spawn refused") {
+		t.Errorf("announcement %q lacks skip reason", got)
+	}
+}
+
+func TestAnnounceSandboxMode_Active(t *testing.T) {
+	var buf strings.Builder
+	sess := &BrokerSession{
+		SessionID: "abcdef0123456789abcdef0123456789",
+		Purpose:   broker.PurposeMainChat,
+		Profile:   broker.ProfileDefault,
+		Ceiling: sandbox.Policy{
+			FSWrite: []string{"/work", "/tmp"},
+		},
+	}
+	sess.AnnounceSandboxMode(&buf, "stado run")
+	got := buf.String()
+	if !strings.Contains(got, "sandbox=default") {
+		t.Errorf("announcement %q lacks 'sandbox=default'", got)
+	}
+	if !strings.Contains(got, "abcdef0123456789") {
+		t.Errorf("announcement %q lacks SessionID", got)
+	}
+	if !strings.Contains(got, "/work") || !strings.Contains(got, "/tmp") {
+		t.Errorf("announcement %q lacks writable paths", got)
+	}
+}
+
+func TestAnnounceSandboxMode_NoSandboxProfile(t *testing.T) {
+	var buf strings.Builder
+	sess := &BrokerSession{
+		SessionID: "00000000000000000000000000000000",
+		Purpose:   broker.PurposeMainChat,
+		Profile:   broker.ProfileNoSandbox,
+		Ceiling:   sandbox.Policy{}, // empty
+	}
+	sess.AnnounceSandboxMode(&buf, "stado run")
+	got := buf.String()
+	if !strings.Contains(got, "sandbox=no-sandbox") {
+		t.Errorf("announcement %q lacks 'sandbox=no-sandbox'", got)
+	}
+	if !strings.Contains(got, "(none — read-only sandbox)") {
+		t.Errorf("announcement %q lacks empty-writable indicator", got)
+	}
+}
+
+func TestAnnounceSandboxMode_NilWriter(t *testing.T) {
+	// Defensive: nil io.Writer should not panic.
+	sess := &BrokerSession{Skipped: true}
+	sess.AnnounceSandboxMode(nil, "stado")
+}
+
+func TestAnnounceSandboxMode_NilSession(t *testing.T) {
+	var buf strings.Builder
+	var sess *BrokerSession
+	sess.AnnounceSandboxMode(&buf, "stado")
+	got := buf.String()
+	if !strings.Contains(got, "skipped") {
+		t.Errorf("nil-session announcement %q should mention skipped state", got)
 	}
 }

@@ -334,6 +334,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			if brokerErr != nil {
 				return fmt.Errorf("stado run: %w", brokerErr)
 			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "stado run")
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado run: broker session.terminate: %v\n", closeErr)
