@@ -113,7 +113,7 @@ func TestSetupHintRenders(t *testing.T) {
 
 // TestCatalogForKnownProviders returns something non-empty.
 func TestCatalogForKnownProviders(t *testing.T) {
-	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras"} {
+	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras", "minimax"} {
 		items := CatalogFor(p)
 		if len(items) == 0 {
 			t.Errorf("catalog empty for %q", p)
