@@ -32,6 +32,23 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.57.1 — TUI: lift system-block content truncation — 2026-05-28
+
+### Fixes
+
+- **TUI: long system blocks (notably `/tool ls` and `/tool <name>`
+  result output) were truncated to ~480 chars.**
+  `internal/tui/blocks_render.go` applied `truncate(blk.body, width*6)`
+  to every system and `btw` block before rendering, so on a typical
+  80-column terminal anything past ~12 lines was silently cut.
+  Observed symptoms: `/tool ls` displayed only the first ~12 of ~180
+  registered tools, and `/tool <name>` appeared to "do nothing"
+  because the `plugin <id>/<tool> → <content>` envelope rendered as
+  an empty-looking box once the cap fell inside the content. Fix
+  removes the truncate cap entirely — lipgloss already re-wraps to
+  the available width, and the viewport handles scroll. Regression
+  test: `TestSystemBlock_LongBodyNotTruncated`.
+
 ## v0.57.0 — v1 security architecture: broker, sandbox-first default, mount table, ceiling/effective, taint substrate — 2026-05-27
 
 The v1 security architecture rollout. DESIGN.md §"Broker" and §"Sandbox"

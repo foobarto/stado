@@ -234,7 +234,7 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			Foreground(m.theme.Fg("text").GetForeground()).
 			Padding(0, 1).
 			Width(width).
-			Render(truncate(blk.body, width*6)) + "\n", nil
+			Render(blk.body) + "\n", nil
 	case "btw":
 		return lipgloss.NewStyle().
 			Background(m.theme.Bg("surface").GetBackground()).
@@ -243,7 +243,7 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			Foreground(m.theme.Fg("text_secondary").GetForeground()).
 			Padding(0, 1).
 			Width(width).
-			Render("btw: "+truncate(blk.body, width*6)) + "\n", nil
+			Render("btw: "+blk.body) + "\n", nil
 	}
 	return "", nil
 }
