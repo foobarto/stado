@@ -172,14 +172,24 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	}
 	defer state.Close()
 
+	// v1 broker service. Loads policy.toml from $XDG_CONFIG_HOME/stado/
+	// or falls back to the binary-embedded permissive default. Opens
+	// the broker-decision log at $XDG_DATA_HOME/stado/broker/
+	// decisions.jsonl for append (phase 5).
+	brokerSvc, brokerErr := buildBrokerService(cfg)
+	if brokerErr != nil {
+		return fmt.Errorf("daemon: build broker service: %w", brokerErr)
+	}
+
 	srv := daemon.NewServer(daemon.ServerOpts{
-		SocketPath:   socketPath,
-		IdleTimeout:  daemonStartIdle,
-		Logger:       logger,
-		Dispatcher:   state.dispatch,
-		ListSessions: state.listSessions,
-		KillSession:  state.killSession,
-		ListTools:    state.listTools,
+		SocketPath:       socketPath,
+		IdleTimeout:      daemonStartIdle,
+		Logger:           logger,
+		Dispatcher:       state.dispatch,
+		ListSessions:     state.listSessions,
+		KillSession:      state.killSession,
+		ListTools:        state.listTools,
+		BrokerDispatcher: brokerDispatcherBridge(brokerSvc),
 	})
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -583,6 +593,19 @@ func openDaemonLog(socketPath string) (*os.File, error) {
 	}
 	if len(dir) > 1 && dir[len(dir)-1] == '/' {
 		dir = dir[:len(dir)-1]
+	}
+	// Create the socket-parent dir if missing. Pre-v1 this code path
+	// only fired in operator-driven `stado daemon start`, and the
+	// auto-spawn path in tool_run_daemon.go did its own RemoveStaleSocket
+	// + bind which implicitly tolerated a missing parent (bind would
+	// fail loudly). Post-v1 every orchestrator invocation auto-spawns
+	// the daemon, so a fresh environment with no prior $XDG_RUNTIME_DIR/
+	// stado/ directory (a distrobox container, a CI runner, a fresh
+	// account) hits this. mkdir -p the parent so the log open + the
+	// socket bind both succeed. 0700 matches the socket's intended
+	// owner-only mode.
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
 	}
 	return os.OpenFile(dir+"/daemon.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }

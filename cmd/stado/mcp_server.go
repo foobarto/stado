@@ -93,7 +93,20 @@ var mcpServerCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
-		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			cwd := mustCwd()
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			if brokerErr != nil {
+				return fmt.Errorf("mcp-server: %w", brokerErr)
+			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "mcp-server")
+			defer func() {
+				if closeErr := brokerSession.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "mcp-server: broker session.terminate: %v\n", closeErr)
+				}
+			}()
+
 			// Shared composition with the agent loop / CLI: bundled +
 			// installed plugin tools + tasks + MCP-attached + wasm
 			// migration + overrides + filter. Step 0.5 of EP-no-internal-

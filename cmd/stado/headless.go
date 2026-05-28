@@ -64,6 +64,20 @@ var headlessCmd = &cobra.Command{
 			defaultPersona = p
 		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			// Phase 2 flips the default.
+			cwd, _ := os.Getwd()
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+			if brokerErr != nil {
+				return fmt.Errorf("stado headless: %w", brokerErr)
+			}
+			brokerSession.AnnounceSandboxMode(os.Stderr, "stado headless")
+			defer func() {
+				if closeErr := brokerSession.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "stado headless: broker session.terminate: %v\n", closeErr)
+				}
+			}()
+
 			prov, provErr := tui.BuildProvider(cfg)
 			if provErr != nil {
 				fmt.Fprintf(os.Stderr, "stado headless: provider unavailable: %v\n", provErr)

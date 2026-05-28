@@ -58,9 +58,9 @@ type AgentLoopOptions struct {
 
 	// Workdir overrides the cwd that tools see during this loop. When
 	// empty, the loop falls back to Executor.Session.WorktreePath
-	// (sandboxed mode). `stado run` sets this to os.Getwd() when
-	// `--sandbox-fs` is off so bash/fs/glob operate on the user's
-	// actual project rather than the per-session scratch worktree.
+	// (per-session scratch). v1 `stado run` always sets this to
+	// os.Getwd() — the launch cwd is the canonical writable boundary
+	// in both sandboxed (default) and --no-sandbox modes.
 	Workdir string
 
 	// Thinking controls extended-thinking injection. Values mirror

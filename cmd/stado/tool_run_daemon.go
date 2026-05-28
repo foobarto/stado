@@ -220,7 +220,7 @@ func errPTYRequiresDaemon(registered, why string) error {
 	}
 	return errors.New(
 		"tool " + canonical + " needs the stado daemon to hold PTY state across calls. " + why +
-			" To enable auto-spawn unset STADO_DAEMON or set STADO_DAEMON=auto. To use a manually-managed daemon: `stado daemon start` + STADO_DAEMON=manual. To stay single-shot (and refuse PTY tools): STADO_DAEMON=off. The TUI (`stado`), MCP server (`stado mcp-server`), and agent loop (`stado run`) host PTYs without the daemon.")
+			" To enable auto-spawn unset STADO_DAEMON or set STADO_DAEMON=auto. To use a manually-managed daemon: `stado daemon start` + STADO_DAEMON=manual. To stay single-shot (and refuse PTY tools): STADO_DAEMON=off. Note: as of v0.57.0 the TUI (`stado`), MCP server (`stado mcp-server`), and agent loop (`stado run`) attach to the broker (an evolution of the daemon) by default for sandboxing — STADO_DAEMON=off no longer reliably blocks the daemon there. Set STADO_BROKER_ATTACH=0 to keep those surfaces from attaching to the broker, or pass `stado run --no-sandbox` to opt out for a single run.")
 }
 
 // lookupCanonical resolves a registered (wire-form) tool name to its

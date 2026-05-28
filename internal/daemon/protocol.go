@@ -72,6 +72,21 @@ const (
 	ErrCodeToolDenied      = -32011
 	ErrCodeSessionNotFound = -32012
 	ErrCodeProjectMismatch = -32013
+
+	// Broker error codes (-32020..-32029). Used by broker.v1.*
+	// methods. See internal/broker/dispatch.go for the constants
+	// the broker package emits; these mirror them at the wire
+	// layer so daemon-side handlers can reference them without
+	// importing internal/broker (avoids upward dependency from
+	// internal/daemon to internal/broker).
+	ErrCodeBrokerPolicyDeny        = -32020
+	ErrCodeBrokerInvalidPurpose    = -32021
+	ErrCodeBrokerInvalidProfile    = -32022
+	ErrCodeBrokerSessionNotFound   = -32023
+	ErrCodeBrokerSessionTerminated = -32024
+	ErrCodeBrokerPolicyLoad        = -32025
+	ErrCodeBrokerInvalidParams     = -32026
+	ErrCodeBrokerInternal          = -32027
 )
 
 // JSON-RPC method names. Every request carries a method from this list;
@@ -84,6 +99,12 @@ const (
 	MethodToolList    = "tool.list"
 	MethodSessionList = "session.list"
 	MethodSessionKill = "session.kill"
+
+	// MethodBrokerPrefix is the shared prefix for every broker.v1.*
+	// JSON-RPC method. The daemon's dispatch() routes any method
+	// with this prefix to ServerOpts.BrokerDispatcher (when set);
+	// individual method names live in internal/broker/dispatch.go.
+	MethodBrokerPrefix = "broker.v1."
 )
 
 // Request is a JSON-RPC 2.0 request envelope. ID is a raw json.RawMessage

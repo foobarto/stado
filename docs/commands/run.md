@@ -107,7 +107,7 @@ what's available.
 | `--prompt <text>` | The prompt text (or pass positionally) |
 | `--skill <name>` | Load `.stado/skills/<name>.md` as (part of) the prompt |
 | `--tools` | Enable tool-calling with git-native audit |
-| `--sandbox-fs` | Landlock: writes confined to worktree + `/tmp` |
+| `--no-sandbox` | Opt out of the v0.57.0 default sandbox: disables Landlock + ceiling-runner. Use only for development scenarios. |
 | `--session <id-or-label>` | Continue an existing session |
 | `--max-turns N` | Cap turns (default 20) |
 | `--json` | Emit JSON Lines instead of raw text |
@@ -133,10 +133,16 @@ Relevant `config.toml` sections:
 
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.
-- **`--sandbox-fs` is Linux only.** macOS still gets subprocess
-  sandboxing for tool execution, but it does not have a Linux-style
-  whole-process narrowing path for `stado run`. Windows v2 sandboxing
-  is still deferred.
+- **Sandbox-by-default since v0.57.0.** `stado run` applies Landlock
+  + the broker-projected ceiling-runner by default on Linux; macOS
+  gets the ceiling-runner + sandbox-exec for tool execution but no
+  Linux-style whole-process narrowing. Windows v2 sandboxing is
+  still deferred. Pass `--no-sandbox` to opt out (NoneRunner, no
+  Landlock).
+- **`--sandbox-fs` retired in v0.57.0.** The pre-v0.57.0 flag is
+  gone with no deprecation alias; passing it produces an "unknown
+  flag" error. The new default is the sandboxed mode; `--no-sandbox`
+  is the inverse-polarity opt-out.
 - **Streaming to pipes is line-buffered.** When redirecting, tokens
   may appear in chunks. Use `--json` for deterministic event
   boundaries.

@@ -24,41 +24,38 @@ to expose stado itself as an MCP v1 tool server.
 
 ## Component map
 
+```mermaid
+flowchart TB
+    subgraph surfaces["User surfaces"]
+        direction LR
+        TUI[TUI]
+        Run["stado run"]
+        ACP["stado acp"]
+        Headless["stado headless"]
+    end
+
+    surfaces --> Runtime
+    Runtime["<b>internal/runtime</b><br/>AgentLoop"]
+
+    Runtime --> Agent
+    Runtime --> Tools
+    Runtime --> State
+
+    Agent["<b>pkg/agent</b><br/>Provider"]
+    Tools["<b>internal/tools</b><br/>Executor + Registry + classifier"]
+    State["<b>internal/state/git</b><br/>Sidecar, refs, signatures, materialisation"]
+
+    Agent --> Providers["anthropic · openai · google · oaicompat"]
+    Tools --> Sandbox
+
+    Sandbox["<b>internal/sandbox</b><br/>Policy, Runner, Landlock, proxy"]
 ```
-  ┌──────────────────── User surfaces ────────────────────┐
-  │                                                       │
-  │   TUI      stado run      stado acp     stado headless│
-  │    │           │              │                │      │
-  └────┼───────────┼──────────────┼────────────────┼──────┘
-       │           │              │                │
-       └───────────┴──────┬───────┴────────────────┘
-                          │
-                          ▼
-              ┌───────────────────────┐
-              │   internal/runtime    │
-              │      (AgentLoop)      │
-              └───────────┬───────────┘
-                          │
-         ┌────────────────┼────────────────┐
-         ▼                ▼                ▼
-   ┌───────────┐  ┌───────────────┐  ┌──────────────────┐
-   │ pkg/agent │  │ internal/tools│  │internal/state/git│
-   │(Provider) │  │  (Executor +  │  │  (Sidecar, refs, │
-   │           │  │   Registry +  │  │    signatures,   │
-   │           │  │   classifier) │  │   materialisation│
-   └─────┬─────┘  └───────┬───────┘  └──────────────────┘
-         │                │
-   ┌─────┴─────┬──────┬───┴────────┐
-   ▼           ▼      ▼            ▼
-anthropic   openai  google     oaicompat
-                                    │
-                                    ▼
-                        ┌────────────────────┐
-                        │  internal/sandbox  │
-                        │  (Policy, Runner,  │
-                        │   landlock, proxy) │
-                        └────────────────────┘
-```
+
+> The diagram describes today's as-built architecture. The v1
+> **broker** described in §"Broker" introduces a process boundary
+> between the user surfaces and `internal/runtime`; the diagram is
+> updated when phase 1 of the v1 security architecture rollout
+> lands (see PLAN.md).
 
 - **Provider interface**: one streaming method (`StreamTurn`) emitting a
   discriminated `Event` type. Opaque `Native` fields preserve
@@ -82,34 +79,31 @@ anthropic   openai  google     oaicompat
 
 ## Request path: single user prompt → streamed turn
 
-```
-User types in TUI input
-  └─ Enter
-     └─ Model.startStream
-        └─ ensureProvider (lazy, errors here are in-UI)
-        └─ provider.StreamTurn(ctx, req)
-            │
-            ├── text deltas  → viewport blocks
-            ├── thinking     → thinking block (with signature kept raw)
-            └── tool_call_end→ pendingCalls queue
+```mermaid
+flowchart TD
+    User["User prompt<br/>(TUI / stado run / headless)"] --> Stream["Model.startStream<br/>→ ensureProvider (lazy)<br/>→ provider.StreamTurn"]
 
-[stream done]
-  └─ Model.onTurnComplete
-     └─ flush assistant message (text + thinking + tool_uses)
-     └─ any pending calls?
-        ├─ yes → execute allowed calls
-        │        ├─ reject calls not visible in the current tool set
-        │        └─ executor.Run
-        │            ├─ resolve tool + class
-        │            ├─ run (in-proc, plugin, MCP, or sandboxed process)
-        │            ├─ write trace commit (always)
-        │            ├─ write tree commit (if mutating/exec+diff)
-        │            ├─ session.OnCommit → slog
-        │            └─ return ToolResultBlock
-        │        (queue drained) → toolsExecutedMsg
-        │            └─ append role=tool Message
-        │            └─ Model.startStream (next iteration)
-        └─ no → stateIdle
+    Stream -->|text deltas| View["viewport blocks"]
+    Stream -->|thinking| Think["thinking block<br/>(signature preserved)"]
+    Stream -->|tool_call_end| Queue["pendingCalls queue"]
+
+    View --> Done["stream done<br/>→ Model.onTurnComplete"]
+    Think --> Done
+    Queue --> Done
+
+    Done --> Flush["flush assistant message<br/>(text + thinking + tool_uses)"]
+    Flush --> Check{"any pending<br/>calls?"}
+    Check -->|no| Idle["stateIdle"]
+    Check -->|yes| Reject["reject calls not in<br/>current tool set"]
+    Reject --> Exec["executor.Run per allowed call"]
+
+    Exec --> Class["resolve tool + class<br/>(Mutating / NonMutating / Exec)"]
+    Class --> Run["run in-proc / plugin / MCP /<br/>sandboxed subprocess"]
+    Run --> Trace["trace commit (always,<br/>even on failure)"]
+    Run --> Tree["tree commit<br/>(iff Mutating success OR<br/>Exec with post-run diff)"]
+    Trace --> Result["return ToolResultBlock<br/>→ append role=tool Message"]
+    Tree --> Result
+    Result --> Stream
 ```
 
 ---
@@ -207,6 +201,294 @@ two required paths (`session fork --at` and `session tree`), the
 turn-reference syntax, and the promise that the parent is never
 modified — is specified in §"Fork-from-point ergonomics" under
 §"Context management".
+
+---
+
+## Sessions and sub-agents
+
+Sessions are stado's unit of **agent-bearing** execution and the
+security atom of the runtime. **One agent per session.** When the
+agent loop needs an isolated agent — a sub-agent dispatched to
+explore a tangent, a compaction worker that summarises a long
+history, an auto-compaction plugin recovering a context overflow —
+it forks a child session rather than re-entering the parent. The
+child has its own forked worktree, conversation log, trace ref,
+turn boundary, and capability set; the parent is not modified.
+
+`stado tool run` is **not** a session: it executes a single named
+WASM plugin under the plugin's declared capabilities with no LLM,
+no provider, no message history, and no fork ancestry. The broker
+still mediates the sandbox construction for these calls — see
+§"Broker" → "Non-session sandbox requests" — but no `trace` ref
+is opened and no session ID is allocated.
+
+### Capability ceiling and effective set
+
+Each session has two associated capability descriptions:
+
+- A **ceiling**: the maximal set of capabilities the session is ever
+  permitted to hold. The ceiling is immutable for the life of the
+  session. It is derived at session-creation time from the operator's
+  global policy and the declared purpose of the session (see §"Broker"
+  for who derives it and how).
+- An **effective set**: the capabilities the session currently holds.
+  The effective set sits at or below the ceiling. It may *narrow*
+  during the session — capabilities can be voluntarily dropped — but
+  it may never widen in place. Drop-only.
+
+**Widening a session is forbidden.** A request to gain capabilities
+a session does not have — for example, "add an additional folder to
+my write scope" or "extend my egress hosts" — is realised by forking
+a new session with a wider ceiling, not by mutating the running one.
+Forking and re-warming the prompt cache is the deliberate cost of
+gaining privilege; dropping privilege is free and may be automatic.
+
+**Capabilities attenuate down the spawn tree.** A child session's
+ceiling is validated against the operator's global policy at the
+broker and projected from the child's declared purpose. A child may
+be (and usually is) strictly weaker than its parent; it can never
+exceed what the global policy allows. **Invariant: capability never
+escalates along the spawn tree.**
+
+### The spawn_agent surface
+
+The first-class tool for parent-initiated sub-agents is
+`spawn_agent`. Its arguments declare the child's purpose and the
+ceiling it should be projected to:
+
+| Field | Meaning |
+|---|---|
+| `prompt` | The single task the child is being spawned to do. |
+| `role` | `explorer` (read-only investigator) or `worker` (write-permitted contributor). |
+| `mode` | `read_only` (no filesystem writes) or `workspace_write` (writes confined to a declared scope). |
+| `write_scope` | When `mode = workspace_write`, the relative paths the child is permitted to write under. |
+| `max_turns` | Hard cap on the child's agent-loop turns. Defaults to 6; runtime cap is 12. |
+| `timeout_seconds` | Wall-clock cap on the child's run. Defaults to 180 s; runtime cap is 900 s. |
+| `persona` | Optional override of the operating manual the child runs under. Empty inherits the parent's active persona; `default` selects the bundled default. |
+
+The child's ceiling is **mechanically projected** from these fields
+— a `role: explorer, mode: read_only` child gets a read-only
+filesystem ceiling regardless of what the parent had; a `role:
+worker, mode: workspace_write` child with a declared `write_scope`
+gets writes exactly to that scope. The projection is the mechanism;
+the model does not negotiate ceilings, it declares purposes that
+map to them.
+
+Children run **synchronously** from the parent's tool call: the
+parent session is not re-entered until the child completes, fails,
+or hits its budget. The result returned to the parent model
+includes `status`, `child_session`, the child's `worktree`, the
+resulting `fork_tree` SHA when changes were produced, the list of
+`changed_files`, any `scope_violations` the substrate observed,
+and an `adoption_command` the operator can run to fold the work
+back.
+
+### Adoption
+
+`stado session adopt <parent-id> <child-id> --apply` applies the
+child's changes into the parent's worktree and records
+`subagent_adopt` trace and tree commits on the parent. The act of
+adopting is itself an audited event; the parent's `tree` ref
+retains the full history of what was adopted and from whom. A
+dry-run form (omit `--apply`) summarises the proposed adoption
+without mutating the parent.
+
+`/subagents` in the TUI lists the most recent child sessions with
+their status, worktree, changed-file counts, scope violations, and
+the per-child `adoption_command`. Headless surfaces emit
+`session.update { kind: "subagent" }` notifications with the same
+fields.
+
+### Invariants
+
+- **One agent per session.** Sub-agents always fork; the parent
+  session is never multiplexed.
+- **The ceiling is immutable; the effective set is drop-only.**
+  Widening requires forking a new session.
+- **Capability never escalates along the spawn tree.** A child can
+  be weaker than its parent, never stronger.
+- **The parent's history is never edited by the child.** Adoption
+  appends commits to the parent; it does not rewrite parent turns.
+  The append-only invariant from §"Context management" applies
+  across the parent/child boundary.
+- **Scope violations surface in the result.** A `worker` whose
+  attempted writes fell outside its declared `write_scope` returns
+  the offending paths in `scope_violations`; the parent model and
+  the operator both see the failure.
+- **Budgets are substrate-enforced.** `max_turns` and
+  `timeout_seconds` are not advisory: when either is exceeded the
+  child is terminated by the runtime regardless of what it's doing.
+
+### Git sub-agent
+
+Git and related tooling (`go get`, `npm install`, `pip install`,
+build hooks, lifecycle scripts) need authentication to happen and
+need network egress to fetch — but they do not need the agent
+process to be able to read private-key bytes. v1 separates key
+**material** from key **use**.
+
+**Key material never enters the agent's namespace.** Private key
+files (`~/.ssh/id_*`, `*.pem`, and equivalents) are not mounted
+into any session's sandbox in either profile (see §"Sandbox" mount
+table). The agent cannot `cat` an SSH private key because the
+file is not reachable from inside its namespace.
+
+**The ssh-agent runs outside the sandbox.** Only its socket is
+bind-mounted into the sandbox of a session that has the
+ssh-agent capability, with `SSH_AUTH_SOCK` set. The sandboxed
+agent can request signatures over the socket; it cannot extract
+the key. The capability to hold this socket is what the rest of
+the section is about.
+
+#### The main chat session never holds the socket
+
+The session the operator converses with — the main TUI / `stado
+run` / headless chat session — **never** has the ssh-agent
+capability. Network git operations require a dedicated sub-agent
+session; the main session cannot perform them directly.
+
+#### The git sub-agent flow
+
+To do network git, the main session issues a `spawn_agent`
+request whose declared purpose is network git on a specified set
+of hosts. The broker:
+
+1. Reads the declared task — which hosts, which keys, which kind
+   of operation (fetch / clone / similar).
+2. Projects a **ceiling** that is mechanically derived from the
+   declared task:
+   - The ssh-agent the sub-agent receives contains *only the
+     key(s) for the declared host(s)*. A request to clone from
+     `github.com` does not get a sub-agent with the operator's
+     work GitLab key loaded.
+   - Egress (network-namespace level) is scoped to the declared
+     hosts and the package sources required to resolve them
+     (e.g. proxy hosts for transitive resolution). Other egress
+     is denied at the namespace floor.
+   - Worktree access is minimal: the bare amount needed to write
+     the build outputs the operation produces. Operator secrets,
+     dotfiles, and credential paths are not mounted.
+3. Validates the projected ceiling against the operator's global
+   policy.
+4. Constructs the sub-agent session and mounts the socket.
+
+"A git sub-agent" in the abstract is **not** acceptable scope; the
+declared task — hosts, keys, operation — *is* the ceiling. The
+broker refuses an open-ended sub-agent grant.
+
+#### Fetch, not push
+
+The grant is **fetch-oriented**. Package installs, module
+downloads, and `git clone` / `git fetch` need read auth, not
+push. `git push` from a fetch-purposed sub-agent is **denied at
+the tool-call dispatch point** inside the sub-agent's sandbox,
+regardless of what the ssh-agent socket would actually sign. Two
+layers compose:
+
+- **ssh-agent** makes the key unstealable from inside the
+  namespace.
+- **Tool dispatch** makes `git push` (or equivalent) unreachable
+  from a fetch-purposed session.
+
+Either layer alone is insufficient. Together they bound the
+sub-agent's reach to what its declared purpose admits.
+
+#### The sub-agent IS also stado's arbitrary-network-code execution
+
+The socket-bearing sub-agent is the same session that runs
+package-install lifecycle scripts, cgo, build hooks — code
+authored by whoever owns the package the operator just asked to
+fetch. This is not a coincidence; it is the design. The session
+that talks to the network to fetch code is the same session that
+executes that code. It therefore receives the **strictest fence
+in the system**, not a relaxed one: minimal worktree access for
+build outputs, no secrets paths mounted, scoped egress, scoped
+ssh-agent contents.
+
+#### Termination is broker-owned
+
+The sub-agent session is **short-lived** and **terminated by the
+broker** on a deterministic condition:
+
+- The declared tool sequence completes.
+- The wall-clock budget (`timeout_seconds`) is exceeded.
+- The turn budget (`max_turns`) is exceeded.
+
+On termination the broker revokes the grant: unmounts the
+ssh-agent socket, tears down the netns, releases the worktree.
+The agent does not get a vote on its own teardown — there is no
+"can I just have a bit longer" path. The grant window is **the
+task, not the session's convenience**.
+
+#### Approval
+
+Granting a socket-bearing git sub-agent requires user approval
+**once per sub-agent session**. The session being single-purpose
+and broker-terminated is what makes "once" a meaningful unit —
+the operator approves a specific declared task, not an open-ended
+grant.
+
+The approval prompt is an **audit anchor** and a **speed bump**.
+It is **not** the containment boundary. The approval prompt's
+input is a justification produced by a possibly-compromised
+agent, and a justification string is socially engineerable — a
+sufficiently convincing prompt-injection can make the wrong
+request *look* right. **Containment is the mechanically
+projected ceiling**: scoped keys, scoped egress, fetch-not-push
+at dispatch, broker teardown. The approval gates honest
+mistakes and raises attacker cost; only the projected
+capability set actually contains.
+
+Whether the approval prompt **fires** is gated on the **taint
+state** of the requesting context (see §"Context management" →
+"Provenance and taint"):
+
+- A request made from a **clean** context (no UNTRUSTED span has
+  entered since the last operator turn) may be granted without
+  prompting. This preserves the no-nag default for ordinary
+  flows.
+- A request made from a **tainted** context **must prompt**.
+  An untrusted-context request for network git is the
+  lethal-trifecta shape forming, and is exactly the moment a
+  human decision is worth the interruption.
+
+#### HTTPS-git is a known limitation
+
+Token-based HTTPS git authentication (the bearer secret in
+`~/.git-credentials`, the `gh` CLI's stored token, `GITHUB_TOKEN`
+in the environment) has **no signing-oracle equivalent**. The
+token *is* the credential — any process that can use it can read
+it. v1 does **not** solve HTTPS-git credential confinement. The
+honest position: ssh remotes are the path v1 makes confinable;
+HTTPS remotes carry a bearer token whose use is its read. An
+operator who needs network git for a host that only supports
+HTTPS can either:
+
+- Switch the remote to ssh (and rely on this section's
+  protections).
+- Run with `--no-sandbox` for that specific operation,
+  accepting the documented loss of containment.
+- Wait for a future phase that addresses HTTPS-credential
+  confinement separately.
+
+The default ship does not silently expose `~/.git-credentials`
+or `GITHUB_TOKEN` to the main session. An operator who wants
+HTTPS git available accepts the trade-off explicitly.
+
+Cross-refs (Git sub-agent): §"Broker" (the validator that
+projects the ceiling); §"Sandbox" → "Mount-and-namespace
+invariant table" (the rows for `~/.ssh/`, `SSH_AUTH_SOCK`,
+`known_hosts`, and the `~/.ssh/config` decision point); §"Context
+management" → "Provenance and taint" (the gating signal for the
+approval prompt).
+
+Cross-refs (section): §"Broker" (who validates capability
+requests and constructs the session); §"Sandbox" (the OS-level
+fence that enforces the effective set); §"Git-native state" →
+"Fork semantics" (the storage layer the spawn forks on top of);
+§"Context management" → "Plugin extension points for context
+management" (the plugin-initiated session-fork capability for
+context-management plugins).
 
 ---
 
@@ -497,6 +779,80 @@ from disk; subsequent reads see whichever recorded last. This is
 acceptable — deduplication is a best-effort optimisation, not a
 correctness guarantee.
 
+### Provenance and taint
+
+Every span of data entering a session's context carries a
+**provenance label** assigned mechanically by the harness at the
+moment of ingestion. The label is determined by *where the data
+came from*, never by what it says.
+
+| Origin | Label |
+|---|---|
+| Operator / user input (chat turn, slash command, CLI prompt) | TRUSTED |
+| Tool results, file reads, ripgrep/ast-grep output, LSP output | UNTRUSTED |
+| Web / network fetches | UNTRUSTED |
+| Plugin output and plugin-emitted text | UNTRUSTED |
+| Sub-agent results returned to a parent session | UNTRUSTED |
+
+A file read is untrusted: a repo file such as `CONTRIBUTING.md`
+can be attacker-authored.
+
+**Labels are harness-side metadata, never in-band markers.** The
+provenance label is keyed to the span identifier in stado's own
+structures (the message slice, the per-turn accumulators, the
+tool-result log). It is *never* a text marker embedded in the
+prompt the model sees. Rationale: in-band markers are forgeable by
+content — untrusted text can emit characters that close or open a
+marker. Any rendering of provenance for the model's benefit is
+decoration; the harness's immutable record is the source of
+truth. **Invariant: the trust-critical decision about a span's
+origin reads from the harness's record, not from text in the
+prompt stream.**
+
+**Taint propagation is a conservative over-approximation.** If any
+UNTRUSTED-origin span has entered a session's context since the
+last TRUSTED operator turn, every subsequent tool call in that
+turn is TAINTED. stado does not attempt to determine whether the
+untrusted data actually influenced a given call — the model is
+opaque to that question — it over-approximates. Coarse and sound
+beats precise and unsound. The taint baseline resets when the next
+TRUSTED operator turn arrives.
+
+**Taint gates consequential tool calls.** From a tainted context,
+policy applies a stricter capability set to privileged sinks:
+capability widening through the broker, destructive filesystem or
+shell operations, and (per §"Sessions and sub-agents" → "Git
+sub-agent" when that subsection lands) socket-bearing sub-agent
+grants. The exact gating policy lives at the broker's capability-
+validation layer; this subsection establishes only that taint
+state is one of the inputs the policy reads.
+
+**The decision rule is policy over ORIGINS — a fact — never a
+content-safety JUDGMENT.** As an explicit non-goal: stado does
+not, in the trust-critical path, run a classifier or model
+judgment on whether content "looks malicious." Origin is a fact
+that can be tracked; content judgment is the same model whose
+output we are trying to discipline, deciding whether to discipline
+itself. If a future phase ever adds an advisory detector, it must
+be **fail-safe and able only to NARROW**, never to widen; the
+system must remain fully sound with it deleted. v1 does not
+include such a detector.
+
+**Taint state is itself an audit-trace event.** Every taint
+downgrade (untrusted span enters context) and every gated or
+denied tool call (broker refused because the requesting context
+was tainted) is recorded on the session's `trace` ref alongside
+the existing per-tool-call commits. `Plugin:` trailers identify
+plugin-originated taint introductions; broker-denial events carry
+a `Taint:` trailer with the rule that fired.
+
+Cross-refs: §"Provider interface" (the events at which assistant
+text vs tool results enter the message stream); §"Tool runtime"
+→ "Executor invariants" (the per-call point where the taint input
+is read); §"Sandbox" → "Policy, ceiling, and effective set"
+(taint is one of the dimensions the per-call narrowing intersects
+against); §"Audit" (the trace-ref events).
+
 ### Compaction
 
 Shipped core surfaces today are `/compact` in the TUI and
@@ -713,7 +1069,236 @@ Each maps to a sub-phase under PLAN §11:
 
 ---
 
+## Broker
+
+The runtime is split into two components: the **orchestrator** that
+holds the LLM, the plugin host, and the user-facing surfaces; and a
+**broker** that holds the privilege to construct sessions and wire
+their sandboxes. The split exists because the orchestrator is in
+the hot path of prompt injection — anything the model reads (tool
+results, files, web fetches) can attempt to steer it — and any
+component that holds raw privilege adjacent to the model is one
+prompt-injection turn away from misuse.
+
+### What the broker does
+
+The broker accepts session-creation requests from the orchestrator
+over a narrow IPC channel. For each request it:
+
+1. Validates the request against the operator's **global policy**.
+   The global policy is the floor under everything: it expresses
+   what this operator has agreed any session of theirs may ever do.
+   The orchestrator cannot edit it.
+2. Projects the request into a session **ceiling** (see §"Sessions
+   and sub-agents"). The ceiling is at or below the global policy.
+3. Constructs the session's sandbox — performs the namespace setup,
+   bind-mounts the declared paths, sets up the network namespace
+   per the projected egress, mounts (or doesn't) credential-bearing
+   sockets per the projected capabilities.
+4. Returns a session handle to the orchestrator. The handle does
+   not carry mutable capability state; mutating a running session's
+   capabilities is forbidden (see §"Sessions and sub-agents" —
+   ceiling is immutable, effective set is drop-only).
+
+### What the broker does not do
+
+- **No LLM**, no provider integration, no model glue.
+- **No plugin code**, no WASM execution, no MCP transport.
+- **No ingestion of untrusted input.** The broker reads its own
+  configuration, the operator's global policy, and the typed IPC
+  requests from the orchestrator. It does not parse file contents
+  the agent has read, web pages the agent has fetched, or any
+  payload that may have flowed through the model.
+
+The broker is small by design. The smaller it is, the smaller the
+attack surface that holds privilege.
+
+### Trust model
+
+The orchestrator is treated as **hostile**. The LLM is assumed
+reachable by indirect prompt injection through any of the
+content-bearing surfaces it touches; the plugin host runs
+operator-installed code which is signed but is not the broker's
+trust root; the user-facing surfaces marshal arbitrary content for
+display. A fully compromised orchestrator — model, plugins, TUI,
+headless transport — can only do what the broker permits.
+
+In particular: a fully compromised orchestrator can still only
+*request* sessions, and the broker can still only grant what the
+global policy already permits. There is no path by which a
+compromised orchestrator can ask the broker for a capability the
+operator has not previously authorised globally.
+
+### IPC channel
+
+The broker IPC is the **single most security-critical interface in
+stado**. The invariants the rest of v1 rests on:
+
+- **Narrow.** The IPC speaks in typed request and response messages
+  corresponding to operations the broker performs. It is not a
+  general RPC surface. It is not a syscall passthrough. It cannot
+  be used to "ask the broker to do X on my behalf" except for the
+  specific X-es enumerated in its schema.
+- **Typed.** Messages are structured, validated, and rejected on
+  unknown fields. The broker does not accept free-form strings as
+  capability descriptors.
+- **Un-spoofable.** The orchestrator addresses the broker over a
+  channel that only the broker's owner (the operator's stado
+  process group) can write to. A second process running as the
+  same user cannot impersonate the broker or its client without
+  prior privilege.
+
+Everything downstream — capability ceilings, sandbox mounts, taint
+gating, trust-root immutability — assumes these three properties
+hold. A regression here is a v1 regression of the entire security
+model.
+
+### Worked examples
+
+- **Operator launches stado.** Stado's host process becomes the
+  broker; it forks the orchestrator into the sandbox it
+  constructed, and drops the orchestrator's privilege. The
+  orchestrator's first session — the main chat session — was
+  constructed by the broker during launch.
+- **Model invokes `spawn_agent` to fork a sub-agent.** The
+  orchestrator sends a typed request to the broker describing the
+  child's purpose (role, mode, write scope, etc.). The broker
+  projects the request to a ceiling, validates against global
+  policy, constructs the child's sandbox, returns a handle. The
+  orchestrator wires the handle into its tool result and the
+  parent's agent loop continues.
+- **User wants to add a folder to a running session's write
+  scope.** This is a widening request. The orchestrator does not
+  mutate the running session; it requests a new session from the
+  broker with a wider ceiling. The broker checks the operator's
+  global policy, constructs the new session, returns a handle.
+  The running session is left intact. The cost (a session fork +
+  a prompt-cache re-warm) is the deliberate price of widening.
+- **`stado session tree` opens a fork-from-point UI from a fresh
+  shell.** This is a session-creation operation and is therefore
+  broker-mediated like any other. The standalone subcommand
+  becomes a broker client. See PLAN.md for the proposed
+  implementation path — the broker grows out of the existing
+  long-running per-user host process, picking up policy
+  validation and session construction in addition to its current
+  state-hosting responsibilities.
+
+### Non-session sandbox requests
+
+`stado tool run` is not a session (see §"Sessions and sub-agents")
+but its sandbox still goes through the broker. The flow:
+
+- The CLI sends a typed sandbox-construction request to the broker
+  carrying the named plugin's manifest and the operator-supplied
+  args.
+- The broker validates the manifest's declared capabilities
+  against the operator's global policy. A manifest asking for
+  capabilities the global policy denies is refused at this layer
+  regardless of who invoked it — operator-initiated does not
+  bypass global policy.
+- The broker constructs a transient sandbox with the validated
+  capabilities, runs the WASM plugin to completion, and tears the
+  sandbox down.
+- No session ID is allocated; no `trace` ref is opened.
+
+This keeps the broker as the *sole* sandbox-construction path
+and prevents a parallel direct-sandbox-construction code path
+from drifting out of policy. The cost is that `stado tool run`
+requires the broker to be reachable (the existing auto-spawn
+pattern handles this transparently).
+
+**Audit of agent-less tool runs.** Session `trace` refs are not
+written for non-session sandbox requests; there is no session to
+attach to. The broker's own decision log — every admit / deny /
+which-policy-rule-fired event — is the canonical audit of
+non-session work (see §"Audit"). Operators who want per-invocation
+visibility into operator-driven tool runs can enable an opt-in
+operator-audit log; the default ship does not record this. The
+broker-decision log is not opt-in.
+
+---
+
 ## Sandbox (`internal/sandbox`)
+
+stado runs the agent inside an OS-enforced sandbox **by default**.
+The fence — not an approval dialog — is the boundary. Approval
+prompting and sandbox confinement are orthogonal: stado does not
+nag the operator on every action AND it runs fenced. The boundary
+holds regardless of which tool the model chose or what an allowed
+command does under the hood.
+
+The secure configuration is the **default** configuration. There
+is one blessed default profile and one stricter hardened profile;
+both are projections of the same `Policy` mechanism, differing
+only in how tightly the mount table is drawn.
+
+### Reversal of an earlier UX retreat
+
+Earlier development of stado experimented with sandbox-by-default
+and rolled it back: `bwrap`-by-default surprised users who
+expected `ls ~/` to show their real home, and the `--sandbox-fs`
+opt-in flag was introduced to restore the unsandboxed default. v1
+reverses that retreat. The mitigation that makes sandbox-by-default
+workable is the mount-and-namespace invariant table below: bwrap
+is the default runner, but its mount layout is thoughtful — the
+operator's home is present in the read set with credential-bearing
+subpaths masked, the launch cwd is read-write, `/tmp` is
+read-write. The original `ls ~/` complaint is answered by the
+default mounts, not by removing the fence.
+
+### Default mode and the `--no-sandbox` opt-out
+
+In v1, sandboxing is on across all entry points — TUI, `stado run`,
+headless daemon, ACP, MCP server. The earlier `--sandbox-fs` flag
+is retired. The new opt-out is `--no-sandbox`, with **inverted
+polarity**: present to disable, absent to keep the default. The
+old flag has no compatibility alias (pre-1.0 breaking change).
+
+`--no-sandbox` restores the prior behaviour for the operator who
+specifically asks for it: `NoneRunner`, no Landlock, no namespace
+isolation, filesystem fully exposed. It is intended for
+development scenarios and explicit operator override; it should
+not become the typical mode of operation.
+
+### Launch cwd is the default read-write boundary
+
+Across all entry points, the agent's working directory in default
+mode is the directory from which stado was launched. The session's
+read-write filesystem grant is **the launch cwd and `/tmp`**;
+everything else is read-only (per the mount table below) or
+denied. The broker may widen this on operator action (e.g. an
+operator-approved request to add a second project directory to
+the session's write scope), but only through the widening-by-fork
+path (see §"Sessions and sub-agents").
+
+This is a deliberate UX choice: operators expect `cd
+~/projects/foo && stado` to operate on `~/projects/foo`, not on a
+per-session scratch worktree somewhere else. The launch cwd as
+the writable boundary preserves that mental model; the per-session
+worktree machinery from §"Git-native state" remains the audit and
+fork substrate, but tools see the launch cwd as their write
+target.
+
+### Sandbox-mode startup announcement
+
+Every interactive surface — TUI, `stado run`, headless, ACP, MCP
+server — emits a one-time announcement at startup describing the
+sandbox state and the mount summary. The announcement covers:
+
+- Which profile is active (default / hardened / `--no-sandbox`).
+- Which paths are read-write (typically: launch cwd + `/tmp`).
+- Which credential-bearing paths are masked.
+- The runner in use (`BwrapRunner` / `SbxRunner` / `WinWarnRunner`
+  / `NoneRunner`).
+
+This is the positive counterpart to the existing
+`WarnIfHostUnsandboxed` (which fires only when sandboxing is
+*off*). In v1 both exist: the announcement fires every session in
+default mode; the warning fires every session in `--no-sandbox`
+mode. Discoverability is the goal — the operator should never
+wonder whether their session is sandboxed or what that means.
+
+### Policy, ceiling, and effective set
 
 ```go
 type Policy struct {
@@ -724,33 +1309,99 @@ type Policy struct {
 }
 ```
 
-`Policy.Merge(inner)` is the INTERSECTION — never widens.
+`Policy.Merge(inner)` is the INTERSECTION — never widens. This is
+the substrate the broker uses to express the **ceiling** described
+in §"Sessions and sub-agents": the broker projects the session's
+declared purpose into a `Policy` that sits at or below the
+operator's global policy, and the runtime narrows that ceiling
+into the **effective set** by composing further `Policy`
+intersections as the session progresses.
+
+The fence on a single tool call is therefore the intersection of:
+the operator's global policy, the session's ceiling, the session's
+current effective set, and any per-call narrowing the runtime
+applies. Each step can drop capabilities; none can add them.
+
+### Mount-and-namespace invariant table
+
+The default and hardened profiles compose from the same `Policy`
+mechanism; the table below is the source-of-truth for what each
+profile mounts and how. CI should assert against this table so a
+refactor cannot silently widen a mount (see PLAN.md for the
+roadmap item).
+
+| Path / resource class | Default profile | Hardened profile |
+|---|---|---|
+| Launch cwd (e.g. operator's project) | RW | RW |
+| `/tmp` | RW | RW |
+| Worktree (`$XDG_STATE_HOME/stado/worktrees/<id>`) | RW (when materialised) | RW |
+| stado state dir (sidecar + audit, `$XDG_DATA_HOME/stado/sessions/`) | not in agent's writable set; append-only via broker / dedicated trace writer | same |
+| Plugin trust ring (`$XDG_DATA_HOME/stado/plugins/trusted_keys.json`, anchor-trust dir, revocation list) | RO | RO |
+| Signing-verification keys | RO or compiled-in | compiled-in |
+| Operator's `$HOME` outside the launch cwd | RO, with sensitive subpaths masked (see below) | RO with stricter mask |
+| `~/.ssh/` private keys (`id_*`, `*.pem`) | not mounted | not mounted |
+| ssh-agent socket (`SSH_AUTH_SOCK`) | not mounted into the main session; see §"Sessions and sub-agents" → "Git sub-agent" | same |
+| `~/.ssh/known_hosts` | RO | RO |
+| `~/.ssh/config` | **decision point** — read-only mount as-is preserves operator ergonomics, but the file can carry `ProxyCommand` / `LocalCommand` / `Match exec` directives that are an arbitrary-execution primitive. Flagged for resolution. | synthesised minimal config; arbitrary-exec directives stripped |
+| `~/.aws`, cloud credential dirs | denied | denied |
+| Environment-variable secrets (`*_TOKEN`, `*_KEY`, `*_SECRET`, OAuth-bearing vars) | scrubbed at session-creation; only the allowlisted set crosses the fence | scrubbed; allowlist tighter |
+| Dotfiles bearing credentials (`.netrc`, `.pgpass`, `.docker/config.json`, browser profiles) | denied | denied |
+| `$XDG_RUNTIME_DIR` outside the broker's own socket | denied | denied |
+
+The table is the auditable expression of the sandbox composition.
+CI assertion against it is a roadmap item (PLAN.md).
 
 ### Runners
 
-- `NoneRunner` — no sandbox, filtered env.
-- `BwrapRunner` (Linux) — translates Policy to bubblewrap flags
-  (`--ro-bind` FSRead, `--bind-try` FSWrite, `--unshare-net` on
-  `NetDenyAll`, `--setenv` per Env entry, `--chdir` CWD).
-- `SbxRunner` (macOS) — wraps commands with `sandbox-exec -f <profile>`
-  when the binary is available.
-- `WinWarnRunner` (Windows) — logs a one-time warning and runs
-  unsandboxed until Windows v2 lands.
-- Other platforms fall back to `NoneRunner`.
+- `BwrapRunner` (Linux) — default on Linux. Translates `Policy` to
+  bubblewrap flags (`--ro-bind` FSRead, `--bind-try` FSWrite,
+  `--unshare-net` on `NetDenyAll`, `--setenv` per Env entry,
+  `--chdir` CWD). Composes with `pasta --splice-only` for
+  `NetAllowHosts` (private netns + only the proxy port reachable).
+- `SbxRunner` (macOS) — default on macOS when `sandbox-exec` is
+  available. Wraps commands with `sandbox-exec -f <profile>`.
+- `WinWarnRunner` (Windows) — emits a one-time warning that
+  Windows currently runs unsandboxed. Windows sandbox v2 is a
+  roadmap item (PLAN.md).
+- `NoneRunner` — selected by `--no-sandbox`, or as the fallback
+  when no platform-capable runner is available. The agent runs
+  with no OS-level fence; `WarnIfHostUnsandboxed` fires at
+  startup.
 
-`sandbox.Detect()` picks the most capable available runner.
+`sandbox.Detect()` picks the most capable available runner. In
+default mode the runtime uses whatever `Detect()` returns;
+`--no-sandbox` overrides to `NoneRunner` regardless of availability.
+
+### Network namespace as the egress floor
+
+The Linux network namespace — `--unshare-net` for `NetDenyAll`,
+`pasta --splice-only` private netns for `NetAllowHosts` — is the
+v1 egress enforcement floor. A session with `NetDenyAll` cannot
+reach the network at all, regardless of how it tries: no
+interface exists inside the namespace. A session with
+`NetAllowHosts` runs inside pasta's private netns with only the
+allowlisted host-proxy port reachable.
+
+The HTTPS CONNECT allowlist proxy (see §"Net proxy" below) is the
+*refinement layer* that runs above the namespace floor — it
+matches destination hosts before letting bytes through. The
+namespace ensures nothing else gets out; the proxy applies the
+host policy to what does. The proxy is expected to be expanded in
+a later phase.
 
 ### Landlock (`internal/sandbox/landlock_linux.go`)
 
 `ApplyLandlock(Policy)` restricts the CURRENT process via Linux
 Landlock (`PR_SET_NO_NEW_PRIVS` → `landlock_create_ruleset` →
-per-path `add_rule` PATH_BENEATH → `restrict_self`). Irreversible by
-design. Returns `ErrLandlockUnavailable` on kernels <5.13 so callers
-can fail open.
+per-path `add_rule` PATH_BENEATH → `restrict_self`). Irreversible
+by design. Returns `ErrLandlockUnavailable` on kernels <5.13 so
+callers can fail open.
 
-Typical use: `stado run --sandbox-fs` applies
-`WorktreeWrite(session.WorktreePath)` which reads-everywhere but
-confines writes to the worktree + /tmp.
+Under v1 the default Landlock ruleset enumerates BOTH reads and
+writes per the mount-and-namespace table above — the earlier
+"WorktreeWrite reads-everywhere" pattern is retired. Landlock is
+the in-process belt-and-braces over bwrap's namespace-level
+isolation; under `--no-sandbox` it is not applied.
 
 ### Net proxy (`internal/sandbox/proxy.go`)
 
@@ -766,6 +1417,8 @@ the proxy port is reachable inside the private netns.
 
 ## Audit (`internal/audit`)
 
+### API surface
+
 - `LoadOrCreateKey(path)` — Ed25519 agent key; auto-generated 0600 PEM.
 - `NewSigner(priv)` → satisfies `state/git.CommitSigner`. Interface lives
   in `state/git` to avoid an import cycle.
@@ -776,6 +1429,76 @@ the proxy port is reachable inside the private netns.
 - `MinisignSign / MinisignVerify` — BLAKE2b-prehashed Ed25519 in
   minisign `.minisig` format. For release-artifact signing; interop with
   the `minisign` CLI.
+
+### Trust-root invariant
+
+The data that decides "which plugin signers are trusted" must be
+**immutable from inside the sandbox**. Concretely:
+
+- The plugin trust ring (`$XDG_DATA_HOME/stado/plugins/trusted_keys.json`),
+  the anchor-trust dir (`$XDG_DATA_HOME/stado/plugins/anchor-trust/`),
+  and the plugin revocation list are mounted **read-only** into the
+  agent's namespace.
+- Signing-verification keys used by the audit walker are mounted
+  read-only or, in the hardened profile, **compiled into the binary**.
+
+Rationale: if the agent's own `bash` (or any tool reachable through
+indirect prompt injection) can write the file that decides what is
+trusted, signature verification is theatre — it verifies against a
+key the attacker just swapped. **Mutating a trust root is a broker
+operation, gated by operator action, audited.** The agent may
+request the mutation; the broker performs it; the broker-decision
+log records who asked and why.
+
+### Audit-trace writer invariant
+
+The session-`trace` ref is append-only as a **process fact**, not
+merely a git convention. The agent process does **not** hold a
+writable handle to the trace refs.
+
+- The broker (or a dedicated trace-writer process the broker
+  controls) owns trace appends. It opens the sidecar repo
+  read-write at startup, validates incoming events, signs the
+  resulting commits, and updates the refs.
+- The agent emits **trace events** over the narrow IPC channel and
+  receives only acknowledgements back. It never opens
+  `$XDG_DATA_HOME/stado/sessions/<repo-id>.git` for writing.
+- The agent's namespace contains the sidecar dir mounted read-only
+  (for `audit verify`, history walks, fork-from-point reads) but
+  the writable handle lives outside the agent's namespace.
+
+Rationale: if a compromised agent can rewrite the trace, it tampers
+with the record of its own tampering — a forgeable audit log is
+worse than none. The broker's role as sole trace writer is what
+makes the audit ref's append-only-ness load-bearing rather than
+advisory.
+
+### Broker-decision log
+
+In addition to the per-session `trace` refs, the broker maintains
+an **append-only broker-decision log** at the host level
+(`$XDG_DATA_HOME/stado/broker/decisions.jsonl` or equivalent;
+exact path is an implementation detail). Every broker decision is
+recorded:
+
+- Session-creation requests: admit (with the projected ceiling),
+  deny (with the rule that fired).
+- Non-session sandbox requests (`stado tool run` and similar):
+  admit, deny, the plugin's declared capabilities, the operator's
+  global-policy disposition.
+- Capability-grant decisions: which session asked for what, the
+  taint state of the requesting context, the broker's response.
+- Trust-root mutations: which key was added / removed / revoked,
+  the operator action that authorised it.
+
+This log is the canonical audit of broker-mediated work that does
+not attach to a session — particularly `stado tool run`
+invocations, which write no `trace` ref of their own. Operators
+who want per-invocation operator-audit beyond the broker-decision
+log enable a separate opt-in operator-audit knob; the
+broker-decision log itself is not opt-in. The log is written by
+the broker, mounted read-only into agent namespaces when read
+access is needed.
 
 ---
 
