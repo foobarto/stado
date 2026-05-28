@@ -459,15 +459,25 @@ the TUI approval card explicitly.
 
 ### Sandboxing
 
-- **Linux** — `stado run --sandbox-fs` uses Landlock to narrow the
-  whole process; sandboxed subprocesses use bubblewrap + seccomp BPF.
-  The built-in `bash` tool defaults to deny-all networking on this path.
+As of v0.57.0 stado is **sandboxed by default** across every
+interactive surface (TUI, `stado run`, `stado headless`, `stado acp`,
+`stado mcp-server`). A privileged broker process (an evolution of
+`stado daemon`) projects a per-session capability ceiling and mounts
+the agent's namespace; the orchestrator can only request what global
+policy permits. Opt out with `stado run --no-sandbox` (or
+`STADO_BROKER_ATTACH=0` for development scenarios — see migration
+notes in `CHANGELOG.md` for v0.57.0).
+
+- **Linux** — Bubblewrap mounts the agent's namespace; Landlock
+  narrows the parent process to launch-cwd + `/tmp` writes. The
+  built-in `bash` tool defaults to deny-all networking on this path.
   For `net:<host>` policies on subprocesses and MCP stdio servers,
   stado wraps the subprocess in `pasta --splice-only` and exposes only
   its local CONNECT-allowlist proxy port inside the private netns.
 - **macOS** — sandboxed subprocesses run under generated
-  `sandbox-exec` profiles from the same policy vocabulary, but there is
-  no Linux-style whole-process `--sandbox-fs` path.
+  `sandbox-exec` profiles from the same policy vocabulary; the broker
+  + ceiling apply at the runner layer the same way as on Linux,
+  minus the Landlock in-process belt-and-braces.
 - **Windows** — v1 remains warning-only passthrough; v2 is planned.
 - **WASM plugins and bundled plugin-backed tools** — execute inside
   `wazero`; filesystem/session/LLM/tool access is mediated by

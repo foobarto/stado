@@ -32,10 +32,14 @@ Kernel ≥ 5.13. Filesystem ruleset applied at process start:
   through the sandbox runner. Host-allowlist networking is only for
   subprocess policies that explicitly declare `net:<host>`.
 
-`stado run --sandbox-fs` applies the ruleset to the entire `run`
-process. The TUI launches shell commands via bubblewrap (layer 2)
+In v0.57.0+, the sandbox is **on by default** for `stado run` and
+every other orchestrator entry point. Landlock applies to the
+entire `run` process; writes are confined to the launch cwd +
+`/tmp`. The TUI launches shell commands via bubblewrap (layer 2)
 which composes with Landlock — the child inherits the parent's
-FS ruleset AND gets its own bwrap mount namespace on top.
+FS ruleset AND gets its own bwrap mount namespace on top. Pass
+`stado run --no-sandbox` to disable both layers (the runner
+becomes `NoneRunner` and Landlock is skipped).
 
 `stado doctor` reports:
 - `Landlock available` — kernel ≥ 5.13
@@ -154,9 +158,10 @@ warn_usd = 0.50
 hard_usd = 2.00
 ```
 
-Combined with `stado run --sandbox-fs`, that's: read-only tools,
-filesystem narrowing on Linux, and a $2 hard cap. Hard to misfire
-and still useful for diagnosis work.
+Combined with the v0.57.0 default sandbox (Landlock writes confined
+to cwd + `/tmp`, bubblewrap mount namespace per tool call), that's:
+read-only tools, filesystem narrowing on Linux, and a $2 hard cap.
+Hard to misfire and still useful for diagnosis work.
 
 ## Gotchas
 

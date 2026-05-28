@@ -202,6 +202,43 @@ which already carried these merged-but-unreleased security fixes:
   every existing test transparently hits the Skipped broker path,
   so the broker-attach default flip is regression-clean.
 
+### Migration notes
+
+These are user-visible behavior shifts that don't break a public
+schema but do change what an operator sees or how a pre-v0.57.0
+workflow lands. None ship deprecation aliases (pre-1.0).
+
+- **`--sandbox-fs` is gone; `--no-sandbox` is the inverse-polarity
+  replacement.** `stado run --sandbox-fs` now errors with "unknown
+  flag." Anyone whose script depended on the pre-v0.57.0 *opt-in*
+  shape should drop the flag (sandbox is now the default) — or, if
+  the script explicitly disabled sandboxing, add `--no-sandbox`.
+- **Writable boundary moved.** Pre-v0.57.0 `--sandbox-fs` confined
+  writes to `Session.WorktreePath` + `/tmp`. v0.57.0 confines them
+  to the launch cwd + `/tmp` unconditionally for `stado run`. The
+  worktree is still under cwd when launched from inside a project,
+  so the typical case is unchanged; the explicit alternate-cwd
+  + worktree-symlink path now writes to the cwd subtree, not the
+  worktree.
+- **`STADO_DAEMON=off` no longer reliably blocks the daemon for
+  orchestrator surfaces.** TUI, `stado run`, `stado headless`,
+  `stado acp`, and `stado mcp-server` now attach to the broker
+  (an evolution of the daemon) on launch via `attachToBroker`, which
+  auto-spawns the daemon as needed and does NOT consult
+  `STADO_DAEMON`. To prevent broker attach on those surfaces, set
+  `STADO_BROKER_ATTACH=0` (or `false` / `off` / `no`). The
+  `STADO_DAEMON=off` knob still works for the `stado tool run`
+  single-shot path and for the PTY refusal error message —
+  `cmd/stado/tool_run_daemon.go` flags this explicitly.
+- **New 2–3 lines of stderr at every orchestrator launch.** Each
+  surface now prints a sandbox-mode banner after broker attach:
+  - `stado: sandbox=default session=<sessionid> (broker-mediated)`
+  - `stado: writable: /work, /tmp`
+  - `stado: N credential paths masked (~/.ssh/id_*, ~/.aws, …)`
+  Skipped attaches print a `broker attach skipped (<reason>)` line
+  instead. Tests and scripts that capture stderr verbatim may need
+  to be loosened.
+
 ## v0.56.0 — deep-dive backlog sweep (I/J/K/L/M/N/O/Q clusters) — 2026-05-24
 
 Closes 12 of the 14 remaining deep-dive findings carried over from the

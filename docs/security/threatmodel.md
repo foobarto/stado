@@ -13,7 +13,7 @@
 > left to in-process trust. Update when re-walking.
 
 ## Overview
-stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthropic/OpenAI/Google/OAI‑compatible), maintains a git‑sidecar session state, and executes tools — all of which are **signed wasm plugins** (fs read/write/edit/glob/grep, shell exec + PTY sessions, ripgrep/ast‑grep, webfetch, LSP, agent spawn, plus user plugins) reached through capability-gated host imports. Sessions are stored in a sidecar bare repo with signed audit logs; mutations are materialized in a worktree and only applied to the user repo when `session land` is invoked. It supports a JSON‑RPC ACP server, headless `stado run`, and a WASM plugin runtime with signed manifests. OS sandboxing (bwrap + landlock/seccomp on Linux, sandbox‑exec on macOS; Windows is currently unsandboxed) is **default-on for `stado_exec`/`stado_proc_spawn` under `stado mcp-server` and `stado daemon`** (host-default protective policy, EP-0030) and opt-in for direct `stado run` (`--sandbox-fs`); network allow‑listing via a local CONNECT proxy is best‑effort.
+stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthropic/OpenAI/Google/OAI‑compatible), maintains a git‑sidecar session state, and executes tools — all of which are **signed wasm plugins** (fs read/write/edit/glob/grep, shell exec + PTY sessions, ripgrep/ast‑grep, webfetch, LSP, agent spawn, plus user plugins) reached through capability-gated host imports. Sessions are stored in a sidecar bare repo with signed audit logs; mutations are materialized in a worktree and only applied to the user repo when `session land` is invoked. It supports a JSON‑RPC ACP server, headless `stado run`, and a WASM plugin runtime with signed manifests. OS sandboxing (bwrap + landlock/seccomp on Linux, sandbox‑exec on macOS; Windows is currently unsandboxed) is **default-on for every orchestrator surface (TUI, `stado run`, `stado headless`, `stado acp`, `stado mcp-server`) as of v0.57.0** — the broker (an evolution of `stado daemon`, EP-0050) projects a per-session capability ceiling that the runner enforces. Opt out per-run via `stado run --no-sandbox`, or for the whole process via `STADO_BROKER_ATTACH=0`. Network allow‑listing via a local CONNECT proxy is best‑effort.
 
 ## Threat model, Trust boundaries and assumptions
 **Attacker‑controlled inputs**
@@ -26,7 +26,7 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 - External binaries on PATH (rg/ast‑grep) and their outputs.
 
 **Operator‑controlled inputs**
-- `config.toml`, environment variables (API keys, provider endpoints), CLI flags (e.g., `--sandbox-fs`), tool allow/deny lists, budgets, telemetry endpoints, plugin trust store, and MCP capability manifests.
+- `config.toml`, environment variables (API keys, provider endpoints, `STADO_BROKER_ATTACH`), CLI flags (e.g., `--no-sandbox`), tool allow/deny lists, budgets, telemetry endpoints, plugin trust store, and MCP capability manifests.
 - Decisions to enable/disable tools, plugins, or network access, and whether to “land” changes into the user repo.
 
 **Developer‑controlled inputs**
@@ -36,7 +36,7 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 - stado runs as a single local user; there is no multi‑tenant or network‑exposed service surface.
 - The OS user is the security boundary; tool execution inherits user privileges unless a sandbox is enabled.
 - **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. Human approval still exists but as an **opt-in capability** (`stado_ui_approve`) a plugin invokes deliberately, not a blanket gate.
-- Sandboxing is platform‑dependent (Linux landlock + bwrap, macOS sandbox‑exec; Windows unsandboxed). It is **default-on** for `stado_exec`/`stado_proc_spawn` under `stado mcp-server`/`stado daemon` (host-default policy: PID+uid namespace isolation, restricted FS, network passthrough), and **opt-in** for direct `stado run` (`--sandbox-fs`, default NONE).
+- Sandboxing is platform‑dependent (Linux landlock + bwrap, macOS sandbox‑exec; Windows unsandboxed). As of v0.57.0 it is **default-on for every orchestrator surface** — TUI, `stado run`, `stado headless`, `stado acp`, `stado mcp-server` all attach to the broker on launch and run under its projected ceiling. Direct `stado run` writes are confined to launch cwd + `/tmp` via Landlock; `stado_exec`/`stado_proc_spawn` under `stado mcp-server`/`stado daemon` retain the EP-0030 host-default policy (PID+uid namespace isolation, restricted FS, network passthrough). Opt out per-run via `--no-sandbox`; opt out process-wide via `STADO_BROKER_ATTACH=0` (development scenarios only).
 
 ## Attack surface, mitigations and attacker stories
 ### Tool execution & filesystem access
@@ -52,7 +52,7 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 - Work is done in a sidecar worktree; user repo stays pristine until `session land`.
 - Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
 - Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
-- `stado run --sandbox-fs` adds Linux landlock restricting writes to the worktree + /tmp (reads remain broad at the landlock layer — the capability gate is the tighter read control).
+- `stado run` (v0.57.0+) applies Linux landlock by default, restricting writes to launch cwd + /tmp (reads remain broad at the landlock layer — the capability gate is the tighter read control). `--no-sandbox` is the explicit per-run opt-out.
 - Residual risk: capabilities are declared per plugin and approved at install/trust time; an over-broad grant or a trusted-but-coerced tool still operates within its granted scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control
@@ -60,7 +60,7 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 
 **Risks/attacker stories:**
 - On Windows, or hosts without bwrap/sandbox‑exec, subprocesses run unsandboxed even where a host-default policy is requested (the policy is a no-op without an enforcing runner).
-- Direct `stado run` defaults to NO sandbox (`run.go`: default policy NONE), so exec from an interactive session inherits full user privileges unless `--sandbox-fs` is set.
+- Pre-v0.57.0 `stado run` defaulted to NO sandbox (`run.go`: default policy NONE). v0.57.0 reverses that — direct `stado run` is sandbox-by-default. Operators who keep `--no-sandbox` set (or who set `STADO_BROKER_ATTACH=0`) re-take the pre-v0.57.0 risk: exec from an interactive session inherits full user privileges.
 - An explicit per-call `sandbox` field on `stado_exec` can opt out of the host default.
 
 **Mitigations:**
