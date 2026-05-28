@@ -48,6 +48,7 @@ func availableProviders(cfg *config.Config) []string {
 		"xai":        {},
 		"mistral":    {},
 		"cerebras":   {},
+		"minimax":    {},
 		"litellm":    {},
 	}
 	if cfg != nil {

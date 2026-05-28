@@ -27,6 +27,8 @@ func ProviderAPIKeyEnv(provider string) string {
 		return "MISTRAL_API_KEY"
 	case "cerebras":
 		return "CEREBRAS_API_KEY"
+	case "minimax":
+		return "MINIMAX_API_KEY"
 	case "litellm":
 		return "LITELLM_API_KEY"
 	default:
@@ -71,6 +73,8 @@ func BuiltinInferencePreset(name string) (endpoint, apiKeyEnv string, ok bool) {
 		return "https://api.mistral.ai/v1", ProviderAPIKeyEnv(name), true
 	case "cerebras":
 		return "https://api.cerebras.ai/v1", ProviderAPIKeyEnv(name), true
+	case "minimax":
+		return "https://api.minimax.io/v1", ProviderAPIKeyEnv(name), true
 	default:
 		return "", "", false
 	}
@@ -173,6 +177,7 @@ func KnownProviders() []KnownProvider {
 		{Name: "deepseek", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.deepseek.com/v1", APIKeyEnv: "DEEPSEEK_API_KEY", HelpURL: "https://platform.deepseek.com/api_keys"},
 		{Name: "groq", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.groq.com/openai/v1", APIKeyEnv: "GROQ_API_KEY", HelpURL: "https://console.groq.com/keys"},
 		{Name: "litellm", Kind: ProviderKindOAICompatCloud, Endpoint: "http://localhost:4000/v1", APIKeyEnv: "LITELLM_API_KEY", HelpURL: "https://docs.litellm.ai/"},
+		{Name: "minimax", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.minimax.io/v1", APIKeyEnv: "MINIMAX_API_KEY", HelpURL: "https://platform.minimax.io/"},
 		{Name: "mistral", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.mistral.ai/v1", APIKeyEnv: "MISTRAL_API_KEY", HelpURL: "https://console.mistral.ai/api-keys"},
 		{Name: "ollama-cloud", Kind: ProviderKindOAICompatCloud, Endpoint: "https://ollama.com/v1", APIKeyEnv: "OLLAMA_CLOUD_API_KEY", HelpURL: "https://ollama.com/settings/keys"},
 		{Name: "openrouter", Kind: ProviderKindOAICompatCloud, Endpoint: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY", HelpURL: "https://openrouter.ai/keys"},
