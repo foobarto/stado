@@ -157,8 +157,11 @@ func TestAnnounceSandboxMode_NoSandboxProfile(t *testing.T) {
 	if !strings.Contains(got, "sandbox=no-sandbox") {
 		t.Errorf("announcement %q lacks 'sandbox=no-sandbox'", got)
 	}
-	if !strings.Contains(got, "(none — read-only sandbox)") {
-		t.Errorf("announcement %q lacks empty-writable indicator", got)
+	// Phase 2/cloud-review bug_004: --no-sandbox is the operator's
+	// explicit opt-out from the OS-level fence; the writable line
+	// must reflect that, not contradict it with "read-only sandbox".
+	if !strings.Contains(got, "(all paths — no OS-level fence applied)") {
+		t.Errorf("announcement %q should reflect --no-sandbox's unrestricted-fs reality", got)
 	}
 }
 

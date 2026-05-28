@@ -302,18 +302,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				} else {
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
 				}
-
-				if !runNoSandbox {
-					if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(cwd)); err != nil {
-						if errors.Is(err, sandbox.ErrLandlockUnavailable) {
-							fmt.Fprintln(os.Stderr, "stado run: Landlock unavailable on this kernel; continuing without in-process write confinement (bwrap still applies at the runner layer)")
-						} else {
-							return fmt.Errorf("sandbox: %w", err)
-						}
-					} else {
-						fmt.Fprintln(os.Stderr, "stado run: Landlock applied (writes confined to cwd + /tmp)")
-					}
-				}
 			}
 
 			cwd, _ := os.Getwd()
@@ -321,11 +309,13 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			ctx, cancel := context.WithTimeout(baseCtx, 10*time.Minute)
 			defer cancel()
 
-			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
-			// On opt-in: auto-spawn the broker, create a main-chat session,
-			// hold the handle for the agent loop's duration, terminate on
-			// exit. Phase 2 flips the default and wires the returned
-			// ceiling to actual sandbox enforcement.
+			// v1 broker attach. MUST happen before ApplyLandlock —
+			// daemon.EnsureRunning auto-spawns `stado daemon start`
+			// when the socket is absent (fresh host, post-idle), and
+			// Landlock survives fork+exec by design. If Landlock fires
+			// first the spawned daemon inherits the cwd+/tmp write
+			// confinement and cannot mkdir $XDG_RUNTIME_DIR/stado/ or
+			// bind its socket. Cloud-review bug_011 / PR #71.
 			profile := brokerProfileFromFlags()
 			if runNoSandbox {
 				profile = brokerProfileNoSandbox()
@@ -342,17 +332,29 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}()
 
 			// Phase 5c: wrap the Executor's runner with the broker's
-			// projected ceiling. Every per-tool-call Policy is now
-			// intersected with the ceiling at runner-construction
-			// time, so a tool whose per-call Policy exceeds the
-			// ceiling gets the intersection (which is bounded by the
-			// ceiling) — the mount table actually enforces.
-			//
-			// Skipped sessions (test binaries, opt-out) keep the
-			// existing un-wrapped runner. --no-sandbox keeps
+			// projected ceiling. Per-call Policy intersects with the
+			// ceiling at runner-construction time so a tool whose
+			// per-call Policy exceeds the ceiling gets the
+			// intersection. Skipped sessions (test binaries, opt-out)
+			// keep the un-wrapped runner; --no-sandbox keeps
 			// NoneRunner from the earlier override.
 			if !brokerSession.Skipped && !runNoSandbox && opts.Executor != nil {
 				opts.Executor.Runner = sandbox.NewCeilingRunner(opts.Executor.Runner, brokerSession.Ceiling)
+			}
+
+			// Apply Landlock LAST so the broker auto-spawn above ran
+			// unrestricted but every subsequent in-process write is
+			// now confined.
+			if toolsEnabled && !runNoSandbox {
+				if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(cwd)); err != nil {
+					if errors.Is(err, sandbox.ErrLandlockUnavailable) {
+						fmt.Fprintln(os.Stderr, "stado run: Landlock unavailable on this kernel; continuing without in-process write confinement (bwrap still applies at the runner layer)")
+					} else {
+						return fmt.Errorf("sandbox: %w", err)
+					}
+				} else {
+					fmt.Fprintln(os.Stderr, "stado run: Landlock applied (writes confined to cwd + /tmp)")
+				}
 			}
 
 			_, finalMsgs, err := runAgentLoop(ctx, opts)

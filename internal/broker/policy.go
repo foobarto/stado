@@ -44,16 +44,20 @@ func DefaultPolicy() *Policy {
 	}
 }
 
-// Evaluate evaluates req against p and returns a Decision. The
-// evaluation order is: plugin-specific override (for tool-run) →
-// purpose-specific → profile-specific → DefaultAdmit. The first
-// matching rule wins; Decision.Rule names which one.
+// Evaluate evaluates req against p and returns a Decision using
+// two-pass resolution: pass 1 returns the first explicit DENY at
+// any level (plugin override for tool-run → purpose → profile),
+// pass 2 returns the first explicit ALLOW at the same levels,
+// DefaultAdmit is the fallback. Decision.Rule names which rule
+// fired. Explicit DENY anywhere wins over ALLOW elsewhere — see
+// the Codex P1 rationale in the inline comment below the body.
 //
 // Phase 1: the default policy admits everything, so this function
-// always returns Admit=true with Rule="default". Phase 1b's TOML
-// loader populates the per-purpose / per-profile / per-plugin maps
-// and tightens the resolution; phase 1c adds the broker.v1.policy.query
-// dispatch path that exposes Evaluate over the IPC.
+// returns Admit=true with Rule from the purpose dimension. Phase 1b's
+// TOML loader populates the per-purpose / per-profile / per-plugin
+// maps and tightens the resolution; phase 1c adds the
+// broker.v1.policy.query dispatch path that exposes Evaluate over
+// the IPC.
 func (p *Policy) Evaluate(req CapabilityRequest) Decision {
 	if p == nil {
 		return Decision{Admit: false, Rule: "no-policy", Reason: ErrPolicyNotLoaded.Error()}

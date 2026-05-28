@@ -122,11 +122,12 @@ func brokerAttachOptIn() bool {
 // issues broker.v1.session.create with the supplied purpose +
 // profile. Returns a BrokerSession the caller must Close on exit.
 //
-// Phase-1 behavior matrix:
+// Behavior matrix:
 //
-//   - Opt-out (envBrokerAttach unset/false): returns a Skipped
-//     BrokerSession with reason "opt-out". Entry point proceeds as
-//     today.
+//   - Opt-out (envBrokerAttach explicitly set to a falsy value
+//     0/false/off/no): returns a Skipped BrokerSession with reason
+//     "opt-out (STADO_BROKER_ATTACH=<value>)". Entry point proceeds
+//     as today (no broker session, no ceiling enforcement).
 //   - Broker reachable: dials, creates session, returns the handle.
 //   - Broker not reachable + spawn refused (test binary): returns a
 //     Skipped BrokerSession with reason "test-binary". Entry-point
@@ -137,7 +138,11 @@ func brokerAttachOptIn() bool {
 //     --no-sandbox" (per AC1.6 in the phase-1 spec).
 func attachToBroker(ctx context.Context, purpose broker.Purpose, profile broker.Profile, cwd string) (*BrokerSession, error) {
 	if !brokerAttachOptIn() {
-		return &BrokerSession{Skipped: true, SkipReason: "opt-out (STADO_BROKER_ATTACH not set)"}, nil
+		raw := strings.ToLower(strings.TrimSpace(os.Getenv(envBrokerAttach)))
+		return &BrokerSession{
+			Skipped:    true,
+			SkipReason: fmt.Sprintf("opt-out (STADO_BROKER_ATTACH=%q)", raw),
+		}, nil
 	}
 
 	socketPath, err := daemon.SocketPath()
@@ -212,7 +217,7 @@ func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
 		profileTag = "(unknown)"
 	}
 	fmt.Fprintf(w, "%s: sandbox=%s session=%s (broker-mediated)\n", surface, profileTag, s.SessionID)
-	writableSummary := summarizeFSWrite(s.Ceiling.FSWrite)
+	writableSummary := summarizeFSWrite(s.Profile, s.Ceiling.FSWrite)
 	fmt.Fprintf(w, "%s: writable: %s\n", surface, writableSummary)
 	if maskedCount := countMaskedPaths(s.Profile); maskedCount > 0 {
 		fmt.Fprintf(w, "%s: %d credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)\n",
@@ -234,7 +239,17 @@ func countMaskedPaths(profile broker.Profile) int {
 // summarizeFSWrite returns a short human-readable summary of the
 // session's writable filesystem grant. Phase 2 default is launch
 // cwd + /tmp; phase 3's mount table tightens this.
-func summarizeFSWrite(writes []string) string {
+//
+// ProfileNoSandbox produces an empty FSWrite (projectCeiling
+// returns sandbox.Policy{}) because there is no broker-enforced
+// ceiling — but the operator chose this mode explicitly and the
+// runner is NoneRunner. Reporting "(none — read-only sandbox)"
+// would directly contradict the sandbox=no-sandbox mode line.
+// Cloud-review bug_004 / PR #71.
+func summarizeFSWrite(profile broker.Profile, writes []string) string {
+	if profile == broker.ProfileNoSandbox {
+		return "(all paths — no OS-level fence applied)"
+	}
 	if len(writes) == 0 {
 		return "(none — read-only sandbox)"
 	}
