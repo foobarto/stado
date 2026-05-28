@@ -32,6 +32,22 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.58.0 — minimax.io provider — 2026-05-28
+
+### UX
+
+- **`minimax` provider added** as an OAI-compatible cloud preset
+  (`https://api.minimax.io/v1`, `MINIMAX_API_KEY`). Model catalog
+  pre-loaded with the seven MiniMax-M2.x chat models (M2.7,
+  M2.7-highspeed, M2.5, M2.5-highspeed, M2.1, M2.1-highspeed, M2)
+  at 200K context. `stado config providers`, `stado doctor`,
+  the headless server providers list, and the TUI model picker
+  all surface it.
+
+  Note: minimax's `temperature` range is `(0.0, 1.0]` — narrower
+  than OpenAI's `[0.0, 2.0]`. stado does not pre-validate; values
+  outside the range return a 4xx from minimax at request time.
+
 ## v0.57.1 — TUI: lift system-block content truncation — 2026-05-28
 
 ### Fixes

@@ -16,6 +16,7 @@ func TestProviderAPIKeyEnv(t *testing.T) {
 		"xai":        "XAI_API_KEY",
 		"mistral":    "MISTRAL_API_KEY",
 		"cerebras":   "CEREBRAS_API_KEY",
+		"minimax":    "MINIMAX_API_KEY",
 		"litellm":    "LITELLM_API_KEY",
 		"ollama":     "",
 		"unknown":    "",
@@ -44,6 +45,7 @@ func TestBuiltinInferencePreset(t *testing.T) {
 		{"xai", true, "XAI_API_KEY"},
 		{"mistral", true, "MISTRAL_API_KEY"},
 		{"cerebras", true, "CEREBRAS_API_KEY"},
+		{"minimax", true, "MINIMAX_API_KEY"},
 	}
 	for _, c := range cases {
 		ep, keyEnv, ok := BuiltinInferencePreset(c.name)

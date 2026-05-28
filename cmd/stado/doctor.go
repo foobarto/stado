@@ -467,6 +467,7 @@ func checkContext(d *report, cfg *config.Config) {
 		"xai":        true,
 		"mistral":    true,
 		"cerebras":   true,
+		"minimax":    true,
 	}
 	switch {
 	case cfg.Defaults.Provider == "":
