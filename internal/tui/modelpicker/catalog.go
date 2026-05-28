@@ -71,11 +71,11 @@ func CatalogFor(provider string) []Item {
 		return tag([]Item{
 			{ID: "MiniMax-M2.7", Origin: "minimax", Note: "200K ctx · flagship"},
 			{ID: "MiniMax-M2.7-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
-			{ID: "MiniMax-M2.5", Origin: "minimax"},
-			{ID: "MiniMax-M2.5-highspeed", Origin: "minimax", Note: "faster"},
-			{ID: "MiniMax-M2.1", Origin: "minimax"},
-			{ID: "MiniMax-M2.1-highspeed", Origin: "minimax", Note: "faster"},
-			{ID: "MiniMax-M2", Origin: "minimax"},
+			{ID: "MiniMax-M2.5", Origin: "minimax", Note: "200K ctx"},
+			{ID: "MiniMax-M2.5-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2.1", Origin: "minimax", Note: "200K ctx"},
+			{ID: "MiniMax-M2.1-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2", Origin: "minimax", Note: "200K ctx"},
 		})
 	}
 	return nil

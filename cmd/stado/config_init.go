@@ -59,8 +59,8 @@ const defaultConfigTemplate = `# stado — config.toml
 #   openai     — direct openai-go        (needs OPENAI_API_KEY)
 #   google     — direct generative-ai-go (needs GEMINI_API_KEY)
 #   ollama / llamacpp / vllm / lmstudio  — local OAI-compat runners
-#   groq / openrouter / deepseek / xai / mistral / cerebras / litellm
-#                                        — hosted OAI-compat services
+#   groq / openrouter / deepseek / xai / mistral / cerebras / minimax /
+#   litellm                              — hosted OAI-compat services
 # provider = "anthropic"
 # model    = "claude-sonnet-4-6"
 
