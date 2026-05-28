@@ -96,6 +96,19 @@ func (m *Model) appendBlock(b block) {
 	m.blocks = append(m.blocks, b)
 }
 
+// injectStartupNotices renders the launch-time banner — sandbox posture,
+// broker session, writable paths, and any startup warnings the caller and
+// Run collected — as one system block. Without this the alt-screen TUI
+// swallows what the CLI entry points print to stderr before the program
+// takes the screen (see internal/sandbox.HostUnsandboxedLines and
+// cmd/stado's BrokerSession.AnnounceSandboxMode). No-op when empty.
+func (m *Model) injectStartupNotices(notices []string) {
+	if len(notices) == 0 {
+		return
+	}
+	m.appendBlock(block{kind: "system", body: strings.Join(notices, "\n")})
+}
+
 const autoSessionTitleMaxRunes = 48
 
 func (m *Model) maybeAutoTitleSession(text string) {

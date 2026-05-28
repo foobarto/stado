@@ -243,3 +243,65 @@ func TestWarnIfHostUnsandboxed_modeChangeAfterFirstEmission_silent(t *testing.T)
 		t.Errorf("expected silence on second call regardless of mode, got: %q", out)
 	}
 }
+
+// HostUnsandboxedLines is the pure, capturable source the TUI uses to
+// render the banner in-band (the alt-screen swallows pre-launch stderr).
+// It must NOT be gated by announceOnce — the TUI needs the lines every
+// launch — and must honour the same suppression rules as the stderr path.
+func TestHostUnsandboxedLines_modeOff_returnsBanner(t *testing.T) {
+	clearEnv(t)
+	lines := HostUnsandboxedLines(WrapConfig{Mode: "off"})
+	if len(lines) == 0 {
+		t.Fatal("expected banner lines for mode=off, got none")
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "running without a process-containment sandbox") {
+		t.Errorf("missing unsandboxed warning, got: %q", joined)
+	}
+	if !strings.Contains(joined, SuppressEnvVar) {
+		t.Errorf("missing suppress-env hint, got: %q", joined)
+	}
+}
+
+func TestHostUnsandboxedLines_suppressed_returnsNil(t *testing.T) {
+	clearEnv(t)
+	t.Setenv(SuppressEnvVar, "1")
+	if lines := HostUnsandboxedLines(WrapConfig{Mode: "off"}); lines != nil {
+		t.Errorf("expected nil when suppressed, got: %q", lines)
+	}
+}
+
+func TestHostUnsandboxedLines_rewrappedChild_returnsNil(t *testing.T) {
+	clearEnv(t)
+	t.Setenv(RewrappedEnvVar, "1")
+	if lines := HostUnsandboxedLines(WrapConfig{Mode: "off"}); lines != nil {
+		t.Errorf("expected nil for wrapped child, got: %q", lines)
+	}
+}
+
+// Unlike WarnIfHostUnsandboxed, repeated calls keep returning the lines —
+// no sync.Once. A second launch (or the stderr + TUI paths in one process)
+// must each get the banner.
+func TestHostUnsandboxedLines_notGatedByOnce(t *testing.T) {
+	clearEnv(t)
+	first := HostUnsandboxedLines(WrapConfig{Mode: "off"})
+	second := HostUnsandboxedLines(WrapConfig{Mode: "off"})
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatalf("expected lines on both calls, got %d then %d", len(first), len(second))
+	}
+}
+
+// The stderr path and the capturable path must show identical text — they
+// are a single source of truth, so a banner edit can't drift between the
+// CLI rendering and the TUI rendering.
+func TestWarnIfHostUnsandboxed_matchesHostUnsandboxedLines(t *testing.T) {
+	resetAnnounceOnceForTest()
+	clearEnv(t)
+	out := captureStderr(t, func() {
+		WarnIfHostUnsandboxed(WrapConfig{Mode: "off"})
+	})
+	want := strings.Join(HostUnsandboxedLines(WrapConfig{Mode: "off"}), "\n") + "\n"
+	if out != want {
+		t.Errorf("stderr path and HostUnsandboxedLines diverged:\n stderr=%q\n lines=%q", out, want)
+	}
+}
