@@ -62,6 +62,39 @@ func TestInjectStartupNotices_appendsAfterExistingBlocks(t *testing.T) {
 	}
 }
 
+// Regression (Codex review on #78): the startup banner must NOT suppress
+// the empty-session landing screen. View() decides landing via
+// hasRealBlocks, which ignores startup-marked blocks; if it counted them,
+// every fresh launch would lose the welcome screen (logo, hints, version).
+func TestStartupBanner_DoesNotCountAsRealBlock(t *testing.T) {
+	m := &Model{}
+	m.injectStartupNotices([]string{"stado: warn: running without a process-containment sandbox."})
+	if m.hasRealBlocks() {
+		t.Error("startup banner alone must not be a real block (would hide the landing screen)")
+	}
+	if got := m.startupBannerText(); !strings.Contains(got, "process-containment") {
+		t.Errorf("startupBannerText missing banner; got %q", got)
+	}
+	// A real conversation block flips it → conversation view takes over.
+	m.appendBlock(block{kind: "user", body: "hello"})
+	if !m.hasRealBlocks() {
+		t.Error("a real user block must make hasRealBlocks true")
+	}
+}
+
+// The landing screen must render the banner (above its footer) so a fresh
+// launch surfaces the notices the alt-screen cleared.
+func TestStartupBanner_RendersOnLandingScreen(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	m.injectStartupNotices([]string{"stado: sandbox=no-sandbox session=deadbeef (broker-mediated)"})
+	out := m.renderLanding(80, 30)
+	for _, want := range []string{"no-sandbox", "deadbeef", "broker-mediated"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("landing screen missing startup banner token %q", want)
+		}
+	}
+}
+
 // Render-level guard: the injected banner must survive renderBlock into
 // the visible output, not merely live in m.blocks. (Verify by rendering,
 // not by inspecting state.)

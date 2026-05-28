@@ -59,6 +59,14 @@ type block struct {
 	// inputs from programmatic ones in multi-producer sessions. EP-0038 §E.
 	source string
 
+	// startup marks the launch-time banner block (sandbox posture,
+	// broker session, writable paths, startup warnings). It renders like
+	// any system block in scrollback, but View()'s landing-screen check
+	// ignores it (see hasRealBlocks) so a fresh launch still shows the
+	// welcome screen — which renders the banner above its footer. Set by
+	// injectStartupNotices.
+	startup bool
+
 	// Tool-call specific
 	toolID     string
 	toolName   string
