@@ -23,6 +23,7 @@ func TestProviderEnvName_KnownAndUnknown(t *testing.T) {
 		"xai":        "XAI_API_KEY",
 		"mistral":    "MISTRAL_API_KEY",
 		"cerebras":   "CEREBRAS_API_KEY",
+		"minimax":    "MINIMAX_API_KEY",
 		"litellm":    "LITELLM_API_KEY",
 		"ollama":     "", // local, no key
 		"unknown":    "",

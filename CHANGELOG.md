@@ -38,9 +38,10 @@ become semver guarantees.
 
 - **`minimax` provider added** as an OAI-compatible cloud preset
   (`https://api.minimax.io/v1`, `MINIMAX_API_KEY`). Model catalog
-  pre-loaded with the seven MiniMax-M2.x chat models (M2.7,
-  M2.7-highspeed, M2.5, M2.5-highspeed, M2.1, M2.1-highspeed, M2)
-  at 200K context. `stado config providers`, `stado doctor`,
+  pre-loaded with the seven MiniMax-M2.x chat models
+  (`MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`,
+  `MiniMax-M2.5-highspeed`, `MiniMax-M2.1`, `MiniMax-M2.1-highspeed`,
+  `MiniMax-M2`) at 200K context. `stado config providers`, `stado doctor`,
   the headless server providers list, and the TUI model picker
   all surface it.
 
