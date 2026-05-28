@@ -1508,7 +1508,7 @@ func ptyBoundShellToolName(name string) bool {
 // FIRST, which defeats the picker's purpose.
 var catalogProviders = []string{
 	"anthropic", "openai", "google", "groq", "deepseek",
-	"mistral", "xai", "cerebras",
+	"mistral", "xai", "cerebras", "minimax",
 }
 
 // bundledHostedPresets is the set of builtin hosted-API preset names

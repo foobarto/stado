@@ -67,6 +67,16 @@ func CatalogFor(provider string) []Item {
 			{ID: "llama3.3-70b", Origin: "cerebras", Note: "fastest on Cerebras"},
 			{ID: "llama3.1-8b", Origin: "cerebras"},
 		})
+	case "minimax":
+		return tag([]Item{
+			{ID: "MiniMax-M2.7", Origin: "minimax", Note: "200K ctx · flagship"},
+			{ID: "MiniMax-M2.7-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2.5", Origin: "minimax"},
+			{ID: "MiniMax-M2.5-highspeed", Origin: "minimax", Note: "faster"},
+			{ID: "MiniMax-M2.1", Origin: "minimax"},
+			{ID: "MiniMax-M2.1-highspeed", Origin: "minimax", Note: "faster"},
+			{ID: "MiniMax-M2", Origin: "minimax"},
+		})
 	}
 	return nil
 }
