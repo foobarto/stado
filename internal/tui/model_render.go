@@ -21,7 +21,10 @@ func (m *Model) View() string {
 		return m.renderStatusModal(m.width, m.height)
 	}
 
-	landing := len(m.blocks) == 0 && m.approval == nil
+	// Landing screen shows until there's real conversation/activity. The
+	// startup banner block (startup:true) is ignored here so it doesn't
+	// suppress the welcome screen — renderLanding shows it above the footer.
+	landing := !m.hasRealBlocks() && m.approval == nil
 	sidebarW := 0
 	if m.sidebarOpen && !landing {
 		sidebarW = m.sidebarRenderWidth()

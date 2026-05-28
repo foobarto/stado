@@ -77,7 +77,19 @@ func (m *Model) renderLanding(width, height int) string {
 	input := strings.TrimRight(m.renderInputBox(m.landingInputW(width)), "\n")
 	hint := landingHint(m.theme)
 	plugins := m.landingPluginsHint()
+
+	// Startup banner (sandbox posture, broker session, writable paths)
+	// rendered just above the footer so a fresh launch still surfaces what
+	// the alt-screen cleared, without disturbing the centered welcome.
+	banner := ""
+	if b := m.startupBannerText(); b != "" {
+		banner = m.theme.Fg("muted").Render(b)
+	}
+
 	bodyH := height - 1
+	if banner != "" {
+		bodyH -= lipgloss.Height(banner) + 1
+	}
 	if bodyH < 1 {
 		bodyH = 1
 	}
@@ -98,7 +110,11 @@ func (m *Model) renderLanding(width, height int) string {
 	parts = append(parts, centerLines(hint, width))
 	stack := strings.Join(parts, "\n\n")
 	body := lipgloss.Place(width, bodyH, lipgloss.Center, lipgloss.Center, stack)
-	return body + "\n" + m.renderLandingFooter(width)
+	out := body
+	if banner != "" {
+		out += "\n" + banner
+	}
+	return out + "\n" + m.renderLandingFooter(width)
 }
 
 func renderLandingLogo(width, maxH int) string {

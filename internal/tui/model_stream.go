@@ -96,6 +96,47 @@ func (m *Model) appendBlock(b block) {
 	m.blocks = append(m.blocks, b)
 }
 
+// injectStartupNotices renders the launch-time banner — sandbox posture,
+// broker session, writable paths, and any startup warnings the caller and
+// Run collected — as one system block. Without this the alt-screen TUI
+// swallows what the CLI entry points print to stderr before the program
+// takes the screen (see internal/sandbox.HostUnsandboxedLines and
+// cmd/stado's BrokerSession.AnnounceSandboxMode). No-op when empty.
+//
+// The block is marked startup:true so it doesn't suppress the empty-session
+// landing screen (hasRealBlocks ignores it); the landing screen renders the
+// banner above its footer, and active/resumed sessions show it in scrollback.
+func (m *Model) injectStartupNotices(notices []string) {
+	if len(notices) == 0 {
+		return
+	}
+	m.appendBlock(block{kind: "system", body: strings.Join(notices, "\n"), startup: true})
+}
+
+// hasRealBlocks reports whether any block is real conversation/activity
+// rather than the launch-time startup banner. Drives View()'s landing
+// check so the banner alone doesn't replace the welcome screen.
+func (m *Model) hasRealBlocks() bool {
+	for i := range m.blocks {
+		if !m.blocks[i].startup {
+			return true
+		}
+	}
+	return false
+}
+
+// startupBannerText returns the joined body of the startup banner block(s),
+// or "" if none — the landing screen renders this above its footer.
+func (m *Model) startupBannerText() string {
+	var parts []string
+	for i := range m.blocks {
+		if m.blocks[i].startup {
+			parts = append(parts, m.blocks[i].body)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
 const autoSessionTitleMaxRunes = 48
 
 func (m *Model) maybeAutoTitleSession(text string) {

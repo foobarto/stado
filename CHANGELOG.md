@@ -32,6 +32,24 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.58.1 — TUI: show startup banner in-band — 2026-05-28
+
+### Fixes
+
+- **Startup banner no longer vanishes under the TUI.** The sandbox
+  posture, broker session, and writable-paths lines (plus the
+  git-state-unavailable and system-prompt-template warnings) were
+  written to stderr just before the TUI opened its alternate screen,
+  which cleared the terminal — so they flashed and disappeared, never
+  visible in the running TUI. They now render as a system block at the
+  top of the session (after any replayed conversation). `stado run` /
+  `stado headless` are unchanged — they don't take the alternate
+  screen, so they still print to stderr.
+
+  Scope: the always-present banner plus those two startup warnings.
+  Deeper startup stderr (plugin-loader / ABI-verify warnings) is not
+  yet captured.
+
 ## v0.58.0 — minimax.io provider — 2026-05-28
 
 ### UX

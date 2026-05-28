@@ -46,9 +46,15 @@ import (
 //   - "ollama" / "llamacpp" / "vllm"      → OAI-compat presets
 //   - "oaicompat:<url>"                   → OAI-compat with explicit endpoint
 //   - anything else matching inference.presets.<name>.endpoint  → OAI-compat
-func Run(cfg *config.Config) error {
+func Run(cfg *config.Config, startupNotices []string) error {
 	done := tuiTraceCall("tui.Run")
 	defer done()
+	// startupNotices carries the pre-launch banner (sandbox posture,
+	// broker session, writable paths) captured by the caller, which the
+	// alt-screen would otherwise swallow. Run appends its own startup
+	// warnings to it as they occur, then renders the lot as one system
+	// block (see m.injectStartupNotices below).
+	notices := append([]string(nil), startupNotices...)
 	th, err := loadTheme(cfg)
 	if err != nil {
 		return fmt.Errorf("tui: theme: %w", err)
@@ -69,7 +75,7 @@ func Run(cfg *config.Config) error {
 	sess, err := runtime.OpenSession(cfg, cwd)
 	if err != nil {
 		// Non-fatal: run without git state; tool-call audit will be skipped.
-		fmt.Fprintf(os.Stderr, "stado: git state unavailable: %v (continuing without audit)\n", err)
+		notices = append(notices, fmt.Sprintf("stado: git state unavailable: %v (continuing without audit)", err))
 	}
 	exec, err := runtime.BuildExecutor(sess, cfg, "stado-tui")
 	if err != nil {
@@ -84,9 +90,9 @@ func Run(cfg *config.Config) error {
 	m.cfg = cfg
 	m.applyConfiguredThinkingDisplay(cfg)
 	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
-		fmt.Fprintf(os.Stderr,
-			"stado: warning — system prompt template at %s does not include {{ .ProjectInstructions }}; project rules from %s will not reach the model. Add the block or delete the file to regenerate the default.\n",
-			cfg.Agent.SystemPromptPath, m.systemPromptPath)
+		notices = append(notices, fmt.Sprintf(
+			"stado: warning — system prompt template at %s does not include {{ .ProjectInstructions }}; project rules from %s will not reach the model. Add the block or delete the file to regenerate the default.",
+			cfg.Agent.SystemPromptPath, m.systemPromptPath))
 	}
 	m.SetRootContext(runCtx)
 	var localFallback *prewarmedLocalFallback
@@ -135,6 +141,11 @@ func Run(cfg *config.Config) error {
 	// No-op on fresh sessions — conversation.jsonl only exists after
 	// at least one message has been written.
 	m.LoadPersistedConversation()
+	// Render the captured startup banner as a system block so it lands
+	// in the scrollback the alt-screen would otherwise have cleared.
+	// Injected after the replay so a resumed session shows prior history
+	// first, then this launch's notice.
+	m.injectStartupNotices(notices)
 	// Load declared background plugins (cfg.Plugins.Background). Each
 	// ticks once per turn boundary and can observe/fork the session
 	// via the host-import ABI. Failures are advisory — a bad plugin

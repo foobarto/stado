@@ -73,11 +73,12 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("config: %w", err)
 		}
 		applyRootProviderOverrides(cfg)
-		// EP-0042 follow-up: warn once when the TUI runs unsandboxed.
-		// `stado run` calls MaybeRewrap before this point; the bare-TUI
-		// path does not, so we surface the gap (mode=off OR mode=wrap
-		// configured-but-not-rewrapped) here.
-		sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
+		// EP-0042 follow-up: the bare-TUI path skips MaybeRewrap, so
+		// surface the unsandboxed-host gap (mode=off OR mode=wrap
+		// configured-but-not-rewrapped). Capture the banner instead of
+		// printing it — the alt-screen TUI clears pre-launch stderr — and
+		// hand it to tui.Run to render in-band as a system block.
+		startupNotices := sandbox.HostUnsandboxedLines(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
 			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
 			cwd, _ := os.Getwd()
@@ -85,16 +86,33 @@ var rootCmd = &cobra.Command{
 			if brokerErr != nil {
 				return fmt.Errorf("stado: %w", brokerErr)
 			}
-			brokerSession.AnnounceSandboxMode(os.Stderr, "stado")
+			// Capture the sandbox-mode banner (sandbox=… session=…,
+			// writable: …, masked-paths) into the same notices instead of
+			// the about-to-be-cleared stderr.
+			var banner strings.Builder
+			brokerSession.AnnounceSandboxMode(&banner, "stado")
+			startupNotices = append(startupNotices, splitBannerLines(banner.String())...)
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
 				}
 			}()
 
-			return tui.Run(cfg)
+			return tui.Run(cfg, startupNotices)
 		})
 	},
+}
+
+// splitBannerLines splits a captured multi-line banner into individual
+// lines, dropping the trailing newline and an all-empty result. Used to
+// fold AnnounceSandboxMode's buffered output into the TUI startup notices
+// without introducing a blank trailing line.
+func splitBannerLines(s string) []string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
 }
 
 // applyRootProviderOverrides honours --provider / --model passed on the
