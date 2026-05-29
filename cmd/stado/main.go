@@ -108,8 +108,13 @@ var rootCmd = &cobra.Command{
 // fold AnnounceSandboxMode's buffered output into the TUI startup notices
 // without introducing a blank trailing line.
 func splitBannerLines(s string) []string {
+	// Normalize CRLF → LF first so a Windows-style trailing "\r\n" (or an
+	// internal one) doesn't leave stray "\r" control chars on the lines.
+	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.TrimRight(s, "\n")
 	if s == "" {
+		// nil (not []string{""}) so appending to the notices slice doesn't
+		// introduce a blank line for a suppressed/empty banner.
 		return nil
 	}
 	return strings.Split(s, "\n")
