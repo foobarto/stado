@@ -32,6 +32,20 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.58.2 — TUI: wrap the startup banner on the landing screen — 2026-05-29
+
+### Fixes
+
+- **Startup banner no longer overflows the landing screen.** The v0.58.1
+  banner was rendered without a width constraint, so the long unsandboxed
+  warning line (~200 chars) didn't wrap — it overran the terminal width
+  (lipgloss padded every banner line to that width) and the unwrapped
+  height measurement threw off the landing-screen layout. The banner now
+  wraps to the terminal width and uses the same tone it has in scrollback
+  (`systemBlockTone`); `logoMaxH` is floored to avoid a negative value on
+  short terminals. `splitBannerLines` also normalizes CRLF. Caught by a
+  post-release review of #78.
+
 ## v0.58.1 — TUI: show startup banner in-band — 2026-05-28
 
 ### Fixes

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // injectStartupNotices must surface the launch banner as a system block so
@@ -92,6 +94,34 @@ func TestStartupBanner_RendersOnLandingScreen(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("landing screen missing startup banner token %q", want)
 		}
+	}
+}
+
+// Regression: a banner line WIDER than the terminal must be wrapped, so no
+// rendered line exceeds the width (which would overflow/misalign the screen)
+// and the height arithmetic stays honest. Before the Width(width) fix the
+// ~200-char warning line was emitted unwrapped. Asserting per-line width is
+// the real guard — lipgloss.Height counts logical lines, not wrapped rows, so
+// a height check alone passes even with the bug.
+func TestStartupBanner_LandingWrapsWideBanner(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	longLine := "stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) " +
+		"and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. " +
+		"Suppress with STADO_SUPPRESS_SANDBOX_WARN=1."
+	m.injectStartupNotices([]string{
+		"stado: warn: running without a process-containment sandbox.",
+		longLine,
+	})
+	const w, h = 80, 30
+	out := m.renderLanding(w, h)
+	for i, line := range strings.Split(out, "\n") {
+		if lw := lipgloss.Width(line); lw > w {
+			t.Errorf("landing line %d width %d exceeds terminal width %d (unwrapped banner): %q", i, lw, w, line)
+		}
+	}
+	// Content must survive the wrap, not be dropped/truncated.
+	if !strings.Contains(out, "install a wrapper") || !strings.Contains(out, "SUPPRESS_SANDBOX_WARN") {
+		t.Errorf("wrapped banner dropped content; out=%q", out)
 	}
 }
 

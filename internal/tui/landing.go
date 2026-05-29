@@ -81,9 +81,16 @@ func (m *Model) renderLanding(width, height int) string {
 	// Startup banner (sandbox posture, broker session, writable paths)
 	// rendered just above the footer so a fresh launch still surfaces what
 	// the alt-screen cleared, without disturbing the centered welcome.
+	// Width(width) wraps long lines (the unsandboxed warning is ~200 chars)
+	// BEFORE we measure height — otherwise lipgloss.Height counts logical
+	// lines, undercounts the wrapped rows, and the layout overflows. Tone
+	// matches how the same block renders in scrollback (systemBlockTone).
 	banner := ""
 	if b := m.startupBannerText(); b != "" {
-		banner = m.theme.Fg("muted").Render(b)
+		banner = lipgloss.NewStyle().
+			Foreground(m.theme.Fg(systemBlockTone(b)).GetForeground()).
+			Width(width).
+			Render(b)
 	}
 
 	bodyH := height - 1
@@ -96,6 +103,9 @@ func (m *Model) renderLanding(width, height int) string {
 	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - 3
 	if plugins != "" {
 		logoMaxH -= lipgloss.Height(plugins) + 1
+	}
+	if logoMaxH < 0 {
+		logoMaxH = 0
 	}
 	logo := renderLandingLogo(width, logoMaxH)
 
