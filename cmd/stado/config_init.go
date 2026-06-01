@@ -61,6 +61,8 @@ const defaultConfigTemplate = `# stado — config.toml
 #   ollama / llamacpp / vllm / lmstudio  — local OAI-compat runners
 #   groq / openrouter / deepseek / xai / mistral / cerebras / minimax /
 #   litellm                              — hosted OAI-compat services
+#   minimax-anthropic — MiniMax Claude-compatible endpoint via the
+#                       anthropic SDK (Coding Plan; needs MINIMAX_API_KEY)
 # provider = "anthropic"
 # model    = "claude-sonnet-4-6"
 

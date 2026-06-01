@@ -487,6 +487,19 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		}
 	}
 
+	// Bundled Anthropic-compatible cloud endpoints (e.g.
+	// minimax-anthropic → MiniMax's Claude-compatible Coding Plan
+	// endpoint). Routed through the native anthropic SDK with a
+	// base-URL override so prompt caching / thinking work, unlike the
+	// OAI-compat path. Picked before the OAI-compat builtin lookup.
+	if kp, ok := config.LookupKnownProvider(name); ok && kp.Kind == config.ProviderKindAnthropicCompatCloud {
+		key := os.Getenv(kp.APIKeyEnv)
+		if key == "" {
+			return nil, fmt.Errorf("%s: %s not set", name, kp.APIKeyEnv)
+		}
+		return anthropic.New(key, anthropic.WithBaseURL(kp.Endpoint), anthropic.WithName(name))
+	}
+
 	// Bundled OAI-compat presets — known endpoints so users don't have to
 	// write them out by hand. API key env var follows the builtin
 	// convention (LITELLM_API_KEY, OLLAMA_CLOUD_API_KEY, etc.).
@@ -497,7 +510,7 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		}
 		return oaicompat.New(ep, opts...)
 	}
-	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, ollama-cloud, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, minimax, litellm, lmstudio, or a configured preset)", name)
+	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, ollama-cloud, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, minimax, minimax-anthropic, litellm, lmstudio, or a configured preset)", name)
 }
 
 func noProviderConfiguredError() error {

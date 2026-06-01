@@ -189,6 +189,13 @@ func shouldSkipLocalProbe(cfg *config.Config) (bool, string) {
 		}
 	}
 	if endpoint == "" {
+		// Anthropic-compat cloud names (e.g. minimax-anthropic) live in
+		// the provider registry, not BuiltinInferencePreset.
+		if kp, ok := config.LookupKnownProvider(name); ok {
+			endpoint = kp.Endpoint
+		}
+	}
+	if endpoint == "" {
 		// Unknown preset — leave the probe on so the user sees
 		// any local runners that might match later config.
 		return false, ""
@@ -452,22 +459,23 @@ func checkContext(d *report, cfg *config.Config) {
 	// is "is the configured provider one of the known-good names" rather
 	// than a live probe — we don't want doctor to require API keys.
 	known := map[string]bool{
-		"anthropic":  true,
-		"openai":     true,
-		"google":     true,
-		"gemini":     true,
-		"ollama":     true,
-		"llamacpp":   true,
-		"vllm":       true,
-		"lmstudio":   true,
-		"litellm":    true,
-		"groq":       true,
-		"openrouter": true,
-		"deepseek":   true,
-		"xai":        true,
-		"mistral":    true,
-		"cerebras":   true,
-		"minimax":    true,
+		"anthropic":         true,
+		"openai":            true,
+		"google":            true,
+		"gemini":            true,
+		"ollama":            true,
+		"llamacpp":          true,
+		"vllm":              true,
+		"lmstudio":          true,
+		"litellm":           true,
+		"groq":              true,
+		"openrouter":        true,
+		"deepseek":          true,
+		"xai":               true,
+		"mistral":           true,
+		"cerebras":          true,
+		"minimax":           true,
+		"minimax-anthropic": true,
 	}
 	switch {
 	case cfg.Defaults.Provider == "":

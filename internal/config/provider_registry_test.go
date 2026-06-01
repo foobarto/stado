@@ -6,20 +6,21 @@ import (
 
 func TestProviderAPIKeyEnv(t *testing.T) {
 	cases := map[string]string{
-		"anthropic":  "ANTHROPIC_API_KEY",
-		"openai":     "OPENAI_API_KEY",
-		"google":     "GEMINI_API_KEY",
-		"gemini":     "GEMINI_API_KEY",
-		"groq":       "GROQ_API_KEY",
-		"openrouter": "OPENROUTER_API_KEY",
-		"deepseek":   "DEEPSEEK_API_KEY",
-		"xai":        "XAI_API_KEY",
-		"mistral":    "MISTRAL_API_KEY",
-		"cerebras":   "CEREBRAS_API_KEY",
-		"minimax":    "MINIMAX_API_KEY",
-		"litellm":    "LITELLM_API_KEY",
-		"ollama":     "",
-		"unknown":    "",
+		"anthropic":         "ANTHROPIC_API_KEY",
+		"openai":            "OPENAI_API_KEY",
+		"google":            "GEMINI_API_KEY",
+		"gemini":            "GEMINI_API_KEY",
+		"groq":              "GROQ_API_KEY",
+		"openrouter":        "OPENROUTER_API_KEY",
+		"deepseek":          "DEEPSEEK_API_KEY",
+		"xai":               "XAI_API_KEY",
+		"mistral":           "MISTRAL_API_KEY",
+		"cerebras":          "CEREBRAS_API_KEY",
+		"minimax":           "MINIMAX_API_KEY",
+		"minimax-anthropic": "MINIMAX_API_KEY",
+		"litellm":           "LITELLM_API_KEY",
+		"ollama":            "",
+		"unknown":           "",
 	}
 	for provider, want := range cases {
 		if got := ProviderAPIKeyEnv(provider); got != want {
@@ -127,5 +128,30 @@ func TestResolvePresetAPIKey_ReadsEnv(t *testing.T) {
 	got = ResolvePresetAPIKey("ollama", InferencePreset{})
 	if got != "" {
 		t.Errorf("ResolvePresetAPIKey ollama = %q, want empty (no key env defined)", got)
+	}
+}
+
+// TestKnownProvider_MinimaxAnthropic pins the anthropic-compat MiniMax
+// entry: it must be registered with the anthropic-compat kind, the
+// /anthropic endpoint, and the MiniMax key env. buildProviderByName
+// relies on LookupKnownProvider returning this to route the provider
+// through the native anthropic SDK rather than the OAI-compat path.
+func TestKnownProvider_MinimaxAnthropic(t *testing.T) {
+	kp, ok := LookupKnownProvider("minimax-anthropic")
+	if !ok {
+		t.Fatal("minimax-anthropic not in KnownProviders")
+	}
+	if kp.Kind != ProviderKindAnthropicCompatCloud {
+		t.Errorf("kind = %v, want anthropic-compat-cloud", kp.Kind)
+	}
+	if kp.Endpoint != "https://api.minimax.io/anthropic" {
+		t.Errorf("endpoint = %q, want https://api.minimax.io/anthropic", kp.Endpoint)
+	}
+	if kp.APIKeyEnv != "MINIMAX_API_KEY" {
+		t.Errorf("apiKeyEnv = %q, want MINIMAX_API_KEY", kp.APIKeyEnv)
+	}
+	// The OAI-compat minimax preset must remain distinct and unchanged.
+	if _, _, ok := BuiltinInferencePreset("minimax-anthropic"); ok {
+		t.Error("minimax-anthropic must NOT be an OAI-compat builtin preset")
 	}
 }

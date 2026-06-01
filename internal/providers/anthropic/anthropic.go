@@ -40,16 +40,51 @@ type Provider struct {
 	name   string
 }
 
-func New(apiKey string) (*Provider, error) {
-	if apiKey == "" {
+// Option configures a Provider built by New.
+type Option func(*options)
+
+type options struct {
+	baseURL string
+	name    string
+}
+
+// WithBaseURL points the Anthropic SDK at a custom Anthropic-compatible
+// endpoint instead of Anthropic's own API — e.g. MiniMax's
+// Claude-compatible Coding Plan endpoint (https://api.minimax.io/anthropic).
+// Empty (the default) means the SDK's built-in Anthropic base URL.
+func WithBaseURL(url string) Option { return func(o *options) { o.baseURL = url } }
+
+// WithName overrides the provider name reported to the UI and telemetry.
+// Defaults to "anthropic". Set this for third-party Anthropic-compatible
+// endpoints (e.g. "minimax-anthropic") so logs and the model picker don't
+// mislabel them as first-party Anthropic.
+func WithName(name string) Option { return func(o *options) { o.name = name } }
+
+func New(apiKey string, opts ...Option) (*Provider, error) {
+	o := options{name: "anthropic"}
+	for _, fn := range opts {
+		fn(&o)
+	}
+	// First-party Anthropic with no explicit key falls back to the
+	// conventional env var. A custom base URL means a third-party
+	// endpoint, where ANTHROPIC_API_KEY is the wrong credential — the
+	// caller is responsible for resolving and passing that key.
+	if apiKey == "" && o.baseURL == "" {
 		apiKey = config.ResolveProviderAPIKey("anthropic")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic: %s not set", config.ProviderAPIKeyEnv("anthropic"))
+		if o.baseURL == "" {
+			return nil, fmt.Errorf("anthropic: %s not set", config.ProviderAPIKeyEnv("anthropic"))
+		}
+		return nil, fmt.Errorf("%s: no API key provided for %s", o.name, o.baseURL)
+	}
+	clientOpts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if o.baseURL != "" {
+		clientOpts = append(clientOpts, option.WithBaseURL(o.baseURL))
 	}
 	return &Provider{
-		client: sdk.NewClient(option.WithAPIKey(apiKey)),
-		name:   "anthropic",
+		client: sdk.NewClient(clientOpts...),
+		name:   o.name,
 	}, nil
 }
 

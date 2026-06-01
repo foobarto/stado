@@ -32,6 +32,41 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.59.0 — MiniMax: Anthropic-compatible endpoint + M3 — 2026-06-01
+
+### CLI
+
+- **New `minimax-anthropic` provider.** Reaches MiniMax's
+  Claude-compatible endpoint (`https://api.minimax.io/anthropic`) through
+  the native anthropic-sdk-go with a base-URL override, so it gets prompt
+  caching and extended-thinking support the OpenAI-compat path lacks.
+  This is MiniMax's *recommended* path for M2.x reasoning and the one its
+  Coding Plan subscription uses with Claude-Code-style tools. Set
+  `MINIMAX_API_KEY` (works with a pay-as-you-go *or* Coding Plan key) and
+  `provider = "minimax-anthropic"`. The existing `minimax` provider
+  (OpenAI-compat `/v1`) is unchanged and still covers both billing modes.
+- **`anthropic.New` gained `WithBaseURL` / `WithName` options** so the
+  bundled anthropic provider can target third-party Anthropic-compatible
+  endpoints without mislabeling them as first-party Anthropic. A custom
+  base URL no longer borrows `ANTHROPIC_API_KEY` — the caller supplies the
+  right credential.
+
+### TUI
+
+- **MiniMax-M3 in the model picker.** Added the 1M-context multimodal
+  flagship (launched 2026-06-01) to the MiniMax catalog under both the
+  `minimax` and `minimax-anthropic` providers; M2.7/M2.5/M2.1 (each with
+  `-highspeed`) and M2 remain. No `M3-highspeed`/`M2-highspeed` exist per
+  MiniMax's docs.
+
+### Notes
+
+- Over the OpenAI-compat `/v1` endpoint, MiniMax reportedly ignores
+  `reasoning_effort`; prefer `minimax-anthropic` for reasoning-heavy work.
+  The Coding Plan key has model restrictions (some `-highspeed` variants
+  require a pay-as-you-go key), and the `/anthropic` Coding-Plan path is a
+  slightly non-standard Anthropic protocol — watch for SSE/field quirks.
+
 ## v0.58.2 — TUI: wrap the startup banner on the landing screen — 2026-05-29
 
 ### Fixes

@@ -67,15 +67,20 @@ func CatalogFor(provider string) []Item {
 			{ID: "llama3.3-70b", Origin: "cerebras", Note: "fastest on Cerebras"},
 			{ID: "llama3.1-8b", Origin: "cerebras"},
 		})
-	case "minimax":
+	case "minimax", "minimax-anthropic":
+		// Same model IDs on both the OpenAI-compat (/v1) and
+		// Anthropic-compat (/anthropic) endpoints. M3 is the 1M-ctx
+		// multimodal flagship (launched 2026-06-01); no -highspeed
+		// variant exists for M3 or bare M2.
 		return tag([]Item{
-			{ID: "MiniMax-M2.7", Origin: "minimax", Note: "200K ctx · flagship"},
-			{ID: "MiniMax-M2.7-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
-			{ID: "MiniMax-M2.5", Origin: "minimax", Note: "200K ctx"},
-			{ID: "MiniMax-M2.5-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
-			{ID: "MiniMax-M2.1", Origin: "minimax", Note: "200K ctx"},
-			{ID: "MiniMax-M2.1-highspeed", Origin: "minimax", Note: "200K ctx · faster"},
-			{ID: "MiniMax-M2", Origin: "minimax", Note: "200K ctx"},
+			{ID: "MiniMax-M3", Origin: provider, Note: "1M ctx · multimodal · flagship"},
+			{ID: "MiniMax-M2.7", Origin: provider, Note: "200K ctx"},
+			{ID: "MiniMax-M2.7-highspeed", Origin: provider, Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2.5", Origin: provider, Note: "200K ctx"},
+			{ID: "MiniMax-M2.5-highspeed", Origin: provider, Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2.1", Origin: provider, Note: "200K ctx"},
+			{ID: "MiniMax-M2.1-highspeed", Origin: provider, Note: "200K ctx · faster"},
+			{ID: "MiniMax-M2", Origin: provider, Note: "200K ctx"},
 		})
 	}
 	return nil
