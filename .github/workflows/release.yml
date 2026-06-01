@@ -5,8 +5,13 @@ name: Release
 #      goreleaser, with checksums.txt and SBOM per-archive.
 #   2. Cosign keyless signature over checksums.txt (sig + cert uploaded
 #      alongside). Rekor transparency-log entry is implicit with cosign ≥ 2.
-#   3. SLSA 3 provenance attestation for every artifact via
-#      slsa-framework/slsa-github-generator.
+#   3. SLSA-L3 build provenance attestation over every released artifact
+#      via GitHub-native actions/attest-build-provenance. (Replaced the
+#      slsa-framework/slsa-github-generator reusable workflow, which is
+#      tag-pinned internally and so was rejected by this repo's
+#      sha_pinning_required Actions policy — it never produced provenance.
+#      The native action is SHA-pinnable and verifiable with
+#      `gh attestation verify <artifact> --repo foobarto/stado`.)
 #
 # Reproducibility is enforced by -trimpath + -buildvcs=true + pinned
 # mod_timestamp in .goreleaser.yaml. A third-party rebuild at the same
@@ -19,8 +24,8 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
-# Least privilege at the top; jobs opt into the writes they need
-# (Scorecard Token-Permissions). The provenance job sets its own below.
+# Least privilege at the top; the release job opts into the writes it
+# needs below (Scorecard Token-Permissions).
 permissions:
   contents: read
 
@@ -29,11 +34,10 @@ jobs:
     name: goreleaser
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # upload release artifacts
-      packages: write    # publish to GHCR (Homebrew tap push comes later)
-      id-token: write    # OIDC for cosign keyless + SLSA provenance
-    outputs:
-      hashes: ${{ steps.checksums.outputs.hashes }}
+      contents: write      # upload release artifacts
+      packages: write      # publish to GHCR (Homebrew tap push comes later)
+      id-token: write      # OIDC for cosign keyless + provenance signing
+      attestations: write  # write build-provenance attestations
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -70,32 +74,11 @@ jobs:
           # the release still succeeds — just without the tap PR.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-      - name: Collect artifact digests
-        id: checksums
-        run: |
-          set -euo pipefail
-          # goreleaser's artifacts.json includes a few metadata rows with
-          # null type/checksum fields. Filter those out before building the
-          # SLSA subjects list from archive/binary digests.
-          hashes=$(jq -r '
-            map(select(
-              ((.type // "") | test("Archive|Binary")) and
-              ((.extra.Checksum // "") | startswith("sha256:"))
-            ))
-            | map("\(.extra.Checksum | sub("^sha256:"; ""))  \(.name)")
-            | .[]
-          ' dist/artifacts.json | base64 -w0)
-          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
-
-  provenance:
-    name: SLSA 3 provenance
-    needs: [release]
-    permissions:
-      actions: read
-      id-token: write
-      contents: write
-    # Pinned tag: don't drift across releases.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: "${{ needs.release.outputs.hashes }}"
-      upload-assets: true
+      - name: Attest build provenance
+        # GitHub-native SLSA-L3 provenance over every released artifact.
+        # subject-checksums reads goreleaser's checksums.txt (the same file
+        # cosign signs), so one attestation covers all archives + binaries.
+        # SHA-pinned to satisfy the repo's sha_pinning_required policy.
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-checksums: dist/checksums.txt

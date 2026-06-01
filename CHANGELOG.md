@@ -32,6 +32,31 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.59.1 — landing fits short terminals + working build provenance — 2026-06-01
+
+### Fixes
+
+- **Landing screen no longer hides the input box on short terminals.** When
+  running unsandboxed, the multi-line sandbox-warning banner wraps to ~14
+  rows at 80 cols; on a 24-row terminal it consumed the whole height and
+  pushed the "Type a message" input box (and mode marker) off-screen. The
+  banner is now capped to the room left after reserving the input box +
+  hint, with a `… (+N more — see scrollback)` marker; the full banner still
+  lives in scrollback. Found by the pty-bridge TUI E2E suite
+  (`LandingReflow@80x24`), regressed by the v0.58.1 in-band-banner work.
+
+### Infra
+
+- **Build provenance now actually publishes.** The SLSA-3 provenance job
+  (`slsa-framework/slsa-github-generator`) failed on every release since it
+  was added — it's tag-pinned internally and this repo's Actions policy
+  requires SHA-pinned actions, so it was rejected at "Set up job" and never
+  produced an attestation. Replaced it with GitHub-native
+  `actions/attest-build-provenance` (SHA-pinned), which attests every
+  released artifact via `checksums.txt`. Verify with
+  `gh attestation verify <artifact> --repo foobarto/stado`. Cosign signing
+  is unchanged.
+
 ## v0.59.0 — MiniMax: Anthropic-compatible endpoint + M3 — 2026-06-01
 
 ### CLI
