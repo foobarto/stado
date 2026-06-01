@@ -91,6 +91,20 @@ func (m *Model) renderLanding(width, height int) string {
 			Foreground(m.theme.Fg(systemBlockTone(b)).GetForeground()).
 			Width(width).
 			Render(b)
+		// Cap the banner height so the input box stays on-screen. The
+		// unsandboxed warning wraps to ~14 rows at 80 cols, which on a
+		// 24-row terminal would push "Type a message" off the bottom
+		// (the banner is subtracted from bodyH below). Reserve room for
+		// the input box + hint (+ plugins) and the gaps/footer, mirroring
+		// the logoMaxH budget; truncate the overflow with a "(+N more)"
+		// marker pointing at scrollback, where the full block also lives.
+		reserved := lipgloss.Height(input) + lipgloss.Height(hint) + 3
+		if plugins != "" {
+			reserved += lipgloss.Height(plugins) + 1
+		}
+		if maxBannerH := height - reserved - 1; maxBannerH >= 1 {
+			banner = truncateBanner(banner, maxBannerH)
+		}
 	}
 
 	bodyH := height - 1
@@ -125,6 +139,26 @@ func (m *Model) renderLanding(width, height int) string {
 		out += "\n" + banner
 	}
 	return out + "\n" + m.renderLandingFooter(width)
+}
+
+// truncateBanner clips a rendered (already width-wrapped) banner to at
+// most maxH rows. When it overflows, the last kept row is replaced with a
+// "… (+N more — see scrollback)" marker so the landing input box is never
+// pushed off a short terminal. The full banner remains in scrollback as a
+// system block, so nothing is lost.
+func truncateBanner(banner string, maxH int) string {
+	if maxH < 1 {
+		maxH = 1
+	}
+	lines := strings.Split(banner, "\n")
+	if len(lines) <= maxH {
+		return banner
+	}
+	keep := lines[:maxH-1]
+	hidden := len(lines) - len(keep)
+	out := append([]string(nil), keep...)
+	out = append(out, fmt.Sprintf("… (+%d more — see scrollback)", hidden))
+	return strings.Join(out, "\n")
 }
 
 func renderLandingLogo(width, maxH int) string {
