@@ -163,6 +163,18 @@ func TestStartupBanner_ShortTerminalKeepsInputVisible(t *testing.T) {
 	if !strings.Contains(out, "more — see scrollback") {
 		t.Errorf("expected a '+N more — see scrollback' truncation marker for the oversized banner; out:\n%s", out)
 	}
+
+	// Narrow + short: the truncation marker itself must not overflow the
+	// terminal width (Codex review on #89 — the marker is wider than ~27
+	// cols and must be wrapped like the banner text, not appended raw).
+	for _, narrow := range []int{20, 24} {
+		nout := m.renderLanding(narrow, h)
+		for i, line := range strings.Split(nout, "\n") {
+			if lw := lipgloss.Width(line); lw > narrow {
+				t.Errorf("at width %d, landing line %d width %d overflows (unwrapped marker?): %q", narrow, i, lw, line)
+			}
+		}
+	}
 }
 
 // Render-level guard: the injected banner must survive renderBlock into
