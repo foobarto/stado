@@ -27,7 +27,7 @@ func ProviderAPIKeyEnv(provider string) string {
 		return "MISTRAL_API_KEY"
 	case "cerebras":
 		return "CEREBRAS_API_KEY"
-	case "minimax":
+	case "minimax", "minimax-anthropic":
 		return "MINIMAX_API_KEY"
 	case "litellm":
 		return "LITELLM_API_KEY"
@@ -133,6 +133,13 @@ const (
 	// OpenAI-compatible JSON (Ollama, llama.cpp, vLLM, LMStudio).
 	// Usually needs no API key; just confirm the endpoint is reachable.
 	ProviderKindOAICompatLocal
+	// ProviderKindAnthropicCompatCloud — hosted endpoint speaking the
+	// Anthropic Messages protocol (e.g. MiniMax's Claude-compatible
+	// Coding Plan endpoint). stado reaches it through the native
+	// anthropic-sdk-go with a base-URL override, so it gets prompt
+	// caching / thinking support the OAI-compat path lacks. Needs the
+	// provider's API key.
+	ProviderKindAnthropicCompatCloud
 )
 
 func (k ProviderKind) String() string {
@@ -143,6 +150,8 @@ func (k ProviderKind) String() string {
 		return "oai-compat-cloud"
 	case ProviderKindOAICompatLocal:
 		return "oai-compat-local"
+	case ProviderKindAnthropicCompatCloud:
+		return "anthropic-compat-cloud"
 	default:
 		return "unknown"
 	}
@@ -182,6 +191,9 @@ func KnownProviders() []KnownProvider {
 		{Name: "ollama-cloud", Kind: ProviderKindOAICompatCloud, Endpoint: "https://ollama.com/v1", APIKeyEnv: "OLLAMA_CLOUD_API_KEY", HelpURL: "https://ollama.com/settings/keys"},
 		{Name: "openrouter", Kind: ProviderKindOAICompatCloud, Endpoint: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY", HelpURL: "https://openrouter.ai/keys"},
 		{Name: "xai", Kind: ProviderKindOAICompatCloud, Endpoint: "https://api.x.ai/v1", APIKeyEnv: "XAI_API_KEY", HelpURL: "https://console.x.ai/"},
+
+		// Anthropic-compat cloud — Claude-protocol endpoint, native SDK + base-URL override
+		{Name: "minimax-anthropic", Kind: ProviderKindAnthropicCompatCloud, Endpoint: "https://api.minimax.io/anthropic", APIKeyEnv: "MINIMAX_API_KEY", HelpURL: "https://platform.minimax.io/docs/guides/text-ai-coding-tools"},
 
 		// OAI-compat local — no key needed
 		{Name: "llamacpp", Kind: ProviderKindOAICompatLocal, Endpoint: "http://localhost:8080/v1"},

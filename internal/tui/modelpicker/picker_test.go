@@ -113,7 +113,7 @@ func TestSetupHintRenders(t *testing.T) {
 
 // TestCatalogForKnownProviders returns something non-empty.
 func TestCatalogForKnownProviders(t *testing.T) {
-	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras", "minimax"} {
+	for _, p := range []string{"anthropic", "openai", "google", "groq", "deepseek", "mistral", "xai", "cerebras", "minimax", "minimax-anthropic"} {
 		items := CatalogFor(p)
 		if len(items) == 0 {
 			t.Errorf("catalog empty for %q", p)
@@ -126,6 +126,36 @@ func TestCatalogForKnownProviders(t *testing.T) {
 	}
 	if got := CatalogFor("completely-unknown"); got != nil {
 		t.Errorf("unknown provider should return nil, got %v", got)
+	}
+}
+
+// TestCatalogFor_MinimaxModels pins the MiniMax roster: M3 (the 1M-ctx
+// flagship) must be present, and the OAI-compat and Anthropic-compat
+// names must expose the identical set of model IDs (only the tagged
+// provider differs) — the /anthropic endpoint serves the same models.
+func TestCatalogFor_MinimaxModels(t *testing.T) {
+	idSet := func(provider string) map[string]bool {
+		ids := map[string]bool{}
+		for _, it := range CatalogFor(provider) {
+			ids[it.ID] = true
+			if it.ProviderName != provider {
+				t.Errorf("%s: item %q ProviderName = %q, want %q", provider, it.ID, it.ProviderName, provider)
+			}
+		}
+		return ids
+	}
+	oai := idSet("minimax")
+	anth := idSet("minimax-anthropic")
+	if !oai["MiniMax-M3"] {
+		t.Error("minimax catalog missing MiniMax-M3")
+	}
+	if len(oai) != len(anth) {
+		t.Fatalf("minimax (%d ids) and minimax-anthropic (%d ids) catalogs differ in size", len(oai), len(anth))
+	}
+	for id := range oai {
+		if !anth[id] {
+			t.Errorf("model %q present for minimax but missing for minimax-anthropic — catalogs diverged", id)
+		}
 	}
 }
 

@@ -199,6 +199,39 @@ func TestResolveMaxTokens_RaisesForThinkingBudget(t *testing.T) {
 	}
 }
 
+func TestNew_Options(t *testing.T) {
+	// WithName + WithBaseURL: a third-party Anthropic-compatible endpoint
+	// (e.g. MiniMax) keeps the explicit key and reports the custom name.
+	p, err := New("mm-key-fake", WithBaseURL("https://api.minimax.io/anthropic"), WithName("minimax-anthropic"))
+	if err != nil {
+		t.Fatalf("New with options: %v", err)
+	}
+	if p.Name() != "minimax-anthropic" {
+		t.Errorf("Name() = %q, want minimax-anthropic", p.Name())
+	}
+
+	// Default name when no option is given.
+	p2, err := New("anthropic-key-fake")
+	if err != nil {
+		t.Fatalf("New default: %v", err)
+	}
+	if p2.Name() != "anthropic" {
+		t.Errorf("Name() = %q, want anthropic", p2.Name())
+	}
+
+	// A custom base URL with no key must NOT fall back to ANTHROPIC_API_KEY
+	// — that's the wrong credential for a third-party endpoint — so it errors.
+	t.Setenv("ANTHROPIC_API_KEY", "sk-should-not-be-used")
+	if _, err := New("", WithBaseURL("https://api.minimax.io/anthropic"), WithName("minimax-anthropic")); err == nil {
+		t.Error("New with base URL and no key should error, not borrow ANTHROPIC_API_KEY")
+	}
+
+	// First-party with no key falls back to the env var.
+	if _, err := New(""); err != nil {
+		t.Errorf("New(\"\") with ANTHROPIC_API_KEY set should succeed: %v", err)
+	}
+}
+
 func TestImageBlock_Base64EncodesBytes(t *testing.T) {
 	img := &agent.ImageBlock{
 		MediaType: "image/png",

@@ -68,6 +68,7 @@ func renderProvidersList(w io.Writer) error {
 	}{
 		{"Native (first-party SDK)", config.ProviderKindNative, "set the env var below in your shell rc"},
 		{"OAI-compatible — cloud", config.ProviderKindOAICompatCloud, "needs an [inference.presets.<name>] block + the env var"},
+		{"Anthropic-compatible — cloud", config.ProviderKindAnthropicCompatCloud, "bundled name; set the env var below — routed through the Anthropic SDK with a base-URL override"},
 		{"OAI-compatible — local runner", config.ProviderKindOAICompatLocal, "no key needed; just confirm the endpoint is reachable"},
 	}
 
@@ -150,6 +151,19 @@ func renderProviderSetup(w io.Writer, p config.KnownProvider, write, force bool,
 				return fmt.Errorf("write preset: %w", err)
 			}
 			fmt.Fprintf(w, "✓ wrote [inference.presets.%s] to %s\n", p.Name, cfg.ConfigPath)
+		}
+	case config.ProviderKindAnthropicCompatCloud:
+		fmt.Fprintf(w, "1. Set the API key in your shell rc:\n")
+		fmt.Fprintf(w, "     export %s=...\n\n", p.APIKeyEnv)
+		fmt.Fprintf(w, "2. Pin %s as your default in config.toml (optional):\n", p.Name)
+		fmt.Fprintf(w, "     [defaults]\n     provider = %q\n\n", p.Name)
+		fmt.Fprintf(w, "3. Use it for a one-off:\n")
+		fmt.Fprintf(w, "     stado run --provider %s --model <id> \"...\"\n", p.Name)
+		if write {
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "Note: --write is a no-op for Anthropic-compatible bundled providers —")
+			fmt.Fprintf(w, "      %q is reached via the Anthropic SDK with a base-URL override, not\n", p.Name)
+			fmt.Fprintln(w, "      an [inference.presets] block. The API key lives in your shell environment.")
 		}
 	case config.ProviderKindOAICompatLocal:
 		fmt.Fprintf(w, "1. Confirm the runner is reachable:\n")

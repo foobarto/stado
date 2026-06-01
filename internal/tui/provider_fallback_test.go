@@ -143,3 +143,28 @@ func TestBuildProvider_ExplicitNonAnthropicSkipsFallback(t *testing.T) {
 		t.Errorf("expected ollama provider, got %q", p.Name())
 	}
 }
+
+// TestBuildProvider_MinimaxAnthropic — the bundled minimax-anthropic
+// name resolves to the native anthropic SDK pointed at MiniMax's
+// Claude-compatible endpoint, reporting the custom name (not bare
+// "anthropic"). With MINIMAX_API_KEY set it builds; without it, errors
+// naming the right env var (proving it didn't fall through to the
+// OAI-compat path, which would have built a no-key oaicompat provider).
+func TestBuildProvider_MinimaxAnthropic(t *testing.T) {
+	cfg := &config.Config{Defaults: config.Defaults{Provider: "minimax-anthropic"}}
+
+	t.Setenv("MINIMAX_API_KEY", "")
+	if _, err := buildProviderByName(cfg, "minimax-anthropic"); err == nil ||
+		!strings.Contains(err.Error(), "MINIMAX_API_KEY") {
+		t.Fatalf("want error naming MINIMAX_API_KEY, got %v", err)
+	}
+
+	t.Setenv("MINIMAX_API_KEY", "mm-fake-test-key")
+	p, err := buildProviderByName(cfg, "minimax-anthropic")
+	if err != nil {
+		t.Fatalf("buildProviderByName(minimax-anthropic): %v", err)
+	}
+	if p.Name() != "minimax-anthropic" {
+		t.Errorf("expected minimax-anthropic, got %q", p.Name())
+	}
+}

@@ -278,6 +278,19 @@ func setupMemoryEnv(t *testing.T) *memory.Store {
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Make the work dir a self-contained repo root so repo-root
+	// resolution (workdirpath.FindRepoRoot, used by the learning-document
+	// command to locate .learnings/) stops here instead of walking up.
+	// Without this, when GOTMPDIR points inside the real stado checkout
+	// (as the dev env sets it to dodge the /tmp quota), t.TempDir() lands
+	// inside the repo and .learnings writes escape into the real repo —
+	// polluting it and breaking re-runs with "already exists".
+	if err := os.MkdirAll(filepath.Join(cwd, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	restore := chdir(t, cwd)
 	t.Cleanup(restore)
 	cfg, err := config.Load()

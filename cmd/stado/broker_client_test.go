@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,6 +16,12 @@ func TestAttachToBroker_DefaultOnTestBinaryRefused(t *testing.T) {
 	// as a daemon. The helper translates that into Skipped so the
 	// test infrastructure doesn't have to build a real stado binary.
 	t.Setenv(envBrokerAttach, "")
+	// Hermetic: pin the socket to a temp path nothing is listening on,
+	// so EnsureRunning takes the spawn path (→ test-binary refusal)
+	// rather than dialing a real daemon the developer happens to have
+	// running at the default $XDG_RUNTIME_DIR socket. Without this the
+	// test passes/fails depending on ambient daemon state.
+	t.Setenv("STADO_DAEMON_SOCKET", filepath.Join(t.TempDir(), "daemon.sock"))
 	ctx := context.Background()
 	sess, err := attachToBroker(ctx, broker.PurposeMainChat, broker.ProfileDefault, "/work")
 	if err != nil {
