@@ -125,6 +125,58 @@ func TestStartupBanner_LandingWrapsWideBanner(t *testing.T) {
 	}
 }
 
+// Regression (TUI E2E LandingReflow @ 80x24): on a short terminal, a tall
+// unsandboxed-warning banner must NOT push the input box off-screen. The
+// banner is capped (with a "+N more" marker) so the input placeholder and
+// hint stay visible and the rendered output fits the height budget. Found
+// by the pty-bridge E2E suite; the banner-in-band work (v0.58.1) regressed
+// it on 24-row terminals.
+func TestStartupBanner_ShortTerminalKeepsInputVisible(t *testing.T) {
+	m := newPickerTestModel(t, "anthropic")
+	// The real unsandboxed banner: several long lines that each wrap to
+	// 2+ rows at 80 cols, ~14 rows total — more than half of a 24-row
+	// terminal.
+	m.injectStartupNotices([]string{
+		"stado: warn: running without a process-containment sandbox.",
+		"stado: warn: host subprocesses (shell, plugin runners, LSP, daemon, hooks) inherit the host's filesystem and network access.",
+		"stado: warn: install a wrapper (bwrap/firejail on Linux, sandbox-exec on macOS) and set [sandbox] mode = \"wrap\" in config.toml; today only `stado run` re-execs. Suppress with STADO_SUPPRESS_SANDBOX_WARN=1.",
+		"stado: sandbox=default session=cd2223241e25471f20b67ee745481439 (broker-mediated)",
+		"stado: writable: /home/foobarto/Dokumenty/stado/hack/pty-bridge, /tmp",
+		"stado: 13 credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)",
+	})
+	// 80x18: the wrapped banner (~10 rows) cannot coexist with the input
+	// box + hint unless it's capped — the deterministic version of the
+	// 80x24-with-plugins clip the E2E suite hit.
+	const w, h = 80, 18
+	out := m.renderLanding(w, h)
+
+	// The input placeholder must remain visible — the whole point.
+	if !strings.Contains(out, "Type a message") {
+		t.Errorf("input placeholder pushed off-screen by the banner at %dx%d:\n%s", w, h, out)
+	}
+	// Output must fit the height budget (no overflow past row h).
+	if gotH := lipgloss.Height(out); gotH > h {
+		t.Errorf("landing rendered %d rows at height %d — overflows the terminal:\n%s", gotH, h, out)
+	}
+	// The banner was tall enough to require truncation, so the marker
+	// must appear (and the full text still lives in scrollback).
+	if !strings.Contains(out, "more — see scrollback") {
+		t.Errorf("expected a '+N more — see scrollback' truncation marker for the oversized banner; out:\n%s", out)
+	}
+
+	// Narrow + short: the truncation marker itself must not overflow the
+	// terminal width (Codex review on #89 — the marker is wider than ~27
+	// cols and must be wrapped like the banner text, not appended raw).
+	for _, narrow := range []int{20, 24} {
+		nout := m.renderLanding(narrow, h)
+		for i, line := range strings.Split(nout, "\n") {
+			if lw := lipgloss.Width(line); lw > narrow {
+				t.Errorf("at width %d, landing line %d width %d overflows (unwrapped marker?): %q", narrow, i, lw, line)
+			}
+		}
+	}
+}
+
 // Render-level guard: the injected banner must survive renderBlock into
 // the visible output, not merely live in m.blocks. (Verify by rendering,
 // not by inspecting state.)
