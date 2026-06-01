@@ -33,24 +33,13 @@ func (s *Server) toolsList() (any, error) {
 }
 
 func availableProviders(cfg *config.Config) []string {
-	set := map[string]struct{}{
-		"anthropic":         {},
-		"openai":            {},
-		"google":            {},
-		"gemini":            {},
-		"ollama":            {},
-		"llamacpp":          {},
-		"vllm":              {},
-		"lmstudio":          {},
-		"groq":              {},
-		"openrouter":        {},
-		"deepseek":          {},
-		"xai":               {},
-		"mistral":           {},
-		"cerebras":          {},
-		"minimax":           {},
-		"minimax-anthropic": {},
-		"litellm":           {},
+	// Source of truth is the provider registry — iterate it rather than
+	// hard-coding names so a new bundled provider shows up here without a
+	// second edit. "gemini" is the accepted alias for "google" and isn't a
+	// registry entry, so add it explicitly.
+	set := map[string]struct{}{"gemini": {}}
+	for _, p := range config.KnownProviders() {
+		set[p.Name] = struct{}{}
 	}
 	if cfg != nil {
 		for name, preset := range cfg.Inference.Presets {

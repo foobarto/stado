@@ -130,21 +130,31 @@ func TestCatalogForKnownProviders(t *testing.T) {
 }
 
 // TestCatalogFor_MinimaxModels pins the MiniMax roster: M3 (the 1M-ctx
-// flagship) must be present on both the OAI-compat and Anthropic-compat
-// names, and the two names must return the same model IDs.
+// flagship) must be present, and the OAI-compat and Anthropic-compat
+// names must expose the identical set of model IDs (only the tagged
+// provider differs) — the /anthropic endpoint serves the same models.
 func TestCatalogFor_MinimaxModels(t *testing.T) {
-	for _, p := range []string{"minimax", "minimax-anthropic"} {
-		var haveM3 bool
-		for _, it := range CatalogFor(p) {
-			if it.ID == "MiniMax-M3" {
-				haveM3 = true
-			}
-			if it.ProviderName != p {
-				t.Errorf("%s: item %q ProviderName = %q, want %q", p, it.ID, it.ProviderName, p)
+	idSet := func(provider string) map[string]bool {
+		ids := map[string]bool{}
+		for _, it := range CatalogFor(provider) {
+			ids[it.ID] = true
+			if it.ProviderName != provider {
+				t.Errorf("%s: item %q ProviderName = %q, want %q", provider, it.ID, it.ProviderName, provider)
 			}
 		}
-		if !haveM3 {
-			t.Errorf("%s: catalog missing MiniMax-M3", p)
+		return ids
+	}
+	oai := idSet("minimax")
+	anth := idSet("minimax-anthropic")
+	if !oai["MiniMax-M3"] {
+		t.Error("minimax catalog missing MiniMax-M3")
+	}
+	if len(oai) != len(anth) {
+		t.Fatalf("minimax (%d ids) and minimax-anthropic (%d ids) catalogs differ in size", len(oai), len(anth))
+	}
+	for id := range oai {
+		if !anth[id] {
+			t.Errorf("model %q present for minimax but missing for minimax-anthropic — catalogs diverged", id)
 		}
 	}
 }

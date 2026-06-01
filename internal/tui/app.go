@@ -510,7 +510,7 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 		}
 		return oaicompat.New(ep, opts...)
 	}
-	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google, ollama, ollama-cloud, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, minimax, minimax-anthropic, litellm, lmstudio, or a configured preset)", name)
+	return nil, fmt.Errorf("unknown provider %q (known: anthropic, openai, google/gemini, ollama, ollama-cloud, llamacpp, vllm, groq, openrouter, deepseek, xai, mistral, cerebras, minimax, minimax-anthropic, litellm, lmstudio, or a configured preset)", name)
 }
 
 func noProviderConfiguredError() error {

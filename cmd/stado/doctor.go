@@ -458,24 +458,13 @@ func checkContext(d *report, cfg *config.Config) {
 	// (compile-time asserted in each provider's _test.go). The check here
 	// is "is the configured provider one of the known-good names" rather
 	// than a live probe — we don't want doctor to require API keys.
-	known := map[string]bool{
-		"anthropic":         true,
-		"openai":            true,
-		"google":            true,
-		"gemini":            true,
-		"ollama":            true,
-		"llamacpp":          true,
-		"vllm":              true,
-		"lmstudio":          true,
-		"litellm":           true,
-		"groq":              true,
-		"openrouter":        true,
-		"deepseek":          true,
-		"xai":               true,
-		"mistral":           true,
-		"cerebras":          true,
-		"minimax":           true,
-		"minimax-anthropic": true,
+	// Every bundled provider satisfies agent.TokenCounter, so the
+	// known-good set is exactly the provider registry. Iterate it rather
+	// than maintaining a parallel hard-coded list. "gemini" is the alias
+	// for "google" and isn't a registry entry, so add it explicitly.
+	known := map[string]bool{"gemini": true}
+	for _, p := range config.KnownProviders() {
+		known[p.Name] = true
 	}
 	switch {
 	case cfg.Defaults.Provider == "":

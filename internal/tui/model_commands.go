@@ -1508,8 +1508,17 @@ func ptyBoundShellToolName(name string) bool {
 // FIRST, which defeats the picker's purpose.
 var catalogProviders = []string{
 	"anthropic", "openai", "google", "groq", "deepseek",
-	"mistral", "xai", "cerebras", "minimax", "minimax-anthropic",
+	"mistral", "xai", "cerebras", "minimax",
 }
+
+// Note: minimax-anthropic is intentionally NOT in catalogProviders. It
+// shares its model IDs (MiniMax-M3, etc.) with the OAI-compat "minimax"
+// entry, and openModelPicker dedups the cross-provider fan-out by model
+// ID — so listing both would either hide the second silently or show
+// confusing duplicate rows, and picking a shared ID would switch to
+// whichever provider came first. minimax-anthropic's catalog still shows
+// when it is the active provider (CatalogFor leads the picker), and it's
+// selected via `[defaults] provider = "minimax-anthropic"` / --provider.
 
 // bundledHostedPresets is the set of builtin hosted-API preset names
 // that the picker should attempt to live-fetch /v1/models from when
