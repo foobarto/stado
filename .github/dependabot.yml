@@ -10,6 +10,13 @@
 # go.mod and are covered by the parent entry. Optional/demo plugins
 # moved to github.com/foobarto/stado-plugins (EP-0042) and are tracked
 # by that repo's own dependabot config.
+#
+# `groups` bundles every matching update per ecosystem into ONE PR per
+# run (patterns: "*"), instead of one PR per dependency — so a weekly
+# gomod run and a monthly actions run each produce a single combined PR.
+# This includes major bumps; if one breaks, the grouped PR's CI fails and
+# the whole group waits together, which is the intended "review them as a
+# set" tradeoff.
 
 version: 2
 
@@ -25,6 +32,10 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: scope
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
 
   # GitHub Actions used in CI workflows.
   - package-ecosystem: github-actions
@@ -37,3 +48,7 @@ updates:
     commit-message:
       prefix: "chore(ci)"
       include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
