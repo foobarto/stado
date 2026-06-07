@@ -29,6 +29,26 @@ func TestListInstalledDirsStreamsAndSortsDirectories(t *testing.T) {
 	}
 }
 
+func TestListInstalledDirsSkipsActiveMarkerDir(t *testing.T) {
+	// PinActiveDev writes <plugins>/active/<name> markers. That reserved dir
+	// is not an installed plugin; enumerating it produced a phantom "active"
+	// row that failed manifest load and inflated the installed count.
+	root := t.TempDir()
+	for _, name := range []string{"hello-0.1.0", activeMarkerDir} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ListInstalledDirs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hello-0.1.0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListInstalledDirs = %v, want %v (the %q marker dir must be excluded)", got, want, activeMarkerDir)
+	}
+}
+
 func TestListInstalledDirsRejectsTooManyEntries(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"a-1.0.0", "b-1.0.0", "c-1.0.0"} {

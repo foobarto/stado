@@ -28,9 +28,15 @@ Kernel ≥ 5.13. Filesystem ruleset applied at process start:
 - Write: confined to the session's worktree + `/tmp`. `bash` can
   build, edit its own scratch files, swap temp directories; it
   cannot `echo > ~/.ssh/authorized_keys`.
-- Network: the built-in `bash` tool defaults to deny-all when it runs
-  through the sandbox runner. Host-allowlist networking is only for
-  subprocess policies that explicitly declare `net:<host>`.
+- Network: **not yet restricted by the default runner.** The current
+  bubblewrap + Landlock sandbox confines the filesystem and exec surface
+  but does **not** block outbound network — a sandboxed `bash` call can
+  still reach the network. Deny-by-default egress (with host-allowlist
+  opt-in via `net:<host>`, see Layer 3 below) is the design intent but is
+  deferred to the EP-0050 broker, which is still **Draft** (enforcement is
+  a later phase). Treat network isolation as *not guaranteed* today; if you
+  need it, run the command outside stado or on an air-gapped host. Tracked
+  in `.agent/decisions/2026-06-07-sandbox-egress-document-draft-gap.md`.
 
 In v0.57.0+, the sandbox is **on by default** for `stado run` and
 every other orchestrator entry point. Landlock applies to the

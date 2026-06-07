@@ -325,8 +325,10 @@ func (s *Server) resolveSessionPersona(name string) (*personas.Persona, *RPCErro
 	p, err := (personas.Resolver{CWD: cwd, ConfigDir: cfgDir}).Load(name)
 	if err != nil {
 		return nil, &RPCError{
-			Code:    CodeInvalidParams,
-			Message: "persona: " + err.Error(),
+			Code: CodeInvalidParams,
+			// err already carries the persona name (Load wraps it), so don't
+			// prepend another "persona:" — that produced "persona: persona:".
+			Message: err.Error(),
 		}
 	}
 	return p, nil

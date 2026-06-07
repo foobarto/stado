@@ -54,8 +54,11 @@ var agentsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Also pick up sessions that have a worktree but no commits yet.
-		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
+		// Also pick up sessions that have a worktree but no commits yet,
+		// scoped to the current repo's pin — `stado agents` is documented as
+		// "for the current repo", and the global worktree dir is shared by
+		// every project.
+		if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(cfg.WorktreeDir(), sc.UserRepoRoot); err == nil {
 			seen := map[string]bool{}
 			for _, id := range ids {
 				seen[id] = true

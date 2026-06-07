@@ -67,8 +67,11 @@ func (r Resolver) Load(name string) (*Persona, error) {
 	return r.loadResolved(name, visited)
 }
 
-// ErrNotFound signals a persona name doesn't resolve in any source.
-var ErrNotFound = errors.New("persona: not found")
+// ErrNotFound signals a persona name doesn't resolve in any source. The
+// message is the bare condition ("not found"); callers that know the name
+// wrap it (see readSource) so it reads "persona %q: not found" without the
+// doubled "persona: persona:" prefix the old "persona: not found" produced.
+var ErrNotFound = errors.New("not found")
 
 // ErrInheritanceCycle is returned when `inherits:` chains form a loop.
 var ErrInheritanceCycle = errors.New("persona: inheritance cycle")
@@ -130,7 +133,7 @@ func (r Resolver) readSource(name string) ([]byte, string, error) {
 	if data, err := library.ReadFile("library/" + name + ".md"); err == nil {
 		return data, "", nil
 	}
-	return nil, "", fmt.Errorf("%w: %s", ErrNotFound, name)
+	return nil, "", fmt.Errorf("persona %q: %w", name, ErrNotFound)
 }
 
 func (r Resolver) dirs() []string {

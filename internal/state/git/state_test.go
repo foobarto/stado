@@ -37,6 +37,33 @@ func TestRepoID_Stable(t *testing.T) {
 	}
 }
 
+func TestRepoID_CanonicalizesSymlinks(t *testing.T) {
+	// The same repo reached via a symlinked path form (e.g. /home -> /var/home
+	// on ostree distros) must hash to ONE repo-id, so a single repo doesn't
+	// split its sessions/audit chain across two sidecars by launch path.
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	idReal, err := RepoID(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idLink, err := RepoID(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idReal != idLink {
+		t.Errorf("RepoID(real)=%q != RepoID(symlink)=%q — symlinked path forms must canonicalise equal", idReal, idLink)
+	}
+	// Distinct repos still differ.
+	idOther, _ := RepoID(t.TempDir())
+	if idReal == idOther {
+		t.Error("RepoID of two distinct repos collided")
+	}
+}
+
 func TestOpenOrInitSidecar_CreatesBare(t *testing.T) {
 	sc := tempSidecar(t, t.TempDir())
 	// Re-opening the same path should succeed.

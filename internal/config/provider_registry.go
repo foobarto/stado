@@ -7,33 +7,21 @@ import (
 
 // ProviderAPIKeyEnv returns the conventional API-key env var for a
 // built-in provider name. Empty means "no API key expected by default".
+//
+// Derived from the KnownProviders() catalogue so it can't drift from the real
+// provider definitions — a hand-maintained copy here previously omitted
+// ollama-cloud, so `stado doctor` skipped the key check and reported the
+// provider "configured / all green" while `stado run` 401'd on the missing
+// OLLAMA_CLOUD_API_KEY.
 func ProviderAPIKeyEnv(provider string) string {
-	switch strings.ToLower(provider) {
-	case "anthropic":
-		return "ANTHROPIC_API_KEY"
-	case "openai":
-		return "OPENAI_API_KEY"
-	case "google", "gemini":
-		return "GEMINI_API_KEY"
-	case "groq":
-		return "GROQ_API_KEY"
-	case "openrouter":
-		return "OPENROUTER_API_KEY"
-	case "deepseek":
-		return "DEEPSEEK_API_KEY"
-	case "xai":
-		return "XAI_API_KEY"
-	case "mistral":
-		return "MISTRAL_API_KEY"
-	case "cerebras":
-		return "CEREBRAS_API_KEY"
-	case "minimax", "minimax-anthropic":
-		return "MINIMAX_API_KEY"
-	case "litellm":
-		return "LITELLM_API_KEY"
-	default:
-		return ""
+	if p, ok := LookupKnownProvider(provider); ok {
+		return p.APIKeyEnv
 	}
+	// "gemini" is an accepted alias for the google provider.
+	if strings.ToLower(strings.TrimSpace(provider)) == "gemini" {
+		return "GEMINI_API_KEY"
+	}
+	return ""
 }
 
 // ResolveProviderAPIKey returns the configured API key from the

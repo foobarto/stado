@@ -216,7 +216,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			}
 			persona, perr := resolvePersona(runPersona, cfg)
 			if perr != nil {
-				fmt.Fprintf(os.Stderr, "stado run: persona: %v\n", perr)
+				fmt.Fprintf(os.Stderr, "stado run: %v\n", perr)
 			}
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
@@ -509,8 +509,11 @@ func resolveRunPromptFromFlags() error {
 		for _, s := range sks {
 			names = append(names, s.Name)
 		}
-		return fmt.Errorf("run: skill %q not found (available: %s)",
-			runSkill, strings.Join(names, ", "))
+		avail := "(none installed — add .md files under .stado/skills/)"
+		if len(names) > 0 {
+			avail = strings.Join(names, ", ")
+		}
+		return fmt.Errorf("run: skill %q not found (available: %s)", runSkill, avail)
 	}
 	if runPrompt == "" {
 		runPrompt = chosen.Body

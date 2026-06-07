@@ -30,13 +30,25 @@ import (
 	"github.com/google/uuid"
 )
 
-// RepoID is a stable 16-hex-char identifier derived from the absolute path of
+// RepoID is a stable 16-hex-char identifier derived from the canonical path of
 // a user repo root (or cwd when not a repo). Used as the sidecar filename so
 // multiple checkouts of the same project don't share sessions.
+//
+// The path is symlink-resolved (best-effort EvalSymlinks) before hashing so the
+// same repo reached via different path forms hashes to ONE repo-id — most
+// importantly the /home -> /var/home symlink shipped by default on ostree
+// distros (Fedora Silverblue/Kinoite/Atomic), where launching from /home vs
+// /var/home otherwise split a repo's sessions and audit chain across two
+// sidecars. A path that can't be resolved (doesn't exist yet) keeps its
+// absolute form. See .agent/decisions/2026-06-07-repo-id-canonicalization.md —
+// legacy sidecars under the old non-canonical hash become orphaned-but-on-disk.
 func RepoID(userRepoRoot string) (string, error) {
 	abs, err := filepath.Abs(userRepoRoot)
 	if err != nil {
 		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
 	}
 	sum := sha256.Sum256([]byte(abs))
 	return hex.EncodeToString(sum[:8]), nil

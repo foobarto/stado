@@ -295,3 +295,25 @@ func TestResolver_RejectsSymlinkedPersona(t *testing.T) {
 		t.Fatalf("regular persona should load: %v", err)
 	}
 }
+
+// TestLoadNotFoundMessageCleanAndNamed guards the R6 error-rendering fix:
+// a missing persona must produce a single, name-bearing "persona %q: not
+// found" — not the old "persona: not found" sentinel that callers re-prefixed
+// into "persona: persona: not found" (and triple via resolvePersona).
+func TestLoadNotFoundMessageCleanAndNamed(t *testing.T) {
+	r := Resolver{CWD: t.TempDir(), ConfigDir: t.TempDir()}
+	_, err := r.Load("no-such-role-xyz")
+	if err == nil {
+		t.Fatal("expected an error for a missing persona")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("errors.Is(err, ErrNotFound) = false (sentinel must still match): %v", err)
+	}
+	want := `persona "no-such-role-xyz": not found`
+	if err.Error() != want {
+		t.Errorf("message = %q, want %q", err.Error(), want)
+	}
+	if strings.Count(err.Error(), "persona") != 1 {
+		t.Errorf("doubled 'persona' prefix in %q", err.Error())
+	}
+}

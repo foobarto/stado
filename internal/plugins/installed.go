@@ -13,6 +13,13 @@ import (
 
 const maxInstalledPluginEntries = 4096
 
+// activeMarkerDir is the reserved subdirectory PinActiveDev writes its
+// active-version markers into (<state>/plugins/active/). It is not an
+// installed plugin, so enumeration must skip it — otherwise `plugin
+// installed` / `plugin list` show a phantom "active" row that fails manifest
+// load and inflate the installed count.
+const activeMarkerDir = "active"
+
 // ListInstalledDirs returns installed plugin directory names under root.
 // Directory entries are streamed in batches so a corrupted state directory
 // cannot force one large in-memory listing.
@@ -51,6 +58,9 @@ func listInstalledDirs(root string, maxEntries int) ([]string, error) {
 			}
 			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 				continue
+			}
+			if name == activeMarkerDir {
+				continue // reserved marker dir, not an installed plugin
 			}
 			ids = append(ids, name)
 		}

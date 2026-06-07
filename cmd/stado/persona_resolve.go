@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/foobarto/stado/internal/config"
@@ -27,7 +26,10 @@ func resolvePersona(perCall string, cfg *config.Config) (*personas.Persona, erro
 	r := personas.Resolver{CWD: cwd, ConfigDir: config.ConfigDir()}
 	p, err := r.Load(name)
 	if err != nil {
-		return nil, fmt.Errorf("persona %q: %w", name, err)
+		// Load's errors already carry the persona name (readSource /
+		// loadResolved wrap it), so don't re-wrap — that produced the
+		// "persona %q: persona %q: ..." doubling.
+		return nil, err
 	}
 	return p, nil
 }

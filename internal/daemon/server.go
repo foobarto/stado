@@ -164,7 +164,17 @@ func (s *Server) Serve(ctx context.Context) error {
 	acceptDone := make(chan struct{})
 	go func() {
 		defer close(acceptDone)
-		<-ctx.Done()
+		// Wake on EITHER a cancelled context (SIGINT/SIGTERM or parent
+		// cancel) or a direct Stop() — handleShutdown and the idle-timeout
+		// reaper close s.closed without touching ctx. Without the s.closed
+		// arm this goroutine parks on ctx.Done() forever, so the accept
+		// loop's <-acceptDone never returns and Serve() (hence the daemon
+		// process) leaks even though `daemon stop` reported success. Stop()
+		// is idempotent, so calling it again on the ctx path is harmless.
+		select {
+		case <-ctx.Done():
+		case <-s.closed:
+		}
 		_ = s.Stop()
 	}()
 	for {

@@ -34,6 +34,11 @@ var configProvidersCmd = &cobra.Command{
 		"  stado config providers setup <name> --write   # also write the\n" +
 		"                                                  # [inference.presets.<name>]\n" +
 		"                                                  # block to config.toml",
+	// Hybrid command (prints the catalogue AND has list/setup subcommands), so
+	// the generic group-command guard skips it. NoArgs makes a typo'd
+	// subcommand (`config providers bogus`) error instead of silently running
+	// the catalogue and ignoring the arg.
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return renderProvidersList(cmd.OutOrStdout())
 	},

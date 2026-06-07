@@ -32,6 +32,58 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased — TUI/CLI usability pass (UAT-driven)
+
+A round of UAT-driven usability fixes. Several change user-visible behaviour
+(command exit codes, the session repo-id); pre-1.0, no deprecation shims.
+
+### TUI
+
+- **The session manager (ctrl+x l) no longer floods with other projects'
+  sessions.** `session list`, the TUI session manager, `agents list`, and `gc`
+  augmented their listing from the global flat worktree dir without filtering
+  by the per-worktree repo pin, so every project's sessions leaked into every
+  repo's view (2032 cross-project entries → 159 for this repo). Filtering is
+  symlink-tolerant, so the `/home`↔`/var/home` ostree split no longer hides a
+  repo's own sessions.
+- **`/todo` now appears in the Ctrl+P palette and `/help`** (it was handled but
+  unlisted).
+
+### CLI
+
+- **Group commands reject an unknown/typo'd subcommand** (`session`, `config`,
+  `config providers`, `plugin`, `tool`, `agents`, `schedule`, `harness`,
+  `completion`) with a nonzero exit instead of printing help and exiting 0.
+  Notably fixes `stado completion <shell> > file` silently writing help text
+  into the sourced file on a typo'd shell name.
+- **`stado doctor` now checks the provider key for `ollama-cloud`** (and stays
+  in sync with the provider catalogue) — it previously reported "all checks
+  passed" while `stado run` 401'd on a missing `OLLAMA_CLOUD_API_KEY`.
+- **`stado tool categories --json` emits JSON** instead of silently ignoring
+  `--json` and printing plaintext.
+- **Cleaner persona/skill errors.** A missing `--persona` no longer triples the
+  prefix (`persona: persona: not found`) and now names the persona; a missing
+  `--skill` with no skills installed no longer prints a dangling `available: `.
+
+### Fixes
+
+- **`stado daemon stop` (and idle-timeout) now actually terminate the daemon.**
+  They closed the listener but never returned `Serve()`, leaking the process —
+  the daemon hosts stateful tools (shell PTYs, browser, LSP). Existing leaked
+  daemons need a one-time `pkill -TERM -f 'stado daemon'` after upgrading.
+- **Repo-id is symlink-canonicalised**, so a repo reached via `/home` vs
+  `/var/home` on ostree distros no longer splits its sessions/audit chain across
+  two sidecars. Sidecars under the old hash become orphaned-but-on-disk; see
+  `.agent/decisions/2026-06-07-repo-id-canonicalization.md`.
+- **`plugin installed` / `plugin list` no longer show a phantom "active" row**
+  (the reserved active-version marker dir was enumerated as a plugin).
+
+### Docs
+
+- **Sandboxing doc corrected:** outbound network is *not* restricted by the
+  current bwrap+Landlock runner; network deny-by-default is deferred to the
+  EP-0050 broker (Draft).
+
 ## v0.59.1 — landing fits short terminals + working build provenance — 2026-06-01
 
 ### Fixes
