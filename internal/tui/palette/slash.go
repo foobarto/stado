@@ -42,6 +42,7 @@ var Commands = []Command{
 	{"/provider", "Show current provider capabilities or setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/tasks", "Open the shared task manager", "ctrl+x k", "Session"},
+	{"/todo", "Add a todo (/todo <title>) or open the task picker", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
