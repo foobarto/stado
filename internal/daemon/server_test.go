@@ -229,6 +229,52 @@ func TestShutdownClosesServer(t *testing.T) {
 	_ = c.Close()
 }
 
+// TestServeReturnsAfterShutdownWithoutCtxCancel guards the daemon-leak bug:
+// handleShutdown and the idle-timeout reaper call s.Stop() directly, WITHOUT
+// cancelling the Serve() context (only a real SIGINT/SIGTERM does that). The
+// accept-loop's <-acceptDone must still unblock so Serve() — and therefore the
+// daemon process — actually returns. Before the fix the acceptDone goroutine
+// only waited on ctx.Done(), so Serve() parked forever and `stado daemon stop`
+// reported success while leaking the process (33 orphans observed in the wild).
+//
+// Unlike startTestServer's teardown, this test must NOT call cancel() before
+// asserting — the whole point is that Stop() alone is sufficient.
+func TestServeReturnsAfterShutdownWithoutCtxCancel(t *testing.T) {
+	opts := ServerOpts{SocketPath: filepath.Join(t.TempDir(), "daemon.sock")}
+	srv := NewServer(opts)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // safety net for a failed run; not relied on to return
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.Serve(ctx) }()
+
+	var c *Client
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		cc, _, err := DialAndHandshake(ctx, opts.SocketPath, "test")
+		if err == nil {
+			c = cc
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c == nil {
+		t.Fatal("server never accepted handshake")
+	}
+
+	if err := c.Shutdown(context.Background(), false, "test"); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	_ = c.Close()
+
+	select {
+	case <-serveErr:
+		// Serve() returned — main() would return and the process would exit.
+	case <-time.After(3 * time.Second):
+		t.Fatal("Serve() did not return after shutdown without ctx cancel — daemon process would leak")
+	}
+}
+
 // TestIsLikelyGoTestBinary locks down the fork-bomb defence in
 // EnsureRunning. The guard MUST flag .test suffixes and the standard
 // /tmp/go-build* path Go uses for test binaries; without it, a test
