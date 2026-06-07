@@ -100,8 +100,8 @@ func highestInstalledVersion(pluginsDir, name string) (string, bool) {
 			continue
 		}
 		v := strings.TrimPrefix(n, prefix)
-		// Skip "active" subdir and friends.
-		if v == "" || v == "active" {
+		// Skip the reserved active-marker subdir and friends.
+		if v == "" || v == activeMarkerDir {
 			continue
 		}
 		if !looksLikeVersion(v) {

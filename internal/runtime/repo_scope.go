@@ -7,26 +7,17 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
-// canonicalRepoPath returns a stable, comparable form of a user-repo path.
-// It makes the path absolute and resolves symlinks best-effort so that two
-// path forms of the same repo compare equal — most importantly the
-// /home -> /var/home symlink that ships by default on ostree distros
-// (Fedora Silverblue/Kinoite/Atomic), where the same checkout is reachable
-// as both /home/<u>/p and /var/home/<u>/p. Returns "" for an empty input so
-// an unset pin never collapses into a spurious match.
+// canonicalRepoPath returns a stable, comparable form of a user-repo path,
+// delegating the abs + symlink-resolve to stadogit.CanonicalRepoPath (one
+// shared canonicalizer, so the /home -> /var/home handling can't drift from
+// the repo-id one). Returns "" for an empty input so an unset pin never
+// collapses into a spurious match.
 func canonicalRepoPath(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return ""
 	}
-	abs, err := filepath.Abs(p)
-	if err != nil {
-		abs = p
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return abs
+	return stadogit.CanonicalRepoPath(p)
 }
 
 // SameUserRepo reports whether two user-repo paths refer to the same repo,
@@ -55,11 +46,18 @@ func ListRepoWorktreeSessionIDs(worktreeRoot, repoRoot string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
+	// Canonicalize repoRoot once — it's invariant across the loop, and
+	// EvalSymlinks per worktree (2000+ on a busy host) would be a needless
+	// syscall storm. Only each pin is canonicalized inside the loop.
+	canonRepo := canonicalRepoPath(repoRoot)
 	out := make([]string, 0, len(all))
 	for _, id := range all {
-		pin := strings.TrimSpace(ReadUserRepoPin(filepath.Join(worktreeRoot, id)))
-		if pin != "" && !SameUserRepo(pin, repoRoot) {
-			continue // pinned to a different repo → the leak we are fixing
+		pin := ReadUserRepoPin(filepath.Join(worktreeRoot, id)) // already trimmed
+		if pin != "" {
+			cp := canonicalRepoPath(pin)
+			if cp == "" || cp != canonRepo {
+				continue // pinned to a different repo → the leak we are fixing
+			}
 		}
 		out = append(out, id)
 	}

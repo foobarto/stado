@@ -12,11 +12,19 @@ import (
 // active version. Cleanup removes both on watch-loop exit.
 const DevSentinelVersion = "0.0.0-dev"
 
+// activeMarkerDir is the reserved subdirectory under <state>/plugins/ that
+// holds active-version markers (one file per pinned plugin). It is NOT an
+// installed plugin: enumeration of installed plugins must skip it, or a
+// phantom "active" row appears in `plugin list` with an inflated count.
+// Defined here, at the producer, so every consumer (installed.go, requires.go)
+// shares one source of truth and a rename can't silently break the skips.
+const activeMarkerDir = "active"
+
 // PinActiveDev writes the active-version marker for `name` pointing
 // at DevSentinelVersion. Caller is responsible for ensuring the
 // install dir exists before any registry lookup happens.
 func PinActiveDev(stateDir, name string) error {
-	activeDir := filepath.Join(stateDir, "plugins", "active")
+	activeDir := filepath.Join(stateDir, "plugins", activeMarkerDir)
 	if err := os.MkdirAll(activeDir, 0o755); err != nil {
 		return err
 	}
@@ -31,7 +39,7 @@ func CleanupDev(stateDir, name string) error {
 	if err := os.RemoveAll(installDir); err != nil {
 		return err
 	}
-	markerPath := filepath.Join(stateDir, "plugins", "active", name)
+	markerPath := filepath.Join(stateDir, "plugins", activeMarkerDir, name)
 	if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
