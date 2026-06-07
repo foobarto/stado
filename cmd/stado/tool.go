@@ -231,10 +231,22 @@ var toolCatsCmd = &cobra.Command{
 		if len(args) > 0 {
 			q = strings.ToLower(args[0])
 		}
+		cats := make([]string, 0, len(plugins.CanonicalCategories))
 		for _, c := range plugins.CanonicalCategories {
 			if q != "" && !strings.Contains(strings.ToLower(c), q) {
 				continue
 			}
+			cats = append(cats, c)
+		}
+		// --json is a persistent flag on `stado tool` honoured by `list` and
+		// `info`; `categories` previously ignored it and emitted plaintext,
+		// silently breaking `stado tool categories --json | jq`.
+		if toolJSONFlag {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(cats)
+		}
+		for _, c := range cats {
 			fmt.Println(c)
 		}
 		return nil
