@@ -69,7 +69,6 @@ func RepoID(userRepoRoot string) (string, error) {
 	sum := sha256.Sum256([]byte(CanonicalRepoPath(abs)))
 	return hex.EncodeToString(sum[:8]), nil
 }
-}
 
 // Sidecar is the bare repo that holds all session refs for one user repo.
 type Sidecar struct {
