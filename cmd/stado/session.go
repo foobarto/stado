@@ -71,22 +71,8 @@ var sessionListCmd = &cobra.Command{
 		}
 		// Augment with worktree dirs — a session can exist before it has
 		// committed anything, so worktree presence is the authoritative "I
-		// exist" signal while refs capture progress. Scope to the current
-		// repo's pin: the worktree dir is a global flat dir shared by every
-		// repo, so an unfiltered augment leaks other projects' sessions into
-		// this repo's listing.
-		if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(cfg.WorktreeDir(), sc.UserRepoRoot); err == nil {
-			seen := map[string]bool{}
-			for _, id := range ids {
-				seen[id] = true
-			}
-			for _, id := range worktreeIDs {
-				if !seen[id] {
-					ids = append(ids, id)
-				}
-			}
-			sort.Strings(ids)
-		}
+		// exist" signal while refs capture progress. Repo-scoped.
+		ids = augmentWithRepoWorktrees(ids, cfg.WorktreeDir(), sc.UserRepoRoot)
 		if len(ids) == 0 {
 			fmt.Fprintln(os.Stderr, "(no sessions)")
 			return nil
@@ -147,6 +133,31 @@ var sessionListCmd = &cobra.Command{
 // (sessionRow + summariseSession live in internal/runtime so the TUI
 // can share them — see runtime.SessionSummary / runtime.SummariseSession.)
 
+// augmentWithRepoWorktrees adds worktree-backed session IDs for the current
+// repo to ids — deduped against what's already there and re-sorted. A session
+// can exist as a worktree before it commits any ref, so worktree presence is
+// the authoritative "I exist" signal; the symlink-tolerant repo-pin filter
+// keeps the global flat worktree dir from leaking other projects' sessions.
+// Shared by `session list` and `session gc`. On error, ids is returned
+// unchanged (ref-backed sessions still list).
+func augmentWithRepoWorktrees(ids []string, worktreeDir, repoRoot string) []string {
+	worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(worktreeDir, repoRoot)
+	if err != nil {
+		return ids
+	}
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	for _, id := range worktreeIDs {
+		if _, ok := seen[id]; !ok {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // sessionGCCmd sweeps zero-turn, zero-message, zero-compaction
 // sessions older than --older-than. Dogfood #6: `run --prompt`, bare
 // `session new`, and each headless session leaves a session on disk;
@@ -173,23 +184,11 @@ var sessionGCCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("list sessions: %w", err)
 		}
-		// Also scan the worktree dir for UUID-looking directories the
-		// sidecar may not know about — dogfood showed `run --prompt`
-		// can leave a worktree without a trace ref. Scope to the current
-		// repo via the same symlink-tolerant pin filter `session list` uses
-		// so gc never sweeps (or skips) another repo's sessions.
-		if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(cfg.WorktreeDir(), sc.UserRepoRoot); err == nil {
-			seen := map[string]struct{}{}
-			for _, id := range ids {
-				seen[id] = struct{}{}
-			}
-			for _, id := range worktreeIDs {
-				if _, ok := seen[id]; !ok {
-					ids = append(ids, id)
-				}
-			}
-			sort.Strings(ids)
-		}
+		// Also scan worktree dirs the sidecar may not know about — a
+		// `run --prompt` can leave a worktree without a trace ref. Repo-scoped
+		// via the same filter `session list` uses, so gc never sweeps (or
+		// skips) another repo's sessions.
+		ids = augmentWithRepoWorktrees(ids, cfg.WorktreeDir(), sc.UserRepoRoot)
 
 		cutoff := time.Now().Add(-sessionGCOlderThan)
 		var toDelete []string

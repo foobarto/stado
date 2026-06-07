@@ -24,12 +24,8 @@ func resolvePersona(perCall string, cfg *config.Config) (*personas.Persona, erro
 	}
 	cwd, _ := os.Getwd()
 	r := personas.Resolver{CWD: cwd, ConfigDir: config.ConfigDir()}
-	p, err := r.Load(name)
-	if err != nil {
-		// Load's errors already carry the persona name (readSource /
-		// loadResolved wrap it), so don't re-wrap — that produced the
-		// "persona %q: persona %q: ..." doubling.
-		return nil, err
-	}
-	return p, nil
+	// Load's errors already carry the persona name (readSource / loadResolved
+	// wrap it), so return directly — re-wrapping produced the
+	// "persona %q: persona %q: ..." doubling.
+	return r.Load(name)
 }

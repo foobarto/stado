@@ -30,27 +30,39 @@ import (
 	"github.com/google/uuid"
 )
 
+// CanonicalRepoPath returns a stable, comparable form of a repo path: made
+// absolute and symlink-resolved (best-effort), so different path forms of the
+// same repo collapse to one value — most importantly the /home -> /var/home
+// symlink shipped by default on ostree distros (Fedora Silverblue/Kinoite/
+// Atomic). A path that can't be resolved (doesn't exist yet) keeps its absolute
+// form; an unresolvable relative path keeps the input.
+//
+// It does NOT special-case the empty string (filepath.Abs("") resolves to cwd);
+// callers that need an empty-stays-empty rule — e.g. unset-pin comparisons in
+// runtime.SameUserRepo — guard that themselves.
+func CanonicalRepoPath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = p
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
 // RepoID is a stable 16-hex-char identifier derived from the canonical path of
 // a user repo root (or cwd when not a repo). Used as the sidecar filename so
 // multiple checkouts of the same project don't share sessions.
 //
-// The path is symlink-resolved (best-effort EvalSymlinks) before hashing so the
-// same repo reached via different path forms hashes to ONE repo-id — most
-// importantly the /home -> /var/home symlink shipped by default on ostree
-// distros (Fedora Silverblue/Kinoite/Atomic), where launching from /home vs
-// /var/home otherwise split a repo's sessions and audit chain across two
-// sidecars. A path that can't be resolved (doesn't exist yet) keeps its
-// absolute form. See .agent/decisions/2026-06-07-repo-id-canonicalization.md —
-// legacy sidecars under the old non-canonical hash become orphaned-but-on-disk.
+// Canonicalising via CanonicalRepoPath means the same repo reached via
+// different path forms hashes to ONE repo-id — most importantly the
+// /home -> /var/home ostree symlink, which otherwise split a repo's sessions
+// and audit chain across two sidecars by launch path. See
+// .agent/decisions/2026-06-07-repo-id-canonicalization.md — legacy sidecars
+// under the old non-canonical hash become orphaned-but-on-disk.
 func RepoID(userRepoRoot string) (string, error) {
-	abs, err := filepath.Abs(userRepoRoot)
-	if err != nil {
-		return "", err
-	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
-	}
-	sum := sha256.Sum256([]byte(abs))
+	sum := sha256.Sum256([]byte(CanonicalRepoPath(userRepoRoot)))
 	return hex.EncodeToString(sum[:8]), nil
 }
 
