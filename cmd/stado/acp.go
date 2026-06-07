@@ -151,7 +151,7 @@ var acpCmd = &cobra.Command{
 		if acpPersona != "" {
 			p, err := resolvePersona(acpPersona, cfg)
 			if err != nil {
-				return fmt.Errorf("acp: --persona: %w", err)
+				return fmt.Errorf("acp: %w", err)
 			}
 			defaultPersona = p
 		}

@@ -59,7 +59,7 @@ var headlessCmd = &cobra.Command{
 		if headlessPersona != "" {
 			p, err := resolvePersona(headlessPersona, cfg)
 			if err != nil {
-				return fmt.Errorf("headless: --persona: %w", err)
+				return fmt.Errorf("headless: %w", err)
 			}
 			defaultPersona = p
 		}
