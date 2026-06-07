@@ -62,8 +62,13 @@ func CanonicalRepoPath(p string) string {
 // .agent/decisions/2026-06-07-repo-id-canonicalization.md — legacy sidecars
 // under the old non-canonical hash become orphaned-but-on-disk.
 func RepoID(userRepoRoot string) (string, error) {
-	sum := sha256.Sum256([]byte(CanonicalRepoPath(userRepoRoot)))
+	abs, err := filepath.Abs(userRepoRoot)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(CanonicalRepoPath(abs)))
 	return hex.EncodeToString(sum[:8]), nil
+}
 }
 
 // Sidecar is the bare repo that holds all session refs for one user repo.
