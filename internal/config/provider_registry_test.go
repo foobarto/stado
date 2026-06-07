@@ -19,8 +19,11 @@ func TestProviderAPIKeyEnv(t *testing.T) {
 		"minimax":           "MINIMAX_API_KEY",
 		"minimax-anthropic": "MINIMAX_API_KEY",
 		"litellm":           "LITELLM_API_KEY",
-		"ollama":            "",
-		"unknown":           "",
+		// ollama-cloud was omitted from the old hand-maintained switch, so
+		// doctor skipped its key check and reported "all green" while run 401'd.
+		"ollama-cloud": "OLLAMA_CLOUD_API_KEY",
+		"ollama":       "",
+		"unknown":      "",
 	}
 	for provider, want := range cases {
 		if got := ProviderAPIKeyEnv(provider); got != want {
