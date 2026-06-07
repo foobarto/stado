@@ -186,7 +186,47 @@ func main() {
 	if os.Getenv("STADO_DOTENV_DISABLE") == "" {
 		_ = dotenv.LoadHierarchy("")
 	}
+	// cobra adds the `completion` group lazily inside Execute(); register it
+	// now so enforceSubcommandRequired can guard it too (otherwise a typo'd
+	// shell in `stado completion <shell> > file` silently writes help text
+	// into the sourced file and exits 0).
+	rootCmd.InitDefaultCompletionCmd()
+	enforceSubcommandRequired(rootCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
+	}
+}
+
+// enforceSubcommandRequired makes every pure "group" command — one that only
+// holds subcommands and has no action of its own — reject a missing or unknown
+// subcommand with a nonzero exit, instead of cobra's default of printing help
+// and exiting 0.
+//
+// That default is a footgun. The documented completion install redirects into
+// a sourced file (`stado completion fish > ~/.config/fish/completions/stado.fish`);
+// a typo'd shell name (`stado completion fsh`) otherwise writes help text into
+// that file and reports success, so neither the user nor a wrapping script sees
+// the failure. The same silent-success affected `session`, `config`, `plugin`,
+// `tool`, `agents`, `schedule`, and `harness`. Top-level `stado <bad>` already
+// errors; this makes the subcommand groups consistent.
+//
+// Commands with their own Run/RunE (the root TUI, leaf commands) are left
+// untouched — only pure groups get the guard, and a bare `stado <group>` with
+// no args still prints help (exit 0).
+func enforceSubcommandRequired(cmd *cobra.Command) {
+	for _, child := range cmd.Commands() {
+		enforceSubcommandRequired(child)
+	}
+	if cmd.HasSubCommands() && cmd.Run == nil && cmd.RunE == nil {
+		cmd.RunE = func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return c.Help()
+			}
+			// Match cobra's own unknown-command wording (no trailing
+			// punctuation — keeps staticcheck ST1005 happy and reads the same
+			// as the top-level `stado <bad>` error).
+			c.SilenceUsage = true
+			return fmt.Errorf("unknown command %q for %q", args[0], c.CommandPath())
+		}
 	}
 }
