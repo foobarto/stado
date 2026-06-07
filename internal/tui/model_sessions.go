@@ -140,7 +140,10 @@ func listSessionIDs(worktreeRoot string, sc *stadogit.Sidecar) (map[string]struc
 		}
 		return nil
 	})
-	if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(worktreeRoot); err == nil {
+	// Scope the worktree augmentation to this session's repo. The worktree
+	// dir is a global flat dir shared by every repo; without the pin filter
+	// the session manager fills up with every other project's sessions.
+	if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(worktreeRoot, sc.UserRepoRoot); err == nil {
 		for _, id := range worktreeIDs {
 			ids[id] = struct{}{}
 		}

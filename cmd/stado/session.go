@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -72,8 +71,11 @@ var sessionListCmd = &cobra.Command{
 		}
 		// Augment with worktree dirs — a session can exist before it has
 		// committed anything, so worktree presence is the authoritative "I
-		// exist" signal while refs capture progress.
-		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
+		// exist" signal while refs capture progress. Scope to the current
+		// repo's pin: the worktree dir is a global flat dir shared by every
+		// repo, so an unfiltered augment leaks other projects' sessions into
+		// this repo's listing.
+		if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(cfg.WorktreeDir(), sc.UserRepoRoot); err == nil {
 			seen := map[string]bool{}
 			for _, id := range ids {
 				seen[id] = true
@@ -173,18 +175,15 @@ var sessionGCCmd = &cobra.Command{
 		}
 		// Also scan the worktree dir for UUID-looking directories the
 		// sidecar may not know about — dogfood showed `run --prompt`
-		// can leave a worktree without a trace ref.
-		if worktreeIDs, err := stadogit.ListWorktreeSessionIDs(cfg.WorktreeDir()); err == nil {
+		// can leave a worktree without a trace ref. Scope to the current
+		// repo via the same symlink-tolerant pin filter `session list` uses
+		// so gc never sweeps (or skips) another repo's sessions.
+		if worktreeIDs, err := runtime.ListRepoWorktreeSessionIDs(cfg.WorktreeDir(), sc.UserRepoRoot); err == nil {
 			seen := map[string]struct{}{}
-			cwd, _ := os.Getwd()
-			currentRepo := findRepoRoot(cwd)
 			for _, id := range ids {
 				seen[id] = struct{}{}
 			}
 			for _, id := range worktreeIDs {
-				if runtime.ReadUserRepoPin(filepath.Join(cfg.WorktreeDir(), id)) != currentRepo {
-					continue
-				}
 				if _, ok := seen[id]; !ok {
 					ids = append(ids, id)
 				}
