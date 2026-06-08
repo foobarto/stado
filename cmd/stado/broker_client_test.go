@@ -109,9 +109,27 @@ func TestBrokerPurposeFromFlags_PhaseOneAlwaysMainChat(t *testing.T) {
 	}
 }
 
-func TestBrokerProfileFromFlags_PhaseOneAlwaysDefault(t *testing.T) {
+func TestBrokerProfileFromFlags_HonoursNoSandbox(t *testing.T) {
+	defer func(prev bool) { noSandbox = prev }(noSandbox)
+
+	noSandbox = false
 	if got := brokerProfileFromFlags(); got != broker.ProfileDefault {
-		t.Errorf("brokerProfileFromFlags() = %q, want %q (phase 1 always default; phase 1g wires --no-sandbox)", got, broker.ProfileDefault)
+		t.Errorf("brokerProfileFromFlags() with flag unset = %q, want %q", got, broker.ProfileDefault)
+	}
+	noSandbox = true
+	if got := brokerProfileFromFlags(); got != broker.ProfileNoSandbox {
+		t.Errorf("brokerProfileFromFlags() with --no-sandbox = %q, want %q", got, broker.ProfileNoSandbox)
+	}
+}
+
+// TestRootCommandAcceptsNoSandbox is the regression guard for the bug where
+// `stado --no-sandbox` (TUI launch) failed with "unknown flag" — --no-sandbox
+// was registered only on `run`, so the TUI / acp / headless / mcp-server (which
+// all read brokerProfileFromFlags) had no way to opt out. It is now a
+// persistent root flag honoured by every entry point.
+func TestRootCommandAcceptsNoSandbox(t *testing.T) {
+	if rootCmd.PersistentFlags().Lookup("no-sandbox") == nil {
+		t.Fatal("rootCmd is missing the persistent --no-sandbox flag")
 	}
 }
 
