@@ -10,7 +10,7 @@ package tui
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func onWindowSize(m *Model, msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {

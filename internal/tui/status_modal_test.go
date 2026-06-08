@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"

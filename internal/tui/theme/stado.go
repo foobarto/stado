@@ -1,6 +1,6 @@
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // Backwards-compatible package-level globals. These are sourced from the
 // bundled default theme so older TUI subpackages (input, palette, overlays,

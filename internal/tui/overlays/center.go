@@ -3,7 +3,7 @@ package overlays
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // CenterOver overlays a popup centred over a base render at total

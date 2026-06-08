@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"

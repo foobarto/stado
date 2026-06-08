@@ -20,7 +20,7 @@ package tui
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // titleSpinnerInterval is the spinner cadence. 200ms = 5fps; fast

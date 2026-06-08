@@ -1,7 +1,7 @@
 package ptyblock
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // keyMsgToBytes translates a bubbletea KeyMsg into the byte sequence

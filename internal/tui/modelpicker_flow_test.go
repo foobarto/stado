@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/providers/localdetect"

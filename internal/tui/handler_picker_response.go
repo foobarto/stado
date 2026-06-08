@@ -13,7 +13,7 @@ package tui
 // non-picker branches of KeyMsg dispatch.
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"

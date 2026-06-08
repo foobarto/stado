@@ -11,7 +11,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // renderInputBox produces the bordered input area: a textarea stacked on
