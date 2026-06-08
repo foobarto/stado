@@ -48,6 +48,32 @@ func TestSlashPaletteEnterDispatchesFullCommandWithArgs(t *testing.T) {
 	}
 }
 
+// TestSlashPaletteEnterStripsLeadingSlash: when the palette is opened via Ctrl+P
+// and the user types the command WITH its leading slash (e.g. "/monitor stop"),
+// the query carries that slash. Enter must dispatch "/monitor stop", not
+// "//monitor stop". Guards the leading-slash trim.
+func TestSlashPaletteEnterStripsLeadingSlash(t *testing.T) {
+	rnd, _ := render.New(theme.Default())
+	m := NewModel(t.TempDir(), "m", "p",
+		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
+	m.width, m.height = 120, 30
+
+	m.slash.Open()
+	m.slashInline = true
+	m.slash.Query = "/monitor stop" // leading slash, as typed via Ctrl+P
+
+	priorBlocks := len(m.blocks)
+	onPickerKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(m.blocks) <= priorBlocks {
+		t.Fatal("Enter on '/monitor stop' (leading slash) produced no block")
+	}
+	last := m.blocks[len(m.blocks)-1]
+	if !strings.Contains(last.body, "no active monitor") {
+		t.Errorf("leading-slash query should dispatch '/monitor stop', got %q (likely '//monitor stop')", last.body)
+	}
+}
+
 // TestSlashPaletteEnterUnknownCommandStillDispatches: a typed command with no
 // matching suggestion (and no args) should still run so the user gets a proper
 // "unknown command" response instead of Enter silently doing nothing.

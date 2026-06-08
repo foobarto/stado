@@ -43,20 +43,23 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			//   - args typed (a space in the query) → the literal command
 			//   - bare prefix with a highlighted suggestion → that suggestion
 			//   - bare text with no match → run it (so unknown cmds error)
-raw := strings.TrimSpace(m.slash.Query)
-q := strings.TrimSpace(strings.TrimPrefix(raw, "/"))
-sel := m.slash.Selected()
-var cmd string
-switch {
-case strings.ContainsRune(q, ' '):
-	cmd = "/" + q
-case sel != nil:
-	cmd = sel.Name
-case q != "":
-	cmd = "/" + q
-default:
-	return m, nil, true // bare "/" + Enter: nothing to run
-}
+			// The query may already carry a leading "/" when the palette was
+			// opened via Ctrl+P and the user typed "/tool" themselves (the
+			// inline "/" trigger strips it; Ctrl+P doesn't) — trim it so we
+			// don't dispatch "//tool".
+			raw := strings.TrimSpace(m.slash.Query)
+			q := strings.TrimSpace(strings.TrimPrefix(raw, "/"))
+			sel := m.slash.Selected()
+			var cmd string
+			switch {
+			case strings.ContainsRune(q, ' '):
+				cmd = "/" + q
+			case sel != nil:
+				cmd = sel.Name
+			case q != "":
+				cmd = "/" + q
+			default:
+				return m, nil, true // bare "/" + Enter: nothing to run
 			}
 			m.slash.Close()
 			m.slashInline = false
