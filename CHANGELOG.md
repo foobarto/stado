@@ -32,7 +32,20 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased — TUI/CLI usability pass (UAT-driven)
+## Unreleased — Bubble Tea v2 (Shift+Enter) + TUI/CLI usability pass
+
+### TUI — Bubble Tea v2 upgrade
+
+- **Shift+Enter inserts a newline** in the chat input (Enter still submits). The
+  TUI moved from Bubble Tea v1.3 to v2 (`charm.land/{bubbletea,bubbles,lipgloss}/v2`),
+  which negotiates terminal keyboard enhancements and so can distinguish
+  Shift+Enter from Enter — impossible under v1.3. `ctrl+j` still works too. No
+  other intended UX change; the migration is mechanical (key/view/mouse/colour
+  APIs). One internal note: lipgloss v2's `.Width` now includes the border, so
+  bordered modals were resized accordingly.
+- Two teatest-based PTY integration tests are temporarily disabled (build-tagged
+  `teatest_v1`) until a Bubble Tea v2-compatible `teatest` is published; the
+  real-PTY tmux harness and the pty-bridge browser E2E still cover the TUI.
 
 A round of UAT-driven usability fixes. Several change user-visible behaviour
 (command exit codes, the session repo-id); pre-1.0, no deprecation shims.
