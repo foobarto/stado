@@ -57,7 +57,9 @@ var sessionTreeCmd = &cobra.Command{
 			return nil
 		}
 		m := &treeModel{turns: turns, sessionID: id, cfg: cfg}
-		p := tea.NewProgram(m, tea.WithAltScreen())
+		// AltScreen is no longer a program option in v2 — it's set on the
+		// tea.View returned by View().
+		p := tea.NewProgram(m)
 		final, err := p.Run()
 		if err != nil {
 			return err
@@ -103,7 +105,7 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
@@ -186,7 +188,7 @@ func (m *treeModel) notifyBrokerOfFork(childID string) {
 	}()
 }
 
-func (m *treeModel) View() string {
+func (m *treeModel) View() tea.View {
 	var b strings.Builder
 
 	title := lipgloss.NewStyle().Bold(true).
@@ -223,7 +225,9 @@ func (m *treeModel) View() string {
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("error: "))
 		b.WriteString(m.err.Error())
 	}
-	return b.String()
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 func firstN(s string, n int) string {

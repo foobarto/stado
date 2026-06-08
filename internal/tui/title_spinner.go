@@ -64,19 +64,16 @@ func (m *Model) isBusy() bool {
 	return m.state == stateStreaming || m.compacting
 }
 
-// handleTitleTick advances the spinner index when busy and returns
-// the commands to apply (a SetWindowTitle when the title changed,
-// plus the next tick). Pure given the model state — keeps Update's
-// switch arm tiny.
+// handleTitleTick advances the spinner index when busy and schedules
+// the next tick. The window title itself is applied in View() via the
+// tea.View.WindowTitle field (computeTitle); bubbletea's renderer only
+// emits the OSC 0/2 sequence when the value changes, so the old
+// lastTitle dedup + SetWindowTitle command are no longer needed. Pure
+// given the model state — keeps Update's switch arm tiny.
 func (m *Model) handleTitleTick() tea.Cmd {
 	if m.isBusy() {
 		m.titleSpinIdx++
 	}
-	want := m.computeTitle()
-	cmds := []tea.Cmd{titleTickCmd()}
-	if want != m.lastTitle {
-		m.lastTitle = want
-		cmds = append(cmds, tea.SetWindowTitle(want))
-	}
-	return tea.Batch(cmds...)
+	m.lastTitle = m.computeTitle()
+	return titleTickCmd()
 }

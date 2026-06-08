@@ -663,8 +663,8 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		fleetPicker:      fleetpicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
-		vp:               viewport.New(0, 0),
-		activityVP:       viewport.New(0, 0),
+		vp:               viewport.New(),
+		activityVP:       viewport.New(),
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
@@ -1004,11 +1004,8 @@ func (m *Model) Attach(p *tea.Program) { m.program = p }
 func (m *Model) Init() tea.Cmd {
 	// Kick the title-spinner tick chain (see title_spinner.go).
 	// The chain is self-perpetuating: every titleTickMsg returns a
-	// fresh tick command. We also set the initial idle title so
-	// terminals that render the tab strip have something to show
-	// before the first tick fires.
-	return tea.Batch(
-		tea.SetWindowTitle("stado"),
-		titleTickCmd(),
-	)
+	// fresh tick command. The window title itself is now a field on
+	// the tea.View returned each frame by View() (computeTitle), so
+	// there is no initial SetWindowTitle command to send.
+	return titleTickCmd()
 }

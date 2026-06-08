@@ -158,17 +158,13 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	// widget as literal text. tea.WithFilter below is the backstop for
 	// responses that slipped past the wrapper (shouldn't happen but
 	// costs nothing to keep).
+	// AltScreen + mouse mode are no longer program options in v2 — they
+	// are set per-frame on the tea.View returned by Model.View (see
+	// model_render.go). Mouse capture state is read there from
+	// m.cfg.TUI.MouseCapture.
 	teaOpts := []tea.ProgramOption{
-		tea.WithAltScreen(),
 		tea.WithInput(newOSCStripFile(os.Stdin)),
 		tea.WithFilter(filterOSCResponses),
-	}
-	// Mouse capture defaults on (enables click-to-expand + scroll-wheel).
-	// Operators who prefer terminal-native click-drag-to-select-text
-	// can set [tui].mouse_capture = false. With capture on, hold Shift
-	// while dragging on most modern terminals to bypass.
-	if m.cfg == nil || m.cfg.TUI.MouseCapture == nil || *m.cfg.TUI.MouseCapture {
-		teaOpts = append(teaOpts, tea.WithMouseCellMotion())
 	}
 	p := tea.NewProgram(m, teaOpts...)
 	m.Attach(p)
@@ -236,19 +232,19 @@ func emitSessionSummary(m *Model, w io.Writer) {
 // a split OSC 10/11/12 tail where the leading ']NN;' has already
 // been consumed but the colour spec leaked.
 func filterOSCResponses(_ tea.Model, msg tea.Msg) tea.Msg {
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return msg
 	}
-	if len(km.Runes) == 0 {
+	text := km.Text
+	if text == "" {
 		return msg
 	}
-	runes := string(km.Runes)
+	runes := []rune(text)
 	// Alt-prefixed '<digit>...;' form: shape of an OSC status-report
 	// reply where bubbletea still saw the opening ESC.
-	if km.Alt && km.Runes[0] == ']' && len(km.Runes) >= 3 {
-		r := km.Runes[1]
-		if r >= '0' && r <= '9' {
+	if km.Mod.Contains(tea.ModAlt) && runes[0] == ']' && len(runes) >= 3 {
+		if r := runes[1]; r >= '0' && r <= '9' {
 			return nil
 		}
 	}
@@ -256,7 +252,7 @@ func filterOSCResponses(_ tea.Model, msg tea.Msg) tea.Msg {
 	// Read. The colour-spec "rgb:HHHH/HHHH/HHHH" is unmistakable, and
 	// on slow splits the "rgb:" prefix may already be gone by the time
 	// Bubble Tea emits the rune burst (e.g. "e/1e1e/1e1e\\").
-	if isOSCColorReplyTail(runes) {
+	if isOSCColorReplyTail(text) {
 		return nil
 	}
 	return msg
