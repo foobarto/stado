@@ -45,19 +45,10 @@ import (
 // Returns (bytes, true) when the key is recognised. Unrecognised keys
 // return (nil, false) so the caller can decide whether to swallow or
 // surface a "key not forwarded" hint.
-func keyMsgToBytes(msg tea.KeyMsg) ([]byte, bool) {
-	// Special / control keys first — KeyType discriminator covers most
-	// of the named keys without having to inspect runes.
-	switch msg.Type {
-	case tea.KeyRunes, tea.KeySpace:
-		// Plain rune typing or the space key. Runes carry the actual
-		// characters typed; emit their UTF-8 form. Spaces from
-		// KeySpace are special-cased because some terminals route
-		// space as KeySpace rather than KeyRunes.
-		if msg.Type == tea.KeySpace && len(msg.Runes) == 0 {
-			return []byte{' '}, true
-		}
-		return []byte(string(msg.Runes)), true
+func keyMsgToBytes(msg tea.KeyPressMsg) ([]byte, bool) {
+	// Special / control keys first — the Code discriminator covers most
+	// of the named keys without having to inspect the typed text.
+	switch msg.Code {
 	case tea.KeyEnter:
 		// CR is the historical convention for terminal Enter; programs
 		// expecting LF run inside their own line discipline anyway.
@@ -116,14 +107,28 @@ func keyMsgToBytes(msg tea.KeyMsg) ([]byte, bool) {
 		return []byte("\x1b[23~"), true
 	case tea.KeyF12:
 		return []byte("\x1b[24~"), true
+	case tea.KeySpace:
+		// Some terminals route space via the dedicated space Code
+		// rather than carrying it only in Text; emit the space byte.
+		return []byte{' '}, true
 	}
 
-	// Ctrl+letter family. bubbletea encodes Ctrl+A as KeyCtrlA (= 0x01)
-	// directly in the KeyType numeric range; the byte the program
-	// expects is the same numeric value. tea.KeyCtrlA …
-	// tea.KeyCtrlUnderscore are contiguous from 0x01 to 0x1F.
-	if msg.Type >= tea.KeyCtrlA && msg.Type <= tea.KeyCtrlUnderscore {
-		return []byte{byte(msg.Type)}, true
+	// Ctrl+letter family. In v1 these arrived as the contiguous
+	// tea.KeyCtrlA…tea.KeyCtrlUnderscore KeyTypes (0x01–0x1F) and the
+	// byte the program expects equals that numeric value. In v2 the same
+	// combos arrive as a printable Code (e.g. 'a') with ModCtrl set; the
+	// control byte is the low five bits of the code. ctrl+@ / ctrl+space
+	// (byte 0x00) was not translated in v1, so it stays excluded here.
+	if msg.Mod.Contains(tea.ModCtrl) {
+		if b := byte(msg.Code & 0x1f); b >= 0x01 && b <= 0x1f {
+			return []byte{b}, true
+		}
+	}
+
+	// Plain rune typing — emit the UTF-8 byte form of the characters
+	// received (the v1 KeyRunes path).
+	if msg.Text != "" {
+		return []byte(msg.Text), true
 	}
 
 	return nil, false

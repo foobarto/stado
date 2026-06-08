@@ -36,8 +36,6 @@ func New(reg *keys.Registry) *Editor {
 
 	applyThemeToTextArea(&ta)
 
-	ta.BlurredStyle = ta.FocusedStyle
-
 	ta.Focus()
 	// The model layout keeps this in sync with content height, but set
 	// the default here too so standalone editor tests and the first
@@ -71,15 +69,20 @@ func New(reg *keys.Registry) *Editor {
 // package-level theme colors.
 func (e *Editor) ApplyTheme() {
 	applyThemeToTextArea(&e.Model)
-	e.Model.BlurredStyle = e.Model.FocusedStyle
 }
 
 func applyThemeToTextArea(ta *textarea.Model) {
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(theme.Primary)
-	ta.FocusedStyle.Text = lipgloss.NewStyle().Foreground(theme.Text)
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Primary)
-	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(theme.Primary)
+	s := ta.Styles()
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(theme.Primary)
+	s.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
+	s.Focused.CursorLine = lipgloss.NewStyle()
+	s.Cursor.Color = theme.Primary
+	// The editor is effectively always focused in the TUI; mirror the
+	// focused styles onto the blurred state (v1 set BlurredStyle =
+	// FocusedStyle). v2's CursorStyle has no TextStyle field, so the
+	// former Cursor.TextStyle assignment has no equivalent and is dropped.
+	s.Blurred = s.Focused
+	ta.SetStyles(s)
 }
 
 func keysToStrings(bindings []key.Binding) []string {
@@ -95,7 +98,7 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, bool) {
 	handled := false
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case e.reg.Matches(msg, keys.InputSubmit):
 			return nil, false
@@ -119,17 +122,18 @@ func (e *Editor) Update(msg tea.Msg) (tea.Cmd, bool) {
 			handled = true
 		}
 
-		if !handled && msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+		if !handled && msg.Text != "" {
 			remaining := MaxValueBytes - len(e.Model.Value())
 			if remaining <= 0 {
 				return nil, true
 			}
-			runes := runesWithinBytes(msg.Runes, remaining)
-			if len(runes) < len(msg.Runes) {
+			inputRunes := []rune(msg.Text)
+			runes := runesWithinBytes(inputRunes, remaining)
+			if len(runes) < len(inputRunes) {
 				if len(runes) == 0 {
 					return nil, true
 				}
-				msg.Runes = runes
+				msg.Text = string(runes)
 				e.Model, cmd = e.Model.Update(msg)
 				e.enforceByteLimit()
 				return cmd, true

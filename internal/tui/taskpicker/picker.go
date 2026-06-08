@@ -105,7 +105,7 @@ func (m *Model) Update(msg tea.Msg) (Command, bool) {
 	if !m.Visible {
 		return Command{}, false
 	}
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return Command{}, false
 	}
@@ -122,59 +122,61 @@ func (m *Model) Update(msg tea.Msg) (Command, bool) {
 	}
 }
 
-func (m *Model) updateList(km tea.KeyMsg) Command {
-	switch km.Type {
-	case tea.KeyUp:
+func (m *Model) updateList(km tea.KeyPressMsg) Command {
+	switch km.String() {
+	case "up":
 		m.moveCursor(-1)
-	case tea.KeyDown, tea.KeyTab:
+	case "down", "tab":
 		m.moveCursor(1)
-	case tea.KeyEnter:
+	case "enter":
 		if sel := m.Selected(); sel != nil {
 			m.target = *sel
 			m.mode = modeDetail
 		}
-	case tea.KeyEsc:
+	case "esc":
 		m.Close()
-	case tea.KeyCtrlN:
+	case "ctrl+n":
 		m.beginNew()
-	case tea.KeyCtrlE:
+	case "ctrl+e":
 		m.beginEdit()
-	case tea.KeyCtrlD:
+	case "ctrl+d":
 		m.beginDelete()
-	case tea.KeyBackspace:
+	case "backspace":
 		if len(m.Query) > 0 {
 			m.Query = trimLastRune(m.Query)
 			m.refresh()
 		}
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		m.Query = ""
 		m.refresh()
-	case tea.KeyRunes:
-		m.Query = appendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
-		m.refresh()
-	case tea.KeySpace:
+	case "space":
 		m.Query = appendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
+	default:
+		if km.Text != "" {
+			m.Query = appendWithinBytes(m.Query, km.Text, maxQueryBytes)
+			m.refresh()
+		}
 	}
 	return Command{}
 }
 
-func (m *Model) updateDetail(km tea.KeyMsg) Command {
-	switch km.Type {
-	case tea.KeyEsc, tea.KeyBackspace:
+func (m *Model) updateDetail(km tea.KeyPressMsg) Command {
+	switch km.String() {
+	case "esc", "backspace":
 		m.mode = modeList
-	case tea.KeyCtrlN:
+	case "ctrl+n":
 		m.beginNew()
-	case tea.KeyCtrlE:
+	case "ctrl+e":
 		m.beginEditTarget(m.target)
-	case tea.KeyCtrlD:
+	case "ctrl+d":
 		m.beginDeleteTarget(m.target)
-	case tea.KeyUp:
+	case "up":
 		m.moveCursor(-1)
 		if sel := m.Selected(); sel != nil {
 			m.target = *sel
 		}
-	case tea.KeyDown, tea.KeyTab:
+	case "down", "tab":
 		m.moveCursor(1)
 		if sel := m.Selected(); sel != nil {
 			m.target = *sel
@@ -183,11 +185,11 @@ func (m *Model) updateDetail(km tea.KeyMsg) Command {
 	return Command{}
 }
 
-func (m *Model) updateForm(km tea.KeyMsg) Command {
-	switch km.Type {
-	case tea.KeyEsc:
+func (m *Model) updateForm(km tea.KeyPressMsg) Command {
+	switch km.String() {
+	case "esc":
 		m.mode = modeList
-	case tea.KeyEnter:
+	case "enter":
 		cmdType := CommandUpdate
 		if m.formNew {
 			cmdType = CommandCreate
@@ -199,58 +201,58 @@ func (m *Model) updateForm(km tea.KeyMsg) Command {
 			Body:   strings.TrimSpace(m.formBody),
 			Status: m.formStatus,
 		}
-	case tea.KeyUp:
+	case "up":
 		m.formField = (m.formField + 2) % 3
-	case tea.KeyDown, tea.KeyTab:
+	case "down", "tab":
 		m.formField = (m.formField + 1) % 3
-	case tea.KeyLeft:
+	case "left":
 		if m.formField == 1 {
 			m.formStatus = previousStatus(m.formStatus)
 		}
-	case tea.KeyRight:
+	case "right":
 		if m.formField == 1 {
 			m.formStatus = nextStatus(m.formStatus)
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		switch m.formField {
 		case 0:
 			m.formTitle = trimLastRune(m.formTitle)
 		case 2:
 			m.formBody = trimLastRune(m.formBody)
 		}
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		switch m.formField {
 		case 0:
 			m.formTitle = ""
 		case 2:
 			m.formBody = ""
 		}
-	case tea.KeyRunes:
-		if m.formField == 1 {
-			m.applyStatusRune(km.Runes)
-			break
-		}
-		m.appendToForm(string(km.Runes))
-	case tea.KeySpace:
+	case "space":
 		m.appendToForm(" ")
+	default:
+		if km.Text != "" {
+			if m.formField == 1 {
+				m.applyStatusRune([]rune(km.Text))
+			} else {
+				m.appendToForm(km.Text)
+			}
+		}
 	}
 	return Command{}
 }
 
-func (m *Model) updateDelete(km tea.KeyMsg) Command {
-	switch km.Type {
-	case tea.KeyEnter:
+func (m *Model) updateDelete(km tea.KeyPressMsg) Command {
+	switch km.String() {
+	case "enter":
 		return Command{Type: CommandDelete, ID: m.target.ID}
-	case tea.KeyEsc:
+	case "esc":
 		m.mode = modeList
-	case tea.KeyRunes:
-		if len(km.Runes) == 1 {
-			switch km.Runes[0] {
-			case 'y', 'Y':
-				return Command{Type: CommandDelete, ID: m.target.ID}
-			case 'n', 'N':
-				m.mode = modeList
-			}
+	default:
+		switch km.Text {
+		case "y", "Y":
+			return Command{Type: CommandDelete, ID: m.target.ID}
+		case "n", "N":
+			m.mode = modeList
 		}
 	}
 	return Command{}

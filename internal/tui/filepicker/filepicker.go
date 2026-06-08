@@ -148,15 +148,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !m.Visible {
 		return nil, false
 	}
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil, false
 	}
-	switch km.Type {
-	case tea.KeyUp:
+	switch km.String() {
+	case "up":
 		m.moveCursor(-1)
 		return nil, true
-	case tea.KeyDown:
+	case "down":
 		m.moveCursor(1)
 		return nil, true
 	}

@@ -231,7 +231,7 @@ func (m Model) Focused() bool { return m.focused }
 // silently because the snapshot tick will surface a "session ended"
 // error within ~100 ms anyway, which is the right diagnostic for
 // "the PTY went away" scenarios.
-func (m Model) HandleKey(msg tea.KeyMsg) (Model, bool) {
+func (m Model) HandleKey(msg tea.KeyPressMsg) (Model, bool) {
 	if !m.focused || m.writer == nil {
 		return m, false
 	}
@@ -245,7 +245,7 @@ func (m Model) HandleKey(msg tea.KeyMsg) (Model, bool) {
 	}
 	// Ctrl+] is the always-passthrough leave gesture. Every other
 	// key (including Esc, Tab, SHIFT-TAB) routes to the PTY.
-	if msg.Type == tea.KeyCtrlCloseBracket {
+	if msg.String() == "ctrl+]" {
 		return m, false
 	}
 	bytes, ok := keyMsgToBytes(msg)

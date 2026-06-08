@@ -114,72 +114,80 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !m.Visible {
 		return nil, false
 	}
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil, false
 	}
 	if m.mode == modeRename {
-		switch km.Type {
-		case tea.KeyEsc:
+		switch km.String() {
+		case "esc":
 			m.CancelAction()
 			return nil, true
-		case tea.KeyBackspace:
+		case "backspace":
 			if len(m.Query) > 0 {
 				m.Query = textutil.TrimLastRune(m.Query)
 			}
 			return nil, true
-		case tea.KeyCtrlU:
+		case "ctrl+u":
 			m.Query = ""
 			return nil, true
-		case tea.KeyRunes:
-			m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxRenameBytes)
-			return nil, true
-		case tea.KeySpace:
+		case "space":
 			m.Query = textutil.AppendWithinBytes(m.Query, " ", maxRenameBytes)
 			return nil, true
-		case tea.KeyUp, tea.KeyDown, tea.KeyTab:
+		case "up", "down", "tab":
 			return nil, true
+		default:
+			if km.Text != "" {
+				m.Query = textutil.AppendWithinBytes(m.Query, km.Text, maxRenameBytes)
+				return nil, true
+			}
 		}
 		return nil, false
 	}
 	if m.mode == modeDelete {
-		switch km.Type {
-		case tea.KeyEsc:
+		switch km.String() {
+		case "esc":
 			m.CancelAction()
 			return nil, true
-		case tea.KeyUp, tea.KeyDown, tea.KeyTab, tea.KeyBackspace, tea.KeyCtrlU, tea.KeyRunes, tea.KeySpace:
+		case "up", "down", "tab", "backspace", "ctrl+u", "space":
 			return nil, true
+		default:
+			if km.Text != "" {
+				return nil, true
+			}
 		}
 		return nil, false
 	}
-	switch km.Type {
-	case tea.KeyUp:
+	switch km.String() {
+	case "up":
 		m.moveCursor(-1)
 		return nil, true
-	case tea.KeyDown, tea.KeyTab:
+	case "down", "tab":
 		m.moveCursor(1)
 		return nil, true
-	case tea.KeyEsc:
+	case "esc":
 		m.Visible = false
 		return nil, true
-	case tea.KeyBackspace:
+	case "backspace":
 		if len(m.Query) > 0 {
 			m.Query = textutil.TrimLastRune(m.Query)
 			m.refresh()
 		}
 		return nil, true
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		m.Query = ""
 		m.refresh()
 		return nil, true
-	case tea.KeyRunes:
-		m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
-		m.refresh()
-		return nil, true
-	case tea.KeySpace:
+	case "space":
 		m.Query = textutil.AppendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
 		return nil, true
+	default:
+		if km.Text != "" {
+			m.Query = textutil.AppendWithinBytes(m.Query, km.Text, maxQueryBytes)
+			m.refresh()
+			return nil, true
+		}
 	}
 	return nil, false
 }
