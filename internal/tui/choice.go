@@ -138,7 +138,7 @@ func (m *Model) renderChoiceDrawer(mainW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1)
 	if mainW > 2 {
-		style = style.Width(mainW - 2)
+		style = style.Width(mainW)
 	}
 	return style.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }

@@ -210,15 +210,16 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	// command name without truncation.
 	modalW := clampInt(screenWidth*2/3, 64, 110)
 	body := m.renderBody(modalW - 4) // -4 for border+padding
-	// Width sets content+padding; the rounded border adds 2 cols on top, so
-	// reserve 2 to keep the total at modalW (otherwise the modal is modalW+2
-	// and overflows a narrow screen — same wrap bug as the inline view).
+	// lipgloss v2: .Width is the TOTAL rendered width (border + padding
+	// included), so .Width(modalW) keeps the modal exactly modalW wide. (In v1
+	// .Width was content+padding and the border added 2 on top, so this used to
+	// reserve 2 — the invariant flipped in v2.)
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Background(theme.Background).
 		Padding(0, 1).
-		Width(modalW - 2).
+		Width(modalW).
 		Render(body)
 	return lipgloss.Place(screenWidth, screenHeight,
 		lipgloss.Center, lipgloss.Center,

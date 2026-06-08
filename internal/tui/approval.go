@@ -76,7 +76,7 @@ func (m *Model) renderApprovalCard(mainW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1)
 	if mainW > 2 {
-		style = style.Width(mainW - 2)
+		style = style.Width(mainW)
 	}
 	return style.Render(cardBody)
 }
@@ -104,7 +104,7 @@ func (m *Model) renderApprovalBody(body string, innerW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		PaddingLeft(1)
 	if innerW > 4 {
-		style = style.Width(innerW - 2)
+		style = style.Width(innerW - 1)
 	}
 	return style.Render(body)
 }

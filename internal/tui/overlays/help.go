@@ -75,6 +75,6 @@ func RenderHelp(reg *keys.Registry, width int) string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Padding(1, 2).
-		Width(width - 4).
+		Width(width - 2).
 		Render(content)
 }
