@@ -37,7 +37,7 @@ func TestFuzzyFiltersAndCursorClamps(t *testing.T) {
 	m.Cursor = 2
 
 	for _, r := range "read-only" {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if len(m.Matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(m.Matches))
@@ -54,12 +54,12 @@ func TestQueryCapsBytes(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "")
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	m.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(m.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	m.Query = strings.Repeat("x", maxQueryBytes-1)
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	m.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(m.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}
@@ -68,7 +68,7 @@ func TestQueryCapsBytes(t *testing.T) {
 func TestEscapeCloses(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "")
-	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.Visible {
 		t.Error("escape should close")
 	}

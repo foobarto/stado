@@ -69,7 +69,7 @@ func (scenarioStub) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan a
 // keyboard input.
 func typeString(m *Model, s string) {
 	for _, r := range s {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 }
 
@@ -85,7 +85,7 @@ func TestUAT_IdleSubmitAppendsUserBlockAndStreams(t *testing.T) {
 
 	typeString(m, "hello world")
 	priorBlocks := len(m.blocks)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if len(m.blocks) != priorBlocks+1 {
 		t.Fatalf("blocks grew by %d, want 1", len(m.blocks)-priorBlocks)
@@ -107,7 +107,7 @@ func TestUAT_EmptyEnterIsNoop(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
 	priorBlocks := len(m.blocks)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if len(m.blocks) != priorBlocks {
 		t.Errorf("empty Enter added a block")
 	}
@@ -130,7 +130,7 @@ func TestUAT_EscClearsQueueBeforeStream(t *testing.T) {
 	_ = ctx
 	m.queuedPrompt = "hold that thought"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
 		t.Errorf("queue not cleared: %q", m.queuedPrompt)
@@ -154,7 +154,7 @@ func TestUAT_QueueDrainStartsNextTurn(t *testing.T) {
 
 	// Queue a follow-up.
 	typeString(m, "follow-up")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	priorMsgs := len(m.msgs)
 	priorBlocks := len(m.blocks)
@@ -186,11 +186,11 @@ func TestUAT_SlashOpensInlineSuggestions(t *testing.T) {
 	if m.slash.Visible {
 		t.Fatal("pre-condition: slash suggestions should start hidden")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "/"})
 	if !m.slash.Visible || !m.slashInline {
 		t.Fatal("pressing / should open inline slash suggestions")
 	}
-	out := ansi.Strip(m.View())
+	out := ansi.Strip(m.viewString())
 	if !strings.Contains(out, "Slash commands") || !strings.Contains(out, "Type a message") {
 		t.Fatalf("inline slash suggestions should render above input:\n%s", out)
 	}
@@ -199,7 +199,7 @@ func TestUAT_SlashOpensInlineSuggestions(t *testing.T) {
 func TestUAT_CtrlPOpensModalCommandPalette(t *testing.T) {
 	m := scenarioModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 
 	if !m.slash.Visible || m.slashInline {
 		t.Fatalf("ctrl+p should open modal command palette, visible=%v inline=%v", m.slash.Visible, m.slashInline)
@@ -210,7 +210,7 @@ func TestUAT_CtrlPOpensModalCommandPalette(t *testing.T) {
 func TestUAT_PaletteEscCloses(t *testing.T) {
 	m := scenarioModel(t)
 	m.slash.Open()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.slash.Visible {
 		t.Error("Esc should close the palette")
 	}
@@ -240,11 +240,11 @@ func TestUAT_TabTogglesMode(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
 	start := m.mode
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.mode == start {
 		t.Error("Tab should toggle mode away from start")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.mode != start {
 		t.Error("second Tab should toggle back to start")
 	}
@@ -255,11 +255,11 @@ func TestUAT_CtrlTTogglesSidebar(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
 	start := m.sidebarOpen
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	if m.sidebarOpen == start {
 		t.Error("Ctrl+T should toggle sidebar")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	if m.sidebarOpen != start {
 		t.Error("second Ctrl+T should toggle back")
 	}
@@ -271,14 +271,14 @@ func TestUAT_SidebarResizeShortcuts(t *testing.T) {
 	m.state = stateIdle
 	start := m.sidebarPreferredWidth()
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{']'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "]"})
 	if got := m.sidebarPreferredWidth(); got <= start {
 		t.Fatalf("sidebar width = %d, want > %d after widen chord", got, start)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "["})
 	if got := m.sidebarPreferredWidth(); got != start {
 		t.Fatalf("sidebar width = %d, want %d after widen+narrow round-trip", got, start)
 	}
@@ -291,8 +291,8 @@ func TestUAT_SidebarResizeReopensAndClamps(t *testing.T) {
 	m.sidebarOpen = false
 	m.sidebarWidth = m.sidebarMinWidth()
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'['}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "["})
 	if !m.sidebarOpen {
 		t.Fatal("resize chord should reopen the sidebar")
 	}
@@ -312,7 +312,7 @@ func TestUAT_QuestionMarkShowsHelp(t *testing.T) {
 	if m.showHelp {
 		t.Fatal("help should start hidden")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "?"})
 	if !m.showHelp {
 		t.Error("? should open the help overlay")
 	}
@@ -324,12 +324,12 @@ func TestUAT_QuestionMarkShowsHelp(t *testing.T) {
 func TestUAT_AnyKeyClosesHelp(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "?"})
 	if !m.showHelp {
 		t.Fatal("pre-condition: help should be open")
 	}
 	// `?` again closes (TipsToggle binding dismisses while showing).
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "?"})
 	if m.showHelp {
 		t.Error("? should toggle help closed")
 	}
@@ -470,7 +470,7 @@ func TestUAT_RapidTypingBurstOrderPreserved(t *testing.T) {
 	m.streamCancel = func() {}
 	start := time.Now()
 	for _, r := range "the quick brown fox" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
 		t.Errorf("rapid typing took %v — Update path is too slow", elapsed)
@@ -492,20 +492,20 @@ func TestUAT_FilePickerAcceptThenTypeContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 	for _, r := range "READ" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !m.filePicker.Visible || m.filePicker.Selected() == "" {
 		t.Skip("filePicker didn't land a match — environment-dependent")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if m.filePicker.Visible {
 		t.Fatal("Tab should close the picker")
 	}
 	// Now type " go" after the accepted path.
 	for _, r := range " go" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !strings.Contains(m.input.Value(), "go") {
 		t.Errorf("post-accept typing lost: %q", m.input.Value())

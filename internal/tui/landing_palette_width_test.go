@@ -21,7 +21,7 @@ func TestLandingInputWidensForPalette(t *testing.T) {
 	}
 
 	// Open the inline palette with '/'.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "/"})
 	if !m.slash.Visible || !m.slashInline {
 		t.Fatal("inline slash palette should be visible after '/'")
 	}

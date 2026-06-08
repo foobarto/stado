@@ -23,24 +23,24 @@ func TestRegistryGet(t *testing.T) {
 func TestRegistryMatches(t *testing.T) {
 	r := NewRegistry()
 
-	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	msg := tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}
 	if !r.Matches(msg, AppExit) {
 		t.Errorf("Expected Ctrl+D to match AppExit")
 	}
 
-	msg2 := tea.KeyMsg{Type: tea.KeyUp}
+	msg2 := tea.KeyPressMsg{Code: tea.KeyUp}
 	if !r.Matches(msg2, HistoryPrevious) {
 		t.Errorf("Expected Up to match HistoryPrevious")
 	}
 
-	msg3 := tea.KeyMsg{Type: tea.KeyCtrlP}
+	msg3 := tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
 	if !r.Matches(msg3, HistoryPrevious) {
 		t.Errorf("Expected Ctrl+P to match HistoryPrevious")
 	}
 	if !r.Matches(msg3, CommandList) {
 		t.Errorf("Expected Ctrl+P to match CommandList")
 	}
-	msg4 := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	msg4 := tea.KeyPressMsg{Text: "/"}
 	if r.Matches(msg4, CommandList) {
 		t.Errorf("Slash should open inline suggestions, not CommandList")
 	}
@@ -50,7 +50,7 @@ func TestRegistryPrefix(t *testing.T) {
 	r := NewRegistry()
 
 	// Debug:  print what bubbletea gives us for chord comparison.
-	msgX := tea.KeyMsg{Type: tea.KeyCtrlX}
+	msgX := tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
 	t.Logf("ctrl+x msg.String()=%q", msgX.String())
 
 	// IsPrefixChord should recognise ctrl+x (first chord of ModeToggleBtw).
@@ -69,7 +69,7 @@ func TestRegistryPrefix(t *testing.T) {
 	}
 
 	// Second chord completes the prefix.
-	msgB := tea.KeyMsg{Type: tea.KeyCtrlB}
+	msgB := tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}
 	t.Logf("ctrl+b msg.String()=%q", msgB.String())
 	action, ok = r.TryPrefix(msgB)
 	if !ok || action != ModeToggleBtw {
@@ -85,7 +85,7 @@ func TestRegistryPrefix(t *testing.T) {
 
 	// Ctrl+x ctrl+c is another prefix: AppExit alias.
 	r.ResetPrefix()
-	msgC := tea.KeyMsg{Type: tea.KeyCtrlC}
+	msgC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	action, ok = r.TryPrefix(msgX)
 	if !ok || action != "" {
 		t.Fatalf("Expected primer before ctrl+c alias")

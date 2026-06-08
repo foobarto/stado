@@ -1,11 +1,21 @@
 package modelpicker
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// sgrEscapeRE matches lipgloss's own SGR colour styling (ESC [ … m).
+// v2 lipgloss emits SGR from Style.Render unconditionally, whereas v1
+// produced plain text in non-TTY test runs. stripSGR removes only that
+// legitimate styling so the leak checks still catch injected OSC/CSI/BEL
+// sequences (which do not end in 'm').
+var sgrEscapeRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripSGR(s string) string { return sgrEscapeRE.ReplaceAllString(s, "") }
 
 func sampleItems() []Item {
 	return []Item{
@@ -53,7 +63,7 @@ func TestFuzzyFiltersAndCursorClamps(t *testing.T) {
 
 	// Type "sonnet" — only sonnet entry should match.
 	for _, r := range "sonnet" {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if len(m.Matches) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(m.Matches))
@@ -67,12 +77,12 @@ func TestQueryCapsBytes(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "")
 
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	m.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(m.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	m.Query = strings.Repeat("x", maxQueryBytes-1)
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	m.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(m.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}
@@ -82,7 +92,7 @@ func TestQueryCapsBytes(t *testing.T) {
 func TestEscapeCloses(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "")
-	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.Visible {
 		t.Error("escape should close")
 	}
@@ -212,7 +222,7 @@ func TestView_StripsControlCharsFromCatalogStrings(t *testing.T) {
 	m.Open([]Item{
 		{ID: "good\x1b]52;c;evil\x07id", Origin: "anthropic\x1b]8;;https://evil\x1b\\\\link\x1b]8;;\x1b\\\\", Note: "note\n\nwith\nnewlines"},
 	}, "")
-	out := m.View(120, 40)
+	out := stripSGR(m.View(120, 40))
 	for _, bad := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("rendered picker leaks %q escape sequence: %q", bad, out)

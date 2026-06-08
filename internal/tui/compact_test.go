@@ -314,11 +314,11 @@ func TestCompactConfirmationUsesApproveDenyKeys(t *testing.T) {
 	reg := keys.NewRegistry()
 	// Fabricate a 'y' keypress and confirm the default registry routes
 	// it to keys.Approve — the binding we rely on in Update.
-	yKey := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	yKey := tea.KeyPressMsg{Text: "y"}
 	if !reg.Matches(yKey, keys.Approve) {
 		t.Errorf("'y' must map to keys.Approve for compaction confirm to work")
 	}
-	nKey := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	nKey := tea.KeyPressMsg{Text: "n"}
 	if !reg.Matches(nKey, keys.Deny) {
 		t.Errorf("'n' must map to keys.Deny for compaction decline to work")
 	}

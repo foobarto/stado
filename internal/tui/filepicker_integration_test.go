@@ -45,7 +45,7 @@ func filePickerModel(t *testing.T) (*Model, string) {
 func TestFilePicker_AtTriggerOpensPicker(t *testing.T) {
 	m, _ := filePickerModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after typing '@'")
@@ -61,7 +61,7 @@ func TestFilePicker_AtTriggerOpensPicker(t *testing.T) {
 func TestFilePicker_AtTriggerShowsAgentsFirst(t *testing.T) {
 	m, _ := filePickerModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after typing '@'")
@@ -79,7 +79,7 @@ func TestFilePicker_AtTriggerShowsAgentsFirst(t *testing.T) {
 func TestFilePicker_AtTriggerShowsSessionsAfterAgents(t *testing.T) {
 	m, _, _ := newSessionSwitchModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after typing '@'")
@@ -108,7 +108,7 @@ func TestFilePicker_AgentAcceptSwitchesMode(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range "@plan" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !m.filePicker.Visible {
 		t.Fatal("@plan should open picker")
@@ -117,7 +117,7 @@ func TestFilePicker_AgentAcceptSwitchesMode(t *testing.T) {
 		t.Fatalf("selected = %q, want Plan", sel)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if m.filePicker.Visible {
 		t.Fatal("agent accept should close picker")
@@ -134,7 +134,7 @@ func TestFilePicker_SessionAcceptSwitchesWhenMentionIsDraft(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
 
 	for _, r := range "@second" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !m.filePicker.Visible {
 		t.Fatal("@second should open picker")
@@ -144,7 +144,7 @@ func TestFilePicker_SessionAcceptSwitchesWhenMentionIsDraft(t *testing.T) {
 		t.Fatalf("selected item = %+v, %v; want second session", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if m.filePicker.Visible {
 		t.Fatal("session accept should close picker")
@@ -164,13 +164,13 @@ func TestFilePicker_SessionAcceptInsidePromptInsertsReference(t *testing.T) {
 	m, _, ids := newSessionSwitchModel(t)
 
 	for _, r := range "compare @second" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !m.filePicker.Visible {
 		t.Fatal("@second should open picker")
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if m.filePicker.Visible {
 		t.Fatal("session accept should close picker")
@@ -192,7 +192,7 @@ func TestFilePicker_AtTriggerShowsSkillsAfterAgents(t *testing.T) {
 	writeSkill(t, root, "bugfix", "Reproduce first", "Reproduce the bug first, then fix.\n")
 	m := newSkillModel(t, root)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after typing '@'")
@@ -213,7 +213,7 @@ func TestFilePicker_AtTriggerShowsSkillsAfterAgents(t *testing.T) {
 func TestFilePicker_AtTriggerShowsDocsBeforeFiles(t *testing.T) {
 	m, _ := filePickerModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after typing '@'")
@@ -237,14 +237,14 @@ func TestFilePicker_SkillAcceptInjectsPromptAndConsumesMention(t *testing.T) {
 	m := newSkillModel(t, root)
 
 	for _, r := range "@bugfix" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	item, ok := m.filePicker.SelectedItem()
 	if !ok || item.Kind != "skill" || item.ID != "bugfix" {
 		t.Fatalf("selected item = %+v, %v; want bugfix skill", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if m.filePicker.Visible {
 		t.Fatal("skill accept should close picker")
@@ -266,10 +266,10 @@ func TestFilePicker_SkillAcceptInsidePromptPreservesDraftText(t *testing.T) {
 	m := newSkillModel(t, root)
 
 	for _, r := range "please @bugfix" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if len(m.msgs) != 1 {
 		t.Fatalf("skill should inject one message, got %d", len(m.msgs))
@@ -285,7 +285,7 @@ func TestFilePicker_NarrowsAsYouType(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range []rune{'@', 'u', 't', 'i', 'l'} {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 
 	if !m.filePicker.Visible {
@@ -313,14 +313,14 @@ func TestFilePicker_SymbolAcceptInsertsLocation(t *testing.T) {
 	}
 
 	for _, r := range "@Widget" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	item, ok := m.filePicker.SelectedItem()
 	if !ok || item.Kind != "symbol" || item.Display != "Widget" {
 		t.Fatalf("selected item = %+v, %v; want Widget symbol", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if got := m.input.Value(); !strings.Contains(got, "symbols.go:3") {
 		t.Fatalf("symbol accept should insert file location, got %q", got)
@@ -335,14 +335,14 @@ func TestFilePicker_PythonSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 
 	for _, r := range "@run_widget" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	item, ok := m.filePicker.SelectedItem()
 	if !ok || item.Kind != "symbol" || item.Display != "run_widget" || !strings.Contains(item.Meta, "python func") {
 		t.Fatalf("selected item = %+v, %v; want run_widget python symbol", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if got := m.input.Value(); !strings.Contains(got, "tools.py:4") {
 		t.Fatalf("python symbol accept should insert file location, got %q", got)
@@ -357,14 +357,14 @@ func TestFilePicker_TypeScriptSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 
 	for _, r := range "@runWidget" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	item, ok := m.filePicker.SelectedItem()
 	if !ok || item.Kind != "symbol" || item.Display != "runWidget" || !strings.Contains(item.Meta, "ts func") {
 		t.Fatalf("selected item = %+v, %v; want runWidget TypeScript symbol", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if got := m.input.Value(); !strings.Contains(got, "ui.ts:3") {
 		t.Fatalf("typescript symbol accept should insert file location, got %q", got)
@@ -379,14 +379,14 @@ func TestFilePicker_ShellSymbolAcceptInsertsLocation(t *testing.T) {
 	}
 
 	for _, r := range "@build_image" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	item, ok := m.filePicker.SelectedItem()
 	if !ok || item.Kind != "symbol" || item.Display != "build_image" || !strings.Contains(item.Meta, "shell func") {
 		t.Fatalf("selected item = %+v, %v; want build_image shell symbol", item, ok)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if got := m.input.Value(); !strings.Contains(got, "build.sh:5") {
 		t.Fatalf("shell symbol accept should insert file location, got %q", got)
@@ -444,13 +444,13 @@ func TestFilePicker_TabAcceptsSelection(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range []rune{'@', 'u', 't', 'i', 'l'} {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if m.filePicker.Selected() == "" {
 		t.Fatalf("no selection to accept: matches=%v", m.filePicker.Matches)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	if m.filePicker.Visible {
 		t.Error("Tab accept should close the picker")
@@ -473,14 +473,14 @@ func TestFilePicker_SpaceClosesPicker(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range []rune{'@', 'm', 'a', 'i', 'n'} {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible after @main")
 	}
 	// Space as a literal rune — bubbletea's textarea.Model consumes
 	// space via KeyRunes, not tea.KeySpace.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 
 	if m.filePicker.Visible {
 		t.Errorf("picker should close once user types past the @-word; input=%q",
@@ -494,14 +494,14 @@ func TestFilePicker_EscCloses(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range []rune{'@', 'f'} {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	beforeVal := m.input.Value()
 	if !m.filePicker.Visible {
 		t.Fatal("picker should be visible")
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.filePicker.Visible {
 		t.Error("Esc should close the picker")
@@ -518,7 +518,7 @@ func TestFilePicker_EmailAtDoesNotTrigger(t *testing.T) {
 	m, _ := filePickerModel(t)
 
 	for _, r := range []rune{'u', 's', 'e', 'r', '@'} {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if m.filePicker.Visible {
 		t.Errorf("email-style @ should not trigger picker; input=%q", m.input.Value())

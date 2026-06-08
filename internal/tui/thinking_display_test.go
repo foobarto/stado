@@ -15,8 +15,8 @@ import (
 
 func TestThinkingDisplayModesAffectRenderedBlocks(t *testing.T) {
 	m := scenarioModel(t)
-	m.vp.Width = 100
-	m.vp.Height = 20
+	m.vp.SetWidth(100)
+	m.vp.SetHeight(20)
 
 	var body strings.Builder
 	for i := 1; i <= 12; i++ {
@@ -107,14 +107,14 @@ func TestThinkingDisplayPersistsToConfig(t *testing.T) {
 func TestThinkingKeybindCyclesMode(t *testing.T) {
 	m := scenarioModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "h"})
 	if m.thinkingMode != thinkingTail {
 		t.Fatalf("mode = %s, want tail", m.thinkingMode)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "h"})
 	if m.thinkingMode != thinkingHide {
 		t.Fatalf("mode = %s, want hide", m.thinkingMode)
 	}
@@ -125,8 +125,8 @@ func TestThinkingToggleDuringStreamingDoesNotAppendSystemBlock(t *testing.T) {
 	m.state = stateStreaming
 	m.blocks = []block{{kind: "thinking", body: "still reasoning"}}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "h"})
 
 	if len(m.blocks) != 1 {
 		t.Fatalf("streaming display toggle should not append transcript blocks: %+v", m.blocks)

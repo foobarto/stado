@@ -43,9 +43,9 @@ func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
 
 	// Type "retry now" and hit Enter.
 	for _, r := range "retry now" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.queuedPrompt != "retry now" {
 		t.Errorf("queuedPrompt = %q, want %q", m.queuedPrompt, "retry now")
@@ -83,7 +83,7 @@ func TestQueuedPrompt_EscClearsQueueFirst(t *testing.T) {
 	_ = ctx
 	m.queuedPrompt = "buffered thing"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
 		t.Errorf("queuedPrompt = %q, want cleared", m.queuedPrompt)

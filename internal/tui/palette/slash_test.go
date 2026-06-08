@@ -51,7 +51,7 @@ func TestUpdate_RunesBuildQuery(t *testing.T) {
 
 	// Type "help" one rune at a time.
 	for _, r := range "help" {
-		_, handled := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, handled := m.Update(tea.KeyPressMsg{Text: string(r)})
 		if !handled {
 			t.Errorf("rune %q should be handled", r)
 		}
@@ -69,12 +69,12 @@ func TestUpdate_QueryCapsBytes(t *testing.T) {
 	m := New()
 	m.Open()
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	_, _ = m.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(m.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	m.Query = strings.Repeat("x", maxQueryBytes-1)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(m.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}
@@ -86,7 +86,7 @@ func TestUpdate_BackspaceShrinksQuery(t *testing.T) {
 	m.Query = "hel"
 	m.refresh()
 
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if !handled {
 		t.Error("backspace should be handled")
 	}
@@ -100,7 +100,7 @@ func TestUpdate_CtrlUClearsQuery(t *testing.T) {
 	m.Open()
 	m.Query = "some-filter"
 	m.refresh()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	if m.Query != "" {
 		t.Errorf("ctrl+u should clear Query, got %q", m.Query)
 	}
@@ -109,7 +109,7 @@ func TestUpdate_CtrlUClearsQuery(t *testing.T) {
 func TestUpdate_EscapeCloses(t *testing.T) {
 	m := New()
 	m.Open()
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if !handled {
 		t.Error("escape should be handled")
 	}
@@ -125,12 +125,12 @@ func TestUpdate_UpDownWraps(t *testing.T) {
 		t.Fatalf("initial cursor = %d", m.Cursor)
 	}
 	// Up from top should wrap to last.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if m.Cursor != len(m.Matches)-1 {
 		t.Errorf("up-from-top cursor = %d, want %d", m.Cursor, len(m.Matches)-1)
 	}
 	// Down from last should wrap to first.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if m.Cursor != 0 {
 		t.Errorf("down-from-last cursor = %d, want 0", m.Cursor)
 	}
@@ -139,7 +139,7 @@ func TestUpdate_UpDownWraps(t *testing.T) {
 func TestUpdate_TabAdvancesCursor(t *testing.T) {
 	m := New()
 	m.Open()
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if !handled {
 		t.Error("tab should advance cursor")
 	}
@@ -189,7 +189,7 @@ func TestView_HiddenReturnsEmpty(t *testing.T) {
 func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	m := New()
 	m.Open()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("model")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "model"})
 
 	got := m.InlineView(80)
 	// While filtering, group headers ("Session") are dropped — they're
@@ -233,7 +233,7 @@ func TestInlineViewShowsGroupsWhenBrowsing(t *testing.T) {
 func TestInlineViewShowsCommandShortcutHints(t *testing.T) {
 	m := New()
 	m.Open()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("theme")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "theme"})
 
 	got := m.InlineView(80)
 	for _, want := range []string{"/theme", "ctrl+x t"} {

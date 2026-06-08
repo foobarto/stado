@@ -27,7 +27,7 @@ func TestFilterMatchesModeAndDescription(t *testing.T) {
 		{ID: "stado-light", Name: "Stado Light", Mode: "light", Desc: "Bright neutral"},
 	}, "")
 
-	_, handled := p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("bright")})
+	_, handled := p.Update(tea.KeyPressMsg{Text: "bright"})
 	if !handled {
 		t.Fatal("query key should be handled")
 	}
@@ -43,12 +43,12 @@ func TestQueryCapsBytes(t *testing.T) {
 	p := New()
 	p.Open([]Item{{ID: "stado-dark", Name: "Stado Dark"}}, "")
 
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	_, _ = p.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(p.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	p.Query = strings.Repeat("x", maxQueryBytes-1)
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = p.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(p.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}

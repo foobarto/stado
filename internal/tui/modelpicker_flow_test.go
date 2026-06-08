@@ -115,10 +115,10 @@ func TestModelPickerSubmitAppliesSelection(t *testing.T) {
 	m.openModelPicker()
 	// Cursor starts on claude-opus-4-7. Down + Submit should land on
 	// claude-opus-4-6.
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 
 	// Submit.
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.modelPicker.Visible {
 		t.Error("picker should have closed after submit")
@@ -137,7 +137,7 @@ func TestModelPickerSubmitAppliesSelection(t *testing.T) {
 func TestModelPickerEscapeDismisses(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	m.openModelPicker()
-	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.modelPicker.Visible {
 		t.Error("Esc should have closed the picker")
 	}
@@ -178,7 +178,7 @@ func TestModelPickerSwitchesProviderOnDetectedPick(t *testing.T) {
 	}, m.model)
 
 	// Enter — apply selection.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.model != "qwen/qwen3.6-35b-a3b" {
 		t.Errorf("m.model = %q, want qwen/qwen3.6-35b-a3b", m.model)
@@ -203,8 +203,8 @@ func TestModelPickerSwitchesProviderOnDetectedPick(t *testing.T) {
 func TestModelPickerSameProviderNoSwitch(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	m.openModelPicker() // catalog items tagged ProviderName="anthropic"
-	m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.providerName != "anthropic" {
 		t.Errorf("providerName should stay anthropic, got %q", m.providerName)
 	}
@@ -407,7 +407,7 @@ func TestModelPickerCtrlFTogglesFavorite(t *testing.T) {
 	if sel == nil {
 		t.Fatal("picker should have a selected model")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	after := m.modelPicker.Selected()
 	if after == nil || !after.Favorite {
 		t.Fatalf("ctrl+f should mark selected model favorite, got %+v", after)
@@ -417,7 +417,7 @@ func TestModelPickerCtrlFTogglesFavorite(t *testing.T) {
 		t.Fatalf("favorite not persisted: %+v", favorites)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	after = m.modelPicker.Selected()
 	if after == nil || after.Favorite {
 		t.Fatalf("second ctrl+f should unmark favorite, got %+v", after)
@@ -435,7 +435,7 @@ func TestModelPickerCtrlAShowsProviderSetup(t *testing.T) {
 		t.Fatal("picker should be visible")
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 
 	if m.modelPicker.Visible {
 		t.Fatal("ctrl+a should close the picker after showing setup")
@@ -542,7 +542,7 @@ func TestModelPickerSelectionPersistsDefaultModel(t *testing.T) {
 		t.Fatal("model picker has no selection")
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -580,8 +580,8 @@ func TestModelSlashPersistsDefaultModel(t *testing.T) {
 func TestModelPickerShortcutOpensPicker(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "m"})
 
 	if !m.modelPicker.Visible {
 		t.Fatal("ctrl+x m should open model picker")

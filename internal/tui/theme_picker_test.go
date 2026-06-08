@@ -29,8 +29,8 @@ func TestThemeSlashOpensPicker(t *testing.T) {
 func TestThemePickerKeybindOpensPicker(t *testing.T) {
 	m := scenarioModel(t)
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "t"})
 
 	if !m.themePick.Visible {
 		t.Fatal("ctrl+x t should open the theme picker")
@@ -68,7 +68,7 @@ func TestThemePickerSelectingCurrentCustomThemeIsNoop(t *testing.T) {
 	if sel := m.themePick.Selected(); sel == nil || sel.ID != "my-custom" {
 		t.Fatalf("selected = %+v, want current custom theme", sel)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.themePick.Visible {
 		t.Fatal("enter should close theme picker")
@@ -148,14 +148,14 @@ func TestThemeCommandInPalette(t *testing.T) {
 	m.slash.Open()
 
 	for _, r := range "theme" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if !m.themePick.Visible {
 		t.Fatal("selecting /theme from command palette should open theme picker")
 	}
-	if !m.keys.Matches(tea.KeyMsg{Type: tea.KeyCtrlP}, keys.CommandList) {
+	if !m.keys.Matches(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}, keys.CommandList) {
 		t.Fatal("sanity: command palette keybinding should remain ctrl+p")
 	}
 }

@@ -29,7 +29,7 @@ func TestTreeModelCursorNavigation(t *testing.T) {
 
 	// Down past end clamps.
 	for i := 0; i < 10; i++ {
-		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	}
 	if m.cursor != len(m.turns)-1 {
 		t.Errorf("down-clamp: cursor = %d, want %d", m.cursor, len(m.turns)-1)
@@ -37,18 +37,18 @@ func TestTreeModelCursorNavigation(t *testing.T) {
 
 	// Up past start clamps.
 	for i := 0; i < 10; i++ {
-		m.Update(tea.KeyMsg{Type: tea.KeyUp})
+		m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	}
 	if m.cursor != 0 {
 		t.Errorf("up-clamp: cursor = %d, want 0", m.cursor)
 	}
 
 	// j / k variants work too.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "j"})
 	if m.cursor != 1 {
 		t.Errorf("j: cursor = %d, want 1", m.cursor)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "k"})
 	if m.cursor != 0 {
 		t.Errorf("k: cursor = %d, want 0", m.cursor)
 	}
@@ -58,7 +58,7 @@ func TestTreeModelCursorNavigation(t *testing.T) {
 // current row with the ▶ marker and includes all turn numbers.
 func TestTreeModelViewHighlightsCursor(t *testing.T) {
 	m := &treeModel{turns: sampleTurns(), cursor: 1}
-	view := m.View()
+	view := m.View().Content
 
 	if !strings.Contains(view, "turns/1") ||
 		!strings.Contains(view, "turns/2") ||
@@ -86,14 +86,14 @@ func TestTreeModelViewHighlightsCursor(t *testing.T) {
 func TestTreeModelQuitKeys(t *testing.T) {
 	for _, key := range []string{"q", "esc", "ctrl+c"} {
 		m := &treeModel{turns: sampleTurns()}
-		var keyMsg tea.KeyMsg
+		var keyMsg tea.KeyPressMsg
 		switch key {
 		case "q":
-			keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+			keyMsg = tea.KeyPressMsg{Text: "q"}
 		case "esc":
-			keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+			keyMsg = tea.KeyPressMsg{Code: tea.KeyEsc}
 		case "ctrl+c":
-			keyMsg = tea.KeyMsg{Type: tea.KeyCtrlC}
+			keyMsg = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 		}
 		_, cmd := m.Update(keyMsg)
 		if cmd == nil {
@@ -106,11 +106,11 @@ func TestTreeModelQuitKeys(t *testing.T) {
 func TestTreeModelHomeEndKeys(t *testing.T) {
 	m := &treeModel{turns: sampleTurns(), cursor: 1}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "G"})
 	if m.cursor != 2 {
 		t.Errorf("G: cursor = %d, want 2", m.cursor)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "g"})
 	if m.cursor != 0 {
 		t.Errorf("g: cursor = %d, want 0", m.cursor)
 	}
@@ -170,7 +170,7 @@ func TestTreeModelForkAtCursorIntegration(t *testing.T) {
 		cfg:       cfg,
 		cursor:    0,
 	}
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "f"})
 	if cmd == nil {
 		t.Fatal("'f' should have produced a tea.Quit cmd")
 	}

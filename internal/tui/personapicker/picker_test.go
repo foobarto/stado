@@ -46,7 +46,7 @@ func TestFuzzyFilters(t *testing.T) {
 	m.Cursor = 3
 
 	for _, r := range "soft" {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if len(m.Matches) != 1 || m.Matches[0].ID != "software-engineer" {
 		t.Fatalf("expected single software-engineer match, got %+v", m.Matches)
@@ -59,7 +59,7 @@ func TestFuzzyFilters(t *testing.T) {
 func TestEscapeCloses(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "default")
-	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.Visible {
 		t.Error("escape should close the picker")
 	}
@@ -67,7 +67,7 @@ func TestEscapeCloses(t *testing.T) {
 
 func TestClosedNoUpdate(t *testing.T) {
 	m := New()
-	if cmd, handled := m.Update(tea.KeyMsg{Type: tea.KeyDown}); handled || cmd != nil {
+	if cmd, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyDown}); handled || cmd != nil {
 		t.Errorf("update on closed picker must be a no-op, got handled=%v cmd=%v", handled, cmd)
 	}
 	if got := m.View(80, 30); got != "" {
@@ -79,7 +79,7 @@ func TestNoMatches(t *testing.T) {
 	m := New()
 	m.Open(sampleItems(), "default")
 	for _, r := range "zzzzz" {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if got := m.View(80, 30); !strings.Contains(got, "no matches") {
 		t.Errorf("expected 'no matches' line, got %q", got)

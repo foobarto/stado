@@ -242,16 +242,18 @@ func (m *Model) InlineView(maxWidth int) string {
 		boxW = 24
 	}
 	body := m.renderInlineBody(boxW - 4)
-	// Width sets content+padding; the rounded border adds 2 cols on TOP of
-	// it. So reserve 2 here, otherwise the box renders boxW+2 wide, overflows
-	// the input frame it's nested in, and lipgloss word-wraps each row —
+	// v2 lipgloss .Width is the TOTAL box width (it includes the border and
+	// padding), unlike v1 where the border was added on top. So set Width to
+	// the full boxW: the content area is then boxW-4 (2 border + 2 padding),
+	// which matches the body width above. Reserving 2 here (the v1 idiom)
+	// shrank the content area to boxW-6 and lipgloss word-wrapped each row —
 	// spilling the right column (/name + keybinding) onto the next line.
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Background(theme.Background).
 		Padding(0, 1).
-		Width(boxW - 2).
+		Width(boxW).
 		Render(body)
 }
 

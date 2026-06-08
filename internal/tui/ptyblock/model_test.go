@@ -193,7 +193,7 @@ func (m *modelAsTeaModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.inner = next
 	return m, cmd
 }
-func (m *modelAsTeaModel) View() string { return m.inner.View() }
+func (m *modelAsTeaModel) View() tea.View { return tea.NewView(m.inner.View()) }
 
 type fakeResizer struct {
 	calls    int
@@ -350,7 +350,7 @@ func TestHandleKey_UnfocusedPassesThrough(t *testing.T) {
 	w := &fakeWriter{}
 	m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w) // focused=false
 
-	_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	_, handled := m.HandleKey(tea.KeyPressMsg{Text: "h"})
 	if handled {
 		t.Errorf("unfocused HandleKey should return handled=false")
 	}
@@ -365,14 +365,14 @@ func TestHandleKey_UnfocusedPassesThrough(t *testing.T) {
 func TestHandleKey_FocusedTranslatesAndWrites(t *testing.T) {
 	cases := []struct {
 		name string
-		key  tea.KeyMsg
+		key  tea.KeyPressMsg
 		want []byte
 	}{
-		{"rune 'h'", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}, []byte("h")},
-		{"Ctrl+C", tea.KeyMsg{Type: tea.KeyCtrlC}, []byte{0x03}},
-		{"Up arrow", tea.KeyMsg{Type: tea.KeyUp}, []byte("\x1b[A")},
-		{"Enter", tea.KeyMsg{Type: tea.KeyEnter}, []byte("\r")},
-		{"Backspace", tea.KeyMsg{Type: tea.KeyBackspace}, []byte{0x7F}},
+		{"rune 'h'", tea.KeyPressMsg{Text: "h"}, []byte("h")},
+		{"Ctrl+C", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, []byte{0x03}},
+		{"Up arrow", tea.KeyPressMsg{Code: tea.KeyUp}, []byte("\x1b[A")},
+		{"Enter", tea.KeyPressMsg{Code: tea.KeyEnter}, []byte("\r")},
+		{"Backspace", tea.KeyPressMsg{Code: tea.KeyBackspace}, []byte{0x7F}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -410,7 +410,7 @@ func TestHandleKey_AfterEndPassesThrough(t *testing.T) {
 		t.Fatal("model should still be focused (Ended is orthogonal)")
 	}
 	// Any key now: handled=false even though focused; no write.
-	_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	_, handled := m.HandleKey(tea.KeyPressMsg{Text: "h"})
 	if handled {
 		t.Errorf("HandleKey after end should pass through; got handled=true")
 	}
@@ -455,7 +455,7 @@ func TestHandleKey_LeaveModeGestureIsCtrlCloseBracket(t *testing.T) {
 	t.Run("Ctrl+] passes through (leave gesture)", func(t *testing.T) {
 		w := &fakeWriter{}
 		m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
-		_, handled := m.HandleKey(tea.KeyMsg{Type: tea.KeyCtrlCloseBracket})
+		_, handled := m.HandleKey(tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl})
 		if handled {
 			t.Errorf("Ctrl+] should pass through; got handled=true")
 		}
@@ -467,11 +467,11 @@ func TestHandleKey_LeaveModeGestureIsCtrlCloseBracket(t *testing.T) {
 	t.Run("Esc / Tab / SHIFT-TAB reach PTY (vim + shell compat)", func(t *testing.T) {
 		cases := []struct {
 			name string
-			key  tea.KeyMsg
+			key  tea.KeyPressMsg
 			want []byte
 		}{
-			{"Esc", tea.KeyMsg{Type: tea.KeyEsc}, []byte{0x1B}},
-			{"Tab", tea.KeyMsg{Type: tea.KeyTab}, []byte{'\t'}},
+			{"Esc", tea.KeyPressMsg{Code: tea.KeyEsc}, []byte{0x1B}},
+			{"Tab", tea.KeyPressMsg{Code: tea.KeyTab}, []byte{'\t'}},
 		}
 		for _, c := range cases {
 			t.Run(c.name, func(t *testing.T) {

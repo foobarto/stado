@@ -31,8 +31,8 @@ func TestChoiceDrawer_SingleSelect(t *testing.T) {
 	if m.state != stateChoice {
 		t.Errorf("state = %v, want stateChoice", m.state)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp:
 		if got.Cancelled {
@@ -68,10 +68,10 @@ func TestChoiceDrawer_MultiSelect_SpaceTogglesEnterConfirms(t *testing.T) {
 		response: resp,
 	})
 	// Toggle cursor (a) on, move to b, toggle, confirm.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp:
 		if got.Cancelled {
@@ -96,7 +96,7 @@ func TestChoiceDrawer_EscCancels(t *testing.T) {
 		},
 		response: resp,
 	})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	select {
 	case got := <-resp:
 		if !got.Cancelled {
@@ -134,7 +134,7 @@ func TestChoiceDrawer_DefaultIDPreToggles(t *testing.T) {
 	if m.choiceCursor != 2 {
 		t.Errorf("single-mode default cursor = %d, want 2", m.choiceCursor)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	<-resp
 
 	// Multi mode: a + c pre-toggled.
@@ -152,7 +152,7 @@ func TestChoiceDrawer_DefaultIDPreToggles(t *testing.T) {
 		},
 		response: resp2,
 	})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp2:
 		if len(got.Selected) != 2 || got.Selected[0] != "a" || got.Selected[1] != "c" {

@@ -173,7 +173,7 @@ func TestSubmit_QueuesBehindStartupProviderProbe(t *testing.T) {
 	m.tokenCounterPresent = true
 
 	m.input.SetValue("hello")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.queuedPrompt != "hello" {
 		t.Fatalf("queuedPrompt = %q, want hello", m.queuedPrompt)
@@ -219,7 +219,7 @@ func TestStartupProbeFailureRestoresQueuedPrompt(t *testing.T) {
 	m.providerProbePending = true
 
 	m.input.SetValue("hello")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.queuedPrompt != "hello" {
 		t.Fatalf("queuedPrompt = %q, want hello", m.queuedPrompt)
 	}
