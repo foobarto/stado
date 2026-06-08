@@ -32,7 +32,6 @@ var (
 	runJSON          bool
 	runQuiet         bool
 	runNoTools       bool
-	runNoSandbox     bool   // v1: inverted polarity from the retired --sandbox-fs flag
 	runMode          string // --mode harness mode (EP-0030)
 	runTools         string // --tools (whitelist; comma-separated globs)
 	runToolsAutoload string // --tools-autoload
@@ -280,10 +279,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					return fmt.Errorf("tools: %w", err)
 				}
 				// v1 sandbox policy for `stado run`:
-				//   default (runNoSandbox=false) → BwrapRunner via
+				//   default (noSandbox=false) → BwrapRunner via
 				//     sandbox.Detect() + Landlock writes-confined
 				//     to launch cwd + /tmp.
-				//   --no-sandbox (runNoSandbox=true) → NoneRunner,
+				//   --no-sandbox (noSandbox=true) → NoneRunner,
 				//     no Landlock, agent operates on the actual
 				//     filesystem with no namespace isolation.
 				//
@@ -294,10 +293,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				// && stado run` to operate on ~/projects/foo, not on
 				// a per-session scratch worktree.
 				opts.Workdir = cwd
-				if runNoSandbox {
+				if noSandbox {
 					opts.Executor.Runner = sandbox.NoneRunner{}
 				}
-				if runNoSandbox {
+				if noSandbox {
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [--no-sandbox]\n", sess.ID, cwd, sess.WorktreePath)
 				} else {
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [sandboxed]\n", sess.ID, cwd, sess.WorktreePath)
@@ -316,11 +315,8 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			// first the spawned daemon inherits the cwd+/tmp write
 			// confinement and cannot mkdir $XDG_RUNTIME_DIR/stado/ or
 			// bind its socket. Cloud-review bug_011 / PR #71.
-			profile := brokerProfileFromFlags()
-			if runNoSandbox {
-				profile = brokerProfileNoSandbox()
-			}
-			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), profile, cwd)
+			// brokerProfileFromFlags() now honours --no-sandbox itself.
+			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
 			if brokerErr != nil {
 				return fmt.Errorf("stado run: %w", brokerErr)
 			}
@@ -338,14 +334,14 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			// intersection. Skipped sessions (test binaries, opt-out)
 			// keep the un-wrapped runner; --no-sandbox keeps
 			// NoneRunner from the earlier override.
-			if !brokerSession.Skipped && !runNoSandbox && opts.Executor != nil {
+			if !brokerSession.Skipped && !noSandbox && opts.Executor != nil {
 				opts.Executor.Runner = sandbox.NewCeilingRunner(opts.Executor.Runner, brokerSession.Ceiling)
 			}
 
 			// Apply Landlock LAST so the broker auto-spawn above ran
 			// unrestricted but every subsequent in-process write is
 			// now confined.
-			if toolsEnabled && !runNoSandbox {
+			if toolsEnabled && !noSandbox {
 				if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(cwd)); err != nil {
 					if errors.Is(err, sandbox.ErrLandlockUnavailable) {
 						fmt.Fprintln(os.Stderr, "stado run: Landlock unavailable on this kernel; continuing without in-process write confinement (bwrap still applies at the runner layer)")
@@ -445,8 +441,9 @@ func init() {
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,
 		"Disable tools — pure-chat mode (no session, no audit).")
-	runCmd.Flags().BoolVar(&runNoSandbox, "no-sandbox", false,
-		"Opt out of the v1 default sandbox: disable bwrap + Landlock for this run. The agent operates on your actual filesystem with no namespace isolation. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
+	// --no-sandbox is a persistent root flag (see main.go), so it works for the
+	// TUI/acp/headless/mcp-server too, not just `run`. Do not re-register it
+	// here — a duplicate would panic at init.
 	// EP-0030: harness mode.
 	runCmd.Flags().StringVar(&runMode, "mode", "",
 		"Harness mode: \"\" (general, default) or \"security\" (security-research harness with recon discipline and abusability filters).")

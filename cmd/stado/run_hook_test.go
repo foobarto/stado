@@ -30,13 +30,13 @@ func TestRun_FiresPostTurnHook(t *testing.T) {
 	oldBuildProvider := runBuildProvider
 	oldAgentLoop := runAgentLoop
 	oldPrompt, oldSkill, oldSessionID := runPrompt, runSkill, runSessionID
-	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, runNoSandbox
+	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, noSandbox
 	defer func() {
 		runLoadConfig = oldLoadConfig
 		runBuildProvider = oldBuildProvider
 		runAgentLoop = oldAgentLoop
 		runPrompt, runSkill, runSessionID = oldPrompt, oldSkill, oldSessionID
-		runMaxTurns, runJSON, runNoTools, runNoSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
+		runMaxTurns, runJSON, runNoTools, noSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
 	}()
 
 	runLoadConfig = func() (*config.Config, error) {
@@ -66,7 +66,7 @@ func TestRun_FiresPostTurnHook(t *testing.T) {
 	runMaxTurns = 1
 	runJSON = true
 	runNoTools = true
-	runNoSandbox = true
+	noSandbox = true
 
 	restore := chdir(t, t.TempDir())
 	defer restore()

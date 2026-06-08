@@ -13,6 +13,8 @@ package tui
 // non-picker branches of KeyMsg dispatch.
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
@@ -32,11 +34,36 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			return m, cmd, true
 		}
 		if m.keys.Matches(msg, keys.InputSubmit) {
-			if sel := m.slash.Selected(); sel != nil {
-				m.slash.Close()
-				m.slashInline = false
-				return m, m.handleSlash(sel.Name), true
+			// The palette captures every keystroke into its Query (the main
+			// textarea stays empty while it's visible), so on Enter we must
+			// run what the user actually typed — not just the highlighted
+			// suggestion's name. Previously this dispatched sel.Name, which
+			// dropped every argument: "/tool fs.read" ran "/tool", and an
+			// unmatched command did nothing. Decide what to run:
+			//   - args typed (a space in the query) → the literal command
+			//   - bare prefix with a highlighted suggestion → that suggestion
+			//   - bare text with no match → run it (so unknown cmds error)
+			// The query may already carry a leading "/" when the palette was
+			// opened via Ctrl+P and the user typed "/tool" themselves (the
+			// inline "/" trigger strips it; Ctrl+P doesn't) — trim it so we
+			// don't dispatch "//tool".
+			raw := strings.TrimSpace(m.slash.Query)
+			q := strings.TrimSpace(strings.TrimPrefix(raw, "/"))
+			sel := m.slash.Selected()
+			var cmd string
+			switch {
+			case strings.ContainsRune(q, ' '):
+				cmd = "/" + q
+			case sel != nil:
+				cmd = sel.Name
+			case q != "":
+				cmd = "/" + q
+			default:
+				return m, nil, true // bare "/" + Enter: nothing to run
 			}
+			m.slash.Close()
+			m.slashInline = false
+			return m, m.handleSlash(cmd), true
 		}
 		// Any other keys swallowed so they don't reach the input.
 		return m, nil, true
