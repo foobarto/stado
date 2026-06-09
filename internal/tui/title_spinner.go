@@ -74,6 +74,5 @@ func (m *Model) handleTitleTick() tea.Cmd {
 	if m.isBusy() {
 		m.titleSpinIdx++
 	}
-	m.lastTitle = m.computeTitle()
 	return titleTickCmd()
 }

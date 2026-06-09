@@ -466,12 +466,10 @@ type Model struct {
 	// regular assistant block.
 	compacting bool
 
-	// titleSpinIdx + lastTitle drive the animated terminal-tab title
-	// (see title_spinner.go). titleSpinIdx is the spinner-frame
-	// counter; lastTitle dedups OSC 0/2 emissions so we don't spam
-	// the terminal when the title hasn't changed.
+	// titleSpinIdx drives the animated terminal-tab title (see title_spinner.go).
+	// The spinner frame counter is advanced each tick while busy; bubbletea v2
+	// deduplicates WindowTitle emissions internally, so no lastTitle field needed.
 	titleSpinIdx int
-	lastTitle    string
 
 	// Layout
 	width       int
