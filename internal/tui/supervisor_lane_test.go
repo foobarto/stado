@@ -16,7 +16,7 @@ import (
 // easy to read in test failures.
 type fakeProvider struct{ name string }
 
-func (f *fakeProvider) Name() string                     { return f.name }
+func (f *fakeProvider) Name() string { return f.name }
 func (f *fakeProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
 func (f *fakeProvider) StreamTurn(_ context.Context, _ agent.TurnRequest) (<-chan agent.Event, error) {
 	return nil, errors.New("fake: not implemented")
