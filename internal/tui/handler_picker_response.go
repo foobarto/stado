@@ -1,6 +1,6 @@
 package tui
 
-// Picker-active KeyMsg dispatch. When any picker / palette overlay is
+// Picker-active tea.KeyPressMsg dispatch. When any picker / palette overlay is
 // visible, every keystroke goes here first. Each picker takes
 // ownership of its keys: the textarea below stays untouched, and
 // pickers that emit selections wire their results back into the
@@ -10,7 +10,7 @@ package tui
 // The handler returns a bool — true means a picker consumed (or
 // swallowed) the keypress and the caller should short-circuit. False
 // means no picker is open and the caller continues with the
-// non-picker branches of KeyMsg dispatch.
+// non-picker branches of tea.KeyPressMsg dispatch.
 
 import (
 	tea "charm.land/bubbletea/v2"
