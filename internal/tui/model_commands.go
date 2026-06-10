@@ -196,6 +196,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.renderBlocks()
 	case "/help":
 		m.showHelp = true
+		m.helpScroll = 0
 	case "/btw":
 		if m.mode == modeBTW {
 			m.mode = modeDo

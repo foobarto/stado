@@ -357,7 +357,11 @@ type Model struct {
 	activatedTools map[string]bool
 	vp             viewport.Model
 	showHelp       bool
-	showStatus     bool
+	// helpScroll is the first visible content line of the help overlay
+	// (the body is taller than the canvas; ↑/↓ scroll it). Reset to 0
+	// whenever the overlay opens; clamped by RenderHelp on every frame.
+	helpScroll int
+	showStatus bool
 
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only

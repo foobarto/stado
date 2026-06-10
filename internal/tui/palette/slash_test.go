@@ -186,6 +186,56 @@ func TestView_HiddenReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestView_FitsCanvasHeight: the full command list (37 rows + group
+// headers) is taller than most terminals. bubbletea v2's compositor
+// clips the frame to the canvas — anything past screenHeight is
+// invisible — so View must window the list to fit. Regression for the
+// pty-bridge PaletteFilter failure after the v2 migration (the modal
+// rendered 47 lines on a 32-row canvas and the bottom was clipped).
+func TestView_FitsCanvasHeight(t *testing.T) {
+	for _, size := range [][2]int{{120, 32}, {100, 30}, {80, 24}} {
+		m := New()
+		m.Open()
+		out := m.View(size[0], size[1])
+		if got := len(strings.Split(out, "\n")); got > size[1] {
+			t.Errorf("canvas %dx%d: rendered %d lines — modal doesn't fit", size[0], size[1], got)
+		}
+	}
+}
+
+// TestView_TallCanvasShowsWholeList: when the canvas is tall enough the
+// window must not kick in — every command, including the View group at
+// the bottom, stays visible.
+func TestView_TallCanvasShowsWholeList(t *testing.T) {
+	m := New()
+	m.Open()
+	out := m.View(120, 80)
+	for _, want := range []string{"/help", "/sidebar", "/theme", "/split"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tall canvas missing %q", want)
+		}
+	}
+}
+
+// TestView_CursorScrollsWindowToBottom: moving the cursor past the
+// window slides it down, so the selected row (and the View group at the
+// list bottom) becomes visible on a short canvas.
+func TestView_CursorScrollsWindowToBottom(t *testing.T) {
+	m := New()
+	m.Open()
+	for range Commands { // wrap-safe: lands on the last entry
+		m.moveCursor(1)
+	}
+	m.moveCursor(-1) // last command: /split
+	out := m.View(120, 32)
+	if !strings.Contains(out, "/split") {
+		t.Fatalf("cursor on the last command but its row isn't visible:\n%s", out)
+	}
+	if !strings.Contains(out, "/sidebar") || !strings.Contains(out, "/theme") {
+		t.Errorf("bottom window should show the View group rows:\n%s", out)
+	}
+}
+
 func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	m := New()
 	m.Open()

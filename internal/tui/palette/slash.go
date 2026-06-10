@@ -209,7 +209,18 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	// whitespace; floor at 64 so narrow terminals still render the whole
 	// command name without truncation.
 	modalW := clampInt(screenWidth*2/3, 64, 110)
-	body := m.renderBody(modalW - 4) // -4 for border+padding
+	// Height budget: the full command list (36+ rows plus group headers)
+	// is taller than most terminals, and bubbletea v2's compositor clips
+	// the frame to the canvas — anything past screenHeight is simply
+	// invisible (v1 let the overflow scroll the terminal instead, which
+	// kept the bottom rows visible but lost the top ones). Window the
+	// list to fit: total height = list + border (2) + header/blank/
+	// search/blank chrome (4).
+	listBudget := screenHeight - 6
+	if listBudget < 3 {
+		listBudget = 3
+	}
+	body := m.renderBody(modalW-4, listBudget) // -4 for border+padding
 	// lipgloss v2: .Width is the TOTAL rendered width (border + padding
 	// included), so .Width(modalW) keeps the modal exactly modalW wide. (In v1
 	// .Width was content+padding and the border added 2 on top, so this used to
@@ -317,7 +328,10 @@ func (m *Model) renderInlineBody(innerW int) string {
 }
 
 // renderBody lays out:  header | blank | search line | blank | grouped list.
-func (m *Model) renderBody(innerW int) string {
+// The list is windowed to maxListRows rendered lines around the cursor —
+// same sliding-window behaviour as renderInlineBody, just with a budget
+// derived from the screen height instead of a fixed cap.
+func (m *Model) renderBody(innerW, maxListRows int) string {
 	var b strings.Builder
 
 	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Commands")
@@ -346,37 +360,67 @@ func (m *Model) renderBody(innerW int) string {
 		return b.String()
 	}
 
+	lines, cursorLine := m.renderListLines(innerW)
+	b.WriteString(strings.Join(windowLines(lines, cursorLine, maxListRows), "\n"))
+	return b.String()
+}
+
+// renderListLines renders the match list to individual lines and reports
+// which line holds the cursor row (group headers and separator blanks
+// count as lines but never hold the cursor).
+func (m *Model) renderListLines(innerW int) ([]string, int) {
+	var lines []string
+	cursorLine := 0
+
 	// Flat-list when filtering (categories add clutter to a search-result
 	// view); keep grouped headers when browsing (empty query — they help
 	// orient first-time users).
 	if strings.TrimSpace(m.Query) != "" {
 		for i, c := range m.Matches {
-			b.WriteString(renderRow(innerW, c, i == m.Cursor))
-			if i < len(m.Matches)-1 {
-				b.WriteString("\n")
+			if i == m.Cursor {
+				cursorLine = len(lines)
 			}
+			lines = append(lines, renderRow(innerW, c, i == m.Cursor))
 		}
-		return b.String()
+		return lines, cursorLine
 	}
 
 	groupedList := groupMatches(m.Matches)
-	cursorIdx := m.Cursor
 	flatIdx := 0
 	for gi, g := range groupedList {
 		if gi > 0 {
-			b.WriteString("\n")
+			lines = append(lines, "")
 		}
-		b.WriteString(lipgloss.NewStyle().
+		lines = append(lines, lipgloss.NewStyle().
 			Foreground(theme.Secondary).
 			Bold(true).
-			Render(g.name) + "\n")
+			Render(g.name))
 		for _, c := range g.items {
-			isSel := flatIdx == cursorIdx
-			b.WriteString(renderRow(innerW, c, isSel) + "\n")
+			if flatIdx == m.Cursor {
+				cursorLine = len(lines)
+			}
+			lines = append(lines, renderRow(innerW, c, flatIdx == m.Cursor))
 			flatIdx++
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return lines, cursorLine
+}
+
+// windowLines returns at most budget lines, sliding the window down just
+// enough to keep cursorLine visible (cursor sticks to the window bottom
+// once it scrolls — the renderInlineBody behaviour).
+func windowLines(lines []string, cursorLine, budget int) []string {
+	if budget <= 0 || len(lines) <= budget {
+		return lines
+	}
+	start := 0
+	if cursorLine >= budget {
+		start = cursorLine - budget + 1
+	}
+	if start+budget > len(lines) {
+		start = len(lines) - budget
+	}
+	return lines[start : start+budget]
 }
 
 type group struct {

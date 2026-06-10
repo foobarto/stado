@@ -15,7 +15,14 @@ import (
 // so a user pressing ? sees both halves of the surface — previously
 // the help overlay never mentioned /budget, /skill, /model, etc. and
 // users had to remember to open the palette to discover them.
-func RenderHelp(reg *keys.Registry, width int) string {
+//
+// The full content is taller than most terminals, and bubbletea v2's
+// compositor clips the frame to the canvas (v1 let the overflow scroll,
+// which lost the top instead of the bottom). When height > 0 the body is
+// windowed to fit: scroll picks the first visible content line and the
+// clamped value is returned so the caller can store it (and keep ↑/↓
+// from running past the ends). A height of 0 disables windowing.
+func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 	groups := reg.ActionsByGroup()
 
 	order := []string{
@@ -71,10 +78,23 @@ func RenderHelp(reg *keys.Registry, width int) string {
 
 	content := strings.TrimRight(b.String(), "\n")
 
+	// Window the content when it can't fit the canvas. Box chrome:
+	// border (2) + Padding(1, 2) vertical (2) = 4 rows; one more body
+	// row is reserved for the scroll-position footer.
+	clamped := 0
+	lines := strings.Split(content, "\n")
+	if budget := height - 4; height > 0 && len(lines) > budget {
+		visible := max(budget-1, 1)
+		clamped = max(min(scroll, len(lines)-visible), 0)
+		footer := dim.Render(fmt.Sprintf("↑/↓ pgup/pgdn scroll — %d-%d of %d",
+			clamped+1, clamped+visible, len(lines)))
+		content = strings.Join(append(lines[clamped:clamped+visible], footer), "\n")
+	}
+
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Border).
 		Padding(1, 2).
 		Width(width - 2).
-		Render(content)
+		Render(content), clamped
 }

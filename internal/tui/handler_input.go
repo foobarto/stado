@@ -74,6 +74,33 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	}
 
 	if m.showHelp {
+		// The help body is taller than most terminals; ↑/↓ and friends
+		// scroll it. RenderHelp clamps helpScroll on the next frame, so
+		// over-shooting here is harmless.
+		page := m.height - 6
+		if page < 1 {
+			page = 1
+		}
+		switch msg.String() {
+		case "up", "k":
+			m.helpScroll--
+			return m, nil, true
+		case "down", "j":
+			m.helpScroll++
+			return m, nil, true
+		case "pgup":
+			m.helpScroll -= page
+			return m, nil, true
+		case "pgdown":
+			m.helpScroll += page
+			return m, nil, true
+		case "home", "g":
+			m.helpScroll = 0
+			return m, nil, true
+		case "end", "G":
+			m.helpScroll = 1 << 30 // clamped to the bottom by RenderHelp
+			return m, nil, true
+		}
 		if m.keys.Matches(msg, keys.SessionInterrupt) || m.keys.Matches(msg, keys.TipsToggle) {
 			m.showHelp = false
 			m.layout()
@@ -231,6 +258,7 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		// empty prompt.
 		if m.input.Value() == "" {
 			m.showHelp = true
+			m.helpScroll = 0
 			m.layout()
 			return m, nil, true
 		}

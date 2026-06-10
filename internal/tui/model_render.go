@@ -32,7 +32,11 @@ func (m *Model) View() tea.View {
 
 func (m *Model) viewString() string {
 	if m.showHelp {
-		return overlays.RenderHelp(m.keys, m.width)
+		// RenderHelp clamps the scroll to the content; store the clamped
+		// value so ↑/↓ in the handler can't run past either end.
+		help, scroll := overlays.RenderHelp(m.keys, m.width, m.height, m.helpScroll)
+		m.helpScroll = scroll
+		return help
 	}
 	if m.showStatus {
 		return m.renderStatusModal(m.width, m.height)

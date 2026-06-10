@@ -302,6 +302,12 @@ cmd_help_overlay() {
   start_stado
   tmux send-keys -t "$SESSION" "?"
   sleep 0.4
+  # The help body is taller than the pane; it windows to fit and ↑/↓/G
+  # scroll it. The keybinding groups are the top of the body…
+  assert_contains "Toggle help" "help overlay keybindings section"
+  # …and G jumps to the bottom where the slash-command section lives.
+  tmux send-keys -t "$SESSION" "G"
+  sleep 0.3
   assert_contains "Slash commands" "help overlay slash section"
   assert_contains "/budget"        "help overlay lists /budget"
   tmux send-keys -t "$SESSION" "?"

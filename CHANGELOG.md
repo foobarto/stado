@@ -46,6 +46,11 @@ become semver guarantees.
 - Two teatest-based PTY integration tests are temporarily disabled (build-tagged
   `teatest_v1`) until a Bubble Tea v2-compatible `teatest` is published; the
   real-PTY tmux harness and the pty-bridge browser E2E still cover the TUI.
+- **The Ctrl+P palette and the `?`/`/help` overlay now fit the terminal.** Both
+  render more rows than a typical terminal is tall; v2's compositor clips the
+  frame to the canvas (v1 scrolled the overflow, losing the top instead of the
+  bottom). The palette windows its list around the cursor; the help overlay
+  scrolls (`↑/↓`, `pgup/pgdn`, `g/G`) with a position footer.
 
 A round of UAT-driven usability fixes. Several change user-visible behaviour
 (command exit codes, the session repo-id); pre-1.0, no deprecation shims.
