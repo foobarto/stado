@@ -91,8 +91,14 @@ var daemonStatusCmd = &cobra.Command{
 	RunE:  runDaemonStatus,
 }
 
+var daemonReloadCmd = &cobra.Command{
+	Use:   "reload",
+	Short: "Re-read config and rebuild the daemon's tool registry in place (keeps live PTY/LSP/browser state)",
+	RunE:  runDaemonReload,
+}
+
 func init() {
-	daemonCmd.AddCommand(daemonStartCmd, daemonStopCmd, daemonStatusCmd)
+	daemonCmd.AddCommand(daemonStartCmd, daemonStopCmd, daemonStatusCmd, daemonReloadCmd)
 
 	daemonStartCmd.Flags().BoolVarP(&daemonStartQuiet, "quiet", "q", false,
 		"Detach + suppress stdout. Used by auto-spawn from `stado tool run`.")
@@ -190,6 +196,7 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 		KillSession:      state.killSession,
 		ListTools:        state.listTools,
 		BrokerDispatcher: brokerDispatcherBridge(brokerSvc),
+		Reload:           state.reload,
 	})
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -265,6 +272,38 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	return tw.Flush()
 }
 
+func runDaemonReload(cmd *cobra.Command, _ []string) error {
+	socketPath := daemonStatusSocket
+	if socketPath == "" {
+		p, err := daemon.SocketPath()
+		if err != nil {
+			return err
+		}
+		socketPath = p
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+	defer cancel()
+	c, _, err := daemon.DialAndHandshake(ctx, socketPath, "stado-daemon-reload")
+	if err != nil {
+		if isConnectionRefused(err) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "stado daemon: not running (nothing to reload)")
+			os.Exit(3)
+		}
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	res, err := c.Reload(ctx)
+	if err != nil {
+		return err
+	}
+	if res.Error != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "stado daemon: reload failed: %s\n", res.Error)
+		os.Exit(1)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "stado daemon: config reloaded — %d tools registered\n", res.ToolCount)
+	return nil
+}
+
 // daemonState owns the long-lived state the daemon shares across tool
 // calls. The single registry + executor + sandbox runner are reused
 // for every dispatch; project-scoped state (PTY manager) lives in
@@ -331,6 +370,39 @@ func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts) (*daemonState, 
 	return st, nil
 }
 
+// reload re-reads config from disk and rebuilds the tool registry +
+// executor in place, under projectMu so concurrent dispatch is safe. Live
+// PTY/LSP/browser state in the project scopes is untouched. Returns the
+// new tool count. On a config-load or registry-build error the old state
+// is kept and the error returned.
+func (d *daemonState) reload() (int, error) {
+	newCfg, err := config.Load()
+	if err != nil {
+		return 0, err
+	}
+	newReg, err := runtime.BuildRegistryWithPlugins(newCfg)
+	if err != nil {
+		return 0, err
+	}
+	d.projectMu.Lock()
+	d.cfg = newCfg
+	d.registry = newReg
+	if d.executor != nil {
+		// Replace the executor with a fresh copy rather than mutating its
+		// fields in place: an in-flight dispatch snapshots the OLD pointer
+		// under projectMu and then reads its Registry/Model from
+		// Executor.Run without locking, so mutating those fields here would
+		// race. Swapping the pointer leaves the in-flight call's executor
+		// immutable.
+		ne := *d.executor
+		ne.Registry = newReg
+		ne.Model = newCfg.Defaults.Model
+		d.executor = &ne
+	}
+	d.projectMu.Unlock()
+	return len(newReg.All()), nil
+}
+
 // scopeFor returns (and lazily creates) the project scope for the given
 // id. Caller must not retain the returned pointer past the next
 // projectMu acquisition — Close() empties the map.
@@ -380,14 +452,20 @@ func (d *daemonState) Close() {
 // AllowList enforcement happens earlier inside daemon.Server before
 // the dispatcher sees the call (see server.go handleToolCall).
 func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (daemon.ToolCallResult, error) {
-	registered, ok := lookupToolInRegistry(d.registry, p.Tool)
+	// Snapshot the config/registry/executor under the lock so a concurrent
+	// daemon.reload (which swaps these) can't race this dispatch.
+	d.projectMu.Lock()
+	reg, cfg, exec := d.registry, d.cfg, d.executor
+	d.projectMu.Unlock()
+
+	registered, ok := lookupToolInRegistry(reg, p.Tool)
 	if !ok {
 		return daemon.ToolCallResult{}, fmt.Errorf("tool %q not found", p.Tool)
 	}
-	if d.cfg != nil {
+	if cfg != nil {
 		registeredName := registered.Name()
 		canonical := runtime.LookupToolMetadata(registeredName).Canonical
-		for _, pat := range d.cfg.Tools.Disabled {
+		for _, pat := range cfg.Tools.Disabled {
 			if runtime.ToolMatchesGlob(registeredName, pat) ||
 				(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
 				return daemon.ToolCallResult{}, fmt.Errorf(
@@ -407,9 +485,9 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 		// llm.invoke is exactly this shape — see Cluster C1/I-c) or a
 		// nested-invoke wrapper. Enforce a second-line check here so
 		// every dispatch path lands the same gate.
-		if len(d.cfg.Tools.Enabled) > 0 {
+		if len(cfg.Tools.Enabled) > 0 {
 			matched := false
-			for _, pat := range d.cfg.Tools.Enabled {
+			for _, pat := range cfg.Tools.Enabled {
 				if runtime.ToolMatchesGlob(registeredName, pat) ||
 					(canonical != "" && runtime.ToolMatchesGlob(canonical, pat)) {
 					matched = true
@@ -442,7 +520,7 @@ func (d *daemonState) dispatch(ctx context.Context, p daemon.ToolCallParams) (da
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
-	res, err := d.executor.Run(ctx, registered.Name(), args, host)
+	res, err := exec.Run(ctx, registered.Name(), args, host)
 	if err != nil {
 		// Forward the executor error string but also keep tool.Result's
 		// own Error so the client gets the richer message when present.
