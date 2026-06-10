@@ -38,7 +38,7 @@ func (m *Model) renderInputBox(mainW int) string {
 	} else if m.filePicker.Visible && len(m.filePicker.Matches) > 0 {
 		// Leave 2 cols of breathing room inside the border + padding.
 		pickerPrefix = m.filePicker.View(mainW-4) + "\n"
-	} else if hint := m.renderChordHint(mainW - 4); hint != "" {
+	} else if hint := m.renderChordHint(mainW - 3); hint != "" { // 1 border + 2 padding, matches inlineLine
 		// A multi-chord prefix (e.g. ctrl+x) is primed — show the possible
 		// second chords so the operator doesn't have to remember them.
 		pickerPrefix = hint + "\n"

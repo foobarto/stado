@@ -219,10 +219,12 @@ type PendingChord struct {
 	Options []ChordOption
 }
 
-// PendingPrefix reports the active prefix and its next-chord options, or
-// ok=false when no prefix is primed. Query at render time to show the
-// chord hint; the prefix state lives in the registry and clears itself
-// when the sequence completes or resets.
+// PendingPrefix reports the active prefix and its next-chord options.
+// ok=false when no prefix is primed, OR when a prefix is primed but no
+// next-chord options resolve (len(Options)==0) — callers use ok to decide
+// whether to draw the hint, and an empty option list has nothing to show.
+// Query at render time to show the chord hint; the prefix state lives in
+// the registry and clears itself when the sequence completes or resets.
 func (r *Registry) PendingPrefix() (PendingChord, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
