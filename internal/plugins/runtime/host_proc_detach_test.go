@@ -23,11 +23,27 @@ func TestDetachControllingTTY(t *testing.T) {
 // TestBuildSandboxedCmdUnsandboxedDetachesTTY: the unsandboxed exec path
 // (the one the operator hit with --no-sandbox) must detach the tty.
 func TestBuildSandboxedCmdUnsandboxedDetachesTTY(t *testing.T) {
-	cmd, err := buildSandboxedCmd(context.Background(), nil, "", []string{"true"}, nil)
+	cmd, err := buildSandboxedCmd(context.Background(), nil, "/tmp", []string{"/bin/true"}, nil)
 	if err != nil {
 		t.Fatalf("buildSandboxedCmd: %v", err)
 	}
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
 		t.Fatal("unsandboxed one-shot cmd not detached from the controlling tty")
+	}
+}
+
+// TestBuildSandboxedCmdSandboxedDetachesTTY: when a sandbox runner is available,
+// the sandbox-wrapped exec path must also detach the controlling tty.
+func TestBuildSandboxedCmdSandboxedDetachesTTY(t *testing.T) {
+	if !hasSandboxRunner() {
+		t.Skip("native sandbox runner not detected; sandboxed exec path not available on this host")
+	}
+	policy := &sandboxPolicy{Net: "allow"}
+	cmd, err := buildSandboxedCmd(context.Background(), policy, "/tmp", []string{"/bin/true"}, nil)
+	if err != nil {
+		t.Fatalf("buildSandboxedCmd(sandboxed): %v", err)
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Fatal("sandboxed one-shot cmd not detached from the controlling tty")
 	}
 }
