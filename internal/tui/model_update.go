@@ -150,11 +150,12 @@ func (m *Model) toggleLastToolExpand() {
 }
 
 // isExpandableBlock reports whether a block has expand/collapse state
-// the user might want to toggle (tool blocks, plus assistant blocks
-// that have hidden details).
+// the user might want to toggle: tool blocks, assistant blocks with
+// hidden details, and thinking blocks (so a tailed/hidden reasoning
+// block can be revealed in full on click or via the focus chord).
 func isExpandableBlock(b block) bool {
 	switch b.kind {
-	case "tool":
+	case "tool", "thinking":
 		return true
 	case "assistant":
 		return strings.TrimSpace(b.details) != ""

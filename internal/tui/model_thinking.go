@@ -96,11 +96,16 @@ func (m *Model) announceThinkingDisplayMode() {
 }
 
 func (m *Model) shouldRenderBlock(blk block) bool {
-	return blk.kind != "thinking" || m.thinkingMode != thinkingHide
+	// A thinking block is normally suppressed in hide mode, but an
+	// explicit expand (click / focus chord) overrides the global mode
+	// for that one block.
+	return blk.kind != "thinking" || m.thinkingMode != thinkingHide || blk.expanded
 }
 
-func (m *Model) thinkingBlockBody(body string) string {
-	if m.thinkingMode != thinkingTail {
+func (m *Model) thinkingBlockBody(body string, expanded bool) string {
+	// An expanded block shows its full reasoning regardless of the
+	// global tail/hide mode.
+	if expanded || m.thinkingMode != thinkingTail {
 		return body
 	}
 	return tailThinkingText(body, thinkingTailLines, thinkingTailRunes)

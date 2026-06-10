@@ -200,7 +200,7 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		return rendered, nil
 	case "thinking":
 		return m.renderer.Exec("message_thinking", map[string]any{
-			"Body":  m.thinkingBlockBody(blk.body),
+			"Body":  m.thinkingBlockBody(blk.body, blk.expanded),
 			"Width": width,
 		})
 	case "tool":
