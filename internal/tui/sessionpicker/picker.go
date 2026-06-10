@@ -244,6 +244,8 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
 
+	bg := lipgloss.NewStyle().Background(theme.Background)
+
 	titleText := "Sessions"
 	if m.mode == modeRename {
 		titleText = "Rename session"
@@ -251,7 +253,7 @@ func (m *Model) renderBody(innerW int) string {
 	if m.mode == modeDelete {
 		titleText = "Delete session"
 	}
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(titleText)
+	title := bg.Foreground(theme.Text).Bold(true).Render(titleText)
 	hints := "enter switch  ctrl+n new  ctrl+r rename  ctrl+f fork  ctrl+d delete  esc"
 	if m.mode == modeRename {
 		hints = "enter save  esc cancel"
@@ -262,8 +264,8 @@ func (m *Model) renderBody(innerW int) string {
 			hints = "esc/n cancel"
 		}
 	}
-	esc := lipgloss.NewStyle().Foreground(theme.Muted).Render(hints)
-	b.WriteString(rowTwoCol(innerW, title, esc))
+	esc := bg.Foreground(theme.Muted).Render(hints)
+	b.WriteString(rowTwoColBg(innerW, titleText, hints, title, esc, bg))
 	b.WriteString("\n\n")
 
 	if m.mode == modeDelete {
@@ -272,17 +274,17 @@ func (m *Model) renderBody(innerW int) string {
 			label = m.target.ID
 		}
 		if m.target.Current {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Error).Bold(true).
+			b.WriteString(bg.Foreground(theme.Error).Bold(true).
 				Render("Cannot delete the active session."))
 			b.WriteString("\n")
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+			b.WriteString(bg.Foreground(theme.Muted).
 				Render("Switch to another session first, then delete this one."))
 			return b.String()
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Error).Bold(true).
+		b.WriteString(bg.Foreground(theme.Error).Bold(true).
 			Render("Delete " + label + "?"))
 		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("This removes the session refs, worktree, and conversation log."))
 		return b.String()
 	}
@@ -291,12 +293,12 @@ func (m *Model) renderBody(innerW int) string {
 	if m.mode == modeRename {
 		searchText = "Name"
 	}
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render(searchText)
+	searchLabel := bg.Foreground(theme.Text).Render(searchText)
 	cursor := lipgloss.NewStyle().
 		Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -306,13 +308,13 @@ func (m *Model) renderBody(innerW int) string {
 
 	if m.mode == modeRename {
 		target := shortLabel(m.target)
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("target: " + target))
 		return b.String()
 	}
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no sessions"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no sessions"))
 		return b.String()
 	}
 
@@ -334,21 +336,21 @@ func (m *Model) renderBody(innerW int) string {
 		if it.Current {
 			left = "* " + left
 		}
-		padded := rowTwoCol(innerW, left, it.Meta)
 		if isSel {
+			padded := rowTwoCol(innerW, left, it.Meta)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
 				Render(padded))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(left) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(it.Meta), 1)) +
-				lipgloss.NewStyle().Foreground(theme.Muted).Render(it.Meta))
+			b.WriteString(bg.Foreground(theme.Text).Render(left) +
+				bg.Render(strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(it.Meta), 1))) +
+				bg.Foreground(theme.Muted).Render(it.Meta))
 		}
 		b.WriteString("\n")
 	}
 	if hidden := len(m.Matches) - limit; hidden > 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("+" + strconv.Itoa(hidden) + " more; keep typing to narrow"))
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -377,6 +379,20 @@ func rowTwoCol(width int, left, right string) string {
 		pad = 1
 	}
 	return left + strings.Repeat(" ", pad) + right
+}
+
+// rowTwoColBg lays out two already-styled spans across width, painting the
+// inter-column padding gap with bg so it doesn't punch a hole in the modal
+// background. leftPlain/rightPlain are the unstyled text used for width math;
+// leftSpan/rightSpan are the rendered (foreground+bg) spans to emit.
+func rowTwoColBg(width int, leftPlain, rightPlain, leftSpan, rightSpan string, bg lipgloss.Style) string {
+	lw := lipgloss.Width(leftPlain)
+	rw := lipgloss.Width(rightPlain)
+	pad := width - lw - rw
+	if pad < 1 {
+		pad = 1
+	}
+	return leftSpan + bg.Render(strings.Repeat(" ", pad)) + rightSpan
 }
 
 func truncateVisible(s string, width int) string {

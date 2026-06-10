@@ -400,6 +400,7 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 
 func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	titleText := "Tasks"
 	hints := "enter detail  ctrl+n new  ctrl+e edit  ctrl+d delete  esc"
 	switch m.mode {
@@ -421,11 +422,13 @@ func (m *Model) renderBody(innerW int) string {
 	if lipgloss.Width(titleText)+lipgloss.Width(hintText)+1 > innerW {
 		hintText = truncateVisible(hintText, maxInt(innerW-lipgloss.Width(titleText)-2, 8))
 	}
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(titleText)
-	b.WriteString(rowTwoCol(innerW, title, lipgloss.NewStyle().Foreground(theme.Muted).Render(hintText)))
+	title := bg.Foreground(theme.Text).Bold(true).Render(titleText)
+	hint := bg.Foreground(theme.Muted).Render(hintText)
+	headerPad := maxInt(innerW-lipgloss.Width(titleText)-lipgloss.Width(hintText), 1)
+	b.WriteString(title + bg.Render(strings.Repeat(" ", headerPad)) + hint)
 	b.WriteString("\n\n")
 	if m.Notice != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Error).Render(truncateVisible(m.Notice, innerW)))
+		b.WriteString(bg.Foreground(theme.Error).Render(truncateVisible(m.Notice, innerW)))
 		b.WriteString("\n\n")
 	}
 
@@ -443,12 +446,12 @@ func (m *Model) renderBody(innerW int) string {
 }
 
 func (m *Model) renderList(b *strings.Builder, innerW int) {
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render("Search")
-	cursor := lipgloss.NewStyle().
-		Foreground(theme.Text).
+	bg := lipgloss.NewStyle().Background(theme.Background)
+	searchLabel := bg.Foreground(theme.Text).Render("Search")
+	cursor := bg.Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -457,7 +460,7 @@ func (m *Model) renderList(b *strings.Builder, innerW int) {
 	b.WriteString("\n\n")
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no tasks"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no tasks"))
 		return
 	}
 	start := 0
@@ -473,44 +476,48 @@ func (m *Model) renderList(b *strings.Builder, innerW int) {
 		isSel := idx == m.Cursor
 		left := "[" + string(task.Status) + "] " + task.Title
 		right := relativeTime(task.UpdatedAt)
-		padded := rowTwoCol(innerW, left, right)
 		if isSel {
+			padded := rowTwoCol(innerW, left, right)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
 				Render(padded))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(truncateVisible(left, innerW-lipgloss.Width(right)-1)) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)) +
-				lipgloss.NewStyle().Foreground(theme.Muted).Render(right))
+			leftText := truncateVisible(left, innerW-lipgloss.Width(right)-1)
+			pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
+			b.WriteString(bg.Foreground(theme.Text).Render(leftText) +
+				bg.Render(strings.Repeat(" ", pad)) +
+				bg.Foreground(theme.Muted).Render(right))
 		}
 		b.WriteString("\n")
 	}
 	if hidden := len(m.Matches) - limit; hidden > 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("+" + strconv.Itoa(hidden) + " more; keep typing to narrow"))
 	}
 }
 
 func (m *Model) renderDetail(b *strings.Builder, innerW int) {
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	task := m.target
 	if task.ID == "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no task selected"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no task selected"))
 		return
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render(task.Title))
+	b.WriteString(bg.Foreground(theme.Text).Bold(true).Render(task.Title))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+	b.WriteString(bg.Foreground(theme.Muted).
 		Render(rowTwoCol(innerW, "status: "+string(task.Status), "id: "+shortID(task.ID))))
 	b.WriteString("\n\n")
 	body := strings.TrimSpace(task.Body)
 	if body == "" {
 		body = "(no details)"
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(wrapPlain(body, innerW)))
+	b.WriteString(bg.Foreground(theme.Text).Render(wrapPlain(body, innerW)))
 }
 
 func (m *Model) renderForm(b *strings.Builder, innerW int) {
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	rows := []struct {
 		label string
 		value string
@@ -531,21 +538,22 @@ func (m *Model) renderForm(b *strings.Builder, innerW int) {
 				Foreground(theme.Background).
 				Render(line))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(line))
+			b.WriteString(bg.Foreground(theme.Text).Render(line))
 		}
 		b.WriteString("\n")
 	}
 }
 
 func (m *Model) renderDelete(b *strings.Builder) {
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	title := m.target.Title
 	if title == "" {
 		title = m.target.ID
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Error).Bold(true).
+	b.WriteString(bg.Foreground(theme.Error).Bold(true).
 		Render("Delete " + title + "?"))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+	b.WriteString(bg.Foreground(theme.Muted).
 		Render("This removes the task from the shared task store."))
 }
 

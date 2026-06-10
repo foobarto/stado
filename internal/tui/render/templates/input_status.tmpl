@@ -1,2 +1,6 @@
-{{- /* Inline status line inside the input frame: simple and low-noise. */ -}}
-{{ if eq .Mode "Plan" }}{{ color "warning" "Plan" | bold }}{{ else if eq .Mode "BTW" }}{{ color "accent" "BTW" | bold }}{{ else }}{{ color "role_user" "Do" | bold }}{{ end }} {{ color "muted" "·" }} {{ color "text_secondary" .Model | bold }}{{ if .ProviderName }} {{ color "muted" "·" }} {{ color "muted" .ProviderName }}{{ end }}{{ if .Hint }} {{ color "muted" "·" }} {{ color "accent" .Hint }}{{ end }}
+{{- /* Inline status line inside the input frame: simple and low-noise.
+       Every span paints the surface background (colorbg, not color) so the
+       row reads solid inside the dark input frame — foreground-only spans
+       emit a reset that leaves grey holes between the columns and after the
+       text, which the frame can't repaint. */ -}}
+{{ if eq .Mode "Plan" }}{{ colorbg "warning" "surface" "Plan" | bold }}{{ else if eq .Mode "BTW" }}{{ colorbg "accent" "surface" "BTW" | bold }}{{ else }}{{ colorbg "role_user" "surface" "Do" | bold }}{{ end }}{{ colorbg "muted" "surface" " · " }}{{ colorbg "text_secondary" "surface" .Model | bold }}{{ if .ProviderName }}{{ colorbg "muted" "surface" " · " }}{{ colorbg "muted" "surface" .ProviderName }}{{ end }}{{ if .Hint }}{{ colorbg "muted" "surface" " · " }}{{ colorbg "accent" "surface" .Hint }}{{ end }}

@@ -279,6 +279,16 @@ func (r *Renderer) funcMap() template.FuncMap {
 		"bg": func(name string, text any) string {
 			return r.theme.Bg(name).Render(toStr(text))
 		},
+		// colorbg "fgName" "bgName" "text" — themed foreground over a themed
+		// background, so the span paints its whole cell. Use this (not color)
+		// for spans composited inside a coloured frame: a foreground-only
+		// span emits a reset that clears the background, leaving a grey hole
+		// the frame can't repaint.
+		"colorbg": func(fgName, bgName string, text any) string {
+			return r.theme.Fg(fgName).
+				Background(r.theme.Bg(bgName).GetBackground()).
+				Render(toStr(text))
+		},
 		"bold": func(text any) string {
 			return lipgloss.NewStyle().Bold(true).Render(toStr(text))
 		},

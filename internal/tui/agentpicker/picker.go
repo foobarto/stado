@@ -153,17 +153,22 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
 
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select agent")
-	esc := lipgloss.NewStyle().Foreground(theme.Muted).Render("esc")
-	b.WriteString(rowTwoCol(innerW, title, esc))
+	// Base style carrying the modal's background so every painted cell (and the
+	// padding gaps between styled spans) fills its background, instead of
+	// emitting a foreground-only reset that punches grey holes through the modal.
+	bg := lipgloss.NewStyle().Background(theme.Background)
+
+	title := bg.Foreground(theme.Text).Bold(true).Render("Select agent")
+	esc := bg.Foreground(theme.Muted).Render("esc")
+	b.WriteString(rowTwoCol(bg, innerW, title, esc))
 	b.WriteString("\n\n")
 
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render("Search")
+	searchLabel := bg.Foreground(theme.Text).Render("Search")
 	cursor := lipgloss.NewStyle().
 		Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -172,7 +177,7 @@ func (m *Model) renderBody(innerW int) string {
 	b.WriteString("\n\n")
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no agents"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no agents"))
 		return b.String()
 	}
 
@@ -182,23 +187,48 @@ func (m *Model) renderBody(innerW int) string {
 		if it.Current {
 			left = "* " + left
 		}
-		padded := rowTwoCol(innerW, left, it.Desc)
 		if isSel {
+			// Build the selected line from plain text + plain padding and wrap
+			// the whole line once so the highlight stays uniform across the gap.
+			padded := plainTwoCol(innerW, left, it.Desc)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
 				Render(padded))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(left) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(it.Desc), 1)) +
-				lipgloss.NewStyle().Foreground(theme.Muted).Render(it.Desc))
+			pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(it.Desc), 1)
+			b.WriteString(bg.Foreground(theme.Text).Render(left) +
+				bg.Render(strings.Repeat(" ", pad)) +
+				bg.Foreground(theme.Muted).Render(it.Desc))
 		}
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func rowTwoCol(width int, left, right string) string {
+// rowTwoCol joins two already-styled spans with a background-painted padding
+// gap so the modal background fills the space between the columns.
+func rowTwoCol(bg lipgloss.Style, width int, left, right string) string {
+	lw := lipgloss.Width(left)
+	rw := lipgloss.Width(right)
+	if lw+rw+1 > width {
+		budget := width - rw - 2
+		if budget < 3 {
+			budget = 3
+		}
+		left = truncateVisible(left, budget)
+		lw = lipgloss.Width(left)
+	}
+	pad := width - lw - rw
+	if pad < 1 {
+		pad = 1
+	}
+	return left + bg.Render(strings.Repeat(" ", pad)) + right
+}
+
+// plainTwoCol joins two plain strings with plain padding; the caller wraps the
+// whole result in a single highlight style (used for the selected row).
+func plainTwoCol(width int, left, right string) string {
 	lw := lipgloss.Width(left)
 	rw := lipgloss.Width(right)
 	if lw+rw+1 > width {
