@@ -1355,6 +1355,15 @@ var (
 // renderContextStatus summarises what the ctx% in the status bar is
 // made of, plus what the user's options are at each threshold. Kept
 // terse — one system block, readable in < 1 screen.
+// thresholdLabel renders a context threshold as a percentage, or "disabled"
+// when set to 0 (R9 — 0 turns the gate off).
+func thresholdLabel(t float64) string {
+	if t <= 0 {
+		return "disabled"
+	}
+	return fmt.Sprintf("%.0f%%", 100*t)
+}
+
 func (m *Model) renderContextStatus() string {
 	used := m.usage.InputTokens
 	var sb strings.Builder
@@ -1373,12 +1382,12 @@ func (m *Model) renderContextStatus() string {
 		fraction := float64(used) / float64(caps.MaxContextTokens)
 		sb.WriteString(fmt.Sprintf("context: %s / %s tokens (%.1f%%)\n",
 			humanize(used), humanize(caps.MaxContextTokens), 100*fraction))
-		sb.WriteString(fmt.Sprintf("thresholds: soft %.0f%% · hard %.0f%%\n",
-			100*m.ctxSoftThreshold, 100*m.ctxHardThreshold))
+		sb.WriteString(fmt.Sprintf("thresholds: soft %s · hard %s\n",
+			thresholdLabel(m.ctxSoftThreshold), thresholdLabel(m.ctxHardThreshold)))
 		switch {
-		case fraction >= m.ctxHardThreshold:
+		case m.ctxHardThreshold > 0 && fraction >= m.ctxHardThreshold:
 			sb.WriteString("status: above hard threshold — consider /compact or `stado session fork <id> --at turns/<N>` in another shell.\n")
-		case fraction >= m.ctxSoftThreshold:
+		case m.ctxSoftThreshold > 0 && fraction >= m.ctxSoftThreshold:
 			sb.WriteString("status: above soft threshold — forking from an earlier turn is the preferred recovery; /compact is the lossy fallback.\n")
 		default:
 			sb.WriteString("status: healthy.\n")
