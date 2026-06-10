@@ -32,6 +32,35 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.60.2 — config reload, password-prompt fix, daemon health — 2026-06-10
+
+### Fixes
+
+- **`ssh`/`sudo` password prompts no longer garble the TUI.** One-shot shell-tool
+  children inherited the host's controlling terminal, so a command that opens
+  `/dev/tty` for a password wrote the prompt straight onto the alt-screen (and
+  read the password from the operator's keystrokes), bypassing tool capture.
+  Shell-tool children now run in their own session with no controlling tty, so
+  such commands fail cleanly ("no tty present") with the error captured in the
+  tool result.
+
+### TUI
+
+- **`/reload`** re-reads config from disk and refreshes the tool surface
+  (`[tools].autoload`/`enabled`/`disabled` apply next turn), the system-prompt
+  template, persona, thinking display, and context/budget thresholds — without
+  restarting the session. Provider/model (`/model`), the sandbox ceiling, and
+  the session identity are left untouched by design.
+- **Daemon-health indicator** in the status bar: a coloured `● daemon` dot
+  (green up, red down) driven by a periodic non-blocking probe, so you can see
+  at a glance whether the background daemon is reachable.
+
+### CLI
+
+- **`stado daemon reload`** (and the `daemon.reload` IPC method) re-reads config
+  and rebuilds the daemon's tool registry in place, keeping live PTY/LSP/browser
+  state.
+
 ## v0.60.1 — TUI v2 background fixes + /compact recovery — 2026-06-10
 
 ### Fixes
