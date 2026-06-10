@@ -10,6 +10,48 @@ import (
 	"time"
 )
 
+// R8: a single malformed line must not brick the store — fold skips it and
+// keeps the good entries, so every memory/learning command still works.
+func TestStoreFoldSkipsMalformedLines(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+
+	for _, id := range []string{"mem_one", "mem_two"} {
+		raw, _ := json.Marshal(Item{ID: id, Scope: "repo", RepoID: "repo-1", Kind: "preference", Summary: id, Body: "body", Sensitivity: "normal"})
+		if err := store.Propose(ctx, raw); err != nil {
+			t.Fatalf("Propose %s: %v", id, err)
+		}
+		appr, _ := json.Marshal(UpdateRequest{Action: "approve", ID: id})
+		if err := store.Update(ctx, appr); err != nil {
+			t.Fatalf("approve %s: %v", id, err)
+		}
+	}
+
+	// Corrupt the append log with a garbage line.
+	f, err := os.OpenFile(store.Path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("THIS IS NOT JSON AT ALL\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	// List must still succeed and return both good memories.
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List should not fail on one malformed line: %v", err)
+	}
+	got := map[string]bool{}
+	for _, it := range items {
+		got[it.ID] = true
+	}
+	if !got["mem_one"] || !got["mem_two"] {
+		t.Fatalf("both good memories should load despite a malformed line; got %v", got)
+	}
+}
+
 func TestStoreProposeApproveQuery(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	store := testStore(t, now)

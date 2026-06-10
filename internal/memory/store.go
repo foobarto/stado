@@ -421,6 +421,7 @@ func (s *Store) fold() (map[string]Item, error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), MaxEventBytes)
 	line := 0
+	skipped := 0
 	for sc.Scan() {
 		line++
 		raw := strings.TrimSpace(sc.Text())
@@ -429,7 +430,12 @@ func (s *Store) fold() (map[string]Item, error) {
 		}
 		var ev event
 		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
-			return nil, fmt.Errorf("memory store: parse line %d: %w", line, err)
+			// R8: a single malformed line must not brick the whole store
+			// (and with it every memory + learning command, including the
+			// recovery surface). Skip it and keep folding the rest.
+			fmt.Fprintf(os.Stderr, "memory store: skipping malformed line %d in %s: %v\n", line, s.Path, err)
+			skipped++
+			continue
 		}
 		if ev.Type != eventType {
 			continue
@@ -444,7 +450,10 @@ func (s *Store) fold() (map[string]Item, error) {
 		switch ev.Action {
 		case "propose", "upsert", "edit":
 			if ev.Item == nil {
-				return nil, fmt.Errorf("memory store: line %d %s event missing item", line, ev.Action)
+				// Structurally invalid event — skip rather than abort (R8).
+				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (%s event missing item) in %s\n", line, ev.Action, s.Path)
+				skipped++
+				continue
 			}
 			items[id] = *ev.Item
 		case "approve":
@@ -479,6 +488,9 @@ func (s *Store) fold() (map[string]Item, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("memory store: scan append log: %w", err)
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "memory store: %d malformed line(s) skipped in %s — manual inspection recommended\n", skipped, s.Path)
 	}
 	return items, nil
 }
