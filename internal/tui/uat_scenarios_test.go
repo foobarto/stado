@@ -271,14 +271,15 @@ func TestUAT_SidebarResizeShortcuts(t *testing.T) {
 	m.state = stateIdle
 	start := m.sidebarPreferredWidth()
 
+	// C-x [ widens, C-x ] narrows (reversed mapping).
 	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	_, _ = m.Update(tea.KeyPressMsg{Text: "]"})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "["})
 	if got := m.sidebarPreferredWidth(); got <= start {
-		t.Fatalf("sidebar width = %d, want > %d after widen chord", got, start)
+		t.Fatalf("sidebar width = %d, want > %d after widen chord (C-x [)", got, start)
 	}
 
 	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	_, _ = m.Update(tea.KeyPressMsg{Text: "["})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "]"})
 	if got := m.sidebarPreferredWidth(); got != start {
 		t.Fatalf("sidebar width = %d, want %d after widen+narrow round-trip", got, start)
 	}
@@ -291,8 +292,9 @@ func TestUAT_SidebarResizeReopensAndClamps(t *testing.T) {
 	m.sidebarOpen = false
 	m.sidebarWidth = m.sidebarMinWidth()
 
+	// C-x ] narrows; from the minimum it must clamp (and reopen).
 	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	_, _ = m.Update(tea.KeyPressMsg{Text: "["})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "]"})
 	if !m.sidebarOpen {
 		t.Fatal("resize chord should reopen the sidebar")
 	}

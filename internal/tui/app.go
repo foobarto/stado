@@ -88,6 +88,9 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
+	if cfg.TUI.SidebarWidth > 0 {
+		m.sidebarWidth = cfg.TUI.SidebarWidth // restore the persisted width
+	}
 	m.applyConfiguredThinkingDisplay(cfg)
 	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
 		notices = append(notices, fmt.Sprintf(

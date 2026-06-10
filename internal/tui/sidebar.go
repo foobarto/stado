@@ -16,6 +16,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/version"
 )
@@ -83,8 +84,24 @@ func (m *Model) resizeSidebar(delta int) {
 	if width > maxW {
 		width = maxW
 	}
+	changed := width != m.sidebarWidth
 	m.sidebarWidth = width
 	m.sidebarOpen = true
+	// Only rewrite config.toml when the width actually moved — repeated
+	// presses against the min/max boundary shouldn't hammer the file.
+	if changed {
+		m.persistSidebarWidth()
+	}
+}
+
+// persistSidebarWidth saves the current sidebar width to [tui].sidebar_width
+// so it survives across sessions. Best-effort: a write failure is silent
+// (the resize still applies this session).
+func (m *Model) persistSidebarWidth() {
+	if m.cfg == nil || m.cfg.ConfigPath == "" {
+		return
+	}
+	_ = config.WriteTUISidebarWidth(m.cfg.ConfigPath, m.sidebarWidth)
 }
 
 func (m *Model) renderSidebar(width int) string {
