@@ -461,13 +461,23 @@ func renderRow(width int, c Command, selected bool) string {
 	if c.Shortcut != "" {
 		rightCol = c.Name + "  " + c.Shortcut
 	}
-	padded := rowTwoCol(width, c.Desc, rightCol)
 
 	if selected {
+		// Build the line from PLAIN text + plain padding and wrap the whole
+		// thing in the Primary highlight, so every cell (including the gap)
+		// is uniformly highlighted. rowTwoCol paints its gap with the modal
+		// background — using it here would punch a dark strip through the
+		// selection highlight.
+		desc := c.Desc
+		if lipgloss.Width(desc)+lipgloss.Width(rightCol)+1 > width {
+			budget := max(width-lipgloss.Width(rightCol)-2, 3)
+			desc = truncateVisible(desc, budget)
+		}
+		pad := max(width-lipgloss.Width(desc)-lipgloss.Width(rightCol), 1)
 		return lipgloss.NewStyle().
 			Background(theme.Primary).
 			Foreground(theme.Background).
-			Render(padded)
+			Render(desc + strings.Repeat(" ", pad) + rightCol)
 	}
 	// Split styling: command id in text_secondary, shortcut in muted
 	// so the keybind pops while the name stays visible. Every span (and
