@@ -223,20 +223,22 @@ func (s *Server) maybeEmitContextWarning(sessionID string, inputTokens int) {
 	if cap <= 0 || inputTokens <= 0 {
 		return
 	}
-	// R9: 0 disables the gate (per docs) — config.Load already applied the
-	// default when the key was unset, so a 0 here is an explicit disable.
-	soft := s.Cfg.Context.SoftThreshold
-	if soft <= 0 {
-		return // soft advisory disabled
-	}
+	// R9: the soft advisory and the hard block are INDEPENDENT knobs — 0
+	// disables that one gate only (per docs). config.Load already applied the
+	// default when a key was unset, so a 0 here is an explicit disable.
+	// Evaluate both so soft=0 + hard>0 still emits the hard event.
 	fraction := float64(inputTokens) / float64(cap)
-	if fraction < soft {
-		return
-	}
-	level := "soft"
+	soft := s.Cfg.Context.SoftThreshold
 	hard := s.Cfg.Context.HardThreshold
+	level := ""
+	if soft > 0 && fraction >= soft {
+		level = "soft"
+	}
 	if hard > 0 && fraction >= hard {
 		level = "hard"
+	}
+	if level == "" {
+		return
 	}
 	_ = s.conn.Notify("session.update", map[string]any{
 		"sessionId":    sessionID,

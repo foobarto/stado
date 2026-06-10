@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -70,7 +71,10 @@ var auditVerifyCmd = &cobra.Command{
 			} {
 				head, err := sc.ResolveRef(refPair.ref(id))
 				if err != nil {
-					continue // ref may not exist yet
+					if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+						return fmt.Errorf("audit verify: resolve %s: %w", refPair.ref(id), err)
+					}
+					continue // ref legitimately doesn't exist yet
 				}
 				found = true
 				w := audit.NewWalker(sc.Repo().Storer, pub)

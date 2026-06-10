@@ -460,7 +460,11 @@ var sessionShowCmd = &cobra.Command{
 		// exist as refs only (worktree pruned), so accept either — but error
 		// when neither a worktree nor any session refs are present.
 		if _, statErr := os.Stat(wt); statErr != nil {
-			if hasRefs, _ := sc.SessionHasRefs(id); !hasRefs {
+			hasRefs, refErr := sc.SessionHasRefs(id)
+			if refErr != nil {
+				return fmt.Errorf("show: %w", refErr) // surface real errors, don't mask as not-found
+			}
+			if !hasRefs {
 				return fmt.Errorf("show: session %s not found (no worktree or refs)", id)
 			}
 		}
