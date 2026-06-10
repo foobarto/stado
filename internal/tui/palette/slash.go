@@ -271,21 +271,21 @@ func (m *Model) InlineView(maxWidth int) string {
 
 func (m *Model) renderInlineBody(innerW int) string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Slash commands")
-	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("enter run  esc")
+	bg := lipgloss.NewStyle().Background(theme.Background)
+	title := bg.Foreground(theme.Text).Bold(true).Render("Slash commands")
+	hints := bg.Foreground(theme.Muted).Render("enter run  esc")
 	b.WriteString(rowTwoCol(innerW, title, hints))
 	b.WriteString("\n")
 
-	cursor := lipgloss.NewStyle().
-		Foreground(theme.Text).
+	cursor := bg.Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	query := lipgloss.NewStyle().Foreground(theme.Text).Render("/" + m.Query)
+	query := bg.Foreground(theme.Text).Render("/" + m.Query)
 	b.WriteString(query + cursor)
 	b.WriteString("\n")
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no matches"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no matches"))
 		return b.String()
 	}
 	limit := minInt(len(m.Matches), 6)
@@ -313,8 +313,7 @@ func (m *Model) renderInlineBody(innerW int) string {
 			if i > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString(lipgloss.NewStyle().
-				Foreground(theme.Secondary).
+			b.WriteString(bg.Foreground(theme.Secondary).
 				Bold(true).
 				Render("  "+group) + "\n")
 			lastGroup = group
@@ -333,19 +332,19 @@ func (m *Model) renderInlineBody(innerW int) string {
 // derived from the screen height instead of a fixed cap.
 func (m *Model) renderBody(innerW, maxListRows int) string {
 	var b strings.Builder
+	bg := lipgloss.NewStyle().Background(theme.Background)
 
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Commands")
-	esc := lipgloss.NewStyle().Foreground(theme.Muted).Render("esc")
+	title := bg.Foreground(theme.Text).Bold(true).Render("Commands")
+	esc := bg.Foreground(theme.Muted).Render("esc")
 	b.WriteString(rowTwoCol(innerW, title, esc))
 	b.WriteString("\n\n")
 
 	// Search input line.
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render("Search")
-	cursor := lipgloss.NewStyle().
-		Foreground(theme.Text).
+	searchLabel := bg.Foreground(theme.Text).Render("Search")
+	cursor := bg.Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -355,7 +354,7 @@ func (m *Model) renderBody(innerW, maxListRows int) string {
 
 	// Grouped list.
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("no matches"))
 		return b.String()
 	}
@@ -385,14 +384,14 @@ func (m *Model) renderListLines(innerW int) ([]string, int) {
 		return lines, cursorLine
 	}
 
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	groupedList := groupMatches(m.Matches)
 	flatIdx := 0
 	for gi, g := range groupedList {
 		if gi > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(theme.Secondary).
+		lines = append(lines, bg.Foreground(theme.Secondary).
 			Bold(true).
 			Render(g.name))
 		for _, c := range g.items {
@@ -462,25 +461,39 @@ func renderRow(width int, c Command, selected bool) string {
 	if c.Shortcut != "" {
 		rightCol = c.Name + "  " + c.Shortcut
 	}
-	padded := rowTwoCol(width, c.Desc, rightCol)
 
 	if selected {
+		// Build the line from PLAIN text + plain padding and wrap the whole
+		// thing in the Primary highlight, so every cell (including the gap)
+		// is uniformly highlighted. rowTwoCol paints its gap with the modal
+		// background — using it here would punch a dark strip through the
+		// selection highlight.
+		desc := c.Desc
+		if lipgloss.Width(desc)+lipgloss.Width(rightCol)+1 > width {
+			budget := max(width-lipgloss.Width(rightCol)-2, 3)
+			desc = truncateVisible(desc, budget)
+		}
+		pad := max(width-lipgloss.Width(desc)-lipgloss.Width(rightCol), 1)
 		return lipgloss.NewStyle().
 			Background(theme.Primary).
 			Foreground(theme.Background).
-			Render(padded)
+			Render(desc + strings.Repeat(" ", pad) + rightCol)
 	}
 	// Split styling: command id in text_secondary, shortcut in muted
-	// so the keybind pops while the name stays visible.
+	// so the keybind pops while the name stays visible. Every span (and
+	// the padding gap) carries the surface background so the row paints
+	// solid — v2 styles default to no background, which left grey holes
+	// between the foreground-coloured spans inside the dark modal.
+	bg := lipgloss.NewStyle().Background(theme.Background)
 	name := c.Name
 	shortcut := c.Shortcut
 	var right string
 	if shortcut != "" {
-		right = lipgloss.NewStyle().Foreground(theme.Secondary).Render(name) +
-			"  " +
-			lipgloss.NewStyle().Foreground(theme.Muted).Render(shortcut)
+		right = bg.Foreground(theme.Secondary).Render(name) +
+			bg.Render("  ") +
+			bg.Foreground(theme.Muted).Render(shortcut)
 	} else {
-		right = lipgloss.NewStyle().Foreground(theme.Muted).Render(name)
+		right = bg.Foreground(theme.Muted).Render(name)
 	}
 	// Truncate the description when desc+right would overflow, mirroring
 	// rowTwoCol (the selected-row path). Without this, a long row exceeds
@@ -495,8 +508,8 @@ func renderRow(width int, c Command, selected bool) string {
 		desc = truncateVisible(desc, budget)
 	}
 	pad := max(width-lipgloss.Width(desc)-lipgloss.Width(rightCol), 1)
-	return lipgloss.NewStyle().Foreground(theme.Text).Render(desc) +
-		strings.Repeat(" ", pad) +
+	return bg.Foreground(theme.Text).Render(desc) +
+		bg.Render(strings.Repeat(" ", pad)) +
 		right
 }
 
@@ -519,7 +532,10 @@ func rowTwoCol(width int, left, right string) string {
 	if pad < 1 {
 		pad = 1
 	}
-	return left + strings.Repeat(" ", pad) + right
+	// Paint the padding gap with the modal background so the header /
+	// search rows don't show a grey hole between the two columns.
+	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
+	return left + gap + right
 }
 
 func truncateVisible(s string, width int) string {

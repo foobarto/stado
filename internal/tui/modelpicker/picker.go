@@ -241,19 +241,24 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 
 func (m *Model) renderBody(innerW, maxRows int) string {
 	var b strings.Builder
+	// Base style carrying the modal background. Every foreground-coloured
+	// cell inside the modal must derive from this — v2 lipgloss styles
+	// default to no background, so a bare .Foreground(...) span emits a
+	// reset that punches grey holes through the dark modal (between
+	// columns, after short text). Match the outer modal's .Background.
+	bg := lipgloss.NewStyle().Background(theme.Background)
 
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select a model")
-	hints := lipgloss.NewStyle().Foreground(theme.Muted).Render("ctrl+a setup  ctrl+f favorite  esc")
+	title := bg.Foreground(theme.Text).Bold(true).Render("Select a model")
+	hints := bg.Foreground(theme.Muted).Render("ctrl+a setup  ctrl+f favorite  esc")
 	b.WriteString(rowTwoCol(innerW, title, hints))
 	b.WriteString("\n\n")
 
 	// Search input line (same shape as palette).
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render("Search")
-	cursor := lipgloss.NewStyle().
-		Foreground(theme.Text).
+	searchLabel := bg.Foreground(theme.Text).Render("Search")
+	cursor := bg.Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -262,7 +267,7 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 	b.WriteString("\n\n")
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no matches"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no matches"))
 		return b.String()
 	}
 
@@ -289,7 +294,7 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 	}
 
 	if start > 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render(fmt.Sprintf("↑ %d more above", start)))
 		b.WriteString("\n")
 	}
@@ -303,7 +308,7 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 		// Insert a horizontal rule the first time we transition from
 		// favorite → non-favorite within the visible window.
 		if prevWasFav && !it.Favorite {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+			b.WriteString(bg.Foreground(theme.Muted).
 				Render(strings.Repeat("─", maxInt(innerW, 1))))
 			b.WriteString("\n")
 		}
@@ -333,21 +338,48 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 		if it.Recent {
 			right += "  recent"
 		}
-		padded := rowTwoCol(innerW, left, right)
 		if isSel {
+			// Build the selected line from PLAIN text + plain padding and
+			// wrap the whole thing once in the Primary highlight so every
+			// cell (including the inter-column gap) is uniformly
+			// highlighted. Routing through rowTwoCol here would punch a
+			// dark strip through the highlight, because rowTwoCol paints
+			// its gap with the modal background.
+			lw := lipgloss.Width(left)
+			rw := lipgloss.Width(right)
+			if lw+rw+1 > innerW {
+				budget := innerW - rw - 2
+				if budget < 3 {
+					budget = 3
+				}
+				left = truncateVisible(left, budget)
+				lw = lipgloss.Width(left)
+			}
+			pad := maxInt(innerW-lw-rw, 1)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
-				Render(padded))
+				Render(left + strings.Repeat(" ", pad) + right))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(left) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)) +
-				lipgloss.NewStyle().Foreground(theme.Muted).Render(right))
+			lw := lipgloss.Width(left)
+			rw := lipgloss.Width(right)
+			if lw+rw+1 > innerW {
+				budget := innerW - rw - 2
+				if budget < 3 {
+					budget = 3
+				}
+				left = truncateVisible(left, budget)
+				lw = lipgloss.Width(left)
+			}
+			pad := maxInt(innerW-lw-rw, 1)
+			b.WriteString(bg.Foreground(theme.Text).Render(left) +
+				bg.Render(strings.Repeat(" ", pad)) +
+				bg.Foreground(theme.Muted).Render(right))
 		}
 		b.WriteString("\n")
 	}
 	if end < total {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render(fmt.Sprintf("↓ %d more below", total-end)))
 		b.WriteString("\n")
 	}
@@ -371,7 +403,10 @@ func rowTwoCol(width int, left, right string) string {
 	if pad < 1 {
 		pad = 1
 	}
-	return left + strings.Repeat(" ", pad) + right
+	// Paint the padding gap with the modal background so the header row
+	// doesn't show a grey hole between the two columns.
+	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
+	return left + gap + right
 }
 
 func truncateVisible(s string, width int) string {

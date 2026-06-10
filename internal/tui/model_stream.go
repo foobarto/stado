@@ -1420,10 +1420,26 @@ func (m *Model) renderContextStatus() string {
 // user-invoked only, explicit confirmation required before msgs is
 // replaced.
 func (m *Model) startCompaction() tea.Cmd {
-	if m.state != stateIdle {
-		m.appendBlock(block{kind: "system", body: "compaction: busy — wait for the current turn to finish"})
+	// Block compaction only while a turn is genuinely in flight, or while
+	// another summary is already pending. A turn that ERRORED — e.g. a
+	// context-overflow 400 from the provider — leaves the model in
+	// stateError, and that is exactly when the user needs to compact to
+	// recover. The previous gate refused anything != stateIdle, which
+	// deadlocked the session: the failed turn left stateError, /compact
+	// reported "busy — wait for the current turn to finish" (though nothing
+	// was running), and there was no way out. compactRequest truncates tool
+	// content, so the summary request fits even when the live context
+	// overflowed the model.
+	switch m.state {
+	case stateStreaming:
+		m.appendBlock(block{kind: "system", body: "compaction: busy — wait for the current turn to finish (Ctrl+G interrupts)"})
+		return nil
+	case stateCompactionPending, stateCompactionEditing:
+		m.appendBlock(block{kind: "system", body: "compaction: a summary is already pending — accept or discard it first"})
 		return nil
 	}
+	// stateIdle or stateError: clear any prior error and proceed.
+	m.errorMsg = ""
 	if !m.ensureProvider() {
 		return nil
 	}

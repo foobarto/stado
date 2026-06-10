@@ -154,18 +154,22 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 
 func (m *Model) renderBody(innerW int) string {
 	var b strings.Builder
+	// Base style carrying the modal background so every painted cell fills
+	// solid. v2 lipgloss styles default to no background, so a bare
+	// Foreground(...) span emits a reset that punches a grey hole through the
+	// dark modal — between columns, after short text, on empty trailing.
+	bg := lipgloss.NewStyle().Background(theme.Background)
 
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).Render("Select theme")
-	esc := lipgloss.NewStyle().Foreground(theme.Muted).Render("esc")
+	title := bg.Foreground(theme.Text).Bold(true).Render("Select theme")
+	esc := bg.Foreground(theme.Muted).Render("esc")
 	b.WriteString(rowTwoCol(innerW, title, esc))
 	b.WriteString("\n\n")
 
-	searchLabel := lipgloss.NewStyle().Foreground(theme.Text).Render("Search")
-	cursor := lipgloss.NewStyle().
-		Foreground(theme.Text).
+	searchLabel := bg.Foreground(theme.Text).Render("Search")
+	cursor := bg.Foreground(theme.Text).
 		Background(theme.Primary).
 		Render(" ")
-	queryDisplay := lipgloss.NewStyle().Foreground(theme.Text).Render(m.Query)
+	queryDisplay := bg.Foreground(theme.Text).Render(m.Query)
 	if m.Query == "" {
 		b.WriteString(searchLabel + cursor)
 	} else {
@@ -174,7 +178,7 @@ func (m *Model) renderBody(innerW int) string {
 	b.WriteString("\n\n")
 
 	if len(m.Matches) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("no themes"))
+		b.WriteString(bg.Foreground(theme.Muted).Render("no themes"))
 		return b.String()
 	}
 
@@ -185,16 +189,21 @@ func (m *Model) renderBody(innerW int) string {
 			left = "* " + left
 		}
 		right := strings.TrimSpace(it.Mode + "  " + it.Desc)
-		padded := rowTwoCol(innerW, left, right)
 		if isSel {
+			// Build the line from PLAIN text + plain padding and wrap the
+			// whole thing in the Primary highlight, so every cell (including
+			// the gap) is uniformly highlighted. Routing through rowTwoCol
+			// here would paint the gap with the modal background — punching a
+			// dark strip through the selection.
+			pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
-				Render(padded))
+				Render(left + strings.Repeat(" ", pad) + right))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(left) +
-				strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)) +
-				lipgloss.NewStyle().Foreground(theme.Muted).Render(right))
+			b.WriteString(bg.Foreground(theme.Text).Render(left) +
+				bg.Render(strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1))) +
+				bg.Foreground(theme.Muted).Render(right))
 		}
 		b.WriteString("\n")
 	}
@@ -216,7 +225,10 @@ func rowTwoCol(width int, left, right string) string {
 	if pad < 1 {
 		pad = 1
 	}
-	return left + strings.Repeat(" ", pad) + right
+	// Paint the padding gap with the modal background so the header / search
+	// rows don't show a grey hole between the two columns.
+	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
+	return left + gap + right
 }
 
 func truncateVisible(s string, width int) string {

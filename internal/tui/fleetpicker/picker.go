@@ -158,16 +158,17 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 
 func (m *Model) renderBody(innerW, maxRows int) string {
 	var b strings.Builder
+	bg := lipgloss.NewStyle().Background(theme.Background)
 
-	title := lipgloss.NewStyle().Foreground(theme.Text).Bold(true).
+	title := bg.Foreground(theme.Text).Bold(true).
 		Render("Background agents")
-	hints := lipgloss.NewStyle().Foreground(theme.Muted).
+	hints := bg.Foreground(theme.Muted).
 		Render("enter view  ctrl+x cancel  ctrl+d remove  esc close")
 	b.WriteString(rowTwoCol(innerW, title, hints))
 	b.WriteString("\n\n")
 
 	if len(m.Items) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render("no background agents — `/spawn <prompt>` to start one"))
 		return b.String()
 	}
@@ -191,7 +192,7 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 		}
 	}
 	if start > 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render(fmt.Sprintf("↑ %d more above", start)))
 		b.WriteString("\n")
 	}
@@ -205,19 +206,19 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 				Foreground(theme.Background).
 				Render(row))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(theme.Text).Render(row))
+			b.WriteString(bg.Foreground(theme.Text).Render(row))
 		}
 		b.WriteString("\n")
 	}
 	if end < total {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render(fmt.Sprintf("↓ %d more below", total-end)))
 		b.WriteString("\n")
 	}
 	// Detail pane for the selected entry.
 	if sel := m.Selected(); sel != nil {
 		b.WriteString("\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).
+		b.WriteString(bg.Foreground(theme.Muted).
 			Render(strings.Repeat("─", maxInt(innerW, 1))))
 		b.WriteString("\n")
 		b.WriteString(renderEntryDetail(*sel, innerW))
@@ -266,31 +267,32 @@ func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 
 func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Prompt: "))
-	b.WriteString(truncate(singleLineSafe(e.Prompt), maxInt(innerW-8, 30)))
+	bg := lipgloss.NewStyle().Background(theme.Background)
+	b.WriteString(bg.Foreground(theme.Muted).Render("Prompt: "))
+	b.WriteString(bg.Foreground(theme.Text).Render(truncate(singleLineSafe(e.Prompt), maxInt(innerW-8, 30))))
 	b.WriteString("\n")
 	if e.SessionID != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Session: "))
-		b.WriteString(singleLineSafe(e.SessionID))
+		b.WriteString(bg.Foreground(theme.Muted).Render("Session: "))
+		b.WriteString(bg.Foreground(theme.Text).Render(singleLineSafe(e.SessionID)))
 		b.WriteString("\n")
 	}
 	if e.LastText != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Last text: "))
-		b.WriteString(truncate(singleLineSafe(e.LastText), maxInt(innerW-12, 30)))
+		b.WriteString(bg.Foreground(theme.Muted).Render("Last text: "))
+		b.WriteString(bg.Foreground(theme.Text).Render(truncate(singleLineSafe(e.LastText), maxInt(innerW-12, 30))))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusError && e.Error != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Error: "))
+		b.WriteString(bg.Foreground(theme.Muted).Render("Error: "))
 		// Copilot review #62: pre-this-fix Error wasn't ReplaceAll'd
 		// either, so a multi-line error already broke the row layout
 		// before the security fix touched it. singleLineSafe now
 		// applies uniformly to every field so words stay readable.
-		b.WriteString(truncate(singleLineSafe(e.Error), maxInt(innerW-8, 30)))
+		b.WriteString(bg.Foreground(theme.Text).Render(truncate(singleLineSafe(e.Error), maxInt(innerW-8, 30))))
 		b.WriteString("\n")
 	}
 	if e.Status == runtime.FleetStatusCompleted && e.Result != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(theme.Muted).Render("Result: "))
-		b.WriteString(truncate(textutil.StripControlChars(e.Result), maxInt(innerW-9, 30)))
+		b.WriteString(bg.Foreground(theme.Muted).Render("Result: "))
+		b.WriteString(bg.Foreground(theme.Text).Render(truncate(textutil.StripControlChars(e.Result), maxInt(innerW-9, 30))))
 		b.WriteString("\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -300,7 +302,10 @@ func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 // cross-package dep. innerW is the modal's content width.
 func rowTwoCol(innerW int, left, right string) string {
 	pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
-	return left + strings.Repeat(" ", pad) + right
+	// Paint the padding gap with the modal background so the header row
+	// doesn't show a grey hole between the two columns.
+	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
+	return left + gap + right
 }
 
 func clampInt(v, lo, hi int) int {

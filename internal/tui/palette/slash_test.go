@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/foobarto/stado/internal/tui/theme"
 )
 
 // TestRenderRow_RespectsWidth pins the palette-junk bug: the non-selected
@@ -308,5 +310,28 @@ func TestGroupMatches_StableOrder(t *testing.T) {
 	}
 	if len(groups[0].items) != 2 {
 		t.Errorf("Quick group should have 2 items, got %d", len(groups[0].items))
+	}
+}
+
+// TestRenderRow_SelectedRowFullyHighlighted guards a review finding: the
+// selected row must be uniformly painted with the Primary highlight. A
+// prior version built the line via rowTwoCol, which embeds the modal
+// background in the inter-column gap — that escape punched a dark
+// (non-highlighted) strip through the middle of the selected row.
+func TestRenderRow_SelectedRowFullyHighlighted(t *testing.T) {
+	th := theme.Default()
+	th.Colors.Primary = "#aa0000"    // RGB(170,0,0) → bg "48;2;170;0;0"
+	th.Colors.Background = "#0000bb" // RGB(0,0,187) → bg "48;2;0;0;187"
+	theme.Apply(th)
+	t.Cleanup(func() { theme.Apply(theme.Default()) })
+
+	row := renderRow(60, Command{Name: "/theme", Desc: "switch theme", Shortcut: "ctrl+x t"}, true)
+
+	if !strings.Contains(row, "48;2;170;0;0") {
+		t.Errorf("selected row missing the Primary highlight background:\n%q", row)
+	}
+	if strings.Contains(row, "48;2;0;0;187") {
+		t.Errorf("selected row contains the modal background — a dark strip "+
+			"punches through the highlight:\n%q", row)
 	}
 }
