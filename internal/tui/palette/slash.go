@@ -45,6 +45,7 @@ var Commands = []Command{
 	{"/todo", "Add a todo (/todo <title>) or open the task picker", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
+	{"/reload", "Re-read config from disk (tools, system prompt, persona, display) without restarting", "", "Session"},
 	{"/memory", "Show or toggle prompt memory for this session (/memory on|off)", "", "Session"},
 	{"/providers", "List active provider + any local runners detected on this machine", "", "Session"},
 	{"/plugin", "Run a signed wasm plugin — /plugin to list, /plugin:<name> <tool> [json] (append -<ver> to pin)", "", "Session"},

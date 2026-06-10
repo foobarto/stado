@@ -248,6 +248,16 @@ func (c *Client) Shutdown(ctx context.Context, force bool, reason string) error 
 	return c.Call(ctx, MethodShutdown, ShutdownParams{Force: force, Reason: reason}, &res)
 }
 
+// Reload asks the daemon to re-read config and rebuild its tool registry
+// in place (without dropping live PTY/LSP/browser state).
+func (c *Client) Reload(ctx context.Context) (*ReloadResult, error) {
+	var res ReloadResult
+	if err := c.Call(ctx, MethodReload, nil, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // ToolCall dispatches a tool. Returns the daemon's ToolCallResult — the
 // caller decides how to render Content/Error to its own output.
 func (c *Client) ToolCall(ctx context.Context, params ToolCallParams) (*ToolCallResult, error) {

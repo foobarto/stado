@@ -535,3 +535,52 @@ func TestReadFramedLine_NormalFrame(t *testing.T) {
 		t.Errorf("body lost: %q", line)
 	}
 }
+
+// TestReload exercises the daemon.reload IPC: the server invokes the
+// ServerOpts.Reload callback and returns the tool count to the client.
+func TestReload(t *testing.T) {
+	calls := 0
+	_, c, teardown := startTestServer(t, ServerOpts{
+		Reload: func() (int, error) { calls++; return 7, nil },
+	})
+	defer teardown()
+
+	res, err := c.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if res.ToolCount != 7 || res.Error != "" {
+		t.Fatalf("got %+v, want ToolCount=7 Error=''", res)
+	}
+	if calls != 1 {
+		t.Fatalf("Reload callback invoked %d times, want 1", calls)
+	}
+}
+
+// TestReloadError: a rebuild failure is reported in res.Error (the client
+// call itself still succeeds), so the old registry can be kept.
+func TestReloadError(t *testing.T) {
+	_, c, teardown := startTestServer(t, ServerOpts{
+		Reload: func() (int, error) { return 0, errors.New("bad config") },
+	})
+	defer teardown()
+
+	res, err := c.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("Reload transport error: %v", err)
+	}
+	if res.Error == "" {
+		t.Fatal("expected res.Error to carry the rebuild failure")
+	}
+}
+
+// TestReloadNotSupported: a daemon without a Reload callback returns
+// MethodNotFound rather than silently succeeding.
+func TestReloadNotSupported(t *testing.T) {
+	_, c, teardown := startTestServer(t, ServerOpts{})
+	defer teardown()
+
+	if _, err := c.Reload(context.Background()); err == nil {
+		t.Fatal("expected an error when the daemon has no Reload callback")
+	}
+}
