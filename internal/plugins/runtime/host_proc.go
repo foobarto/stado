@@ -638,6 +638,10 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 		if len(env) > 0 {
 			cmd.Env = env
 		}
+		// Don't let a one-shot child grab the host's controlling terminal
+		// (ssh/sudo password prompts open /dev/tty directly — see
+		// detachControllingTTY).
+		detachControllingTTY(cmd)
 		return cmd, nil
 	}
 	runner := sandbox.Detect()
@@ -671,5 +675,12 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 		CWD:     cwd,
 		Env:     policy.Env,
 	}
-	return runner.Command(ctx, p, argv[0], argv[1:], env)
+	cmd, err := runner.Command(ctx, p, argv[0], argv[1:], env)
+	if err == nil && cmd != nil {
+		// Sandbox wrappers don't always start a new session; detach the
+		// controlling tty here too so /dev/tty-grabbing children can't
+		// corrupt the TUI through the sandbox.
+		detachControllingTTY(cmd)
+	}
+	return cmd, err
 }
