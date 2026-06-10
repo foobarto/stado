@@ -94,6 +94,7 @@ func (m *Model) renderStatus(width int) string {
 		"Budget":       m.budgetWarning(),
 		"Elapsed":      elapsed,
 		"Persona":      m.personaName(),
+		"Daemon":       m.daemonStatusLabel(),
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)

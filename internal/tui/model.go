@@ -363,6 +363,12 @@ type Model struct {
 	helpScroll int
 	showStatus bool
 
+	// daemonHealth is the TUI's cached daemon reachability, refreshed by a
+	// periodic non-blocking probe (see daemon_health.go) and shown in the
+	// status bar. Informational only — the TUI turn loop is daemon-
+	// independent.
+	daemonHealth daemonHealthState
+
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only
 	// response). Tab toggles.
@@ -1009,5 +1015,9 @@ func (m *Model) Init() tea.Cmd {
 	// fresh tick command. The window title itself is now a field on
 	// the tea.View returned each frame by View() (computeTitle), so
 	// there is no initial SetWindowTitle command to send.
-	return titleTickCmd()
+	//
+	// Also kick the daemon-health probe chain (daemon_health.go): one
+	// immediate probe plus the periodic tick, so the status bar shows
+	// daemon reachability from the first frames.
+	return tea.Batch(titleTickCmd(), probeDaemonCmd(), daemonProbeTickCmd())
 }

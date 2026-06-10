@@ -34,6 +34,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onWindowSize(m, msg)
 	case titleTickMsg:
 		return onTitleTick(m, msg)
+	case daemonProbeTickMsg:
+		return onDaemonProbeTick(m, msg)
+	case daemonHealthMsg:
+		return onDaemonHealth(m, msg)
 
 	case streamEventMsg:
 		return onStreamEvent(m, msg)
