@@ -40,7 +40,35 @@ func (m *Model) renderInputBox(mainW int) string {
 		pickerPrefix = m.filePicker.View(mainW-4) + "\n"
 	}
 
-	body := pickerPrefix + m.input.View() + "\n" + strings.TrimRight(inline, "\n")
+	// The v2 textarea renders its filler rows (the empty space below the
+	// content, up to its set height) with Inline-styled end-of-buffer
+	// cells that leave background holes the surrounding box can't repaint
+	// — so the waiting/short-input states showed grey filler rows. Keep
+	// the painted content rows and swap the holey filler for clean empty
+	// lines, which lipgloss fills with the box's surface background.
+	taView := m.input.View()
+	taLines := strings.Split(taView, "\n")
+	if content := m.input.Model.LineCount(); content >= 1 && content < len(taLines) {
+		clean := append([]string(nil), taLines[:content]...)
+		for range taLines[content:] {
+			clean = append(clean, "")
+		}
+		taView = strings.Join(clean, "\n")
+	}
+
+	// The inline status row ("Do · model · provider") is built from
+	// foreground-only template spans and is shorter than the frame, so the
+	// box can't fill the trailing area past its reset — leaving a grey
+	// strip on the right of that row. Pad it to the content width with the
+	// surface background so the row reads solid.
+	inlineLine := strings.TrimRight(inline, "\n")
+	if innerW := mainW - 3; innerW > 0 { // 1 border + 2 padding
+		if w := lipgloss.Width(inlineLine); w < innerW {
+			inlineLine += m.theme.Bg("surface").Render(strings.Repeat(" ", innerW-w))
+		}
+	}
+
+	body := pickerPrefix + taView + "\n" + inlineLine
 
 	style := m.theme.Bg("surface").
 		Border(lipgloss.Border{Left: "│"}, false, false, false, true).
