@@ -47,7 +47,13 @@ func (m *Model) renderInputBox(mainW int) string {
 		BorderForeground(m.theme.Fg(m.inputBorderTone()).GetForeground()).
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1).
-		Width(mainW)
+		Width(mainW).
+		// Hard-clamp to the allotted width so the box can never push past
+		// the terminal edge. Needed since the textarea now paints its
+		// trailing cells with the surface background (so they're no longer
+		// trimmed as bare whitespace) — without this a 1-col trailing pad
+		// can tip a narrow terminal's input box over budget.
+		MaxWidth(mainW)
 	return style.Render(body) + "\n"
 }
 

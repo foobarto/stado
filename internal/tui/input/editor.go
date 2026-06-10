@@ -73,9 +73,17 @@ func (e *Editor) ApplyTheme() {
 
 func applyThemeToTextArea(ta *textarea.Model) {
 	s := ta.Styles()
-	s.Focused.Prompt = lipgloss.NewStyle().Foreground(theme.Primary)
-	s.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text)
-	s.Focused.CursorLine = lipgloss.NewStyle()
+	// Every cell the textarea paints — text, the empty area below it, the
+	// cursor line, placeholder, and the end-of-buffer filler — must carry
+	// the surface background, otherwise the editor area shows through with
+	// the terminal default (grey) inside the dark input frame. v2's
+	// per-cell styles default to no background; v1 filled it via the base
+	// style, so this regressed silently in the bubbletea-v2 migration.
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(theme.Primary).Background(theme.Surface)
+	s.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface)
+	s.Focused.CursorLine = lipgloss.NewStyle().Background(theme.Surface)
+	s.Focused.Placeholder = s.Focused.Placeholder.Background(theme.Surface)
+	s.Focused.EndOfBuffer = s.Focused.EndOfBuffer.Background(theme.Surface)
 	s.Cursor.Color = theme.Primary
 	// The editor is effectively always focused in the TUI; mirror the
 	// focused styles onto the blurred state (v1 set BlurredStyle =
