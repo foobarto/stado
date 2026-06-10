@@ -72,16 +72,27 @@ func TestRenderHelp_IncludesModeBindingsAndFullPrefixChords(t *testing.T) {
 // migration.
 func TestRenderHelp_FitsHeight(t *testing.T) {
 	reg := keys.NewRegistry()
-	for _, height := range []int{32, 24} {
-		out, scroll := RenderHelp(reg, 120, height, 0)
-		if got := len(strings.Split(out, "\n")); got > height {
-			t.Errorf("height %d: rendered %d lines — overlay doesn't fit the canvas", height, got)
-		}
-		if scroll != 0 {
-			t.Errorf("height %d: scroll 0 should stay 0, got %d", height, scroll)
-		}
-		if !strings.Contains(out, "scroll") {
-			t.Errorf("height %d: windowed overlay missing the scroll footer hint", height)
+	// Width matters as much as height: the budget must count rendered
+	// (post-wrap) rows, not logical lines. Narrow widths wrap the long
+	// slash-command descriptions into multiple rows, and the bottom
+	// window (scroll-to-end) is where those rows live — the original
+	// fix windowed pre-wrap lines and still overflowed once scrolled.
+	for _, width := range []int{120, 100, 80, 40} {
+		for _, height := range []int{32, 24} {
+			for _, scroll := range []int{0, 1 << 30} {
+				out, _ := RenderHelp(reg, width, height, scroll)
+				if got := len(strings.Split(out, "\n")); got > height {
+					t.Errorf("%dx%d scroll=%d: rendered %d lines — overlay doesn't fit the canvas",
+						width, height, scroll, got)
+				}
+			}
+			out, scroll := RenderHelp(reg, width, height, 0)
+			if scroll != 0 {
+				t.Errorf("%dx%d: scroll 0 should stay 0, got %d", width, height, scroll)
+			}
+			if !strings.Contains(out, "scroll") {
+				t.Errorf("%dx%d: windowed overlay missing the scroll footer hint", width, height)
+			}
 		}
 	}
 }

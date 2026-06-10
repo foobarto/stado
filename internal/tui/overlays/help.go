@@ -78,6 +78,17 @@ func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 
 	content := strings.TrimRight(b.String(), "\n")
 
+	// Wrap to the box's inner content width BEFORE windowing, so the
+	// height budget counts rendered terminal rows rather than logical
+	// lines. The final box style re-wraps anything wider than its
+	// content area (width-2 total − 2 border − 4 padding), and several
+	// slash-command descriptions are wider than a typical terminal —
+	// windowing pre-wrap lines let the rendered box blow the budget
+	// and the v2 compositor clipped the footer + bottom border.
+	if innerW := width - 8; innerW > 0 {
+		content = lipgloss.NewStyle().Width(innerW).Render(content)
+	}
+
 	// Window the content when it can't fit the canvas. Box chrome:
 	// border (2) + Padding(1, 2) vertical (2) = 4 rows; one more body
 	// row is reserved for the scroll-position footer.
@@ -86,9 +97,17 @@ func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 	if budget := height - 4; height > 0 && len(lines) > budget {
 		visible := max(budget-1, 1)
 		clamped = max(min(scroll, len(lines)-visible), 0)
-		footer := dim.Render(fmt.Sprintf("↑/↓ pgup/pgdn scroll — %d-%d of %d",
-			clamped+1, clamped+visible, len(lines)))
-		content = strings.Join(append(lines[clamped:clamped+visible], footer), "\n")
+		footerText := fmt.Sprintf("↑/↓ pgup/pgdn scroll — %d-%d of %d",
+			clamped+1, clamped+visible, len(lines))
+		// The footer joins the pre-wrapped lines, so it must respect the
+		// inner width itself or it wraps into a second row and blows the
+		// budget by one (seen at width 40).
+		if innerW := width - 8; innerW > 0 {
+			if r := []rune(footerText); len(r) > innerW {
+				footerText = string(r[:innerW])
+			}
+		}
+		content = strings.Join(append(lines[clamped:clamped+visible], dim.Render(footerText)), "\n")
 	}
 
 	return lipgloss.NewStyle().
