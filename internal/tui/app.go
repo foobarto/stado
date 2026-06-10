@@ -93,6 +93,9 @@ func Run(cfg *config.Config, startupNotices []string) error {
 		// config could otherwise drive an out-of-range layout.
 		m.sidebarWidth = m.clampSidebarWidth(cfg.TUI.SidebarWidth)
 	}
+	// #21: configured chrome layout (empty → defaults).
+	m.sidebarSections = normalizeSidebarSections(cfg.TUI.Sidebar.Sections)
+	m.footerSegments = normalizeFooterSegments(cfg.TUI.Footer.Segments)
 	m.applyConfiguredThinkingDisplay(cfg)
 	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
 		notices = append(notices, fmt.Sprintf(

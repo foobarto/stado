@@ -504,6 +504,13 @@ type Model struct {
 	// is still clamped per-frame to fit the current terminal.
 	sidebarWidth int
 
+	// sidebarSections / footerSegments are the configured chrome layout
+	// (#21): ordered section/segment ids controlling what shows + order.
+	// Populated from [tui.sidebar]/[tui.footer] at launch (and /reload),
+	// normalized so an empty config means "use the defaults".
+	sidebarSections []string
+	footerSegments  []string
+
 	// logTail holds a short in-process tail of slog lines captured
 	// while the TUI is active. It is shown in the sidebar so runtime
 	// / plugin diagnostics stop trampling the terminal surface.
