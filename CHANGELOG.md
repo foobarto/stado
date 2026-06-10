@@ -32,7 +32,7 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
-## Unreleased — Bubble Tea v2 (Shift+Enter) + TUI/CLI usability pass
+## v0.60.0 — Bubble Tea v2 (Shift+Enter) + TUI/CLI usability pass — 2026-06-10
 
 ### TUI — Bubble Tea v2 upgrade
 
