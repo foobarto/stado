@@ -71,7 +71,8 @@ wasm: ## Build the bundled wasm if any output is missing or any source changed
 
 .PHONY: changelog
 changelog: ## Regenerate internal/changelog/latest.md from CHANGELOG.md (drift-guarded by a test)
-	@awk '/^## v/{c++} c==1' CHANGELOG.md > internal/changelog/latest.md
+	@awk '/^## v/{c++} c==1' CHANGELOG.md > internal/changelog/latest.md.tmp \
+	  && mv internal/changelog/latest.md.tmp internal/changelog/latest.md
 
 .PHONY: build
 build: wasm changelog ## Compile ./stado (default target)
