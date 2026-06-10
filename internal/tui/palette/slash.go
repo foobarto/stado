@@ -43,6 +43,7 @@ var Commands = []Command{
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/tasks", "Open the shared task manager", "ctrl+x k", "Session"},
 	{"/todo", "Add a todo (/todo <title>) or open the task picker", "", "Session"},
+	{"/queue", "Queue a message to run when the current turn finishes (/queue <msg>)", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/reload", "Re-read config from disk (tools, system prompt, persona, display) without restarting", "", "Session"},

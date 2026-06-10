@@ -271,6 +271,32 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		default:
 			m.appendBlock(block{kind: "system", body: "cancel: no in-flight turn or queued prompt"})
 		}
+	case "/queue":
+		// /queue <msg> — buffer a message to run when the current turn
+		// finishes (the deferred, full-turn counterpart to /steer's
+		// mid-turn injection). Mirrors the type-while-streaming queue
+		// path: a single slot, so re-queuing replaces the prior message.
+		arg := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+		if arg == "" {
+			m.appendBlock(block{kind: "system", body: "usage: /queue <message> — run a message when the current turn finishes"})
+			break
+		}
+		replaced := m.queuedPrompt != ""
+		if replaced {
+			m.clearQueuedUserBlock(true) // drop the prior queued block before re-queuing
+		}
+		m.queuedPrompt = arg
+		m.appendBlock(block{kind: "user", body: arg, queued: true})
+		if m.state == stateStreaming {
+			note := "queued — runs when the current turn finishes"
+			if replaced {
+				note = "queued (replaced the previously queued message) — runs when the current turn finishes"
+			}
+			m.appendBlock(block{kind: "system", body: note})
+			break
+		}
+		// Not mid-turn — nothing to wait for, so run it now.
+		return m.promoteQueuedPrompt()
 	case "/queue-now", "/force":
 		// Force the queued prompt to fire NOW: cancel the current
 		// turn (its cleanup will drain the queue and start the

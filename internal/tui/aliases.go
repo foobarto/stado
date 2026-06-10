@@ -52,6 +52,7 @@ var reservedSlashNames = map[string]bool{
 	"/provider":   true,
 	"/providers":  true,
 	"/ps":         true,
+	"/queue":      true,
 	"/queue-now":  true,
 	"/reload":     true,
 	"/quit":       true,
