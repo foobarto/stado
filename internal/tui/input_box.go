@@ -38,6 +38,10 @@ func (m *Model) renderInputBox(mainW int) string {
 	} else if m.filePicker.Visible && len(m.filePicker.Matches) > 0 {
 		// Leave 2 cols of breathing room inside the border + padding.
 		pickerPrefix = m.filePicker.View(mainW-4) + "\n"
+	} else if hint := m.renderChordHint(mainW - 3); hint != "" { // 1 border + 2 padding, matches inlineLine
+		// A multi-chord prefix (e.g. ctrl+x) is primed — show the possible
+		// second chords so the operator doesn't have to remember them.
+		pickerPrefix = hint + "\n"
 	}
 
 	// The v2 textarea renders its filler rows (the empty space below the
@@ -86,6 +90,11 @@ func (m *Model) renderInputBox(mainW int) string {
 }
 
 func (m *Model) inputBorderTone() string {
+	// While a multi-chord prefix is primed, dim the mode strip so the
+	// operator's eye is drawn to the chord hint above the input.
+	if _, ok := m.keys.PendingPrefix(); ok {
+		return "muted"
+	}
 	switch m.mode {
 	case modePlan:
 		return "role_thinking"
@@ -94,4 +103,50 @@ func (m *Model) inputBorderTone() string {
 	default:
 		return "role_user"
 	}
+}
+
+// renderChordHint draws the chord-continuation hint shown above the input
+// while a multi-chord prefix (e.g. ctrl+x) is primed: the pressed prefix
+// plus each possible next chord and the action it completes, e.g.
+//
+//	ctrl+x  ·  m model · a agents · l sessions · …
+//
+// Returns "" when no prefix is pending. Every span paints the surface
+// background so the hint reads solid inside the input frame.
+func (m *Model) renderChordHint(innerW int) string {
+	pc, ok := m.keys.PendingPrefix()
+	if !ok {
+		return ""
+	}
+	bg := m.theme.Bg("surface")
+	var b strings.Builder
+	b.WriteString(bg.Foreground(m.theme.Fg("accent").GetForeground()).Bold(true).Render(prettyChord(pc.Prefix)))
+	b.WriteString(bg.Foreground(m.theme.Fg("muted").GetForeground()).Render("  ·  "))
+	for i, opt := range pc.Options {
+		if i > 0 {
+			b.WriteString(bg.Foreground(m.theme.Fg("muted").GetForeground()).Render("  "))
+		}
+		b.WriteString(bg.Foreground(m.theme.Fg("text_secondary").GetForeground()).Bold(true).Render(prettyChord(opt.Key)))
+		b.WriteString(bg.Render(" "))
+		b.WriteString(bg.Foreground(m.theme.Fg("muted").GetForeground()).Render(opt.Desc))
+	}
+	line := b.String()
+	// Pad the trailing area so the hint row reads solid like the rest of
+	// the frame. Overflow (a very long option list on a narrow terminal)
+	// is clamped by the input box's MaxWidth.
+	if w := lipgloss.Width(line); w < innerW {
+		line += bg.Render(strings.Repeat(" ", innerW-w))
+	}
+	return line
+}
+
+// prettyChord renders "ctrl+x" as "C-x" and "ctrl+b" as "C-b" for a
+// compact Emacs-style hint; non-ctrl chords (a single letter like "m")
+// pass through unchanged.
+func prettyChord(c string) string {
+	c = strings.TrimSpace(c)
+	if strings.HasPrefix(c, "ctrl+") {
+		return "C-" + strings.TrimPrefix(c, "ctrl+")
+	}
+	return c
 }
