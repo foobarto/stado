@@ -79,6 +79,13 @@ func applyThemeToTextArea(ta *textarea.Model) {
 	// the terminal default (grey) inside the dark input frame. v2's
 	// per-cell styles default to no background; v1 filled it via the base
 	// style, so this regressed silently in the bubbletea-v2 migration.
+	//
+	// Base is the load-bearing one for the WAITING (empty / placeholder)
+	// state: it fills the whole editor area regardless of content, so the
+	// box isn't grey until the user starts typing. The input box clamps
+	// its own width with MaxWidth, so this full-bleed base can't push a
+	// narrow terminal over budget.
+	s.Focused.Base = s.Focused.Base.Background(theme.Surface)
 	s.Focused.Prompt = lipgloss.NewStyle().Foreground(theme.Primary).Background(theme.Surface)
 	s.Focused.Text = lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface)
 	s.Focused.CursorLine = lipgloss.NewStyle().Background(theme.Surface)
