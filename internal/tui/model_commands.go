@@ -1040,6 +1040,14 @@ func (m *Model) handleDescribeSlash(parts []string) {
 // provider/model (use /model), the sandbox ceiling (a security boundary
 // captured at session start — needs a restart), and the session identity.
 func (m *Model) handleConfigReload() tea.Cmd {
+	// A tool call runs on a tea.Cmd goroutine that reads m.executor.Run
+	// (and e.Registry) without locking, so refuse while a turn is streaming
+	// — otherwise swapping the executor/registry here races the in-flight
+	// call. The operator reloads between turns.
+	if m.state == stateStreaming {
+		m.appendBlock(block{kind: "system", body: "/reload: busy — wait for the current turn to finish (a tool may be running)"})
+		return nil
+	}
 	newCfg, err := config.Load()
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "/reload: " + err.Error()})
@@ -1050,7 +1058,12 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	tools := -1
 	if m.executor != nil {
 		if newReg, rerr := runtime.BuildRegistryWithPlugins(newCfg); rerr == nil {
-			m.executor.Registry = newReg
+			// Replace the executor with a fresh copy rather than mutating
+			// its Registry field in place (Executor.Run reads it without
+			// locking).
+			ne := *m.executor
+			ne.Registry = newReg
+			m.executor = &ne
 			tools = len(newReg.All())
 		} else {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
@@ -1062,6 +1075,8 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	m.applyConfiguredThinkingDisplay(newCfg)
 	m.SetContextThresholds(newCfg.Context.SoftThreshold, newCfg.Context.HardThreshold)
 	m.SetBudget(newCfg.Budget.WarnUSD, newCfg.Budget.HardUSD)
+	m.SetBudgetTokens(newCfg.Budget.WarnTokens, newCfg.Budget.HardTokens)
+	m.SetBudgetTokensSplit(newCfg.Budget.WarnInputTokens, newCfg.Budget.HardInputTokens, newCfg.Budget.WarnOutputTokens, newCfg.Budget.HardOutputTokens)
 
 	body := "/reload: config re-read"
 	if tools >= 0 {

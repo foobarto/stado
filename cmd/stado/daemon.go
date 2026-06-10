@@ -388,8 +388,16 @@ func (d *daemonState) reload() (int, error) {
 	d.cfg = newCfg
 	d.registry = newReg
 	if d.executor != nil {
-		d.executor.Registry = newReg
-		d.executor.Model = newCfg.Defaults.Model
+		// Replace the executor with a fresh copy rather than mutating its
+		// fields in place: an in-flight dispatch snapshots the OLD pointer
+		// under projectMu and then reads its Registry/Model from
+		// Executor.Run without locking, so mutating those fields here would
+		// race. Swapping the pointer leaves the in-flight call's executor
+		// immutable.
+		ne := *d.executor
+		ne.Registry = newReg
+		ne.Model = newCfg.Defaults.Model
+		d.executor = &ne
 	}
 	d.projectMu.Unlock()
 	return len(newReg.All()), nil
