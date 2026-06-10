@@ -86,7 +86,10 @@ func TestUAT_TypingDuringStreamingBuildsBuffer(t *testing.T) {
 // to blocks — they see it in the chat. The block appears BEFORE
 // the stream completes (m.msgs add is deferred to drain so the
 // current turn's context window isn't mutated).
-func TestUAT_SubmitWhileStreamingAppendsUserBlock(t *testing.T) {
+// #16: Enter while streaming steers — the message is buffered for
+// mid-turn injection (not added to m.msgs until the next tool boundary)
+// and a steering note appears immediately.
+func TestUAT_SubmitWhileStreamingSteers(t *testing.T) {
 	m := uatModel(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -100,26 +103,29 @@ func TestUAT_SubmitWhileStreamingAppendsUserBlock(t *testing.T) {
 	priorMsgCount := len(m.msgs)
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	// Visible immediately via blocks.
+	// A steering note is visible immediately.
 	if len(m.blocks) == 0 {
-		t.Fatal("blocks empty after queued submit — user message not visible")
+		t.Fatal("blocks empty after steer — note not visible")
 	}
 	last := m.blocks[len(m.blocks)-1]
-	if last.kind != "user" || last.body != "wait check this" {
-		t.Errorf("last block = %+v, want user/'wait check this'", last)
+	if last.kind != "btw" || !contains(last.body, "steering") {
+		t.Errorf("last block = %+v, want a btw steering note", last)
 	}
 
-	// m.msgs UNCHANGED — the current turn's provider context must
-	// not see the queued user message yet. It'll get added on drain
-	// (onTurnComplete) before the next turn starts.
+	// m.msgs UNCHANGED — the steering message is injected at the next
+	// tool boundary (drainSteering), not added to the provider context
+	// at submit time.
 	if len(m.msgs) != priorMsgCount {
-		t.Errorf("msgs grew prematurely: was %d, now %d — queue should defer msgs add to drain",
+		t.Errorf("msgs grew prematurely: was %d, now %d — steering defers the msgs add to the tool boundary",
 			priorMsgCount, len(m.msgs))
 	}
 
-	// Queue state: pending prompt + input cleared.
-	if m.queuedPrompt != "wait check this" {
-		t.Errorf("queuedPrompt = %q", m.queuedPrompt)
+	// Steering state: buffered (not queued) + input cleared.
+	if m.steeringMsg != "wait check this" {
+		t.Errorf("steeringMsg = %q, want %q", m.steeringMsg, "wait check this")
+	}
+	if m.queuedPrompt != "" {
+		t.Errorf("Enter while busy should steer, not queue; queuedPrompt = %q", m.queuedPrompt)
 	}
 	if m.input.Value() != "" {
 		t.Errorf("input should be cleared: %q", m.input.Value())

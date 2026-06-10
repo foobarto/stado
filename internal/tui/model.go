@@ -397,6 +397,12 @@ type Model struct {
 	// message exists). Pi's pattern — lets the user line up "the next
 	// thing to try" without waiting for the model to finish typing.
 	queuedPrompt string
+	// steeringMsg is a message the user injected mid-turn (Enter while
+	// busy, or /steer). Unlike queuedPrompt (which waits for the next
+	// turn), it's drained into the live conversation at the next tool
+	// boundary so the model sees it on its very next round-trip. If the
+	// turn used no tools, onTurnComplete promotes it to queuedPrompt.
+	steeringMsg string
 	// recoveryPrompt is the blocked prompt currently waiting for a
 	// plugin-driven context recovery fork. When the expected plugin
 	// creates a child session, the TUI switches to it and replays this
@@ -416,6 +422,10 @@ type Model struct {
 	// §"Token accounting".
 	ctxSoftThreshold float64
 	ctxHardThreshold float64
+	// softThresholdWarned fires the proactive "context filling up" advisory
+	// once per crossing of the soft threshold (#19); reset when usage drops
+	// back under soft (e.g. after a compaction).
+	softThresholdWarned bool
 
 	// Budget thresholds from config.Budget. Compared against
 	// usage.CostUSD (cumulative across turns).

@@ -189,6 +189,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.blocks = nil
 		m.msgs = nil
 		m.queuedPrompt = ""
+		m.steeringMsg = ""
+		m.softThresholdWarned = false
 		m.turnText = ""
 		m.turnThinking = ""
 		m.turnToolCalls = nil
@@ -271,6 +273,30 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		default:
 			m.appendBlock(block{kind: "system", body: "cancel: no in-flight turn or queued prompt"})
 		}
+	case "/steer":
+		// /steer <msg> — inject into the current turn at the next tool
+		// boundary (#16). From idle it falls back to running immediately.
+		arg := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+		if arg == "" {
+			m.appendBlock(block{kind: "system", body: "usage: /steer <message> — inject a message into the current turn at the next tool boundary"})
+			break
+		}
+		return m.applySteer(arg)
+	case "/queue":
+		// /queue <msg> — defer to the next turn (#17). The deferred,
+		// full-turn counterpart to /steer's mid-turn injection. From
+		// idle there's nothing to wait for, so it runs immediately.
+		arg := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+		if arg == "" {
+			m.appendBlock(block{kind: "system", body: "usage: /queue <message> — run a message when the current turn finishes"})
+			break
+		}
+		return m.applyQueue(arg)
+	case "/interrupt":
+		// /interrupt [msg] — cancel the current turn and run msg now; with
+		// no arg, fire an already-queued prompt now (old ForceQueue role).
+		arg := strings.TrimSpace(strings.TrimPrefix(text, parts[0]))
+		return m.applyInterrupt(arg)
 	case "/queue-now", "/force":
 		// Force the queued prompt to fire NOW: cancel the current
 		// turn (its cleanup will drain the queue and start the

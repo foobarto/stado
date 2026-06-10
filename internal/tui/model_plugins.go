@@ -500,6 +500,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	m.blocks = nil
 	m.todos = nil
 	m.queuedPrompt = ""
+	m.steeringMsg = "" // #16: don't carry a parent-turn steer into the child session
 	m.pendingCalls = nil
 	m.pendingResults = nil
 	m.turnToolCalls = nil

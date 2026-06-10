@@ -6,6 +6,7 @@ package tui
 // rates. See onStreamTick comments.
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -64,12 +65,20 @@ func onStreamTick(m *Model, _ streamTickMsg) (tea.Model, tea.Cmd) {
 }
 
 func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
-	m.state = stateError
-	m.errorMsg = msg.err.Error()
 	m.streamCancel = nil
 	m.streamBufMu.Lock()
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
+
+	// #19: context-overflow errors that arrive synchronously (oaicompat /
+	// minimax) auto-recover here; the EvError-event path (Anthropic family)
+	// recovers in onStreamDone. See tryContextOverflowRecovery.
+	if cmd, ok := m.tryContextOverflowRecovery(msg.err); ok {
+		return m, cmd
+	}
+
+	m.state = stateError
+	m.errorMsg = msg.err.Error()
 	m.appendBlock(block{kind: "system", body: "error: " + msg.err.Error()})
 	m.renderBlocks()
 	return m, nil
@@ -78,6 +87,12 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streamCancel = nil
 	if m.state == stateError {
+		// #19: providers that surface a context overflow as an EvError
+		// stream event (Anthropic family) land here in stateError — give
+		// the auto-compact backstop a chance before dead-ending.
+		if cmd, ok := m.tryContextOverflowRecovery(errors.New(m.errorMsg)); ok {
+			return m, cmd
+		}
 		return m, nil
 	}
 	m.maybeEmitBudgetWarning()

@@ -252,6 +252,9 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 	// next-turn intent still fires.
 	if m.turnCancelled {
 		m.turnCancelled = false
+		// #16: a steering message belonged to the turn the operator just
+		// cancelled — drop it so it can't inject into the next turn.
+		m.steeringMsg = ""
 		// Conversation-history invariant (Copilot review on Cluster R
 		// round 1): the assistant message containing the tool_use
 		// blocks was already persisted by onTurnComplete BEFORE this
@@ -295,6 +298,9 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		m.msgs = append(m.msgs, toolMsg)
 		m.persistMessage(toolMsg)
 	}
+	// #16: this is the "next opportunity" — a steering message injects
+	// here so the model's next round-trip sees it alongside the results.
+	m.drainSteering()
 	m.renderBlocks()
 	return m, m.startStream()
 }

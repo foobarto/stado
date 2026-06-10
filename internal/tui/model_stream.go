@@ -390,6 +390,10 @@ func (m *Model) startStream() tea.Cmd {
 		}
 	}
 
+	// #19: proactively warn once when the context is filling up, before
+	// the turn that might tip it over the hard limit.
+	m.maybeEmitContextWarning()
+
 	// Reset per-turn accumulators.
 	m.turnText = ""
 	m.turnThinking = ""
@@ -550,10 +554,13 @@ func (m *Model) promoteQueuedPrompt() tea.Cmd {
 	}
 	queued := m.queuedPrompt
 	m.queuedPrompt = ""
+	// Unmark the queued block before dispatching — for a slash command we
+	// route to handleSlash and return early, so clearing here (not after)
+	// avoids leaving a permanently queued=true user block in the transcript.
+	m.clearQueuedUserBlock(false)
 	if strings.HasPrefix(queued, "/") {
 		return m.handleSlash(queued)
 	}
-	m.clearQueuedUserBlock(false)
 	m.maybeAutoTitleSession(queued)
 	msg := agent.Text(agent.RoleUser, queued)
 	m.msgs = append(m.msgs, msg)
@@ -946,6 +953,25 @@ func (m *Model) onTurnComplete() tea.Cmd {
 			}
 		}
 		m.state = stateIdle
+		// #16: a steering message with no tool boundary to ride (the turn
+		// used no tools) couldn't be injected mid-turn. Resolve it now and
+		// ALWAYS clear it — it must never leak into a later turn's
+		// drainSteering. Promote to the next turn only when the turn wasn't
+		// cancelled and the queued-prompt slot is free.
+		if m.steeringMsg != "" {
+			switch {
+			case m.turnCancelled:
+				// Turn abandoned — drop the steer (the cancel already notified).
+			case m.queuedPrompt == "":
+				m.queuedPrompt = m.steeringMsg
+				// Show it as a queued user block so the promoted message is
+				// visible when it runs (promoteQueuedPrompt unmarks it).
+				m.appendBlock(block{kind: "user", body: m.steeringMsg, queued: true})
+			default:
+				m.appendBlock(block{kind: "system", body: "steering message dropped — a queued prompt takes priority: " + trimSeed(m.steeringMsg, 60)})
+			}
+			m.steeringMsg = ""
+		}
 		// Drain any queued follow-up message the user typed while the
 		// previous turn was streaming. The block was already appended
 		// at queue-time for immediate visual feedback; drain just

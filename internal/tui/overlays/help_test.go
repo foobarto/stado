@@ -64,6 +64,20 @@ func TestRenderHelp_IncludesModeBindingsAndFullPrefixChords(t *testing.T) {
 	}
 }
 
+// #16/#17: the in-turn routing bindings (alt+enter queue, ctrl+enter
+// interrupt) must be discoverable in the ? overlay — they're the
+// universal fallback for terminals without enhanced-keyboard support.
+func TestRenderHelp_IncludesInTurnRoutingBindings(t *testing.T) {
+	reg := keys.NewRegistry()
+	out, _ := RenderHelp(reg, 200, 0, 0)
+
+	for _, needle := range []string{"In-turn routing", "alt+enter", "ctrl+enter"} {
+		if !strings.Contains(out, needle) {
+			t.Errorf("help overlay missing %q", needle)
+		}
+	}
+}
+
 // TestRenderHelp_FitsHeight: the help body is ~70+ lines, far taller than
 // a typical terminal. bubbletea v2's compositor clips the frame to the
 // canvas (v1 scrolled the overflow, losing the top instead of the

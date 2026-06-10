@@ -49,7 +49,11 @@ const (
 	ToolFocusNext           Action = "tool_focus_next"
 	ModeToggle              Action = "mode_toggle"
 	ModeToggleBtw           Action = "mode_toggle_btw"
-	ForceQueue              Action = "force_queue"
+	// In-turn message routing (#16/#17). QueueMessage defers the typed
+	// input to the next turn; InterruptTurn cancels the current turn and
+	// runs it now. Plain Enter while busy steers (handled in submitInput).
+	QueueMessage  Action = "queue_message"
+	InterruptTurn Action = "interrupt_turn"
 )
 
 var ActionDescriptions = map[Action]string{
@@ -99,5 +103,6 @@ var ActionDescriptions = map[Action]string{
 	ToolFocusNext:           "Focus next tool block",
 	ModeToggle:              "Toggle Plan/Do mode",
 	ModeToggleBtw:           "Toggle BTW mode",
-	ForceQueue:              "Force queued prompt to run now",
+	QueueMessage:            "Queue the message for the next turn",
+	InterruptTurn:           "Interrupt: cancel the turn and run now",
 }

@@ -308,6 +308,12 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			m.renderBlocks()
 			return m, nil, true
 		}
+		if m.steeringMsg != "" {
+			m.steeringMsg = ""
+			m.appendBlock(block{kind: "system", body: "steering message cleared"})
+			m.renderBlocks()
+			return m, nil, true
+		}
 		streamCancelled := m.cancelRunningStream()
 		toolCancelled := m.cancelRunningTool()
 		pendingDropped := m.clearPendingToolQueue()
@@ -324,41 +330,30 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 
-	case m.keys.Matches(msg, keys.ForceQueue):
-		// Alt+Enter — fire the queued prompt NOW. Cancels the
-		// current turn (its existing cleanup drains the queue
-		// and dispatches the queued prompt), so the next thing
-		// the user sees is their just-submitted message running.
-		//
-		// Same kit as Esc/Ctrl+G and /cancel: stream + tool +
-		// pending-queue all dropped. Copilot caught that the prior
-		// version only checked streamCancel, so force-queue during
-		// tool execution silently no-op'd and the queued prompt waited
-		// for the tool to finish naturally.
-		if m.queuedPrompt == "" {
-			m.appendBlock(block{kind: "system", body: "force-queue: no queued prompt"})
+	case m.keys.Matches(msg, keys.QueueMessage):
+		// Alt+Enter — queue the typed message for the NEXT turn (#17).
+		// (Was ForceQueue=fire-now; that role moved to InterruptTurn.)
+		text := strings.TrimSpace(m.input.Value())
+		if text == "" {
+			m.appendBlock(block{kind: "system", body: "queue: type a message first"})
 			m.renderBlocks()
 			return m, nil, true
 		}
-		streamCancelled := m.cancelRunningStream()
-		toolCancelled := m.cancelRunningTool()
-		pendingDropped := m.clearPendingToolQueue()
-		if streamCancelled || toolCancelled || pendingDropped > 0 {
-			body := "force-queue: cancelled current turn; queued prompt running"
-			if toolCancelled {
-				body = "force-queue: cancelled current tool; queued prompt running"
-			}
-			if pendingDropped > 0 {
-				body = fmt.Sprintf("%s (%d pending tool(s) dropped)", body, pendingDropped)
-			}
-			m.appendBlock(block{kind: "system", body: body})
-			m.renderBlocks()
+		m.input.History.Push(text)
+		m.input.Reset()
+		return m, m.applyQueue(text), true
+
+	case m.keys.Matches(msg, keys.InterruptTurn):
+		// Ctrl+Enter — cancel the current turn and run the typed message
+		// now (#16). Empty input fires an already-queued prompt now (the
+		// old ForceQueue capability). Handled so the chord never lands as
+		// a literal in the textarea.
+		text := strings.TrimSpace(m.input.Value())
+		if text != "" {
+			m.input.History.Push(text)
+			m.input.Reset()
 		}
-		// No turn in flight + queued prompt set: nothing to cancel, but
-		// the queued prompt will dispatch on the next natural state
-		// transition. Return handled so we don't accidentally insert
-		// Alt+Enter as a literal into the textarea.
-		return m, nil, true
+		return m, m.applyInterrupt(text), true
 
 	case m.keys.Matches(msg, keys.ToolExpand):
 		m.toggleLastToolExpand()
@@ -386,9 +381,10 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 
 	case m.keys.Matches(msg, keys.InputClear):
 		// Ctrl+C: clear the chat input only. Cancel semantics live on
-		// Esc / Ctrl+G (SessionInterrupt) and force-queue on Alt+Enter
-		// (ForceQueue) — Ctrl+C does NOT touch the in-flight stream
-		// or queued prompt anymore. The exit key is Ctrl+D.
+		// Esc / Ctrl+G (SessionInterrupt); alt+enter (QueueMessage) defers
+		// typed text to the next turn; ctrl+enter (InterruptTurn) cancels
+		// the turn and runs now. Ctrl+C does NOT touch the in-flight stream
+		// or queued prompt. The exit key is Ctrl+D.
 		//
 		// The editor's own InputClear case (input/editor.go) resets
 		// the textarea on fall-through; returning handled=false here
@@ -448,6 +444,9 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 					m.streamCancel()
 				}
 				m.appendBlock(block{kind: "system", body: "supervisor: interrupting worker — input queued for next turn"})
+				if m.queuedPrompt != "" {
+					m.clearQueuedUserBlock(true) // drop a prior queued block before overwriting the slot
+				}
 				m.queuedPrompt = text
 				m.input.History.Push(text)
 				m.input.Reset()
@@ -457,6 +456,9 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 				// Inject a steering note and queue.
 				steer := "[supervisor steer] " + text
 				m.appendBlock(block{kind: "btw", body: steer})
+				if m.queuedPrompt != "" {
+					m.clearQueuedUserBlock(true) // drop a prior queued block before overwriting the slot
+				}
 				m.queuedPrompt = text
 				m.input.History.Push(text)
 				m.input.Reset()
@@ -466,12 +468,13 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 				// supervisorQueue: fall through to normal queue behaviour.
 			}
 		}
-		m.queuedPrompt = text
-		m.appendBlock(block{kind: "user", body: text, queued: true})
-		m.renderBlocks()
+		// #16: a plain message sent mid-turn STEERS — injected into the
+		// current turn at the next tool boundary — rather than queuing
+		// for the next turn. alt+enter (QueueMessage) / ctrl+enter
+		// (InterruptTurn) and /queue //interrupt cover the other intents.
 		m.input.History.Push(text)
 		m.input.Reset()
-		return m, nil, true
+		return m, m.applySteer(text), true
 	}
 	if strings.HasPrefix(text, "/") {
 		m.input.Reset()

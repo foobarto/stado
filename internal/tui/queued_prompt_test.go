@@ -32,7 +32,10 @@ func queueModel(t *testing.T) *Model {
 // TestQueuedPrompt_EnterWhileStreamingQueues: typing a prompt + Enter
 // while state=stateStreaming must queue — not drop silently (old
 // behaviour) and not abruptly cancel the stream.
-func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
+// #16: Enter while a turn is streaming now STEERS (buffers for mid-turn
+// injection) rather than queuing for the next turn. The queue path moved
+// to alt+enter / /queue (see steering_test.go, queue_test.go).
+func TestQueuedPrompt_EnterWhileStreamingSteers(t *testing.T) {
 	m := queueModel(t)
 	// Simulate an in-flight turn.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -41,30 +44,28 @@ func TestQueuedPrompt_EnterWhileStreamingQueues(t *testing.T) {
 	m.streamCancel = cancel
 	_ = ctx
 
-	// Type "retry now" and hit Enter.
-	for _, r := range "retry now" {
+	// Type "go left instead" and hit Enter.
+	for _, r := range "go left instead" {
 		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	if m.queuedPrompt != "retry now" {
-		t.Errorf("queuedPrompt = %q, want %q", m.queuedPrompt, "retry now")
+	if m.steeringMsg != "go left instead" {
+		t.Errorf("steeringMsg = %q, want %q", m.steeringMsg, "go left instead")
+	}
+	if m.queuedPrompt != "" {
+		t.Errorf("Enter while busy should steer, not queue; queuedPrompt = %q", m.queuedPrompt)
 	}
 	if m.input.Value() != "" {
-		t.Errorf("input should be cleared after queue, got %q", m.input.Value())
+		t.Errorf("input should be cleared after steer, got %q", m.input.Value())
 	}
 	if m.state != stateStreaming {
-		t.Errorf("state = %v, should still be streaming after queue", m.state)
+		t.Errorf("state = %v, should still be streaming after steer", m.state)
 	}
-	// Regression against dogfood bug: the queued message must appear
-	// in m.blocks immediately so the user sees it in the chat, not
-	// only after the current stream finishes.
-	if len(m.blocks) == 0 {
-		t.Fatal("queued message should appear in blocks immediately")
-	}
+	// The steering note appears immediately so the user sees it landed.
 	last := m.blocks[len(m.blocks)-1]
-	if last.kind != "user" || last.body != "retry now" {
-		t.Errorf("last block = %+v, want user/'retry now'", last)
+	if last.kind != "btw" || !contains(last.body, "steering") {
+		t.Errorf("last block = %+v, want a btw steering note", last)
 	}
 }
 

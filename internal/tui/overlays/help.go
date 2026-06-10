@@ -29,6 +29,7 @@ func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 		"App",
 		"Session",
 		"Modes",
+		"In-turn routing",
 		"Input Navigation",
 		"Input Editing",
 		"History",
