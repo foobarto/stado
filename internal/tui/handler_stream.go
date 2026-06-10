@@ -64,12 +64,31 @@ func onStreamTick(m *Model, _ streamTickMsg) (tea.Model, tea.Cmd) {
 }
 
 func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
-	m.state = stateError
-	m.errorMsg = msg.err.Error()
 	m.streamCancel = nil
 	m.streamBufMu.Lock()
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
+
+	// #19: a context-overflow error (the window filled up mid-turn) is
+	// recoverable when an auto-compact plugin is installed — compact and
+	// replay the last prompt in a child session instead of dead-ending in
+	// stateError. This is the universal backstop for providers whose usage
+	// reporting doesn't trip the proactive soft-threshold advisory.
+	if isContextOverflowError(msg.err) && m.hasAutoCompactBackgroundPlugin() {
+		if prompt := latestUserPrompt(m.msgs); prompt != "" {
+			m.state = stateIdle
+			m.errorMsg = ""
+			m.recoveryPrompt = prompt
+			m.recoveryPluginName = "auto-compact"
+			m.recoveryPluginActive = true
+			m.appendBlock(block{kind: "system", body: "context overflow — running auto-compact, then replaying your last prompt in a child session."})
+			m.renderBlocks()
+			return m, m.tickBackgroundPluginsWithEvent(m.contextOverflowEvent(prompt))
+		}
+	}
+
+	m.state = stateError
+	m.errorMsg = msg.err.Error()
 	m.appendBlock(block{kind: "system", body: "error: " + msg.err.Error()})
 	m.renderBlocks()
 	return m, nil

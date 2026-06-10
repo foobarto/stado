@@ -390,6 +390,10 @@ func (m *Model) startStream() tea.Cmd {
 		}
 	}
 
+	// #19: proactively warn once when the context is filling up, before
+	// the turn that might tip it over the hard limit.
+	m.maybeEmitContextWarning()
+
 	// Reset per-turn accumulators.
 	m.turnText = ""
 	m.turnThinking = ""

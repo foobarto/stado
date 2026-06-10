@@ -422,6 +422,10 @@ type Model struct {
 	// §"Token accounting".
 	ctxSoftThreshold float64
 	ctxHardThreshold float64
+	// softThresholdWarned fires the proactive "context filling up" advisory
+	// once per crossing of the soft threshold (#19); reset when usage drops
+	// back under soft (e.g. after a compaction).
+	softThresholdWarned bool
 
 	// Budget thresholds from config.Budget. Compared against
 	// usage.CostUSD (cumulative across turns).

@@ -190,6 +190,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.msgs = nil
 		m.queuedPrompt = ""
 		m.steeringMsg = ""
+		m.softThresholdWarned = false
 		m.turnText = ""
 		m.turnThinking = ""
 		m.turnToolCalls = nil
