@@ -261,6 +261,10 @@ type TUI struct {
 	// everywhere but click-to-expand and mouse scroll are unavailable
 	// (use alt+up/alt+down to navigate tool blocks instead).
 	MouseCapture *bool `koanf:"mouse_capture"`
+	// SidebarWidth persists the operator's preferred sidebar width across
+	// sessions. Adjusted in the TUI with `ctrl+x [` (wider) and
+	// `ctrl+x ]` (narrower). 0 = unset (use the layout default).
+	SidebarWidth int `koanf:"sidebar_width"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage

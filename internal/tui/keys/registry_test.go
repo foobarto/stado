@@ -120,7 +120,12 @@ func TestRegistryHelpKeys(t *testing.T) {
 	}
 
 	sidebarWider := r.HelpKeys(SidebarWider)
-	if len(sidebarWider) != 1 || sidebarWider[0] != "ctrl+x ]" {
-		t.Fatalf("SidebarWider help keys = %v, want [ctrl+x ]]", sidebarWider)
+	if len(sidebarWider) != 1 || sidebarWider[0] != "ctrl+x [" {
+		t.Fatalf("SidebarWider help keys = %v, want [ctrl+x []", sidebarWider)
+	}
+
+	sidebarNarrower := r.HelpKeys(SidebarNarrower)
+	if len(sidebarNarrower) != 1 || sidebarNarrower[0] != "ctrl+x ]" {
+		t.Fatalf("SidebarNarrower help keys = %v, want [ctrl+x ]]", sidebarNarrower)
 	}
 }
