@@ -119,7 +119,13 @@ func keyMsgToBytes(msg tea.KeyPressMsg) ([]byte, bool) {
 	// combos arrive as a printable Code (e.g. 'a') with ModCtrl set; the
 	// control byte is the low five bits of the code. ctrl+@ / ctrl+space
 	// (byte 0x00) was not translated in v1, so it stays excluded here.
-	if msg.Mod.Contains(tea.ModCtrl) {
+	//
+	// Restricted to printable ASCII codes: v2's special-key constants
+	// (KeyInsert, modified arrows, media keys, …) are runes above
+	// unicode.MaxRune, and masking those with 0x1f would fabricate an
+	// unrelated control byte — e.g. Ctrl+Insert sending Ctrl+C/EOF-class
+	// bytes that interrupt or terminate the PTY program.
+	if msg.Mod.Contains(tea.ModCtrl) && msg.Code >= 0x20 && msg.Code < 0x80 {
 		if b := byte(msg.Code & 0x1f); b >= 0x01 && b <= 0x1f {
 			return []byte{b}, true
 		}

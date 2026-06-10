@@ -392,6 +392,26 @@ func TestHandleKey_FocusedTranslatesAndWrites(t *testing.T) {
 	}
 }
 
+// TestHandleKey_CtrlSpecialKeysNotMangled: v2's special-key constants
+// are runes above unicode.MaxRune; masking them with 0x1f would
+// fabricate an unrelated C0 byte — Ctrl+Insert must NOT inject a
+// Ctrl+C/EOF-class byte into the PTY program. The Ctrl mapping is
+// restricted to printable ASCII codes. Caught in PR #98 review (codex).
+func TestHandleKey_CtrlSpecialKeysNotMangled(t *testing.T) {
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyInsert, Mod: tea.ModCtrl},
+		{Code: tea.KeyF13, Mod: tea.ModCtrl},
+	} {
+		w := &fakeWriter{}
+		m := New(1, 80, 24, &fakeSnapshotter{}, nil).WithWriter(w).Focus()
+		m.HandleKey(key)
+		if len(w.writes) != 0 {
+			t.Errorf("Ctrl+%v must not write a fabricated control byte; wrote %q",
+				key.Code, w.writes[0])
+		}
+	}
+}
+
 // TestHandleKey_AfterEndPassesThrough: once the session has ended,
 // the writer points at a destroyed PTY and every Write fails
 // silently. Keys must pass through to the parent so the operator
