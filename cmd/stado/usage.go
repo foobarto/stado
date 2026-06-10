@@ -312,6 +312,13 @@ func parseTrailers(msg string) parsedTrailers {
 		return out
 	}
 	for _, line := range strings.Split(parts[1], "\n") {
+		// Trailer keys are never indented; an indented line is body text
+		// (e.g. a model-generated compaction summary) and must not be parsed
+		// as a trailer — this is the Codex #143 trailer-injection vector that
+		// audit.ParseMessage also guards against.
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
 		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -428,6 +435,17 @@ func printUsageReport(modelAgg map[string]*usageModelStats, sessions []usageSess
 func emitJSON(models []*usageModelStats, sessions []usageSessionStats, since, until time.Time) error {
 	report := map[string]any{
 		"models": models,
+	}
+	// B3: signal real activity even when no token data was recorded, so
+	// `usage --json` (without --by-session) isn't indistinguishable from an
+	// empty state dir.
+	recorded := 0
+	for _, s := range sessions {
+		recorded += s.RecordedTurns
+	}
+	if recorded > 0 {
+		report["recorded_turns"] = recorded
+		report["recorded_sessions"] = len(sessions)
 	}
 	if !since.IsZero() {
 		report["since"] = since.UTC().Format(time.RFC3339)

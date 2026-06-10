@@ -57,7 +57,9 @@ var pluginDoctorCmd = &cobra.Command{
 		// the kind of mismatch that produces "ENOENT / connection
 		// refused" errors at runtime that the operator can't trace
 		// back to their own config without help.
-		findings := crossCheckSandbox(mf, cfg.Sandbox)
+		// R7: the cross-check note embeds http_proxy, which may carry
+		// user:pass — redact embedded credentials before it reaches stdout.
+		findings := crossCheckSandbox(mf, cfg.Redacted().Sandbox)
 		if len(findings) > 0 {
 			fmt.Println("\nSandbox cross-check:")
 			for _, f := range findings {

@@ -49,3 +49,16 @@ func TestUsage_CountsTurnsWithoutTokenData(t *testing.T) {
 		t.Errorf("modelAgg should be empty without token data, got %d entries", len(modelAgg))
 	}
 }
+
+// Indented body lines (e.g. a compaction summary) must not parse as trailers
+// — the Codex #143 injection vector that would otherwise inflate turn counts.
+func TestParseTrailers_IgnoresIndentedBodyLines(t *testing.T) {
+	msg := "bash(x): did a thing\n\n  Turn: 5\n  Tool: fake\nTurn: 2\nModel: claude\n"
+	tr := parseTrailers(msg)
+	if tr["turn"] != "2" {
+		t.Errorf("turn = %q, want 2 (indented 'Turn: 5' must be ignored)", tr["turn"])
+	}
+	if tr["tool"] != "" {
+		t.Errorf("indented 'Tool: fake' must not parse as a trailer, got %q", tr["tool"])
+	}
+}

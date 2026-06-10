@@ -475,15 +475,20 @@ func (s *Store) fold() (map[string]Item, error) {
 		case "delete":
 			delete(items, id)
 		case "supersede":
-			old, ok := items[id]
-			if ok {
+			// R8: don't tombstone the old entry unless the replacement is
+			// present — a nil-item supersede (truncated write / hand-edit)
+			// would otherwise destroy data and drop the replacement silently.
+			if ev.Item == nil {
+				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (supersede event missing item) in %s\n", line, s.Path)
+				skipped++
+				continue
+			}
+			if old, ok := items[id]; ok {
 				old.Confidence = "superseded"
 				old.UpdatedAt = ev.Timestamp
 				items[id] = old
 			}
-			if ev.Item != nil {
-				items[ev.Item.ID] = *ev.Item
-			}
+			items[ev.Item.ID] = *ev.Item
 		}
 	}
 	if err := sc.Err(); err != nil {
