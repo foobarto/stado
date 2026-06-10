@@ -41,7 +41,7 @@ func (m *Model) applySteer(text string) tea.Cmd {
 	} else {
 		m.steeringMsg += "\n" + text // accumulate multiple steers before the boundary
 	}
-	m.appendBlock(block{kind: "btw", body: "steering — injected at the next tool boundary: " + trimSeed(text, 60)})
+	m.appendBlock(block{kind: "btw", body: "steering — injected at the next tool boundary (or the next turn if this one uses no tools): " + trimSeed(text, 60)})
 	m.renderBlocks()
 	return nil
 }

@@ -74,16 +74,16 @@ func isContextOverflowError(err error) bool {
 		return false
 	}
 	s := strings.ToLower(err.Error())
+	// Keep these context-window-specific — generic phrasings like "exceeds
+	// the maximum" or "reduce the length" also match rate-limit / request-size
+	// errors and would trigger a spurious recovery.
 	for _, sig := range []string{
 		"context_length_exceeded",
 		"context length",
 		"maximum context",
 		"context window",
-		"too many tokens",
 		"prompt is too long",
 		"input is too long",
-		"reduce the length",
-		"exceeds the maximum",
 	} {
 		if strings.Contains(s, sig) {
 			return true

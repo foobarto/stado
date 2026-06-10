@@ -554,10 +554,13 @@ func (m *Model) promoteQueuedPrompt() tea.Cmd {
 	}
 	queued := m.queuedPrompt
 	m.queuedPrompt = ""
+	// Unmark the queued block before dispatching — for a slash command we
+	// route to handleSlash and return early, so clearing here (not after)
+	// avoids leaving a permanently queued=true user block in the transcript.
+	m.clearQueuedUserBlock(false)
 	if strings.HasPrefix(queued, "/") {
 		return m.handleSlash(queued)
 	}
-	m.clearQueuedUserBlock(false)
 	m.maybeAutoTitleSession(queued)
 	msg := agent.Text(agent.RoleUser, queued)
 	m.msgs = append(m.msgs, msg)

@@ -80,6 +80,25 @@ func TestQueueSlash_ReplacesExisting(t *testing.T) {
 	}
 }
 
+// A queued slash command must not leave a permanently queued=true user
+// block: promoteQueuedPrompt routes slashes to handleSlash and returns
+// early, so the block has to be unmarked before that branch.
+func TestQueueSlash_QueuedSlashClearsBlockOnPromote(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+
+	_ = m.handleSlash("/queue /help")
+	if countQueuedUserBlocks(m) != 1 {
+		t.Fatalf("expected one queued block, got %d", countQueuedUserBlocks(m))
+	}
+
+	m.state = stateIdle
+	_ = m.promoteQueuedPrompt()
+	if countQueuedUserBlocks(m) != 0 {
+		t.Fatalf("queued slash command left a permanent queued block: %d remain", countQueuedUserBlocks(m))
+	}
+}
+
 func TestQueueSlash_NoArgShowsUsage(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateStreaming
