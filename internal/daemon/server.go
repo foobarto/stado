@@ -70,6 +70,12 @@ type ServerOpts struct {
 	// preserves backward compatibility for tests and pre-v1 callers
 	// that haven't built a broker service yet.
 	BrokerDispatcher BrokerDispatcher
+
+	// Reload, when set, re-reads config from disk and rebuilds the
+	// daemon's tool registry in place (without dropping live PTY/LSP/
+	// browser state), returning the post-reload tool count. nil =
+	// daemon.reload returns ErrCodeMethodNotFound.
+	Reload func() (int, error)
 }
 
 // Dispatcher dispatches a tool.call to the plugin runtime. Implementations
@@ -398,6 +404,8 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, req *Request) {
 		s.handleStatus(c, req)
 	case MethodShutdown:
 		s.handleShutdown(c, req)
+	case MethodReload:
+		s.handleReload(c, req)
 	case MethodToolCall:
 		s.handleToolCall(ctx, c, req)
 	case MethodToolList:
@@ -470,6 +478,22 @@ func (s *Server) handleStatus(c net.Conn, req *Request) {
 		TotalCalls:     s.totalCalls.Load(),
 		IdleSec:        int64(time.Duration(idle).Seconds()),
 		IdleTimeoutSec: int64(s.opts.IdleTimeout.Seconds()),
+	}
+	s.writeResult(c, req.ID, res)
+}
+
+func (s *Server) handleReload(c net.Conn, req *Request) {
+	if s.opts.Reload == nil {
+		s.writeErr(c, req.ID, ErrCodeMethodNotFound, "daemon.reload: not supported by this daemon")
+		return
+	}
+	n, err := s.opts.Reload()
+	res := ReloadResult{ToolCount: n}
+	if err != nil {
+		res.Error = err.Error()
+		s.logf("daemon: reload failed: %v", err)
+	} else {
+		s.logf("daemon: config reloaded (%d tools)", n)
 	}
 	s.writeResult(c, req.ID, res)
 }

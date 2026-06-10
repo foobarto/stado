@@ -95,6 +95,7 @@ const (
 	MethodHandshake   = "daemon.handshake"
 	MethodStatus      = "daemon.status"
 	MethodShutdown    = "daemon.shutdown"
+	MethodReload      = "daemon.reload"
 	MethodToolCall    = "tool.call"
 	MethodToolList    = "tool.list"
 	MethodSessionList = "session.list"
@@ -177,6 +178,16 @@ type StatusResult struct {
 	TotalCalls     uint64    `json:"total_calls"`
 	IdleSec        int64     `json:"idle_sec"`
 	IdleTimeoutSec int64     `json:"idle_timeout_sec"`
+}
+
+// ReloadResult is the daemon.reload payload: the daemon re-reads config
+// from disk and rebuilds its tool registry in place, without dropping live
+// PTY sessions, LSP connections, or browser jars. ToolCount reports the
+// post-reload registry size; Error is set (and the old registry kept) if
+// the rebuild failed.
+type ReloadResult struct {
+	ToolCount int    `json:"tool_count"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ShutdownParams is the payload for daemon.shutdown. Force=true skips the

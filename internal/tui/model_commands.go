@@ -369,6 +369,8 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			section = parts[1]
 		}
 		m.appendBlock(block{kind: "system", body: m.renderConfigState(section)})
+	case "/reload":
+		return m.handleConfigReload()
 	case "/model":
 		if len(parts) < 2 {
 			m.openModelPicker()
@@ -1028,6 +1030,65 @@ func (m *Model) handleDescribeSlash(parts []string) {
 // every invocation (cheap, and catches a tampered-after-install plugin
 // before it runs). Tool execution happens on a tea.Cmd goroutine so
 // the UI stays responsive — result arrives as pluginRunResultMsg.
+// handleConfigReload re-reads config from disk and refreshes the
+// config-derived surface — the tool registry (so [tools].autoload /
+// enabled / disabled changes take effect on the next turn), the system
+// prompt template, the persona, the thinking display, and the context /
+// budget thresholds — without restarting the session.
+//
+// Deliberately NOT touched (decision 2026-06-10-config-reload): the
+// provider/model (use /model), the sandbox ceiling (a security boundary
+// captured at session start — needs a restart), and the session identity.
+func (m *Model) handleConfigReload() tea.Cmd {
+	// A tool call runs on a tea.Cmd goroutine that reads m.executor.Run
+	// (and e.Registry) without locking, so refuse while a turn is streaming
+	// — otherwise swapping the executor/registry here races the in-flight
+	// call. The operator reloads between turns.
+	if m.state == stateStreaming {
+		m.appendBlock(block{kind: "system", body: "/reload: busy — wait for the current turn to finish (a tool may be running)"})
+		return nil
+	}
+	newCfg, err := config.Load()
+	if err != nil {
+		m.appendBlock(block{kind: "system", body: "/reload: " + err.Error()})
+		return nil
+	}
+	m.cfg = newCfg
+
+	tools := -1
+	if m.executor != nil {
+		if newReg, rerr := runtime.BuildRegistryWithPlugins(newCfg); rerr == nil {
+			// Replace the executor with a fresh copy rather than mutating
+			// its Registry field in place (Executor.Run reads it without
+			// locking).
+			ne := *m.executor
+			ne.Registry = newReg
+			m.executor = &ne
+			tools = len(newReg.All())
+		} else {
+			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
+		}
+	}
+
+	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
+	m.initPersona(newCfg)
+	m.applyConfiguredThinkingDisplay(newCfg)
+	m.SetContextThresholds(newCfg.Context.SoftThreshold, newCfg.Context.HardThreshold)
+	m.SetBudget(newCfg.Budget.WarnUSD, newCfg.Budget.HardUSD)
+	m.SetBudgetTokens(newCfg.Budget.WarnTokens, newCfg.Budget.HardTokens)
+	m.SetBudgetTokensSplit(newCfg.Budget.WarnInputTokens, newCfg.Budget.HardInputTokens, newCfg.Budget.WarnOutputTokens, newCfg.Budget.HardOutputTokens)
+
+	body := "/reload: config re-read"
+	if tools >= 0 {
+		body += fmt.Sprintf(" — %d tools registered (autoload applies next turn)", tools)
+	}
+	body += ".\nRefreshed: tools, system prompt, persona, thinking display, context + budget thresholds." +
+		"\nUnchanged (by design): provider/model (use /model), sandbox (needs a restart), session."
+	m.appendBlock(block{kind: "system", body: body})
+	m.layout()
+	return nil
+}
+
 // handlePluginReload rebuilds the executor's tools registry so any
 // plugins installed (or removed) since session start become visible.
 // With a plugin name argument, lists which of that plugin's tools
