@@ -1,6 +1,8 @@
 package keys
 
 import (
+	"sort"
+	"strings"
 	"sync"
 
 	"charm.land/bubbles/v2/key"
@@ -201,6 +203,49 @@ func (r *Registry) ResetPrefix() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.resetPrefix()
+}
+
+// ChordOption is one possible next chord while a prefix is pending, with
+// the action it would complete — feeds the chord-hint UI.
+type ChordOption struct {
+	Key  string // next chord, e.g. "ctrl+b", "m"
+	Desc string // human-readable action description
+}
+
+// PendingChord is the active multi-chord prefix and the next chords that
+// would complete an action from here.
+type PendingChord struct {
+	Prefix  string // chords pressed so far, space-joined (e.g. "ctrl+x")
+	Options []ChordOption
+}
+
+// PendingPrefix reports the active prefix and its next-chord options, or
+// ok=false when no prefix is primed. Query at render time to show the
+// chord hint; the prefix state lives in the registry and clears itself
+// when the sequence completes or resets.
+func (r *Registry) PendingPrefix() (PendingChord, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	depth := len(r.prefixState)
+	if depth == 0 {
+		return PendingChord{}, false
+	}
+	pc := PendingChord{Prefix: strings.Join(r.prefixState, " ")}
+	seen := map[string]bool{}
+	for action := range r.prefixMatches {
+		for _, pb := range r.prefixes[action] {
+			if depth < len(pb.Chords) && r.stateMatches(pb.Chords[:depth]) {
+				next := pb.Chords[depth]
+				if seen[next] {
+					continue
+				}
+				seen[next] = true
+				pc.Options = append(pc.Options, ChordOption{Key: next, Desc: pb.Description})
+			}
+		}
+	}
+	sort.Slice(pc.Options, func(i, j int) bool { return pc.Options[i].Key < pc.Options[j].Key })
+	return pc, len(pc.Options) > 0
 }
 
 // stateMatches reports whether the collected prefixState equals the
