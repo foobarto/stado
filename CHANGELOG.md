@@ -32,6 +32,31 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## v0.60.1 — TUI v2 background fixes + /compact recovery — 2026-06-10
+
+### Fixes
+
+- **Chat input box renders solid again.** The Bubble Tea v2 migration left the
+  textarea's per-cell styles with no background, so the input box (and its
+  waiting/placeholder state) showed through grey instead of the dark surface.
+  Every cell — text, cursor line, placeholder, the empty filler rows, and the
+  `Do · model · provider` status row — now paints the surface background; the
+  box is hard-clamped to its width so the full-bleed fill can't overflow a
+  narrow terminal.
+- **Command palette, inline slash popup, and every picker** (model, persona,
+  theme, session, agent, fleet, task) paint solid. Foreground-only spans over
+  the dark modal were leaving grey holes between columns and after short text
+  (most visible as the model picker's grey right-hand provider column, and the
+  palette shifting colour when filtering). Selected rows stay uniformly
+  highlighted. New `colorbg` template helper backs the status row.
+- **`/compact` recovers from an errored turn.** A session that hit a provider
+  context-overflow (e.g. a large tool result → `context window exceeds limit`)
+  was unrecoverable: `/compact` reported "busy — wait for the current turn to
+  finish" though nothing was running, and continuing just re-sent the
+  over-limit context. Compaction now proceeds from the error state (it only
+  blocks a genuinely in-flight stream), and the summary request truncates tool
+  content so it fits even when the live context overflowed.
+
 ## v0.60.0 — Bubble Tea v2 (Shift+Enter) + TUI/CLI usability pass — 2026-06-10
 
 ### TUI — Bubble Tea v2 upgrade
