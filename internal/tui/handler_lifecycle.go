@@ -26,6 +26,17 @@ func onTitleTick(m *Model, _ titleTickMsg) (tea.Model, tea.Cmd) {
 	return m, m.handleTitleTick()
 }
 
+func onDaemonProbeTick(m *Model, _ daemonProbeTickMsg) (tea.Model, tea.Cmd) {
+	// Fire a non-blocking daemon-health probe and reschedule the tick —
+	// see daemon_health.go.
+	return m, tea.Batch(probeDaemonCmd(), daemonProbeTickCmd())
+}
+
+func onDaemonHealth(m *Model, msg daemonHealthMsg) (tea.Model, tea.Cmd) {
+	m.daemonHealth = msg.state
+	return m, nil
+}
+
 func onLogTail(m *Model, msg logTailMsg) (tea.Model, tea.Cmd) {
 	m.recordLogLine(msg.line)
 	return m, nil

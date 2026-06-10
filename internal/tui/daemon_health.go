@@ -59,15 +59,10 @@ func probeDaemonCmd() tea.Cmd {
 	}
 }
 
-func onDaemonProbeTick(m *Model, _ daemonProbeTickMsg) (tea.Model, tea.Cmd) {
-	// Fire the probe and reschedule the next tick.
-	return m, tea.Batch(probeDaemonCmd(), daemonProbeTickCmd())
-}
-
-func onDaemonHealth(m *Model, msg daemonHealthMsg) (tea.Model, tea.Cmd) {
-	m.daemonHealth = msg.state
-	return m, nil
-}
+// The daemonProbeTickMsg / daemonHealthMsg Update handlers
+// (onDaemonProbeTick / onDaemonHealth) live in handler_lifecycle.go with
+// the other lifecycle/tick handlers, per the package's message-routing
+// convention (see model_update.go).
 
 // daemonStatusLabel returns the template token for the status bar:
 // "up" / "down" / "" (unknown — render nothing until the first probe so
