@@ -102,13 +102,13 @@ func TestRun_SessionCreatesTurnBoundaryWithoutTools(t *testing.T) {
 	oldBuildProvider := runBuildProvider
 	oldAgentLoop := runAgentLoop
 	oldPrompt, oldSkill, oldSessionID := runPrompt, runSkill, runSessionID
-	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, runNoSandbox
+	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, noSandbox
 	defer func() {
 		runLoadConfig = oldLoadConfig
 		runBuildProvider = oldBuildProvider
 		runAgentLoop = oldAgentLoop
 		runPrompt, runSkill, runSessionID = oldPrompt, oldSkill, oldSessionID
-		runMaxTurns, runJSON, runNoTools, runNoSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
+		runMaxTurns, runJSON, runNoTools, noSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
 	}()
 
 	root := t.TempDir()
@@ -149,7 +149,7 @@ func TestRun_SessionCreatesTurnBoundaryWithoutTools(t *testing.T) {
 	runMaxTurns = 1
 	runJSON = true
 	runNoTools = true
-	runNoSandbox = true
+	noSandbox = true
 
 	runCmd.SetContext(context.Background())
 	if err := runCmd.RunE(runCmd, nil); err != nil {

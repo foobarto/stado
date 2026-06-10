@@ -266,11 +266,14 @@ func brokerPurposeFromFlags() broker.Purpose {
 }
 
 // brokerProfileFromFlags maps the current command's flags to a
-// broker.Profile. Returns ProfileDefault unless the caller has
-// already evaluated --no-sandbox / --hardened (or equivalent) and
-// chosen otherwise via brokerProfileNoSandbox() / a future
-// brokerProfileHardened().
+// broker.Profile. The persistent --no-sandbox flag selects the explicit
+// opt-out profile; otherwise the sandboxed default. Honoured by every entry
+// point that attaches to the broker (TUI, run, acp, headless, mcp-server,
+// session tree), so the opt-out is no longer a run-only special case.
 func brokerProfileFromFlags() broker.Profile {
+	if noSandbox {
+		return brokerProfileNoSandbox()
+	}
 	return broker.ProfileDefault
 }
 

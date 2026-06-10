@@ -161,6 +161,13 @@ var configPathCmd = &cobra.Command{
 
 var unsafeSkipBundleVerify bool
 
+// noSandbox is the v1 sandbox opt-out, persistent across every entry point
+// (TUI, run, acp, headless, mcp-server, session tree) — all of which resolve
+// their posture through brokerProfileFromFlags(). Previously --no-sandbox was a
+// run-only flag, so `stado --no-sandbox` (TUI) failed with "unknown flag" and
+// the non-run entry points had no opt-out at all.
+var noSandbox bool
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&rootProvider, "provider", "",
 		"Provider override (anthropic, openai, google, ollama-cloud, litellm, or any configured preset). Beats defaults.provider in config.toml for this invocation.")
@@ -168,6 +175,8 @@ func init() {
 		"Model override for this invocation (e.g. claude-sonnet-4-6, gpt-5, kimi-k2.6). Beats defaults.model in config.toml.")
 	rootCmd.PersistentFlags().BoolVar(&unsafeSkipBundleVerify, "unsafe-skip-bundle-verify", false,
 		"Skip runtime verification of the appended user-bundled payload (loses tamper-evidence)")
+	rootCmd.PersistentFlags().BoolVar(&noSandbox, "no-sandbox", false,
+		"Opt out of the v1 default sandbox: disable bwrap + Landlock. The agent operates on your actual filesystem with no namespace isolation. Intended for development scenarios and explicit operator override; should not become the typical mode of operation. Inverted polarity from the retired --sandbox-fs flag — pre-1.0 breaking change, no alias.")
 	rootCmd.AddCommand(versionCmd, configPathCmd, secretsCmd)
 	// Set Version so cobra wires up the standard `--version` global
 	// flag (alongside the `stado version` subcommand). Same source
