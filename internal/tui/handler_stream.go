@@ -6,6 +6,7 @@ package tui
 // rates. See onStreamTick comments.
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -69,22 +70,11 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 	m.streamBufClosed = true
 	m.streamBufMu.Unlock()
 
-	// #19: a context-overflow error (the window filled up mid-turn) is
-	// recoverable when an auto-compact plugin is installed — compact and
-	// replay the last prompt in a child session instead of dead-ending in
-	// stateError. This is the universal backstop for providers whose usage
-	// reporting doesn't trip the proactive soft-threshold advisory.
-	if isContextOverflowError(msg.err) && m.hasAutoCompactBackgroundPlugin() {
-		if prompt := latestUserPrompt(m.msgs); prompt != "" {
-			m.state = stateIdle
-			m.errorMsg = ""
-			m.recoveryPrompt = prompt
-			m.recoveryPluginName = "auto-compact"
-			m.recoveryPluginActive = true
-			m.appendBlock(block{kind: "system", body: "context overflow — running auto-compact, then replaying your last prompt in a child session."})
-			m.renderBlocks()
-			return m, m.tickBackgroundPluginsWithEvent(m.contextOverflowEvent(prompt))
-		}
+	// #19: context-overflow errors that arrive synchronously (oaicompat /
+	// minimax) auto-recover here; the EvError-event path (Anthropic family)
+	// recovers in onStreamDone. See tryContextOverflowRecovery.
+	if cmd, ok := m.tryContextOverflowRecovery(msg.err); ok {
+		return m, cmd
 	}
 
 	m.state = stateError
@@ -97,6 +87,12 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streamCancel = nil
 	if m.state == stateError {
+		// #19: providers that surface a context overflow as an EvError
+		// stream event (Anthropic family) land here in stateError — give
+		// the auto-compact backstop a chance before dead-ending.
+		if cmd, ok := m.tryContextOverflowRecovery(errors.New(m.errorMsg)); ok {
+			return m, cmd
+		}
 		return m, nil
 	}
 	m.maybeEmitBudgetWarning()

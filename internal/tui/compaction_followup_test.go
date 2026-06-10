@@ -3,7 +3,91 @@ package tui
 import (
 	"errors"
 	"testing"
+
+	"github.com/foobarto/stado/internal/plugins"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/pkg/agent"
 )
+
+func withAutoCompactPlugin(m *Model) {
+	m.backgroundPlugins = []*pluginRuntime.BackgroundPlugin{{
+		Manifest: plugins.Manifest{Name: "auto-compact"},
+	}}
+}
+
+// #19B — onStreamError auto-recovers on a context-overflow when an
+// auto-compact plugin is installed; otherwise it dead-ends in stateError.
+
+func TestOnStreamError_ContextOverflowRecovers(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "compute the thing"))
+	withAutoCompactPlugin(m)
+
+	_, cmd := onStreamError(m, streamErrorMsg{err: errors.New("400 context_length_exceeded")})
+
+	if m.state != stateIdle {
+		t.Fatalf("state = %v, want stateIdle after recovery", m.state)
+	}
+	if !m.recoveryPluginActive {
+		t.Fatal("recoveryPluginActive should be set")
+	}
+	if m.recoveryPrompt != "compute the thing" {
+		t.Fatalf("recoveryPrompt = %q, want the last user prompt", m.recoveryPrompt)
+	}
+	if cmd == nil {
+		t.Fatal("recovery should dispatch a background-plugin tick cmd")
+	}
+}
+
+func TestOnStreamError_NonOverflowDeadEnds(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "x"))
+	withAutoCompactPlugin(m)
+
+	_, _ = onStreamError(m, streamErrorMsg{err: errors.New("rate limit exceeded")})
+
+	if m.state != stateError {
+		t.Fatalf("state = %v, want stateError for a non-overflow error", m.state)
+	}
+	if m.recoveryPluginActive {
+		t.Fatal("non-overflow error should not trigger recovery")
+	}
+}
+
+func TestOnStreamError_OverflowNoPluginDeadEnds(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "x"))
+	// no auto-compact plugin installed
+
+	_, _ = onStreamError(m, streamErrorMsg{err: errors.New("context_length_exceeded")})
+
+	if m.state != stateError {
+		t.Fatalf("state = %v, want stateError when no auto-compact plugin", m.state)
+	}
+}
+
+// The Anthropic-family path: a context overflow surfaces as an EvError
+// stream event → stateError → onStreamDone recovers via the same helper.
+func TestOnStreamDone_ContextOverflowRecovers(t *testing.T) {
+	m := scenarioModel(t)
+	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, "do it"))
+	withAutoCompactPlugin(m)
+	// Simulate what the EvError handler leaves behind.
+	m.state = stateError
+	m.errorMsg = "input is too long for the model's context window"
+
+	_, cmd := onStreamDone(m, streamDoneMsg{})
+
+	if m.state != stateIdle || !m.recoveryPluginActive {
+		t.Fatalf("onStreamDone should recover an EvError context overflow; state=%v active=%v", m.state, m.recoveryPluginActive)
+	}
+	if cmd == nil {
+		t.Fatal("recovery should dispatch a tick cmd")
+	}
+}
 
 // #19A — proactive soft-threshold advisory.
 

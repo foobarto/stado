@@ -381,9 +381,10 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 
 	case m.keys.Matches(msg, keys.InputClear):
 		// Ctrl+C: clear the chat input only. Cancel semantics live on
-		// Esc / Ctrl+G (SessionInterrupt) and force-queue on Alt+Enter
-		// (ForceQueue) — Ctrl+C does NOT touch the in-flight stream
-		// or queued prompt anymore. The exit key is Ctrl+D.
+		// Esc / Ctrl+G (SessionInterrupt); alt+enter (QueueMessage) defers
+		// typed text to the next turn; ctrl+enter (InterruptTurn) cancels
+		// the turn and runs now. Ctrl+C does NOT touch the in-flight stream
+		// or queued prompt. The exit key is Ctrl+D.
 		//
 		// The editor's own InputClear case (input/editor.go) resets
 		// the textarea on fall-through; returning handled=false here
@@ -443,6 +444,9 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 					m.streamCancel()
 				}
 				m.appendBlock(block{kind: "system", body: "supervisor: interrupting worker — input queued for next turn"})
+				if m.queuedPrompt != "" {
+					m.clearQueuedUserBlock(true) // drop a prior queued block before overwriting the slot
+				}
 				m.queuedPrompt = text
 				m.input.History.Push(text)
 				m.input.Reset()
@@ -452,6 +456,9 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 				// Inject a steering note and queue.
 				steer := "[supervisor steer] " + text
 				m.appendBlock(block{kind: "btw", body: steer})
+				if m.queuedPrompt != "" {
+					m.clearQueuedUserBlock(true) // drop a prior queued block before overwriting the slot
+				}
 				m.queuedPrompt = text
 				m.input.History.Push(text)
 				m.input.Reset()
