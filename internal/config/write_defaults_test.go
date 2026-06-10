@@ -110,6 +110,38 @@ func TestWriteTUITheme(t *testing.T) {
 	}
 }
 
+func TestWriteTUISidebarWidth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[defaults]\nprovider = \"anthropic\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteTUISidebarWidth(path, 40); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	// Existing section preserved, [tui].sidebar_width written as a bare int.
+	for _, want := range []string{`provider = "anthropic"`, `[tui]`, `sidebar_width = 40`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
+	}
+
+	// Rewriting updates the value in place rather than appending a second key.
+	if err := WriteTUISidebarWidth(path, 28); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(path)
+	body = string(data)
+	if !strings.Contains(body, "sidebar_width = 28") || strings.Contains(body, "sidebar_width = 40") {
+		t.Fatalf("rewrite did not update value in place:\n%s", body)
+	}
+}
+
 func TestWriteDefaultsRejectsConfigSymlinkEscape(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.toml")

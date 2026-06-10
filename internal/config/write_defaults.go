@@ -213,6 +213,20 @@ func WriteTUITheme(configPath, themeID string) error {
 	})
 }
 
+// WriteTUISidebarWidth persists [tui].sidebar_width in config.toml so the
+// operator's preferred sidebar width survives across sessions.
+func WriteTUISidebarWidth(configPath string, width int) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	if width < 0 {
+		width = 0
+	}
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		tree.SetPath([]string{"tui", "sidebar_width"}, int64(width))
+	})
+}
+
 // WriteTemplate writes a complete config file template. Without force, it
 // creates the final path exclusively. With force, it atomically replaces only a
 // regular final file. Symlink and non-regular final paths are always rejected.
