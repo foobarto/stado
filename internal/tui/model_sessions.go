@@ -399,6 +399,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.state = stateIdle
 	m.errorMsg = ""
 	m.queuedPrompt = ""
+	m.steeringMsg = ""
 	m.recoveryPrompt = ""
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false

@@ -295,6 +295,9 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		m.msgs = append(m.msgs, toolMsg)
 		m.persistMessage(toolMsg)
 	}
+	// #16: this is the "next opportunity" — a steering message injects
+	// here so the model's next round-trip sees it alongside the results.
+	m.drainSteering()
 	m.renderBlocks()
 	return m, m.startStream()
 }

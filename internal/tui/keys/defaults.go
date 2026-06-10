@@ -47,5 +47,6 @@ var Defaults = map[Action]string{
 	ToolFocusNext:           "alt+down",
 	ModeToggle:              "tab",
 	ModeToggleBtw:           "ctrl+x ctrl+b",
-	ForceQueue:              "alt+enter",
+	QueueMessage:            "alt+enter",
+	InterruptTurn:           "ctrl+enter",
 }

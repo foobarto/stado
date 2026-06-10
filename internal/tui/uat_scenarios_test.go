@@ -144,7 +144,10 @@ func TestUAT_EscClearsQueueBeforeStream(t *testing.T) {
 // A6: When a turn completes with a queued prompt, the drain path
 // appends to m.msgs and starts the next stream. The visible block
 // was already added at queue-time (not at drain).
-func TestUAT_QueueDrainStartsNextTurn(t *testing.T) {
+// #16: typing while streaming steers; if the completed turn used no
+// tools there was no boundary to ride, so the steering message promotes
+// to the next turn and runs at completion.
+func TestUAT_SteerPromotesToNextTurnWhenNoTools(t *testing.T) {
 	m := scenarioModel(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -152,26 +155,28 @@ func TestUAT_QueueDrainStartsNextTurn(t *testing.T) {
 	m.streamCancel = cancel
 	_ = ctx
 
-	// Queue a follow-up.
+	// Steer a follow-up mid-turn.
 	typeString(m, "follow-up")
 	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.steeringMsg != "follow-up" {
+		t.Fatalf("Enter while streaming should steer, steeringMsg = %q", m.steeringMsg)
+	}
 
 	priorMsgs := len(m.msgs)
-	priorBlocks := len(m.blocks)
 
-	// Simulate a streamDoneMsg — triggers onTurnComplete which drains.
+	// Simulate a streamDoneMsg — triggers onTurnComplete which, with no
+	// tool calls this turn, promotes the steering message and runs it.
 	_, _ = m.Update(streamDoneMsg{})
 
 	if len(m.msgs) != priorMsgs+1 {
-		t.Errorf("msgs should grow by 1 on drain (got %d → %d)",
+		t.Errorf("promoted steering message should add one msg (got %d → %d)",
 			priorMsgs, len(m.msgs))
 	}
-	if len(m.blocks) != priorBlocks {
-		t.Errorf("drain should NOT append a second block (was added at queue-time); blocks %d → %d",
-			priorBlocks, len(m.blocks))
+	if m.steeringMsg != "" {
+		t.Errorf("steeringMsg not cleared after promotion: %q", m.steeringMsg)
 	}
 	if m.queuedPrompt != "" {
-		t.Errorf("queuedPrompt not cleared after drain: %q", m.queuedPrompt)
+		t.Errorf("queuedPrompt not cleared after promote+fire: %q", m.queuedPrompt)
 	}
 }
 

@@ -946,6 +946,17 @@ func (m *Model) onTurnComplete() tea.Cmd {
 			}
 		}
 		m.state = stateIdle
+		// #16: a steering message with no tool boundary to ride (the turn
+		// used no tools) couldn't be injected mid-turn — promote it to the
+		// next turn instead, unless an explicit queued prompt already owns
+		// that slot.
+		if m.steeringMsg != "" && m.queuedPrompt == "" {
+			m.queuedPrompt = m.steeringMsg
+			m.steeringMsg = ""
+			// Show it as a queued user block so the promoted message is
+			// visible when it runs (promoteQueuedPrompt unmarks it).
+			m.appendBlock(block{kind: "user", body: m.queuedPrompt, queued: true})
+		}
 		// Drain any queued follow-up message the user typed while the
 		// previous turn was streaming. The block was already appended
 		// at queue-time for immediate visual feedback; drain just
