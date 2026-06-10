@@ -324,3 +324,61 @@ func TestCompactConfirmationUsesApproveDenyKeys(t *testing.T) {
 	}
 	_ = fmt.Sprintf("") // silence unused on some toolchains
 }
+
+// TestCompactFromErrorStateRecovers guards the deadlock fix: after a turn
+// errors (e.g. a context-overflow 400 from the provider, leaving
+// stateError), the user must be able to /compact to recover. The old gate
+// refused anything != stateIdle, so /compact reported "busy — wait for the
+// current turn to finish" forever and the session was stuck.
+func TestCompactFromErrorStateRecovers(t *testing.T) {
+	m := newCompactTestModel(t, compactStubProvider{summary: "recovered summary"})
+	m.msgs = []agent.Message{
+		agent.Text(agent.RoleUser, "download the big zip"),
+		agent.Text(agent.RoleAssistant, "done — here is a lot of data"),
+	}
+	m.state = stateError
+	m.errorMsg = "oaicompat: 400 context window exceeds limit"
+
+	prior := len(m.blocks)
+	_ = m.startCompaction()
+
+	for _, b := range m.blocks[prior:] {
+		if strings.Contains(b.body, "busy — wait") {
+			t.Fatalf("compaction refused from error state (%q) — deadlock not fixed", b.body)
+		}
+	}
+	if !m.compacting {
+		t.Error("compaction did not start from error state (compacting=false)")
+	}
+	if m.state != stateStreaming {
+		t.Errorf("state = %d, want Streaming (compaction running)", m.state)
+	}
+	if m.errorMsg != "" {
+		t.Errorf("errorMsg not cleared on compaction start: %q", m.errorMsg)
+	}
+}
+
+// TestCompactStillBlocksWhileStreaming: a genuinely in-flight turn must
+// still block compaction (the fix only relaxes the gate for stateError).
+func TestCompactStillBlocksWhileStreaming(t *testing.T) {
+	m := newCompactTestModel(t, compactStubProvider{summary: "x"})
+	m.msgs = []agent.Message{agent.Text(agent.RoleUser, "hi")}
+	m.state = stateStreaming
+
+	prior := len(m.blocks)
+	if cmd := m.startCompaction(); cmd != nil {
+		t.Error("expected nil cmd when a turn is streaming")
+	}
+	busy := false
+	for _, b := range m.blocks[prior:] {
+		if strings.Contains(b.body, "busy") {
+			busy = true
+		}
+	}
+	if !busy {
+		t.Error("expected a 'busy' advisory while streaming")
+	}
+	if m.compacting {
+		t.Error("compaction must not start while a turn is streaming")
+	}
+}
