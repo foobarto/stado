@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // injectStartupNotices must surface the launch banner as a system block so
@@ -151,7 +152,11 @@ func TestStartupBanner_ShortTerminalKeepsInputVisible(t *testing.T) {
 	out := m.renderLanding(w, h)
 
 	// The input placeholder must remain visible — the whole point.
-	if !strings.Contains(out, "Type a message") {
+	// Strip ANSI first: v2's textarea virtual cursor renders the first
+	// placeholder glyph ("T") in its own reverse-video SGR span, so the
+	// raw output splits "Type a message" across escape codes (v1 emitted
+	// no SGR in non-TTY test runs).
+	if !strings.Contains(ansi.Strip(out), "Type a message") {
 		t.Errorf("input placeholder pushed off-screen by the banner at %dx%d:\n%s", w, h, out)
 	}
 	// Output must fit the height budget (no overflow past row h).

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/version"

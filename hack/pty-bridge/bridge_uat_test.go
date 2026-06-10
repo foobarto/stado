@@ -556,15 +556,30 @@ func TestBridgeE2E_Stado_HelpOverlay(t *testing.T) {
 			`window.bridge.sendKeys('/help\r')`, nil)); err != nil {
 			return fmt.Errorf("type /help: %w", err)
 		}
-		// Predicate: at least one box-drawing corner from the overlay
-		// border + at least three canonical slash-command names from
-		// the help body. Three names rather than one because help is
-		// a long enumeration; checking three reduces false-positives
-		// from leftover landing-screen text. The name list is the
-		// broader set actually visible in the help body's "View"
-		// and "Tools" sections — the original 5-name list was too
-		// narrow and missed because the popup truncates older
-		// sections at viewport bottom.
+		// The help overlay is height-aware: its body is windowed to the
+		// canvas and scrolls with ↑/↓ / G. First wait for the box itself
+		// (border corner + a keybinding group from the top of the body)…
+		boxOpen := `(function(){
+			if (!window.bridge || !window.bridge.snapshot) return false;
+			var s = window.bridge.snapshot();
+			var hasCorner = s.indexOf('╭') >= 0 || s.indexOf('╮') >= 0 ||
+				s.indexOf('╰') >= 0 || s.indexOf('╯') >= 0;
+			// "Toggle help" is the ? row of the App group — the very
+			// first rows of the body, visible in any window size.
+			return hasCorner && s.indexOf('Toggle help') >= 0;
+		})()`
+		snap, err := waitForSnapshot(ctx, t, boxOpen, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("help overlay box never rendered: %w; snapshot:\n%s", err, snap)
+		}
+		// …then jump to the bottom (G) where the slash-command section
+		// lives and assert the canonical names. Three names rather than
+		// one because help is a long enumeration; checking three reduces
+		// false-positives from leftover landing-screen text.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('G')`, nil)); err != nil {
+			return fmt.Errorf("send G (scroll to bottom): %w", err)
+		}
 		predicate := `(function(){
 			if (!window.bridge || !window.bridge.snapshot) return false;
 			var s = window.bridge.snapshot();
@@ -579,9 +594,9 @@ func TestBridgeE2E_Stado_HelpOverlay(t *testing.T) {
 			}
 			return hasCorner && count >= 3;
 		})()`
-		snap, err := waitForSnapshot(ctx, t, predicate, 10*time.Second)
+		snap, err = waitForSnapshot(ctx, t, predicate, 10*time.Second)
 		if err != nil {
-			return fmt.Errorf("help overlay never showed corner+command-names: %w; snapshot:\n%s", err, snap)
+			return fmt.Errorf("help overlay never showed corner+command-names after G: %w; snapshot:\n%s", err, snap)
 		}
 		t.Logf("✓ help overlay rendered with rounded border + canonical command names")
 		return nil
@@ -1049,11 +1064,14 @@ func TestBridgeE2E_Stado_PaletteFilter(t *testing.T) {
 		paletteOpen := `(function(){
 			if (!window.bridge || !window.bridge.snapshot) return false;
 			var s = window.bridge.snapshot();
-			// Palette body shows several canonical names; require
-			// /sidebar AND /theme together so we know we're seeing
-			// the unfiltered palette (post-filter only one will
-			// remain, so this captures the pre-filter baseline).
-			return s.indexOf('/sidebar') >= 0 && s.indexOf('/theme') >= 0;
+			// The modal windows its list to the canvas height (the
+			// full 37-command list never fits), so only the TOP of
+			// the unfiltered list is visible pre-filter. Require the
+			// Search label plus two early rows (/agents and /exit
+			// from the Quick/Session groups) — together they only
+			// appear when the unfiltered palette is open.
+			return s.indexOf('Search') >= 0 &&
+				s.indexOf('/agents') >= 0 && s.indexOf('/exit') >= 0;
 		})()`
 		if _, err := waitForSnapshot(ctx, t, paletteOpen, 10*time.Second); err != nil {
 			snap := snapshot(ctx, t)

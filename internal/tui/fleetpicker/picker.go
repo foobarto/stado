@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/textutil"
@@ -100,30 +100,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !m.Visible {
 		return nil, false
 	}
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil, false
 	}
-	switch km.Type {
-	case tea.KeyUp, tea.KeyCtrlP:
+	switch km.String() {
+	case "up", "ctrl+p":
 		m.Cursor = max0(m.Cursor - 1)
 		return nil, true
-	case tea.KeyDown, tea.KeyCtrlN:
+	case "down", "ctrl+n":
 		if m.Cursor < len(m.Items)-1 {
 			m.Cursor++
 		}
 		return nil, true
-	case tea.KeyEnter:
+	case "enter":
 		if sel := m.Selected(); sel != nil {
 			m.Out = Result{Action: ActionView, FleetID: sel.FleetID}
 		}
 		return nil, true
-	case tea.KeyCtrlX:
+	case "ctrl+x":
 		if sel := m.Selected(); sel != nil && sel.Status == runtime.FleetStatusRunning {
 			m.Out = Result{Action: ActionCancel, FleetID: sel.FleetID}
 		}
 		return nil, true
-	case tea.KeyCtrlD:
+	case "ctrl+d":
 		if sel := m.Selected(); sel != nil && sel.Status != runtime.FleetStatusRunning {
 			m.Out = Result{Action: ActionRemove, FleetID: sel.FleetID}
 		}

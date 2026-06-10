@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 )
@@ -138,7 +138,7 @@ func (m *Model) renderChoiceDrawer(mainW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1)
 	if mainW > 2 {
-		style = style.Width(mainW - 2)
+		style = style.Width(mainW)
 	}
 	return style.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
@@ -281,31 +281,31 @@ func choiceWindow(cursor, total, maxVisible int) (first, last int) {
 // runes / Backspace edit the input buffer; Enter validates (when the
 // option carries a validator) and confirms; Esc cancels
 // (cancelled=true to plugin). F10.
-func (m *Model) handleChoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (m *Model) handleChoiceKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if m.choice == nil {
 		return nil, false
 	}
 	cursorHasInput := m.choiceCursor >= 0 &&
 		m.choiceCursor < len(m.choice.options) &&
 		m.choice.options[m.choiceCursor].Input != nil
-	switch msg.Type {
-	case tea.KeyEsc:
+	switch msg.String() {
+	case "esc":
 		return m.resolveChoiceCancel(), true
-	case tea.KeyUp:
+	case "up":
 		if m.choiceCursor > 0 {
 			m.choiceCursor--
 			m.choiceValidationErr = ""
 			m.renderBlocks()
 		}
 		return nil, true
-	case tea.KeyDown:
+	case "down":
 		if m.choiceCursor < len(m.choice.options)-1 {
 			m.choiceCursor++
 			m.choiceValidationErr = ""
 			m.renderBlocks()
 		}
 		return nil, true
-	case tea.KeySpace:
+	case "space":
 		if m.choice.multi {
 			id := m.choice.options[m.choiceCursor].ID
 			if m.choiceMarked == nil {
@@ -320,21 +320,13 @@ func (m *Model) handleChoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return nil, true
-	case tea.KeyBackspace:
+	case "backspace":
 		if cursorHasInput && !m.choice.multi {
 			m.popChoiceInputRune()
 			return nil, true
 		}
 		return nil, true
-	case tea.KeyRunes:
-		if cursorHasInput && !m.choice.multi {
-			for _, r := range msg.Runes {
-				m.appendChoiceInputRune(r)
-			}
-			return nil, true
-		}
-		return nil, true
-	case tea.KeyEnter:
+	case "enter":
 		if m.choice.multi {
 			var selected []string
 			for _, opt := range m.choice.options {
@@ -357,6 +349,19 @@ func (m *Model) handleChoiceKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 		}
 		return m.resolveChoice([]string{opt.ID}, input, false), true
+	default:
+		// Printable text (the v1 KeyRunes path): feed the cursor's
+		// inline input field when it has one, but always swallow the
+		// keystroke so it doesn't leak past the drawer. Non-text keys
+		// fall through to the caller.
+		if msg.Text != "" {
+			if cursorHasInput && !m.choice.multi {
+				for _, r := range msg.Text {
+					m.appendChoiceInputRune(r)
+				}
+			}
+			return nil, true
+		}
 	}
 	return nil, false
 }

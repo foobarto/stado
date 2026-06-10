@@ -10,8 +10,8 @@ package personapicker
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
@@ -77,38 +77,40 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !m.Visible {
 		return nil, false
 	}
-	km, ok := msg.(tea.KeyMsg)
+	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil, false
 	}
-	switch km.Type {
-	case tea.KeyUp:
+	switch km.String() {
+	case "up":
 		m.moveCursor(-1)
 		return nil, true
-	case tea.KeyDown, tea.KeyTab:
+	case "down", "tab":
 		m.moveCursor(1)
 		return nil, true
-	case tea.KeyEscape:
+	case "esc":
 		m.Visible = false
 		return nil, true
-	case tea.KeyBackspace:
+	case "backspace":
 		if len(m.Query) > 0 {
 			m.Query = textutil.TrimLastRune(m.Query)
 			m.refresh()
 		}
 		return nil, true
-	case tea.KeyCtrlU:
+	case "ctrl+u":
 		m.Query = ""
 		m.refresh()
 		return nil, true
-	case tea.KeyRunes:
-		m.Query = textutil.AppendWithinBytes(m.Query, string(km.Runes), maxQueryBytes)
-		m.refresh()
-		return nil, true
-	case tea.KeySpace:
+	case "space":
 		m.Query = textutil.AppendWithinBytes(m.Query, " ", maxQueryBytes)
 		m.refresh()
 		return nil, true
+	default:
+		if km.Text != "" {
+			m.Query = textutil.AppendWithinBytes(m.Query, km.Text, maxQueryBytes)
+			m.refresh()
+			return nil, true
+		}
 	}
 	return nil, false
 }

@@ -21,9 +21,9 @@ import (
 	"sync"
 	"text/template"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/workdirpath"
 )

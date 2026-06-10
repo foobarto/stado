@@ -331,8 +331,8 @@ func (m *Model) saveActiveSessionUIState() {
 	}
 	m.sessionUIStates[m.session.ID] = sessionUIState{
 		Draft:               draft,
-		ViewportYOffset:     m.vp.YOffset,
-		ActivityYOffset:     m.activityVP.YOffset,
+		ViewportYOffset:     m.vp.YOffset(),
+		ActivityYOffset:     m.activityVP.YOffset(),
 		ProviderName:        m.providerName,
 		Model:               m.model,
 		TokenCounterChecked: m.tokenCounterChecked,

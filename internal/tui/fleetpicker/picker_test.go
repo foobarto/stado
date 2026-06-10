@@ -1,11 +1,21 @@
 package fleetpicker
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/runtime"
 )
+
+// sgrEscapeRE matches lipgloss's own SGR colour styling (ESC [ … m).
+// v2 lipgloss emits SGR from Style.Render unconditionally, whereas v1
+// produced plain text in non-TTY test runs. stripSGR removes only that
+// legitimate styling so the leak checks still catch injected OSC/CSI/BEL
+// sequences (which do not end in 'm').
+var sgrEscapeRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripSGR(s string) string { return sgrEscapeRE.ReplaceAllString(s, "") }
 
 // Codex G4/J-b P0 regression: FleetEntry fields (Prompt, LastTool,
 // LastText, Error, Result) are populated by headless agent runs and
@@ -31,7 +41,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		Prompt:   "investigate " + osc52,
 		LastTool: "bash" + osc8,
 	}
-	row := renderEntryRow(e, 120)
+	row := stripSGR(renderEntryRow(e, 120))
 	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(row, esc) {
 			t.Errorf("renderEntryRow leaks %q escape: %q", esc, row)
@@ -56,7 +66,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		LastText:  "last " + osc8,
 		Error:     "err " + csi,
 	}
-	detail := renderEntryDetail(d, 120)
+	detail := stripSGR(renderEntryDetail(d, 120))
 	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(detail, esc) {
 			t.Errorf("renderEntryDetail leaks %q escape: %q", esc, detail)
@@ -69,7 +79,7 @@ func TestRenderEntryRow_StripsEscapes(t *testing.T) {
 		Prompt:  "p",
 		Result:  "ok " + osc52,
 	}
-	rdetail := renderEntryDetail(r, 120)
+	rdetail := stripSGR(renderEntryDetail(r, 120))
 	for _, esc := range []string{"\x1b", "\x1b]52", "\x1b]8", "\x1b[", "\x07"} {
 		if strings.Contains(rdetail, esc) {
 			t.Errorf("renderEntryDetail(Result) leaks %q escape: %q", esc, rdetail)

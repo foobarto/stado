@@ -5,19 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
-
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 )
 
-// TestMain forces a color profile so lipgloss emits ANSI escapes
-// even though the test environment isn't a TTY. Without this, every
-// style call returns plain text and the size-based assertions below
-// (styled output longer than plain) fail vacuously. The TUI itself
-// runs in a real TTY where this happens automatically.
+// TestMain runs the package tests. Under v2 lipgloss, Style.Render emits
+// ANSI escapes unconditionally (the color profile only governs the
+// colorprofile.Writer used for terminal output), so the styled-vs-plain
+// size assertions below no longer need a forced color profile.
 func TestMain(m *testing.M) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
 	os.Exit(m.Run())
 }
 

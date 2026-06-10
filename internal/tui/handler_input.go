@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
@@ -27,12 +27,13 @@ import (
 
 func onMouse(m *Model, msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Click-to-expand on tool/assistant blocks. Only consume left-
-	// button presses; release / drag / motion events flow through
-	// to the viewport for default scroll behaviour. Hold Shift +
-	// drag to bypass app mouse capture and use native terminal
-	// selection (most modern terminals support this).
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		if m.handleMessagesClick(msg.X, msg.Y) {
+	// button presses (v2 splits the old MouseMsg into per-action
+	// types — a MouseClickMsg is the press); release / drag / motion /
+	// wheel events flow through to the viewport for default scroll
+	// behaviour. Hold Shift + drag to bypass app mouse capture and use
+	// native terminal selection (most modern terminals support this).
+	if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft {
+		if m.handleMessagesClick(click.X, click.Y) {
 			m.renderBlocks()
 			return m, nil
 		}
@@ -43,14 +44,14 @@ func onMouse(m *Model, msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, vpCmd
 }
 
-func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	// Ctrl+C closes any open modal popup. Esc still works (each
 	// modal handles it internally), but adding Ctrl+C as a secondary
 	// close key matches readline conventions and lets the user
 	// dismiss popups without leaving home-row. Checked before any
 	// modal-specific routing so it pre-empts the modal's own
 	// keypress handling.
-	if msg.Type == tea.KeyCtrlC && m.anyModalOpen() {
+	if msg.String() == "ctrl+c" && m.anyModalOpen() {
 		m.closeAllModals()
 		return m, nil, true
 	}
@@ -73,6 +74,33 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	}
 
 	if m.showHelp {
+		// The help body is taller than most terminals; ↑/↓ and friends
+		// scroll it. RenderHelp clamps helpScroll on the next frame, so
+		// over-shooting here is harmless.
+		page := m.height - 6
+		if page < 1 {
+			page = 1
+		}
+		switch msg.String() {
+		case "up", "k":
+			m.helpScroll--
+			return m, nil, true
+		case "down", "j":
+			m.helpScroll++
+			return m, nil, true
+		case "pgup":
+			m.helpScroll -= page
+			return m, nil, true
+		case "pgdown":
+			m.helpScroll += page
+			return m, nil, true
+		case "home", "g":
+			m.helpScroll = 0
+			return m, nil, true
+		case "end", "G":
+			m.helpScroll = 1 << 30 // clamped to the bottom by RenderHelp
+			return m, nil, true
+		}
 		if m.keys.Matches(msg, keys.SessionInterrupt) || m.keys.Matches(msg, keys.TipsToggle) {
 			m.showHelp = false
 			m.layout()
@@ -136,10 +164,10 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	// Quit confirmation: y/Enter confirms, n/Esc cancels.
 	if m.state == stateQuitConfirm {
-		if m.keys.Matches(msg, keys.Approve) || msg.Type == tea.KeyEnter {
+		if m.keys.Matches(msg, keys.Approve) || msg.String() == "enter" {
 			return m, tea.Quit, true
 		}
-		if m.keys.Matches(msg, keys.Deny) || msg.Type == tea.KeyEsc {
+		if m.keys.Matches(msg, keys.Deny) || msg.String() == "esc" {
 			m.state = stateIdle
 			m.renderBlocks()
 			return m, nil, true
@@ -230,6 +258,7 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		// empty prompt.
 		if m.input.Value() == "" {
 			m.showHelp = true
+			m.helpScroll = 0
 			m.layout()
 			return m, nil, true
 		}
@@ -242,7 +271,7 @@ func onKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		m.layout()
 		return m, nil, true
 
-	case msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '/' && m.input.Value() == "":
+	case msg.Text == "/" && m.input.Value() == "":
 		m.slashInline = true
 		m.slash.Open()
 		m.layout()

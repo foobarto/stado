@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // TestRenderRow_RespectsWidth pins the palette-junk bug: the non-selected
@@ -51,7 +51,7 @@ func TestUpdate_RunesBuildQuery(t *testing.T) {
 
 	// Type "help" one rune at a time.
 	for _, r := range "help" {
-		_, handled := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, handled := m.Update(tea.KeyPressMsg{Text: string(r)})
 		if !handled {
 			t.Errorf("rune %q should be handled", r)
 		}
@@ -69,12 +69,12 @@ func TestUpdate_QueryCapsBytes(t *testing.T) {
 	m := New()
 	m.Open()
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	_, _ = m.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(m.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	m.Query = strings.Repeat("x", maxQueryBytes-1)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(m.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}
@@ -86,7 +86,7 @@ func TestUpdate_BackspaceShrinksQuery(t *testing.T) {
 	m.Query = "hel"
 	m.refresh()
 
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if !handled {
 		t.Error("backspace should be handled")
 	}
@@ -100,7 +100,7 @@ func TestUpdate_CtrlUClearsQuery(t *testing.T) {
 	m.Open()
 	m.Query = "some-filter"
 	m.refresh()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	if m.Query != "" {
 		t.Errorf("ctrl+u should clear Query, got %q", m.Query)
 	}
@@ -109,7 +109,7 @@ func TestUpdate_CtrlUClearsQuery(t *testing.T) {
 func TestUpdate_EscapeCloses(t *testing.T) {
 	m := New()
 	m.Open()
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if !handled {
 		t.Error("escape should be handled")
 	}
@@ -125,12 +125,12 @@ func TestUpdate_UpDownWraps(t *testing.T) {
 		t.Fatalf("initial cursor = %d", m.Cursor)
 	}
 	// Up from top should wrap to last.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if m.Cursor != len(m.Matches)-1 {
 		t.Errorf("up-from-top cursor = %d, want %d", m.Cursor, len(m.Matches)-1)
 	}
 	// Down from last should wrap to first.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if m.Cursor != 0 {
 		t.Errorf("down-from-last cursor = %d, want 0", m.Cursor)
 	}
@@ -139,7 +139,7 @@ func TestUpdate_UpDownWraps(t *testing.T) {
 func TestUpdate_TabAdvancesCursor(t *testing.T) {
 	m := New()
 	m.Open()
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if !handled {
 		t.Error("tab should advance cursor")
 	}
@@ -186,10 +186,60 @@ func TestView_HiddenReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestView_FitsCanvasHeight: the full command list (37 rows + group
+// headers) is taller than most terminals. bubbletea v2's compositor
+// clips the frame to the canvas — anything past screenHeight is
+// invisible — so View must window the list to fit. Regression for the
+// pty-bridge PaletteFilter failure after the v2 migration (the modal
+// rendered 47 lines on a 32-row canvas and the bottom was clipped).
+func TestView_FitsCanvasHeight(t *testing.T) {
+	for _, size := range [][2]int{{120, 32}, {100, 30}, {80, 24}} {
+		m := New()
+		m.Open()
+		out := m.View(size[0], size[1])
+		if got := len(strings.Split(out, "\n")); got > size[1] {
+			t.Errorf("canvas %dx%d: rendered %d lines — modal doesn't fit", size[0], size[1], got)
+		}
+	}
+}
+
+// TestView_TallCanvasShowsWholeList: when the canvas is tall enough the
+// window must not kick in — every command, including the View group at
+// the bottom, stays visible.
+func TestView_TallCanvasShowsWholeList(t *testing.T) {
+	m := New()
+	m.Open()
+	out := m.View(120, 80)
+	for _, want := range []string{"/help", "/sidebar", "/theme", "/split"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tall canvas missing %q", want)
+		}
+	}
+}
+
+// TestView_CursorScrollsWindowToBottom: moving the cursor past the
+// window slides it down, so the selected row (and the View group at the
+// list bottom) becomes visible on a short canvas.
+func TestView_CursorScrollsWindowToBottom(t *testing.T) {
+	m := New()
+	m.Open()
+	for range Commands { // wrap-safe: lands on the last entry
+		m.moveCursor(1)
+	}
+	m.moveCursor(-1) // last command: /split
+	out := m.View(120, 32)
+	if !strings.Contains(out, "/split") {
+		t.Fatalf("cursor on the last command but its row isn't visible:\n%s", out)
+	}
+	if !strings.Contains(out, "/sidebar") || !strings.Contains(out, "/theme") {
+		t.Errorf("bottom window should show the View group rows:\n%s", out)
+	}
+}
+
 func TestInlineViewRendersCompactSuggestions(t *testing.T) {
 	m := New()
 	m.Open()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("model")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "model"})
 
 	got := m.InlineView(80)
 	// While filtering, group headers ("Session") are dropped — they're
@@ -233,7 +283,7 @@ func TestInlineViewShowsGroupsWhenBrowsing(t *testing.T) {
 func TestInlineViewShowsCommandShortcutHints(t *testing.T) {
 	m := New()
 	m.Open()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("theme")})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "theme"})
 
 	got := m.InlineView(80)
 	for _, want := range []string{"/theme", "ctrl+x t"} {

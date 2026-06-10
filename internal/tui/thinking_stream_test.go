@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/pkg/agent"
@@ -49,7 +49,7 @@ func TestThinkingOnlyStreamDrainsAndReturnsToIdle(t *testing.T) {
 		t.Fatalf("thinking body missing accumulated content: %+v", m.msgs[0].Content)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "o"})
 	if m.input.Value() != "o" {
 		t.Fatalf("input stayed unresponsive after thinking stream: %q", m.input.Value())
 	}

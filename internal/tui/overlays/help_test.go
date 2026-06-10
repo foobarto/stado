@@ -15,7 +15,7 @@ import (
 // is a complete cheat-sheet for the TUI surface.
 func TestRenderHelp_IncludesSlashCommands(t *testing.T) {
 	reg := keys.NewRegistry()
-	out := RenderHelp(reg, 200)
+	out, _ := RenderHelp(reg, 200, 0, 0)
 
 	if !strings.Contains(out, "Slash commands") {
 		t.Error("expected 'Slash commands' section header")
@@ -41,7 +41,7 @@ func TestRenderHelp_IncludesSlashCommands(t *testing.T) {
 // the list scannable.
 func TestRenderHelp_GroupsSlashCommands(t *testing.T) {
 	reg := keys.NewRegistry()
-	out := RenderHelp(reg, 200)
+	out, _ := RenderHelp(reg, 200, 0, 0)
 	groups := map[string]bool{}
 	for _, cmd := range palette.Commands {
 		groups[cmd.Group] = true
@@ -55,11 +55,65 @@ func TestRenderHelp_GroupsSlashCommands(t *testing.T) {
 
 func TestRenderHelp_IncludesModeBindingsAndFullPrefixChords(t *testing.T) {
 	reg := keys.NewRegistry()
-	out := RenderHelp(reg, 200)
+	out, _ := RenderHelp(reg, 200, 0, 0)
 
 	for _, needle := range []string{"Modes", "ctrl+x ctrl+b", "ctrl+x ctrl+c"} {
 		if !strings.Contains(out, needle) {
 			t.Errorf("help overlay missing %q", needle)
 		}
+	}
+}
+
+// TestRenderHelp_FitsHeight: the help body is ~70+ lines, far taller than
+// a typical terminal. bubbletea v2's compositor clips the frame to the
+// canvas (v1 scrolled the overflow, losing the top instead of the
+// bottom), so RenderHelp must window its body to the height budget.
+// Regression for the pty-bridge HelpOverlay failure after the v2
+// migration.
+func TestRenderHelp_FitsHeight(t *testing.T) {
+	reg := keys.NewRegistry()
+	// Width matters as much as height: the budget must count rendered
+	// (post-wrap) rows, not logical lines. Narrow widths wrap the long
+	// slash-command descriptions into multiple rows, and the bottom
+	// window (scroll-to-end) is where those rows live — the original
+	// fix windowed pre-wrap lines and still overflowed once scrolled.
+	for _, width := range []int{120, 100, 80, 40} {
+		for _, height := range []int{32, 24} {
+			for _, scroll := range []int{0, 1 << 30} {
+				out, _ := RenderHelp(reg, width, height, scroll)
+				if got := len(strings.Split(out, "\n")); got > height {
+					t.Errorf("%dx%d scroll=%d: rendered %d lines — overlay doesn't fit the canvas",
+						width, height, scroll, got)
+				}
+			}
+			out, scroll := RenderHelp(reg, width, height, 0)
+			if scroll != 0 {
+				t.Errorf("%dx%d: scroll 0 should stay 0, got %d", width, height, scroll)
+			}
+			if !strings.Contains(out, "scroll") {
+				t.Errorf("%dx%d: windowed overlay missing the scroll footer hint", width, height)
+			}
+		}
+	}
+}
+
+// TestRenderHelp_ScrollReachesSlashCommands: scrolling to the bottom must
+// reveal the slash-command section (it sits below the keybinding groups),
+// and the returned scroll must be clamped to the last useful position.
+func TestRenderHelp_ScrollReachesSlashCommands(t *testing.T) {
+	reg := keys.NewRegistry()
+	out, scroll := RenderHelp(reg, 120, 32, 1<<30)
+	if scroll <= 0 {
+		t.Fatalf("expected clamped bottom scroll > 0, got %d", scroll)
+	}
+	for _, needle := range []string{"/sidebar", "/theme", "/split"} {
+		if !strings.Contains(out, needle) {
+			t.Errorf("bottom of help overlay missing %q:\n%s", needle, out)
+		}
+	}
+	// Idempotent: rendering again with the clamped value yields the same scroll.
+	_, again := RenderHelp(reg, 120, 32, scroll)
+	if again != scroll {
+		t.Errorf("clamp not stable: %d → %d", scroll, again)
 	}
 }

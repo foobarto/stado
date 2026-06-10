@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestAgentPickerItemsMarkCurrent(t *testing.T) {
@@ -37,9 +37,9 @@ func TestUAT_AgentPickerSubmitSetsMode(t *testing.T) {
 	m.openAgentPicker()
 
 	for _, r := range "btw" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.agentPick.Visible {
 		t.Fatal("agent picker should close after selection")
@@ -53,8 +53,8 @@ func TestUAT_CtrlXAOpensAgentPicker(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateIdle
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "a"})
 
 	if !m.agentPick.Visible {
 		t.Fatal("ctrl+x a should open the agent picker")

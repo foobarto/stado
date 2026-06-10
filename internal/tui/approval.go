@@ -15,8 +15,8 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func (m *Model) approvalCardHeight(mainW int) int {
@@ -76,7 +76,7 @@ func (m *Model) renderApprovalCard(mainW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1)
 	if mainW > 2 {
-		style = style.Width(mainW - 2)
+		style = style.Width(mainW)
 	}
 	return style.Render(cardBody)
 }
@@ -104,7 +104,7 @@ func (m *Model) renderApprovalBody(body string, innerW int) string {
 		Foreground(m.theme.Fg("text").GetForeground()).
 		PaddingLeft(1)
 	if innerW > 4 {
-		style = style.Width(innerW - 2)
+		style = style.Width(innerW - 1)
 	}
 	return style.Render(body)
 }
@@ -132,7 +132,7 @@ func (m *Model) renderApprovalButton(label, key string, active bool, tone string
 	return style.Render(keyChip + "  " + label)
 }
 
-func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if approvalChoice(msg, 'y') {
 		return m.resolveApproval(true), true
 	}
@@ -140,8 +140,8 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return m.resolveApproval(false), true
 	}
 
-	switch msg.Type {
-	case tea.KeyUp:
+	switch msg.String() {
+	case "up":
 		if m.filePicker.Visible {
 			return nil, false
 		}
@@ -150,7 +150,7 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			m.renderBlocks()
 		}
 		return nil, true
-	case tea.KeyDown:
+	case "down":
 		if m.approvalFocused {
 			m.approvalFocused = false
 			m.renderBlocks()
@@ -159,19 +159,19 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if m.filePicker.Visible {
 			return nil, false
 		}
-	case tea.KeyLeft:
+	case "left":
 		if m.approvalFocused && !m.approvalAllowSelected {
 			m.approvalAllowSelected = true
 			m.renderBlocks()
 			return nil, true
 		}
-	case tea.KeyRight:
+	case "right":
 		if m.approvalFocused && m.approvalAllowSelected {
 			m.approvalAllowSelected = false
 			m.renderBlocks()
 			return nil, true
 		}
-	case tea.KeyEnter:
+	case "enter":
 		if m.approvalFocused {
 			return m.resolveApproval(m.approvalAllowSelected), true
 		}
@@ -186,10 +186,10 @@ func (m *Model) handleApprovalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func approvalChoice(msg tea.KeyMsg, want rune) bool {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
+func approvalChoice(msg tea.KeyPressMsg, want rune) bool {
+	if len([]rune(msg.Text)) != 1 {
 		return false
 	}
-	r := msg.Runes[0]
+	r := []rune(msg.Text)[0]
 	return r == want || r == want-'a'+'A'
 }

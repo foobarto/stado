@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestLandingInputWidensForPalette pins that the landing input card (and thus
@@ -21,7 +21,7 @@ func TestLandingInputWidensForPalette(t *testing.T) {
 	}
 
 	// Open the inline palette with '/'.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "/"})
 	if !m.slash.Visible || !m.slashInline {
 		t.Fatal("inline slash palette should be visible after '/'")
 	}

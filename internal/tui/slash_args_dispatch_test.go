@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -31,7 +31,7 @@ func TestSlashPaletteEnterDispatchesFullCommandWithArgs(t *testing.T) {
 	m.slash.Query = "monitor stop"
 
 	priorBlocks := len(m.blocks)
-	onPickerKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	onPickerKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if m.showHelp {
 		t.Fatal("Enter ran the highlighted suggestion instead of the typed command — args dropped")
@@ -63,7 +63,7 @@ func TestSlashPaletteEnterStripsLeadingSlash(t *testing.T) {
 	m.slash.Query = "/monitor stop" // leading slash, as typed via Ctrl+P
 
 	priorBlocks := len(m.blocks)
-	onPickerKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	onPickerKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if len(m.blocks) <= priorBlocks {
 		t.Fatal("Enter on '/monitor stop' (leading slash) produced no block")
@@ -90,7 +90,7 @@ func TestSlashPaletteEnterUnknownCommandStillDispatches(t *testing.T) {
 	m.slash.Matches = nil
 
 	priorBlocks := len(m.blocks)
-	onPickerKey(m, tea.KeyMsg{Type: tea.KeyEnter})
+	onPickerKey(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if len(m.blocks) <= priorBlocks {
 		t.Fatal("Enter on an unknown slash command was swallowed (no feedback block)")

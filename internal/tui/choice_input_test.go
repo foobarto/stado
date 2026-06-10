@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 )
@@ -50,9 +50,9 @@ func TestChoiceDrawer_InputTypingCommitsValue(t *testing.T) {
 		response: resp,
 	})
 	// Backspace twice ("10.10.14.") then "5".
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "5"})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp:
 		if got.Cancelled {
@@ -91,7 +91,7 @@ func TestChoiceDrawer_InputValidatorBlocksInvalid(t *testing.T) {
 		},
 		response: resp,
 	})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	// No response delivered yet — drawer should still be open.
 	select {
 	case got := <-resp:
@@ -110,10 +110,10 @@ func TestChoiceDrawer_InputValidatorBlocksInvalid(t *testing.T) {
 
 	// Now correct the input and Enter — should commit cleanly.
 	for range "abc" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "5"})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp:
 		if got.Cancelled {
@@ -147,8 +147,8 @@ func TestChoiceDrawer_BareInputShortcut(t *testing.T) {
 		t.Fatal("drawer should be open")
 	}
 	// Type a suffix, commit.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'!'}})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "!"})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	select {
 	case got := <-resp:
 		if got.InputValue != "out.txt!" {
@@ -181,11 +181,11 @@ func TestChoiceDrawer_NavigateClearsValidationError(t *testing.T) {
 		},
 		response: resp,
 	})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.choiceValidationErr == "" {
 		t.Fatal("expected validation error after Enter on bad input")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if m.choiceValidationErr != "" {
 		t.Errorf("navigation should clear validation error; still: %q", m.choiceValidationErr)
 	}

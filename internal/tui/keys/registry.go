@@ -3,8 +3,8 @@ package keys
 import (
 	"sync"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 type Registry struct {
@@ -90,7 +90,7 @@ func (r *Registry) HelpKeys(action Action) []string {
 // Matches checks whether msg matches any flat binding for action.
 // Prefix sequences are NOT handled here; use IsPrefixChord / TryPrefix
 // for chord dispatch.
-func (r *Registry) Matches(msg tea.KeyMsg, action Action) bool {
+func (r *Registry) Matches(msg tea.KeyPressMsg, action Action) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -109,7 +109,7 @@ func (r *Registry) Matches(msg tea.KeyMsg, action Action) bool {
 // IsPrefixChord returns true if msg matches the FIRST chord of any
 // registered prefix binding.  Called at the top of key dispatch to
 // decide whether to consume a keystroke as a prefix primer.
-func (r *Registry) IsPrefixChord(msg tea.KeyMsg) bool {
+func (r *Registry) IsPrefixChord(msg tea.KeyPressMsg) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -131,7 +131,7 @@ func (r *Registry) IsPrefixChord(msg tea.KeyMsg) bool {
 //     returns the completed action + true, returns ("", true) if
 //     the sequence is still partial, or resets state + returns
 //     ("", false) if nothing matches.
-func (r *Registry) TryPrefix(msg tea.KeyMsg) (Action, bool) {
+func (r *Registry) TryPrefix(msg tea.KeyPressMsg) (Action, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -220,14 +220,14 @@ func (r *Registry) stateMatches(target []string) bool {
 // chordMatches checks whether a single bubbletea KeyMsg matches a
 // chord string like "ctrl+b".  Uses msg.String() which is exactly
 // what bubbles/key.Binding compares against internally.
-func chordMatches(msg tea.KeyMsg, chord string) bool {
+func chordMatches(msg tea.KeyPressMsg, chord string) bool {
 	return msg.String() == chord
 }
 
 // chordString converts a bubbletea KeyMsg to a canonical chord string
 // for prefix-state comparison.  msg.String() already returns the
 // bubbles-compatible representation (e.g. "ctrl+b", "ctrl+x").
-func chordString(msg tea.KeyMsg) string {
+func chordString(msg tea.KeyPressMsg) string {
 	return msg.String()
 }
 

@@ -13,10 +13,11 @@ package tui
 // toolResult handlers.
 
 import (
+	"image/color"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 func (m *Model) renderBlocks() {
@@ -29,7 +30,7 @@ func (m *Model) renderBlocks() {
 		return
 	}
 	var b strings.Builder
-	width := m.vp.Width - 2
+	width := m.vp.Width() - 2
 	if width < 10 {
 		width = 10
 	}
@@ -53,8 +54,8 @@ func (m *Model) renderBlocks() {
 		b.WriteString(out)
 		first = false
 	}
-	oldBottomY := max(0, m.vp.TotalLineCount()-m.vp.Height)
-	wasNearBottom := m.vp.YOffset >= oldBottomY-2
+	oldBottomY := max(0, m.vp.TotalLineCount()-m.vp.Height())
+	wasNearBottom := m.vp.YOffset() >= oldBottomY-2
 	m.vp.SetContent(b.String())
 	// Only auto-scroll to bottom when the user is already near the
 	// bottom.  YOffset is the scroll position (0 = top).  The bottom
@@ -63,7 +64,7 @@ func (m *Model) renderBlocks() {
 	contentLines := m.vp.TotalLineCount()
 	if wasNearBottom {
 		m.vp.GotoBottom()
-	} else if contentLines < m.vp.Height {
+	} else if contentLines < m.vp.Height() {
 		m.vp.GotoTop()
 	}
 }
@@ -127,7 +128,7 @@ func stripTrailingSpacesPerLine(s string) string {
 // applyFocusMarker prepends a coloured left-border glyph to every line
 // of the rendered block so the focused tool/assistant call stands out
 // in the conversation pane. EP-N/A — older-tool expand UX.
-func applyFocusMarker(rendered string, fg lipgloss.TerminalColor) string {
+func applyFocusMarker(rendered string, fg color.Color) string {
 	marker := lipgloss.NewStyle().Foreground(fg).Render("▌ ")
 	lines := strings.Split(rendered, "\n")
 	for i, line := range lines {
@@ -277,11 +278,11 @@ func systemBlockTone(body string) string {
 // chat-log metaphor).
 func (m *Model) renderSplitPanes() {
 	var convo, activity strings.Builder
-	convoW := m.vp.Width - 2
+	convoW := m.vp.Width() - 2
 	if convoW < 10 {
 		convoW = 10
 	}
-	actW := m.activityVP.Width - 2
+	actW := m.activityVP.Width() - 2
 	if actW < 10 {
 		actW = 10
 	}

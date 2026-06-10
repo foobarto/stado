@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/keys"
 )
@@ -13,16 +13,15 @@ import (
 func TestEditorCapsPastedInputBytes(t *testing.T) {
 	e := New(keys.NewRegistry())
 
-	_, _ = e.Update(tea.KeyMsg{
-		Type:  tea.KeyRunes,
-		Runes: []rune(strings.Repeat("x", MaxValueBytes+128)),
+	_, _ = e.Update(tea.KeyPressMsg{
+		Text: strings.Repeat("x", MaxValueBytes+128),
 	})
 
 	if got := len(e.Value()); got != MaxValueBytes {
 		t.Fatalf("input length = %d, want %d", got, MaxValueBytes)
 	}
 
-	_, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("tail")})
+	_, _ = e.Update(tea.KeyPressMsg{Text: "tail"})
 	if got := len(e.Value()); got != MaxValueBytes {
 		t.Fatalf("input length after extra paste = %d, want %d", got, MaxValueBytes)
 	}
@@ -32,7 +31,7 @@ func TestEditorCapsPastedInputAtRuneBoundary(t *testing.T) {
 	e := New(keys.NewRegistry())
 	e.SetValue(strings.Repeat("x", MaxValueBytes-1))
 
-	_, _ = e.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = e.Update(tea.KeyPressMsg{Text: "é"})
 
 	if got := len(e.Value()); got != MaxValueBytes-1 {
 		t.Fatalf("input length = %d, want %d", got, MaxValueBytes-1)

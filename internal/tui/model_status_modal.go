@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"

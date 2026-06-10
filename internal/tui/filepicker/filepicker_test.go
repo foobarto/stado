@@ -3,11 +3,21 @@ package filepicker
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
+
+// sgrEscapeRE matches lipgloss's own SGR colour styling (ESC [ … m).
+// v2 lipgloss emits SGR from Style.Render unconditionally, whereas v1
+// produced plain text in non-TTY test runs. stripSGR removes only that
+// legitimate styling so the leaked-control-char check still catches any
+// injected escape that survives sanitization.
+var sgrEscapeRE = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+func stripSGR(s string) string { return sgrEscapeRE.ReplaceAllString(s, "") }
 
 // TestOpenScansCwd: Open collects every regular file under cwd as a
 // relative path. Hidden directories and vendor folders are skipped.
@@ -140,7 +150,7 @@ func TestUpDownNavigateHandled(t *testing.T) {
 	m := New()
 	m.Open(dir, 0)
 
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if !handled {
 		t.Error("KeyDown must return handled=true while visible")
 	}
@@ -148,7 +158,7 @@ func TestUpDownNavigateHandled(t *testing.T) {
 		t.Errorf("Cursor = %d, want 1 after Down", m.Cursor)
 	}
 
-	_, handled = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, handled = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if !handled {
 		t.Error("KeyUp must return handled=true")
 	}
@@ -157,7 +167,7 @@ func TestUpDownNavigateHandled(t *testing.T) {
 	}
 
 	// Up at 0 wraps to last.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if m.Cursor != len(m.Matches)-1 {
 		t.Errorf("Up-wrap: Cursor = %d, want %d", m.Cursor, len(m.Matches)-1)
 	}
@@ -203,7 +213,7 @@ func TestCloseClearsState(t *testing.T) {
 // so the host passes the event through normally.
 func TestHiddenUpdateNoop(t *testing.T) {
 	m := New()
-	_, handled := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, handled := m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if handled {
 		t.Error("hidden picker must not claim keypress")
 	}
@@ -234,7 +244,7 @@ func TestView_StripsControlCharsFromRenderedRows(t *testing.T) {
 		{Kind: KindFile, Display: "bad\x1bname.txt", Meta: "meta\x1bdata"},
 	}
 	m.refreshMatchStrings()
-	out := m.View(80)
+	out := stripSGR(m.View(80))
 	if strings.ContainsRune(out, '\x1b') {
 		t.Fatalf("picker view leaked control chars: %q", out)
 	}

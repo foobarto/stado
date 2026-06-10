@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -69,7 +69,7 @@ func TestUAT_TypingDuringStreamingBuildsBuffer(t *testing.T) {
 	_ = ctx
 
 	for _, r := range "draft-while-busy" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 
 	if m.input.Value() != "draft-while-busy" {
@@ -95,10 +95,10 @@ func TestUAT_SubmitWhileStreamingAppendsUserBlock(t *testing.T) {
 	_ = ctx
 
 	for _, r := range "wait check this" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	priorMsgCount := len(m.msgs)
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	// Visible immediately via blocks.
 	if len(m.blocks) == 0 {
@@ -135,7 +135,7 @@ func TestUAT_OSCTailDroppedByFilter(t *testing.T) {
 		"rgb:1e1e/1e1e",          // shorter ragged split
 		"]11;rgb:1e1e/1e1e/1e1e", // full prefix (Alt-wrapped shape)
 	} {
-		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tail)}
+		msg := tea.KeyPressMsg{Text: tail}
 		if got := filterOSCResponses(nil, msg); got != nil && !strings.Contains(tail, "]11") {
 			// rgb: + / form — must drop.
 			t.Errorf("tail %q should have been dropped, got %+v", tail, got)

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -61,7 +61,7 @@ func TestBudget_HardCapBlocksSubmit(t *testing.T) {
 	// Simulate pressing Enter with a non-empty input.
 	m.input.Reset()
 	m.input.SetValue("try again")
-	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	msg := tea.KeyPressMsg{Code: tea.KeyEnter}
 	_, _ = m.Update(msg)
 
 	if m.state == stateStreaming {

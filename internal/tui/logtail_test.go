@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestTUILogger_TraceDuringUpdateDoesNotBlock(t *testing.T) {
@@ -26,7 +26,7 @@ func TestTUILogger_TraceDuringUpdateDoesNotBlock(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		close(done)
 	}()
 

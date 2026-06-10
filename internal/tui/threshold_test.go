@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -96,10 +94,10 @@ func TestSetContextThresholdsRejectsInvalid(t *testing.T) {
 // soft → plain, between soft and hard → warning styled, at/above hard
 // → error styled. We detect styling by looking for ANSI escape bytes.
 func TestTokenPctStringThresholdColouring(t *testing.T) {
-	lipgloss.SetColorProfile(0) // force styles to still emit escapes in tests
-	// Note: lipgloss profile 0 = true-color; non-zero values would strip
-	// escapes. We want them visible so we can grep.
-
+	// v2 lipgloss emits SGR escapes from Style.Render unconditionally
+	// (the color profile only affects the colorprofile.Writer used for
+	// terminal output), so no SetColorProfile is needed to make the
+	// styled output greppable here.
 	m := &Model{
 		ctxSoftThreshold: 0.70,
 		ctxHardThreshold: 0.90,

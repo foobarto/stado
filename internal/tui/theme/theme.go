@@ -7,9 +7,10 @@ package theme
 import (
 	_ "embed"
 	"fmt"
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/pelletier/go-toml"
 )
@@ -121,9 +122,9 @@ func (t *Theme) init() {
 	t.styles = map[string]lipgloss.Style{}
 }
 
-// color resolves a palette name ("primary", "role_user", …) to a lipgloss.Color
-// string. Unknown names return the raw string, so users can pass hex directly.
-func (t *Theme) color(name string) lipgloss.Color {
+// color resolves a palette name ("primary", "role_user", …) to a color.Color
+// (lipgloss v2). Unknown names return the raw string, so users can pass hex directly.
+func (t *Theme) color(name string) color.Color {
 	switch name {
 	case "background":
 		return lipgloss.Color(t.Colors.Background)
@@ -215,7 +216,7 @@ func (t *Theme) Pane() lipgloss.Style {
 }
 
 // RoleColor returns the foreground colour for a given role name.
-func (t *Theme) RoleColor(role string) lipgloss.Color {
+func (t *Theme) RoleColor(role string) color.Color {
 	switch role {
 	case "user":
 		return t.color("role_user")

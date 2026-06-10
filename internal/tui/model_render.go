@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/foobarto/stado/internal/tui/banner"
 	"github.com/foobarto/stado/internal/tui/input"
@@ -13,9 +14,29 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-func (m *Model) View() string {
+// View is the bubbletea v2 entrypoint. It wraps the rendered string in a
+// tea.View, carrying the alt-screen + mouse-mode flags that were program
+// options under v1 (see app.go). Mouse capture defaults on (click-to-
+// expand + scroll-wheel); operators disable it via [tui].mouse_capture.
+func (m *Model) View() tea.View {
+	v := tea.NewView(m.viewString())
+	v.AltScreen = true
+	// Animated terminal-tab title (was a SetWindowTitle command under
+	// v1; now a per-frame View field — see title_spinner.go).
+	v.WindowTitle = m.computeTitle()
+	if m.cfg == nil || m.cfg.TUI.MouseCapture == nil || *m.cfg.TUI.MouseCapture {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
+	return v
+}
+
+func (m *Model) viewString() string {
 	if m.showHelp {
-		return overlays.RenderHelp(m.keys, m.width)
+		// RenderHelp clamps the scroll to the content; store the clamped
+		// value so ↑/↓ in the handler can't run past either end.
+		help, scroll := overlays.RenderHelp(m.keys, m.width, m.height, m.helpScroll)
+		m.helpScroll = scroll
+		return help
 	}
 	if m.showStatus {
 		return m.renderStatusModal(m.width, m.height)
@@ -95,13 +116,13 @@ func (m *Model) View() string {
 		if convoH < 3 {
 			convoH = 3
 		}
-		m.activityVP.Width = mainW
-		m.activityVP.Height = actH
+		m.activityVP.SetWidth(mainW)
+		m.activityVP.SetHeight(actH)
 		vpHeight = convoH
 	}
-	vpChanged := m.vp.Width != vpWidth || m.vp.Height != vpHeight
-	m.vp.Width = vpWidth
-	m.vp.Height = vpHeight
+	vpChanged := m.vp.Width() != vpWidth || m.vp.Height() != vpHeight
+	m.vp.SetWidth(vpWidth)
+	m.vp.SetHeight(vpHeight)
 	if vpChanged && len(m.blocks) > 0 {
 		m.renderBlocks()
 	}

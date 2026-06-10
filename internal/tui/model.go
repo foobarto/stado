@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
@@ -357,7 +357,11 @@ type Model struct {
 	activatedTools map[string]bool
 	vp             viewport.Model
 	showHelp       bool
-	showStatus     bool
+	// helpScroll is the first visible content line of the help overlay
+	// (the body is taller than the canvas; ↑/↓ scroll it). Reset to 0
+	// whenever the overlay opens; clamped by RenderHelp on every frame.
+	helpScroll int
+	showStatus bool
 
 	// mode is Do (default — all tools allowed) or Plan (mutating + exec
 	// tools hidden from the model so it produces an analysis-only
@@ -466,12 +470,10 @@ type Model struct {
 	// regular assistant block.
 	compacting bool
 
-	// titleSpinIdx + lastTitle drive the animated terminal-tab title
-	// (see title_spinner.go). titleSpinIdx is the spinner-frame
-	// counter; lastTitle dedups OSC 0/2 emissions so we don't spam
-	// the terminal when the title hasn't changed.
+	// titleSpinIdx drives the animated terminal-tab title (see title_spinner.go).
+	// The spinner frame counter is advanced each tick while busy; bubbletea v2
+	// deduplicates WindowTitle emissions internally, so no lastTitle field needed.
 	titleSpinIdx int
-	lastTitle    string
 
 	// Layout
 	width       int
@@ -663,8 +665,8 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		fleetPicker:      fleetpicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
-		vp:               viewport.New(0, 0),
-		activityVP:       viewport.New(0, 0),
+		vp:               viewport.New(),
+		activityVP:       viewport.New(),
 		sidebarOpen:      true,
 		ctxSoftThreshold: 0.70, // DESIGN §"Token accounting" defaults.
 		ctxHardThreshold: 0.90,
@@ -1004,11 +1006,8 @@ func (m *Model) Attach(p *tea.Program) { m.program = p }
 func (m *Model) Init() tea.Cmd {
 	// Kick the title-spinner tick chain (see title_spinner.go).
 	// The chain is self-perpetuating: every titleTickMsg returns a
-	// fresh tick command. We also set the initial idle title so
-	// terminals that render the tab strip have something to show
-	// before the first tick fires.
-	return tea.Batch(
-		tea.SetWindowTitle("stado"),
-		titleTickCmd(),
-	)
+	// fresh tick command. The window title itself is now a field on
+	// the tea.View returned each frame by View() (computeTitle), so
+	// there is no initial SetWindowTitle command to send.
+	return titleTickCmd()
 }

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/tools"
@@ -58,7 +58,7 @@ func TestUAT_ModelPickerEscClosesWithoutSwap(t *testing.T) {
 	if !m.modelPicker.Visible {
 		t.Skip("picker didn't open — environment-dependent")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.modelPicker.Visible {
 		t.Error("Esc should close the picker")
 	}
@@ -83,7 +83,7 @@ func TestUAT_FilePickerOpenAndNarrow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'@'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "@"})
 	if !m.filePicker.Visible {
 		t.Fatal("@ should open picker")
 	}
@@ -91,7 +91,7 @@ func TestUAT_FilePickerOpenAndNarrow(t *testing.T) {
 		t.Errorf("empty-@ should list all files; got %d", len(m.filePicker.Matches))
 	}
 	for _, r := range "main" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	sel := m.filePicker.Selected()
 	if !strings.Contains(sel, "main") {
@@ -111,7 +111,7 @@ func TestUAT_FilePickerEscLeavesBufferIntact(t *testing.T) {
 		t.Fatal("@a should open picker")
 	}
 	beforeVal := m.input.Value()
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if m.filePicker.Visible {
 		t.Error("Esc should close picker")
 	}
@@ -128,11 +128,11 @@ func TestUAT_FirstSubmittedMessageRendersAsSeparateCard(t *testing.T) {
 	m.state = stateIdle
 
 	for _, r := range "hello" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	out := m.View()
+	out := m.viewString()
 	plain := ansi.Strip(out)
 	if got := strings.Count(plain, "hello"); got != 1 {
 		t.Fatalf("rendered view should contain submitted text once, got %d\nfull output:\n%s", got, plain)
@@ -156,7 +156,7 @@ func TestUAT_ApprovalStateRoutesYN(t *testing.T) {
 		body:     "Allow the demo plugin to continue?",
 		response: resp,
 	})
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "n"})
 	if m.approval != nil {
 		t.Error("n should clear approval request")
 	}
@@ -182,7 +182,7 @@ func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 		body:     "Allow the demo plugin to continue?",
 		response: resp,
 	})
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "y"})
 	if m.approval != nil {
 		t.Error("y should clear approval request")
 	}
@@ -236,17 +236,17 @@ func TestUAT_ApprovalArrowNavigationConfirmsSelection(t *testing.T) {
 	})
 	typeString(m, "draft")
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	if !m.approvalFocused {
 		t.Fatal("Up should focus the approval card")
 	}
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	if m.approvalAllowSelected {
 		t.Fatal("Right should move selection to deny")
 	}
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Fatalf("approval enter should not return a cmd, got %T", cmd)
 	}
@@ -321,7 +321,7 @@ func TestUAT_ApprovalViewRendersSingleInputBox(t *testing.T) {
 		response: make(chan bool, 1),
 	})
 
-	out := ansi.Strip(m.View())
+	out := ansi.Strip(m.viewString())
 	inline, err := m.renderer.Exec("input_status", map[string]any{
 		"Mode":         m.mode.String(),
 		"Model":        m.model,
@@ -380,7 +380,7 @@ func TestUAT_QueuedPromptEscDropsBlock(t *testing.T) {
 	m.blocks = append(m.blocks, block{kind: "user", body: "queued-msg", queued: true})
 	m.queuedPrompt = "queued-msg"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
 	if m.queuedPrompt != "" {
 		t.Error("Esc should clear queuedPrompt")
@@ -408,7 +408,7 @@ func TestUAT_CompactionYReplacesMessages(t *testing.T) {
 	m.state = stateCompactionPending
 	m.pendingCompactionSummary = "user asked about X; we established Y"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "y"})
 
 	if m.state == stateCompactionPending {
 		t.Error("y should resolve the pending state")
@@ -437,7 +437,7 @@ func TestUAT_CompactionNDiscards(t *testing.T) {
 	m.state = stateCompactionPending
 	m.pendingCompactionSummary = "would replace"
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "n"})
 
 	if m.state == stateCompactionPending {
 		t.Error("n should resolve the pending state")
@@ -455,7 +455,7 @@ func TestUAT_CompactionESwitchesToEdit(t *testing.T) {
 	m.pendingCompactionSummary = "draft summary"
 	m.savedDraftBeforeEdit = ""
 
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "e"})
 
 	if m.state != stateCompactionEditing {
 		t.Errorf("state = %v, want compaction-editing", m.state)
@@ -485,7 +485,7 @@ func TestUAT_HardThresholdBlocksSubmit(t *testing.T) {
 
 	typeString(m, "new turn please")
 	priorBlocks := len(m.blocks)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	if cmd != nil {
 		t.Error("hard-threshold submit should return nil cmd (no stream)")

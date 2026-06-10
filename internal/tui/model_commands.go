@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/integrations"
@@ -196,6 +196,7 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.renderBlocks()
 	case "/help":
 		m.showHelp = true
+		m.helpScroll = 0
 	case "/btw":
 		if m.mode == modeBTW {
 			m.mode = modeDo

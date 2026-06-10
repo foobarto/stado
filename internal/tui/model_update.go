@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/subagent"
@@ -93,7 +93,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return onMouse(m, msg)
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if model, cmd, handled := onKey(m, msg); handled {
 			return model, cmd
 		}
@@ -235,17 +235,17 @@ func (m *Model) handleMessagesClick(msgX, msgY int) bool {
 	// activityVP fills the top, then a separator row, then vp.
 	vpTop := 0
 	if m.splitView {
-		vpTop = m.activityVP.Height + 1 // +1 for separator row
+		vpTop = m.activityVP.Height() + 1 // +1 for separator row
 	}
-	if msgY < vpTop || msgY >= vpTop+m.vp.Height {
+	if msgY < vpTop || msgY >= vpTop+m.vp.Height() {
 		return false
 	}
 	// Sidebar lives to the right of vp. Reject clicks past the vp
 	// width — those land on the sidebar, not the conversation.
-	if msgX >= m.vp.Width {
+	if msgX >= m.vp.Width() {
 		return false
 	}
-	contentLine := m.vp.YOffset + (msgY - vpTop)
+	contentLine := m.vp.YOffset() + (msgY - vpTop)
 	idx := m.blockAtContentLine(contentLine)
 	if idx < 0 {
 		return false
@@ -365,18 +365,12 @@ func (m *Model) updateFilePickerFromInput() {
 	m.filePicker.SetQuery(query)
 }
 
-func yesKey(msg tea.KeyMsg) bool {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
-		return false
-	}
-	return msg.Runes[0] == 'y' || msg.Runes[0] == 'Y'
+func yesKey(msg tea.KeyPressMsg) bool {
+	return msg.Text == "y" || msg.Text == "Y"
 }
 
-func noKey(msg tea.KeyMsg) bool {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
-		return false
-	}
-	return msg.Runes[0] == 'n' || msg.Runes[0] == 'N'
+func noKey(msg tea.KeyPressMsg) bool {
+	return msg.Text == "n" || msg.Text == "N"
 }
 
 func (m *Model) appendSubagentNotice(content string) {

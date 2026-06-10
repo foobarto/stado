@@ -11,7 +11,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // renderInputBox produces the bordered input area: a textarea stacked on
@@ -47,7 +47,7 @@ func (m *Model) renderInputBox(mainW int) string {
 		BorderForeground(m.theme.Fg(m.inputBorderTone()).GetForeground()).
 		Foreground(m.theme.Fg("text").GetForeground()).
 		Padding(0, 1).
-		Width(mainW - 1)
+		Width(mainW)
 	return style.Render(body) + "\n"
 }
 

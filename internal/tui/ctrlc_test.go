@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestCtrlCEmptyInputDoesNotQuit: the canonical bug report. Before
@@ -11,7 +11,7 @@ import (
 // it should no-op.
 func TestCtrlCEmptyInputDoesNotQuit(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd != nil {
 		// tea.Quit is the only cmd we'd ever return here; bail.
 		t.Errorf("ctrl+c on empty input returned a tea.Cmd; expected nil")
@@ -22,7 +22,7 @@ func TestCtrlCEmptyInputDoesNotQuit(t *testing.T) {
 // instead of quitting immediately.
 func TestCtrlDShowsQuitConfirm(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if cmd != nil {
 		t.Errorf("ctrl+d should not quit immediately, got %T", cmd)
 	}
@@ -36,12 +36,12 @@ func TestCtrlDShowsQuitConfirm(t *testing.T) {
 func TestCtrlXCtrlCShowsQuitConfirm(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	// First chord.
-	_, cmd1 := m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, cmd1 := m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	if cmd1 != nil {
 		t.Errorf("ctrl+x (primer) should return nil, got %T", cmd1)
 	}
 	// Second chord.
-	_, cmd2 := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd2 := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd2 != nil {
 		t.Errorf("ctrl+x ctrl+c should not quit immediately, got %T", cmd2)
 	}
@@ -52,9 +52,9 @@ func TestCtrlXCtrlCShowsQuitConfirm(t *testing.T) {
 
 func TestQuitConfirmAcceptQuits(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "y"})
 	if cmd == nil {
 		t.Error("confirming quit should return tea.Quit")
 	}
@@ -62,9 +62,9 @@ func TestQuitConfirmAcceptQuits(t *testing.T) {
 
 func TestQuitConfirmDenyReturnsToIdle(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	_, cmd := m.Update(tea.KeyPressMsg{Text: "n"})
 	if cmd != nil {
 		t.Errorf("denying quit should not return a cmd, got %T", cmd)
 	}
@@ -75,9 +75,9 @@ func TestQuitConfirmDenyReturnsToIdle(t *testing.T) {
 
 func TestQuitConfirmRendersModal(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 
-	out := m.View()
+	out := m.viewString()
 	// Q4 polish: the prompt is "Quit stado?" + key chips +
 	// Enter/Esc hint. Assert on the action-oriented title +
 	// at least one keycap label so future label tweaks don't
@@ -96,13 +96,13 @@ func TestCtrlCClearsNonEmptyInput(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
 	// Type some content.
 	for _, r := range "hello" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if m.input.Value() != "hello" {
 		t.Fatalf("setup: input = %q", m.input.Value())
 	}
 	// ctrl+c should clear.
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if m.input.Value() != "" {
 		t.Errorf("input = %q, want empty after ctrl+c", m.input.Value())
 	}

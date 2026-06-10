@@ -1,6 +1,6 @@
 package tui
 
-// Picker-active KeyMsg dispatch. When any picker / palette overlay is
+// Picker-active tea.KeyPressMsg dispatch. When any picker / palette overlay is
 // visible, every keystroke goes here first. Each picker takes
 // ownership of its keys: the textarea below stays untouched, and
 // pickers that emit selections wire their results back into the
@@ -10,18 +10,18 @@ package tui
 // The handler returns a bool — true means a picker consumed (or
 // swallowed) the keypress and the caller should short-circuit. False
 // means no picker is open and the caller continues with the
-// non-picker branches of KeyMsg dispatch.
+// non-picker branches of tea.KeyPressMsg dispatch.
 
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
 )
 
-func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if m.slash.Visible {
 		// Palette owns all keypresses while visible — keystrokes feed
 		// its internal Query (so characters don't leak into the main
@@ -94,7 +94,7 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	// Update via closeAllModals.
 	if m.fleetPicker != nil && m.fleetPicker.Visible {
 		cmd, handled := m.fleetPicker.Update(msg)
-		if !handled && (msg.Type == tea.KeyEsc) {
+		if !handled && msg.String() == "esc" {
 			m.fleetPicker.Close()
 			m.layout()
 			return m, nil, true
@@ -133,11 +133,11 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 
 	// Model picker is modal too — same routing pattern as palette.
 	if m.modelPicker.Visible {
-		if msg.Type == tea.KeyCtrlA {
+		if msg.String() == "ctrl+a" {
 			m.showSelectedProviderSetup()
 			return m, nil, true
 		}
-		if msg.Type == tea.KeyCtrlF {
+		if msg.String() == "ctrl+f" {
 			if sel := m.modelPicker.Selected(); sel != nil {
 				favorite := m.toggleModelFavorite(*sel)
 				m.modelPicker.SetFavorite(sel.ID, sel.ProviderName, favorite)
@@ -246,23 +246,23 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			cmd, _ := m.sessionPick.Update(msg)
 			return m, cmd, true
 		}
-		switch msg.Type {
-		case tea.KeyCtrlN:
+		switch msg.String() {
+		case "ctrl+n":
 			m.sessionPick.Close()
 			if err := m.createAndSwitchSession(); err != nil {
 				m.appendBlock(block{kind: "system", body: err.Error()})
 				m.renderBlocks()
 			}
 			return m, nil, true
-		case tea.KeyCtrlR:
+		case "ctrl+r":
 			m.sessionPick.BeginRename()
 			m.layout()
 			return m, nil, true
-		case tea.KeyCtrlD:
+		case "ctrl+d":
 			m.sessionPick.BeginDelete()
 			m.layout()
 			return m, nil, true
-		case tea.KeyCtrlF:
+		case "ctrl+f":
 			if sel := m.sessionPick.Selected(); sel != nil {
 				m.sessionPick.Close()
 				if err := m.forkAndSwitchSession(sel.ID); err != nil {
@@ -336,14 +336,14 @@ func onPickerKey(m *Model, msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		if cmd, handled := m.filePicker.Update(msg); handled {
 			return m, cmd, true
 		}
-		switch msg.Type {
-		case tea.KeyEsc:
+		switch msg.String() {
+		case "esc":
 			m.filePicker.Close()
 			return m, nil, true
-		case tea.KeyTab:
+		case "tab":
 			m.acceptFilePickerSelection()
 			return m, nil, true
-		case tea.KeyEnter:
+		case "enter":
 			if m.filePicker.Selected() != "" {
 				m.acceptFilePickerSelection()
 				return m, nil, true

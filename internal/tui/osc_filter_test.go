@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestFilterOSCResponses_DropsBgColorReply: the exact shape the user
@@ -11,10 +11,9 @@ import (
 // synthesised by bubbletea v1.3's ESC+runes parser for an OSC 11
 // response — must be dropped by the filter.
 func TestFilterOSCResponses_DropsBgColorReply(t *testing.T) {
-	msg := tea.KeyMsg{
-		Type:  tea.KeyRunes,
-		Alt:   true,
-		Runes: []rune("]11;rgb:1e1e/1e1e/1e1e\\"),
+	msg := tea.KeyPressMsg{
+		Mod:  tea.ModAlt,
+		Text: "]11;rgb:1e1e/1e1e/1e1e\\",
 	}
 	if got := filterOSCResponses(nil, msg); got != nil {
 		t.Errorf("expected nil (drop), got %+v", got)
@@ -24,7 +23,7 @@ func TestFilterOSCResponses_DropsBgColorReply(t *testing.T) {
 // TestFilterOSCResponses_DropsFgColorReply: OSC 10 (foreground) has
 // the same shape as OSC 11 and must be filtered too.
 func TestFilterOSCResponses_DropsFgColorReply(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("]10;rgb:ffff/ffff/ffff")}
+	msg := tea.KeyPressMsg{Mod: tea.ModAlt, Text: "]10;rgb:ffff/ffff/ffff"}
 	if got := filterOSCResponses(nil, msg); got != nil {
 		t.Errorf("expected nil, got %+v", got)
 	}
@@ -34,12 +33,12 @@ func TestFilterOSCResponses_DropsFgColorReply(t *testing.T) {
 // pressing Alt+] (if their terminal maps it to an Alt-rune event)
 // should NOT be dropped. Filter requires a digit after ']' to fire.
 func TestFilterOSCResponses_PassesLegitAltBracket(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("]")}
+	msg := tea.KeyPressMsg{Mod: tea.ModAlt, Text: "]"}
 	if got := filterOSCResponses(nil, msg); got == nil {
 		t.Error("lone Alt+] should pass through the filter")
 	}
 
-	msg2 := tea.KeyMsg{Type: tea.KeyRunes, Alt: true, Runes: []rune("]next")}
+	msg2 := tea.KeyPressMsg{Mod: tea.ModAlt, Text: "]next"}
 	if got := filterOSCResponses(nil, msg2); got == nil {
 		t.Error("Alt+] followed by non-digit should pass")
 	}
@@ -59,7 +58,7 @@ func TestFilterOSCResponses_PassesNonKeyMsgs(t *testing.T) {
 // Alt modifier) must pass. Regression guard — no false-positives on
 // ordinary keystrokes.
 func TestFilterOSCResponses_PassesRegularTyping(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")}
+	msg := tea.KeyPressMsg{Text: "hello"}
 	if got := filterOSCResponses(nil, msg); got == nil {
 		t.Error("plain typing must pass through")
 	}
@@ -71,14 +70,14 @@ func TestFilterOSCResponses_PassesRegularTyping(t *testing.T) {
 // actual bug report — the filter must still drop it. The 'rgb:' +
 // '/' substrings are the shape's signature.
 func TestFilterOSCResponses_DropsSplitOSCTail(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rgb:1e1e/1e1e/1e1e")}
+	msg := tea.KeyPressMsg{Text: "rgb:1e1e/1e1e/1e1e"}
 	if got := filterOSCResponses(nil, msg); got != nil {
 		t.Errorf("split OSC tail not dropped: %+v", got)
 	}
 }
 
 func TestFilterOSCResponses_DropsColorTailAfterRGBPrefixWasConsumed(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e/1e1e/1e1e\\")}
+	msg := tea.KeyPressMsg{Text: "e/1e1e/1e1e\\"}
 	if got := filterOSCResponses(nil, msg); got != nil {
 		t.Errorf("ragged split OSC tail not dropped: %+v", got)
 	}
@@ -88,14 +87,14 @@ func TestFilterOSCResponses_DropsColorTailAfterRGBPrefixWasConsumed(t *testing.T
 // in a CSS snippet (no slashes) must pass — the 'rgb:' token alone
 // isn't enough to fire.
 func TestFilterOSCResponses_PassesLegitRGBPrefix(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rgb:255,0,0")}
+	msg := tea.KeyPressMsg{Text: "rgb:255,0,0"}
 	if got := filterOSCResponses(nil, msg); got == nil {
 		t.Error("legit 'rgb:255,0,0' without slashes should pass")
 	}
 }
 
 func TestFilterOSCResponses_PassesOrdinarySlashText(t *testing.T) {
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a/b/c")}
+	msg := tea.KeyPressMsg{Text: "a/b/c"}
 	if got := filterOSCResponses(nil, msg); got == nil {
 		t.Error("ordinary slash-delimited text should pass")
 	}

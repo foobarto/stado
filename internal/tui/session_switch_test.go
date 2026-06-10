@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
@@ -256,16 +256,16 @@ func TestSessionPickerModalRenameFlow(t *testing.T) {
 	if err := m.openSessionPicker(); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 	if !m.sessionPick.Renaming() {
 		t.Fatal("ctrl+r should enter rename mode")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "modal rename" {
-		_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got := runtime.ReadDescription(filepath.Join(m.cfg.WorktreeDir(), ids.second)); got != "modal rename" {
 		t.Fatalf("description = %q, want modal rename", got)
 	}
@@ -276,9 +276,9 @@ func TestSessionPickerRenameModeOwnsShortcuts(t *testing.T) {
 	if err := m.openSessionPicker(); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	if !m.sessionPick.Renaming() {
 		t.Fatal("ctrl+n should not leave rename mode")
 	}
@@ -292,12 +292,12 @@ func TestSessionPickerModalDeleteFlow(t *testing.T) {
 	if err := m.openSessionPicker(); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if !m.sessionPick.Deleting() {
 		t.Fatal("ctrl+d should enter delete mode")
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "y"})
 	if _, err := os.Stat(filepath.Join(m.cfg.WorktreeDir(), ids.second)); !os.IsNotExist(err) {
 		t.Fatalf("deleted worktree still exists or stat failed unexpectedly: %v", err)
 	}
@@ -311,8 +311,8 @@ func TestSessionPickerModalForkFlow(t *testing.T) {
 	if err := m.openSessionPicker(); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	if m.session.ID == ids.first || m.session.ID == ids.second {
 		t.Fatalf("fork did not switch to a child session: %s", m.session.ID)
 	}
@@ -328,8 +328,8 @@ func TestSwitchToSessionPreservesDraftAndScroll(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	m.vp.Width = 80
-	m.vp.Height = 5
+	m.vp.SetWidth(80)
+	m.vp.SetHeight(5)
 	m.LoadPersistedConversation()
 	m.renderBlocks()
 	m.vp.SetYOffset(3)
@@ -349,7 +349,7 @@ func TestSwitchToSessionPreservesDraftAndScroll(t *testing.T) {
 	if got := m.input.Value(); got != "draft for first" {
 		t.Fatalf("first session draft = %q", got)
 	}
-	if got := m.vp.YOffset; got != 3 {
+	if got := m.vp.YOffset(); got != 3 {
 		t.Fatalf("first session scroll offset = %d, want 3", got)
 	}
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestRenameModeEditsSelectedLabel(t *testing.T) {
@@ -17,9 +17,9 @@ func TestRenameModeEditsSelectedLabel(t *testing.T) {
 	if !p.Renaming() || p.Target().ID != "s2" {
 		t.Fatalf("rename mode target = %+v", p.Target())
 	}
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "renamed" {
-		_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = p.Update(tea.KeyPressMsg{Text: string(r)})
 	}
 	if got := p.RenameValue(); got != "renamed" {
 		t.Fatalf("rename value = %q, want renamed", got)
@@ -66,9 +66,9 @@ func TestBackspaceRemovesOneRune(t *testing.T) {
 	p.Open([]Item{{ID: "s1", Label: "zażółć"}}, "s1")
 
 	for _, r := range "zaż" {
-		_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		_, _ = p.Update(tea.KeyPressMsg{Text: string(r)})
 	}
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	if got := p.Query; got != "za" {
 		t.Fatalf("query = %q, want za", got)
 	}
@@ -78,12 +78,12 @@ func TestSearchQueryCapsBytes(t *testing.T) {
 	p := New()
 	p.Open([]Item{{ID: "s1", Label: "first"}}, "s1")
 
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxQueryBytes+128))})
+	_, _ = p.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxQueryBytes+128)})
 	if got := len(p.Query); got != maxQueryBytes {
 		t.Fatalf("query length = %d, want %d", got, maxQueryBytes)
 	}
 	p.Query = strings.Repeat("x", maxQueryBytes-1)
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = p.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(p.Query); got != maxQueryBytes-1 {
 		t.Fatalf("query length after split rune = %d, want %d", got, maxQueryBytes-1)
 	}
@@ -96,13 +96,13 @@ func TestRenameCapsBytes(t *testing.T) {
 		t.Fatal("BeginRename returned false")
 	}
 
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.Repeat("x", maxRenameBytes+128))})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	_, _ = p.Update(tea.KeyPressMsg{Text: strings.Repeat("x", maxRenameBytes+128)})
 	if got := len(p.Query); got != maxRenameBytes {
 		t.Fatalf("rename length = %d, want %d", got, maxRenameBytes)
 	}
 	p.Query = strings.Repeat("x", maxRenameBytes-1)
-	_, _ = p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("é")})
+	_, _ = p.Update(tea.KeyPressMsg{Text: "é"})
 	if got := len(p.Query); got != maxRenameBytes-1 {
 		t.Fatalf("rename length after split rune = %d, want %d", got, maxRenameBytes-1)
 	}
