@@ -456,6 +456,14 @@ var sessionShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// B8: don't fabricate a record for a nonexistent id. A session may
+		// exist as refs only (worktree pruned), so accept either — but error
+		// when neither a worktree nor any session refs are present.
+		if _, statErr := os.Stat(wt); statErr != nil {
+			if hasRefs, _ := sc.SessionHasRefs(id); !hasRefs {
+				return fmt.Errorf("show: session %s not found (no worktree or refs)", id)
+			}
+		}
 		fmt.Printf("session:  %s\n", id)
 		if desc := runtime.ReadDescription(wt); desc != "" {
 			fmt.Printf("label:    %s\n", desc)

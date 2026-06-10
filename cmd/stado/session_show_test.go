@@ -145,8 +145,32 @@ func TestSessionShow_EnrichedOutput(t *testing.T) {
 	}
 }
 
-// TestSessionShow_FreshSessionIsGraceful: a never-committed session
-// prints (unset) and 0 turns without erroring.
+// B8: session show on a nonexistent id (no worktree, no refs) must error
+// instead of fabricating a plausible-looking record and exiting 0.
+func TestSessionShow_NonexistentErrors(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+
+	cwd := filepath.Join(root, "work")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := chdir(t, cwd)
+	defer restore()
+
+	err := sessionShowCmd.RunE(sessionShowCmd, []string{"nonexistent"})
+	if err == nil {
+		t.Fatal("expected an error for a nonexistent session, got nil (exit 0)")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should say 'not found', got %q", err.Error())
+	}
+}
+
+// A fresh session — worktree exists but no commits yet — still prints
+// (unset) refs gracefully without erroring.
 func TestSessionShow_FreshSessionIsGraceful(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -161,15 +185,22 @@ func TestSessionShow_FreshSessionIsGraceful(t *testing.T) {
 	defer restore()
 
 	cfg, _ := config.Load()
+	// Materialise the worktree so the session "exists" without any refs.
+	wt, err := worktreePathForID(cfg.WorktreeDir(), "freshone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	out := captureStdout(t, func() {
-		sessionShowCmd.SetArgs([]string{"nonexistent"})
-		_ = sessionShowCmd.RunE(sessionShowCmd, []string{"nonexistent"})
+		_ = sessionShowCmd.RunE(sessionShowCmd, []string{"freshone"})
 	})
-	if !strings.Contains(out, "session:  nonexistent") {
+	if !strings.Contains(out, "session:  freshone") {
 		t.Errorf("missing session line: %q", out)
 	}
 	if !strings.Contains(out, "(unset)") {
 		t.Errorf("fresh session should report (unset) refs: %q", out)
 	}
-	_ = cfg
 }

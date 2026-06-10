@@ -32,6 +32,20 @@ func TestAuditVerify_NoSessions(t *testing.T) {
 	}
 }
 
+// B8: an explicitly-named unknown id must error, not silently exit 0.
+func TestAuditVerify_UnknownIDErrors(t *testing.T) {
+	_, _, restore := statsEnv(t)
+	defer restore()
+
+	err := auditVerifyCmd.RunE(auditVerifyCmd, []string{"no-such-session-id"})
+	if err == nil {
+		t.Fatal("expected an error for an unknown explicit session id, got nil (exit 0)")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should say 'not found', got %q", err.Error())
+	}
+}
+
 func TestAuditExport_EmitsJSONL(t *testing.T) {
 	cfg, sc, restore := statsEnv(t)
 	defer restore()
