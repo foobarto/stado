@@ -89,7 +89,9 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
 	if cfg.TUI.SidebarWidth > 0 {
-		m.sidebarWidth = cfg.TUI.SidebarWidth // restore the persisted width
+		// Clamp the persisted width to the valid range — a hand-edited
+		// config could otherwise drive an out-of-range layout.
+		m.sidebarWidth = m.clampSidebarWidth(cfg.TUI.SidebarWidth)
 	}
 	m.applyConfiguredThinkingDisplay(cfg)
 	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {

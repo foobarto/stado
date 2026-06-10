@@ -71,19 +71,26 @@ func (m *Model) sidebarRenderWidth() int {
 	return width
 }
 
+// clampSidebarWidth bounds a requested width to [min, maxPreferred] so
+// neither a resize nor a hand-edited [tui].sidebar_width can produce an
+// out-of-range layout (e.g. a negative inner width in renderSidebar).
+func (m *Model) clampSidebarWidth(width int) int {
+	minW := m.sidebarMinWidth()
+	maxW := m.sidebarMaxPreferredWidth()
+	if width < minW {
+		return minW
+	}
+	if width > maxW {
+		return maxW
+	}
+	return width
+}
+
 func (m *Model) resizeSidebar(delta int) {
 	if delta == 0 {
 		return
 	}
-	width := m.sidebarPreferredWidth() + delta
-	minW := m.sidebarMinWidth()
-	maxW := m.sidebarMaxPreferredWidth()
-	if width < minW {
-		width = minW
-	}
-	if width > maxW {
-		width = maxW
-	}
+	width := m.clampSidebarWidth(m.sidebarPreferredWidth() + delta)
 	changed := width != m.sidebarWidth
 	m.sidebarWidth = width
 	m.sidebarOpen = true
