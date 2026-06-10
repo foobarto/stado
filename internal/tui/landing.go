@@ -15,6 +15,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/foobarto/stado/internal/changelog"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/version"
@@ -113,10 +114,23 @@ func (m *Model) renderLanding(width, height int) string {
 			Render(wrapped)
 	}
 
+	// #22: a brief changelog summary anchored to the upper-left corner. It
+	// sits above the centered logo/input, so reserve its height from the body.
+	// Skip it on short terminals so it can't crowd out the logo + input box.
+	whatsNew := ""
+	if height >= 20 {
+		whatsNew = m.renderLandingWhatsNew(width)
+	}
+	whatsNewH := 0
+	if whatsNew != "" {
+		whatsNewH = lipgloss.Height(whatsNew) + 1 // +1 for the gap below it
+	}
+
 	bodyH := height - 1
 	if banner != "" {
 		bodyH -= lipgloss.Height(banner) + 1
 	}
+	bodyH -= whatsNewH
 	if bodyH < 1 {
 		bodyH = 1
 	}
@@ -140,7 +154,11 @@ func (m *Model) renderLanding(width, height int) string {
 	parts = append(parts, centerLines(hint, width))
 	stack := strings.Join(parts, "\n\n")
 	body := lipgloss.Place(width, bodyH, lipgloss.Center, lipgloss.Center, stack)
-	out := body
+	out := ""
+	if whatsNew != "" {
+		out = whatsNew + "\n\n" // top-left, left-aligned (not centered)
+	}
+	out += body
 	if banner != "" {
 		out += "\n" + banner
 	}
@@ -242,6 +260,48 @@ func (m *Model) landingPluginsHint() string {
 	}
 	count := m.theme.Fg("muted").Render(fmt.Sprintf("%d plugins  ", len(names)))
 	return count + strings.Join(parts, dot)
+}
+
+// landingWhatsNewWidth caps the upper-left changelog block so it stays a
+// corner accent and never crowds the centered logo.
+func landingWhatsNewWidth(width int) int {
+	w := width/3 + 8
+	if w > 48 {
+		w = 48
+	}
+	if w > width-2 {
+		w = width - 2
+	}
+	return w
+}
+
+// renderLandingWhatsNew renders a brief summary of the latest CHANGELOG entry
+// (version, headline, a few highlight lead-ins) for the landing screen's
+// upper-left corner. Empty when the changelog can't be parsed or the terminal
+// is too narrow to spare the room. (#22)
+func (m *Model) renderLandingWhatsNew(width int) string {
+	if m.theme == nil || width < 40 {
+		return ""
+	}
+	rel := changelog.Latest()
+	if rel.Version == "" {
+		return ""
+	}
+	w := landingWhatsNewWidth(width)
+	lines := []string{
+		m.theme.Fg("text_secondary").Bold(true).Render("what's new") + " " +
+			m.theme.Fg("accent").Render(rel.Version),
+	}
+	if rel.Title != "" {
+		lines = append(lines, m.theme.Fg("muted").Render(trimSeed(rel.Title, w)))
+	}
+	for i, h := range rel.Highlights {
+		if i >= 3 {
+			break
+		}
+		lines = append(lines, m.theme.Fg("muted").Render("· "+trimSeed(h, w-2)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func centerLines(s string, width int) string {
