@@ -291,9 +291,9 @@ func (m *Model) sidebarContextLine() sidebarLine {
 	fraction := m.contextFraction()
 	tone := "text"
 	switch {
-	case fraction >= m.ctxHardThreshold:
+	case m.ctxHardThreshold > 0 && fraction >= m.ctxHardThreshold:
 		tone = "error"
-	case fraction >= m.ctxSoftThreshold:
+	case m.ctxSoftThreshold > 0 && fraction >= m.ctxSoftThreshold:
 		tone = "warning"
 	}
 	return sidebarLine{

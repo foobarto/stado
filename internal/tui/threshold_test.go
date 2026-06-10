@@ -76,10 +76,13 @@ func TestContextFraction_NoCapOrNoUsage(t *testing.T) {
 func TestSetContextThresholdsRejectsInvalid(t *testing.T) {
 	m := &Model{ctxSoftThreshold: 0.7, ctxHardThreshold: 0.9}
 
-	m.SetContextThresholds(0, 0) // zero → kept
-	if m.ctxSoftThreshold != 0.7 || m.ctxHardThreshold != 0.9 {
-		t.Fatalf("zero passthrough: %v/%v", m.ctxSoftThreshold, m.ctxHardThreshold)
+	// R9: 0 is now a valid value meaning "disable the gate" — it's set, not
+	// dropped. (The enforcement helpers short-circuit on <= 0.)
+	m.SetContextThresholds(0, 0)
+	if m.ctxSoftThreshold != 0 || m.ctxHardThreshold != 0 {
+		t.Fatalf("zero should disable (set to 0): %v/%v", m.ctxSoftThreshold, m.ctxHardThreshold)
 	}
+	m = &Model{ctxSoftThreshold: 0.7, ctxHardThreshold: 0.9}
 	m.SetContextThresholds(-0.1, 1.5) // out-of-range → kept
 	if m.ctxSoftThreshold != 0.7 || m.ctxHardThreshold != 0.9 {
 		t.Fatalf("out-of-range passthrough: %v/%v", m.ctxSoftThreshold, m.ctxHardThreshold)

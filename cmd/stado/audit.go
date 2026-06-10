@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -55,8 +56,12 @@ var auditVerifyCmd = &cobra.Command{
 			return nil
 		}
 
+		// B8: an explicitly-named id that resolves no refs must error rather
+		// than silently exit 0. The no-args sweep keeps the lenient skip.
+		explicitID := len(args) > 0
 		allOK := true
 		for _, id := range ids {
+			found := false
 			for _, refPair := range []struct {
 				name string
 				ref  refMaker
@@ -66,8 +71,12 @@ var auditVerifyCmd = &cobra.Command{
 			} {
 				head, err := sc.ResolveRef(refPair.ref(id))
 				if err != nil {
-					continue // ref may not exist yet
+					if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+						return fmt.Errorf("audit verify: resolve %s: %w", refPair.ref(id), err)
+					}
+					continue // ref legitimately doesn't exist yet
 				}
+				found = true
 				w := audit.NewWalker(sc.Repo().Storer, pub)
 				res, err := w.Verify(string(refPair.ref(id)), head)
 				if err != nil {
@@ -93,6 +102,9 @@ var auditVerifyCmd = &cobra.Command{
 				if !res.FirstUnsignedAt.IsZero() {
 					fmt.Fprintf(os.Stderr, "  first unsigned at: %s\n", res.FirstUnsignedAt)
 				}
+			}
+			if !found && explicitID {
+				return fmt.Errorf("audit verify: session %s not found (no tree/trace refs)", id)
 			}
 		}
 		if !allOK {

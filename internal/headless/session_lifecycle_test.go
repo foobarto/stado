@@ -531,17 +531,26 @@ func TestMaybeEmitContextWarning_Fraction(t *testing.T) {
 		{95, 100, 0.70, 0.90, true, "hard"},
 		{0, 100, 0.70, 0.90, false, ""}, // zero tokens: no fire
 		{80, 0, 0.70, 0.90, false, ""},  // no MaxContextTokens: no fire
+		// R9: the two knobs are independent — 0 disables that gate only.
+		{95, 100, 0, 0.90, true, "hard"}, // soft disabled, hard still fires
+		{80, 100, 0, 0.90, false, ""},    // soft disabled, below hard: nothing
+		{80, 100, 0.70, 0, true, "soft"}, // hard disabled, soft fires
+		{95, 100, 0.70, 0, true, "soft"}, // hard disabled, no hard escalation
+		{95, 100, 0, 0, false, ""},       // both disabled: nothing
 	}
 	for _, tc := range cases {
 		frac := 0.0
 		if tc.cap > 0 {
 			frac = float64(tc.input) / float64(tc.cap)
 		}
-		level := "soft"
-		if frac >= tc.hard {
+		level := ""
+		if tc.soft > 0 && frac >= tc.soft {
+			level = "soft"
+		}
+		if tc.hard > 0 && frac >= tc.hard {
 			level = "hard"
 		}
-		fires := tc.cap > 0 && tc.input > 0 && frac >= tc.soft
+		fires := tc.cap > 0 && tc.input > 0 && level != ""
 		if fires != tc.fires {
 			t.Errorf("%+v: fires=%v want %v", tc, fires, tc.fires)
 		}

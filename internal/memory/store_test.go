@@ -10,6 +10,93 @@ import (
 	"time"
 )
 
+// R8: a single malformed line must not brick the store — fold skips it and
+// keeps the good entries, so every memory/learning command still works.
+func TestStoreFoldSkipsMalformedLines(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+
+	for _, id := range []string{"mem_one", "mem_two"} {
+		raw, _ := json.Marshal(Item{ID: id, Scope: "repo", RepoID: "repo-1", Kind: "preference", Summary: id, Body: "body", Sensitivity: "normal"})
+		if err := store.Propose(ctx, raw); err != nil {
+			t.Fatalf("Propose %s: %v", id, err)
+		}
+		appr, _ := json.Marshal(UpdateRequest{Action: "approve", ID: id})
+		if err := store.Update(ctx, appr); err != nil {
+			t.Fatalf("approve %s: %v", id, err)
+		}
+	}
+
+	// Corrupt the append log with a garbage line.
+	f, err := os.OpenFile(store.Path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("THIS IS NOT JSON AT ALL\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	// List must still succeed and return both good memories.
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List should not fail on one malformed line: %v", err)
+	}
+	got := map[string]bool{}
+	for _, it := range items {
+		got[it.ID] = true
+	}
+	if !got["mem_one"] || !got["mem_two"] {
+		t.Fatalf("both good memories should load despite a malformed line; got %v", got)
+	}
+}
+
+// R8: a supersede event with no item (truncated write / hand-edit) must not
+// tombstone the old entry and drop the replacement — it's skipped, leaving the
+// existing approved memory intact.
+func TestStoreFoldSupersedeNilItemPreservesOld(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+
+	raw, _ := json.Marshal(Item{ID: "mem_keep", Scope: "repo", RepoID: "repo-1", Kind: "preference", Summary: "keep me", Body: "body", Sensitivity: "normal"})
+	if err := store.Propose(ctx, raw); err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	appr, _ := json.Marshal(UpdateRequest{Action: "approve", ID: "mem_keep"})
+	if err := store.Update(ctx, appr); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+
+	// Append a structurally-valid supersede event with no item field.
+	f, err := os.OpenFile(store.Path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"type":"memory","action":"supersede","id":"mem_keep"}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	found := false
+	for _, it := range items {
+		if it.ID == "mem_keep" {
+			found = true
+			if it.Confidence != "approved" {
+				t.Errorf("mem_keep should stay approved, got %q (nil-item supersede tombstoned it)", it.Confidence)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("mem_keep should survive a nil-item supersede")
+	}
+}
+
 func TestStoreProposeApproveQuery(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	store := testStore(t, now)

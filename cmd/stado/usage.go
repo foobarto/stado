@@ -93,12 +93,17 @@ type usageModelStats struct {
 
 // usageSessionStats holds per-session breakdowns when --by-session is set.
 type usageSessionStats struct {
-	SessionID    string  `json:"session_id"`
-	Repo         string  `json:"repo"` // sidecar dir basename
-	Turns        int     `json:"turns"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CostUSD      float64 `json:"cost_usd"`
+	SessionID string `json:"session_id"`
+	Repo      string `json:"repo"` // sidecar dir basename
+	Turns     int    `json:"turns"`
+	// RecordedTurns counts distinct turns that produced trace activity,
+	// regardless of whether token data was recorded. Turns counts only
+	// token-bearing turns; the two diverge today because the agent loop
+	// emits zero tokens on tool/turn commits (B3 — honest reporting).
+	RecordedTurns int     `json:"recorded_turns"`
+	InputTokens   int64   `json:"input_tokens"`
+	OutputTokens  int64   `json:"output_tokens"`
+	CostUSD       float64 `json:"cost_usd"`
 	// Models lists the distinct models seen in this session, sorted.
 	Models []string `json:"models"`
 }
@@ -151,7 +156,7 @@ func runUsage(cmd *cobra.Command, _ []string) error {
 				fmt.Fprintf(os.Stderr, "usage: walk %s/%s: %v\n", e.Name(), id, err)
 				continue
 			}
-			if ss.Turns > 0 {
+			if ss.Turns > 0 || ss.RecordedTurns > 0 {
 				ss.Repo = strings.TrimSuffix(e.Name(), ".git")
 				sessions = append(sessions, ss)
 			}
@@ -211,6 +216,7 @@ func walkSessionTrace(sc *stadogit.Sidecar, sessionID string, since, until time.
 
 	repo := sc.Repo()
 	modelsInSession := map[string]struct{}{}
+	seenTurns := map[int64]struct{}{} // distinct turn numbers with trace activity
 	cur := head
 	for !cur.IsZero() {
 		commit, err := repo.CommitObject(cur)
@@ -243,9 +249,15 @@ func walkSessionTrace(sc *stadogit.Sidecar, sessionID string, since, until time.
 			costUSD, _ := strconv.ParseFloat(parsed["cost_usd"], 64)
 			cacheHit := parsed["cache_hit"] == "true"
 
-			// Only count turns that actually emitted token data —
-			// skip purely-mutating commits (write/edit) that aren't
-			// LLM turns.
+			// B3: count distinct turns that produced activity, regardless
+			// of token data, so the report reflects real work even while the
+			// agent loop emits zero tokens on trace commits.
+			if turn, err := strconv.ParseInt(parsed["turn"], 10, 64); err == nil {
+				seenTurns[turn] = struct{}{}
+			}
+
+			// Token totals only accumulate from turns that actually emitted
+			// token data — skip purely-mutating commits (write/edit).
 			if tokensIn > 0 || tokensOut > 0 {
 				stat := modelAgg[model]
 				if stat == nil {
@@ -284,6 +296,7 @@ func walkSessionTrace(sc *stadogit.Sidecar, sessionID string, since, until time.
 		ss.Models = append(ss.Models, m)
 	}
 	sort.Strings(ss.Models)
+	ss.RecordedTurns = len(seenTurns)
 	return ss, nil
 }
 
@@ -299,6 +312,13 @@ func parseTrailers(msg string) parsedTrailers {
 		return out
 	}
 	for _, line := range strings.Split(parts[1], "\n") {
+		// Trailer keys are never indented; an indented line is body text
+		// (e.g. a model-generated compaction summary) and must not be parsed
+		// as a trailer — this is the Codex #143 trailer-injection vector that
+		// audit.ParseMessage also guards against.
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
 		k, v, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -416,6 +436,17 @@ func emitJSON(models []*usageModelStats, sessions []usageSessionStats, since, un
 	report := map[string]any{
 		"models": models,
 	}
+	// B3: signal real activity even when no token data was recorded, so
+	// `usage --json` (without --by-session) isn't indistinguishable from an
+	// empty state dir.
+	recorded := 0
+	for _, s := range sessions {
+		recorded += s.RecordedTurns
+	}
+	if recorded > 0 {
+		report["recorded_turns"] = recorded
+		report["recorded_sessions"] = len(sessions)
+	}
 	if !since.IsZero() {
 		report["since"] = since.UTC().Format(time.RFC3339)
 	}
@@ -453,7 +484,29 @@ func emitTable(models []*usageModelStats, sessions []usageSessionStats, since, u
 	}
 
 	if len(models) == 0 {
-		fmt.Println("No turns recorded in this window.")
+		recorded := 0
+		for _, s := range sessions {
+			recorded += s.RecordedTurns
+		}
+		if recorded == 0 {
+			fmt.Println("No turns recorded in this window.")
+			return
+		}
+		// B3: don't claim "no turns" when work happened — be honest that the
+		// activity exists but token usage wasn't recorded.
+		fmt.Printf("%d turn(s) across %d session(s) recorded activity, but per-turn token\n", recorded, len(sessions))
+		fmt.Println("usage was not written by the agent loop (known limitation — Tokens-In/Out")
+		fmt.Println("land as 0 on trace commits). Token and cost totals will populate once")
+		fmt.Println("per-turn usage commits are added.")
+		if usageBySession {
+			fmt.Println()
+			ws := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(ws, "SESSION\tREPO\tTURNS")
+			for _, s := range sessions {
+				fmt.Fprintf(ws, "%s\t%s\t%d\n", s.SessionID, s.Repo, s.RecordedTurns)
+			}
+			_ = ws.Flush()
+		}
 		return
 	}
 

@@ -260,9 +260,9 @@ func tokenPctString(m *Model) string {
 	fraction := float64(used) / float64(cap)
 	s := fmt.Sprintf("%d%%", int(100*fraction))
 	switch {
-	case fraction >= m.ctxHardThreshold:
+	case m.ctxHardThreshold > 0 && fraction >= m.ctxHardThreshold:
 		return lipgloss.NewStyle().Foreground(theme.Error).Bold(true).Render(s)
-	case fraction >= m.ctxSoftThreshold:
+	case m.ctxSoftThreshold > 0 && fraction >= m.ctxSoftThreshold:
 		return lipgloss.NewStyle().Foreground(theme.Warning).Bold(true).Render(s)
 	}
 	return s

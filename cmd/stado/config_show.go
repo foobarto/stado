@@ -35,9 +35,14 @@ var configShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// R7: never print secrets stored in config.toml (OTel auth headers,
+		// MCP/ACP server credentials, proxy user:pass). Redact before both
+		// the --json and human paths.
+		cfg = cfg.Redacted()
 		if configShowJSON {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
+			enc.SetEscapeHTML(false) // render "<redacted>" + URLs cleanly, not <
 			return enc.Encode(cfg)
 		}
 		return renderConfigHuman(os.Stdout, cfg)

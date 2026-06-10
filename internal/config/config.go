@@ -749,10 +749,14 @@ func Load() (*Config, error) {
 		cfg.Agent.ThinkingBudgetTokens = 16384
 	}
 	cfg.TUI.ThinkingDisplay = normalizeThinkingDisplay(cfg.TUI.ThinkingDisplay)
-	if cfg.Context.SoftThreshold == 0 {
+	// R9: distinguish "unset" (apply default) from an explicit 0 (disable the
+	// gate, per docs/features/context.md) — a bare `== 0` check can't, since
+	// both produce the float64 zero value after unmarshal. Default only when
+	// the key was never set in TOML or env.
+	if !k.Exists("context.soft_threshold") {
 		cfg.Context.SoftThreshold = 0.70
 	}
-	if cfg.Context.HardThreshold == 0 {
+	if !k.Exists("context.hard_threshold") {
 		cfg.Context.HardThreshold = 0.90
 	}
 	// Budget sanity: if both thresholds are set but the hard cap is at

@@ -726,13 +726,16 @@ func (m *Model) SetRootContext(ctx context.Context) {
 }
 
 // SetContextThresholds overrides the soft/hard threshold defaults. Called
-// from the TUI entry point to propagate [context] config values. Values
-// outside (0, 1] are rejected and the previous value kept.
+// from the TUI entry point to propagate [context] config values. A value of
+// 0 disables that gate (R9); values outside [0, 1] are rejected and the
+// previous value kept.
 func (m *Model) SetContextThresholds(soft, hard float64) {
-	if soft > 0 && soft <= 1 {
+	// R9: 0 is a valid value meaning "disable this gate" (the enforcement
+	// helpers short-circuit on <= 0). Only reject out-of-range values.
+	if soft >= 0 && soft <= 1 {
 		m.ctxSoftThreshold = soft
 	}
-	if hard > 0 && hard <= 1 {
+	if hard >= 0 && hard <= 1 {
 		m.ctxHardThreshold = hard
 	}
 }
