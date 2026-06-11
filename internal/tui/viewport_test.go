@@ -147,7 +147,13 @@ func TestRenderLandingLogo_CompactWhenSpaceIsTight(t *testing.T) {
 // natural height — never a downsampled/deformed intermediate.
 func TestRenderLandingLogo_NeverDeforms(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	full := strings.Count(ansi.Strip(renderLandingLogo(120, 1000)), "\n") + 1
+	fullRender := ansi.Strip(renderLandingLogo(120, 1000))
+	// Precondition: with ample room the banner art renders (not the compact
+	// wordmark), so the loop below actually exercises the banner path.
+	if !strings.ContainsAny(fullRender, "░▒▓█▂▃▅▆▔▀▖▗▘▝") {
+		t.Fatalf("precondition: full render should be the banner art, got %q", fullRender)
+	}
+	full := strings.Count(fullRender, "\n") + 1
 	for _, maxH := range []int{8, 15, 20, 25, 30, 1000} {
 		got := ansi.Strip(renderLandingLogo(120, maxH))
 		if strings.TrimSpace(got) == "stado" {
