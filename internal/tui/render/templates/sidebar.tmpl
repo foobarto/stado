@@ -62,11 +62,12 @@
 {{ todoMarker .Status }} {{ color (todoColor .Status) (wrapHard .Title $.Width) }}
 {{- end }}
 {{- end }}
-{{- else if $.PluginPanels }}{{ with index $.PluginPanels . }}
+{{- else if $.PluginPanels }}{{ with index $.PluginPanels . }}{{ if .Heading }}
 
 {{ color "text" .Heading | bold }}
 {{- range .Lines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

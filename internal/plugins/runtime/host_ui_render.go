@@ -223,7 +223,12 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	if target == "" {
 		target = "viewport"
 	}
-	if targetRequiresID(target) && w.ID == "" {
+	// Validate the SANITISED id, not the raw wire value: StripControlChars
+	// drops control runes, so an all-control-char id (e.g. "\x01\x02") would
+	// otherwise pass a raw != "" check yet store under the empty key. The id
+	// a sidebar/footer target addresses must be non-empty AFTER scrubbing.
+	id := textutil.StripControlChars(w.ID)
+	if targetRequiresID(target) && id == "" {
 		return Panel{}, fmt.Errorf("target %q requires a non-empty id", target)
 	}
 	if len(w.Sections) == 0 {
@@ -255,7 +260,7 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	out := Panel{
 		Title:    textutil.StripControlChars(w.Title),
 		Variant:  w.Variant,
-		ID:       textutil.StripControlChars(w.ID),
+		ID:       id, // sanitised + validated above
 		Footer:   textutil.StripControlChars(w.Footer),
 		Target:   target, // enum-validated above; passed through verbatim like Variant
 		Sections: make([]Section, 0, len(w.Sections)),

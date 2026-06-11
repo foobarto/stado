@@ -548,7 +548,8 @@ type RenderBridge interface {
 // [tui.sidebar].sections / [tui.footer].segments to show it), or "log"
 // (one line appended to the shared, bounded notification log). For
 // "sidebar" / "footer" the ID is REQUIRED (it's how the operator
-// addresses the panel). Non-TUI render channels ignore Target.
+// addresses the panel). Re-rendering the same id replaces that panel
+// (last-write-wins). Non-TUI render channels ignore Target.
 type Panel struct {
 	Title    string
 	Sections []Section

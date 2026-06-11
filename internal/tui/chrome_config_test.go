@@ -2,6 +2,7 @@ package tui
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,6 +201,61 @@ func TestFooterRendersConfiguredPluginSegment(t *testing.T) {
 	out = ansi.Strip(m.renderStatus(80))
 	if strings.Contains(out, "2 found") {
 		t.Errorf("unconfigured plugin footer segment should be hidden:\n%s", out)
+	}
+}
+
+// A plugin spamming distinct ids cannot grow the store past the cap;
+// last-write-wins on an already-stored id is always allowed.
+func TestPluginPanelStoreCapped(t *testing.T) {
+	m := scenarioModel(t)
+	for i := 0; i < maxPluginChromePanels+8; i++ {
+		onPluginRender(m, pluginRenderMsg{panel: pluginRuntime.Panel{
+			Title: "P", Target: "sidebar", ID: "p" + strconv.Itoa(i),
+			Sections: []pluginRuntime.Section{{Kind: "text", Text: "x"}},
+		}})
+	}
+	if len(m.pluginSidebarPanels) != maxPluginChromePanels {
+		t.Fatalf("store should cap at %d, got %d", maxPluginChromePanels, len(m.pluginSidebarPanels))
+	}
+	// Re-emitting an already-stored id stays free (no new growth, content updates).
+	onPluginRender(m, pluginRenderMsg{panel: pluginRuntime.Panel{
+		Title: "P0v2", Target: "sidebar", ID: "p0",
+		Sections: []pluginRuntime.Section{{Kind: "text", Text: "y"}},
+	}})
+	if len(m.pluginSidebarPanels) != maxPluginChromePanels {
+		t.Errorf("re-emit of existing id should not grow store: %d", len(m.pluginSidebarPanels))
+	}
+	if m.pluginSidebarPanels["p0"].Title != "P0v2" {
+		t.Errorf("re-emit should overwrite existing id, got %q", m.pluginSidebarPanels["p0"].Title)
+	}
+	// A brand-new id at capacity is dropped.
+	onPluginRender(m, pluginRenderMsg{panel: pluginRuntime.Panel{
+		Title: "Late", Target: "sidebar", ID: "late",
+		Sections: []pluginRuntime.Section{{Kind: "text", Text: "z"}},
+	}})
+	if _, ok := m.pluginSidebarPanels["late"]; ok {
+		t.Errorf("new id at capacity should be dropped")
+	}
+}
+
+// A configured sidebar id with no stored panel (typo'd, or not-yet-emitted)
+// must contribute NOTHING — no phantom blank/empty-heading block.
+func TestSidebarNoPhantomForUnstoredConfiguredID(t *testing.T) {
+	m := scenarioModel(t)
+	m.height = 24
+	m.pluginSidebarPanels = map[string]pluginRuntime.Panel{
+		"scan": {Title: "Nmap", ID: "scan", Sections: []pluginRuntime.Section{
+			{Kind: "text", Text: "5 hosts up"},
+		}},
+	}
+
+	m.sidebarSections = []string{"header", "ghost", "scan"}
+	withGhost := ansi.Strip(m.renderSidebar(40))
+	m.sidebarSections = []string{"header", "scan"}
+	withoutGhost := ansi.Strip(m.renderSidebar(40))
+
+	if withGhost != withoutGhost {
+		t.Errorf("unstored configured id 'ghost' should render nothing.\nwith ghost:\n%q\nwithout:\n%q", withGhost, withoutGhost)
 	}
 }
 

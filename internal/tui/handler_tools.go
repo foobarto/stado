@@ -182,21 +182,31 @@ func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
 		if m.pluginSidebarPanels == nil {
 			m.pluginSidebarPanels = map[string]pluginRuntime.Panel{}
 		}
+		// Cap distinct-id growth (a new id past the cap is dropped);
+		// last-write-wins on an already-stored id is always allowed.
+		if _, exists := m.pluginSidebarPanels[msg.panel.ID]; !exists && len(m.pluginSidebarPanels) >= maxPluginChromePanels {
+			break
+		}
 		m.pluginSidebarPanels[msg.panel.ID] = msg.panel // last-write-wins per id
 		m.renderBlocks()
 	case "footer":
 		if isBuiltinFooterSegment(msg.panel.ID) {
 			break
 		}
-		// Only store if there's a renderable short line — an all-rich-body
-		// panel with no Footer/Title yields nothing useful in the footer.
-		if pluginFooterText(msg.panel) != "" {
-			if m.pluginFooterPanels == nil {
-				m.pluginFooterPanels = map[string]pluginRuntime.Panel{}
-			}
-			m.pluginFooterPanels[msg.panel.ID] = msg.panel // last-write-wins per id
-			m.renderBlocks()
+		// Only store if there's a renderable short line. (decodeRenderRequest
+		// requires a non-empty Title, so this guard is defensive — a decoded
+		// panel always yields text — but it keeps direct callers honest.)
+		if pluginFooterText(msg.panel) == "" {
+			break
 		}
+		if m.pluginFooterPanels == nil {
+			m.pluginFooterPanels = map[string]pluginRuntime.Panel{}
+		}
+		if _, exists := m.pluginFooterPanels[msg.panel.ID]; !exists && len(m.pluginFooterPanels) >= maxPluginChromePanels {
+			break
+		}
+		m.pluginFooterPanels[msg.panel.ID] = msg.panel // last-write-wins per id
+		m.renderBlocks()
 	case "log":
 		m.pushLogLine(pluginLogLine(msg.panel))
 		m.renderBlocks()

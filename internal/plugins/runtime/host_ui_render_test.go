@@ -54,6 +54,7 @@ func TestDecodeRenderRequest_Target(t *testing.T) {
 		{name: "log ignores id", target: "log", wantTarget: "log"},
 		{name: "sidebar without id rejected", target: "sidebar", wantErr: "requires a non-empty id"},
 		{name: "footer without id rejected", target: "footer", wantErr: "requires a non-empty id"},
+		{name: "all-control-char id rejected", target: "sidebar", id: "\x01\x02", wantErr: "requires a non-empty id"},
 		{name: "unknown target rejected", target: "popup", id: "x", wantErr: "not in {viewport"},
 	}
 	for _, tc := range cases {

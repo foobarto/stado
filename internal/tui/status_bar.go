@@ -257,13 +257,23 @@ func (m *Model) footerPluginSegments() map[string]string {
 	if len(m.pluginFooterPanels) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(m.pluginFooterPanels))
+	configured := make(map[string]bool)
+	for _, id := range m.effectiveFooterSegments() {
+		configured[id] = true
+	}
+	out := make(map[string]string)
 	for id, panel := range m.pluginFooterPanels {
+		if !configured[id] {
+			continue
+		}
 		text := pluginFooterText(panel)
 		if text == "" {
 			continue
 		}
 		out[id] = m.theme.Fg(pluginToneForVariant(panel.Variant)).Render(text)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

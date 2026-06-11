@@ -24,6 +24,15 @@ import (
 // "PROGRESS " convention in logtail.go.
 const pluginLogPrefix = "PLUGIN "
 
+// maxPluginChromePanels caps how many DISTINCT plugin panel ids each
+// chrome store (sidebar / footer) retains. Without a bound, a buggy or
+// hostile plugin holding the ui:render cap could emit renders with an
+// ever-changing id and grow the store until OOM (the log target is
+// already bounded by maxSidebarLogLines). New-id growth past the cap is
+// dropped; last-write-wins on an already-stored id stays free, so a
+// well-behaved plugin updating a fixed set of panels is never affected.
+const maxPluginChromePanels = 32
+
 // pluginSidebarPanel is the flattened, render-ready form of a plugin
 // sidebar panel. The sidebar template renders Heading (bold) + Lines
 // (tone-coloured, width-wrapped) exactly like a built-in section, so
