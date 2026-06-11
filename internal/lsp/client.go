@@ -24,7 +24,8 @@ type Client struct {
 	rMu      sync.Mutex
 	id       atomic.Int64
 	done     chan struct{}
-	pending  sync.Map // id → chan rawResponse
+	dead     atomic.Bool // set when readLoop exits (server EOF/crash or Close)
+	pending  sync.Map    // id → chan rawResponse
 	initRoot string
 }
 
@@ -101,10 +102,24 @@ func (c *Client) Close() error {
 	return c.cmd.Wait()
 }
 
+// Alive reports whether the language server's read loop is still
+// pumping — i.e. the child process hasn't EOF'd or crashed and Close
+// hasn't run. The LSPClientManager checks this before handing a cached
+// client to a caller; a dead client is dropped and lazily relaunched.
+func (c *Client) Alive() bool {
+	if c == nil {
+		return false
+	}
+	return !c.dead.Load()
+}
+
 // readLoop pumps messages from the server into the pending-response map (for
 // responses) or a no-op (for server-initiated notifications we don't care
 // about in v1).
 func (c *Client) readLoop() {
+	// Whatever ends the loop — clean Close, server EOF, or a crash —
+	// marks the client dead so Alive() flips and the manager relaunches.
+	defer c.dead.Store(true)
 	for {
 		select {
 		case <-c.done:

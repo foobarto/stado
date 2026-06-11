@@ -11,8 +11,15 @@ import (
 )
 
 // Hover runs textDocument/hover — docs/type for the symbol at
-// args.Path:args.Line:args.Column (1-indexed).
+// args.Path:args.Line:args.Column (1-indexed). Routes through the
+// process-default manager; see HoverViaManager for the session-scoped
+// variant.
 func Hover(ctx context.Context, args Args, workdir string) (string, error) {
+	return HoverViaManager(ctx, mgr(), args, workdir)
+}
+
+// HoverViaManager is Hover against an explicit, session-scoped manager.
+func HoverViaManager(ctx context.Context, m *LSPClientManager, args Args, workdir string) (string, error) {
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
@@ -28,7 +35,7 @@ func Hover(ctx context.Context, args Args, workdir string) (string, error) {
 	if server == "" {
 		return "", fmt.Errorf("lspfind: no LSP server configured for %q", filepath.Ext(args.Path))
 	}
-	cli, err := clientFor(ctx, workdir, server)
+	cli, err := m.ClientFor(ctx, workdir, server)
 	if err != nil {
 		return "", err
 	}

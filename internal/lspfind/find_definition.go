@@ -9,10 +9,13 @@
 // wrapper at `internal/plugins/runtime/host_lsp.go` reads args, calls
 // the corresponding lspfind function, encodes the response.
 //
-// Per-workdir LSP client cache lives at package level (was a struct
-// field with a mutex on each *FindDefinition). One client per
-// (workdir, language-server) pair, amortised across calls. Call
-// CloseAll on session teardown.
+// LSP server lifetime is owned by an LSPClientManager (see manager.go):
+// one live client per (workdir, language-server) tuple, amortised across
+// calls, reaped on session teardown via CloseAll. The four package-level
+// functions below route through a process-default manager so the wasm
+// host imports (internal/plugins/runtime/host_lsp.go) need no change; a
+// session that wants its own scoped manager constructs one with
+// NewLSPClientManager and calls the *ViaManager helpers.
 package lspfind
 
 import (
@@ -47,16 +50,42 @@ type SymbolsArgs struct {
 	Path string `json:"path"`
 }
 
+// defaultMgr backs the package-level FindDefinition / FindReferences /
+// DocumentSymbols / Hover functions — the path the wasm host imports
+// take. It's a process-lifetime manager (session ctx = Background); a
+// session that wants servers reaped on its own teardown constructs an
+// LSPClientManager with NewLSPClientManager and calls the *ViaManager
+// variants, then CloseAll on teardown. The runtime wires the latter.
 var (
-	clientsMu sync.Mutex
-	clients   = map[string]*lsp.Client{} // "<workdir>|<server>" → live client
+	defaultMgrOnce sync.Once
+	defaultMgr     *LSPClientManager
 )
+
+func mgr() *LSPClientManager {
+	defaultMgrOnce.Do(func() {
+		defaultMgr = NewLSPClientManager(context.Background())
+	})
+	return defaultMgr
+}
+
+// CloseAll shuts down every LSP client cached by the process-default
+// manager. Kept as a package-level entry point for callers that don't
+// hold a manager handle (e.g. a global shutdown). Session-scoped callers
+// should hold their own *LSPClientManager and call its CloseAll instead.
+func CloseAll() { mgr().CloseAll() }
 
 // FindDefinition runs textDocument/definition for the symbol at
 // `args.Path:args.Line:args.Column` (1-indexed). Returns formatted
 // `<rel>:<line>:<col>` matches, or an empty string with nil error
-// when no definition was found.
+// when no definition was found. Routes through the process-default
+// manager; see FindDefinitionViaManager for the session-scoped variant.
 func FindDefinition(ctx context.Context, args Args, workdir string) (string, error) {
+	return FindDefinitionViaManager(ctx, mgr(), args, workdir)
+}
+
+// FindDefinitionViaManager is FindDefinition against an explicit,
+// session-scoped manager so the launched servers die with the session.
+func FindDefinitionViaManager(ctx context.Context, m *LSPClientManager, args Args, workdir string) (string, error) {
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
@@ -72,7 +101,7 @@ func FindDefinition(ctx context.Context, args Args, workdir string) (string, err
 	if server == "" {
 		return "", fmt.Errorf("lspfind: no LSP server configured for %q", filepath.Ext(args.Path))
 	}
-	cli, err := clientFor(ctx, workdir, server)
+	cli, err := m.ClientFor(ctx, workdir, server)
 	if err != nil {
 		return "", err
 	}
@@ -96,8 +125,15 @@ func FindDefinition(ctx context.Context, args Args, workdir string) (string, err
 	return out, nil
 }
 
-// FindReferences runs textDocument/references.
+// FindReferences runs textDocument/references via the process-default
+// manager; see FindReferencesViaManager for the session-scoped variant.
 func FindReferences(ctx context.Context, args RefArgs, workdir string) (string, error) {
+	return FindReferencesViaManager(ctx, mgr(), args, workdir)
+}
+
+// FindReferencesViaManager is FindReferences against an explicit,
+// session-scoped manager.
+func FindReferencesViaManager(ctx context.Context, m *LSPClientManager, args RefArgs, workdir string) (string, error) {
 	if args.Path == "" || args.Line <= 0 || args.Column <= 0 {
 		return "", errors.New("lspfind: path, line (>=1) and column (>=1) are required")
 	}
@@ -113,7 +149,7 @@ func FindReferences(ctx context.Context, args RefArgs, workdir string) (string, 
 	if server == "" {
 		return "", fmt.Errorf("lspfind: no LSP server configured for %q", filepath.Ext(args.Path))
 	}
-	cli, err := clientFor(ctx, workdir, server)
+	cli, err := m.ClientFor(ctx, workdir, server)
 	if err != nil {
 		return "", err
 	}
@@ -137,32 +173,6 @@ func FindReferences(ctx context.Context, args RefArgs, workdir string) (string, 
 		return "", nil
 	}
 	return formatWorkdirLocations(workdir, locs), nil
-}
-
-// CloseAll shuts down every cached LSP client. Call on session
-// teardown to avoid leaking gopls/rust-analyzer processes.
-func CloseAll() {
-	clientsMu.Lock()
-	defer clientsMu.Unlock()
-	for _, c := range clients {
-		_ = c.Close()
-	}
-	clients = map[string]*lsp.Client{}
-}
-
-func clientFor(ctx context.Context, workdir, server string) (*lsp.Client, error) {
-	clientsMu.Lock()
-	defer clientsMu.Unlock()
-	key := workdir + "|" + server
-	if c, ok := clients[key]; ok {
-		return c, nil
-	}
-	c, err := lsp.Launch(ctx, server, workdir)
-	if err != nil {
-		return nil, err
-	}
-	clients[key] = c
-	return c, nil
 }
 
 func formatWorkdirLocations(workdir string, locs []lsp.Location) string {
