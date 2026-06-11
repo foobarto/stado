@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/providers/anthropic"
 )
 
 // TestBuildProvider_EmptyProbesLocal: the no-default-configured case
@@ -163,6 +164,58 @@ func TestBuildProvider_MinimaxAnthropic(t *testing.T) {
 	p, err := buildProviderByName(cfg, "minimax-anthropic")
 	if err != nil {
 		t.Fatalf("buildProviderByName(minimax-anthropic): %v", err)
+	}
+	if p.Name() != "minimax-anthropic" {
+		t.Errorf("expected minimax-anthropic, got %q", p.Name())
+	}
+	// No preset override → the bundled registry endpoint is used.
+	ap, ok := p.(*anthropic.Provider)
+	if !ok {
+		t.Fatalf("expected *anthropic.Provider, got %T", p)
+	}
+	if ap.BaseURL() != "https://api.minimax.io/anthropic" {
+		t.Errorf("BaseURL = %q, want the bundled minimax-anthropic endpoint", ap.BaseURL())
+	}
+}
+
+// TestBuildProvider_AnthropicCompatBaseURLOverride — a base_url written by
+// `stado auth set minimax-anthropic --base-url ...` lands in the
+// [inference.presets.minimax-anthropic] block and must reach the anthropic
+// SDK via WithBaseURL, overriding the bundled registry endpoint.
+func TestBuildProvider_AnthropicCompatBaseURLOverride(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "mm-fake-test-key")
+	cfg := &config.Config{Defaults: config.Defaults{Provider: "minimax-anthropic"}}
+	cfg.Inference.Presets = map[string]config.InferencePreset{
+		"minimax-anthropic": {BaseURL: "https://proxy.internal/anthropic"},
+	}
+
+	p, err := buildProviderByName(cfg, "minimax-anthropic")
+	if err != nil {
+		t.Fatalf("buildProviderByName(minimax-anthropic): %v", err)
+	}
+	ap, ok := p.(*anthropic.Provider)
+	if !ok {
+		t.Fatalf("expected *anthropic.Provider, got %T", p)
+	}
+	if got := ap.BaseURL(); got != "https://proxy.internal/anthropic" {
+		t.Errorf("BaseURL = %q, want the preset override https://proxy.internal/anthropic", got)
+	}
+}
+
+// TestBuildProvider_AnthropicCompatAPIKeyEnvOverride — an api_key_env
+// override (written by `auth set --env`) reroutes the key lookup to a
+// non-conventional env var for an anthropic-compat-cloud provider.
+func TestBuildProvider_AnthropicCompatAPIKeyEnvOverride(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "")                 // conventional var empty
+	t.Setenv("CUSTOM_MM_KEY", "mm-from-custom-env") // override holds the key
+	cfg := &config.Config{Defaults: config.Defaults{Provider: "minimax-anthropic"}}
+	cfg.Inference.Presets = map[string]config.InferencePreset{
+		"minimax-anthropic": {APIKeyEnv: "CUSTOM_MM_KEY"},
+	}
+
+	p, err := buildProviderByName(cfg, "minimax-anthropic")
+	if err != nil {
+		t.Fatalf("buildProviderByName should resolve via CUSTOM_MM_KEY: %v", err)
 	}
 	if p.Name() != "minimax-anthropic" {
 		t.Errorf("expected minimax-anthropic, got %q", p.Name())

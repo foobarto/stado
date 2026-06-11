@@ -38,6 +38,10 @@ const (
 type Provider struct {
 	client sdk.Client
 	name   string
+	// baseURL records the effective base URL the SDK was pointed at, or ""
+	// for the first-party Anthropic default. Exposed via BaseURL() so
+	// callers (and tests) can confirm a WithBaseURL override took effect.
+	baseURL string
 }
 
 // Option configures a Provider built by New.
@@ -83,12 +87,18 @@ func New(apiKey string, opts ...Option) (*Provider, error) {
 		clientOpts = append(clientOpts, option.WithBaseURL(o.baseURL))
 	}
 	return &Provider{
-		client: sdk.NewClient(clientOpts...),
-		name:   o.name,
+		client:  sdk.NewClient(clientOpts...),
+		name:    o.name,
+		baseURL: o.baseURL,
 	}, nil
 }
 
 func (p *Provider) Name() string { return p.name }
+
+// BaseURL reports the effective custom base URL the provider was built with,
+// or "" for the first-party Anthropic default. Lets callers confirm an
+// Anthropic-compatible endpoint override (e.g. minimax-anthropic) took effect.
+func (p *Provider) BaseURL() string { return p.baseURL }
 
 func (p *Provider) Capabilities() agent.Capabilities {
 	return agent.Capabilities{

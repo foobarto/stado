@@ -516,12 +516,30 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// endpoint). Routed through the native anthropic SDK with a
 	// base-URL override so prompt caching / thinking work, unlike the
 	// OAI-compat path. Picked before the OAI-compat builtin lookup.
+	//
+	// An [inference.presets.<name>] block written by `stado auth set`
+	// overrides the bundled defaults: base_url points the SDK at a custom
+	// host, and api_key_env names a non-conventional env var. Both fall
+	// back to the registry defaults (kp.Endpoint / kp.APIKeyEnv) when
+	// unset, so a bare `minimax-anthropic` still works untouched.
 	if kp, ok := config.LookupKnownProvider(name); ok && kp.Kind == config.ProviderKindAnthropicCompatCloud {
-		key := os.Getenv(kp.APIKeyEnv)
-		if key == "" {
-			return nil, fmt.Errorf("%s: %s not set", name, kp.APIKeyEnv)
+		baseURL := kp.Endpoint
+		keyEnv := kp.APIKeyEnv
+		if cfg.Inference.Presets != nil {
+			if preset, ok := cfg.Inference.Presets[name]; ok {
+				if bu := strings.TrimSpace(preset.BaseURL); bu != "" {
+					baseURL = bu
+				}
+				if ke := strings.TrimSpace(preset.APIKeyEnv); ke != "" {
+					keyEnv = ke
+				}
+			}
 		}
-		return anthropic.New(key, anthropic.WithBaseURL(kp.Endpoint), anthropic.WithName(name))
+		key := os.Getenv(keyEnv)
+		if key == "" {
+			return nil, fmt.Errorf("%s: %s not set", name, keyEnv)
+		}
+		return anthropic.New(key, anthropic.WithBaseURL(baseURL), anthropic.WithName(name))
 	}
 
 	// Bundled OAI-compat presets — known endpoints so users don't have to

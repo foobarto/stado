@@ -459,6 +459,15 @@ type InferencePreset struct {
 	// keep their conventional env var when this is empty. When set, it
 	// always wins over the builtin convention.
 	APIKeyEnv string `koanf:"api_key_env"`
+	// BaseURL is a per-provider base-URL override. It is only meaningful
+	// for providers stado reaches through a base-URL-overridable client:
+	// ProviderKindAnthropicCompatCloud (native anthropic SDK +
+	// WithBaseURL) and the OAI-compat presets (where the override points
+	// the OpenAI-compatible client at a non-default host). For pure
+	// OAI-compat presets Endpoint already serves as the base URL; BaseURL
+	// lets `stado auth set` record an explicit override without clobbering
+	// a bundled default Endpoint. Empty means "use the provider's default".
+	BaseURL string `koanf:"base_url"`
 }
 
 // Harness is the [harness] config section — operator-mode selection. EP-0030.

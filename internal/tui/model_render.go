@@ -219,6 +219,11 @@ func (m *Model) viewString() string {
 		m.taskPick.Height = m.height
 		return m.taskPick.View(m.width, m.height)
 	}
+	if m.providerPick != nil && m.providerPick.Visible {
+		m.providerPick.Width = m.width
+		m.providerPick.Height = m.height
+		return m.providerPick.View(m.width, m.height)
+	}
 	if m.themePick.Visible {
 		m.themePick.Width = m.width
 		m.themePick.Height = m.height
