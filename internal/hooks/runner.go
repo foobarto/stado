@@ -37,6 +37,25 @@ func NewLifecycleRunner(hooks ...HookScript) *LifecycleRunner {
 	return &LifecycleRunner{hooks: hooks}
 }
 
+// Append registers additional hooks AFTER the existing config-ordered set,
+// returning the (possibly newly-allocated) runner so it can chain onto a
+// nil receiver. It exists so in-process built-in hooks (e.g. the LSP
+// post-edit diagnostics hook) can be added to whatever Lua hook set the
+// config produced — including the common case where the config produced no
+// runner at all (BuildLifecycleRunner returns nil). Built-ins run last so a
+// user policy hook still gets to deny/mutate before an observe-only built-in
+// sees the (final) payload.
+func (r *LifecycleRunner) Append(extra ...HookScript) *LifecycleRunner {
+	if len(extra) == 0 {
+		return r
+	}
+	if r == nil {
+		return NewLifecycleRunner(extra...)
+	}
+	r.hooks = append(r.hooks, extra...)
+	return r
+}
+
 // Len reports the number of registered hooks. Used by fire sites to skip
 // the whole machinery (payload construction included) when no hooks are
 // configured — the common case.

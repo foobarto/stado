@@ -202,6 +202,13 @@ func (m *Model) closeBackgroundPlugins(ctx context.Context) {
 		m.ptyManager.CloseAll()
 		m.ptyManager = nil
 	}
+	// Reap any LSP servers the session launched (post-edit diagnostics /
+	// the *ViaManager tool seams) — without this gopls / pyright would
+	// outlive the TUI process.
+	if m.lspManager != nil {
+		m.lspManager.CloseAll()
+		m.lspManager = nil
+	}
 }
 
 // backgroundTickResultMsg carries the post-tick surviving plugin

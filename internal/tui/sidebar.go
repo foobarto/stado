@@ -10,6 +10,7 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/lsp"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/version"
 )
@@ -120,21 +123,22 @@ func (m *Model) renderSidebar(width int) string {
 		sessionLabel = runtime.ReadDescription(m.session.WorktreePath)
 	}
 	data := map[string]any{
-		"Title":        "stado",
-		"Version":      version.Version,
-		"SessionLabel": sessionLabel,
-		"SessionMeta":  m.sidebarSessionMeta(),
-		"NowLines":     m.sidebarNowLines(),
-		"Subagents":    m.sidebarSubagentLines(),
-		"RiskLines":    m.sidebarRiskLines(),
-		"AgentLines":   m.sidebarAgentLines(),
-		"RepoLines":    m.sidebarRepoLines(),
-		"LogLines":     m.sidebarLogLines(),
-		"TodoSummary":  m.sidebarTodoSummary(),
-		"Todos":        m.sidebarTodos(),
-		"Sections":     m.effectiveSidebarSections(), // #21: configured order + visibility
-		"PluginPanels": m.sidebarPluginPanels(),      // #21 part 2: plugin-contributed panels by id
-		"Width":        width - 4,
+		"Title":            "stado",
+		"Version":          version.Version,
+		"SessionLabel":     sessionLabel,
+		"SessionMeta":      m.sidebarSessionMeta(),
+		"NowLines":         m.sidebarNowLines(),
+		"Subagents":        m.sidebarSubagentLines(),
+		"RiskLines":        m.sidebarRiskLines(),
+		"AgentLines":       m.sidebarAgentLines(),
+		"RepoLines":        m.sidebarRepoLines(),
+		"LogLines":         m.sidebarLogLines(),
+		"DiagnosticsLines": m.sidebarDiagnosticsLines(),
+		"TodoSummary":      m.sidebarTodoSummary(),
+		"Todos":            m.sidebarTodos(),
+		"Sections":         m.effectiveSidebarSections(), // #21: configured order + visibility
+		"PluginPanels":     m.sidebarPluginPanels(),      // #21 part 2: plugin-contributed panels by id
+		"Width":            width - 4,
 	}
 	body, err := m.renderer.Exec("sidebar", data)
 	if err != nil {
@@ -490,6 +494,92 @@ func sidebarRepoPath(repoRoot, cwd string) string {
 		return ""
 	}
 	return rel
+}
+
+// sidebarDiagnosticsMaxEntries caps how many individual diagnostics the
+// sidebar lists. Above this the panel shows a `+N more` line so a file with
+// hundreds of problems can't blow out the sidebar height. Top-N is ranked
+// errors-first by DiagnosticsStore.Summarize.
+const sidebarDiagnosticsMaxEntries = 6
+
+// sidebarDiagnosticsLines builds the "Diagnostics" panel: a count header
+// (`N errors · M warnings`) followed by up to sidebarDiagnosticsMaxEntries
+// `file:line message` rows, tone-coloured by severity, then a `+N more`
+// line when the list was truncated. Returns nil (panel hidden) when the
+// session has no diagnostics. The truncation is logged once per render that
+// drops rows so an operator can tell the surface isn't showing everything.
+func (m *Model) sidebarDiagnosticsLines() []sidebarLine {
+	if m.lspDiagnostics == nil {
+		return nil
+	}
+	sum := m.lspDiagnostics.Summarize(sidebarDiagnosticsMaxEntries)
+	if sum.Errors == 0 && sum.Warnings == 0 && len(sum.Entries) == 0 {
+		return nil
+	}
+	lines := make([]sidebarLine, 0, len(sum.Entries)+2)
+	header := sum.String()
+	if header == "" {
+		// Only info/hint diagnostics (no errors/warnings) — still show a
+		// header so the panel isn't a headless list.
+		noun := "issues"
+		if sum.Total == 1 {
+			noun = "issue"
+		}
+		header = fmt.Sprintf("%d %s", sum.Total, noun)
+	}
+	headerTone := "text"
+	switch {
+	case sum.Errors > 0:
+		headerTone = "error"
+	case sum.Warnings > 0:
+		headerTone = "warning"
+	}
+	lines = append(lines, sidebarLine{Text: header, Tone: headerTone})
+	for _, e := range sum.Entries {
+		lines = append(lines, sidebarLine{
+			Text: diagnosticEntryText(e),
+			Tone: diagnosticTone(e.Severity),
+		})
+	}
+	if sum.Truncated {
+		hidden := sum.Total - len(sum.Entries)
+		lines = append(lines, sidebarLine{
+			Text: fmt.Sprintf("+%d more", hidden),
+			Tone: "muted",
+		})
+		slog.Default().Debug("tui: diagnostics sidebar truncated",
+			"shown", len(sum.Entries), "total", sum.Total)
+	}
+	return lines
+}
+
+// diagnosticEntryText renders one diagnostic as `rel/path:line message`,
+// trimming the message so a verbose compiler error doesn't dominate the row
+// (the template hard-wraps, but a 400-char message would still eat several
+// lines). Keeps the file:line locus, which is the actionable part.
+func diagnosticEntryText(e lspfind.DiagnosticEntry) string {
+	msg := strings.TrimSpace(e.Message)
+	const maxMsg = 60
+	if len(msg) > maxMsg {
+		msg = msg[:maxMsg-1] + "…"
+	}
+	locus := fmt.Sprintf("%s:%d", e.RelPath, e.Line)
+	if msg == "" {
+		return locus
+	}
+	return locus + " " + msg
+}
+
+// diagnosticTone maps an LSP severity to a sidebar theme tone.
+func diagnosticTone(s lsp.Severity) string {
+	switch s {
+	case lsp.SeverityError:
+		return "error"
+	case lsp.SeverityWarning:
+		return "warning"
+	default:
+		return "muted"
+	}
 }
 
 func (m *Model) sidebarTodoSummary() string {
