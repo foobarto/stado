@@ -177,18 +177,23 @@ func (m *Model) moveCursor(delta int) {
 // Empty query shows everything in registration order so groups stay
 // intact for the categorised view.
 func (m *Model) refresh() {
+	// allCommands() merges the static built-ins with any dynamically
+	// registered shortcuts (skill `slash:` commands, provider-creds, …)
+	// so both the Ctrl+P modal and the inline "/" popup — which share
+	// this one Model — surface the dynamic layer.
+	cmds := allCommands()
 	q := strings.TrimSpace(strings.TrimPrefix(m.Query, "/"))
 	if q == "" {
-		m.Matches = append([]Command(nil), Commands...)
+		m.Matches = append([]Command(nil), cmds...)
 	} else {
-		words := make([]string, len(Commands))
-		for i, c := range Commands {
+		words := make([]string, len(cmds))
+		for i, c := range cmds {
 			words[i] = strings.TrimPrefix(c.Name, "/")
 		}
 		found := fuzzy.Find(q, words)
 		m.Matches = nil
 		for _, f := range found {
-			m.Matches = append(m.Matches, Commands[f.Index])
+			m.Matches = append(m.Matches, cmds[f.Index])
 		}
 	}
 	if m.Cursor >= len(m.Matches) {

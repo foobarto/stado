@@ -640,6 +640,14 @@ type Model struct {
 	// LLM acts on it. Empty when no skills dir exists up the tree.
 	skills []skills.Skill
 
+	// skillSlash maps a skill-declared slash shortcut (the bare command
+	// name, no leading "/") to the owning skill's Name, so handleSlash
+	// can route `/<name>` to the skill-invocation path. Populated by
+	// registerSkillSlashCommands at build-time and on /reload; the same
+	// commands are registered into the palette's dynamic layer so they
+	// show in both the "/" popup and the Ctrl+P panel.
+	skillSlash map[string]string
+
 	// hookRunner fires user-configured shell hooks at lifecycle
 	// events (see config.Hooks). Zero-value is a no-op so the TUI
 	// boots fine without any hooks defined.
@@ -748,6 +756,11 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 	} else {
 		m.skills = sks
 	}
+	// Register skill-declared slash shortcuts (`slash:` frontmatter) into
+	// the palette's dynamic layer + the /<name> dispatch map. Collisions
+	// with built-ins are rejected with a stderr warning (like a broken
+	// skill file) rather than refusing to boot.
+	m.registerSkillSlashCommands(stderrSkillSlashWarn)
 	return m
 }
 

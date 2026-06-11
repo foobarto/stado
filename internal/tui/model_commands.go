@@ -22,6 +22,7 @@ import (
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tools"
@@ -518,6 +519,16 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 		m.renderBlocks()
 	default:
+		// Skill-declared slash shortcut (`slash:` frontmatter)? Route to
+		// the skill-invocation path — same effect as /skill:<skillName>,
+		// no args. Checked in the default branch so a built-in case always
+		// wins (collisions are already rejected at registration time).
+		if name, ok := m.skillSlash[strings.TrimPrefix(parts[0], "/")]; ok {
+			if err := m.injectSkill(name); err != nil {
+				m.appendBlock(block{kind: "system", body: err.Error()})
+			}
+			break
+		}
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
@@ -1095,6 +1106,19 @@ func (m *Model) handleConfigReload() tea.Cmd {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
 		}
 	}
+
+	// Re-read project skills and re-derive their slash shortcuts so a
+	// newly-added (or removed) `.stado/skills/*.md` `slash:` field is
+	// reflected in the palette + dispatch map without a restart. Collision
+	// warnings surface as a system block (not stderr) since we're live.
+	if sks, serr := skills.Load(m.cwd); serr == nil {
+		m.skills = sks
+	} else {
+		m.appendBlock(block{kind: "system", body: "/reload: skills load: " + serr.Error()})
+	}
+	m.registerSkillSlashCommands(func(msg string) {
+		m.appendBlock(block{kind: "system", body: "/reload: " + msg})
+	})
 
 	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
 	m.initPersona(newCfg)
