@@ -265,6 +265,27 @@ type TUI struct {
 	// sessions. Adjusted in the TUI with `ctrl+x [` (wider) and
 	// `ctrl+x ]` (narrower). 0 = unset (use the layout default).
 	SidebarWidth int `koanf:"sidebar_width"`
+	// Sidebar configures which sidebar sections show and in what order
+	// (#21). Empty/absent = the default layout. Entries are built-in
+	// section ids (header, now, subagents, risk, agent, repo, logs, todos).
+	// Plugin-contributed panel ids become valid once the plugin display API
+	// lands (part 2).
+	Sidebar TUISidebar `koanf:"sidebar"`
+	// Footer configures which footer segments are VISIBLE (#21). Order is
+	// fixed by the template — listing a segment shows it, omitting it hides
+	// it. Empty/absent = the default segments.
+	Footer TUIFooter `koanf:"footer"`
+}
+
+// TUISidebar is the [tui.sidebar] block — an ordered list of section ids.
+type TUISidebar struct {
+	Sections []string `koanf:"sections"`
+}
+
+// TUIFooter is the [tui.footer] block — the set of visible segment ids
+// (visibility only; the footer's order is fixed by the template).
+type TUIFooter struct {
+	Segments []string `koanf:"segments"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage

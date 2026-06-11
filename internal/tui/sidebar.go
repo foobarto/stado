@@ -132,6 +132,7 @@ func (m *Model) renderSidebar(width int) string {
 		"LogLines":     m.sidebarLogLines(),
 		"TodoSummary":  m.sidebarTodoSummary(),
 		"Todos":        m.sidebarTodos(),
+		"Sections":     m.effectiveSidebarSections(), // #21: configured order + visibility
 		"Width":        width - 4,
 	}
 	body, err := m.renderer.Exec("sidebar", data)

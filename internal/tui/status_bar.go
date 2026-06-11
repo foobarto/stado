@@ -95,6 +95,7 @@ func (m *Model) renderStatus(width int) string {
 		"Elapsed":      elapsed,
 		"Persona":      m.personaName(),
 		"Daemon":       m.daemonStatusLabel(),
+		"Segments":     m.effectiveFooterSegments(), // #21: configured footer segments
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)

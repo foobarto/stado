@@ -307,6 +307,16 @@ func (r *Renderer) funcMap() template.FuncMap {
 		"wrapHard": func(text any, width int) string {
 			return hardWrap(toStr(text), width)
 		},
+		// has reports whether a string slice contains id — used to gate
+		// configurable footer segments / sidebar sections (#21).
+		"has": func(list []string, id string) bool {
+			for _, v := range list {
+				if v == id {
+					return true
+				}
+			}
+			return false
+		},
 		"indent": func(text any, n int) string {
 			return indent(toStr(text), n)
 		},

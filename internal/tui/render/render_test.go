@@ -233,7 +233,8 @@ func TestRenderer_Sidebar(t *testing.T) {
 			{"Title": "write tests", "Status": "in_progress"},
 			{"Title": "ship it", "Status": "open"},
 		},
-		"Width": 28,
+		"Sections": []string{"header", "now", "subagents", "risk", "agent", "repo", "logs", "todos"},
+		"Width":    28,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,10 +253,11 @@ func TestRenderer_Sidebar(t *testing.T) {
 func TestRenderer_Status(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("status", map[string]any{
-		"State":  "idle",
-		"Tokens": "1.2K (12%)",
-		"Cost":   "$0.03",
-		"Width":  80,
+		"State":    "idle",
+		"Tokens":   "1.2K (12%)",
+		"Cost":     "$0.03",
+		"Segments": []string{"state", "tokens", "cost", "cache", "budget", "persona", "daemon", "commands"},
+		"Width":    80,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -266,6 +268,40 @@ func TestRenderer_Status(t *testing.T) {
 	}
 	if !strings.Contains(out, "ctrl+p") || !strings.Contains(out, "commands") {
 		t.Errorf("status missing ctrl+p hint: %q", out)
+	}
+}
+
+// TestRenderer_StatusSeparators guards the #21 footer "$printed" fix: the
+// "·"-joined cluster must not strand a leading separator when an earlier
+// segment is hidden, nor concatenate two segments without a gap.
+func TestRenderer_StatusSeparators(t *testing.T) {
+	r := newRenderer(t)
+	render := func(segs []string) string {
+		out, err := r.Exec("status", map[string]any{
+			"State":    "idle",
+			"Tokens":   "1.2K",
+			"Cost":     "$0.03",
+			"Cache":    "cache 50%",
+			"Persona":  "dev",
+			"Segments": segs,
+			"Width":    80,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// tokens hidden, cost first to render → no leading separator.
+	if got := render([]string{"cost"}); strings.Contains(got, "·") {
+		t.Errorf("cost-only footer should have no separator, got %q", got)
+	}
+	// cache+cost with tokens hidden → exactly one separator between them.
+	if got := render([]string{"cache", "cost"}); strings.Count(got, "·") != 1 {
+		t.Errorf("cache+cost footer should have exactly one separator, got %q", got)
+	}
+	// persona alone (all prior segments hidden) → no leading separator.
+	if got := render([]string{"persona"}); strings.Contains(got, "·") {
+		t.Errorf("persona-only footer should have no separator, got %q", got)
 	}
 }
 

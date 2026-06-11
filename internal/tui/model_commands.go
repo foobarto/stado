@@ -1099,6 +1099,10 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
 	m.initPersona(newCfg)
 	m.applyConfiguredThinkingDisplay(newCfg)
+	// #21: re-read the configurable chrome layout so [tui.sidebar]/[tui.footer]
+	// edits take effect on /reload without a restart.
+	m.sidebarSections = normalizeSidebarSections(newCfg.TUI.Sidebar.Sections)
+	m.footerSegments = normalizeFooterSegments(newCfg.TUI.Footer.Segments)
 	m.SetContextThresholds(newCfg.Context.SoftThreshold, newCfg.Context.HardThreshold)
 	m.SetBudget(newCfg.Budget.WarnUSD, newCfg.Budget.HardUSD)
 	m.SetBudgetTokens(newCfg.Budget.WarnTokens, newCfg.Budget.HardTokens)
