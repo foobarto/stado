@@ -633,6 +633,11 @@ type Model struct {
 	// events (see config.Hooks). Zero-value is a no-op so the TUI
 	// boots fine without any hooks defined.
 	hookRunner hooks.Runner
+	// lifecycleHooks is the scriptable deny/mutate hook runner (F1). The
+	// tool-side points (pre/post-tool) are driven through m.executor.Hooks
+	// (set to this same runner in app.go); this reference lets the TUI
+	// also fire the post_turn lifecycle point. Nil is a no-op.
+	lifecycleHooks *hooks.LifecycleRunner
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
 	turnStart        time.Time

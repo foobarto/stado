@@ -96,6 +96,11 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.maybeEmitBudgetWarning()
+	// post_llm fires first (it can rewrite m.turnText), then post_turn sees
+	// the final text, then onTurnComplete flushes it into history. This
+	// ordering mirrors runtime.AgentLoop, where post_llm precedes the
+	// history flush.
+	m.firePostLLMHook()
 	m.firePostTurnHook()
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.onTurnComplete(), m.tickBackgroundPluginsWithEvent(m.turnCompleteEvent()))

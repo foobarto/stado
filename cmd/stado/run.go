@@ -145,6 +145,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				PostTurnCmd: cfg.Hooks.PostTurn,
 				Disabled:    hooks.DisabledByToolConfig(cfg),
 			}
+			// F1: scriptable deny/mutate lifecycle hooks (Lua). Built
+			// once and wired into BOTH the agent loop (LLM-side points)
+			// and the executor (tool-side points) below.
+			lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
 
 			var priorMsgs []agent.Message
 			var continueSessID string
@@ -224,6 +228,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				Messages: append(priorMsgs, newUserMsg),
 				MaxTurns: maxTurns,
 				Persona:  persona,
+				Hooks:    lifecycleHooks,
 				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
@@ -278,6 +283,9 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				if err != nil {
 					return fmt.Errorf("tools: %w", err)
 				}
+				// F1: same lifecycle runner drives the tool-side
+				// (pre/post-tool) deny/mutate seam.
+				opts.Executor.Hooks = lifecycleHooks
 				// v1 sandbox policy for `stado run`:
 				//   default (noSandbox=false) → BwrapRunner via
 				//     sandbox.Detect() + Landlock writes-confined

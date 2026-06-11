@@ -21,6 +21,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/fs"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/integrations"
 	"github.com/foobarto/stado/internal/providers/acpwrap"
@@ -136,6 +137,13 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	m.SetBudgetTokens(cfg.Budget.WarnTokens, cfg.Budget.HardTokens)
 	m.SetBudgetTokensSplit(cfg.Budget.WarnInputTokens, cfg.Budget.HardInputTokens, cfg.Budget.WarnOutputTokens, cfg.Budget.HardOutputTokens)
 	m.SetHooks(cfg.Hooks.PostTurn)
+	// F1: scriptable deny/mutate lifecycle hooks (Lua). Same runner on the
+	// executor (tool-side pre/post-tool seam) and the model (post_turn).
+	lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
+	m.lifecycleHooks = lifecycleHooks
+	if exec != nil {
+		exec.Hooks = lifecycleHooks
+	}
 	if exec != nil {
 		_, bashEnabled := exec.Registry.Get("bash")
 		m.hookRunner.Disabled = !bashEnabled

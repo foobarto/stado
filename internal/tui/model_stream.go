@@ -456,6 +456,37 @@ func (m *Model) startStream() tea.Cmd {
 		req.CacheHints = []agent.CachePoint{{MessageIndex: len(m.msgs) - 1}}
 	}
 
+	// pre_llm lifecycle hook seam (F1). The interactive TUI streams the
+	// provider call directly (it does NOT go through runtime.AgentLoop), so
+	// the agentloop's pre_llm point isn't live here — this is where it
+	// fires for interactive turns, mirroring agentloop.go semantics:
+	//   - Deny  → abort this turn before any provider call. The reason
+	//     surfaces as a system block; we tear down the streaming state set
+	//     up above and return idle (no StreamTurn).
+	//   - Mutate → rewrite the system prompt and/or model the provider
+	//     receives. Message history is intentionally NOT mutable here
+	//     (append-only / prompt-cache invariant) — system+model knobs only.
+	if m.lifecycleHooks.HasPoint(hooks.PointPreLLM) {
+		pre := hooks.PreLLM(len(m.msgs), req.Model, req.System, len(req.Messages), len(req.Tools))
+		decision, out := m.lifecycleHooks.Fire(m.rootCtx, hooks.PointPreLLM, pre)
+		switch decision.Decision {
+		case hooks.DecisionDeny:
+			cancel()
+			m.streamMu.Lock()
+			m.streamCancel = nil
+			m.state = stateIdle
+			m.streamMu.Unlock()
+			m.appendBlock(block{kind: "system", body: "turn denied by pre_llm hook: " + decision.Reason})
+			m.renderBlocks()
+			return nil
+		case hooks.DecisionMutate:
+			if mp, ok := out.(*hooks.PreLLMPayload); ok {
+				req.System = mp.System
+				req.Model = mp.Model
+			}
+		}
+	}
+
 	// Shared stream buffer — the stream goroutine appends events
 	// here under m.streamBufMu; the tea.Tick-driven flush reads them
 	// out in batches on the main loop. This decouples the stream's
@@ -1752,18 +1783,72 @@ func (m *Model) contextFraction() float64 {
 }
 
 // firePostTurnHook invokes the user-configured post_turn shell
-// command (if any) with a JSON payload on stdin. No-op when the
-// hook isn't configured. Errors / timeouts are logged by the hook
-// runner; never propagated — the turn is over.
+// command (if any) with a JSON payload on stdin, AND fires the
+// scriptable post_turn lifecycle hook (F1) if any is configured. No-op
+// when neither is configured. Errors / timeouts are logged by the hook
+// runners; never propagated — the turn is over.
 func (m *Model) firePostTurnHook() {
-	if m.hookRunner.PostTurnCmd == "" || m.hookRunner.Disabled {
-		return
-	}
 	duration := time.Duration(0)
 	if !m.turnStart.IsZero() {
 		duration = time.Since(m.turnStart)
 	}
-	m.hookRunner.FirePostTurn(m.rootCtx, hooks.NewPostTurnPayload(len(m.msgs), m.usage, m.turnText, duration))
+	// Legacy shell notification hook.
+	if m.hookRunner.PostTurnCmd != "" && !m.hookRunner.Disabled {
+		m.hookRunner.FirePostTurn(m.rootCtx, hooks.NewPostTurnPayload(len(m.msgs), m.usage, m.turnText, duration))
+	}
+	// Scriptable lifecycle post_turn (deny/mutate-capable seam; the
+	// post_turn point is informational — the turn is over).
+	if m.lifecycleHooks.HasPoint(hooks.PointPostTurn) {
+		pt := hooks.PostTurnLifecycle(len(m.msgs), m.turnText, m.usage.InputTokens, m.usage.OutputTokens, m.usage.CostUSD, duration)
+		m.lifecycleHooks.Fire(m.rootCtx, hooks.PointPostTurn, pt)
+	}
+}
+
+// firePostLLMHook runs the scriptable post_llm lifecycle hook (F1) on the
+// completed assistant turn, mirroring agentloop.go's post_llm seam for the
+// interactive TUI (which streams directly, not via runtime.AgentLoop).
+// Called from onStreamDone AFTER the stream finishes but BEFORE
+// onTurnComplete flushes m.turnText into history, so a mutate/deny rewrites
+// the text the model history records:
+//   - Mutate → rewrite the assistant text (m.turnText). Tool calls are
+//     reported for inspection but not mutated here — pre_tool covers
+//     per-call arg rewriting.
+//   - Deny   → the generation already happened; treat as a request to
+//     replace the assistant text with the reason.
+//
+// No-op when no hook subscribes to post_llm.
+func (m *Model) firePostLLMHook() {
+	if !m.lifecycleHooks.HasPoint(hooks.PointPostLLM) {
+		return
+	}
+	post := hooks.PostLLM(len(m.msgs), m.turnText, len(m.turnToolCalls),
+		m.usage.InputTokens, m.usage.OutputTokens, m.usage.CostUSD)
+	decision, out := m.lifecycleHooks.Fire(m.rootCtx, hooks.PointPostLLM, post)
+	newText := m.turnText
+	switch decision.Decision {
+	case hooks.DecisionDeny:
+		newText = fmt.Sprintf("[post_llm hook: %s]", decision.Reason)
+	case hooks.DecisionMutate:
+		if mp, ok := out.(*hooks.PostLLMPayload); ok {
+			newText = mp.Text
+		}
+	}
+	if newText == m.turnText {
+		return
+	}
+	m.turnText = newText
+	// The assistant text was streamed live into the last rendered block as
+	// it arrived; reconcile that block so what the user sees matches the
+	// mutated text that onTurnComplete is about to flush into history.
+	for i := len(m.blocks) - 1; i >= 0; i-- {
+		if m.blocks[i].kind != "assistant" {
+			continue
+		}
+		m.blocks[i].body = textutil.SanitizeForTerminal(newText)
+		m.invalidateBlockCache(i)
+		m.renderBlocks()
+		break
+	}
 }
 
 // maybeEmitBudgetWarning fires a one-time system block once cumulative

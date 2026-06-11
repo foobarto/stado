@@ -6,10 +6,13 @@ through completed turns in the TUI, `stado run`, and headless
 stdin and is useful for desktop notifications, Slack pings, custom
 logging, or any "react to turn completion" workflow.
 
-MVP scope is **notification-only** — hooks cannot block or modify
-a turn. A richer "approve tool call via external policy" form
-can grow on top once the simple case has been validated in the
-wild.
+Scope here is **notification-only** — this `post_turn` shell hook cannot
+block or modify a turn. For the richer "deny / mutate via a scriptable
+policy" form — Lua handlers at pre/post-tool, pre/post-llm, and post-turn
+that can veto an action or rewrite tool args / LLM requests / outputs — see
+[features/lifecycle-hooks.md](./lifecycle-hooks.md). The two are
+independent: a scriptable `post_turn` lifecycle hook and this shell
+`post_turn` hook both fire at turn completion.
 
 ## Why hooks
 
@@ -125,6 +128,9 @@ post_turn = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga"
 
 ## See also
 
+- [features/lifecycle-hooks.md](./lifecycle-hooks.md) — scriptable Lua
+  deny/mutate hooks (pre/post-tool, pre/post-llm, post-turn) for policies
+  that need to block or rewrite, not just notify.
 - [features/budget.md](./budget.md) — cost guardrails, same
   shell-hook pattern but gated on thresholds instead of every turn.
 - [commands/tui.md](../commands/tui.md) — TUI entry point.
