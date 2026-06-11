@@ -216,6 +216,12 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 					m.appendBlock(block{kind: "system", body: err.Error()})
 					m.renderBlocks()
 				}
+			case keys.TreeView:
+				if err := m.openTreePicker(); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+				m.layout()
 			case keys.TaskView:
 				if err := m.openTaskPicker(); err != nil {
 					m.appendBlock(block{kind: "system", body: err.Error()})

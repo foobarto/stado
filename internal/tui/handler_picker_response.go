@@ -19,6 +19,7 @@ import (
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/treepicker"
 )
 
 func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
@@ -285,6 +286,25 @@ func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 				}
 				return m, nil, true
 			}
+		}
+		return m, nil, true
+	}
+
+	if m.treePick.Visible {
+		cmd, handled := m.treePick.Update(msg)
+		if handled {
+			// Drain the outbox: an Enter over a switchable session row emits a
+			// switch action. Navigation / expand / collapse emit CommandNone.
+			switch action := m.treePick.TakeAction(); action.Type {
+			case treepicker.CommandSwitch:
+				m.treePick.Close()
+				if err := m.switchToSession(action.ID); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			}
+			m.layout()
+			return m, cmd, true
 		}
 		return m, nil, true
 	}

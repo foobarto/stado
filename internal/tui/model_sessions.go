@@ -421,6 +421,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.agentPick.Close()
 	m.modelPicker.Close()
 	m.sessionPick.Close()
+	m.treePick.Close()
 	m.filePicker.Close()
 	m.vp.SetContent("")
 	m.activityVP.SetContent("")
