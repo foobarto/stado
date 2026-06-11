@@ -261,8 +261,20 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   `config.toml`; configured MCP server names are summarized without
   probing them, and cached plugin/MCP health is shown after lifecycle or
   attach attempts have run
-- `/provider [name]` — active provider capabilities, or setup guidance
-  for a named provider such as `lmstudio`, `openai`, or `anthropic`
+- `/provider` — open the provider credential manager: a modal listing
+  every known provider with its **redacted** credential status (the
+  env-var name and a configured/unset marker, never the secret). Select a
+  provider with the arrow keys and press Enter to add or modify its
+  credential — confirm or edit the env-var name, set an optional base-URL
+  override (only for anthropic-compat / OAI-compat providers), and, when
+  an OS keyring is available, type a key into a **masked** field that is
+  stored in the keyring (otherwise the form shows the `export` hint). Save
+  records only the env-var reference in `config.toml`; the secret is never
+  written to config or echoed to scrollback. `ctrl+d` unsets a provider's
+  credential. This is the in-TUI counterpart to the `stado auth` CLI
+- `/provider <name>` — setup guidance for a named provider such as
+  `lmstudio`, `openai`, or `anthropic` (the old behavior, kept for the
+  argument form)
 - `/providers` — active provider credential health plus detected local
   runners, with load/start hints when a runner has no models ready
 - `/thinking` — cycle and persist thinking display;

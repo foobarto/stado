@@ -30,6 +30,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/palette"
 	"github.com/foobarto/stado/internal/tui/personapicker"
+	"github.com/foobarto/stado/internal/tui/providerpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
 	"github.com/foobarto/stado/internal/tui/taskpicker"
@@ -332,18 +333,19 @@ type Model struct {
 	sessionUIStates map[string]sessionUIState
 
 	// UI components
-	input       *input.Editor
-	slash       *palette.Model
-	slashInline bool
-	agentPick   *agentpicker.Model
-	modelPicker *modelpicker.Model
-	sessionPick *sessionpicker.Model
-	taskPick    *taskpicker.Model
-	themePick   *themepicker.Model
-	filePicker  *filepicker.Model
-	fleetPicker *fleetpicker.Model
-	fleet       *runtime.Fleet
-	attach      attachState // /session attach RW state (EP-0038 §F)
+	input        *input.Editor
+	slash        *palette.Model
+	slashInline  bool
+	agentPick    *agentpicker.Model
+	modelPicker  *modelpicker.Model
+	sessionPick  *sessionpicker.Model
+	taskPick     *taskpicker.Model
+	themePick    *themepicker.Model
+	filePicker   *filepicker.Model
+	providerPick *providerpicker.Model
+	fleetPicker  *fleetpicker.Model
+	fleet        *runtime.Fleet
+	attach       attachState // /session attach RW state (EP-0038 §F)
 	// sessionToolOverrides holds /tool enable/disable/autoload/
 	// unautoload edits made without --save. Zero value = no
 	// overrides. EP-0037 §I, BACKLOG #5.
@@ -694,6 +696,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		taskPick:         taskpicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
+		providerPick:     providerpicker.New(),
 		fleetPicker:      fleetpicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),

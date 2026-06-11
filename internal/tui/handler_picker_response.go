@@ -301,6 +301,18 @@ func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	if m.providerPick != nil && m.providerPick.Visible {
+		cmd, handled := m.providerPick.Update(msg)
+		if handled {
+			if err := m.applyProviderCommand(cmd); err != nil {
+				m.providerPick.SetNotice(err.Error())
+			}
+			m.layout()
+			return m, nil, true
+		}
+		return m, nil, true
+	}
+
 	if m.themePick.Visible {
 		cmd, handled := m.themePick.Update(msg)
 		if handled {

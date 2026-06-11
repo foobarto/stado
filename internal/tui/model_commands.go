@@ -94,6 +94,8 @@ func (m *Model) anyModalOpen() bool {
 		return true
 	case m.agentPick.Visible:
 		return true
+	case m.providerPick != nil && m.providerPick.Visible:
+		return true
 	case m.slash.Visible:
 		return true
 	case m.fleetPicker != nil && m.fleetPicker.Visible:
@@ -123,6 +125,9 @@ func (m *Model) closeAllModals() {
 	}
 	if m.agentPick.Visible {
 		m.agentPick.Close()
+	}
+	if m.providerPick != nil && m.providerPick.Visible {
+		m.providerPick.Close()
 	}
 	if m.slash.Visible {
 		m.slash.Close()
@@ -422,18 +427,15 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/provider":
+		// Bare `/provider` opens the credential modal (add / modify / unset
+		// a provider's credential, REDACTED). `/provider <name>` keeps the
+		// per-provider setup-help text so the old muscle memory still works.
 		if len(parts) > 1 {
 			m.appendBlock(block{kind: "system", body: m.providerSetupBody(parts[1])})
 			break
 		}
-		name := m.providerDisplayName()
-		if m.provider != nil {
-			caps := m.provider.Capabilities()
-			body := fmt.Sprintf("provider: %s  (cache=%v thinking=%v vision=%v ctx=%d)",
-				name, caps.SupportsPromptCache, caps.SupportsThinking, caps.SupportsVision, caps.MaxContextTokens)
-			m.appendBlock(block{kind: "system", body: body})
-		} else {
-			m.appendBlock(block{kind: "system", body: "provider: " + name + "  (not yet initialised)"})
+		if err := m.openProviderPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: "/provider: " + err.Error()})
 		}
 	case "/status":
 		m.showStatus = true

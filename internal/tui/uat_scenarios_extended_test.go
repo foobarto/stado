@@ -570,15 +570,20 @@ func TestUAT_TodoAddsItem(t *testing.T) {
 	}
 }
 
-// H3: /provider without an initialised provider shows "not yet initialised".
-func TestUAT_ProviderShowsUninitialised(t *testing.T) {
+// H3: bare /provider opens the provider credential manager modal (the
+// in-TUI counterpart to `stado auth`). The old behavior — printing the
+// active provider's capabilities — moved to /status and /providers when
+// /provider was repurposed into the credential modal.
+func TestUAT_ProviderOpensCredentialModal(t *testing.T) {
 	m := scenarioModel(t)
 	m.provider = nil
 	m.providerName = "anthropic"
 	m.handleSlash("/provider")
-	last := m.blocks[len(m.blocks)-1]
-	if last.kind != "system" || !strings.Contains(last.body, "not yet initialised") {
-		t.Errorf("expected 'not yet initialised' advisory, got: %q", last.body)
+	if m.providerPick == nil || !m.providerPick.Visible {
+		t.Fatalf("bare /provider should open the credential modal")
+	}
+	if len(m.blocks) != 0 {
+		t.Errorf("opening the modal should not append a system block; got %d", len(m.blocks))
 	}
 }
 
