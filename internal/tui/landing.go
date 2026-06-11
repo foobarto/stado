@@ -23,15 +23,16 @@ import (
 
 const (
 	landingBannerMinHeight = 6
-	// landingBannerMaxHeight is sized to comfortably fit BOTH banner
-	// asset variants (banner.txt is 26 rows, banner.ansi is 34 rows
-	// of chafa-rendered block art). The previous value of 8 forced
-	// sampleLandingLogoLines to downsample to ~3:1, vertically
-	// squashing the sheep into an unrecognisable oval. With this
-	// ceiling, sampling only kicks in when the chat area is
-	// genuinely small; on typical terminals the asset renders at its
-	// natural aspect.
+	// landingBannerMaxHeight bounds the banner-art assets (banner.txt is 26
+	// rows, banner.ansi is 34 rows of chafa-rendered block art). The banner
+	// is shown only when it fits at its natural height within the chat area;
+	// otherwise it's replaced by the compact wordmark (never downsampled). The
+	// asserts in viewport_test.go use this as the upper bound.
 	landingBannerMaxHeight = 36
+	// landingLogoMargin is the fixed number of blank lines between the logo
+	// and the input box, so the gap reads the same whether the full sheep or
+	// the compact wordmark is shown.
+	landingLogoMargin = 2
 )
 
 func landingInputWidth(width int) int {
@@ -100,7 +101,7 @@ func (m *Model) renderLanding(width, height int) string {
 		// the input box + hint (+ plugins) and the gaps/footer, mirroring
 		// the logoMaxH budget; truncate the overflow with a "(+N more)"
 		// marker pointing at scrollback, where the full block also lives.
-		reserved := lipgloss.Height(input) + lipgloss.Height(hint) + 3
+		reserved := lipgloss.Height(input) + lipgloss.Height(hint) + landingLogoMargin + 2
 		if plugins != "" {
 			reserved += lipgloss.Height(plugins) + 1
 		}
@@ -134,7 +135,10 @@ func (m *Model) renderLanding(width, height int) string {
 	if bodyH < 1 {
 		bodyH = 1
 	}
-	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - 3
+	// Reserve room for the input, hint, the fixed logo margin (blank lines),
+	// and the input/hint gap (1 line) before deciding how much height the
+	// logo may use.
+	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - landingLogoMargin - 1
 	if plugins != "" {
 		logoMaxH -= lipgloss.Height(plugins) + 1
 	}
@@ -143,16 +147,19 @@ func (m *Model) renderLanding(width, height int) string {
 	}
 	logo := renderLandingLogo(width, logoMaxH)
 
-	parts := make([]string, 0, 4)
-	if logo != "" {
-		parts = append(parts, logo)
-	}
-	parts = append(parts, centerLines(input, width))
+	// Below-logo stack (input · plugins · hint), then the logo prepended with
+	// a FIXED margin so the gap is identical whether the full sheep or the
+	// compact wordmark renders.
+	below := make([]string, 0, 3)
+	below = append(below, centerLines(input, width))
 	if plugins != "" {
-		parts = append(parts, centerLines(plugins, width))
+		below = append(below, centerLines(plugins, width))
 	}
-	parts = append(parts, centerLines(hint, width))
-	stack := strings.Join(parts, "\n\n")
+	below = append(below, centerLines(hint, width))
+	stack := strings.Join(below, "\n\n")
+	if logo != "" {
+		stack = logo + strings.Repeat("\n", landingLogoMargin+1) + stack
+	}
 	body := lipgloss.Place(width, bodyH, lipgloss.Center, lipgloss.Center, stack)
 	out := ""
 	if whatsNew != "" {
@@ -188,19 +195,18 @@ func truncateBanner(banner string, maxH int) string {
 }
 
 func renderLandingLogo(width, maxH int) string {
-	if maxH < landingBannerMinHeight {
-		return compactLandingLogo(width)
-	}
 	raw := bannerFor(width)
 	if raw == "" {
 		return compactLandingLogo(width)
 	}
 	lines := strings.Split(strings.TrimRight(raw, "\n"), "\n")
-	targetH := maxH
-	if targetH > landingBannerMaxHeight {
-		targetH = landingBannerMaxHeight
+	// Never deform the sheep: render the banner only when it fits at its
+	// natural height. If there isn't enough vertical room, fall back to the
+	// compact "stado" wordmark rather than downsampling (which squashed the
+	// art into an unrecognisable oval on short terminals).
+	if maxH < landingBannerMinHeight || len(lines) > maxH {
+		return compactLandingLogo(width)
 	}
-	lines = sampleLandingLogoLines(lines, targetH)
 	for i, line := range lines {
 		lines[i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
 	}
@@ -209,23 +215,6 @@ func renderLandingLogo(width, maxH int) string {
 
 func compactLandingLogo(width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
-}
-
-func sampleLandingLogoLines(lines []string, target int) []string {
-	if target <= 0 || len(lines) <= target {
-		return lines
-	}
-	if target == 1 {
-		return lines[:1]
-	}
-	out := make([]string, 0, target)
-	last := len(lines) - 1
-	denom := target - 1
-	for i := 0; i < target; i++ {
-		idx := (i*last + denom/2) / denom
-		out = append(out, lines[idx])
-	}
-	return out
 }
 
 func landingHint(th *theme.Theme) string {
