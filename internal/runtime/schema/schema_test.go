@@ -117,27 +117,36 @@ func TestEmpty(t *testing.T) {
 	}
 }
 
-// TestComposed mirrors a real bundled-tool schema (fs__edit) to
-// confirm the composed shape matches what the wasm host expects.
+// TestComposed mirrors a real bundled-tool schema (fs__edit, hashline
+// anchor form) to confirm the composed shape — including a nested
+// array-of-object for edits — matches what the wasm host expects.
 func TestComposed_FsEditShape(t *testing.T) {
-	got := schema.Object([]string{"path", "old_string", "new_string"}, schema.Props{
-		"path":        schema.String(),
-		"old_string":  schema.String(),
-		"new_string":  schema.String(),
-		"replace_all": schema.Boolean(),
+	got := schema.Object([]string{"path", "edits"}, schema.Props{
+		"path": schema.String(),
+		"edits": schema.Array(schema.Object([]string{"op", "lines"}, schema.Props{
+			"op":    schema.StringEnum([]string{"replace", "append", "prepend"}),
+			"pos":   schema.String(),
+			"end":   schema.String(),
+			"lines": schema.Array(schema.String()),
+		})),
 	})
 	if got["type"] != "object" {
 		t.Fatalf("type = %v", got["type"])
 	}
 	req, _ := got["required"].([]string)
-	if len(req) != 3 || req[0] != "path" || req[2] != "new_string" {
+	if len(req) != 2 || req[0] != "path" || req[1] != "edits" {
 		t.Fatalf("required = %v", req)
 	}
 	props, _ := got["properties"].(schema.Props)
-	if len(props) != 4 {
-		t.Fatalf("properties count = %d, want 4", len(props))
+	if len(props) != 2 {
+		t.Fatalf("properties count = %d, want 2", len(props))
 	}
-	if rt := props["replace_all"].(map[string]any); rt["type"] != "boolean" {
-		t.Fatalf("replace_all type = %v", rt)
+	edits, _ := props["edits"].(map[string]any)
+	if edits["type"] != "array" {
+		t.Fatalf("edits type = %v, want array", edits["type"])
+	}
+	item, _ := edits["items"].(map[string]any)
+	if item["type"] != "object" {
+		t.Fatalf("edits.items type = %v, want object", item["type"])
 	}
 }

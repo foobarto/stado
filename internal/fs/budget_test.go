@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/fs/hashline"
 	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
@@ -74,7 +75,7 @@ func TestReadNoTruncationUnderBudget(t *testing.T) {
 
 	raw, _ := json.Marshal(map[string]any{"path": "small.txt"})
 	res, _ := ReadTool{}.Run(context.Background(), raw, h)
-	if res.Content != body {
+	if res.Content != hashline.Render(body, 1) {
 		t.Fatalf("unexpected result: %q", res.Content)
 	}
 }

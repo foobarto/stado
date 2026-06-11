@@ -62,7 +62,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// wasm plugin's stado_fs_* primitives. Replaces the native fs.ReadTool /
 	// fs.WriteTool / fs.EditTool / fs.GlobTool / fs.GrepTool registrations.
 	r.Register(newBundledWasmTool("fs", "stado_tool_read", "fs__read",
-		"Read a file. Optional offset/length for partial reads.",
+		"Read a file. Each line is prefixed \"LINE#HASH:\" (1-indexed line number + 2-char content hash); copy those LINE#HASH anchors into the edit tool's pos/end. Optional offset/length for raw partial byte reads (no prefixes).",
 		tool.ClassNonMutating,
 		schema.Object([]string{"path"}, schema.Props{
 			"path":   schema.String(),
@@ -79,13 +79,16 @@ func buildBundledPluginRegistry() *tools.Registry {
 		}),
 		[]string{"fs:write:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_edit", "fs__edit",
-		"Edit a file by replacing an exact string. Set replace_all=true for multi-occurrence.",
+		"Apply content-anchored (hashline) edits to a file. Each edit targets a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / EOF), prepend (before pos / BOF). Multiple edits apply bottom-up.",
 		tool.ClassMutating,
-		schema.Object([]string{"path", "old_string", "new_string"}, schema.Props{
-			"path":        schema.String(),
-			"old_string":  schema.String(),
-			"new_string":  schema.String(),
-			"replace_all": schema.Boolean(),
+		schema.Object([]string{"path", "edits"}, schema.Props{
+			"path": schema.String(),
+			"edits": schema.Array(schema.Object([]string{"op", "lines"}, schema.Props{
+				"op":    schema.StringEnum([]string{"replace", "append", "prepend"}, "Operation"),
+				"pos":   schema.String("LINE#HASH anchor from read output, e.g. 11#KT"),
+				"end":   schema.String("End anchor for a range replace (inclusive), same form as pos"),
+				"lines": schema.Array(schema.String(), "Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes"),
+			}), "Hashline edits, applied bottom-up"),
 		}),
 		[]string{"fs:read:.", "fs:write:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_glob", "fs__glob",
