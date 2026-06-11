@@ -159,6 +159,26 @@ func TestRenderLandingLogo_NeverDeforms(t *testing.T) {
 	}
 }
 
+// Guards the logo-budget boundary: at every height where the full banner is
+// chosen, the composed body (logo + fixed margin + input + hint) must still fit
+// the terminal — no overflow, input never clipped.
+func TestLanding_NoOverflowAcrossHeights(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	for _, w := range []int{90, 120} {
+		for h := 38; h <= 58; h++ {
+			m := newPickerTestModel(t, "anthropic")
+			m.width, m.height = w, h
+			out := ansi.Strip(m.renderLanding(w, h))
+			if rows := strings.Count(out, "\n") + 1; rows > h {
+				t.Errorf("w=%d h=%d: rendered %d rows — overflows", w, h, rows)
+			}
+			if !strings.Contains(out, "Type a message") {
+				t.Errorf("w=%d h=%d: input placeholder clipped", w, h)
+			}
+		}
+	}
+}
+
 func TestRenderLandingLogo_UsesCompactWordmarkWhenShort(t *testing.T) {
 	got := ansi.Strip(renderLandingLogo(120, 3))
 	if strings.TrimSpace(got) != "stado" {
