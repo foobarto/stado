@@ -327,6 +327,36 @@ type TUI struct {
 	// fixed by the template — listing a segment shows it, omitting it hides
 	// it. Empty/absent = the default segments.
 	Footer TUIFooter `koanf:"footer"`
+	// ToolOutputCollapsedHeight caps how many rows a collapsed tool block's
+	// streaming output occupies in the viewport. Long outputs (test logs,
+	// big greps, build output) are clipped to this height with a "… N more
+	// lines (shift+tab)" footer until the block is expanded (shift+tab or a
+	// mouse click). 0 = unset (uses the default). The effective value is
+	// clamped to [3, 20] by EffectiveToolOutputCollapsedHeight.
+	ToolOutputCollapsedHeight int `koanf:"tool_output_collapsed_height"`
+}
+
+// EffectiveToolOutputCollapsedHeight returns the row budget for a
+// collapsed tool block's output: the configured value clamped to
+// [3, 20], defaulting to 8 when unset (0) or out of range below the
+// minimum. Mirrors Memory.EffectiveMaxItems' unset-means-default shape.
+func (t TUI) EffectiveToolOutputCollapsedHeight() int {
+	const (
+		def = 8
+		min = 3
+		max = 20
+	)
+	h := t.ToolOutputCollapsedHeight
+	if h <= 0 {
+		return def
+	}
+	if h < min {
+		return min
+	}
+	if h > max {
+		return max
+	}
+	return h
 }
 
 // TUISidebar is the [tui.sidebar] block — an ordered list of section ids.

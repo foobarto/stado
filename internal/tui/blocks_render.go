@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func (m *Model) renderBlocks() {
@@ -147,6 +149,69 @@ func (m *Model) renderAssistantDetails(details string) string {
 		Render(strings.Join(lines, "\n")) + "\n"
 }
 
+// toolOutputCollapsedHeight is the row budget for a collapsed tool
+// block's output. Reads the configured value (clamped 3..20, default
+// 8); falls back to the default when no config is attached (tests that
+// build a bare Model).
+func (m *Model) toolOutputCollapsedHeight() int {
+	if m.cfg == nil {
+		return config.TUI{}.EffectiveToolOutputCollapsedHeight()
+	}
+	return m.cfg.TUI.EffectiveToolOutputCollapsedHeight()
+}
+
+// clipToolOutput word-wraps a tool result to width, then keeps the
+// first maxRows rendered rows. It returns the clipped body plus the
+// count of rows that were dropped (0 when nothing was clipped). Wrapping
+// before counting is deliberate: a body of few logical lines can still
+// exceed the panel once long lines wrap, so the budget is measured in
+// post-wrap rows (project_lipgloss_window_postwrap_rows).
+func clipToolOutput(s string, width, maxRows int) (string, int) {
+	wrapped := wrapToolOutput(s, width)
+	lines := strings.Split(strings.TrimRight(wrapped, "\n"), "\n")
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	if len(lines) <= maxRows {
+		return strings.Join(lines, "\n"), 0
+	}
+	more := len(lines) - maxRows
+	return strings.Join(lines[:maxRows], "\n"), more
+}
+
+// wrapToolOutput mirrors the renderer's word-wrap (templates wrap tool
+// args/result the same way) so the collapsed-panel row count matches
+// what the template would emit when expanded. Kept local to the tui
+// package because the renderer's wordWrap is unexported.
+func wrapToolOutput(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	var lines []string
+	for _, paragraph := range strings.Split(s, "\n") {
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		var line strings.Builder
+		for _, w := range words {
+			if line.Len() > 0 && line.Len()+1+len(w) > width {
+				lines = append(lines, line.String())
+				line.Reset()
+			}
+			if line.Len() > 0 {
+				line.WriteByte(' ')
+			}
+			line.WriteString(w)
+		}
+		if line.Len() > 0 {
+			lines = append(lines, line.String())
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // invalidateBlockCache forces a re-render of the given block next time
 // renderBlocks runs. Call from handleStreamEvent after mutating a
 // block's body so the cache doesn't serve stale content.
@@ -217,15 +282,29 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 				duration = "running " + d.String()
 			}
 		}
-		return m.renderer.Exec("message_tool", map[string]any{
+		innerW := width - 4
+		data := map[string]any{
 			"Name":        blk.toolName,
 			"ArgsPreview": truncate(blk.toolArgs, 40),
 			"FullArgs":    prettyJSON(blk.toolArgs),
 			"Result":      blk.toolResult,
 			"Expanded":    blk.expanded,
 			"Duration":    duration,
-			"Width":       width - 4,
-		})
+			"Width":       innerW,
+		}
+		// Collapsed tool blocks render their streaming output in a fixed-
+		// height panel: the result is clipped to the configured row budget
+		// with a "… N more lines (shift+tab)" footer. Expanding (shift+tab
+		// or click) shows the full body. Wrapping happens here (not the
+		// template) so the row count is measured post-wrap — clipping by
+		// logical lines alone would undercount a body with long wrapping
+		// lines. See memory project_lipgloss_window_postwrap_rows.
+		if !blk.expanded && strings.TrimSpace(blk.toolResult) != "" {
+			clipped, more := clipToolOutput(blk.toolResult, innerW, m.toolOutputCollapsedHeight())
+			data["CollapsedResult"] = clipped
+			data["MoreLines"] = more
+		}
+		return m.renderer.Exec("message_tool", data)
 	case "system":
 		tone := systemBlockTone(blk.body)
 		return lipgloss.NewStyle().

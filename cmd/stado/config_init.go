@@ -96,6 +96,7 @@ const defaultConfigTemplate = `# stado — config.toml
 # [tui]
 # theme = "stado-dark"                # bundled id; omit to use theme.toml/default
 # thinking_display = "show"          # show | tail | hide
+# tool_output_collapsed_height = 8   # rows a collapsed tool output shows; clamp 3..20
 
 # ---------------------------------------------------------------------------
 # [memory] — opt-in approved-memory prompt context.
