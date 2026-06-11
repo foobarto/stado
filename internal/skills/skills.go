@@ -43,6 +43,13 @@ type Skill struct {
 	Description string // from frontmatter; may be empty
 	Body        string // everything after the frontmatter
 	Path        string // absolute path on disk (for error messages)
+
+	// Slash is the optional `slash:` frontmatter field: a command name
+	// (no leading "/", no args) that registers a TUI slash shortcut for
+	// this skill. Empty when unset. Invoking `/<Slash>` runs the skill,
+	// same as `/skill:<Name>`. Collisions with built-in slash commands
+	// are rejected at registration time (in the TUI), not here.
+	Slash string
 }
 
 const (
@@ -225,6 +232,11 @@ func parse(src string) Skill {
 			sk.Name = v
 		case "description":
 			sk.Description = v
+		case "slash":
+			// Tolerate an operator-typed leading "/" — the canonical
+			// form is bare, but stripping it here means `slash: /foo`
+			// and `slash: foo` register the same shortcut.
+			sk.Slash = strings.TrimPrefix(strings.TrimSpace(v), "/")
 		}
 	}
 	sk.Body = strings.TrimLeft(strings.Join(lines[end+1:], "\n"), "\n")
