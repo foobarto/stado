@@ -1,39 +1,33 @@
-## v0.61.0 — in-turn steering/queue/interrupt + usability & correctness sweep — 2026-06-11
+## v0.62.0 — configurable TUI chrome + plugin display API + landing what's-new — 2026-06-11
 
 ### TUI
 
-- **In-turn message routing (#16/#17).** A message sent while a turn is in
-  flight can be routed three ways, each with a key binding and a slash command:
-  **steer** (Enter / `/steer`) injects it into the current turn at the next tool
-  boundary; **queue** (alt+enter / `/queue`) defers it to the next turn;
-  **interrupt** (ctrl+enter / `/interrupt`) cancels the turn and runs it now.
-  Enter-while-busy now steers (was queue-for-next-turn); the queue and fire-now
-  roles moved to alt+enter and ctrl+enter. ctrl+enter needs a terminal with
-  enhanced-keyboard support — the slash commands are the universal fallback.
-- **Click a thinking block to expand it (#14).** Clicking a reasoning block (or
-  focusing it with the chord) reveals its full text even when the global
-  thinking display is set to tail/hide.
-- **Compaction follow-ups (#19).** A proactive one-time advisory when context
-  usage crosses the soft threshold, plus auto-recovery when a turn dies with a
-  provider context-overflow error (compact + replay the last prompt in a child
-  session) when an auto-compact plugin is installed — for both synchronous
-  (oaicompat) and EvError-event (Anthropic) error paths.
+- **Configurable sidebar sections + footer segments (#21 part 1).**
+  `[tui.sidebar].sections` picks which sidebar sections show **and their
+  order**; `[tui.footer].segments` picks which footer segments are visible
+  (the footer's order is fixed by its template). An empty/absent list means
+  "use the defaults" (not "hide everything") — list the ids you want to keep
+  to hide the rest. Unknown ids are preserved (they may be plugin panel ids).
+  Re-reads on `/reload`. The sidebar width also persists across sessions (#24).
+- **"What's new" on the landing page (#22/#23).** The landing screen surfaces
+  a brief summary of the latest CHANGELOG entry in the upper-left corner.
+
+### Plugins
+
+- **Plugin display API — sidebar / footer / log render targets (#21 part 2).**
+  A `stado_ui_render` panel gains an additive `target` field: `viewport`
+  (default, unchanged conversation scrollback), `sidebar` / `footer` (a plugin-
+  owned, addressable panel that shows when the operator lists the panel's `id`
+  in `[tui.sidebar].sections` / `[tui.footer].segments`; last-write-wins per
+  id), or `log` (one bounded line appended to the shared notification log).
+  Plugins cannot write to stado's built-in sections/segments; `Variant` maps to
+  a SAFE theme tone (never a raw colour); the per-id panel stores are capped.
+  Non-TUI render channels (ACP / MCP / headless) ignore `target`.
 
 ### Fixes
 
-- **`config show` no longer leaks secrets.** `config show` / `--json` now redact
-  OTel auth headers, MCP/ACP server credentials, and proxy `user:pass` (values
-  replaced with `<redacted>`, keys/shape preserved). `stado plugin doctor` also
-  redacts the proxy in its sandbox cross-check.
-- **`stado usage` reports real activity** instead of always "No turns recorded":
-  it counts distinct turns even when the agent loop records zero tokens, and
-  explains that per-turn token totals aren't recorded yet (a known limitation).
-- **A malformed `memory.jsonl` line no longer bricks memory + learning.** The
-  store skips and warns on malformed/structurally-invalid lines (including a
-  nil-item `supersede` that previously destroyed data) and folds the rest.
-- **`session show` / `audit verify` error on a nonexistent id** instead of
-  fabricating success (exit 0); real repo/storage errors are surfaced rather
-  than masked as "not found".
-- **Context threshold `0` disables the gate**, matching the docs — `soft` and
-  `hard` are independent knobs (0 disables that one only).
+- **Landing sheep logo no longer deforms on short terminals (#116).** The
+  banner renders at its natural aspect when there's vertical room and falls
+  back to the compact wordmark when there isn't, instead of being squashed; the
+  gap between the logo and the input box is now a fixed margin.
 
