@@ -1,9 +1,17 @@
 {{- /* Bottom status strip: quiet by default, with only active state calls
-       allowed to stand out. */ -}}
+       allowed to stand out. Segments shown are gated by .Segments (#21);
+       the default list keeps the historical layout. */ -}}
 {{- $dot := "●" -}}
+{{- if has .Segments "state" -}}
 {{- if eq .State "streaming" }}{{ color "primary" $dot }} {{ color "text_secondary" "thinking" }}{{ if .Elapsed }} {{ color "muted" .Elapsed }}{{ end }}  {{ end -}}
 {{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "text_secondary" "awaiting approval" }}  {{ end -}}
 {{- if eq .State "error" }}{{ color "error" $dot }} {{ color "text_secondary" .ErrorMessage }}  {{ end -}}
 {{- if .Queued }}{{ color "accent" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
-{{- if .Budget }}{{ color "warning" .Budget }}  {{ end -}}
-{{ color "muted" .Tokens }}{{ if .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end }} {{ color "muted" "·" }} {{ color "muted" .Cost }}{{ if .Persona }} {{ color "muted" "·" }} {{ color "text_secondary" .Persona }}{{ end }}{{ if .Daemon }} {{ color "muted" "·" }} {{ if eq .Daemon "up" }}{{ color "success" "●" }}{{ else }}{{ color "error" "●" }}{{ end }} {{ color "muted" "daemon" }}{{ end }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}
+{{- end -}}
+{{- if and (has .Segments "budget") .Budget }}{{ color "warning" .Budget }}  {{ end -}}
+{{- if has .Segments "tokens" }}{{ color "muted" .Tokens }}{{ end -}}
+{{- if and (has .Segments "cache") .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end -}}
+{{- if has .Segments "cost" }}{{ if has .Segments "tokens" }} {{ color "muted" "·" }} {{ end }}{{ color "muted" .Cost }}{{ end -}}
+{{- if and (has .Segments "persona") .Persona }} {{ color "muted" "·" }} {{ color "text_secondary" .Persona }}{{ end -}}
+{{- if and (has .Segments "daemon") .Daemon }} {{ color "muted" "·" }} {{ if eq .Daemon "up" }}{{ color "success" "●" }}{{ else }}{{ color "error" "●" }}{{ end }} {{ color "muted" "daemon" }}{{ end -}}
+{{- if has .Segments "commands" }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}{{ end -}}

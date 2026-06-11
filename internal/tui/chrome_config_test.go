@@ -49,3 +49,27 @@ func TestSidebarRespectsConfiguredSections(t *testing.T) {
 		t.Errorf("Repo should render before Now per the configured order:\n%s", out)
 	}
 }
+
+// #21 step 3: the footer shows only the configured segments.
+func TestFooterRespectsConfiguredSegments(t *testing.T) {
+	m := scenarioModel(t)
+	m.usage.InputTokens = 1200
+	m.usage.CostUSD = 0.05
+
+	def := ansi.Strip(m.renderStatus(80))
+	if !strings.Contains(def, "$0.05") || !strings.Contains(def, "commands") {
+		t.Fatalf("default footer should show cost + commands:\n%s", def)
+	}
+
+	m.footerSegments = []string{"state", "tokens", "persona"} // hide cost, daemon, commands
+	out := ansi.Strip(m.renderStatus(80))
+	if strings.Contains(out, "$0.05") {
+		t.Errorf("cost should be hidden when not in segments:\n%s", out)
+	}
+	if strings.Contains(out, "commands") {
+		t.Errorf("commands should be hidden when not in segments:\n%s", out)
+	}
+	if !strings.Contains(out, "1.2K") {
+		t.Errorf("tokens should still show:\n%s", out)
+	}
+}

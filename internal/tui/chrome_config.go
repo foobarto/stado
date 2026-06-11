@@ -57,3 +57,12 @@ func (m *Model) effectiveSidebarSections() []string {
 func normalizeFooterSegments(in []string) []string {
 	return normalizeChromeList(in, defaultFooterSegments)
 }
+
+// effectiveFooterSegments returns the configured footer segments, defaulting
+// when unset (e.g. a test model built without going through app.go).
+func (m *Model) effectiveFooterSegments() []string {
+	if len(m.footerSegments) == 0 {
+		return defaultFooterSegments
+	}
+	return m.footerSegments
+}
