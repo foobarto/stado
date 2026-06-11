@@ -133,6 +133,7 @@ func (m *Model) renderSidebar(width int) string {
 		"TodoSummary":  m.sidebarTodoSummary(),
 		"Todos":        m.sidebarTodos(),
 		"Sections":     m.effectiveSidebarSections(), // #21: configured order + visibility
+		"PluginPanels": m.sidebarPluginPanels(),      // #21 part 2: plugin-contributed panels by id
 		"Width":        width - 4,
 	}
 	body, err := m.renderer.Exec("sidebar", data)
@@ -146,6 +147,22 @@ func (m *Model) renderSidebar(width int) string {
 		Width(width - 2).
 		Height(m.height).
 		Render(body)
+}
+
+// sidebarPluginPanels flattens every stored plugin sidebar panel to its
+// render-ready form, keyed by id. The template ranges .Sections, so only
+// ids the operator configured actually render; built-in ids dispatch to
+// native blocks earlier in the template and never reach the plugin
+// lookup, so a plugin can't shadow a built-in. #21 part 2.
+func (m *Model) sidebarPluginPanels() map[string]pluginSidebarPanel {
+	if len(m.pluginSidebarPanels) == 0 {
+		return nil
+	}
+	out := make(map[string]pluginSidebarPanel, len(m.pluginSidebarPanels))
+	for id, panel := range m.pluginSidebarPanels {
+		out[id] = flattenPluginSidebarPanel(panel)
+	}
+	return out
 }
 
 func (m *Model) sidebarSessionMeta() string {

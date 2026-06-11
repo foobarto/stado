@@ -81,21 +81,22 @@ func (m *Model) renderStatus(width int) string {
 	}
 
 	body, err := m.renderer.Exec("status", map[string]any{
-		"State":        state,
-		"Model":        m.model,
-		"ProviderName": m.providerDisplayName(),
-		"Cwd":          m.cwd,
-		"ErrorMessage": m.errorMsg,
-		"Width":        width,
-		"Tokens":       tokens,
-		"Cost":         cost,
-		"Cache":        cacheRatio,
-		"Queued":       queued,
-		"Budget":       m.budgetWarning(),
-		"Elapsed":      elapsed,
-		"Persona":      m.personaName(),
-		"Daemon":       m.daemonStatusLabel(),
-		"Segments":     m.effectiveFooterSegments(), // #21: configured footer segments
+		"State":          state,
+		"Model":          m.model,
+		"ProviderName":   m.providerDisplayName(),
+		"Cwd":            m.cwd,
+		"ErrorMessage":   m.errorMsg,
+		"Width":          width,
+		"Tokens":         tokens,
+		"Cost":           cost,
+		"Cache":          cacheRatio,
+		"Queued":         queued,
+		"Budget":         m.budgetWarning(),
+		"Elapsed":        elapsed,
+		"Persona":        m.personaName(),
+		"Daemon":         m.daemonStatusLabel(),
+		"Segments":       m.effectiveFooterSegments(), // #21: configured footer segments
+		"PluginSegments": m.footerPluginSegments(),    // #21 part 2: plugin footer panels by id (pre-coloured)
 	})
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
@@ -245,6 +246,26 @@ func gitWorktreeDirty(cwd string) bool {
 		return false
 	}
 	return out.Len() > 0 || out.Truncated()
+}
+
+// footerPluginSegments renders each stored plugin footer panel to a
+// short, tone-coloured line keyed by id (#21 part 2). The status
+// template emits only the ids the operator listed in
+// [tui.footer].segments; built-in segment ids dispatch to their own
+// template arms before the plugin lookup, so a plugin can't shadow one.
+func (m *Model) footerPluginSegments() map[string]string {
+	if len(m.pluginFooterPanels) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m.pluginFooterPanels))
+	for id, panel := range m.pluginFooterPanels {
+		text := pluginFooterText(panel)
+		if text == "" {
+			continue
+		}
+		out[id] = m.theme.Fg(pluginToneForVariant(panel.Variant)).Render(text)
+	}
+	return out
 }
 
 // tokenPctString renders the in-context-window fraction for the bottom

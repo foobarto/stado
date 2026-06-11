@@ -512,6 +512,14 @@ type Model struct {
 	sidebarSections []string
 	footerSegments  []string
 
+	// pluginSidebarPanels / pluginFooterPanels hold plugin-contributed chrome
+	// panels (#21 part 2), keyed by Panel.ID, last-write-wins. A panel shows
+	// only when its id appears in sidebarSections / footerSegments AND is not a
+	// built-in id (built-ins dispatch first, so a plugin can't shadow them).
+	// One shared id namespace across plugins — see plugin_panels.go.
+	pluginSidebarPanels map[string]pluginRuntime.Panel
+	pluginFooterPanels  map[string]pluginRuntime.Panel
+
 	// logTail holds a short in-process tail of slog lines captured
 	// while the TUI is active. It is shown in the sidebar so runtime
 	// / plugin diagnostics stop trampling the terminal surface.

@@ -168,9 +168,43 @@ func onPluginPrint(m *Model, msg pluginPrintMsg) (tea.Model, tea.Cmd) {
 // title bar so warn / error / etc. still surface visually without
 // requiring theme integration.
 func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
-	body := renderPanelASCII(msg.panel)
-	m.appendBlock(block{kind: "system", body: body})
-	m.renderBlocks()
+	// #21 part 2: route by display target. Empty (legacy emits) and
+	// "viewport" keep the original scrollback-block behaviour; the other
+	// targets store the panel for the sidebar/footer/log to surface.
+	switch msg.panel.Target {
+	case "sidebar":
+		// Plugins may not write to built-in sections — drop silently so a
+		// plugin can never shadow native chrome (decision: built-ins are
+		// read-only to plugins).
+		if isBuiltinSidebarSection(msg.panel.ID) {
+			break
+		}
+		if m.pluginSidebarPanels == nil {
+			m.pluginSidebarPanels = map[string]pluginRuntime.Panel{}
+		}
+		m.pluginSidebarPanels[msg.panel.ID] = msg.panel // last-write-wins per id
+		m.renderBlocks()
+	case "footer":
+		if isBuiltinFooterSegment(msg.panel.ID) {
+			break
+		}
+		// Only store if there's a renderable short line — an all-rich-body
+		// panel with no Footer/Title yields nothing useful in the footer.
+		if pluginFooterText(msg.panel) != "" {
+			if m.pluginFooterPanels == nil {
+				m.pluginFooterPanels = map[string]pluginRuntime.Panel{}
+			}
+			m.pluginFooterPanels[msg.panel.ID] = msg.panel // last-write-wins per id
+			m.renderBlocks()
+		}
+	case "log":
+		m.pushLogLine(pluginLogLine(msg.panel))
+		m.renderBlocks()
+	default: // "" / "viewport"
+		body := renderPanelASCII(msg.panel)
+		m.appendBlock(block{kind: "system", body: body})
+		m.renderBlocks()
+	}
 	return m, nil
 }
 

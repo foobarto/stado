@@ -20,6 +20,23 @@ var defaultFooterSegments = []string{
 	"state", "tokens", "cost", "cache", "budget", "persona", "daemon", "commands",
 }
 
+// isBuiltinSidebarSection / isBuiltinFooterSegment report whether an id is
+// a stado-owned chrome id. Plugins (#21 part 2) may not write to built-in
+// panels/segments — a render targeting a built-in id is rejected at store
+// time so a plugin can never shadow native chrome. The sidebar template
+// also dispatches built-ins before the plugin lookup (defence in depth).
+func isBuiltinSidebarSection(id string) bool { return chromeListContains(defaultSidebarSections, id) }
+func isBuiltinFooterSegment(id string) bool  { return chromeListContains(defaultFooterSegments, id) }
+
+func chromeListContains(list []string, id string) bool {
+	for _, v := range list {
+		if v == id {
+			return true
+		}
+	}
+	return false
+}
+
 // normalizeChromeList dedups a configured section/segment list, preserving
 // order. An empty result falls back to the supplied default (empty == defaults,
 // per the #21 decision). Unknown ids are kept — they may be plugin panel ids
