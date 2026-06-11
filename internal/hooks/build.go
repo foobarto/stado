@@ -51,5 +51,10 @@ func BuildLifecycleRunner(cfg *config.Config) *LifecycleRunner {
 	if len(scripts) == 0 {
 		return nil
 	}
-	return NewLifecycleRunner(scripts...)
+	r := NewLifecycleRunner(scripts...)
+	// Thread the fail-open/fail-closed posture from [hooks].fail_closed.
+	// Default (false) keeps a broken policy hook from wedging the loop;
+	// true turns a hook error/timeout into a deny.
+	r.FailClosed = cfg.Hooks.FailClosed
+	return r
 }

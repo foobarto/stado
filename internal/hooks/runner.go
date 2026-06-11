@@ -22,6 +22,13 @@ type LifecycleRunner struct {
 	Timeout time.Duration
 	// Logger receives one line per fail-open error. Defaults to os.Stderr.
 	Logger io.Writer
+	// FailClosed flips the error posture. When false (default), a hook
+	// error/timeout/panic is logged and treated as Continue (FAIL-OPEN): a
+	// broken policy hook must not wedge the agent loop. When true, the same
+	// fault is converted into a Deny so a policy that *must* run becomes a
+	// hard gate — if the gate can't be evaluated, the action is vetoed.
+	// Wired from cfg.Hooks.FailClosed by BuildLifecycleRunner.
+	FailClosed bool
 }
 
 // NewLifecycleRunner builds a runner over the given hooks, preserving
@@ -84,6 +91,12 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 		}
 		res, err := r.runOne(ctx, h, point, cur)
 		if err != nil {
+			if r.FailClosed {
+				// Fail-closed: a hook that can't be evaluated denies the
+				// action. The deny short-circuits like any other deny.
+				r.log("hook %q at %s failed (fail-closed, denying): %v", h.Name(), point, err)
+				return Deny(fmt.Sprintf("hook %q error (fail-closed): %v", h.Name(), err)), cur
+			}
 			// Fail-open: log and treat as Continue.
 			r.log("hook %q at %s failed (fail-open, continuing): %v", h.Name(), point, err)
 			continue
@@ -95,6 +108,12 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 		case DecisionMutate:
 			next, perr := validateMutation(point, res.Payload)
 			if perr != nil {
+				if r.FailClosed {
+					// A malformed mutation is a hook fault too; under
+					// fail-closed it denies rather than being silently dropped.
+					r.log("hook %q at %s returned an invalid mutation (fail-closed, denying): %v", h.Name(), point, perr)
+					return Deny(fmt.Sprintf("hook %q invalid mutation (fail-closed): %v", h.Name(), perr)), cur
+				}
 				// A hook returning the wrong payload type is a programming
 				// error in the hook, not a reason to wedge the loop —
 				// fail-open and keep the current payload.

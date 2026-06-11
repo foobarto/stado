@@ -101,6 +101,20 @@ type Hooks struct {
 	// vector and must not be dictated by an untrusted repo. Lifecycle
 	// hooks only take effect from user/global config.
 	Lifecycle []LifecycleHook `koanf:"lifecycle"`
+
+	// FailClosed flips the lifecycle runner's error posture. By default
+	// (false) execution is FAIL-OPEN: a hook that errors, times out, or
+	// panics is logged and treated as Continue — a broken policy hook must
+	// not wedge the agent loop. When set to true, the same fault is treated
+	// as a DENY at PRE points (the action is vetoed) and a deny-style
+	// replacement at POST points, so a policy that *must* run becomes a
+	// hard gate: if the gate can't be evaluated, the action doesn't happen.
+	// Use this when a hook enforces a security boundary that a silent
+	// fail-open would breach.
+	//
+	//	[hooks]
+	//	fail_closed = true
+	FailClosed bool `koanf:"fail_closed"`
 }
 
 // LifecycleHook is one scriptable deny/mutate hook. Exactly one of Lua

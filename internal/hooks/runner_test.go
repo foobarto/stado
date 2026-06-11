@@ -214,6 +214,100 @@ func TestLifecycleRunner_WrongPointMutation_FailsOpen(t *testing.T) {
 	}
 }
 
+// fail-closed posture ----------------------------------------------------
+
+// TestLifecycleRunner_FailClosed_ErrorDenies: with FailClosed set, a hook
+// that errors becomes a Deny (the inverse of the fail-open default) and
+// short-circuits the remaining hooks, just like an explicit deny.
+func TestLifecycleRunner_FailClosed_ErrorDenies(t *testing.T) {
+	var log bytes.Buffer
+	boom := BuiltinHook{HookName: "boom", Fn: func(context.Context, Point, Payload) (HookResult, error) {
+		return Continue(), errors.New("kaboom")
+	}}
+	var ran []string
+	r := &LifecycleRunner{hooks: []HookScript{boom, recordOrder("after", &ran)}, Logger: &log, FailClosed: true}
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("fail-closed: erroring hook must Deny, got %v", res.Decision)
+	}
+	if !strings.Contains(res.Reason, "boom") || !strings.Contains(res.Reason, "kaboom") {
+		t.Fatalf("deny reason should name the hook + error, got %q", res.Reason)
+	}
+	// Deny short-circuits: the hook after the erroring one must NOT run.
+	if len(ran) != 0 {
+		t.Fatalf("fail-closed deny should short-circuit later hooks, ran=%v", ran)
+	}
+	if !strings.Contains(log.String(), "fail-closed") {
+		t.Fatalf("expected fail-closed log line, got %q", log.String())
+	}
+}
+
+// TestLifecycleRunner_FailClosed_PanicDenies: a panicking hook denies under
+// fail-closed (the panic is recovered into an error, then converted).
+func TestLifecycleRunner_FailClosed_PanicDenies(t *testing.T) {
+	var log bytes.Buffer
+	panicker := BuiltinHook{HookName: "panicker", Fn: func(context.Context, Point, Payload) (HookResult, error) {
+		panic("hook exploded")
+	}}
+	r := &LifecycleRunner{hooks: []HookScript{panicker}, Logger: &log, FailClosed: true}
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("fail-closed: panicking hook must Deny, got %v", res.Decision)
+	}
+}
+
+// TestLifecycleRunner_FailClosed_TimeoutDenies: a hook that blocks past its
+// per-hook timeout denies under fail-closed.
+func TestLifecycleRunner_FailClosed_TimeoutDenies(t *testing.T) {
+	var log bytes.Buffer
+	slow := BuiltinHook{HookName: "slow", Fn: func(ctx context.Context, _ Point, _ Payload) (HookResult, error) {
+		select {
+		case <-ctx.Done():
+			return Continue(), ctx.Err()
+		case <-time.After(5 * time.Second):
+			return Continue(), nil
+		}
+	}}
+	r := &LifecycleRunner{hooks: []HookScript{slow}, Logger: &log, Timeout: 50 * time.Millisecond, FailClosed: true}
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("fail-closed: timed-out hook must Deny, got %v", res.Decision)
+	}
+}
+
+// TestLifecycleRunner_FailClosed_InvalidMutationDenies: a hook that mutates
+// to the wrong payload type is a fault; under fail-closed it denies rather
+// than being silently ignored.
+func TestLifecycleRunner_FailClosed_InvalidMutationDenies(t *testing.T) {
+	var log bytes.Buffer
+	wrong := BuiltinHook{HookName: "wrong", Subscribed: []Point{PointPreTool}, Fn: func(context.Context, Point, Payload) (HookResult, error) {
+		return Mutate(PostLLM(0, "oops", 0, 0, 0, 0)), nil
+	}}
+	r := &LifecycleRunner{hooks: []HookScript{wrong}, Logger: &log, FailClosed: true}
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", `{"a":1}`))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("fail-closed: invalid mutation must Deny, got %v", res.Decision)
+	}
+	if !strings.Contains(log.String(), "fail-closed") {
+		t.Fatalf("expected fail-closed log on invalid mutation, got %q", log.String())
+	}
+}
+
+// TestLifecycleRunner_FailClosed_HealthyHooksUnaffected: fail-closed only
+// changes the *fault* path. A hook that runs cleanly (Continue / Mutate)
+// behaves identically to fail-open.
+func TestLifecycleRunner_FailClosed_HealthyHooksUnaffected(t *testing.T) {
+	r := NewLifecycleRunner(rewriteArgs("rw", `{"path":"safe"}`))
+	r.FailClosed = true
+	res, out := r.Fire(context.Background(), PointPreTool, PreTool(0, "fs__read", "non-mutating", `{"path":"secret"}`))
+	if res.Decision != DecisionMutate {
+		t.Fatalf("fail-closed must not disturb a healthy mutate, got %v", res.Decision)
+	}
+	if pt, ok := out.(*PreToolPayload); !ok || pt.Args != `{"path":"safe"}` {
+		t.Fatalf("healthy mutate result wrong under fail-closed: %#v", out)
+	}
+}
+
 func TestLifecycleRunner_PointSubscriptionFiltering(t *testing.T) {
 	var ran []string
 	preOnly := BuiltinHook{HookName: "pre-only", Subscribed: []Point{PointPreTool}, Fn: func(context.Context, Point, Payload) (HookResult, error) {
