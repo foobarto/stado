@@ -233,7 +233,8 @@ func TestRenderer_Sidebar(t *testing.T) {
 			{"Title": "write tests", "Status": "in_progress"},
 			{"Title": "ship it", "Status": "open"},
 		},
-		"Width": 28,
+		"Sections": []string{"header", "now", "subagents", "risk", "agent", "repo", "logs", "todos"},
+		"Width":    28,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -252,10 +253,11 @@ func TestRenderer_Sidebar(t *testing.T) {
 func TestRenderer_Status(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("status", map[string]any{
-		"State":  "idle",
-		"Tokens": "1.2K (12%)",
-		"Cost":   "$0.03",
-		"Width":  80,
+		"State":    "idle",
+		"Tokens":   "1.2K (12%)",
+		"Cost":     "$0.03",
+		"Segments": []string{"state", "tokens", "cost", "cache", "budget", "persona", "daemon", "commands"},
+		"Width":    80,
 	})
 	if err != nil {
 		t.Fatal(err)
