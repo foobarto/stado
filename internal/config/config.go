@@ -78,6 +78,44 @@ type Hooks struct {
 	// interactive and non-interactive surfaces.
 	// Empty = no hook.
 	PostTurn string `koanf:"post_turn"`
+
+	// Lifecycle is the ordered set of scriptable deny/mutate hooks (F1).
+	// Unlike PostTurn (a fire-and-forget shell notification), lifecycle
+	// hooks run a Lua policy at pre/post-tool, pre/post-llm, and post-turn
+	// interception points and can DENY (veto) or MUTATE (rewrite args /
+	// llm requests / outputs). They run serially in config order, fail
+	// open on error, with a 5s per-hook timeout.
+	//
+	//	[[hooks.lifecycle]]
+	//	name = "deny-rm-rf"
+	//	lua  = """
+	//	  function pre_tool(p)
+	//	    if p.tool == "shell__bash" and string.find(p.args, "rm %-rf") then
+	//	      return { deny = "rm -rf blocked by policy" }
+	//	    end
+	//	  end
+	//	"""
+	//
+	// SECURITY: like PostTurn, the entire [hooks] table is stripped from
+	// project (.stado/config.toml) config — Lua is a code-execution
+	// vector and must not be dictated by an untrusted repo. Lifecycle
+	// hooks only take effect from user/global config.
+	Lifecycle []LifecycleHook `koanf:"lifecycle"`
+}
+
+// LifecycleHook is one scriptable deny/mutate hook. Exactly one of Lua
+// (inline source) or LuaFile (path to a .lua file) must be set; Lua wins
+// if both are. The Lua chunk defines global functions named after the
+// lifecycle points it handles: pre_tool, post_tool, pre_llm, post_llm,
+// post_turn.
+type LifecycleHook struct {
+	// Name is a short identifier surfaced in hook-failure logs.
+	Name string `koanf:"name"`
+	// Lua is inline Lua source for the hook body.
+	Lua string `koanf:"lua"`
+	// LuaFile is a path to a .lua file read at startup. Ignored when Lua
+	// is set.
+	LuaFile string `koanf:"lua_file"`
 }
 
 // Sessions configures session lifecycle policy. EP-0037 §C / NOTES §8.

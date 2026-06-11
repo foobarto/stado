@@ -1752,18 +1752,25 @@ func (m *Model) contextFraction() float64 {
 }
 
 // firePostTurnHook invokes the user-configured post_turn shell
-// command (if any) with a JSON payload on stdin. No-op when the
-// hook isn't configured. Errors / timeouts are logged by the hook
-// runner; never propagated — the turn is over.
+// command (if any) with a JSON payload on stdin, AND fires the
+// scriptable post_turn lifecycle hook (F1) if any is configured. No-op
+// when neither is configured. Errors / timeouts are logged by the hook
+// runners; never propagated — the turn is over.
 func (m *Model) firePostTurnHook() {
-	if m.hookRunner.PostTurnCmd == "" || m.hookRunner.Disabled {
-		return
-	}
 	duration := time.Duration(0)
 	if !m.turnStart.IsZero() {
 		duration = time.Since(m.turnStart)
 	}
-	m.hookRunner.FirePostTurn(m.rootCtx, hooks.NewPostTurnPayload(len(m.msgs), m.usage, m.turnText, duration))
+	// Legacy shell notification hook.
+	if m.hookRunner.PostTurnCmd != "" && !m.hookRunner.Disabled {
+		m.hookRunner.FirePostTurn(m.rootCtx, hooks.NewPostTurnPayload(len(m.msgs), m.usage, m.turnText, duration))
+	}
+	// Scriptable lifecycle post_turn (deny/mutate-capable seam; the
+	// post_turn point is informational — the turn is over).
+	if m.lifecycleHooks.HasPoint(hooks.PointPostTurn) {
+		pt := hooks.PostTurnLifecycle(len(m.msgs), m.turnText, m.usage.InputTokens, m.usage.OutputTokens, m.usage.CostUSD, duration)
+		m.lifecycleHooks.Fire(m.rootCtx, hooks.PointPostTurn, pt)
+	}
 }
 
 // maybeEmitBudgetWarning fires a one-time system block once cumulative

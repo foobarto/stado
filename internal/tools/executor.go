@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
@@ -45,6 +46,12 @@ type Executor struct {
 	// tokens. See DESIGN §"Context management" → "In-turn deduplication".
 	// Nil means dedup is disabled (tests, headless bootstrap).
 	ReadLog *ReadLog
+	// Hooks is the lifecycle-hook runner fired around tool dispatch:
+	// pre_tool (deny -> skip the tool + surface the reason; mutate ->
+	// run the tool with rewritten args) and post_tool (mutate -> rewrite
+	// the result/error the model sees; deny -> replace the result with
+	// the reason). Nil / empty is a no-op — the common case. F1 seam.
+	Hooks *hooks.LifecycleRunner
 }
 
 // Run invokes a tool by name. Returns the tool result and writes the commit
@@ -104,6 +111,27 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		}
 	}
 
+	// pre_tool hook seam (F1). Fires before the tool runs:
+	//   - Deny  → skip the tool entirely; surface the reason to the model
+	//     as an errored tool result. No ref commits (nothing ran).
+	//   - Mutate → replace args with the rewritten JSON and run the tool
+	//     with it; the audit trailers record the mutated args.
+	if e.Hooks.HasPoint(hooks.PointPreTool) {
+		pre := hooks.PreTool(e.turnIndex(), name, class.String(), string(args))
+		decision, out := e.Hooks.Fire(ctx, hooks.PointPreTool, pre)
+		switch decision.Decision {
+		case hooks.DecisionDeny:
+			span.SetAttributes(attribute.String("tool.outcome", "denied"))
+			span.SetStatus(codes.Error, decision.Reason)
+			reason := fmt.Sprintf("denied by pre_tool hook: %s", decision.Reason)
+			return tool.Result{Error: reason}, nil
+		case hooks.DecisionMutate:
+			if mp, ok := out.(*hooks.PreToolPayload); ok {
+				args = json.RawMessage(mp.Args)
+			}
+		}
+	}
+
 	start := time.Now()
 	res, runErr := t.Run(ctx, args, h)
 	duration := time.Since(start)
@@ -115,6 +143,31 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	// channel. Skip when there's nothing to add or the tool errored.
 	if entries := progCollector.Drain(); len(entries) > 0 && runErr == nil && res.Error == "" {
 		res.Content = renderProgressLog(entries) + res.Content
+	}
+
+	// post_tool hook seam (F1). Fires after the tool runs, before audit:
+	//   - Mutate → rewrite the result/error the model sees; the rewritten
+	//     bytes are what ResultSHA hashes (audit reflects what was
+	//     returned).
+	//   - Deny   → the action already happened; treat as a request to
+	//     replace the result content with the reason and flag it as an
+	//     error so the model sees the policy verdict.
+	// The runErr (a Go-level execution error, distinct from a tool's
+	// res.Error) is left intact — hooks rewrite the model-facing
+	// result, not the host-level error path.
+	if e.Hooks.HasPoint(hooks.PointPostTool) {
+		post := hooks.PostTool(e.turnIndex(), name, class.String(), string(args), res.Content, res.Error)
+		decision, out := e.Hooks.Fire(ctx, hooks.PointPostTool, post)
+		switch decision.Decision {
+		case hooks.DecisionDeny:
+			res.Content = ""
+			res.Error = fmt.Sprintf("denied by post_tool hook: %s", decision.Reason)
+		case hooks.DecisionMutate:
+			if mp, ok := out.(*hooks.PostToolPayload); ok {
+				res.Content = mp.Result
+				res.Error = mp.Error
+			}
+		}
 	}
 
 	outcome := "ok"
@@ -238,6 +291,15 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	}
 
 	return res, runErr
+}
+
+// turnIndex returns the current session turn for hook payloads, or 0 when
+// there's no session (tests, headless bootstrap).
+func (e *Executor) turnIndex() int {
+	if e.Session == nil {
+		return 0
+	}
+	return e.Session.Turn()
 }
 
 // logBuildTreeSkip records that an audit tree snapshot was skipped (e.g. the
