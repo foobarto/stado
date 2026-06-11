@@ -11,8 +11,11 @@ package tui
 // nothing.
 
 // defaultSidebarSections is the built-in sidebar layout, top to bottom.
+// "diagnostics" surfaces the latest LSP problems on edited files (native
+// LSP increment 3); it renders only when the session has diagnostics, so it
+// costs nothing in the common no-LSP case.
 var defaultSidebarSections = []string{
-	"header", "now", "subagents", "risk", "agent", "repo", "logs", "todos",
+	"header", "now", "subagents", "risk", "diagnostics", "agent", "repo", "logs", "todos",
 }
 
 // defaultFooterSegments is the built-in footer right-cluster layout.

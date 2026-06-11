@@ -382,6 +382,15 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	if m.ptyManager != nil {
 		m.ptyManager.CloseAll()
 	}
+	// Clear the previous session's LSP diagnostics so the incoming
+	// session's surface starts empty. The LSP manager itself lives for the
+	// whole TUI process (servers are read-only filesystem indexers over the
+	// unchanged launch CWD — safe to share, reaped only at exit), so unlike
+	// the PTY manager it is NOT closed here; closing it would permanently
+	// wedge ClientFor and the captured post-edit hook.
+	if m.lspDiagnostics != nil {
+		m.lspDiagnostics.Reset()
+	}
 	m.session = sess
 	// Keep the launch CWD as m.cwd — tools should operate on the user's
 	// real filesystem, not the session's audit worktree. The worktree is

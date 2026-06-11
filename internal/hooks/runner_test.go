@@ -233,3 +233,36 @@ func TestLifecycleRunner_PointSubscriptionFiltering(t *testing.T) {
 		t.Fatalf("HasPoint(pre_tool) should be true")
 	}
 }
+
+// TestLifecycleRunner_Append: Append adds hooks after the existing set
+// (preserving order), and works on a nil receiver — the case where
+// BuildLifecycleRunner returned nil (no Lua hooks) but a built-in still
+// needs registering.
+func TestLifecycleRunner_Append(t *testing.T) {
+	var ran []string
+
+	// nil receiver → Append constructs a fresh runner carrying just the
+	// appended hook.
+	var nilRunner *LifecycleRunner
+	r := nilRunner.Append(recordOrder("builtin", &ran))
+	if r == nil {
+		t.Fatal("Append on nil receiver returned nil")
+	}
+	r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if strings.Join(ran, ",") != "builtin" {
+		t.Fatalf("nil-receiver Append did not run the appended hook: %v", ran)
+	}
+
+	// Non-nil receiver → appended hooks run AFTER the existing ones.
+	ran = nil
+	r2 := NewLifecycleRunner(recordOrder("lua", &ran)).Append(recordOrder("builtin", &ran))
+	r2.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if strings.Join(ran, ",") != "lua,builtin" {
+		t.Fatalf("Append order wrong (built-ins must run last): %v", ran)
+	}
+
+	// Empty Append is a no-op (returns the same runner unchanged).
+	if got := r2.Append(); got != r2 {
+		t.Fatal("empty Append should return the receiver unchanged")
+	}
+}

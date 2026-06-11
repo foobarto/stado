@@ -11,6 +11,11 @@
 //   - FAKELSP_CRASH_AFTER_INIT=1: exit(1) right after answering
 //     initialize, simulating a server crash. The manager should detect
 //     the dead client and relaunch on the next ClientFor.
+//   - FAKELSP_DIAG=1: on a textDocument/didOpen, push a
+//     textDocument/publishDiagnostics notification echoing the opened
+//     document's URI with one error diagnostic at line 0, simulating a
+//     real server's post-open diagnostics push. Lets the post-edit
+//     diagnostics hook be tested without gopls.
 package main
 
 import (
@@ -31,7 +36,7 @@ func main() {
 	r := bufio.NewReader(os.Stdin)
 	w := os.Stdout
 	for {
-		method, id, ok := readMessage(r)
+		method, id, params, ok := readMessage(r)
 		if !ok {
 			return
 		}
@@ -56,8 +61,14 @@ func main() {
 					"end":   map[string]any{"line": 0, "character": 0},
 				},
 			}})
+		case "textDocument/didOpen":
+			// FAKELSP_DIAG=1: push diagnostics for the just-opened doc,
+			// echoing its URI so the client maps them back to the file.
+			if os.Getenv("FAKELSP_DIAG") == "1" {
+				publishDiagnostics(w, params)
+			}
 		default:
-			// Notifications (initialized, didOpen) carry no id; ignore.
+			// Notifications (initialized, …) carry no id; ignore.
 			if id != nil {
 				writeResult(w, id, nil)
 			}
@@ -65,12 +76,37 @@ func main() {
 	}
 }
 
-func readMessage(r *bufio.Reader) (method string, id json.RawMessage, ok bool) {
+// publishDiagnostics writes a textDocument/publishDiagnostics notification
+// for the URI in a didOpen's params, with one error diagnostic at line 0.
+func publishDiagnostics(w io.Writer, params json.RawMessage) {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil || p.TextDocument.URI == "" {
+		return
+	}
+	writeNotification(w, "textDocument/publishDiagnostics", map[string]any{
+		"uri": p.TextDocument.URI,
+		"diagnostics": []map[string]any{{
+			"range": map[string]any{
+				"start": map[string]any{"line": 0, "character": 0},
+				"end":   map[string]any{"line": 0, "character": 1},
+			},
+			"severity": 1, // Error
+			"message":  "fakelsp: synthetic error",
+			"source":   "fakelsp",
+		}},
+	})
+}
+
+func readMessage(r *bufio.Reader) (method string, id, params json.RawMessage, ok bool) {
 	length := -1
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
-			return "", nil, false
+			return "", nil, nil, false
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
@@ -83,20 +119,31 @@ func readMessage(r *bufio.Reader) (method string, id json.RawMessage, ok bool) {
 		}
 	}
 	if length < 0 {
-		return "", nil, false
+		return "", nil, nil, false
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
-		return "", nil, false
+		return "", nil, nil, false
 	}
 	var msg struct {
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal(body, &msg); err != nil {
-		return "", nil, false
+		return "", nil, nil, false
 	}
-	return msg.Method, msg.ID, true
+	return msg.Method, msg.ID, msg.Params, true
+}
+
+// writeNotification writes a server-initiated JSON-RPC notification (no id).
+func writeNotification(w io.Writer, method string, params any) {
+	payload := map[string]any{"jsonrpc": "2.0", "method": method, "params": params}
+	body, _ := json.Marshal(payload)
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "Content-Length: %d\r\n\r\n", len(body))
+	buf.Write(body)
+	_, _ = w.Write(buf.Bytes())
 }
 
 func writeResult(w io.Writer, id json.RawMessage, result any) {

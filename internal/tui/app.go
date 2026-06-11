@@ -24,6 +24,7 @@ import (
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/integrations"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/providers/acpwrap"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
@@ -140,6 +141,17 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	// F1: scriptable deny/mutate lifecycle hooks (Lua). Same runner on the
 	// executor (tool-side pre/post-tool seam) and the model (post_turn).
 	lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
+	// Native LSP increment 2: register the built-in post-edit diagnostics
+	// hook on the SAME runner, after any Lua hooks (observe-only, runs
+	// last). Append handles the nil-runner case (no Lua hooks configured),
+	// so this is also what gives the TUI a runner carrying just the LSP
+	// hook. Pinned to the session's LSP manager + diagnostics store + cwd
+	// so servers reap with the session and edits resolve against the
+	// user's checkout.
+	if m.lspManager != nil && m.lspDiagnostics != nil {
+		diagHook := lspfind.NewDiagnosticsHook(m.lspManager, m.lspDiagnostics, m.cwd)
+		lifecycleHooks = lifecycleHooks.Append(diagHook)
+	}
 	m.lifecycleHooks = lifecycleHooks
 	if exec != nil {
 		exec.Hooks = lifecycleHooks

@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/personas"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
@@ -481,6 +482,16 @@ type Model struct {
 	// across calls see the same registry. Built once at NewModel;
 	// CloseAll on shutdown.
 	ptyManager *pty.Manager
+	// lspManager owns this session's LSP server processes (gopls,
+	// pyright, …) so they reap on session close / TUI exit rather than
+	// leaking like the process-default manager would. The post-edit
+	// diagnostics hook (m.lspDiagnostics) and the *ViaManager seams route
+	// through it. Built once at NewModel; CloseAll on session switch + exit.
+	lspManager *lspfind.LSPClientManager
+	// lspDiagnostics holds the latest LSP diagnostics per edited file for
+	// the current session, written by the post-edit hook and read by the
+	// diagnostics sidebar panel. Reset on session switch.
+	lspDiagnostics *lspfind.DiagnosticsStore
 	// compacting marks a summarisation stream in-flight so we can route
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
@@ -710,6 +721,12 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		rootCtx:          context.Background(),
 		focusedBlockIdx:  -1, // no focus by default; ToolExpand acts on latest
 		ptyManager:       pty.NewManager(),
+		// Session-scoped LSP: servers reap on session switch / TUI exit via
+		// CloseAll rather than leaking through the process-default manager.
+		// ctx = Background; CloseAll is the orderly reap path (see app.go +
+		// resetForSession + closeBackgroundPlugins).
+		lspManager:     lspfind.NewLSPClientManager(context.Background()),
+		lspDiagnostics: lspfind.NewDiagnosticsStore(),
 	}
 	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
 	// fallback). A missing file is fine; a broken file is a stderr
