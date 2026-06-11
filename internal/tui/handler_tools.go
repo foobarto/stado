@@ -171,6 +171,13 @@ func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
 	// #21 part 2: route by display target. Empty (legacy emits) and
 	// "viewport" keep the original scrollback-block behaviour; the other
 	// targets store the panel for the sidebar/footer/log to surface.
+	//
+	// The chrome targets do NOT call renderBlocks(): that rebuilds the
+	// conversation-viewport cache, which is unchanged here. View() re-runs
+	// renderSidebar / renderStatus / the log tail fresh every frame and reads
+	// these stores directly, so the next repaint surfaces the update without
+	// re-rendering the whole conversation history (cheap even for a chatty
+	// plugin updating panels every tick).
 	switch msg.panel.Target {
 	case "sidebar":
 		// Plugins may not write to built-in sections — drop silently so a
@@ -188,7 +195,6 @@ func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.pluginSidebarPanels[msg.panel.ID] = msg.panel // last-write-wins per id
-		m.renderBlocks()
 	case "footer":
 		if isBuiltinFooterSegment(msg.panel.ID) {
 			break
@@ -206,10 +212,8 @@ func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.pluginFooterPanels[msg.panel.ID] = msg.panel // last-write-wins per id
-		m.renderBlocks()
 	case "log":
 		m.pushLogLine(pluginLogLine(msg.panel))
-		m.renderBlocks()
 	default: // "" / "viewport"
 		body := renderPanelASCII(msg.panel)
 		m.appendBlock(block{kind: "system", body: body})

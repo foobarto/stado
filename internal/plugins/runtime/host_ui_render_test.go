@@ -132,6 +132,11 @@ func TestDecodeRenderRequest_RejectsBadInputs(t *testing.T) {
 			want: "title required",
 		},
 		{
+			name: "all-control-char title scrubs to empty",
+			wire: renderRequestWire{Title: "\x01\x02", Sections: []sectionWire{textSec}},
+			want: "title required",
+		},
+		{
 			name: "title too long",
 			wire: renderRequestWire{
 				Title:    strings.Repeat("T", maxPluginRuntimeUIRenderTitleBytes+1),

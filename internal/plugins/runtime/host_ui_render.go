@@ -199,11 +199,16 @@ func registerUIRenderImport(builder wazero.HostModuleBuilder, host *Host) {
 // Centralised so the host import body stays tight and validation
 // is unit-testable. F9b.1.
 func decodeRenderRequest(w renderRequestWire) (Panel, error) {
-	if w.Title == "" {
-		return Panel{}, fmt.Errorf("title required")
-	}
 	if len(w.Title) > maxPluginRuntimeUIRenderTitleBytes {
 		return Panel{}, fmt.Errorf("title exceeds %d bytes", maxPluginRuntimeUIRenderTitleBytes)
+	}
+	// Validate the SANITISED title (like the id below): an all-control-char
+	// title passes a raw != "" check but scrubs to "", yielding a blank
+	// panel / log line. The contract — a panel has a non-empty title — must
+	// hold AFTER scrubbing. (Length is checked on the raw wire bytes above.)
+	title := textutil.StripControlChars(w.Title)
+	if title == "" {
+		return Panel{}, fmt.Errorf("title required")
 	}
 	if !validRenderVariants[w.Variant] {
 		return Panel{}, fmt.Errorf("variant %q not in {info,ok,warn,error,recommendation}", w.Variant)
@@ -258,7 +263,7 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	// #62 the comment listed it among the StripControlChars zones,
 	// which was misleading.
 	out := Panel{
-		Title:    textutil.StripControlChars(w.Title),
+		Title:    title, // sanitised + validated above
 		Variant:  w.Variant,
 		ID:       id, // sanitised + validated above
 		Footer:   textutil.StripControlChars(w.Footer),
