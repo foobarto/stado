@@ -183,12 +183,30 @@ func runAuthSet(ctx context.Context, w io.Writer, cfg *config.Config, provider s
 	}
 	fmt.Fprintf(w, "✓ recorded credential ref for %s in %s (api_key_env=%s)\n", kp.Name, cfg.ConfigPath, redactEnvName(envVar))
 
-	// --key: print the export line so the operator can wire the secret into
-	// their shell. The secret is NOT written anywhere by stado.
+	// --key: persist the secret to the OS keyring when one is reachable
+	// (KEYRING-FIRST), else fall back to printing the export line so the
+	// operator can wire it into their shell (ENV-FIRST). The secret is NEVER
+	// written to config.toml in either case.
 	if opts.key != "" && envVar != "" {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "Secrets are never written to config. Add this to your shell rc / current session:")
-		fmt.Fprintf(w, "  export %s=%s\n", envVar, shellQuote(opts.key))
+		backend, persisted, kerr := config.StoreProviderSecret(envVar, opts.key)
+		switch {
+		case kerr != nil:
+			// Keyring was available but the write failed — degrade to the
+			// export hint rather than failing the whole command, since the
+			// ref is already recorded.
+			fmt.Fprintf(w, "\n! keyring: could not persist secret (%v)\n", kerr)
+			fmt.Fprintln(w, "  Falling back to an environment variable. Add this to your shell rc / current session:")
+			fmt.Fprintf(w, "  export %s=%s\n", envVar, shellQuote(opts.key))
+		case persisted:
+			fmt.Fprintf(w, "✓ stored secret in the OS keyring (%s) under %s\n", backend, envVar)
+			fmt.Fprintln(w, "  (stado reads it from the keyring; no environment variable needed)")
+		default:
+			// No keyring available — ENV-FIRST export hint.
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "No OS keyring available; secrets are never written to config.")
+			fmt.Fprintln(w, "Add this to your shell rc / current session:")
+			fmt.Fprintf(w, "  export %s=%s\n", envVar, shellQuote(opts.key))
+		}
 	}
 
 	if opts.noValidate {
@@ -218,10 +236,31 @@ func runAuthUnset(w io.Writer, cfg *config.Config, provider string) error {
 	if !ok {
 		return fmt.Errorf("unknown provider %q — run `stado auth list` for the catalogue", provider)
 	}
+
+	// Resolve the env-var NAME the same way the runtime does (preset
+	// override wins) so we clear the matching keyring slot, if any, BEFORE
+	// the preset block — and its api_key_env override — is removed.
+	keyEnv := kp.APIKeyEnv
+	if cfg.Inference.Presets != nil {
+		if pre, ok := cfg.Inference.Presets[kp.Name]; ok && strings.TrimSpace(pre.APIKeyEnv) != "" {
+			keyEnv = strings.TrimSpace(pre.APIKeyEnv)
+		}
+	}
+
 	if err := config.RemoveProviderCredential(cfg.ConfigPath, kp.Name); err != nil {
 		return fmt.Errorf("remove credential: %w", err)
 	}
 	fmt.Fprintf(w, "✓ removed credential ref for %s from %s\n", kp.Name, cfg.ConfigPath)
+
+	// Best-effort: drop any keyring-persisted secret for this env-var NAME.
+	// A keyring failure here is a warning — the config ref is already gone.
+	if keyEnv != "" {
+		if _, removed, derr := config.DeleteProviderSecret(keyEnv); derr != nil {
+			fmt.Fprintf(w, "  ! keyring: could not remove stored secret for %s (%v)\n", keyEnv, derr)
+		} else if removed {
+			fmt.Fprintf(w, "  removed the stored secret from the OS keyring (%s)\n", keyEnv)
+		}
+	}
 	fmt.Fprintf(w, "  (the %s environment variable, if set, is untouched)\n", kp.APIKeyEnv)
 	return nil
 }

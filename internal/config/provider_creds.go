@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml"
+	"github.com/zalando/go-keyring"
 )
 
 // Provider-credential storage. ENV-FIRST: a provider credential is
@@ -80,43 +81,165 @@ func (envKeyringStore) Set(key, secret string) error {
 
 func (envKeyringStore) Delete(key string) error { return nil }
 
-// osKeyringStore is a STUB for the OS-native secret store
-// (macOS Keychain, freedesktop Secret Service / libsecret, Windows
-// Credential Manager).
+// keyringService is the service name stado registers its provider secrets
+// under in the OS keyring. The env-var NAME (e.g. "ANTHROPIC_API_KEY") is
+// the per-secret account/user within this service, so a stored secret and
+// the env-fallback resolve to the same logical slot. Stable on purpose:
+// changing it would orphan previously-stored secrets.
+const keyringService = "stado"
+
+// keyringProbeAccount is a reserved account name used only to probe whether
+// the OS keyring backend is reachable, without depending on (or mutating)
+// any real provider secret. A Get of it returns keyring.ErrNotFound on a
+// working backend and a platform/transport error on a broken one.
+const keyringProbeAccount = "__stado_probe__"
+
+// osKeyringStore persists provider secrets in the OS-native secret store
+// via github.com/zalando/go-keyring (cgo-free): macOS Keychain, freedesktop
+// Secret Service / libsecret on Linux, Windows Credential Manager. Secrets
+// are keyed by env-var NAME within the "stado" service so the keyring slot
+// and the env fallback line up.
 //
-// TODO(provider-creds): implement against an OS keyring. The keyring
-// DEPENDENCY decision is deferred deliberately — rather than blindly
-// pulling in github.com/zalando/go-keyring (the usual pick) or
-// 99designs/keyring, this increment ships the interface + env backend
-// and leaves the concrete OS backend behind this stub so the dependency
-// is a reviewed, separate change. Until then Available() is false and
-// every method reports ErrKeyringUnavailable, so the resolver falls
-// through to envKeyringStore.
+// KEYRING-FIRST: when Available() reports the backend is reachable,
+// `auth set --key` persists the secret here instead of only printing an
+// export hint. When the backend is unavailable (headless CI, no Secret
+// Service running, unsupported platform), resolveKeyringStore falls through
+// to envKeyringStore and the ENV-FIRST behavior is unchanged.
 type osKeyringStore struct{}
 
 func (osKeyringStore) Name() string { return "os-keyring" }
 
-func (osKeyringStore) Available() bool { return false }
-
-func (osKeyringStore) Get(string) (string, bool) { return "", false }
-
-func (osKeyringStore) Set(key, _ string) error {
-	return fmt.Errorf("%w: os-keyring backend not implemented yet (TODO provider-creds)", ErrKeyringUnavailable)
+// Available probes the backend with a side-effect-free Get of a reserved
+// probe account. A working keyring answers with keyring.ErrNotFound (the
+// probe was never stored); an unsupported platform or an unreachable Secret
+// Service answers with a transport/platform error. Treating only the
+// "not found" outcome (or an unexpected success) as available keeps us from
+// claiming a keyring we cannot actually write to.
+func (osKeyringStore) Available() bool {
+	_, err := keyring.Get(keyringService, keyringProbeAccount)
+	return err == nil || errors.Is(err, keyring.ErrNotFound)
 }
 
-func (osKeyringStore) Delete(string) error {
-	return fmt.Errorf("%w: os-keyring backend not implemented yet (TODO provider-creds)", ErrKeyringUnavailable)
+func (osKeyringStore) Get(key string) (string, bool) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false
+	}
+	secret, err := keyring.Get(keyringService, key)
+	if err != nil || secret == "" {
+		return "", false
+	}
+	return secret, true
+}
+
+func (osKeyringStore) Set(key, secret string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return fmt.Errorf("%w: empty key", ErrKeyringUnavailable)
+	}
+	if err := keyring.Set(keyringService, key, secret); err != nil {
+		return fmt.Errorf("%w: %v", ErrKeyringUnavailable, err)
+	}
+	return nil
+}
+
+func (osKeyringStore) Delete(key string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	if err := keyring.Delete(keyringService, key); err != nil {
+		// A missing secret is not an error — Delete is idempotent, matching
+		// the env backend's no-op semantics.
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("%w: %v", ErrKeyringUnavailable, err)
+	}
+	return nil
 }
 
 // resolveKeyringStore returns the active secret backend in priority order:
-// OS keyring when available, else the ENV-FIRST fallback. Today the OS
-// keyring is a stub (Available()==false), so this always returns the env
-// backend — the structure is what lets the OS backend slot in later.
+// the OS keyring when it is reachable, else the ENV-FIRST fallback. On a
+// desktop with a running secret service this returns the os-keyring backend
+// (KEYRING-FIRST); on a headless / unsupported host it returns the env
+// backend so behavior degrades gracefully.
 func resolveKeyringStore() keyringStore {
-	if os := (osKeyringStore{}); os.Available() {
-		return os
+	if ks := (osKeyringStore{}); ks.Available() {
+		return ks
 	}
 	return envKeyringStore{}
+}
+
+// SecretBackendAvailable reports whether the OS keyring can hold provider
+// secrets right now. When false, callers should fall back to the ENV-FIRST
+// export-hint flow (the env backend never persists to disk). This is the
+// CLI's signal for whether `auth set --key` will persist the secret.
+func SecretBackendAvailable() bool {
+	return resolveKeyringStore().Name() != envKeyringStore{}.Name()
+}
+
+// resolveSecretSource reports whether a secret for the env-var NAME keyEnv
+// resolves, and from which backend ("os-keyring" / "env"). The keyring is
+// consulted first when available; the environment is ALWAYS consulted as a
+// fallback so an exported var still counts even on a keyring-equipped host.
+// It never returns the secret itself — only presence + source.
+func resolveSecretSource(keyEnv string) (source string, present bool) {
+	if ks := (osKeyringStore{}); ks.Available() {
+		if _, ok := ks.Get(keyEnv); ok {
+			return ks.Name(), true
+		}
+	}
+	if _, ok := (envKeyringStore{}).Get(keyEnv); ok {
+		return envKeyringStore{}.Name(), true
+	}
+	return "", false
+}
+
+// StoreProviderSecret persists secret under the env-var NAME keyEnv using the
+// active backend. It returns the backend name ("os-keyring") and true when
+// the secret was persisted. When only the ENV-FIRST backend is available it
+// returns ("env", false, nil) WITHOUT error and WITHOUT touching disk — the
+// caller is expected to fall back to the export-hint flow. keyEnv and secret
+// must both be non-empty; the secret never reaches config.toml.
+func StoreProviderSecret(keyEnv, secret string) (backend string, persisted bool, err error) {
+	keyEnv = strings.TrimSpace(keyEnv)
+	if keyEnv == "" {
+		return "", false, fmt.Errorf("empty env-var name")
+	}
+	if secret == "" {
+		return "", false, fmt.Errorf("empty secret")
+	}
+	store := resolveKeyringStore()
+	if store.Name() == (envKeyringStore{}).Name() {
+		return store.Name(), false, nil
+	}
+	if err := store.Set(keyEnv, secret); err != nil {
+		return store.Name(), false, err
+	}
+	return store.Name(), true, nil
+}
+
+// DeleteProviderSecret removes any keyring-persisted secret for the env-var
+// NAME keyEnv. It is idempotent (a missing secret is not an error) and a
+// no-op when the OS keyring is unavailable — the env backend holds nothing
+// to delete. The operator's environment variable, if exported, is untouched.
+func DeleteProviderSecret(keyEnv string) (backend string, removed bool, err error) {
+	keyEnv = strings.TrimSpace(keyEnv)
+	if keyEnv == "" {
+		return "", false, nil
+	}
+	store := resolveKeyringStore()
+	if store.Name() == (envKeyringStore{}).Name() {
+		return store.Name(), false, nil
+	}
+	// Only report removed when a secret was actually present, so the CLI can
+	// phrase its confirmation honestly.
+	_, present := store.Get(keyEnv)
+	if err := store.Delete(keyEnv); err != nil {
+		return store.Name(), false, err
+	}
+	return store.Name(), present, nil
 }
 
 // ProviderCredentialState is the REDACTED, display-safe view of a single
@@ -186,10 +309,15 @@ func ProviderCredentialStatus(cfg *Config, provider string) (ProviderCredentialS
 		return st, true
 	}
 
-	store := resolveKeyringStore()
-	if _, present := store.Get(keyEnv); present {
+	// A credential is "configured" if it resolves from EITHER the OS keyring
+	// OR the environment — they are independent slots and the operator may
+	// have used either. Keyring wins for Source when both hold a value
+	// (it's what the runtime would resolve first), but a bare exported env
+	// var still reports configured even when a keyring is present. This is
+	// why we don't short-circuit on resolveKeyringStore() alone.
+	if src, present := resolveSecretSource(keyEnv); present {
 		st.Configured = true
-		st.Source = store.Name()
+		st.Source = src
 	}
 	return st, true
 }

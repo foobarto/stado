@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 
 	"github.com/foobarto/stado/internal/config"
 )
 
 func TestRenderAuthList_RedactedStatus(t *testing.T) {
+	keyring.MockInit() // empty keyring → status resolves via env fallback
 	t.Setenv("ANTHROPIC_API_KEY", "sk-super-secret-value")
 	t.Setenv("OPENAI_API_KEY", "")
 	cfg := &config.Config{}
@@ -40,7 +44,10 @@ func TestRenderAuthList_RedactedStatus(t *testing.T) {
 	}
 }
 
-func TestRunAuthSet_WritesRefAndDoesNotPersistSecret(t *testing.T) {
+// With an OS keyring available, --key persists the secret to the KEYRING
+// (never to config.toml) and tells the operator it's stored there.
+func TestRunAuthSet_KeyPersistsToKeyringNotConfig(t *testing.T) {
+	keyring.MockInit()
 	cfg := isolatedHome(t)
 	t.Setenv("DEEPSEEK_API_KEY", "")
 
@@ -56,9 +63,12 @@ func TestRunAuthSet_WritesRefAndDoesNotPersistSecret(t *testing.T) {
 	if !strings.Contains(out, "recorded credential ref for deepseek") {
 		t.Errorf("missing confirmation line:\n%s", out)
 	}
-	// --key should produce an export hint (the operator wires it themselves).
-	if !strings.Contains(out, "export DEEPSEEK_API_KEY=") {
-		t.Errorf("expected export hint for --key:\n%s", out)
+	if !strings.Contains(out, "stored secret in the OS keyring") {
+		t.Errorf("expected keyring-persist confirmation:\n%s", out)
+	}
+	// The secret must NEVER appear in scrollback (no export of the value).
+	if strings.Contains(out, "sk-inline-secret") {
+		t.Errorf("secret leaked to output:\n%s", out)
 	}
 
 	// Reload config and prove the SECRET is not on disk, only the env-var NAME.
@@ -73,6 +83,34 @@ func TestRunAuthSet_WritesRefAndDoesNotPersistSecret(t *testing.T) {
 	if pre.APIKeyEnv != "DEEPSEEK_API_KEY" {
 		t.Errorf("api_key_env = %q, want DEEPSEEK_API_KEY", pre.APIKeyEnv)
 	}
+	// And the secret round-trips back from the keyring under the env-var NAME.
+	st, _ := config.ProviderCredentialStatus(cfg2, "deepseek")
+	if st.Source != "os-keyring" {
+		t.Errorf("status source = %q, want os-keyring", st.Source)
+	}
+}
+
+// Without a usable OS keyring, --key falls back to the ENV-FIRST export hint
+// (the secret is never written anywhere by stado).
+func TestRunAuthSet_KeyFallsBackToExportHintWhenNoKeyring(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service")) // backend unavailable
+	cfg := isolatedHome(t)
+	t.Setenv("DEEPSEEK_API_KEY", "")
+
+	var buf bytes.Buffer
+	err := runAuthSet(context.Background(), &buf, cfg, "deepseek", authSetOpts{
+		key:        "sk-inline-secret",
+		noValidate: true,
+	})
+	if err != nil {
+		t.Fatalf("runAuthSet: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "export DEEPSEEK_API_KEY=") {
+		t.Errorf("expected export hint for --key when no keyring:\n%s", out)
+	}
+	// Restore a clean mock so a leaked error-provider doesn't poison later tests.
+	keyring.MockInit()
 }
 
 func TestRunAuthSet_EnvVarReference(t *testing.T) {
@@ -145,6 +183,7 @@ func TestRunAuthSet_UnknownProvider(t *testing.T) {
 }
 
 func TestRunAuthUnset_RemovesRef(t *testing.T) {
+	keyring.MockInit()
 	cfg := isolatedHome(t)
 	var buf bytes.Buffer
 	if err := runAuthSet(context.Background(), &buf, cfg, "groq", authSetOpts{envVar: "GROQ_API_KEY", noValidate: true}); err != nil {
@@ -166,6 +205,36 @@ func TestRunAuthUnset_RemovesRef(t *testing.T) {
 	cfg2, _ := config.Load()
 	if _, ok := cfg2.Inference.Presets["groq"]; ok {
 		t.Error("preset should be gone after unset")
+	}
+}
+
+// `auth set --key` (keyring) followed by `auth unset` removes BOTH the
+// config ref and the keyring-persisted secret.
+func TestRunAuthUnset_RemovesKeyringSecret(t *testing.T) {
+	keyring.MockInit()
+	cfg := isolatedHome(t)
+	t.Setenv("DEEPSEEK_API_KEY", "")
+
+	var buf bytes.Buffer
+	if err := runAuthSet(context.Background(), &buf, cfg, "deepseek", authSetOpts{key: "sk-keyring-secret", noValidate: true}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	cfgMid, _ := config.Load()
+	if st, _ := config.ProviderCredentialStatus(cfgMid, "deepseek"); st.Source != "os-keyring" {
+		t.Fatalf("precondition: want secret in keyring, source=%q", st.Source)
+	}
+
+	buf.Reset()
+	if err := runAuthUnset(&buf, cfgMid, "deepseek"); err != nil {
+		t.Fatalf("unset: %v", err)
+	}
+	if !strings.Contains(buf.String(), "removed the stored secret from the OS keyring") {
+		t.Errorf("missing keyring-removal confirmation:\n%s", buf.String())
+	}
+	// The keyring slot is now empty, so status reports unconfigured.
+	cfg2, _ := config.Load()
+	if st, _ := config.ProviderCredentialStatus(cfg2, "deepseek"); st.Configured {
+		t.Errorf("deepseek should be unconfigured after unset, source=%q", st.Source)
 	}
 }
 

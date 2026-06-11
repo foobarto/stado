@@ -209,6 +209,9 @@ func TestNew_Options(t *testing.T) {
 	if p.Name() != "minimax-anthropic" {
 		t.Errorf("Name() = %q, want minimax-anthropic", p.Name())
 	}
+	if p.BaseURL() != "https://api.minimax.io/anthropic" {
+		t.Errorf("BaseURL() = %q, want the override", p.BaseURL())
+	}
 
 	// Default name when no option is given.
 	p2, err := New("anthropic-key-fake")
@@ -217,6 +220,9 @@ func TestNew_Options(t *testing.T) {
 	}
 	if p2.Name() != "anthropic" {
 		t.Errorf("Name() = %q, want anthropic", p2.Name())
+	}
+	if p2.BaseURL() != "" {
+		t.Errorf("BaseURL() = %q, want empty for first-party default", p2.BaseURL())
 	}
 
 	// A custom base URL with no key must NOT fall back to ANTHROPIC_API_KEY

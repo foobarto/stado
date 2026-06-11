@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 // tempConfigPath returns a writable config.toml path under a temp dir.
@@ -117,6 +119,7 @@ func TestRemoveProviderCredential_Idempotent(t *testing.T) {
 }
 
 func TestProviderCredentialStatus_ConfiguredFromEnv(t *testing.T) {
+	keyring.MockInit() // empty, available keyring → env fallback resolves
 	t.Setenv("GROQ_API_KEY", "gsk_present")
 	cfg := &Config{}
 	st, ok := ProviderCredentialStatus(cfg, "groq")
@@ -135,6 +138,7 @@ func TestProviderCredentialStatus_ConfiguredFromEnv(t *testing.T) {
 }
 
 func TestProviderCredentialStatus_UnsetWhenEnvMissing(t *testing.T) {
+	keyring.MockInit() // empty keyring → neither backend resolves
 	t.Setenv("XAI_API_KEY", "")
 	cfg := &Config{}
 	st, ok := ProviderCredentialStatus(cfg, "xai")
@@ -164,6 +168,7 @@ func TestProviderCredentialStatus_LocalRunnerNeedsNoKey(t *testing.T) {
 }
 
 func TestProviderCredentialStatus_PresetEnvNameWins(t *testing.T) {
+	keyring.MockInit() // empty keyring → env fallback under the preset name
 	// A preset api_key_env override should be the resolved name, beating
 	// the registry convention.
 	t.Setenv("CUSTOM_MINIMAX_KEY", "present")
@@ -198,19 +203,92 @@ func TestEnvKeyringStore_DoesNotPersist(t *testing.T) {
 	}
 }
 
-func TestOSKeyringStore_StubUnavailable(t *testing.T) {
+func TestOSKeyringStore_SetGetDelete(t *testing.T) {
+	keyring.MockInit() // hermetic in-memory backend
 	store := osKeyringStore{}
-	if store.Available() {
-		t.Fatal("os-keyring stub should report unavailable until implemented")
+
+	if !store.Available() {
+		t.Fatal("mocked keyring should report available")
 	}
-	if err := store.Set("K", "s"); err == nil {
-		t.Error("stub Set should error")
+
+	// Unset key resolves to absent.
+	if _, ok := store.Get("ANTHROPIC_API_KEY"); ok {
+		t.Fatal("Get of an unset key should report absent")
+	}
+
+	// Set then Get round-trips the secret, keyed by env-var NAME.
+	if err := store.Set("ANTHROPIC_API_KEY", "sk-stored-in-keyring"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	got, ok := store.Get("ANTHROPIC_API_KEY")
+	if !ok || got != "sk-stored-in-keyring" {
+		t.Fatalf("Get = (%q,%v), want (sk-stored-in-keyring,true)", got, ok)
+	}
+
+	// Delete removes it; a second Delete is a no-op (idempotent).
+	if err := store.Delete("ANTHROPIC_API_KEY"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := store.Get("ANTHROPIC_API_KEY"); ok {
+		t.Error("Get after Delete should report absent")
+	}
+	if err := store.Delete("ANTHROPIC_API_KEY"); err != nil {
+		t.Errorf("second Delete should be a no-op, got %v", err)
 	}
 }
 
-func TestResolveKeyringStore_FallsBackToEnv(t *testing.T) {
-	// With the OS keyring stubbed unavailable, the resolver returns env.
-	if got := resolveKeyringStore().Name(); got != "env" {
-		t.Errorf("resolveKeyringStore = %q, want env (os-keyring stubbed)", got)
+func TestResolveKeyringStore_PrefersOSKeyringWhenAvailable(t *testing.T) {
+	keyring.MockInit()
+	if got := resolveKeyringStore().Name(); got != "os-keyring" {
+		t.Errorf("resolveKeyringStore = %q, want os-keyring when backend is available", got)
+	}
+}
+
+func TestStoreProviderSecret_PersistsToKeyring(t *testing.T) {
+	keyring.MockInit()
+	backend, persisted, err := StoreProviderSecret("MINIMAX_API_KEY", "mm-secret")
+	if err != nil {
+		t.Fatalf("StoreProviderSecret: %v", err)
+	}
+	if !persisted || backend != "os-keyring" {
+		t.Fatalf("StoreProviderSecret = (%q,%v), want (os-keyring,true)", backend, persisted)
+	}
+	// The persisted secret then resolves through the status path.
+	t.Setenv("MINIMAX_API_KEY", "") // prove it resolves from keyring, not env
+	cfg := &Config{}
+	st, ok := ProviderCredentialStatus(cfg, "minimax")
+	if !ok || !st.Configured {
+		t.Fatalf("status after keyring store: ok=%v configured=%v", ok, st.Configured)
+	}
+	if st.Source != "os-keyring" {
+		t.Errorf("source = %q, want os-keyring", st.Source)
+	}
+}
+
+func TestStoreProviderSecret_RejectsEmpty(t *testing.T) {
+	keyring.MockInit()
+	if _, _, err := StoreProviderSecret("", "s"); err == nil {
+		t.Error("empty env name should error")
+	}
+	if _, _, err := StoreProviderSecret("K", ""); err == nil {
+		t.Error("empty secret should error")
+	}
+}
+
+func TestDeleteProviderSecret_RemovesAndIdempotent(t *testing.T) {
+	keyring.MockInit()
+	if _, _, err := StoreProviderSecret("XAI_API_KEY", "xs"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	backend, removed, err := DeleteProviderSecret("XAI_API_KEY")
+	if err != nil {
+		t.Fatalf("DeleteProviderSecret: %v", err)
+	}
+	if backend != "os-keyring" || !removed {
+		t.Errorf("DeleteProviderSecret = (%q,%v), want (os-keyring,true)", backend, removed)
+	}
+	// Deleting again reports removed=false (nothing there) without error.
+	if _, removed, err := DeleteProviderSecret("XAI_API_KEY"); err != nil || removed {
+		t.Errorf("second delete = (removed=%v, err=%v), want (false, nil)", removed, err)
 	}
 }
