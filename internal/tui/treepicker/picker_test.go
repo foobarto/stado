@@ -30,9 +30,14 @@ func key(s string) tea.KeyPressMsg {
 func sample() []Node {
 	return []Node{
 		{ID: "aaaaaaaa", Label: "root", Avail: AvailIdle, Depth: 0, TurnCount: 2,
-			Turns: []string{"turn 1 · init", "turn 2 · work"}},
+			Turns: []Turn{
+				{Number: 1, CommitHex: "a1", Text: "turn 1 · init"},
+				{Number: 2, CommitHex: "a2", Text: "turn 2 · work"},
+			}},
 		{ID: "bbbbbbbb", Label: "child", Avail: AvailLive, Depth: 1, HasParent: true, ParentTurn: 2,
-			IsCurrent: true, TurnCount: 1, Turns: []string{"turn 1 · forked"}},
+			IsCurrent: true, TurnCount: 1, Turns: []Turn{
+				{Number: 1, CommitHex: "b1", Text: "turn 1 · forked"},
+			}},
 		{ID: "cccccccc", Label: "sibling", Avail: AvailDetached, Depth: 0},
 	}
 }
@@ -86,15 +91,24 @@ func TestExpandCollapseRebuildAndCursorRepin(t *testing.T) {
 	if len(p.rows) != 5 {
 		t.Fatalf("rows after expand = %d, want 5", len(p.rows))
 	}
-	// ↓ must skip the two turn rows and land on the child session.
+	// ↓ now lands ON the first turn row (turn rows are selectable). SelectedID
+	// is the OWNING session, but SelectedIsTurn distinguishes it.
 	p.Update(key("down"))
-	if got := p.SelectedID(); got != "bbbbbbbb" {
-		t.Fatalf("after down past turns = %q, want bbbbbbbb (turn rows skipped)", got)
+	if got := p.SelectedID(); got != "aaaaaaaa" || !p.SelectedIsTurn() {
+		t.Fatalf("after 1 down = %q isTurn=%v, want aaaaaaaa turn row", got, p.SelectedIsTurn())
 	}
-	// Move back up onto the root and collapse it.
+	// Two more ↓ steps walk over the second turn then onto the child session.
+	p.Update(key("down"))
+	p.Update(key("down"))
+	if got := p.SelectedID(); got != "bbbbbbbb" || p.SelectedIsTurn() {
+		t.Fatalf("after 3 down = %q isTurn=%v, want bbbbbbbb session row", got, p.SelectedIsTurn())
+	}
+	// Move back up onto the root header and collapse it.
 	p.Update(key("up"))
-	if got := p.SelectedID(); got != "aaaaaaaa" {
-		t.Fatalf("after up = %q, want aaaaaaaa", got)
+	p.Update(key("up"))
+	p.Update(key("up"))
+	if got := p.SelectedID(); got != "aaaaaaaa" || p.SelectedIsTurn() {
+		t.Fatalf("after up to header = %q isTurn=%v, want aaaaaaaa header", got, p.SelectedIsTurn())
 	}
 	_, _ = p.Update(key("left"))
 	if got := p.SelectedID(); got != "aaaaaaaa" {
@@ -169,6 +183,169 @@ func TestEnterDetachedNoSwitch(t *testing.T) {
 	p.Update(key("enter"))
 	if action := p.TakeAction(); action.Type != CommandNone {
 		t.Fatalf("detached enter action = %+v, want CommandNone", action)
+	}
+}
+
+// TestBranchOnTurnRowEmitsForkAtTurn: expanding a session, landing on a turn
+// row, and pressing `b` emits a CommandBranch addressing that turn's commit.
+func TestBranchOnTurnRowEmitsForkAtTurn(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	// Expand root and step down onto its first turn row.
+	p.Update(key("right"))
+	p.Update(key("down"))
+	if !p.SelectedIsTurn() {
+		t.Fatalf("expected a turn row under the cursor, got session %q", p.SelectedID())
+	}
+	p.Update(key("b"))
+	action := p.TakeAction()
+	if action.Type != CommandBranch {
+		t.Fatalf("branch action = %+v, want CommandBranch", action)
+	}
+	if action.ID != "aaaaaaaa" || action.TurnNumber != 1 || action.TurnCommit != "a1" {
+		t.Fatalf("branch action = %+v, want owner aaaaaaaa turn 1 commit a1", action)
+	}
+}
+
+// TestBranchOnSessionRowSetsNotice: `b` on a session header is a no-op action
+// (no Command) and surfaces the "press b on a turn" notice instead.
+func TestBranchOnSessionRowSetsNotice(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	if p.SelectedIsTurn() {
+		t.Fatal("expected a session header at the top")
+	}
+	p.Update(key("b"))
+	if action := p.TakeAction(); action.Type != CommandNone {
+		t.Fatalf("session-row b action = %+v, want CommandNone", action)
+	}
+	out := p.View(120, 30)
+	if !strings.Contains(out, "press b on a turn") {
+		t.Fatalf("notice not surfaced in footer:\n%s", out)
+	}
+}
+
+// TestEnterOnTurnRowEmitsPeek: Enter over a turn row emits a CommandPeek with
+// the owner id, turn, commit, and the owner's tip turn (for the banner).
+func TestEnterOnTurnRowEmitsPeek(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	p.Update(key("right")) // expand root (2 turns)
+	p.Update(key("down"))  // land on turn 1
+	if !p.SelectedIsTurn() {
+		t.Fatal("expected a turn row")
+	}
+	p.Update(key("enter"))
+	action := p.TakeAction()
+	if action.Type != CommandPeek {
+		t.Fatalf("peek action = %+v, want CommandPeek", action)
+	}
+	if action.ID != "aaaaaaaa" || action.TurnNumber != 1 || action.TurnCommit != "a1" {
+		t.Fatalf("peek action = %+v, want owner aaaaaaaa turn 1 commit a1", action)
+	}
+	// Owner has 2 turns; peeking turn 1 → tip is 2 (drives the "more turns" banner).
+	if action.TurnTotal != 2 {
+		t.Fatalf("peek TurnTotal = %d, want 2 (owner tip)", action.TurnTotal)
+	}
+}
+
+// TestEnterOnDetachedTurnRowGated: a detached session can't be peeked — Enter
+// over its turn row emits nothing and sets a notice. (Detached sessions have no
+// turns in practice; we force-expand a synthetic one to prove the gate.)
+func TestEnterOnDetachedTurnRowGated(t *testing.T) {
+	p := New()
+	nodes := []Node{
+		{ID: "dddddddd", Label: "gone", Avail: AvailDetached, Depth: 0, TurnCount: 1,
+			Turns: []Turn{{Number: 1, CommitHex: "d1", Text: "turn 1 · x"}}},
+	}
+	p.Open(nodes, "")
+	p.Update(key("right")) // expand
+	p.Update(key("down"))  // onto the turn row
+	if !p.SelectedIsTurn() {
+		t.Fatal("expected the detached session's turn row")
+	}
+	p.Update(key("enter"))
+	if action := p.TakeAction(); action.Type != CommandNone {
+		t.Fatalf("detached turn peek action = %+v, want CommandNone (gated)", action)
+	}
+}
+
+// TestPeekLayeredEsc: with a peek open, the first Esc closes JUST the peek
+// (tree stays visible); a second Esc closes the tree. Branch-here (`b`) inside
+// the peek emits a CommandBranch for the peeked turn.
+func TestPeekLayeredEsc(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	p.OpenPeek(NewPeek("aaaaaaaa", 1, "a1", "transcript label", "", []string{"hello"}))
+	if !p.Peeking() {
+		t.Fatal("OpenPeek should set Peeking")
+	}
+	// First Esc → peek closes, tree stays open.
+	p.Update(key("esc"))
+	if p.Peeking() {
+		t.Fatal("first esc should close the peek")
+	}
+	if !p.Visible {
+		t.Fatal("first esc must NOT close the tree (layered)")
+	}
+	// Second Esc → tree closes.
+	p.Update(key("esc"))
+	if p.Visible {
+		t.Fatal("second esc should close the tree")
+	}
+}
+
+// TestPeekBranchHere: `b` inside the peek emits a CommandBranch for the peeked
+// turn (the operator decides to fork from the transcript they're reading).
+func TestPeekBranchHere(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	p.OpenPeek(NewPeek("aaaaaaaa", 2, "a2", "transcript label", "", []string{"line"}))
+	p.Update(key("b"))
+	action := p.TakeAction()
+	if action.Type != CommandBranch || action.ID != "aaaaaaaa" || action.TurnNumber != 2 || action.TurnCommit != "a2" {
+		t.Fatalf("peek branch-here action = %+v, want CommandBranch aaaaaaaa turn 2 a2", action)
+	}
+}
+
+// TestPeekViewHonestLabelAndBanner: the peek renders the honest read-only label
+// and, when a banner is supplied, surfaces it.
+func TestPeekViewHonestLabelAndBanner(t *testing.T) {
+	p := New()
+	p.Open(sample(), "")
+	label := "transcript — session aaaaaaaa @ turns/1 (read-only · full conversation, not a point-in-time snapshot)"
+	banner := "⚠ showing the FULL transcript"
+	p.OpenPeek(NewPeek("aaaaaaaa", 1, "a1", label, banner, []string{"a message line"}))
+	out := p.View(140, 40)
+	for _, want := range []string{
+		"read-only",       // honest label
+		"point-in-time",   // honest label caveat
+		"FULL transcript", // banner
+		"a message line",  // transcript content
+		"branch here",     // peek footer hint
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("peek view missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestFooterShowsCapWhenTruncated: SetStats(truncated) surfaces the cap warning.
+func TestFooterShowsCapWhenTruncated(t *testing.T) {
+	p := New()
+	p.SetStats(5000, true)
+	p.Open(sample(), "")
+	out := p.View(120, 40)
+	if !strings.Contains(out, "capped") {
+		t.Fatalf("truncated footer missing cap warning:\n%s", out)
+	}
+	// Untruncated shows a plain count.
+	q := New()
+	q.SetStats(3, false)
+	q.Open(sample(), "")
+	out2 := q.View(120, 40)
+	if !strings.Contains(out2, "3 sessions") {
+		t.Fatalf("untruncated footer missing count:\n%s", out2)
 	}
 }
 

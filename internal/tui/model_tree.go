@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/treepicker"
@@ -24,7 +26,92 @@ func (m *Model) openTreePicker() error {
 		return fmt.Errorf("session tree: %w", err)
 	}
 	nodes := flattenForest(forest)
-	m.treePick.Open(nodes, m.session.ID)
+	m.treePick.SetStats(forest.Total, forest.Truncated)
+	m.treePick.Open(nodes, m.session.ID, currentLineageIDs(forest, m.session.ID)...)
+	return nil
+}
+
+// currentLineageIDs returns the current session's full ancestry — itself plus
+// every ParentID up to a root — so the picker auto-expands the whole working
+// lineage on open (stage-7 polish), not just the current node. A cycle guard
+// keeps a corrupt ParentID loop from spinning.
+func currentLineageIDs(f *runtime.Forest, currentID string) []string {
+	if f == nil || currentID == "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for cur := currentID; cur != ""; {
+		if seen[cur] {
+			break
+		}
+		seen[cur] = true
+		out = append(out, cur)
+		node, ok := f.Sessions[cur]
+		if !ok {
+			break
+		}
+		cur = node.ParentID
+	}
+	return out
+}
+
+// openTreePeek layers a READ-ONLY transcript overlay over the tree for the
+// turn the cursor is on. It is strictly non-mutating: it derives the target
+// session's worktree path deterministically (cfg.WorktreeDir()/<id>), reads
+// the conversation with runtime.LoadConversation (no OpenSessionByID, no ref
+// write), renders it via the same msgsToBlocks path the live view uses, and
+// hands the rendered lines + an HONEST label to the picker. m.session,
+// m.blocks, and every session ref are untouched.
+//
+// The label is deliberately honest: peek shows the WHOLE conversation on disk,
+// not a point-in-time snapshot at turn N (turns are git tags;
+// conversation.jsonl has no per-message turn field — exact slicing needs a
+// data-model change that's out of v1 scope). When the session has more turns
+// than the peeked one, a muted banner says so.
+//
+// turnTotal is the owning session's tip turn (from the picker). A peeked turn
+// below the tip means the transcript shows content AFTER turn N → banner.
+func (m *Model) openTreePeek(id string, turn, turnTotal int, atCommit string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("session peek: no session selected")
+	}
+	cfg, err := m.sessionActionConfig()
+	if err != nil {
+		return err
+	}
+	// Deterministic, read-only worktree path — NEVER OpenSessionByID (which
+	// would activate/mutate). Avail-gate: a session with no worktree on disk
+	// (detached) has nothing to peek.
+	wt := filepath.Join(cfg.WorktreeDir(), id)
+	if _, err := os.Stat(wt); err != nil {
+		return fmt.Errorf("session peek: no worktree for %s (detached)", shortSessionID(id))
+	}
+	msgs, err := runtime.LoadConversation(wt)
+	if err != nil {
+		return fmt.Errorf("session peek: %w", err)
+	}
+
+	// Render the conversation to plain lines through the SAME block path the
+	// live conversation uses — purely local, nothing assigned to m.blocks.
+	width := m.vp.Width() - 2
+	if width < 20 {
+		width = 60
+	}
+	var lines []string
+	for _, blk := range msgsToBlocks(msgs) {
+		out, _ := m.renderBlock(blk, width)
+		out = strings.TrimRight(out, "\n")
+		lines = append(lines, strings.Split(out, "\n")...)
+	}
+
+	label := fmt.Sprintf("transcript — session %s @ turns/%d (read-only · full conversation, not a point-in-time snapshot)",
+		shortSessionID(id), turn)
+	banner := ""
+	if turnTotal > turn {
+		banner = fmt.Sprintf("⚠ showing the FULL transcript — this session has %d turns; content after turn %d is also below.", turnTotal, turn)
+	}
+	m.treePick.OpenPeek(treepicker.NewPeek(id, turn, atCommit, label, banner, lines))
 	return nil
 }
 
@@ -99,13 +186,17 @@ func toTreeNode(n *runtime.SessionNode) treepicker.Node {
 		meta = n.Summary.LastActive.UTC().Format("01-02 15:04") + "  " + meta
 	}
 
-	turns := make([]string, 0, len(n.Turns))
+	turns := make([]treepicker.Turn, 0, len(n.Turns))
 	for _, t := range n.Turns {
 		summary := t.Entry.Summary
 		if summary == "" {
 			summary = "(no summary)"
 		}
-		turns = append(turns, fmt.Sprintf("turn %d · %s", t.Entry.Turn, summary))
+		turns = append(turns, treepicker.Turn{
+			Number:    t.Entry.Turn,
+			CommitHex: t.Entry.Commit.String(),
+			Text:      fmt.Sprintf("turn %d · %s", t.Entry.Turn, summary),
+		})
 	}
 
 	return treepicker.Node{

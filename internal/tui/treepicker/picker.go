@@ -9,10 +9,11 @@
 // keeps the package free of an import cycle with tui and trivially testable
 // without a git sidecar.
 //
-// This increment ships NAVIGATION + SWITCH only (build stages 3-4 of the
-// /tree design). Peek and branch wiring (stages 5-6) are deliberately out of
-// scope: the keymap leaves room for them but Enter on a session row is the
-// only action that emits a Command today.
+// Navigation + SWITCH ship in stages 3-4; BRANCH (stage 5) and PEEK
+// (stage 6) layer on top. Turn rows are selectable so `b` over a turn forks
+// the parent at that turn (CommandBranch) and Enter over a turn opens a
+// read-only peek (CommandPeek); the host owns the fork/peek mechanics and
+// drains the outbox via TakeAction.
 package treepicker
 
 import (
@@ -63,10 +64,24 @@ type Node struct {
 	Orphan bool
 	// TurnCount drives the expand affordance + the expanded turn list.
 	TurnCount int
-	// Turns are the per-turn summary lines shown when the node is expanded.
-	// Plain strings — the host pre-renders them (e.g. "turn 3 · fix parser").
-	// Not selectable in this increment; shown for context only.
-	Turns []string
+	// Turns are the per-turn rows shown when the node is expanded. The host
+	// pre-renders Text (e.g. "turn 3 · fix parser") and carries the turn
+	// Number + CommitHex so a branch/peek over a turn row addresses an exact
+	// commit without the picker needing a runtime handle.
+	Turns []Turn
+}
+
+// Turn is one expanded turn row under a session. The picker renders Text and,
+// when the row is the cursor target, addresses the branch/peek action by the
+// owning session id (the Node's ID) + this turn's Number / CommitHex.
+type Turn struct {
+	// Number is the 1-based turn number (the N in refs/sessions/<id>/turns/N).
+	Number int
+	// CommitHex is the turn-boundary commit hash, hex-encoded. The host parses
+	// it back into a plumbing.Hash for runtime.ForkSessionAtTurn / peek.
+	CommitHex string
+	// Text is the pre-rendered summary line ("turn 3 · fix parser").
+	Text string
 }
 
 // CommandType enumerates the actions the picker can emit to the host.
@@ -78,28 +93,54 @@ const (
 	// CommandSwitch — Enter over a switchable session row. Host calls
 	// switchToSession(ID) and closes the picker.
 	CommandSwitch
+	// CommandBranch — `b` over a turn row. Host calls
+	// forkAndSwitchSessionAtTurn(ID, TurnCommit), forking the owning session
+	// at that turn and switching to the child, then closes the picker.
+	CommandBranch
+	// CommandPeek — Enter over a turn row. Host opens a read-only peek of the
+	// owning session's transcript (no mutation, no switch).
+	CommandPeek
 )
 
 // Command is the picker's outbox payload. The host drains it via TakeAction
 // after each handled Update.
 type Command struct {
 	Type CommandType
-	ID   string
+	// ID is the target session id: the switch target for CommandSwitch, or the
+	// owning (parent) session for a turn-row branch/peek.
+	ID string
+	// TurnNumber / TurnCommit address the turn for CommandBranch / CommandPeek
+	// (zero-valued for CommandSwitch).
+	TurnNumber int
+	TurnCommit string
+	// TurnTotal is the owning session's tip turn number (its highest turn). The
+	// host compares it to TurnNumber to decide whether the peek's full-
+	// transcript banner ("session has more turns than N") applies. Set for
+	// CommandPeek; zero otherwise.
+	TurnTotal int
 }
 
 // row is one line in the flattened DFS: either a session header row or one of
-// its expanded turn rows. Only session rows carry a node index and are
-// landable by the cursor; turn rows are skipped during navigation. Rows carry
-// structure, not rendered text — View renders each visible row fresh every
-// frame so the selection highlight tracks the cursor without a rebuild
-// (mirrors the taskpicker/palette render-on-View idiom).
+// its expanded turn rows. BOTH are landable by the cursor now — a turn row
+// carries its owning node index plus the turn it represents so a branch/peek
+// over it addresses an exact commit. Rows carry structure, not rendered text
+// — View renders each visible row fresh every frame so the selection
+// highlight tracks the cursor without a rebuild (mirrors the
+// taskpicker/palette render-on-View idiom).
 type row struct {
-	nodeIdx  int    // index into Model.nodes, or -1 for a turn row
-	turnText string // the pre-rendered turn summary (turn rows only)
+	// nodeIdx indexes Model.nodes. For a session header row that's the row's
+	// own node; for a turn row it's the OWNING session (so branch/peek know
+	// the parent id). Always ≥ 0 now — turn rows are landable too.
+	nodeIdx int
+	// isTurn distinguishes a turn row from its session header row.
+	isTurn bool
+	// turn is the turn this row represents (turn rows only).
+	turn Turn
 }
 
 // Model is the treepicker modal. It owns the forest's flattened rows, the
-// cursor, per-session expansion state, and an outbox Command.
+// cursor, per-session expansion state, an outbox Command, a transient notice
+// (e.g. "press b on a turn"), and a read-only peek overlay layered on top.
 type Model struct {
 	Visible bool
 	Width   int
@@ -107,28 +148,53 @@ type Model struct {
 
 	nodes    []Node
 	rows     []row
-	cursor   int             // index into rows; always points at a session row
+	cursor   int             // index into rows; a session header or a turn row
 	expanded map[string]bool // session id -> expanded
 	out      Command
+	// notice is a transient one-line hint rendered in the footer (cleared on
+	// the next handled key) — e.g. "press b on a turn to branch".
+	notice string
+	// total / truncated mirror Forest.Total / Forest.Truncated so the footer
+	// can surface "N sessions" and a "(capped — more exist)" warning when the
+	// forest hit MaxForestSessions.
+	total     int
+	truncated bool
+	// peek is the read-only transcript overlay layered over the tree. nil when
+	// not peeking. The host fills it via OpenPeek and it owns its own scroll.
+	peek *Peek
 }
 
 // New returns an empty, hidden picker.
 func New() *Model { return &Model{expanded: map[string]bool{}} }
 
+// SetStats records the forest's session count + truncation flag so the footer
+// can surface them (the design's stage-7 cap-footer). Call before Open.
+func (m *Model) SetStats(total int, truncated bool) {
+	m.total = total
+	m.truncated = truncated
+}
+
 // Open shows the picker over the supplied flattened forest. currentID, when
-// present, is selected and its ancestry auto-expanded so the working lineage
-// is visible on open.
-func (m *Model) Open(nodes []Node, currentID string) {
+// present, is selected; expandIDs (the current session's full lineage —
+// current + every ancestor up to its root, computed by the host) are
+// auto-expanded so the whole working lineage's turns are visible on open, not
+// just the current node.
+func (m *Model) Open(nodes []Node, currentID string, expandIDs ...string) {
 	m.Visible = true
 	m.nodes = append([]Node(nil), nodes...)
 	if m.expanded == nil {
 		m.expanded = map[string]bool{}
 	}
-	// Auto-expand the current session so its turns are visible, and pin the
-	// cursor to it. (Lineage auto-expansion is a stage-7 polish item; here we
-	// expand just the current node, which is the common case.)
+	// Auto-expand the whole current lineage (stage-7 polish — was just the
+	// current node) so an operator forked several levels deep sees every turn
+	// on the path to a root without hand-expanding each ancestor.
 	if currentID != "" {
 		m.expanded[currentID] = true
+	}
+	for _, id := range expandIDs {
+		if id != "" {
+			m.expanded[id] = true
+		}
 	}
 	m.rebuildRows()
 	m.cursor = 0
@@ -137,9 +203,32 @@ func (m *Model) Open(nodes []Node, currentID string) {
 	}
 }
 
-// Close hides the picker. Expansion state is retained so re-opening lands in
-// the same shape.
-func (m *Model) Close() { m.Visible = false }
+// Close hides the picker (and any open peek). Expansion state is retained so
+// re-opening lands in the same shape.
+func (m *Model) Close() {
+	m.peek = nil
+	m.Visible = false
+}
+
+// Peeking reports whether the read-only transcript overlay is open. The host's
+// layered Esc/Ctrl+C routing checks this so the first close drops the peek and
+// the second closes the tree.
+func (m *Model) Peeking() bool { return m.peek != nil }
+
+// ClosePeek dismisses just the peek overlay, leaving the tree open. No-op when
+// not peeking.
+func (m *Model) ClosePeek() { m.peek = nil }
+
+// OpenPeek layers a read-only transcript overlay over the tree. The host
+// builds the Peek (rendered transcript lines + honest label/banner) from a
+// deterministic, read-only LoadConversation — it NEVER opens or mutates the
+// session. A nil peek is ignored.
+func (m *Model) OpenPeek(p *Peek) {
+	if p == nil {
+		return
+	}
+	m.peek = p
+}
 
 // TakeAction returns the pending Command and clears the outbox. The host
 // calls this after a handled Update to act on a switch.
@@ -149,8 +238,8 @@ func (m *Model) TakeAction() Command {
 	return c
 }
 
-// SelectedID returns the session id under the cursor, or "" when there is no
-// selectable row.
+// SelectedID returns the session id under the cursor — the owning session for
+// a turn row — or "" when there is no selectable row.
 func (m *Model) SelectedID() string {
 	if n := m.selectedNode(); n != nil {
 		return n.ID
@@ -158,7 +247,14 @@ func (m *Model) SelectedID() string {
 	return ""
 }
 
-func (m *Model) selectedNode() *Node {
+// SelectedIsTurn reports whether the cursor is on a (selectable) turn row.
+func (m *Model) SelectedIsTurn() bool {
+	r := m.selectedRow()
+	return r != nil && r.isTurn
+}
+
+// selectedRow returns the cursor's row, or nil when there is none.
+func (m *Model) selectedRow() *row {
 	if !m.Visible || len(m.rows) == 0 {
 		return nil
 	}
@@ -169,19 +265,33 @@ func (m *Model) selectedNode() *Node {
 	if r.nodeIdx < 0 || r.nodeIdx >= len(m.nodes) {
 		return nil
 	}
+	return &r
+}
+
+// selectedNode returns the session the cursor's row belongs to (the owning
+// session for a turn row).
+func (m *Model) selectedNode() *Node {
+	r := m.selectedRow()
+	if r == nil {
+		return nil
+	}
 	return &m.nodes[r.nodeIdx]
 }
 
 // Update consumes a keypress while Visible. Returns (cmd, handled); handled
 // means the host must short-circuit so the keystroke doesn't leak to the
-// textarea beneath. The tree-layer keymap (navigation + switch only):
+// textarea beneath. The tree-layer keymap:
 //
-//	↑/k ↓/j   move (clamp, no wrap)
+//	↑/k ↓/j   move (clamp, no wrap; lands on session AND turn rows)
 //	→/l       expand the cursor's session
 //	←/h       collapse the cursor's session
 //	g / G     home / end
-//	enter     switch to the cursor's session (if switchable)
-//	esc/ctrl+c close
+//	enter     session row → switch (if switchable); turn row → peek
+//	b         turn row → branch (fork the owner at that turn); session → notice
+//	esc/ctrl+c close (peek-first when peeking — see Peeking)
+//
+// When a peek overlay is open it consumes keys first: scroll/navigation keys
+// go to the peek, and the first Esc/Ctrl+C closes the peek (not the tree).
 func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !m.Visible {
 		return nil, false
@@ -190,6 +300,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
+	// Peek-first: while peeking, the overlay owns the keymap and the first
+	// Esc/Ctrl+C closes JUST the peek (layered close — the design's
+	// Peeking()/ClosePeek() flag).
+	if m.peek != nil {
+		switch km.String() {
+		case "esc", "ctrl+c":
+			m.ClosePeek()
+			return nil, true
+		case "b":
+			// Branch-here from inside the peek — emit a branch for the peeked
+			// turn, close the peek + tree (the host forks + switches).
+			m.out = Command{
+				Type:       CommandBranch,
+				ID:         m.peek.SessionID,
+				TurnNumber: m.peek.Turn,
+				TurnCommit: m.peek.Commit,
+			}
+			return nil, true
+		default:
+			m.peek.Update(km)
+			return nil, true
+		}
+	}
+
+	m.notice = "" // any handled key clears a stale notice
 	switch km.String() {
 	case "up", "k":
 		m.moveCursor(-1)
@@ -212,6 +347,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	case "enter":
 		m.activateSelected()
 		return nil, true
+	case "b":
+		m.branchSelected()
+		return nil, true
 	case "esc", "ctrl+c":
 		m.Close()
 		return nil, true
@@ -219,18 +357,58 @@ func (m *Model) Update(msg tea.Msg) (tea.Cmd, bool) {
 	return nil, true // tree layer swallows every key while visible
 }
 
-// activateSelected emits a switch Command for the cursor's session when it is
-// switchable (not detached). Detached rows are a no-op — the host gates them
-// off and the row renders with the dimmed glyph.
+// activateSelected resolves Enter: a session row emits a switch Command (when
+// switchable — detached rows are a no-op the host gates off with the dimmed
+// glyph); a turn row emits a peek Command for the owning session at that turn.
 func (m *Model) activateSelected() {
-	n := m.selectedNode()
-	if n == nil {
+	r := m.selectedRow()
+	if r == nil {
 		return
 	}
-	if n.Avail == AvailDetached {
+	owner := &m.nodes[r.nodeIdx]
+	if r.isTurn {
+		if owner.Avail == AvailDetached {
+			m.notice = "detached session — no worktree to peek"
+			return
+		}
+		tip := r.turn.Number
+		if n := len(owner.Turns); n > 0 {
+			tip = owner.Turns[n-1].Number // turns are ascending — last is the tip
+		}
+		m.out = Command{
+			Type:       CommandPeek,
+			ID:         owner.ID,
+			TurnNumber: r.turn.Number,
+			TurnCommit: r.turn.CommitHex,
+			TurnTotal:  tip,
+		}
 		return
 	}
-	m.out = Command{Type: CommandSwitch, ID: n.ID}
+	if owner.Avail == AvailDetached {
+		return
+	}
+	m.out = Command{Type: CommandSwitch, ID: owner.ID}
+}
+
+// branchSelected resolves `b`: a turn row emits a branch Command (fork the
+// owning session at that turn); a session row sets a notice telling the
+// operator to land on a turn first (design Q4 — don't duplicate the session
+// picker's fork-from-tip here).
+func (m *Model) branchSelected() {
+	r := m.selectedRow()
+	if r == nil {
+		return
+	}
+	if !r.isTurn {
+		m.notice = "press b on a turn row to branch (→ expands a session)"
+		return
+	}
+	m.out = Command{
+		Type:       CommandBranch,
+		ID:         m.nodes[r.nodeIdx].ID,
+		TurnNumber: r.turn.Number,
+		TurnCommit: r.turn.CommitHex,
+	}
 }
 
 func (m *Model) expandSelected() {
@@ -257,8 +435,9 @@ func (m *Model) collapseSelected() {
 	m.rebuildPinned(n.ID)
 }
 
-// moveCursor steps to the next/previous SELECTABLE (session) row, clamping at
-// the ends (no wrap, per the design's tree keymap).
+// moveCursor steps to the next/previous row (session headers AND expanded turn
+// rows are all landable), clamping at the ends (no wrap, per the design's tree
+// keymap).
 func (m *Model) moveCursor(delta int) {
 	if len(m.rows) == 0 {
 		m.cursor = 0
@@ -293,10 +472,12 @@ func (m *Model) cursorEnd() {
 	}
 }
 
-// selectID pins the cursor to the session row for id, if present.
+// selectID pins the cursor to the session HEADER row for id, if present. (Turn
+// rows share the owner's nodeIdx, so the !isTurn guard keeps re-pins landing on
+// the header rather than the first turn underneath it.)
 func (m *Model) selectID(id string) {
 	for i, r := range m.rows {
-		if r.nodeIdx >= 0 && m.nodes[r.nodeIdx].ID == id {
+		if r.nodeIdx >= 0 && !r.isTurn && m.nodes[r.nodeIdx].ID == id {
 			m.cursor = i
 			return
 		}
@@ -329,7 +510,7 @@ func (m *Model) rebuildRows() {
 		rows = append(rows, row{nodeIdx: i})
 		if m.expanded[n.ID] {
 			for _, t := range n.Turns {
-				rows = append(rows, row{nodeIdx: -1, turnText: t})
+				rows = append(rows, row{nodeIdx: i, isTurn: true, turn: t})
 			}
 		}
 	}

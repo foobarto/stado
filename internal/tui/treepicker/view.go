@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/foobarto/stado/internal/tui/overlays"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
 
@@ -34,9 +35,9 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 		return ""
 	}
 	modalW := clampInt(screenWidth/2, 58, 98)
-	// Height budget: total = list + border(2) + header/blank/blank chrome(4) +
-	// footer(1). Window the row list to what's left.
-	listBudget := screenHeight - 7
+	// Height budget: total = list + border(2) + header+blank(2) +
+	// blank+footer(2). Window the row list to what's left.
+	listBudget := screenHeight - 8
 	if listBudget < 3 {
 		listBudget = 3
 	}
@@ -50,9 +51,15 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 		Padding(0, 1).
 		Width(modalW).
 		Render(body)
-	return lipgloss.Place(screenWidth, screenHeight,
+	base := lipgloss.Place(screenWidth, screenHeight,
 		lipgloss.Center, lipgloss.Center,
 		modal)
+	// Peek composes over the tree: the transcript box sits centred on top of
+	// the tree, which stays visible behind it (the design's CenterOver layer).
+	if m.peek != nil {
+		return overlays.CenterOver(base, m.peek.box(screenWidth, screenHeight), screenWidth, screenHeight)
+	}
+	return base
 }
 
 func (m *Model) renderBody(innerW, maxListRows int) string {
@@ -60,7 +67,7 @@ func (m *Model) renderBody(innerW, maxListRows int) string {
 	bg := lipgloss.NewStyle().Background(theme.Background)
 
 	titleText := "Session tree"
-	hints := "enter switch  ↑↓ move  →/← expand/collapse  g/G  esc"
+	hints := "enter switch/peek  b branch  →/← expand  g/G  esc"
 	title := bg.Foreground(theme.Text).Bold(true).Render(titleText)
 	esc := bg.Foreground(theme.Muted).Render(hints)
 	b.WriteString(rowTwoColBg(innerW, titleText, hints, title, esc, bg))
@@ -68,24 +75,54 @@ func (m *Model) renderBody(innerW, maxListRows int) string {
 
 	if len(m.rows) == 0 {
 		b.WriteString(bg.Foreground(theme.Muted).Render("no sessions"))
+		b.WriteString("\n\n")
+		b.WriteString(m.renderFooter(innerW, bg))
 		return b.String()
 	}
 
 	// Render each row fresh so the selection highlight tracks the cursor
 	// without a rebuild. innerW is the content width budget (the modal's
-	// inner width); rows pad the two columns out to fill it.
+	// inner width); rows pad the two columns out to fill it. Turn rows are
+	// landable now — a selected turn row paints its highlight too.
 	lines := make([]string, len(m.rows))
 	for i, r := range m.rows {
-		if r.nodeIdx < 0 {
-			lines[i] = m.renderTurnLine(r.turnText, innerW)
+		if r.isTurn {
+			lines[i] = m.renderTurnLine(r.turn.Text, i == m.cursor, innerW)
 			continue
 		}
 		lines[i] = m.renderNodeLine(m.nodes[r.nodeIdx], i == m.cursor, innerW)
 	}
 	windowed := windowLines(lines, m.cursor, maxListRows)
 	b.WriteString(strings.Join(windowed, "\n"))
+	b.WriteString("\n\n")
+	b.WriteString(m.renderFooter(innerW, bg))
 	return b.String()
 }
+
+// renderFooter renders the bottom status line: a transient notice if one is
+// pending, otherwise the session count + a "(capped)" warning when the forest
+// hit MaxForestSessions. Stage-7 cap-footer surfacing.
+func (m *Model) renderFooter(innerW int, bg lipgloss.Style) string {
+	if m.notice != "" {
+		return bg.Foreground(theme.Warning).Render(truncateVisible(m.notice, innerW))
+	}
+	count := strconv.Itoa(m.total) + " session"
+	if m.total != 1 {
+		count += "s"
+	}
+	if m.truncated {
+		warn := bg.Foreground(theme.Warning).
+			Render(truncateVisible(count+"  ⚠ capped at "+strconv.Itoa(maxForestCap)+" — more exist", innerW))
+		return warn
+	}
+	return bg.Foreground(theme.Muted).Render(truncateVisible(count, innerW))
+}
+
+// maxForestCap mirrors runtime.MaxForestSessions for the footer message
+// without pulling a runtime import into this package (the design's
+// runtime-free treepicker rule). Kept in lockstep by the host's open path,
+// which is the only place the real cap is enforced.
+const maxForestCap = 5000
 
 // renderNodeLine renders one session header row to a width of innerW: indent
 // spine, you-are-here marker, status glyph, label, fork-origin tag, and a
@@ -137,13 +174,21 @@ func (m *Model) renderNodeLine(n Node, selected bool, innerW int) string {
 		bg.Foreground(theme.Muted).Render(right)
 }
 
-// renderTurnLine renders one expanded turn row beneath its session, muted
-// (turn rows are context-only in this increment — not selectable).
-func (m *Model) renderTurnLine(text string, innerW int) string {
-	bg := lipgloss.NewStyle().Background(theme.Background)
+// renderTurnLine renders one expanded turn row beneath its session. Turn rows
+// are landable (Enter peeks, b branches), so a selected turn row paints the
+// full-width Primary highlight like a selected session row; an unselected one
+// stays muted.
+func (m *Model) renderTurnLine(text string, selected bool, innerW int) string {
 	line := "    └ " + text
-	line = truncateVisible(line, innerW)
-	return bg.Foreground(theme.Muted).Render(line)
+	if selected {
+		padded := rowTwoCol(innerW, line, "")
+		return lipgloss.NewStyle().
+			Background(theme.Primary).
+			Foreground(theme.Background).
+			Render(padded)
+	}
+	bg := lipgloss.NewStyle().Background(theme.Background)
+	return bg.Foreground(theme.Muted).Render(truncateVisible(line, innerW))
 }
 
 // glyphFor returns the PLAIN (uncoloured) status glyph used during left-column

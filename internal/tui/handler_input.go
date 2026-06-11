@@ -52,6 +52,14 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	// modal-specific routing so it pre-empts the modal's own
 	// keypress handling.
 	if msg.String() == "ctrl+c" && m.anyModalOpen() {
+		// Layered close for the tree's peek overlay: the first Ctrl+C drops
+		// just the peek, leaving the tree open (matching Esc's peek-first
+		// routing); a second Ctrl+C then closes the tree.
+		if m.treePick.Visible && m.treePick.Peeking() {
+			m.treePick.ClosePeek()
+			m.layout()
+			return m, nil, true
+		}
 		m.closeAllModals()
 		return m, nil, true
 	}

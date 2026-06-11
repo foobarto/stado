@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
@@ -293,12 +294,27 @@ func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	if m.treePick.Visible {
 		cmd, handled := m.treePick.Update(msg)
 		if handled {
-			// Drain the outbox: an Enter over a switchable session row emits a
-			// switch action. Navigation / expand / collapse emit CommandNone.
+			// Drain the outbox. Enter over a switchable session row emits a
+			// switch; Enter over a turn row emits a peek; `b` over a turn row
+			// emits a branch (fork-at-turn). Navigation / expand / collapse /
+			// peek-scroll all emit CommandNone.
 			switch action := m.treePick.TakeAction(); action.Type {
 			case treepicker.CommandSwitch:
 				m.treePick.Close()
 				if err := m.switchToSession(action.ID); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			case treepicker.CommandBranch:
+				m.treePick.Close()
+				at := plumbing.NewHash(action.TurnCommit)
+				if err := m.forkAndSwitchSessionAtTurn(action.ID, at); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			case treepicker.CommandPeek:
+				// Read-only — the tree stays open; the peek layers on top.
+				if err := m.openTreePeek(action.ID, action.TurnNumber, action.TurnTotal, action.TurnCommit); err != nil {
 					m.appendBlock(block{kind: "system", body: err.Error()})
 					m.renderBlocks()
 				}
