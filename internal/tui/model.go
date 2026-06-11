@@ -36,6 +36,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/taskpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
+	"github.com/foobarto/stado/internal/tui/treepicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -340,6 +341,7 @@ type Model struct {
 	modelPicker *modelpicker.Model
 	sessionPick *sessionpicker.Model
 	taskPick    *taskpicker.Model
+	treePick    *treepicker.Model
 	themePick   *themepicker.Model
 	filePicker  *filepicker.Model
 	fleetPicker *fleetpicker.Model
@@ -716,6 +718,7 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		personaPicker:    personapicker.New(),
 		sessionPick:      sessionpicker.New(),
 		taskPick:         taskpicker.New(),
+		treePick:         treepicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
 		fleetPicker:      fleetpicker.New(),

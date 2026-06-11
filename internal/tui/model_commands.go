@@ -91,6 +91,8 @@ func (m *Model) anyModalOpen() bool {
 		return true
 	case m.sessionPick.Visible:
 		return true
+	case m.treePick.Visible:
+		return true
 	case m.themePick.Visible:
 		return true
 	case m.agentPick.Visible:
@@ -118,6 +120,9 @@ func (m *Model) closeAllModals() {
 	}
 	if m.sessionPick.Visible {
 		m.sessionPick.Close()
+	}
+	if m.treePick.Visible {
+		m.treePick.Close()
 	}
 	if m.themePick.Visible {
 		m.themePick.Close()
@@ -458,6 +463,10 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/switch":
 		if err := m.openSessionPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
+	case "/tree":
+		if err := m.openTreePicker(); err != nil {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/sessions":

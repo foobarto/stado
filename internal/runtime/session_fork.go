@@ -48,3 +48,47 @@ func ForkSession(cfg *config.Config, parent *stadogit.Session) (*stadogit.Sessio
 	}
 	return child, nil
 }
+
+// ForkSessionAtTurn creates a child session rooted at an explicit commit in
+// the parent's history — atCommit is a turn-boundary commit (the SHA a
+// refs/sessions/<parent>/turns/N tag points at). Unlike ForkSession (which
+// roots at the parent's CURRENT tree head), this branches from an EARLIER
+// point so the child starts with exactly that turn's file tree.
+//
+// The parent stays immutable: forking only reads the parent's history and
+// seeds a fresh child ref + worktree. This is the in-TUI equivalent of the
+// CLI's `stado session fork <id> --at turns/N` (createSessionAt in
+// cmd/stado/session_fork.go) — same seeding mechanism (CreateSession with
+// the explicit commit, then materialise that tree), minus the cobra/OTel/
+// broker-notify scaffolding the CLI layer adds.
+//
+// A zero atCommit is rejected — callers wanting a tip-fork use ForkSession.
+// The empty-parent / no-tree case is the CLI command's job; this
+// primitive's contract is "fork at a known historical commit".
+func ForkSessionAtTurn(cfg *config.Config, parent *stadogit.Session, atCommit plumbing.Hash) (*stadogit.Session, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("session fork at turn: config required")
+	}
+	if parent == nil || parent.Sidecar == nil {
+		return nil, fmt.Errorf("session fork at turn: no parent session")
+	}
+	if atCommit.IsZero() {
+		return nil, fmt.Errorf("session fork at turn: atCommit required (use ForkSession to fork at the tip)")
+	}
+
+	worktreeRoot := filepath.Dir(parent.WorktreePath)
+	child, err := stadogit.CreateSession(parent.Sidecar, worktreeRoot, uuid.New().String(), atCommit)
+	if err != nil {
+		return nil, fmt.Errorf("session fork at turn: create child: %w", err)
+	}
+	attachSessionScaffolding(child, cfg, ReadUserRepoPin(parent.WorktreePath))
+
+	treeHash, err := child.TreeFromCommit(atCommit)
+	if err != nil {
+		return nil, fmt.Errorf("session fork at turn: resolve tree: %w", err)
+	}
+	if err := child.MaterializeTreeToDir(treeHash, child.WorktreePath); err != nil {
+		return nil, fmt.Errorf("session fork at turn: materialise worktree: %w", err)
+	}
+	return child, nil
+}
