@@ -69,12 +69,17 @@ wasm: ## Build the bundled wasm if any output is missing or any source changed
 		GO=$(GO) bash plugins/bundled/build.sh && touch $(WASM_STAMP); \
 	fi
 
+.PHONY: changelog
+changelog: ## Regenerate internal/changelog/latest.md from CHANGELOG.md (drift-guarded by a test)
+	@awk '/^## v/{c++} c==1' CHANGELOG.md > internal/changelog/latest.md.tmp \
+	  && mv internal/changelog/latest.md.tmp internal/changelog/latest.md
+
 .PHONY: build
-build: wasm ## Compile ./stado (default target)
+build: wasm changelog ## Compile ./stado (default target)
 	$(GO) build $(GOFLAGS) -ldflags='$(LDFLAGS)' -o $(BIN) $(PKG)
 
 .PHONY: install
-install: wasm ## Install ./stado into $(GOPATH)/bin
+install: wasm changelog ## Install ./stado into $(GOPATH)/bin
 	$(GO) install $(GOFLAGS) -ldflags='$(LDFLAGS)' $(PKG)
 
 .PHONY: test
