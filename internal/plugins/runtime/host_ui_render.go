@@ -23,6 +23,9 @@ type renderRequestWire struct {
 	Variant  string        `json:"variant,omitempty"`
 	ID       string        `json:"id,omitempty"`
 	Footer   string        `json:"footer,omitempty"`
+	// Target selects the display surface (#21 part 2). Empty decodes to
+	// "viewport" (back-compat with every pre-target emit). See Panel.Target.
+	Target string `json:"target,omitempty"`
 	// reserved for forward-compat: when adding optional metadata,
 	// extend renderRequestWire here, not via untagged map["any"].
 	_ struct{} `json:"-"`
@@ -94,6 +97,24 @@ var validRenderSectionKinds = map[string]bool{
 	"code":  true,
 	"table": true,
 	"diff":  true,
+}
+
+// validRenderTargets is the closed enum for Panel.Target (#21 part 2).
+// Empty normalises to "viewport" at decode. "sidebar"/"footer" address
+// a plugin-owned panel by Panel.ID; "log" appends to the shared
+// notification log.
+var validRenderTargets = map[string]bool{
+	"":         true,
+	"viewport": true,
+	"sidebar":  true,
+	"footer":   true,
+	"log":      true,
+}
+
+// targetRequiresID reports whether a render target addresses a panel by
+// id (so a non-empty ID is mandatory at decode). #21 part 2.
+func targetRequiresID(target string) bool {
+	return target == "sidebar" || target == "footer"
 }
 
 // registerUIRenderImport wires stado_ui_render. Wire format:
@@ -193,6 +214,18 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	if len(w.Footer) > maxPluginRuntimeUIRenderFooterBytes {
 		return Panel{}, fmt.Errorf("footer exceeds %d bytes", maxPluginRuntimeUIRenderFooterBytes)
 	}
+	if !validRenderTargets[w.Target] {
+		return Panel{}, fmt.Errorf("target %q not in {viewport,sidebar,footer,log}", w.Target)
+	}
+	// Normalise empty → "viewport" so downstream renderers switch on a
+	// single canonical value (back-compat: pre-target emits omit it).
+	target := w.Target
+	if target == "" {
+		target = "viewport"
+	}
+	if targetRequiresID(target) && w.ID == "" {
+		return Panel{}, fmt.Errorf("target %q requires a non-empty id", target)
+	}
 	if len(w.Sections) == 0 {
 		return Panel{}, fmt.Errorf("at least one section required")
 	}
@@ -224,6 +257,7 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 		Variant:  w.Variant,
 		ID:       textutil.StripControlChars(w.ID),
 		Footer:   textutil.StripControlChars(w.Footer),
+		Target:   target, // enum-validated above; passed through verbatim like Variant
 		Sections: make([]Section, 0, len(w.Sections)),
 	}
 	for i, sw := range w.Sections {

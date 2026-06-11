@@ -35,6 +35,48 @@ func TestDecodeRenderRequest_TextSection(t *testing.T) {
 	}
 }
 
+// TestDecodeRenderRequest_Target exercises the #21-part-2 display-target
+// enum: valid values, empty→viewport normalisation, and the id-required
+// rule for the addressable sidebar/footer targets.
+func TestDecodeRenderRequest_Target(t *testing.T) {
+	base := []sectionWire{{Kind: "text", Text: "body"}}
+	cases := []struct {
+		name       string
+		target     string
+		id         string
+		wantTarget string
+		wantErr    string
+	}{
+		{name: "empty normalises to viewport", target: "", wantTarget: "viewport"},
+		{name: "explicit viewport", target: "viewport", wantTarget: "viewport"},
+		{name: "sidebar with id", target: "sidebar", id: "scan", wantTarget: "sidebar"},
+		{name: "footer with id", target: "footer", id: "creds", wantTarget: "footer"},
+		{name: "log ignores id", target: "log", wantTarget: "log"},
+		{name: "sidebar without id rejected", target: "sidebar", wantErr: "requires a non-empty id"},
+		{name: "footer without id rejected", target: "footer", wantErr: "requires a non-empty id"},
+		{name: "unknown target rejected", target: "popup", id: "x", wantErr: "not in {viewport"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := decodeRenderRequest(renderRequestWire{
+				Title: "t", Target: tc.target, ID: tc.id, Sections: base,
+			})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if p.Target != tc.wantTarget {
+				t.Errorf("Target = %q, want %q", p.Target, tc.wantTarget)
+			}
+		})
+	}
+}
+
 // TestDecodeRenderRequest_AllBodyKinds: sweep every supported body
 // kind so adding a new kind in the future requires updating this
 // test (it's the canary for the body-shape contract).

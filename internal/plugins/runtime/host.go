@@ -541,12 +541,21 @@ type RenderBridge interface {
 // useful when a later choice references this panel ("re. the diff
 // shown above"). Footer is a short trailing line (status, hint).
 // F9b.1.
+//
+// Target selects the display surface (#21 part 2): "" / "viewport"
+// (default, conversation scrollback), "sidebar" / "footer" (a plugin-
+// owned, addressable panel — the operator references Panel.ID in
+// [tui.sidebar].sections / [tui.footer].segments to show it), or "log"
+// (one line appended to the shared, bounded notification log). For
+// "sidebar" / "footer" the ID is REQUIRED (it's how the operator
+// addresses the panel). Non-TUI render channels ignore Target.
 type Panel struct {
 	Title    string
 	Sections []Section
 	Variant  string
 	ID       string
 	Footer   string
+	Target   string
 }
 
 // Section is one body of a Panel. Exactly one of the body-shape
