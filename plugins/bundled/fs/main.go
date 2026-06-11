@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/foobarto/stado/internal/fs/hashline"
 	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
 )
 
@@ -79,8 +80,9 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	sdk.Write(pathPtr, pathBytes)
 	defer sdk.Free(pathPtr, int32(len(pathBytes)))
 
+	partial := req.Offset > 0 || req.Length > 0
 	var n int32
-	if req.Offset > 0 || req.Length > 0 {
+	if partial {
 		length := req.Length
 		if length <= 0 {
 			length = defaultBufSize
@@ -97,7 +99,15 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	if n < 0 {
 		return writeError(resPtr, resCap, "read failed")
 	}
-	return writeResult(resPtr, resCap, sdk.Bytes(buf, n))
+	// Full-file reads carry LINE#HASH: prefixes — byte-identical to the
+	// native read tool (same hashline engine) so agents see the same anchors
+	// whether fs runs native or as wasm. Byte-windowed partial reads
+	// (offset/length) are an opaque-bytes surface and are returned raw.
+	if partial {
+		return writeResult(resPtr, resCap, sdk.Bytes(buf, n))
+	}
+	prefixed := hashline.Render(string(sdk.Bytes(buf, n)), 1)
+	return writeResult(resPtr, resCap, []byte(prefixed))
 }
 
 // ── fs.write ───────────────────────────────────────────────────────────────
@@ -147,10 +157,13 @@ func stadoToolWrite(argsPtr, argsLen, resPtr, resCap int32) int32 {
 func stadoToolEdit(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	args := sdk.Bytes(argsPtr, argsLen)
 	var req struct {
-		Path       string `json:"path"`
-		OldString  string `json:"old_string"`
-		NewString  string `json:"new_string"`
-		ReplaceAll bool   `json:"replace_all"`
+		Path  string `json:"path"`
+		Edits []struct {
+			Op    string   `json:"op"`
+			Pos   string   `json:"pos"`
+			End   string   `json:"end"`
+			Lines []string `json:"lines"`
+		} `json:"edits"`
 	}
 	if err := json.Unmarshal(args, &req); err != nil {
 		return writeError(resPtr, resCap, "invalid args: "+err.Error())
@@ -158,40 +171,33 @@ func stadoToolEdit(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	if req.Path == "" {
 		return writeError(resPtr, resCap, "path required")
 	}
-	if req.OldString == "" {
-		return writeError(resPtr, resCap, "old_string required")
-	}
-	if req.OldString == req.NewString {
-		return writeError(resPtr, resCap, "old_string and new_string are identical")
+	if len(req.Edits) == 0 {
+		return writeError(resPtr, resCap, "edit requires at least one entry in \"edits\"")
 	}
 
 	content, err := readFileFull(req.Path)
 	if err != nil {
 		return writeError(resPtr, resCap, "read: "+err.Error())
 	}
-	src := string(content)
-	var out string
-	if req.ReplaceAll {
-		out = strings.ReplaceAll(src, req.OldString, req.NewString)
-		if out == src {
-			return writeError(resPtr, resCap, "old_string not found in file")
-		}
-	} else {
-		idx := strings.Index(src, req.OldString)
-		if idx < 0 {
-			return writeError(resPtr, resCap, "old_string not found in file")
-		}
-		// Reject ambiguous (multiple matches) when not replace_all.
-		if strings.Count(src, req.OldString) > 1 {
-			return writeError(resPtr, resCap, "old_string is ambiguous (multiple matches); pass replace_all=true or refine the snippet")
-		}
-		out = src[:idx] + req.NewString + src[idx+len(req.OldString):]
+
+	// Same hashline engine as the native edit tool — anchor validation,
+	// stale-anchor rejection (with fresh anchors), literal-content guard,
+	// and bottom-up application are all byte-identical across native/wasm.
+	edits := make([]hashline.Edit, len(req.Edits))
+	for i, e := range req.Edits {
+		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines}
+	}
+	out, err := hashline.Apply(string(content), edits)
+	if err != nil {
+		// Stale-anchor / validation messages are surfaced to the model so it
+		// can retry with the fresh anchors carried in the error.
+		return writeError(resPtr, resCap, err.Error())
 	}
 
 	if err := writeFileFull(req.Path, []byte(out)); err != nil {
 		return writeError(resPtr, resCap, "write: "+err.Error())
 	}
-	return writeResult(resPtr, resCap, []byte(fmt.Sprintf("edited %s", req.Path)))
+	return writeResult(resPtr, resCap, []byte(fmt.Sprintf("Applied %d edit(s) to %s", len(req.Edits), req.Path)))
 }
 
 // ── fs.glob ────────────────────────────────────────────────────────────────

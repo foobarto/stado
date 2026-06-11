@@ -3,6 +3,7 @@ package subagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/fs"
+	"github.com/foobarto/stado/internal/fs/hashline"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -151,7 +153,13 @@ func TestScopedWriteHostGuardsWriteAndEditTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	edit := fs.EditTool{}
-	res, err = edit.Run(context.Background(), json.RawMessage(`{"path":"allowed/edit.txt","old":"before","new":"after"}`), host)
+	// Hashline edit: anchor line 1 of "before" by its current LINE#HASH.
+	anchor := fmt.Sprintf("1#%s", hashline.LineHash(1, "before"))
+	editJSON, _ := json.Marshal(map[string]any{
+		"path":  "allowed/edit.txt",
+		"edits": []map[string]any{{"op": "replace", "pos": anchor, "lines": []string{"after"}}},
+	})
+	res, err = edit.Run(context.Background(), editJSON, host)
 	if err != nil || res.Error != "" {
 		t.Fatalf("allowed edit result = %#v, err = %v", res, err)
 	}

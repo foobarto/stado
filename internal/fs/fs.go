@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/foobarto/stado/internal/fs/hashline"
 	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
@@ -21,7 +22,7 @@ type ReadTool struct{}
 func (ReadTool) Class() tool.Class { return tool.ClassNonMutating }
 func (ReadTool) Name() string      { return "read" }
 func (ReadTool) Description() string {
-	return "Read the contents of a file. Optional start/end line numbers (1-indexed, inclusive; end=-1 means EOF)."
+	return "Read the contents of a file. Each line is prefixed \"LINE#HASH:\" (1-indexed line number + a 2-character content hash). Copy those LINE#HASH anchors into the edit tool's pos/end fields to make hash-validated edits. Optional start/end line numbers (1-indexed, inclusive; end=-1 means EOF) — anchors stay absolute across ranged reads."
 }
 func (ReadTool) Schema() map[string]any {
 	return map[string]any{
@@ -55,11 +56,22 @@ func (ReadTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 
 	rangeKey := canonicalRange(p.Start, p.End)
 
-	// Apply the per-tool output budget BEFORE hashing. Hash scope is
-	// "the bytes returned to the model" (DESIGN §"Tool-output curation"),
-	// so an identical re-truncation hashes identically → dedup still
-	// works for large-file re-reads.
-	rendered := budget.TruncateBytes(string(raw), budget.ReadBytes,
+	// Prefix every line with its LINE#HASH anchor before truncation. The
+	// first line's absolute number is the resolved range start (1 for a
+	// full-file read), so anchors stay absolute across paged reads — the
+	// edit tool validates pos/end against these exact hashes. Same engine
+	// the wasm fs plugin uses, so anchors are byte-identical across both.
+	startLine := 1
+	if p.Start != nil && *p.Start > 1 {
+		startLine = *p.Start
+	}
+	prefixed := hashline.Render(string(raw), startLine)
+
+	// Apply the per-tool output budget AFTER prefixing, BEFORE hashing.
+	// Hash scope is "the bytes returned to the model" (DESIGN §"Tool-output
+	// curation"), so an identical re-truncation hashes identically → dedup
+	// still works for large-file re-reads.
+	rendered := budget.TruncateBytes(prefixed, budget.ReadBytes,
 		fmt.Sprintf("call %s with start=<N> end=<M> to request a specific range", p.Path))
 
 	// Hash the bytes we'd surface to the model. sha256 is pinned for
@@ -220,18 +232,34 @@ type EditTool struct{}
 
 const maxEditFileBytes int64 = 4 << 20
 
-func (EditTool) Class() tool.Class   { return tool.ClassMutating }
-func (EditTool) Name() string        { return "edit" }
-func (EditTool) Description() string { return "Apply a search/replace edit to a file" }
+func (EditTool) Class() tool.Class { return tool.ClassMutating }
+func (EditTool) Name() string      { return "edit" }
+func (EditTool) Description() string {
+	return "Apply content-anchored (hashline) edits to a file. Each edit targets a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it has changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / at EOF), prepend (before pos / at BOF). Edits in one call apply bottom-up so line numbers stay valid."
+}
 func (EditTool) Schema() map[string]any {
+	anchorDesc := "LINE#HASH anchor copied from read output, e.g. \"11#KT\""
+	editItem := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"op":  map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend"}, "description": "Operation"},
+			"pos": map[string]any{"type": "string", "description": anchorDesc},
+			"end": map[string]any{"type": "string", "description": "End anchor for a range replace (inclusive); same LINE#HASH form as pos"},
+			"lines": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string"},
+				"description": "Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes",
+			},
+		},
+		"required": []string{"op", "lines"},
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path": map[string]any{"type": "string", "description": "Path to the file"},
-			"old":  map[string]any{"type": "string", "description": "Text to find (exact match)"},
-			"new":  map[string]any{"type": "string", "description": "Replacement text"},
+			"path":  map[string]any{"type": "string", "description": "Path to the file"},
+			"edits": map[string]any{"type": "array", "items": editItem, "description": "One or more hashline edits, applied bottom-up"},
 		},
-		"required": []string{"path", "old", "new"},
+		"required": []string{"path", "edits"},
 	}
 }
 
@@ -239,6 +267,9 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	var p EditArgs
 	if err := json.Unmarshal(args, &p); err != nil {
 		return tool.Result{Error: err.Error()}, err
+	}
+	if len(p.Edits) == 0 {
+		return tool.Result{Error: "edit requires at least one entry in \"edits\""}, nil
 	}
 	if guard, ok := h.(tool.WritePathGuard); ok {
 		if err := guard.CheckWritePath(p.Path); err != nil {
@@ -249,16 +280,22 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	idx := strings.Index(content, p.Old)
-	if idx < 0 {
-		return tool.Result{Error: fmt.Sprintf("text not found in %s", p.Path)}, nil
+
+	edits := make([]hashline.Edit, len(p.Edits))
+	for i, e := range p.Edits {
+		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines}
 	}
-	editedLen := int64(len(content)-len(p.Old)) + int64(len(p.New))
-	if editedLen > maxEditFileBytes {
+	newContent, err := hashline.Apply(content, edits)
+	if err != nil {
+		// Stale-anchor and validation errors are tool-surface errors the
+		// model should see and act on (retry with fresh anchors), not Go
+		// errors that abort the turn.
+		return tool.Result{Error: err.Error()}, nil
+	}
+	if int64(len(newContent)) > maxEditFileBytes {
 		err := fmt.Errorf("edited content exceeds %d bytes: %s", maxEditFileBytes, p.Path)
 		return tool.Result{Error: err.Error()}, err
 	}
-	newContent := content[:idx] + p.New + content[idx+len(p.Old):]
 	r, err := workdirpath.New(h.Workdir())
 	if err != nil {
 		return tool.Result{Error: err.Error()}, err
@@ -266,7 +303,7 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 	if err := r.WriteFileAtomic(p.Path, []byte(newContent), 0o644); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
-	return tool.Result{Content: fmt.Sprintf("Applied edit to %s", p.Path)}, nil
+	return tool.Result{Content: fmt.Sprintf("Applied %d edit(s) to %s", len(p.Edits), p.Path)}, nil
 }
 
 func readEditContent(workdir, path string) (string, error) {
@@ -547,10 +584,21 @@ type WriteArgs struct {
 	Content string `json:"content"`
 }
 
+// EditArgs is the input to EditTool — the hashline anchor schema. Each
+// EditItem targets a LINE#HASH anchor from read output.
 type EditArgs struct {
-	Path string `json:"path"`
-	Old  string `json:"old"`
-	New  string `json:"new"`
+	Path  string     `json:"path"`
+	Edits []EditItem `json:"edits"`
+}
+
+// EditItem is one hashline operation. Pos/End are LINE#HASH reference
+// strings (End optional, range replace). Lines is literal content with no
+// display prefixes. See internal/fs/hashline for the contract.
+type EditItem struct {
+	Op    string   `json:"op"`
+	Pos   string   `json:"pos,omitempty"`
+	End   string   `json:"end,omitempty"`
+	Lines []string `json:"lines"`
 }
 
 type GlobArgs struct {

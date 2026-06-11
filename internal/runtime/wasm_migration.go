@@ -43,7 +43,7 @@ var wasmFamilies = []struct {
 			wasmTools: []wasmTool{
 				{
 					name:        "read",
-					description: "Read a file. Optional offset/length for partial reads.",
+					description: "Read a file. Each line is prefixed \"LINE#HASH:\" (1-indexed line number + 2-char content hash); copy those anchors into the edit tool's pos/end. Optional offset/length for raw partial byte reads (no prefixes).",
 					schema: map[string]any{
 						"type":     "object",
 						"required": []string{"path"},
@@ -69,14 +69,24 @@ var wasmFamilies = []struct {
 				},
 				{
 					name:        "edit",
-					description: "Edit a file by replacing an exact string.",
+					description: "Apply content-anchored (hashline) edits. Each edit targets a LINE#HASH anchor from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. A stale hash is REJECTED with fresh anchors. \"lines\" is literal content (no LINE#HASH:/+/- prefixes). Ops: replace (pos, optional end), append, prepend. Edits apply bottom-up.",
 					schema: map[string]any{
-						"type": "object", "required": []string{"path", "old_string", "new_string"},
+						"type": "object", "required": []string{"path", "edits"},
 						"properties": map[string]any{
-							"path":        map[string]any{"type": "string"},
-							"old_string":  map[string]any{"type": "string"},
-							"new_string":  map[string]any{"type": "string"},
-							"replace_all": map[string]any{"type": "boolean"},
+							"path": map[string]any{"type": "string"},
+							"edits": map[string]any{
+								"type": "array",
+								"items": map[string]any{
+									"type":     "object",
+									"required": []string{"op", "lines"},
+									"properties": map[string]any{
+										"op":    map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend"}},
+										"pos":   map[string]any{"type": "string", "description": "LINE#HASH anchor from read output, e.g. 11#KT"},
+										"end":   map[string]any{"type": "string", "description": "End anchor for a range replace (inclusive)"},
+										"lines": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Literal lines — no LINE#HASH:/+/- prefixes"},
+									},
+								},
+							},
 						},
 					},
 					caps: []string{"fs:read:.", "fs:write:."},

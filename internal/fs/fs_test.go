@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/foobarto/stado/internal/fs/hashline"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -75,8 +76,13 @@ func TestReadFullFile(t *testing.T) {
 
 	h := newRecordingHost(dir)
 	got, _ := invokeRead(t, h, map[string]any{"path": "a.txt"})
-	if got != "hello\nworld\n" {
-		t.Fatalf("full read: %q", got)
+	want := hashline.Render("hello\nworld\n", 1)
+	if got != want {
+		t.Fatalf("full read = %q, want %q", got, want)
+	}
+	// Output carries LINE#HASH: prefixes (byte-identical to the engine).
+	if !strings.HasPrefix(got, "1#") || !strings.Contains(got, ":hello") {
+		t.Fatalf("read output missing hashline prefix: %q", got)
 	}
 	// First read records the key with canonical Range "" (full-file).
 	if _, ok := h.entries[tool.ReadKey{Path: "a.txt", Range: ""}]; !ok {
@@ -91,9 +97,13 @@ func TestReadRangedLines(t *testing.T) {
 
 	h := newRecordingHost(dir)
 	got, _ := invokeRead(t, h, map[string]any{"path": "a.txt", "start": 2, "end": 4})
-	want := "l2\nl3\nl4"
+	// Ranged read keeps ABSOLUTE line numbers: first rendered line is line 2.
+	want := hashline.Render("l2\nl3\nl4", 2)
 	if got != want {
 		t.Fatalf("range 2:4 = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(got, "2#") {
+		t.Fatalf("ranged read should anchor at absolute line 2: %q", got)
 	}
 	if _, ok := h.entries[tool.ReadKey{Path: "a.txt", Range: "2:4"}]; !ok {
 		t.Fatalf("expected key 2:4, got: %v", h.entries)
@@ -121,7 +131,7 @@ func TestReadDedupSameContent(t *testing.T) {
 
 	h := newRecordingHost(dir)
 	got1, _ := invokeRead(t, h, map[string]any{"path": "a.txt"})
-	if got1 != "body\n" {
+	if got1 != hashline.Render("body\n", 1) {
 		t.Fatalf("first read: %q", got1)
 	}
 
@@ -150,7 +160,7 @@ func TestReadDedupStaleOnChange(t *testing.T) {
 	if strings.Contains(got, "[dedup]") {
 		t.Fatalf("changed file must not dedup, got: %q", got)
 	}
-	if got != "v2\n" {
+	if got != hashline.Render("v2\n", 1) {
 		t.Fatalf("fresh read: %q", got)
 	}
 }
@@ -267,6 +277,27 @@ func TestWriteRejectsEscapingWorkdir(t *testing.T) {
 	}
 }
 
+// anchorFor builds a "LINE#HASH" reference for the given 1-indexed line of
+// content — the same way the model would copy it out of read output.
+func anchorFor(t *testing.T, content string, line int) string {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+	if line < 1 || line > len(lines) {
+		t.Fatalf("anchorFor: line %d out of range (file has %d lines)", line, len(lines))
+	}
+	return fmt.Sprintf("%d#%s", line, hashline.LineHash(line, lines[line-1]))
+}
+
+// editArgs marshals a hashline edit request.
+func editArgs(t *testing.T, path string, edits ...map[string]any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"path": path, "edits": edits})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return raw
+}
+
 func TestEditRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	workdir := filepath.Join(root, "wd")
@@ -274,7 +305,7 @@ func TestEditRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(root, "secret.txt")
-	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+	if err := os.WriteFile(outside, []byte("secret\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(workdir, "link.txt")
@@ -283,7 +314,11 @@ func TestEditRejectsSymlinkEscape(t *testing.T) {
 	}
 
 	h := newRecordingHost(workdir)
-	raw, _ := json.Marshal(map[string]any{"path": "link.txt", "old": "secret", "new": "edited"})
+	raw := editArgs(t, "link.txt", map[string]any{
+		"op":    "replace",
+		"pos":   anchorFor(t, "secret\n", 1),
+		"lines": []string{"edited"},
+	})
 	_, err := EditTool{}.Run(context.Background(), raw, h)
 	if err == nil || !strings.Contains(err.Error(), "escapes workdir") {
 		t.Fatalf("EditTool.Run error = %v, want symlink escape rejection", err)
@@ -292,10 +327,15 @@ func TestEditRejectsSymlinkEscape(t *testing.T) {
 
 func TestEditAppliesSmallFile(t *testing.T) {
 	dir := t.TempDir()
-	writeTempFile(t, dir, "a.txt", "hello\nworld\n")
+	content := "hello\nworld\n"
+	writeTempFile(t, dir, "a.txt", content)
 
 	h := newRecordingHost(dir)
-	raw, _ := json.Marshal(map[string]any{"path": "a.txt", "old": "world", "new": "stado"})
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "replace",
+		"pos":   anchorFor(t, content, 2),
+		"lines": []string{"stado"},
+	})
 	res, err := EditTool{}.Run(context.Background(), raw, h)
 	if err != nil {
 		t.Fatalf("EditTool.Run error = %v", err)
@@ -312,6 +352,110 @@ func TestEditAppliesSmallFile(t *testing.T) {
 	}
 }
 
+// TestEditRangeReplace exercises a two-anchor range replace.
+func TestEditRangeReplace(t *testing.T) {
+	dir := t.TempDir()
+	content := "a\nb\nc\nd\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "replace",
+		"pos":   anchorFor(t, content, 2),
+		"end":   anchorFor(t, content, 3),
+		"lines": []string{"X", "Y", "Z"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "a\nX\nY\nZ\nd\n" {
+		t.Fatalf("range replace = %q", got)
+	}
+}
+
+// TestEditStaleAnchorRejected: a wrong hash is rejected with fresh anchors
+// and the file is left unchanged.
+func TestEditStaleAnchorRejected(t *testing.T) {
+	dir := t.TempDir()
+	content := "hello\nworld\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	wrong := "KT"
+	if wrong == hashline.LineHash(2, "world") {
+		wrong = "PZ"
+	}
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "replace",
+		"pos":   fmt.Sprintf("2#%s", wrong),
+		"lines": []string{"x"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("stale anchor should be a tool-surface error, not a Go error: %v", err)
+	}
+	if !strings.Contains(res.Error, "E_STALE_ANCHOR") {
+		t.Fatalf("expected stale-anchor error, got %q", res.Error)
+	}
+	// Fresh anchors carry the correct current hash for line 2.
+	if !strings.Contains(res.Error, fmt.Sprintf("2#%s", hashline.LineHash(2, "world"))) {
+		t.Fatalf("fresh anchors missing correct ref: %q", res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != content {
+		t.Fatalf("file must be unchanged on stale anchor, got %q", got)
+	}
+}
+
+// TestEditRejectsDisplayPrefixedLines: the literal-content guard.
+func TestEditRejectsDisplayPrefixedLines(t *testing.T) {
+	dir := t.TempDir()
+	content := "hello\nworld\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "replace",
+		"pos":   anchorFor(t, content, 1),
+		"lines": []string{"2#KT:world"}, // copied display prefix, not literal content
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("display-prefix should be a tool-surface error: %v", err)
+	}
+	if !strings.Contains(res.Error, "E_INVALID_PATCH") {
+		t.Fatalf("expected invalid-patch rejection, got %q", res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != content {
+		t.Fatalf("file must be unchanged when patch rejected, got %q", got)
+	}
+}
+
+// TestEditMultiEditBottomUp: multiple replaces in one call apply against the
+// original line numbers (bottom-up), even when an earlier edit grows the file.
+func TestEditMultiEditBottomUp(t *testing.T) {
+	dir := t.TempDir()
+	content := "l1\nl2\nl3\nl4\nl5\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt",
+		map[string]any{"op": "replace", "pos": anchorFor(t, content, 2), "lines": []string{"a", "b", "c"}},
+		map[string]any{"op": "replace", "pos": anchorFor(t, content, 4), "lines": []string{"D"}},
+	)
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "l1\na\nb\nc\nl3\nD\nl5\n" {
+		t.Fatalf("multi-edit bottom-up = %q", got)
+	}
+}
+
 func TestEditRejectsOversizedSourceFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "huge.txt")
@@ -323,7 +467,7 @@ func TestEditRejectsOversizedSourceFile(t *testing.T) {
 	}
 
 	h := newRecordingHost(dir)
-	raw, _ := json.Marshal(map[string]any{"path": "huge.txt", "old": "x", "new": "y"})
+	raw := editArgs(t, "huge.txt", map[string]any{"op": "replace", "pos": "1#KT", "lines": []string{"y"}})
 	_, err := EditTool{}.Run(context.Background(), raw, h)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("EditTool.Run error = %v, want size rejection", err)
@@ -332,13 +476,15 @@ func TestEditRejectsOversizedSourceFile(t *testing.T) {
 
 func TestEditRejectsOversizedResult(t *testing.T) {
 	dir := t.TempDir()
-	writeTempFile(t, dir, "a.txt", "x")
+	content := "x\n"
+	writeTempFile(t, dir, "a.txt", content)
 
 	h := newRecordingHost(dir)
-	raw, _ := json.Marshal(map[string]any{
-		"path": "a.txt",
-		"old":  "x",
-		"new":  strings.Repeat("y", int(maxEditFileBytes)+1),
+	bigLine := strings.Repeat("y", int(maxEditFileBytes)+1)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "replace",
+		"pos":   anchorFor(t, content, 1),
+		"lines": []string{bigLine},
 	})
 	_, err := EditTool{}.Run(context.Background(), raw, h)
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
@@ -348,7 +494,7 @@ func TestEditRejectsOversizedResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "x" {
+	if string(got) != content {
 		t.Fatalf("file should be unchanged, got %q", got)
 	}
 }
