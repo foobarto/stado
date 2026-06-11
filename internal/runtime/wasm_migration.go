@@ -69,7 +69,7 @@ var wasmFamilies = []struct {
 				},
 				{
 					name:        "edit",
-					description: "Apply content-anchored (hashline) edits. Each edit targets a LINE#HASH anchor from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. A stale hash is REJECTED with fresh anchors. \"lines\" is literal content (no LINE#HASH:/+/- prefixes). Ops: replace (pos, optional end), append, prepend. Edits apply bottom-up.",
+					description: "Apply content-anchored (hashline) edits. Anchored edits target a LINE#HASH anchor from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. A stale hash is REJECTED with fresh anchors. \"lines\" is literal content (no LINE#HASH:/+/- prefixes). Ops: replace (pos, optional end), append, prepend, and replace_text (find an EXACTLY UNIQUE substring \"text\" and swap it for \"replacement\"; rejected if missing or non-unique). Anchored edits apply bottom-up; replace_text cannot be mixed with anchored ops in one call.",
 					schema: map[string]any{
 						"type": "object", "required": []string{"path", "edits"},
 						"properties": map[string]any{
@@ -78,12 +78,14 @@ var wasmFamilies = []struct {
 								"type": "array",
 								"items": map[string]any{
 									"type":     "object",
-									"required": []string{"op", "lines"},
+									"required": []string{"op"},
 									"properties": map[string]any{
-										"op":    map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend"}},
-										"pos":   map[string]any{"type": "string", "description": "LINE#HASH anchor from read output, e.g. 11#KT"},
-										"end":   map[string]any{"type": "string", "description": "End anchor for a range replace (inclusive)"},
-										"lines": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Literal lines — no LINE#HASH:/+/- prefixes"},
+										"op":          map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend", "replace_text"}},
+										"pos":         map[string]any{"type": "string", "description": "LINE#HASH anchor from read output, e.g. 11#KT"},
+										"end":         map[string]any{"type": "string", "description": "End anchor for a range replace (inclusive)"},
+										"lines":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Literal lines — no LINE#HASH:/+/- prefixes"},
+										"text":        map[string]any{"type": "string", "description": "replace_text only: the EXACTLY UNIQUE substring to find (may span lines)"},
+										"replacement": map[string]any{"type": "string", "description": "replace_text only: what to swap \"text\" for"},
 									},
 								},
 							},

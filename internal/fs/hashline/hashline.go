@@ -226,20 +226,35 @@ func inAlphabet(s string) bool {
 type Op string
 
 const (
-	OpReplace Op = "replace"
-	OpAppend  Op = "append"
-	OpPrepend Op = "prepend"
+	OpReplace     Op = "replace"
+	OpAppend      Op = "append"
+	OpPrepend     Op = "prepend"
+	OpReplaceText Op = "replace_text"
 )
 
-// Edit is one hashline operation as received from the tool schema. Pos and
-// End are raw "LINE#HASH" reference strings (End optional, range replace).
-// Lines is the literal replacement/insertion content, one element per line,
-// with NO display prefixes or diff markers.
+// Edit is one hashline operation as received from the tool schema.
+//
+// The anchored ops (replace/append/prepend) use Pos and End — raw "LINE#HASH"
+// reference strings (End optional, range replace) — and Lines, the literal
+// replacement/insertion content, one element per line, with NO display
+// prefixes or diff markers.
+//
+// The replace_text op is NOT line-anchored: it finds an EXACT, UNIQUE
+// substring (Text) anywhere in the file and swaps it for Replacement,
+// rejecting if Text matches zero times (not found) or more than once
+// (ambiguous). It uses no hash anchor — the uniqueness of the match IS the
+// staleness guard. Text/Replacement are raw strings (may span lines or sit
+// mid-line); Pos/End/Lines are unused.
 type Edit struct {
-	Op    Op       `json:"op"`
-	Pos   string   `json:"pos,omitempty"`
-	End   string   `json:"end,omitempty"`
-	Lines []string `json:"lines"`
+	Op  Op     `json:"op"`
+	Pos string `json:"pos,omitempty"`
+	End string `json:"end,omitempty"`
+	// Lines is the literal content for replace/append/prepend.
+	Lines []string `json:"lines,omitempty"`
+	// Text is the exact, unique substring replace_text searches for.
+	Text string `json:"text,omitempty"`
+	// Replacement is what replace_text swaps Text for.
+	Replacement string `json:"replacement,omitempty"`
 }
 
 // StaleAnchorError signals that one or more anchors no longer match the
@@ -288,6 +303,27 @@ func Apply(content string, edits []Edit) (string, error) {
 	if len(edits) == 0 {
 		return content, nil
 	}
+
+	// replace_text is a whole-file substring op, not a line-anchored splice.
+	// Mixing it with replace/append/prepend in one call has ambiguous
+	// ordering (anchors validate against the original line slice; a
+	// substring swap shifts byte offsets), so route a call to exactly one
+	// machinery: all-replace_text or all-anchored. A mixed call is rejected.
+	hasText, hasAnchored := false, false
+	for _, e := range edits {
+		if e.Op == OpReplaceText {
+			hasText = true
+		} else {
+			hasAnchored = true
+		}
+	}
+	if hasText && hasAnchored {
+		return content, fmt.Errorf("[E_BAD_OP] cannot mix \"replace_text\" with anchored ops (replace/append/prepend) in one call; send them in separate edit calls")
+	}
+	if hasText {
+		return applyReplaceText(content, edits)
+	}
+
 	lines := splitLines(content)
 	hadTrailingNewline := strings.HasSuffix(content, "\n") || content == ""
 
@@ -424,6 +460,40 @@ func Apply(content string, edits []Edit) (string, error) {
 		return content, fmt.Errorf("[E_WOULD_EMPTY] refusing to empty a non-empty file through edit; use write instead")
 	}
 	return result, nil
+}
+
+// applyReplaceText applies a batch of replace_text edits to content. Each
+// edit finds an EXACT, UNIQUE occurrence of Text and swaps it for
+// Replacement. An edit is REJECTED (whole batch, content untouched) when its
+// Text is empty, matches zero times (not found), or matches more than once
+// (ambiguous) — uniqueness is the staleness guard: if the file changed so the
+// snippet no longer appears, or appears twice, the model is told rather than
+// silently editing the wrong place.
+//
+// Edits apply sequentially; each later edit's match count is checked against
+// the content as the earlier edits left it. Because Replacement can be
+// arbitrary text, a later edit's Text might be newly created (or destroyed)
+// by an earlier one — sequential evaluation matches how a reader reasons
+// about "do this, then this".
+func applyReplaceText(content string, edits []Edit) (string, error) {
+	out := content
+	for i, e := range edits {
+		if e.Text == "" {
+			return content, fmt.Errorf("[E_BAD_OP] edit %d: op \"replace_text\" requires a non-empty \"text\" to find", i)
+		}
+		n := strings.Count(out, e.Text)
+		switch {
+		case n == 0:
+			return content, fmt.Errorf("[E_TEXT_NOT_FOUND] edit %d: \"text\" not found in file (it may have changed since you read it); re-read and retry. Searched for: %q", i, e.Text)
+		case n > 1:
+			return content, fmt.Errorf("[E_TEXT_AMBIGUOUS] edit %d: \"text\" matches %d times — replace_text requires an EXACTLY UNIQUE substring; add surrounding context to disambiguate. Searched for: %q", i, n, e.Text)
+		}
+		out = strings.Replace(out, e.Text, e.Replacement, 1)
+	}
+	if content != "" && out == "" {
+		return content, fmt.Errorf("[E_WOULD_EMPTY] refusing to empty a non-empty file through edit; use write instead")
+	}
+	return out, nil
 }
 
 // checkAnchor returns (mismatch, ok). ok=true when the line exists and its

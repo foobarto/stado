@@ -235,23 +235,25 @@ const maxEditFileBytes int64 = 4 << 20
 func (EditTool) Class() tool.Class { return tool.ClassMutating }
 func (EditTool) Name() string      { return "edit" }
 func (EditTool) Description() string {
-	return "Apply content-anchored (hashline) edits to a file. Each edit targets a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it has changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / at EOF), prepend (before pos / at BOF). Edits in one call apply bottom-up so line numbers stay valid."
+	return "Apply content-anchored (hashline) edits to a file. Anchored edits target a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it has changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / at EOF), prepend (before pos / at BOF), and replace_text (find an EXACTLY UNIQUE substring \"text\" anywhere in the file and swap it for \"replacement\"; rejected if \"text\" is missing or appears more than once). Anchored edits in one call apply bottom-up so line numbers stay valid; replace_text cannot be mixed with anchored ops in the same call."
 }
 func (EditTool) Schema() map[string]any {
 	anchorDesc := "LINE#HASH anchor copied from read output, e.g. \"11#KT\""
 	editItem := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"op":  map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend"}, "description": "Operation"},
+			"op":  map[string]any{"type": "string", "enum": []string{"replace", "append", "prepend", "replace_text"}, "description": "Operation"},
 			"pos": map[string]any{"type": "string", "description": anchorDesc},
 			"end": map[string]any{"type": "string", "description": "End anchor for a range replace (inclusive); same LINE#HASH form as pos"},
 			"lines": map[string]any{
 				"type":        "array",
 				"items":       map[string]any{"type": "string"},
-				"description": "Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes",
+				"description": "Literal replacement/insertion lines for replace/append/prepend — NO LINE#HASH: or diff +/- prefixes",
 			},
+			"text":        map[string]any{"type": "string", "description": "replace_text only: the EXACTLY UNIQUE substring to find (may span lines)"},
+			"replacement": map[string]any{"type": "string", "description": "replace_text only: what to swap \"text\" for"},
 		},
-		"required": []string{"op", "lines"},
+		"required": []string{"op"},
 	}
 	return map[string]any{
 		"type": "object",
@@ -283,7 +285,7 @@ func (EditTool) Run(ctx context.Context, args json.RawMessage, h tool.Host) (too
 
 	edits := make([]hashline.Edit, len(p.Edits))
 	for i, e := range p.Edits {
-		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines}
+		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines, Text: e.Text, Replacement: e.Replacement}
 	}
 	newContent, err := hashline.Apply(content, edits)
 	if err != nil {
@@ -591,14 +593,18 @@ type EditArgs struct {
 	Edits []EditItem `json:"edits"`
 }
 
-// EditItem is one hashline operation. Pos/End are LINE#HASH reference
-// strings (End optional, range replace). Lines is literal content with no
-// display prefixes. See internal/fs/hashline for the contract.
+// EditItem is one hashline operation. For replace/append/prepend, Pos/End are
+// LINE#HASH reference strings (End optional, range replace) and Lines is
+// literal content with no display prefixes. For replace_text, Text is the
+// exact-unique substring to find and Replacement what to swap it for. See
+// internal/fs/hashline for the contract.
 type EditItem struct {
-	Op    string   `json:"op"`
-	Pos   string   `json:"pos,omitempty"`
-	End   string   `json:"end,omitempty"`
-	Lines []string `json:"lines"`
+	Op          string   `json:"op"`
+	Pos         string   `json:"pos,omitempty"`
+	End         string   `json:"end,omitempty"`
+	Lines       []string `json:"lines,omitempty"`
+	Text        string   `json:"text,omitempty"`
+	Replacement string   `json:"replacement,omitempty"`
 }
 
 type GlobArgs struct {

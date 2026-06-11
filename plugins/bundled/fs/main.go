@@ -159,10 +159,12 @@ func stadoToolEdit(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
 		Path  string `json:"path"`
 		Edits []struct {
-			Op    string   `json:"op"`
-			Pos   string   `json:"pos"`
-			End   string   `json:"end"`
-			Lines []string `json:"lines"`
+			Op          string   `json:"op"`
+			Pos         string   `json:"pos"`
+			End         string   `json:"end"`
+			Lines       []string `json:"lines"`
+			Text        string   `json:"text"`
+			Replacement string   `json:"replacement"`
 		} `json:"edits"`
 	}
 	if err := json.Unmarshal(args, &req); err != nil {
@@ -185,7 +187,7 @@ func stadoToolEdit(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	// and bottom-up application are all byte-identical across native/wasm.
 	edits := make([]hashline.Edit, len(req.Edits))
 	for i, e := range req.Edits {
-		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines}
+		edits[i] = hashline.Edit{Op: hashline.Op(e.Op), Pos: e.Pos, End: e.End, Lines: e.Lines, Text: e.Text, Replacement: e.Replacement}
 	}
 	out, err := hashline.Apply(string(content), edits)
 	if err != nil {

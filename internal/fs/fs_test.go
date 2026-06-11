@@ -456,6 +456,166 @@ func TestEditMultiEditBottomUp(t *testing.T) {
 	}
 }
 
+// TestEditAppendAnchored: append after an anchored line inserts below it.
+func TestEditAppendAnchored(t *testing.T) {
+	dir := t.TempDir()
+	content := "first\nsecond\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "append",
+		"pos":   anchorFor(t, content, 1),
+		"lines": []string{"inserted"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "first\ninserted\nsecond\n" {
+		t.Fatalf("anchored append = %q", got)
+	}
+}
+
+// TestEditAppendEOF: unanchored append lands at end-of-file.
+func TestEditAppendEOF(t *testing.T) {
+	dir := t.TempDir()
+	content := "a\nb\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "append",
+		"lines": []string{"c"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "a\nb\nc\n" {
+		t.Fatalf("EOF append = %q", got)
+	}
+}
+
+// TestEditPrependAnchored: prepend before an anchored line inserts above it.
+func TestEditPrependAnchored(t *testing.T) {
+	dir := t.TempDir()
+	content := "first\nsecond\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "prepend",
+		"pos":   anchorFor(t, content, 2),
+		"lines": []string{"inserted"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "first\ninserted\nsecond\n" {
+		t.Fatalf("anchored prepend = %q", got)
+	}
+}
+
+// TestEditPrependBOF: unanchored prepend lands at beginning-of-file.
+func TestEditPrependBOF(t *testing.T) {
+	dir := t.TempDir()
+	content := "b\nc\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":    "prepend",
+		"lines": []string{"a"},
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "a\nb\nc\n" {
+		t.Fatalf("BOF prepend = %q", got)
+	}
+}
+
+// TestEditReplaceTextUnique: replace_text swaps a unique substring.
+func TestEditReplaceTextUnique(t *testing.T) {
+	dir := t.TempDir()
+	content := "alpha\nbeta\ngamma\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":          "replace_text",
+		"text":        "beta",
+		"replacement": "BETA",
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil || res.Error != "" {
+		t.Fatalf("EditTool.Run err=%v result=%q", err, res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "alpha\nBETA\ngamma\n" {
+		t.Fatalf("replace_text = %q", got)
+	}
+}
+
+// TestEditReplaceTextNotFound: an absent substring is a tool-surface error
+// (E_TEXT_NOT_FOUND), file left unchanged.
+func TestEditReplaceTextNotFound(t *testing.T) {
+	dir := t.TempDir()
+	content := "alpha\nbeta\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":          "replace_text",
+		"text":        "nowhere",
+		"replacement": "x",
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("not-found should be a tool-surface error, not a Go error: %v", err)
+	}
+	if !strings.Contains(res.Error, "E_TEXT_NOT_FOUND") {
+		t.Fatalf("expected E_TEXT_NOT_FOUND, got %q", res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != content {
+		t.Fatalf("file must be unchanged on not-found, got %q", got)
+	}
+}
+
+// TestEditReplaceTextAmbiguous: a non-unique substring is rejected
+// (E_TEXT_AMBIGUOUS), file left unchanged.
+func TestEditReplaceTextAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	content := "dup\nmid\ndup\n"
+	writeTempFile(t, dir, "a.txt", content)
+
+	h := newRecordingHost(dir)
+	raw := editArgs(t, "a.txt", map[string]any{
+		"op":          "replace_text",
+		"text":        "dup",
+		"replacement": "x",
+	})
+	res, err := EditTool{}.Run(context.Background(), raw, h)
+	if err != nil {
+		t.Fatalf("ambiguous should be a tool-surface error, not a Go error: %v", err)
+	}
+	if !strings.Contains(res.Error, "E_TEXT_AMBIGUOUS") {
+		t.Fatalf("expected E_TEXT_AMBIGUOUS, got %q", res.Error)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != content {
+		t.Fatalf("file must be unchanged on ambiguous, got %q", got)
+	}
+}
+
 func TestEditRejectsOversizedSourceFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "huge.txt")

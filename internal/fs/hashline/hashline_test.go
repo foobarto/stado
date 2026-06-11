@@ -320,6 +320,111 @@ func TestApplyStructuralValidation(t *testing.T) {
 	}
 }
 
+// TestApplyReplaceTextUnique: a unique substring is swapped.
+func TestApplyReplaceTextUnique(t *testing.T) {
+	content := "alpha\nbeta\ngamma\n"
+	got, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "beta", Replacement: "BETA"}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got != "alpha\nBETA\ngamma\n" {
+		t.Fatalf("replace_text = %q", got)
+	}
+}
+
+// TestApplyReplaceTextMultiLine: Text/Replacement may span lines and change
+// the line count.
+func TestApplyReplaceTextMultiLine(t *testing.T) {
+	content := "one\ntwo\nthree\nfour\n"
+	got, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "two\nthree", Replacement: "TWO"}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got != "one\nTWO\nfour\n" {
+		t.Fatalf("multi-line replace_text = %q", got)
+	}
+}
+
+// TestApplyReplaceTextNotFound: a substring absent from the file is rejected
+// with E_TEXT_NOT_FOUND, content unchanged.
+func TestApplyReplaceTextNotFound(t *testing.T) {
+	content := "alpha\nbeta\n"
+	got, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "missing", Replacement: "x"}})
+	if err == nil || !strings.Contains(err.Error(), "E_TEXT_NOT_FOUND") {
+		t.Fatalf("absent text should reject with E_TEXT_NOT_FOUND, err=%v", err)
+	}
+	if got != content {
+		t.Fatalf("content must be unchanged on not-found, got %q", got)
+	}
+}
+
+// TestApplyReplaceTextAmbiguous: a substring that matches more than once is
+// rejected with E_TEXT_AMBIGUOUS, content unchanged.
+func TestApplyReplaceTextAmbiguous(t *testing.T) {
+	content := "dup\nmid\ndup\n"
+	got, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "dup", Replacement: "x"}})
+	if err == nil || !strings.Contains(err.Error(), "E_TEXT_AMBIGUOUS") {
+		t.Fatalf("duplicate text should reject with E_TEXT_AMBIGUOUS, err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "matches 2 times") {
+		t.Fatalf("ambiguous error should report match count, got %q", err.Error())
+	}
+	if got != content {
+		t.Fatalf("content must be unchanged on ambiguous, got %q", got)
+	}
+}
+
+// TestApplyReplaceTextEmptyText: empty Text is a structural error.
+func TestApplyReplaceTextEmptyText(t *testing.T) {
+	content := "alpha\n"
+	if _, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "", Replacement: "x"}}); err == nil ||
+		!strings.Contains(err.Error(), "E_BAD_OP") {
+		t.Fatalf("empty text should error, err=%v", err)
+	}
+}
+
+// TestApplyReplaceTextSequential: multiple replace_text edits apply in order,
+// each evaluated against the content the previous one left behind.
+func TestApplyReplaceTextSequential(t *testing.T) {
+	content := "x = 1\ny = 2\n"
+	got, err := Apply(content, []Edit{
+		{Op: OpReplaceText, Text: "x = 1", Replacement: "x = 10"},
+		{Op: OpReplaceText, Text: "y = 2", Replacement: "y = 20"},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if got != "x = 10\ny = 20\n" {
+		t.Fatalf("sequential replace_text = %q", got)
+	}
+}
+
+// TestApplyReplaceTextRefusesToEmptyFile: replace_text can't empty the file.
+func TestApplyReplaceTextRefusesToEmptyFile(t *testing.T) {
+	content := "only\n"
+	_, err := Apply(content, []Edit{{Op: OpReplaceText, Text: "only\n", Replacement: ""}})
+	if err == nil || !strings.Contains(err.Error(), "E_WOULD_EMPTY") {
+		t.Fatalf("emptying file via replace_text should be refused, err=%v", err)
+	}
+}
+
+// TestApplyRejectsMixedTextAndAnchored: replace_text can't be mixed with
+// anchored ops in a single call.
+func TestApplyRejectsMixedTextAndAnchored(t *testing.T) {
+	content := "alpha\nbeta\n"
+	edits := []Edit{
+		{Op: OpReplaceText, Text: "alpha", Replacement: "ALPHA"},
+		{Op: OpReplace, Pos: "2#" + LineHash(2, "beta"), Lines: []string{"BETA"}},
+	}
+	got, err := Apply(content, edits)
+	if err == nil || !strings.Contains(err.Error(), "E_BAD_OP") {
+		t.Fatalf("mixing replace_text with anchored ops should error, err=%v", err)
+	}
+	if got != content {
+		t.Fatalf("content must be unchanged on mixed-op rejection, got %q", got)
+	}
+}
+
 // TestApplyRefusesToEmptyFile.
 func TestApplyRefusesToEmptyFile(t *testing.T) {
 	content := "only\n"
