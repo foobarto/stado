@@ -267,20 +267,23 @@ type TUI struct {
 	SidebarWidth int `koanf:"sidebar_width"`
 	// Sidebar configures which sidebar sections show and in what order
 	// (#21). Empty/absent = the default layout. Entries are built-in
-	// section ids or a plugin-contributed panel id; "plugins" reserves the
-	// slot for plugin panels and "log" the shared append-only log panel.
+	// section ids (header, now, subagents, risk, agent, repo, logs, todos).
+	// Plugin-contributed panel ids become valid once the plugin display API
+	// lands (part 2).
 	Sidebar TUISidebar `koanf:"sidebar"`
-	// Footer configures which footer segments show and in what order (#21).
-	// Empty/absent = the default segments.
+	// Footer configures which footer segments are VISIBLE (#21). Order is
+	// fixed by the template — listing a segment shows it, omitting it hides
+	// it. Empty/absent = the default segments.
 	Footer TUIFooter `koanf:"footer"`
 }
 
-// TUISidebar is the [tui.sidebar] block — ordered section ids.
+// TUISidebar is the [tui.sidebar] block — an ordered list of section ids.
 type TUISidebar struct {
 	Sections []string `koanf:"sections"`
 }
 
-// TUIFooter is the [tui.footer] block — ordered segment ids.
+// TUIFooter is the [tui.footer] block — the set of visible segment ids
+// (visibility only; the footer's order is fixed by the template).
 type TUIFooter struct {
 	Segments []string `koanf:"segments"`
 }

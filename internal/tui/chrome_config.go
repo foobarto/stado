@@ -1,12 +1,14 @@
 package tui
 
-// Configurable sidebar/footer layout (#21). The operator chooses which
-// sections/segments show and in what order via [tui.sidebar].sections and
-// [tui.footer].segments. An empty/absent list means "use the default layout"
-// (NOT "hide everything"); to hide a section, list the ones to keep.
+// Configurable sidebar/footer layout (#21). The operator picks the layout via
+// [tui.sidebar].sections (which sections show AND in what order) and
+// [tui.footer].segments (which footer segments are VISIBLE — the footer's order
+// is fixed by its template). An empty/absent list means "use the default
+// layout" (NOT "hide everything"); to hide a section, list the ones to keep.
 //
-// Section ids may be built-ins (below) OR a plugin-contributed panel id —
-// rendering resolves each id; an id that maps to nothing renders nothing.
+// Sidebar section ids may be built-ins (below) OR a plugin-contributed panel
+// id (once the plugin display API lands); an id that maps to nothing renders
+// nothing.
 
 // defaultSidebarSections is the built-in sidebar layout, top to bottom.
 var defaultSidebarSections = []string{

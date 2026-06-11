@@ -271,6 +271,40 @@ func TestRenderer_Status(t *testing.T) {
 	}
 }
 
+// TestRenderer_StatusSeparators guards the #21 footer "$printed" fix: the
+// "·"-joined cluster must not strand a leading separator when an earlier
+// segment is hidden, nor concatenate two segments without a gap.
+func TestRenderer_StatusSeparators(t *testing.T) {
+	r := newRenderer(t)
+	render := func(segs []string) string {
+		out, err := r.Exec("status", map[string]any{
+			"State":    "idle",
+			"Tokens":   "1.2K",
+			"Cost":     "$0.03",
+			"Cache":    "cache 50%",
+			"Persona":  "dev",
+			"Segments": segs,
+			"Width":    80,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// tokens hidden, cost first to render → no leading separator.
+	if got := render([]string{"cost"}); strings.Contains(got, "·") {
+		t.Errorf("cost-only footer should have no separator, got %q", got)
+	}
+	// cache+cost with tokens hidden → exactly one separator between them.
+	if got := render([]string{"cache", "cost"}); strings.Count(got, "·") != 1 {
+		t.Errorf("cache+cost footer should have exactly one separator, got %q", got)
+	}
+	// persona alone (all prior segments hidden) → no leading separator.
+	if got := render([]string{"persona"}); strings.Contains(got, "·") {
+		t.Errorf("persona-only footer should have no separator, got %q", got)
+	}
+}
+
 func TestRenderer_InputStatus(t *testing.T) {
 	r := newRenderer(t)
 	out, err := r.Exec("input_status", map[string]any{

@@ -504,10 +504,11 @@ type Model struct {
 	// is still clamped per-frame to fit the current terminal.
 	sidebarWidth int
 
-	// sidebarSections / footerSegments are the configured chrome layout
-	// (#21): ordered section/segment ids controlling what shows + order.
-	// Populated from [tui.sidebar]/[tui.footer] at launch (and /reload),
-	// normalized so an empty config means "use the defaults".
+	// sidebarSections / footerSegments are the configured chrome layout (#21).
+	// sidebarSections is an ordered id list (order + visibility); footerSegments
+	// is the set of visible footer segments (the footer's order is fixed by its
+	// template). Populated from [tui.sidebar]/[tui.footer] at launch and on
+	// /reload, normalized so an empty config means "use the defaults".
 	sidebarSections []string
 	footerSegments  []string
 

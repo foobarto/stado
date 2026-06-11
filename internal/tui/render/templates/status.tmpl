@@ -1,6 +1,8 @@
 {{- /* Bottom status strip: quiet by default, with only active state calls
-       allowed to stand out. Segments shown are gated by .Segments (#21);
-       the default list keeps the historical layout. */ -}}
+       allowed to stand out. Segments shown are gated by .Segments (#21); the
+       default list keeps the historical layout. The "·"-joined cluster uses
+       $printed so a leading separator only appears once an earlier segment
+       actually rendered — hiding tokens (or any segment) can't strand a "·". */ -}}
 {{- $dot := "●" -}}
 {{- if has .Segments "state" -}}
 {{- if eq .State "streaming" }}{{ color "primary" $dot }} {{ color "text_secondary" "thinking" }}{{ if .Elapsed }} {{ color "muted" .Elapsed }}{{ end }}  {{ end -}}
@@ -9,9 +11,10 @@
 {{- if .Queued }}{{ color "accent" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
 {{- end -}}
 {{- if and (has .Segments "budget") .Budget }}{{ color "warning" .Budget }}  {{ end -}}
-{{- if has .Segments "tokens" }}{{ color "muted" .Tokens }}{{ end -}}
-{{- if and (has .Segments "cache") .Cache }} {{ color "muted" "·" }} {{ color "muted" .Cache }}{{ end -}}
-{{- if has .Segments "cost" }}{{ if has .Segments "tokens" }} {{ color "muted" "·" }} {{ end }}{{ color "muted" .Cost }}{{ end -}}
-{{- if and (has .Segments "persona") .Persona }} {{ color "muted" "·" }} {{ color "text_secondary" .Persona }}{{ end -}}
-{{- if and (has .Segments "daemon") .Daemon }} {{ color "muted" "·" }} {{ if eq .Daemon "up" }}{{ color "success" "●" }}{{ else }}{{ color "error" "●" }}{{ end }} {{ color "muted" "daemon" }}{{ end -}}
+{{- $printed := false -}}
+{{- if has .Segments "tokens" }}{{ color "muted" .Tokens }}{{ $printed = true }}{{ end -}}
+{{- if and (has .Segments "cache") .Cache }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ color "muted" .Cache }}{{ $printed = true }}{{ end -}}
+{{- if has .Segments "cost" }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ color "muted" .Cost }}{{ $printed = true }}{{ end -}}
+{{- if and (has .Segments "persona") .Persona }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ color "text_secondary" .Persona }}{{ $printed = true }}{{ end -}}
+{{- if and (has .Segments "daemon") .Daemon }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ if eq .Daemon "up" }}{{ color "success" "●" }}{{ else }}{{ color "error" "●" }}{{ end }} {{ color "muted" "daemon" }}{{ $printed = true }}{{ end -}}
 {{- if has .Segments "commands" }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}{{ end -}}
