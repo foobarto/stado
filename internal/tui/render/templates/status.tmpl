@@ -17,4 +17,9 @@
 {{- if has .Segments "cost" }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ color "muted" .Cost }}{{ $printed = true }}{{ end -}}
 {{- if and (has .Segments "persona") .Persona }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ color "text_secondary" .Persona }}{{ $printed = true }}{{ end -}}
 {{- if and (has .Segments "daemon") .Daemon }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ if eq .Daemon "up" }}{{ color "success" "●" }}{{ else }}{{ color "error" "●" }}{{ end }} {{ color "muted" "daemon" }}{{ $printed = true }}{{ end -}}
+{{- /* Plugin footer segments (#21 part 2): any configured id with a
+       stored, pre-coloured plugin panel renders after the built-in
+       cluster, sharing the $printed separator threading so no dangling
+       "·" appears when every built-in segment is hidden. */ -}}
+{{- if $.PluginSegments }}{{ range .Segments }}{{ with index $.PluginSegments . }}{{ if $printed }} {{ color "muted" "·" }} {{ end }}{{ . }}{{ $printed = true }}{{ end }}{{ end }}{{ end -}}
 {{- if has .Segments "commands" }}  {{ color "text_secondary" "ctrl+p" | bold }} {{ color "muted" "commands" }}{{ end -}}

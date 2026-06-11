@@ -168,9 +168,57 @@ func onPluginPrint(m *Model, msg pluginPrintMsg) (tea.Model, tea.Cmd) {
 // title bar so warn / error / etc. still surface visually without
 // requiring theme integration.
 func onPluginRender(m *Model, msg pluginRenderMsg) (tea.Model, tea.Cmd) {
-	body := renderPanelASCII(msg.panel)
-	m.appendBlock(block{kind: "system", body: body})
-	m.renderBlocks()
+	// #21 part 2: route by display target. Empty (legacy emits) and
+	// "viewport" keep the original scrollback-block behaviour; the other
+	// targets store the panel for the sidebar/footer/log to surface.
+	//
+	// The chrome targets do NOT call renderBlocks(): that rebuilds the
+	// conversation-viewport cache, which is unchanged here. View() re-runs
+	// renderSidebar / renderStatus / the log tail fresh every frame and reads
+	// these stores directly, so the next repaint surfaces the update without
+	// re-rendering the whole conversation history (cheap even for a chatty
+	// plugin updating panels every tick).
+	switch msg.panel.Target {
+	case "sidebar":
+		// Plugins may not write to built-in sections — drop silently so a
+		// plugin can never shadow native chrome (decision: built-ins are
+		// read-only to plugins).
+		if isBuiltinSidebarSection(msg.panel.ID) {
+			break
+		}
+		if m.pluginSidebarPanels == nil {
+			m.pluginSidebarPanels = map[string]pluginRuntime.Panel{}
+		}
+		// Cap distinct-id growth (a new id past the cap is dropped);
+		// last-write-wins on an already-stored id is always allowed.
+		if _, exists := m.pluginSidebarPanels[msg.panel.ID]; !exists && len(m.pluginSidebarPanels) >= maxPluginChromePanels {
+			break
+		}
+		m.pluginSidebarPanels[msg.panel.ID] = msg.panel // last-write-wins per id
+	case "footer":
+		if isBuiltinFooterSegment(msg.panel.ID) {
+			break
+		}
+		// Only store if there's a renderable short line. (decodeRenderRequest
+		// requires a non-empty Title, so this guard is defensive — a decoded
+		// panel always yields text — but it keeps direct callers honest.)
+		if pluginFooterText(msg.panel) == "" {
+			break
+		}
+		if m.pluginFooterPanels == nil {
+			m.pluginFooterPanels = map[string]pluginRuntime.Panel{}
+		}
+		if _, exists := m.pluginFooterPanels[msg.panel.ID]; !exists && len(m.pluginFooterPanels) >= maxPluginChromePanels {
+			break
+		}
+		m.pluginFooterPanels[msg.panel.ID] = msg.panel // last-write-wins per id
+	case "log":
+		m.pushLogLine(pluginLogLine(msg.panel))
+	default: // "" / "viewport"
+		body := renderPanelASCII(msg.panel)
+		m.appendBlock(block{kind: "system", body: body})
+		m.renderBlocks()
+	}
 	return m, nil
 }
 

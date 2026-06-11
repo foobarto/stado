@@ -1140,6 +1140,13 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 	}
 	m.executor.Registry = newReg
 
+	// The plugin set may have changed (a disabled/uninstalled plugin drops
+	// out). Flush plugin-contributed chrome so a removed plugin's sidebar/
+	// footer panel doesn't linger frozen with no live producer — surviving
+	// plugins re-emit their panels on the next render. (#21 part 2.)
+	m.pluginSidebarPanels = nil
+	m.pluginFooterPanels = nil
+
 	if len(args) == 0 {
 		m.appendBlock(block{
 			kind: "system",

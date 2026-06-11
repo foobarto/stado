@@ -156,7 +156,8 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 	if len(m.logTail) == 0 {
 		return nil
 	}
-	if !m.sidebarDebug && m.state != stateError && !logTailHasWarning(m.logTail) && !logTailHasProgress(m.logTail) {
+	if !m.sidebarDebug && m.state != stateError && !logTailHasWarning(m.logTail) &&
+		!logTailHasProgress(m.logTail) && !logTailHasPluginLine(m.logTail) {
 		return nil
 	}
 	out := make([]sidebarLine, 0, len(m.logTail))
@@ -172,6 +173,8 @@ func (m *Model) sidebarLogLines() []sidebarLine {
 		case strings.HasPrefix(line, "INFO ") || strings.Contains(line, " INFO "):
 			tone = "text_dim"
 		case strings.HasPrefix(line, "PROGRESS ") || strings.Contains(line, " PROGRESS "):
+			tone = "accent"
+		case strings.HasPrefix(line, pluginLogPrefix):
 			tone = "accent"
 		}
 		out = append(out, sidebarLine{Text: line, Tone: tone})
@@ -195,6 +198,18 @@ func logTailHasWarning(lines []string) bool {
 func logTailHasProgress(lines []string) bool {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "PROGRESS ") || strings.Contains(line, " PROGRESS ") {
+			return true
+		}
+	}
+	return false
+}
+
+// logTailHasPluginLine reports whether the tail contains a plugin
+// log-target render line (#21 part 2). These surface in the Logs section
+// regardless of --sidebar-debug — the plugin chose to emit a notification.
+func logTailHasPluginLine(lines []string) bool {
+	for _, line := range lines {
+		if strings.HasPrefix(line, pluginLogPrefix) {
 			return true
 		}
 	}

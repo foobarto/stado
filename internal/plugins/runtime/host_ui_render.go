@@ -23,6 +23,9 @@ type renderRequestWire struct {
 	Variant  string        `json:"variant,omitempty"`
 	ID       string        `json:"id,omitempty"`
 	Footer   string        `json:"footer,omitempty"`
+	// Target selects the display surface (#21 part 2). Empty decodes to
+	// "viewport" (back-compat with every pre-target emit). See Panel.Target.
+	Target string `json:"target,omitempty"`
 	// reserved for forward-compat: when adding optional metadata,
 	// extend renderRequestWire here, not via untagged map["any"].
 	_ struct{} `json:"-"`
@@ -94,6 +97,24 @@ var validRenderSectionKinds = map[string]bool{
 	"code":  true,
 	"table": true,
 	"diff":  true,
+}
+
+// validRenderTargets is the closed enum for Panel.Target (#21 part 2).
+// Empty normalises to "viewport" at decode. "sidebar"/"footer" address
+// a plugin-owned panel by Panel.ID; "log" appends to the shared
+// notification log.
+var validRenderTargets = map[string]bool{
+	"":         true,
+	"viewport": true,
+	"sidebar":  true,
+	"footer":   true,
+	"log":      true,
+}
+
+// targetRequiresID reports whether a render target addresses a panel by
+// id (so a non-empty ID is mandatory at decode). #21 part 2.
+func targetRequiresID(target string) bool {
+	return target == "sidebar" || target == "footer"
 }
 
 // registerUIRenderImport wires stado_ui_render. Wire format:
@@ -178,11 +199,16 @@ func registerUIRenderImport(builder wazero.HostModuleBuilder, host *Host) {
 // Centralised so the host import body stays tight and validation
 // is unit-testable. F9b.1.
 func decodeRenderRequest(w renderRequestWire) (Panel, error) {
-	if w.Title == "" {
-		return Panel{}, fmt.Errorf("title required")
-	}
 	if len(w.Title) > maxPluginRuntimeUIRenderTitleBytes {
 		return Panel{}, fmt.Errorf("title exceeds %d bytes", maxPluginRuntimeUIRenderTitleBytes)
+	}
+	// Validate the SANITISED title (like the id below): an all-control-char
+	// title passes a raw != "" check but scrubs to "", yielding a blank
+	// panel / log line. The contract — a panel has a non-empty title — must
+	// hold AFTER scrubbing. (Length is checked on the raw wire bytes above.)
+	title := textutil.StripControlChars(w.Title)
+	if title == "" {
+		return Panel{}, fmt.Errorf("title required")
 	}
 	if !validRenderVariants[w.Variant] {
 		return Panel{}, fmt.Errorf("variant %q not in {info,ok,warn,error,recommendation}", w.Variant)
@@ -192,6 +218,23 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	}
 	if len(w.Footer) > maxPluginRuntimeUIRenderFooterBytes {
 		return Panel{}, fmt.Errorf("footer exceeds %d bytes", maxPluginRuntimeUIRenderFooterBytes)
+	}
+	if !validRenderTargets[w.Target] {
+		return Panel{}, fmt.Errorf("target %q not in {viewport,sidebar,footer,log}", w.Target)
+	}
+	// Normalise empty → "viewport" so downstream renderers switch on a
+	// single canonical value (back-compat: pre-target emits omit it).
+	target := w.Target
+	if target == "" {
+		target = "viewport"
+	}
+	// Validate the SANITISED id, not the raw wire value: StripControlChars
+	// drops control runes, so an all-control-char id (e.g. "\x01\x02") would
+	// otherwise pass a raw != "" check yet store under the empty key. The id
+	// a sidebar/footer target addresses must be non-empty AFTER scrubbing.
+	id := textutil.StripControlChars(w.ID)
+	if targetRequiresID(target) && id == "" {
+		return Panel{}, fmt.Errorf("target %q requires a non-empty id", target)
 	}
 	if len(w.Sections) == 0 {
 		return Panel{}, fmt.Errorf("at least one section required")
@@ -220,10 +263,11 @@ func decodeRenderRequest(w renderRequestWire) (Panel, error) {
 	// #62 the comment listed it among the StripControlChars zones,
 	// which was misleading.
 	out := Panel{
-		Title:    textutil.StripControlChars(w.Title),
+		Title:    title, // sanitised + validated above
 		Variant:  w.Variant,
-		ID:       textutil.StripControlChars(w.ID),
+		ID:       id, // sanitised + validated above
 		Footer:   textutil.StripControlChars(w.Footer),
+		Target:   target, // enum-validated above; passed through verbatim like Variant
 		Sections: make([]Section, 0, len(w.Sections)),
 	}
 	for i, sw := range w.Sections {
