@@ -45,6 +45,15 @@ func normalizeSidebarSections(in []string) []string {
 	return normalizeChromeList(in, defaultSidebarSections)
 }
 
+// effectiveSidebarSections returns the configured section order, defaulting
+// when unset (e.g. a test model built without going through app.go).
+func (m *Model) effectiveSidebarSections() []string {
+	if len(m.sidebarSections) == 0 {
+		return defaultSidebarSections
+	}
+	return m.sidebarSections
+}
+
 func normalizeFooterSegments(in []string) []string {
 	return normalizeChromeList(in, defaultFooterSegments)
 }

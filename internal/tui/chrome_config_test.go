@@ -2,7 +2,10 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestNormalizeChromeList(t *testing.T) {
@@ -24,5 +27,25 @@ func TestNormalizeChromeList(t *testing.T) {
 	// A list that's all blanks collapses to nothing → defaults.
 	if got := normalizeSidebarSections([]string{"", ""}); !reflect.DeepEqual(got, defaultSidebarSections) {
 		t.Errorf("all-blank should fall back to defaults, got %v", got)
+	}
+}
+
+// #21 step 2: the sidebar renders only the configured sections, in order.
+func TestSidebarRespectsConfiguredSections(t *testing.T) {
+	m := scenarioModel(t)
+	m.height = 24
+	m.blocks = []block{{kind: "tool", toolName: "bash"}}
+
+	m.sidebarSections = []string{"repo", "now"} // repo first, hide the rest
+	out := ansi.Strip(m.renderSidebar(34))
+
+	if !strings.Contains(out, "Repo") || !strings.Contains(out, "Now") {
+		t.Fatalf("configured sections should render:\n%s", out)
+	}
+	if strings.Contains(out, "Agent") {
+		t.Errorf("Agent should be hidden when not in the section list:\n%s", out)
+	}
+	if strings.Index(out, "Repo") > strings.Index(out, "Now") {
+		t.Errorf("Repo should render before Now per the configured order:\n%s", out)
 	}
 }

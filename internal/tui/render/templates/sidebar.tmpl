@@ -1,68 +1,67 @@
-{{- /* Right sidebar — current state, risks, agent inputs, repo, todo. */ -}}
-{{ color "text" .Title | bold }}
-{{- if .SessionLabel }}
-{{ color "text_secondary" (wrapHard .SessionLabel .Width) }}
+{{- /* Right sidebar — sections rendered in the operator-configured order
+       (.Sections, #21). Each id dispatches to its block; an unknown id
+       (e.g. a plugin panel) is handled by the PluginPanels pass, not here. */ -}}
+{{- range .Sections }}
+{{- if eq . "header" }}
+{{ color "text" $.Title | bold }}
+{{- if $.SessionLabel }}
+{{ color "text_secondary" (wrapHard $.SessionLabel $.Width) }}
 {{- end }}
-{{- if .SessionMeta }}
-{{ color "text_dim" (wrapHard .SessionMeta .Width) }}
+{{- if $.SessionMeta }}
+{{ color "text_dim" (wrapHard $.SessionMeta $.Width) }}
 {{- end }}
-
-{{- if .NowLines }}
+{{- else if eq . "now" }}{{ if $.NowLines }}
 
 {{ color "text" "Now" | bold }}
-{{- range .NowLines }}
+{{- range $.NowLines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if .Subagents }}
+{{- else if eq . "subagents" }}{{ if $.Subagents }}
 
 {{ color "text" "Subagents" | bold }}
-{{- range .Subagents }}
+{{- range $.Subagents }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if .RiskLines }}
+{{- else if eq . "risk" }}{{ if $.RiskLines }}
 
 {{ color "text" "Risk" | bold }}
-{{- range .RiskLines }}
+{{- range $.RiskLines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if .AgentLines }}
+{{- else if eq . "agent" }}{{ if $.AgentLines }}
 
 {{ color "text" "Agent" | bold }}
-{{- range .AgentLines }}
+{{- range $.AgentLines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if .RepoLines }}
+{{- else if eq . "repo" }}{{ if $.RepoLines }}
 
 {{ color "text" "Repo" | bold }}
-{{- range .RepoLines }}
+{{- range $.RepoLines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if .LogLines }}
+{{- else if eq . "logs" }}{{ if $.LogLines }}
 
 {{ color "text" "Logs" | bold }}
-{{- range .LogLines }}
+{{- range $.LogLines }}
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
-
-{{- if or .TodoSummary .Todos }}
+{{- else if eq . "todos" }}{{ if or $.TodoSummary $.Todos }}
 
 {{ color "text" "Todo" | bold }}
-{{- if .TodoSummary }}
-{{ color "muted" (wrapHard .TodoSummary $.Width) }}
+{{- if $.TodoSummary }}
+{{ color "muted" (wrapHard $.TodoSummary $.Width) }}
 {{- end }}
-{{- range .Todos }}
+{{- range $.Todos }}
 {{ todoMarker .Status }} {{ color (todoColor .Status) (wrapHard .Title $.Width) }}
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 
