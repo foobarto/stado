@@ -130,16 +130,32 @@ func TestRenderLandingLogo_RendersFullBannerWhenSpaceAllows(t *testing.T) {
 	}
 }
 
-func TestRenderLandingLogo_DownsamplesWhenSpaceIsTight(t *testing.T) {
+func TestRenderLandingLogo_CompactWhenSpaceIsTight(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	// maxH below the asset's natural height triggers sampling.
+	// maxH below the asset's natural height must fall back to the compact
+	// wordmark — NOT downsample/deform the sheep.
 	got := ansi.Strip(renderLandingLogo(120, 12))
-	lines := strings.Split(got, "\n")
-	if len(lines) != 12 {
-		t.Fatalf("landing logo height = %d under tight maxH, want 12\n%s", len(lines), got)
+	if strings.TrimSpace(got) != "stado" {
+		t.Fatalf("logo should fall back to the compact wordmark when it can't fit at natural height, got %q", got)
 	}
-	if !strings.ContainsAny(got, "░▒▓█") {
-		t.Fatalf("downsampled banner lost block art:\n%s", got)
+	if strings.ContainsAny(got, "░▒▓█▂▃▅▆▔▀▖▗▘▝") {
+		t.Fatalf("compact logo should not contain banner art:\n%s", got)
+	}
+}
+
+// The logo is ALWAYS either the compact wordmark or the banner at its full
+// natural height — never a downsampled/deformed intermediate.
+func TestRenderLandingLogo_NeverDeforms(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	full := strings.Count(ansi.Strip(renderLandingLogo(120, 1000)), "\n") + 1
+	for _, maxH := range []int{8, 15, 20, 25, 30, 1000} {
+		got := ansi.Strip(renderLandingLogo(120, maxH))
+		if strings.TrimSpace(got) == "stado" {
+			continue // compact wordmark — fine
+		}
+		if n := strings.Count(got, "\n") + 1; n != full {
+			t.Errorf("maxH=%d: logo height %d is neither compact nor the full %d rows — deformed", maxH, n, full)
+		}
 	}
 }
 
