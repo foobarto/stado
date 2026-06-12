@@ -71,8 +71,13 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	runCtx, runSpan := otel.Tracer(telemetry.TracerName).Start(rootCtx, telemetry.SpanTUIRun,
 		oteltrace.WithAttributes(attribute.String("session.worktree", cwd)))
 	defer runSpan.End()
-	keyReg := keys.NewRegistry()
-	_ = keys.LoadOverrides(keyReg, cfg)
+	keyReg := keys.NewRegistryForSchema(cfg.Keymap.Schema)
+	if err := keys.LoadOverrides(keyReg, cfg); err != nil {
+		// Non-fatal: a bad keymap override (e.g. an unknown action name) is a
+		// stderr warning, not a boot failure — the valid overrides still
+		// applied. Matches the theme / skills / instructions load idiom.
+		fmt.Fprintf(os.Stderr, "stado: keymap overrides: %v\n", err)
+	}
 
 	sess, err := runtime.OpenSession(cfg, cwd)
 	if err != nil {

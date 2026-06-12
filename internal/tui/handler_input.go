@@ -393,6 +393,38 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		m.layout()
 		return m, nil, true
 
+	// Conversation scrolling. These bindings are all non-text chords
+	// (ctrl+alt+*, pageup/pagedown, home/end), so dispatching them here —
+	// before the unhandled-key fall-through reaches the input editor and the
+	// messages viewport — never shadows typing. The viewport's own keymap is
+	// restricted to pgup/pgdown (messagesViewportKeyMap, #142 text-safe fix);
+	// these handlers add the half-page and top/bottom jumps the viewport keymap
+	// deliberately omits, and route the page chords through the registry so a
+	// rebind takes effect.
+	case m.keys.Matches(msg, keys.MessagesPageUp):
+		m.vp.PageUp()
+		return m, nil, true
+
+	case m.keys.Matches(msg, keys.MessagesPageDown):
+		m.vp.PageDown()
+		return m, nil, true
+
+	case m.keys.Matches(msg, keys.MessagesHalfPageUp):
+		m.vp.HalfPageUp()
+		return m, nil, true
+
+	case m.keys.Matches(msg, keys.MessagesHalfPageDown):
+		m.vp.HalfPageDown()
+		return m, nil, true
+
+	case m.keys.Matches(msg, keys.MessagesFirst):
+		m.vp.GotoTop()
+		return m, nil, true
+
+	case m.keys.Matches(msg, keys.MessagesLast):
+		m.vp.GotoBottom()
+		return m, nil, true
+
 	case m.keys.Matches(msg, keys.InputClear):
 		// Ctrl+C: clear the chat input only. Cancel semantics live on
 		// Esc / Ctrl+G (SessionInterrupt); alt+enter (QueueMessage) defers
