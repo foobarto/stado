@@ -246,3 +246,41 @@ func TestListTurnRefsOrdered(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionTree_UnknownVsEmpty reproduces P2.18: `session tree <bogus-id>`
+// printed "no turn tags yet" and exited 0 for a nonexistent session, while a
+// REAL session with zero turns should still print that (rc=0). The fix
+// distinguishes the two via SessionHasRefs.
+func TestSessionTree_UnknownVsEmpty(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	cwd := filepath.Join(root, "work")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	restore := chdir(t, cwd)
+	defer restore()
+
+	cfg, _ := config.Load()
+	if err := os.MkdirAll(cfg.WorktreeDir(), 0o755); err != nil {
+		t.Fatalf("worktree dir: %v", err)
+	}
+	sc, _ := openSidecar(cfg)
+	// A real session with refs but ZERO turn tags.
+	if _, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), "real-empty", plumbing.ZeroHash); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Unknown id -> not-found error (rc=1).
+	err := sessionTreeCmd.RunE(sessionTreeCmd, []string{"does-not-exist"})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("unknown session should error 'not found', got: %v", err)
+	}
+
+	// Real session, zero turns -> no error (the "no turns yet" rc=0 path).
+	if err := sessionTreeCmd.RunE(sessionTreeCmd, []string{"real-empty"}); err != nil {
+		t.Errorf("real empty session should not error: %v", err)
+	}
+}

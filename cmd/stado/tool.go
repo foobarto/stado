@@ -297,6 +297,33 @@ func runToolMutate(verb, key, removeFromKey string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("tool %s: at least one tool name or glob is required", verb)
 	}
+	// Reject non-glob LITERAL names that don't match a known tool, so a typo
+	// can't silently rot into [tools].<list> (P2.17) — `tool info`/`tool run`
+	// already reject unknown names. Globs (containing * ? [) are allowed even
+	// when they currently match nothing. Validate against the UNFILTERED
+	// default registry so a currently-disabled tool is still enable-able.
+	if cfg, cfgErr := config.Load(); cfgErr == nil {
+		reg := runtime.BuildDefaultRegistry(cfg)
+		known := map[string]bool{}
+		for _, t := range reg.All() {
+			known[t.Name()] = true
+			if c := runtime.LookupToolMetadata(t.Name()).Canonical; c != "" {
+				known[c] = true
+			}
+		}
+		var unknown []string
+		for _, a := range args {
+			if strings.ContainsAny(a, "*?[") {
+				continue // glob: zero match is allowed (matches the filter's own rule)
+			}
+			if !known[a] {
+				unknown = append(unknown, a)
+			}
+		}
+		if len(unknown) > 0 {
+			return fmt.Errorf("tool %s: unknown tool(s) %v — try `stado tool list` to see available tools", verb, unknown)
+		}
+	}
 	path, err := toolMutateConfigPath()
 	if err != nil {
 		return err
