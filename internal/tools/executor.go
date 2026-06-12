@@ -332,17 +332,25 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	// trace ref always — now carries the audit-skip note in
 	// meta.Error if the snapshot failed above for a mutating tool.
 	//
-	// Mutation provenance (spec STAGE 4): when a post_tool hook mutated
-	// the result, emit TWO sequential trace commits — first the ORIGINAL
-	// raw result (its own SHA + the original error, NO mutation
+	// Mutation provenance (spec STAGE 4 + 5): when a post_tool hook
+	// mutated the result, emit TWO sequential trace commits — first the
+	// ORIGINAL raw result (its own SHA + the original error, NO mutation
 	// trailers), then the MUTATION commit (the canonical mutated SHA +
 	// Original-Result-SHA + Mutated-By-Hook). The second CommitToTrace
 	// auto-parents the first via commitOnRef's parent-chaining, so the
 	// mutation commit links to the original with NO new ref/branch. The
 	// model-facing return stays the mutated res; the mutated ResultSHA
 	// stays canonical for accounting; the original is audit-only
-	// provenance, now recoverable from the signed chain. Blobs are WAVE 2
-	// — this records SHAs only (empty-tree commits, as today).
+	// provenance, now recoverable from the signed chain.
+	//
+	// STAGE 5 (blob-backed): BOTH provenance commits store their Content
+	// as a `result` git blob in the commit tree (CommitToTraceBlob) so the
+	// original AND mutated bytes are recoverable — not just their SHAs. A
+	// per-commit size cap (maxTraceResultBlobBytes) falls back to SHA-only
+	// (empty-tree) on overflow; we note the drop in that commit's Error
+	// trailer, mirroring the snapshot-skip contract above. Normal
+	// (no-mutation, no-deny) calls keep the cheap empty-tree commit below —
+	// blob-backing is paid ONLY by the mutated path.
 	if mutationByHook != "" {
 		original := meta
 		original.ResultSHA = originalResultSHA
@@ -357,11 +365,19 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 			origOutcome = "error"
 		}
 		original.Summary = fmt.Sprintf("%s [%s]", class.String(), origOutcome)
-		if _, err := e.Session.CommitToTrace(original); err != nil {
+		original.Error = appendBlobSkipNote(original.Error, "original",
+			int64(len(originalContent)))
+		if _, _, err := e.Session.CommitToTraceBlob(original, []byte(originalContent)); err != nil {
 			return res, fmt.Errorf("commit original-result trace: %w", err)
 		}
-	}
-	if _, err := e.Session.CommitToTrace(meta); err != nil {
+		// The mutation commit's Error trailer was already populated above
+		// (runErr/res.Error/snapshot-skip). Append the blob-skip note too
+		// when the MUTATED Content overflows the cap.
+		meta.Error = appendBlobSkipNote(meta.Error, "mutated", int64(len(res.Content)))
+		if _, _, err := e.Session.CommitToTraceBlob(meta, []byte(res.Content)); err != nil {
+			return res, fmt.Errorf("commit mutation trace: %w", err)
+		}
+	} else if _, err := e.Session.CommitToTrace(meta); err != nil {
 		return res, fmt.Errorf("commit trace: %w", err)
 	}
 
@@ -387,6 +403,24 @@ func (e *Executor) turnIndex() int {
 // live cwd exceeded the tree-entry cap). Best-effort audit: never fatal.
 func (e *Executor) logBuildTreeSkip(dir string, err error) {
 	slog.Default().Warn("audit: skipped tree snapshot; tool result unaffected", "dir", dir, "err", err)
+}
+
+// appendBlobSkipNote augments a commit's Error trailer when a blob-backed
+// provenance commit's Content overflows the trace-result blob cap and
+// CommitToTraceBlob falls back to SHA-only. Keeps the note in the SIGNED chain
+// so an auditor sees the recoverable bytes were dropped (the digest +
+// provenance trailers are still present). which is "original" or "mutated".
+// Returns errStr unchanged when the size is within the cap.
+func appendBlobSkipNote(errStr, which string, size int64) string {
+	if size <= stadogit.MaxTraceResultBlobBytes() {
+		return errStr
+	}
+	note := fmt.Sprintf("%s result not stored as blob (%d bytes > %d cap); SHA-only fallback",
+		which, size, stadogit.MaxTraceResultBlobBytes())
+	if errStr == "" {
+		return note
+	}
+	return errStr + "; " + note
 }
 
 func shortArgOf(args json.RawMessage) string {

@@ -60,6 +60,7 @@ var auditVerifyCmd = &cobra.Command{
 		// than silently exit 0. The no-args sweep keeps the lenient skip.
 		explicitID := len(args) > 0
 		allOK := true
+		brokenLinks := false
 		for _, id := range ids {
 			found := false
 			for _, refPair := range []struct {
@@ -93,21 +94,43 @@ var auditVerifyCmd = &cobra.Command{
 				fmt.Printf("%s\t%s\t%s\t%d total (%d signed, %d unsigned, %d invalid)\n",
 					status, id, refPair.name,
 					res.TotalCommits, res.Signed, res.Unsigned, res.Invalid)
-				if res.InvalidAt.IsZero() && res.FirstUnsignedAt.IsZero() {
-					continue
-				}
 				if !res.InvalidAt.IsZero() {
 					fmt.Fprintf(os.Stderr, "  first invalid at: %s\n", res.InvalidAt)
 				}
 				if !res.FirstUnsignedAt.IsZero() {
 					fmt.Fprintf(os.Stderr, "  first unsigned at: %s\n", res.FirstUnsignedAt)
 				}
+				// Hook-mutation provenance chains. Print one line per
+				// mutation link; flag broken links as a DISTINCT anomaly
+				// class from signature failure (a broken link does NOT mean
+				// the signatures failed — both commits can be validly
+				// signed while their content linkage was tampered).
+				for _, link := range res.MutationChain {
+					backing := "sha-only"
+					if link.BlobBacked {
+						backing = "blob"
+					}
+					if link.Broken {
+						brokenLinks = true
+						fmt.Printf("  MUTATION-LINK-BROKEN\t%s @ %s\tby %s\t%s -> %s\t(%s)\n",
+							orDash(link.Tool), shortHash(link.Commit), orDash(link.ByHook),
+							orDash(link.OriginalSHA), orDash(link.MutatedSHA), backing)
+						fmt.Fprintf(os.Stderr, "    broken: %s\n", link.BrokenReason)
+					} else {
+						fmt.Printf("  mutation-link\t%s @ %s\tby %s\t%s -> %s\t(%s)\n",
+							orDash(link.Tool), shortHash(link.Commit), orDash(link.ByHook),
+							orDash(link.OriginalSHA), orDash(link.MutatedSHA), backing)
+					}
+				}
 			}
 			if !found && explicitID {
 				return fmt.Errorf("audit verify: session %s not found (no tree/trace refs)", id)
 			}
 		}
-		if !allOK {
+		// Non-zero exit on a signature failure / unsigned commit OR a broken
+		// mutation link. A mutation link that's merely PRESENT (intact) is
+		// reported but does not affect the exit code.
+		if !allOK || brokenLinks {
 			os.Exit(1)
 		}
 		return nil
@@ -176,6 +199,15 @@ var auditPubkeyCmd = &cobra.Command{
 func init() {
 	auditCmd.AddCommand(auditVerifyCmd, auditExportCmd, auditPubkeyCmd)
 	rootCmd.AddCommand(auditCmd)
+}
+
+// orDash renders an empty string as "-" so a tab-separated mutation-link line
+// keeps its column alignment when a trailer is absent.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 // hexString avoids hard dep on encoding/hex at the top of the file.
