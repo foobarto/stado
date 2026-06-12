@@ -102,6 +102,70 @@ func TestBudget_WarnFiresOncePerSession(t *testing.T) {
 	}
 }
 
+// TestBudget_TokenHardCapBlockMessageIsCoherent: when a turn is
+// blocked by a TOKEN hard cap (no USD cap set), the blocking system
+// block must name the token cap that fired — not claim "cost $0.00 ≥
+// hard cap $0.00" and point the user at [budget].hard_usd, which is
+// unset and irrelevant. Regression guard for the recovery-flow drift
+// where the gate only spoke USD.
+func TestBudget_TokenHardCapBlockMessageIsCoherent(t *testing.T) {
+	m := newBudgetModel(t)
+	// Token-only budget: combined hard cap at 1000 tokens, no USD cap.
+	m.SetBudgetTokens(500, 1000)
+	m.usage.InputTokens = 800
+	m.usage.OutputTokens = 400 // total 1200 ≥ 1000
+	if !m.budgetExceeded() {
+		t.Fatal("expected budgetExceeded=true on token cap")
+	}
+
+	m.input.Reset()
+	m.input.SetValue("keep going")
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if m.state == stateStreaming {
+		t.Error("expected submit to be blocked; got streaming state")
+	}
+	if len(m.blocks) == 0 {
+		t.Fatal("expected a system block warning about the cap")
+	}
+	body := m.blocks[len(m.blocks)-1].body
+
+	// The bug: USD-only message on a token breach.
+	if strings.Contains(body, "$0.00") {
+		t.Errorf("token breach reported a $0.00 USD cap: %q", body)
+	}
+	if strings.Contains(body, "hard_usd") {
+		t.Errorf("token breach pointed user at irrelevant [budget].hard_usd: %q", body)
+	}
+	// It must name the actual cap that fired and the right knob.
+	if !strings.Contains(body, "1,000") && !strings.Contains(body, "1000") && !strings.Contains(body, "1.0k") {
+		t.Errorf("block body should name the 1000-token hard cap: %q", body)
+	}
+	if !strings.Contains(body, "/budget ack") {
+		t.Errorf("block body should still offer /budget ack: %q", body)
+	}
+}
+
+// TestBudget_DisplayShowsTokenCaps: `/budget` (the display form) must
+// surface configured token caps, not just USD. A token-only budget
+// user who runs /budget should not see everything reported "(unset)".
+func TestBudget_DisplayShowsTokenCaps(t *testing.T) {
+	m := newBudgetModel(t)
+	m.SetBudgetTokens(500, 1000)
+	m.usage.InputTokens = 300
+	m.usage.OutputTokens = 100
+
+	start := len(m.blocks)
+	m.handleBudgetSlash([]string{"/budget"})
+	if len(m.blocks) == start {
+		t.Fatal("expected /budget to append a system block")
+	}
+	body := m.blocks[len(m.blocks)-1].body
+	if !strings.Contains(body, "1,000") && !strings.Contains(body, "1000") && !strings.Contains(body, "1.0k") {
+		t.Errorf("/budget display omitted the 1000-token hard cap: %q", body)
+	}
+}
+
 // TestBudget_NoCapNoPill: unset caps (default config) keep the pill
 // empty and never block. Critical for local-runner users who don't
 // care about cost and shouldn't see guardrail UI.

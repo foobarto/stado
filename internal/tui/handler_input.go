@@ -525,11 +525,12 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 	// block with `/budget ack` which sets budgetAcked for the
 	// remainder of the session.
 	if m.budgetExceeded() {
+		breach, knob := m.budgetBreachDescription()
 		body := fmt.Sprintf(
-			"cost $%.2f ≥ hard cap $%.2f — blocked. Continue with:\n"+
+			"%s — blocked. Continue with:\n"+
 				"  · /budget ack — acknowledge and continue this session\n"+
-				"  · edit [budget].hard_usd in config.toml to raise the cap",
-			m.usage.CostUSD, m.budgetHardUSD)
+				"  · edit [budget].%s in config.toml to raise the cap",
+			breach, knob)
 		m.appendBlock(block{kind: "system", body: body})
 		m.renderBlocks()
 		return m, nil, true

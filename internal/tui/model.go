@@ -888,6 +888,28 @@ func (m *Model) budgetExceeded() bool {
 	return false
 }
 
+// budgetBreachDescription names the specific hard cap that fired and
+// the config knob that raises it, in the same precedence order as
+// budgetExceeded. It exists so the blocking system block speaks the
+// truth on a TOKEN breach instead of the old USD-only message ("cost
+// $0.00 ≥ hard cap $0.00 — edit [budget].hard_usd"), which is nonsense
+// when the cap that actually fired is a token cap. Returns
+// (whatExceeded, configKnob); whatExceeded is empty when nothing is
+// over its hard cap.
+func (m *Model) budgetBreachDescription() (whatExceeded, configKnob string) {
+	switch {
+	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD:
+		return fmt.Sprintf("cost $%.2f ≥ hard cap $%.2f", m.usage.CostUSD, m.budgetHardUSD), "hard_usd"
+	case m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens:
+		return fmt.Sprintf("tokens %s ≥ hard cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetHardTokens)), "hard_tokens"
+	case m.budgetHardInputTokens > 0 && m.usage.InputTokens >= m.budgetHardInputTokens:
+		return fmt.Sprintf("input tokens %s ≥ hard cap %s", formatTokenCount(m.usage.InputTokens), formatTokenCount(m.budgetHardInputTokens)), "hard_input_tokens"
+	case m.budgetHardOutputTokens > 0 && m.usage.OutputTokens >= m.budgetHardOutputTokens:
+		return fmt.Sprintf("output tokens %s ≥ hard cap %s", formatTokenCount(m.usage.OutputTokens), formatTokenCount(m.budgetHardOutputTokens)), "hard_output_tokens"
+	}
+	return "", ""
+}
+
 // totalTokens is the cumulative input+output token count for the
 // session (Usage.InputTokens + Usage.OutputTokens). Hidden behind a
 // helper so cache-read/cache-write tokens can be added later without
