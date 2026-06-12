@@ -24,18 +24,32 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.toolCancel = nil
 	m.toolMu.Unlock()
+	// Sanitize at store-time so every downstream renderer can trust the
+	// stored bytes. Cluster C1 P1 — sibling miss to PR #49: streaming
+	// assistant/thinking text is sanitized at the append boundary
+	// (model_stream.go EvTextDelta/EvThinkingDelta), but the tool-result
+	// seam stored msg.result.Content verbatim, so a tool whose output
+	// carried OSC 0 (title rewrite), OSC 8 (clickable hyperlink), BEL, or
+	// CSI could drive those straight into the tool panel's lipgloss render.
+	// SanitizeForTerminal keeps legitimate \n / \t / \r (tool output is
+	// multi-line prose) while stripping the escape vectors. The same
+	// sanitized content feeds appendSubagentNotice, whose JSON fields
+	// (error / worktree / child session) are rendered into a system block —
+	// sanitizing first preserves valid JSON structure while scrubbing any
+	// escape inside the string values.
+	content := textutil.SanitizeForTerminal(msg.result.Content)
 	// Update the matching tool block with the result.
 	toolName := ""
 	for i := range m.blocks {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
 			toolName = m.blocks[i].toolName
-			m.blocks[i].toolResult = msg.result.Content
+			m.blocks[i].toolResult = content
 			m.invalidateBlockCache(i)
 			break
 		}
 	}
 	if toolName == "agent__spawn" && !msg.result.IsError {
-		m.appendSubagentNotice(msg.result.Content)
+		m.appendSubagentNotice(content)
 	}
 	m.pendingResults = append(m.pendingResults, msg.result)
 	m.renderBlocks()
