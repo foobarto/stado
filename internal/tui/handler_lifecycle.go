@@ -88,20 +88,31 @@ func onLoopTick(m *Model, _ loopTickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func onMonitorLines(m *Model, msg monitorLinesMsg) (tea.Model, tea.Cmd) {
-	// EP-0036: batch of monitor output lines delivered to the session.
-	for _, line := range msg {
-		m.appendBlock(block{kind: "system", body: "[monitor] " + line})
+func onMonitorLine(m *Model, msg monitorLineMsg) (tea.Model, tea.Cmd) {
+	// EP-0036: a single live monitor output line delivered to the session.
+	// Ignore a line from a superseded monitor instance (a prior /monitor
+	// stopped before a new one started): its goroutine can still deliver
+	// buffered lines after m.monitor points at the new instance.
+	if m.monitor == nil || m.monitor.gen != msg.gen {
+		return m, nil
 	}
+	m.appendBlock(block{kind: "system", body: "[monitor] " + msg.line})
 	m.renderBlocks()
 	return m, nil
 }
 
 func onMonitorDone(m *Model, msg monitorDoneMsg) (tea.Model, tea.Cmd) {
-	// EP-0036: monitored process exited.
-	if m.monitor != nil {
-		m.monitor = nil
+	// EP-0036: monitored process exited. Ignore a stale completion from a
+	// superseded monitor instance: after /monitor stop kills monitor A and a
+	// new /monitor B starts, A's cancelled goroutine still sends its
+	// monitorDoneMsg; a bare nil-check would let it clear B and falsely report
+	// B as exited. Matching the generation means only the active monitor's own
+	// completion clears state. A nil monitor means /monitor stop already
+	// printed "monitor stopped"; don't double-report.
+	if m.monitor == nil || m.monitor.gen != msg.gen {
+		return m, nil
 	}
+	m.monitor = nil
 	body := "monitor: process exited"
 	if msg.err != nil {
 		body += " (" + msg.err.Error() + ")"

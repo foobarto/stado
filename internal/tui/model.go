@@ -292,6 +292,11 @@ type Model struct {
 
 	// monitor is non-nil when a /monitor process is running. EP-0036.
 	monitor *monitorState
+	// monitorGen is incremented for every monitor started; the active
+	// monitor's generation is stamped onto its line/done messages so a
+	// stale message from a stopped-and-superseded monitor is ignored
+	// instead of clearing or appending to the current one.
+	monitorGen uint64
 
 	// backgroundPlugins are persistent plugin instances loaded once
 	// per TUI session from cfg.Plugins.Background. Each ticks after
@@ -479,7 +484,14 @@ type Model struct {
 	// blockLineRanges records each rendered block's line-range in the
 	// vp content (start inclusive, end exclusive). Populated during
 	// renderBlocks; consumed by mouse click → block-index lookup.
+	// In split view this maps the CONVERSATION pane (m.vp); the activity
+	// pane gets its own table below.
 	blockLineRanges []blockLineRange
+
+	// activityLineRanges mirrors blockLineRanges for the split-view
+	// ACTIVITY pane (m.activityVP). Empty in single view. Lets a click
+	// on a tool/system block in the top pane map back to its block index.
+	activityLineRanges []blockLineRange
 
 	// ptyManager is the TUI-session-lifetime PTY manager shared with
 	// bundled shell.* / pty.* tools so spawn / attach / read / write
@@ -879,6 +891,28 @@ func (m *Model) budgetExceeded() bool {
 		return true
 	}
 	return false
+}
+
+// budgetBreachDescription names the specific hard cap that fired and
+// the config knob that raises it, in the same precedence order as
+// budgetExceeded. It exists so the blocking system block speaks the
+// truth on a TOKEN breach instead of the old USD-only message ("cost
+// $0.00 ≥ hard cap $0.00 — edit [budget].hard_usd"), which is nonsense
+// when the cap that actually fired is a token cap. Returns
+// (whatExceeded, configKnob); whatExceeded is empty when nothing is
+// over its hard cap.
+func (m *Model) budgetBreachDescription() (whatExceeded, configKnob string) {
+	switch {
+	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD:
+		return fmt.Sprintf("cost $%.2f ≥ hard cap $%.2f", m.usage.CostUSD, m.budgetHardUSD), "hard_usd"
+	case m.budgetHardTokens > 0 && m.totalTokens() >= m.budgetHardTokens:
+		return fmt.Sprintf("tokens %s ≥ hard cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetHardTokens)), "hard_tokens"
+	case m.budgetHardInputTokens > 0 && m.usage.InputTokens >= m.budgetHardInputTokens:
+		return fmt.Sprintf("input tokens %s ≥ hard cap %s", formatTokenCount(m.usage.InputTokens), formatTokenCount(m.budgetHardInputTokens)), "hard_input_tokens"
+	case m.budgetHardOutputTokens > 0 && m.usage.OutputTokens >= m.budgetHardOutputTokens:
+		return fmt.Sprintf("output tokens %s ≥ hard cap %s", formatTokenCount(m.usage.OutputTokens), formatTokenCount(m.budgetHardOutputTokens)), "hard_output_tokens"
+	}
+	return "", ""
 }
 
 // totalTokens is the cumulative input+output token count for the

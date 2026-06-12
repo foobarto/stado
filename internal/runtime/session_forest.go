@@ -55,10 +55,13 @@ type TurnNode struct {
 
 	// MutatedCount / DeniedCount aggregate the hook-mutation provenance for
 	// THIS turn (spec hooks-audit-mutation-provenance STAGE 7b): how many
-	// trace commits tagged `Turn: <this>` carried a Mutated-By-Hook trailer
-	// (a post_tool hook rewrote a tool result) or a Deny-Reason trailer (a
-	// pre_tool hook vetoed a call). Drive the `⟳N` / `⊘N` /tree turn badge.
-	// Zero for every turn in a session that never triggered a mutating or
+	// of this turn's trace commits carried a Mutated-By-Hook trailer (a
+	// post_tool hook rewrote a tool result) or a Deny-Reason trailer (a
+	// pre_tool hook vetoed a call). Attribution bridges the +1 convention
+	// drift between the trace commit's `Turn` trailer (zero-indexed,
+	// pre-increment) and this node's turn-boundary tag turns/N — see
+	// stampProvenanceCounts. Drive the `⟳N` / `⊘N` /tree turn badge. Zero
+	// for every turn in a session that never triggered a mutating or
 	// denying hook — the common case, paid by one extra trace-ref walk.
 	MutatedCount int
 	DeniedCount  int
@@ -501,6 +504,20 @@ const maxTraceWalk = 1 << 20
 // `Turn: N` trailer; a commit whose Turn matches no turn tag still counts
 // toward the session totals so the session-line badge never undercounts.
 //
+// CONVENTION DRIFT (the bug this guards against). A tool-call trace commit's
+// `Turn: K` trailer is Session.Turn() at dispatch time — the turn IN PROGRESS,
+// which is zero-indexed and PRE-increment (a fresh session's first turn runs
+// at Turn() == 0; an existing session reopened after turns/N runs its next
+// turn at Turn() == N). The turn-boundary TAG that CLOSES that same operator
+// turn is turns/K+1 (NextTurn does nextTurn := s.turn + 1 before tagging). So
+// the operator-facing turn the tag turns/N represents was executed while
+// Session.Turn() == N-1, and its provenance lands in bucket N-1. A naive
+// perTurn[tn.Entry.Turn] join is therefore off-by-one: the first turn's
+// mutations/denies land in bucket 0, which has no turns/0 tag, so they render
+// on NO turn row even though the session total counts them — and every later
+// turn's badge shows the NEXT turn's counts. We bridge the +1 here: bucket K
+// attributes to the turn node whose tag (turns/K+1) closed it.
+//
 // Cheap by construction: one git-log-shaped first-parent walk per session,
 // only over the trace ref (which BuildForest already enumerated). Sessions
 // with no trace ref (or no provenance commits — the common case) pay only
@@ -514,7 +531,9 @@ func stampProvenanceCounts(sc *stadogit.Sidecar, b *sessionRefBucket, node *Sess
 		return
 	}
 	for _, tn := range node.Turns {
-		if c, ok := perTurn[tn.Entry.Turn]; ok {
+		// Provenance for the operator turn that tag turns/N closed lives in
+		// bucket N-1 (see CONVENTION DRIFT above), so join on Entry.Turn-1.
+		if c, ok := perTurn[tn.Entry.Turn-1]; ok {
 			tn.MutatedCount = c.mutated
 			tn.DeniedCount = c.denied
 		}

@@ -188,11 +188,16 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		if err != nil {
 			return fmt.Errorf("memory update %s: %w", req.Action, err)
 		}
-		// A `deleted` item is a terminal audit tombstone: approve must not
-		// silently resurrect it into a queryable, prompt-injectable memory.
-		// (reject stays reversible — it is part of the candidate review flow.)
-		if req.Action == "approve" && existing.Confidence == "deleted" {
-			return fmt.Errorf("memory update approve: %q is deleted; re-propose it instead of resurrecting a tombstone", ev.ID)
+		// A `deleted` item is a terminal audit tombstone: neither approve nor
+		// reject may transition it. Blocking only approve leaves a laundering
+		// path — delete→reject flips the tombstone to `rejected`, after which
+		// approve resurrects it into a queryable, prompt-injectable memory,
+		// defeating the guard. reject is a candidate-review transition, not a
+		// way to un-delete; a tombstone must stay terminal under any sequence.
+		// (Re-propose to bring a deleted memory back, which writes a fresh
+		// audit trail.)
+		if (req.Action == "approve" || req.Action == "reject") && existing.Confidence == "deleted" {
+			return fmt.Errorf("memory update %s: %q is deleted; re-propose it instead of resurrecting a tombstone", req.Action, ev.ID)
 		}
 	case "upsert":
 		if req.Item == nil {

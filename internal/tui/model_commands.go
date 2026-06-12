@@ -955,19 +955,47 @@ func (m *Model) handleBudgetSlash(parts []string) {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("cost so far: $%.4f\n", m.usage.CostUSD))
 		if m.budgetWarnUSD > 0 {
-			sb.WriteString(fmt.Sprintf("warn cap: $%.2f\n", m.budgetWarnUSD))
+			sb.WriteString(fmt.Sprintf("warn cap (USD): $%.2f\n", m.budgetWarnUSD))
 		} else {
-			sb.WriteString("warn cap: (unset)\n")
+			sb.WriteString("warn cap (USD): (unset)\n")
 		}
 		if m.budgetHardUSD > 0 {
-			sb.WriteString(fmt.Sprintf("hard cap: $%.2f", m.budgetHardUSD))
-			if m.budgetAcked {
-				sb.WriteString("  (acknowledged — turns unblocked)")
-			}
+			sb.WriteString(fmt.Sprintf("hard cap (USD): $%.2f\n", m.budgetHardUSD))
 		} else {
-			sb.WriteString("hard cap: (unset)")
+			sb.WriteString("hard cap (USD): (unset)\n")
 		}
-		m.appendBlock(block{kind: "system", body: sb.String()})
+		// Token caps. Only shown when at least one is configured —
+		// USD-only users (the common case) don't need the extra noise,
+		// but token-budget users (local runners with CostUSD always 0)
+		// must see why a turn is blocked. Mirrors budgetExceeded's set.
+		if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
+			m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
+			m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
+			sb.WriteString(fmt.Sprintf("tokens so far: %s in / %s out (%s total)\n",
+				formatTokenCount(m.usage.InputTokens), formatTokenCount(m.usage.OutputTokens),
+				formatTokenCount(m.totalTokens())))
+			writeTokenCap := func(label string, warn, hard int) {
+				if warn <= 0 && hard <= 0 {
+					return
+				}
+				w := "(unset)"
+				if warn > 0 {
+					w = formatTokenCount(warn)
+				}
+				h := "(unset)"
+				if hard > 0 {
+					h = formatTokenCount(hard)
+				}
+				sb.WriteString(fmt.Sprintf("%s: warn=%s · hard=%s\n", label, w, h))
+			}
+			writeTokenCap("token cap (total)", m.budgetWarnTokens, m.budgetHardTokens)
+			writeTokenCap("token cap (input)", m.budgetWarnInputTokens, m.budgetHardInputTokens)
+			writeTokenCap("token cap (output)", m.budgetWarnOutputTokens, m.budgetHardOutputTokens)
+		}
+		if m.budgetAcked {
+			sb.WriteString("status: acknowledged — turns unblocked for this session\n")
+		}
+		m.appendBlock(block{kind: "system", body: strings.TrimRight(sb.String(), "\n")})
 		return
 	}
 	switch parts[1] {
