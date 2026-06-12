@@ -46,6 +46,26 @@ func TestAuditVerify_UnknownIDErrors(t *testing.T) {
 	}
 }
 
+// B8 sibling: an explicitly-named unknown id passed to `audit export`
+// must error rather than silently exit 0 with empty output — for a
+// SIEM-ingestion tool, a typoed/nonexistent session id producing zero
+// records under a success exit code is a silent data-loss footgun (the
+// operator believes they captured an audit trail when they captured
+// nothing). Mirrors TestAuditVerify_UnknownIDErrors. The no-args sweep
+// keeps its lenient skip (nothing to export → exit 0 is fine there).
+func TestAuditExport_UnknownIDErrors(t *testing.T) {
+	_, _, restore := statsEnv(t)
+	defer restore()
+
+	err := auditExportCmd.RunE(auditExportCmd, []string{"no-such-session-id"})
+	if err == nil {
+		t.Fatal("expected an error for an unknown explicit session id, got nil (exit 0)")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should say 'not found', got %q", err.Error())
+	}
+}
+
 func TestAuditExport_EmitsJSONL(t *testing.T) {
 	cfg, sc, restore := statsEnv(t)
 	defer restore()

@@ -157,7 +157,14 @@ var auditExportCmd = &cobra.Command{
 				return err
 			}
 		}
+		// B8 sibling: an explicitly-named id that resolves no refs must
+		// error rather than silently exit 0 with empty output. For a
+		// SIEM-ingestion tool, a typoed/nonexistent id producing zero
+		// records under a success code is silent data-loss. The no-args
+		// sweep keeps the lenient skip (nothing to export → exit 0).
+		explicitID := len(args) > 0
 		for _, id := range ids {
+			found := false
 			for _, refPair := range []struct {
 				name string
 				ref  refMaker
@@ -169,9 +176,13 @@ var auditExportCmd = &cobra.Command{
 				if err != nil {
 					continue
 				}
+				found = true
 				if err := audit.ExportJSONL(os.Stdout, sc.Repo().Storer, string(refPair.ref(id)), head); err != nil {
 					return err
 				}
+			}
+			if !found && explicitID {
+				return fmt.Errorf("audit export: session %s not found (no tree/trace refs)", id)
 			}
 		}
 		return nil
