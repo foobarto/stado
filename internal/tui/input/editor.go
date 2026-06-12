@@ -25,7 +25,7 @@ const (
 
 func New(reg *keys.Registry) *Editor {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Enter to send, Shift+Enter for new line)"
+	ta.Placeholder = "Type a message... (Enter to send / steer mid-turn, Shift+Enter for new line)"
 	// No per-line prompt — opencode-style: the bordered pane is the frame,
 	// and the textarea itself leaves the left margin clean. The mode
 	// indicator in the inline status line below the text area conveys

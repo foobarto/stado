@@ -95,6 +95,43 @@ func TestRenderHelp_IncludesInTurnRoutingBindings(t *testing.T) {
 	}
 }
 
+// P2.6: plain Enter WHILE A TURN STREAMS injects a mid-turn STEER
+// (handler_input.go #16), but the keybinding table only documented the
+// alt+enter (Queue) and ctrl+enter (Interrupt) siblings — the steer was
+// the one in-turn routing intent a user couldn't discover from ?. The
+// "In-turn routing" group must surface that plain enter steers, so a
+// user reading the keymap next to Queue/Interrupt learns what Enter does
+// mid-turn. We assert on the KEYBINDINGS half of the overlay (above the
+// "Slash commands" section) because the /steer palette row sits in the
+// slash list, not the keymap a user scans for the Enter behavior.
+func TestRenderHelp_DocumentsEnterWhileBusySteer(t *testing.T) {
+	reg := keys.NewRegistry()
+	out, _ := RenderHelp(reg, 200, 0, 0)
+
+	keymap := out
+	if si := strings.Index(out, "Slash commands"); si >= 0 {
+		keymap = out[:si]
+	}
+	lower := strings.ToLower(keymap)
+	if !strings.Contains(lower, "steer") {
+		t.Errorf("In-turn routing keymap must document the Enter-while-busy steer; "+
+			"'steer' absent from the keybindings section:\n%s", keymap)
+	}
+	// The steer row must sit in the In-turn routing group, alongside the
+	// alt+enter / ctrl+enter siblings — not orphaned elsewhere.
+	gi := strings.Index(out, "In-turn routing")
+	if gi < 0 {
+		t.Fatal("In-turn routing group header missing")
+	}
+	region := out[gi:]
+	if si := strings.Index(region, "Slash commands"); si >= 0 {
+		region = region[:si]
+	}
+	if !strings.Contains(strings.ToLower(region), "steer") {
+		t.Errorf("steer not documented within the In-turn routing group:\n%s", region)
+	}
+}
+
 // TestRenderHelp_FitsHeight: the help body is ~70+ lines, far taller than
 // a typical terminal. bubbletea v2's compositor clips the frame to the
 // canvas (v1 scrolled the overflow, losing the top instead of the

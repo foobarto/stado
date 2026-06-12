@@ -142,6 +142,77 @@ func TestClipToolOutput_CountsPostWrapRows(t *testing.T) {
 	}
 }
 
+// P2.2: a single long UNBROKEN token (base64 blob, minified JSON, long
+// URL — no spaces) must still wrap mid-token at the width boundary and
+// consume its real number of rows. strings.Fields-based wrapping only
+// breaks between words, so a 400-char token used to count as ONE row,
+// the panel passed it through whole, lipgloss hard-clipped it to content
+// width, and the "… N more line(s)" footer reported NOTHING hidden.
+func TestClipToolOutput_LongUnbrokenTokenWraps(t *testing.T) {
+	// 400 chars, no spaces. At width 40 it must wrap to 10 rows; clipped
+	// to a budget of 8 it shows 8 and reports 2 hidden.
+	long := strings.Repeat("x", 400)
+	clipped, more := clipToolOutput(long, 40, 8)
+	rows := strings.Count(clipped, "\n") + 1
+	if rows != 8 {
+		t.Fatalf("400-char token at width 40, budget 8: want 8 rows, got %d\n%q", rows, clipped)
+	}
+	// 400/40 = 10 wrapped rows; 10 - 8 = 2 dropped.
+	if more != 2 {
+		t.Fatalf("400-char token: want more=2 dropped rows, got more=%d", more)
+	}
+	// No clipped row may exceed the width boundary (display-width aware).
+	for _, ln := range strings.Split(clipped, "\n") {
+		if w := ansi.StringWidth(ln); w > 40 {
+			t.Fatalf("clipped row exceeds width 40 (got %d): %q", w, ln)
+		}
+	}
+}
+
+// A realistic base64 blob (no spaces) reports the hidden remainder
+// instead of being silently truncated to one row.
+func TestClipToolOutput_Base64BlobReportsHidden(t *testing.T) {
+	// 432-char base64-ish blob, no whitespace.
+	const blobLen = 432
+	blob := strings.Repeat("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU2Nzg5", 9) // 48*9 = 432
+	if len(blob) != blobLen {
+		t.Fatalf("test setup: blob len %d, want %d", len(blob), blobLen)
+	}
+	clipped, more := clipToolOutput(blob, 40, 8)
+	rows := strings.Count(clipped, "\n") + 1
+	if rows != 8 {
+		t.Fatalf("base64 blob at width 40, budget 8: want 8 rows, got %d\n%q", rows, clipped)
+	}
+	// 432/40 = 10.8 → 11 wrapped rows; 11 - 8 = 3 dropped.
+	if more != 3 {
+		t.Fatalf("base64 blob: want more=3 dropped rows, got more=%d", more)
+	}
+}
+
+// End-to-end through the real tool template: a collapsed block whose
+// result is one long unbroken token surfaces a "… N more line(s)"
+// footer rather than hard-clipping to a single row with no disclosure.
+func TestToolOutputPanel_LongUnbrokenTokenShowsFooter(t *testing.T) {
+	m := scenarioModel(t)
+	m.cfg = &config.Config{} // default height (8)
+	m.vp.SetWidth(60)
+	m.vp.SetHeight(40)
+
+	// innerW = vp.Width-2-4 = 54; a 600-char unbroken token wraps to ~12
+	// rows, well past the default budget of 8, so it must be clipped and
+	// the footer must report the hidden remainder.
+	m.blocks = []block{{
+		kind:       "tool",
+		toolName:   "bash",
+		toolResult: strings.Repeat("Z", 600), // single unbroken token
+	}}
+	m.renderBlocks()
+	plain := ansi.Strip(m.vp.View())
+	if !strings.Contains(plain, "more line") {
+		t.Fatalf("collapsed long-token result should show a '… N more line(s)' footer:\n%s", plain)
+	}
+}
+
 func TestClipToolOutput_NoClipWhenUnderBudget(t *testing.T) {
 	in := "a\nb\nc"
 	out, more := clipToolOutput(in, 80, 8)

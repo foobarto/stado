@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/tui/overlays"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -85,6 +86,18 @@ func (m *Model) renderBody(innerW, maxListRows int) string {
 
 	titleText := "Session tree"
 	hints := "enter switch/peek  b branch  →/← expand  g/G  esc"
+	// Keep the header on ONE row: at common widths (<~127 cols) the inner
+	// width can't fit title + 1-col gap + the full hint, and rowTwoColBg only
+	// pads (never truncates), so the over-long span lipgloss-hard-wraps past
+	// the box and pushes every row down. Ellipsize the hint to whatever space
+	// the title leaves so it stays a single line (display-width aware).
+	hintBudget := innerW - lipgloss.Width(titleText) - 1
+	if hintBudget < 0 {
+		hintBudget = 0
+	}
+	if lipgloss.Width(hints) > hintBudget {
+		hints = ansi.Truncate(hints, hintBudget, "…")
+	}
 	title := bg.Foreground(theme.Text).Bold(true).Render(titleText)
 	esc := bg.Foreground(theme.Muted).Render(hints)
 	b.WriteString(rowTwoColBg(innerW, titleText, hints, title, esc, bg))
@@ -157,15 +170,23 @@ func (m *Model) renderNodeLine(n Node, selected bool, innerW int) string {
 	}
 
 	// Left column is built as plain text first (for width math); the status
-	// glyph is colourised separately on the non-selected path.
-	leftPlain := indent + marker + glyphFor(n.Avail) + " " + nodeLabel(n)
+	// glyph is colourised separately on the non-selected path. The fork-origin
+	// tag + provenance badge are a FIXED-cost suffix: they must survive
+	// truncation (a deep node's long label must not slice off its "⑂ turn N"
+	// origin), so the LABEL is truncated to fit the budget BEFORE the suffix is
+	// appended, not the whole column truncated as a unit afterwards.
+	prefix := indent + marker + glyphFor(n.Avail) + " "
+	var suffix string
 	if origin := forkOriginTag(n); origin != "" {
-		leftPlain += "  " + origin
+		suffix += "  " + origin
 	}
 	if badge := provenanceBadge(n.MutatedCount, n.DeniedCount); badge != "" {
-		leftPlain += "  " + badge
+		suffix += "  " + badge
 	}
 	right := n.Meta
+	// Fit the label between prefix and the always-kept suffix. The full left
+	// column must leave 1 col of gap before the right column.
+	leftPlain := fitLeftColumn(prefix, nodeLabel(n), suffix, right, innerW)
 
 	if selected {
 		// Plain text + plain padding wrapped in one Primary span so every
@@ -183,16 +204,10 @@ func (m *Model) renderNodeLine(n Node, selected bool, innerW int) string {
 	if n.Avail == AvailDetached {
 		leftFg = theme.Muted // dim the whole row for an unswitchable session
 	}
-	// Truncate the left column if the two columns would overflow innerW.
-	left := leftPlain
-	if lipgloss.Width(left)+lipgloss.Width(right)+1 > innerW {
-		budget := maxInt(innerW-lipgloss.Width(right)-2, 3)
-		left = truncateVisible(left, budget)
-	}
 	// Re-colourise the status glyph in place of the plain placeholder so a
 	// live/idle/detached row keeps its coloured dot on the non-selected path.
-	coloured := strings.Replace(left, glyphFor(n.Avail), statusGlyph(n.Avail), 1)
-	pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
+	coloured := strings.Replace(leftPlain, glyphFor(n.Avail), statusGlyph(n.Avail), 1)
+	pad := maxInt(innerW-lipgloss.Width(leftPlain)-lipgloss.Width(right), 1)
 	return bg.Foreground(leftFg).Render(coloured) +
 		bg.Render(strings.Repeat(" ", pad)) +
 		bg.Foreground(theme.Muted).Render(right)
@@ -279,6 +294,42 @@ func windowLines(lines []string, cursorLine, budget int) []string {
 		start = 0
 	}
 	return lines[start : start+budget]
+}
+
+// fitLeftColumn assembles "prefix + label + suffix" so it fits the column
+// budget (innerW minus the right column minus a 1-col gap), truncating ONLY the
+// label when it overflows. prefix (indent/marker/glyph) and suffix (fork-origin
+// tag + provenance badge) are fixed cost and survive truncation in the common
+// case — a long label can never slice the "⑂ turn N" origin off a deep fork
+// node (P3.1). The returned column's display width is ALWAYS <= budget, so the
+// non-selected render path (which no longer does a final truncation) cannot
+// spill/wrap the row past the modal. Truncation is display-width + grapheme
+// aware (ansi.Truncate).
+func fitLeftColumn(prefix, label, suffix, right string, innerW int) string {
+	full := prefix + label + suffix
+	// Budget for the whole left column: leave the right column + 1-col gap.
+	budget := innerW - lipgloss.Width(right) - 1
+	if budget < 1 {
+		budget = 1
+	}
+	if lipgloss.Width(full) <= budget {
+		return full
+	}
+	// Overflow: shrink the label to whatever the fixed prefix+suffix leaves.
+	labelBudget := budget - lipgloss.Width(prefix) - lipgloss.Width(suffix)
+	if labelBudget < 1 {
+		// prefix+suffix alone already exceed the column budget (a very deep
+		// indent plus the fork/provenance suffix at a narrow modal width).
+		// There is no room for the label, and returning prefix+"…"+suffix here
+		// would be WIDER than budget — the non-selected render path no longer
+		// truncates, so that over-budget column would hard-wrap the meta onto
+		// its own row (spill past the box). Hard-truncate the whole column to
+		// budget instead: the suffix may clip in this pathological case, but a
+		// contained row beats a spilling one.
+		return ansi.Truncate(prefix+suffix, budget, "…")
+	}
+	label = ansi.Truncate(label, labelBudget, "…")
+	return prefix + label + suffix
 }
 
 // rowTwoColBg lays out two already-styled spans across width, painting the

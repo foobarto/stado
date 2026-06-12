@@ -250,9 +250,15 @@ func (m *Model) layout() {
 // state indicator when busy).
 // modelOrPlaceholder returns the model name, or a helpful placeholder
 // when no model is configured so the sidebar never shows a blank line.
+// The placeholder is kept short ("no model · /model") so it fits the
+// default 32-col sidebar's 28-col content width without hardWrap splitting
+// the "/model" CTA across two rows (P2.12). The old em-dash dressing
+// ("no model set  —  /model") was 23 cols and, once " via <provider>" was
+// appended for a provider-but-no-model launch, overflowed and mangled the
+// single most important call-to-action for a no-model user.
 func modelOrPlaceholder(s string) string {
 	if s == "" {
-		return "no model set  —  /model"
+		return "no model · /model"
 	}
 	return s
 }

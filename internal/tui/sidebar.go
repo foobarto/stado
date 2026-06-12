@@ -385,8 +385,14 @@ func (m *Model) sidebarSandboxLine() sidebarLine {
 
 func (m *Model) sidebarAgentLines() []sidebarLine {
 	modelLine := modelOrPlaceholder(m.model)
-	if provider := strings.TrimSpace(m.providerDisplayName()); provider != "" {
-		modelLine += " via " + provider
+	// Only append "via <provider>" when a model is actually set. The
+	// no-model placeholder is a "/model" call-to-action; appending the
+	// provider to it overflows the 28-col sidebar content and hardWrap
+	// splits "/model" across rows, mangling the CTA (P2.12).
+	if m.model != "" {
+		if provider := strings.TrimSpace(m.providerDisplayName()); provider != "" {
+			modelLine += " via " + provider
+		}
 	}
 	lines := []sidebarLine{{
 		Text: "agent: " + m.mode.String(),

@@ -53,8 +53,17 @@ const (
 	// In-turn message routing (#16/#17). QueueMessage defers the typed
 	// input to the next turn; InterruptTurn cancels the current turn and
 	// runs it now. Plain Enter while busy steers (handled in submitInput).
+	//
+	// SteerMessage is a DISPLAY-ONLY pseudo-action: it documents that plain
+	// Enter steers mid-turn so the ? overlay surfaces it in the In-turn
+	// routing group next to Queue/Interrupt (P2.6). Dispatch never matches
+	// on it — the steer is decided by busy-state inside submitInput, not a
+	// key action — so sharing enter with InputSubmit is inert (Matches is
+	// action-scoped). It carries no real binding; the enter chord is
+	// declared only to render the help row.
 	QueueMessage  Action = "queue_message"
 	InterruptTurn Action = "interrupt_turn"
+	SteerMessage  Action = "steer_message"
 )
 
 var ActionDescriptions = map[Action]string{
@@ -107,4 +116,5 @@ var ActionDescriptions = map[Action]string{
 	ModeToggleBtw:           "Toggle BTW mode",
 	QueueMessage:            "Queue the message for the next turn",
 	InterruptTurn:           "Interrupt: cancel the turn and run now",
+	SteerMessage:            "Steer: inject into the current turn (plain enter while busy)",
 }

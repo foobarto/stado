@@ -246,6 +246,121 @@ func TestRunAuthUnset_UnknownProvider(t *testing.T) {
 	}
 }
 
+// P3.5: `auth set <local-runner>` (no key, no base-url) must NOT claim it
+// "recorded a credential ref" — a local runner needs no credential and
+// WriteProviderCredential writes nothing, so the old message lied. The
+// message must be honest AND no phantom preset block may be written.
+func TestRunAuthSet_LocalRunnerNoKeyHonestMessage(t *testing.T) {
+	keyring.MockInit()
+	cfg := isolatedHome(t)
+
+	var buf bytes.Buffer
+	if err := runAuthSet(context.Background(), &buf, cfg, "ollama", authSetOpts{noValidate: true}); err != nil {
+		t.Fatalf("runAuthSet: %v", err)
+	}
+	out := buf.String()
+
+	// It must NOT claim a credential ref was recorded — nothing was.
+	if strings.Contains(out, "recorded credential ref") {
+		t.Errorf("local runner falsely claims a recorded credential ref:\n%s", out)
+	}
+	// It must say, honestly, that no credential is needed for this runner.
+	if !strings.Contains(out, "no credential") && !strings.Contains(out, "no API key") {
+		t.Errorf("expected an honest no-credential-needed message:\n%s", out)
+	}
+
+	// And no phantom [inference.presets.ollama] block may be on disk.
+	cfg2, err := config.Load()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, ok := cfg2.Inference.Presets["ollama"]; ok {
+		t.Errorf("no preset block should be written for a no-key local runner; presets=%v", cfg2.Inference.Presets)
+	}
+}
+
+// P3.5 (cont.): when a local runner DOES get a base-url override, that IS a
+// real config change — record it and confirm honestly (still no api_key_env).
+func TestRunAuthSet_LocalRunnerBaseURLRecorded(t *testing.T) {
+	keyring.MockInit()
+	cfg := isolatedHome(t)
+
+	var buf bytes.Buffer
+	if err := runAuthSet(context.Background(), &buf, cfg, "ollama", authSetOpts{
+		baseURL:    "http://192.168.1.50:11434/v1",
+		noValidate: true,
+	}); err != nil {
+		t.Fatalf("runAuthSet: %v", err)
+	}
+	cfg2, err := config.Load()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	pre, ok := cfg2.Inference.Presets["ollama"]
+	if !ok {
+		t.Fatalf("base-url override should write a preset; presets=%v", cfg2.Inference.Presets)
+	}
+	if pre.BaseURL != "http://192.168.1.50:11434/v1" {
+		t.Errorf("base_url = %q, want the override", pre.BaseURL)
+	}
+}
+
+// P3.4: `auth unset <local-runner>` (no env var) must not print a dangling
+// "(the  environment variable...)" line with a double space from an empty
+// interpolated env-var name.
+func TestRunAuthUnset_LocalRunnerNoDoubleSpace(t *testing.T) {
+	keyring.MockInit()
+	cfg := isolatedHome(t)
+	// Put a base-url override on the local runner so there's a block to remove.
+	var setBuf bytes.Buffer
+	if err := runAuthSet(context.Background(), &setBuf, cfg, "ollama", authSetOpts{
+		baseURL: "http://192.168.1.50:11434/v1", noValidate: true,
+	}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	cfgMid, _ := config.Load()
+
+	var buf bytes.Buffer
+	if err := runAuthUnset(&buf, cfgMid, "ollama"); err != nil {
+		t.Fatalf("unset: %v", err)
+	}
+	out := buf.String()
+	// The old bug interpolated an empty env-var name -> "(the  environment".
+	if strings.Contains(out, "the  environment") {
+		t.Errorf("double-space / empty env-var name leaked into the message:\n%s", out)
+	}
+	// And it must not dangle a phrase naming a non-existent env var at all.
+	if strings.Contains(out, "environment variable, if set, is untouched") {
+		t.Errorf("local runner has no env var to mention:\n%s", out)
+	}
+}
+
+// P3.3: `auth unset <provider>` must name the PINNED env-var override the
+// user set via --env, not the conventional default.
+func TestRunAuthUnset_NamesPinnedEnvOverride(t *testing.T) {
+	keyring.MockInit()
+	cfg := isolatedHome(t)
+	var setBuf bytes.Buffer
+	if err := runAuthSet(context.Background(), &setBuf, cfg, "deepseek", authSetOpts{
+		envVar: "MY_DEEPSEEK_KEY", noValidate: true,
+	}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	cfgMid, _ := config.Load()
+
+	var buf bytes.Buffer
+	if err := runAuthUnset(&buf, cfgMid, "deepseek"); err != nil {
+		t.Fatalf("unset: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "MY_DEEPSEEK_KEY") {
+		t.Errorf("unset should name the pinned override MY_DEEPSEEK_KEY:\n%s", out)
+	}
+	if strings.Contains(out, "DEEPSEEK_API_KEY") {
+		t.Errorf("unset named the conventional default, not the pinned override:\n%s", out)
+	}
+}
+
 func TestShellQuote_EscapesSingleQuotes(t *testing.T) {
 	got := shellQuote("a'b")
 	if !strings.Contains(got, `'\''`) {
