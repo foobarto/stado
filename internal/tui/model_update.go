@@ -58,8 +58,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onLocalFallbackReady(m, msg)
 	case loopTickMsg:
 		return onLoopTick(m, msg)
-	case monitorLinesMsg:
-		return onMonitorLines(m, msg)
+	case monitorLineMsg:
+		return onMonitorLine(m, msg)
 	case monitorDoneMsg:
 		return onMonitorDone(m, msg)
 	case backgroundTickResultMsg:

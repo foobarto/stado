@@ -88,20 +88,21 @@ func onLoopTick(m *Model, _ loopTickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func onMonitorLines(m *Model, msg monitorLinesMsg) (tea.Model, tea.Cmd) {
-	// EP-0036: batch of monitor output lines delivered to the session.
-	for _, line := range msg {
-		m.appendBlock(block{kind: "system", body: "[monitor] " + line})
-	}
+func onMonitorLine(m *Model, msg monitorLineMsg) (tea.Model, tea.Cmd) {
+	// EP-0036: a single live monitor output line delivered to the session.
+	m.appendBlock(block{kind: "system", body: "[monitor] " + string(msg)})
 	m.renderBlocks()
 	return m, nil
 }
 
 func onMonitorDone(m *Model, msg monitorDoneMsg) (tea.Model, tea.Cmd) {
-	// EP-0036: monitored process exited.
-	if m.monitor != nil {
-		m.monitor = nil
+	// EP-0036: monitored process exited. If m.monitor is already nil the
+	// user ran /monitor stop (which printed "monitor stopped" and killed
+	// the process); don't double-report the same termination.
+	if m.monitor == nil {
+		return m, nil
 	}
+	m.monitor = nil
 	body := "monitor: process exited"
 	if msg.err != nil {
 		body += " (" + msg.err.Error() + ")"

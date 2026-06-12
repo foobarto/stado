@@ -33,6 +33,12 @@ func (m *Model) handleLoopCmd(rest string) tea.Cmd {
 	rest = strings.TrimSpace(rest)
 
 	if rest == "stop" || rest == "off" || (rest == "" && m.loop != nil) {
+		if m.loop == nil {
+			// Mirror /monitor stop: don't claim to have stopped a loop
+			// that was never running.
+			m.appendBlock(block{kind: "system", body: "no active loop"})
+			return nil
+		}
 		m.loop = nil
 		m.appendBlock(block{kind: "system", body: "loop stopped"})
 		return nil
