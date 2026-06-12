@@ -1469,6 +1469,34 @@ func (m *Model) renderContextStatus() string {
 		}
 		sb.WriteString("\n")
 	}
+	// Token caps. Shown only when configured — USD-only users don't
+	// need the extra line, but token-budget users (local runners with
+	// CostUSD always 0) must see their usage and caps here too, not
+	// just in /budget. Mirrors budgetExceeded's precedence set.
+	if m.budgetWarnTokens > 0 || m.budgetHardTokens > 0 ||
+		m.budgetWarnInputTokens > 0 || m.budgetHardInputTokens > 0 ||
+		m.budgetWarnOutputTokens > 0 || m.budgetHardOutputTokens > 0 {
+		sb.WriteString(fmt.Sprintf("tokens: %s in / %s out (%s total)\n",
+			formatTokenCount(m.usage.InputTokens), formatTokenCount(m.usage.OutputTokens),
+			formatTokenCount(m.totalTokens())))
+		writeTokenCap := func(label string, warn, hard int) {
+			if warn <= 0 && hard <= 0 {
+				return
+			}
+			w := "(unset)"
+			if warn > 0 {
+				w = formatTokenCount(warn)
+			}
+			h := "(unset)"
+			if hard > 0 {
+				h = formatTokenCount(hard)
+			}
+			sb.WriteString(fmt.Sprintf("%s: warn=%s · hard=%s\n", label, w, h))
+		}
+		writeTokenCap("token budget (total)", m.budgetWarnTokens, m.budgetHardTokens)
+		writeTokenCap("token budget (input)", m.budgetWarnInputTokens, m.budgetHardInputTokens)
+		writeTokenCap("token budget (output)", m.budgetWarnOutputTokens, m.budgetHardOutputTokens)
+	}
 
 	// Project-level instructions (AGENTS.md / CLAUDE.md), if loaded.
 	if m.systemPromptPath != "" {
@@ -1870,25 +1898,60 @@ func (m *Model) firePostLLMHook() {
 }
 
 // maybeEmitBudgetWarning fires a one-time system block once cumulative
-// cost crosses the warn cap, so users don't keep seeing the same
-// notice every turn. Called from handleStreamEvent on every Usage
-// update.
+// cost OR token usage crosses a configured warn cap, so users don't
+// keep seeing the same notice every turn. Called from handleStreamEvent
+// on every Usage update.
+//
+// Token caps matter here because local-runner setups (Ollama / LM
+// Studio / vLLM) report CostUSD == 0; a USD-only gate left those users
+// with no proactive advisory before the hard cap blocked their turn.
+// budgetWarnDescription mirrors budgetBreachDescription's precedence so
+// the warn block names whichever cap actually fired.
 func (m *Model) maybeEmitBudgetWarning() {
-	if m.budgetWarnUSD <= 0 || m.budgetWarned {
+	if m.budgetWarned {
 		return
 	}
-	if m.usage.CostUSD < m.budgetWarnUSD {
+	crossed, hint := m.budgetWarnDescription()
+	if crossed == "" {
 		return
 	}
 	m.budgetWarned = true
-	cap := m.budgetWarnUSD
-	hint := ""
-	if m.budgetHardUSD > 0 {
-		hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
-	}
 	m.appendBlock(block{
 		kind: "system",
-		body: fmt.Sprintf("budget warning: cost $%.2f crossed warn cap $%.2f%s", m.usage.CostUSD, cap, hint),
+		body: fmt.Sprintf("budget warning: %s%s", crossed, hint),
 	})
 	m.renderBlocks()
+}
+
+// budgetWarnDescription names the first warn cap that has been crossed
+// and a hint pointing at the matching hard cap, in the same precedence
+// order as budgetWarning/budgetBreachDescription (USD first, then
+// combined tokens, then per-direction). Returns ("", "") when nothing
+// is over its warn cap. The crossed string is phrased as a full clause
+// ("cost $X crossed warn cap $Y" / "tokens N crossed warn cap M") so
+// maybeEmitBudgetWarning can render it verbatim.
+func (m *Model) budgetWarnDescription() (crossed, hint string) {
+	switch {
+	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
+		crossed = fmt.Sprintf("cost $%.2f crossed warn cap $%.2f", m.usage.CostUSD, m.budgetWarnUSD)
+		if m.budgetHardUSD > 0 {
+			hint = fmt.Sprintf(" — hard cap at $%.2f", m.budgetHardUSD)
+		}
+	case m.budgetWarnTokens > 0 && m.totalTokens() >= m.budgetWarnTokens:
+		crossed = fmt.Sprintf("tokens %s crossed warn cap %s", formatTokenCount(m.totalTokens()), formatTokenCount(m.budgetWarnTokens))
+		if m.budgetHardTokens > 0 {
+			hint = fmt.Sprintf(" — hard cap at %s tok", formatTokenCount(m.budgetHardTokens))
+		}
+	case m.budgetWarnInputTokens > 0 && m.usage.InputTokens >= m.budgetWarnInputTokens:
+		crossed = fmt.Sprintf("input tokens %s crossed warn cap %s", formatTokenCount(m.usage.InputTokens), formatTokenCount(m.budgetWarnInputTokens))
+		if m.budgetHardInputTokens > 0 {
+			hint = fmt.Sprintf(" — hard cap at %s tok", formatTokenCount(m.budgetHardInputTokens))
+		}
+	case m.budgetWarnOutputTokens > 0 && m.usage.OutputTokens >= m.budgetWarnOutputTokens:
+		crossed = fmt.Sprintf("output tokens %s crossed warn cap %s", formatTokenCount(m.usage.OutputTokens), formatTokenCount(m.budgetWarnOutputTokens))
+		if m.budgetHardOutputTokens > 0 {
+			hint = fmt.Sprintf(" — hard cap at %s tok", formatTokenCount(m.budgetHardOutputTokens))
+		}
+	}
+	return crossed, hint
 }
