@@ -174,7 +174,13 @@ var auditExportCmd = &cobra.Command{
 			} {
 				head, err := sc.ResolveRef(refPair.ref(id))
 				if err != nil {
-					continue
+					// Mirror `audit verify`: a genuine storage error must
+					// surface, not be misreported as a missing session. Only
+					// a legitimately-absent ref is the benign skip case.
+					if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+						return fmt.Errorf("audit export: resolve %s: %w", refPair.ref(id), err)
+					}
+					continue // ref legitimately doesn't exist yet
 				}
 				found = true
 				if err := audit.ExportJSONL(os.Stdout, sc.Repo().Storer, string(refPair.ref(id)), head); err != nil {
