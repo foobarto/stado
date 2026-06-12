@@ -36,3 +36,14 @@ config surfaces.
   rows past the frame border; it is now flattened and ellipsized to the
   measured width so the bar stays a single row.
 
+### Dependencies
+
+- Bumped the `go` directive to **1.26.4** (clears the two Go stdlib advisories),
+  patch-swept the module tree (incl. **goldmark 1.7.17**, clearing an XSS
+  advisory across goldmark / glamour / x/tools / goldmark-emoji), and forced
+  **golang-jwt/jwt v5.3.1** via `replace` (past the v5.2.2 fix for CVE-2025-30204,
+  a JWT amplification issue pinned transitively by openai-go). `govulncheck`
+  reports zero reachable vulnerabilities. The remaining Snyk-flagged transitive
+  advisories (aws-sdk-go-v2 via unused Bedrock support; go-git, whose fix is the
+  v6 major migration) are unreachable and left for a follow-up.
+
