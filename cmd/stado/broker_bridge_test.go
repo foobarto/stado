@@ -141,13 +141,16 @@ func TestBrokerDecisionLog_RoundTripThroughDaemon(t *testing.T) {
 		cancel()
 		select {
 		case <-serveErr:
-		case <-time.After(2 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Error("daemon did not shut down in time")
 		}
 	}()
 
-	// Wait for socket.
-	deadline := time.Now().Add(2 * time.Second)
+	// Wait for socket. The deadline is generous (10s) so the UDS
+	// handshake race can't lose to CPU contention under full-suite
+	// parallel load — the test passed 100% in isolation but flaked at
+	// exactly 2.00s when the whole suite ran in parallel.
+	deadline := time.Now().Add(10 * time.Second)
 	var client *daemon.Client
 	for time.Now().Before(deadline) {
 		c, _, derr := daemon.DialAndHandshake(ctx, socketPath, "test")
@@ -162,7 +165,7 @@ func TestBrokerDecisionLog_RoundTripThroughDaemon(t *testing.T) {
 	}
 	defer client.Close()
 
-	callCtx, callCancel := context.WithTimeout(ctx, 2*time.Second)
+	callCtx, callCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer callCancel()
 	var result broker.SessionHandleResult
 	if err := client.Call(callCtx, broker.MethodSessionCreate, broker.SessionCreateParams{

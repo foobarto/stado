@@ -309,7 +309,7 @@ func (r *Registry) ActionsByGroup() map[string][]Action {
 			ModeToggle, ModeToggleBtw,
 		},
 		"In-turn routing": {
-			QueueMessage, InterruptTurn,
+			SteerMessage, QueueMessage, InterruptTurn,
 		},
 	}
 }

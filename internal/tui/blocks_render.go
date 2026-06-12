@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/config"
 )
@@ -183,33 +184,18 @@ func clipToolOutput(s string, width, maxRows int) (string, int) {
 // args/result the same way) so the collapsed-panel row count matches
 // what the template would emit when expanded. Kept local to the tui
 // package because the renderer's wordWrap is unexported.
+//
+// Uses ansi.Wrap: it word-wraps like strings.Fields did, but breaks a
+// long UNBROKEN token (base64 blob, minified JSON, long URL) at the
+// width boundary instead of letting it run past — so the token consumes
+// its real number of post-wrap rows and clipToolOutput's "… N more
+// line(s)" footer reports what's actually hidden (P2.2). Display-width +
+// grapheme aware, and preserves embedded/empty newlines.
 func wrapToolOutput(s string, width int) string {
 	if width <= 0 {
 		return s
 	}
-	var lines []string
-	for _, paragraph := range strings.Split(s, "\n") {
-		words := strings.Fields(paragraph)
-		if len(words) == 0 {
-			lines = append(lines, "")
-			continue
-		}
-		var line strings.Builder
-		for _, w := range words {
-			if line.Len() > 0 && line.Len()+1+len(w) > width {
-				lines = append(lines, line.String())
-				line.Reset()
-			}
-			if line.Len() > 0 {
-				line.WriteByte(' ')
-			}
-			line.WriteString(w)
-		}
-		if line.Len() > 0 {
-			lines = append(lines, line.String())
-		}
-	}
-	return strings.Join(lines, "\n")
+	return ansi.Wrap(s, width, "")
 }
 
 // invalidateBlockCache forces a re-render of the given block next time

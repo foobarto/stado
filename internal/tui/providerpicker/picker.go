@@ -423,7 +423,13 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	if !m.Visible {
 		return ""
 	}
-	modalW := clampInt(screenWidth/2, 58, 98)
+	// Half-screen width, clamped to a usable [58,98] band, then capped so the
+	// centred box keeps a 2-col margin on each side at narrow terminals. Without
+	// the cap a <=60-col terminal pins modalW at its 58 floor (border included),
+	// leaving only a 1-col margin once Place centres it — touching the edge and
+	// risking clipping. The cap wins over the 58 floor on purpose: a modal that
+	// fits with breathing room beats one that fills the screen.
+	modalW := minInt(clampInt(screenWidth/2, 58, 98), maxInt(screenWidth-4, 1))
 	body := m.renderBody(modalW - 4)
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -744,6 +750,13 @@ func clampInt(v, lo, hi int) int {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

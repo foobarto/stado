@@ -343,11 +343,15 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	case "/sidebar":
 		m.sidebarOpen = !m.sidebarOpen
 	case "/debug":
+		// Toggles operational-detail verbosity in the sidebar (context,
+		// budget, sandbox, and the log-tail panel). It does NOT gate the
+		// LSP Diagnostics panel — that renders whenever diagnostics exist
+		// and its section is enabled — so the message must not claim to.
 		m.sidebarDebug = !m.sidebarDebug
 		if m.sidebarDebug {
-			m.appendBlock(block{kind: "system", body: "sidebar diagnostics: on"})
+			m.appendBlock(block{kind: "system", body: "sidebar detail: on (context, budget, sandbox, logs)"})
 		} else {
-			m.appendBlock(block{kind: "system", body: "sidebar diagnostics: off"})
+			m.appendBlock(block{kind: "system", body: "sidebar detail: off"})
 		}
 	case "/todo":
 		if len(parts) > 1 {

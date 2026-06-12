@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/tui/theme"
 )
@@ -94,9 +95,15 @@ func (p *Peek) box(screenWidth, screenHeight int) string {
 	if innerW < 10 {
 		innerW = 10
 	}
-	// Height budget: border(2) + label(1) + optional banner(1) + blank(1) +
-	// footer(1). Window the transcript to what's left.
-	chrome := 5
+	// Wrap the honest label across up to two rows so the "not a point-in-time
+	// snapshot" clarifier survives at common widths (at 120 cols innerW is 86
+	// but the single-line label is ~101 chars, so a straight truncate dropped
+	// the clarifier — P3.2). ansi.Wrap is display-width + grapheme aware.
+	labelRows := wrapLabel(p.Label, innerW)
+
+	// Height budget: border(2) + label(len(labelRows)) + optional banner(1) +
+	// blank(1) + footer(1). Window the transcript to what's left.
+	chrome := 4 + len(labelRows)
 	if p.Banner != "" {
 		chrome++
 	}
@@ -108,8 +115,10 @@ func (p *Peek) box(screenWidth, screenHeight int) string {
 	bg := lipgloss.NewStyle().Background(theme.Background)
 	var b strings.Builder
 
-	b.WriteString(bg.Foreground(theme.Text).Bold(true).Render(truncateVisible(p.Label, innerW)))
-	b.WriteString("\n")
+	for _, lr := range labelRows {
+		b.WriteString(bg.Foreground(theme.Text).Bold(true).Render(lr))
+		b.WriteString("\n")
+	}
 	if p.Banner != "" {
 		b.WriteString(bg.Foreground(theme.Warning).Render(truncateVisible(p.Banner, innerW)))
 		b.WriteString("\n")
@@ -168,4 +177,28 @@ func (p *Peek) clampOffset(pageRows int) {
 
 func (p *Peek) footer() string {
 	return "↑↓/jk scroll  g/G  b branch here  esc back to tree"
+}
+
+// wrapLabel breaks the honest peek label across at most TWO rows at the given
+// inner width so the "not a point-in-time snapshot" clarifier survives where a
+// single-line truncate would drop it (P3.2). ansi.Wrap breaks on word
+// boundaries and is display-width + grapheme aware. If the label still needs a
+// third row (a pathologically narrow box), the second row is ellipsis-truncated
+// so the box height stays bounded.
+func wrapLabel(label string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	if ansi.StringWidth(label) <= width {
+		return []string{label}
+	}
+	// Break on spaces (and the always-on hyphen) so words stay intact; fall
+	// back to Hardwrap only if a single token is wider than the box.
+	wrapped := strings.Split(ansi.Wrap(label, width, " "), "\n")
+	if len(wrapped) <= 2 {
+		return wrapped
+	}
+	// More than two rows: keep row 1, fold the rest into row 2, ellipsized.
+	rest := strings.TrimSpace(strings.Join(wrapped[1:], " "))
+	return []string{wrapped[0], ansi.Truncate(rest, width, "…")}
 }

@@ -181,7 +181,19 @@ func runAuthSet(ctx context.Context, w io.Writer, cfg *config.Config, provider s
 	if err := config.WriteProviderCredential(cfg.ConfigPath, kp.Name, envVar, "", baseURL); err != nil {
 		return fmt.Errorf("write credential: %w", err)
 	}
-	fmt.Fprintf(w, "✓ recorded credential ref for %s in %s (api_key_env=%s)\n", kp.Name, cfg.ConfigPath, redactEnvName(envVar))
+	// A no-key local runner with no base-url override records NOTHING (the
+	// write above is a no-op). Don't claim a credential ref was recorded —
+	// say honestly that the runner needs no credential.
+	switch {
+	case envVar == "" && baseURL == "":
+		fmt.Fprintf(w, "✓ %s is a local runner and needs no credential — nothing to record.\n", kp.Name)
+		fmt.Fprintf(w, "  stado reaches it at %s; pass --base-url to point at a different address.\n", kp.Endpoint)
+		return nil
+	case envVar == "" && baseURL != "":
+		fmt.Fprintf(w, "✓ recorded base-url override for %s in %s (base_url=%s; no API key needed)\n", kp.Name, cfg.ConfigPath, baseURL)
+	default:
+		fmt.Fprintf(w, "✓ recorded credential ref for %s in %s (api_key_env=%s)\n", kp.Name, cfg.ConfigPath, redactEnvName(envVar))
+	}
 
 	// --key: persist the secret to the OS keyring when one is reachable
 	// (KEYRING-FIRST), else fall back to printing the export line so the
@@ -261,7 +273,13 @@ func runAuthUnset(w io.Writer, cfg *config.Config, provider string) error {
 			fmt.Fprintf(w, "  removed the stored secret from the OS keyring (%s)\n", keyEnv)
 		}
 	}
-	fmt.Fprintf(w, "  (the %s environment variable, if set, is untouched)\n", kp.APIKeyEnv)
+	// Name the env var the operator actually configured (a --env-pinned
+	// override wins over the conventional default — keyEnv already resolved
+	// it above). Local runners have no key env var, so skip the line rather
+	// than interpolate an empty name into a dangling, double-spaced phrase.
+	if keyEnv != "" {
+		fmt.Fprintf(w, "  (the %s environment variable, if set, is untouched)\n", keyEnv)
+	}
 	return nil
 }
 
