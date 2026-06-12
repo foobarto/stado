@@ -53,6 +53,28 @@ var sessionTreeCmd = &cobra.Command{
 			return fmt.Errorf("session tree: %w", err)
 		}
 		if len(turns) == 0 {
+			// Distinguish "no such session" from "session exists but has zero
+			// turns" — ListTurnRefs returns an empty slice for both (P2.18).
+			// Existence = a worktree OR any session refs (mirrors session
+			// show; a brand-new session has a worktree before its first turn
+			// tag exists). Error on a typo'd id instead of printing a
+			// misleading success.
+			exists := false
+			if wt, wtErr := worktreePathForID(cfg.WorktreeDir(), id); wtErr == nil {
+				if _, statErr := os.Stat(wt); statErr == nil {
+					exists = true
+				}
+			}
+			if !exists {
+				hasRefs, refErr := sc.SessionHasRefs(id)
+				if refErr != nil {
+					return fmt.Errorf("session tree: %w", refErr)
+				}
+				exists = hasRefs
+			}
+			if !exists {
+				return fmt.Errorf("session tree: session %s not found", id)
+			}
 			fmt.Fprintln(os.Stderr, "session has no turn tags yet — nothing to browse")
 			return nil
 		}

@@ -108,7 +108,9 @@ func bundledToolDefsFromList(info bundled.Info) []plugins.ToolDef {
 // sha256) are omitted with sentinel values, and the per-tool schema
 // section is replaced with a hint to use `stado tool info`.
 func printManifestInfo(o io.Writer, mf plugins.Manifest, displayID string, bundled bool) error {
-	header := fmt.Sprintf("📦 %s  v%s", textutil.StripControlChars(mf.Name), textutil.StripControlChars(mf.Version))
+	// Strip a leading 'v' so a bundled plugin's git-describe version
+	// ('v0.64.0') doesn't render as 'vv0.64.0' under the 'v%s' format (P2.15).
+	header := fmt.Sprintf("📦 %s  v%s", textutil.StripControlChars(mf.Name), strings.TrimPrefix(textutil.StripControlChars(mf.Version), "v"))
 	if bundled {
 		header += "  (bundled)"
 	}

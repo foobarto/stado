@@ -472,18 +472,16 @@ func wordWrap(s string, width int) string {
 }
 
 // hardWrap breaks at width boundaries without respecting word breaks — for
-// narrow sidebar values like paths.
+// narrow sidebar values like paths. ansi.Hardwrap is display-width + grapheme
+// aware, so a multi-byte rune (a non-ASCII path) is never split mid-sequence
+// into invalid UTF-8 (P2.8) and wide runes count as their real cell width.
 func hardWrap(s string, width int) string {
 	if width <= 0 {
 		return s
 	}
 	var lines []string
 	for _, ln := range strings.Split(s, "\n") {
-		for len(ln) > width {
-			lines = append(lines, ln[:width])
-			ln = ln[width:]
-		}
-		lines = append(lines, ln)
+		lines = append(lines, ansi.Hardwrap(ln, width, false))
 	}
 	return strings.Join(lines, "\n")
 }

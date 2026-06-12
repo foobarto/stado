@@ -293,6 +293,43 @@ func toolMutateConfigPath() (string, error) {
 	return filepath.Join(cwd, ".stado", "config.toml"), nil
 }
 
+// validateKnownToolArgs rejects non-glob LITERAL names that don't match a
+// known tool, so a typo can't silently rot into a [tools].<list> (P2.17) —
+// `tool info`/`tool run` already reject unknown names. Globs (containing * ? [)
+// are allowed even when they currently match nothing. Validation runs against
+// the UNFILTERED default registry, so a currently-disabled tool is still
+// enable-able. MUST be called BEFORE any config mutation — `tool disable`
+// removes the inverse autoload entry first, so validating inside runToolMutate
+// would leave the config partially mutated on an invalid command (Codex).
+// Best-effort: if the catalogue can't be built, skip rather than block.
+func validateKnownToolArgs(verb string, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	reg := runtime.BuildDefaultRegistry(cfg)
+	known := map[string]bool{}
+	for _, t := range reg.All() {
+		known[t.Name()] = true
+		if c := runtime.LookupToolMetadata(t.Name()).Canonical; c != "" {
+			known[c] = true
+		}
+	}
+	var unknown []string
+	for _, a := range args {
+		if strings.ContainsAny(a, "*?[") {
+			continue // glob: zero match is allowed (matches the filter's own rule)
+		}
+		if !known[a] {
+			unknown = append(unknown, a)
+		}
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf("tool %s: unknown tool(s) %v — try `stado tool list` to see available tools", verb, unknown)
+	}
+	return nil
+}
+
 func runToolMutate(verb, key, removeFromKey string, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("tool %s: at least one tool name or glob is required", verb)
@@ -345,6 +382,9 @@ var toolEnableCmd = &cobra.Command{
 	Use:   "enable <name|glob> [<name|glob>...]",
 	Short: "Add tools to [tools].enabled (allowlist) and remove them from [tools].disabled if present",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateKnownToolArgs("enable", args); err != nil {
+			return err
+		}
 		return runToolMutate("enable", "enabled", "disabled", args)
 	},
 }
@@ -353,6 +393,12 @@ var toolDisableCmd = &cobra.Command{
 	Use:   "disable <name|glob> [<name|glob>...]",
 	Short: "Add tools to [tools].disabled and remove them from [tools].enabled / [tools].autoload if present",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Validate BEFORE any write — disable removes the inverse autoload
+		// entry below, so an unknown name must abort before that mutation
+		// (else config is left partially changed on an invalid command).
+		if err := validateKnownToolArgs("disable", args); err != nil {
+			return err
+		}
 		// Disabling a tool should also pull it out of autoload — otherwise
 		// the autoload entry silently masks the disable.
 		path, err := toolMutateConfigPath()
@@ -367,6 +413,9 @@ var toolAutoloadCmd = &cobra.Command{
 	Use:   "autoload <name|glob> [<name|glob>...]",
 	Short: "Add tools to [tools].autoload (schema sent every turn)",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := validateKnownToolArgs("autoload", args); err != nil {
+			return err
+		}
 		return runToolMutate("autoload", "autoload", "", args)
 	},
 }
