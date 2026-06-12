@@ -336,36 +336,67 @@ func (m *Model) sidebarContextLine() sidebarLine {
 }
 
 func (m *Model) sidebarBudgetLine() sidebarLine {
-	// USD budget takes precedence (the common cloud-provider case).
-	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
-		limit := m.budgetHardUSD
-		label := fmt.Sprintf("$%.2f", limit)
-		if limit <= 0 {
-			limit = m.budgetWarnUSD
-			label = "warn $" + fmt.Sprintf("%.2f", limit)
+	usd, hasUSD := m.sidebarUSDBudgetLine()
+	tok, hasTok := m.sidebarTokenBudgetLine()
+	switch {
+	case hasUSD && hasTok:
+		// Both configured: surface whichever budget is under more pressure so a
+		// breached token cap isn't hidden behind an un-breached USD line. USD
+		// wins ties (the common cloud-provider display stays unchanged).
+		if budgetToneRank(tok.Tone) > budgetToneRank(usd.Tone) {
+			return tok
 		}
-		tone := "text"
-		switch {
-		case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD && !m.budgetAcked:
-			tone = "error"
-		case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
-			tone = "warning"
-		}
-		text := fmt.Sprintf("budget $%.2f / %s", m.usage.CostUSD, label)
-		if m.budgetAcked {
-			text += " (acked)"
-		}
-		return sidebarLine{Text: text, Tone: tone}
-	}
-	// Token budget (the local-runner case where CostUSD is always 0): without
-	// this the always-on gauge was blank for a token-only budget.
-	if line, ok := m.sidebarTokenBudgetLine(); ok {
-		return line
+		return usd
+	case hasUSD:
+		return usd
+	case hasTok:
+		// Token-only (the local-runner case where CostUSD is always 0): without
+		// this the always-on gauge was blank.
+		return tok
 	}
 	if !m.sidebarDebug {
 		return sidebarLine{}
 	}
 	return sidebarLine{Text: "budget unbounded", Tone: "muted"}
+}
+
+// budgetToneRank orders sidebar budget tones by urgency for the both-caps
+// tiebreak: error > warning > text.
+func budgetToneRank(tone string) int {
+	switch tone {
+	case "error":
+		return 2
+	case "warning":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// sidebarUSDBudgetLine renders the USD budget for the sidebar gauge, or
+// ok=false when no USD cap is configured.
+func (m *Model) sidebarUSDBudgetLine() (sidebarLine, bool) {
+	if m.budgetWarnUSD <= 0 && m.budgetHardUSD <= 0 {
+		return sidebarLine{}, false
+	}
+	limit := m.budgetHardUSD
+	label := fmt.Sprintf("$%.2f", limit)
+	if limit <= 0 {
+		limit = m.budgetWarnUSD
+		label = "warn $" + fmt.Sprintf("%.2f", limit)
+	}
+	tone := "text"
+	switch {
+	case m.budgetHardUSD > 0 && m.usage.CostUSD >= m.budgetHardUSD && !m.budgetAcked:
+		tone = "error"
+	case m.budgetWarnUSD > 0 && m.usage.CostUSD >= m.budgetWarnUSD:
+		tone = "warning"
+	}
+	text := fmt.Sprintf("budget $%.2f / %s", m.usage.CostUSD, label)
+	if m.budgetAcked {
+		text += " (acked)"
+	}
+	return sidebarLine{Text: text, Tone: tone}, true
 }
 
 // sidebarTokenBudgetLine renders the binding token budget for the sidebar

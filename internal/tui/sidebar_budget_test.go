@@ -44,4 +44,34 @@ func TestSidebarBudgetLine_TokenOnly(t *testing.T) {
 			t.Fatalf("no budget should produce an empty sidebar line, got %q", line.Text)
 		}
 	})
+
+	// When both USD and token caps are configured, a breached token cap must
+	// not be hidden behind an un-breached USD line (codex review on #137).
+	t.Run("both caps surface the breached one", func(t *testing.T) {
+		m := &Model{}
+		m.budgetWarnUSD = 10
+		m.budgetHardUSD = 20
+		m.usage.CostUSD = 0 // USD not breached
+		m.budgetHardTokens = 1000
+		m.usage.InputTokens = 1500 // token hard cap breached
+		line := m.sidebarBudgetLine()
+		if !strings.Contains(line.Text, "tok") {
+			t.Fatalf("breached token cap hidden behind un-breached USD line: %q", line.Text)
+		}
+		if line.Tone != "error" {
+			t.Fatalf("breached hard token cap tone = %q, want error", line.Tone)
+		}
+	})
+
+	// USD still wins the tie when neither (or both equally) breached, keeping
+	// the common cloud-provider display unchanged.
+	t.Run("both caps idle prefers USD", func(t *testing.T) {
+		m := &Model{}
+		m.budgetHardUSD = 20
+		m.budgetHardTokens = 1000
+		line := m.sidebarBudgetLine()
+		if !strings.Contains(line.Text, "$") {
+			t.Fatalf("idle both-caps should show the USD line, got %q", line.Text)
+		}
+	})
 }
