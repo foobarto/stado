@@ -21,6 +21,24 @@ env:
 permissions:
   contents: read
 
+# Fast PR gate vs full post-merge validation.
+#
+# Pull requests run only the cheap gates — non-race `go test`, lint,
+# govulncheck (plus gitleaks + CodeQL in their own workflows) — so PR
+# feedback is fast. The expensive checks move to `push: main`:
+#   - `test` runs WITH `-race` on push (the slow, thorough variant), so
+#     the post-merge run is the early race signal on main.
+#   - the 5-way cross-compile `build` matrix runs on push only as an early
+#     warning; it is NOT a branch-required check.
+# Release safety does NOT rely on this workflow gating tag pushes: the
+# release path (release.yml) re-runs the `-race` suite itself before
+# building or signing any artifact, and GoReleaser cross-compiles every
+# target — so a data race or platform break can never reach a published
+# release even if a tag is cut before/despite the post-merge run. (The tag
+# ruleset additionally requires the post-merge `test`/`build` checks, but
+# release.yml is the self-contained guarantee.)
+# Accepted trade-off: data races and platform-specific compile breaks are
+# caught post-merge on main (fix-forward) rather than on the PR.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -39,10 +57,17 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests (CGO enabled for -race)
-        # -race requires cgo; the build matrix below still validates
-        # CGO_ENABLED=0 for every target so release binaries stay pure-Go.
-        run: CGO_ENABLED=1 go test -race -v ./...
+      # PRs run the fast non-race suite; push:main runs the full -race
+      # suite (the post-merge race gate). -race requires cgo; the build
+      # matrix below still validates CGO_ENABLED=0 for every target on
+      # push so release binaries stay pure-Go.
+      - name: Run tests
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CGO_ENABLED=1 go test -race ./...
+          else
+            go test ./...
+          fi
 
       - name: govulncheck
         # Pin a version instead of @latest so the go.sum cache catches
@@ -77,7 +102,11 @@ jobs:
           version: v2.11.4
           args: --timeout=5m
 
+  # Post-merge only: the full cross-compile matrix as an early warning.
+  # Not a required status check (GoReleaser covers cross-compilation at
+  # release), so it never runs on — or blocks — a PR.
   build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
