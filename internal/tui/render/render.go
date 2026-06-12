@@ -24,6 +24,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/workdirpath"
 )
@@ -457,33 +458,17 @@ func themeUsesLightMarkdown(th *theme.Theme) bool {
 	return luma >= 128
 }
 
+// wordWrap word-wraps text to width. It breaks between words like a
+// classic word-wrap, but also breaks a long UNBROKEN token (base64 blob,
+// minified JSON, long URL) at the width boundary so it can't run past the
+// box — otherwise lipgloss hard-clips the overflow with no disclosure
+// (P2.2). ansi.Wrap is display-width + grapheme aware and preserves
+// embedded/empty newlines.
 func wordWrap(s string, width int) string {
-	if width <= 0 || width >= len(s) {
+	if width <= 0 {
 		return s
 	}
-	var lines []string
-	for _, paragraph := range strings.Split(s, "\n") {
-		words := strings.Fields(paragraph)
-		if len(words) == 0 {
-			lines = append(lines, "")
-			continue
-		}
-		var line strings.Builder
-		for _, w := range words {
-			if line.Len() > 0 && line.Len()+1+len(w) > width {
-				lines = append(lines, line.String())
-				line.Reset()
-			}
-			if line.Len() > 0 {
-				line.WriteByte(' ')
-			}
-			line.WriteString(w)
-		}
-		if line.Len() > 0 {
-			lines = append(lines, line.String())
-		}
-	}
-	return strings.Join(lines, "\n")
+	return ansi.Wrap(s, width, "")
 }
 
 // hardWrap breaks at width boundaries without respecting word breaks — for
