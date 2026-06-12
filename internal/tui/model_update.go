@@ -219,11 +219,13 @@ func (m *Model) clearFocus() {
 	m.focusedBlockIdx = -1
 }
 
-// blockAtContentLine returns the index of the block occupying the
-// given content-line in the rendered viewport, or -1 if no block
-// overlaps that line. Used by the mouse click handler.
-func (m *Model) blockAtContentLine(line int) int {
-	for _, r := range m.blockLineRanges {
+// blockAtLine returns the index of the block occupying the given
+// pane-relative content-line in the given range table, or -1 if no
+// block overlaps that line. Used by the mouse click handler for both
+// the single/convo viewport (blockLineRanges) and the split-view
+// activity pane (activityLineRanges).
+func blockAtLine(ranges []blockLineRange, line int) int {
+	for _, r := range ranges {
 		if line >= r.start && line < r.end {
 			return r.blockIdx
 		}
@@ -231,34 +233,63 @@ func (m *Model) blockAtContentLine(line int) int {
 	return -1
 }
 
+// blockAtContentLine resolves a content-line against the conversation /
+// single-view range table (m.blockLineRanges). Thin wrapper over
+// blockAtLine kept for the single-view click path and its tests.
+func (m *Model) blockAtContentLine(line int) int {
+	return blockAtLine(m.blockLineRanges, line)
+}
+
 // handleMessagesClick processes a left-button click on the messages
 // viewport area. Maps the click to a block, sets focus, and toggles
 // expansion if the block is expandable. Returns true when the click
 // consumed something (caller skips default scroll handling).
+//
+// Single-view: everything lives in m.vp at row 0. Split-view: the
+// activity pane (m.activityVP) fills the top, a separator row sits
+// between, then the conversation pane (m.vp). A click resolves against
+// whichever pane it lands in, using that pane's own line-range table
+// and scroll offset — so tool blocks in the top pane and thinking /
+// assistant blocks in the bottom pane are both expandable by click.
 func (m *Model) handleMessagesClick(msgX, msgY int) bool {
-	// Single-view: vp starts at row 0 of the left column. Split-view:
-	// activityVP fills the top, then a separator row, then vp.
-	vpTop := 0
-	if m.splitView {
-		vpTop = m.activityVP.Height() + 1 // +1 for separator row
-	}
-	if msgY < vpTop || msgY >= vpTop+m.vp.Height() {
-		return false
-	}
-	// Sidebar lives to the right of vp. Reject clicks past the vp
-	// width — those land on the sidebar, not the conversation.
+	// Sidebar lives to the right of both panes. Reject clicks past the
+	// pane width — those land on the sidebar, not the conversation.
 	if msgX >= m.vp.Width() {
 		return false
 	}
-	contentLine := m.vp.YOffset() + (msgY - vpTop)
-	idx := m.blockAtContentLine(contentLine)
-	if idx < 0 {
+	if m.splitView {
+		actH := m.activityVP.Height()
+		// Top (activity) pane.
+		if msgY >= 0 && msgY < actH {
+			contentLine := m.activityVP.YOffset() + msgY
+			return m.toggleBlockAt(blockAtLine(m.activityLineRanges, contentLine))
+		}
+		// Bottom (conversation) pane — below the activity pane + 1
+		// separator row.
+		vpTop := actH + 1
+		if msgY >= vpTop && msgY < vpTop+m.vp.Height() {
+			contentLine := m.vp.YOffset() + (msgY - vpTop)
+			return m.toggleBlockAt(blockAtLine(m.blockLineRanges, contentLine))
+		}
+		return false // separator row or outside both panes
+	}
+	if msgY < 0 || msgY >= m.vp.Height() {
+		return false
+	}
+	contentLine := m.vp.YOffset() + msgY
+	return m.toggleBlockAt(blockAtLine(m.blockLineRanges, contentLine))
+}
+
+// toggleBlockAt focuses the block at idx and toggles its expansion when
+// it is expandable. Returns true when the click was consumed (a valid,
+// expandable block was hit).
+func (m *Model) toggleBlockAt(idx int) bool {
+	if idx < 0 || idx >= len(m.blocks) {
 		return false
 	}
 	if !isExpandableBlock(m.blocks[idx]) {
 		return false
 	}
-	// Move focus to the clicked block + toggle its expansion.
 	m.clearFocus()
 	m.focusedBlockIdx = idx
 	m.blocks[idx].focused = true

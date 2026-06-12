@@ -365,23 +365,45 @@ func (m *Model) renderSplitPanes() {
 	if actW < 10 {
 		actW = 10
 	}
+	// Track each block's line span within its own pane so a mouse click
+	// can map a pane-relative content row back to a block index: the
+	// click handler consumes blockLineRanges for the convo pane and
+	// activityLineRanges for the activity pane. Without this, split-view
+	// clicks resolve against stale single-view ranges (wrong block) and
+	// tool blocks in the activity pane can't be expanded by click at all.
+	m.blockLineRanges = m.blockLineRanges[:0]
+	m.activityLineRanges = m.activityLineRanges[:0]
+	var convoLine, activityLine int
 	for i := range m.blocks {
 		blk := &m.blocks[i]
 		if !m.shouldRenderBlock(*blk) {
 			continue
 		}
 		isActivity := blk.kind == "tool" || blk.kind == "system"
-		var target *strings.Builder
-		var w int
+		target := &convo
+		w := convoW
 		if isActivity {
 			target = &activity
 			w = actW
-		} else {
-			target = &convo
-			w = convoW
 		}
-		target.WriteString(m.renderBlockCached(i, w))
+		out := m.renderBlockCached(i, w)
+		// Each block is written as out + "\n"; a block therefore occupies
+		// Count(out,"\n")+1 viewport rows (its own content lines plus the
+		// terminating newline that opens the next block's first row).
+		span := strings.Count(out, "\n") + 1
+		target.WriteString(out)
 		target.WriteString("\n")
+		if isActivity {
+			m.activityLineRanges = append(m.activityLineRanges, blockLineRange{
+				start: activityLine, end: activityLine + span, blockIdx: i,
+			})
+			activityLine += span
+		} else {
+			m.blockLineRanges = append(m.blockLineRanges, blockLineRange{
+				start: convoLine, end: convoLine + span, blockIdx: i,
+			})
+			convoLine += span
+		}
 	}
 	m.activityVP.SetContent(activity.String())
 	m.vp.SetContent(convo.String())

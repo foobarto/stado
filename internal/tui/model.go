@@ -479,7 +479,14 @@ type Model struct {
 	// blockLineRanges records each rendered block's line-range in the
 	// vp content (start inclusive, end exclusive). Populated during
 	// renderBlocks; consumed by mouse click → block-index lookup.
+	// In split view this maps the CONVERSATION pane (m.vp); the activity
+	// pane gets its own table below.
 	blockLineRanges []blockLineRange
+
+	// activityLineRanges mirrors blockLineRanges for the split-view
+	// ACTIVITY pane (m.activityVP). Empty in single view. Lets a click
+	// on a tool/system block in the top pane map back to its block index.
+	activityLineRanges []blockLineRange
 
 	// ptyManager is the TUI-session-lifetime PTY manager shared with
 	// bundled shell.* / pty.* tools so spawn / attach / read / write
