@@ -39,6 +39,9 @@ var Commands = []Command{
 	{"/model", "Open a model picker (no args) or set a specific id (/model <id>)", "ctrl+x m", "Session"},
 	{"/persona", "Open the persona picker (no args) or switch (/persona <name>)", "", "Session"},
 	{"/status", "Open provider, tool, plugin, sandbox, and telemetry status", "ctrl+x s", "Session"},
+	{"/stats", "Show session token usage, cost, agent count, and uptime", "", "Session"},
+	{"/config", "Show the effective config (/config <section> to filter, e.g. sandbox)", "", "Session"},
+	{"/sandbox", "Show the current sandbox posture — mode, runner, network, binds", "", "Session"},
 	{"/provider", "Open the provider credential manager (add/modify/unset, redacted) or show setup hints (/provider <name>)", "", "Session"},
 	{"/tools", "List tools available to the model", "", "Session"},
 	{"/tasks", "Open the shared task manager", "ctrl+x k", "Session"},
@@ -46,6 +49,7 @@ var Commands = []Command{
 	{"/steer", "Inject a message into the current turn at the next tool boundary (Enter while busy; /steer <msg>)", "", "Session"},
 	{"/queue", "Queue a message to run when the current turn finishes (alt+enter; /queue <msg>)", "", "Session"},
 	{"/interrupt", "Cancel the current turn and run a message now (ctrl+enter; /interrupt [msg])", "", "Session"},
+	{"/cancel", "Cancel the in-flight turn or tool (alias: /stop); keeps any queued prompt", "", "Session"},
 	{"/compact", "Summarise the conversation and replace prior turns (requires confirmation)", "", "Session"},
 	{"/context", "Show current token usage, thresholds, and recovery options", "", "Session"},
 	{"/reload", "Re-read config from disk (tools, system prompt, persona, display) without restarting", "", "Session"},
@@ -58,6 +62,11 @@ var Commands = []Command{
 	{"/tree", "Open the session tree — navigate the fork graph and switch", "ctrl+x g", "Session"},
 	{"/sessions", "List other sessions for this repo with a hint on how to resume each", "", "Session"},
 	{"/subagents", "List recent spawned child sessions, status, and adoption commands", "", "Session"},
+	{"/spawn", "Spawn a background agent on a prompt (/spawn <prompt>)", "", "Session"},
+	{"/fleet", "Open the fleet modal — running background agents at a glance", "", "Session"},
+	{"/ps", "List running fleet agents with status, model, and age", "", "Session"},
+	{"/kill", "Cancel a running agent (/kill <agent-id>, ids from /ps)", "", "Session"},
+	{"/supervisor", "Show or toggle the supervisor lane (/supervisor on|off|status)", "", "Session"},
 	{"/adopt", "Dry-run or apply recent worker subagent changes (/adopt [child] [--apply])", "", "Session"},
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},
@@ -168,12 +177,24 @@ func (m *Model) moveCursor(delta int) {
 	m.Cursor = (m.Cursor + delta + len(m.Matches)) % len(m.Matches)
 }
 
-// refresh recomputes m.Matches from m.Query using fuzzy matching on
-// command Names only. Including Desc in the haystack kicked up false
-// rankings — e.g. typing "model" was matching `/tools` because its
-// description ("List tools available to the model") contained the
-// whole word. Name-only matching is what users expect when typing a
-// slash-command prefix; the Desc stays as purely display copy.
+// refresh recomputes m.Matches from m.Query using name-only matching.
+// Including Desc in the haystack kicked up false rankings — e.g. typing
+// "model" was matching `/tools` because its description ("List tools
+// available to the model") contained the whole word. Name-only matching
+// is what users expect when typing a slash-command prefix; the Desc
+// stays as purely display copy.
+//
+// Match ranking is prefix-first, fuzzy-second so a real command name is
+// never collapsed behind a different one:
+//
+//  1. Exact name match, then commands the query is a PREFIX of, in
+//     registration order. "stat" surfaces BOTH /status and /stats;
+//     "ps" surfaces /ps (and ranks it first), instead of the old
+//     fuzzy-only behaviour where /ps subsequence-matched /persona and
+//     /providers and the real /ps never appeared.
+//  2. Remaining fuzzy (subsequence) matches, in the fuzzy ranker's
+//     order, so typos and gappy queries still find a command — these
+//     fill in AFTER the prefix matches, never displacing them.
 //
 // Empty query shows everything in registration order so groups stay
 // intact for the categorised view.
@@ -187,15 +208,7 @@ func (m *Model) refresh() {
 	if q == "" {
 		m.Matches = append([]Command(nil), cmds...)
 	} else {
-		words := make([]string, len(cmds))
-		for i, c := range cmds {
-			words[i] = strings.TrimPrefix(c.Name, "/")
-		}
-		found := fuzzy.Find(q, words)
-		m.Matches = nil
-		for _, f := range found {
-			m.Matches = append(m.Matches, cmds[f.Index])
-		}
+		m.Matches = rankMatches(cmds, q)
 	}
 	if m.Cursor >= len(m.Matches) {
 		m.Cursor = len(m.Matches) - 1
@@ -203,6 +216,53 @@ func (m *Model) refresh() {
 	if m.Cursor < 0 {
 		m.Cursor = 0
 	}
+}
+
+// rankMatches orders cmds for query q: exact-then-prefix matches first
+// (registration order), then the remaining fuzzy matches. A command is
+// only ever offered once — prefix matches are removed from the fuzzy
+// pool so they can't appear twice or be reordered by the fuzzy ranker.
+func rankMatches(cmds []Command, q string) []Command {
+	lq := strings.ToLower(q)
+	var out []Command
+	prefixed := make(map[int]bool)
+
+	// Pass 1: exact name match first, then prefix matches — both in
+	// registration order so the layout stays stable.
+	for i, c := range cmds {
+		name := strings.ToLower(strings.TrimPrefix(c.Name, "/"))
+		if name == lq {
+			out = append(out, c)
+			prefixed[i] = true
+		}
+	}
+	for i, c := range cmds {
+		if prefixed[i] {
+			continue
+		}
+		name := strings.ToLower(strings.TrimPrefix(c.Name, "/"))
+		if strings.HasPrefix(name, lq) {
+			out = append(out, c)
+			prefixed[i] = true
+		}
+	}
+
+	// Pass 2: fuzzy over the commands NOT already matched by prefix, so
+	// gappy/typo queries still resolve without displacing a real command
+	// that the query is a prefix of.
+	words := make([]string, 0, len(cmds))
+	idxMap := make([]int, 0, len(cmds))
+	for i, c := range cmds {
+		if prefixed[i] {
+			continue
+		}
+		words = append(words, strings.TrimPrefix(c.Name, "/"))
+		idxMap = append(idxMap, i)
+	}
+	for _, f := range fuzzy.Find(q, words) {
+		out = append(out, cmds[idxMap[f.Index]])
+	}
+	return out
 }
 
 // View renders the modal centred on a screenWidth × screenHeight canvas

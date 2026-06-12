@@ -260,21 +260,30 @@ func onToolTick(m *Model, _ toolTickMsg) (tea.Model, tea.Cmd) {
 }
 
 func onPluginRunResult(m *Model, msg pluginRunResultMsg) (tea.Model, tea.Cmd) {
-	// /plugin:<name>-<ver> <tool> [args] finished. Render outcome as a
-	// system block and leave conversation state untouched — plugin
-	// invocations are side-channel and don't pollute the turn log the
-	// LLM sees.
-	if msg.errMsg != "" {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("plugin %s/%s error: %s", msg.plugin, msg.tool, msg.errMsg),
-		})
-	} else {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("plugin %s/%s → %s", msg.plugin, msg.tool, msg.content),
-		})
+	// /tool <name> and /plugin:<name>-<ver> <tool> [args] finished.
+	// Render the outcome as a collapsible TOOL block (kind:"tool"), not a
+	// system block: the result body flows through the fixed-height
+	// clip-panel (clipToolOutput + the "… N more line(s)" footer) the
+	// agent-loop tool calls already use, so a large tool result no longer
+	// floods scrollback line-for-line. Conversation state stays untouched
+	// — these invocations are side-channel and don't pollute the turn log
+	// the LLM sees.
+	//
+	// Errors carry a short message that fits the collapsed budget, so
+	// they stay fully visible without the operator having to expand.
+	name := msg.tool
+	if msg.plugin != "" {
+		name = msg.plugin + "/" + msg.tool
 	}
+	result := msg.content
+	if msg.errMsg != "" {
+		result = "error: " + msg.errMsg
+	}
+	m.appendBlock(block{
+		kind:       "tool",
+		toolName:   name,
+		toolResult: result,
+	})
 	m.renderBlocks()
 	return m, nil
 }
