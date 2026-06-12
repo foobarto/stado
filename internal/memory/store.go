@@ -184,8 +184,15 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		if ev.ID == "" {
 			return fmt.Errorf("memory update %s: id is required", req.Action)
 		}
-		if err := s.requireExisting(ev.ID); err != nil {
+		existing, err := s.requireExistingItem(ev.ID)
+		if err != nil {
 			return fmt.Errorf("memory update %s: %w", req.Action, err)
+		}
+		// A `deleted` item is a terminal audit tombstone: approve must not
+		// silently resurrect it into a queryable, prompt-injectable memory.
+		// (reject stays reversible — it is part of the candidate review flow.)
+		if req.Action == "approve" && existing.Confidence == "deleted" {
+			return fmt.Errorf("memory update approve: %q is deleted; re-propose it instead of resurrecting a tombstone", ev.ID)
 		}
 	case "upsert":
 		if req.Item == nil {
@@ -506,21 +513,38 @@ func (s *Store) Compact(_ context.Context) (CompactResult, error) {
 	}, nil
 }
 
-// readRootFile reads an entire file inside the store's os.Root sandbox.
+// readAllBounded reads at most MaxCompactBytes from r, erroring if the source
+// exceeds it. The Compact size check (info.Size()) and the read are not atomic,
+// so the log can grow between them; this bounds the in-memory snapshot
+// regardless, keeping the OOM guard honest under concurrent/manual appends.
+func readAllBounded(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, MaxCompactBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxCompactBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes during compaction read", MaxCompactBytes)
+	}
+	return data, nil
+}
+
+// readRootFile reads an entire file inside the store's os.Root sandbox, bounded
+// by MaxCompactBytes.
 func readRootFile(root *os.Root, name string) ([]byte, error) {
 	f, err := root.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("memory store: open append log: %w", err)
 	}
 	defer f.Close()
-	data, err := io.ReadAll(f)
+	data, err := readAllBounded(f)
 	if err != nil {
 		return nil, fmt.Errorf("memory store: read append log: %w", err)
 	}
 	return data, nil
 }
 
-// readRootFileFrom reads a file from byte offset off to EOF inside the sandbox.
+// readRootFileFrom reads a file from byte offset off to EOF inside the sandbox,
+// bounded by MaxCompactBytes.
 func readRootFileFrom(root *os.Root, name string, off int64) ([]byte, error) {
 	f, err := root.Open(name)
 	if err != nil {
@@ -530,7 +554,7 @@ func readRootFileFrom(root *os.Root, name string, off int64) ([]byte, error) {
 	if _, err := f.Seek(off, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return io.ReadAll(f)
+	return readAllBounded(f)
 }
 
 func (s *Store) append(ev event) error {
@@ -794,11 +818,6 @@ func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("memory store: open dir: %w", err)
 	}
 	return root, name, nil
-}
-
-func (s *Store) requireExisting(id string) error {
-	_, err := s.requireExistingItem(id)
-	return err
 }
 
 func (s *Store) requireExistingItem(id string) (Item, error) {

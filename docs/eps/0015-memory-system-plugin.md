@@ -386,7 +386,10 @@ and signed import/export bundles remain future plugin or EP work.
   deletion/supersession "keeps an audit tombstone," and `reject`/
   `supersede` both keep a visible folded tombstone. Hard-removal made
   `delete` the lone inconsistent action and hid the audit trail from the
-  review surfaces operators actually read.
+  review surfaces operators actually read. The tombstone is terminal —
+  `approve` refuses to resurrect a `deleted` item (re-propose instead) —
+  so it cannot silently become queryable/prompt-injectable again. `reject`
+  stays reversible, as it is part of the candidate review flow.
 
 ### D8. Append-only growth: graceful reads + explicit compaction
 

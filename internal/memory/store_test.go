@@ -219,6 +219,38 @@ func TestStoreDeleteHidesItemButKeepsAppendOnlyLog(t *testing.T) {
 	}
 }
 
+func TestStoreApproveRejectsDeletedTombstone(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+	item := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "temp", Confidence: "approved"}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	del, _ := json.Marshal(UpdateRequest{Action: "delete", ID: item.ID})
+	if err := store.Update(ctx, del); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// A deleted tombstone is terminal: approve must not resurrect it.
+	appr, _ := json.Marshal(UpdateRequest{Action: "approve", ID: item.ID})
+	if err := store.Update(ctx, appr); err == nil || !strings.Contains(err.Error(), "is deleted") {
+		t.Fatalf("expected approve-of-deleted to be rejected, got %v", err)
+	}
+
+	shown, ok, err := store.Show(ctx, item.ID)
+	if err != nil || !ok || shown.Confidence != "deleted" {
+		t.Fatalf("tombstone changed: ok=%v conf=%q err=%v", ok, shown.Confidence, err)
+	}
+	got, err := store.Query(ctx, Query{Prompt: "temp"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("deleted tombstone is queryable after a blocked approve: %+v", got.Items)
+	}
+}
+
 func TestStoreEditReplacesItemAppendOnly(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	store := testStore(t, now)

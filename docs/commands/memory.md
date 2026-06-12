@@ -53,7 +53,7 @@ Use `stado memory list --json` for scripts.
 | `stado memory approve <id>` | Promote a candidate to approved |
 | `stado memory supersede <id>` | Replace an approved memory with a new approved item |
 | `stado memory reject <id>` | Mark a memory rejected |
-| `stado memory delete <id>` | Hide a memory from retrieval, keeping a `deleted` audit tombstone |
+| `stado memory delete <id>` | Hide a memory from retrieval, keeping a terminal `deleted` audit tombstone (cannot be re-approved) |
 | `stado memory compact` | Rewrite the log to its folded state (one event per live item) |
 | `stado memory session [on|off|status]` | Toggle approved-memory retrieval for the current session/worktree |
 | `stado memory export` | Export folded items as JSON |
