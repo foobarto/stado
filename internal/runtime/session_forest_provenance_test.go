@@ -7,26 +7,35 @@ import (
 )
 
 // TestBuildForest_StampsProvenanceCounts: a session whose trace ref carries
-// hook-mutation provenance commits (Mutated-By-Hook / Deny-Reason, tagged
-// Turn: N) surfaces those as per-turn TurnNode counts AND session-level
-// SessionNode totals — the data behind the /tree `⟳N` / `⊘N` badge (spec
+// hook-mutation provenance commits (Mutated-By-Hook / Deny-Reason) surfaces
+// those as per-turn TurnNode counts AND session-level SessionNode totals —
+// the data behind the /tree `⟳N` / `⊘N` badge (spec
 // hooks-audit-mutation-provenance STAGE 7b).
 func TestBuildForest_StampsProvenanceCounts(t *testing.T) {
 	cfg, sc, _ := forestEnv(t)
 	// Two turns → turns/1 + turns/2 tags.
 	sess := seedSession(t, cfg, sc, "prov", 2)
 
-	// Turn 1: two mutations + one deny. Turn 2: one mutation. The trace
-	// commits are written directly (the executor's two-commit model writes
-	// the MUTATION commit carrying Mutated-By-Hook; only that half is
-	// counted, matching production).
+	// Operator turn 1: two mutations + one deny. Operator turn 2: one
+	// mutation. The trace commits are written directly (the executor's
+	// two-commit model writes the MUTATION commit carrying Mutated-By-Hook;
+	// only that half is counted, matching production).
+	//
+	// The `Turn` trailer is Session.Turn() at dispatch — the turn IN
+	// PROGRESS, which is zero-indexed and pre-increment, so provenance for
+	// the operator turn that tag turns/N closes is stamped Turn: N-1 (see
+	// stampProvenanceCounts CONVENTION DRIFT). seedSession(..., 2) tagged
+	// turns/1 + turns/2, so operator turn 1 → Turn: 0, operator turn 2 →
+	// Turn: 1. (The earlier Turn:1/Turn:2 form here was unrealistic — it
+	// matched the tag numbering, not what the executor actually stamps —
+	// and masked an off-by-one in the per-turn badge join.)
 	commits := []stadogit.CommitMeta{
-		{Tool: "bash", Summary: "exec [ok]", Turn: 1, ResultSHA: "m1", OriginalResultSHA: "o1", MutatedByHook: "redact"},
-		{Tool: "bash", Summary: "exec [ok]", Turn: 1, ResultSHA: "m2", OriginalResultSHA: "o2", MutatedByHook: "redact"},
-		{Tool: "bash", Summary: "exec [denied]", Turn: 1, Error: "denied", DenyReason: "blocked", DeniedByHook: "guard"},
+		{Tool: "bash", Summary: "exec [ok]", Turn: 0, ResultSHA: "m1", OriginalResultSHA: "o1", MutatedByHook: "redact"},
+		{Tool: "bash", Summary: "exec [ok]", Turn: 0, ResultSHA: "m2", OriginalResultSHA: "o2", MutatedByHook: "redact"},
+		{Tool: "bash", Summary: "exec [denied]", Turn: 0, Error: "denied", DenyReason: "blocked", DeniedByHook: "guard"},
 		// A plain (non-provenance) trace commit must NOT be counted.
-		{Tool: "read", Summary: "file [ok]", Turn: 1, ResultSHA: "plain"},
-		{Tool: "bash", Summary: "exec [ok]", Turn: 2, ResultSHA: "m3", OriginalResultSHA: "o3", MutatedByHook: "redact"},
+		{Tool: "read", Summary: "file [ok]", Turn: 0, ResultSHA: "plain"},
+		{Tool: "bash", Summary: "exec [ok]", Turn: 1, ResultSHA: "m3", OriginalResultSHA: "o3", MutatedByHook: "redact"},
 	}
 	for _, m := range commits {
 		if _, err := sess.CommitToTrace(m); err != nil {
