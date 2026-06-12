@@ -211,13 +211,21 @@ var pluginListCmd = &cobra.Command{
 			} else if len(fpr) > 16 {
 				fpr = fpr[:16]
 			}
+			// Strip any leading 'v' from the value: bundled plugins carry
+			// version.Version (git-describe, already 'v0.64.0'), so the 'v%s'
+			// format printed 'vv0.64.0' for them (P2.15). Disk plugins'
+			// manifest versions usually have no 'v'. Normalise to exactly one.
 			fmt.Fprintf(w, "%s\tv%s\t%d\t%s\t%s\t%s\t%s\n",
-				r.name, r.version, r.tools, r.author, fpr, status, r.path)
+				r.name, strings.TrimPrefix(r.version, "v"), r.tools, r.author, fpr, status, r.path)
 		}
 		_ = w.Flush()
 
 		fmt.Fprintln(cmd.OutOrStdout())
-		fmt.Fprintln(cmd.OutOrStdout(), "Tools per plugin: stado plugin info <name>-<version>")
+		// Bare <name> resolves every plugin — bundled via LookupByName, disk
+		// via ResolveInstalledPluginDir. The old `<name>-<version>` hint never
+		// resolved a bundled plugin (the common case), and the vv version bug
+		// made a copy-pasted id doubly wrong (P2.16).
+		fmt.Fprintln(cmd.OutOrStdout(), "Tools per plugin: stado plugin info <name>")
 		fmt.Fprintln(cmd.OutOrStdout(), "Trust a new key:  stado plugin trust <pubkey>")
 		return nil
 	},

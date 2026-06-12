@@ -558,7 +558,11 @@ func (m *Model) sidebarDiagnosticsLines() []sidebarLine {
 // (the template hard-wraps, but a 400-char message would still eat several
 // lines). Keeps the file:line locus, which is the actionable part.
 func diagnosticEntryText(e lspfind.DiagnosticEntry) string {
-	msg := strings.TrimSpace(e.Message)
+	// Collapse interior whitespace (incl. \n / \r / \t) to single spaces so a
+	// multi-line compiler message — rust-analyzer and some gopls diagnostics
+	// emit them routinely — stays on ONE sidebar row instead of injecting
+	// phantom, mis-padded continuation rows (P2.7). strings.Fields also trims.
+	msg := strings.Join(strings.Fields(e.Message), " ")
 	const maxMsg = 60
 	// Truncate by RUNES, not bytes: a byte slice can split a multi-byte
 	// UTF-8 rune and emit invalid output. Count whole runes against the cap.
