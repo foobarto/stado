@@ -382,7 +382,19 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	}
 
 	if !treeHash.IsZero() {
-		if _, err := e.Session.CommitToTree(treeHash, meta); err != nil {
+		// The tree ref records FILE STATE, not tool-result provenance. The
+		// mutation-chain trailers (Original-Result-SHA + Mutated-By-Hook)
+		// belong ONLY to the trace ref's two-commit chain: `audit verify`
+		// walks both refs and treats any commit carrying both as a mutation
+		// link whose first parent must be the original-result commit. On the
+		// tree ref the first parent is the prior snapshot, so leaving the
+		// trailers here makes a legitimate mutating-tool + post_tool-mutate
+		// call verify as MUTATION-LINK-BROKEN (exit 1). Strip them; the
+		// canonical (mutated) Result-SHA the snapshot pairs with stays.
+		treeMeta := meta
+		treeMeta.OriginalResultSHA = ""
+		treeMeta.MutatedByHook = ""
+		if _, err := e.Session.CommitToTree(treeHash, treeMeta); err != nil {
 			return res, fmt.Errorf("commit tree: %w", err)
 		}
 	}
