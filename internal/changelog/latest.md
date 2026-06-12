@@ -1,89 +1,66 @@
-## v0.63.0 — lifecycle hooks, hashline edits, native LSP, slash & tree & provider UX — 2026-06-12
+## v0.64.0 — hook-mutation audit provenance, memory long-term gaps — 2026-06-12
 
-A seven-feature batch. Two of the seven change existing contracts —
-read the **Breaking surfaces** section before upgrading.
-
-### TUI
-
-- **Lifecycle hooks — deny + mutate seam (F1).** A scriptable hook seam
-  fires at tool-call and LLM boundaries (pre-tool, post-tool, pre-llm,
-  post-llm, post-turn). Each hook can **allow**, **deny** (block the
-  action with a reason surfaced to the model), or **mutate** (rewrite
-  the payload — e.g. redact an argument, rewrite a prompt). Hooks are
-  Lua scripts (gopher-lua) plus a small set of built-ins, ordered, and
-  run in the TUI's llm-side path as well as the headless/agent loop.
-  A `fail_closed` knob flips the error posture: by default a hook that
-  errors is logged and skipped (fail-open); with `[hooks].fail_closed =
-  true` a hook error denies the action. Config: `[[hooks.lifecycle]]`
-  entries (point + Lua/builtin). See `docs/features/lifecycle-hooks.md`.
-- **Native LSP — post-edit diagnostics + sidebar (native-lsp).** A
-  session-scoped `LSPClientManager` owns language-server lifecycles
-  (spawn, crash-restart, reap on session switch). After an edit, stado
-  pulls diagnostics for the touched file and surfaces them in a new
-  `diagnostics` sidebar section (list it in `[tui.sidebar].sections` to
-  show it). Diagnostics are wired as a post-edit lifecycle hook
-  (`lspfind.NewDiagnosticsHook`), appended after the operator's hooks;
-  the diagnostics store resets on session switch. LSP hosts are closed
-  on agent-loop teardown (`defer lspfind.CloseAll()`).
-- **Fixed-height collapsible tool-output panel (tool-output-panel).**
-  A tool block's output is capped to a configurable number of rows
-  (`[tui].tool_output_collapsed_height`, default clamped to [3, 20])
-  with an expand affordance, so a chatty tool result no longer floods
-  the scrollback.
-- **Dynamic slash-command registry + skill `slash:` shortcuts (F2).**
-  The slash palette now reads a runtime registry (`allCommands()` =
-  static built-ins + dynamically registered shortcuts) so both the
-  Ctrl+P modal and the inline "/" popup surface the dynamic layer. A
-  skill can declare a `slash:` frontmatter shortcut; typing that bare
-  command injects the skill's prompt body (same effect as
-  `/skill:<name>`). Built-in commands always win a name collision;
-  collisions between dynamic shortcuts are rejected at registration.
-  The registry re-registers on `/reload` so newly-added skills appear
-  without a restart.
-- **`/tree` — session forest navigation (tree-popup).** A new session
-  forest model (`ForkSessionAtTurn`) plus a `/tree` popup (ctrl+x g)
-  that renders the fork graph, lets you navigate it, **switch** to a
-  node, **branch** a new session at a specific turn boundary, and
-  **peek** read-only at another node without switching. ctrl+c closes
-  the peek first (before quitting), and the picker closes on session
-  switch.
-- **`/provider` credential modal (provider-creds).** Bare `/provider`
-  opens a credential manager modal — add / modify / unset a provider's
-  credential (values redacted in the UI). `/provider <name>` keeps the
-  per-provider setup-help text. Backed by a new `stado auth` CLI
-  (env-first credential management) storing secrets in the OS keyring
-  (go-keyring), plus a per-provider `base_url` override on inference
-  presets (anthropic-compat endpoints).
+Bundles the memory long-term-gap closures (#122), the fakelsp build-artifact
+removal (#123), and hook-mutation provenance in the signed audit chain (#125).
 
 ### CLI
 
-- **`stado auth`** — provider credential management (env-first, OS
-  keyring via go-keyring). Add, modify, unset, and list provider
-  credentials from the command line; the TUI `/provider` modal is a
-  front-end over the same store.
+- **Hook-mutation provenance in the audit chain (#125).** v0.63.0 lifecycle
+  hooks could rewrite a tool result (`post_tool` mutate) before the audited
+  `Result-SHA` was computed, and a `pre_tool` deny wasn't committed at all —
+  so a hook could silently alter or hide what the signed chain recorded. Now
+  a `post_tool` mutate records TWO linked trace commits — the original raw
+  result, then a mutation commit (parenting it) carrying `Original-Result-SHA`
+  + `Mutated-By-Hook` — and a `pre_tool` deny writes its own trace commit
+  (`Deny-Reason` + `Denied-By-Hook`). Both the original and mutated bytes are
+  stored as git blobs (4 MiB cap, SHA-only fallback on overflow), inspectable
+  via audit / `/tree`. The mutated result stays the canonical value the model
+  saw; the original is audit-only provenance. Purely additive — no existing
+  v0.62/v0.63 signature is rewritten; old chains keep verifying.
+- **`stado audit verify` mutation linkage.** Verify validates each
+  original→mutated provenance link (parent `Result-SHA` == `Original-Result-SHA`,
+  blob-hash cross-check when blob-backed) as a DISTINCT anomaly class from
+  signature failure — a broken link reports `MUTATION-LINK-BROKEN` and exits
+  non-zero, but never marks a signature Invalid. The link is keyed on
+  `Mutated-By-Hook` (an empty-origin mutation is validated too).
+- **`stado session logs` annotation.** A mutation tip renders `⟳ mutated by
+  <hook>` (highlighted) with its original parent dimmed so the pair reads as
+  one event; a denied call renders `⊘ denied: <reason>`. Hook-supplied strings
+  are control-char stripped.
+- **`stado memory compact` (#122).** Atomically rewrites the memory log to its
+  folded state (fail-closed on concurrent growth, OOM-guarded snapshot).
 
-### Plugins
+### TUI
 
-- **Hashline content-anchored edits (hashline).** The fs plugin's edit
-  contract is now LINE#HASH-anchored (see **Breaking surfaces**). The
-  native fs implementation and the bundled `fs.wasm` plugin are updated
-  in lockstep; FS parity (`STADO_PARITY_FS=1`) holds.
+- **`/tree` mutation/deny badge (#125).** Session and turn rows show a compact
+  `⟳N` / `⊘N` badge counting how many tool results a `post_tool` hook rewrote
+  and how many calls a `pre_tool` hook vetoed inside them. Zero → no badge.
 
-### Breaking surfaces (two — pre-1.0 no-kid-gloves)
+### Memory (#122)
 
-- **fs edit contract is now LINE#HASH-anchored — exact-string `edit`
-  REPLACED.** Reads now prefix every line with a `LINE#HASH:` token
-  (1-indexed line number + a short content hash). The edit op
-  (`replace_text`) anchors on that `LINE#HASH` reference (e.g. `11#KT`)
-  instead of matching an exact substring of file content. This replaces
-  the old exact-string edit contract outright — there is no
-  compatibility shim. Callers (and models) that constructed edits from
-  a raw content substring must switch to the line-anchored form; the
-  read output now carries the anchors they need. The native fs tool and
-  the bundled `fs.wasm` plugin both move to this contract together.
-- **Bare `/provider` no longer prints provider capabilities.** It now
-  opens the credential modal. The provider/capability overview moved to
-  **`/status`** (the full provider/tool/plugin/sandbox/telemetry status)
-  and **`/providers`** (active provider + detected local runners).
-  `/provider <name>` still prints that provider's setup hints.
+- **Session-scope inheritance.** A session now sees the session-scoped
+  memories of every session it forked from (ancestry walked from the sidecar
+  fork forest; plugin query JSON can't forge it).
+- **Terminal delete tombstone.** `delete` folds a `deleted` tombstone (visible
+  in list/show/export, excluded from retrieval); `approve` refuses to
+  resurrect it (re-propose instead), `reject` stays reversible.
+- **Graceful degradation past the size cap.** Reads degrade (the recovery
+  surface never bricks); writes stay refused over the cap.
+- **Retrieval enabled by default** (an explicit `[memory].enabled = false`
+  still opts out).
+- **Plugin bridge default-denies session scope** — strips plugin-supplied
+  `session_id` / ancestry and pins reads to repo+global, closing a session_id
+  forge.
+
+### Fixes / Infra
+
+- **Removed a committed 2.9 MB `fakelsp` test binary (#123).** A stray build
+  artifact swept into the repo root during the v0.63.0 build; the lspfind
+  tests compile the stub from source. Added `/fakelsp` to `.gitignore`.
+  Resolves the Scorecard BinaryArtifacts alert #71 (HIGH).
+- **Don't stamp mutation-provenance trailers onto the tree commit (#125).** A
+  mutating tool + `post_tool` mutate hook leaked the provenance trailers onto
+  the tree-ref commit, making `audit verify` report `MUTATION-LINK-BROKEN` on
+  legitimate chains. The errored original half of a mutation pair now renders
+  faint+red in `session logs`.
 
