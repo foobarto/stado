@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -181,6 +182,24 @@ func openSidecar(cfg *config.Config) (*stadogit.Sidecar, error) {
 		return nil, err
 	}
 	return stadogit.OpenOrInitSidecar(cfg.SidecarPath(userRepo, repoID), userRepo)
+}
+
+// resolveRefClassified resolves ref on sc, distinguishing a ref that does not
+// exist yet (ErrReferenceNotFound -> ok=false, nil error) from a real storage
+// failure (-> non-nil error). Several display/aggregate commands collapsed both
+// into "absent", so a corrupt sidecar surfaced as "(unset)" or a silently
+// skipped session instead of an error. Mirrors the audit verify/export
+// classification. Callers skip on ok=false and surface (explicit-id commands)
+// or warn (aggregators) on a non-nil error.
+func resolveRefClassified(sc *stadogit.Sidecar, ref plumbing.ReferenceName) (plumbing.Hash, bool, error) {
+	head, err := sc.ResolveRef(ref)
+	if err != nil {
+		if errors.Is(err, plumbing.ErrReferenceNotFound) {
+			return plumbing.ZeroHash, false, nil
+		}
+		return plumbing.ZeroHash, false, err
+	}
+	return head, true, nil
 }
 
 func worktreePathForID(root, id string) (string, error) {

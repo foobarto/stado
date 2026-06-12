@@ -213,8 +213,14 @@ func (a *statsAgg) empty() bool { return a.totalCalls == 0 }
 // commit into the aggregator. Silently ignores sessions whose trace
 // ref is missing (e.g. a session that never did anything).
 func walkSessionForStats(sc *stadogit.Sidecar, sessionID string, cutoff time.Time, agg *statsAgg) error {
-	head, err := sc.ResolveRef(stadogit.TraceRef(sessionID))
-	if err != nil || head.IsZero() {
+	head, ok, err := resolveRefClassified(sc, stadogit.TraceRef(sessionID))
+	if err != nil {
+		// Warn rather than abort the whole aggregate (or silently undercount)
+		// for one session whose sidecar can't be read.
+		fmt.Fprintf(os.Stderr, "stats: warning: resolve trace ref for %s: %v\n", sessionID, err)
+		return nil
+	}
+	if !ok || head.IsZero() {
 		return nil // no trace ref yet; nothing to count
 	}
 	cur := head

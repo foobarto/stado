@@ -480,8 +480,11 @@ var sessionShowCmd = &cobra.Command{
 			{"tree", stadogit.TreeRef},
 			{"trace", stadogit.TraceRef},
 		} {
-			head, err := sc.ResolveRef(pair.ref(id))
+			head, ok, err := resolveRefClassified(sc, pair.ref(id))
 			if err != nil {
+				return fmt.Errorf("session show: resolve %s ref for %s: %w", pair.name, id, err)
+			}
+			if !ok {
 				fmt.Printf("%-6s    (unset)\n", pair.name)
 				continue
 			}

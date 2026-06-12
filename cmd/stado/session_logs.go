@@ -63,7 +63,10 @@ var sessionLogsCmd = &cobra.Command{
 		// starts its polling loop from the current tip, so we
 		// remember the tip before dumping to avoid re-printing what
 		// the dump already showed.
-		head, _ := sc.ResolveRef(stadogit.TraceRef(id))
+		head, _, err := resolveRefClassified(sc, stadogit.TraceRef(id))
+		if err != nil {
+			return fmt.Errorf("logs: resolve trace ref for %s: %w", id, err)
+		}
 		lastSeen := head
 		if head.IsZero() {
 			fmt.Fprintf(os.Stderr, "(session %s has no trace commits yet)\n", id)
@@ -93,8 +96,15 @@ var sessionLogsCmd = &cobra.Command{
 			case <-ctx.Done():
 				return nil
 			case <-ticker.C:
-				tip, err := sc.ResolveRef(stadogit.TraceRef(id))
-				if err != nil || tip.IsZero() || tip == lastSeen {
+				tip, _, err := resolveRefClassified(sc, stadogit.TraceRef(id))
+				if err != nil {
+					// A real storage error won't fix itself by polling; stop
+					// following rather than spin silently. A not-found ref
+					// (ok=false -> ZeroHash) just means no commits yet — keep
+					// waiting for the first one.
+					return fmt.Errorf("logs: resolve trace ref while following %s: %w", id, err)
+				}
+				if tip.IsZero() || tip == lastSeen {
 					continue
 				}
 				printNewCommitsForward(sc, tip, lastSeen, useColour)
