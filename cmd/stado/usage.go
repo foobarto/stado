@@ -207,8 +207,13 @@ func listAllSessionIDs(sc *stadogit.Sidecar) ([]string, error) {
 func walkSessionTrace(sc *stadogit.Sidecar, sessionID string, since, until time.Time, modelAgg map[string]*usageModelStats) (usageSessionStats, error) {
 	ss := usageSessionStats{SessionID: sessionID}
 	traceRef := stadogit.TraceRef(sessionID)
-	head, err := sc.ResolveRef(traceRef)
+	head, ok, err := resolveRefClassified(sc, traceRef)
 	if err != nil {
+		// A real storage error: warn rather than silently undercount usage.
+		fmt.Fprintf(os.Stderr, "usage: warning: resolve trace ref for %s: %v\n", sessionID, err)
+		return ss, nil
+	}
+	if !ok {
 		// No trace ref → session has only tree-side commits (e.g. a
 		// freshly created session). Skip silently.
 		return ss, nil

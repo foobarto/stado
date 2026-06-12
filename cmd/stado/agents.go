@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -91,8 +92,13 @@ var agentsListCmd = &cobra.Command{
 					alive = fmt.Sprintf("pid=%d(stale)", pid)
 				}
 			}
-			tree, _ := sc.ResolveRef(stadogit.TreeRef(id))
-			trace, _ := sc.ResolveRef(stadogit.TraceRef(id))
+			tree, _, treeErr := resolveRefClassified(sc, stadogit.TreeRef(id))
+			trace, _, traceErr := resolveRefClassified(sc, stadogit.TraceRef(id))
+			if treeErr != nil || traceErr != nil {
+				// Don't drop the whole listing for one corrupt sidecar — warn
+				// and treat the unreadable refs as empty.
+				fmt.Fprintf(os.Stderr, "agents: warning: resolve refs for %s: %v\n", id, errors.Join(treeErr, traceErr))
+			}
 			hasContent := !tree.IsZero() || !trace.IsZero()
 
 			// Hide stale + empty rows unless --all. An agent row is
