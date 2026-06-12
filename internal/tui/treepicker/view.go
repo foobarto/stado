@@ -23,8 +23,25 @@ const (
 	glyphIdle     = "○"  // ○
 	glyphDetached = "◌"  // ◌
 	glyphFork     = "⑂"  // ⑂
+	glyphMutated  = "⟳"  // post_tool hook rewrote a tool result
+	glyphDenied   = "⊘"  // pre_tool hook vetoed a call
 	indentUnit    = "  " // two columns per depth level
 )
+
+// provenanceBadge renders the compact hook-mutation badge (spec
+// hooks-audit-mutation-provenance STAGE 7b): `⟳N` when N post_tool mutations
+// happened, `⊘M` when M pre_tool denials happened, space-joined when both.
+// "" when neither — the common case, so an unaffected row carries no badge.
+func provenanceBadge(mutated, denied int) string {
+	var parts []string
+	if mutated > 0 {
+		parts = append(parts, glyphMutated+strconv.Itoa(mutated))
+	}
+	if denied > 0 {
+		parts = append(parts, glyphDenied+strconv.Itoa(denied))
+	}
+	return strings.Join(parts, " ")
+}
 
 // View renders the modal centred on a screenWidth × screenHeight canvas,
 // mirroring the sessionpicker/taskpicker layout (rounded border, padding,
@@ -87,7 +104,11 @@ func (m *Model) renderBody(innerW, maxListRows int) string {
 	lines := make([]string, len(m.rows))
 	for i, r := range m.rows {
 		if r.isTurn {
-			lines[i] = m.renderTurnLine(r.turn.Text, i == m.cursor, innerW)
+			text := r.turn.Text
+			if badge := provenanceBadge(r.turn.MutatedCount, r.turn.DeniedCount); badge != "" {
+				text += "  " + badge
+			}
+			lines[i] = m.renderTurnLine(text, i == m.cursor, innerW)
 			continue
 		}
 		lines[i] = m.renderNodeLine(m.nodes[r.nodeIdx], i == m.cursor, innerW)
@@ -140,6 +161,9 @@ func (m *Model) renderNodeLine(n Node, selected bool, innerW int) string {
 	leftPlain := indent + marker + glyphFor(n.Avail) + " " + nodeLabel(n)
 	if origin := forkOriginTag(n); origin != "" {
 		leftPlain += "  " + origin
+	}
+	if badge := provenanceBadge(n.MutatedCount, n.DeniedCount); badge != "" {
+		leftPlain += "  " + badge
 	}
 	right := n.Meta
 

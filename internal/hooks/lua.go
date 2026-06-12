@@ -160,7 +160,7 @@ func (h *LuaHook) Run(ctx context.Context, point Point, payload Payload) (HookRe
 	}
 	ret := h.L.Get(-1)
 	h.L.Pop(1)
-	return luaResultToHookResult(point, payload, ret)
+	return luaResultToHookResult(payload, ret)
 }
 
 // Close releases the underlying LState. Safe to call once; further Run
@@ -233,7 +233,10 @@ func setCommon(t *lua.LTable, c Common) {
 // stronger verdict). The original payload is cloned and the mutate table's
 // recognised mutable fields are applied onto the clone, so a script that
 // only rewrites one field leaves the rest intact.
-func luaResultToHookResult(point Point, original Payload, ret lua.LValue) (HookResult, error) {
+//
+// The mutation target's point is derived from original's concrete type (see
+// applyLuaMutation), so the Point isn't a separate parameter here.
+func luaResultToHookResult(original Payload, ret lua.LValue) (HookResult, error) {
 	tbl, ok := ret.(*lua.LTable)
 	if !ok {
 		return Continue(), nil

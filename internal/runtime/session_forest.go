@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/foobarto/stado/internal/audit"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -51,6 +52,16 @@ func availabilityFromStatus(status string) Availability {
 type TurnNode struct {
 	Entry    stadogit.TurnEntry
 	Children []*TurnNode
+
+	// MutatedCount / DeniedCount aggregate the hook-mutation provenance for
+	// THIS turn (spec hooks-audit-mutation-provenance STAGE 7b): how many
+	// trace commits tagged `Turn: <this>` carried a Mutated-By-Hook trailer
+	// (a post_tool hook rewrote a tool result) or a Deny-Reason trailer (a
+	// pre_tool hook vetoed a call). Drive the `⟳N` / `⊘N` /tree turn badge.
+	// Zero for every turn in a session that never triggered a mutating or
+	// denying hook — the common case, paid by one extra trace-ref walk.
+	MutatedCount int
+	DeniedCount  int
 }
 
 // SessionNode is one session in the forest. A session is either a forest
@@ -79,6 +90,15 @@ type SessionNode struct {
 	Orphan bool
 	// Depth is the BFS depth from the forest root (root == 0).
 	Depth int
+
+	// MutatedTotal / DeniedTotal aggregate the session's hook-mutation
+	// provenance across ALL its trace commits (spec STAGE 7b) — the sum of
+	// every turn's MutatedCount / DeniedCount PLUS any provenance commit
+	// whose Turn trailer matched no turn tag (e.g. a turn-0 / pre-first-turn
+	// call). Drive the session-line `⟳N` / `⊘N` badge so a collapsed session
+	// still surfaces that a hook altered or vetoed something inside it.
+	MutatedTotal int
+	DeniedTotal  int
 }
 
 // Forest is the assembled session graph. Roots are the top-level
@@ -113,9 +133,11 @@ var forestRefPasses atomic.Int64
 // sessionRefBucket holds the refs found for one session id during the
 // single References() pass, before any commit objects are resolved.
 type sessionRefBucket struct {
-	treeHead plumbing.Hash
-	hasTree  bool
-	turnHash map[int]plumbing.Hash // turn number -> commit hash
+	treeHead  plumbing.Hash
+	hasTree   bool
+	traceHead plumbing.Hash // trace-ref tip — walked once for mutation/deny provenance
+	hasTrace  bool
+	turnHash  map[int]plumbing.Hash // turn number -> commit hash
 }
 
 // turnRef identifies a turn within the whole forest: which session, which
@@ -229,6 +251,10 @@ func BuildForest(sc *stadogit.Sidecar, worktreeRoot, currentID string) (*Forest,
 		for _, tn := range node.Turns {
 			turnIndex[tn.Entry.Commit] = turnRef{sessionID: id, turn: tn.Entry.Turn}
 		}
+		// STAGE 7b: one extra trace-ref walk per session (already O(refs)),
+		// folding each mutation/deny provenance commit's Turn trailer into
+		// per-turn + session-total counts for the /tree badge.
+		stampProvenanceCounts(sc, b, node)
 		nodes[id] = node
 		if b.hasTree && !b.treeHead.IsZero() {
 			chain := firstParentChain(sc, b.treeHead)
@@ -365,8 +391,9 @@ func summariseFromTurns(worktreeRoot string, sc *stadogit.Sidecar, id string, tu
 }
 
 // bucketSessionRefs does the single References() pass, bucketing every
-// refs/sessions/<id>/{tree,turns/N} ref by session id. Trace refs are
-// noted only to register the id (a trace-only session still exists). The
+// refs/sessions/<id>/{tree,trace,turns/N} ref by session id. The trace tip
+// is captured so the provenance pass (STAGE 7b) can walk it once per session
+// for mutation/deny badges; a trace-only session still registers the id. The
 // returned buckets carry raw hashes; commit resolution happens later so a
 // corrupt object skips one session, not the whole pass.
 func bucketSessionRefs(sc *stadogit.Sidecar) (map[string]*sessionRefBucket, error) {
@@ -403,6 +430,9 @@ func bucketSessionRefs(sc *stadogit.Sidecar) (map[string]*sessionRefBucket, erro
 		case suffix == "tree":
 			b.treeHead = ref.Hash()
 			b.hasTree = true
+		case suffix == "trace":
+			b.traceHead = ref.Hash()
+			b.hasTrace = true
 		case strings.HasPrefix(suffix, "turns/"):
 			n, err := strconv.Atoi(strings.TrimPrefix(suffix, "turns/"))
 			if err != nil {
@@ -445,6 +475,95 @@ func buildTurnNodes(sc *stadogit.Sidecar, b *sessionRefBucket) []*TurnNode {
 				Summary: strings.TrimSpace(summary),
 			},
 		})
+	}
+	return out
+}
+
+// provCounts aggregates the mutation/deny provenance commit counts for a
+// single Turn during the trace-ref walk.
+type provCounts struct {
+	mutated int
+	denied  int
+}
+
+// maxTraceWalk bounds the per-session trace-ref walk so a corrupt/cyclic
+// trace chain can't pin the forest build. The same 1<<20 ceiling
+// firstParentChain uses — a session with a million trace commits is already
+// pathological.
+const maxTraceWalk = 1 << 20
+
+// stampProvenanceCounts walks a session's trace ref ONCE, folding every
+// mutation/deny provenance commit into its Turn's per-turn count (matched
+// against the session's turn nodes) and the session-level totals. A trace
+// commit carrying Mutated-By-Hook is a mutation (a post_tool hook rewrote a
+// tool result, recorded as the second of the two-commit pair); one carrying
+// Deny-Reason is a pre_tool veto. Both are attributed to the commit's
+// `Turn: N` trailer; a commit whose Turn matches no turn tag still counts
+// toward the session totals so the session-line badge never undercounts.
+//
+// Cheap by construction: one git-log-shaped first-parent walk per session,
+// only over the trace ref (which BuildForest already enumerated). Sessions
+// with no trace ref (or no provenance commits — the common case) pay only
+// the walk, which stops at the first non-trace tip / empty ref immediately.
+func stampProvenanceCounts(sc *stadogit.Sidecar, b *sessionRefBucket, node *SessionNode) {
+	if sc == nil || b == nil || node == nil || !b.hasTrace || b.traceHead.IsZero() {
+		return
+	}
+	perTurn := walkTraceProvenance(sc, b.traceHead)
+	if len(perTurn) == 0 {
+		return
+	}
+	for _, tn := range node.Turns {
+		if c, ok := perTurn[tn.Entry.Turn]; ok {
+			tn.MutatedCount = c.mutated
+			tn.DeniedCount = c.denied
+		}
+	}
+	for _, c := range perTurn {
+		node.MutatedTotal += c.mutated
+		node.DeniedTotal += c.denied
+	}
+}
+
+// walkTraceProvenance does the first-parent trace-ref walk, returning the
+// per-Turn mutation/deny counts. Newest-first, bounded by maxTraceWalk, with
+// a visited-set cycle guard. A missing/corrupt commit truncates the walk
+// (keep what we have) rather than erroring — provenance badges are advisory,
+// never load-bearing for navigation. Trailers are parsed with the same
+// audit.ParseMessage the verify/export paths use, so the trailer grammar
+// stays single-sourced.
+func walkTraceProvenance(sc *stadogit.Sidecar, traceHead plumbing.Hash) map[int]provCounts {
+	repo := sc.Repo()
+	out := map[int]provCounts{}
+	seen := map[plumbing.Hash]bool{}
+	cur := traceHead
+	for i := 0; i < maxTraceWalk && !cur.IsZero(); i++ {
+		if seen[cur] {
+			break // cycle guard (manual ref surgery / corruption)
+		}
+		seen[cur] = true
+		commit, err := repo.CommitObject(cur)
+		if err != nil {
+			break // pruned/corrupt — stop, keep what we have
+		}
+		_, trailers := audit.ParseMessage(commit.Message)
+		mutated := trailers["Mutated-By-Hook"] != ""
+		denied := trailers["Deny-Reason"] != ""
+		if mutated || denied {
+			turn, _ := strconv.Atoi(trailers["Turn"]) // unparseable → turn 0 bucket
+			c := out[turn]
+			if mutated {
+				c.mutated++
+			}
+			if denied {
+				c.denied++
+			}
+			out[turn] = c
+		}
+		if len(commit.ParentHashes) == 0 {
+			break
+		}
+		cur = commit.ParentHashes[0]
 	}
 	return out
 }

@@ -222,6 +222,63 @@ func TestSessionLogs_FollowPicksUpNewCommits(t *testing.T) {
 	}
 }
 
+// TestSessionLogs_AnnotatesMutation: the two-commit mutation pair
+// (original raw-result → mutation commit carrying Mutated-By-Hook +
+// Original-Result-SHA) renders with a `⟳ mutated by <hook>` suffix on
+// the mutation line. The hook name passes through StripControlChars.
+func TestSessionLogs_AnnotatesMutation(t *testing.T) {
+	id, _, restore := logsEnv(t, []stadogit.CommitMeta{
+		// Original raw-result commit (no mutation trailers).
+		{Tool: "bash", ShortArg: "id", Summary: "exec [ok]", ResultSHA: "aaaa"},
+		// Mutation commit — canonical (mutated) SHA, preserves the
+		// original's digest, attributes the winning hook. The control
+		// chars in the hook name must be stripped from the output.
+		{Tool: "bash", ShortArg: "id", Summary: "exec [ok]", ResultSHA: "bbbb",
+			OriginalResultSHA: "aaaa", MutatedByHook: "redact-\x1bsecrets"},
+	})
+	defer restore()
+
+	logsLimit = 0
+	out := captureStdout(t, func() {
+		if err := sessionLogsCmd.RunE(sessionLogsCmd, []string{id}); err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+	})
+	// Annotation present; the ESC byte is stripped (at write by
+	// cleanTrailerValue AND at read by StripControlChars) so only the
+	// printable remainder survives.
+	if !strings.Contains(out, "⟳ mutated by redact-secrets") {
+		t.Errorf("mutation line missing annotation: %q", out)
+	}
+	if strings.ContainsRune(out, '\x1b') {
+		t.Errorf("control chars leaked from hook name: %q", out)
+	}
+}
+
+// TestSessionLogs_AnnotatesDeny: a pre_tool DENY trace commit (carries
+// Deny-Reason + Denied-By-Hook + Error) renders with a `⊘ denied:
+// <reason>` suffix. The reason passes through StripControlChars.
+func TestSessionLogs_AnnotatesDeny(t *testing.T) {
+	id, _, restore := logsEnv(t, []stadogit.CommitMeta{
+		{Tool: "bash", ShortArg: "rm -rf /", Summary: "exec [denied]",
+			Error: "denied by hook", DenyReason: "destructive\x07command", DeniedByHook: "guardrail"},
+	})
+	defer restore()
+
+	logsLimit = 0
+	out := captureStdout(t, func() {
+		if err := sessionLogsCmd.RunE(sessionLogsCmd, []string{id}); err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+	})
+	if !strings.Contains(out, "⊘ denied: destructivecommand") {
+		t.Errorf("deny line missing annotation: %q", out)
+	}
+	if strings.ContainsRune(out, '\x07') {
+		t.Errorf("control chars leaked from deny reason: %q", out)
+	}
+}
+
 // itoaLogs — small strconv-free helper matching Summary's needs.
 // The test doesn't import strconv to match the production file's
 // style in stats.go (which uses its own atoi helpers).

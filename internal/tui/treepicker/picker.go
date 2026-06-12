@@ -69,6 +69,15 @@ type Node struct {
 	// Number + CommitHex so a branch/peek over a turn row addresses an exact
 	// commit without the picker needing a runtime handle.
 	Turns []Turn
+
+	// MutatedCount / DeniedCount are the session-wide hook-mutation provenance
+	// totals (spec hooks-audit-mutation-provenance STAGE 7b): how many tool
+	// results a post_tool hook rewrote (⟳N) and how many calls a pre_tool hook
+	// vetoed (⊘N) across the whole session. Rendered as a compact badge on the
+	// session header line so a collapsed session still surfaces that a hook
+	// altered or denied something inside it. Zero → no badge.
+	MutatedCount int
+	DeniedCount  int
 }
 
 // Turn is one expanded turn row under a session. The picker renders Text and,
@@ -82,6 +91,13 @@ type Turn struct {
 	CommitHex string
 	// Text is the pre-rendered summary line ("turn 3 · fix parser").
 	Text string
+
+	// MutatedCount / DeniedCount are this turn's hook-mutation provenance
+	// counts (spec STAGE 7b): tool results a post_tool hook rewrote (⟳N) and
+	// calls a pre_tool hook vetoed (⊘N) within the turn. Rendered as a compact
+	// badge on the expanded turn row. Zero → no badge.
+	MutatedCount int
+	DeniedCount  int
 }
 
 // CommandType enumerates the actions the picker can emit to the host.

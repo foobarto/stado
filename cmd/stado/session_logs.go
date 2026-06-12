@@ -107,11 +107,19 @@ var sessionLogsCmd = &cobra.Command{
 // dumpLogHistory walks backwards from head printing entries, up to
 // limit. Factored out so the follow path can skip it when tailing
 // from-the-start.
+//
+// Mutation pairing (STAGE 7a): the two-commit mutation model writes the
+// ORIGINAL raw-result commit first, then a MUTATION commit that parents
+// it (Mutated-By-Hook + Original-Result-SHA set). Walking newest-first,
+// a mutation commit is seen BEFORE its parent (the original); we record
+// the parent hash so the original renders dimmed, reading as one event
+// with the highlighted mutation tip.
 func dumpLogHistory(sc *stadogit.Sidecar, head plumbingHashType, limit int, colour bool) {
 	repo := sc.Repo()
 	cur := head
 	count := 0
 	seen := map[string]bool{}
+	dimNext := map[string]bool{}
 	for !cur.IsZero() {
 		if seen[cur.String()] {
 			break
@@ -121,7 +129,10 @@ func dumpLogHistory(sc *stadogit.Sidecar, head plumbingHashType, limit int, colo
 		if err != nil {
 			return
 		}
-		printLogEntry(c, colour)
+		printLogEntry(c, colour, dimNext[cur.String()])
+		if isMutationCommit(c) && len(c.ParentHashes) > 0 {
+			dimNext[c.ParentHashes[0].String()] = true
+		}
 		count++
 		if limit > 0 && count >= limit {
 			break
@@ -152,10 +163,28 @@ func printNewCommitsForward(sc *stadogit.Sidecar, newTip, lastSeen plumbingHashT
 		}
 		cur = c.ParentHashes[0]
 	}
+	// Mutation pairing (STAGE 7a): same as dumpLogHistory — a mutation
+	// commit dims its parent (the original raw-result entry). chain is
+	// newest-first, so the mutation commit precedes its parent here too.
+	dim := map[string]bool{}
+	for _, c := range chain {
+		if isMutationCommit(c) && len(c.ParentHashes) > 0 {
+			dim[c.ParentHashes[0].String()] = true
+		}
+	}
 	// Print in reverse so the oldest-new commit shows first.
 	for i := len(chain) - 1; i >= 0; i-- {
-		printLogEntry(chain[i], colour)
+		printLogEntry(chain[i], colour, dim[chain[i].Hash.String()])
 	}
+}
+
+// isMutationCommit reports whether a trace commit is the MUTATION half
+// of the two-commit provenance pair — it carries Mutated-By-Hook (set
+// only on the second commit, never on the original raw-result entry).
+// Used to (a) annotate the line and (b) dim the parent (original).
+func isMutationCommit(c *object.Commit) bool {
+	_, trailers := parseCommitMessage(c.Message)
+	return trailers["Mutated-By-Hook"] != ""
 }
 
 // printLogEntry renders one trace commit as:
@@ -164,7 +193,18 @@ func printNewCommitsForward(sc *stadogit.Sidecar, newTip, lastSeen plumbingHashT
 //
 // Colour (when enabled): error commits in red, title in default,
 // stats in dim. Whole line fits in 120 cols for most calls.
-func printLogEntry(c *object.Commit, colour bool) {
+//
+// Provenance annotation (STAGE 7a):
+//   - a MUTATION commit (Mutated-By-Hook set) gets a `⟳ mutated by <hook>`
+//     suffix and renders highlighted; its parent (the original
+//     raw-result commit) renders dimmed via the dimmed flag so the pair
+//     reads as one event.
+//   - a DENY commit (Deny-Reason set) gets a `⊘ denied: <reason>` suffix.
+//     Denied pre_tool calls also carry Error so they already render red.
+//
+// Both hook-supplied values (hook name, reason) are model-influenceable
+// and pass through StripControlChars before they reach the terminal.
+func printLogEntry(c *object.Commit, colour bool, dimmed bool) {
 	title, trailers := parseCommitMessage(c.Message)
 	when := c.Author.When.Local().Format("2006-01-02 15:04")
 	tool := trailers["Tool"]
@@ -173,6 +213,8 @@ func printLogEntry(c *object.Commit, colour bool) {
 	cost := atofSafe(trailers["Cost-USD"])
 	durMs := atoi64Safe(trailers["Duration-Ms"])
 	errMsg := trailers["Error"]
+	mutatedBy := textutil.StripControlChars(trailers["Mutated-By-Hook"])
+	denyReason := textutil.StripControlChars(trailers["Deny-Reason"])
 	_ = tool // not needed; title carries tool(arg) form
 	title = textutil.StripControlChars(title)
 	errMsg = textutil.StripControlChars(errMsg)
@@ -187,11 +229,28 @@ func printLogEntry(c *object.Commit, colour bool) {
 	if errMsg != "" {
 		line += "  ✗ " + errMsg
 	}
+	if mutatedBy != "" {
+		line += "  ⟳ mutated by " + mutatedBy
+	}
+	if denyReason != "" {
+		line += "  ⊘ denied: " + denyReason
+	}
 
 	if colour {
-		if errMsg != "" {
+		switch {
+		case errMsg != "":
+			// Errors (incl. denied pre_tool calls, which carry Error)
+			// stay red — the dominant signal.
 			fmt.Println("\x1b[31m" + line + "\x1b[0m")
-		} else {
+		case mutatedBy != "":
+			// Mutation tip highlighted (green) so the pair's effective
+			// result stands out from its dimmed original.
+			fmt.Println(ansiGreen + line + ansiReset)
+		case dimmed:
+			// The original raw-result half of a mutation pair — dimmed
+			// so the eye reads the highlighted tip as the live value.
+			fmt.Println(ansiDim + line + ansiReset)
+		default:
 			fmt.Println(line)
 		}
 		return

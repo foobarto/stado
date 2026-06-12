@@ -431,3 +431,47 @@ func TestViewEmpty(t *testing.T) {
 		t.Fatalf("empty view missing placeholder:\n%s", out)
 	}
 }
+
+// TestProvenanceBadge unit-tests the compact badge formatter (STAGE 7b).
+func TestProvenanceBadge(t *testing.T) {
+	cases := []struct {
+		mutated, denied int
+		want            string
+	}{
+		{0, 0, ""},
+		{2, 0, "⟳2"},
+		{0, 1, "⊘1"},
+		{3, 1, "⟳3 ⊘1"},
+	}
+	for _, c := range cases {
+		if got := provenanceBadge(c.mutated, c.denied); got != c.want {
+			t.Errorf("provenanceBadge(%d,%d) = %q, want %q", c.mutated, c.denied, got, c.want)
+		}
+	}
+}
+
+// TestViewRendersProvenanceBadges: a session carrying mutation/deny totals
+// renders a `⟳N` / `⊘N` badge on its header line; an expanded turn carrying
+// per-turn counts renders one on its row too.
+func TestViewRendersProvenanceBadges(t *testing.T) {
+	p := New()
+	p.Open([]Node{
+		{ID: "aaaaaaaa", Label: "root", Avail: AvailIdle, Depth: 0, TurnCount: 1,
+			MutatedCount: 2, DeniedCount: 1,
+			Turns: []Turn{
+				{Number: 1, CommitHex: "a1", Text: "turn 1 · init", MutatedCount: 2, DeniedCount: 1},
+			}},
+	}, "aaaaaaaa") // current → auto-expanded so the turn row shows
+	out := p.View(140, 40)
+	// Session header badge.
+	if !strings.Contains(out, glyphMutated+"2") {
+		t.Errorf("session line missing ⟳2 badge:\n%s", out)
+	}
+	if !strings.Contains(out, glyphDenied+"1") {
+		t.Errorf("session line missing ⊘1 badge:\n%s", out)
+	}
+	// The turn row carries its own badge too (counts on both surfaces).
+	if c := strings.Count(out, glyphMutated+"2"); c < 2 {
+		t.Errorf("expected ⟳2 on BOTH session + turn line, saw %d:\n%s", c, out)
+	}
+}
