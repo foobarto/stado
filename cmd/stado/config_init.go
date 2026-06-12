@@ -98,6 +98,20 @@ const defaultConfigTemplate = `# stado — config.toml
 # thinking_display = "show"          # show | tail | hide
 # tool_output_collapsed_height = 8   # rows a collapsed tool output shows; clamp 3..20
 
+# [tui.sidebar].sections picks WHICH sidebar sections show and in what ORDER.
+# [tui.footer].segments picks WHICH footer segments are VISIBLE (footer order
+# is fixed by its template). Empty/absent = the default layout (NOT "hide
+# everything") — to hide a section, list only the ones you want to keep.
+# Built-in sidebar section ids:
+#   header now subagents risk diagnostics agent repo logs todos
+# Built-in footer segment ids:
+#   state tokens cost cache budget persona daemon commands
+# Plugin-contributed panel/segment ids also work once the plugin declares them.
+# [tui.sidebar]
+# sections = ["header", "now", "repo", "todos"]
+# [tui.footer]
+# segments = ["state", "tokens", "cost", "commands"]
+
 # ---------------------------------------------------------------------------
 # [memory] — opt-in approved-memory prompt context.
 #
@@ -209,18 +223,51 @@ const defaultConfigTemplate = `# stado — config.toml
 # hard_usd = 5.00
 
 # ---------------------------------------------------------------------------
-# [hooks] — run shell commands at completed turn boundaries across the
-#           TUI, stado run, and headless session.prompt.
-#           Notification-only in this release (cannot block or modify a
-#           turn). Each hook runs /bin/sh -c <cmd> with a 5s wall-clock
-#           cap; a JSON payload is piped to stdin so scripts can act on
-#           token counts / cost.
+# [hooks] — two kinds of hooks across the TUI, stado run, and headless
+#           session.prompt:
+#
+# 1. post_turn — a fire-and-forget shell NOTIFICATION at each completed turn.
+#    Runs /bin/sh -c <cmd> with a 5s cap; a JSON payload is piped to stdin so
+#    scripts can act on token counts / cost. Cannot block or alter the turn.
+#
+# 2. [[hooks.lifecycle]] — scriptable Lua policy hooks that CAN block (DENY)
+#    or rewrite (MUTATE) actions. Each hook defines global functions named
+#    after the interception points it handles: pre_tool, post_tool, pre_llm,
+#    post_llm, post_turn. They run serially in config order with a 5s per-hook
+#    timeout. Exactly one of 'lua' (inline source) or 'lua_file' (path) per
+#    hook; 'lua' wins if both are set.
+#
+# fail_closed flips the lifecycle error posture: default false = FAIL-OPEN
+# (a hook that errors/times out/panics is logged and treated as Continue, so
+# a broken policy can't wedge the agent); true = FAIL-CLOSED (the same fault
+# becomes a DENY at pre-* points / a deny-style replacement at post-* points,
+# turning a hook into a hard gate). Use it when a hook enforces a security
+# boundary that a silent fail-open would breach.
+#
+# SECURITY: the entire [hooks] table is honored ONLY from user/global config,
+# never from a repo's .stado/config.toml — Lua is code execution and must not
+# be dictated by untrusted input.
 # ---------------------------------------------------------------------------
 # [hooks]
 # post_turn = "notify-send stado 'turn complete'"
-# # The payload: {"event":"post_turn","turn_index":N,"tokens_in":X,
+# fail_closed = false
+# # The post_turn payload: {"event":"post_turn","turn_index":N,"tokens_in":X,
 # #               "tokens_out":Y,"cost_usd":Z,"text_excerpt":"...",
 # #               "duration_ms":M}
+#
+# [[hooks.lifecycle]]
+# name = "deny-rm-rf"
+# lua  = """
+#   function pre_tool(p)
+#     if p.tool == "shell__bash" and string.find(p.args, "rm %-rf") then
+#       return { deny = "rm -rf blocked by policy" }
+#     end
+#   end
+# """
+#
+# [[hooks.lifecycle]]
+# name     = "audit-llm"
+# lua_file = "~/.config/stado/hooks/audit.lua"   # read at startup; lua wins if both set
 
 # ---------------------------------------------------------------------------
 # AGENTS.md / CLAUDE.md — project-level instructions. Drop either file in

@@ -24,18 +24,32 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.toolCancel = nil
 	m.toolMu.Unlock()
+	// Sanitize at store-time so every downstream renderer can trust the
+	// stored bytes. Cluster C1 P1 — sibling miss to PR #49: streaming
+	// assistant/thinking text is sanitized at the append boundary
+	// (model_stream.go EvTextDelta/EvThinkingDelta), but the tool-result
+	// seam stored msg.result.Content verbatim, so a tool whose output
+	// carried OSC 0 (title rewrite), OSC 8 (clickable hyperlink), BEL, or
+	// CSI could drive those straight into the tool panel's lipgloss render.
+	// SanitizeForTerminal keeps legitimate \n / \t / \r (tool output is
+	// multi-line prose) while stripping the escape vectors. The same
+	// sanitized content feeds appendSubagentNotice, whose JSON fields
+	// (error / worktree / child session) are rendered into a system block —
+	// sanitizing first preserves valid JSON structure while scrubbing any
+	// escape inside the string values.
+	content := textutil.SanitizeForTerminal(msg.result.Content)
 	// Update the matching tool block with the result.
 	toolName := ""
 	for i := range m.blocks {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
 			toolName = m.blocks[i].toolName
-			m.blocks[i].toolResult = msg.result.Content
+			m.blocks[i].toolResult = content
 			m.invalidateBlockCache(i)
 			break
 		}
 	}
 	if toolName == "agent__spawn" && !msg.result.IsError {
-		m.appendSubagentNotice(msg.result.Content)
+		m.appendSubagentNotice(content)
 	}
 	m.pendingResults = append(m.pendingResults, msg.result)
 	m.renderBlocks()
@@ -246,21 +260,34 @@ func onToolTick(m *Model, _ toolTickMsg) (tea.Model, tea.Cmd) {
 }
 
 func onPluginRunResult(m *Model, msg pluginRunResultMsg) (tea.Model, tea.Cmd) {
-	// /plugin:<name>-<ver> <tool> [args] finished. Render outcome as a
-	// system block and leave conversation state untouched — plugin
-	// invocations are side-channel and don't pollute the turn log the
-	// LLM sees.
-	if msg.errMsg != "" {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("plugin %s/%s error: %s", msg.plugin, msg.tool, msg.errMsg),
-		})
-	} else {
-		m.appendBlock(block{
-			kind: "system",
-			body: fmt.Sprintf("plugin %s/%s → %s", msg.plugin, msg.tool, msg.content),
-		})
+	// /tool <name> and /plugin:<name>-<ver> <tool> [args] finished.
+	// Render the outcome as a collapsible TOOL block (kind:"tool"), not a
+	// system block: the result body flows through the fixed-height
+	// clip-panel (clipToolOutput + the "… N more line(s)" footer) the
+	// agent-loop tool calls already use, so a large tool result no longer
+	// floods scrollback line-for-line. Conversation state stays untouched
+	// — these invocations are side-channel and don't pollute the turn log
+	// the LLM sees.
+	//
+	// Errors carry a short message that fits the collapsed budget, so
+	// they stay fully visible without the operator having to expand.
+	name := msg.tool
+	if msg.plugin != "" {
+		name = msg.plugin + "/" + msg.tool
 	}
+	result := msg.content
+	if msg.errMsg != "" {
+		result = "error: " + msg.errMsg
+	}
+	// Sanitize the plugin/tool-supplied name + result (same hostile-bytes
+	// trust boundary as agent-loop tool results — see onToolResult): they
+	// render raw into the kind:"tool" panel, so an OSC/BEL here would rewrite
+	// the terminal title, inject a clickable hyperlink, or ring the bell.
+	m.appendBlock(block{
+		kind:       "tool",
+		toolName:   textutil.SanitizeForTerminal(name),
+		toolResult: textutil.SanitizeForTerminal(result),
+	})
 	m.renderBlocks()
 	return m, nil
 }

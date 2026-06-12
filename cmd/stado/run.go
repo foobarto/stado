@@ -137,6 +137,21 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			cfg.Sampling.TopK = &runTopK
 		}
 		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context) error {
+			// F1: scriptable deny/mutate lifecycle hooks (Lua). Built
+			// once and wired into BOTH the agent loop (LLM-side points)
+			// and the executor (tool-side points) below.
+			//
+			// C3: build the lifecycle runner — and emit its skip-warnings
+			// for any broken/unloadable hook — BEFORE the provider build.
+			// A first-run user with no API key errors out at provider build;
+			// gating the warning behind a successful provider build meant a
+			// broken hook was dropped with zero feedback. Surface it first so
+			// the warning reaches the user regardless of provider config.
+			lifecycleHooks, hookWarnings := hooks.BuildLifecycleRunnerWithWarnings(cfg)
+			for _, w := range hookWarnings {
+				fmt.Fprintln(os.Stderr, w)
+			}
+
 			prov, err := runBuildProvider(cfg)
 			if err != nil {
 				return fmt.Errorf("provider: %w", err)
@@ -145,10 +160,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				PostTurnCmd: cfg.Hooks.PostTurn,
 				Disabled:    hooks.DisabledByToolConfig(cfg),
 			}
-			// F1: scriptable deny/mutate lifecycle hooks (Lua). Built
-			// once and wired into BOTH the agent loop (LLM-side points)
-			// and the executor (tool-side points) below.
-			lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
 
 			var priorMsgs []agent.Message
 			var continueSessID string

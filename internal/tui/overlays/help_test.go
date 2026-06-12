@@ -53,6 +53,23 @@ func TestRenderHelp_GroupsSlashCommands(t *testing.T) {
 	}
 }
 
+// TestRenderHelp_SurfacesPreviouslyHiddenCommands pins the P2 defect from
+// the /help angle: nine working commands dispatched fine but were absent
+// from palette.Commands, so the ? overlay (which renders straight from
+// palette.Commands) never mentioned them. Pressing ? must surface them.
+func TestRenderHelp_SurfacesPreviouslyHiddenCommands(t *testing.T) {
+	reg := keys.NewRegistry()
+	out, _ := RenderHelp(reg, 200, 0, 0)
+	for _, needle := range []string{
+		"/stats", "/ps", "/config", "/sandbox", "/fleet",
+		"/kill", "/spawn", "/cancel", "/supervisor",
+	} {
+		if !strings.Contains(out, needle) {
+			t.Errorf("help overlay missing previously-hidden command %s", needle)
+		}
+	}
+}
+
 func TestRenderHelp_IncludesModeBindingsAndFullPrefixChords(t *testing.T) {
 	reg := keys.NewRegistry()
 	out, _ := RenderHelp(reg, 200, 0, 0)

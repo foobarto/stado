@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/limitedio"
 	"github.com/foobarto/stado/internal/runtime"
@@ -80,7 +81,7 @@ func (m *Model) renderStatus(width int) string {
 		}
 	}
 
-	body, err := m.renderer.Exec("status", map[string]any{
+	data := map[string]any{
 		"State":          state,
 		"Model":          m.model,
 		"ProviderName":   m.providerDisplayName(),
@@ -97,7 +98,49 @@ func (m *Model) renderStatus(width int) string {
 		"Daemon":         m.daemonStatusLabel(),
 		"Segments":       m.effectiveFooterSegments(), // #21: configured footer segments
 		"PluginSegments": m.footerPluginSegments(),    // #21 part 2: plugin footer panels by id (pre-coloured)
-	})
+	}
+
+	// Ellipsize the error message to the width the status bar can spend
+	// on it BEFORE composing the row. A long provider error (an HTTP
+	// status + body + URL can run ~180 chars) is otherwise rendered
+	// verbatim by the template; the composed "right" segment then runs
+	// wider than the inner width, pad goes negative, and renderStatus
+	// falls through to `return right` — emitting an over-wide line the
+	// frame wraps to several rows that spill PAST the bottom border.
+	// Budget = inner width minus everything else the error-state row
+	// renders (the "● " pill, the trailing tokens/cost/commands
+	// cluster, separators). We measure that by rendering once with an
+	// empty ErrorMessage, so the budget tracks the *actual* trailing
+	// segments (usage grows, persona/daemon/cache may be present)
+	// rather than a guessed constant. ansi.Truncate is display-width
+	// and grapheme aware, so the cap holds even for wide runes; we
+	// flatten newlines first so a multi-line Go error can't itself wrap
+	// the row. The actionable start of the message survives; the tail
+	// gets the ellipsis.
+	if m.state == stateError && m.errorMsg != "" {
+		// Flatten newlines ONCE up front so neither path can emit a
+		// multi-line row: a multi-line Go error would otherwise wrap the
+		// status row past the bottom border.
+		flat := strings.ReplaceAll(m.errorMsg, "\n", " ")
+		data["ErrorMessage"] = ""
+		if probe, perr := m.renderer.Exec("status", data); perr == nil {
+			overhead := lipgloss.Width(strings.TrimRight(probe, "\n"))
+			if budget := width - overhead; budget >= 1 {
+				data["ErrorMessage"] = ansi.Truncate(flat, budget, "…")
+			}
+			// budget < 1 means even the chrome can't fit; leave the
+			// message empty rather than overflow — the state pill alone
+			// still signals the error.
+		} else {
+			// Probe render failed (defensive — the real render below uses
+			// the same template/data, so this is a near-dead path). Still
+			// emit the flattened message, best-effort truncated to the full
+			// width, so the fallback can't overflow with newlines either.
+			data["ErrorMessage"] = ansi.Truncate(flat, width, "…")
+		}
+	}
+
+	body, err := m.renderer.Exec("status", data)
 	if err != nil {
 		return fmt.Sprintf("[status render error: %v]", err)
 	}

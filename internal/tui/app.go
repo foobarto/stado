@@ -140,7 +140,12 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	m.SetHooks(cfg.Hooks.PostTurn)
 	// F1: scriptable deny/mutate lifecycle hooks (Lua). Same runner on the
 	// executor (tool-side pre/post-tool seam) and the model (post_turn).
-	lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
+	//
+	// C3: collect skip-warnings (broken/unloadable hook) rather than letting
+	// them go to stderr, which the alt-screen swallows. Fold them into the
+	// startup notices so they surface in-band as a system block.
+	lifecycleHooks, hookWarnings := hooks.BuildLifecycleRunnerWithWarnings(cfg)
+	notices = append(notices, hookWarnings...)
 	// Native LSP increment 2: register the built-in post-edit diagnostics
 	// hook on the SAME runner, after any Lua hooks (observe-only, runs
 	// last). Append handles the nil-runner case (no Lua hooks configured),

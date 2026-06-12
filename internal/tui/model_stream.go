@@ -771,9 +771,13 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			return
 		}
 		m.blocks = append(m.blocks, block{
-			kind:      "tool",
-			toolID:    ev.ToolCall.ID,
-			toolName:  ev.ToolCall.Name,
+			kind:   "tool",
+			toolID: ev.ToolCall.ID,
+			// Sanitize model-supplied tool name + args (same hostile-bytes
+			// trust boundary as the tool result and assistant/thinking text):
+			// both render raw into message_tool.tmpl, so an OSC/BEL here would
+			// rewrite the terminal title, inject a hyperlink, or ring the bell.
+			toolName:  textutil.SanitizeForTerminal(ev.ToolCall.Name),
 			startedAt: time.Now(),
 		})
 
@@ -783,7 +787,10 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		}
 		last := &m.blocks[len(m.blocks)-1]
 		if last.kind == "tool" {
-			last.toolArgs += ev.ToolArgsDelta
+			// Sanitize each streamed args fragment (SanitizeForTerminal strips
+			// control bytes byte-wise, so an escape split across deltas is still
+			// neutralized); EvToolCallEnd re-sanitizes the assembled args.
+			last.toolArgs += textutil.SanitizeForTerminal(ev.ToolArgsDelta)
 			m.invalidateBlockCache(len(m.blocks) - 1)
 		}
 
@@ -795,7 +802,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		m.turnToolCalls = append(m.turnToolCalls, cp)
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == "tool" && m.blocks[i].toolID == ev.ToolCall.ID {
-				m.blocks[i].toolArgs = string(ev.ToolCall.Input)
+				m.blocks[i].toolArgs = textutil.SanitizeForTerminal(string(ev.ToolCall.Input))
 				m.blocks[i].endedAt = time.Now()
 				m.invalidateBlockCache(i)
 				break
