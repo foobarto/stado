@@ -297,6 +297,60 @@ func TestStoreDeletedTombstoneCannotBeLaundered(t *testing.T) {
 	}
 }
 
+// A deleted tombstone is terminal at the store API level too: a raw `upsert`
+// or `edit` targeting a deleted id must not launder the tombstone back into a
+// queryable, prompt-injectable approved memory. The CLI reject path (G5) only
+// closed approve/reject; upsert/edit reach the same fold map directly, so the
+// store has to refuse them as well. (supersede is already blocked because it
+// requires an approved source.)
+func TestStoreUpsertEditOverDeletedCannotLaunder(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action string
+	}{
+		{"upsert", "upsert"},
+		{"edit", "edit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+			ctx := context.Background()
+			item := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "temp", Confidence: "approved"}
+			raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+			if err := store.Update(ctx, raw); err != nil {
+				t.Fatalf("upsert: %v", err)
+			}
+			del, _ := json.Marshal(UpdateRequest{Action: "delete", ID: item.ID})
+			if err := store.Update(ctx, del); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+
+			// upsert/edit over the deleted id must be refused.
+			resurrect := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "resurrected", Confidence: "approved"}
+			req := UpdateRequest{Action: tc.action, ID: "mem_tomb", Item: &resurrect}
+			payload, _ := json.Marshal(req)
+			if err := store.Update(ctx, payload); err == nil || !strings.Contains(err.Error(), "is deleted") {
+				t.Fatalf("expected %s-of-deleted to be refused, got %v", tc.action, err)
+			}
+
+			// The tombstone is unchanged and still excluded from retrieval.
+			shown, ok, err := store.Show(ctx, item.ID)
+			if err != nil || !ok || shown.Confidence != "deleted" {
+				t.Fatalf("tombstone changed after %s: ok=%v conf=%q err=%v", tc.action, ok, shown.Confidence, err)
+			}
+			if shown.Summary != "temp" {
+				t.Fatalf("tombstone body changed after %s: %q", tc.action, shown.Summary)
+			}
+			got, err := store.Query(ctx, Query{Prompt: "temp resurrected"})
+			if err != nil {
+				t.Fatalf("Query: %v", err)
+			}
+			if len(got.Items) != 0 {
+				t.Fatalf("deleted tombstone became queryable after %s: %+v", tc.action, got.Items)
+			}
+		})
+	}
+}
+
 func TestStoreEditReplacesItemAppendOnly(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	store := testStore(t, now)

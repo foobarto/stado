@@ -209,6 +209,16 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		if err := s.prepareItem(req.Item); err != nil {
 			return fmt.Errorf("memory update upsert: %w", err)
 		}
+		// A `deleted` item is a terminal audit tombstone. Without this guard an
+		// upsert over a deleted id replaces the tombstone in the folded map with
+		// a fresh (default-approved) item, laundering it back into a queryable,
+		// prompt-injectable memory — the same defeat the approve/reject guard
+		// blocks. An upsert for a new (non-deleted, or absent) id is unaffected.
+		// (Re-propose to bring a deleted memory back, which writes a fresh audit
+		// trail.)
+		if err := s.refuseDeletedTombstone("upsert", req.Item.ID); err != nil {
+			return err
+		}
 		ev.ID = req.Item.ID
 		ev.Item = req.Item
 	case "edit":
@@ -218,6 +228,13 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		existing, err := s.requireExistingItem(ev.ID)
 		if err != nil {
 			return fmt.Errorf("memory update edit: %w", err)
+		}
+		// Same tombstone-laundering guard as upsert: editing a deleted id at the
+		// store level would otherwise rewrite the tombstone into a queryable
+		// memory (the CLI edit path preserves the `deleted` confidence, but a raw
+		// store edit can carry any confidence). Refuse it; re-propose instead.
+		if existing.Confidence == "deleted" {
+			return fmt.Errorf("memory update edit: %q is deleted; re-propose it instead of resurrecting a tombstone", ev.ID)
 		}
 		if req.Item.ID == "" {
 			req.Item.ID = ev.ID
@@ -835,6 +852,25 @@ func (s *Store) requireExistingItem(id string) (Item, error) {
 		return Item{}, fmt.Errorf("memory %q does not exist", id)
 	}
 	return item, nil
+}
+
+// refuseDeletedTombstone rejects an operation whose target id is an existing
+// `deleted` tombstone, keeping the tombstone terminal. An absent id is allowed
+// (upsert may legitimately create a new memory). The error message mirrors the
+// approve/reject guard so all resurrection paths surface the same "is deleted"
+// remediation.
+func (s *Store) refuseDeletedTombstone(action, id string) error {
+	if id == "" {
+		return nil
+	}
+	items, err := s.fold()
+	if err != nil {
+		return fmt.Errorf("memory update %s: %w", action, err)
+	}
+	if existing, ok := items[id]; ok && existing.Confidence == "deleted" {
+		return fmt.Errorf("memory update %s: %q is deleted; re-propose it instead of resurrecting a tombstone", action, id)
+	}
+	return nil
 }
 
 func (s *Store) prepareItem(item *Item) error {
