@@ -236,28 +236,57 @@ func TestVerifyV2_DetectsBackdatedTimestamps(t *testing.T) {
 	}
 }
 
-// V1 fallback: pre-#138 audit history (signed with the legacy
-// CanonicalBytes-only payload) still verifies through VerifyV2 even
-// when the caller passes an identity. The v1 fallback path ignores
-// the identity argument and re-checks against the tree+parents+body
-// payload.
-func TestVerifyV2_V1SignatureStillVerifies(t *testing.T) {
+// V1 downgrade is now REJECTED (decision 2026-06-12 clean-break). A v1
+// signature binds only tree+parents+body, NOT the author/committer/timestamps,
+// so VerifyV2's old v1 fallback let an attacker with sidecar write copy a
+// genuine v1 commit's (tree, parents, body, sig) into a new commit with a
+// rewritten identity and still verify. VerifyV2 no longer falls back to v1, so
+// a v1 signature presented with any identity must fail. IsV1Signature still
+// recognizes it as a legacy v1 sig (for reporting) without granting trust.
+func TestVerifyV2_RejectsV1Downgrade(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	signer := NewSigner(priv)
-	body := "legacy(commit): pre-138 audit entry\n\nTool: legacy\n"
+	body := "legacy(commit): pre-v2 audit entry\n\nTool: legacy\n"
 
-	// Produce a v1 signature via the legacy Sign method.
 	v1sig := signer.Sign("tree", []string{"p"}, body)
 	withSig := AppendTrailer(body, v1sig)
 
-	// VerifyV2 with an arbitrary identity — should still verify via
-	// the v1 fallback path.
-	ident := SignedIdentity{
+	// The downgrade: present the v1 sig with an arbitrary (forged) identity.
+	forged := SignedIdentity{
 		AuthorName: "anybody", AuthorEmail: "any@x", AuthorUnix: 42,
 		CommitterName: "anybody", CommitterEmail: "any@x", CommitterUnix: 42,
 	}
-	if err := VerifyV2(signer.Public(), "tree", []string{"p"}, withSig, ident); err != nil {
-		t.Errorf("v2-verify of v1 sig should succeed via fallback: %v", err)
+	if err := VerifyV2(signer.Public(), "tree", []string{"p"}, withSig, forged); err == nil {
+		t.Error("VerifyV2 must reject a v1 signature (downgrade), got nil error")
+	}
+	// It is still recognizable as a legacy v1 sig (reporting, not acceptance).
+	if !IsV1Signature(signer.Public(), "tree", []string{"p"}, withSig) {
+		t.Error("IsV1Signature should recognize a genuine v1 signature")
+	}
+	// A tampered/garbage signature is NOT classified as legacy v1.
+	if IsV1Signature(signer.Public(), "tree", []string{"different"}, withSig) {
+		t.Error("IsV1Signature must not classify a non-matching v1 sig as legacy")
+	}
+}
+
+// ExtractSignature rejects a body carrying more than one Signature trailer:
+// a well-formed signed commit has exactly one, and picking the first of
+// several lets an attacker prepend a trailer (anti trailer-injection).
+func TestExtractSignature_RejectsMultipleTrailers(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer := NewSigner(priv)
+	body := "tool(x): y\n\nTool: write\n"
+	sig := signer.Sign("tree", nil, body)
+	one := AppendTrailer(body, sig)
+	if _, ok := ExtractSignature(one); !ok {
+		t.Fatal("exactly one Signature trailer should be extractable")
+	}
+	// Append a second trailer line directly (AppendTrailer strips first, so it
+	// can't produce a duplicate — an injection would bypass it anyway). sig
+	// already carries the "ed25519:" prefix.
+	two := one + "Signature: " + sig + "\n"
+	if _, ok := ExtractSignature(two); ok {
+		t.Error("ExtractSignature must reject a body with multiple Signature trailers")
 	}
 }
 

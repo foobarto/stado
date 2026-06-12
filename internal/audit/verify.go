@@ -16,9 +16,20 @@ type WalkResult struct {
 	Signed       int
 	Unsigned     int
 	Invalid      int
-	// InvalidAt is the first commit whose signature failed verification,
-	// or the zero hash if none did. Useful for pinpointing tamper.
+	// LegacyV1 counts commits carrying a recognizable legacy v1 signature
+	// (pre-v2 scheme). Since the 2026-06-12 clean-break, v1 signatures are no
+	// longer accepted (they don't bind author/committer/timestamps, enabling a
+	// downgrade forge), so these are NOT counted as Signed — but they are a
+	// DISTINCT class from Invalid (tamper): a legacy commit's content is intact
+	// under v1, it just can't be verified under the strict v2 policy. Re-sign
+	// to verify, or accept them as legacy.
+	LegacyV1 int
+	// InvalidAt is the first commit whose signature failed verification (and
+	// is NOT a recognizable legacy v1 sig — i.e. genuine tamper/garbage), or
+	// the zero hash if none did.
 	InvalidAt plumbing.Hash
+	// FirstLegacyV1At is the first commit with a legacy v1 signature, or zero.
+	FirstLegacyV1At plumbing.Hash
 	// FirstUnsignedAt is the first commit missing a signature, or zero.
 	FirstUnsignedAt plumbing.Hash
 
@@ -97,24 +108,30 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 				validateMutationLink(w.Src, cur, commit, trailers))
 		}
 
-		sig, ok := ExtractSignature(commit.Message)
-		if !ok {
+		switch trailers := sigTrailerRE.FindAllString(commit.Message, -1); {
+		case len(trailers) == 0:
 			res.Unsigned++
 			if res.FirstUnsignedAt.IsZero() {
 				res.FirstUnsignedAt = cur
 			}
-		} else {
+		case len(trailers) > 1:
+			// Multiple Signature trailers: ambiguous / trailer-injection. A
+			// well-formed signed commit has exactly one, so this is a tamper
+			// signal — count it as Invalid, NOT the benign Unsigned class.
+			res.Invalid++
+			if res.InvalidAt.IsZero() {
+				res.InvalidAt = cur
+			}
+		default:
 			parents := make([]string, len(commit.ParentHashes))
 			for i, p := range commit.ParentHashes {
 				parents[i] = p.String()
 			}
-			// Codex #138: VerifyV2 checks v2 (author/committer/
-			// timestamps bound) first, then falls back to v1 so
-			// pre-fix audit history still verifies. A v1 signature
-			// on a commit whose author or timestamps were tampered
-			// will still validate via the v1 fallback — that's a
-			// pre-existing limitation of the v1 scheme, not a v2
-			// regression. New commits (v2) catch the tamper.
+			// VerifyV2 accepts ONLY the identity-bound v2 payload (no v1
+			// fallback since the 2026-06-12 clean-break). On failure, classify
+			// a recognizable legacy v1 signature distinctly from genuine
+			// tamper/garbage so the intentional break reads as "legacy, re-sign
+			// to verify" rather than as a tampered chain.
 			if err := VerifyV2(w.Pub, commit.TreeHash.String(), parents, commit.Message,
 				SignedIdentity{
 					AuthorName:     commit.Author.Name,
@@ -124,14 +141,20 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 					CommitterEmail: commit.Committer.Email,
 					CommitterUnix:  commit.Committer.When.Unix(),
 				}); err != nil {
-				res.Invalid++
-				if res.InvalidAt.IsZero() {
-					res.InvalidAt = cur
+				if IsV1Signature(w.Pub, commit.TreeHash.String(), parents, commit.Message) {
+					res.LegacyV1++
+					if res.FirstLegacyV1At.IsZero() {
+						res.FirstLegacyV1At = cur
+					}
+				} else {
+					res.Invalid++
+					if res.InvalidAt.IsZero() {
+						res.InvalidAt = cur
+					}
 				}
 			} else {
 				res.Signed++
 			}
-			_ = sig
 		}
 
 		if len(commit.ParentHashes) == 0 {

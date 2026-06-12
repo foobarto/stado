@@ -193,13 +193,17 @@ func CanonicalBytesV2(treeHash string, parents []string, body string, ident Sign
 }
 
 // ExtractSignature returns the base64 signature from a commit body, or
-// ("", nil) when none is present.
+// ("", false) when none is present OR when the body carries more than one
+// Signature trailer. A well-formed signed commit has exactly one; rejecting
+// the ambiguous multi-trailer case stops an attacker from prepending a
+// Signature line that the old "first match wins" extraction would have picked
+// (trailer-injection hardening).
 func ExtractSignature(body string) (sigB64 string, ok bool) {
-	m := sigTrailerRE.FindStringSubmatch(body)
-	if len(m) == 0 {
+	matches := sigTrailerRE.FindAllString(body, -1)
+	if len(matches) != 1 {
 		return "", false
 	}
-	line := strings.TrimSpace(m[0])
+	line := strings.TrimSpace(matches[0])
 	_, _, val := cutTrailer(line)
 	return strings.TrimPrefix(val, SigPrefix), true
 }
@@ -232,18 +236,17 @@ func Verify(pub ed25519.PublicKey, treeHash string, parents []string, body strin
 	return nil
 }
 
-// VerifyV2 checks the signature trailer against the given pubkey,
-// trying v2 (author/committer/timestamps bound — see
-// [CanonicalBytesV2]) first and falling back to v1 (tree+parents+body
-// only — see [CanonicalBytes]) so pre-#138 audit history still
-// verifies after the scheme bump. Returns a non-nil error on
-// mismatch (plain string — neither v2 nor v1 carry distinguishable
-// error states that callers would handle differently).
+// VerifyV2 checks the signature trailer against the given pubkey using ONLY
+// the identity-bound v2 payload (author/committer/timestamps — see
+// [CanonicalBytesV2]). There is NO v1 fallback (decision 2026-06-12
+// clean-break): accepting a v1 signature (which binds only tree+parents+body)
+// let an attacker downgrade-forge a commit by reusing a genuine v1 sig with a
+// rewritten identity. Returns a non-nil error on mismatch (plain string).
 //
-// Callers that have access to the commit's author/committer info
-// SHOULD use VerifyV2 (`audit verify` does). Callers that don't
-// (older code, third-party verifiers) can still call [Verify] which
-// only checks v1.
+// A signature that fails here may still be a genuine legacy v1 signature; use
+// [IsV1Signature] to classify it for reporting (it is not accepted as valid).
+// The legacy [Verify] (v1-only, no identity binding) remains for third-party
+// or historical callers but must not be used to gate trust on new history.
 func VerifyV2(pub ed25519.PublicKey, treeHash string, parents []string, body string, ident SignedIdentity) error {
 	sigB64, ok := ExtractSignature(body)
 	if !ok {
@@ -253,16 +256,36 @@ func VerifyV2(pub ed25519.PublicKey, treeHash string, parents []string, body str
 	if err != nil {
 		return errors.New("audit: signature not base64")
 	}
-	if ed25519.Verify(pub, CanonicalBytesV2(treeHash, parents, body, ident), sig) {
-		return nil
+	if !ed25519.Verify(pub, CanonicalBytesV2(treeHash, parents, body, ident), sig) {
+		// No v1 fallback (decision 2026-06-12 clean-break): the v1 payload
+		// binds only tree+parents+body, so accepting it let an attacker with
+		// sidecar write copy a genuine v1 commit's (tree, parents, body, sig)
+		// into a new commit with a forged author/timestamp and still verify
+		// (downgrade). Only the identity-bound v2 payload is accepted now. A
+		// legacy v1 signature is recognizable via IsV1Signature for reporting,
+		// but is no longer trusted.
+		return errors.New("audit: signature invalid")
 	}
-	// v1 fallback for sigs produced before #138 — pre-fix history
-	// still verifies, even though the v1 payload doesn't bind the
-	// author/committer/timestamps.
-	if ed25519.Verify(pub, CanonicalBytes(treeHash, parents, body), sig) {
-		return nil
+	return nil
+}
+
+// IsV1Signature reports whether body's signature verifies under the legacy v1
+// payload (CanonicalBytes — tree+parents+body, with NO author/committer/
+// timestamp binding). It is a CLASSIFICATION helper only: it lets `audit
+// verify` label a commit that failed [VerifyV2] as a pre-v2 "legacy v1" entry
+// rather than as tamper. It never grants trust — v1 signatures are no longer
+// accepted (they enable a downgrade forge), so callers must not treat a true
+// result as a valid signature.
+func IsV1Signature(pub ed25519.PublicKey, treeHash string, parents []string, body string) bool {
+	sigB64, ok := ExtractSignature(body)
+	if !ok {
+		return false
 	}
-	return errors.New("audit: signature invalid")
+	sig, err := base64.StdEncoding.DecodeString(sigB64)
+	if err != nil {
+		return false
+	}
+	return ed25519.Verify(pub, CanonicalBytes(treeHash, parents, body), sig)
 }
 
 // FingerprintBytes → sha256[:8] hex-encoded. Exposed at the top-level for
