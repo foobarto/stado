@@ -72,14 +72,15 @@ config surfaces.
 
 ### Dependencies
 
-- Bumped the `go` directive to **1.26.4** (clears the two Go stdlib advisories),
-  patch-swept the module tree (incl. **goldmark 1.7.17**, clearing an XSS
-  advisory across goldmark / glamour / x/tools / goldmark-emoji), and forced
-  **golang-jwt/jwt v5.3.1** via `replace` (past the v5.2.2 fix for CVE-2025-30204,
-  a JWT amplification issue pinned transitively by openai-go). `govulncheck`
-  reports zero reachable vulnerabilities. The remaining Snyk-flagged transitive
-  advisories (aws-sdk-go-v2 via unused Bedrock support; go-git, whose fix is the
-  v6 major migration) are unreachable and left for a follow-up.
+- Bumped the `go` directive **and the release workflow** to **1.26.4**, clearing
+  the two Go stdlib advisories (so tagged artifacts are built with the patched
+  stdlib too). Patch-swept the module tree, including **goldmark 1.7.17**, which
+  clears an XSS advisory across goldmark and its consumers (glamour, x/tools,
+  goldmark-emoji). `govulncheck` reports zero reachable vulnerabilities. The
+  remaining Snyk-flagged transitive advisories — golang-jwt/jwt (not compiled
+  into the binary), aws-sdk-go-v2 (via unused Bedrock support), and go-git (fix
+  is the v6 major migration; needs local `.git` write to exploit) — are
+  unreachable and left as-is (no clean fix path; Snyk is non-blocking for them).
 
 ## v0.64.0 — hook-mutation audit provenance, memory long-term gaps — 2026-06-12
 

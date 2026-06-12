@@ -151,5 +151,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
-
-replace github.com/golang-jwt/jwt/v5 => github.com/golang-jwt/jwt/v5 v5.3.1
