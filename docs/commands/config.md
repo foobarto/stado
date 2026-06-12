@@ -80,7 +80,7 @@ worktree dir   /home/user/.local/state/stado/worktrees
   thinking_display   show
 
 [memory]
-  enabled        false
+  enabled        true
   max_items      8
   budget_tokens  800
 

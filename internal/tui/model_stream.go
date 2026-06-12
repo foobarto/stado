@@ -45,21 +45,32 @@ func (m *Model) turnMemoryContext(userPrompt string) string {
 		return ""
 	}
 	sessionID := ""
+	var ancestors []string
 	if m.session != nil {
 		sessionID = m.session.ID
+		// EP-15 session-scope inheritance: this session sees the session-scoped
+		// memories of the sessions it forked from. The sidecar is already open
+		// on the model, so resolve ancestry directly. Best-effort: on failure
+		// fall back to exact-session matching.
+		if anc, err := runtime.SessionAncestors(m.session.Sidecar, m.cfg.WorktreeDir(), sessionID); err != nil {
+			tuiTrace("memory session ancestry failed", "error", err.Error())
+		} else {
+			ancestors = anc
+		}
 	}
 	ctx := m.rootCtx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	body, err := memory.PromptContext(ctx, memory.PromptContextOptions{
-		Enabled:      m.cfg.Memory.Enabled,
-		StateDir:     m.cfg.StateDir(),
-		Workdir:      m.cwd,
-		SessionID:    sessionID,
-		Prompt:       userPrompt,
-		MaxItems:     m.cfg.Memory.EffectiveMaxItems(),
-		BudgetTokens: m.cfg.Memory.EffectiveBudgetTokens(),
+		Enabled:          m.cfg.Memory.Enabled,
+		StateDir:         m.cfg.StateDir(),
+		Workdir:          m.cwd,
+		SessionID:        sessionID,
+		SessionAncestors: ancestors,
+		Prompt:           userPrompt,
+		MaxItems:         m.cfg.Memory.EffectiveMaxItems(),
+		BudgetTokens:     m.cfg.Memory.EffectiveBudgetTokens(),
 	})
 	if err != nil {
 		tuiTrace("memory prompt context failed", "error", err.Error())

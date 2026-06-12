@@ -140,10 +140,10 @@ session's persisted conversation and worktree, so `session:read`,
 `session:fork`, and `llm:invoke` work on the CLI path too. Plugins that
 declare `memory:propose`, `memory:read`, or `memory:write` are wired to
 the local append-only memory store under the stado state directory; use
-`stado memory list|show|edit|approve|supersede|reject|delete|export`
-to review that store. Approved memory only enters model prompts after
-enabling `[memory].enabled = true`; candidate memories remain
-review-only. `stado learning propose` stores stricter EP-16 lesson
+`stado memory list|show|edit|approve|supersede|reject|delete|compact|export`
+to review that store. Approved memory enters model prompts by default
+(`[memory].enabled` defaults to true; set it to `false` to opt out);
+candidate memories remain review-only. `stado learning propose` stores stricter EP-16 lesson
 candidates in the same append-only store for explicit review.
 Without `--session`, the command stays a one-shot no-session path and
 session-aware capabilities see zeroed fields.
@@ -157,8 +157,8 @@ Relevant `config.toml` sections:
 - `[plugins].rekor_url` — Rekor transparency-log endpoint
 - `[plugins].background` — extra installed plugin IDs loaded
   persistently in the TUI/headless server
-- `[memory].enabled` — opt in to injecting approved plugin memories as
-  bounded untrusted prompt context
+- `[memory].enabled` — inject approved plugin memories as bounded
+  untrusted prompt context (on by default; set `false` to opt out)
 - `[tools].overrides` — map bundled tool names to installed plugin IDs
 
 `stado config show` prints the resolved values.

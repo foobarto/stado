@@ -10,12 +10,20 @@ supersedes, and exports memory items stored under the stado state directory.
 Plugin-proposed items start as `candidate`; they are not returned to
 memory queries until approved.
 
-Approved memories are only injected into provider prompts when
-`[memory].enabled = true` in `config.toml`. Injection is bounded by
-`[memory].max_items` and `[memory].budget_tokens`, and the prompt block
-is labeled as untrusted context below stado identity and project
-instructions. TUI, `stado run`, headless, and ACP use the same prompt
-context path.
+Approved memories are injected into provider prompts by default; set
+`[memory].enabled = false` in `config.toml` to opt out. Only
+user-approved, scoped, non-secret items are ever injected, so the
+default-on surface is reviewed context, not silent capture. Injection is
+bounded by `[memory].max_items` and `[memory].budget_tokens`, and the
+prompt block is labeled as untrusted context below stado identity and
+project instructions. TUI, `stado run`, headless, and ACP use the same
+prompt context path.
+
+Session-scoped memories are inherited down the fork tree: a session sees
+the session-scoped memories of every session it forked from (EP-15), so a
+decision recorded in a session survives a compaction/fork into its
+descendants. Repo- and global-scoped memories apply to the whole repo and
+to every repo respectively.
 
 ## Common Flow
 
@@ -27,6 +35,7 @@ stado memory approve mem_...
 stado memory supersede mem_... --summary "Prefer reviewable replacements"
 stado memory reject mem_...
 stado memory delete mem_...
+stado memory compact
 stado memory session off
 stado memory session on
 stado memory export > memories.json
@@ -44,26 +53,38 @@ Use `stado memory list --json` for scripts.
 | `stado memory approve <id>` | Promote a candidate to approved |
 | `stado memory supersede <id>` | Replace an approved memory with a new approved item |
 | `stado memory reject <id>` | Mark a memory rejected |
-| `stado memory delete <id>` | Remove a memory from the folded active view |
+| `stado memory delete <id>` | Hide a memory from retrieval, keeping a `deleted` audit tombstone |
+| `stado memory compact` | Rewrite the log to its folded state (one event per live item) |
 | `stado memory session [on|off|status]` | Toggle approved-memory retrieval for the current session/worktree |
 | `stado memory export` | Export folded items as JSON |
 
 ## Notes
 
-The backing store is append-only JSONL. Delete and reject operations add
-events; they do not rewrite old events. Edit operations also append a
-new event, replacing only the folded active view. Prompt retrieval
-remains scoped: only approved, non-secret items matching the requested
-global, repo, or session scope are returned through `memory:read`.
-Supersede operations append a new approved item and mark the old item
-`superseded` in the folded view instead of rewriting the original
-event.
+The backing store is append-only JSONL. Delete, reject, and supersede
+operations append events rather than rewriting old ones. Delete and reject
+keep an audit tombstone in the folded view (`deleted` / `rejected`), so the
+item stays visible through `list`/`show`/`export`; it is simply excluded
+from retrieval. Supersede appends a new approved item and marks the old
+item `superseded`. Edit operations also append a new event, replacing only
+the folded active view. Prompt retrieval remains scoped: only approved,
+non-secret items matching the requested global, repo, or session scope (the
+querying session or any of its ancestors) are returned through
+`memory:read`.
 
-Prompt retrieval is opt-in. `stado memory session off` creates a
-`.stado/memory-disabled` marker in the current session/worktree, and
-`stado memory session on` removes it. Candidate, rejected, deleted,
-expired, and `secret` memories are never injected into prompts; they
-remain visible through review/export surfaces for auditability.
+Because the log only grows, `stado memory compact` rewrites it to its
+folded state — exactly one event per live item, tombstones included — to
+reclaim space without changing which memories are active. Reads degrade
+gracefully past the 128 MB store cap (so an oversized store can still be
+inspected and compacted); writes are refused over the cap until `compact`
+brings the log back under it.
+
+Prompt retrieval is on by default and can be opted out globally with
+`[memory].enabled = false`, or per session with `stado memory session off`,
+which creates a `.stado/memory-disabled` marker in the current
+session/worktree (`stado memory session on` removes it). Candidate,
+rejected, deleted, superseded, expired, and `secret` memories are never
+injected into prompts; they remain visible through review/export surfaces
+for auditability.
 
 Lesson items created by `stado learning` live in the same log with
 `memory_kind: "lesson"`. Approved lessons are retrieved separately from
