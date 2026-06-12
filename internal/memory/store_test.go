@@ -351,6 +351,66 @@ func TestStoreUpsertEditOverDeletedCannotLaunder(t *testing.T) {
 	}
 }
 
+// TestStoreProposeOverDeletedCannotLaunder closes the remaining sibling of the
+// tombstone-laundering hole: Propose is a separate code path from Update, so a
+// propose carrying an explicit id that matches a `deleted` tombstone would fold
+// it back to `candidate` (defeating the approve-guard, which then sees a
+// candidate) and resurrect a prompt-injectable memory. Reachable from the
+// plugin memory:propose host bridge. A propose with a fresh id must still work.
+func TestStoreProposeOverDeletedCannotLaunder(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+
+	// Create then delete a memory -> terminal tombstone.
+	item := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "temp", Confidence: "approved"}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	del, _ := json.Marshal(UpdateRequest{Action: "delete", ID: item.ID})
+	if err := store.Update(ctx, del); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// Propose with the SAME explicit id must be refused.
+	resurrect := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "resurrected", Confidence: "candidate"}
+	praw, _ := json.Marshal(resurrect)
+	if err := store.Propose(ctx, praw); err == nil || !strings.Contains(err.Error(), "is deleted") {
+		t.Fatalf("expected propose-over-deleted to be refused, got %v", err)
+	}
+
+	// The follow-on approve must also still refuse (the item stayed `deleted`),
+	// confirming the propose->approve laundering sequence is fully closed.
+	approve, _ := json.Marshal(UpdateRequest{Action: "approve", ID: "mem_tomb"})
+	if err := store.Update(ctx, approve); err == nil || !strings.Contains(err.Error(), "is deleted") {
+		t.Fatalf("approve after blocked propose should still refuse a deleted item, got %v", err)
+	}
+
+	// Tombstone unchanged + not queryable.
+	shown, ok, err := store.Show(ctx, item.ID)
+	if err != nil || !ok || shown.Confidence != "deleted" {
+		t.Fatalf("tombstone changed after propose: ok=%v conf=%q err=%v", ok, shown.Confidence, err)
+	}
+	if shown.Summary != "temp" {
+		t.Fatalf("tombstone body changed after propose: %q", shown.Summary)
+	}
+	q, err := store.Query(ctx, Query{Prompt: "temp resurrected"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(q.Items) != 0 {
+		t.Fatalf("deleted tombstone became queryable after propose: %+v", q.Items)
+	}
+
+	// A propose with a FRESH (empty) id still works — the guard only blocks
+	// resurrecting an existing tombstone, not creating new memories.
+	fresh := Item{Scope: "global", Kind: "fact", Summary: "a brand new memory"}
+	fraw, _ := json.Marshal(fresh)
+	if err := store.Propose(ctx, fraw); err != nil {
+		t.Fatalf("propose of a fresh memory must still work: %v", err)
+	}
+}
+
 func TestStoreEditReplacesItemAppendOnly(t *testing.T) {
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	store := testStore(t, now)

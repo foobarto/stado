@@ -147,6 +147,17 @@ func (s *Store) Propose(_ context.Context, raw []byte) error {
 	if item.Confidence != "candidate" {
 		return fmt.Errorf("memory propose: confidence must be candidate, got %q", item.Confidence)
 	}
+	// A deleted memory is a terminal tombstone (EP-0015). A propose carrying an
+	// explicit id that matches a tombstone would fold it back to `candidate`
+	// (foldEvents replaces the entry wholesale), and a following approve — whose
+	// guard now sees `candidate`, not `deleted` — would launder it into an
+	// approved, prompt-injectable memory. Reachable from the plugin
+	// memory:propose host bridge with an attacker-controlled payload. Refuse it
+	// before prepareItem auto-assigns a fresh id (an empty id is a new memory
+	// and is allowed). Re-proposing similar content must use a fresh id.
+	if err := s.refuseDeletedTombstone("propose", item.ID); err != nil {
+		return err
+	}
 	if err := s.prepareItem(&item); err != nil {
 		return fmt.Errorf("memory propose: %w", err)
 	}
@@ -216,7 +227,7 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		// blocks. An upsert for a new (non-deleted, or absent) id is unaffected.
 		// (Re-propose to bring a deleted memory back, which writes a fresh audit
 		// trail.)
-		if err := s.refuseDeletedTombstone("upsert", req.Item.ID); err != nil {
+		if err := s.refuseDeletedTombstone("update upsert", req.Item.ID); err != nil {
 			return err
 		}
 		ev.ID = req.Item.ID
@@ -856,19 +867,24 @@ func (s *Store) requireExistingItem(id string) (Item, error) {
 
 // refuseDeletedTombstone rejects an operation whose target id is an existing
 // `deleted` tombstone, keeping the tombstone terminal. An absent id is allowed
-// (upsert may legitimately create a new memory). The error message mirrors the
-// approve/reject guard so all resurrection paths surface the same "is deleted"
-// remediation.
-func (s *Store) refuseDeletedTombstone(action, id string) error {
+// (propose/upsert may legitimately create a new memory). op is the full
+// operation label for the error message (e.g. "update upsert", "propose"). The
+// message mirrors the approve/reject guard so every resurrection path surfaces
+// the same "is deleted" remediation.
+func (s *Store) refuseDeletedTombstone(op, id string) error {
 	if id == "" {
 		return nil
 	}
 	items, err := s.fold()
 	if err != nil {
-		return fmt.Errorf("memory update %s: %w", action, err)
+		// A store that can't be folded can't be laundered: the resurrected
+		// entry would be unqueryable (Query folds too), and the downstream
+		// append surfaces the real error (e.g. the size-cap rejection). Defer
+		// rather than preempt that error with a fold/scan failure here.
+		return nil //nolint:nilerr // intentional: see comment.
 	}
 	if existing, ok := items[id]; ok && existing.Confidence == "deleted" {
-		return fmt.Errorf("memory update %s: %q is deleted; re-propose it instead of resurrecting a tombstone", action, id)
+		return fmt.Errorf("memory %s: %q is deleted; re-propose with a fresh id instead of resurrecting a tombstone", op, id)
 	}
 	return nil
 }
