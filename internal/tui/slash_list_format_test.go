@@ -7,7 +7,21 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 )
+
+// firstToolWithDescription returns a tool name + the first word of its
+// description from the default registry. Hermetic: CI has no installed plugins,
+// so we use whatever bundled tool is present rather than hardcoding a
+// plugin-provided one.
+func firstToolWithDescription(cfg *config.Config) (name, descWord string) {
+	for _, tl := range runtime.BuildDefaultRegistry(cfg).All() {
+		if d := strings.TrimSpace(tl.Description()); d != "" {
+			return tl.Name(), strings.Fields(d)[0]
+		}
+	}
+	return "", ""
+}
 
 // leadingSpaces counts the run of leading spaces on a line — the column
 // a hanging continuation line begins at.
@@ -27,19 +41,23 @@ func leadingSpaces(s string) int {
 // It must now render the description (and continue to mark autoloaded
 // tools).
 func TestToolLs_ShowsDescription(t *testing.T) {
-	m := &Model{cfg: &config.Config{}}
-	// Narrow to a single tool so we can assert on its description without
-	// scanning the whole registry; ad_acl_abuse has a long body that the
-	// old "%-32s %s" form never showed.
-	m.handleToolSlash([]string{"/tool", "ls", "ad_acl_abuse"})
-	out := m.lastSystemBlockBody()
-	if !strings.Contains(out, "ad_acl_abuse") {
-		t.Fatalf("/tool ls missing the tool name: %q", out)
+	cfg := &config.Config{}
+	name, descWord := firstToolWithDescription(cfg)
+	if name == "" {
+		t.Skip("no tool with a description in the default registry")
 	}
-	// A representative word from the description must appear — it was
-	// entirely absent before this change.
-	if !strings.Contains(out, "principals") {
-		t.Errorf("/tool ls should now render the tool DESCRIPTION (word 'principals' missing): %q", out)
+	m := &Model{cfg: cfg}
+	// Narrow to the single tool so we can assert on its description without
+	// scanning the whole registry. The old "%-32s %s" form never showed it.
+	m.handleToolSlash([]string{"/tool", "ls", name})
+	out := m.lastSystemBlockBody()
+	if !strings.Contains(out, name) {
+		t.Fatalf("/tool ls missing the tool name %q: %q", name, out)
+	}
+	// A representative word from the description must appear — it was entirely
+	// absent before this change.
+	if !strings.Contains(out, descWord) {
+		t.Errorf("/tool ls should now render the tool DESCRIPTION (word %q missing): %q", descWord, out)
 	}
 	// No ellipsis: the formatter wraps rather than truncates.
 	if strings.Contains(out, "…") {
@@ -51,12 +69,16 @@ func TestToolLs_ShowsDescription(t *testing.T) {
 // "(autoloaded)" marker in its rendered row.
 func TestToolLs_AutoloadedMarked(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Tools.Autoload = []string{"ad_acl_abuse"}
+	name, _ := firstToolWithDescription(cfg)
+	if name == "" {
+		t.Skip("no tool with a description in the default registry")
+	}
+	cfg.Tools.Autoload = []string{name}
 	m := &Model{cfg: cfg}
-	m.handleToolSlash([]string{"/tool", "ls", "ad_acl_abuse"})
+	m.handleToolSlash([]string{"/tool", "ls", name})
 	out := m.lastSystemBlockBody()
 	if !strings.Contains(out, "(autoloaded)") {
-		t.Errorf("/tool ls should mark autoloaded tools: %q", out)
+		t.Errorf("/tool ls should mark autoloaded tool %q: %q", name, out)
 	}
 }
 
