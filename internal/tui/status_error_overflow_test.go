@@ -84,3 +84,22 @@ func TestStatusBar_ErrorMessageNeverOverflows_AcrossWidths(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusBar_MultiLineErrorStaysOneRow (Copilot #128): a Go error that
+// itself contains newlines must not wrap the status row past the border.
+// renderStatus flattens newlines up front so BOTH the truncate path and the
+// probe-error fallback emit a single row.
+func TestStatusBar_MultiLineErrorStaysOneRow(t *testing.T) {
+	const width = 120
+	m := queueModel(t)
+	m.state = stateError
+	m.errorMsg = "dial tcp: lookup api.example.com: no such host\nwrapped: provider build failed\nhint: set defaults.provider"
+
+	got := strings.TrimRight(m.renderStatus(width), "\n")
+	if lines := strings.Split(got, "\n"); len(lines) != 1 {
+		t.Errorf("multi-line error rendered %d rows, want exactly 1:\n%s", len(lines), got)
+	}
+	if lw := lipgloss.Width(got); lw > width {
+		t.Errorf("status width %d exceeds inner width %d", lw, width)
+	}
+}

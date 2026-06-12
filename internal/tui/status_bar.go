@@ -118,10 +118,13 @@ func (m *Model) renderStatus(width int) string {
 	// the row. The actionable start of the message survives; the tail
 	// gets the ellipsis.
 	if m.state == stateError && m.errorMsg != "" {
+		// Flatten newlines ONCE up front so neither path can emit a
+		// multi-line row: a multi-line Go error would otherwise wrap the
+		// status row past the bottom border.
+		flat := strings.ReplaceAll(m.errorMsg, "\n", " ")
 		data["ErrorMessage"] = ""
 		if probe, perr := m.renderer.Exec("status", data); perr == nil {
 			overhead := lipgloss.Width(strings.TrimRight(probe, "\n"))
-			flat := strings.ReplaceAll(m.errorMsg, "\n", " ")
 			if budget := width - overhead; budget >= 1 {
 				data["ErrorMessage"] = ansi.Truncate(flat, budget, "…")
 			}
@@ -129,7 +132,11 @@ func (m *Model) renderStatus(width int) string {
 			// message empty rather than overflow — the state pill alone
 			// still signals the error.
 		} else {
-			data["ErrorMessage"] = m.errorMsg
+			// Probe render failed (defensive — the real render below uses
+			// the same template/data, so this is a near-dead path). Still
+			// emit the flattened message, best-effort truncated to the full
+			// width, so the fallback can't overflow with newlines either.
+			data["ErrorMessage"] = ansi.Truncate(flat, width, "…")
 		}
 	}
 

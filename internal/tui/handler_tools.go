@@ -279,10 +279,14 @@ func onPluginRunResult(m *Model, msg pluginRunResultMsg) (tea.Model, tea.Cmd) {
 	if msg.errMsg != "" {
 		result = "error: " + msg.errMsg
 	}
+	// Sanitize the plugin/tool-supplied name + result (same hostile-bytes
+	// trust boundary as agent-loop tool results — see onToolResult): they
+	// render raw into the kind:"tool" panel, so an OSC/BEL here would rewrite
+	// the terminal title, inject a clickable hyperlink, or ring the bell.
 	m.appendBlock(block{
 		kind:       "tool",
-		toolName:   name,
-		toolResult: result,
+		toolName:   textutil.SanitizeForTerminal(name),
+		toolResult: textutil.SanitizeForTerminal(result),
 	})
 	m.renderBlocks()
 	return m, nil

@@ -72,3 +72,38 @@ func TestToolCallMeta_NameAndArgsSanitized(t *testing.T) {
 	assertNoToolEscapesIn(t, "rendered collapsed tool meta", collapsed)
 	assertNoToolEscapesIn(t, "rendered expanded tool meta", expanded)
 }
+
+// Copilot #128 review (sibling of C1/C4): onPluginRunResult routes /tool +
+// /plugin: output into a kind:"tool" panel but stored name + result RAW,
+// reintroducing the OSC/BEL injection vector for that side-channel path.
+func TestPluginRunResult_SanitizesNameAndResult(t *testing.T) {
+	m := scenarioModel(t)
+	onPluginRunResult(m, pluginRunResultMsg{
+		plugin:  "p\x1b]0;HIJACK\x07",
+		tool:    "t",
+		content: "out\x1b]8;;http://evil.example\x07link\x1b]8;;\x07\nmore",
+	})
+	var blk *block
+	for i := range m.blocks {
+		if m.blocks[i].kind == "tool" {
+			blk = &m.blocks[i]
+		}
+	}
+	if blk == nil {
+		t.Fatal("no tool block created")
+	}
+	assertNoEscapesIn(t, "plugin tool name", blk.toolName)
+	assertNoEscapesIn(t, "plugin tool result", blk.toolResult)
+	if !strings.Contains(blk.toolResult, "out") || !strings.Contains(blk.toolResult, "\nmore") {
+		t.Errorf("legitimate result text stripped: %q", blk.toolResult)
+	}
+
+	// The error path ("error: <errMsg>") must be sanitized too.
+	m2 := scenarioModel(t)
+	onPluginRunResult(m2, pluginRunResultMsg{tool: "t", errMsg: "boom\x1b]0;X\x07"})
+	for i := range m2.blocks {
+		if m2.blocks[i].kind == "tool" {
+			assertNoEscapesIn(t, "plugin tool error result", m2.blocks[i].toolResult)
+		}
+	}
+}
