@@ -1,6 +1,16 @@
 # 2026-05-24 — Park Codex C8/P (audit v1 signature downgrade)
 
-status: parked — needs operator design call before any fix lands
+status: RESOLVED 2026-06-12 — fixed via the clean-break design (VerifyV2 drops
+the v1 fallback; ExtractSignature rejects multiple trailers; `audit verify`
+classifies legacy v1 distinctly). Re-analysis showed the parked premise was
+overstated: production signs v2 since the scheme bump and v2 sigs verify via
+the identity-bound path regardless of any marker, so removing the v1 fallback
+does NOT touch real v2 history — only genuinely pre-v2 v1 commits. The
+time-cutoff options (1, 2 below) were rejected as backdate-defeatable. See
+`.agent/decisions/2026-06-12-audit-v1-downgrade-clean-break.md`. The analysis
+below is kept for posterity.
+
+status (historical): parked — needs operator design call before any fix lands
 
 ## Finding (Codex deep-dive, post-v0.54.0)
 

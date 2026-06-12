@@ -84,18 +84,27 @@ var auditVerifyCmd = &cobra.Command{
 					return err
 				}
 				status := "OK"
-				if res.Invalid > 0 {
+				switch {
+				case res.Invalid > 0:
 					status = "FAIL"
 					allOK = false
-				} else if res.Unsigned > 0 {
+				case res.LegacyV1 > 0:
+					// Distinct from FAIL: not tampered, just pre-v2 scheme that
+					// is no longer accepted. Still not verified, so non-OK.
+					status = "LEGACY-V1"
+					allOK = false
+				case res.Unsigned > 0:
 					status = "UNSIGNED"
 					allOK = false
 				}
-				fmt.Printf("%s\t%s\t%s\t%d total (%d signed, %d unsigned, %d invalid)\n",
+				fmt.Printf("%s\t%s\t%s\t%d total (%d signed, %d unsigned, %d invalid, %d legacy-v1)\n",
 					status, id, refPair.name,
-					res.TotalCommits, res.Signed, res.Unsigned, res.Invalid)
+					res.TotalCommits, res.Signed, res.Unsigned, res.Invalid, res.LegacyV1)
 				if !res.InvalidAt.IsZero() {
 					fmt.Fprintf(os.Stderr, "  first invalid at: %s\n", res.InvalidAt)
+				}
+				if !res.FirstLegacyV1At.IsZero() {
+					fmt.Fprintf(os.Stderr, "  first legacy-v1 at: %s  (pre-v2 scheme; re-sign to verify under v2)\n", res.FirstLegacyV1At)
 				}
 				if !res.FirstUnsignedAt.IsZero() {
 					fmt.Fprintf(os.Stderr, "  first unsigned at: %s\n", res.FirstUnsignedAt)
