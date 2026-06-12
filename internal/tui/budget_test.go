@@ -185,7 +185,7 @@ func TestBudget_TokenOnlyWarnFiresProactiveBlock(t *testing.T) {
 		t.Fatal("token-only budget crossed the warn cap but no warn block was emitted")
 	}
 	body := m.blocks[len(m.blocks)-1].body
-	if !strings.Contains(body, "600") && !strings.Contains(body, "tok") {
+	if !strings.Contains(body, "600") || !strings.Contains(body, "tok") {
 		t.Errorf("warn block should report the 600-token usage: %q", body)
 	}
 	if !strings.Contains(body, "500") {
