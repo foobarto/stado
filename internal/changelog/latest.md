@@ -1,50 +1,70 @@
-## v0.64.1 — TUI-usability fixes (tool-panel sanitize, hooks/slash discoverability) — 2026-06-12
+## v0.64.2 — TUI polish round 2 (tree / monitor / split, recovery flows) + faster CI — 2026-06-12
 
-Fixes from a fresh TUI-usability UAT pass on v0.64.0 (#128). The headline is a
-terminal-escape sanitization gap; the rest smooth the newer hooks / slash /
-config surfaces.
+Round 2 of TUI-usability fixes across the v0.64 feature surface — three merged
+batches (#133, #134, #135) plus a CI-speed change (#132). Most were found by a
+multi-agent UAT campaign that drove each surface and reproduced defects
+test-first; two more were caught by review on the fix PRs themselves.
 
 ### Security
 
-- **Tool-output panel now sanitizes terminal escapes.** The collapsible tool
-  panel rendered the tool **result, name, and args** (and `/tool` / `/plugin:`
-  side-channel output) verbatim, while assistant/thinking text was already
-  sanitized. A tool/model emitting crafted bytes could rewrite the terminal
-  title (OSC 0), inject a clickable hyperlink to an attacker URL (OSC 8), or
-  ring the bell (BEL). All of these display paths now route through
-  `textutil.SanitizeForTerminal` at store-time (the executor still receives the
-  raw arguments — only the rendered copies are scrubbed).
+- **Memory delete-tombstone can no longer be laundered.** `delete` → `reject` →
+  `approve` resurrected a deleted memory into a queryable, prompt-injectable
+  approved entry, defeating the deleted-guard (EP-0015's terminal-tombstone
+  invariant). `reject` now refuses a deleted item, like `approve`. (#135)
+- **`/fleet` picker no longer leaks invalid UTF-8.** The prompt column
+  byte-sliced untrusted entry strings, cutting mid-rune on CJK/emoji prompts and
+  emitting raw continuation bytes (and a wrong display width) to the terminal;
+  truncation is now display-width + grapheme aware, and the row is sized to the
+  modal so it can't overflow the border. (#135)
 
 ### TUI
 
-- **Lifecycle hooks are now visible.** `stado config show` renders the
-  `[hooks]` section (and `[tui.sidebar]`/`[tui.footer]`); `stado doctor`
-  reports configured lifecycle hooks instead of `(unset)`; `stado config init`
-  documents the sidebar/footer sections and the deny/mutate/fail_closed hook
-  config (replacing the stale "notification-only" text).
-- **Broken lifecycle hooks now surface a warning.** A hook that fails to load
-  is no longer silently dropped: the skip-warning is emitted before the
-  provider build (so a first run without an API key still sees it) and is shown
-  in the TUI startup notices instead of being swallowed by the alt-screen.
-- **Slash-command discoverability.** Nine working commands (`/stats`, `/ps`,
-  `/config`, `/sandbox`, `/fleet`, `/kill`, `/spawn`, `/cancel`, `/supervisor`)
-  were invisible in `/help`, the `Ctrl+P` palette, and the inline `/` popup;
-  they are now registered. The popup also no longer misdirects a prefix to a
-  different command (`/stat` now offers `/stats`, `/ps` offers `/ps`). `/tool`
-  output lands in the collapsible panel instead of flooding scrollback.
-- **Status bar no longer overflows.** A long provider error wrapped several
-  rows past the frame border; it is now flattened and ellipsized to the
-  measured width so the bar stays a single row.
+- **`/monitor` streams live.** It buffered all stdout and flushed only on
+  process exit, so `tail -f` / `ping` showed nothing until they terminated;
+  each line now arrives as it is read (EP-0036's per-line contract). `/monitor
+  stop` no longer double-reports a spurious "process exited", and a stale
+  completion from a stopped monitor can no longer clear a newly-started one
+  (generation-tagged instances). `/loop stop` with no active loop now says "no
+  active loop" instead of falsely "loop stopped". (#135)
+- **`/tree` render fidelity.** The modal header stays one row at common widths;
+  a deep fork node's `⑂ turn N` origin tag and provenance badge survive label
+  truncation and never spill the modal (the left column is now clamped to its
+  budget); the peek label keeps its "not a point-in-time snapshot" clarifier;
+  and the per-turn ⟳N/⊘N hook-mutation/deny badges are no longer off-by-one on
+  real session data (session totals were always correct). (#134, #135)
+- **`/split` panes are click-to-expand.** Clicks in split view resolved against
+  stale single-view line ranges (wrong block, or no-op), and tool blocks in the
+  activity pane were unclickable; each pane now maps clicks through its own
+  range table. (#135)
+- **Tool output wraps at the width boundary.** Long unbroken tokens in the
+  tool-output panel overflowed the frame; they now hard-wrap (display-width
+  aware) and preserve leading indentation (so hashline reads stay aligned).
+  (#134)
+- **Landing / onboarding** render correctly at common geometries; the
+  Enter-while-busy steer affordance is documented in `/help` + the input hint;
+  the `/provider` modal leaves a margin at narrow widths; `/debug` reports an
+  accurate message. (#134)
+- **Budget recovery handles token caps.** A token-cap breach printed a USD-only
+  block message (`cost $0.00 ≥ hard cap $0.00 … edit [budget].hard_usd`) and
+  `/budget` showed token caps as `(unset)`; both now name the binding cap and
+  its config knob. (#135)
+- **`/alias` help row** no longer wraps onto multiple lines in the `?` overlay,
+  restoring the name/description column alignment. (#135)
+- **LSP sidebar + CLI error-UX** correctness. (#133)
 
-### Dependencies
+### CLI
 
-- Bumped the `go` directive **and the release workflow** to **1.26.4**, clearing
-  the two Go stdlib advisories (so tagged artifacts are built with the patched
-  stdlib too). Patch-swept the module tree, including **goldmark 1.7.17**, which
-  clears an XSS advisory across goldmark and its consumers (glamour, x/tools,
-  goldmark-emoji). `govulncheck` reports zero reachable vulnerabilities. The
-  remaining Snyk-flagged transitive advisories — golang-jwt/jwt (not compiled
-  into the binary), aws-sdk-go-v2 (via unused Bedrock support), and go-git (fix
-  is the v6 major migration; needs local `.git` write to exploit) — are
-  unreachable and left as-is (no clean fix path; Snyk is non-blocking for them).
+- **`stado auth`** reports honest set/unset for local-runner providers and pins
+  the env var in `unset`. (#134)
+- **`audit export <id>`** now errors on an unknown session id instead of exiting
+  0 with empty output (the B8 footgun, previously fixed only for
+  `audit verify`) — no silent data loss for SIEM ingestion. (#135)
+
+### Infra
+
+- **Faster PR CI.** Race tests and the cross-compile build matrix moved to
+  post-merge (push to `main`) and out of the required PR checks; the PR `test`
+  job runs non-race. PR feedback dropped from ~458s to ~126s. `release.yml`
+  self-runs `go test -race` before publishing so tagged artifacts stay
+  race-gated. (#132)
 
