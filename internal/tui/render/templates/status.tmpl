@@ -9,6 +9,7 @@
 {{- if eq .State "approval" }}{{ color "warning" $dot }} {{ color "text_secondary" "awaiting approval" }}  {{ end -}}
 {{- if eq .State "error" }}{{ color "error" $dot }} {{ color "text_secondary" .ErrorMessage }}  {{ end -}}
 {{- if .Queued }}{{ color "accent" "⤷" }} {{ color "muted" "queued:" }} {{ color "text_secondary" .Queued }}  {{ end -}}
+{{- if .Loop }}{{ color "primary" "↻" }} {{ color "muted" "loop" }}{{ if .LoopInterval }} {{ color "muted" .LoopInterval }}{{ end }}  {{ end -}}
 {{- end -}}
 {{- if and (has .Segments "budget") .Budget }}{{ color "warning" .Budget }}  {{ end -}}
 {{- $printed := false -}}

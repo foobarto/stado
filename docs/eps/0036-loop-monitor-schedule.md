@@ -54,8 +54,11 @@ intervention (`/loop stop` remains the manual escape hatch).
 fires while busy is discarded; the next tick is rescheduled.
 
 **UI feedback.** The status bar shows `↻ loop (5m)` when a timed
-loop is active, `↻ loop` for immediate-repeat. The block list shows
-`[loop ▸ N]` as a separator between iterations.
+loop is active, `↻ loop` for immediate-repeat (implemented in
+`status_bar.go` + `render/templates/status.tmpl`). Iterations are
+separated in the transcript by a `─── loop iteration N ───` rule
+(implemented in `model_loop.go`; supersedes the originally-sketched
+`[loop ▸ N]` inline marker).
 
 ### 2. `/monitor <cmd>` — process stdout notifications
 
@@ -140,8 +143,8 @@ loop in the TUI instead.
 - `internal/tui/model_commands.go` — dispatch `/loop` and `/monitor`.
 - `internal/tui/model_update.go` — handle `loopTickMsg` and
   `monitorLineMsg`.
-- `internal/tui/model_render.go` — status-bar annotation for active
-  loop.
+- `internal/tui/status_bar.go` + `render/templates/status.tmpl` —
+  status-bar annotation for active loop.
 
 ### CLI changes (schedule)
 
