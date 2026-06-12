@@ -77,14 +77,22 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 		res.TotalCommits++
 
 		// Hook-mutation provenance linkage (NON-fatal, distinct from
-		// signature validity). A commit carrying BOTH Mutated-By-Hook and
-		// Original-Result-SHA is a mutation commit — validate its link to
-		// the original-result parent. Absence of these trailers = "not a
-		// mutation commit" (legacy/pre-fix commits land here, never as a
-		// broken link). validateMutationLink is NON-fatal: it records a
-		// Broken link with a reason rather than erroring, so the walk
-		// continues. A broken link never touches Invalid/InvalidAt.
-		if _, trailers := parseMessage(commit.Message); trailers[trailerMutatedByHook] != "" && trailers[trailerOriginalResultSHA] != "" {
+		// signature validity). Mutated-By-Hook is the DEFINITIVE marker of a
+		// mutation commit (set only on the second of the two-commit pair, and
+		// keyed on alone by the /tree badge + `session logs` detection too).
+		// We deliberately do NOT also require Original-Result-SHA: when the
+		// original tool result was empty its SHA is legitimately "" (sha256Of
+		// ""==""), so requiring the trailer would silently skip validating an
+		// empty-origin mutation — recorded on the commit, but never
+		// cross-checked. validateMutationLink handles the empty case (an empty
+		// Original-Result-SHA matches the empty parent Result-SHA) and still
+		// breaks on a non-empty mismatch, so tamper detection is unaffected.
+		// Absence of Mutated-By-Hook = "not a mutation commit" (legacy/pre-fix
+		// commits land here, never as a broken link). validateMutationLink is
+		// NON-fatal: it records a Broken link with a reason rather than
+		// erroring, so the walk continues; a broken link never touches
+		// Invalid/InvalidAt.
+		if _, trailers := parseMessage(commit.Message); trailers[trailerMutatedByHook] != "" {
 			res.MutationChain = append(res.MutationChain,
 				validateMutationLink(w.Src, cur, commit, trailers))
 		}

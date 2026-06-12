@@ -238,6 +238,19 @@ func printLogEntry(c *object.Commit, colour bool, dimmed bool) {
 
 	if colour {
 		switch {
+		case dimmed:
+			// The original raw-result half of a mutation pair — always
+			// de-emphasised so the eye reads the highlighted tip as the
+			// live value. `dimmed` is set ONLY on a mutation pair's parent,
+			// so it takes precedence over the error branch: combine faint
+			// with red when the original itself errored, keeping BOTH the
+			// "superseded" and "errored" signals (a non-pair error has
+			// dimmed=false and still renders plain red below).
+			if errMsg != "" {
+				fmt.Println(ansiDim + "\x1b[31m" + line + ansiReset)
+			} else {
+				fmt.Println(ansiDim + line + ansiReset)
+			}
 		case errMsg != "":
 			// Errors (incl. denied pre_tool calls, which carry Error)
 			// stay red — the dominant signal.
@@ -246,10 +259,6 @@ func printLogEntry(c *object.Commit, colour bool, dimmed bool) {
 			// Mutation tip highlighted (green) so the pair's effective
 			// result stands out from its dimmed original.
 			fmt.Println(ansiGreen + line + ansiReset)
-		case dimmed:
-			// The original raw-result half of a mutation pair — dimmed
-			// so the eye reads the highlighted tip as the live value.
-			fmt.Println(ansiDim + line + ansiReset)
 		default:
 			fmt.Println(line)
 		}
