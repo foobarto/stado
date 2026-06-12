@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -757,6 +758,14 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		lspManager:     lspfind.NewLSPClientManager(context.Background()),
 		lspDiagnostics: lspfind.NewDiagnosticsStore(),
 	}
+	// Text-safe viewport scrolling. The bubbles viewport default keymap binds
+	// j/k/h/l/b/f/u/d, space and the arrows to scroll; since the chat input is
+	// always focused, typing those letters scrolled the history (and ctrl+u —
+	// the editor's delete-to-line-start — double-acted). Restrict both
+	// conversation viewports to PageUp/PageDown; the mouse wheel still scrolls
+	// (onMouse), and every other key flows to the input editor.
+	m.vp.KeyMap = messagesViewportKeyMap()
+	m.activityVP.KeyMap = messagesViewportKeyMap()
 	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
 	// fallback). A missing file is fine; a broken file is a stderr
 	// warning — we'd rather boot the TUI with no system prompt than
@@ -783,6 +792,18 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 	// skill file) rather than refusing to boot.
 	m.registerSkillSlashCommands(stderrSkillSlashWarn)
 	return m
+}
+
+// messagesViewportKeyMap returns a text-safe keymap for the conversation
+// viewports: only PageUp (pgup) and PageDown (pgdown) scroll. The bubbles
+// viewport default keymap binds the text letters j/k/h/l/b/f/u/d, space, and
+// the arrow keys to scroll, which collides with typing into the always-focused
+// chat input. Mouse-wheel scrolling is handled separately (onMouse).
+func messagesViewportKeyMap() viewport.KeyMap {
+	return viewport.KeyMap{
+		PageUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
+	}
 }
 
 // SetRootContext replaces the TUI's ancestor context. Called from the
