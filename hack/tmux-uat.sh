@@ -247,15 +247,25 @@ cmd_model_setup() {
 }
 
 cmd_banner() {
+  # The block-art landing logo only renders when it fits at its NATURAL
+  # height (~26 rows of banner.txt + chrome); below ~60 rows the product
+  # intentionally degrades to the compact "stado" wordmark rather than
+  # downsampling the sheep into an unrecognisable oval (renderLandingLogo
+  # → compactLandingLogo when logoMaxH < the banner's row count). At the
+  # default 200x50 that fallback fires, so this flow forces a tall pane
+  # where the block-art path is the EXPECTED render; otherwise the
+  # assertion would test the wordmark, not the banner.
+  local old_h="$TMUX_H"
+  TMUX_H=62
   start_stado
-  # The startup banner renders only when m.blocks is empty. It's
-  # built from unicode block-drawing chars; any of ░▒▓█▀▁▂▃▄▅▆▇
-  # signals the banner painted something. If JoinHorizontal's
-  # sidebar-height mismatch regresses, the top row of banner gets
-  # clipped but the middle/bottom usually still show.
+  TMUX_H="$old_h"
+  # The block-art banner is built from unicode block-drawing chars; any
+  # of ░▒▓█▀▁▂▃▄▅▆▇ signals the banner painted something. If
+  # JoinHorizontal's sidebar-height mismatch regresses, the top row of
+  # banner gets clipped but the middle/bottom usually still show.
   local frame; frame=$(capture)
   if ! grep -qE '[░▒▓█▀▁▂▃▄▅▆▇▖▗▘▙▚▛▜▝▞▟]' <<<"$frame"; then
-    fail "banner not visible (no block chars in pane)"
+    fail "banner not visible (no block chars in pane at ${TMUX_H:-62} rows)"
   fi
   log "OK: banner renders (block chars present)"
   stop_stado
@@ -305,16 +315,27 @@ cmd_help_overlay() {
   # The help body is taller than the pane; it windows to fit and ↑/↓/G
   # scroll it. The keybinding groups are the top of the body…
   assert_contains "Toggle help" "help overlay keybindings section"
-  # …and G jumps to the bottom where the slash-command section lives.
+  # …and G jumps to the *very bottom* of the windowed body. G overshoots
+  # the "Slash commands" section header itself (it lives just above the
+  # bottom window), so assert on the slash rows that are actually visible
+  # when scrolled to the end — the tail "View:" group: /sidebar, /theme,
+  # /split. This mirrors the in-process TestRenderHelp_ScrollReachesSlash-
+  # Commands, which asserts the same three bottom rows rather than the
+  # header. /budget remains visible in the bottom window too.
   tmux send-keys -t "$SESSION" "G"
   sleep 0.3
-  assert_contains "Slash commands" "help overlay slash section"
-  assert_contains "/budget"        "help overlay lists /budget"
+  assert_contains "/budget" "help overlay lists /budget"
+  assert_contains "/sidebar" "help overlay slash section (bottom)"
+  assert_contains "/theme"   "help overlay slash section (bottom)"
+  assert_contains "/split"   "help overlay slash section (bottom)"
   tmux send-keys -t "$SESSION" "?"
   sleep 0.3
-  # Overlay should close and return us to the input pane.
+  # Overlay should close and return us to the input pane. Check a row that
+  # was visible in the scrolled-to-bottom overlay (/split) is gone — the
+  # "Slash commands" header was already off-screen after G, so it can't be
+  # used as a close signal.
   local frame; frame=$(capture)
-  if grep -qF "Slash commands" <<<"$frame"; then
+  if grep -qF "/split" <<<"$frame"; then
     fail "help overlay did not close on ?-toggle"
   fi
   log "OK: help overlay toggles cleanly"
