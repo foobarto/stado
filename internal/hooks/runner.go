@@ -104,6 +104,12 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 	}
 	cur := payload
 	mutated := false
+	// lastMutator attributes the WINNING mutation to the hook that last
+	// rewrote the payload — the audit trace records this as the
+	// mutating hook's identity (spec STAGE 2). In a multi-hook chain the
+	// last mutation is the one the action operates on, so the last
+	// mutator is the correct attribution.
+	lastMutator := ""
 	for _, h := range r.hooks {
 		if !subscribes(h, point) {
 			continue
@@ -114,7 +120,7 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 				// Fail-closed: a hook that can't be evaluated denies the
 				// action. The deny short-circuits like any other deny.
 				r.log("hook %q at %s failed (fail-closed, denying): %v", h.Name(), point, err)
-				return Deny(fmt.Sprintf("hook %q error (fail-closed): %v", h.Name(), err)), cur
+				return HookResult{Decision: DecisionDeny, Reason: fmt.Sprintf("hook %q error (fail-closed): %v", h.Name(), err), HookName: h.Name()}, cur
 			}
 			// Fail-open: log and treat as Continue.
 			r.log("hook %q at %s failed (fail-open, continuing): %v", h.Name(), point, err)
@@ -123,6 +129,8 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 		switch res.Decision {
 		case DecisionDeny:
 			// Short-circuit: the deny wins; remaining hooks don't run.
+			// Stamp the deciding hook's identity onto the winning result.
+			res.HookName = h.Name()
 			return res, cur
 		case DecisionMutate:
 			next, perr := validateMutation(point, res.Payload)
@@ -131,7 +139,7 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 					// A malformed mutation is a hook fault too; under
 					// fail-closed it denies rather than being silently dropped.
 					r.log("hook %q at %s returned an invalid mutation (fail-closed, denying): %v", h.Name(), point, perr)
-					return Deny(fmt.Sprintf("hook %q invalid mutation (fail-closed): %v", h.Name(), perr)), cur
+					return HookResult{Decision: DecisionDeny, Reason: fmt.Sprintf("hook %q invalid mutation (fail-closed): %v", h.Name(), perr), HookName: h.Name()}, cur
 				}
 				// A hook returning the wrong payload type is a programming
 				// error in the hook, not a reason to wedge the loop —
@@ -141,12 +149,13 @@ func (r *LifecycleRunner) Fire(ctx context.Context, point Point, payload Payload
 			}
 			cur = next
 			mutated = true
+			lastMutator = h.Name()
 		default:
 			// Continue: nothing to do.
 		}
 	}
 	if mutated {
-		return Mutate(cur), cur
+		return HookResult{Decision: DecisionMutate, Payload: cur, HookName: lastMutator}, cur
 	}
 	return Continue(), cur
 }

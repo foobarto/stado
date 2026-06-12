@@ -360,3 +360,72 @@ func TestLifecycleRunner_Append(t *testing.T) {
 		t.Fatal("empty Append should return the receiver unchanged")
 	}
 }
+
+// mutateResult is a post_tool hook that rewrites the result, used to test
+// last-winning-mutator attribution.
+func mutateResult(name, newResult string) BuiltinHook {
+	return BuiltinHook{HookName: name, Subscribed: []Point{PointPostTool}, Fn: func(_ context.Context, _ Point, p Payload) (HookResult, error) {
+		clone := *p.(*PostToolPayload)
+		clone.Result = newResult
+		return Mutate(&clone), nil
+	}}
+}
+
+// TestLifecycleRunner_Deny_AttributesDecidingHook (STAGE 2): the winning
+// Deny carries the deciding hook's Name() so the audit trace can record
+// Denied-By-Hook. A Continue hook before it must NOT be credited.
+func TestLifecycleRunner_Deny_AttributesDecidingHook(t *testing.T) {
+	var ran []string
+	r := NewLifecycleRunner(
+		recordOrder("observer", &ran),
+		denyOnTool("the-gate", "shell__bash", "bash blocked"),
+		denyOnTool("never-reached", "shell__bash", "second deny"),
+	)
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "shell__bash", "exec", "{}"))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("expected Deny, got %v", res.Decision)
+	}
+	if res.HookName != "the-gate" {
+		t.Fatalf("deny attribution wrong: got %q, want %q", res.HookName, "the-gate")
+	}
+	if res.Reason != "bash blocked" {
+		t.Fatalf("deny reason from the wrong hook: %q", res.Reason)
+	}
+}
+
+// TestLifecycleRunner_Mutate_AttributesLastWinningHook (STAGE 2): when
+// multiple hooks mutate, the LAST mutation is the one the action runs
+// with, so the aggregate result attributes the LAST mutator.
+func TestLifecycleRunner_Mutate_AttributesLastWinningHook(t *testing.T) {
+	r := NewLifecycleRunner(
+		mutateResult("first-redactor", "v1"),
+		mutateResult("second-redactor", "v2"),
+	)
+	res, out := r.Fire(context.Background(), PointPostTool, PostTool(0, "stubread", "non-mutating", "{}", "raw", ""))
+	if res.Decision != DecisionMutate {
+		t.Fatalf("expected Mutate, got %v", res.Decision)
+	}
+	if res.HookName != "second-redactor" {
+		t.Fatalf("mutate attribution must be the LAST winning hook: got %q, want %q", res.HookName, "second-redactor")
+	}
+	if pt := out.(*PostToolPayload); pt.Result != "v2" {
+		t.Fatalf("final payload should reflect the last mutation: %q", pt.Result)
+	}
+}
+
+// TestLifecycleRunner_FailClosed_AttributesFaultingHook (STAGE 2): a
+// fail-closed deny synthesized from a hook error/invalid-mutation also
+// attributes the faulting hook.
+func TestLifecycleRunner_FailClosed_AttributesFaultingHook(t *testing.T) {
+	boom := BuiltinHook{HookName: "broken-policy", Subscribed: []Point{PointPreTool}, Fn: func(context.Context, Point, Payload) (HookResult, error) {
+		return Continue(), errors.New("script fault")
+	}}
+	r := &LifecycleRunner{hooks: []HookScript{boom}, FailClosed: true}
+	res, _ := r.Fire(context.Background(), PointPreTool, PreTool(0, "x", "exec", "{}"))
+	if res.Decision != DecisionDeny {
+		t.Fatalf("fail-closed should deny on hook error, got %v", res.Decision)
+	}
+	if res.HookName != "broken-policy" {
+		t.Fatalf("fail-closed deny must attribute the faulting hook: got %q", res.HookName)
+	}
+}
