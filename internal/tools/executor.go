@@ -113,7 +113,9 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 
 	// pre_tool hook seam (F1). Fires before the tool runs:
 	//   - Deny  → skip the tool entirely; surface the reason to the model
-	//     as an errored tool result. No ref commits (nothing ran).
+	//     as an errored tool result, AND write a trace commit so the
+	//     denial is auditable (pre-fix, a denied call early-returned with
+	//     NO commit — denials were invisible in the signed audit chain).
 	//   - Mutate → replace args with the rewritten JSON and run the tool
 	//     with it; the audit trailers record the mutated args.
 	if e.Hooks.HasPoint(hooks.PointPreTool) {
@@ -124,6 +126,27 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 			span.SetAttributes(attribute.String("tool.outcome", "denied"))
 			span.SetStatus(codes.Error, decision.Reason)
 			reason := fmt.Sprintf("denied by pre_tool hook: %s", decision.Reason)
+			// Audit the denial (spec STAGE 3). The tool never ran, so
+			// there's no result/tree to record — just the deny
+			// provenance: who vetoed, why, and the surfaced error. Guard
+			// on a real session (headless/test executors have none).
+			if e.Session != nil {
+				denyMeta := stadogit.CommitMeta{
+					Tool:         name,
+					ShortArg:     shortArgOf(args),
+					Summary:      fmt.Sprintf("%s [denied]", class.String()),
+					ArgsSHA:      sha256Of(args),
+					Agent:        e.Agent,
+					Model:        e.Model,
+					Turn:         e.Session.Turn(),
+					Error:        reason,
+					DenyReason:   decision.Reason,
+					DeniedByHook: decision.HookName,
+				}
+				if _, err := e.Session.CommitToTrace(denyMeta); err != nil {
+					return tool.Result{Error: reason}, fmt.Errorf("commit deny trace: %w", err)
+				}
+			}
 			return tool.Result{Error: reason}, nil
 		case hooks.DecisionMutate:
 			if mp, ok := out.(*hooks.PreToolPayload); ok {
@@ -155,6 +178,17 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	// The runErr (a Go-level execution error, distinct from a tool's
 	// res.Error) is left intact — hooks rewrite the model-facing
 	// result, not the host-level error path.
+	//
+	// Mutation provenance (spec STAGE 4, SHA-only): a post_tool MUTATE
+	// rewrites res before audit, so the audited Result-SHA would hash the
+	// MUTATED bytes and the original would be lost from the signed chain.
+	// We capture the pre-seam result here and, on a mutation, emit TWO
+	// linked trace commits below (original-result → mutation) so the
+	// original SHA stays recoverable. Captured unconditionally (cheap) so
+	// the commit block can branch on mutationByHook != "".
+	originalContent := res.Content
+	originalError := res.Error
+	mutationByHook := ""
 	if e.Hooks.HasPoint(hooks.PointPostTool) {
 		post := hooks.PostTool(e.turnIndex(), name, class.String(), string(args), res.Content, res.Error)
 		decision, out := e.Hooks.Fire(ctx, hooks.PointPostTool, post)
@@ -166,6 +200,11 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 			if mp, ok := out.(*hooks.PostToolPayload); ok {
 				res.Content = mp.Result
 				res.Error = mp.Error
+				// Record the mutation for the two-commit provenance
+				// model below. A mutation that's a no-op (rewrote to the
+				// same bytes) still counts — the hook fired and is
+				// attributable; cheap to record honestly.
+				mutationByHook = decision.HookName
 			}
 		}
 	}
@@ -206,6 +245,18 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		meta.Error = runErr.Error()
 	} else if res.Error != "" {
 		meta.Error = res.Error
+	}
+
+	// Mutation provenance (spec STAGE 4, SHA-only): a post_tool hook
+	// rewrote res, so meta.ResultSHA above hashes the MUTATED bytes
+	// (canonical for the model + turn accounting). Record the pre-mutation
+	// digest + the attributing hook so the original is recoverable from
+	// the signed chain. The two linked trace commits below preserve both.
+	originalResultSHA := ""
+	if mutationByHook != "" {
+		originalResultSHA = sha256Of([]byte(originalContent))
+		meta.OriginalResultSHA = originalResultSHA
+		meta.MutatedByHook = mutationByHook
 	}
 
 	if e.Session == nil {
@@ -280,12 +331,70 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 
 	// trace ref always — now carries the audit-skip note in
 	// meta.Error if the snapshot failed above for a mutating tool.
-	if _, err := e.Session.CommitToTrace(meta); err != nil {
+	//
+	// Mutation provenance (spec STAGE 4 + 5): when a post_tool hook
+	// mutated the result, emit TWO sequential trace commits — first the
+	// ORIGINAL raw result (its own SHA + the original error, NO mutation
+	// trailers), then the MUTATION commit (the canonical mutated SHA +
+	// Original-Result-SHA + Mutated-By-Hook). The second CommitToTrace
+	// auto-parents the first via commitOnRef's parent-chaining, so the
+	// mutation commit links to the original with NO new ref/branch. The
+	// model-facing return stays the mutated res; the mutated ResultSHA
+	// stays canonical for accounting; the original is audit-only
+	// provenance, now recoverable from the signed chain.
+	//
+	// STAGE 5 (blob-backed): BOTH provenance commits store their Content
+	// as a `result` git blob in the commit tree (CommitToTraceBlob) so the
+	// original AND mutated bytes are recoverable — not just their SHAs. A
+	// per-commit size cap (maxTraceResultBlobBytes) falls back to SHA-only
+	// (empty-tree) on overflow; we note the drop in that commit's Error
+	// trailer, mirroring the snapshot-skip contract above. Normal
+	// (no-mutation, no-deny) calls keep the cheap empty-tree commit below —
+	// blob-backing is paid ONLY by the mutated path.
+	if mutationByHook != "" {
+		original := meta
+		original.ResultSHA = originalResultSHA
+		original.OriginalResultSHA = ""
+		original.MutatedByHook = ""
+		original.Error = originalError
+		// The original-result commit reflects the pre-mutation outcome.
+		// Re-derive its Summary so a hook that injected an error (or
+		// cleared one) doesn't mislabel the untouched provenance entry.
+		origOutcome := "ok"
+		if originalError != "" {
+			origOutcome = "error"
+		}
+		original.Summary = fmt.Sprintf("%s [%s]", class.String(), origOutcome)
+		original.Error = appendBlobSkipNote(original.Error, "original",
+			int64(len(originalContent)))
+		if _, _, err := e.Session.CommitToTraceBlob(original, []byte(originalContent)); err != nil {
+			return res, fmt.Errorf("commit original-result trace: %w", err)
+		}
+		// The mutation commit's Error trailer was already populated above
+		// (runErr/res.Error/snapshot-skip). Append the blob-skip note too
+		// when the MUTATED Content overflows the cap.
+		meta.Error = appendBlobSkipNote(meta.Error, "mutated", int64(len(res.Content)))
+		if _, _, err := e.Session.CommitToTraceBlob(meta, []byte(res.Content)); err != nil {
+			return res, fmt.Errorf("commit mutation trace: %w", err)
+		}
+	} else if _, err := e.Session.CommitToTrace(meta); err != nil {
 		return res, fmt.Errorf("commit trace: %w", err)
 	}
 
 	if !treeHash.IsZero() {
-		if _, err := e.Session.CommitToTree(treeHash, meta); err != nil {
+		// The tree ref records FILE STATE, not tool-result provenance. The
+		// mutation-chain trailers (Original-Result-SHA + Mutated-By-Hook)
+		// belong ONLY to the trace ref's two-commit chain: `audit verify`
+		// walks both refs and treats any commit carrying both as a mutation
+		// link whose first parent must be the original-result commit. On the
+		// tree ref the first parent is the prior snapshot, so leaving the
+		// trailers here makes a legitimate mutating-tool + post_tool-mutate
+		// call verify as MUTATION-LINK-BROKEN (exit 1). Strip them; the
+		// canonical (mutated) Result-SHA the snapshot pairs with stays.
+		treeMeta := meta
+		treeMeta.OriginalResultSHA = ""
+		treeMeta.MutatedByHook = ""
+		if _, err := e.Session.CommitToTree(treeHash, treeMeta); err != nil {
 			return res, fmt.Errorf("commit tree: %w", err)
 		}
 	}
@@ -306,6 +415,24 @@ func (e *Executor) turnIndex() int {
 // live cwd exceeded the tree-entry cap). Best-effort audit: never fatal.
 func (e *Executor) logBuildTreeSkip(dir string, err error) {
 	slog.Default().Warn("audit: skipped tree snapshot; tool result unaffected", "dir", dir, "err", err)
+}
+
+// appendBlobSkipNote augments a commit's Error trailer when a blob-backed
+// provenance commit's Content overflows the trace-result blob cap and
+// CommitToTraceBlob falls back to SHA-only. Keeps the note in the SIGNED chain
+// so an auditor sees the recoverable bytes were dropped (the digest +
+// provenance trailers are still present). which is "original" or "mutated".
+// Returns errStr unchanged when the size is within the cap.
+func appendBlobSkipNote(errStr, which string, size int64) string {
+	if size <= stadogit.MaxTraceResultBlobBytes() {
+		return errStr
+	}
+	note := fmt.Sprintf("%s result not stored as blob (%d bytes > %d cap); SHA-only fallback",
+		which, size, stadogit.MaxTraceResultBlobBytes())
+	if errStr == "" {
+		return note
+	}
+	return errStr + "; " + note
 }
 
 func shortArgOf(args json.RawMessage) string {

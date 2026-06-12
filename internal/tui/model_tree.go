@@ -193,24 +193,28 @@ func toTreeNode(n *runtime.SessionNode) treepicker.Node {
 			summary = "(no summary)"
 		}
 		turns = append(turns, treepicker.Turn{
-			Number:    t.Entry.Turn,
-			CommitHex: t.Entry.Commit.String(),
-			Text:      fmt.Sprintf("turn %d · %s", t.Entry.Turn, summary),
+			Number:       t.Entry.Turn,
+			CommitHex:    t.Entry.Commit.String(),
+			Text:         fmt.Sprintf("turn %d · %s", t.Entry.Turn, summary),
+			MutatedCount: t.MutatedCount,
+			DeniedCount:  t.DeniedCount,
 		})
 	}
 
 	return treepicker.Node{
-		ID:         n.ID,
-		Label:      label,
-		Meta:       meta,
-		Depth:      n.Depth,
-		Avail:      treepickerAvail(n.Avail),
-		IsCurrent:  n.IsCurrent,
-		ParentTurn: n.ParentTurn,
-		HasParent:  n.ParentID != "",
-		Orphan:     n.Orphan,
-		TurnCount:  len(n.Turns),
-		Turns:      turns,
+		ID:           n.ID,
+		Label:        label,
+		Meta:         meta,
+		Depth:        n.Depth,
+		Avail:        treepickerAvail(n.Avail),
+		IsCurrent:    n.IsCurrent,
+		ParentTurn:   n.ParentTurn,
+		HasParent:    n.ParentID != "",
+		Orphan:       n.Orphan,
+		TurnCount:    len(n.Turns),
+		Turns:        turns,
+		MutatedCount: n.MutatedTotal,
+		DeniedCount:  n.DeniedTotal,
 	}
 }
 

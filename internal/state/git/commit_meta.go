@@ -34,6 +34,28 @@ type CommitMeta struct {
 	// §"Plugin extension points for context management" invariant 3.
 	Plugin string
 
+	// Hook-mutation provenance (spec: hooks-audit-mutation-provenance,
+	// WAVE 1 / SHA-only). All four are zero-valued by default and render
+	// as trailers ONLY when set — purely additive, no existing
+	// v0.62/v0.63 signature is rewritten.
+	//
+	// OriginalResultSHA + MutatedByHook are set on the SECOND commit of
+	// the two-commit mutation model: a post_tool hook rewrote res before
+	// audit, so the audited (mutated) Result-SHA hashes the mutated
+	// bytes while OriginalResultSHA preserves the pre-mutation result's
+	// digest and MutatedByHook attributes the winning hook. The first
+	// commit (the original-result provenance entry) carries neither.
+	OriginalResultSHA string
+	MutatedByHook     string
+
+	// DenyReason + DeniedByHook are set on the trace commit a pre_tool
+	// DENY now writes before early-returning (denials were invisible in
+	// the audit chain pre-fix). DeniedByHook attributes the vetoing
+	// hook; DenyReason is its (model-influenceable) explanation —
+	// routed through cleanTrailerValue like every other untrusted value.
+	DenyReason   string
+	DeniedByHook string
+
 	// preformatted lets callers (e.g. CommitCompaction) pass an
 	// already-rendered message through commitOnRef without going
 	// through the tool-call-oriented trailer layout below. Empty →
@@ -78,6 +100,22 @@ func (c CommitMeta) formatMessage() string {
 	}
 	if c.Plugin != "" {
 		trailers = append(trailers, struct{ k, v string }{"Plugin", c.Plugin})
+	}
+	// Hook-mutation provenance (WAVE 1). Each renders only when set; the
+	// `if t.v == "" continue` gate + cleanTrailerKey/cleanTrailerValue
+	// injection defense below handle hostile (model-influenceable) hook
+	// names + deny reasons.
+	if c.OriginalResultSHA != "" {
+		trailers = append(trailers, struct{ k, v string }{"Original-Result-SHA", c.OriginalResultSHA})
+	}
+	if c.MutatedByHook != "" {
+		trailers = append(trailers, struct{ k, v string }{"Mutated-By-Hook", c.MutatedByHook})
+	}
+	if c.DenyReason != "" {
+		trailers = append(trailers, struct{ k, v string }{"Deny-Reason", c.DenyReason})
+	}
+	if c.DeniedByHook != "" {
+		trailers = append(trailers, struct{ k, v string }{"Denied-By-Hook", c.DeniedByHook})
 	}
 	for _, t := range trailers {
 		if t.v == "" {

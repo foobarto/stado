@@ -61,12 +61,20 @@ const (
 )
 
 // HookResult is the outcome of running one hook at one Point. The zero
-// value ({DecisionContinue, "", nil}) means "no opinion, proceed".
+// value ({DecisionContinue, "", "", nil}) means "no opinion, proceed".
 type HookResult struct {
 	Decision Decision
 	// Reason is the operator/model-facing explanation for a deny. Empty
 	// for Continue/Mutate.
 	Reason string
+	// HookName attributes the WINNING decision to the deciding hook in a
+	// multi-hook chain — set by LifecycleRunner.Fire at the Deny
+	// short-circuit and the final Mutate return to the Name() of the
+	// hook whose verdict survived (spec: hooks-audit-mutation-provenance,
+	// STAGE 2). The per-hook Deny()/Mutate() constructors leave it empty;
+	// only the aggregate result the runner returns carries it. Surfaces
+	// as the audit `Mutated-By-Hook` / `Denied-By-Hook` trailer.
+	HookName string
 	// Payload is the rewritten payload for a mutate. Must be the same
 	// concrete payload type the Point operates on (e.g. *PreToolPayload
 	// for PointPreTool). Nil for Continue/Deny.

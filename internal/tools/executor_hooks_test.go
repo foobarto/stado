@@ -6,15 +6,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing/object"
+
+	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
 // TestExecutor_PreToolDeny_BlocksTool: a pre_tool hook that denies must
 // prevent the tool from running and surface the reason as an errored
-// result. The tool's effect closure must NOT fire.
+// result. The tool's effect closure must NOT fire. STAGE 3: the denial
+// must ALSO write exactly one signed trace commit carrying the deny
+// trailers so denials are auditable, not invisible.
 func TestExecutor_PreToolDeny_BlocksTool(t *testing.T) {
-	ex, _, wt := newExecutorFixture(t)
+	ex, sess, wt := newExecutorFixture(t)
 	ran := false
 	ex.Registry.Register(stubTool{
 		name:  "stubexec",
@@ -48,6 +53,38 @@ func TestExecutor_PreToolDeny_BlocksTool(t *testing.T) {
 	}
 	if res.Content != "" {
 		t.Fatalf("denied tool should have empty content, got %q", res.Content)
+	}
+
+	// STAGE 3: exactly one trace commit, carrying the deny provenance.
+	chain := walkTraceChain(t, sess, sess.Sidecar.Repo().Storer)
+	if len(chain) != 1 {
+		t.Fatalf("denied call must write exactly one trace commit, got %d", len(chain))
+	}
+	denyCommit := chain[0]
+	if len(denyCommit.ParentHashes) != 0 {
+		t.Errorf("the single deny commit should have no parent, got %d", len(denyCommit.ParentHashes))
+	}
+	title, trailers := audit.ParseMessage(denyCommit.Message)
+	if !strings.Contains(title, "exec [denied]") {
+		t.Errorf("deny commit title should read `exec [denied]`, got %q", title)
+	}
+	if got := trailers["Deny-Reason"]; got != "exec blocked by policy" {
+		t.Errorf("Deny-Reason trailer = %q", got)
+	}
+	if got := trailers["Denied-By-Hook"]; got != "deny-exec" {
+		t.Errorf("Denied-By-Hook trailer = %q, want %q", got, "deny-exec")
+	}
+	if got := trailers["Tool"]; got != "stubexec" {
+		t.Errorf("deny commit Tool trailer = %q", got)
+	}
+	if trailers["Error"] == "" {
+		t.Errorf("deny commit should carry the surfaced denial string as Error")
+	}
+	// The commit must be signed when a signer is configured; the fixture
+	// has none, so just assert the message is the canonical rendered form
+	// (the signing path is exercised by the audit package's E2E test).
+	if _, err := object.GetCommit(sess.Sidecar.Repo().Storer, chain[0].Hash); err != nil {
+		t.Fatalf("deny commit not retrievable: %v", err)
 	}
 }
 
