@@ -196,3 +196,77 @@ func stripWhitespace(s string) string {
 		return r
 	}, s)
 }
+
+// TestFitLeftColumnNeverExceedsBudget (codex P2 on #134): fitLeftColumn must
+// return a column whose display width never exceeds its budget. When the
+// FIXED-cost prefix+suffix (deep indent + fork/provenance suffix at a narrow
+// modal width) already exceed the column budget, the pre-fix code floored
+// labelBudget to 1 and returned prefix+"…"+suffix — WIDER than budget. Because
+// be347f1 removed the non-selected path's final truncation, that over-budget
+// column let the row spill/wrap past the modal box. Assert the width invariant
+// directly across the regimes (fits / label-overflow / prefix+suffix-overflow /
+// prefix-alone-overflow).
+func TestFitLeftColumnNeverExceedsBudget(t *testing.T) {
+	forkSuffix := "  " + glyphFork + " turn 7"
+	cases := []struct {
+		name                         string
+		prefix, label, suffix, right string
+		innerW                       int
+	}{
+		{"fits", "  ● ", "short", forkSuffix, "● 1 turn", 80},
+		{"label overflow", "  ● ", strings.Repeat("x", 200), forkSuffix, "● 1 turn", 60},
+		{"deep prefix+suffix over budget", strings.Repeat(indentUnit, 16) + "● ", "deeplabel", forkSuffix, "● 3 turns · 2h", 54},
+		{"prefix alone over budget", strings.Repeat(indentUnit, 30) + "● ", "x", forkSuffix, "● 9 turns", 50},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := fitLeftColumn(tc.prefix, tc.label, tc.suffix, tc.right, tc.innerW)
+			budget := tc.innerW - lipgloss.Width(tc.right) - 1
+			if budget < 1 {
+				budget = 1
+			}
+			if w := lipgloss.Width(got); w > budget {
+				t.Fatalf("fitLeftColumn width %d exceeds budget %d (innerW=%d): %q",
+					w, budget, tc.innerW, got)
+			}
+		})
+	}
+}
+
+// TestDeepForkRowDoesNotSpill (codex P2 on #134, render-level): a deeply branched
+// session with a wide meta column at a narrow modal width must keep its meta on
+// the SAME row as the node. Before the fix fitLeftColumn returned an over-budget
+// left column (prefix+suffix already past budget) and — since be347f1 removed
+// the non-selected path's final truncation — lipgloss hard-wrapped the meta onto
+// its own row (the P2.1-style spill, just for a deep fork row instead of the
+// header). Reproduce end-to-end through View(): assert the deep node's meta never
+// appears as its own detached row.
+func TestDeepForkRowDoesNotSpill(t *testing.T) {
+	const deepMeta = "● 12 turns · 3h"
+	var nodes []Node
+	for i := 0; i < 16; i++ {
+		n := Node{ID: "n" + strings.Repeat("x", 6) + string(rune('a'+i)), Label: "session-branch", Avail: AvailIdle, Depth: i}
+		if i > 0 {
+			n.HasParent = true
+			n.ParentTurn = i
+		}
+		if i == 15 {
+			n.Label = "a-very-long-descriptive-session-label-at-deep-fork-depth"
+			n.Meta = deepMeta
+			n.MutatedCount, n.DeniedCount = 2, 1
+		}
+		nodes = append(nodes, n)
+	}
+	p := New()
+	p.Open(nodes, "")
+	// Keep the cursor at the top so the deep wide-meta node renders via the
+	// NON-selected path (the selected path's rowTwoCol clamps width and would
+	// mask the spill).
+	out := p.View(100, 40)
+	for _, row := range frameInnerRows(out) {
+		if strings.TrimSpace(row) == deepMeta {
+			t.Fatalf("deep fork node's meta %q wrapped onto its own row "+
+				"(left column overflowed the modal):\n%s", deepMeta, out)
+		}
+	}
+}

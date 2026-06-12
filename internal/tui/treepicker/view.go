@@ -299,10 +299,12 @@ func windowLines(lines []string, cursorLine, budget int) []string {
 // fitLeftColumn assembles "prefix + label + suffix" so it fits the column
 // budget (innerW minus the right column minus a 1-col gap), truncating ONLY the
 // label when it overflows. prefix (indent/marker/glyph) and suffix (fork-origin
-// tag + provenance badge) are fixed cost and always survive — a long label can
-// never slice the "⑂ turn N" origin off a deep fork node (P3.1). Truncation is
-// display-width + grapheme aware (ansi.Truncate). When even the fixed cost
-// can't fit, the label collapses to its ellipsis and the suffix is kept.
+// tag + provenance badge) are fixed cost and survive truncation in the common
+// case — a long label can never slice the "⑂ turn N" origin off a deep fork
+// node (P3.1). The returned column's display width is ALWAYS <= budget, so the
+// non-selected render path (which no longer does a final truncation) cannot
+// spill/wrap the row past the modal. Truncation is display-width + grapheme
+// aware (ansi.Truncate).
 func fitLeftColumn(prefix, label, suffix, right string, innerW int) string {
 	full := prefix + label + suffix
 	// Budget for the whole left column: leave the right column + 1-col gap.
@@ -316,7 +318,15 @@ func fitLeftColumn(prefix, label, suffix, right string, innerW int) string {
 	// Overflow: shrink the label to whatever the fixed prefix+suffix leaves.
 	labelBudget := budget - lipgloss.Width(prefix) - lipgloss.Width(suffix)
 	if labelBudget < 1 {
-		labelBudget = 1
+		// prefix+suffix alone already exceed the column budget (a very deep
+		// indent plus the fork/provenance suffix at a narrow modal width).
+		// There is no room for the label, and returning prefix+"…"+suffix here
+		// would be WIDER than budget — the non-selected render path no longer
+		// truncates, so that over-budget column would hard-wrap the meta onto
+		// its own row (spill past the box). Hard-truncate the whole column to
+		// budget instead: the suffix may clip in this pathological case, but a
+		// contained row beats a spilling one.
+		return ansi.Truncate(prefix+suffix, budget, "…")
 	}
 	label = ansi.Truncate(label, labelBudget, "…")
 	return prefix + label + suffix

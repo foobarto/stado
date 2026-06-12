@@ -265,7 +265,9 @@ cmd_banner() {
   # banner gets clipped but the middle/bottom usually still show.
   local frame; frame=$(capture)
   if ! grep -qE '[░▒▓█▀▁▂▃▄▅▆▇▖▗▘▙▚▛▜▝▞▟]' <<<"$frame"; then
-    fail "banner not visible (no block chars in pane at ${TMUX_H:-62} rows)"
+    # Report the literal forced geometry (62): TMUX_H was restored to $old_h
+    # on line 261, so interpolating it here would print the wrong height.
+    fail "banner not visible (no block chars in pane at 62 rows)"
   fi
   log "OK: banner renders (block chars present)"
   stop_stado
