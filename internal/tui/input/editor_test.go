@@ -53,3 +53,15 @@ func TestEditorSetValueCapsAtRuneBoundary(t *testing.T) {
 		t.Fatalf("input is not valid UTF-8")
 	}
 }
+
+// P2.6: the placeholder hint is the only always-visible cue about what
+// Enter does. It documented "Enter to send, Shift+Enter for new line"
+// but never mentioned that plain Enter WHILE A TURN STREAMS steers the
+// running turn (#16) — so the steer behavior was undiscoverable from the
+// input box. Enrich the hint to surface steering.
+func TestEditorPlaceholderHintsSteer(t *testing.T) {
+	e := New(keys.NewRegistry())
+	if !strings.Contains(strings.ToLower(e.Model.Placeholder), "steer") {
+		t.Errorf("input placeholder should hint the Enter-while-busy steer; got %q", e.Model.Placeholder)
+	}
+}

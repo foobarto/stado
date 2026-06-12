@@ -50,4 +50,8 @@ var Defaults = map[Action]string{
 	ModeToggleBtw:           "ctrl+x ctrl+b",
 	QueueMessage:            "alt+enter",
 	InterruptTurn:           "ctrl+enter",
+	// Display-only: documents that plain enter steers mid-turn so the help
+	// overlay can render the row. Shares enter with InputSubmit; dispatch
+	// never matches on SteerMessage, so this is inert (see actions.go).
+	SteerMessage: "enter",
 }
