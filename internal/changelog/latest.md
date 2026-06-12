@@ -36,3 +36,15 @@ config surfaces.
   rows past the frame border; it is now flattened and ellipsized to the
   measured width so the bar stays a single row.
 
+### Dependencies
+
+- Bumped the `go` directive **and the release workflow** to **1.26.4**, clearing
+  the two Go stdlib advisories (so tagged artifacts are built with the patched
+  stdlib too). Patch-swept the module tree, including **goldmark 1.7.17**, which
+  clears an XSS advisory across goldmark and its consumers (glamour, x/tools,
+  goldmark-emoji). `govulncheck` reports zero reachable vulnerabilities. The
+  remaining Snyk-flagged transitive advisories — golang-jwt/jwt (not compiled
+  into the binary), aws-sdk-go-v2 (via unused Bedrock support), and go-git (fix
+  is the v6 major migration; needs local `.git` write to exploit) — are
+  unreachable and left as-is (no clean fix path; Snyk is non-blocking for them).
+
