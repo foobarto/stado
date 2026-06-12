@@ -494,3 +494,98 @@ func indent(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// DescRow is one name+description pair for WrapDescList.
+type DescRow struct {
+	Name, Desc string
+}
+
+// descListGutterCap bounds the alignment column so one pathologically
+// long name doesn't push every description halfway across the panel.
+const descListGutterCap = 24
+
+// WrapDescList renders rows as an aligned, hanging-indented list with NO
+// truncation — the shared formatter for the TUI's name+description slash
+// outputs (/tool ls, /skill, /plugin, the ? help overlay).
+//
+// The gutter is (longest Name display-width + 2), capped at
+// descListGutterCap and floored at 2 so a too-narrow width still produces
+// something sane. For each row:
+//
+//   - Name fits the gutter: the name is right-padded to the gutter and the
+//     first description line shares that line; continuation lines hang at
+//     the gutter column —
+//     "name<pad>desc-first-line\n<gutter-spaces>desc-cont…".
+//   - Name exceeds the gutter: the name sits on its own line, then the
+//     wrapped description is indented by the gutter on the following lines.
+//
+// Descriptions are wrapped with ansi.Wrap (display-width + grapheme aware)
+// via wordWrap to (width − gutter), min 1, preserving embedded newlines.
+// Rows are joined by newlines with no trailing newline.
+func WrapDescList(rows []DescRow, width int) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	// Gutter from the widest name, capped and floored.
+	gutter := 0
+	for _, row := range rows {
+		if w := ansi.StringWidth(row.Name); w > gutter {
+			gutter = w
+		}
+	}
+	gutter += 2
+	if gutter > descListGutterCap {
+		gutter = descListGutterCap
+	}
+	if gutter < 2 {
+		gutter = 2
+	}
+
+	// Width available for the wrapped description body. Floor at 1 so a
+	// pathologically narrow panel still wraps one display-cell at a time
+	// rather than looping forever.
+	descWidth := width - gutter
+	if descWidth < 1 {
+		descWidth = 1
+	}
+
+	pad := strings.Repeat(" ", gutter)
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name := row.Name
+		desc := strings.TrimRight(row.Desc, " \t")
+		nameW := ansi.StringWidth(name)
+
+		// Empty description: just the name, no trailing padding.
+		if desc == "" {
+			out = append(out, name)
+			continue
+		}
+
+		descLines := strings.Split(wordWrap(desc, descWidth), "\n")
+
+		var b strings.Builder
+		if nameW <= gutter-1 {
+			// Name fits: pad it to the gutter and share the first line.
+			b.WriteString(name)
+			b.WriteString(strings.Repeat(" ", gutter-nameW))
+			b.WriteString(descLines[0])
+			for _, cont := range descLines[1:] {
+				b.WriteByte('\n')
+				b.WriteString(pad)
+				b.WriteString(cont)
+			}
+		} else {
+			// Name too long: own line, description hangs below at the gutter.
+			b.WriteString(name)
+			for _, cont := range descLines {
+				b.WriteByte('\n')
+				b.WriteString(pad)
+				b.WriteString(cont)
+			}
+		}
+		out = append(out, b.String())
+	}
+	return strings.Join(out, "\n")
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -692,11 +693,19 @@ func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName
 	host.MemoryBridge = pluginRuntime.NewLocalMemoryBridge(cfg.StateDir(), "plugin:"+pluginName)
 }
 
+// pluginToolIndent is the column the per-plugin tool list is indented to
+// under each "/plugin:<name>" header, keeping the nested hierarchy.
+const pluginToolIndent = 4
+
 // renderInstalledPluginList scans all pluginRoots and returns a human
 // body enumerating each installed plugin with the tools it declares.
 // Helpful discovery block for the bare `/plugin` command. EP-0035:
 // scans all roots so project-local plugins are listed alongside global.
-func renderInstalledPluginList(pluginRoots ...string) string {
+//
+// width is the live panel width; each plugin's tools are rendered with
+// render.WrapDescList (no truncation, hanging-indented descriptions) and
+// then indented under the plugin header in the nested hierarchy.
+func renderInstalledPluginList(width int, pluginRoots ...string) string {
 	seen := map[string]struct{}{}
 	var allDirs []string
 	for _, root := range pluginRoots {
@@ -715,6 +724,13 @@ func renderInstalledPluginList(pluginRoots ...string) string {
 		return "No plugins installed. Run `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>` to add one."
 	}
 	pluginsRoot := pluginRoots[0]
+
+	// Inner width for the tool descriptions: the panel minus the nesting
+	// indent. Floored so a narrow panel still wraps sensibly.
+	toolWidth := width - pluginToolIndent
+	if toolWidth < 20 {
+		toolWidth = 20
+	}
 
 	var sb strings.Builder
 	sb.WriteString("Installed plugins:")
@@ -737,15 +753,22 @@ func renderInstalledPluginList(pluginRoots ...string) string {
 			sb.WriteString("  (manifest load failed: " + err.Error() + ")")
 			continue
 		}
+		if len(mf.Tools) == 0 {
+			continue
+		}
+		// Full descriptions, no truncation: WrapDescList hangs continuation
+		// lines at the gutter so a long body stays inside the nested block
+		// instead of wrapping back to column 0. The "· " bullet rides in
+		// the Name so it aligns in the gutter; the whole block is then
+		// indented under the plugin header.
+		rows := make([]render.DescRow, 0, len(mf.Tools))
 		for _, t := range mf.Tools {
-			sb.WriteString("\n    · " + t.Name)
-			if t.Description != "" {
-				// Single-line description preview so a long body doesn't
-				// hard-wrap to column 0 and break the indented hierarchy.
-				// Operators get the full text via `/plugin <name>` (which
-				// uses renderPluginTools, not bound by this preview).
-				sb.WriteString(" — " + summariseToolDescription(t.Description, 120))
-			}
+			rows = append(rows, render.DescRow{Name: "· " + t.Name, Desc: t.Description})
+		}
+		block := render.WrapDescList(rows, toolWidth)
+		pad := strings.Repeat(" ", pluginToolIndent)
+		for _, ln := range strings.Split(block, "\n") {
+			sb.WriteString("\n" + pad + ln)
 		}
 	}
 	sb.WriteString("\n\nRun a tool with  /plugin:<name> <tool> [json-args]")

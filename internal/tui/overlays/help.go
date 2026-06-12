@@ -7,8 +7,24 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/palette"
+	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
 )
+
+// groupCommands buckets palette commands by their Group, preserving the
+// first-seen group order and each group's command order — matching how the
+// palette renders them. Returns the ordered group names and the bucket map.
+func groupCommands(cmds []palette.Command) ([]string, map[string][]palette.Command) {
+	order := make([]string, 0)
+	byGroup := make(map[string][]palette.Command)
+	for _, cmd := range cmds {
+		if _, ok := byGroup[cmd.Group]; !ok {
+			order = append(order, cmd.Group)
+		}
+		byGroup[cmd.Group] = append(byGroup[cmd.Group], cmd)
+	}
+	return order, byGroup
+}
 
 // RenderHelp paints the ? overlay. Sections: keybindings (grouped by
 // action category) first, then an index of the slash-command palette
@@ -61,20 +77,33 @@ func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 	}
 
 	// Slash commands section. Render grouped the same way the palette
-	// renders them, but as a compact name-→-description table so users
-	// can skim what's available at a glance.
+	// renders them, but as a hanging-indented name→description list so a
+	// long description wraps cleanly under its command name instead of
+	// flowing back to the left margin (render.WrapDescList). The list is
+	// rendered to the overlay's inner width so the windowing re-wrap below
+	// is a no-op for these rows.
 	b.WriteString(theme.Title.Render("Slash commands") + "\n")
 	dim := lipgloss.NewStyle().Foreground(theme.TextDim)
-	lastGroup := ""
-	for _, cmd := range palette.Commands {
-		if cmd.Group != lastGroup {
-			if lastGroup != "" {
-				b.WriteString("\n")
-			}
-			b.WriteString(dim.Render("  "+cmd.Group+":") + "\n")
-			lastGroup = cmd.Group
+	const groupIndent = 4
+	listWidth := width - 8 - groupIndent
+	if listWidth < 20 {
+		listWidth = 20
+	}
+	groupOrder, byGroup := groupCommands(palette.Commands)
+	for gi, group := range groupOrder {
+		if gi > 0 {
+			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("    %-15s %s\n", cmd.Name, dim.Render(cmd.Desc)))
+		b.WriteString(dim.Render("  "+group+":") + "\n")
+		rows := make([]render.DescRow, 0, len(byGroup[group]))
+		for _, cmd := range byGroup[group] {
+			rows = append(rows, render.DescRow{Name: cmd.Name, Desc: cmd.Desc})
+		}
+		list := render.WrapDescList(rows, listWidth)
+		pad := strings.Repeat(" ", groupIndent)
+		for _, ln := range strings.Split(list, "\n") {
+			b.WriteString(dim.Render(pad+ln) + "\n")
+		}
 	}
 
 	content := strings.TrimRight(b.String(), "\n")

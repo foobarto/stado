@@ -106,9 +106,11 @@ func TestPluginSlash_ListsInstalled(t *testing.T) {
 // tool descriptions earlier in the list would push the body past the
 // system block's render-side truncate ceiling, hiding subsequent
 // plugins entirely. Verifies all installed plugin IDs land in the
-// listing regardless of description length, and that long
-// descriptions are summarised inline (no embedded newlines that would
-// break the indented hierarchy).
+// listing regardless of description length. Post shared-formatter
+// (WrapDescList): descriptions are no longer truncated — they wrap with
+// a hanging indent, so the assertion is that the FULL text survives and
+// continuation lines stay indented under the tool bullet (the nested
+// hierarchy holds) rather than flowing to column 0.
 func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
 	m := newPluginTestModel(t)
 	verbose := strings.Repeat("Generate a complex command with many options. ", 12) // ~560 chars
@@ -137,17 +139,30 @@ func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
 			t.Errorf("body missing %q (likely clipped); body length=%d", want, len(body))
 		}
 	}
-	// Long descriptions get summarised — should contain the ellipsis,
-	// not the full repeated phrase.
-	if !strings.Contains(body, "…") {
-		t.Errorf("long descriptions should be summarised with ellipsis, got: %q", body)
+	// No truncation: the full description text survives (no ellipsis).
+	if strings.Contains(body, "…") {
+		t.Errorf("descriptions must no longer be truncated with an ellipsis: %q", body)
 	}
-	// Each tool listing must stay one line; the previewed description
-	// must not introduce newlines that would dismantle the indented
-	// `  /plugin:NAME` → `    · TOOL` hierarchy.
+	if !strings.Contains(body, "many options") {
+		t.Errorf("full description text should survive untruncated: %q", body)
+	}
+	// The nested hierarchy must hold: a tool's wrapped description
+	// continuation lines stay indented (never flow to column 0), so the
+	// "  /plugin:NAME" → "    · TOOL" structure isn't dismantled.
 	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "·") && strings.Count(line, "\n") > 0 {
-			t.Errorf("tool line carries embedded newline: %q", line)
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Continuation lines of a wrapped description carry the repeated
+		// phrase but are neither a plugin header ("/plugin:") nor a tool
+		// bullet ("·"). They must be indented.
+		if strings.Contains(line, "Generate a complex") &&
+			!strings.HasPrefix(trimmed, "·") &&
+			!strings.Contains(line, "/plugin:") {
+			if !strings.HasPrefix(line, " ") {
+				t.Errorf("wrapped description continuation flowed to column 0 (hierarchy broken): %q", line)
+			}
 		}
 	}
 }
