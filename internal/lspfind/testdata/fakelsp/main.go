@@ -8,9 +8,13 @@
 // Behaviour knobs via env:
 //   - FAKELSP_PIDFILE: if set, the server writes its os.Getpid() there at
 //     startup so the test can verify the process is actually killed.
-//   - FAKELSP_CRASH_AFTER_INIT=1: exit(1) right after answering
-//     initialize, simulating a server crash. The manager should detect
-//     the dead client and relaunch on the next ClientFor.
+//   - FAKELSP_CRASH_AFTER_INIT=1: exit(1) once the initialize handshake
+//     has completed — specifically after the client's first post-initialize
+//     message (e.g. the `initialized` notification) has been fully read, so
+//     the exit never races the handshake write (which would surface as a
+//     broken pipe on the client under -race). ClientFor still returns a
+//     live client first; the manager then detects the dead client and
+//     relaunches on the next ClientFor.
 //   - FAKELSP_DIAG=1: on a textDocument/didOpen, push a
 //     textDocument/publishDiagnostics notification echoing the opened
 //     document's URI with one error diagnostic at line 0, simulating a
@@ -33,19 +37,26 @@ func main() {
 	if pf := os.Getenv("FAKELSP_PIDFILE"); pf != "" {
 		_ = os.WriteFile(pf, []byte(strconv.Itoa(os.Getpid())), 0o600)
 	}
+	crashAfterInit := os.Getenv("FAKELSP_CRASH_AFTER_INIT") == "1"
 	r := bufio.NewReader(os.Stdin)
 	w := os.Stdout
+	initialized := false
 	for {
 		method, id, params, ok := readMessage(r)
 		if !ok {
 			return
 		}
+		// Crash only once the client's first post-initialize message has
+		// been fully read, so the handshake write always completes before
+		// the exit. Crashing right after the initialize response races the
+		// client's `initialized` write → broken pipe under -race.
+		if crashAfterInit && initialized {
+			os.Exit(1)
+		}
 		switch method {
 		case "initialize":
 			writeResult(w, id, map[string]any{"capabilities": map[string]any{}})
-			if os.Getenv("FAKELSP_CRASH_AFTER_INIT") == "1" {
-				os.Exit(1)
-			}
+			initialized = true
 		case "shutdown":
 			writeResult(w, id, nil)
 		case "exit":
