@@ -1794,7 +1794,7 @@ func (m *Model) openModelPicker() {
 			}
 			apiKey := ""
 			if apiKeyEnv != "" {
-				apiKey = os.Getenv(apiKeyEnv)
+				apiKey = config.ResolveProviderSecret(apiKeyEnv)
 			}
 			if apiKey == "" {
 				continue // no auth → skip silently; UI shows other providers

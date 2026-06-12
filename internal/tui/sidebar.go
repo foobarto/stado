@@ -560,8 +560,10 @@ func (m *Model) sidebarDiagnosticsLines() []sidebarLine {
 func diagnosticEntryText(e lspfind.DiagnosticEntry) string {
 	msg := strings.TrimSpace(e.Message)
 	const maxMsg = 60
-	if len(msg) > maxMsg {
-		msg = msg[:maxMsg-1] + "…"
+	// Truncate by RUNES, not bytes: a byte slice can split a multi-byte
+	// UTF-8 rune and emit invalid output. Count whole runes against the cap.
+	if r := []rune(msg); len(r) > maxMsg {
+		msg = string(r[:maxMsg-1]) + "…"
 	}
 	locus := fmt.Sprintf("%s:%d", e.RelPath, e.Line)
 	if msg == "" {

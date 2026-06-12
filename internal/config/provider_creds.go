@@ -179,6 +179,29 @@ func SecretBackendAvailable() bool {
 	return resolveKeyringStore().Name() != envKeyringStore{}.Name()
 }
 
+// ResolveProviderSecret returns the secret for the env-var NAME keyEnv,
+// resolving ENV-FIRST: a non-empty value in the process environment wins
+// (it's the most explicit, per-invocation source). When the env var is
+// unset, the OS keyring is consulted so a secret stored via `stado auth set
+// --key` still authenticates without the operator re-exporting it. Returns
+// "" when neither source holds a value. The secret is never logged here —
+// callers must keep it out of diagnostics.
+func ResolveProviderSecret(keyEnv string) string {
+	keyEnv = strings.TrimSpace(keyEnv)
+	if keyEnv == "" {
+		return ""
+	}
+	if v := os.Getenv(keyEnv); v != "" {
+		return v
+	}
+	if ks := (osKeyringStore{}); ks.Available() {
+		if secret, ok := ks.Get(keyEnv); ok {
+			return secret
+		}
+	}
+	return ""
+}
+
 // resolveSecretSource reports whether a secret for the env-var NAME keyEnv
 // resolves, and from which backend ("os-keyring" / "env"). The keyring is
 // consulted first when available; the environment is ALWAYS consulted as a
@@ -359,8 +382,14 @@ func WriteProviderCredential(configPath, provider, apiKeyEnv, endpoint, baseURL 
 		if endpoint != "" {
 			tree.SetPath([]string{"inference", "presets", kp.Name, "endpoint"}, endpoint)
 		}
+		// An empty base_url CLEARS any stored override rather than leaving a
+		// stale value behind: when the operator blanks the form field they
+		// mean "use the default endpoint", so the old override must be
+		// removed. DeletePath is a no-op when nothing was stored.
 		if baseURL != "" {
 			tree.SetPath([]string{"inference", "presets", kp.Name, "base_url"}, baseURL)
+		} else {
+			_ = tree.DeletePath([]string{"inference", "presets", kp.Name, "base_url"})
 		}
 	})
 }

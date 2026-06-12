@@ -117,17 +117,22 @@ func TestEmpty(t *testing.T) {
 	}
 }
 
-// TestComposed mirrors a real bundled-tool schema (fs__edit, hashline
-// anchor form) to confirm the composed shape — including a nested
-// array-of-object for edits — matches what the wasm host expects.
+// TestComposed mirrors the real bundled-tool schema (fs__edit, hashline
+// form) to confirm the composed shape — including a nested array-of-object
+// for edits — matches what the wasm host expects. The edit item carries
+// the anchored fields (op/pos/end/lines) AND the replace_text fields
+// (text/replacement), and requires only "op" per item (the rest depend on
+// which op was chosen), matching wasm_migration.go.
 func TestComposed_FsEditShape(t *testing.T) {
 	got := schema.Object([]string{"path", "edits"}, schema.Props{
 		"path": schema.String(),
-		"edits": schema.Array(schema.Object([]string{"op", "lines"}, schema.Props{
-			"op":    schema.StringEnum([]string{"replace", "append", "prepend"}),
-			"pos":   schema.String(),
-			"end":   schema.String(),
-			"lines": schema.Array(schema.String()),
+		"edits": schema.Array(schema.Object([]string{"op"}, schema.Props{
+			"op":          schema.StringEnum([]string{"replace", "append", "prepend", "replace_text"}),
+			"pos":         schema.String(),
+			"end":         schema.String(),
+			"lines":       schema.Array(schema.String()),
+			"text":        schema.String(),
+			"replacement": schema.String(),
 		})),
 	})
 	if got["type"] != "object" {
@@ -148,5 +153,28 @@ func TestComposed_FsEditShape(t *testing.T) {
 	item, _ := edits["items"].(map[string]any)
 	if item["type"] != "object" {
 		t.Fatalf("edits.items type = %v, want object", item["type"])
+	}
+	// Per-item required is just [op]; op/end-style fields are op-dependent.
+	itemReq, _ := item["required"].([]string)
+	if len(itemReq) != 1 || itemReq[0] != "op" {
+		t.Fatalf("edits.items required = %v, want [op]", itemReq)
+	}
+	itemProps, _ := item["properties"].(schema.Props)
+	for _, want := range []string{"op", "pos", "end", "lines", "text", "replacement"} {
+		if _, ok := itemProps[want]; !ok {
+			t.Errorf("edits.items missing property %q", want)
+		}
+	}
+	// The op enum must include replace_text alongside the anchored ops.
+	op, _ := itemProps["op"].(map[string]any)
+	enum, _ := op["enum"].([]any)
+	var sawReplaceText bool
+	for _, v := range enum {
+		if v == "replace_text" {
+			sawReplaceText = true
+		}
+	}
+	if !sawReplaceText {
+		t.Errorf("op enum %v missing replace_text", enum)
 	}
 }

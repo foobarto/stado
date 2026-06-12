@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"strings"
 )
 
@@ -24,11 +23,12 @@ func ProviderAPIKeyEnv(provider string) string {
 	return ""
 }
 
-// ResolveProviderAPIKey returns the configured API key from the
-// conventional env var for the given provider name.
+// ResolveProviderAPIKey returns the configured API key for the given
+// provider name, resolving from the conventional env var first and falling
+// back to a keyring-stored secret (see ResolveProviderSecret).
 func ResolveProviderAPIKey(provider string) string {
 	if env := ProviderAPIKeyEnv(provider); env != "" {
-		return os.Getenv(env)
+		return ResolveProviderSecret(env)
 	}
 	return ""
 }
@@ -94,14 +94,15 @@ func PresetAPIKeyEnv(name string, preset InferencePreset) string {
 }
 
 // ResolvePresetAPIKey returns the configured API key for the given
-// preset by consulting PresetAPIKeyEnv. Empty means "no credentials
-// found" — caller decides whether that's fatal.
+// preset by consulting PresetAPIKeyEnv, resolving ENV-FIRST with a keyring
+// fallback (see ResolveProviderSecret). Empty means "no credentials found"
+// — caller decides whether that's fatal.
 func ResolvePresetAPIKey(name string, preset InferencePreset) string {
 	env := PresetAPIKeyEnv(name, preset)
 	if env == "" {
 		return ""
 	}
-	return os.Getenv(env)
+	return ResolveProviderSecret(env)
 }
 
 // ProviderKind classifies a known provider by how stado talks to it.

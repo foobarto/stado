@@ -79,15 +79,17 @@ func buildBundledPluginRegistry() *tools.Registry {
 		}),
 		[]string{"fs:write:."}))
 	r.Register(newBundledWasmTool("fs", "stado_tool_edit", "fs__edit",
-		"Apply content-anchored (hashline) edits to a file. Each edit targets a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / EOF), prepend (before pos / BOF). Multiple edits apply bottom-up.",
+		"Apply content-anchored (hashline) edits to a file. Anchored edits target a LINE#HASH anchor copied verbatim from read output — e.g. {\"op\":\"replace\",\"pos\":\"11#KT\",\"lines\":[...]}. The hash is validated against the file's current content; if it changed since you read it the edit is REJECTED with fresh anchors to retry (never silently relocated). \"lines\" must be literal file content with NO \"LINE#HASH:\" or diff \"+/-\" prefixes. Ops: replace (pos, optional end for a range), append (after pos / EOF), prepend (before pos / BOF), and replace_text (find an EXACTLY UNIQUE substring \"text\" and swap it for \"replacement\"; rejected if missing or non-unique). Anchored edits apply bottom-up; replace_text cannot be mixed with anchored ops in one call.",
 		tool.ClassMutating,
 		schema.Object([]string{"path", "edits"}, schema.Props{
 			"path": schema.String(),
-			"edits": schema.Array(schema.Object([]string{"op", "lines"}, schema.Props{
-				"op":    schema.StringEnum([]string{"replace", "append", "prepend"}, "Operation"),
-				"pos":   schema.String("LINE#HASH anchor from read output, e.g. 11#KT"),
-				"end":   schema.String("End anchor for a range replace (inclusive), same form as pos"),
-				"lines": schema.Array(schema.String(), "Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes"),
+			"edits": schema.Array(schema.Object([]string{"op"}, schema.Props{
+				"op":          schema.StringEnum([]string{"replace", "append", "prepend", "replace_text"}, "Operation"),
+				"pos":         schema.String("LINE#HASH anchor from read output, e.g. 11#KT"),
+				"end":         schema.String("End anchor for a range replace (inclusive), same form as pos"),
+				"lines":       schema.Array(schema.String(), "Literal replacement/insertion lines — NO LINE#HASH: or diff +/- prefixes"),
+				"text":        schema.String("replace_text only: the EXACTLY UNIQUE substring to find (may span lines)"),
+				"replacement": schema.String("replace_text only: what to swap \"text\" for"),
 			}), "Hashline edits, applied bottom-up"),
 		}),
 		[]string{"fs:read:.", "fs:write:."}))

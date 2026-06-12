@@ -265,6 +265,60 @@ func TestStoreProviderSecret_PersistsToKeyring(t *testing.T) {
 	}
 }
 
+func TestResolveProviderSecret_EnvFirstThenKeyring(t *testing.T) {
+	keyring.MockInit() // hermetic in-memory keyring
+
+	// 1. Env set → env value wins (most explicit source).
+	t.Setenv("RESOLVE_TEST_ENV", "from-env")
+	if got := ResolveProviderSecret("RESOLVE_TEST_ENV"); got != "from-env" {
+		t.Errorf("env-set resolve = %q, want from-env", got)
+	}
+
+	// 2. Env UNSET but keyring holds the secret → keyring value resolves.
+	// This is the core of finding #1: a `stado auth set --key`-stored secret
+	// must authenticate even when the operator never exports the env var.
+	t.Setenv("RESOLVE_TEST_KEYRING", "") // prove env is empty
+	if _, _, err := StoreProviderSecret("RESOLVE_TEST_KEYRING", "from-keyring"); err != nil {
+		t.Fatalf("seed keyring: %v", err)
+	}
+	if got := ResolveProviderSecret("RESOLVE_TEST_KEYRING"); got != "from-keyring" {
+		t.Errorf("keyring-only resolve = %q, want from-keyring", got)
+	}
+
+	// 3. Neither env nor keyring → empty.
+	if got := ResolveProviderSecret("RESOLVE_TEST_ABSENT_XYZ"); got != "" {
+		t.Errorf("absent resolve = %q, want empty", got)
+	}
+
+	// 4. Empty key name → empty (defensive).
+	if got := ResolveProviderSecret("  "); got != "" {
+		t.Errorf("blank key resolve = %q, want empty", got)
+	}
+}
+
+func TestWriteProviderCredential_ClearsBaseURLWhenBlank(t *testing.T) {
+	path := tempConfigPath(t)
+	// Record a base_url override first (deepseek is OAI-compat cloud).
+	if err := WriteProviderCredential(path, "deepseek", "DEEPSEEK_API_KEY", "", "https://override.test/v1"); err != nil {
+		t.Fatalf("initial write: %v", err)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "base_url") {
+		t.Fatalf("expected base_url stored after first write:\n%s", data)
+	}
+	// Re-save with a BLANK base_url — the stale override must be removed.
+	if err := WriteProviderCredential(path, "deepseek", "DEEPSEEK_API_KEY", "", ""); err != nil {
+		t.Fatalf("clearing write: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "base_url") {
+		t.Errorf("base_url should have been cleared, still present:\n%s", data)
+	}
+	// The rest of the preset block (api_key_env) must survive the clear.
+	if !strings.Contains(string(data), `api_key_env = "DEEPSEEK_API_KEY"`) {
+		t.Errorf("api_key_env should survive a base_url clear:\n%s", data)
+	}
+}
+
 func TestStoreProviderSecret_RejectsEmpty(t *testing.T) {
 	keyring.MockInit()
 	if _, _, err := StoreProviderSecret("", "s"); err == nil {

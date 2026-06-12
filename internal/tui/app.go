@@ -535,7 +535,7 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 				}
 			}
 		}
-		key := os.Getenv(keyEnv)
+		key := config.ResolveProviderSecret(keyEnv)
 		if key == "" {
 			return nil, fmt.Errorf("%s: %s not set", name, keyEnv)
 		}

@@ -486,11 +486,14 @@ type Model struct {
 	// across calls see the same registry. Built once at NewModel;
 	// CloseAll on shutdown.
 	ptyManager *pty.Manager
-	// lspManager owns this session's LSP server processes (gopls,
-	// pyright, …) so they reap on session close / TUI exit rather than
-	// leaking like the process-default manager would. The post-edit
-	// diagnostics hook (m.lspDiagnostics) and the *ViaManager seams route
-	// through it. Built once at NewModel; CloseAll on session switch + exit.
+	// lspManager owns the LSP server processes (gopls, pyright, …) so they
+	// reap on TUI exit rather than leaking like the process-default manager
+	// would. The post-edit diagnostics hook (m.lspDiagnostics) and the
+	// *ViaManager seams route through it. The manager is process-lifetime by
+	// design (servers are read-only indexers over the unchanged launch CWD,
+	// safe to share across sessions): built once at NewModel, CloseAll only
+	// on TUI exit. A session switch resets m.lspDiagnostics but keeps this
+	// manager — closing it would wedge ClientFor and the captured hook.
 	lspManager *lspfind.LSPClientManager
 	// lspDiagnostics holds the latest LSP diagnostics per edited file for
 	// the current session, written by the post-edit hook and read by the

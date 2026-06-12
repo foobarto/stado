@@ -67,7 +67,8 @@ func buildProviderItems(cfg *config.Config) []providerpicker.Item {
 // applyProviderCommand executes a picker Command: write/update the
 // credential ref (+ keyring secret) or unset it. It appends a REDACTED
 // system block confirming the result and reloads the picker so the new
-// status is visible. The secret is zeroed after use.
+// status is visible. The secret is cleared from the Command once consumed
+// (best-effort — Go strings can't be securely wiped).
 func (m *Model) applyProviderCommand(cmd providerpicker.Command) error {
 	if cmd.Type == providerpicker.CommandNone {
 		return nil
@@ -90,10 +91,12 @@ func (m *Model) applyProviderCommand(cmd providerpicker.Command) error {
 }
 
 func (m *Model) applyProviderSave(cfg *config.Config, cmd providerpicker.Command) error {
-	// Zero the secret as soon as we're done with it — it must not linger
-	// on the Command struct after the keyring write.
+	// Drop the secret from cmd as soon as we've copied it locally so it
+	// doesn't linger on the (by-value) Command for the rest of this call.
+	// Go strings can't be reliably wiped from memory — this only narrows the
+	// scope that holds a reference; it is not a secure erase.
 	secret := cmd.Secret
-	defer func() { secret = "" }()
+	cmd.Secret = ""
 
 	envVar := strings.TrimSpace(cmd.EnvVar)
 	if err := config.WriteProviderCredential(cfg.ConfigPath, cmd.Provider, envVar, "", cmd.BaseURL); err != nil {
