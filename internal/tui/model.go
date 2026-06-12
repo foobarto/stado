@@ -292,6 +292,11 @@ type Model struct {
 
 	// monitor is non-nil when a /monitor process is running. EP-0036.
 	monitor *monitorState
+	// monitorGen is incremented for every monitor started; the active
+	// monitor's generation is stamped onto its line/done messages so a
+	// stale message from a stopped-and-superseded monitor is ignored
+	// instead of clearing or appending to the current one.
+	monitorGen uint64
 
 	// backgroundPlugins are persistent plugin instances loaded once
 	// per TUI session from cfg.Plugins.Background. Each ticks after
