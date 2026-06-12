@@ -162,3 +162,58 @@ func TestRenderEntryRow_DoesNotOverflowInnerWidth(t *testing.T) {
 		}
 	}
 }
+
+// A5 sibling of the G8 prompt-overflow fix: G8 only bounded the *left*
+// (prompt) column. The right-hand "last:" / LastTool column was built
+// from the full LastTool string with no truncation, so a long LastTool
+// (an attacker-influenced or just verbose tool name/arg) produced an
+// unbounded `right`, shoving the row past the modal border at any
+// innerW. A reviewer probe measured a 234-column row. renderEntryRow
+// must truncate the LastTool column display-width aware so the rendered
+// row never exceeds innerW, mirroring the prompt fix.
+func TestRenderEntryRow_LongLastToolDoesNotOverflow(t *testing.T) {
+	cases := []runtime.FleetEntry{
+		{
+			FleetID:  "fleet-1234567890",
+			Status:   runtime.FleetStatusRunning,
+			Prompt:   "short prompt",
+			LastTool: strings.Repeat("very_long_tool_name.", 12),
+		},
+		{
+			// Long prompt AND long LastTool — both columns must yield.
+			FleetID:  "fleet-1234567890",
+			Status:   runtime.FleetStatusRunning,
+			Prompt:   "investigate the failing integration test in the payment gateway module thoroughly please",
+			LastTool: "fs.read path=/very/long/path/to/some/deeply/nested/file/that/keeps/going/and/going.go",
+		},
+		{
+			// Wide-rune LastTool — must stay display-width bound + valid UTF-8.
+			FleetID:  "fleet-1234567890",
+			Status:   runtime.FleetStatusRunning,
+			Prompt:   "p",
+			LastTool: "工具调用" + strings.Repeat("这是一个很长的中文工具名称需要被截断", 6),
+		},
+		{
+			// "completed" is the widest status pill (11 cols) — confirm the
+			// budget math holds against the worst-case left fixed column.
+			FleetID:  "fleet-1234567890",
+			Status:   runtime.FleetStatusCompleted,
+			Prompt:   "investigate the failing integration test thoroughly please do it now",
+			LastTool: strings.Repeat("very_long_tool_name.", 12),
+		},
+	}
+	for _, innerW := range []int{60, 72, 80} {
+		for _, e := range cases {
+			row := stripSGR(renderEntryRow(e, innerW))
+			if w := lipgloss.Width(row); w > innerW {
+				t.Errorf("innerW=%d: row width=%d exceeds budget; row=%q", innerW, w, row)
+			}
+			if strings.Contains(row, "\n") {
+				t.Errorf("innerW=%d: row wrapped to multiple lines; row=%q", innerW, row)
+			}
+			if !utf8.ValidString(row) {
+				t.Errorf("innerW=%d: row is not valid UTF-8 (mid-rune slice): %q", innerW, row)
+			}
+		}
+	}
+}
