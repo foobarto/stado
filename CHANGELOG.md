@@ -48,8 +48,9 @@ removal (#123), and hook-mutation provenance in the signed audit chain (#125).
   + `Mutated-By-Hook` — and a `pre_tool` deny writes its own trace commit
   (`Deny-Reason` + `Denied-By-Hook`). Both the original and mutated bytes are
   stored as git blobs (4 MiB cap, SHA-only fallback on overflow), inspectable
-  via audit / `/tree`. The mutated result stays the canonical value the model
-  saw; the original is audit-only provenance. Purely additive — no existing
+  via `stado audit` or the `/tree` view. The mutated result stays the
+  canonical value the model saw; the original is audit-only provenance.
+  Purely additive — no existing
   v0.62/v0.63 signature is rewritten; old chains keep verifying.
 - **`stado audit verify` mutation linkage.** Verify validates each
   original→mutated provenance link (parent `Result-SHA` == `Original-Result-SHA`,
