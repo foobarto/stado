@@ -1,67 +1,38 @@
-## v0.64.0 — hook-mutation audit provenance, memory long-term gaps — 2026-06-12
+## v0.64.1 — TUI-usability fixes (tool-panel sanitize, hooks/slash discoverability) — 2026-06-12
 
-Bundles the memory long-term-gap closures (#122), the fakelsp build-artifact
-removal (#123), and hook-mutation provenance in the signed audit chain (#125).
+Fixes from a fresh TUI-usability UAT pass on v0.64.0 (#128). The headline is a
+terminal-escape sanitization gap; the rest smooth the newer hooks / slash /
+config surfaces.
 
-### CLI
+### Security
 
-- **Hook-mutation provenance in the audit chain (#125).** v0.63.0 lifecycle
-  hooks could rewrite a tool result (`post_tool` mutate) before the audited
-  `Result-SHA` was computed, and a `pre_tool` deny wasn't committed at all —
-  so a hook could silently alter or hide what the signed chain recorded. Now
-  a `post_tool` mutate records TWO linked trace commits — the original raw
-  result, then a mutation commit (parenting it) carrying `Original-Result-SHA`
-  + `Mutated-By-Hook` — and a `pre_tool` deny writes its own trace commit
-  (`Deny-Reason` + `Denied-By-Hook`). Both the original and mutated bytes are
-  stored as git blobs (4 MiB cap, SHA-only fallback on overflow), inspectable
-  via `stado audit` or the `/tree` view. The mutated result stays the
-  canonical value the model saw; the original is audit-only provenance.
-  Purely additive — no existing
-  v0.62/v0.63 signature is rewritten; old chains keep verifying.
-- **`stado audit verify` mutation linkage.** Verify validates each
-  original→mutated provenance link (parent `Result-SHA` == `Original-Result-SHA`,
-  blob-hash cross-check when blob-backed) as a DISTINCT anomaly class from
-  signature failure — a broken link reports `MUTATION-LINK-BROKEN` and exits
-  non-zero, but never marks a signature Invalid. The link is keyed on
-  `Mutated-By-Hook` (an empty-origin mutation is validated too).
-- **`stado session logs` annotation.** A mutation tip renders `⟳ mutated by
-  <hook>` (highlighted) with its original parent dimmed so the pair reads as
-  one event; a denied call renders `⊘ denied: <reason>`. Hook-supplied strings
-  are control-char stripped.
-- **`stado memory compact` (#122).** Atomically rewrites the memory log to its
-  folded state (fail-closed on concurrent growth, OOM-guarded snapshot).
+- **Tool-output panel now sanitizes terminal escapes.** The collapsible tool
+  panel rendered the tool **result, name, and args** (and `/tool` / `/plugin:`
+  side-channel output) verbatim, while assistant/thinking text was already
+  sanitized. A tool/model emitting crafted bytes could rewrite the terminal
+  title (OSC 0), inject a clickable hyperlink to an attacker URL (OSC 8), or
+  ring the bell (BEL). All of these display paths now route through
+  `textutil.SanitizeForTerminal` at store-time (the executor still receives the
+  raw arguments — only the rendered copies are scrubbed).
 
 ### TUI
 
-- **`/tree` mutation/deny badge (#125).** Session and turn rows show a compact
-  `⟳N` / `⊘N` badge counting how many tool results a `post_tool` hook rewrote
-  and how many calls a `pre_tool` hook vetoed inside them. Zero → no badge.
-
-### Memory (#122)
-
-- **Session-scope inheritance.** A session now sees the session-scoped
-  memories of every session it forked from (ancestry walked from the sidecar
-  fork forest; plugin query JSON can't forge it).
-- **Terminal delete tombstone.** `delete` folds a `deleted` tombstone (visible
-  in list/show/export, excluded from retrieval); `approve` refuses to
-  resurrect it (re-propose instead), `reject` stays reversible.
-- **Graceful degradation past the size cap.** Reads degrade (the recovery
-  surface never bricks); writes stay refused over the cap.
-- **Retrieval enabled by default** (an explicit `[memory].enabled = false`
-  still opts out).
-- **Plugin bridge default-denies session scope** — strips plugin-supplied
-  `session_id` / ancestry and pins reads to repo+global, closing a session_id
-  forge.
-
-### Fixes / Infra
-
-- **Removed a committed 2.9 MB `fakelsp` test binary (#123).** A stray build
-  artifact swept into the repo root during the v0.63.0 build; the lspfind
-  tests compile the stub from source. Added `/fakelsp` to `.gitignore`.
-  Resolves the Scorecard BinaryArtifacts alert #71 (HIGH).
-- **Don't stamp mutation-provenance trailers onto the tree commit (#125).** A
-  mutating tool + `post_tool` mutate hook leaked the provenance trailers onto
-  the tree-ref commit, making `audit verify` report `MUTATION-LINK-BROKEN` on
-  legitimate chains. The errored original half of a mutation pair now renders
-  faint+red in `session logs`.
+- **Lifecycle hooks are now visible.** `stado config show` renders the
+  `[hooks]` section (and `[tui.sidebar]`/`[tui.footer]`); `stado doctor`
+  reports configured lifecycle hooks instead of `(unset)`; `stado config init`
+  documents the sidebar/footer sections and the deny/mutate/fail_closed hook
+  config (replacing the stale "notification-only" text).
+- **Broken lifecycle hooks now surface a warning.** A hook that fails to load
+  is no longer silently dropped: the skip-warning is emitted before the
+  provider build (so a first run without an API key still sees it) and is shown
+  in the TUI startup notices instead of being swallowed by the alt-screen.
+- **Slash-command discoverability.** Nine working commands (`/stats`, `/ps`,
+  `/config`, `/sandbox`, `/fleet`, `/kill`, `/spawn`, `/cancel`, `/supervisor`)
+  were invisible in `/help`, the `Ctrl+P` palette, and the inline `/` popup;
+  they are now registered. The popup also no longer misdirects a prefix to a
+  different command (`/stat` now offers `/stats`, `/ps` offers `/ps`). `/tool`
+  output lands in the collapsible panel instead of flooding scrollback.
+- **Status bar no longer overflows.** A long provider error wrapped several
+  rows past the frame border; it is now flattened and ellipsized to the
+  measured width so the bar stays a single row.
 
