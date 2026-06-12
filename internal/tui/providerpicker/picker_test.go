@@ -5,7 +5,31 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
+
+// modalBoxWidth returns the display-width of the centred modal BOX, ignoring
+// the blank padding lipgloss.Place adds to fill the canvas. View() always
+// returns a canvas exactly screenWidth wide (Place pads with spaces), so the
+// load-bearing measurement is the bordered box, not the canvas. Each rendered
+// line has leading/trailing Place padding stripped, then the widest remaining
+// (ANSI-aware) line width is the box width.
+func modalBoxWidth(s string) int {
+	max := 0
+	for _, line := range strings.Split(s, "\n") {
+		// Trim Place's plain-space padding from both ends so only the box
+		// (border + its background-filled interior) is measured. ANSI styling
+		// on the box means its own cells aren't bare spaces.
+		trimmed := strings.Trim(line, " ")
+		if trimmed == "" {
+			continue
+		}
+		if w := lipgloss.Width(trimmed); w > max {
+			max = w
+		}
+	}
+	return max
+}
 
 func key(s string) tea.KeyPressMsg {
 	switch s {
@@ -193,6 +217,59 @@ func TestBaseURLFieldGatedByKind(t *testing.T) {
 	m.Update(key("enter"))
 	if !m.fieldEditable(fieldBaseURL) {
 		t.Error("anthropic-compat-cloud provider should allow a base_url override")
+	}
+}
+
+// marginBudget is the cols the modal box must leave free at narrow terminals:
+// a 2-col margin on each side (4 total) so the centred box never touches the
+// edge — breathing room, and headroom against off-by-one edge clipping.
+const marginBudget = 4
+
+// TestModalLeavesMarginAtNarrowWidths: the centred modal must leave a small
+// breathing-room margin at narrow terminals. At 60 cols the old code clamped
+// modalW up to its 58 floor, which (border included) filled cols 2..59 with
+// only a 1-col margin each side (Place centres the 58-wide box on the 60-col
+// canvas) — risking edge clipping. The box width must stay <=
+// screenWidth-marginBudget so a 2-col margin survives on each side.
+func TestModalLeavesMarginAtNarrowWidths(t *testing.T) {
+	for _, screenW := range []int{60, 58, 50, 44} {
+		m := New()
+		m.Open(sampleItems(), true, "")
+		// Exercise every mode: the form/remove bodies can be wider than the
+		// list, so the cap must hold for all of them.
+		m.Update(key("enter")) // -> form for the first item
+		for _, modeName := range []string{"list", "form", "remove"} {
+			switch modeName {
+			case "list":
+				m.mode = modeList
+			case "form":
+				m.mode = modeForm
+			case "remove":
+				m.mode = modeRemove
+			}
+			out := m.View(screenW, 30)
+			if got := modalBoxWidth(out); got > screenW-marginBudget {
+				t.Errorf("mode=%s screenW=%d: modal box width %d leaves no breathing room (want <= %d)\n---\n%s",
+					modeName, screenW, got, screenW-marginBudget, out)
+			}
+		}
+	}
+}
+
+// TestModalStillUsableWidthAtRoomyTerminal: the margin cap must not shrink the
+// modal at terminals wide enough for the design's half-screen width — at 120
+// cols the modal should still be the clamped 58..98 half-screen size, not the
+// narrow-terminal cap.
+func TestModalStillUsableWidthAtRoomyTerminal(t *testing.T) {
+	m := New()
+	m.Open(sampleItems(), true, "")
+	out := m.View(120, 40)
+	// 120/2 = 60, clamped to [58,98] = 60; well below the 120-4 cap.
+	if got := modalBoxWidth(out); got < 58 {
+		t.Errorf("at 120 cols the modal should keep its half-screen width, got %d", got)
+	}
+	if got := modalBoxWidth(out); got > 120-2 {
+		t.Errorf("modal width %d exceeds the margin budget at 120 cols", got)
 	}
 }
 
