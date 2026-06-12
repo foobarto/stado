@@ -79,6 +79,23 @@ func (m *Model) renderLanding(width, height int) string {
 	input := strings.TrimRight(m.renderInputBox(m.landingInputW(width)), "\n")
 	hint := landingHint(m.theme)
 	plugins := m.landingPluginsHint()
+	providerHint := m.landingProviderHint(width)
+
+	// #22: a brief changelog summary anchored to the upper-left corner. It
+	// sits above the centered logo/input, so reserve its height from the body.
+	// Skip it on short terminals so it can't crowd out the logo + input box.
+	// Computed BEFORE the startup banner so its height is part of the banner's
+	// reserve budget (P2.14): otherwise the banner over-budgets, the body
+	// clamps to 1 row, and the whole stack overflows the terminal, pushing the
+	// footer off the bottom.
+	whatsNew := ""
+	if height >= 20 {
+		whatsNew = m.renderLandingWhatsNew(width)
+	}
+	whatsNewH := 0
+	if whatsNew != "" {
+		whatsNewH = lipgloss.Height(whatsNew) + 1 // +1 for the gap below it
+	}
 
 	// Startup banner (sandbox posture, broker session, writable paths)
 	// rendered just above the footer so a fresh launch still surfaces what
@@ -94,16 +111,22 @@ func (m *Model) renderLanding(width, height int) string {
 		// (truncating a styled string can drop the trailing reset and
 		// bleed colour into the footer).
 		wrapped := lipgloss.NewStyle().Width(width).Render(b)
-		// Cap the banner height so the input box stays on-screen. The
-		// unsandboxed warning wraps to ~14 rows at 80 cols, which on a
-		// 24-row terminal would push "Type a message" off the bottom
-		// (the banner is subtracted from bodyH below). Reserve room for
-		// the input box + hint (+ plugins) and the gaps/footer, mirroring
-		// the logoMaxH budget; truncate the overflow with a "(+N more)"
-		// marker pointing at scrollback, where the full block also lives.
-		reserved := lipgloss.Height(input) + lipgloss.Height(hint) + landingLogoMargin + 2
+		// Cap the banner height so the input box AND the footer stay on
+		// screen. The unsandboxed warning wraps to ~9-14 rows at 80 cols,
+		// which on a 24-row terminal would push the footer off the bottom
+		// (the banner is subtracted from bodyH below). Reserve room for the
+		// whatsNew accent, a one-row compact logo + its margin, the input box
+		// + hint (+ plugins), the input/hint gaps, the banner gap, and the
+		// footer; truncate the overflow with a "(+N more)" marker pointing at
+		// scrollback, where the full block also lives. Without whatsNewH in
+		// this reserve the body clamps to 1 and the stack overflows (P2.14).
+		reserved := whatsNewH + 1 + landingLogoMargin +
+			lipgloss.Height(input) + lipgloss.Height(hint) + 2
 		if plugins != "" {
 			reserved += lipgloss.Height(plugins) + 1
+		}
+		if providerHint != "" {
+			reserved += lipgloss.Height(providerHint) + 1
 		}
 		wrapped = truncateBanner(wrapped, height-reserved-1)
 		// Style + re-wrap as one block: Width(width) also wraps the
@@ -115,16 +138,49 @@ func (m *Model) renderLanding(width, height int) string {
 			Render(wrapped)
 	}
 
-	// #22: a brief changelog summary anchored to the upper-left corner. It
-	// sits above the centered logo/input, so reserve its height from the body.
-	// Skip it on short terminals so it can't crowd out the logo + input box.
-	whatsNew := ""
-	if height >= 20 {
-		whatsNew = m.renderLandingWhatsNew(width)
+	// logoBudget computes how much vertical room the logo may use, given a
+	// whatsNewH reservation. Hoisted so we can re-evaluate with whatsNew
+	// dropped (see below): the changelog block is a corner accent, but the
+	// banner is the primary brand element, so when both can't fit the banner
+	// wins.
+	logoBudget := func(whatsNewH int) int {
+		bodyH := height - 1
+		if banner != "" {
+			bodyH -= lipgloss.Height(banner) + 1
+		}
+		bodyH -= whatsNewH
+		if bodyH < 1 {
+			bodyH = 1
+		}
+		// Reserve room for the input, hint, the fixed logo margin (blank
+		// lines), and the input/hint gap (1 line) before deciding how much
+		// height the logo may use.
+		maxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - landingLogoMargin - 1
+		if plugins != "" {
+			maxH -= lipgloss.Height(plugins) + 1
+		}
+		if providerHint != "" {
+			maxH -= lipgloss.Height(providerHint) + 1
+		}
+		if maxH < 0 {
+			maxH = 0
+		}
+		return maxH
 	}
-	whatsNewH := 0
-	if whatsNew != "" {
-		whatsNewH = lipgloss.Height(whatsNew) + 1 // +1 for the gap below it
+
+	logo := renderLandingLogo(width, logoBudget(whatsNewH))
+	// De-prioritize whatsNew vs the banner (P2.13): if the changelog accent
+	// forced the logo down to the compact wordmark, but the full branded
+	// banner WOULD render once whatsNew is dropped, drop it. This clears the
+	// off-by-one at the common 50-row maximized terminal, where the 6-row
+	// whatsNew block plus the startup banner shaved the logo budget just
+	// below the banner's natural height.
+	if whatsNew != "" && isCompactLogo(logo) {
+		if full := renderLandingLogo(width, logoBudget(0)); !isCompactLogo(full) {
+			whatsNew = ""
+			whatsNewH = 0
+			logo = full
+		}
 	}
 
 	bodyH := height - 1
@@ -135,23 +191,15 @@ func (m *Model) renderLanding(width, height int) string {
 	if bodyH < 1 {
 		bodyH = 1
 	}
-	// Reserve room for the input, hint, the fixed logo margin (blank lines),
-	// and the input/hint gap (1 line) before deciding how much height the
-	// logo may use.
-	logoMaxH := bodyH - lipgloss.Height(input) - lipgloss.Height(hint) - landingLogoMargin - 1
-	if plugins != "" {
-		logoMaxH -= lipgloss.Height(plugins) + 1
-	}
-	if logoMaxH < 0 {
-		logoMaxH = 0
-	}
-	logo := renderLandingLogo(width, logoMaxH)
 
-	// Below-logo stack (input · plugins · hint), then the logo prepended with
-	// a FIXED margin so the gap is identical whether the full sheep or the
-	// compact wordmark renders.
-	below := make([]string, 0, 3)
+	// Below-logo stack (input · provider-hint · plugins · hint), then the logo
+	// prepended with a FIXED margin so the gap is identical whether the full
+	// sheep or the compact wordmark renders.
+	below := make([]string, 0, 4)
 	below = append(below, centerLines(input, width))
+	if providerHint != "" {
+		below = append(below, centerLines(providerHint, width))
+	}
 	if plugins != "" {
 		below = append(below, centerLines(plugins, width))
 	}
@@ -217,12 +265,56 @@ func compactLandingLogo(width int) string {
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, "stado")
 }
 
+// isCompactLogo reports whether a rendered logo is the compact "stado"
+// wordmark fallback rather than the full banner art. Used to decide whether
+// the changelog accent should yield to the banner (P2.13): the wordmark is a
+// single centered row whose only content is "stado".
+func isCompactLogo(logo string) bool {
+	if strings.Contains(logo, "\n") {
+		return false
+	}
+	return strings.TrimSpace(logo) == "stado"
+}
+
 func landingHint(th *theme.Theme) string {
 	if th == nil {
 		return "ctrl+p commands"
 	}
 	return th.Fg("text_secondary").Bold(true).Render("ctrl+p") + " " +
 		th.Fg("muted").Render("commands")
+}
+
+// landingNoProviderConfigured reports whether the session has no usable
+// provider AND none is named in config — i.e. the very first turn will fail
+// in ensureProvider. Returns false while the startup local-runner probe is
+// still pending (the prewarm may yet pick ollama), so the hint doesn't flash
+// during normal "no-config but a local runner is coming up" launches.
+func (m *Model) landingNoProviderConfigured() bool {
+	if m.provider != nil {
+		return false
+	}
+	if m.providerProbePending {
+		return false
+	}
+	return strings.TrimSpace(m.providerName) == ""
+}
+
+// landingProviderHint surfaces a concise "no provider configured" warning on
+// the landing screen so a no-provider user learns it BEFORE submitting a
+// message and hitting the ensureProvider failure (P3.8). Empty when a
+// provider is configured/active or a local-runner probe is still pending.
+func (m *Model) landingProviderHint(width int) string {
+	if !m.landingNoProviderConfigured() {
+		return ""
+	}
+	msg := "no provider configured — run `stado auth` or set defaults.provider"
+	if m.theme == nil {
+		return trimSeed(msg, width)
+	}
+	// trimSeed keeps the line within the landing width so it never wraps and
+	// disturbs the centered layout; the full guidance is in the ensureProvider
+	// failure block if the user submits anyway.
+	return m.theme.Fg("warning").Render(trimSeed(msg, width))
 }
 
 // landingPluginsHint renders the autoloaded-plugin badge line under
