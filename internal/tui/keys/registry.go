@@ -17,19 +17,27 @@ type Registry struct {
 	prefixMatches map[Action]bool
 }
 
+// NewRegistry builds a registry on the default (emacs) schema. Kept for
+// back-compat with callers that don't select a schema.
 func NewRegistry() *Registry {
+	return NewRegistryForSchema(DefaultSchemaName)
+}
+
+// NewRegistryForSchema builds a registry from the named keybinding schema.
+// An unknown or empty name resolves to the emacs base (see ResolveSchema).
+func NewRegistryForSchema(schema string) *Registry {
 	r := &Registry{
 		bindings: make(map[Action][]key.Binding),
 		prefixes: make(map[Action][]PrefixBinding),
 	}
-	r.loadDefaults()
+	r.loadSchema(ResolveSchema(schema))
 	return r
 }
 
-func (r *Registry) loadDefaults() {
+func (r *Registry) loadSchema(keymap map[Action]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for action, keysStr := range Defaults {
+	for action, keysStr := range keymap {
 		desc := ActionDescriptions[action]
 		if desc == "" {
 			desc = string(action)
@@ -37,6 +45,21 @@ func (r *Registry) loadDefaults() {
 		r.bindings[action] = Parse(keysStr, desc)
 		r.prefixes[action] = ParsePrefix(keysStr, desc)
 	}
+}
+
+// Override REPLACES one action's bindings with the parsed keysCSV (a
+// comma-separated key list, the same grammar as Defaults / schema values).
+// Re-parses both the flat and prefix forms so chord overrides keep working.
+// Used by LoadOverrides to apply per-action config keymap overrides.
+func (r *Registry) Override(action Action, keysCSV string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	desc := ActionDescriptions[action]
+	if desc == "" {
+		desc = string(action)
+	}
+	r.bindings[action] = Parse(keysCSV, desc)
+	r.prefixes[action] = ParsePrefix(keysCSV, desc)
 }
 
 func (r *Registry) Get(action Action) []key.Binding {

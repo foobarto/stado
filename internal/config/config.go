@@ -45,6 +45,7 @@ type Config struct {
 	Sampling   Sampling   `koanf:"sampling"`
 	Sessions   Sessions   `koanf:"sessions"`
 	TUI        TUI        `koanf:"tui"`
+	Keymap     Keymap     `koanf:"keymap"`
 	Tools      Tools      `koanf:"tools"`
 	Aliases    Aliases    `koanf:"aliases"`
 	Budget     Budget     `koanf:"budget"`
@@ -371,6 +372,30 @@ type TUISidebar struct {
 // (visibility only; the footer's order is fixed by the template).
 type TUIFooter struct {
 	Segments []string `koanf:"segments"`
+}
+
+// Keymap is the [keymap] section — selects a named keybinding schema and
+// applies per-action overrides on top of it. Schema picks the base layout
+// (emacs or vscode); empty is treated as the emacs default. Bindings maps an
+// action name (e.g. "sidebar_toggle") to a comma-separated key list (e.g.
+// "ctrl+y,ctrl+o") that REPLACES that action's schema binding.
+//
+//	[keymap]
+//	schema = "vscode"
+//	[keymap.bindings]
+//	sidebar_toggle = "ctrl+y"
+//	messages_first = "ctrl+home"
+//
+// Override application lives in internal/tui/keys.LoadOverrides; an unknown
+// action name is reported as a non-fatal error (the TUI logs it to stderr and
+// keeps booting) while the remaining valid overrides still apply.
+type Keymap struct {
+	// Schema names the base layout: "emacs" (default) or "vscode". Empty is
+	// treated as emacs.
+	Schema string `koanf:"schema"`
+	// Bindings overrides individual actions by name. Each value is a
+	// comma-separated key list that replaces the action's schema binding.
+	Bindings map[string]string `koanf:"bindings"`
 }
 
 // Context is Phase 11's [context] section: soft/hard percentage
