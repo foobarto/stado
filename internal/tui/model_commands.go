@@ -37,7 +37,12 @@ import (
 // up with the panel, falling back to a sane 40 when the viewport hasn't
 // been sized yet (e.g. a bare test Model with a zero-value viewport).
 func (m *Model) slashListWidth() int {
-	w := m.vp.Width() - 2
+	// The block render width is m.vp.Width()-2 (blocks_render.go); a system
+	// block then adds a left border (1) + Padding(0,1) (2) inside that, and
+	// lipgloss v2 .Width INCLUDES border+padding — so the actual text area is
+	// 3 columns narrower. Wrap to the real text width or the renderer re-wraps
+	// our pre-wrapped lines and breaks the hanging indent.
+	w := m.vp.Width() - 2 - 3
 	if w < 40 {
 		return 40
 	}

@@ -776,25 +776,6 @@ func renderInstalledPluginList(width int, pluginRoots ...string) string {
 	return sb.String()
 }
 
-// summariseToolDescription returns at most max runes of desc with
-// trailing whitespace and any embedded newlines collapsed to single
-// spaces. Long bodies get truncated with a single-char ellipsis so the
-// listing stays one line per tool.
-func summariseToolDescription(desc string, max int) string {
-	desc = strings.Join(strings.Fields(desc), " ")
-	if max <= 0 {
-		return desc
-	}
-	runes := []rune(desc)
-	if len(runes) <= max {
-		return desc
-	}
-	if max < 2 {
-		return string(runes[:max])
-	}
-	return string(runes[:max-1]) + "…"
-}
-
 // renderPluginTools formats one plugin's manifest tools for display
 // when the user asks about it specifically.
 func renderPluginTools(nameVer string, m *plugins.Manifest) string {

@@ -167,26 +167,6 @@ func TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins(t *testing.T) {
 	}
 }
 
-func TestSummariseToolDescription(t *testing.T) {
-	cases := []struct {
-		in   string
-		max  int
-		want string
-	}{
-		{"short", 120, "short"},
-		{"line\none\nline two", 120, "line one line two"},
-		{"line\none\nline two", 4, "lin…"},
-		{strings.Repeat("a", 130), 10, strings.Repeat("a", 9) + "…"},
-		{"x", 1, "x"},
-		{"abc", 0, "abc"},
-	}
-	for _, tc := range cases {
-		if got := summariseToolDescription(tc.in, tc.max); got != tc.want {
-			t.Errorf("summariseToolDescription(%q,%d) = %q, want %q", tc.in, tc.max, got, tc.want)
-		}
-	}
-}
-
 // TestPluginSlash_PerPluginListsTools: `/plugin:<name-ver>` without a
 // tool argument lists that plugin's tools only.
 func TestPluginSlash_PerPluginListsTools(t *testing.T) {
