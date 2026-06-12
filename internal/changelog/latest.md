@@ -1,70 +1,48 @@
-## v0.64.2 — TUI polish round 2 (tree / monitor / split, recovery flows) + faster CI — 2026-06-12
+## v0.64.3 — audit downgrade fix + reviewer-flagged follow-ups — 2026-06-12
 
-Round 2 of TUI-usability fixes across the v0.64 feature surface — three merged
-batches (#133, #134, #135) plus a CI-speed change (#132). Most were found by a
-multi-agent UAT campaign that drove each surface and reproduced defects
-test-first; two more were caught by review on the fix PRs themselves.
+Closes a parked audit-signature finding and the sibling/doc-drift items the
+v0.64.2 PR reviews surfaced.
 
 ### Security
 
-- **Memory delete-tombstone can no longer be laundered.** `delete` → `reject` →
-  `approve` resurrected a deleted memory into a queryable, prompt-injectable
-  approved entry, defeating the deleted-guard (EP-0015's terminal-tombstone
-  invariant). `reject` now refuses a deleted item, like `approve`. (#135)
-- **`/fleet` picker no longer leaks invalid UTF-8.** The prompt column
-  byte-sliced untrusted entry strings, cutting mid-rune on CJK/emoji prompts and
-  emitting raw continuation bytes (and a wrong display width) to the terminal;
-  truncation is now display-width + grapheme aware, and the row is sized to the
-  modal so it can't overflow the border. (#135)
+- **Audit signature v1-downgrade closed (Codex C8/P).** `audit.VerifyV2` tried
+  the identity-bound v2 payload, then fell back to v1 (which binds only
+  tree+parents+body). With sidecar write, an attacker could copy a genuine v1
+  commit's `(tree, parents, body, signature)` into a new commit with a
+  **rewritten author/timestamp** and still have it verify under the operator's
+  key. `VerifyV2` no longer falls back to v1 — only the identity-bound v2
+  payload is accepted. `ExtractSignature` now rejects a body carrying more than
+  one `Signature:` trailer (anti trailer-injection), and `audit verify` flags a
+  duplicate-trailer commit as invalid rather than unsigned.
+  - **Behavior change:** genuinely pre-v2 (legacy v1) audit commits no longer
+    verify. They are reported distinctly as `LEGACY-V1` (not tampered) with a
+    "re-sign to verify under v2" note. All v2 history (everything signed since
+    the scheme bump) is unaffected. An optional re-sign migration is planned.
+- **Memory delete-tombstone laundering fully closed.** `delete` → `reject`/
+  `approve`/`upsert`/`edit` were already guarded; this adds the missing
+  `propose`-over-a-deleted-id path (reachable from the plugin `memory:propose`
+  bridge), which folded a tombstone back to `candidate` and let a follow-on
+  `approve` resurrect a queryable, prompt-injectable memory.
 
 ### TUI
 
-- **`/monitor` streams live.** It buffered all stdout and flushed only on
-  process exit, so `tail -f` / `ping` showed nothing until they terminated;
-  each line now arrives as it is read (EP-0036's per-line contract). `/monitor
-  stop` no longer double-reports a spurious "process exited", and a stale
-  completion from a stopped monitor can no longer clear a newly-started one
-  (generation-tagged instances). `/loop stop` with no active loop now says "no
-  active loop" instead of falsely "loop stopped". (#135)
-- **`/tree` render fidelity.** The modal header stays one row at common widths;
-  a deep fork node's `⑂ turn N` origin tag and provenance badge survive label
-  truncation and never spill the modal (the left column is now clamped to its
-  budget); the peek label keeps its "not a point-in-time snapshot" clarifier;
-  and the per-turn ⟳N/⊘N hook-mutation/deny badges are no longer off-by-one on
-  real session data (session totals were always correct). (#134, #135)
-- **`/split` panes are click-to-expand.** Clicks in split view resolved against
-  stale single-view line ranges (wrong block, or no-op), and tool blocks in the
-  activity pane were unclickable; each pane now maps clicks through its own
-  range table. (#135)
-- **Tool output wraps at the width boundary.** Long unbroken tokens in the
-  tool-output panel overflowed the frame; they now hard-wrap (display-width
-  aware) and preserve leading indentation (so hashline reads stay aligned).
-  (#134)
-- **Landing / onboarding** render correctly at common geometries; the
-  Enter-while-busy steer affordance is documented in `/help` + the input hint;
-  the `/provider` modal leaves a margin at narrow widths; `/debug` reports an
-  accurate message. (#134)
-- **Budget recovery handles token caps.** A token-cap breach printed a USD-only
-  block message (`cost $0.00 ≥ hard cap $0.00 … edit [budget].hard_usd`) and
-  `/budget` showed token caps as `(unset)`; both now name the binding cap and
-  its config knob. (#135)
-- **`/alias` help row** no longer wraps onto multiple lines in the `?` overlay,
-  restoring the name/description column alignment. (#135)
-- **LSP sidebar + CLI error-UX** correctness. (#133)
+- **`/loop` status-bar indicator.** A running loop now shows `↻ loop` (or
+  `↻ loop (5m)` for a timed loop) in the status bar — the affordance EP-0036
+  promised but never shipped.
+- **Budget token caps surface everywhere.** A token-only budget (the
+  local-runner case where USD cost is always 0) now gets a proactive warn
+  block, token usage/caps in the `/context` status and `/status` modal, and the
+  always-on sidebar gauge — previously all four were USD-only. When both USD and
+  token caps are set, the sidebar shows whichever is under more pressure.
+- **`/fleet` picker `last:` column is width-bounded** (was unbounded, overflowing
+  the modal on a long tool name).
 
 ### CLI
 
-- **`stado auth`** reports honest set/unset for local-runner providers and pins
-  the env var in `unset`. (#134)
-- **`audit export <id>`** now errors on an unknown session id instead of exiting
-  0 with empty output (the B8 footgun, previously fixed only for
-  `audit verify`) — no silent data loss for SIEM ingestion. (#135)
-
-### Infra
-
-- **Faster PR CI.** Race tests and the cross-compile build matrix moved to
-  post-merge (push to `main`) and out of the required PR checks; the PR `test`
-  job runs non-race. PR feedback dropped from ~458s to ~126s. `release.yml`
-  self-runs `go test -race` before publishing so tagged artifacts stay
-  race-gated. (#132)
+- **`audit export` / display + stats commands surface real storage errors.**
+  `audit export` already errored on an unknown id; the same swallow-on-resolve
+  pattern is now classified across `session show` / `session logs` (which
+  surface a real git-storage error instead of printing `(unset)` / ignoring it)
+  and the `agents` / `stats` / `usage` aggregators (which warn to stderr and
+  continue rather than silently skipping a corrupt sidecar).
 
