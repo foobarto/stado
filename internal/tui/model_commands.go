@@ -22,6 +22,7 @@ import (
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/providers/localdetect"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tools"
@@ -90,9 +91,13 @@ func (m *Model) anyModalOpen() bool {
 		return true
 	case m.sessionPick.Visible:
 		return true
+	case m.treePick.Visible:
+		return true
 	case m.themePick.Visible:
 		return true
 	case m.agentPick.Visible:
+		return true
+	case m.providerPick != nil && m.providerPick.Visible:
 		return true
 	case m.slash.Visible:
 		return true
@@ -118,11 +123,17 @@ func (m *Model) closeAllModals() {
 	if m.sessionPick.Visible {
 		m.sessionPick.Close()
 	}
+	if m.treePick.Visible {
+		m.treePick.Close()
+	}
 	if m.themePick.Visible {
 		m.themePick.Close()
 	}
 	if m.agentPick.Visible {
 		m.agentPick.Close()
+	}
+	if m.providerPick != nil && m.providerPick.Visible {
+		m.providerPick.Close()
 	}
 	if m.slash.Visible {
 		m.slash.Close()
@@ -422,18 +433,15 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/provider":
+		// Bare `/provider` opens the credential modal (add / modify / unset
+		// a provider's credential, REDACTED). `/provider <name>` keeps the
+		// per-provider setup-help text so the old muscle memory still works.
 		if len(parts) > 1 {
 			m.appendBlock(block{kind: "system", body: m.providerSetupBody(parts[1])})
 			break
 		}
-		name := m.providerDisplayName()
-		if m.provider != nil {
-			caps := m.provider.Capabilities()
-			body := fmt.Sprintf("provider: %s  (cache=%v thinking=%v vision=%v ctx=%d)",
-				name, caps.SupportsPromptCache, caps.SupportsThinking, caps.SupportsVision, caps.MaxContextTokens)
-			m.appendBlock(block{kind: "system", body: body})
-		} else {
-			m.appendBlock(block{kind: "system", body: "provider: " + name + "  (not yet initialised)"})
+		if err := m.openProviderPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: "/provider: " + err.Error()})
 		}
 	case "/status":
 		m.showStatus = true
@@ -457,6 +465,10 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: m.renderProvidersOverview()})
 	case "/switch":
 		if err := m.openSessionPicker(); err != nil {
+			m.appendBlock(block{kind: "system", body: err.Error()})
+		}
+	case "/tree":
+		if err := m.openTreePicker(); err != nil {
 			m.appendBlock(block{kind: "system", body: err.Error()})
 		}
 	case "/sessions":
@@ -518,6 +530,16 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 		}
 		m.renderBlocks()
 	default:
+		// Skill-declared slash shortcut (`slash:` frontmatter)? Route to
+		// the skill-invocation path — same effect as /skill:<skillName>,
+		// no args. Checked in the default branch so a built-in case always
+		// wins (collisions are already rejected at registration time).
+		if name, ok := m.skillSlash[strings.TrimPrefix(parts[0], "/")]; ok {
+			if err := m.injectSkill(name); err != nil {
+				m.appendBlock(block{kind: "system", body: err.Error()})
+			}
+			break
+		}
 		m.appendBlock(block{kind: "system", body: "unknown command: " + parts[0] + " (try /help)"})
 	}
 	m.layout()
@@ -1095,6 +1117,19 @@ func (m *Model) handleConfigReload() tea.Cmd {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
 		}
 	}
+
+	// Re-read project skills and re-derive their slash shortcuts so a
+	// newly-added (or removed) `.stado/skills/*.md` `slash:` field is
+	// reflected in the palette + dispatch map without a restart. Collision
+	// warnings surface as a system block (not stderr) since we're live.
+	if sks, serr := skills.Load(m.cwd); serr == nil {
+		m.skills = sks
+	} else {
+		m.appendBlock(block{kind: "system", body: "/reload: skills load: " + serr.Error()})
+	}
+	m.registerSkillSlashCommands(func(msg string) {
+		m.appendBlock(block{kind: "system", body: "/reload: " + msg})
+	})
 
 	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
 	m.initPersona(newCfg)
@@ -1759,7 +1794,7 @@ func (m *Model) openModelPicker() {
 			}
 			apiKey := ""
 			if apiKeyEnv != "" {
-				apiKey = os.Getenv(apiKeyEnv)
+				apiKey = config.ResolveProviderSecret(apiKeyEnv)
 			}
 			if apiKey == "" {
 				continue // no auth → skip silently; UI shows other providers

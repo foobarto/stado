@@ -269,6 +269,42 @@ func (m *Model) forkAndSwitchSession(id string) error {
 	return nil
 }
 
+// forkAndSwitchSessionAtTurn forks the session id at an explicit turn-boundary
+// commit (the SHA a refs/sessions/<id>/turns/N tag points at) and switches to
+// the child. Mirrors forkAndSwitchSession but uses runtime.ForkSessionAtTurn
+// so the child starts with THAT turn's file tree, not the parent's tip. The
+// parent stays immutable. atCommit comes from the tree picker's turn row
+// (hex-encoded); a zero/unparseable hash is rejected before any session opens.
+func (m *Model) forkAndSwitchSessionAtTurn(id string, atCommit plumbing.Hash) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("session fork at turn: no session selected")
+	}
+	if atCommit.IsZero() {
+		return fmt.Errorf("session fork at turn: missing turn commit")
+	}
+	if err := m.ensureSessionSwitchAllowed(); err != nil {
+		return err
+	}
+	cfg, err := m.sessionActionConfig()
+	if err != nil {
+		return err
+	}
+	parent, err := runtime.OpenSessionByID(cfg, m.sessionActionCWD(), id)
+	if err != nil {
+		return fmt.Errorf("session fork at turn: %w", err)
+	}
+	child, err := runtime.ForkSessionAtTurn(cfg, parent, atCommit)
+	if err != nil {
+		return err
+	}
+	exec, err := runtime.BuildExecutor(child, cfg, "stado-tui")
+	if err != nil {
+		return fmt.Errorf("session fork at turn tools: %w", err)
+	}
+	m.activateSession(child, exec)
+	return nil
+}
+
 func (m *Model) ensureSessionSwitchAllowed() error {
 	if m.queuedPrompt != "" {
 		return fmt.Errorf("session switch: wait for queued prompt to run or clear it")
@@ -382,6 +418,15 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	if m.ptyManager != nil {
 		m.ptyManager.CloseAll()
 	}
+	// Clear the previous session's LSP diagnostics so the incoming
+	// session's surface starts empty. The LSP manager itself lives for the
+	// whole TUI process (servers are read-only filesystem indexers over the
+	// unchanged launch CWD — safe to share, reaped only at exit), so unlike
+	// the PTY manager it is NOT closed here; closing it would permanently
+	// wedge ClientFor and the captured post-edit hook.
+	if m.lspDiagnostics != nil {
+		m.lspDiagnostics.Reset()
+	}
 	m.session = sess
 	// Keep the launch CWD as m.cwd — tools should operate on the user's
 	// real filesystem, not the session's audit worktree. The worktree is
@@ -421,6 +466,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.agentPick.Close()
 	m.modelPicker.Close()
 	m.sessionPick.Close()
+	m.treePick.Close()
 	m.filePicker.Close()
 	m.vp.SetContent("")
 	m.activityVP.SetContent("")

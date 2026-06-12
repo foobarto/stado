@@ -31,6 +31,13 @@
 {{ color .Tone (wrapHard .Text $.Width) }}
 {{- end }}
 {{- end }}
+{{- else if eq . "diagnostics" }}{{ if $.DiagnosticsLines }}
+
+{{ color "text" "Diagnostics" | bold }}
+{{- range $.DiagnosticsLines }}
+{{ color .Tone (wrapHard .Text $.Width) }}
+{{- end }}
+{{- end }}
 {{- else if eq . "agent" }}{{ if $.AgentLines }}
 
 {{ color "text" "Agent" | bold }}

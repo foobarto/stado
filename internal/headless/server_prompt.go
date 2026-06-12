@@ -81,6 +81,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		PostTurnCmd: s.Cfg.Hooks.PostTurn,
 		Disabled:    hooks.DisabledByToolConfig(s.Cfg),
 	}
+	// F1: scriptable deny/mutate lifecycle hooks (Lua), wired into both
+	// the agent loop and (below) the executor.
+	lifecycleHooks := hooks.BuildLifecycleRunner(s.Cfg)
 
 	opts := runtime.AgentLoopOptions{
 		Provider:             s.Provider,
@@ -89,6 +92,7 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		Messages:             localMsgs,
 		MaxTurns:             10,
 		Persona:              sess.persona,
+		Hooks:                lifecycleHooks,
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,
@@ -140,6 +144,8 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			if err != nil {
 				return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
 			}
+			// F1: same lifecycle runner drives the tool-side seam.
+			exec.Hooks = lifecycleHooks
 			opts.Executor = exec
 		}
 	}

@@ -11,8 +11,16 @@ import (
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
-// DocumentSymbols runs textDocument/documentSymbol — file outline.
+// DocumentSymbols runs textDocument/documentSymbol — file outline. Routes
+// through the process-default manager; see DocumentSymbolsViaManager for
+// the session-scoped variant.
 func DocumentSymbols(ctx context.Context, args SymbolsArgs, workdir string) (string, error) {
+	return DocumentSymbolsViaManager(ctx, mgr(), args, workdir)
+}
+
+// DocumentSymbolsViaManager is DocumentSymbols against an explicit,
+// session-scoped manager.
+func DocumentSymbolsViaManager(ctx context.Context, m *LSPClientManager, args SymbolsArgs, workdir string) (string, error) {
 	if args.Path == "" {
 		return "", errors.New("lspfind: path required")
 	}
@@ -28,7 +36,7 @@ func DocumentSymbols(ctx context.Context, args SymbolsArgs, workdir string) (str
 	if server == "" {
 		return "", fmt.Errorf("lspfind: no LSP server configured for %q", filepath.Ext(args.Path))
 	}
-	cli, err := clientFor(ctx, workdir, server)
+	cli, err := m.ClientFor(ctx, workdir, server)
 	if err != nil {
 		return "", err
 	}

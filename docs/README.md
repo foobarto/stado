@@ -43,7 +43,8 @@ Shorter forms live in:
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
 | `[budget]` cost gate | [features/budget.md](features/budget.md) | Warn + hard-cap on cumulative $ spend |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
-| `[hooks]` lifecycle | [features/hooks.md](features/hooks.md) | Shell hook on completed TUI, CLI, and headless turns |
+| `[hooks]` shell hook | [features/hooks.md](features/hooks.md) | Fire-and-forget shell hook on completed TUI, CLI, and headless turns |
+| `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
 | Slash commands | [features/slash-commands.md](features/slash-commands.md) | Every TUI `/` command, grouped |
 | Shared tasks | [features/tasks.md](features/tasks.md) | User and agent task store, TUI browser, and model tool |
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |

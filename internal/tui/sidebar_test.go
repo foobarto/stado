@@ -5,13 +5,42 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/tools"
 )
+
+// TestDiagnosticEntryText_TruncatesByRune proves a long multi-byte message
+// is truncated by RUNES, not bytes — a byte slice could split a multi-byte
+// UTF-8 rune and emit invalid output (finding #6).
+func TestDiagnosticEntryText_TruncatesByRune(t *testing.T) {
+	// 80 multi-byte runes (each "é" is 2 bytes) — well over the 60-rune cap.
+	msg := strings.Repeat("é", 80)
+	out := diagnosticEntryText(lspfind.DiagnosticEntry{
+		RelPath: "main.go", Line: 7, Message: msg,
+	})
+	if !utf8.ValidString(out) {
+		t.Fatalf("output is not valid UTF-8: %q", out)
+	}
+	if !strings.HasPrefix(out, "main.go:7 ") {
+		t.Errorf("missing locus prefix: %q", out)
+	}
+	if !strings.HasSuffix(out, "…") {
+		t.Errorf("expected ellipsis on a truncated message: %q", out)
+	}
+	// A short message passes through untouched (locus + message, no ellipsis).
+	short := diagnosticEntryText(lspfind.DiagnosticEntry{
+		RelPath: "x.go", Line: 1, Message: "boom",
+	})
+	if short != "x.go:1 boom" {
+		t.Errorf("short message = %q, want %q", short, "x.go:1 boom")
+	}
+}
 
 func TestSidebar_SurfacesLiveStateRisksAndNextWork(t *testing.T) {
 	m := describeSlashModel(t)

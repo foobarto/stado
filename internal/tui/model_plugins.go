@@ -202,6 +202,13 @@ func (m *Model) closeBackgroundPlugins(ctx context.Context) {
 		m.ptyManager.CloseAll()
 		m.ptyManager = nil
 	}
+	// Reap any LSP servers the session launched (post-edit diagnostics /
+	// the *ViaManager tool seams) — without this gopls / pyright would
+	// outlive the TUI process.
+	if m.lspManager != nil {
+		m.lspManager.CloseAll()
+		m.lspManager = nil
+	}
 }
 
 // backgroundTickResultMsg carries the post-tick surviving plugin
@@ -521,6 +528,12 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	} else {
 		m.skills = nil
 	}
+	// Re-derive skill slash shortcuts for the recovered session's cwd so
+	// the palette + dispatch map track the new skill set. Warnings go to a
+	// system block since the TUI is live.
+	m.registerSkillSlashCommands(func(msg string) {
+		m.appendBlock(block{kind: "system", body: msg})
+	})
 
 	body := fmt.Sprintf("auto-recovery: switched to compacted child session %s", childID)
 	if strings.TrimSpace(seed) != "" {

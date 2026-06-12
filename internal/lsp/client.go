@@ -24,8 +24,16 @@ type Client struct {
 	rMu      sync.Mutex
 	id       atomic.Int64
 	done     chan struct{}
-	pending  sync.Map // id → chan rawResponse
+	dead     atomic.Bool // set when readLoop exits (server EOF/crash or Close)
+	pending  sync.Map    // id → chan rawResponse
 	initRoot string
+
+	// diagMu guards diags + diagWaiters: the readLoop writes them when a
+	// textDocument/publishDiagnostics notification arrives (servers push
+	// these unsolicited after a didOpen/didChange), readers drain them.
+	diagMu      sync.Mutex
+	diags       map[string][]Diagnostic // canonical fs path → latest published set
+	diagWaiters []chan string           // path of each freshly-published file, fanned out
 }
 
 type rawMessage struct {
@@ -101,10 +109,27 @@ func (c *Client) Close() error {
 	return c.cmd.Wait()
 }
 
+// Alive reports whether the language server's read loop is still
+// pumping — i.e. the child process hasn't EOF'd or crashed and Close
+// hasn't run. The LSPClientManager checks this before handing a cached
+// client to a caller; a dead client is dropped and lazily relaunched.
+func (c *Client) Alive() bool {
+	if c == nil {
+		return false
+	}
+	return !c.dead.Load()
+}
+
 // readLoop pumps messages from the server into the pending-response map (for
 // responses) or a no-op (for server-initiated notifications we don't care
 // about in v1).
 func (c *Client) readLoop() {
+	// Whatever ends the loop — clean Close, server EOF, or a crash —
+	// marks the client dead so Alive() flips and the manager relaunches,
+	// and wakes any Diagnostics waiter so it doesn't block past the
+	// server's death (it just returns whatever's already cached).
+	defer c.dead.Store(true)
+	defer c.closeDiagWaiters()
 	for {
 		select {
 		case <-c.done:
@@ -132,7 +157,13 @@ func (c *Client) readLoop() {
 			return
 		}
 		if len(msg.ID) == 0 {
-			// Server notification — ignore in v1.
+			// Server-initiated notification (no id). We only act on
+			// textDocument/publishDiagnostics, which servers push
+			// unsolicited after a didOpen/didChange; everything else
+			// (logMessage, progress, …) is ignored in v1.
+			if msg.Method == "textDocument/publishDiagnostics" {
+				c.handlePublishDiagnostics(msg.Params)
+			}
 			continue
 		}
 		var idNum int64
@@ -218,6 +249,12 @@ func (c *Client) initialize(ctx context.Context, root string) error {
 			"textDocument": map[string]any{
 				"definition": map[string]any{"dynamicRegistration": false},
 				"hover":      map[string]any{"dynamicRegistration": false},
+				// Advertise publishDiagnostics so servers push the set
+				// after a didOpen/didChange. We don't request pull
+				// (textDocument/diagnostic); the push model covers the
+				// post-edit-diagnostics use case and works on gopls /
+				// pyright / rust-analyzer without a capability dance.
+				"publishDiagnostics": map[string]any{"relatedInformation": false},
 			},
 		},
 	})

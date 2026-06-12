@@ -16,9 +16,11 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/tui/fleetpicker"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/treepicker"
 )
 
 func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
@@ -289,11 +291,57 @@ func onPickerKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	}
 
+	if m.treePick.Visible {
+		cmd, handled := m.treePick.Update(msg)
+		if handled {
+			// Drain the outbox. Enter over a switchable session row emits a
+			// switch; Enter over a turn row emits a peek; `b` over a turn row
+			// emits a branch (fork-at-turn). Navigation / expand / collapse /
+			// peek-scroll all emit CommandNone.
+			switch action := m.treePick.TakeAction(); action.Type {
+			case treepicker.CommandSwitch:
+				m.treePick.Close()
+				if err := m.switchToSession(action.ID); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			case treepicker.CommandBranch:
+				m.treePick.Close()
+				at := plumbing.NewHash(action.TurnCommit)
+				if err := m.forkAndSwitchSessionAtTurn(action.ID, at); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			case treepicker.CommandPeek:
+				// Read-only — the tree stays open; the peek layers on top.
+				if err := m.openTreePeek(action.ID, action.TurnNumber, action.TurnTotal, action.TurnCommit); err != nil {
+					m.appendBlock(block{kind: "system", body: err.Error()})
+					m.renderBlocks()
+				}
+			}
+			m.layout()
+			return m, cmd, true
+		}
+		return m, nil, true
+	}
+
 	if m.taskPick.Visible {
 		cmd, handled := m.taskPick.Update(msg)
 		if handled {
 			if err := m.applyTaskCommand(cmd); err != nil {
 				m.taskPick.SetNotice(err.Error())
+			}
+			m.layout()
+			return m, nil, true
+		}
+		return m, nil, true
+	}
+
+	if m.providerPick != nil && m.providerPick.Visible {
+		cmd, handled := m.providerPick.Update(msg)
+		if handled {
+			if err := m.applyProviderCommand(cmd); err != nil {
+				m.providerPick.SetNotice(err.Error())
 			}
 			m.layout()
 			return m, nil, true

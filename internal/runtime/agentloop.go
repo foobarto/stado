@@ -14,7 +14,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -34,6 +36,16 @@ type AgentLoopOptions struct {
 	Config   *config.Config
 	Model    string
 	Messages []agent.Message
+
+	// Hooks is the lifecycle-hook runner for the LLM-side points:
+	// pre_llm (deny -> abort the turn; mutate -> rewrite system prompt /
+	// model before the provider call), post_llm (mutate -> rewrite the
+	// assistant text before it lands in history), and post_turn (the
+	// scriptable post-turn boundary, distinct from OnTurnComplete's shell
+	// hook). Nil / empty is a no-op. The pre/post-tool points live on
+	// Executor.Hooks (the per-tool dispatch seam); callers wiring hooks
+	// set BOTH this and Executor.Hooks to the same runner. F1 seam.
+	Hooks *hooks.LifecycleRunner
 
 	MaxTurns int // default 20
 
@@ -190,6 +202,14 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// Reap any PTYs the loop opened on return so subprocesses don't
 		// outlive the loop. Idempotent.
 		defer ptyMgr.CloseAll()
+		// Reap any LSP servers (gopls / rust-analyzer / pyright) the
+		// lsp.* tools spawned during this one-shot loop. They're spawned
+		// host-side, outside the sandbox, via the process-default LSP
+		// client manager — same one-shot lifetime as the PTYs above.
+		// Interactive hosts (TUI / daemon / mcp) supply opts.Host and own
+		// the manager's lifetime across turns themselves; we only reap on
+		// the self-contained headless path.
+		defer lspfind.CloseAll()
 		opts.Host = autoApproveHost{
 			workdir:     workdir,
 			readLog:     rlog,
@@ -311,6 +331,29 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			req.Messages = stripImageBlocks(req.Messages, opts.Provider.Name())
 		}
 		turnSpan.SetAttributes(attribute.Int("turn.tools", len(req.Tools)))
+
+		// pre_llm hook seam (F1). Fires before the provider call:
+		//   - Deny  → abort the loop; the reason surfaces as the error so
+		//     the operator/client sees why the turn was blocked.
+		//   - Mutate → rewrite the system prompt and/or model the provider
+		//     receives this turn. Message history is intentionally NOT
+		//     mutable here (append-only / prompt-cache invariant).
+		if opts.Hooks.HasPoint(hooks.PointPreLLM) {
+			pre := hooks.PreLLM(turn, req.Model, req.System, len(req.Messages), len(req.Tools))
+			decision, out := opts.Hooks.Fire(turnCtx, hooks.PointPreLLM, pre)
+			switch decision.Decision {
+			case hooks.DecisionDeny:
+				turnSpan.SetStatus(codes.Error, decision.Reason)
+				turnSpan.End()
+				return finalText, msgs, fmt.Errorf("runtime: turn denied by pre_llm hook: %s", decision.Reason)
+			case hooks.DecisionMutate:
+				if mp, ok := out.(*hooks.PreLLMPayload); ok {
+					req.System = mp.System
+					req.Model = mp.Model
+				}
+			}
+		}
+
 		ch, err := opts.Provider.StreamTurn(turnCtx, req)
 		if err != nil {
 			turnSpan.RecordError(err)
@@ -342,8 +385,39 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			attribute.Int("loop.cumulative_tokens_in", totalInputTokens),
 			attribute.Int("loop.cumulative_tokens_out", totalOutputTokens),
 		)
+		// post_llm hook seam (F1). Fires after the turn streams back,
+		// before the assistant text is flushed into history:
+		//   - Mutate → rewrite the assistant text the model history
+		//     (and finalText) records. Tool calls are reported for
+		//     inspection but not mutated here — pre_tool covers per-call
+		//     arg rewriting.
+		//   - Deny   → the generation already happened; treat as a
+		//     request to replace the assistant text with the reason.
+		if opts.Hooks.HasPoint(hooks.PointPostLLM) {
+			post := hooks.PostLLM(turn, text, len(calls), usage.InputTokens, usage.OutputTokens, usage.CostUSD)
+			decision, out := opts.Hooks.Fire(turnCtx, hooks.PointPostLLM, post)
+			switch decision.Decision {
+			case hooks.DecisionDeny:
+				text = fmt.Sprintf("[post_llm hook: %s]", decision.Reason)
+			case hooks.DecisionMutate:
+				if mp, ok := out.(*hooks.PostLLMPayload); ok {
+					text = mp.Text
+				}
+			}
+		}
+
 		if opts.OnTurnComplete != nil {
 			opts.OnTurnComplete(len(msgs), text, calls, usage, time.Since(turnStart))
+		}
+
+		// post_turn lifecycle hook seam (F1). Fires on every completed
+		// turn boundary, mirroring the existing shell post_turn (which
+		// runs via OnTurnComplete). Informational in F1 — the turn is
+		// over, so deny/mutate have no downstream effect here; the point
+		// exists so one script can observe every boundary.
+		if opts.Hooks.HasPoint(hooks.PointPostTurn) {
+			pt := hooks.PostTurnLifecycle(turn, text, usage.InputTokens, usage.OutputTokens, usage.CostUSD, time.Since(turnStart))
+			opts.Hooks.Fire(turnCtx, hooks.PointPostTurn, pt)
 		}
 
 		// Flush assistant turn (text + tool_uses) into history.

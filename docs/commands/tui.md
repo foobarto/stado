@@ -261,13 +261,27 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   `config.toml`; configured MCP server names are summarized without
   probing them, and cached plugin/MCP health is shown after lifecycle or
   attach attempts have run
-- `/provider [name]` — active provider capabilities, or setup guidance
-  for a named provider such as `lmstudio`, `openai`, or `anthropic`
+- `/provider` — open the provider credential manager: a modal listing
+  every known provider with its **redacted** credential status (the
+  env-var name and a configured/unset marker, never the secret). Select a
+  provider with the arrow keys and press Enter to add or modify its
+  credential — confirm or edit the env-var name, set an optional base-URL
+  override (only for anthropic-compat / OAI-compat providers), and, when
+  an OS keyring is available, type a key into a **masked** field that is
+  stored in the keyring (otherwise the form shows the `export` hint). Save
+  records only the env-var reference in `config.toml`; the secret is never
+  written to config or echoed to scrollback. `ctrl+d` unsets a provider's
+  credential. This is the in-TUI counterpart to the `stado auth` CLI
+- `/provider <name>` — setup guidance for a named provider such as
+  `lmstudio`, `openai`, or `anthropic` (the old behavior, kept for the
+  argument form)
 - `/providers` — active provider credential health plus detected local
   runners, with load/start hints when a runner has no models ready
 - `/thinking` — cycle and persist thinking display;
   `/thinking show|tail|hide`
 - `/switch` — searchable session manager
+- `/tree` — navigable session fork graph: switch, branch a fork at any
+  past turn, or peek a read-only transcript (`Ctrl+X G`)
 - `/new` — create and switch to a fresh session
 - `/sessions` — textual session overview, including the
   active-session-only policy for inactive sessions
@@ -301,6 +315,42 @@ Deleting the active session is blocked. Switch, new, and fork keep the
 existing safety gate: submit or clear queued prompts, approval cards,
 compaction prompts, streams, running tools, and background plugin ticks
 first.
+
+## Session Tree Overlay
+
+`Ctrl+X G` or `/tree` opens the session fork graph for the current repo —
+every session that descends from a fork, with the fork point labelled by
+the parent turn it branched from. The current session's lineage is pinned
+to the top and auto-expanded; the footer shows the session count (and a
+`⚠ capped` warning when the forest hit the 5000-session cap). Sessions
+with no worktree on disk (detached) render dimmed and offer neither
+switch nor peek.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k`, `↓` / `j` | Move (lands on session rows and expanded turn rows; clamps, no wrap) |
+| `→` / `l`, `←` / `h` | Expand / collapse a session's turn list |
+| `g` / `G` | Jump to the first / last row |
+| `Enter` (session row) | Switch to / resume the highlighted session |
+| `Enter` (turn row) | Peek that session's transcript, read-only |
+| `b` (turn row) | Branch — fork the session at that turn and switch to the child |
+| `Esc` / `Ctrl+C` | Close the tree |
+
+**Branch** forks at the selected turn's exact file tree (not the
+session's tip), leaving the parent untouched, then switches to the new
+child — the same gate as a normal switch/fork applies. Pressing `b` on a
+session header (not a turn) shows a reminder to land on a turn first.
+
+**Peek** is strictly read-only: it loads the target session's saved
+conversation from disk without opening or mutating it. The header is
+honest about scope — it shows the **whole** conversation on disk, not a
+point-in-time snapshot at turn N (turns are git tags and the transcript
+carries no per-message turn field, so exact slicing isn't available in
+this version); a banner flags when the session has turns past the one you
+peeked. Inside the peek: `↑` / `↓` / `j` / `k` and `PgUp` / `PgDn`
+scroll, `g` / `G` jump, `b` branches from the peeked turn. `Esc` /
+`Ctrl+C` is layered — the first press closes the peek and returns to the
+tree, the second closes the tree.
 
 ## Approvals
 

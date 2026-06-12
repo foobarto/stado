@@ -14,6 +14,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/personas"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
@@ -30,11 +31,13 @@ import (
 	"github.com/foobarto/stado/internal/tui/modelpicker"
 	"github.com/foobarto/stado/internal/tui/palette"
 	"github.com/foobarto/stado/internal/tui/personapicker"
+	"github.com/foobarto/stado/internal/tui/providerpicker"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/sessionpicker"
 	"github.com/foobarto/stado/internal/tui/taskpicker"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
+	"github.com/foobarto/stado/internal/tui/treepicker"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -332,18 +335,20 @@ type Model struct {
 	sessionUIStates map[string]sessionUIState
 
 	// UI components
-	input       *input.Editor
-	slash       *palette.Model
-	slashInline bool
-	agentPick   *agentpicker.Model
-	modelPicker *modelpicker.Model
-	sessionPick *sessionpicker.Model
-	taskPick    *taskpicker.Model
-	themePick   *themepicker.Model
-	filePicker  *filepicker.Model
-	fleetPicker *fleetpicker.Model
-	fleet       *runtime.Fleet
-	attach      attachState // /session attach RW state (EP-0038 §F)
+	input        *input.Editor
+	slash        *palette.Model
+	slashInline  bool
+	agentPick    *agentpicker.Model
+	modelPicker  *modelpicker.Model
+	sessionPick  *sessionpicker.Model
+	taskPick     *taskpicker.Model
+	treePick     *treepicker.Model
+	themePick    *themepicker.Model
+	filePicker   *filepicker.Model
+	providerPick *providerpicker.Model
+	fleetPicker  *fleetpicker.Model
+	fleet        *runtime.Fleet
+	attach       attachState // /session attach RW state (EP-0038 §F)
 	// sessionToolOverrides holds /tool enable/disable/autoload/
 	// unautoload edits made without --save. Zero value = no
 	// overrides. EP-0037 §I, BACKLOG #5.
@@ -481,6 +486,19 @@ type Model struct {
 	// across calls see the same registry. Built once at NewModel;
 	// CloseAll on shutdown.
 	ptyManager *pty.Manager
+	// lspManager owns the LSP server processes (gopls, pyright, …) so they
+	// reap on TUI exit rather than leaking like the process-default manager
+	// would. The post-edit diagnostics hook (m.lspDiagnostics) and the
+	// *ViaManager seams route through it. The manager is process-lifetime by
+	// design (servers are read-only indexers over the unchanged launch CWD,
+	// safe to share across sessions): built once at NewModel, CloseAll only
+	// on TUI exit. A session switch resets m.lspDiagnostics but keeps this
+	// manager — closing it would wedge ClientFor and the captured hook.
+	lspManager *lspfind.LSPClientManager
+	// lspDiagnostics holds the latest LSP diagnostics per edited file for
+	// the current session, written by the post-edit hook and read by the
+	// diagnostics sidebar panel. Reset on session switch.
+	lspDiagnostics *lspfind.DiagnosticsStore
 	// compacting marks a summarisation stream in-flight so we can route
 	// its text deltas into a "compaction-preview" block rather than the
 	// regular assistant block.
@@ -629,10 +647,23 @@ type Model struct {
 	// LLM acts on it. Empty when no skills dir exists up the tree.
 	skills []skills.Skill
 
+	// skillSlash maps a skill-declared slash shortcut (the bare command
+	// name, no leading "/") to the owning skill's Name, so handleSlash
+	// can route `/<name>` to the skill-invocation path. Populated by
+	// registerSkillSlashCommands at build-time and on /reload; the same
+	// commands are registered into the palette's dynamic layer so they
+	// show in both the "/" popup and the Ctrl+P panel.
+	skillSlash map[string]string
+
 	// hookRunner fires user-configured shell hooks at lifecycle
 	// events (see config.Hooks). Zero-value is a no-op so the TUI
 	// boots fine without any hooks defined.
 	hookRunner hooks.Runner
+	// lifecycleHooks is the scriptable deny/mutate hook runner (F1). The
+	// tool-side points (pre/post-tool) are driven through m.executor.Hooks
+	// (set to this same runner in app.go); this reference lets the TUI
+	// also fire the post_turn lifecycle point. Nil is a no-op.
+	lifecycleHooks *hooks.LifecycleRunner
 	// turnStart timestamps the moment we called startStream, so the
 	// post_turn hook can report wall-clock duration.
 	turnStart        time.Time
@@ -692,8 +723,10 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		personaPicker:    personapicker.New(),
 		sessionPick:      sessionpicker.New(),
 		taskPick:         taskpicker.New(),
+		treePick:         treepicker.New(),
 		themePick:        themepicker.New(),
 		filePicker:       filepicker.New(),
+		providerPick:     providerpicker.New(),
 		fleetPicker:      fleetpicker.New(),
 		fleet:            runtime.NewFleet(),
 		sessionUIStates:  make(map[string]sessionUIState),
@@ -705,6 +738,12 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		rootCtx:          context.Background(),
 		focusedBlockIdx:  -1, // no focus by default; ToolExpand acts on latest
 		ptyManager:       pty.NewManager(),
+		// Session-scoped LSP: servers reap on session switch / TUI exit via
+		// CloseAll rather than leaking through the process-default manager.
+		// ctx = Background; CloseAll is the orderly reap path (see app.go +
+		// resetForSession + closeBackgroundPlugins).
+		lspManager:     lspfind.NewLSPClientManager(context.Background()),
+		lspDiagnostics: lspfind.NewDiagnosticsStore(),
 	}
 	// Load project-root instructions (AGENTS.md preferred, CLAUDE.md
 	// fallback). A missing file is fine; a broken file is a stderr
@@ -726,6 +765,11 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 	} else {
 		m.skills = sks
 	}
+	// Register skill-declared slash shortcuts (`slash:` frontmatter) into
+	// the palette's dynamic layer + the /<name> dispatch map. Collisions
+	// with built-ins are rejected with a stderr warning (like a broken
+	// skill file) rather than refusing to boot.
+	m.registerSkillSlashCommands(stderrSkillSlashWarn)
 	return m
 }
 

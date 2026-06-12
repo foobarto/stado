@@ -21,8 +21,10 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/fs"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/integrations"
+	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/providers/acpwrap"
 	"github.com/foobarto/stado/internal/providers/anthropic"
 	"github.com/foobarto/stado/internal/providers/google"
@@ -136,6 +138,24 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	m.SetBudgetTokens(cfg.Budget.WarnTokens, cfg.Budget.HardTokens)
 	m.SetBudgetTokensSplit(cfg.Budget.WarnInputTokens, cfg.Budget.HardInputTokens, cfg.Budget.WarnOutputTokens, cfg.Budget.HardOutputTokens)
 	m.SetHooks(cfg.Hooks.PostTurn)
+	// F1: scriptable deny/mutate lifecycle hooks (Lua). Same runner on the
+	// executor (tool-side pre/post-tool seam) and the model (post_turn).
+	lifecycleHooks := hooks.BuildLifecycleRunner(cfg)
+	// Native LSP increment 2: register the built-in post-edit diagnostics
+	// hook on the SAME runner, after any Lua hooks (observe-only, runs
+	// last). Append handles the nil-runner case (no Lua hooks configured),
+	// so this is also what gives the TUI a runner carrying just the LSP
+	// hook. Pinned to the session's LSP manager + diagnostics store + cwd
+	// so servers reap with the session and edits resolve against the
+	// user's checkout.
+	if m.lspManager != nil && m.lspDiagnostics != nil {
+		diagHook := lspfind.NewDiagnosticsHook(m.lspManager, m.lspDiagnostics, m.cwd)
+		lifecycleHooks = lifecycleHooks.Append(diagHook)
+	}
+	m.lifecycleHooks = lifecycleHooks
+	if exec != nil {
+		exec.Hooks = lifecycleHooks
+	}
 	if exec != nil {
 		_, bashEnabled := exec.Registry.Get("bash")
 		m.hookRunner.Disabled = !bashEnabled
@@ -496,12 +516,30 @@ func buildProviderByName(cfg *config.Config, name string) (agent.Provider, error
 	// endpoint). Routed through the native anthropic SDK with a
 	// base-URL override so prompt caching / thinking work, unlike the
 	// OAI-compat path. Picked before the OAI-compat builtin lookup.
+	//
+	// An [inference.presets.<name>] block written by `stado auth set`
+	// overrides the bundled defaults: base_url points the SDK at a custom
+	// host, and api_key_env names a non-conventional env var. Both fall
+	// back to the registry defaults (kp.Endpoint / kp.APIKeyEnv) when
+	// unset, so a bare `minimax-anthropic` still works untouched.
 	if kp, ok := config.LookupKnownProvider(name); ok && kp.Kind == config.ProviderKindAnthropicCompatCloud {
-		key := os.Getenv(kp.APIKeyEnv)
-		if key == "" {
-			return nil, fmt.Errorf("%s: %s not set", name, kp.APIKeyEnv)
+		baseURL := kp.Endpoint
+		keyEnv := kp.APIKeyEnv
+		if cfg.Inference.Presets != nil {
+			if preset, ok := cfg.Inference.Presets[name]; ok {
+				if bu := strings.TrimSpace(preset.BaseURL); bu != "" {
+					baseURL = bu
+				}
+				if ke := strings.TrimSpace(preset.APIKeyEnv); ke != "" {
+					keyEnv = ke
+				}
+			}
 		}
-		return anthropic.New(key, anthropic.WithBaseURL(kp.Endpoint), anthropic.WithName(name))
+		key := config.ResolveProviderSecret(keyEnv)
+		if key == "" {
+			return nil, fmt.Errorf("%s: %s not set", name, keyEnv)
+		}
+		return anthropic.New(key, anthropic.WithBaseURL(baseURL), anthropic.WithName(name))
 	}
 
 	// Bundled OAI-compat presets — known endpoints so users don't have to

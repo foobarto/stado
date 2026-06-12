@@ -78,6 +78,58 @@ type Hooks struct {
 	// interactive and non-interactive surfaces.
 	// Empty = no hook.
 	PostTurn string `koanf:"post_turn"`
+
+	// Lifecycle is the ordered set of scriptable deny/mutate hooks (F1).
+	// Unlike PostTurn (a fire-and-forget shell notification), lifecycle
+	// hooks run a Lua policy at pre/post-tool, pre/post-llm, and post-turn
+	// interception points and can DENY (veto) or MUTATE (rewrite args /
+	// llm requests / outputs). They run serially in config order, fail
+	// open on error, with a 5s per-hook timeout.
+	//
+	//	[[hooks.lifecycle]]
+	//	name = "deny-rm-rf"
+	//	lua  = """
+	//	  function pre_tool(p)
+	//	    if p.tool == "shell__bash" and string.find(p.args, "rm %-rf") then
+	//	      return { deny = "rm -rf blocked by policy" }
+	//	    end
+	//	  end
+	//	"""
+	//
+	// SECURITY: like PostTurn, the entire [hooks] table is stripped from
+	// project (.stado/config.toml) config — Lua is a code-execution
+	// vector and must not be dictated by an untrusted repo. Lifecycle
+	// hooks only take effect from user/global config.
+	Lifecycle []LifecycleHook `koanf:"lifecycle"`
+
+	// FailClosed flips the lifecycle runner's error posture. By default
+	// (false) execution is FAIL-OPEN: a hook that errors, times out, or
+	// panics is logged and treated as Continue — a broken policy hook must
+	// not wedge the agent loop. When set to true, the same fault is treated
+	// as a DENY at PRE points (the action is vetoed) and a deny-style
+	// replacement at POST points, so a policy that *must* run becomes a
+	// hard gate: if the gate can't be evaluated, the action doesn't happen.
+	// Use this when a hook enforces a security boundary that a silent
+	// fail-open would breach.
+	//
+	//	[hooks]
+	//	fail_closed = true
+	FailClosed bool `koanf:"fail_closed"`
+}
+
+// LifecycleHook is one scriptable deny/mutate hook. Exactly one of Lua
+// (inline source) or LuaFile (path to a .lua file) must be set; Lua wins
+// if both are. The Lua chunk defines global functions named after the
+// lifecycle points it handles: pre_tool, post_tool, pre_llm, post_llm,
+// post_turn.
+type LifecycleHook struct {
+	// Name is a short identifier surfaced in hook-failure logs.
+	Name string `koanf:"name"`
+	// Lua is inline Lua source for the hook body.
+	Lua string `koanf:"lua"`
+	// LuaFile is a path to a .lua file read at startup. Ignored when Lua
+	// is set.
+	LuaFile string `koanf:"lua_file"`
 }
 
 // Sessions configures session lifecycle policy. EP-0037 §C / NOTES §8.
@@ -275,6 +327,36 @@ type TUI struct {
 	// fixed by the template — listing a segment shows it, omitting it hides
 	// it. Empty/absent = the default segments.
 	Footer TUIFooter `koanf:"footer"`
+	// ToolOutputCollapsedHeight caps how many rows a collapsed tool block's
+	// streaming output occupies in the viewport. Long outputs (test logs,
+	// big greps, build output) are clipped to this height with a "… N more
+	// lines (shift+tab)" footer until the block is expanded (shift+tab or a
+	// mouse click). 0 = unset (uses the default). The effective value is
+	// clamped to [3, 20] by EffectiveToolOutputCollapsedHeight.
+	ToolOutputCollapsedHeight int `koanf:"tool_output_collapsed_height"`
+}
+
+// EffectiveToolOutputCollapsedHeight returns the row budget for a
+// collapsed tool block's output: the configured value clamped to
+// [3, 20], defaulting to 8 when unset (0) or out of range below the
+// minimum. Mirrors Memory.EffectiveMaxItems' unset-means-default shape.
+func (t TUI) EffectiveToolOutputCollapsedHeight() int {
+	const (
+		def = 8
+		min = 3
+		max = 20
+	)
+	h := t.ToolOutputCollapsedHeight
+	if h <= 0 {
+		return def
+	}
+	if h < min {
+		return min
+	}
+	if h > max {
+		return max
+	}
+	return h
 }
 
 // TUISidebar is the [tui.sidebar] block — an ordered list of section ids.
@@ -377,6 +459,15 @@ type InferencePreset struct {
 	// keep their conventional env var when this is empty. When set, it
 	// always wins over the builtin convention.
 	APIKeyEnv string `koanf:"api_key_env"`
+	// BaseURL is a per-provider base-URL override. It is only meaningful
+	// for providers stado reaches through a base-URL-overridable client:
+	// ProviderKindAnthropicCompatCloud (native anthropic SDK +
+	// WithBaseURL) and the OAI-compat presets (where the override points
+	// the OpenAI-compatible client at a non-default host). For pure
+	// OAI-compat presets Endpoint already serves as the base URL; BaseURL
+	// lets `stado auth set` record an explicit override without clobbering
+	// a bundled default Endpoint. Empty means "use the provider's default".
+	BaseURL string `koanf:"base_url"`
 }
 
 // Harness is the [harness] config section — operator-mode selection. EP-0030.
