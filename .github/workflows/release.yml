@@ -49,6 +49,18 @@ jobs:
           go-version: "1.26.4"
           cache: true
 
+      # Race-validate the release in the release path itself. CI moved the
+      # -race suite to push:main (off the PR hot path), and while the tag
+      # ruleset requires the post-merge `test` check, a release must never
+      # ship a binary with a known data race regardless of tag-push timing
+      # or ruleset config — so the suite runs here too, before any artifact
+      # is built or signed. A failure aborts the release before publish.
+      - name: Build bundled wasm (required to compile the embed package)
+        run: bash plugins/bundled/build.sh
+
+      - name: Race-test (release gate)
+        run: CGO_ENABLED=1 go test -race ./...
+
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:

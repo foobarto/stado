@@ -27,13 +27,16 @@ permissions:
 # govulncheck (plus gitleaks + CodeQL in their own workflows) — so PR
 # feedback is fast. The expensive checks move to `push: main`:
 #   - `test` runs WITH `-race` on push (the slow, thorough variant), so
-#     the post-merge run is the race gate. Because `test` is a required
-#     status check, a tag pushed on a main commit waits for its race run
-#     to go green — that's the release safety net, no extra release.yml
-#     step needed.
-#   - the 5-way cross-compile `build` matrix runs on push only as an
-#     early warning; it is NOT a required check (GoReleaser cross-compiles
-#     every target at release time, so a platform break can never ship).
+#     the post-merge run is the early race signal on main.
+#   - the 5-way cross-compile `build` matrix runs on push only as an early
+#     warning; it is NOT a branch-required check.
+# Release safety does NOT rely on this workflow gating tag pushes: the
+# release path (release.yml) re-runs the `-race` suite itself before
+# building or signing any artifact, and GoReleaser cross-compiles every
+# target — so a data race or platform break can never reach a published
+# release even if a tag is cut before/despite the post-merge run. (The tag
+# ruleset additionally requires the post-merge `test`/`build` checks, but
+# release.yml is the self-contained guarantee.)
 # Accepted trade-off: data races and platform-specific compile breaks are
 # caught post-merge on main (fix-forward) rather than on the PR.
 jobs:
