@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/textutil"
@@ -254,13 +255,32 @@ func renderEntryRow(e runtime.FleetEntry, innerW int) string {
 	if len(short) >= 8 {
 		short = short[:8]
 	}
-	prompt := truncate(singleLineSafe(strings.TrimSpace(e.Prompt)), 50)
 	last := singleLineSafe(e.LastTool)
 	if last == "" {
 		last = "—"
 	}
-	left := fmt.Sprintf("%s %s  %s", statusPill, short, prompt)
 	right := fmt.Sprintf("last: %s", last)
+
+	// Size the prompt to the *remaining* row width so the row never
+	// overflows the modal. The fixed left columns are the status pill,
+	// a space, the 8-char id, and a two-space gap; reserve those plus
+	// the right column and a one-space gap before truncating. Cap at 50
+	// columns so a wide modal doesn't render an unboundedly long prompt.
+	// Pre-fix this used a hardcoded budget of 50 regardless of innerW,
+	// so a long prompt in a narrow (64-wide → innerW 60) modal pushed
+	// the row to ~83 columns and shoved the "last:" column past the
+	// border.
+	fixed := lipgloss.Width(statusPill) + 1 + lipgloss.Width(short) + 2
+	promptBudget := innerW - fixed - lipgloss.Width(right) - 1
+	if promptBudget < 8 {
+		promptBudget = 8
+	}
+	if promptBudget > 50 {
+		promptBudget = 50
+	}
+	prompt := truncate(singleLineSafe(strings.TrimSpace(e.Prompt)), promptBudget)
+
+	left := fmt.Sprintf("%s %s  %s", statusPill, short, prompt)
 	pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	return left + strings.Repeat(" ", pad) + right
 }
@@ -332,12 +352,26 @@ func max0(n int) int {
 	return n
 }
 
+// truncate clips s to a budget of n *display columns*, appending an
+// ellipsis when it overflows. The budget is a column budget because
+// renderEntryRow lays the result out against lipgloss.Width; callers
+// pass widths derived from the modal's inner width.
+//
+// FleetEntry strings come from headless agent runs and routinely
+// carry wide runes (CJK, emoji) and other multi-byte UTF-8. A naive
+// byte slice (`s[:n-1]`) sliced mid-rune for any such input longer
+// than the budget, leaking raw continuation bytes (invalid UTF-8)
+// into the terminal and returning a string whose display width bore
+// no relation to n — which then threw off the lipgloss.Width padding
+// math and overflowed the row. ansi.Truncate is display-width- and
+// grapheme-aware: it never splits a rune, always returns valid UTF-8,
+// and bounds the result (incl. the ellipsis) to n columns.
 func truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	if len(s) <= n {
+	if lipgloss.Width(s) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return ansi.Truncate(s, n, "…")
 }
