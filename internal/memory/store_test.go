@@ -1,10 +1,12 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -195,12 +197,57 @@ func TestStoreDeleteHidesItemButKeepsAppendOnlyLog(t *testing.T) {
 	if len(got.Items) != 0 {
 		t.Fatalf("deleted memory returned: %+v", got.Items)
 	}
+	// EP-15 defense: deletion keeps an audit tombstone in the folded view, so
+	// show/list/export still surface it as deleted (consistent with
+	// reject/supersede); only retrieval hides it.
+	shown, ok, err := store.Show(ctx, item.ID)
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if !ok {
+		t.Fatal("deleted memory should remain as a folded tombstone")
+	}
+	if shown.Confidence != "deleted" {
+		t.Fatalf("deleted memory confidence = %q, want deleted", shown.Confidence)
+	}
 	data, err := os.ReadFile(store.Path)
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
 	if lines := strings.Count(strings.TrimSpace(string(data)), "\n") + 1; lines != 2 {
 		t.Fatalf("expected two append-only events, got %d in %q", lines, string(data))
+	}
+}
+
+func TestStoreApproveRejectsDeletedTombstone(t *testing.T) {
+	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
+	ctx := context.Background()
+	item := Item{ID: "mem_tomb", Scope: "global", Kind: "fact", Summary: "temp", Confidence: "approved"}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	del, _ := json.Marshal(UpdateRequest{Action: "delete", ID: item.ID})
+	if err := store.Update(ctx, del); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	// A deleted tombstone is terminal: approve must not resurrect it.
+	appr, _ := json.Marshal(UpdateRequest{Action: "approve", ID: item.ID})
+	if err := store.Update(ctx, appr); err == nil || !strings.Contains(err.Error(), "is deleted") {
+		t.Fatalf("expected approve-of-deleted to be rejected, got %v", err)
+	}
+
+	shown, ok, err := store.Show(ctx, item.ID)
+	if err != nil || !ok || shown.Confidence != "deleted" {
+		t.Fatalf("tombstone changed: ok=%v conf=%q err=%v", ok, shown.Confidence, err)
+	}
+	got, err := store.Query(ctx, Query{Prompt: "temp"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("deleted tombstone is queryable after a blocked approve: %+v", got.Items)
 	}
 }
 
@@ -564,17 +611,39 @@ func TestStoreRejectsOversizedPayloads(t *testing.T) {
 	}
 }
 
-func TestStoreListRejectsOversizedLog(t *testing.T) {
-	store := testStore(t, time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC))
-	if err := os.WriteFile(store.Path, nil, 0o600); err != nil {
-		t.Fatal(err)
+func TestStoreListReadsOversizedLogGracefully(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	store.MaxBytes = 200 // tiny cap; the well-formed log below exceeds it
+	ctx := context.Background()
+
+	var buf bytes.Buffer
+	ids := []string{"mem_a", "mem_b", "mem_c", "mem_d"}
+	for _, id := range ids {
+		item := Item{ID: id, Scope: "global", Kind: "fact", Summary: id, Confidence: "approved", CreatedAt: now, UpdatedAt: now}
+		raw, err := json.Marshal(event{Type: eventType, Action: "upsert", ID: id, Actor: "test", Timestamp: now, Item: &item})
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf.Write(raw)
+		buf.WriteByte('\n')
 	}
-	if err := os.Truncate(store.Path, MaxStoreBytes+1); err != nil {
+	if int64(buf.Len()) <= store.MaxBytes {
+		t.Fatalf("test setup: log %d bytes is not over the cap %d", buf.Len(), store.MaxBytes)
+	}
+	if err := os.WriteFile(store.Path, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := store.List(context.Background()); err == nil || !strings.Contains(err.Error(), "memory store exceeds") {
-		t.Fatalf("expected oversized memory store error, got %v", err)
+	// Past the size cap, reads degrade gracefully (warn + read anyway) rather
+	// than erroring — the recovery surface (list/show/export/compact) must keep
+	// working so an oversized store can be inspected and compacted.
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List should read past the size cap, got %v", err)
+	}
+	if len(items) != len(ids) {
+		t.Fatalf("graceful read returned %d items, want %d", len(items), len(ids))
 	}
 }
 
@@ -732,6 +801,214 @@ func TestStoreAppendRejectsParentSymlink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "memory.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("symlink target was modified, stat err = %v", err)
 	}
+}
+
+func TestStoreSessionScopeMatchesAncestors(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+	item := Item{
+		ID:         "mem_parent_session",
+		Scope:      "session",
+		SessionID:  "parent",
+		Kind:       "fact",
+		Summary:    "Branch decision made in the parent session",
+		Confidence: "approved",
+	}
+	raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+	if err := store.Update(ctx, raw); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	// A descendant session that forked from "parent" inherits the parent's
+	// session-scoped memory via AncestorSessionIDs.
+	got, err := store.Query(ctx, Query{
+		Prompt:             "branch decision",
+		SessionID:          "child",
+		AncestorSessionIDs: []string{"parent"},
+		AllowedScopes:      []string{"session"},
+	})
+	if err != nil {
+		t.Fatalf("Query child: %v", err)
+	}
+	if len(got.Items) != 1 || got.Items[0].Item.ID != "mem_parent_session" {
+		t.Fatalf("descendant session should inherit parent session memory, got %+v", got.Items)
+	}
+
+	// An unrelated session (no ancestry link) must NOT see it.
+	unrelated, err := store.Query(ctx, Query{
+		Prompt:        "branch decision",
+		SessionID:     "stranger",
+		AllowedScopes: []string{"session"},
+	})
+	if err != nil {
+		t.Fatalf("Query unrelated: %v", err)
+	}
+	if len(unrelated.Items) != 0 {
+		t.Fatalf("session memory leaked to an unrelated session: %+v", unrelated.Items)
+	}
+
+	// The originating session still matches by exact id.
+	self, err := store.Query(ctx, Query{
+		Prompt:        "branch decision",
+		SessionID:     "parent",
+		AllowedScopes: []string{"session"},
+	})
+	if err != nil {
+		t.Fatalf("Query self: %v", err)
+	}
+	if len(self.Items) != 1 {
+		t.Fatalf("originating session should match its own memory, got %+v", self.Items)
+	}
+}
+
+func TestQueryAncestorSessionIDsNotJSONSettable(t *testing.T) {
+	// EP-15 security boundary: session ancestry must be settable only by trusted
+	// in-process callers, never by plugin query JSON (the LocalMemoryBridge
+	// unmarshals plugin payloads straight into memory.Query). The json:"-" tag
+	// must drop any attempt to supply it — otherwise a plugin could forge
+	// ancestry to read another session tree's session-scoped memories.
+	for _, payload := range []string{
+		`{"session_id":"child","ancestor_session_ids":["parent"]}`,
+		`{"session_id":"child","AncestorSessionIDs":["parent"]}`,
+		`{"session_id":"child","-":["parent"]}`,
+	} {
+		var q Query
+		if err := json.Unmarshal([]byte(payload), &q); err != nil {
+			t.Fatalf("unmarshal %s: %v", payload, err)
+		}
+		if q.AncestorSessionIDs != nil {
+			t.Fatalf("plugin JSON forged AncestorSessionIDs = %v from %s", q.AncestorSessionIDs, payload)
+		}
+		if q.SessionID != "child" {
+			t.Fatalf("SessionID = %q from %s, want child", q.SessionID, payload)
+		}
+	}
+}
+
+func TestStoreCompactCollapsesHistoryPreservingState(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+	up := func(item Item) {
+		raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+		if err := store.Update(ctx, raw); err != nil {
+			t.Fatalf("upsert %s: %v", item.ID, err)
+		}
+	}
+	act := func(action, id string) {
+		raw, _ := json.Marshal(UpdateRequest{Action: action, ID: id})
+		if err := store.Update(ctx, raw); err != nil {
+			t.Fatalf("%s %s: %v", action, id, err)
+		}
+	}
+
+	// Build event churn: an item rewritten twice, a rejected tombstone, and a
+	// deleted tombstone.
+	up(Item{ID: "mem_keep", Scope: "global", Kind: "fact", Summary: "v1", Confidence: "approved"})
+	up(Item{ID: "mem_keep", Scope: "global", Kind: "fact", Summary: "v2", Confidence: "approved"})
+	up(Item{ID: "mem_rejected", Scope: "global", Kind: "fact", Summary: "bad", Confidence: "approved"})
+	act("reject", "mem_rejected")
+	up(Item{ID: "mem_deleted", Scope: "global", Kind: "fact", Summary: "temp", Confidence: "approved"})
+	act("delete", "mem_deleted")
+
+	before, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List before: %v", err)
+	}
+	beforeData, _ := os.ReadFile(store.Path)
+	beforeLines := strings.Count(strings.TrimSpace(string(beforeData)), "\n") + 1
+
+	res, err := store.Compact(ctx)
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	after, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List after: %v", err)
+	}
+
+	// Folded state is byte-for-byte identical — compact changes representation,
+	// not content (tombstones included).
+	if !reflect.DeepEqual(foldedByID(before), foldedByID(after)) {
+		t.Fatalf("compact changed folded state:\nbefore=%+v\nafter=%+v", before, after)
+	}
+	wantConf := map[string]string{"mem_keep": "approved", "mem_rejected": "rejected", "mem_deleted": "deleted"}
+	gotConf := map[string]string{}
+	for _, it := range after {
+		gotConf[it.ID] = it.Confidence
+	}
+	if !reflect.DeepEqual(gotConf, wantConf) {
+		t.Fatalf("confidence after compact = %v, want %v", gotConf, wantConf)
+	}
+
+	// One event line per live item, and strictly fewer than before.
+	afterData, _ := os.ReadFile(store.Path)
+	afterLines := strings.Count(strings.TrimSpace(string(afterData)), "\n") + 1
+	if afterLines != len(after) {
+		t.Fatalf("after compact: %d lines for %d items", afterLines, len(after))
+	}
+	if afterLines >= beforeLines {
+		t.Fatalf("compact did not shrink log: %d -> %d lines", beforeLines, afterLines)
+	}
+	if res.ItemsAfter != len(after) || res.EventsBefore != beforeLines {
+		t.Fatalf("CompactResult = %+v, want ItemsAfter=%d EventsBefore=%d", res, len(after), beforeLines)
+	}
+
+	// Retrieval still returns only the live approved item.
+	got, err := store.Query(ctx, Query{Prompt: "v2"})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got.Items) != 1 || got.Items[0].Item.ID != "mem_keep" {
+		t.Fatalf("query after compact = %+v", got.Items)
+	}
+}
+
+func TestStoreCompactReenablesWritesAfterCap(t *testing.T) {
+	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	store := testStore(t, now)
+	ctx := context.Background()
+
+	// Accumulate churn on a single item under the default cap.
+	for i := range 12 {
+		item := Item{ID: "mem_churn", Scope: "global", Kind: "fact", Summary: strings.Repeat("padding ", 4) + string(rune('a'+i)), Confidence: "approved"}
+		raw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &item})
+		if err := store.Update(ctx, raw); err != nil {
+			t.Fatalf("upsert %d: %v", i, err)
+		}
+	}
+
+	// Shrink the cap below the current size so further writes are refused.
+	data, err := os.ReadFile(store.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.MaxBytes = int64(len(data)) - 1
+	newItem := Item{ID: "mem_new", Scope: "global", Kind: "fact", Summary: "new", Confidence: "approved"}
+	newRaw, _ := json.Marshal(UpdateRequest{Action: "upsert", Item: &newItem})
+	if err := store.Update(ctx, newRaw); err == nil || !strings.Contains(err.Error(), "memory store exceeds") {
+		t.Fatalf("expected write refusal over cap, got %v", err)
+	}
+
+	// Compact collapses the churn to a single item, well under the cap.
+	if _, err := store.Compact(ctx); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// Writes resume.
+	if err := store.Update(ctx, newRaw); err != nil {
+		t.Fatalf("write should resume after compact: %v", err)
+	}
+}
+
+func foldedByID(items []Item) map[string]Item {
+	m := make(map[string]Item, len(items))
+	for _, it := range items {
+		m[it.ID] = it
+	}
+	return m
 }
 
 func testStore(t *testing.T, now time.Time) *Store {

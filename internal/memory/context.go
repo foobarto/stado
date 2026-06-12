@@ -19,6 +19,11 @@ type PromptContextOptions struct {
 	Prompt       string
 	MaxItems     int
 	BudgetTokens int
+	// SessionAncestors are the session ids SessionID forked from (nearest
+	// first, excluding self). Supplied by trusted callers so session-scoped
+	// memories created up the fork tree reach descendant sessions (EP-15
+	// session-scope inheritance). Leave nil for exact-session matching.
+	SessionAncestors []string
 }
 
 func PromptContext(ctx context.Context, opts PromptContextOptions) (string, error) {
@@ -108,13 +113,14 @@ func applyPromptCaps(memoryItems, lessonItems []RankedItem, maxItems, budgetToke
 
 func promptQuery(opts PromptContextOptions, repoID, memoryKind string, maxItems, budgetTokens int) Query {
 	return Query{
-		RepoID:        repoID,
-		SessionID:     opts.SessionID,
-		Prompt:        opts.Prompt,
-		BudgetTokens:  budgetTokens,
-		MaxItems:      maxItems,
-		AllowedScopes: []string{"session", "repo", "global"},
-		MemoryKind:    memoryKind,
+		RepoID:             repoID,
+		SessionID:          opts.SessionID,
+		AncestorSessionIDs: opts.SessionAncestors,
+		Prompt:             opts.Prompt,
+		BudgetTokens:       budgetTokens,
+		MaxItems:           maxItems,
+		AllowedScopes:      []string{"session", "repo", "global"},
+		MemoryKind:         memoryKind,
 	}
 }
 
@@ -176,6 +182,18 @@ func writeLessonPromptItem(b *strings.Builder, item Item) {
 		b.WriteString(" - rationale: ")
 		b.WriteString(rationale)
 	}
+}
+
+// RepoRootFor resolves the user repo root for a workdir the same way memory
+// retrieval does — honouring a session worktree's .stado/user-repo pin, then
+// walking up to the nearest repo root. Exported so callers can locate the
+// session sidecar to compute ancestry before calling PromptContext, keeping
+// that resolution identical to the repo id used for repo-scoped retrieval.
+func RepoRootFor(workdir string) string {
+	if strings.TrimSpace(workdir) == "" {
+		workdir = "."
+	}
+	return findRepoRoot(workdir)
 }
 
 func findRepoRoot(start string) string {

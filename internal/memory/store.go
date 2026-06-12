@@ -2,12 +2,14 @@ package memory
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +24,11 @@ const (
 	MaxPayloadBytes = 1 << 20
 	MaxEventBytes   = 2 << 20
 	MaxStoreBytes   = 128 << 20
+	// MaxCompactBytes bounds the snapshot Compact loads into memory. Reads
+	// degrade past MaxStoreBytes (a churned store can legitimately exceed it),
+	// but Compact must slurp the whole log to fold it, so an absurdly large
+	// (e.g. hand-tampered) file is refused rather than risking OOM.
+	MaxCompactBytes = 4 * MaxStoreBytes
 )
 
 type Item struct {
@@ -77,6 +84,13 @@ type Query struct {
 	MaxItems      int      `json:"max_items,omitempty"`
 	AllowedScopes []string `json:"allowed_scopes,omitempty"`
 	MemoryKind    string   `json:"memory_kind,omitempty"`
+	// AncestorSessionIDs are the session ids this session forked from
+	// (EP-15 session-scope inheritance: a session sees the session-scoped
+	// memories of its ancestors). Deliberately json:"-" so it is settable
+	// only by trusted in-process callers (PromptContext) — a WASM plugin's
+	// query JSON can never populate it and thus cannot forge ancestry to
+	// read another session tree's session-scoped memories.
+	AncestorSessionIDs []string `json:"-"`
 }
 
 type RankedItem struct {
@@ -97,6 +111,17 @@ type Store struct {
 	Path  string
 	Actor string
 	Now   func() time.Time
+	// MaxBytes overrides the store-size cap. Zero means MaxStoreBytes.
+	// Exists so tests can exercise the size-cap paths without writing a
+	// 128MB file.
+	MaxBytes int64
+}
+
+func (s *Store) maxBytes() int64 {
+	if s.MaxBytes > 0 {
+		return s.MaxBytes
+	}
+	return MaxStoreBytes
 }
 
 type event struct {
@@ -159,8 +184,15 @@ func (s *Store) Update(_ context.Context, raw []byte) error {
 		if ev.ID == "" {
 			return fmt.Errorf("memory update %s: id is required", req.Action)
 		}
-		if err := s.requireExisting(ev.ID); err != nil {
+		existing, err := s.requireExistingItem(ev.ID)
+		if err != nil {
 			return fmt.Errorf("memory update %s: %w", req.Action, err)
+		}
+		// A `deleted` item is a terminal audit tombstone: approve must not
+		// silently resurrect it into a queryable, prompt-injectable memory.
+		// (reject stays reversible — it is part of the candidate review flow.)
+		if req.Action == "approve" && existing.Confidence == "deleted" {
+			return fmt.Errorf("memory update approve: %q is deleted; re-propose it instead of resurrecting a tombstone", ev.ID)
 		}
 	case "upsert":
 		if req.Item == nil {
@@ -343,6 +375,188 @@ func (s *Store) Export(ctx context.Context) (Export, error) {
 	return Export{Items: items}, nil
 }
 
+// CompactResult summarises a Compact run for human/JSON reporting.
+type CompactResult struct {
+	EventsBefore int   `json:"events_before"`
+	ItemsAfter   int   `json:"items_after"`
+	BytesBefore  int64 `json:"bytes_before"`
+	BytesAfter   int64 `json:"bytes_after"`
+}
+
+// Compact rewrites the append-only log to its folded state: one upsert event
+// per live item (tombstones included), collapsing the redundant event history
+// that accumulates from edit/approve/reject/supersede churn. The active set is
+// unchanged — only the on-disk representation shrinks. This is the recovery
+// path for a store that has grown past the size cap (reads degrade gracefully,
+// but writes stay refused until the log is compacted back under the cap).
+//
+// The rewrite is atomic (temp file + rename within the store dir). Events
+// appended concurrently during the fold are caught up before the swap, and a
+// final size check fails the compact closed if the log grew again — so a racing
+// write aborts the compaction (retry when quiescent) rather than being silently
+// dropped. The store uses no cross-process lock, matching the rest of the
+// codebase.
+func (s *Store) Compact(_ context.Context) (CompactResult, error) {
+	root, name, err := s.storeRoot(true)
+	if err != nil {
+		return CompactResult{}, err
+	}
+	defer func() { _ = root.Close() }()
+
+	info, err := root.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return CompactResult{}, nil // nothing to compact
+	}
+	if err != nil {
+		return CompactResult{}, fmt.Errorf("memory store: stat append log: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return CompactResult{}, fmt.Errorf("memory store is a symlink: %s", s.Path)
+	}
+	if !info.Mode().IsRegular() {
+		return CompactResult{}, fmt.Errorf("memory store is not a regular file: %s", s.Path)
+	}
+	if info.Size() > MaxCompactBytes {
+		return CompactResult{}, fmt.Errorf("memory store is %d bytes, over the %d compaction ceiling: %s — trim the log manually before compacting", info.Size(), MaxCompactBytes, s.Path)
+	}
+
+	data, err := readRootFile(root, name)
+	if err != nil {
+		return CompactResult{}, err
+	}
+	capturedLen := int64(len(data))
+	items, err := foldEvents(bytes.NewReader(data), s.Path)
+	if err != nil {
+		return CompactResult{}, err
+	}
+
+	ids := make([]string, 0, len(items))
+	for id := range items {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var buf bytes.Buffer
+	for _, id := range ids {
+		item := items[id]
+		ev := event{
+			Type:      eventType,
+			Action:    "upsert",
+			ID:        id,
+			Actor:     s.actor(),
+			Timestamp: item.UpdatedAt,
+			Item:      &item,
+		}
+		encoded, err := json.Marshal(ev)
+		if err != nil {
+			return CompactResult{}, fmt.Errorf("memory store: encode compacted event: %w", err)
+		}
+		buf.Write(encoded)
+		buf.WriteByte('\n')
+	}
+
+	// Catch up any events appended during the fold so they survive the swap.
+	incorporated := capturedLen
+	if info2, err := root.Lstat(name); err == nil && info2.Mode().IsRegular() && info2.Size() > capturedLen {
+		tail, err := readRootFileFrom(root, name, capturedLen)
+		if err != nil {
+			return CompactResult{}, fmt.Errorf("memory store: read concurrent appends: %w", err)
+		}
+		buf.Write(tail)
+		incorporated += int64(len(tail))
+	}
+
+	tmp := name + ".compact-tmp"
+	_ = root.Remove(tmp) // clear a stale temp from a previously interrupted compact
+	tf, err := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return CompactResult{}, fmt.Errorf("memory store: create compacted temp: %w", err)
+	}
+	if _, err := tf.Write(buf.Bytes()); err != nil {
+		_ = tf.Close()
+		_ = root.Remove(tmp)
+		return CompactResult{}, fmt.Errorf("memory store: write compacted temp: %w", err)
+	}
+	if err := tf.Sync(); err != nil {
+		_ = tf.Close()
+		_ = root.Remove(tmp)
+		return CompactResult{}, fmt.Errorf("memory store: sync compacted temp: %w", err)
+	}
+	if err := tf.Close(); err != nil {
+		_ = root.Remove(tmp)
+		return CompactResult{}, fmt.Errorf("memory store: close compacted temp: %w", err)
+	}
+	// Fail closed: if the log grew (or was swapped) since the catch-up read,
+	// abort the swap rather than silently dropping the new events. This shrinks
+	// the data-loss window to the Lstat→Rename gap below and turns the
+	// remaining race into a safe retry instead of lost data. The store uses no
+	// cross-process lock (matching the rest of the codebase), so the operator
+	// retries compact when no writer is active.
+	if info3, err := root.Lstat(name); err != nil || !info3.Mode().IsRegular() || info3.Size() != incorporated {
+		_ = root.Remove(tmp)
+		size := int64(-1)
+		if err == nil {
+			size = info3.Size()
+		}
+		return CompactResult{}, fmt.Errorf("memory store: log changed during compact (size %d, expected %d): %s — retry when no writer is active", size, incorporated, s.Path)
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		_ = root.Remove(tmp)
+		return CompactResult{}, fmt.Errorf("memory store: replace append log: %w", err)
+	}
+
+	return CompactResult{
+		EventsBefore: bytes.Count(data, []byte{'\n'}),
+		ItemsAfter:   len(ids),
+		BytesBefore:  capturedLen,
+		BytesAfter:   int64(buf.Len()),
+	}, nil
+}
+
+// readAllBounded reads at most MaxCompactBytes from r, erroring if the source
+// exceeds it. The Compact size check (info.Size()) and the read are not atomic,
+// so the log can grow between them; this bounds the in-memory snapshot
+// regardless, keeping the OOM guard honest under concurrent/manual appends.
+func readAllBounded(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, MaxCompactBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxCompactBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes during compaction read", MaxCompactBytes)
+	}
+	return data, nil
+}
+
+// readRootFile reads an entire file inside the store's os.Root sandbox, bounded
+// by MaxCompactBytes.
+func readRootFile(root *os.Root, name string) ([]byte, error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("memory store: open append log: %w", err)
+	}
+	defer f.Close()
+	data, err := readAllBounded(f)
+	if err != nil {
+		return nil, fmt.Errorf("memory store: read append log: %w", err)
+	}
+	return data, nil
+}
+
+// readRootFileFrom reads a file from byte offset off to EOF inside the sandbox,
+// bounded by MaxCompactBytes.
+func readRootFileFrom(root *os.Root, name string, off int64) ([]byte, error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if _, err := f.Seek(off, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return readAllBounded(f)
+}
+
 func (s *Store) append(ev event) error {
 	root, name, err := s.storeRoot(true)
 	if err != nil {
@@ -358,7 +572,7 @@ func (s *Store) append(ev event) error {
 	if appendBytes > MaxEventBytes {
 		return fmt.Errorf("memory store event exceeds %d bytes", MaxEventBytes)
 	}
-	f, err := openMemoryAppendFile(root, name, appendBytes)
+	f, err := openMemoryAppendFile(root, name, appendBytes, s.maxBytes())
 	if err != nil {
 		return err
 	}
@@ -396,8 +610,13 @@ func (s *Store) fold() (map[string]Item, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("memory store is not a regular file: %s", s.Path)
 	}
-	if info.Size() > MaxStoreBytes {
-		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, s.Path)
+	// Past the size cap we WARN and read anyway rather than erroring: a store
+	// that has grown beyond the cap must still be readable so `export`,
+	// `list`, and `compact` (the recovery surface) keep working. Writes are
+	// still refused (openMemoryAppendFile) so growth stays bounded until
+	// `compact` rewrites the log to its folded state.
+	if info.Size() > s.maxBytes() {
+		fmt.Fprintf(os.Stderr, "memory store: %s is %d bytes, over the %d cap — reading anyway; run `stado memory compact`\n", s.Path, info.Size(), s.maxBytes())
 	}
 	f, err := root.Open(name)
 	if err != nil {
@@ -414,11 +633,18 @@ func (s *Store) fold() (map[string]Item, error) {
 	if !os.SameFile(info, openedInfo) {
 		return nil, fmt.Errorf("memory store changed while opening: %s", s.Path)
 	}
-	if openedInfo.Size() > MaxStoreBytes {
-		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, s.Path)
-	}
+	return foldEvents(f, s.Path)
+}
 
-	sc := bufio.NewScanner(f)
+// foldEvents replays an append-only memory log into the current folded item
+// set. A single malformed or structurally-invalid line is skipped (R8) rather
+// than bricking the whole store — every memory/learning command, including the
+// recovery surface, must keep working in the presence of one bad line. The
+// running skip count is reported once at the end. Extracted from fold so
+// Compact can fold an in-memory snapshot of the log without re-reading it.
+func foldEvents(r io.Reader, path string) (map[string]Item, error) {
+	items := make(map[string]Item)
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), MaxEventBytes)
 	line := 0
 	skipped := 0
@@ -433,7 +659,7 @@ func (s *Store) fold() (map[string]Item, error) {
 			// R8: a single malformed line must not brick the whole store
 			// (and with it every memory + learning command, including the
 			// recovery surface). Skip it and keep folding the rest.
-			fmt.Fprintf(os.Stderr, "memory store: skipping malformed line %d in %s: %v\n", line, s.Path, err)
+			fmt.Fprintf(os.Stderr, "memory store: skipping malformed line %d in %s: %v\n", line, path, err)
 			skipped++
 			continue
 		}
@@ -451,7 +677,7 @@ func (s *Store) fold() (map[string]Item, error) {
 		case "propose", "upsert", "edit":
 			if ev.Item == nil {
 				// Structurally invalid event — skip rather than abort (R8).
-				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (%s event missing item) in %s\n", line, ev.Action, s.Path)
+				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (%s event missing item) in %s\n", line, ev.Action, path)
 				skipped++
 				continue
 			}
@@ -473,13 +699,24 @@ func (s *Store) fold() (map[string]Item, error) {
 			item.UpdatedAt = ev.Timestamp
 			items[id] = item
 		case "delete":
-			delete(items, id)
+			// EP-15 defense: deletion hides an item from retrieval but keeps an
+			// audit tombstone (confidence="deleted"), consistent with
+			// reject/supersede, so `list`, `show`, and `export` still surface
+			// it as deleted. Query excludes it (approved-only). A delete for an
+			// unknown id is a no-op.
+			item, ok := items[id]
+			if !ok {
+				continue
+			}
+			item.Confidence = "deleted"
+			item.UpdatedAt = ev.Timestamp
+			items[id] = item
 		case "supersede":
 			// R8: don't tombstone the old entry unless the replacement is
 			// present — a nil-item supersede (truncated write / hand-edit)
 			// would otherwise destroy data and drop the replacement silently.
 			if ev.Item == nil {
-				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (supersede event missing item) in %s\n", line, s.Path)
+				fmt.Fprintf(os.Stderr, "memory store: skipping line %d (supersede event missing item) in %s\n", line, path)
 				skipped++
 				continue
 			}
@@ -495,7 +732,7 @@ func (s *Store) fold() (map[string]Item, error) {
 		return nil, fmt.Errorf("memory store: scan append log: %w", err)
 	}
 	if skipped > 0 {
-		fmt.Fprintf(os.Stderr, "memory store: %d malformed line(s) skipped in %s — manual inspection recommended\n", skipped, s.Path)
+		fmt.Fprintf(os.Stderr, "memory store: %d malformed line(s) skipped in %s — manual inspection recommended\n", skipped, path)
 	}
 	return items, nil
 }
@@ -507,9 +744,9 @@ func checkMemoryPayloadBytes(op string, n int) error {
 	return nil
 }
 
-func openMemoryAppendFile(root *os.Root, name string, appendBytes int64) (*os.File, error) {
-	if appendBytes > MaxStoreBytes {
-		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+func openMemoryAppendFile(root *os.Root, name string, appendBytes, maxBytes int64) (*os.File, error) {
+	if appendBytes > maxBytes {
+		return nil, fmt.Errorf("memory store exceeds %d bytes: %s", maxBytes, name)
 	}
 	for range 2 {
 		info, err := root.Lstat(name)
@@ -532,8 +769,8 @@ func openMemoryAppendFile(root *os.Root, name string, appendBytes int64) (*os.Fi
 		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("memory store is not a regular file: %s", name)
 		}
-		if info.Size()+appendBytes > MaxStoreBytes {
-			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+		if info.Size()+appendBytes > maxBytes {
+			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", maxBytes, name)
 		}
 		f, err := root.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -552,9 +789,9 @@ func openMemoryAppendFile(root *os.Root, name string, appendBytes int64) (*os.Fi
 			_ = f.Close()
 			return nil, fmt.Errorf("memory store changed while opening: %s", name)
 		}
-		if openedInfo.Size()+appendBytes > MaxStoreBytes {
+		if openedInfo.Size()+appendBytes > maxBytes {
 			_ = f.Close()
-			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", MaxStoreBytes, name)
+			return nil, fmt.Errorf("memory store exceeds %d bytes: %s", maxBytes, name)
 		}
 		return f, nil
 	}
@@ -581,11 +818,6 @@ func (s *Store) storeRoot(createDir bool) (*os.Root, string, error) {
 		return nil, "", fmt.Errorf("memory store: open dir: %w", err)
 	}
 	return root, name, nil
-}
-
-func (s *Store) requireExisting(id string) error {
-	_, err := s.requireExistingItem(id)
-	return err
 }
 
 func (s *Store) requireExistingItem(id string) (Item, error) {
@@ -638,7 +870,7 @@ func (s *Store) prepareItem(item *Item) error {
 	}
 	item.Confidence = strings.TrimSpace(strings.ToLower(item.Confidence))
 	switch item.Confidence {
-	case "candidate", "approved", "rejected", "superseded":
+	case "candidate", "approved", "rejected", "superseded", "deleted":
 	default:
 		return fmt.Errorf("invalid confidence %q", item.Confidence)
 	}
@@ -748,7 +980,23 @@ func scopeMatches(item Item, q Query) bool {
 	case "repo":
 		return item.RepoID != "" && item.RepoID == q.RepoID
 	case "session":
-		return item.SessionID != "" && item.SessionID == q.SessionID
+		// EP-15: a session memory applies to its own session AND every session
+		// that forked from it (the querying session's ancestors). Exact match
+		// is the self case; ancestry covers descendants reaching back up the
+		// fork tree. AncestorSessionIDs is populated only by trusted in-process
+		// callers (never plugin query JSON), so this cannot be forged.
+		if item.SessionID == "" {
+			return false
+		}
+		if item.SessionID == q.SessionID {
+			return true
+		}
+		for _, ancestor := range q.AncestorSessionIDs {
+			if item.SessionID == ancestor {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}

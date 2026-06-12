@@ -43,6 +43,21 @@ history:
       Added session-local retrieval opt-out controls for TUI and CLI;
       the shared prompt context now honors the same marker across TUI,
       run, headless, and ACP.
+  - date: 2026-06-12
+    status: Implemented
+    note: >-
+      Closed long-term gaps. Session-scope memories now inherit down the
+      fork tree (a session sees its ancestors' session-scoped memories);
+      previously matching was exact-session-id only, contradicting this
+      spec's scope model. Delete now keeps a folded `deleted` tombstone
+      (was a hard removal from the folded view), matching the
+      deletion-keeps-an-audit-tombstone defense. Reads degrade past the
+      store-size cap and a new `stado memory compact` rewrites the log to
+      its folded state. Memory retrieval is now enabled by default; an
+      explicit `[memory].enabled = false` opts out. Hardened the plugin
+      bridge to default-deny session scope (plugins read repo + global
+      only) so a `memory:read` plugin cannot forge a `session_id` to read
+      another session tree's memories.
 ---
 
 # EP-15: Memory System Plugin
@@ -200,7 +215,7 @@ The first shipped surface must include:
 - export memory items as JSON for audit/recovery
 
 The CLI shape should be
-`stado memory list|show|edit|approve|supersede|reject|delete|session|export`
+`stado memory list|show|edit|approve|supersede|reject|delete|compact|session|export`
 once the plugin API exists. TUI/headless surfaces may expose the same
 operations through commands/RPC.
 
@@ -215,6 +230,13 @@ Every mutation records an audit event with actor, timestamp, previous
 item id when applicable, and source session/turn. The memory store is
 not a substitute for the git-native session trace; it links back to it.
 
+Because the log is append-only it only grows. Reads degrade gracefully
+past the store-size cap — a store over the cap must still be readable so
+`export`, `list`, and recovery keep working — while writes stay refused
+over the cap to bound growth. `stado memory compact` reclaims space by
+atomically rewriting the log to its folded state: one event per live
+item, tombstones included, so the active set is unchanged.
+
 ### Prompt-injection defenses
 
 - Memory text is labeled as untrusted context.
@@ -227,12 +249,22 @@ not a substitute for the git-native session trace; it links back to it.
 - Memory ids and source provenance stay visible in prompts and UI.
 - Deletion/supersession hides items from retrieval but keeps an audit
   tombstone.
+- Plugins (untrusted callers) cannot read session-scoped memories: the
+  memory bridge default-denies session scope — it clears any
+  plugin-supplied `session_id`/ancestry and pins readable scopes to
+  `repo` + `global` — so a plugin cannot forge a `session_id` to read
+  another session tree's memories. The trusted prompt-context path
+  (which holds the real running session) is unaffected.
 
 ## Migration / rollout
 
-Start disabled by default behind a config flag and an explicit installed
-default plugin. The first iteration should ship only candidate capture,
-review, approved retrieval, and delete/supersede. Automatic background
+The first iteration shipped disabled by default behind a config flag and
+an explicit installed default plugin, carrying only candidate capture,
+review, approved retrieval, and delete/supersede. Once the review surface
+proved reliable the default flipped to **enabled** (2026-06-12): because
+only user-approved memories are ever injected, default-on exposes reviewed
+context rather than silent capture. An explicit `[memory].enabled = false`
+still opts out, as does the per-session `.stado/memory-disabled` marker. Automatic background
 candidate suggestions can follow after the review UX is reliable.
 
 The first shipped implementation provides the lower-level host contract:
@@ -327,6 +359,75 @@ and signed import/export bundles remain future plugin or EP work.
 - **Why:** auditability and reversible review flows were the first
   standardization target; better ranking can layer on without changing
   the permission or prompt contract.
+
+### D6. Session scope inherits down the fork tree
+
+- **Decided:** a session-scoped memory matches the session that created
+  it AND every session that forked from it (the querying session's
+  ancestors), implemented by resolving the ancestor chain from the
+  sidecar's session forest and passing it to scope matching.
+- **Alternatives:** keep the shipped exact-session-id match and amend the
+  scope model to say session memories do not inherit.
+- **Why:** the scope model always promised "a session tree and its
+  descendants," and stado forks sessions routinely (notably during
+  compaction). Exact-match silently dropped a parent's session decisions
+  the moment a child forked. The ancestor list is supplied only by trusted
+  in-process callers, never plugin query JSON, so a plugin cannot forge
+  ancestry to read another session tree's memories.
+
+### D7. Delete keeps a folded tombstone
+
+- **Decided:** `delete` marks the item `deleted` in the folded view (kept
+  in `list`/`show`/`export`, excluded from retrieval) rather than removing
+  it from the folded map.
+- **Alternatives:** treat the raw append log as the sole audit record and
+  hard-remove the item from the folded view.
+- **Why:** the prompt-injection defenses already state
+  deletion/supersession "keeps an audit tombstone," and `reject`/
+  `supersede` both keep a visible folded tombstone. Hard-removal made
+  `delete` the lone inconsistent action and hid the audit trail from the
+  review surfaces operators actually read. The tombstone is terminal —
+  `approve` refuses to resurrect a `deleted` item (re-propose instead) —
+  so it cannot silently become queryable/prompt-injectable again. `reject`
+  stays reversible, as it is part of the candidate review flow.
+
+### D8. Append-only growth: graceful reads + explicit compaction
+
+- **Decided:** past the store-size cap, reads warn and proceed (the
+  recovery surface must keep working) while writes stay refused; a new
+  `stado memory compact` atomically rewrites the log to its folded state
+  (one event per live item, tombstones included) to reclaim space.
+- **Alternatives:** keep the hard read error at the cap; auto-compact on
+  every write; raise or remove the cap.
+- **Why:** the original hard read error bricked `export` and the recovery
+  path exactly when an operator most needs them, contradicting the R8
+  "one bad line must not brick the store" intent. Explicit compaction
+  keeps the audit log intact by default and gives the operator a bounded,
+  atomic way to collapse churn.
+
+### D9. Memory enabled by default
+
+- **Decided:** memory retrieval defaults to on; an explicit
+  `[memory].enabled = false` (or the per-session marker) opts out.
+- **Alternatives:** keep the initial opt-in default.
+- **Why:** only user-approved, scoped, non-secret memories are ever
+  injected, so default-on surfaces reviewed context, not silent capture.
+  The unset-vs-explicit-false distinction is resolved in config load so a
+  deliberate opt-out is still honored.
+
+### D10. Plugins default-denied session scope
+
+- **Decided:** the memory bridge strips plugin-supplied `session_id`/
+  ancestry and pins plugin reads to `repo` + `global` scope.
+- **Alternatives:** inject the plugin's real running session id into the
+  query (preserving safe session-scope reads); or leave session reads
+  plugin-controllable.
+- **Why:** the bridge carries no trusted session identity, so any
+  plugin-supplied `session_id` is unverifiable. A signed `memory:read`
+  plugin could otherwise forge a `session_id` and read another session
+  tree's session-scoped memories. Default-deny is the minimal, contained
+  fix; trusted injection can layer on later if a plugin genuinely needs to
+  read its own session's memories.
 
 ## Related
 

@@ -193,6 +193,31 @@ var memoryExportCmd = &cobra.Command{
 	},
 }
 
+var memoryCompactCmd = &cobra.Command{
+	Use:   "compact",
+	Short: "Rewrite the memory log to its folded state",
+	Long: "Atomically rewrite the append-only memory log so it holds exactly one\n" +
+		"event per live item (tombstones included), dropping the redundant event\n" +
+		"history that accumulates from edits, approvals, rejections, and\n" +
+		"supersessions. The active memory set is unchanged — only the on-disk\n" +
+		"log shrinks. Use this if the store has grown large; it is also the way\n" +
+		"to bring a store that has passed the size cap back under it so writes\n" +
+		"are accepted again.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		store, err := openMemoryStore()
+		if err != nil {
+			return err
+		}
+		res, err := store.Compact(cmd.Context())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "compacted %d events into %d items (%d → %d bytes)\n",
+			res.EventsBefore, res.ItemsAfter, res.BytesBefore, res.BytesAfter)
+		return nil
+	},
+}
+
 var memorySessionCmd = &cobra.Command{
 	Use:   "session [on|off|status]",
 	Short: "Manage prompt-memory retrieval for the current session",
@@ -437,6 +462,6 @@ func shortMemory(s string, max int) string {
 
 func init() {
 	memoryListCmd.Flags().BoolVar(&memoryListJSON, "json", false, "Emit JSON instead of a table")
-	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memorySupersedeCmd, memoryExportCmd, memorySessionCmd)
+	memoryCmd.AddCommand(memoryListCmd, memoryShowCmd, memoryApproveCmd, memoryRejectCmd, memoryDeleteCmd, memoryEditCmd, memorySupersedeCmd, memoryExportCmd, memoryCompactCmd, memorySessionCmd)
 	rootCmd.AddCommand(memoryCmd)
 }

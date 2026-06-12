@@ -197,8 +197,11 @@ type Budget struct {
 
 type Memory struct {
 	// Enabled injects approved, scoped, non-secret memory snippets into
-	// provider system prompts. Off by default until users deliberately
-	// opt in to long-lived context.
+	// provider system prompts. On by default; set `enabled = false` under
+	// [memory] to opt out (the unset-vs-explicit-false distinction is
+	// resolved in Load via k.Exists). Only user-approved memories are ever
+	// injected, so the default-on surface is reviewed context, not silent
+	// capture.
 	Enabled bool `koanf:"enabled"`
 	// MaxItems caps prompt snippets retrieved per turn.
 	MaxItems int `koanf:"max_items"`
@@ -870,6 +873,12 @@ func Load() (*Config, error) {
 	}
 	if !k.Exists("context.hard_threshold") {
 		cfg.Context.HardThreshold = 0.90
+	}
+	// Memory retrieval is on by default. Distinguish "unset" (apply the default)
+	// from an explicit `enabled = false` (a deliberate opt-out), exactly like
+	// the context thresholds above — a bare zero-value check could not.
+	if !k.Exists("memory.enabled") {
+		cfg.Memory.Enabled = true
 	}
 	// Budget sanity: if both thresholds are set but the hard cap is at
 	// or below the warn cap, the warning would never fire. Drop the

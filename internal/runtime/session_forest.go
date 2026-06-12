@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -553,6 +554,69 @@ func sortNodes(nodes []*SessionNode, currentID string, all map[string]*SessionNo
 		}
 		return a.ID < b.ID
 	})
+}
+
+// SessionAncestors returns the ancestor session ids of sessionID within an
+// already-open sidecar — nearest parent first, excluding the session itself.
+// It is the mechanism behind EP-15 session-scope memory inheritance: a session
+// sees the session-scoped memories of every session it forked from. Best
+// effort by construction — an unlinked (mid-turn fork) or orphaned session,
+// whose ParentID the forest could not recover, yields an empty chain, so
+// retrieval safely falls back to exact-session matching.
+func SessionAncestors(sc *stadogit.Sidecar, worktreeRoot, sessionID string) ([]string, error) {
+	if sc == nil || sessionID == "" {
+		return nil, nil
+	}
+	forest, err := BuildForest(sc, worktreeRoot, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return ancestorChain(forest, sessionID), nil
+}
+
+// SessionAncestorsForRepo is SessionAncestors for callers that hold config
+// paths but no open sidecar (run/headless/ACP). sessionsDir is
+// cfg.StateDir()/sessions, worktreeRoot is cfg.WorktreeDir(), and repoRoot is
+// the user repo root (memory.RepoRootFor(workdir)). A missing sidecar yields no
+// ancestry rather than creating one.
+func SessionAncestorsForRepo(sessionsDir, worktreeRoot, repoRoot, sessionID string) ([]string, error) {
+	if sessionID == "" || strings.TrimSpace(repoRoot) == "" {
+		return nil, nil
+	}
+	repoID, err := stadogit.RepoID(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	// Mirror config.SidecarPath: <StateDir>/sessions/<repoID>.git.
+	sidecarPath := filepath.Join(sessionsDir, repoID+".git")
+	if _, err := os.Stat(sidecarPath); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	sc, err := stadogit.OpenOrInitSidecar(sidecarPath, repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return SessionAncestors(sc, worktreeRoot, sessionID)
+}
+
+// ancestorChain walks a session's ParentID links to the root, excluding the
+// session itself, with a cycle guard. Order is nearest parent first.
+func ancestorChain(forest *Forest, sessionID string) []string {
+	if forest == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{sessionID: true}
+	node := forest.Sessions[sessionID]
+	for node != nil && node.ParentID != "" {
+		if seen[node.ParentID] {
+			break // cycle guard (corrupt ParentID loop after manual ref edits)
+		}
+		seen[node.ParentID] = true
+		out = append(out, node.ParentID)
+		node = forest.Sessions[node.ParentID]
+	}
+	return out
 }
 
 // lineageSet returns the set of session ids on the current session's
