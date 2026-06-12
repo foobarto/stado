@@ -236,18 +236,17 @@ func Verify(pub ed25519.PublicKey, treeHash string, parents []string, body strin
 	return nil
 }
 
-// VerifyV2 checks the signature trailer against the given pubkey,
-// trying v2 (author/committer/timestamps bound — see
-// [CanonicalBytesV2]) first and falling back to v1 (tree+parents+body
-// only — see [CanonicalBytes]) so pre-#138 audit history still
-// verifies after the scheme bump. Returns a non-nil error on
-// mismatch (plain string — neither v2 nor v1 carry distinguishable
-// error states that callers would handle differently).
+// VerifyV2 checks the signature trailer against the given pubkey using ONLY
+// the identity-bound v2 payload (author/committer/timestamps — see
+// [CanonicalBytesV2]). There is NO v1 fallback (decision 2026-06-12
+// clean-break): accepting a v1 signature (which binds only tree+parents+body)
+// let an attacker downgrade-forge a commit by reusing a genuine v1 sig with a
+// rewritten identity. Returns a non-nil error on mismatch (plain string).
 //
-// Callers that have access to the commit's author/committer info
-// SHOULD use VerifyV2 (`audit verify` does). Callers that don't
-// (older code, third-party verifiers) can still call [Verify] which
-// only checks v1.
+// A signature that fails here may still be a genuine legacy v1 signature; use
+// [IsV1Signature] to classify it for reporting (it is not accepted as valid).
+// The legacy [Verify] (v1-only, no identity binding) remains for third-party
+// or historical callers but must not be used to gate trust on new history.
 func VerifyV2(pub ed25519.PublicKey, treeHash string, parents []string, body string, ident SignedIdentity) error {
 	sigB64, ok := ExtractSignature(body)
 	if !ok {
