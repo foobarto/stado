@@ -157,6 +157,40 @@ func TestCheckOptInFeatures_SurfacesConfiguredAndUnset(t *testing.T) {
 	}
 }
 
+// TestCheckOptInFeatures_SurfacesLifecycleHooks: the "Lifecycle hooks"
+// doctor row must reflect configured [[hooks.lifecycle]] entries, not just
+// post_turn. Reproduces C2 (P2): before the fix the row showed "(unset)"
+// whenever post_turn was empty, even with lifecycle hooks configured.
+func TestCheckOptInFeatures_SurfacesLifecycleHooks(t *testing.T) {
+	r := &report{}
+	cfg := &config.Config{}
+	cfg.Hooks.Lifecycle = []config.LifecycleHook{
+		{Name: "deny-rm-rf", Lua: "function pre_tool(p) end"},
+		{Name: "audit-llm", LuaFile: "/etc/stado/audit.lua"},
+	}
+	cfg.Hooks.FailClosed = true
+	checkOptInFeatures(r, cfg)
+
+	var hooksRow *reportRow
+	for i := range r.rows {
+		if r.rows[i].label == "Lifecycle hooks" {
+			hooksRow = &r.rows[i]
+			break
+		}
+	}
+	if hooksRow == nil {
+		t.Fatal("no 'Lifecycle hooks' row emitted")
+	}
+	if strings.Contains(hooksRow.value, "(unset)") {
+		t.Errorf("Lifecycle hooks row shows (unset) despite configured hooks: %q", hooksRow.value)
+	}
+	for _, want := range []string{"deny-rm-rf", "audit-llm"} {
+		if !strings.Contains(hooksRow.value, want) {
+			t.Errorf("Lifecycle hooks row missing %q; got %q", want, hooksRow.value)
+		}
+	}
+}
+
 func TestReport_RenderJSON(t *testing.T) {
 	r := &report{}
 	r.check("ripgrep (rg)", "/usr/bin/rg", "ok", true)

@@ -404,14 +404,37 @@ func checkOptInFeatures(d *report, cfg *config.Config) {
 	}
 	d.check("Budget caps", budgetVal, "ok", true)
 
-	// [hooks]
-	hooksVal := "(unset)"
+	// [hooks] — surface BOTH the post_turn notification hook and the
+	// scriptable lifecycle deny/mutate hooks ([[hooks.lifecycle]]). The
+	// row label is "Lifecycle hooks"; before this it only inspected
+	// post_turn and read "(unset)" even when lifecycle hooks were
+	// configured, so a user couldn't confirm their policy hooks loaded.
+	var hookParts []string
 	if cfg.Hooks.PostTurn != "" {
 		cmd := cfg.Hooks.PostTurn
 		if len(cmd) > 40 {
 			cmd = cmd[:37] + "..."
 		}
-		hooksVal = "post_turn: " + cmd
+		hookParts = append(hookParts, "post_turn: "+cmd)
+	}
+	if n := len(cfg.Hooks.Lifecycle); n > 0 {
+		names := make([]string, 0, n)
+		for _, h := range cfg.Hooks.Lifecycle {
+			name := h.Name
+			if name == "" {
+				name = "(unnamed)"
+			}
+			names = append(names, name)
+		}
+		part := fmt.Sprintf("lifecycle: %s", strings.Join(names, ","))
+		if cfg.Hooks.FailClosed {
+			part += " (fail_closed)"
+		}
+		hookParts = append(hookParts, part)
+	}
+	hooksVal := "(unset)"
+	if len(hookParts) > 0 {
+		hooksVal = strings.Join(hookParts, "; ")
 	}
 	d.check("Lifecycle hooks", hooksVal, "ok", true)
 

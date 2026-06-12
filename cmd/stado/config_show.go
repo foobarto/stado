@@ -88,6 +88,18 @@ func renderConfigHuman(w interface {
 	write("  thinking_display               %s\n", cfg.TUI.ThinkingDisplay)
 	write("  tool_output_collapsed_height   %d\n\n", cfg.TUI.EffectiveToolOutputCollapsedHeight())
 
+	// [tui.sidebar] / [tui.footer] — chrome customization (#21). Only
+	// render when configured; empty = the default layout, and a "(unset)"
+	// row would be noise next to the always-present [tui] block.
+	if len(cfg.TUI.Sidebar.Sections) > 0 {
+		write("[tui.sidebar]\n")
+		write("  sections   %s\n\n", strings.Join(cfg.TUI.Sidebar.Sections, ", "))
+	}
+	if len(cfg.TUI.Footer.Segments) > 0 {
+		write("[tui.footer]\n")
+		write("  segments   %s\n\n", strings.Join(cfg.TUI.Footer.Segments, ", "))
+	}
+
 	write("[memory]\n")
 	write("  enabled        %v\n", cfg.Memory.Enabled)
 	write("  max_items      %d\n", cfg.Memory.EffectiveMaxItems())
@@ -110,6 +122,33 @@ func renderConfigHuman(w interface {
 		write("  hard_usd   $%.2f\n\n", cfg.Budget.HardUSD)
 	} else {
 		write("  hard_usd   (unset — no hard gate)\n\n")
+	}
+
+	// [hooks] — turn-boundary notification (post_turn) + scriptable
+	// lifecycle deny/mutate hooks. Only render when configured; an
+	// all-"(unset)" block would be noise. Lifecycle bodies (Lua source /
+	// file paths) are summarized by name + kind — we don't dump the Lua,
+	// matching the name→target style of [mcp.servers]/[inference.presets].
+	if cfg.Hooks.PostTurn != "" || len(cfg.Hooks.Lifecycle) > 0 || cfg.Hooks.FailClosed {
+		write("[hooks]\n")
+		if cfg.Hooks.PostTurn != "" {
+			write("  post_turn     %s\n", cfg.Hooks.PostTurn)
+		}
+		if cfg.Hooks.FailClosed {
+			write("  fail_closed   true\n")
+		}
+		for _, h := range cfg.Hooks.Lifecycle {
+			name := h.Name
+			if name == "" {
+				name = "(unnamed)"
+			}
+			source := "inline lua"
+			if h.Lua == "" && h.LuaFile != "" {
+				source = "lua_file " + h.LuaFile
+			}
+			write("  lifecycle     %s  →  %s\n", name, source)
+		}
+		write("\n")
 	}
 
 	// [tools] — allowlist/denylist of the bundled tool set. Empty

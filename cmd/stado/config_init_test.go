@@ -3,10 +3,42 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
 )
+
+// TestConfigInitTemplate_DocumentsHooksSidebarFooter: the init template
+// must document the [tui.sidebar].sections / [tui.footer].segments knobs
+// and the modern lifecycle-hooks config (deny/mutate/fail_closed), not the
+// stale "notification-only, cannot block or modify a turn" text that only
+// covered post_turn. Reproduces C2 (P2): before the fix the template never
+// mentioned sidebar.sections/footer.segments and its hooks docs were stale.
+func TestConfigInitTemplate_DocumentsHooksSidebarFooter(t *testing.T) {
+	tmpl := defaultConfigTemplate
+	for _, want := range []string{
+		"sidebar",
+		"sections",
+		"footer",
+		"segments",
+		"hooks.lifecycle",
+		"fail_closed",
+	} {
+		if !strings.Contains(tmpl, want) {
+			t.Errorf("config init template missing %q", want)
+		}
+	}
+	// The lifecycle hooks can deny/mutate — the template must say so,
+	// and must NOT keep claiming hooks are notification-only.
+	lowered := strings.ToLower(tmpl)
+	if !strings.Contains(lowered, "deny") || !strings.Contains(lowered, "mutate") {
+		t.Errorf("config init template hooks docs don't mention deny/mutate lifecycle hooks")
+	}
+	if strings.Contains(tmpl, "cannot block or modify a turn") {
+		t.Errorf("config init template still carries stale 'cannot block or modify a turn' hooks docs")
+	}
+}
 
 func TestConfigInit_WritesPrivateFile(t *testing.T) {
 	setConfigInitEnv(t)
