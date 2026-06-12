@@ -336,11 +336,48 @@ func (m *Model) sidebarContextLine() sidebarLine {
 }
 
 func (m *Model) sidebarBudgetLine() sidebarLine {
-	if m.budgetWarnUSD <= 0 && m.budgetHardUSD <= 0 {
-		if !m.sidebarDebug {
-			return sidebarLine{}
+	usd, hasUSD := m.sidebarUSDBudgetLine()
+	tok, hasTok := m.sidebarTokenBudgetLine()
+	switch {
+	case hasUSD && hasTok:
+		// Both configured: surface whichever budget is under more pressure so a
+		// breached token cap isn't hidden behind an un-breached USD line. USD
+		// wins ties (the common cloud-provider display stays unchanged).
+		if budgetToneRank(tok.Tone) > budgetToneRank(usd.Tone) {
+			return tok
 		}
-		return sidebarLine{Text: "budget unbounded", Tone: "muted"}
+		return usd
+	case hasUSD:
+		return usd
+	case hasTok:
+		// Token-only (the local-runner case where CostUSD is always 0): without
+		// this the always-on gauge was blank.
+		return tok
+	}
+	if !m.sidebarDebug {
+		return sidebarLine{}
+	}
+	return sidebarLine{Text: "budget unbounded", Tone: "muted"}
+}
+
+// budgetToneRank orders sidebar budget tones by urgency for the both-caps
+// tiebreak: error > warning > text.
+func budgetToneRank(tone string) int {
+	switch tone {
+	case "error":
+		return 2
+	case "warning":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// sidebarUSDBudgetLine renders the USD budget for the sidebar gauge, or
+// ok=false when no USD cap is configured.
+func (m *Model) sidebarUSDBudgetLine() (sidebarLine, bool) {
+	if m.budgetWarnUSD <= 0 && m.budgetHardUSD <= 0 {
+		return sidebarLine{}, false
 	}
 	limit := m.budgetHardUSD
 	label := fmt.Sprintf("$%.2f", limit)
@@ -359,7 +396,44 @@ func (m *Model) sidebarBudgetLine() sidebarLine {
 	if m.budgetAcked {
 		text += " (acked)"
 	}
-	return sidebarLine{Text: text, Tone: tone}
+	return sidebarLine{Text: text, Tone: tone}, true
+}
+
+// sidebarTokenBudgetLine renders the binding token budget for the sidebar
+// gauge, or ok=false when no token cap is configured. Precedence matches
+// budgetWarning(): combined tokens, then input, then output.
+func (m *Model) sidebarTokenBudgetLine() (sidebarLine, bool) {
+	for _, c := range []struct {
+		warn, hard, used int
+		prefix           string
+	}{
+		{m.budgetWarnTokens, m.budgetHardTokens, m.totalTokens(), ""},
+		{m.budgetWarnInputTokens, m.budgetHardInputTokens, m.usage.InputTokens, "in "},
+		{m.budgetWarnOutputTokens, m.budgetHardOutputTokens, m.usage.OutputTokens, "out "},
+	} {
+		if c.warn <= 0 && c.hard <= 0 {
+			continue
+		}
+		limit := c.hard
+		label := formatTokenCount(limit) + " tok"
+		if limit <= 0 {
+			limit = c.warn
+			label = "warn " + formatTokenCount(limit) + " tok"
+		}
+		tone := "text"
+		switch {
+		case c.hard > 0 && c.used >= c.hard && !m.budgetAcked:
+			tone = "error"
+		case c.warn > 0 && c.used >= c.warn:
+			tone = "warning"
+		}
+		text := fmt.Sprintf("budget %s%s / %s", c.prefix, formatTokenCount(c.used), label)
+		if m.budgetAcked {
+			text += " (acked)"
+		}
+		return sidebarLine{Text: text, Tone: tone}, true
+	}
+	return sidebarLine{}, false
 }
 
 func (m *Model) sidebarSandboxLine() sidebarLine {

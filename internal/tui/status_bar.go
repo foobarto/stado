@@ -92,6 +92,8 @@ func (m *Model) renderStatus(width int) string {
 		"Cost":           cost,
 		"Cache":          cacheRatio,
 		"Queued":         queued,
+		"Loop":           m.loopActive(),        // EP-0036: active /loop indicator
+		"LoopInterval":   m.loopIntervalLabel(), // "(5m)" for a timed loop, else ""
 		"Budget":         m.budgetWarning(),
 		"Elapsed":        elapsed,
 		"Persona":        m.personaName(),

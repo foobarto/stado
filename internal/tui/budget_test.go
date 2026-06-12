@@ -166,6 +166,88 @@ func TestBudget_DisplayShowsTokenCaps(t *testing.T) {
 	}
 }
 
+// TestBudget_TokenOnlyWarnFiresProactiveBlock: a token-only budget
+// (warn/hard tokens set, USD unset — the local-runner case where
+// CostUSD is always 0) must get the one-time proactive warn block
+// before the hard cap blocks the turn. Regression guard: the warn
+// gate used to bail when budgetWarnUSD <= 0, so a token-only user got
+// no advisory at all and was surprised by the hard block.
+func TestBudget_TokenOnlyWarnFiresProactiveBlock(t *testing.T) {
+	m := newBudgetModel(t)
+	// Token-only: warn at 500, hard at 1000, no USD cap.
+	m.SetBudgetTokens(500, 1000)
+	m.usage.InputTokens = 400
+	m.usage.OutputTokens = 200 // total 600 ≥ 500 warn, < 1000 hard
+
+	start := len(m.blocks)
+	m.maybeEmitBudgetWarning()
+	if len(m.blocks) == start {
+		t.Fatal("token-only budget crossed the warn cap but no warn block was emitted")
+	}
+	body := m.blocks[len(m.blocks)-1].body
+	if !strings.Contains(body, "600") || !strings.Contains(body, "tok") {
+		t.Errorf("warn block should report the 600-token usage: %q", body)
+	}
+	if !strings.Contains(body, "500") {
+		t.Errorf("warn block should name the 500-token warn cap: %q", body)
+	}
+	if strings.Contains(body, "$") {
+		t.Errorf("token-only warn block should not speak USD: %q", body)
+	}
+	// One-time: subsequent calls are no-ops.
+	again := len(m.blocks)
+	m.maybeEmitBudgetWarning()
+	if len(m.blocks) != again {
+		t.Error("token-only warn block should fire once per session")
+	}
+}
+
+// TestBudget_ContextStatusShowsTokenCaps: the /context-style budget
+// line in renderContextStatus must surface configured token caps. A
+// token-only budget user should see their token usage and caps, not a
+// budget line that's omitted entirely (USD-only path).
+func TestBudget_ContextStatusShowsTokenCaps(t *testing.T) {
+	m := newBudgetModel(t)
+	m.SetBudgetTokens(500, 1000)
+	m.usage.InputTokens = 300
+	m.usage.OutputTokens = 100 // total 400
+
+	out := m.renderContextStatus()
+	if !strings.Contains(out, "1,000") && !strings.Contains(out, "1000") && !strings.Contains(out, "1.0k") {
+		t.Errorf("context status omitted the 1000-token hard cap: %q", out)
+	}
+	if !strings.Contains(out, "500") {
+		t.Errorf("context status omitted the 500-token warn cap: %q", out)
+	}
+}
+
+// TestBudget_StatusModalShowsTokenCaps: the /status modal budget row
+// must render token caps for a token-only budget instead of showing
+// "warn $0.00, hard $0.00" (or omitting the cap entirely).
+func TestBudget_StatusModalShowsTokenCaps(t *testing.T) {
+	m := newBudgetModel(t)
+	m.SetBudgetTokens(500, 1000)
+	m.usage.InputTokens = 300
+	m.usage.OutputTokens = 100
+
+	rows := m.statusContextRows()
+	var budgetVal string
+	for _, r := range rows {
+		if r.Key == "budget" {
+			budgetVal = r.Value
+		}
+	}
+	if budgetVal == "" {
+		t.Fatal("status modal has no budget row")
+	}
+	if strings.Contains(budgetVal, "$0.00") {
+		t.Errorf("token-only budget row reported a $0.00 USD cap: %q", budgetVal)
+	}
+	if !strings.Contains(budgetVal, "1,000") && !strings.Contains(budgetVal, "1000") && !strings.Contains(budgetVal, "1.0k") {
+		t.Errorf("status modal budget row omitted the 1000-token hard cap: %q", budgetVal)
+	}
+}
+
 // TestBudget_NoCapNoPill: unset caps (default config) keep the pill
 // empty and never block. Critical for local-runner users who don't
 // care about cost and shouldn't see guardrail UI.

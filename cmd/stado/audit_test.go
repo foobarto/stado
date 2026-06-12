@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,6 +65,41 @@ func TestAuditExport_UnknownIDErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error should say 'not found', got %q", err.Error())
+	}
+}
+
+// A2: `audit export` must NOT swallow a genuine git-storage error during
+// ref resolution. Earlier the resolve loop did a blanket `continue` on ANY
+// ResolveRef error, so a corrupt refs backing-store was misreported as
+// "session not found (no tree/trace refs)" — the operator believes the
+// session simply has no audit trail when in fact the store is unreadable.
+// `audit verify` already classifies plumbing.ErrReferenceNotFound (benign,
+// skip) apart from a real storage error (return it); this asserts export
+// now mirrors that. Reproduced by corrupting the sidecar's packed-refs so
+// go-git's Storer.Reference returns "malformed packed-ref" (a non-NotFound
+// error) on lookup of an explicit, valid-format session id.
+func TestAuditExport_StorageErrorNotSwallowed(t *testing.T) {
+	_, sc, restore := statsEnv(t)
+	defer restore()
+
+	// Corrupt the refs backing-store of the sidecar bare repo. go-git
+	// consults packed-refs during ref resolution, so a malformed file
+	// surfaces a real storage error (not ErrReferenceNotFound).
+	if err := os.WriteFile(filepath.Join(sc.Path, "packed-refs"),
+		[]byte("garbage not a ref line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := auditExportCmd.RunE(auditExportCmd, []string{"some-session-id"})
+	if err == nil {
+		t.Fatal("expected a storage error to surface, got nil (swallowed)")
+	}
+	// It must be the storage error, NOT the benign "not found" misreport.
+	if strings.Contains(err.Error(), "not found") {
+		t.Fatalf("storage error misreported as 'not found': %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "resolve") {
+		t.Errorf("expected a resolve-classified storage error, got %q", err.Error())
 	}
 }
 

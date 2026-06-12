@@ -387,13 +387,20 @@ and signed import/export bundles remain future plugin or EP work.
   `supersede` both keep a visible folded tombstone. Hard-removal made
   `delete` the lone inconsistent action and hid the audit trail from the
   review surfaces operators actually read. The tombstone is terminal —
-  both `approve` and `reject` refuse to transition a `deleted` item
-  (re-propose instead) — so it cannot silently become queryable/
-  prompt-injectable again under *any* sequence. (Blocking only `approve`
+  every store-level operation that could rewrite the folded entry refuses
+  a `deleted` item (`approve`, `reject`, `upsert`, `edit`, and `propose`
+  over an existing tombstoned id all error; `supersede` already requires
+  an approved source) — so it cannot silently become queryable/prompt-
+  injectable again under *any* sequence (re-propose with a fresh id
+  instead, which writes a fresh audit trail). (Blocking only `approve`
   would leave a laundering path: `delete`→`reject` flips the tombstone to
-  `rejected`, after which `approve` resurrects it. `reject` stays reversible
-  for candidate/approved items, which are part of the review flow, but a
-  tombstone is past that flow.)
+  `rejected`, after which `approve` resurrects it; a raw `upsert`/`edit`
+  over the deleted id would replace the tombstone outright; and `propose`
+  with the tombstone's id — reachable from the plugin `memory:propose`
+  bridge — would fold it back to `candidate`, which a follow-on `approve`
+  then launders.
+  `reject`/`edit` stay reversible for candidate/approved items, which are
+  part of the review flow, but a tombstone is past that flow.)
 
 ### D8. Append-only growth: graceful reads + explicit compaction
 

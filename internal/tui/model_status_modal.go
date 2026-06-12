@@ -141,16 +141,47 @@ func (m *Model) statusRuntimeRows() []statusRow {
 }
 
 func (m *Model) statusContextRows() []statusRow {
-	budget := "unbounded"
-	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
-		budget = fmt.Sprintf("warn $%.2f, hard $%.2f", m.budgetWarnUSD, m.budgetHardUSD)
-	}
+	budget := m.statusBudgetSummary()
 	return []statusRow{
 		{Key: "tokens", Value: fmt.Sprintf("%s in / %s out", humanize(m.usage.InputTokens), humanize(m.usage.OutputTokens)), Tone: "text", Action: "/context"},
 		{Key: "cost", Value: fmt.Sprintf("$%.4f", m.usage.CostUSD), Tone: "text", Action: "/budget"},
 		{Key: "budget", Value: budget, Tone: "muted", Action: "/budget"},
 		{Key: "context", Value: fmt.Sprintf("soft %.0f%%, hard %.0f%%", m.ctxSoftThreshold*100, m.ctxHardThreshold*100), Tone: "muted", Action: "/context"},
 	}
+}
+
+// statusBudgetSummary renders the /status modal budget row. USD caps
+// render as dollar amounts; token caps (the local-runner case where
+// CostUSD is always 0) render as compact token counts. Both can be
+// present at once. Returns "unbounded" when nothing is configured so a
+// token-only budget no longer collapses to a misleading "warn $0.00,
+// hard $0.00" (or gets omitted entirely).
+func (m *Model) statusBudgetSummary() string {
+	var parts []string
+	if m.budgetWarnUSD > 0 || m.budgetHardUSD > 0 {
+		parts = append(parts, fmt.Sprintf("warn $%.2f, hard $%.2f", m.budgetWarnUSD, m.budgetHardUSD))
+	}
+	addTokens := func(label string, warn, hard int) {
+		if warn <= 0 && hard <= 0 {
+			return
+		}
+		w := "(unset)"
+		if warn > 0 {
+			w = formatTokenCount(warn)
+		}
+		h := "(unset)"
+		if hard > 0 {
+			h = formatTokenCount(hard)
+		}
+		parts = append(parts, fmt.Sprintf("%s warn %s, hard %s", label, w, h))
+	}
+	addTokens("tok", m.budgetWarnTokens, m.budgetHardTokens)
+	addTokens("in-tok", m.budgetWarnInputTokens, m.budgetHardInputTokens)
+	addTokens("out-tok", m.budgetWarnOutputTokens, m.budgetHardOutputTokens)
+	if len(parts) == 0 {
+		return "unbounded"
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m *Model) statusExtensionRows() []statusRow {

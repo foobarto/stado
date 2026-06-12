@@ -17,6 +17,39 @@ type loopState struct {
 	iter     int           // completed iteration count
 }
 
+// loopActive reports whether a /loop session is currently running — drives
+// the status-bar "↻ loop" indicator. EP-0036.
+func (m *Model) loopActive() bool { return m.loop != nil }
+
+// loopIntervalLabel returns the parenthesised interval suffix for the
+// status-bar loop indicator ("(5m)" for a timed loop), or "" for an
+// immediate-repeat loop or no loop. EP-0036.
+func (m *Model) loopIntervalLabel() string {
+	if m.loop == nil || m.loop.interval <= 0 {
+		return ""
+	}
+	return "(" + compactDuration(m.loop.interval) + ")"
+}
+
+// compactDuration renders a loop interval compactly: "5m", "30s", "1m30s",
+// "2h", "2h30m". Whole units drop the lower component.
+func compactDuration(d time.Duration) string {
+	switch {
+	case d >= time.Hour:
+		if d%time.Hour == 0 {
+			return fmt.Sprintf("%dh", int(d/time.Hour))
+		}
+		return fmt.Sprintf("%dh%dm", int(d/time.Hour), int((d%time.Hour)/time.Minute))
+	case d >= time.Minute:
+		if d%time.Minute == 0 {
+			return fmt.Sprintf("%dm", int(d/time.Minute))
+		}
+		return fmt.Sprintf("%dm%ds", int(d/time.Minute), int((d%time.Minute)/time.Second))
+	default:
+		return fmt.Sprintf("%ds", int(d/time.Second))
+	}
+}
+
 // loopTickMsg fires when a timed loop interval elapses.
 type loopTickMsg struct{}
 
