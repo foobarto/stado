@@ -1,4 +1,5 @@
 /stado
+/fakelsp
 *.db
 *.log
 .stado/
