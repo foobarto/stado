@@ -108,13 +108,21 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 				validateMutationLink(w.Src, cur, commit, trailers))
 		}
 
-		sig, ok := ExtractSignature(commit.Message)
-		if !ok {
+		switch trailers := sigTrailerRE.FindAllString(commit.Message, -1); {
+		case len(trailers) == 0:
 			res.Unsigned++
 			if res.FirstUnsignedAt.IsZero() {
 				res.FirstUnsignedAt = cur
 			}
-		} else {
+		case len(trailers) > 1:
+			// Multiple Signature trailers: ambiguous / trailer-injection. A
+			// well-formed signed commit has exactly one, so this is a tamper
+			// signal — count it as Invalid, NOT the benign Unsigned class.
+			res.Invalid++
+			if res.InvalidAt.IsZero() {
+				res.InvalidAt = cur
+			}
+		default:
 			parents := make([]string, len(commit.ParentHashes))
 			for i, p := range commit.ParentHashes {
 				parents[i] = p.String()
@@ -147,7 +155,6 @@ func (w *Walker) Verify(refName string, head plumbing.Hash) (WalkResult, error) 
 			} else {
 				res.Signed++
 			}
-			_ = sig
 		}
 
 		if len(commit.ParentHashes) == 0 {
