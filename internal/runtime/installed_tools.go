@@ -107,8 +107,8 @@ type installedPluginTool struct {
 	// each instance to the registry-build that created it; subsequent
 	// builds get their own instances with their own pointers, so
 	// nested invokes can't leak across builds.
-	cfg        *config.Config
-	invokeReg  *tools.Registry
+	cfg       *config.Config
+	invokeReg *tools.Registry
 }
 
 func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
@@ -262,26 +262,35 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 		return
 	}
 	stateDir := cfg.StateDir()
-	pluginsDir := filepath.Join(stateDir, "plugins")
-
-	groups, err := groupInstalledByName(pluginsDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "stado: warn: enumerate installed plugins: %v\n", err)
-		return
-	}
-
 	ts := plugins.NewTrustStore(stateDir)
 
 	// Codex C4/Q P2: per-tool cfg + reg storage (see installedPluginTool
-	// struct comment). The constructor receives cfg+reg below; the
-	// globals are gone so an unrelated /tool info build can't pollute
-	// the runtime view used by a previously-built tool's Run() path.
-
-	// Reset package-level lookup state for this build.
+	// struct comment). Reset package-level lookup state once for this build.
 	installedRegistryMu.Lock()
 	installedByTool = map[string]installedRecord{}
 	installedRegistryMu.Unlock()
 
+	// EP-0035: search the project-local .stado/plugins/ dir in addition to the
+	// global state dir. AllPluginDirs returns [project, global]; register
+	// global FIRST so a project plugin registers last and WINS on a name
+	// collision (Register overwrites — project-scoped beats global). Verified
+	// against the same (global) trust store.
+	dirs := cfg.AllPluginDirs()
+	for i := len(dirs) - 1; i >= 0; i-- {
+		registerPluginsFromDir(reg, cfg, ts, stateDir, dirs[i])
+	}
+}
+
+// registerPluginsFromDir registers every active installed-plugin tool found
+// under pluginsDir into reg. stateDir is the global state dir used for
+// active-version pins (a project plugin with no global pin falls back to its
+// highest version). A missing pluginsDir is a no-op.
+func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins.TrustStore, stateDir, pluginsDir string) {
+	groups, err := groupInstalledByName(pluginsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stado: warn: enumerate installed plugins in %s: %v\n", pluginsDir, err)
+		return
+	}
 	for name, versions := range groups {
 		version := pickActiveVersion(stateDir, name, versions)
 		if version == "" {
@@ -353,18 +362,23 @@ func ResolveInstalledPluginDir(cfg *config.Config, name string) (string, bool) {
 		return "", false
 	}
 	stateDir := cfg.StateDir()
-	pluginsDir := filepath.Join(stateDir, "plugins")
-	groups, err := groupInstalledByName(pluginsDir)
-	if err != nil {
-		return "", false
+	// EP-0035: check project-local .stado/plugins/ before the global state dir
+	// (AllPluginDirs returns [project, global]) so a project plugin wins,
+	// matching registerInstalledPluginTools' precedence.
+	for _, pluginsDir := range cfg.AllPluginDirs() {
+		groups, err := groupInstalledByName(pluginsDir)
+		if err != nil {
+			continue
+		}
+		versions, ok := groups[name]
+		if !ok {
+			continue
+		}
+		version := pickActiveVersion(stateDir, name, versions)
+		if version == "" {
+			continue
+		}
+		return filepath.Join(pluginsDir, name+"-"+version), true
 	}
-	versions, ok := groups[name]
-	if !ok {
-		return "", false
-	}
-	version := pickActiveVersion(stateDir, name, versions)
-	if version == "" {
-		return "", false
-	}
-	return filepath.Join(pluginsDir, name+"-"+version), true
+	return "", false
 }
