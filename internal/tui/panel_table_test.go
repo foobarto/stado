@@ -16,4 +16,9 @@ func TestWriteTableRow_ExtraCellsNoPanic(t *testing.T) {
 	if !strings.Contains(out, "aa") || !strings.Contains(out, "bb") {
 		t.Errorf("expected the first two cells rendered, got %q", out)
 	}
+	// The extra (un-columned) cell is dropped, not leaked — guards against a
+	// future break->continue regression that would still avoid the panic.
+	if strings.Contains(out, "cc") {
+		t.Errorf("extra cell beyond the declared columns should be dropped, got %q", out)
+	}
 }
