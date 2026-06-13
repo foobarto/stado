@@ -15,7 +15,6 @@ import (
 	"github.com/foobarto/stado/internal/plugins/bundled"
 	"github.com/foobarto/stado/internal/plugins/userbundled"
 	"github.com/foobarto/stado/internal/sandbox"
-	"github.com/foobarto/stado/internal/tui"
 )
 
 var version = "0.0.0-dev"
@@ -80,30 +79,12 @@ var rootCmd = &cobra.Command{
 		// hand it to tui.Run to render in-band as a system block.
 		startupNotices := sandbox.HostUnsandboxedLines(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
-			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
-			cwd, _ := os.Getwd()
-			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
-			if brokerErr != nil {
-				return fmt.Errorf("stado: %w", brokerErr)
-			}
-			// Capture the sandbox-mode banner (sandbox=… session=…,
-			// writable: …, masked-paths) into the same notices instead of
-			// the about-to-be-cleared stderr.
-			var banner strings.Builder
-			brokerSession.AnnounceSandboxMode(&banner, "stado")
-			startupNotices = append(startupNotices, splitBannerLines(banner.String())...)
-			defer func() {
-				if closeErr := brokerSession.Close(); closeErr != nil {
-					fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
-				}
-			}()
-
-			// Enforce the broker's projected ceiling on the TUI's sandboxed
-			// tool calls (decision 2026-06-13: ssh-agent passthrough scope
-			// expansion — mirrors `stado run`). The ceiling carries the
-			// credential-dir mask + the forwarded ssh-agent socket. Skipped
-			// sessions / --no-sandbox keep the un-wrapped runner.
-			return tui.Run(cfg, startupNotices, brokerSession.Ceiling, !brokerSession.Skipped && !noSandbox)
+			// Broker attach + ceiling enforcement (credential-dir mask +
+			// ssh-agent forwarding) is shared with `session resume` via
+			// launchInlineTUI so both inline-TUI launches behave identically.
+			// The sandbox banner is folded into startupNotices because the
+			// alt-screen clears pre-launch stderr.
+			return launchInlineTUI(ctx, cfg, startupNotices)
 		})
 	},
 }

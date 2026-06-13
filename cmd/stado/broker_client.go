@@ -25,9 +25,55 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/broker"
+	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/tui"
 )
+
+// inlineTUIRunner is the function launchInlineTUI uses to boot the TUI. It is a
+// var (defaulting to tui.Run) so tests can capture the notices / ceiling /
+// enforce flag an entry point would pass without booting the real alt-screen
+// TUI (which blocks on stdin/render).
+var inlineTUIRunner = tui.Run
+
+// tuiCeiling derives the (ceiling, enforce) pair tui.Run should receive from a
+// broker session plus the --no-sandbox flag. enforce is true only when the
+// broker actively projected a ceiling (attach not skipped) and the operator
+// did not opt out — matching the bare-TUI path. When not enforcing, the zero
+// policy is returned and the runner stays un-wrapped.
+func tuiCeiling(bs *BrokerSession, noSandbox bool) (sandbox.Policy, bool) {
+	if bs == nil || bs.Skipped || noSandbox {
+		return sandbox.Policy{}, false
+	}
+	return bs.Ceiling, true
+}
+
+// launchInlineTUI attaches to the broker for an inline TUI launch — the bare
+// `stado` command AND `stado session resume` — folds the sandbox-mode banner
+// into the startup notices, enforces the broker's projected ceiling (the
+// credential-dir mask + the forwarded ssh-agent socket), and boots the TUI.
+// Both entry points share it so a resumed session gets exactly the same
+// sandbox treatment as a fresh one (decision 2026-06-13: ssh-agent passthrough
+// scope — previously `session resume` passed a zero ceiling + enforce=false and
+// so ran un-fenced). Closes the broker session on return.
+func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string) error {
+	cwd, _ := os.Getwd()
+	bs, err := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+	if err != nil {
+		return fmt.Errorf("stado: %w", err)
+	}
+	var banner strings.Builder
+	bs.AnnounceSandboxMode(&banner, "stado")
+	notices = append(notices, splitBannerLines(banner.String())...)
+	defer func() {
+		if closeErr := bs.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
+		}
+	}()
+	ceiling, enforce := tuiCeiling(bs, noSandbox)
+	return inlineTUIRunner(cfg, notices, ceiling, enforce)
+}
 
 // brokerAttachTimeout is the maximum wall-clock time the helper
 // waits for the broker to be reachable (including auto-spawn).
