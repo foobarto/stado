@@ -130,6 +130,21 @@ func (m *Model) loopIterate() tea.Cmd {
 	return m.startStream()
 }
 
+// stopLoopOnError cancels an active loop after one of its iterations ended
+// in stateError and emits a system block so the user knows the loop stopped
+// and why. A no-op when no loop is running. Re-iterating instead would be
+// wrong: an immediate-repeat loop would spin error→re-fire→error with no
+// delay, and a timed loop would silently never reschedule its tick while the
+// status bar still claimed it was active.
+func (m *Model) stopLoopOnError() {
+	if m.loop == nil {
+		return
+	}
+	m.loop = nil
+	m.appendBlock(block{kind: "system", body: "loop stopped — the last iteration errored (use /loop to restart once the issue is resolved)"})
+	m.renderBlocks()
+}
+
 // loopCheckDone scans the agent's latest response for the stop signal.
 // Call after each turn. Returns true if the loop was terminated.
 func (m *Model) loopCheckDone(responseText string) bool {
