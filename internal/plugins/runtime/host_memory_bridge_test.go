@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -216,23 +217,33 @@ func TestMemoryBridge_Forwarding_Update(t *testing.T) {
 // forwarded straight to the bridge, letting a plugin launder its own proposal
 // into queryable memory.
 func TestMemoryBridge_Update_DeniesPluginApprove(t *testing.T) {
-	br := &recordingMemoryBridge{}
-	h := newBridgeHarness(t).
-		withCaps("memory:write").
-		withMemoryBridge(br).
-		install()
+	// Case/whitespace variants must ALL be denied — the store normalises
+	// (TrimSpace+ToLower) before its approve switch, so an exact-match guard
+	// would be bypassable (Codex P1 on PR #172).
+	for _, action := range []string{"approve", "Approve", "APPROVE", " approve ", "\tApProVe"} {
+		br := &recordingMemoryBridge{}
+		h := newBridgeHarness(t).
+			withCaps("memory:write").
+			withMemoryBridge(br).
+			install()
 
-	payload := []byte(`{"action":"approve","id":"mem-1"}`)
-	h.memWrite(0, payload)
+		payload := []byte(`{"action":` + jsonQuote(action) + `,"id":"mem-1"}`)
+		h.memWrite(0, payload)
 
-	got := h.callImport(context.Background(), "stado_memory_update",
-		0, uint64(len(payload)))
-	if got != -1 {
-		t.Errorf("plugin approve must be denied (-1), got %d", got)
+		got := h.callImport(context.Background(), "stado_memory_update",
+			0, uint64(len(payload)))
+		if got != -1 {
+			t.Errorf("plugin approve %q must be denied (-1), got %d", action, got)
+		}
+		if br.lastUpdatePayload != nil {
+			t.Errorf("approve %q must NOT reach the bridge; got forwarded %q", action, br.lastUpdatePayload)
+		}
 	}
-	if br.lastUpdatePayload != nil {
-		t.Errorf("approve must NOT reach the bridge; got forwarded payload %q", br.lastUpdatePayload)
-	}
+}
+
+func jsonQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // ---- Contract 4: cancel propagation ------------------------------------

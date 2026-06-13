@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -128,7 +129,13 @@ func registerMemoryUpdateImport(builder wazero.HostModuleBuilder, host *Host) {
 			var act struct {
 				Action string `json:"action"`
 			}
-			if json.Unmarshal(payload, &act) == nil && act.Action == "approve" {
+			// Normalise exactly as memory.Store.Update does (TrimSpace+ToLower)
+			// before comparing — otherwise a case/whitespace variant
+			// ("Approve", " APPROVE ") slips past this guard and is then
+			// normalised to "approve" by the store (store.go: req.Action =
+			// strings.TrimSpace(strings.ToLower(...))), defeating it.
+			if json.Unmarshal(payload, &act) == nil &&
+				strings.TrimSpace(strings.ToLower(act.Action)) == "approve" {
 				host.Logger.Warn("stado_memory_update denied — plugins cannot approve candidate memories (user action required)",
 					slog.String("plugin", host.Manifest.Name))
 				stack[0] = api.EncodeI32(-1)
