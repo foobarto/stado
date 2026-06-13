@@ -104,6 +104,21 @@ func lineEndWithNewline(buf string, off int) int {
 	return le
 }
 
+// lineLastChar returns the offset of the LAST rune on off's line — the rune
+// before the terminating newline (or before EOF on the final line) — or the
+// line start for an empty line. `$` uses this (inclusive) so that as an
+// operator motion the inclusive +1 lands ON the newline (exclusive slice end):
+// d$/c$/y$ then stop at the line end without eating the newline on a multiline
+// buffer, and the bare cursor still rests on the last rune.
+func lineLastChar(buf string, off int) int {
+	ls := lineStart(buf, off)
+	le := lineEnd(buf, off)
+	if le <= ls {
+		return ls // empty line
+	}
+	return prevRune(buf, le)
+}
+
 // lineFirstNonBlank returns the offset of the first non-whitespace rune on the
 // line containing off (the `^` motion). Falls back to the line start if the
 // line is all blanks.
@@ -169,14 +184,6 @@ func moveVertical(buf string, off, delta int) int {
 	switch {
 	case delta > 0:
 		for i := 0; i < delta; i++ {
-			next := lineEndWithNewline(buf, cur)
-			if next > len(buf) || next == cur || (next == len(buf) && (len(buf) == 0 || buf[len(buf)-1] != '\n')) {
-				// No further line below.
-				if lineEnd(buf, cur) == len(buf) {
-					// Already last line.
-					return offsetAtColumn(buf, cur, col)
-				}
-			}
 			ne := lineEndWithNewline(buf, cur)
 			if ne >= len(buf) {
 				// cur is the last line; can't go down.

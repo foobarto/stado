@@ -194,6 +194,10 @@ func TestOperatorMotion(t *testing.T) {
 			keys: []string{"d", "b"}, wantBuf: "bar", wantCur: 0, wantMode: ModeNormal, wantReg: "foo "},
 		{name: "d$ deletes to end of line", startBuf: "hello world", startCur: 6, startMode: ModeNormal,
 			keys: []string{"d", "$"}, wantBuf: "hello ", wantCur: 5, wantMode: ModeNormal, wantReg: "world"},
+		// Multiline: d$ must stop AT the newline, not eat it (Codex P2). Before
+		// the fix this yielded "world" (newline consumed).
+		{name: "d$ on multiline keeps the newline", startBuf: "hello\nworld", startCur: 0, startMode: ModeNormal,
+			keys: []string{"d", "$"}, wantBuf: "\nworld", wantCur: 0, wantMode: ModeNormal, wantReg: "hello"},
 		{name: "d0 deletes to line start", startBuf: "hello", startCur: 3, startMode: ModeNormal,
 			keys: []string{"d", "0"}, wantBuf: "lo", wantCur: 0, wantMode: ModeNormal, wantReg: "hel"},
 		{name: "cw changes word", startBuf: "foo bar", startCur: 0, startMode: ModeNormal,

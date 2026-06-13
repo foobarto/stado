@@ -553,6 +553,16 @@ func vimDispatch(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 
+	// Non-text functional keys (tab, shift+tab, pageup/pagedown, home/end, the
+	// arrows, backspace, ...) are not part of the vim command alphabet — let
+	// them reach their app-level bindings (tab=ModeToggle, shift+tab=ToolExpand,
+	// pageup/pagedown + home/end = message scroll) instead of the engine's
+	// NORMAL catch-all swallowing them. esc/enter are handled above; printable
+	// vim keys carry msg.Text, so this only releases functional keys.
+	if msg.Text == "" {
+		return m, nil, false
+	}
+
 	// Route the key to the pure engine and apply its result.
 	res := m.vim.Handle(keyStr, m.input.Value(), m.input.CursorOffset())
 	if !res.Consumed {

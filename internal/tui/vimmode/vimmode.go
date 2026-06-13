@@ -363,7 +363,7 @@ func (e *Engine) motion(key, buf string, cursor int) (motionResult, bool) {
 	case "^":
 		return motionResult{newCursor: lineFirstNonBlank(buf, cursor)}, true
 	case "$":
-		return motionResult{newCursor: lineEnd(buf, cursor), inclusive: true}, true
+		return motionResult{newCursor: lineLastChar(buf, cursor), inclusive: true}, true
 	case "G":
 		if e.count > 0 {
 			return gotoLine(buf, e.count), true
