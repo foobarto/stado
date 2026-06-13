@@ -38,6 +38,15 @@ jobs:
       packages: write      # publish to GHCR (Homebrew tap push comes later)
       id-token: write      # OIDC for cosign keyless + provenance signing
       attestations: write  # write build-provenance attestations
+    env:
+      # GitHub Actions forbids `secrets.*` in a step-level `if:` (the
+      # secrets context is not available there). Job-level env CAN read
+      # secrets, so we promote "is the minisign signing key provisioned?"
+      # to a plain string here and gate the dormant-until-key steps on
+      # `env.HAS_MINISIGN_KEY == 'true'` below. With the secret unset this
+      # evaluates to 'false' and the minisign steps skip cleanly — the
+      # release builds + publishes exactly as it does today.
+      HAS_MINISIGN_KEY: ${{ secrets.STADO_MINISIGN_SECKEY != '' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -85,6 +94,57 @@ jobs:
           # templates skip_upload=true when this secret is unset, so
           # the release still succeeds — just without the tap PR.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Minisign release trust root (the verify pubkey), embedded via the
+          # ldflag in .goreleaser.yaml builds[].ldflags. Read with
+          # `{{ if index .Env "..." }}` so an unset secret expands to "" here
+          # and the template injects the empty default (current behavior:
+          # self-update stays disabled). PUBKEY_B64 = base64 of the RAW
+          # 32-byte Ed25519 public key. (The signer key-id is not embedded —
+          # see the .goreleaser.yaml note; it's display-only + uint64, which
+          # `-X` can't set.)
+          STADO_MINISIGN_PUBKEY_B64: ${{ secrets.STADO_MINISIGN_PUBKEY_B64 }}
+
+      # Minisign "layer 3": additionally sign checksums.txt with the
+      # long-lived release key (cosign keyless above is the always-on
+      # layer). DORMANT-UNTIL-KEY: both steps gate on HAS_MINISIGN_KEY
+      # (job-level env derived from the secret) and skip cleanly until the
+      # operator provisions STADO_MINISIGN_SECKEY — so releases cut before
+      # the key ceremony build + publish unchanged, just without a
+      # .minisig. Runs after GoReleaser (dist/checksums.txt exists) and
+      # before provenance. This is the ONLINE half of option B: the key
+      # lives in a CI secret. For a fully-offline ceremony (sign on an
+      # airgapped host, upload the .minisig out of band) leave the secret
+      # unset and follow SECURITY.md "Signing a release".
+      - name: Minisign-sign checksums
+        if: ${{ env.HAS_MINISIGN_KEY == 'true' }}
+        env:
+          STADO_MINISIGN_SECKEY: ${{ secrets.STADO_MINISIGN_SECKEY }}
+          STADO_MINISIGN_PASSWORD: ${{ secrets.STADO_MINISIGN_PASSWORD }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y minisign
+          umask 077
+          keyfile="$(mktemp)"
+          trap 'shred -u "$keyfile" 2>/dev/null || rm -f "$keyfile"' EXIT
+          printf '%s' "$STADO_MINISIGN_SECKEY" > "$keyfile"
+          # -S sign; -H forces prehashing so the signature is the "ED"
+          # (prehashed BLAKE2b) algorithm stado's verifier requires
+          # (internal/audit/minisign.go) regardless of the installed
+          # minisign's default. Password fed on stdin. Trusted comment is
+          # rendered to the verifier on `minisign -V` success.
+          printf '%s\n' "$STADO_MINISIGN_PASSWORD" | minisign -S -H \
+            -m dist/checksums.txt \
+            -s "$keyfile" \
+            -t "stado ${REF_NAME} signed"
+
+      - name: Upload checksums.txt.minisig
+        if: ${{ env.HAS_MINISIGN_KEY == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: gh release upload "$REF_NAME" dist/checksums.txt.minisig --clobber
 
       - name: Attest build provenance
         # GitHub-native SLSA-L3 provenance over every released artifact.

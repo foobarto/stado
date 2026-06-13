@@ -43,52 +43,139 @@ USB, paper backup). The password prompted during `-G` is the only
 protection on the key file itself — pick a real passphrase.
 
 `stado.pub` is the file distributors read. Its trailing base64 line is
-the 32-byte Ed25519 public key encoded as minisign expects.
+**not** the bare key — it decodes to a 42-byte blob laid out as
+`signature_algorithm(2) || key_id(8, little-endian) || ed25519_pubkey(32)`.
+stado's verifier (`internal/audit/minisign.go` + `cmd/stado/selfupdate.go`)
+pins the **raw 32-byte key, base64-encoded**. The embedding step below
+strips the 10-byte `alg||key_id` prefix and re-base64s the inner 32
+bytes; feeding the 42-byte minisign line in directly is the most common
+wiring mistake — the verifier rejects it as "embedded minisign pubkey
+malformed".
 
 ### Embedding the pubkey into release builds
 
 stado reads the pinned pubkey from `audit.EmbeddedMinisignPubkey`.
 It is empty by default, so local/dev builds do not carry a release
 trust root and `stado self-update` refuses to run. Release builds seed
-the key via `-ldflags`:
+the key via `-ldflags`.
+
+Derive the pubkey from `stado.pub`. The trailing base64 line decodes
+to `alg(2) || key_id(8, little-endian) || pubkey(32)`; take the inner 32
+bytes for the pubkey (the key-id, bytes 2..10, is computed below for
+reference only — it is not embedded today; see the note after the snippet):
 
 ```sh
-# Extract the raw base64 from stado.pub (skip the comment line):
-PUBKEY=$(tail -n 1 stado.pub)
-
-# Seed both the pubkey and the key id. Key id is the 64-bit signer id
-# that minisign embeds in each signature — lets stado reject signatures
-# from the wrong signer even if someone substitutes a different key.
-KEYID=$(head -c 10 stado.pub | tail -c 8 | xxd -p -c 8)   # simplified
+# PUBKEY_B64 = base64 of the RAW 32-byte Ed25519 key (bytes 10..42 of
+#              the decoded .pub line). This is what the verifier pins —
+#              NOT the 42-byte minisign line.
+# KEYID      = the 64-bit signer id as a DECIMAL uint64 (bytes 2..10,
+#              little-endian). Reference only — NOT embedded today (see the
+#              note below); a future --show-builtin-keys would surface it.
+read -r PUBKEY_B64 KEYID < <(python3 - "$(tail -n 1 stado.pub)" <<'PY'
+import base64, struct, sys
+blob = base64.b64decode(sys.argv[1])           # 42 bytes: alg||key_id||key
+key_id = struct.unpack('<Q', blob[2:10])[0]    # little-endian uint64
+raw32  = blob[10:42]                           # raw Ed25519 public key
+print(base64.standard_b64encode(raw32).decode(), key_id)
+PY
+)
 
 go build \
   -ldflags "\
-    -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignPubkey=$PUBKEY \
-    -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignKeyID=$KEYID \
+    -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignPubkey=$PUBKEY_B64 \
   " \
   -o stado ./cmd/stado
 ```
 
-For goreleaser-driven releases, put these `-X` fragments in
-`.goreleaser.yaml`'s `builds[].ldflags` (the values come from
-repository secrets / CI variables, never checked into git).
+The signer key-id is **not** embedded: `-X` only sets `string` variables and
+`audit.EmbeddedMinisignKeyID` is a `uint64` (injecting it link-errors with
+"not a var of type string"). It is display-only — verification does not use
+it today — so it stays `0`; surfacing it via `--show-builtin-keys` is a
+deferred follow-up (a `string`-shim + `strconv.ParseUint` in Go). The
+`$KEYID` derived above is unused for now.
+
+For goreleaser-driven releases this `-X` fragment already lives in
+`.goreleaser.yaml`'s `builds[].ldflags`, guarded so an unset env still
+compiles. Provision the raw-32 base64 as the CI secret
+`STADO_MINISIGN_PUBKEY_B64` — never check it into git.
 
 ### Signing a release
 
-On every tagged release, sign `checksums.txt` with the offline key:
+On every tagged release, `checksums.txt` is additionally signed with the
+minisign key. There are two ways to produce `checksums.txt.minisig`, and
+the release pipeline supports both. **Pick one** — they are mutually
+exclusive per release (two signatures over the same manifest would
+collide on the asset name).
+
+**Path B-online — key in a CI secret (lowest-friction, wired today).**
+`.github/workflows/release.yml` carries a dormant "Minisign-sign
+checksums" step that runs only when the secret `STADO_MINISIGN_SECKEY`
+is present (see *Provisioning the CI secrets* below). When set, CI
+installs minisign, signs `dist/checksums.txt`, and uploads the
+`.minisig`. The key lives in GitHub Actions secrets — convenient, but
+the private key touches an online runner. Use this if the threat model
+accepts a hot signing key (most projects pre-1.0).
+
+**Path B-offline — airgapped key (highest assurance).** Leave
+`STADO_MINISIGN_SECKEY` unset (CI step stays dormant) and sign out of
+band:
 
 ```sh
 # 1. Let goreleaser / CI produce checksums.txt in the usual way.
-# 2. Transfer checksums.txt to the airgapped machine (sneakernet).
-# 3. Sign it:
+# 2. Download/transfer checksums.txt to the airgapped machine.
+# 3. Sign it (minisign >= 0.10 prehashes by default → the "ED" format
+#    stado's verifier requires; do NOT pass -l/legacy):
 minisign -Sm checksums.txt -s stado.key -t "stado <version> signed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # → produces checksums.txt.minisig alongside.
-# 4. Transfer the .minisig back and upload as a release asset.
+# 4. Upload the .minisig as a release asset:
+gh release upload <tag> checksums.txt.minisig --clobber
 ```
 
-`stado self-update` looks for `checksums.txt.minisig` in the release's
-assets and requires it alongside an embedded minisign pubkey in the
-running binary. Missing either side of that pair is a hard failure.
+The private key never leaves the airgapped host. This is the posture the
+"airgap-safe by construction" claim above is really about.
+
+> **Trade-off in one line:** B-online trusts the CI runner with a live
+> signing key (convenient, hot key); B-offline keeps the key airgapped
+> and pays a manual sneakernet+upload step per release (slower, cold
+> key). The embedded-pubkey verify path is identical either way.
+
+Either way, `stado self-update` looks for `checksums.txt.minisig` in the
+release's assets and requires it alongside an embedded minisign pubkey
+in the running binary. Missing either side of that pair is a hard
+failure.
+
+### Provisioning the CI secrets (for B-online)
+
+Only needed for Path B-online. From the derived values above plus the
+key file, set three GitHub Actions repository secrets:
+
+| Secret | Value |
+|---|---|
+| `STADO_MINISIGN_PUBKEY_B64` | base64 of the raw 32-byte pubkey (see *Embedding the pubkey*) — embedded via ldflags so self-update can verify offline |
+| `STADO_MINISIGN_SECKEY` | the full contents of `stado.key` (the encrypted minisign secret-key file, comment line included). **Presence of this secret is what arms the CI signing step.** |
+| `STADO_MINISIGN_PASSWORD` | the passphrase chosen during `minisign -G` (CI feeds it to minisign on stdin) |
+
+With none of these set — today's state — the release builds and
+publishes exactly as before: the embedded pubkey stays `""`, and the
+minisign signing/upload steps skip. Provisioning the pubkey alone
+(without `STADO_MINISIGN_SECKEY`) embeds the trust root but leaves signing
+to the offline path; that's a valid B-offline configuration.
+
+### Ordered operator ceremony (summary)
+
+1. `minisign -G -p stado.pub -s stado.key` on an airgapped host; store
+   `stado.key` on encrypted offline media; remember the passphrase.
+2. Derive `PUBKEY_B64` (raw-32 base64) from `stado.pub` with the snippet
+   under *Embedding the pubkey*. (The key-id is not embedded today — see
+   that section's note — so deriving it is optional.)
+3. Set GH secret `STADO_MINISIGN_PUBKEY_B64` (both paths need it — it
+   embeds the verify root).
+4. Choose the signing path:
+   - **B-online:** also set `STADO_MINISIGN_SECKEY` + `STADO_MINISIGN_PASSWORD`. CI signs + uploads automatically.
+   - **B-offline:** leave those two unset; sign `checksums.txt` on the airgapped host and `gh release upload <tag> checksums.txt.minisig` per release.
+5. Cut a release. Confirm a `checksums.txt.minisig` asset exists and that
+   `stado self-update` reports "minisign verified" against the published
+   binary.
 
 ### Verifying a release (end users)
 
