@@ -271,27 +271,37 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 	installedRegistryMu.Unlock()
 
 	// EP-0035: search the project-local .stado/plugins/ dir in addition to the
-	// global state dir. AllPluginDirs returns [project, global]; register
-	// global FIRST so a project plugin registers last and WINS on a name
-	// collision (Register overwrites — project-scoped beats global). Verified
-	// against the same (global) trust store.
-	dirs := cfg.AllPluginDirs()
-	for i := len(dirs) - 1; i >= 0; i-- {
-		registerPluginsFromDir(reg, cfg, ts, stateDir, dirs[i])
+	// global state dir. AllPluginDirs returns [project, global] in priority
+	// order. Register in that order and skip any plugin NAME already claimed by
+	// a higher-priority dir, so a project plugin cleanly SHADOWS the global one
+	// of the same name (rather than per-tool merging the two copies). seen is
+	// shared across dirs. Verified against the same (global) trust store.
+	seen := map[string]bool{}
+	for _, pluginsDir := range cfg.AllPluginDirs() {
+		registerPluginsFromDir(reg, cfg, ts, stateDir, pluginsDir, seen)
 	}
 }
 
 // registerPluginsFromDir registers every active installed-plugin tool found
-// under pluginsDir into reg. stateDir is the global state dir used for
-// active-version pins (a project plugin with no global pin falls back to its
-// highest version). A missing pluginsDir is a no-op.
-func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins.TrustStore, stateDir, pluginsDir string) {
+// under pluginsDir into reg, skipping any plugin name already in seen (claimed
+// by a higher-priority dir) and marking the names it claims. stateDir is the
+// global state dir used for active-version pins (a project plugin with no
+// global pin falls back to its highest version). A missing pluginsDir is a
+// no-op.
+func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins.TrustStore, stateDir, pluginsDir string, seen map[string]bool) {
 	groups, err := groupInstalledByName(pluginsDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "stado: warn: enumerate installed plugins in %s: %v\n", pluginsDir, err)
 		return
 	}
 	for name, versions := range groups {
+		if seen[name] {
+			continue // a higher-priority dir already provided this plugin
+		}
+		// Claim the name for this dir so a lower-priority copy is skipped
+		// entirely — even if this copy fails to verify below, a project
+		// plugin authoritatively shadows the global one (no silent fallback).
+		seen[name] = true
 		version := pickActiveVersion(stateDir, name, versions)
 		if version == "" {
 			continue
