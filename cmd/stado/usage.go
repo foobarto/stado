@@ -355,6 +355,13 @@ func parseUsageTimeWindow(sinceStr, untilStr string, now time.Time) (time.Time, 
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("--until: %w", err)
 	}
+	// Reject an inverted window (both bounds set, --until before --since)
+	// rather than silently printing a reversed-window header with no rows.
+	if !since.IsZero() && !until.IsZero() && until.Before(since) {
+		return time.Time{}, time.Time{}, fmt.Errorf(
+			"--until (%s) is before --since (%s): empty time window",
+			until.Format("2006-01-02 15:04"), since.Format("2006-01-02 15:04"))
+	}
 	return since, until, nil
 }
 
