@@ -463,6 +463,18 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return submitInput(m)
 	}
 
+	// Vim NORMAL/VISUAL: an unhandled key must NEVER reach the editor's readline
+	// bindings (ctrl+w/u/k/a/e would edit the buffer — a modal-mode violation).
+	// App shortcuts + prefix chords are handled above and return earlier; bare
+	// keys are consumed by the engine in vimDispatch; so anything reaching here
+	// in NORMAL/VISUAL is an unbound chord — swallow it (no-op) rather than let
+	// it fall through to m.input.Update.
+	if m.vimEnabled {
+		if vm := m.vim.Mode(); vm == vimmode.ModeNormal || vm == vimmode.ModeVisual {
+			return m, nil, true
+		}
+	}
+
 	return m, nil, false
 }
 
@@ -486,6 +498,14 @@ func vimDispatch(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 
 	// Ctrl+G always falls through to SessionInterrupt — never intercepted.
 	if keyStr == "ctrl+g" {
+		return m, nil, false
+	}
+
+	// While a prefix chord (ctrl+x ...) is mid-sequence, let the suffix key
+	// complete the binding: fall through to TryPrefix instead of letting the
+	// engine eat the bare suffix (`a`/`g`/`l`/...) as a vim command. Without
+	// this, the documented Ctrl+X pickers/shortcuts break in NORMAL/VISUAL.
+	if _, pending := m.keys.PendingPrefix(); pending {
 		return m, nil, false
 	}
 

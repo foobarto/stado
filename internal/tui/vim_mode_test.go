@@ -197,3 +197,52 @@ func TestVimModeSubmitResetsToInsert(t *testing.T) {
 		t.Errorf("after submit, input not reset: %q", m.input.Value())
 	}
 }
+
+// TestVimModeNormalCtrlXChordSuffixNotEatenByVim guards the Codex-flagged P2:
+// in NORMAL mode a pending Ctrl+X prefix's suffix key (`a`/`g`/`l`/...) must
+// complete the chord, NOT be consumed by the vim engine as a command. `ctrl+x
+// a` is the AgentSwitch chord; vim's bare `a` would switch to INSERT, so if the
+// suffix were eaten the mode would flip — assert it stays NORMAL.
+func TestVimModeNormalCtrlXChordSuffixNotEatenByVim(t *testing.T) {
+	m := vimModel(t)
+	m.input.SetValue("hello")
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.vim.Mode() != vimmode.ModeNormal {
+		t.Fatalf("setup: mode = %v, want NORMAL", m.vim.Mode())
+	}
+
+	// Ctrl+X records the prefix; the next bare key must complete `ctrl+x a`.
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "a"})
+
+	if m.vim.Mode() != vimmode.ModeNormal {
+		t.Errorf("ctrl+x suffix `a` was eaten by the vim engine (mode=%v) — prefix chord broken in NORMAL", m.vim.Mode())
+	}
+	if got := m.input.Value(); got != "hello" {
+		t.Errorf("ctrl+x a mutated the buffer: %q, want \"hello\"", got)
+	}
+}
+
+// TestVimModeNormalChordDoesNotEditBuffer guards the second Codex-flagged P2:
+// in NORMAL mode an unhandled editor chord (ctrl+w/u/k/a/e readline editing)
+// must NOT fall through to the textarea and edit the buffer. ESC then Ctrl+W
+// previously deleted a word.
+func TestVimModeNormalChordDoesNotEditBuffer(t *testing.T) {
+	m := vimModel(t)
+	m.input.SetValue("hello world")
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.vim.Mode() != vimmode.ModeNormal {
+		t.Fatalf("setup: mode = %v, want NORMAL", m.vim.Mode())
+	}
+
+	// Ctrl+W in NORMAL must be swallowed, not routed to readline delete-word.
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	if got := m.input.Value(); got != "hello world" {
+		t.Errorf("ctrl+w in NORMAL edited the buffer (readline leak): %q, want \"hello world\"", got)
+	}
+	if m.vim.Mode() != vimmode.ModeNormal {
+		t.Errorf("ctrl+w changed mode to %v, want NORMAL", m.vim.Mode())
+	}
+}
