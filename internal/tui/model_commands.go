@@ -27,8 +27,27 @@ import (
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tui/modelpicker"
+	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 )
+
+// slashListWidth is the live conversation-panel width used when wrapping
+// name+description slash outputs (/tool ls, /skill, /plugin). Mirrors the
+// renderBlocks budget (m.vp.Width()-2) so the pre-wrapped block lines line
+// up with the panel, falling back to a sane 40 when the viewport hasn't
+// been sized yet (e.g. a bare test Model with a zero-value viewport).
+func (m *Model) slashListWidth() int {
+	// The block render width is m.vp.Width()-2 (blocks_render.go); a system
+	// block then adds a left border (1) + Padding(0,1) (2) inside that, and
+	// lipgloss v2 .Width INCLUDES border+padding — so the actual text area is
+	// 3 columns narrower. Wrap to the real text width or the renderer re-wraps
+	// our pre-wrapped lines and breaks the hanging indent.
+	w := m.vp.Width() - 2 - 3
+	if w < 40 {
+		return 40
+	}
+	return w
+}
 
 // shortFleetID returns the first 8 chars of a fleet id for stderr/
 // system-block display. Mirrors the picker's truncation so user logs
@@ -595,18 +614,23 @@ func (m *Model) handleToolManageSlash(parts []string) {
 		for _, t := range autoloaded {
 			autoSet[t.Name()] = true
 		}
-		var lines []string
+		var rows []render.DescRow
 		for _, t := range reg.All() {
 			if glob != "" && !runtime.ToolMatchesGlob(t.Name(), glob) {
 				continue
 			}
-			state := "enabled"
+			// State rides as a trailing "(autoloaded)" suffix on the desc;
+			// plain enabled tools carry no suffix to keep the listing quiet.
+			desc := t.Description()
 			if autoSet[t.Name()] {
-				state = "autoloaded"
+				if desc != "" {
+					desc += " "
+				}
+				desc += "(autoloaded)"
 			}
-			lines = append(lines, fmt.Sprintf("%-32s %s", t.Name(), state))
+			rows = append(rows, render.DescRow{Name: t.Name(), Desc: desc})
 		}
-		m.appendBlock(block{kind: "system", body: strings.Join(lines, "\n")})
+		m.appendBlock(block{kind: "system", body: render.WrapDescList(rows, m.slashListWidth())})
 
 	case "info":
 		if len(parts) < 3 {
@@ -1026,16 +1050,16 @@ func (m *Model) handleSkillSlash(parts []string) tea.Cmd {
 				body: "no skills loaded — drop `.stado/skills/<name>.md` files in the repo to define some"})
 			return nil
 		}
-		var sb strings.Builder
-		sb.WriteString("loaded skills:")
+		rows := make([]render.DescRow, 0, len(m.skills))
 		for _, sk := range m.skills {
 			desc := sk.Description
 			if desc == "" {
 				desc = "(no description)"
 			}
-			sb.WriteString(fmt.Sprintf("\n  /skill:%s — %s", sk.Name, desc))
+			rows = append(rows, render.DescRow{Name: "/skill:" + sk.Name, Desc: desc})
 		}
-		m.appendBlock(block{kind: "system", body: sb.String()})
+		body := "loaded skills:\n" + render.WrapDescList(rows, m.slashListWidth())
+		m.appendBlock(block{kind: "system", body: body})
 		return nil
 	}
 	// /skill:<name>
@@ -1279,7 +1303,7 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 		if len(parts) >= 2 && parts[1] == "reload" {
 			return m.handlePluginReload(parts[2:])
 		}
-		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(pluginRoots...)})
+		m.appendBlock(block{kind: "system", body: renderInstalledPluginList(m.slashListWidth(), pluginRoots...)})
 		return nil
 	}
 

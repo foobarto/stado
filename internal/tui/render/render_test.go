@@ -343,3 +343,190 @@ func TestWordWrap(t *testing.T) {
 		}
 	}
 }
+
+// leadingSpaces counts the run of leading ASCII spaces on a line — the
+// column a continuation line starts at. Used to assert hanging-indent
+// alignment without depending on the exact gutter arithmetic.
+func leadingSpaces(s string) int {
+	n := 0
+	for _, r := range s {
+		if r != ' ' {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// TestWrapDescList_HangingIndentNoTruncation: a long description wraps
+// across multiple lines, every continuation line hangs at the gutter
+// column (NOT column 0), and no word is dropped.
+func TestWrapDescList_HangingIndentNoTruncation(t *testing.T) {
+	desc := "manage tools enable disable autoload unautoload and inspect the live registry from inside the session"
+	rows := []DescRow{
+		{Name: "short", Desc: "tiny"},
+		{Name: "tool", Desc: desc},
+	}
+	out := WrapDescList(rows, 40)
+	lines := strings.Split(out, "\n")
+
+	// The gutter = longest name (5: "short") + 2 = 7.
+	const gutter = 7
+
+	// The "tool" row's first line carries the name; its continuation
+	// lines must hang at the gutter.
+	var sawCont bool
+	inTool := false
+	for _, ln := range lines {
+		switch {
+		case strings.HasPrefix(ln, "tool"):
+			inTool = true
+			continue
+		case strings.HasPrefix(ln, "short"):
+			inTool = false
+			continue
+		}
+		if inTool && strings.TrimSpace(ln) != "" {
+			sawCont = true
+			if got := leadingSpaces(ln); got != gutter {
+				t.Errorf("continuation line not at gutter %d (got %d): %q", gutter, got, ln)
+			}
+		}
+	}
+	if !sawCont {
+		t.Fatalf("expected a wrapped continuation line for the long desc; got:\n%s", out)
+	}
+
+	// No truncation: every word of the long desc must survive somewhere.
+	flat := strings.Join(strings.Fields(out), " ")
+	for _, w := range strings.Fields(desc) {
+		if !strings.Contains(flat, w) {
+			t.Errorf("word %q dropped (truncation?) from:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "…") || strings.Contains(out, "...") {
+		t.Errorf("output contains an ellipsis — must not truncate:\n%s", out)
+	}
+}
+
+// TestWrapDescList_FirstLineAlignment: a name that fits the gutter shares
+// its line with the description's first line, which starts at the gutter
+// column.
+func TestWrapDescList_FirstLineAlignment(t *testing.T) {
+	rows := []DescRow{
+		{Name: "a", Desc: "alpha"},
+		{Name: "bb", Desc: "beta"},
+	}
+	out := WrapDescList(rows, 40)
+	lines := strings.Split(out, "\n")
+	// gutter = longest name ("bb"=2) + 2 = 4.
+	const gutter = 4
+	for _, ln := range lines {
+		// Description text starts at the gutter column on the first line.
+		idx := strings.Index(ln, "alpha")
+		if idx >= 0 && idx != gutter {
+			t.Errorf("first-line desc not at gutter %d (got %d): %q", gutter, idx, ln)
+		}
+		idx = strings.Index(ln, "beta")
+		if idx >= 0 && idx != gutter {
+			t.Errorf("first-line desc not at gutter %d (got %d): %q", gutter, idx, ln)
+		}
+	}
+}
+
+// TestWrapDescList_LongNameOwnLine: a name longer than the gutter takes
+// its own line, and the description wraps indented at the gutter below it.
+func TestWrapDescList_LongNameOwnLine(t *testing.T) {
+	long := "this_is_a_very_long_tool_name_exceeding_the_gutter_cap_for_sure"
+	rows := []DescRow{
+		{Name: "x", Desc: "short"},
+		{Name: long, Desc: "the description that follows on its own indented line below the long name"},
+	}
+	out := WrapDescList(rows, 40)
+	lines := strings.Split(out, "\n")
+
+	// Find the line that is exactly the long name (own line, no desc on it).
+	nameLineIdx := -1
+	for i, ln := range lines {
+		if ln == long {
+			nameLineIdx = i
+			break
+		}
+	}
+	if nameLineIdx < 0 {
+		t.Fatalf("long name should be on its own line:\n%s", out)
+	}
+	// The next line must be the description, indented at the gutter.
+	if nameLineIdx+1 >= len(lines) {
+		t.Fatalf("no description line after the long name:\n%s", out)
+	}
+	descLine := lines[nameLineIdx+1]
+	if leadingSpaces(descLine) == 0 {
+		t.Errorf("description after a long name must hang-indent, got col 0: %q", descLine)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(out), " "), "the description that follows") {
+		t.Errorf("long-name description truncated:\n%s", out)
+	}
+}
+
+// TestWrapDescList_EmptyDesc: a row with no description renders just the
+// name, no trailing whitespace junk.
+func TestWrapDescList_EmptyDesc(t *testing.T) {
+	rows := []DescRow{{Name: "solo", Desc: ""}}
+	out := WrapDescList(rows, 40)
+	if strings.TrimRight(out, " ") != "solo" {
+		t.Errorf("empty-desc row should render just the name, got %q", out)
+	}
+}
+
+// TestWrapDescList_NarrowWidthNoPanic: a width far smaller than the gutter
+// must not panic and must not DROP characters (no truncation). At extreme
+// widths the description necessarily wraps one cell per line, so we assert
+// every word's runes survive in order rather than contiguity.
+func TestWrapDescList_NarrowWidthNoPanic(t *testing.T) {
+	rows := []DescRow{
+		{Name: "alpha", Desc: "one two three four"},
+		{Name: "b", Desc: "five six"},
+	}
+	for _, w := range []int{0, 1, 3, 5, 8} {
+		out := WrapDescList(rows, w) // must not panic
+		// Names always survive whole (they're never wrapped).
+		if !strings.Contains(out, "alpha") {
+			t.Errorf("width %d: lost name: %q", w, out)
+		}
+		// No truncation: stripping whitespace recovers every word's runes.
+		flat := strings.Join(strings.Fields(out), "")
+		for _, word := range []string{"one", "two", "three", "four", "five", "six"} {
+			if !strings.Contains(flat, word) {
+				t.Errorf("width %d: word %q runes lost (truncation): %q", w, word, out)
+			}
+		}
+	}
+}
+
+// TestWrapDescList_GutterCap: with a very long name in the set, the
+// gutter for fitting names stays capped at 24 rather than ballooning to
+// the longest name's width.
+func TestWrapDescList_GutterCap(t *testing.T) {
+	rows := []DescRow{
+		{Name: strings.Repeat("z", 60), Desc: "long-name row forces a wide max but the cap holds"},
+		{Name: "fit", Desc: "this row's desc starts at the capped gutter"},
+	}
+	out := WrapDescList(rows, 120)
+	for _, ln := range strings.Split(out, "\n") {
+		if idx := strings.Index(ln, "this row's desc"); idx >= 0 {
+			if idx > 24 {
+				t.Errorf("gutter exceeded cap of 24 (desc at col %d): %q", idx, ln)
+			}
+		}
+	}
+}
+
+// TestWrapDescList_NoTrailingNewline: rows are newline-separated with no
+// trailing newline, so callers can compose the block freely.
+func TestWrapDescList_NoTrailingNewline(t *testing.T) {
+	out := WrapDescList([]DescRow{{Name: "a", Desc: "x"}, {Name: "b", Desc: "y"}}, 40)
+	if strings.HasSuffix(out, "\n") {
+		t.Errorf("WrapDescList must not emit a trailing newline: %q", out)
+	}
+}

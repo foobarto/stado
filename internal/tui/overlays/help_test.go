@@ -185,3 +185,108 @@ func TestRenderHelp_ScrollReachesSlashCommands(t *testing.T) {
 		t.Errorf("clamp not stable: %d → %d", scroll, again)
 	}
 }
+
+// stripANSI removes CSI ... m sequences so a line can be classified by its
+// text content in tests.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			if j < len(s) {
+				i = j + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// innerText strips ANSI, then the rounded-border left/right frame cells
+// ("│"/"╮"…), yielding the box's inner content for a line so leading-space
+// (hang-indent) can be measured.
+func innerText(raw string) string {
+	s := stripANSI(raw)
+	// Drop a leading vertical border cell if present.
+	s = strings.TrimPrefix(s, "│")
+	s = strings.TrimRight(s, " ")
+	s = strings.TrimSuffix(s, "│")
+	return s
+}
+
+func leadingSpaces(s string) int {
+	n := 0
+	for _, r := range s {
+		if r != ' ' {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// TestRenderHelp_SlashCommandsHangIndent: a slash command whose description
+// is wider than the overlay's inner width must hang-indent — the wrapped
+// continuation lines start under the command name (past the command-row
+// indent), not at the left margin. Pre-fix the overlay re-wrapped long
+// descriptions back to column 0 via a whole-content lipgloss re-wrap. We
+// render narrow so at least one description is forced to wrap, and assert
+// on a specific command (/sidebar) whose description wraps.
+func TestRenderHelp_SlashCommandsHangIndent(t *testing.T) {
+	reg := keys.NewRegistry()
+	// height 0 disables windowing so the full slash list is present.
+	out, _ := RenderHelp(reg, 60, 0, 0)
+
+	si := strings.Index(out, "Slash commands")
+	if si < 0 {
+		t.Fatal("Slash commands section missing")
+	}
+	lines := strings.Split(out[si:], "\n")
+
+	// Locate /sidebar's command row and read its continuation line.
+	cmdRow := -1
+	for i, raw := range lines {
+		inner := innerText(raw)
+		if strings.Contains(strings.TrimSpace(inner), "/sidebar") {
+			cmdRow = i
+			break
+		}
+	}
+	if cmdRow < 0 || cmdRow+1 >= len(lines) {
+		t.Fatalf("could not find /sidebar command row with a following line:\n%s", out[si:])
+	}
+
+	nameInner := innerText(lines[cmdRow])
+	contInner := innerText(lines[cmdRow+1])
+
+	// The continuation carries the rest of /sidebar's description and must
+	// not itself be a command row.
+	contTrim := strings.TrimSpace(contInner)
+	if strings.HasPrefix(contTrim, "/") {
+		t.Fatalf("expected a wrapped continuation after /sidebar, got another command row: %q", contInner)
+	}
+	if contTrim == "" {
+		t.Fatalf("expected /sidebar's description to wrap to a continuation line; got blank: %q", contInner)
+	}
+
+	// Hanging indent: the continuation begins to the RIGHT of where the
+	// command name begins, and strictly past column 0.
+	nameIndent := leadingSpaces(nameInner)
+	contIndent := leadingSpaces(contInner)
+	if contIndent == 0 {
+		t.Errorf("wrapped /sidebar description flowed to column 0: %q", contInner)
+	}
+	if contIndent <= nameIndent {
+		t.Errorf("continuation (%d) should hang past the name column (%d): name=%q cont=%q",
+			contIndent, nameIndent, nameInner, contInner)
+	}
+	// No truncation: the description's tail word is present.
+	if !strings.Contains(stripANSI(out), "ctrl+x") {
+		t.Errorf("/sidebar description appears truncated (tail 'ctrl+x' missing)")
+	}
+}
