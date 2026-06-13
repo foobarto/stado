@@ -112,11 +112,23 @@ func (m *Model) applyProviderSave(cfg *config.Config, cmd providerpicker.Command
 		}
 	}
 
+	// Report HONESTLY, mirroring the CLI's `auth set`: a local runner with no
+	// env-var slot and no base-url override records NOTHING (the write above
+	// is a no-op), so don't claim a credential ref was recorded with an empty
+	// (none) env var. Match the three CLI cases.
+	baseURL := strings.TrimSpace(cmd.BaseURL)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "provider %s: recorded credential ref (api_key_env=%s)",
-		cmd.Provider, redactEnvNameTUI(envVar))
-	if strings.TrimSpace(cmd.BaseURL) != "" {
-		fmt.Fprintf(&sb, ", base_url=%s", cmd.BaseURL)
+	switch {
+	case envVar == "" && baseURL == "":
+		fmt.Fprintf(&sb, "provider %s: local runner — no credential needed, nothing to record", cmd.Provider)
+	case envVar == "" && baseURL != "":
+		fmt.Fprintf(&sb, "provider %s: recorded base-url override (base_url=%s; no API key needed)", cmd.Provider, baseURL)
+	default:
+		fmt.Fprintf(&sb, "provider %s: recorded credential ref (api_key_env=%s)",
+			cmd.Provider, redactEnvNameTUI(envVar))
+		if baseURL != "" {
+			fmt.Fprintf(&sb, ", base_url=%s", baseURL)
+		}
 	}
 
 	// Store the entered secret in the OS keyring when one is reachable. An
