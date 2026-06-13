@@ -190,20 +190,24 @@ func (m *Model) renderBody(innerW int) string {
 			left = "* " + left
 		}
 		right := strings.TrimSpace(it.Mode + "  " + it.Desc)
+		// Truncate both columns to innerW so a long custom theme name /
+		// description can't overflow the row — an over-long row is
+		// hard-wrapped by the outer modal box, turning one entry into
+		// several physical rows and corrupting the layout.
+		left, right, pad := fitTwoCol(innerW, left, right)
 		if isSel {
 			// Build the line from PLAIN text + plain padding and wrap the
 			// whole thing in the Primary highlight, so every cell (including
 			// the gap) is uniformly highlighted. Routing through rowTwoCol
 			// here would paint the gap with the modal background — punching a
 			// dark strip through the selection.
-			pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
 			b.WriteString(lipgloss.NewStyle().
 				Background(theme.Primary).
 				Foreground(theme.Background).
 				Render(left + strings.Repeat(" ", pad) + right))
 		} else {
 			b.WriteString(bg.Foreground(theme.Text).Render(left) +
-				bg.Render(strings.Repeat(" ", maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1))) +
+				bg.Render(strings.Repeat(" ", pad)) +
 				bg.Foreground(theme.Muted).Render(right))
 		}
 		b.WriteString("\n")
@@ -212,6 +216,22 @@ func (m *Model) renderBody(innerW int) string {
 }
 
 func rowTwoCol(width int, left, right string) string {
+	left, right, pad := fitTwoCol(width, left, right)
+	// Paint the padding gap with the modal background so the header / search
+	// rows don't show a grey hole between the two columns.
+	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
+	return left + gap + right
+}
+
+// fitTwoCol truncates the plain-text columns so that
+// width(left)+pad+width(right) == width with pad >= 1, guaranteeing the
+// assembled row never exceeds width display columns. left is truncated
+// first, then right to whatever space remains. Both truncations are
+// display-width- and grapheme-aware via truncateVisible.
+func fitTwoCol(width int, left, right string) (string, string, int) {
+	if width < 1 {
+		width = 1
+	}
 	lw := lipgloss.Width(left)
 	rw := lipgloss.Width(right)
 	if lw+rw+1 > width {
@@ -221,27 +241,32 @@ func rowTwoCol(width int, left, right string) string {
 		}
 		left = truncateVisible(left, budget)
 		lw = lipgloss.Width(left)
+		if rmax := width - lw - 1; rw > rmax {
+			right = truncateVisible(right, rmax)
+			rw = lipgloss.Width(right)
+		}
 	}
 	pad := width - lw - rw
 	if pad < 1 {
 		pad = 1
 	}
-	// Paint the padding gap with the modal background so the header / search
-	// rows don't show a grey hole between the two columns.
-	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
-	return left + gap + right
+	return left, right, pad
 }
 
-// truncateVisible bounds s to width DISPLAY columns (incl. the tail), via
-// ansi.Truncate. A rune-count slice under-budgeted wide-CJK/emoji theme names
-// (custom themes may carry any name) — a name whose rune count fit width still
-// had ~2x display width and hard-wrapped / overflowed the modal border.
-// ansi.Truncate is display-width- and grapheme-aware.
+// truncateVisible clips s to width display columns, appending an ellipsis when
+// it overflows. Display-width- and grapheme-aware (ansi.Truncate) so the
+// result's lipgloss.Width is bounded by width — fitTwoCol's row math relies on
+// that, and theme names (custom themes carry any name) can hold wide runes a
+// naive rune-count slice would under-budget and split. "…" tail matches the
+// other pickers.
 func truncateVisible(s string, width int) string {
-	if width <= 1 {
-		return "."
+	if width <= 0 {
+		return ""
 	}
-	return ansi.Truncate(s, width, ".")
+	if width == 1 {
+		return "…"
+	}
+	return ansi.Truncate(s, width, "…")
 }
 
 func clampInt(v, lo, hi int) int {
@@ -252,11 +277,4 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
