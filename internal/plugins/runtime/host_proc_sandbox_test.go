@@ -422,6 +422,82 @@ func TestNewDefaultSandboxPolicy_ActuallyRunsBash(t *testing.T) {
 	}
 }
 
+// TestToSandboxPolicy_TranslatesMaskSockets pins the ssh-agent
+// passthrough translation (decision 2026-06-13): a sandboxPolicy with
+// Mask/Sockets/Env must produce a sandbox.Policy carrying those fields so
+// the runner emits the tmpfs shadow + socket bind + SSH_AUTH_SOCK setenv.
+// Without this, git-over-ssh from a sandboxed bash tool call can't reach
+// the forwarded agent.
+func TestToSandboxPolicy_TranslatesMaskSockets(t *testing.T) {
+	sp := &sandboxPolicy{
+		CWD:     "/work",
+		Mask:    []string{"/home/u/.ssh"},
+		Sockets: []string{"/run/user/1000/keyring/ssh"},
+		Env:     []string{"SSH_AUTH_SOCK"},
+		Net:     "allow",
+	}
+	p := toSandboxPolicy(sp, "/work")
+	if len(p.Mask) != 1 || p.Mask[0] != "/home/u/.ssh" {
+		t.Errorf("Mask not translated: got %v", p.Mask)
+	}
+	if len(p.Sockets) != 1 || p.Sockets[0] != "/run/user/1000/keyring/ssh" {
+		t.Errorf("Sockets not translated: got %v", p.Sockets)
+	}
+	foundEnv := false
+	for _, e := range p.Env {
+		if e == "SSH_AUTH_SOCK" {
+			foundEnv = true
+		}
+	}
+	if !foundEnv {
+		t.Errorf("Env should carry SSH_AUTH_SOCK: got %v", p.Env)
+	}
+}
+
+// TestNewDefaultSandboxPolicy_ForwardsAgentWhenSet asserts the host
+// default (used by mcp-server/daemon to auto-confine bash tool calls)
+// forwards the host agent socket + keeps SSH_AUTH_SOCK when present, so
+// git-over-ssh works from a sandboxed tool call. Default-on.
+func TestNewDefaultSandboxPolicy_ForwardsAgentWhenSet(t *testing.T) {
+	sock := "/run/user/1000/keyring/ssh"
+	t.Setenv("SSH_AUTH_SOCK", sock)
+	policy := NewDefaultSandboxPolicy("/work").(*sandboxPolicy)
+
+	foundSock := false
+	for _, s := range policy.Sockets {
+		if s == sock {
+			foundSock = true
+		}
+	}
+	if !foundSock {
+		t.Errorf("default policy should forward agent socket %q; got %v", sock, policy.Sockets)
+	}
+	foundEnv := false
+	for _, e := range policy.Env {
+		if e == "SSH_AUTH_SOCK" {
+			foundEnv = true
+		}
+	}
+	if !foundEnv {
+		t.Errorf("default policy Env should keep SSH_AUTH_SOCK; got %v", policy.Env)
+	}
+}
+
+// TestNewDefaultSandboxPolicy_NoAgentWhenUnset asserts the default is
+// inert when no host agent is present.
+func TestNewDefaultSandboxPolicy_NoAgentWhenUnset(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	policy := NewDefaultSandboxPolicy("/work").(*sandboxPolicy)
+	if len(policy.Sockets) != 0 {
+		t.Errorf("no host agent → no forwarded socket; got %v", policy.Sockets)
+	}
+	for _, e := range policy.Env {
+		if e == "SSH_AUTH_SOCK" {
+			t.Errorf("no host agent → SSH_AUTH_SOCK should not be kept; got %v", policy.Env)
+		}
+	}
+}
+
 // hasSandboxRunner returns true when the host has a real sandbox
 // runner detected (bwrap on Linux, sandbox-exec on macOS). Used to
 // skip tests that depend on the absence of a runner.

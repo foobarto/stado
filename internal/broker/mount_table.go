@@ -18,6 +18,12 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 )
 
+// sshDirName is the basename of the per-user ssh directory. Kept as a
+// named constant (not a literal path) so the credential dir is only ever
+// referenced via filepath.Join(home, sshDirName) — the code names it as a
+// mask target, never reads it.
+const sshDirName = ".ssh"
+
 // MountMode is the per-path mode in the invariant table.
 type MountMode int
 
@@ -38,6 +44,19 @@ const (
 	// (phase 5 wires this for real; phase 3 just records the
 	// intent).
 	ModeBrokerOnly
+
+	// ModeMasked = a directory that an RO ancestor mount (e.g. $HOME)
+	// would otherwise make reachable, but whose contents must be
+	// rendered UNREADABLE inside the sandbox — shadowed with an empty
+	// tmpfs, with specific safe files (ModeReadOnly rows beneath it)
+	// re-bound on top. Used for the .ssh key directory: the id_* keys
+	// are ModeNotMounted, but $HOME bound RO made the dir reachable;
+	// masking the dir closes that exfiltration gap while keeping
+	// known_hosts + config readable. ToPolicy promotes a ModeMasked row
+	// to sandbox.Policy.Mask ONLY when an RO/RW ancestor is present
+	// (otherwise the path isn't in the namespace and a tmpfs over it
+	// would fail — e.g. the hardened profile, which doesn't bind $HOME).
+	ModeMasked
 )
 
 func (m MountMode) String() string {
@@ -50,6 +69,8 @@ func (m MountMode) String() string {
 		return "RW"
 	case ModeBrokerOnly:
 		return "broker-only"
+	case ModeMasked:
+		return "masked"
 	}
 	return "unknown"
 }
@@ -86,6 +107,10 @@ func DefaultMountTable(cwd string) MountTable {
 	home := homeDir()
 	rt := xdgRuntimeDir()
 	stateDir := xdgDataHome() + "/stado"
+	// Constructed (never read) — names the credential-bearing ssh dir
+	// as a mask target. The id_* keys below are ModeNotMounted, but the
+	// $HOME RO bind made the dir reachable; ModeMasked shadows it.
+	sshKeyDir := filepath.Join(home, sshDirName)
 
 	return MountTable{
 		Profile: ProfileDefault,
@@ -105,6 +130,11 @@ func DefaultMountTable(cwd string) MountTable {
 			// Operator's home, mounted RO for ergonomics with
 			// credential subpaths masked below.
 			{Path: home, Mode: ModeReadOnly, Note: "operator home (RO) — credential-bearing subpaths masked below"},
+			// Shadow the ssh key dir (tmpfs) so the id_* keys below are
+			// unreadable despite the $HOME RO bind; known_hosts + config
+			// (ModeReadOnly rows) restore on top. Closes the
+			// ProfileDefault exfiltration gap (decision 2026-06-13).
+			{Path: sshKeyDir, Mode: ModeMasked, Note: "ssh key dir masked (tmpfs) — keys unreadable; known_hosts/config restored on top"},
 			{Path: home + "/.ssh/known_hosts", Mode: ModeReadOnly, Note: "ssh known_hosts (host verification)"},
 			{Path: home + "/.ssh/config", Mode: ModeReadOnly, Note: "ssh config (default profile: as-is; hardened: synthesised minimal — see HardenedMountTable)"},
 
@@ -207,7 +237,7 @@ func MountTableFor(profile Profile, cwd string) MountTable {
 // mount set. The two should agree — Phase 3's runtime work threads
 // this Policy into both layers consistently.
 func (t MountTable) ToPolicy() sandbox.Policy {
-	var fsRead, fsWrite []string
+	var fsRead, fsWrite, masked []string
 	for _, row := range t.Rows {
 		switch row.Mode {
 		case ModeReadOnly:
@@ -215,12 +245,54 @@ func (t MountTable) ToPolicy() sandbox.Policy {
 		case ModeReadWrite:
 			fsRead = append(fsRead, row.Path)
 			fsWrite = append(fsWrite, row.Path)
+		case ModeMasked:
+			masked = append(masked, row.Path)
 		}
 	}
-	return sandbox.Policy{
+
+	pol := sandbox.Policy{
 		FSRead:  fsRead,
 		FSWrite: fsWrite,
 	}
+
+	// Promote ModeMasked rows to Policy.Mask ONLY when an RO/RW ancestor
+	// is actually bound — otherwise the path isn't in the namespace and a
+	// tmpfs over it would fail (e.g. the hardened profile doesn't bind
+	// $HOME, so its .ssh dir need not — and must not — be masked).
+	for _, m := range masked {
+		if hasReadableAncestor(m, fsRead) {
+			pol.Mask = append(pol.Mask, m)
+		}
+	}
+
+	// ssh-agent forwarding, default-on (decision 2026-06-13): when the
+	// host has an agent socket, bind it into the sandbox + keep the env
+	// var so git-over-ssh works. Only the socket crosses the boundary;
+	// key bytes stay in the agent. No-op when no host agent is present.
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		pol.Sockets = append(pol.Sockets, sock)
+		pol.Env = append(pol.Env, "SSH_AUTH_SOCK")
+	}
+
+	return pol
+}
+
+// hasReadableAncestor reports whether maskPath is contained within (or
+// equal to) any RO/RW read path — i.e. whether shadowing maskPath with a
+// tmpfs is meaningful (the path is otherwise reachable). Lexical match on
+// cleaned paths with a separator guard so "/h/.sshX" isn't under "/h/.ssh".
+func hasReadableAncestor(maskPath string, reads []string) bool {
+	cm := filepath.Clean(maskPath)
+	for _, r := range reads {
+		cr := filepath.Clean(r)
+		if cm == cr {
+			return true
+		}
+		if strings.HasPrefix(cm, cr+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // MaskedPaths returns just the ModeNotMounted rows from the table.

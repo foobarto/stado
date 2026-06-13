@@ -74,6 +74,16 @@ func (r *CeilingRunner) Command(ctx context.Context, p Policy, name string, args
 		return r.Inner.Command(ctx, p, name, args, env)
 	}
 	merged := p.Merge(r.Ceiling)
+	// A forwarded unix socket (e.g. the ssh-agent socket) in the ceiling is an
+	// operator-granted, session-level capability: a per-call Policy that names
+	// no sockets should INHERIT the ceiling's, not have them intersected away
+	// (Merge intersects Sockets, so nil per-call ∩ ceiling = nil). A per-call
+	// still can never ADD a socket beyond the ceiling — Merge already dropped
+	// any per-call socket not in the ceiling; this only restores the ceiling's
+	// grant when the per-call was silent. Mask is unaffected (Merge unions it).
+	if len(p.Sockets) == 0 {
+		merged.Sockets = append([]string(nil), r.Ceiling.Sockets...)
+	}
 	return r.Inner.Command(ctx, merged, name, args, env)
 }
 
@@ -85,6 +95,8 @@ func isZeroPolicy(p Policy) bool {
 		len(p.FSWrite) == 0 &&
 		len(p.Exec) == 0 &&
 		len(p.Env) == 0 &&
+		len(p.Mask) == 0 &&
+		len(p.Sockets) == 0 &&
 		p.Net.Kind == NetDenyAll && // NB: zero value of NetKind is NetDenyAll
 		len(p.Net.Hosts) == 0 &&
 		p.CWD == "" &&

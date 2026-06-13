@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -56,6 +58,36 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	}
 	for _, wp := range p.FSWrite {
 		bwrapArgs = append(bwrapArgs, "--bind-try", wp, wp)
+	}
+
+	// SSH-agent-passthrough / credential masking (decision 2026-06-13).
+	//
+	// Mask renders a directory unreadable even though an ancestor was
+	// bound RO above (e.g. HOME bound RO, but the key dir must not be
+	// exfiltratable). bwrap applies operations in argv order, so the
+	// shadow MUST come AFTER the FSRead binds and the restore of any
+	// safe files inside the masked dir MUST come AFTER the shadow — else
+	// the empty tmpfs would clobber the restore. The masked dir name is
+	// supplied by the caller (constructed, never read here); this code
+	// only shadows it.
+	for _, mp := range p.Mask {
+		bwrapArgs = append(bwrapArgs, "--tmpfs", mp)
+	}
+	// Restore the safe files: any FSRead entry that lives UNDER a masked
+	// dir gets re-bound on top of the tmpfs (host-verification +
+	// connection config). --ro-bind-try, not --ro-bind, so a missing
+	// safe file doesn't fail the whole sandbox.
+	for _, rp := range p.FSRead {
+		if underAnyMask(rp, p.Mask) {
+			bwrapArgs = append(bwrapArgs, "--ro-bind-try", rp, rp)
+		}
+	}
+	// Forward host unix sockets (e.g. the agent socket). Only the socket
+	// crosses the boundary; key bytes stay in the agent. --bind (RW): an
+	// agent socket needs bidirectional traffic. The matching env var is
+	// carried via p.Env (filterEnv keeps it) + --setenv below.
+	for _, sock := range p.Sockets {
+		bwrapArgs = append(bwrapArgs, "--bind", sock, sock)
 	}
 
 	childEnv := filterEnv(baseEnv(env), p.Env)
@@ -133,6 +165,25 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	cmd.Env = nil
 	attachCleanup(ctx, cmd, cleanup)
 	return cmd, nil
+}
+
+// underAnyMask reports whether path p sits inside (or equals) any of the
+// masked directories. Used to decide which FSRead entries to re-bind on
+// top of a Mask tmpfs (the "shadow then selectively restore" pattern).
+// Comparison is lexical on cleaned paths with a trailing-separator guard
+// so "/a/.sshX" is NOT treated as under "/a/.ssh".
+func underAnyMask(p string, masks []string) bool {
+	cp := filepath.Clean(p)
+	for _, m := range masks {
+		cm := filepath.Clean(m)
+		if cp == cm {
+			return true
+		}
+		if strings.HasPrefix(cp, cm+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func stableEnv(env []string) []string {

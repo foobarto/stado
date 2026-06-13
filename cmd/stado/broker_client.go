@@ -223,6 +223,14 @@ func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
 		fmt.Fprintf(w, "%s: %d credential paths masked (~/.ssh/id_*, ~/.aws, ~/.git-credentials, …)\n",
 			surface, maskedCount)
 	}
+	// ssh-agent forwarding, default-on (decision 2026-06-13): surface
+	// that the host agent socket is bound (only the socket — key bytes
+	// stay in the agent) so the operator knows git-over-ssh works AND
+	// that a compromised session could abuse the socket for its
+	// lifetime (the accepted residual).
+	if len(s.Ceiling.Sockets) > 0 {
+		fmt.Fprintf(w, "%s: ssh-agent forwarded (socket only; keys never enter the sandbox)\n", surface)
+	}
 }
 
 // countMaskedPaths returns the count of credential-bearing paths

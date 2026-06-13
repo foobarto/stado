@@ -187,3 +187,34 @@ func TestRenderSandboxProfile_LookupFailureEmitsAsGiven(t *testing.T) {
 		t.Errorf("profile must emit unresolved entry as-given so the rule deny-fails predictably:\n%s", profile)
 	}
 }
+
+// TestRenderSandboxProfile_SocketEmitsReadAndNetwork pins the ssh-agent
+// forwarding rules on macOS (decision 2026-06-13): each Policy.Sockets
+// entry must emit BOTH a file-read* subpath allow AND a network-outbound
+// path allow — a unix-socket connect() counts as network egress under
+// sandbox-exec, so file-read alone wouldn't let the guest connect.
+func TestRenderSandboxProfile_SocketEmitsReadAndNetwork(t *testing.T) {
+	sock := "/private/tmp/com.apple.launchd.XXXX/Listeners"
+	profile := RenderSandboxProfile(Policy{Sockets: []string{sock}})
+	for _, want := range []string{
+		`(allow file-read* (subpath "` + sock + `"))`,
+		`(allow network-outbound (path "` + sock + `"))`,
+	} {
+		if !strings.Contains(profile, want) {
+			t.Errorf("profile missing socket rule %q:\n%s", want, profile)
+		}
+	}
+}
+
+// TestRenderSandboxProfile_MaskNotInProfile confirms the masking half is
+// a no-op on macOS: deny-default already hides any path not explicitly
+// added to FSRead, so a Policy.Mask entry must NOT appear as an allow
+// rule (it isn't in FSRead). The masked dir name is constructed by the
+// caller; the profile must not leak it as a read allow.
+func TestRenderSandboxProfile_MaskNotInProfile(t *testing.T) {
+	maskDir := "/home/u/.creds-dir"
+	profile := RenderSandboxProfile(Policy{Mask: []string{maskDir}})
+	if strings.Contains(profile, `(subpath "`+maskDir+`")`) {
+		t.Errorf("masked dir %q must not appear as an allow rule (deny-default hides it):\n%s", maskDir, profile)
+	}
+}
