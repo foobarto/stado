@@ -313,27 +313,53 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	warnUnknownExact(cfg.Tools.Enabled, "enabled")
 	warnUnknownExact(cfg.Tools.Disabled, "disabled")
 
+	// EP-0037 §E: the meta-tool dispatch kernel (tools.search/describe/
+	// categories/in_category + tools.activate/deactivate + plugin.load/unload)
+	// is NON-DISABLEABLE. Unregistering it would leave the model unable to
+	// discover or activate any non-autoloaded tool — a silent footgun. We never
+	// unregister a meta-tool below, and warn loudly when the operator's
+	// enabled/disabled lists would have removed one.
+	for name := range known {
+		if !IsMetaTool(name) {
+			continue
+		}
+		disabledHit := toolMatchesAny(name, cfg.Tools.Disabled)
+		allowMiss := len(cfg.Tools.Enabled) > 0 && !toolMatchesAny(name, cfg.Tools.Enabled)
+		if disabledHit || allowMiss {
+			fmt.Fprintf(os.Stderr,
+				"stado: [tools] would remove meta-tool %q, but the dispatch kernel is non-disableable (EP-0037) — keeping it.\n",
+				name)
+		}
+	}
+
 	if len(cfg.Tools.Enabled) > 0 {
 		allow := map[string]bool{}
+		nonMetaMatches := 0
 		for name := range known {
+			if IsMetaTool(name) {
+				allow[name] = true // kernel always allowed
+				continue
+			}
 			if toolMatchesAny(name, cfg.Tools.Enabled) {
 				allow[name] = true
+				nonMetaMatches++
 			}
 		}
-		// Fail closed when the operator's allowlist matches nothing.
-		// The previous fall-open ("return without filtering") looked
-		// like a friendly fallback but defeated the whole point of an
-		// allowlist: typo'ing every entry, or referencing tools that
-		// were uninstalled, silently re-exposed the entire tool surface.
-		// An empty match is more likely operator error than intent —
-		// surface it loudly and remove every tool so the next run
-		// fails fast with a clear "no tools available" rather than a
-		// surprising "everything enabled".
-		if len(allow) == 0 {
+		// Fail closed when the operator's allowlist matches no real (non-meta)
+		// tool. The previous fall-open ("return without filtering") defeated the
+		// allowlist: typos / uninstalled references silently re-exposed the
+		// whole surface. An empty match is more likely operator error than
+		// intent — surface it loudly and remove every non-kernel tool so the
+		// next run fails fast with "no tools available" rather than
+		// "everything enabled". The kernel is retained either way.
+		if nonMetaMatches == 0 {
 			fmt.Fprintf(os.Stderr,
-				"stado: [tools].enabled = %v matched no registered tools — registry is now empty (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
+				"stado: [tools].enabled = %v matched no registered tools — registry reduced to the meta-tool kernel (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
 				cfg.Tools.Enabled)
 			for name := range known {
+				if IsMetaTool(name) {
+					continue
+				}
 				reg.Unregister(name)
 			}
 			return
@@ -348,9 +374,10 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		// allowlist of [`*`] + disable of `bash` left bash registered
 		// (allow matched everything; Disabled was unreachable). Same
 		// pattern for ["fs.*"] + disable ["fs.write"]: now fs.write
-		// is correctly removed even though fs.* allowed it.
+		// is correctly removed even though fs.* allowed it. Meta-tools
+		// are exempt (kernel is non-disableable).
 		for name := range known {
-			if !allow[name] {
+			if !allow[name] || IsMetaTool(name) {
 				continue
 			}
 			if toolMatchesAny(name, cfg.Tools.Disabled) {
@@ -359,8 +386,11 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		}
 		return
 	}
-	// Disabled-only path.
+	// Disabled-only path. Meta-tools are exempt (kernel is non-disableable).
 	for name := range known {
+		if IsMetaTool(name) {
+			continue
+		}
 		if toolMatchesAny(name, cfg.Tools.Disabled) {
 			reg.Unregister(name)
 		}

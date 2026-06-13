@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"github.com/tetratelabs/wazero"
@@ -115,6 +116,21 @@ func registerMemoryUpdateImport(builder wazero.HostModuleBuilder, host *Host) {
 			length := api.DecodeU32(stack[1])
 			payload, err := readBytesLimited(mod, ptr, length, maxPluginRuntimeMemoryPayloadBytes)
 			if err != nil {
+				stack[0] = api.EncodeI32(-1)
+				return
+			}
+			// EP-0015 D2: approval is a USER-only review action. A plugin must
+			// not approve candidate memories — otherwise a plugin holding
+			// memory:write could approve its own proposals, laundering
+			// attacker-controlled text into queryable (prompt-injectable)
+			// memory. Plugins may propose (stado_memory_propose) and
+			// reject/delete/edit; only the operator (CLI/TUI) approves.
+			var act struct {
+				Action string `json:"action"`
+			}
+			if json.Unmarshal(payload, &act) == nil && act.Action == "approve" {
+				host.Logger.Warn("stado_memory_update denied — plugins cannot approve candidate memories (user action required)",
+					slog.String("plugin", host.Manifest.Name))
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
