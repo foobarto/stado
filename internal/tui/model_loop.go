@@ -119,6 +119,31 @@ func (m *Model) loopIterate() tea.Cmd {
 		// Busy — the next call comes from model_update when the turn finishes.
 		return nil
 	}
+	// A /loop runs unattended, so each iteration must respect the same budget
+	// hard-cap and context hard-threshold gates a manual Enter does
+	// (submitInput) — otherwise a timed/immediate loop spins past
+	// [budget].hard_usd or the context bound with no human present to
+	// `/budget ack` or `/compact`. The manual recovery flows need interaction a
+	// loop can't supply, and silently skipping would busy-spin an immediate
+	// loop, so the safe move is to STOP the loop and say why (same shape as
+	// stopLoopOnError).
+	if m.budgetExceeded() {
+		breach, knob := m.budgetBreachDescription()
+		m.loop = nil
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
+			"loop stopped — %s. Raise [budget].%s or run /budget ack, then /loop to restart.",
+			breach, knob)})
+		m.renderBlocks()
+		return nil
+	}
+	if m.aboveHardThreshold() {
+		m.loop = nil
+		m.appendBlock(block{kind: "system", body: fmt.Sprintf(
+			"loop stopped — context at %.0f%% (hard threshold %.0f%%). /compact or fork, then /loop to restart.",
+			100*m.contextFraction(), 100*m.ctxHardThreshold)})
+		m.renderBlocks()
+		return nil
+	}
 	m.loop.iter++
 	if m.loop.iter > 1 {
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("─── loop iteration %d ───", m.loop.iter)})
@@ -143,6 +168,20 @@ func (m *Model) stopLoopOnError() {
 	m.loop = nil
 	m.appendBlock(block{kind: "system", body: "loop stopped — the last iteration errored (use /loop to restart once the issue is resolved)"})
 	m.renderBlocks()
+}
+
+// stopBackgroundActivity cancels any running /loop and /monitor without
+// emitting blocks. /clear wipes the conversation, so it must also halt the
+// background activity that was driving it — otherwise the loop's ↻ indicator
+// points at a wiped context and the monitor goroutine keeps streaming into a
+// cleared screen (orphaned). Silent by design: /clear blanks the block list
+// right after, so any "stopped" notice would be wiped anyway.
+func (m *Model) stopBackgroundActivity() {
+	m.loop = nil
+	if m.monitor != nil {
+		m.monitor.cancel()
+		m.monitor = nil
+	}
 }
 
 // loopCheckDone scans the agent's latest response for the stop signal.

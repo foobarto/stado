@@ -228,6 +228,10 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			m.compacting = false
 			m.state = stateIdle
 		}
+		// Wiping the conversation also halts the background loop/monitor that
+		// were driving it (dead ↻ indicator + orphan monitor goroutine
+		// otherwise). Silent — the block list is blanked just below.
+		m.stopBackgroundActivity()
 		m.blocks = nil
 		m.msgs = nil
 		m.queuedPrompt = ""
@@ -450,6 +454,16 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 			old := m.model
 			m.model = parts[1]
 			body := "model: " + old + " → " + m.model
+			// Typo guard: warn when the id isn't in the active provider's
+			// static catalog. Still set it — the catalog isn't exhaustive
+			// (new releases, presets, local runners) and pre-1.0 keeps the
+			// override. Only warns when there IS a catalog to check against,
+			// so uncatalogued providers don't false-positive.
+			if known, haveCatalog := m.modelInKnownCatalog(m.model); haveCatalog && !known {
+				body += fmt.Sprintf(
+					"\nwarning: %q is not in the known catalog for %s — if this is a typo, run /model to pick from the list (set anyway).",
+					m.model, m.providerName)
+			}
 			if err := m.persistDefaultModel(m.providerName, m.model); err != nil {
 				body += "\n" + err.Error()
 			}
@@ -1753,6 +1767,24 @@ var wrapAgentCatalogs = map[string]string{
 	// opencode/zed/hermes route across multiple providers — fall back
 	// to a single generic entry so the user can switch + then pick a
 	// model via the agent's own /model command.
+}
+
+// modelInKnownCatalog reports whether id appears in the active provider's
+// static model catalog. haveCatalog is false when the provider has no static
+// catalog (local runners, presets, OAI-compat custom endpoints) — the caller
+// treats that as "can't tell, don't warn" rather than flagging every
+// uncatalogued-but-valid model. Used by /model's typo guard.
+func (m *Model) modelInKnownCatalog(id string) (known, haveCatalog bool) {
+	cat := modelpicker.CatalogFor(m.providerName)
+	if len(cat) == 0 {
+		return false, false
+	}
+	for _, it := range cat {
+		if it.ID == id {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 func (m *Model) openModelPicker() {
