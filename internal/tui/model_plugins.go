@@ -697,6 +697,23 @@ func attachMemoryBridge(cfg *config.Config, host *pluginRuntime.Host, pluginName
 // under each "/plugin:<name>" header, keeping the nested hierarchy.
 const pluginToolIndent = 4
 
+// pluginToolListWidth is the WrapDescList width for a plugin's nested
+// tool block: the panel width minus the nesting indent. It must NOT
+// exceed width-pluginToolIndent, or the indented lines overflow the
+// enclosing system block, which re-wraps them and breaks the hanging
+// indent (the same class of bug as slashListWidth's old floor). A
+// too-wide floor would re-introduce that overflow at narrow viewports,
+// so the result is floored at 1 (WrapDescList itself floors its inner
+// descWidth at 1 and never panics) rather than clamped UP to a fixed
+// minimum wider than the available space.
+func pluginToolListWidth(width int) int {
+	w := width - pluginToolIndent
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
 // renderInstalledPluginList scans all pluginRoots and returns a human
 // body enumerating each installed plugin with the tools it declares.
 // Helpful discovery block for the bare `/plugin` command. EP-0035:
@@ -726,11 +743,8 @@ func renderInstalledPluginList(width int, pluginRoots ...string) string {
 	pluginsRoot := pluginRoots[0]
 
 	// Inner width for the tool descriptions: the panel minus the nesting
-	// indent. Floored so a narrow panel still wraps sensibly.
-	toolWidth := width - pluginToolIndent
-	if toolWidth < 20 {
-		toolWidth = 20
-	}
+	// indent, never wider than the available space (see pluginToolListWidth).
+	toolWidth := pluginToolListWidth(width)
 
 	var sb strings.Builder
 	sb.WriteString("Installed plugins:")

@@ -4,9 +4,32 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/palette"
 )
+
+// TestRenderHelp_BoxRespectsWidth: the help overlay must never render
+// wider than its target box width (width-2) at any width down to a
+// usable narrow terminal. The slash-command list was wrapped with a
+// floor that clamped its width UP past the box's inner content area at
+// narrow widths, so a pre-wrapped line overflowed and lipgloss expanded
+// the box by a column (seen at widths 28-30), pushing the right border
+// off the canvas. Same root cause as slashListWidth's old 40 floor.
+func TestRenderHelp_BoxRespectsWidth(t *testing.T) {
+	reg := keys.NewRegistry()
+	for _, w := range []int{120, 80, 60, 44, 40, 36, 32, 30, 28} {
+		out, _ := RenderHelp(reg, w, 0, 0)
+		stripped := ansi.Strip(out)
+		for _, ln := range strings.Split(strings.TrimRight(stripped, "\n"), "\n") {
+			if got := ansi.StringWidth(ln); got > w-2 {
+				t.Errorf("width=%d: rendered help line is %d cols, exceeds box target %d: %q",
+					w, got, w-2, ln)
+				break
+			}
+		}
+	}
+}
 
 // TestRenderHelp_IncludesSlashCommands: before this test, pressing ?
 // surfaced keybindings but not slash commands — users had to open

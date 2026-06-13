@@ -85,9 +85,16 @@ func RenderHelp(reg *keys.Registry, width, height, scroll int) (string, int) {
 	b.WriteString(theme.Title.Render("Slash commands") + "\n")
 	dim := lipgloss.NewStyle().Foreground(theme.TextDim)
 	const groupIndent = 4
+	// The list is indented by groupIndent under each group header and must
+	// fit the box's inner content area (innerW = width-8). So its wrap
+	// width is innerW-groupIndent. Floor at 1 (WrapDescList floors its own
+	// inner descWidth at 1 and never panics) rather than clamping UP to a
+	// fixed minimum: a too-wide floor overflows innerW, the box re-wraps
+	// the pre-wrapped rows, and the rounded border gets pushed a column off
+	// the canvas at narrow widths (seen at width 28-30).
 	listWidth := width - 8 - groupIndent
-	if listWidth < 20 {
-		listWidth = 20
+	if listWidth < 1 {
+		listWidth = 1
 	}
 	groupOrder, byGroup := groupCommands(palette.Commands)
 	for gi, group := range groupOrder {
