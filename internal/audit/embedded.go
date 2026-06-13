@@ -20,6 +20,10 @@ package audit
 var EmbeddedMinisignPubkey = ""
 
 // EmbeddedMinisignKeyID is the signer's 64-bit key id (minisign's own
-// anti-mixup identifier). Empty default pairs with the empty pubkey.
-// Release builds can seed via ldflags alongside the pubkey.
+// anti-mixup identifier). DISPLAY-ONLY: verification does not use it.
+// It is NOT seeded by release builds today — `-X` can only set string
+// vars and this is a uint64 (injecting it link-errors with "not a var of
+// type string"), so it stays 0. Surfacing the real id (e.g. a string shim
+// + strconv.ParseUint) is a deferred follow-up. See SECURITY.md
+// "Embedding the pubkey".
 var EmbeddedMinisignKeyID uint64 = 0
