@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
@@ -395,15 +396,16 @@ func rowTwoColBg(width int, leftPlain, rightPlain, leftSpan, rightSpan string, b
 	return leftSpan + bg.Render(strings.Repeat(" ", pad)) + rightSpan
 }
 
+// truncateVisible bounds s to width DISPLAY columns (incl. the tail), via
+// ansi.Truncate. A rune-count slice under-budgeted wide-CJK/emoji session
+// labels — a title whose rune count fit width still had ~2x display width and
+// hard-wrapped / overflowed the modal border. ansi.Truncate is display-width-
+// and grapheme-aware.
 func truncateVisible(s string, width int) string {
 	if width <= 1 {
 		return "."
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	return string(runes[:width-1]) + "."
+	return ansi.Truncate(s, width, ".")
 }
 
 func clampInt(v, lo, hi int) int {
