@@ -205,3 +205,48 @@ func TestAnnounceSandboxMode_NilSession(t *testing.T) {
 		t.Errorf("nil-session announcement %q should mention skipped state", got)
 	}
 }
+
+// TestTUICeiling: the (ceiling, enforce) derivation shared by the bare TUI and
+// `session resume`. enforce is true only when the broker actively projected a
+// ceiling (attach not skipped) and the operator didn't pass --no-sandbox; in
+// every other case the runner stays un-wrapped (zero policy, enforce=false).
+func TestTUICeiling(t *testing.T) {
+	ceil := sandbox.Policy{FSWrite: []string{"/work", "/tmp"}}
+
+	t.Run("nil session does not enforce", func(t *testing.T) {
+		c, enf := tuiCeiling(nil, false)
+		if enf {
+			t.Error("nil session should not enforce")
+		}
+		if len(c.FSWrite) != 0 {
+			t.Errorf("nil session should yield the zero policy, got %v", c.FSWrite)
+		}
+	})
+	t.Run("skipped session does not enforce", func(t *testing.T) {
+		c, enf := tuiCeiling(&BrokerSession{Skipped: true, Ceiling: ceil}, false)
+		if enf {
+			t.Error("skipped attach should not enforce")
+		}
+		if len(c.FSWrite) != 0 {
+			t.Errorf("skipped session should yield the zero policy, got %v", c.FSWrite)
+		}
+	})
+	t.Run("active session enforces the broker ceiling", func(t *testing.T) {
+		c, enf := tuiCeiling(&BrokerSession{Ceiling: ceil}, false)
+		if !enf {
+			t.Error("active session should enforce the ceiling")
+		}
+		if len(c.FSWrite) != 2 {
+			t.Errorf("active session should return the broker ceiling, got %v", c.FSWrite)
+		}
+	})
+	t.Run("no-sandbox opt-out does not enforce", func(t *testing.T) {
+		c, enf := tuiCeiling(&BrokerSession{Ceiling: ceil}, true)
+		if enf {
+			t.Error("--no-sandbox should not enforce even with a projected ceiling")
+		}
+		if len(c.FSWrite) != 0 {
+			t.Errorf("--no-sandbox should yield the zero policy, got %v", c.FSWrite)
+		}
+	})
+}

@@ -16,7 +16,6 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/textutil"
-	"github.com/foobarto/stado/internal/tui"
 	"github.com/foobarto/stado/internal/workdirpath"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -432,14 +431,13 @@ var sessionResumeCmd = &cobra.Command{
 		// Launch the same entry point `stado` uses for its default
 		// TUI. runtime.OpenSession sees that cwd is a session
 		// worktree and takes the resume-on-cwd branch.
-		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
-			// Resume does not attach to the broker today (it deliberately
-			// skips MaybeRewrap, see above), so it has no projected ceiling
-			// to enforce: pass the zero ceiling + enforce=false. Wiring
-			// resume to attach + enforce the ceiling (so it gets the same
-			// credential-dir mask + ssh-agent forwarding as the bare TUI) is
-			// a focused follow-up (decision 2026-06-13).
-			return tui.Run(cfg, startupNotices, sandbox.Policy{}, false)
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+			// Resume attaches to the broker and enforces its projected
+			// ceiling exactly like the bare TUI (shared launchInlineTUI), so a
+			// resumed session gets the same credential-dir mask + ssh-agent
+			// forwarding (decision 2026-06-13: resume previously passed a zero
+			// ceiling + enforce=false and so ran un-fenced).
+			return launchInlineTUI(ctx, cfg, startupNotices)
 		})
 	},
 }
