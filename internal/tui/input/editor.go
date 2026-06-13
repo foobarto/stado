@@ -182,33 +182,46 @@ func (e *Editor) SetValue(s string) {
 	e.Model.CursorEnd()
 }
 
-// CursorOffset returns the absolute byte offset of the text cursor in
-// Value(). Sums the lengths of lines above the current row plus the
-// column offset within the current line. Used by the file picker to
-// find the @-trigger fragment the user is typing.
+// CursorOffset returns the absolute BYTE offset of the text cursor in
+// Value(). Callers (the @-mention file picker) byte-slice Value() with
+// this offset, so it must be byte-aligned: returning a rune/column count
+// here corrupts multibyte or double-width text (a `é` before the cursor
+// would leave a stray byte behind when the mention fragment is replaced).
+//
+// Line() is the logical row (cursor's index into the \n-split lines) and
+// Column() is the cursor's RUNE index within that logical line — both are
+// stable under soft-wrapping (unlike LineInfo().ColumnOffset, which is a
+// per-visual-row display column). We walk the value to the start of the
+// logical line, then add the byte length of the first Column() runes.
 func (e *Editor) CursorOffset() int {
 	val := e.Model.Value()
 	line := e.Model.Line()
-	col := e.Model.LineInfo().ColumnOffset
-	if line <= 0 {
-		if col > len(val) {
-			return len(val)
-		}
-		return col
-	}
+	col := e.Model.Column()
+
+	// Advance to the byte offset where logical line `line` begins.
 	off := 0
-	rows := 0
-	for i := 0; i < len(val) && rows < line; i++ {
-		off++
-		if val[i] == '\n' {
+	for rows := 0; rows < line && off < len(val); off++ {
+		if val[off] == '\n' {
 			rows++
 		}
 	}
-	off += col
 	if off > len(val) {
-		off = len(val)
+		return len(val)
 	}
-	return off
+
+	// Add the byte length of the first `col` runes on the current line,
+	// stopping at the line's terminating newline (or end of buffer) so a
+	// col past the line's rune count clamps to the line end rather than
+	// spilling into the next line.
+	rest := val[off:]
+	runes := 0
+	for i, r := range rest {
+		if runes >= col || r == '\n' {
+			return off + i
+		}
+		runes++
+	}
+	return len(val)
 }
 
 func (e *Editor) enforceByteLimit() {
