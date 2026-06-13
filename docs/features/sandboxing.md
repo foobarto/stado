@@ -44,8 +44,11 @@ entire `run` process; writes are confined to the launch cwd +
 `/tmp`. The TUI launches shell commands via bubblewrap (layer 2)
 which composes with Landlock — the child inherits the parent's
 FS ruleset AND gets its own bwrap mount namespace on top. Pass
-`stado run --no-sandbox` to disable both layers (the runner
-becomes `NoneRunner` and Landlock is skipped).
+`--no-sandbox` to disable both layers (the runner becomes
+`NoneRunner` and Landlock is skipped). `--no-sandbox` is a
+**persistent root flag**, not a `run`-only one — it works on every
+entry point (`stado --no-sandbox` for the TUI, `stado run
+--no-sandbox`, `stado mcp-server --no-sandbox`, etc.).
 
 `stado doctor` reports:
 - `Landlock available` — kernel ≥ 5.13

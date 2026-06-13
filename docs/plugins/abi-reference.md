@@ -222,7 +222,7 @@ each handle type has a per-Runtime cap:
 | Open net listeners | 8 |
 | Open HTTP response streams | 8 |
 | In-flight HTTP uploads | 8 |
-| Open HTTP clients | 32 |
+| Open HTTP clients | 64 |
 
 Calls that would exceed the cap return `-1`. The plugin should
 close handles it no longer needs.
@@ -305,7 +305,7 @@ either get a partial result (binary streaming reads) or `-1`
 | Tool args buffer | 1 MiB | `maxPluginRuntimeToolArgsBytes = 1 MiB` |
 | Tool result buffer | 1 MiB | `maxPluginRuntimeImportBytes = 16 MiB` |
 | File read buffer | per-call | `maxPluginRuntimeFSFileBytes = 16 MiB` |
-| stado_log message | per-call | `maxPluginRuntimeLogMessageBytes = ~4 KiB` |
+| stado_log message | per-call | `maxPluginRuntimeLogMessageBytes = 64 KiB` |
 | stado_progress payload | per-call | 4 KiB |
 | stado_json_get / _format input | per-call | 256 KiB |
 | Session field (e.g. `history`) | per-call | bounded by session size |
@@ -339,7 +339,7 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 |---|---|
 | `fs:read:<abs-or-rel-path>` | `stado_fs_read` of paths under that prefix. Relative paths resolve against the host's `Workdir`. |
 | `fs:write:<abs-or-rel-path>` | `stado_fs_write` |
-| `net:http_get` | `stado_http_get` |
+| `net:http_get` | DEAD — gated the removed `stado_http_get`; parses but unlocks nothing. Use `net:http_request[:<host>]` |
 | `net:http_request[:<host>]` | `stado_http_request` and `_stream` (optional host allowlist) |
 | `net:http_request_private` | Loosens dial guard to RFC1918 / loopback / link-local |
 | `net:http_client` | `stado_http_client_*` (cookie-jar HTTP) |
@@ -351,18 +351,16 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:listen:unix:<path-glob>` | Unix socket bind |
 | `net:multicast:udp` | `stado_net_setopt` keys: broadcast, multicast_join/leave/loopback/ttl |
 | `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
-| `net:<host>` | Generic `stado_http_get` host allowlist (deprecated; prefer `net:http_request:<host>`) |
-| `exec:bash` / `exec:shallow_bash` | `stado_exec_bash` (refused on `tool run` — needs an agent loop's sandbox runner) |
-| `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist) |
-| `exec:search` | bundled ripgrep via `stado_search_ripgrep` |
-| `exec:ast_grep` | bundled ast-grep via `stado_search_ast_grep` |
+| `net:<host>` | DEAD — was the `stado_http_get` host allowlist; that import is gone. Use `net:http_request:<host>` |
+| `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist). Replaces the dropped `exec:bash` / `exec:search` / `exec:ast_grep` caps — declare each binary your plugin runs (`exec:proc:/usr/bin/rg`) plus `bundled-bin:<name>` for stado-bundled tools (rg, ast-grep) |
 | `exec:pty` | `stado_pty_*` PTY sessions |
 | `terminal:open` | `stado_terminal_*` PTY sessions (alias for the EP-0038c terminal surface) |
 | `lsp:query` | bundled LSP imports |
 | `bundled-bin` | `stado_bundled_bin` access |
 | `dns:resolve` | `stado_dns_resolve` |
 | `dns:axfr` | `stado_dns_resolve_axfr` (RFC 5936 zone transfer; implies `dns:resolve`) |
-| `dns:reverse` (reserved) | reverse DNS (deferred) |
+| `dns:axfr_private` | AXFR against private / RFC1918 servers (implies `dns:axfr`) |
+| `dns:reverse` | reverse / PTR lookups via `stado_dns_resolve` (`qtype: "PTR"`) |
 | `crypto:hash` | `stado_hash`, `stado_hmac` |
 | `compress` | `stado_compress`, `stado_decompress` |
 | `session:read` | `stado_session_read` (history, counts, IDs) |
@@ -501,7 +499,7 @@ short-lived processes anyway, so the fallback is appropriate for them.
 
 ## 11. Lazy-load and meta-tools
 
-Per [EP-0037 §E](../eps/0037-tool-dispatch-and-namespacing.md), the
+Per [EP-0037 §E](../eps/0037-tool-dispatch-and-operator-surface.md), the
 **per-turn tool surface** sent to the model is a subset of the full
 registry. Tools are autoloaded if they're in `defaultAutoloadNames`,
 match a `[tools].autoload` glob, or have a category in
@@ -579,7 +577,7 @@ that uses `stado_progress` (added in v0.38) declares
 
 ## 14. SDK helpers (Go)
 
-`internal/bundledplugins/sdk` provides a thin layer for Go-targeted
+`internal/plugins/bundled/sdk` provides a thin layer for Go-targeted
 plugins:
 
 ```go
@@ -612,8 +610,10 @@ organized by tier:
 - **Agent surface**: agent_spawn / list / read_messages /
   send_message / cancel.
 - **Memory**: memory_propose / query / update.
-- **Tool-bridging imports**: native fs / shell / search / lsp tools
-  exposed as `stado_<tool>_*` imports for plugins that wrap them.
+- **LSP primitives**: lsp_find_definition / find_references /
+  document_symbols / hover (the wider tool-bridging surface —
+  `stado_fs_tool_*`, `stado_exec_bash`, `stado_http_get`,
+  `stado_search_*` — was removed by EP-no-internal-tools).
 
 ---
 
@@ -624,5 +624,5 @@ organized by tier:
 - [`docs/commands/plugin.md`](../commands/plugin.md) — operator CLI reference
 - [EP-0002](../eps/0002-all-tools-as-plugins.md) — every-tool-is-a-plugin architecture
 - [EP-0006](../eps/0006-signed-wasm-plugin-runtime.md) — signing + verification protocol
-- [EP-0037](../eps/0037-tool-dispatch-and-namespacing.md) — wire form, dispatch, lazy-load
+- [EP-0037](../eps/0037-tool-dispatch-and-operator-surface.md) — wire form, dispatch, lazy-load
 - [EP-0038](../eps/0038-abi-v2-bundled-wasm-and-runtime.md) — ABI v2 + tier system

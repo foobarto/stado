@@ -16,7 +16,7 @@ explains what it found:
 
 ```
 ✓ OS/arch             linux/amd64  (ok)
-✓ Go runtime          go1.25.0  (ok)
+✓ Go runtime          go1.26.4  (ok)
 ✓ Config file         ~/.config/stado/config.toml  (does not exist yet)
 ✓ State dir           ~/.local/share/stado  (exists (dir))
 ✓ ripgrep (rg)        /usr/bin/rg  (ok)
@@ -90,8 +90,9 @@ easy to pipe into `jq` or line-oriented tooling.
 | 1 | One or more blocking checks failed, or the doctor command itself errored |
 
 Informational misses (e.g. `gopls not installed`) don't bump the
-exit code. A real failure looks like "sandbox runner: no backend
-available — both bwrap and firejail missing, Landlock disabled".
+exit code. A real failure looks like the `bubblewrap (bwrap)` row
+reporting `not found in PATH` (marked with a ✗), which bumps the
+exit code to 1.
 
 ## Gotchas
 

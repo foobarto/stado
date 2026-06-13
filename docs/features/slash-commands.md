@@ -51,18 +51,37 @@ taking over the screen.
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker, `Ctrl+F` toggles favorites, and `Ctrl+A` shows provider setup for the selected row |
+| `/persona` | Open the persona picker (no args) or switch directly: `/persona <name>` (saves `[defaults].persona`) |
 | `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context, with next-step hints (`Ctrl+X S`) |
+| `/stats` | Show session token usage, cost, agent count, and uptime |
+| `/config` | Show the effective config; `/config <section>` filters (e.g. `/config sandbox`) |
+| `/sandbox` | Show the current sandbox posture — mode, runner, network, binds |
 | `/provider` | Open the provider credential manager — a modal listing every known provider with its redacted credential status (env-var name + configured/unset marker, never the secret). Add/modify a credential (env-var name, optional base-URL, masked key into the OS keyring when available), or `Ctrl+D` to unset. In-TUI counterpart to `stado auth`. `/provider <name>` shows setup/remediation hints for a named provider |
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
+| `/tool` | Run a tool by name: `/tool fs.read [json]` (`/t` for short). Verbs (`ls`/`info`/`enable`/`disable`/`autoload`/`unautoload`/`reload`) flow through the same command |
+| `/alias` | Manage operator slash shortcuts — `create`/`list`/`rm`; `{N}` = positional args |
+| `/reload` | Re-read config from disk (tools, system prompt, persona, display) without restarting |
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |
+| `/steer` | Inject a message into the current turn at the next tool boundary (Enter while busy; `/steer <msg>`) |
+| `/queue` | Queue a message to run when the current turn finishes (`Alt+Enter`; `/queue <msg>`) |
+| `/interrupt` | Cancel the current turn and run a message now (`Ctrl+Enter`; `/interrupt [msg]`) |
+| `/cancel` | Cancel the in-flight turn or tool (alias: `/stop`); keeps any queued prompt |
 | `/compact` | Summarise the conversation and replace prior turns (requires y/n confirmation) |
 | `/context` | One-stop session state: session id, cost, budget caps, loaded instructions, skills, hook |
 | `/memory [on\|off\|status]` | Show or toggle approved-memory retrieval for this session |
 | `/providers` | Active provider + detected local runners (ollama / lmstudio / vllm / llamacpp), including load/start hints when a runner has no models ready |
 | `/plugin` | List installed plugins; `/plugin:<id>-<ver> <tool> [json]` to run one |
 | `/switch` | Open the searchable session manager (`Ctrl+X L`) |
+| `/tree` | Open the session tree — navigate the fork graph and switch (`Ctrl+X G`) |
 | `/sessions` | Other resumable sessions for this repo, with switch/resume hints and inactive-session policy |
 | `/subagents` | Recent spawned child sessions with status, worktree, changed-file counts, scope violations, and adoption commands |
+| `/spawn <prompt>` | Spawn a background agent on a prompt |
+| `/fleet` | Open the fleet modal — running background agents at a glance |
+| `/ps` | List running fleet agents with status, model, and age |
+| `/kill <agent-id>` | Cancel a running agent (ids from `/ps`) |
+| `/supervisor` | Show or toggle the supervisor lane (`/supervisor on\|off\|status`) |
+| `/loop` | Repeat a prompt automatically: `/loop [duration] <prompt>` or `/loop stop` |
+| `/monitor` | Stream process stdout as session notifications: `/monitor <cmd>` or `/monitor stop` |
 | `/adopt [child] [--apply]` | Dry-run or explicitly apply worker subagent changes into the current parent session |
 | `/tasks` | Open the shared task manager (`Ctrl+X K`); `/tasks add <title>` creates a quick task |
 | `/new` | Create and switch to a fresh session (`Ctrl+X N`) |
@@ -135,8 +154,8 @@ taking over the screen.
 
 A new command has three touch points:
 
-1. **Handler** in `internal/tui/model.go`'s `handleSlash` switch.
-   For early-return handlers (with their own rendering), the
+1. **Handler** in `internal/tui/model_commands.go`'s `handleSlash`
+   switch. For early-return handlers (with their own rendering), the
    `defer m.renderBlocks()` at the top of `handleSlash` ensures
    the system block they append reaches the viewport — no need to
    call it explicitly.

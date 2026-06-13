@@ -340,7 +340,7 @@ stado plugin sign plugin.manifest.json --key test.seed --wasm plugin.wasm  # ste
 stado plugin trust $(grep 'pubkey' test-output | awk '{print $3}') "test"  # step 2
 stado plugin verify .                                                    # should pass
 stado plugin install .                                                   # should install
-stado plugin run my-plugin-0.3.1 hello '{}'                              # smoke-test
+stado tool run hello '{}'                                               # smoke-test
 ```
 
 A green round-trip here means end users will also succeed, assuming

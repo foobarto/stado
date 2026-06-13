@@ -20,6 +20,12 @@ history:
   - date: 2026-05-07
     status: Implemented
     note: approval_demo moved out of the bundled tool surface to plugins/examples/approval-demo-go. choose_demo (ui:choice counterpart) added at plugins/examples/choose-demo-go. Demos are no longer bundled — operators install them via `stado plugin install` to manually exercise the approval / choice UIs.
+  - date: 2026-06-13
+    status: Implemented
+    note: >-
+      Per EP-42, the approval-demo-go and choose-demo-go demos relocated out
+      of the main repo to the anchor repo at https://github.com/foobarto/stado-plugins.
+      Install via `stado plugin install github.com/foobarto/stado-plugins/<plugin>`.
 ---
 
 # EP-17: Tool Surface Policy and Plugin Approval UI
@@ -66,8 +72,8 @@ card, supports keyboard approval/denial, and keeps the chat input
 editable while the approval is pending. Plugins without `ui:approval`
 cannot open the approval UI.
 
-The `approval_demo` plugin (now at
-[`plugins/examples/approval-demo-go/`](../../plugins/examples/approval-demo-go))
+The `approval_demo` plugin (now in the
+[`foobarto/stado-plugins`](https://github.com/foobarto/stado-plugins) repo)
 manually exercises this UI path. It is not bundled into the stado binary
 — operators install it via `stado plugin install` when they want to
 smoke-test the approval drawer. The tool description tells models not to

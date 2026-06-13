@@ -128,7 +128,7 @@ All payloads carry a common header: `event` (the point name), `timestamp`
 |---------|--------|:-------:|-------|
 | `tool`  | string |         | Tool name, e.g. `shell__bash`, `fs__read`. |
 | `class` | string |         | Mutation class: `non-mutating` / `state-mutating` / `mutating` / `exec`. Gate on side-effect risk. |
-| `args`  | string |   ✓     | Raw JSON args as a string. |
+| `args`  | string |   yes   | Raw JSON args as a string. |
 
 - **Deny** → the tool is skipped entirely; the reason is returned to the
   model as an errored tool result. Nothing ran, nothing is recorded to the
@@ -142,8 +142,8 @@ All payloads carry a common header: `event` (the point name), `timestamp`
 | `tool`   | string |         | |
 | `class`  | string |         | |
 | `args`   | string |         | The (possibly pre-mutated) args the tool ran with. |
-| `result` | string |   ✓     | The tool's result content the model will see. |
-| `error`  | string |   ✓     | The tool's error string. |
+| `result` | string |   yes   | The tool's result content the model will see. |
+| `error`  | string |   yes   | The tool's error string. |
 
 - **Mutate** → rewrite `result` / `error`; the rewritten bytes are what the
   audit ref hashes.
@@ -153,8 +153,8 @@ All payloads carry a common header: `event` (the point name), `timestamp`
 ### `pre_llm`
 | Field       | Type   | Mutable | Notes |
 |-------------|--------|:-------:|-------|
-| `model`     | string |   ✓     | The model id for this turn. |
-| `system`    | string |   ✓     | The system prompt for this turn. |
+| `model`     | string |   yes   | The model id for this turn. |
+| `system`    | string |   yes   | The system prompt for this turn. |
 | `num_msgs`  | int    |         | Message-history length (read-only). |
 | `num_tools` | int    |         | Tool count for this turn. |
 
@@ -167,7 +167,7 @@ All payloads carry a common header: `event` (the point name), `timestamp`
 ### `post_llm`
 | Field          | Type   | Mutable | Notes |
 |----------------|--------|:-------:|-------|
-| `text`         | string |   ✓     | The assistant text. |
+| `text`         | string |   yes   | The assistant text. |
 | `num_tool_use` | int    |         | Tool-call count this turn. |
 | `tokens_in`    | int    |         | |
 | `tokens_out`   | int    |         | |

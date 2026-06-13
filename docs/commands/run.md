@@ -14,7 +14,7 @@ Given `--prompt "..."`:
    walking up from cwd, same as the TUI.
 3. Constructs a single-user-message `agent.TurnRequest`, calls
    `StreamTurn`, streams text-deltas to stdout.
-4. If `--tools` is enabled: opens a session worktree (sidecar-backed,
+4. With tools enabled (the default): opens a session worktree (sidecar-backed,
    signed refs) so tool calls are auditable. Runs multiple turns
    until the model stops requesting tools or hits `--max-turns`.
 
@@ -53,13 +53,18 @@ Streams raw text to stdout. Exits 0 on success.
 ### Enabling tools
 
 ```sh
-stado run --tools --prompt "find every TODO in this repo"
+stado run --prompt "find every TODO in this repo"
 ```
 
-With `--tools`, the model can call `read` / `grep` / `ripgrep` /
-`bash` / `webfetch` / `read_with_context` / `ast_grep` / `edit` /
-`write` / `glob` / `tasks` / LSP-backed symbol tools. Each call lands
-in the session's audit log.
+Tools are **on by default**. The model can call `read` / `grep` /
+`ripgrep` / `bash` / `webfetch` / `read_with_context` / `ast_grep` /
+`edit` / `write` / `glob` / `tasks` / LSP-backed symbol tools, a
+session worktree (sidecar-backed, signed refs) is opened so calls are
+auditable, and each call lands in the session's audit log.
+
+Pass `--no-tools` for pure-chat mode — no tools, no session, no audit
+log. Pass `--tools=fs.*,shell.exec` to whitelist a comma-separated
+subset of tools instead of enabling the full set.
 
 Tool execution uses the auto-approve host — there's no interactive
 y/n in run mode. Scope it via `[tools]` in `config.toml` if that's
@@ -106,11 +111,21 @@ what's available.
 |------|---------|
 | `--prompt <text>` | The prompt text (or pass positionally) |
 | `--skill <name>` | Load `.stado/skills/<name>.md` as (part of) the prompt |
-| `--tools` | Enable tool-calling with git-native audit |
+| `--tools <globs>` | Whitelist a comma-separated subset of tools (default: all enabled) |
+| `--no-tools` | Disable tools — pure-chat mode (no session, no audit) |
+| `--tools-autoload <globs>` | Comma-separated globs always sent to the model every turn (default: `[tools.autoload]` from config) |
+| `--tools-disable <globs>` | Comma-separated globs removed from the surface entirely (wins over enable + autoload) |
+| `--mode <general\|security>` | Harness mode: `general` (default) or `security` (recon discipline + abusability filters) |
+| `--persona <name>` | Persona used as the operating manual / system prompt |
 | `--no-sandbox` | Opt out of the v0.57.0 default sandbox: disables Landlock + ceiling-runner. Use only for development scenarios. |
 | `--session <id-or-label>` | Continue an existing session |
 | `--max-turns N` | Cap turns (default 20) |
+| `--no-turn-limit` | Remove the turn cap entirely |
+| `--temperature <f>` | Sampling temperature (0 = provider default) |
+| `--top-p <f>` | Nucleus sampling top-p (0 = provider default) |
+| `--top-k <n>` | Top-k sampling (0 = provider default) |
 | `--json` | Emit JSON Lines instead of raw text |
+| `--quiet` | Suppress tool-call preview lines on stdout (non-JSON mode) |
 
 ## Config
 

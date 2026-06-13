@@ -2,7 +2,7 @@
 
 A persona is the agent's operating manual — what it pays attention to, how aggressive it is, what it writes down, when to delegate. Selecting one switches the system-prompt body without changing what the project knows about itself (your `AGENTS.md` / `CLAUDE.md` still applies on top).
 
-Personas are markdown files with optional YAML frontmatter. stado ships eight; you can add more under `~/.stado/personas/` (global) or `{project-root}/.stado/personas/` (per-project, shadows global).
+Personas are markdown files with optional YAML frontmatter. stado ships eight; you can add more under `~/.config/stado/personas/` (global) or `{project-root}/.stado/personas/` (per-project, shadows global).
 
 ## Bundled personas
 
@@ -78,7 +78,7 @@ When `persona` is empty the call inherits the active session's persona.
 
 ## Writing your own
 
-Drop a markdown file with frontmatter under `~/.stado/personas/` or `{project}/.stado/personas/`:
+Drop a markdown file with frontmatter under `~/.config/stado/personas/` or `{project}/.stado/personas/`:
 
 ```markdown
 ---
@@ -100,7 +100,7 @@ Fields:
 | Field | Purpose |
 |---|---|
 | `name` | Canonical id; must match the filename without `.md` |
-| `title` | Human-readable name shown in `/persona` and `stado plugin list --personas` |
+| `title` | Human-readable name shown in the `/persona` picker |
 | `description` | One-line summary; appears in pickers |
 | `inherits` | Optional — name of a base persona; its body loads first, then this body appends |
 | `collaborators` | Optional — names of personas you'd typically delegate to via `agent.spawn` |
@@ -140,15 +140,13 @@ In addition to the standard software-engineer posture, this project requires:
 
 ## Resolution debug
 
-`stado plugin list --personas` shows every persona visible to the resolver, with its source path. Useful when a project-level override isn't taking effect.
-
-```
-NAME              SOURCE
-default           (bundled)
-software-engineer (bundled)
-my-project-engineer  /home/me/code/proj/.stado/personas/my-project-engineer.md
-...
-```
+There's no CLI command to list personas yet. To see what the resolver
+found and which source won, open the **`/persona` picker** (no argument)
+in an interactive `stado run` session: it lists every resolvable persona
+and labels each with its source (project → user → bundled). Useful when a
+project-level override isn't taking effect — the picker shows whether your
+`{project}/.stado/personas/` file is being seen and whether it shadows the
+user or bundled one.
 
 ## Where the persona lands in the prompt
 
@@ -166,4 +164,3 @@ The persona body REPLACES stado's default operating-manual prompt. The project's
 
 - [`docs/features/instructions.md`](instructions.md) — `AGENTS.md` / `CLAUDE.md` mechanics
 - [`docs/plugins/abi-reference.md`](../plugins/abi-reference.md) — `stado_llm_invoke` JSON-args shape including `persona`
-- [`docs/commands/plugin.md`](../commands/plugin.md) — `stado plugin list --personas`

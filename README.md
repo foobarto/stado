@@ -78,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.13.0
+  bash -s -- --dir /usr/local/bin --version v0.65.0
 ```
 
 ### Homebrew
@@ -257,7 +257,7 @@ Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
 ```sh
 # One-shot, exits after the agent finishes
-stado run --prompt "add a CHANGELOG entry for v0.13.0" --json
+stado run --prompt "add a CHANGELOG entry for the next release" --json
 
 # Long-running daemon; drive from any JSON-RPC 2.0 client
 stado headless
@@ -295,29 +295,14 @@ surface itself is shipped and stable enough to wire into Zed today.
   background plugin; when the TUI hits the hard context threshold it
   forks a compacted child session and replays the blocked prompt there.
 
-### Recent in v0.26.0
+### Recent changes
 
-- Five new CLI flags: top-level `--version`, `--provider`/`--model`
-  global overrides, `plugin run --workdir <path>`, `plugin run
-  --with-tool-host` (the `plugin run` command was later removed in
-  c2cd90d and replaced by `stado tool run`; `--with-tool-host` became
-  the default). Three new plugin subcommands: `plugin gc`,
-  `plugin doctor`, `plugin info`.
-- New `cfg:*` capability vocabulary for read-only configuration
-  introspection (`cfg:state_dir` ships first); `fs:read` /
-  `fs:write` caps now support `cfg:state_dir/...` path-templating
-  with strict cap-pairing.
-- Boots correctly on Fedora Atomic / Silverblue / Bazzite (the
-  `/home → /var/home` symlink no longer triggers
-  `Error: config: create config dir: directory component is a
-  symlink: home`).
-- Two new examples — `webfetch-cached` and `state-dir-info` (now in
-  [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins))
-  — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
-- See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
-  for the full rollup, EP-0027/0028/0029/0031 references, and the
-  EP-0030 placeholder for the security-research default-harness
-  direction.
+stado releases often. The
+[latest release](https://github.com/foobarto/stado/releases/latest) and
+[CHANGELOG.md](CHANGELOG.md) are the authoritative record of what shipped
+(the current release is also summarised on the TUI landing screen). For the
+design rationale behind a change, the [EPs](docs/eps/) are the durable
+record.
 
 For the full as-built detail, see [docs/README.md](docs/README.md),
 [DESIGN.md](DESIGN.md), and [PLAN.md](PLAN.md).
@@ -428,8 +413,12 @@ land`. The sidecar repo is safe to delete — it rebuilds on next run.
 
 ## Configuring tools & sandboxing
 
-Stado ships 14 bundled tools by default. `stado config show` prints the
-resolved config and `stado doctor` reports the main runtime knobs.
+Stado ships a broad bundled tool surface — filesystem, shell/PTY, web/DNS,
+ripgrep/ast-grep, LSP, session-search, and agent-spawn families (dozens of
+tools), all WASM-backed plugins. A small convenience core is auto-loaded
+each turn; the rest are reachable on demand through the dispatch meta-tools.
+`stado config show` prints the resolved config and `stado doctor` reports
+the main runtime knobs.
 
 ### Trim the tool set
 
@@ -660,7 +649,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 
 ### Design records & working state
 
-- **Design rationale:** [docs/eps/](docs/eps/) — 45 numbered EPs (e.g. 0004
+- **Design rationale:** [docs/eps/](docs/eps/) — 40+ numbered EPs (e.g. 0004
   sessions/audit, 0005 sandbox, 0037/0038 all-tools-as-wasm, 0050 broker),
   indexed in [docs/eps/README.md](docs/eps/README.md). [DESIGN.md](DESIGN.md)
   is the as-built architecture; [PLAN.md](PLAN.md) is what's *not* built yet
