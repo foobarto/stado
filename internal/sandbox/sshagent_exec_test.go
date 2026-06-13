@@ -29,7 +29,8 @@ func TestBwrapRunner_MaskSocketsExecution(t *testing.T) {
 		t.Skip("bwrap unavailable")
 	}
 	// bwrap binds /usr; /bin is often an unbound symlink, so /bin/sh can fail
-	// execvp inside the sandbox. Prefer /usr/bin/sh (see the python test above).
+	// execvp inside the sandbox. Prefer /usr/bin/sh (same reason as
+	// TestBwrapRunner_AllowHostsOnlyForwardsProxyPort in runner_linux_test.go).
 	shBin := ""
 	for _, c := range []string{"/usr/bin/sh", "/usr/bin/bash", "/bin/sh"} {
 		if _, err := os.Stat(c); err == nil {
@@ -43,6 +44,17 @@ func TestBwrapRunner_MaskSocketsExecution(t *testing.T) {
 			t.Skip("no sh available")
 		}
 		shBin = resolved
+	}
+
+	// bwrap may be on PATH yet unable to create a user namespace (hardened
+	// kernels, nested/seccomp-restricted containers, some CI). Available()
+	// only checks PATH, so probe a trivial run and SKIP (not fail) when the
+	// sandbox genuinely can't be entered on this host.
+	if probe, perr := (BwrapRunner{}).Command(context.Background(), Policy{Exec: []string{shBin}},
+		shBin, []string{"-c", "true"}, []string{"PATH=/usr/bin:/bin"}); perr != nil {
+		t.Skipf("bwrap probe build failed: %v", perr)
+	} else if out, rerr := probe.CombinedOutput(); rerr != nil {
+		t.Skipf("bwrap cannot create a namespace on this host: %v\n%s", rerr, out)
 	}
 
 	home := t.TempDir()
