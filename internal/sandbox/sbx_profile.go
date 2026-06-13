@@ -31,6 +31,8 @@ var execLookPath = exec.LookPath
 //   - allows file-read* under each FSRead path
 //   - allows file-read* + file-write* under each FSWrite path
 //   - allows process-exec for each Exec entry
+//   - allows file-read* + network-outbound for each Sockets entry
+//     (forwarded host unix sockets, e.g. ssh-agent)
 //   - allows network-outbound per NetPolicy.Kind
 //
 // The CWD is also always file-read*-allowed so the wrapped command
@@ -86,6 +88,19 @@ func RenderSandboxProfile(p Policy) string {
 	for _, path := range p.FSWrite {
 		fmt.Fprintf(&b, "(allow file-read* (subpath %s))\n", sbxString(path))
 		fmt.Fprintf(&b, "(allow file-write* (subpath %s))\n", sbxString(path))
+	}
+
+	// Forwarded host sockets (e.g. ssh-agent — decision 2026-06-13).
+	// A unix-socket connect() needs BOTH file-read* on the socket node
+	// AND network-outbound for the connect itself; sandbox-exec treats a
+	// unix connect as network egress, so file-read alone would let the
+	// guest stat the socket but not talk to it. Key bytes never enter the
+	// sandbox — only the socket. Masking (Policy.Mask) is a no-op here:
+	// deny-default already hides any path not added to FSRead, so the
+	// masked dir simply isn't emitted as an allow.
+	for _, sock := range p.Sockets {
+		fmt.Fprintf(&b, "(allow file-read* (subpath %s))\n", sbxString(sock))
+		fmt.Fprintf(&b, "(allow network-outbound (path %s))\n", sbxString(sock))
 	}
 
 	// Exec allow-list. sandbox-exec's `(literal "...")` predicate matches

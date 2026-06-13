@@ -209,6 +209,96 @@ func TestMountTable_NoSSHKeyLeakInReadSetCrossProfile(t *testing.T) {
 	}
 }
 
+// TestDefaultMountTable_MasksSSHDir asserts the ssh-agent-passthrough
+// masking half (decision 2026-06-13): the default profile, which binds
+// $HOME RO, must additionally MASK the .ssh key directory so the
+// ModeNotMounted id_* rows are actually unreadable (the prior gap: HOME
+// bound RO made them reachable), while known_hosts + config (ModeReadOnly)
+// stay restored on top. Verified at the Policy level: Mask contains the
+// .ssh dir; FSRead still contains known_hosts + config.
+func TestDefaultMountTable_MasksSSHDir(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+
+	pol := DefaultMountTable("/work").ToPolicy()
+
+	sshDir := "/home/test/.ssh"
+	masked := false
+	for _, m := range pol.Mask {
+		if m == sshDir {
+			masked = true
+		}
+	}
+	if !masked {
+		t.Fatalf("Policy.Mask should contain the .ssh dir %q; got %v", sshDir, pol.Mask)
+	}
+	// Safe files must remain in FSRead so they restore on top of the tmpfs.
+	wantRestored := map[string]bool{
+		"/home/test/.ssh/known_hosts": true,
+		"/home/test/.ssh/config":      true,
+	}
+	for _, r := range pol.FSRead {
+		delete(wantRestored, r)
+	}
+	if len(wantRestored) != 0 {
+		t.Errorf("FSRead missing safe ssh files to restore on top of mask: %v", wantRestored)
+	}
+}
+
+// TestDefaultMountTable_ForwardsAgentSocketWhenSet asserts the
+// forwarding half (default-on): when the host has $SSH_AUTH_SOCK set,
+// the default-profile Policy carries that socket in Sockets AND
+// SSH_AUTH_SOCK in Env (so filterEnv keeps it + the runner re-sets it).
+func TestDefaultMountTable_ForwardsAgentSocketWhenSet(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	sock := "/run/user/1000/keyring/ssh"
+	t.Setenv("SSH_AUTH_SOCK", sock)
+
+	pol := DefaultMountTable("/work").ToPolicy()
+
+	foundSock := false
+	for _, s := range pol.Sockets {
+		if s == sock {
+			foundSock = true
+		}
+	}
+	if !foundSock {
+		t.Errorf("Policy.Sockets should contain $SSH_AUTH_SOCK %q; got %v", sock, pol.Sockets)
+	}
+	foundEnv := false
+	for _, e := range pol.Env {
+		if e == "SSH_AUTH_SOCK" {
+			foundEnv = true
+		}
+	}
+	if !foundEnv {
+		t.Errorf("Policy.Env should contain SSH_AUTH_SOCK; got %v", pol.Env)
+	}
+}
+
+// TestDefaultMountTable_NoAgentSocketWhenUnset asserts the default is
+// inert when no host agent is present: $SSH_AUTH_SOCK unset → no socket
+// forwarded, no SSH_AUTH_SOCK env. (Masking still applies regardless.)
+func TestDefaultMountTable_NoAgentSocketWhenUnset(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	pol := DefaultMountTable("/work").ToPolicy()
+	if len(pol.Sockets) != 0 {
+		t.Errorf("no host agent → Sockets should be empty; got %v", pol.Sockets)
+	}
+	for _, e := range pol.Env {
+		if e == "SSH_AUTH_SOCK" {
+			t.Errorf("no host agent → SSH_AUTH_SOCK should not be in Env; got %v", pol.Env)
+		}
+	}
+}
+
 func TestMaskedPaths_IncludesPrivateKeys(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")

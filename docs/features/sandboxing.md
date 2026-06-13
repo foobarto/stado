@@ -112,6 +112,42 @@ the signature against the pinned trust store. Revocation is
 supported via `[plugins].crl_url` — stado refuses to install or
 run anything on the revocation list.
 
+## Credential masking + ssh-agent forwarding
+
+For a broker-mediated sandboxed session the default profile binds the
+operator's home directory read-only for ergonomics. That would leave the
+per-user SSH key directory reachable, so two default-on halves close the
+gap (decision 2026-06-13):
+
+- **The SSH key directory is masked.** The runner shadows the key
+  directory with an empty `tmpfs`, then re-binds the safe files
+  (`known_hosts`, the ssh `config`) read-only on top. The private keys
+  inside become unreadable from the sandbox even though home is bound
+  read-only — they can't be exfiltrated. On macOS the deny-default
+  profile already hides anything not explicitly allowed, so masking is a
+  no-op there (the key directory simply isn't added to the read set).
+
+- **The ssh-agent socket is forwarded.** When the host has
+  `$SSH_AUTH_SOCK` set, the runner binds that unix socket into the
+  sandbox and re-exports `SSH_AUTH_SOCK`, so `git` over ssh works from a
+  sandboxed tool call. **Only the socket crosses the boundary — key
+  bytes never enter the sandbox.** The agent signs on the host; the
+  sandbox only asks it to.
+
+This is wired into `sandbox.Policy` as two fields: `Mask` (paths to
+render unreadable; combined as a union — masking is a restriction) and
+`Sockets` (host unix sockets to bind; combined as an intersection — a
+bind is an allow a guest can only narrow). The startup banner notes when
+the agent is forwarded.
+
+**Accepted residual.** A compromised or prompt-injected agent in a
+forwarded session could abuse the socket to sign arbitrary git
+operations (push/commit) for the session's lifetime. The key itself is
+never exposed. The eventual hardening — a short-lived, fetch-only,
+approval- and taint-gated git sub-agent that alone holds the socket
+(EP-0050 phase 7) — is not built here; the operator accepts the residual
+for the pragmatic main-session forwarding.
+
 ## Capability vocabulary
 
 Used in `[mcp.servers.<name>].capabilities` and in wasm plugin

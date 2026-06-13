@@ -98,7 +98,12 @@ var rootCmd = &cobra.Command{
 				}
 			}()
 
-			return tui.Run(cfg, startupNotices)
+			// Enforce the broker's projected ceiling on the TUI's sandboxed
+			// tool calls (decision 2026-06-13: ssh-agent passthrough scope
+			// expansion — mirrors `stado run`). The ceiling carries the
+			// credential-dir mask + the forwarded ssh-agent socket. Skipped
+			// sessions / --no-sandbox keep the un-wrapped runner.
+			return tui.Run(cfg, startupNotices, brokerSession.Ceiling, !brokerSession.Skipped && !noSandbox)
 		})
 	},
 }

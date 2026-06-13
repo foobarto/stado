@@ -25,6 +25,26 @@ type Policy struct {
 	Env     []string // environment var names to pass through (NONE otherwise)
 	CWD     string   // required working directory; "" = inherit
 	Timeout time.Duration
+
+	// Mask names directories/files to render UNREADABLE inside the
+	// sandbox even when an ancestor was bound RO (e.g. $HOME bound RO,
+	// but the .ssh key dir must not be exfiltratable). The Linux runner
+	// shadows each Mask path with an empty --tmpfs placed AFTER the
+	// FSRead binds; safe files inside it (known_hosts, ssh config) are
+	// re-bound on top via FSRead. macOS deny-default already hides
+	// unlisted paths, so Mask is a no-op there (just keep the path out
+	// of FSRead). Merge UNIONs Mask: masking is a restriction, so the
+	// combined policy hides everything either side wants hidden.
+	Mask []string
+
+	// Sockets names host unix-socket paths to bind read-write into the
+	// sandbox (e.g. $SSH_AUTH_SOCK for ssh-agent forwarding). Only the
+	// socket crosses the boundary — never key bytes. The Linux runner
+	// emits --bind <sock> <sock>; macOS emits file-read* + a
+	// network-outbound allow for the path (a unix connect counts as
+	// network egress under sandbox-exec). Merge INTERSECTS Sockets: a
+	// bind is an allow, so only sockets both sides grant survive.
+	Sockets []string
 }
 
 // NetPolicy describes outgoing network access.
@@ -55,6 +75,11 @@ func (p Policy) Merge(other Policy) Policy {
 	out.FSWrite = intersect(p.FSWrite, other.FSWrite)
 	out.Exec = intersect(p.Exec, other.Exec)
 	out.Env = intersect(p.Env, other.Env)
+	// Mask is a restriction: hide everything either side wants hidden
+	// (union, more-restrictive combine). Sockets is an allow: only
+	// sockets both sides grant survive (intersect, like FSRead/Env).
+	out.Mask = union(p.Mask, other.Mask)
+	out.Sockets = intersect(p.Sockets, other.Sockets)
 
 	// Network: stricter Kind wins.
 	switch {
@@ -85,6 +110,12 @@ func (p Policy) Describe() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "fs_read=%d fs_write=%d exec=%d env=%d net=%s",
 		len(p.FSRead), len(p.FSWrite), len(p.Exec), len(p.Env), p.Net.Describe())
+	if len(p.Mask) > 0 {
+		fmt.Fprintf(&b, " mask=%d", len(p.Mask))
+	}
+	if len(p.Sockets) > 0 {
+		fmt.Fprintf(&b, " sockets=%d", len(p.Sockets))
+	}
 	if p.Timeout > 0 {
 		fmt.Fprintf(&b, " timeout=%s", p.Timeout)
 	}
@@ -143,6 +174,26 @@ func WorktreeWrite(worktree string) Policy {
 		FSRead:  []string{"/"},
 		FSWrite: []string{worktree, "/tmp"},
 	}
+}
+
+// union returns the deduplicated combination of a and b, preserving
+// the order in which entries first appear (a's entries first, then b's
+// new ones). Used by Merge for restriction-class fields (Mask) where the
+// safe combine is "everything either side wants."
+func union(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range append(append([]string{}, a...), b...) {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 func intersect(a, b []string) []string {

@@ -162,6 +162,110 @@ for label, port in (("proxy", proxy_port), ("blocked", %d)):
 	}
 }
 
+// TestBwrapRunner_MaskSocketsEmission pins the ssh-agent-passthrough
+// arg emission (decision 2026-06-13):
+//   - each Mask entry emits `--tmpfs <dir>` to shadow it;
+//   - the tmpfs comes AFTER the FSRead bind of the masked dir (shadow),
+//     and the safe files inside it (known_hosts/config, which live in
+//     FSRead) are re-bound via `--ro-bind-try` AFTER the tmpfs (restore
+//     on top) — order is load-bearing: bwrap applies binds in argv order,
+//     so restore-before-shadow would be clobbered;
+//   - each Sockets entry emits `--bind <sock> <sock>`;
+//   - SSH_AUTH_SOCK (kept by Env) is emitted via `--setenv`.
+func TestBwrapRunner_MaskSocketsEmission(t *testing.T) {
+	home := "/home/u"
+	sshDir := filepath.Join(home, ".ssh")
+	knownHosts := filepath.Join(sshDir, "known_hosts")
+	sshConfig := filepath.Join(sshDir, "config")
+	sock := "/run/user/1000/ssh-agent.sock"
+
+	cmd, err := (BwrapRunner{}).Command(context.Background(), Policy{
+		Exec:    []string{"git"},
+		FSRead:  []string{home, knownHosts, sshConfig},
+		Mask:    []string{sshDir},
+		Sockets: []string{sock},
+		Env:     []string{"SSH_AUTH_SOCK"},
+		Net:     NetPolicy{Kind: NetDenyAll},
+	}, "git", []string{"version"}, []string{
+		"SSH_AUTH_SOCK=" + sock,
+		"UNRELATED=drop",
+	})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	args := cmd.Args
+
+	// 1. Mask emits --tmpfs for the .ssh dir.
+	if !containsAdjacentArg(args, "--tmpfs", sshDir) {
+		t.Fatalf("args missing --tmpfs %s: %v", sshDir, args)
+	}
+	// 2. Socket emits --bind <sock> <sock>.
+	if !pairAt(args, "--bind", sock, sock) {
+		t.Fatalf("args missing --bind %s %s: %v", sock, sock, args)
+	}
+	// 3. SSH_AUTH_SOCK kept via --setenv; UNRELATED dropped.
+	setenv := collectSetenv(args)
+	if setenv["SSH_AUTH_SOCK"] != sock {
+		t.Fatalf("SSH_AUTH_SOCK = %q, want %q", setenv["SSH_AUTH_SOCK"], sock)
+	}
+	if setenv["UNRELATED"] != "" {
+		t.Fatalf("UNRELATED should be dropped, got %q", setenv["UNRELATED"])
+	}
+
+	// 4. Order: the FSRead bind of the masked dir comes BEFORE the
+	//    --tmpfs (shadow), and the restore --ro-bind-try of the safe
+	//    files comes AFTER the --tmpfs (restore on top).
+	tmpfsIdx := indexOfPair(args, "--tmpfs", sshDir)
+	if tmpfsIdx < 0 {
+		t.Fatalf("no --tmpfs %s in args", sshDir)
+	}
+	// The masked dir itself is bound RO before the tmpfs shadow.
+	homeBind := indexOfPair(args, "--ro-bind-try", home)
+	if homeBind < 0 || homeBind > tmpfsIdx {
+		t.Fatalf("home FSRead bind (idx %d) must precede --tmpfs (idx %d): %v", homeBind, tmpfsIdx, args)
+	}
+	for _, safe := range []string{knownHosts, sshConfig} {
+		restoreIdx := lastIndexOfPair(args, "--ro-bind-try", safe)
+		if restoreIdx < 0 {
+			t.Fatalf("safe file %s not re-bound: %v", safe, args)
+		}
+		if restoreIdx < tmpfsIdx {
+			t.Fatalf("safe file %s restore (idx %d) must come AFTER --tmpfs (idx %d) or it gets shadowed: %v", safe, restoreIdx, tmpfsIdx, args)
+		}
+	}
+}
+
+// pairAt reports whether args contains flag immediately followed by a, b.
+func pairAt(args []string, flag, a, b string) bool {
+	for i := 0; i+2 < len(args); i++ {
+		if args[i] == flag && args[i+1] == a && args[i+2] == b {
+			return true
+		}
+	}
+	return false
+}
+
+// indexOfPair returns the index of the FIRST `flag p` adjacent pair.
+func indexOfPair(args []string, flag, p string) int {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == p {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastIndexOfPair returns the index of the LAST `flag p` adjacent pair.
+func lastIndexOfPair(args []string, flag, p string) int {
+	idx := -1
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == p {
+			idx = i
+		}
+	}
+	return idx
+}
+
 func collectSetenv(args []string) map[string]string {
 	out := map[string]string{}
 	for i := 0; i+2 < len(args); i++ {

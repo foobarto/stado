@@ -16,6 +16,44 @@ func TestPolicyMerge_FS(t *testing.T) {
 	}
 }
 
+// TestPolicyMerge_Mask pins the union-combine semantics for Mask:
+// masking is a RESTRICTION (render a path unreadable), so combining two
+// policies must hide everything EITHER side wants hidden. Union is the
+// safe (more-restrictive) combine — the inverse of FSRead's intersection
+// but consistent with "stricter wins." Dedupes so a path masked by both
+// sides appears once.
+func TestPolicyMerge_Mask(t *testing.T) {
+	outer := Policy{Mask: []string{"/home/u/.ssh", "/home/u/.aws"}}
+	inner := Policy{Mask: []string{"/home/u/.ssh", "/home/u/.gcp"}}
+	merged := outer.Merge(inner)
+	want := map[string]bool{"/home/u/.ssh": true, "/home/u/.aws": true, "/home/u/.gcp": true}
+	if len(merged.Mask) != len(want) {
+		t.Fatalf("Mask union = %v, want %d distinct entries", merged.Mask, len(want))
+	}
+	for _, m := range merged.Mask {
+		if !want[m] {
+			t.Errorf("unexpected Mask entry %q", m)
+		}
+		delete(want, m)
+	}
+	if len(want) != 0 {
+		t.Errorf("Mask union missing entries: %v", want)
+	}
+}
+
+// TestPolicyMerge_Sockets pins the intersect-combine semantics for
+// Sockets: a socket bind is an ALLOW (grant the guest a host socket), so
+// only sockets BOTH sides grant survive the merge — consistent with
+// FSRead/Exec/Env/Net-hosts intersection (inner narrows outer).
+func TestPolicyMerge_Sockets(t *testing.T) {
+	outer := Policy{Sockets: []string{"/run/a.sock", "/run/b.sock"}}
+	inner := Policy{Sockets: []string{"/run/b.sock", "/run/c.sock"}}
+	merged := outer.Merge(inner)
+	if len(merged.Sockets) != 1 || merged.Sockets[0] != "/run/b.sock" {
+		t.Fatalf("Sockets intersection = %v, want [/run/b.sock]", merged.Sockets)
+	}
+}
+
 func TestPolicyMerge_NetStricterWins(t *testing.T) {
 	cases := []struct {
 		a, b NetKind
@@ -49,6 +87,9 @@ func TestDenyAll(t *testing.T) {
 	}
 	if len(p.FSRead) != 0 || len(p.FSWrite) != 0 || len(p.Exec) != 0 {
 		t.Errorf("DenyAll has non-empty allow-lists")
+	}
+	if len(p.Mask) != 0 || len(p.Sockets) != 0 {
+		t.Errorf("DenyAll should leave Mask/Sockets empty, got Mask=%v Sockets=%v", p.Mask, p.Sockets)
 	}
 }
 

@@ -433,7 +433,13 @@ var sessionResumeCmd = &cobra.Command{
 		// TUI. runtime.OpenSession sees that cwd is a session
 		// worktree and takes the resume-on-cwd branch.
 		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
-			return tui.Run(cfg, startupNotices)
+			// Resume does not attach to the broker today (it deliberately
+			// skips MaybeRewrap, see above), so it has no projected ceiling
+			// to enforce: pass the zero ceiling + enforce=false. Wiring
+			// resume to attach + enforce the ceiling (so it gets the same
+			// credential-dir mask + ssh-agent forwarding as the bare TUI) is
+			// a focused follow-up (decision 2026-06-13).
+			return tui.Run(cfg, startupNotices, sandbox.Policy{}, false)
 		})
 	},
 }

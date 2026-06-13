@@ -48,7 +48,7 @@ import (
 //   - "ollama" / "llamacpp" / "vllm"      → OAI-compat presets
 //   - "oaicompat:<url>"                   → OAI-compat with explicit endpoint
 //   - anything else matching inference.presets.<name>.endpoint  → OAI-compat
-func Run(cfg *config.Config, startupNotices []string) error {
+func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, enforceCeiling bool) error {
 	done := tuiTraceCall("tui.Run")
 	defer done()
 	// startupNotices carries the pre-launch banner (sandbox posture,
@@ -87,6 +87,16 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	exec, err := runtime.BuildExecutor(sess, cfg, "stado-tui")
 	if err != nil {
 		return fmt.Errorf("tui: tools: %w", err)
+	}
+
+	// Enforce the broker's projected ceiling on every sandboxed tool call,
+	// mirroring `stado run` (cmd/stado/run.go). The ceiling carries the
+	// credential-dir mask + the forwarded ssh-agent socket (decision
+	// 2026-06-13) and bounds FS/net identically. Gated by enforceCeiling so a
+	// caller that didn't attach a broker session (zero ceiling) or opted out
+	// (--no-sandbox) keeps the un-wrapped runner.
+	if enforceCeiling && exec != nil {
+		exec.Runner = sandbox.NewCeilingRunner(exec.Runner, ceiling)
 	}
 
 	// The TUI may swap providers mid-session (e.g. `/model` picks a

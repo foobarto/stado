@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -394,7 +395,7 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 // tool.Host without depending on the unexported type. The runtime's
 // resolveSandboxPolicy does the type assertion.
 func NewDefaultSandboxPolicy(workdir string) any {
-	return &sandboxPolicy{
+	p := &sandboxPolicy{
 		CWD: workdir,
 		// /bin + /sbin matter for bash's literal /bin/sh / /bin/bash
 		// argv[0] paths. /tmp + /var/tmp + /run cover scratch space
@@ -407,6 +408,18 @@ func NewDefaultSandboxPolicy(workdir string) any {
 		// surface, not the default.
 		Net: "allow",
 	}
+	// ssh-agent forwarding, default-on (decision 2026-06-13): when the
+	// host has an agent socket, bind it + keep SSH_AUTH_SOCK so
+	// git-over-ssh works from a sandboxed bash tool call. Only the
+	// socket crosses the boundary — never key bytes. No masking here:
+	// this default doesn't bind $HOME, so the key dir is never reachable
+	// (masking is the $HOME-bound broker profile's job). No-op when no
+	// host agent is present.
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		p.Sockets = append(p.Sockets, sock)
+		p.Env = append(p.Env, "SSH_AUTH_SOCK")
+	}
+	return p
 }
 
 // sandboxPolicy is the wasm-side wire shape for the optional `sandbox`
@@ -432,6 +445,12 @@ type sandboxPolicy struct {
 	CWD         string   `json:"cwd"`
 	Env         []string `json:"env"` // env vars to keep
 	Unsandboxed bool     `json:"unsandboxed,omitempty"`
+	// Mask names dirs to render unreadable (tmpfs shadow); Sockets names
+	// host unix sockets to bind RW (ssh-agent forwarding). Both map 1:1
+	// to sandbox.Policy.Mask / .Sockets (decision 2026-06-13). Mask is a
+	// restriction (union on intersect); Sockets is an allow (intersect).
+	Mask    []string `json:"mask,omitempty"`
+	Sockets []string `json:"sockets,omitempty"`
 }
 
 // resolveSandboxPolicy picks the effective sandbox policy for a
@@ -523,6 +542,33 @@ func intersectPolicies(host, guest *sandboxPolicy) *sandboxPolicy {
 		Env:     intersectStringList(host.Env, guest.Env),
 		Net:     intersectNet(host.Net, guest.Net),
 		CWD:     host.CWD,
+		// Mask is a restriction: union so a tmpfs shadow either side
+		// wants survives (guest can add masks, never remove the host's).
+		// Sockets is an allow: intersect like FSRead/Env — guest can
+		// only narrow the host's forwarded sockets (a nil guest list
+		// inherits the host's, so the default-on agent socket survives
+		// for plugins that don't mention sockets).
+		Mask:    unionStringList(host.Mask, guest.Mask),
+		Sockets: intersectStringList(host.Sockets, guest.Sockets),
+	}
+	return out
+}
+
+// unionStringList returns the deduplicated union of host and guest,
+// preserving first-seen order. Used for restriction-class fields (Mask)
+// where the safe combine is "everything either side wants hidden."
+func unionStringList(host, guest []string) []string {
+	if len(host) == 0 && len(guest) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(host)+len(guest))
+	var out []string
+	for _, s := range append(append([]string{}, host...), guest...) {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
 	}
 	return out
 }
@@ -656,6 +702,23 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 	if name := runner.Name(); name == "none" || name == "windows-passthrough" {
 		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available on %s (install bubblewrap on Linux or sandbox-exec on macOS; Windows confinement is not yet supported — set sandbox.unsandboxed=true to opt out explicitly)", name)
 	}
+	p := toSandboxPolicy(policy, workdir)
+	cmd, err := runner.Command(ctx, p, argv[0], argv[1:], env)
+	if err == nil && cmd != nil {
+		// Sandbox wrappers don't always start a new session; detach the
+		// controlling tty here too so /dev/tty-grabbing children can't
+		// corrupt the TUI through the sandbox.
+		detachControllingTTY(cmd)
+	}
+	return cmd, err
+}
+
+// toSandboxPolicy translates the wasm-side wire shape into a
+// sandbox.Policy. Extracted from buildSandboxedCmd so the field mapping
+// — including the ssh-agent passthrough fields Mask/Sockets (decision
+// 2026-06-13) — is unit-testable without a runner. CWD defaults to
+// workdir when the policy leaves it blank.
+func toSandboxPolicy(policy *sandboxPolicy, workdir string) sandbox.Policy {
 	cwd := policy.CWD
 	if cwd == "" {
 		cwd = workdir
@@ -667,20 +730,14 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 	case "allow":
 		netPolicy.Kind = sandbox.NetAllowAll
 	}
-	p := sandbox.Policy{
+	return sandbox.Policy{
 		FSRead:  policy.FSRead,
 		FSWrite: policy.FSWrite,
 		Exec:    policy.Exec,
 		Net:     netPolicy,
 		CWD:     cwd,
 		Env:     policy.Env,
+		Mask:    policy.Mask,
+		Sockets: policy.Sockets,
 	}
-	cmd, err := runner.Command(ctx, p, argv[0], argv[1:], env)
-	if err == nil && cmd != nil {
-		// Sandbox wrappers don't always start a new session; detach the
-		// controlling tty here too so /dev/tty-grabbing children can't
-		// corrupt the TUI through the sandbox.
-		detachControllingTTY(cmd)
-	}
-	return cmd, err
 }
