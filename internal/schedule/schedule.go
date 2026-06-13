@@ -120,6 +120,20 @@ func (s *Store) Get(id string) (Entry, error) {
 	return Entry{}, fmt.Errorf("schedule %q not found", id)
 }
 
+// RunArgs builds the `stado run ...` argv for a schedule entry. Extracted so
+// the flag names stay testable against the actual run-command flag registry —
+// EP-0036 shipped passing the non-existent --session-id (the run flag is
+// --session), which made every scheduled session-resume fail with "unknown
+// flag". Each flag here MUST be a registered flag on runCmd (see the contract
+// test in cmd/stado).
+func RunArgs(e Entry) []string {
+	args := []string{"run", "--prompt", e.Prompt, "--no-turn-limit"}
+	if e.SessionID != "" {
+		args = append(args, "--session", e.SessionID)
+	}
+	return args
+}
+
 // Run executes the schedule entry immediately by calling `stado run`.
 // stadoBin is the path to the stado binary. Output is appended to
 // logPath (if non-empty). This is the function called by OS cron.
@@ -128,11 +142,7 @@ func (s *Store) Run(id, stadoBin, logPath string) error {
 	if err != nil {
 		return err
 	}
-	args := []string{"run", "--prompt", e.Prompt, "--no-turn-limit"}
-	if e.SessionID != "" {
-		args = append(args, "--session-id", e.SessionID)
-	}
-	cmd := exec.Command(stadoBin, args...) //nolint:gosec
+	cmd := exec.Command(stadoBin, RunArgs(e)...) //nolint:gosec
 	if logPath != "" {
 		if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
 			return err
