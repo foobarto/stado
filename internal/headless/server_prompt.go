@@ -9,6 +9,7 @@ import (
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -86,11 +87,17 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	lifecycleHooks := hooks.BuildLifecycleRunner(s.Cfg)
 
 	opts := runtime.AgentLoopOptions{
-		Provider:             s.Provider,
-		Config:               s.Cfg,
-		Model:                s.Cfg.Defaults.Model,
-		Messages:             localMsgs,
-		MaxTurns:             10,
+		Provider: s.Provider,
+		Config:   s.Cfg,
+		Model:    s.Cfg.Defaults.Model,
+		Messages: localMsgs,
+		MaxTurns: 10,
+		// Autonomous surface: confine bash/exec by default (Model A,
+		// decision 2026-06-13) — matches mcp-server / acp. The auto-created
+		// host returns this from tool.SandboxPolicyProvider; the wasm guest
+		// can only tighten it. Closes the gap where headless bash ran
+		// unconfined.
+		DefaultSandboxPolicy: pluginRuntime.NewDefaultSandboxPolicy(workdir),
 		Persona:              sess.persona,
 		Hooks:                lifecycleHooks,
 		Thinking:             s.Cfg.Agent.Thinking,

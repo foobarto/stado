@@ -140,6 +140,11 @@ type autoApproveHost struct {
 	// shell.* / pty.* tools so spawn / attach / read / write across
 	// dispatches see the same registry.
 	pty *pty.Manager
+	// defaultSandboxPolicy, when non-nil, is returned by DefaultSandboxPolicy
+	// so bash/exec tool calls run confined by it. Nil = operator's-FS
+	// semantics (run / tui). Autonomous surfaces (headless) set it via
+	// AgentLoopOptions.DefaultSandboxPolicy. Model A (decision 2026-06-13).
+	defaultSandboxPolicy any
 }
 
 func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -148,6 +153,12 @@ func (h autoApproveHost) Approve(context.Context, tool.ApprovalRequest) (tool.De
 
 func (h autoApproveHost) Workdir() string        { return h.workdir }
 func (h autoApproveHost) Runner() sandbox.Runner { return h.runner }
+
+// DefaultSandboxPolicy implements tool.SandboxPolicyProvider. Returns nil for
+// the operator-driven surfaces (run / tui) — bash keeps operator's-FS semantics
+// — and the protective default for autonomous surfaces (headless) that set it
+// via AgentLoopOptions.DefaultSandboxPolicy. Model A (decision 2026-06-13).
+func (h autoApproveHost) DefaultSandboxPolicy() any { return h.defaultSandboxPolicy }
 
 func (h autoApproveHost) SpawnSubagent(ctx context.Context, req subagent.Request) (subagent.Result, error) {
 	if h.spawn == nil {
