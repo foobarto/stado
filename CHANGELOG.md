@@ -49,8 +49,8 @@ pass.
   read-only on top) and `Sockets` (the host `$SSH_AUTH_SOCK` bound in +
   re-exported). Wired into the broker ceiling, the bare TUI (which now
   enforces the ceiling like `stado run`), `mcp-server`, and `daemon`.
-  - **Accepted residual:** a forwarded session can sign git operations for
-    its lifetime; the key itself is never exposed. The fetch-only,
+    Accepted residual — a forwarded session can sign git operations for its
+    lifetime; the key itself is never exposed. The fetch-only,
     approval/taint-gated git-sub-agent (EP-0050 phase 7) is the eventual
     stronger model. `session resume` does not yet enforce the ceiling
     (follow-up).
