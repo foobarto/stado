@@ -1,6 +1,9 @@
 package textutil
 
-import "testing"
+import (
+	"testing"
+	"unicode/utf8"
+)
 
 func TestStripControlChars_RemovesEscapeSequences(t *testing.T) {
 	got := StripControlChars("ok\x1b]52;clip\x07still\nbad\t")
@@ -77,5 +80,40 @@ func TestAppendWithinBytesCapsAtRuneBoundary(t *testing.T) {
 	}
 	if got := AppendWithinBytes("xx", "é", 4); got != "xxé" {
 		t.Fatalf("AppendWithinBytes full rune = %q, want xxé", got)
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	// Short string: returned unchanged, no ellipsis.
+	if got := TruncateRunes("hello", 10); got != "hello" {
+		t.Fatalf("TruncateRunes short = %q, want hello", got)
+	}
+	// Exactly at the limit: unchanged.
+	if got := TruncateRunes("hello", 5); got != "hello" {
+		t.Fatalf("TruncateRunes exact = %q, want hello", got)
+	}
+	// Over the limit, pure ASCII: first n-1 runes + ellipsis.
+	if got := TruncateRunes("abcdef", 4); got != "abc…" {
+		t.Fatalf("TruncateRunes ascii = %q, want abc…", got)
+	}
+	// The load-bearing case: a multibyte rune sits exactly on the byte
+	// boundary the old `s[:n-1]` byte-slice would split. The result must
+	// be valid UTF-8 — never a mojibake half-rune before the ellipsis.
+	// "ééééé" is 5 runes / 10 bytes; truncating to 4 runes must keep 3
+	// whole "é" + "…", not slice mid-rune.
+	got := TruncateRunes("ééééé", 4)
+	if got != "ééé…" {
+		t.Fatalf("TruncateRunes multibyte = %q, want ééé…", got)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("TruncateRunes produced invalid UTF-8: %q", got)
+	}
+	// n <= 0 is a degenerate budget: return empty rather than panic.
+	if got := TruncateRunes("abc", 0); got != "" {
+		t.Fatalf("TruncateRunes zero budget = %q, want empty", got)
+	}
+	// n == 1 has no room for content + ellipsis; return just the ellipsis.
+	if got := TruncateRunes("abc", 1); got != "…" {
+		t.Fatalf("TruncateRunes budget=1 = %q, want …", got)
 	}
 }

@@ -276,10 +276,9 @@ func wordWrap(s string, width int) []string {
 }
 
 func truncateStr(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "…"
+	// Rune-safe: plugin tool descriptions are author-supplied and may be
+	// non-ASCII; a raw byte slice would split a multibyte rune.
+	return textutil.TruncateRunes(s, max)
 }
 
 func min(a, b int) int {

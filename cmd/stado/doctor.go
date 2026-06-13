@@ -369,19 +369,14 @@ func sanitizeErr(err error) string {
 	case strings.Contains(msg, "HTTP 404"):
 		return "wrong endpoint (404)"
 	}
-	// Fallback: trim to a safe length.
-	if len(msg) > 60 {
-		msg = msg[:59] + "…"
-	}
-	return msg
+	// Fallback: trim to a safe length (rune-safe — provider error text
+	// may be non-ASCII).
+	return textutil.TruncateRunes(msg, 60)
 }
 
 func modelPreview(models []string) string {
 	preview := textutil.StripControlChars(strings.Join(models, ", "))
-	if len(preview) > 80 {
-		preview = preview[:79] + "…"
-	}
-	return preview
+	return textutil.TruncateRunes(preview, 80)
 }
 
 // checkOptInFeatures surfaces the user-opt-in config surfaces so
