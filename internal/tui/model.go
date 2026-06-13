@@ -654,11 +654,20 @@ type Model struct {
 	personaResolver personas.Resolver
 	personaPicker   *personapicker.Model
 
-	// skills is the list of `.stado/skills/*.md` files discovered at
-	// startup. Each is reachable as `/skill:<name>` from the palette;
-	// invocation injects the skill body as a user message so the
-	// LLM acts on it. Empty when no skills dir exists up the tree.
+	// skills is the EFFECTIVE skill set: the cwd-discovered base
+	// (`baseSkills`) plus the active persona's additive `skills:`. Each is
+	// reachable as `/skill:<name>` from the palette; invocation injects the
+	// skill body as a user message so the LLM acts on it. Recomputed on a
+	// /persona switch so persona skills come and go with the persona while
+	// the base set is never hidden (additive).
 	skills []skills.Skill
+
+	// baseSkills is the cwd-discovered `.stado/skills/*.md` set (the global
+	// scope), tracked separately from persona skills so switching persona
+	// can recompute m.skills = baseSkills ∪ personaSkills(active) without
+	// re-walking the filesystem. Set whenever the cwd skill set is (re)loaded
+	// (NewModel, /reload, session adoption).
+	baseSkills []skills.Skill
 
 	// skillSlash maps a skill-declared slash shortcut (the bare command
 	// name, no leading "/") to the owning skill's Name, so handleSlash

@@ -300,7 +300,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		if opts.Executor != nil {
 			// EP-0037: send only autoloaded tools + session-activated tools each turn.
-			autoloaded := AutoloadedTools(opts.Executor.Registry, opts.Config)
+			// Per-persona tool promotion (2026-06-13): the active persona's
+			// EffectiveTools() merge ADDITIVELY into the autoload surface for
+			// this run — headless/run honors persona `tools:`/`recommended_tools:`
+			// the same way the TUI's per-turn path does. nil persona = no extra.
+			autoloaded := AutoloadedToolsWithExtra(opts.Executor.Registry, opts.Config, opts.Persona.EffectiveTools())
 			surface := dedupeTools(append(autoloaded, activatedSlice(opts.Executor.Registry, activatedNames)...))
 			req.Tools = ToolDefsFromSlice(surface)
 		}

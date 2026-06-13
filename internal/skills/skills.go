@@ -112,6 +112,70 @@ func Load(start string) ([]Skill, error) {
 	return out, firstErr
 }
 
+// LoadPaths loads the skill files named by relPaths, resolved relative to
+// baseDir, and returns the parsed skills plus a per-entry warning slice for
+// any path that couldn't be loaded (missing, symlink, traversal escape,
+// oversize, parse). Valid entries always load even when a sibling warns —
+// matching the keymap/theme/skills loader's non-fatal idiom.
+//
+// Used for per-persona additive skills (2026-06-13): a persona declares
+// `skills: [<path>...]` resolved against filepath.Dir(persona.SourcePath).
+// Confinement (no symlink escape, no `..` traversal out of baseDir) and the
+// size cap reuse the same os.Root-backed guards Load applies to the
+// cwd-discovered `.stado/skills/` dirs — this never opens an arbitrary path
+// unguarded.
+//
+// An empty baseDir (bundled personas have no on-disk dir) returns (nil, nil):
+// there's nothing to resolve relative paths against.
+func LoadPaths(baseDir string, relPaths []string) ([]Skill, []string) {
+	if strings.TrimSpace(baseDir) == "" || len(relPaths) == 0 {
+		return nil, nil
+	}
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(baseDir)
+	if err != nil {
+		// Whole base dir unreadable (e.g. a symlinked persona dir): warn
+		// once and bail — every relPath would fail the same way.
+		return nil, []string{fmt.Sprintf("skills: open persona dir %s: %v", baseDir, err)}
+	}
+	defer func() { _ = root.Close() }()
+	rr := workdirpath.NewRootResolver(root)
+
+	var out []Skill
+	var warnings []string
+	seen := map[string]bool{}
+	for _, rel := range relPaths {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			continue
+		}
+		// os.Root confines to baseDir, but a leading "/" or a name os.Root
+		// can't represent locally should be rejected up front with a clear
+		// message rather than an opaque syscall error.
+		if !filepath.IsLocal(rel) {
+			warnings = append(warnings, fmt.Sprintf(
+				"skills: persona skill path %q escapes the persona directory (ignored)", rel))
+			continue
+		}
+		body, readErr := rr.ReadFileLimited(rel, maxSkillFileBytes)
+		if readErr != nil {
+			warnings = append(warnings, fmt.Sprintf(
+				"skills: persona skill %q: %v (ignored)", rel, readErr))
+			continue
+		}
+		sk := parse(string(body))
+		sk.Path = filepath.Join(baseDir, rel)
+		if sk.Name == "" {
+			sk.Name = strings.TrimSuffix(filepath.Base(rel), ".md")
+		}
+		if seen[sk.Name] {
+			continue // first wins, same nearest-wins policy as Load
+		}
+		seen[sk.Name] = true
+		out = append(out, sk)
+	}
+	return out, warnings
+}
+
 func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
 	root, err := workdirpath.NewUserConfigResolver().OpenRoot(d)
 	if err != nil {

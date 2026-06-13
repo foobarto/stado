@@ -267,6 +267,133 @@ func TestAssembleSystem(t *testing.T) {
 	}
 }
 
+// --- per-persona skills/plugins (2026-06-13) ---------------------------------
+
+// TestParsePersona_ScopeKeys: the new additive-scope frontmatter keys
+// (tools / skills / plugins) parse, and recommended_tools still parses.
+func TestParsePersona_ScopeKeys(t *testing.T) {
+	src := `---
+name: pentester
+recommended_tools: [bash, "ad.*"]
+tools: [nmap, "exploit.*"]
+skills: [skills/recon.md, ../shared/notes.md]
+plugins: [recorder, telemetry]
+---
+BODY
+`
+	p, _, err := parsePersona([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"bash", "ad.*"}; !equalSlices(p.RecommendedTools, want) {
+		t.Errorf("recommended_tools: %v want %v", p.RecommendedTools, want)
+	}
+	if want := []string{"nmap", "exploit.*"}; !equalSlices(p.Tools, want) {
+		t.Errorf("tools: %v want %v", p.Tools, want)
+	}
+	if want := []string{"skills/recon.md", "../shared/notes.md"}; !equalSlices(p.Skills, want) {
+		t.Errorf("skills: %v want %v", p.Skills, want)
+	}
+	if want := []string{"recorder", "telemetry"}; !equalSlices(p.Plugins, want) {
+		t.Errorf("plugins: %v want %v", p.Plugins, want)
+	}
+}
+
+// TestPersona_EffectiveTools: EffectiveTools = union(Tools, RecommendedTools),
+// de-duped, order-stable (Tools first, then RecommendedTools).
+func TestPersona_EffectiveTools(t *testing.T) {
+	p := Persona{
+		Tools:            []string{"nmap", "bash"},
+		RecommendedTools: []string{"bash", "ad.*"},
+	}
+	got := p.EffectiveTools()
+	want := []string{"nmap", "bash", "ad.*"}
+	if !equalSlices(got, want) {
+		t.Errorf("EffectiveTools = %v, want %v", got, want)
+	}
+}
+
+// TestResolver_ScopeInheritanceUnion: a child persona's effective
+// tools/skills/plugins are the union(parent, child), mirroring body
+// inheritance (additive up the chain).
+func TestResolver_ScopeInheritanceUnion(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := filepath.Join(tmp, "config")
+	if err := os.MkdirAll(filepath.Join(cfg, personasSubdir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	parent := `---
+name: parent
+tools: [bash]
+recommended_tools: [grep]
+skills: [skills/parent.md]
+plugins: [recorder]
+---
+PARENT
+`
+	child := `---
+name: child
+inherits: parent
+tools: [nmap]
+skills: [skills/child.md]
+plugins: [telemetry]
+---
+CHILD
+`
+	if err := os.WriteFile(filepath.Join(cfg, personasSubdir, "parent.md"), []byte(parent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, personasSubdir, "child.md"), []byte(child), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := Resolver{ConfigDir: cfg}
+	p, err := r.Load("child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Parent entries first, then child's, deduped.
+	if want := []string{"bash", "nmap"}; !equalSlices(p.Tools, want) {
+		t.Errorf("inherited tools: %v want %v", p.Tools, want)
+	}
+	if want := []string{"grep"}; !equalSlices(p.RecommendedTools, want) {
+		t.Errorf("inherited recommended_tools: %v want %v", p.RecommendedTools, want)
+	}
+	if want := []string{"skills/parent.md", "skills/child.md"}; !equalSlices(p.Skills, want) {
+		t.Errorf("inherited skills: %v want %v", p.Skills, want)
+	}
+	if want := []string{"recorder", "telemetry"}; !equalSlices(p.Plugins, want) {
+		t.Errorf("inherited plugins: %v want %v", p.Plugins, want)
+	}
+	// EffectiveTools spans the merged Tools + RecommendedTools.
+	eff := p.EffectiveTools()
+	for _, name := range []string{"bash", "nmap", "grep"} {
+		if !containsStr(eff, name) {
+			t.Errorf("EffectiveTools %v missing %q", eff, name)
+		}
+	}
+}
+
+func equalSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsStr(s []string, want string) bool {
+	for _, v := range s {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
 // TestResolver_RejectsSymlinkedPersona: a symlinked persona file in the
 // repo-controlled .stado/personas/ dir must NOT be followed (exfil guard, #013).
 func TestResolver_RejectsSymlinkedPersona(t *testing.T) {

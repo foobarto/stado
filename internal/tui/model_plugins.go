@@ -34,7 +34,16 @@ import (
 // as persistent (tickable) plugins. A single failing plugin surfaces
 // as a system block in the TUI but doesn't abort the others.
 func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
-	ids := effectiveBackgroundPluginIDs(cfg)
+	// Per-persona plugins (2026-06-13): the active-at-launch persona's
+	// `plugins:` are added to the background set. LAUNCH-ONLY — a live
+	// /persona switch does NOT start/stop background plugins (the lifecycle
+	// is session-start-only; LoadBackgroundPlugins runs once at boot, after
+	// initPersona). A nil persona contributes nothing.
+	var personaPlugins []string
+	if m.persona != nil {
+		personaPlugins = m.persona.Plugins
+	}
+	ids := effectiveBackgroundPluginIDs(cfg, personaPlugins)
 	if len(ids) == 0 {
 		return
 	}
@@ -66,26 +75,27 @@ func (m *Model) LoadBackgroundPlugins(cfg *config.Config) {
 	}
 }
 
-func effectiveBackgroundPluginIDs(cfg *config.Config) []string {
-	if cfg == nil {
-		return runtime.DefaultBackgroundPlugins()
-	}
+// effectiveBackgroundPluginIDs is the launch-time background-plugin set:
+// bundled defaults, then cfg.Plugins.Background, then the active-at-launch
+// persona's `plugins:` — unioned and deduped, in that precedence order.
+// personaPlugins is launch-only (a live /persona switch never re-runs this).
+func effectiveBackgroundPluginIDs(cfg *config.Config, personaPlugins []string) []string {
 	var ids []string
 	seen := map[string]struct{}{}
-	for _, id := range runtime.DefaultBackgroundPlugins() {
-		if _, ok := seen[id]; ok {
-			continue
+	add := func(list []string) {
+		for _, id := range list {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
 		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
 	}
-	for _, id := range cfg.Plugins.Background {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
+	add(runtime.DefaultBackgroundPlugins())
+	if cfg != nil {
+		add(cfg.Plugins.Background)
 	}
+	add(personaPlugins)
 	return ids
 }
 

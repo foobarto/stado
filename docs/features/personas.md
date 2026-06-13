@@ -87,7 +87,10 @@ title: My Style
 description: One-line summary
 inherits: software-engineer        # optional — load named base, then this body appends
 collaborators: [qa-tester]         # optional — listed as delegation targets
-recommended_tools: [read, edit]    # optional — hint, not enforced
+recommended_tools: [read, edit]    # optional — promoted into the autoload surface (see Scope)
+tools: [bash, "fs.*"]              # optional — extra tools promoted when active (see Scope)
+skills: [skills/recon.md]          # optional — extra skill files, relative to THIS persona's dir
+plugins: [my-recorder]             # optional — extra background plugins (LAUNCH-only)
 version: 1
 ---
 # My Style
@@ -102,9 +105,12 @@ Fields:
 | `name` | Canonical id; must match the filename without `.md` |
 | `title` | Human-readable name shown in the `/persona` picker |
 | `description` | One-line summary; appears in pickers |
-| `inherits` | Optional — name of a base persona; its body loads first, then this body appends |
+| `inherits` | Optional — name of a base persona; its body loads first, then this body appends. Scope keys (`tools`/`skills`/`plugins`/`recommended_tools`) accumulate up the chain (union) |
 | `collaborators` | Optional — names of personas you'd typically delegate to via `agent.spawn` |
-| `recommended_tools` | Optional — hint to the operator about what this persona expects |
+| `recommended_tools` | Optional — tool names/globs promoted into the per-turn autoload surface when active (union with `tools`). See [Per-persona scope](#per-persona-scope-skills-tools-plugins) |
+| `tools` | Optional — tool names/globs promoted into the per-turn autoload surface when active. See [Per-persona scope](#per-persona-scope-skills-tools-plugins) |
+| `skills` | Optional — skill-file paths loaded additively when active; resolved relative to this persona file's own directory. See [Per-persona scope](#per-persona-scope-skills-tools-plugins) |
+| `plugins` | Optional — background-plugin ids added when the persona is active **at launch** (launch-only). See [Per-persona scope](#per-persona-scope-skills-tools-plugins) |
 | `version` | Optional — bumped when the body changes meaningfully (for your own tracking) |
 
 The body is plain markdown. Lean into the shape:
@@ -118,9 +124,32 @@ The body is plain markdown. Lean into the shape:
 
 Read the bundled personas under `internal/personas/library/` for reference. They average 6–10 KB each.
 
+## Per-persona scope: skills, tools, plugins
+
+A persona can declare extra **skills**, **tools**, and **background plugins** in its frontmatter. These are **additive**: when the persona is active they layer ON TOP of the global defaults. A persona EXTENDS the surface — it never hides or restricts a globally-available tool or skill.
+
+```yaml
+---
+name: pentester
+title: Pentester
+tools: [bash, "exploit.*"]          # promoted into the model-facing autoload set
+recommended_tools: [nmap]           # also a tools source (union with `tools`)
+skills: [skills/recon.md, skills/report.md]   # extra /skill: commands, relative to this file's dir
+plugins: [session-recorder]         # extra background plugin (only when active at launch)
+---
+```
+
+- **`tools` / `recommended_tools`** — names or globs (e.g. `fs.*`) of registered tools promoted into the per-turn autoload surface (what the model sees each turn). The two keys are unioned. Promotion is **live**: switching persona in a chat re-scopes the tool surface on the next turn. Unknown names are a non-fatal warning; the tool must already be registered (a persona can promote a tool from the registry, but can't conjure one that isn't installed).
+
+- **`skills`** — paths to skill `.md` files, resolved **relative to the persona file's own directory** (e.g. `{project}/.stado/personas/` for a project persona). They are loaded additively on top of the cwd-discovered `.stado/skills/` set and registered as `/skill:` commands. Re-scoped **live** on a `/persona` switch: switching away removes the prior persona's skills; the global/project skills are never removed. Paths are confined to the persona directory (no symlink-escape, no `..` traversal) and capped at 1 MiB, same as the cwd skills loader. A bundled (embedded) persona has no on-disk directory, so its `skills:` resolve to nothing.
+
+- **`plugins`** — background-plugin ids added to the background set, **launch-only**. They are loaded when the persona is active at launch (`--persona` or `[defaults].persona`). A later live `/persona` switch does **not** start or stop background plugins — that lifecycle is session-start-only. Unknown ids surface the usual per-plugin load advisory.
+
+Unknown skill path / plugin id / tool name → a non-fatal warning (stderr at launch, an in-chat system block on a live switch); valid entries still apply.
+
 ## Inheritance
 
-`inherits: <name>` loads the named base persona's body first, then appends yours. One level deep — no chained inheritance — to keep the merge behaviour predictable.
+`inherits: <name>` loads the named base persona's body first, then appends yours. The scope keys (`tools`, `recommended_tools`, `skills`, `plugins`) accumulate up the chain — a child's effective scope is the union of the parent's and its own (additive, parent entries first, deduped).
 
 Use it when you want to specialise a bundled persona slightly without copying its full body. Example: a project-specific software-engineer that adds three project conventions on top of the bundled posture.
 
