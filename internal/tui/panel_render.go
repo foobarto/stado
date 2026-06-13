@@ -412,8 +412,14 @@ func writeTable(b *strings.Builder, w int, table pluginRuntime.TableBody) {
 // arithmetic in rune-space so the truncation marker (multi-byte "›")
 // doesn't desynchronise the padding.
 func writeTableRow(b *strings.Builder, w int, indent string, widths []int, cells []string) {
-	parts := make([]string, len(cells))
+	parts := make([]string, 0, len(cells))
 	for i, cell := range cells {
+		// A malformed plugin row can carry MORE cells than the table
+		// declared columns (len(widths) == cols, computed bounded in
+		// writeTable); drop the extras rather than index past widths.
+		if i >= len(widths) {
+			break
+		}
 		if displayWidth(cell) > widths[i] {
 			// Reserve one rune for the truncation marker; if widths[i]
 			// is 1 we have no room for any actual content, so just emit
@@ -428,7 +434,7 @@ func writeTableRow(b *strings.Builder, w int, indent string, widths []int, cells
 		if pad < 0 {
 			pad = 0
 		}
-		parts[i] = cell + strings.Repeat(" ", pad)
+		parts = append(parts, cell+strings.Repeat(" ", pad))
 	}
 	writeRow(b, w, indent+strings.Join(parts, " │ "))
 }
