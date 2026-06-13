@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -195,7 +196,9 @@ func TestMemoryBridge_Forwarding_Update(t *testing.T) {
 		withMemoryBridge(br).
 		install()
 
-	payload := []byte(`{"action":"approve","id":"mem-1"}`)
+	// A non-approve action (reject) forwards to the bridge. Approve is
+	// blocked for plugins (see TestMemoryBridge_Update_DeniesPluginApprove).
+	payload := []byte(`{"action":"reject","id":"mem-1"}`)
 	h.memWrite(0, payload)
 
 	got := h.callImport(context.Background(), "stado_memory_update",
@@ -206,6 +209,41 @@ func TestMemoryBridge_Forwarding_Update(t *testing.T) {
 	if string(br.lastUpdatePayload) != string(payload) {
 		t.Errorf("forwarded payload = %q, want %q", br.lastUpdatePayload, payload)
 	}
+}
+
+// TestMemoryBridge_Update_DeniesPluginApprove: EP-0015 D2 — a plugin (even with
+// memory:write) cannot approve a candidate memory; approval is a user-only
+// review action. Reproduce-first: before the guard, an approve payload was
+// forwarded straight to the bridge, letting a plugin launder its own proposal
+// into queryable memory.
+func TestMemoryBridge_Update_DeniesPluginApprove(t *testing.T) {
+	// Case/whitespace variants must ALL be denied — the store normalises
+	// (TrimSpace+ToLower) before its approve switch, so an exact-match guard
+	// would be bypassable (Codex P1 on PR #172).
+	for _, action := range []string{"approve", "Approve", "APPROVE", " approve ", "\tApProVe"} {
+		br := &recordingMemoryBridge{}
+		h := newBridgeHarness(t).
+			withCaps("memory:write").
+			withMemoryBridge(br).
+			install()
+
+		payload := []byte(`{"action":` + jsonQuote(action) + `,"id":"mem-1"}`)
+		h.memWrite(0, payload)
+
+		got := h.callImport(context.Background(), "stado_memory_update",
+			0, uint64(len(payload)))
+		if got != -1 {
+			t.Errorf("plugin approve %q must be denied (-1), got %d", action, got)
+		}
+		if br.lastUpdatePayload != nil {
+			t.Errorf("approve %q must NOT reach the bridge; got forwarded %q", action, br.lastUpdatePayload)
+		}
+	}
+}
+
+func jsonQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
 
 // ---- Contract 4: cancel propagation ------------------------------------

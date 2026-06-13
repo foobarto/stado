@@ -29,19 +29,29 @@ func TestApplyToolFilter_EnabledAllowlist(t *testing.T) {
 	cfg.Tools.Enabled = []string{"fs__read", "fs__grep"}
 	ApplyToolFilter(reg, cfg)
 
+	// The meta-tool kernel always survives (EP-0037), so assert on the
+	// non-meta surface only.
 	var names []string
+	metaCount := 0
 	for _, tl := range reg.All() {
+		if IsMetaTool(tl.Name()) {
+			metaCount++
+			continue
+		}
 		names = append(names, tl.Name())
 	}
 	sort.Strings(names)
 	want := []string{"fs__grep", "fs__read"}
 	if len(names) != 2 {
-		t.Fatalf("expected 2 tools (read+grep), got %d: %v", len(names), names)
+		t.Fatalf("expected 2 non-meta tools (read+grep), got %d: %v", len(names), names)
 	}
 	for i, n := range want {
 		if names[i] != n {
 			t.Errorf("names[%d] = %q, want %q", i, names[i], n)
 		}
+	}
+	if metaCount == 0 {
+		t.Error("the meta-tool kernel must survive the allowlist (EP-0037)")
 	}
 }
 
@@ -153,8 +163,15 @@ func TestApplyToolFilter_EmptyAllowFailsClosed(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"renamed-tool", "missing-tool"}
 	ApplyToolFilter(reg, cfg)
-	if got := len(reg.All()); got != 0 {
-		t.Fatalf("unmatched [tools].enabled should fail closed (empty registry); got %d tools", got)
+	// Fail-closed reduces to the non-disableable meta-tool kernel (EP-0037),
+	// not literally empty: every NON-meta tool must be gone, the kernel stays.
+	for _, tl := range reg.All() {
+		if !IsMetaTool(tl.Name()) {
+			t.Errorf("unmatched [tools].enabled should fail closed; non-meta tool %q survived", tl.Name())
+		}
+	}
+	if len(reg.All()) == 0 {
+		t.Error("fail-closed must retain the meta-tool kernel, not empty the registry (EP-0037)")
 	}
 }
 
@@ -175,10 +192,46 @@ func TestApplyToolFilter_CanonicalNameMatchesWireForm(t *testing.T) {
 		t.Errorf("fs__read should survive [tools].enabled=[fs.read] (canonical → wire match)")
 	}
 	for _, tl := range reg.All() {
-		if tl.Name() != "fs__read" {
+		if tl.Name() != "fs__read" && !IsMetaTool(tl.Name()) {
 			t.Errorf("tool %q should have been filtered out by [fs.read] allowlist", tl.Name())
 		}
 	}
+}
+
+// TestApplyToolFilter_MetaToolKernelNonDisableable: EP-0037 §E — the meta-tool
+// dispatch kernel (tools.*/plugin.load/unload) survives even an explicit
+// attempt to disable it, and an allowlist that omits it. Otherwise the model
+// loses the ability to discover/activate any non-autoloaded tool. Reproduce-
+// first: before the fix, both paths unregistered the kernel.
+func TestApplyToolFilter_MetaToolKernelNonDisableable(t *testing.T) {
+	kernel := []string{
+		"tools__search", "tools__describe", "tools__categories", "tools__in_category",
+		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload",
+	}
+
+	t.Run("explicit disable cannot remove the kernel", func(t *testing.T) {
+		reg := BuildDefaultRegistry(nil)
+		cfg := &config.Config{}
+		cfg.Tools.Disabled = []string{"tools.*", "plugin.*"}
+		ApplyToolFilter(reg, cfg)
+		for _, k := range kernel {
+			if _, ok := reg.Get(k); !ok {
+				t.Errorf("meta-tool %q must survive disabled=[tools.*,plugin.*] (kernel is non-disableable)", k)
+			}
+		}
+	})
+
+	t.Run("allowlist that omits the kernel still keeps it", func(t *testing.T) {
+		reg := BuildDefaultRegistry(nil)
+		cfg := &config.Config{}
+		cfg.Tools.Enabled = []string{"fs__read"}
+		ApplyToolFilter(reg, cfg)
+		for _, k := range kernel {
+			if _, ok := reg.Get(k); !ok {
+				t.Errorf("meta-tool %q must survive an allowlist that omits it", k)
+			}
+		}
+	})
 }
 
 func TestToolMatchesGlob(t *testing.T) {

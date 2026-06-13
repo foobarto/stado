@@ -14,11 +14,16 @@ func TestBuildExecutorRegistersTasksToolBeforeFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildExecutor: %v", err)
 	}
-	all := exec.Registry.All()
-	if len(all) != 1 {
-		t.Fatalf("tools = %d, want 1: %v", len(all), all)
+	// The meta-tool kernel always survives filtering (EP-0037); assert on the
+	// non-meta surface — only the tasks tool should remain.
+	var nonMeta []string
+	for _, tl := range exec.Registry.All() {
+		if IsMetaTool(tl.Name()) {
+			continue
+		}
+		nonMeta = append(nonMeta, tl.Name())
 	}
-	if all[0].Name() != "tasks" {
-		t.Fatalf("tool = %q, want tasks", all[0].Name())
+	if len(nonMeta) != 1 || nonMeta[0] != "tasks" {
+		t.Fatalf("non-meta tools = %v, want [tasks]", nonMeta)
 	}
 }
