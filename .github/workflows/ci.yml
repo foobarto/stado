@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -22,28 +21,26 @@ env:
 permissions:
   contents: read
 
-# Three tiers: fast PR gate, post-merge validation, release-time build.
+# Two tiers: fast PR gate, post-merge validation.
 #
 # Pull requests run only the cheap gates — non-race `go test`, lint,
 # govulncheck (plus gitleaks + CodeQL in their own workflows) — so PR
 # feedback is fast. `push: main` adds the slow `-race` test (the early race
-# signal on main). The 5-way cross-compile `build` matrix runs ONLY on tag
-# pushes (`v*`): cross-platform builds are only needed when cutting a version,
-# so it runs at release time alongside GoReleaser rather than on every merge.
-# Release safety does NOT rely on this workflow gating tag pushes: release.yml
-# re-runs the `-race` suite itself before building/signing, and GoReleaser
-# cross-compiles every target — so a data race or platform break can never
-# reach a published release. NOTE: the tag ruleset must NOT require the
-# `build (...)` contexts (the tag push happens before the tag-triggered build
-# can run — requiring it would deadlock); it requires `test`/`lint` (present
-# on the merge commit from push:main) + CodeQL + gitleaks.
-# Accepted trade-off: data races are caught post-merge, and platform-specific
-# compile breaks at release time (a broken release attempt), not on the PR.
+# signal on main).
+#
+# There is deliberately NO cross-compile build job here. GoReleaser
+# (release.yml) cross-compiles + signs every target at release time, and a
+# platform break fails the release run rather than publishing — so a separate
+# compile-only matrix would only duplicate that gate, never add to it.
+# release.yml also re-runs the `-race` suite before building, so a data race
+# can't reach a release either. The tag ruleset requires `test`/`lint`
+# (present on the merge commit from push:main) + CodeQL + gitleaks; it must
+# NOT require any `build (...)` context (none is produced anymore).
+# Accepted trade-off: data races are caught post-merge, and a platform-specific
+# compile break surfaces at release time (a failed release attempt), not on
+# the PR or on push:main.
 jobs:
   test:
-    # Branches + PRs only. A tag push doesn't re-run test — the tagged commit
-    # already ran it on push:main (and the tag ruleset requires that check).
-    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -61,9 +58,8 @@ jobs:
         run: go mod download
 
       # PRs run the fast non-race suite; push:main runs the full -race
-      # suite (the post-merge race gate). -race requires cgo; the build
-      # matrix below still validates CGO_ENABLED=0 for every target on
-      # push so release binaries stay pure-Go.
+      # suite (the post-merge race gate). -race requires cgo; release
+      # binaries are built pure-Go (CGO_ENABLED=0) by GoReleaser.
       - name: Run tests
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
@@ -86,8 +82,6 @@ jobs:
           govulncheck ./...
 
   lint:
-    # Branches + PRs only (same reasoning as test).
-    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -106,38 +100,3 @@ jobs:
         with:
           version: v2.11.4
           args: --timeout=5m
-
-  # Tag/release only: the full cross-compile matrix. Cross-platform builds are
-  # only needed when cutting a version, so this runs on tag pushes (`v*`), not
-  # on every push:main — it runs alongside GoReleaser at release time. It must
-  # NOT be a tag-ruleset required check: the tag push happens before this can
-  # run, so requiring it would deadlock; GoReleaser is the real release-time
-  # build, and a platform break fails the release rather than blocking main.
-  build:
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Setup Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version: stable
-          cache: true
-
-      - name: Build bundled wasm (EP-0042 Part B — built from source, not committed)
-        run: bash plugins/bundled/build.sh
-
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
-        run: go build -o /dev/null ./cmd/stado
