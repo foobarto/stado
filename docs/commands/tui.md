@@ -170,7 +170,7 @@ memorising:
 | `?` | Help overlay (keybinds + slash commands) |
 | `Up` / `Down` | Prev/next in input history |
 | `PageUp` / `PageDown` | Scroll chat viewport |
-| `Ctrl+G` / `Home` | Scroll to top |
+| `Home` | Scroll to top |
 | `Ctrl+Alt+G` / `End` | Scroll to bottom |
 
 ### Plan, Do, and BTW mode
