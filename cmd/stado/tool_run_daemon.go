@@ -19,6 +19,7 @@ import (
 
 	"github.com/foobarto/stado/internal/daemon"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // runtimeLookupCanonical wraps runtime.LookupToolMetadata so the
@@ -162,42 +163,17 @@ func deriveProjectID(workdir string) string {
 	return hashProjectRoot(root)
 }
 
-// projectRoot walks upward from workdir looking for a .git/ marker.
-// Returns the directory containing .git, or workdir itself if no git
-// repo is found (or workdir is empty). Walks at most 64 parents to
-// bound runtime in pathological cases.
+// projectRoot returns the repository root containing workdir, or workdir
+// itself when no repo is found (or workdir is empty). It delegates to the
+// shared workdirpath predicate (EP-0027) so daemon repo-id derivation can't
+// drift from the canonical discovery the rest of stado uses — the old inline
+// walk used a bare `.git` stat with no HEAD check, accepting a stray `.git`
+// file/dir that isn't a real repo.
 func projectRoot(workdir string) string {
 	if workdir == "" {
 		return ""
 	}
-	dir := workdir
-	for i := 0; i < 64; i++ {
-		if _, err := os.Stat(dir + "/.git"); err == nil {
-			return dir
-		}
-		parent := parentDir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return workdir
-}
-
-// parentDir returns dir's parent. Avoids importing path/filepath just
-// for Dir(); the manual split is fine for the simple cases we care
-// about (absolute paths with forward-slash separators on the unix
-// targets the daemon ships on).
-func parentDir(dir string) string {
-	for i := len(dir) - 1; i > 0; i-- {
-		if dir[i] == '/' {
-			return dir[:i]
-		}
-	}
-	if len(dir) > 0 && dir[0] == '/' {
-		return "/"
-	}
-	return dir
+	return workdirpath.FindRepoRoot(workdir)
 }
 
 // hashProjectRoot returns a 16-hex-char SHA-256 prefix for path. The
