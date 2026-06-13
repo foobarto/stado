@@ -140,8 +140,12 @@ func TestLanding_WhatsNewYieldsThenReturns(t *testing.T) {
 
 // TestLanding_FooterSurvivesAt80x24 (P2.14): the version/cwd footer must stay
 // on the last visible row at an 80x24 terminal even when the unsandboxed
-// startup warning wraps to many rows — the warning is trimmed to its budget
-// with the "(+N more)" marker rather than pushing the footer off-screen.
+// startup warning wraps to many rows. The warning is either shown in full (if
+// it fits the budget) or trimmed with a "(+N more)" marker — never silently
+// cut, and never allowed to push the footer off-screen. Whether trimming is
+// actually needed depends on how much vertical room the rest of the landing
+// (banner, what's new) consumes — which varies with the embedded changelog
+// length — so the test asserts the invariant, not a fixed trim outcome.
 func TestLanding_FooterSurvivesAt80x24(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	// The REAL unsandboxed warning: 3 long lines wrapping to ~9 rows at w80.
@@ -165,11 +169,17 @@ func TestLanding_FooterSurvivesAt80x24(t *testing.T) {
 			t.Errorf("h=%d: footer not on last visible row %q\nall rows:\n%s",
 				h, lastVisible, strings.Join(rows, "\n"))
 		}
-		// The trimmed warning must carry the "(+N more)" marker so the user
-		// knows the rest is in scrollback.
-		if !strings.Contains(strings.Join(rows, "\n"), "more") {
-			t.Errorf("h=%d: expected a (+N more) truncation marker on the warning\n%s",
-				h, strings.Join(rows, "\n"))
+		// The warning is never SILENTLY cut: if its tail is missing it must
+		// have been trimmed with a "(+N more)" marker pointing to scrollback.
+		// If the whole warning fits, no marker is needed — the footer still
+		// survives (asserted above). This keeps the test independent of the
+		// embedded changelog length.
+		joined := strings.Join(rows, "\n")
+		fullWarningShown := strings.Contains(joined, "STADO_SUPPRESS_UNSANDBOXED_WARNING=1")
+		hasMoreMarker := strings.Contains(joined, "more")
+		if !fullWarningShown && !hasMoreMarker {
+			t.Errorf("h=%d: warning was trimmed without a (+N more) marker (silent cut)\n%s",
+				h, joined)
 		}
 	}
 }
