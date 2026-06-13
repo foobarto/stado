@@ -367,15 +367,18 @@ func rowTwoCol(width int, left, right string) string {
 	return left + strings.Repeat(" ", pad) + right
 }
 
+// truncateVisible bounds s to a display width of `width`, appending an ellipsis
+// when it overflows. It is DISPLAY-WIDTH + grapheme aware (ansi.Truncate): a
+// line of wide (CJK / fullwidth) graphemes is clipped to fit the cell budget,
+// not the rune count — a rune-count clip let a wide line keep ~2x its budget in
+// cells, so lipgloss hard-wrapped it onto a second row inside the modal box
+// (peek transcript, unselected turn rows, footer). The returned display width is
+// always <= width.
 func truncateVisible(s string, width int) string {
-	if width <= 1 {
-		return "."
+	if width < 0 {
+		width = 0
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	return string(runes[:width-1]) + "."
+	return ansi.Truncate(s, width, "…")
 }
 
 func clampInt(v, lo, hi int) int {
