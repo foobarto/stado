@@ -246,3 +246,20 @@ func TestVimModeNormalChordDoesNotEditBuffer(t *testing.T) {
 		t.Errorf("ctrl+w changed mode to %v, want NORMAL", m.vim.Mode())
 	}
 }
+
+// TestVimModeNormalFunctionalKeyReachesAppBinding guards the third Codex P2:
+// non-text functional keys (tab/shift+tab/pageup/home/...) must reach their
+// app-level bindings in NORMAL mode, not be swallowed by the engine's
+// catch-all. `tab` is ModeToggle (Plan/Do) — assert it flips the mode.
+func TestVimModeNormalFunctionalKeyReachesAppBinding(t *testing.T) {
+	m := vimModel(t)
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEsc}) // -> NORMAL
+	if m.vim.Mode() != vimmode.ModeNormal {
+		t.Fatalf("setup: mode = %v, want NORMAL", m.vim.Mode())
+	}
+	before := m.mode
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m.mode == before {
+		t.Errorf("tab in vim NORMAL did not reach the ModeToggle binding (mode still %v) — functional key eaten by the engine", m.mode)
+	}
+}
