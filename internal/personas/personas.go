@@ -35,6 +35,20 @@ type Persona struct {
 	RecommendedTools []string `yaml:"recommended_tools,omitempty"`
 	Version          int      `yaml:"version,omitempty"`
 
+	// Per-persona additive scope (2026-06-13). All three layer ON TOP of
+	// the global defaults when the persona is active — personas EXTEND, they
+	// never hide/restrict the global surface.
+	//
+	//	Tools   — tool names/globs promoted into the per-turn autoload surface.
+	//	          Unioned with RecommendedTools via EffectiveTools().
+	//	Skills  — skill-file paths resolved relative to filepath.Dir(SourcePath);
+	//	          loaded additively on top of the cwd-discovered skill set.
+	//	Plugins — background-plugin ids added to the launch-time set (launch-only;
+	//	          a live /persona switch does NOT start/stop background plugins).
+	Tools   []string `yaml:"tools,omitempty"`
+	Skills  []string `yaml:"skills,omitempty"`
+	Plugins []string `yaml:"plugins,omitempty"`
+
 	// Body is the markdown content (no frontmatter). For an inheriting
 	// persona this is the parent body followed by this body.
 	Body string `yaml:"-"`
@@ -100,10 +114,50 @@ func (r Resolver) loadResolved(name string, visited map[string]bool) (*Persona, 
 		}
 		// Parent body first, then a separator, then this body.
 		p.Body = base.Body + "\n\n---\n\n" + body
+		// Additive scope inheritance (2026-06-13): a child's effective
+		// tools/skills/plugins are union(parent, child) — parent entries
+		// first, child's appended, deduped. Mirrors the body merge so the
+		// chain accumulates scope on the way down.
+		p.Tools = unionStrings(base.Tools, p.Tools)
+		p.RecommendedTools = unionStrings(base.RecommendedTools, p.RecommendedTools)
+		p.Skills = unionStrings(base.Skills, p.Skills)
+		p.Plugins = unionStrings(base.Plugins, p.Plugins)
 	} else {
 		p.Body = body
 	}
 	return &p, nil
+}
+
+// unionStrings returns a ∪ b preserving order (a first, then b's
+// new entries), dropping duplicates. nil when both are empty.
+func unionStrings(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, lst := range [][]string{a, b} {
+		for _, v := range lst {
+			if seen[v] {
+				continue
+			}
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// EffectiveTools is the persona's full tool-promotion set: union(Tools,
+// RecommendedTools), deduped, Tools first. These names/globs are merged
+// into the per-turn autoload surface when the persona is active (additive
+// — they never hide a globally-available tool). recommended_tools, parsed
+// but previously unused, is honored here as a second tools source.
+func (p *Persona) EffectiveTools() []string {
+	if p == nil {
+		return nil
+	}
+	return unionStrings(p.Tools, p.RecommendedTools)
 }
 
 // maxPersonaBytes caps a persona markdown file (bundled ones average 6–10 KB).

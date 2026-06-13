@@ -621,7 +621,10 @@ func (m *Model) handleToolManageSlash(parts []string) {
 		if eff != nil {
 			runtime.ApplyToolFilter(reg, eff)
 		}
-		autoloaded := runtime.AutoloadedTools(reg, eff)
+		// Mirror the per-turn surface: include the active persona's
+		// promoted tools in the "(autoloaded)" label so `/tool ls` matches
+		// what the model actually sees on a turn (2026-06-13).
+		autoloaded := runtime.AutoloadedToolsWithExtra(reg, eff, m.persona.EffectiveTools())
 		autoSet := map[string]bool{}
 		for _, t := range autoloaded {
 			autoSet[t.Name()] = true

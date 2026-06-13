@@ -17,9 +17,43 @@ import (
 )
 
 func TestEffectiveBackgroundPluginIDs_IncludeBundledAutoCompact(t *testing.T) {
-	ids := effectiveBackgroundPluginIDs(&config.Config{})
+	ids := effectiveBackgroundPluginIDs(&config.Config{}, nil)
 	if len(ids) == 0 || ids[0] != "auto-compact" {
 		t.Fatalf("default background ids = %v, want auto-compact first", ids)
+	}
+}
+
+// TestEffectiveBackgroundPluginIDs_IncludesLaunchPersonaPlugins: a launch
+// persona's `plugins:` are unioned into the background set (launch-only),
+// after cfg.Plugins.Background, deduped against the defaults + config.
+func TestEffectiveBackgroundPluginIDs_IncludesLaunchPersonaPlugins(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Plugins.Background = []string{"recorder"}
+	ids := effectiveBackgroundPluginIDs(cfg, []string{"telemetry", "recorder"})
+	has := func(id string) bool {
+		for _, x := range ids {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("telemetry") {
+		t.Errorf("persona plugin 'telemetry' should be in the background set; got %v", ids)
+	}
+	// Deduped: recorder appears once even though it's in both config + persona.
+	count := 0
+	for _, x := range ids {
+		if x == "recorder" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("recorder should appear exactly once (deduped); got %d in %v", count, ids)
+	}
+	// Default bundled auto-compact still leads.
+	if ids[0] != "auto-compact" {
+		t.Errorf("auto-compact should still lead; got %v", ids)
 	}
 }
 

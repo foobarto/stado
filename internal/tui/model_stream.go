@@ -1273,7 +1273,11 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 		c.Tools = m.sessionToolOverrides.effectiveTools(m.cfg)
 		eff = &c
 	}
-	autoloaded := runtime.AutoloadedTools(m.executor.Registry, eff)
+	// Per-persona tool promotion (2026-06-13): the active persona's
+	// EffectiveTools() are merged ADDITIVELY into the autoload surface for
+	// this turn. Read live off m.persona so a /persona switch re-scopes on
+	// the next turn for free — no registry rebuild, no shared-cfg mutation.
+	autoloaded := runtime.AutoloadedToolsWithExtra(m.executor.Registry, eff, m.persona.EffectiveTools())
 	pool := autoloaded
 	if len(m.activatedTools) > 0 {
 		seen := map[string]bool{}

@@ -307,6 +307,77 @@ func TestAutoloadedTools_CustomAutoload(t *testing.T) {
 	}
 }
 
+// TestAutoloadedToolsWithExtra_PromotesPersonaTools: extra patterns
+// (a persona's EffectiveTools) are merged ADDITIVELY into the autoload
+// surface on top of cfg's set — the global defaults are never dropped.
+func TestAutoloadedToolsWithExtra_PromotesPersonaTools(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	cfg := &config.Config{} // empty → hardcoded core defaults
+
+	base := AutoloadedTools(reg, cfg)
+	baseNames := map[string]bool{}
+	for _, tl := range base {
+		baseNames[tl.Name()] = true
+	}
+	// Pick a registered tool that is NOT in the default core to prove
+	// promotion adds it.
+	var promote string
+	for _, tl := range reg.All() {
+		if !baseNames[tl.Name()] && !IsMetaTool(tl.Name()) {
+			promote = tl.Name()
+			break
+		}
+	}
+	if promote == "" {
+		t.Skip("no non-core registered tool available to test promotion")
+	}
+
+	got := AutoloadedToolsWithExtra(reg, cfg, []string{promote})
+	gotNames := map[string]bool{}
+	for _, tl := range got {
+		gotNames[tl.Name()] = true
+	}
+	if !gotNames[promote] {
+		t.Errorf("persona extra %q should be promoted into autoload surface; got %v", promote, listNames(got))
+	}
+	// Additive: every default-core tool must still be present.
+	for name := range baseNames {
+		if !gotNames[name] {
+			t.Errorf("promotion must be additive; default %q disappeared", name)
+		}
+	}
+}
+
+// TestAutoloadedToolsWithExtra_NilExtraEqualsPlain: passing no extras is
+// identical to plain AutoloadedTools (no behavior drift for the default path).
+func TestAutoloadedToolsWithExtra_NilExtraEqualsPlain(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	cfg := &config.Config{}
+	plain := listNames(AutoloadedTools(reg, cfg))
+	withNil := listNames(AutoloadedToolsWithExtra(reg, cfg, nil))
+	if plain != withNil {
+		t.Errorf("nil-extra should equal plain autoload:\n plain=%s\n  nil =%s", plain, withNil)
+	}
+}
+
+// TestAutoloadedToolsWithExtra_GlobPromotion: a glob extra promotes every
+// matching registered tool (additive).
+func TestAutoloadedToolsWithExtra_GlobPromotion(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	cfg := &config.Config{}
+	cfg.Tools.Autoload = []string{"fs__read"} // narrow base
+	got := AutoloadedToolsWithExtra(reg, cfg, []string{"fs.*"})
+	names := map[string]bool{}
+	for _, tl := range got {
+		names[tl.Name()] = true
+	}
+	for _, want := range []string{"fs__read", "fs__write", "fs__edit"} {
+		if !names[want] {
+			t.Errorf("fs.* extra should promote %q; got %v", want, listNames(got))
+		}
+	}
+}
+
 func TestApplyToolFilter_WildcardDisabled(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	cfg := &config.Config{}

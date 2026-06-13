@@ -179,9 +179,32 @@ func toolMatchesAny(toolName string, patterns []string) bool {
 // are always included regardless of config. If cfg.Tools.Autoload is empty,
 // defaultAutoloadNames is used.
 func AutoloadedTools(reg *tools.Registry, cfg *config.Config) []pkgtool.Tool {
+	return AutoloadedToolsWithExtra(reg, cfg, nil)
+}
+
+// AutoloadedToolsWithExtra is AutoloadedTools plus an additional set of
+// name/glob patterns merged into the per-turn autoload surface — ADDITIVELY
+// (per the per-persona-skills-plugins decision, 2026-06-13). The active
+// persona's EffectiveTools() are passed as extra so its declared
+// `tools:`/`recommended_tools:` are promoted to the model-facing surface
+// when it's active, without mutating shared cfg and without a registry
+// rebuild (the tools are already IN the registry; autoload just selects
+// them). A nil/empty extra is identical to plain AutoloadedTools.
+//
+// Extra is purely additive: it can promote a tool but never hides one that
+// the cfg autoload set or the category expansion would have included.
+func AutoloadedToolsWithExtra(reg *tools.Registry, cfg *config.Config, extra []string) []pkgtool.Tool {
 	autoloadPatterns := defaultAutoloadNames
 	if cfg != nil && len(cfg.Tools.Autoload) > 0 {
 		autoloadPatterns = cfg.Tools.Autoload
+	}
+	if len(extra) > 0 {
+		// Don't mutate the cfg-owned (or package-level default) slice:
+		// build a fresh combined pattern list.
+		combined := make([]string, 0, len(autoloadPatterns)+len(extra))
+		combined = append(combined, autoloadPatterns...)
+		combined = append(combined, extra...)
+		autoloadPatterns = combined
 	}
 	categorySet := map[string]bool{}
 	if cfg != nil {
