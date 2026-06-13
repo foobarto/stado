@@ -217,3 +217,94 @@ func TestRenderEntryRow_LongLastToolDoesNotOverflow(t *testing.T) {
 		}
 	}
 }
+
+// maxLineWidth returns the widest line (display columns) of a multi-line
+// render, with lipgloss SGR styling stripped first so only real glyphs
+// count toward the budget.
+func maxLineWidth(s string) int {
+	mx := 0
+	for _, ln := range strings.Split(stripSGR(s), "\n") {
+		if w := lipgloss.Width(ln); w > mx {
+			mx = w
+		}
+	}
+	return mx
+}
+
+// Sibling of the G8 / A5 row-overflow fixes: those bounded the entry
+// *rows*, but renderBody also emits a two-column header (title + key
+// hints) and a detail pane. At the floor modal width (64-wide screen →
+// modalW 64 → innerW 60) the header alone is 68 columns of content
+// ("Background agents" 17 + the hint string 51) which rowTwoCol laid out
+// with a 1-column min gap → a 69-column line that punched through the
+// right border on every /fleet open, independent of entry content.
+// renderBody / rowTwoCol must keep every line within innerW.
+func TestRenderBody_HeaderDoesNotOverflowInnerWidth(t *testing.T) {
+	m := New()
+	m.Open([]runtime.FleetEntry{{
+		FleetID: "fleet-1234567890",
+		Status:  runtime.FleetStatusRunning,
+		Prompt:  "short",
+	}})
+	for _, innerW := range []int{60, 72, 80, 116} {
+		body := m.renderBody(innerW, 10)
+		if w := maxLineWidth(body); w > innerW {
+			t.Errorf("innerW=%d: renderBody maxLineWidth=%d exceeds budget (header/row overflow)", innerW, w)
+		}
+	}
+}
+
+// rowTwoCol must never emit a line wider than innerW even when the two
+// columns together already exceed it. Pre-fix it floored the gap at 1
+// column and returned left+gap+right verbatim, so an over-wide hint
+// string overflowed the modal border. The right column yields first
+// (it is the dismissable hint), truncated display-width aware.
+func TestRowTwoCol_ClampsToInnerWidth(t *testing.T) {
+	cases := []struct{ left, right string }{
+		{"Background agents", "enter view  ctrl+x cancel  ctrl+d remove  esc close"},
+		{"a very long left column that alone exceeds the inner width budget here", "x"},
+		{"标题很长很长很长很长很长很长很长很长很长很长", "右侧提示也很长很长很长很长很长很长"},
+	}
+	for _, innerW := range []int{20, 40, 60, 80} {
+		for _, c := range cases {
+			out := stripSGR(rowTwoCol(innerW, c.left, c.right))
+			if strings.Contains(out, "\n") {
+				t.Errorf("innerW=%d: rowTwoCol wrapped to multiple lines: %q", innerW, out)
+			}
+			if w := lipgloss.Width(out); w > innerW {
+				t.Errorf("innerW=%d: rowTwoCol width=%d exceeds budget; out=%q", innerW, w, out)
+			}
+		}
+	}
+}
+
+// Sibling of the LastTool / prompt column-bounding fix in renderEntryRow:
+// renderEntryDetail truncates Prompt, LastText, Error and Result against
+// an innerW-derived budget, but SessionID was rendered with no truncation
+// at all — a long session id (prefixed "Session: ") overflowed the modal
+// border at the floor inner width. Detail-pane lines must stay within
+// innerW for every field, including SessionID.
+func TestRenderEntryDetail_SessionIDDoesNotOverflow(t *testing.T) {
+	cases := []runtime.FleetEntry{
+		{
+			FleetID:   "fleet-1234567890",
+			Status:    runtime.FleetStatusRunning,
+			Prompt:    "p",
+			SessionID: "sess-" + strings.Repeat("0123456789", 8),
+		},
+		{
+			FleetID:   "fleet-1234567890",
+			Status:    runtime.FleetStatusRunning,
+			Prompt:    "p",
+			SessionID: "会话" + strings.Repeat("标识符很长", 12),
+		},
+	}
+	for _, innerW := range []int{60, 72, 80, 116} {
+		for _, e := range cases {
+			detail := stripSGR(renderEntryDetail(e, innerW))
+			if w := maxLineWidth(detail); w > innerW {
+				t.Errorf("innerW=%d: renderEntryDetail maxLineWidth=%d exceeds budget (SessionID overflow); detail=%q", innerW, w, detail)
+			}
+		}
+	}
+}
