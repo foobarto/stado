@@ -51,11 +51,10 @@ flowchart TB
     Sandbox["<b>internal/sandbox</b><br/>Policy, Runner, Landlock, proxy"]
 ```
 
-> The diagram describes today's as-built architecture. The v1
-> **broker** described in §"Broker" introduces a process boundary
-> between the user surfaces and `internal/runtime`; the diagram is
-> updated when phase 1 of the v1 security architecture rollout
-> lands (see PLAN.md).
+> The diagram predates the v1 **broker** (§"Broker"), which landed in
+> v0.57.0 and now sits as a privileged process boundary between the user
+> surfaces and `internal/runtime` — every interactive surface attaches to
+> it by default. The mermaid above does not yet show that node.
 
 - **Provider interface**: one streaming method (`StreamTurn`) emitting a
   discriminated `Event` type. Opaque `Native` fields preserve
@@ -252,9 +251,11 @@ escalates along the spawn tree.**
 
 ### The spawn_agent surface
 
-The first-class tool for parent-initiated sub-agents is
-`spawn_agent`. Its arguments declare the child's purpose and the
-ceiling it should be projected to:
+The first-class tool for parent-initiated sub-agents surfaces to the model
+as `agent__spawn` (the native `spawn_agent` registration was removed in the
+all-tools-as-wasm refactor; `spawn_agent` survives only as the runtime
+concept name). Its arguments declare the child's purpose and the ceiling it
+should be projected to:
 
 | Field | Meaning |
 |---|---|
@@ -566,26 +567,37 @@ for a full-file read, `"<start>:<end>"` for a ranged read (both
 inclusive, 1-indexed to match the tool's user-facing args). The read
 tool is responsible for resolving any alternative input shapes into
 this canonical form before constructing the `ReadKey`. Tests must
-assert canonicalization for each input shape the tool accepts.
+assert canonicalization for each input shape the tool accepts. (The read
+tool's user-facing args are now byte `offset`/`length` with `LINE#HASH`
+line-anchored output — see §"Bundled tools"; the 1-indexed `<start>:<end>`
+form here is the in-turn dedup key, not the current input schema.)
 
-### Bundled tools (14)
+### Bundled tools
+
+All model-facing tools are WASM-backed bundled plugins (EP-0002,
+EP-0037/0038) — the native in-process tool registrations were removed. They
+register under wire-form names (`fs__read`, `shell__bash`, …); a small core
+is auto-loaded each turn and the rest are reachable through the dispatch
+meta-tools. A representative slice (the full surface also includes the
+`shell__*` PTY tools, `agent__*` sub-agent tools, `dns__resolve`, and
+`session__search`):
 
 | Tool | Class | Notes |
 |---|---|---|
-| `read` | NonMutating | args: `{path: string, start?: int, end?: int}`. `start`/`end` are 1-indexed, inclusive. Omit both for full-file read. `end` may be `-1` to mean EOF. |
-| `write` | Mutating | |
-| `edit` | Mutating | |
-| `glob` | NonMutating | |
-| `grep` | NonMutating | simple Go substring |
-| `ripgrep` | NonMutating | shells out to `rg --json` |
-| `ast_grep` | NonMutating | shells out to `ast-grep run --json` |
-| `bash` | Exec | snapshot → run → diff |
-| `webfetch` | NonMutating | HTTP GET |
-| `read_with_context` | NonMutating | Go-aware import resolution |
-| `find_definition` | NonMutating | LSP textDocument/definition |
-| `find_references` | NonMutating | LSP textDocument/references |
-| `document_symbols` | NonMutating | LSP textDocument/documentSymbol |
-| `hover` | NonMutating | LSP textDocument/hover |
+| `fs__read` | NonMutating | args: `{path, offset?, length?}` (byte offsets). Default output prefixes each line `LINE#HASH:` (1-indexed line + 2-char content hash); copy those anchors into the `fs__edit` `pos`/`end`. `offset`/`length` give a raw partial byte read (no prefixes). |
+| `fs__write` | Mutating | |
+| `fs__edit` | Mutating | hash-anchored `{op, pos, end, lines}` edits validated against the read anchors |
+| `fs__glob` | NonMutating | |
+| `fs__grep` | NonMutating | simple Go substring |
+| `rg__search` | NonMutating | ripgrep `--json` |
+| `astgrep__search` | NonMutating | `ast-grep run --json` |
+| `shell__bash` | Exec | snapshot → run → diff |
+| `web__fetch` | NonMutating | HTTP GET |
+| `readctx__read` | NonMutating | Go-aware import resolution |
+| `lsp__definition` | NonMutating | LSP textDocument/definition |
+| `lsp__references` | NonMutating | LSP textDocument/references |
+| `lsp__symbols` | NonMutating | LSP textDocument/documentSymbol |
+| `lsp__hover` | NonMutating | LSP textDocument/hover |
 | *(MCP servers)* | varies | auto-registered from `[mcp.servers]` |
 
 ### Executor invariants
@@ -858,7 +870,7 @@ against); §"Audit" (the trace-ref events).
 Shipped core surfaces today are `/compact` in the TUI and
 `session.compact` on the headless JSON-RPC server. `stado session
 compact` remains an advisory CLI stub by design; persisted-session CLI
-compaction is intentionally plugin-driven through `stado plugin run
+compaction is intentionally plugin-driven through `stado tool run
 --session <id> ...` rather than another built-in core rewrite path.
 
 The shipped bundled `auto-compact` plugin is loaded by default as a
@@ -1528,8 +1540,9 @@ access is needed.
   `default.toml`, override at `$XDG_CONFIG_HOME/stado/theme.toml`.
 - Per-widget templates in `internal/tui/render/templates/*.tmpl`,
   loaded via `embed.FS`. Overlay dir supported for user overrides.
-- FuncMap: `color · bg · bold · italic · underline · muted · wrap ·
-  wrapHard · indent · markdown · marker · todoMarker · todoColor`.
+- FuncMap (selected): `color · colorbg · bg · bold · italic · underline ·
+  muted · wrap · wrapHard · indent · markdown · marker · todoMarker ·
+  todoColor · has`.
 - Widgets: `message_user / _assistant / _thinking / _tool`,
   `sidebar`, `status`, `input_status`.
 
@@ -1564,9 +1577,17 @@ OAI-compat service).
 
 ### New built-in tool
 
-1. Implement `pkg/tool.Tool` (+ `Classifier` for non-NonMutating).
-2. Register in `internal/runtime.BuildDefaultRegistry`.
-3. Add an entry to `internal/tools.Classes` for a per-name class.
+Built-in model-facing tools are WASM-backed bundled plugins
+(EP-0002 / EP-0037-0038) — the native in-process registration path was
+removed.
+
+1. Add the plugin source under `plugins/bundled/<name>/` and to
+   `plugins/bundled/build.sh` (compiled by `make wasm`, `//go:embed`'d).
+2. Register it via `newBundledWasmTool(...)` in
+   `internal/runtime/bundled_plugin_tools.go`, declaring its mutation
+   class inline in that call.
+3. `internal/tools.Classes` now holds only the rare native carve-out
+   (e.g. `tasks`), not a per-bundled-tool entry.
 
 ### New MCP server
 

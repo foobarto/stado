@@ -25,7 +25,7 @@ Shorter forms live in:
 | `stado audit` | [commands/audit.md](commands/audit.md) | Verify signed tree/trace refs |
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
-| `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, scaffold, and run WASM plugins |
+| `stado plugin` | [commands/plugin.md](commands/plugin.md) | Trust, verify, install, sign, and scaffold WASM plugins |
 | `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
 | `stado learning` | [commands/learning.md](commands/learning.md) | Propose reviewable operational lessons |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
@@ -40,6 +40,7 @@ Shorter forms live in:
 
 | Feature | Guide | Why it exists |
 |---------|-------|---------------|
+| All tools as WASM | [features/no-internal-tools.md](features/no-internal-tools.md) | Why every model-facing tool is a plugin |
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
 | `[budget]` cost gate | [features/budget.md](features/budget.md) | Warn + hard-cap on cumulative $ spend |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |

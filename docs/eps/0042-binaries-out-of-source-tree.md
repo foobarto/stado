@@ -2,9 +2,10 @@
 ep: 42
 title: Binaries out of the source tree — bundled wasm built at release, plugins distributed via anchor repo
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Implemented
 type: Standards
 created: 2026-05-22
+implemented-in: v0.53.0
 see-also: [6, 12, 38, 39]
 history:
   - date: 2026-05-22
@@ -16,6 +17,16 @@ history:
       Splits the fix in two: optional/demo plugins move to an anchor repo and
       install via the already-implemented EP-39 path; the 13 go:embed'd bundled
       wasm are built at build/release time and gitignored.
+  - date: 2026-06-13
+    status: Implemented
+    version: v0.53.0
+    note: >
+      Both parts landed (shipped v0.53.0). Part A — optional/demo plugins moved
+      to the anchor repo foobarto/stado-plugins, installed via EP-39's
+      `stado plugin install` path (PR #25). Part B — the bundled wasm is built
+      from source at build/release time (`make wasm` / build.sh, run by CI and
+      goreleaser) and gitignored, no `.wasm` committed; `go install` dropped in
+      favour of clone+make.
 ---
 
 # EP-0042: Binaries out of the source tree

@@ -92,7 +92,7 @@ post_turn = "notify-send stado 'Turn done'"
 **Slack ping for expensive turns only:**
 ```toml
 [hooks]
-post_turn = "jq -r '.cost_usd | select(. > 0.5) | \"🔥 stado turn cost $\\(.)\"' | xargs -r curl -X POST https://hooks.slack.com/... -d"
+post_turn = "jq -r '.cost_usd | select(. > 0.5) | \"stado turn cost $\\(.)\"' | xargs -r curl -X POST https://hooks.slack.com/... -d"
 ```
 
 **Log to disk:**

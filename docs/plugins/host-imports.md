@@ -22,11 +22,13 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
   - [stado_session_*](#stado_session_)
   - [stado_llm_invoke](#stado_llm_invoke)
   - [stado_ui_approve](#stado_ui_approve)
+  - [stado_ui_choose](#stado_ui_choose)
+  - [stado_ui_print](#stado_ui_print)
   - [stado_ui_render](#stado_ui_render)
   - [stado_cfg_state_dir](#stado_cfg_state_dir)
 - [Tier 2 — stateful conveniences](#tier-2--stateful-conveniences)
   - [stado_http_client_*](#stado_http_client_)
-  - [stado_http_request / stado_http_get](#stado_http_request--stado_http_get)
+  - [stado_http_request](#stado_http_request)
   - [stado_dns_resolve](#stado_dns_resolve)
   - [stado_secrets_*](#stado_secrets_)
 - [Tier 3 — stateless format conveniences](#tier-3--stateless-format-conveniences)
@@ -36,7 +38,7 @@ can call. Generated from `internal/plugins/runtime/host_*.go` +
   - [stado_agent_*](#stado_agent_)
 - [Memory surface](#memory-surface)
   - [stado_memory_*](#stado_memory_)
-- [Tool-bridging imports](#tool-bridging-imports)
+- [stado_lsp_*](#stado_lsp_)
 - [SDK-side exports](#sdk-side-exports)
 - [Patterns and anti-patterns](#patterns-and-anti-patterns)
 - [Capability vocabulary](#capability-vocabulary)
@@ -50,18 +52,13 @@ Tier 1 — capability primitives  (host_log, host_fs, host_proc,
                                   host_session, host_llm, host_ui,
                                   host_ui_render, host_cfg)
 
-Tier 2 — stateful conveniences  (host_http_client, host_dns,
-                                  host_secrets) + tool-bridging
-                                  (stado_http_request via
-                                  tool_imports.go)
+Tier 2 — stateful conveniences  (host_http_client, host_http_request,
+                                  host_dns, host_lsp, host_secrets)
 
 Tier 3 — stateless conveniences (host_crypto, host_compress)
 
 Agent surface                   (host_agent)
 Memory surface                  (host_memory)
-Tool-bridging                   (stado_fs_tool_*, stado_search_*,
-                                 stado_lsp_*, stado_exec_bash,
-                                 stado_http_get/_request)
 ```
 
 ABI conventions:
@@ -108,6 +105,9 @@ attached automatically.
 | `stado_fs_read(path_ptr, path_len, out_ptr, out_max) → i32` | `fs:read:<glob>` | Reads up to `out_max` bytes; returns count or -1 |
 | `stado_fs_read_partial(path_ptr, path_len, offset i64, out_ptr, out_max) → i32` | `fs:read:<glob>` | Ranged read; offset is byte-position from file start |
 | `stado_fs_write(path_ptr, path_len, data_ptr, data_len) → i32` | `fs:write:<glob>` | Atomic write (tempfile + rename); returns 0 or -1 |
+| `stado_fs_readdir(path_ptr, path_len, offset, out_ptr, out_max) → i32` | `fs:read:<glob>` | JSON array of `{name, type, mode}` entries from `offset`; ≤50000 per call (paginate via offset); 0 = no more |
+| `stado_fs_stat(path_ptr, path_len, out_ptr, out_max) → i32` | `fs:read:<glob>` | JSON `{mode, size, mtime, type}` (type = file/dir/symlink/other); -1 on cap deny / not found |
+| `stado_fs_last_error(out_ptr, out_max) → i32` | none (ungated) | The host's view of why the last fs primitive returned -1 (scope guard / cap deny / IO failure) — for surfacing a precise cause |
 
 Capability paths are glob-matched against the resolved absolute
 path. Workdir-rooted patterns (`fs:read:.`, `fs:read:./output/`)
@@ -130,9 +130,10 @@ see EP-0027.
 `exec:proc:/bin/*`, `exec:proc:*` (broad). Multiple `exec:proc:*`
 caps stack — declare each binary your plugin needs.
 
-The narrow capability surface here is the recommended replacement
-for the broader `exec:bash` (`stado_exec_bash` tool import) —
-operators see exactly which binaries a plugin runs.
+The narrow capability surface here is the replacement for the
+broad `exec:bash` / `stado_exec_bash` tool import (both removed by
+EP-no-internal-tools) — operators see exactly which binaries a
+plugin runs.
 
 ### stado_terminal_* / stado_pty_*
 
@@ -151,7 +152,7 @@ name; `stado_pty_*` is the legacy alias kept for backward compat.
 | `stado_pty_signal` | `stado_terminal_signal` | 0/-1 | Posix signal (out-of-band) |
 | `stado_pty_resize` | `stado_terminal_resize` | 0/-1 | Cols + rows |
 | `stado_pty_destroy` | `stado_terminal_close` | 0 | Kill + free |
-| — | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen: `{text, cols, rows, cursor, title, svg?}` |
+| `stado_pty_snapshot` | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen: `{text, cols, rows, cursor, title, svg?}` |
 | — | `stado_terminal_expect(id_lo, id_hi, args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Read until pattern match / timeout / EOF — see below |
 
 Capability: `terminal:open` (broad) — gates all PTY ops.
@@ -260,6 +261,37 @@ Surfaces an approval prompt to the operator via the TUI's approval
 bridge. Returns -1 when running outside a TUI (headless, plugin
 run); plugin should fail safely.
 
+### stado_ui_choose
+
+| Field | Value |
+|---|---|
+| File | `host_ui.go` |
+| Signature | `stado_ui_choose(req_ptr, req_len, resp_ptr, resp_cap) → i32` |
+| Capability | `ui:choice` |
+| Returns | bytes (JSON response) on success; `-n` = n bytes of error message at resp_ptr |
+
+Presents an interactive choice prompt to the operator. Request JSON:
+`{prompt, options: [{id, label, prefix?, input?}], multi?, default?}`.
+Response JSON: `{selected: [...], input_value?, cancelled}`. Routes
+to the host's choice bridge; when none is attached (headless, MCP
+server) the call returns a structured "interactive UI unavailable"
+error so the plugin can fall back to its `default` or fail.
+
+### stado_ui_print
+
+| Field | Value |
+|---|---|
+| File | `host_ui_print.go` |
+| Signature | `stado_ui_print(req_ptr, req_len, err_ptr, err_cap) → i32` |
+| Capability | `ui:print` |
+| Returns | 0 on success / silent drop; `-n` where n bytes of error message are at err_ptr |
+
+Fire-and-forget plain-text emit to the operator surface. Request
+JSON carries the text plus optional streaming options. Routes to
+the host's print bridge; a nil bridge drops on the floor with success
+(same F9 contract as `stado_ui_render` — a print on a disconnected
+channel is not an error). Text cap: 8 KiB.
+
 ### stado_ui_render
 
 | Field | Value |
@@ -365,9 +397,19 @@ Response JSON shape:
 are the upper bound. `opts.allow_private = true` requires
 `net:http_request_private` cap on the manifest.
 
-### stado_http_request / stado_http_get
+### stado_http_request
 
-These are tool-bridging imports — see [Tool-bridging imports](#tool-bridging-imports).
+| Field | Value |
+|---|---|
+| File | `host_http_request.go` |
+| Signature | `stado_http_request(args_ptr, args_len, out_ptr, out_max) → i32` |
+| Capability | `net:http_request` or `net:http_request:<host>` |
+| Returns | bytes (JSON `{status, headers, body_b64, body_truncated}`) or -1 |
+
+A true host primitive (no longer a `tool.Tool` delegate — the
+`stado_http_get` bridging import and its backing webfetch tool were
+removed by EP-no-internal-tools; use `stado_http_request` for all
+plugin HTTP).
 
 `stado_http_request` accepts an optional `proxy_url` field on its
 request struct (added 2026-05-06). Schemes:
@@ -709,16 +751,16 @@ values to their own stdout/error paths.
 
 | Import | Capability | Algorithms |
 |---|---|---|
-| `stado_hash(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_max) → i32` | `crypto:hash` | md5, sha1, sha256, sha512, blake3 |
+| `stado_hash(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_max) → i32` | `crypto:hash` | md5, sha1, sha256, sha512 |
 | `stado_hmac(algo_ptr, algo_len, key_ptr, key_len, data_ptr, data_len, out_ptr, out_max) → i32` | `crypto:hash` | same algorithms |
 
-Output is the raw digest (not hex/base64); the plugin formats it.
+Output is a lowercase hex-encoded digest; do not re-encode it.
 
 ### stado_compress, stado_decompress
 
 | Import | Capability | Algorithms |
 |---|---|---|
-| `stado_compress(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_max) → i32` | none — always available | gzip, zstd, brotli |
+| `stado_compress(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_max) → i32` | none — always available | gzip, zlib |
 | `stado_decompress(algo_ptr, algo_len, data_ptr, data_len, out_ptr, out_max) → i32` | none | same |
 
 If `out_max` is too small, returns the required size (re-call with
@@ -852,35 +894,28 @@ EP-0015 memory-system plugin's host-side imports.
 | `stado_memory_propose(args_ptr, args_len) → i32` | `memory:write` | Propose new memory entry |
 | `stado_memory_update(args_ptr, args_len) → i32` | `memory:write` | Update existing entry |
 
-## Tool-bridging imports
+## stado_lsp_*
 
-These imports let a wasm plugin invoke stado's bundled native
-tools. Each is gated by the same capabilities the operator-facing
-tool would require. Lives in `tool_imports.go`; the imports
-re-marshal the wasm-side args into the tool's Go schema and
-invoke it through the host's tool registry.
+LSP query primitives (`host_lsp.go`). These used to be tool-bridging
+delegates; EP-no-internal-tools made them true primitives backed by
+`internal/lspfind/`. The wider tool-bridging surface
+(`stado_fs_tool_*`, `stado_exec_bash`, `stado_http_get`,
+`stado_search_ripgrep`, `stado_search_ast_grep`) was **removed** —
+use `stado_fs_*`, `stado_proc_*` + `exec:proc:<binary>`,
+`stado_bundled_bin` (rg, ast-grep), and `stado_http_request` instead.
 
-| Import | Backing tool | Capability |
-|---|---|---|
-| `stado_fs_tool_read` | fs.ReadTool | `fs:read:.` |
-| `stado_fs_tool_write` | fs.WriteTool | `fs:write:.` |
-| `stado_fs_tool_edit` | fs.EditTool | `fs:read:.` + `fs:write:.` |
-| `stado_fs_tool_glob` | fs.GlobTool | `fs:read:.` (full scope) |
-| `stado_fs_tool_grep` | fs.GrepTool | `fs:read:.` (full scope) |
-| `stado_fs_tool_read_context` | readctx.Tool | `fs:read:.` (full scope) |
-| `stado_exec_bash` | bash.BashTool | `exec:bash` (broad shell) |
-| `stado_http_get` | webfetch.WebFetchTool | `net:http_get` or `net:<host>` |
-| `stado_http_request` | httpreq.RequestTool | `net:http_request` or `net:http_request:<host>` |
-| `stado_search_ripgrep` | rg.Tool | `fs:read:.` + `exec:rg` |
-| `stado_search_ast_grep` | astgrep.Tool | `fs:read:.` + `fs:write:.` + `exec:ast-grep` |
-| `stado_lsp_find_definition` | lspfind.Definition | `fs:read:.` + `lsp:query` |
-| `stado_lsp_find_references` | lspfind.FindReferences | `fs:read:.` + `lsp:query` |
-| `stado_lsp_document_symbols` | lspfind.DocumentSymbols | `fs:read:.` + `lsp:query` |
-| `stado_lsp_hover` | lspfind.Hover | `fs:read:.` + `lsp:query` |
+| Import | Capability |
+|---|---|
+| `stado_lsp_find_definition` | `lsp:query` + `fs:read` on the resolved path |
+| `stado_lsp_find_references` | `lsp:query` + `fs:read` |
+| `stado_lsp_document_symbols` | `lsp:query` + `fs:read` |
+| `stado_lsp_hover` | `lsp:query` + `fs:read` |
 
 These imports return **byte counts** (or -1) and write JSON
-results into `(result_ptr, result_max)`. Each tool's args are
-documented in `internal/tools/<tool>/`'s package-level Go doc.
+results into `(result_ptr, result_max)`. Each takes a JSON args
+envelope `{path, line, column, ...}`; `fs:read` is enforced against
+the plugin's scope on the resolved path, not just workdir
+containment.
 
 ## SDK-side exports
 
@@ -890,8 +925,10 @@ The host calls into the plugin to:
 - Free wasm memory: `stado_free(ptr i32, size i32) → none`
 - Run a tool: `stado_tool_<name>(args_ptr i32, args_len i32, result_ptr i32, result_max i32) → i32`
 
-The plugin SDK (`pkg/plugin-sdk-zig/`, `pkg/plugin-sdk-go/`)
-provides these as `pub fn` / `//export` declarations.
+The in-tree Go SDK (`internal/plugins/bundled/sdk`) provides these
+as `//go:wasmexport` declarations. Other languages implement the
+same handful of helpers manually; example plugins for them live in
+[foobarto/stado-plugins](https://github.com/foobarto/stado-plugins).
 
 ## Manifest extras
 
@@ -921,12 +958,13 @@ always while `exploit` tools stay lazy-loaded behind tools.activate.
 
 ## Patterns and anti-patterns
 
-### Use `stado_proc_*` + `exec:proc:<binary>`, not `stado_exec_bash`
+### Use `stado_proc_*` + `exec:proc:<binary>` for subprocesses
 
-The bash tool is a broad escape hatch. When you know the binary
-your plugin needs, declare `exec:proc:/usr/bin/ldap-search` and
-call it via `stado_proc_spawn`. The operator sees exactly which
-binaries you run; the audit story stays clean.
+The broad bash escape hatch (`stado_exec_bash` / `exec:bash`) was
+removed by EP-no-internal-tools. When you know the binary your
+plugin needs, declare `exec:proc:/usr/bin/ldap-search` and call it
+via `stado_proc_spawn`. The operator sees exactly which binaries you
+run; the audit story stays clean.
 
 ### Don't conflate plugin execution with agent orchestration
 
@@ -962,8 +1000,8 @@ with `fs:write:<that-path>` cap.
 
 The pattern: host imports return the *required* size when the
 caller's buffer is too small, and the caller re-allocs and re-calls.
-Plugin SDK helpers wrap this — see `stado.zig`'s `readToBuffer`
-pattern.
+Plugin SDK helpers wrap this — see the Go SDK at
+`internal/plugins/bundled/sdk`.
 
 For imports without re-call semantics (some return -1 on overflow),
 size your buffer based on the import's documented worst-case (e.g.
@@ -976,10 +1014,9 @@ vocabulary (manifest declarations):
 
 ```
 fs:read:<glob>             fs:write:<glob>
-exec:proc:<binary-glob>    exec:bash
-exec:rg                    exec:ast-grep
-net:http_get               net:<host>
+exec:proc:<binary-glob>    exec:pty
 net:http_request           net:http_request:<host>
+net:<host>                 # DEAD — only gated the removed stado_http_get
 net:http_request_private   net:http_client
 net:dial:tcp:<host>:<port>
 dns:resolve                dns:resolve:<glob>

@@ -83,18 +83,18 @@ Most P1 + P2 scenarios from this plan are now shipped — see the
 below are kept in place as the original brainstorming + rationale
 for what got built, not as outstanding work. Status per item:
 
-- ✅ #1 Help overlay → `TestBridgeE2E_Stado_HelpOverlay` (entry 6)
-- ✅ #2 Theme picker → `TestBridgeE2E_Stado_ThemePicker` (entry 7)
-- ✅ #3 Sidebar toggle → `TestBridgeE2E_Stado_SidebarTogglePostTurn`
+- [done] #1 Help overlay → `TestBridgeE2E_Stado_HelpOverlay` (entry 6)
+- [done] #2 Theme picker → `TestBridgeE2E_Stado_ThemePicker` (entry 7)
+- [done] #3 Sidebar toggle → `TestBridgeE2E_Stado_SidebarTogglePostTurn`
   (entry 16). The original scenario was deferred for needing a
   stub LLM provider; the stub provider landed and the test now
   exists. Submits a prompt via the stub, asserts sidebar reveal
   post-turn, then Ctrl+T toggles it off + on with the "Repo"
   marker tracking.
-- ✅ #4 Quit-confirm centering → `TestBridgeE2E_Stado_QuitConfirmCentering` (entry 8)
-- ✅ #5 Approval drawer → `TestBridgeE2E_Stado_ApprovalDrawer` (entry 9)
-- ✅ #6 Choice drawer multi-select → `TestBridgeE2E_Stado_ChoiceDrawerMultiSelect` (entry 10)
-- ✅ #7 Streaming + queued-prompt →
+- [done] #4 Quit-confirm centering → `TestBridgeE2E_Stado_QuitConfirmCentering` (entry 8)
+- [done] #5 Approval drawer → `TestBridgeE2E_Stado_ApprovalDrawer` (entry 9)
+- [done] #6 Choice drawer multi-select → `TestBridgeE2E_Stado_ChoiceDrawerMultiSelect` (entry 10)
+- [done] #7 Streaming + queued-prompt →
   `TestBridgeE2E_Stado_StreamingTextDelta` (entry 14) +
   `TestBridgeE2E_Stado_QueuedPrompt` (entry 15). Both use the
   in-process stub LLM provider (`stubLLMServer` +
@@ -104,15 +104,15 @@ for what got built, not as outstanding work. Status per item:
 
 Also shipped beyond the original P1 + P2:
 
-- ✅ Slash filter → `TestBridgeE2E_Stado_SlashFilter` (entry 11) —
+- [done] Slash filter → `TestBridgeE2E_Stado_SlashFilter` (entry 11) —
   the canonical test the original `slash-opens-inline-suggestions`
   scenario in `TestBridgeE2E_Stado_F9bRegression` was dropped
   because of timing flake. Resolved by sending `/` alone first
   and using `waitForSnapshot` to settle before typing filter
   chars; root cause traced to handler_input.go's
   `len(msg.Runes) == 1` guard.
-- ✅ Palette filter → `TestBridgeE2E_Stado_PaletteFilter` (entry 12)
-- ✅ Landing reflow at 3 viewports → `TestBridgeE2E_Stado_LandingReflow`
+- [done] Palette filter → `TestBridgeE2E_Stado_PaletteFilter` (entry 12)
+- [done] Landing reflow at 3 viewports → `TestBridgeE2E_Stado_LandingReflow`
   (entry 13)
 
 ## Proposed new scenarios (ranked by signal-per-second)
@@ -264,11 +264,11 @@ bridge tests (entries 14-18 in the table above):
 
 | Gap | Test | Status |
 |-----|------|--------|
-| Streaming text-delta visual | `TestBridgeE2E_Stado_StreamingTextDelta` | ✅ shipped |
-| Markdown rendering in assistant blocks | `TestBridgeE2E_Stado_MarkdownRendering` | ✅ shipped |
-| Plan/Do mode toggle | `TestBridgeE2E_Stado_PlanDoModeToggle` | ✅ shipped (text-marker assertion; color tint not asserted via plain snapshot — needs ANSI parsing) |
-| Sidebar toggle width recompute | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | ✅ shipped |
-| Queued-prompt visual marker | `TestBridgeE2E_Stado_QueuedPrompt` | ✅ shipped |
+| Streaming text-delta visual | `TestBridgeE2E_Stado_StreamingTextDelta` | shipped |
+| Markdown rendering in assistant blocks | `TestBridgeE2E_Stado_MarkdownRendering` | shipped |
+| Plan/Do mode toggle | `TestBridgeE2E_Stado_PlanDoModeToggle` | shipped (text-marker assertion; color tint not asserted via plain snapshot — needs ANSI parsing) |
+| Sidebar toggle width recompute | `TestBridgeE2E_Stado_SidebarTogglePostTurn` | shipped |
+| Queued-prompt visual marker | `TestBridgeE2E_Stado_QueuedPrompt` | shipped |
 
 The stub helpers live in `bridge_uat_test.go` alongside the
 other test infrastructure:

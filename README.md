@@ -31,6 +31,10 @@ environment.
 > context management are shipped. Main remaining gap: Windows sandbox
 > v2. See
 > [PLAN.md](PLAN.md) for the phased roadmap.
+>
+> **Working in this codebase (agent or human)?** Jump to the
+> [repository map for agents](#repository-map-for-agents) — a dense
+> source-tree navigation guide.
 
 ---
 
@@ -74,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.13.0
+  bash -s -- --dir /usr/local/bin --version v0.65.0
 ```
 
 ### Homebrew
@@ -253,7 +257,7 @@ Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 
 ```sh
 # One-shot, exits after the agent finishes
-stado run --prompt "add a CHANGELOG entry for v0.13.0" --json
+stado run --prompt "add a CHANGELOG entry for the next release" --json
 
 # Long-running daemon; drive from any JSON-RPC 2.0 client
 stado headless
@@ -291,29 +295,14 @@ surface itself is shipped and stable enough to wire into Zed today.
   background plugin; when the TUI hits the hard context threshold it
   forks a compacted child session and replays the blocked prompt there.
 
-### Recent in v0.26.0
+### Recent changes
 
-- Five new CLI flags: top-level `--version`, `--provider`/`--model`
-  global overrides, `plugin run --workdir <path>`, `plugin run
-  --with-tool-host` (the `plugin run` command was later removed in
-  c2cd90d and replaced by `stado tool run`; `--with-tool-host` became
-  the default). Three new plugin subcommands: `plugin gc`,
-  `plugin doctor`, `plugin info`.
-- New `cfg:*` capability vocabulary for read-only configuration
-  introspection (`cfg:state_dir` ships first); `fs:read` /
-  `fs:write` caps now support `cfg:state_dir/...` path-templating
-  with strict cap-pairing.
-- Boots correctly on Fedora Atomic / Silverblue / Bazzite (the
-  `/home → /var/home` symlink no longer triggers
-  `Error: config: create config dir: directory component is a
-  symlink: home`).
-- Two new examples — `webfetch-cached` and `state-dir-info` (now in
-  [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins))
-  — cover the bundled-tool-wrapping + `cfg:*` patterns end-to-end.
-- See [docs/reports/2026-05-04-v0.26.0-release-notes.md](docs/reports/2026-05-04-v0.26.0-release-notes.md)
-  for the full rollup, EP-0027/0028/0029/0031 references, and the
-  EP-0030 placeholder for the security-research default-harness
-  direction.
+stado releases often. The
+[latest release](https://github.com/foobarto/stado/releases/latest) and
+[CHANGELOG.md](CHANGELOG.md) are the authoritative record of what shipped
+(the current release is also summarised on the TUI landing screen). For the
+design rationale behind a change, the [EPs](docs/eps/) are the durable
+record.
 
 For the full as-built detail, see [docs/README.md](docs/README.md),
 [DESIGN.md](DESIGN.md), and [PLAN.md](PLAN.md).
@@ -424,8 +413,12 @@ land`. The sidecar repo is safe to delete — it rebuilds on next run.
 
 ## Configuring tools & sandboxing
 
-Stado ships 14 bundled tools by default. `stado config show` prints the
-resolved config and `stado doctor` reports the main runtime knobs.
+Stado ships a broad bundled tool surface — filesystem, shell/PTY, web/DNS,
+ripgrep/ast-grep, LSP, session-search, and agent-spawn families (dozens of
+tools), all WASM-backed plugins. A small convenience core is auto-loaded
+each turn; the rest are reachable on demand through the dispatch meta-tools.
+`stado config show` prints the resolved config and `stado doctor` reports
+the main runtime knobs.
 
 ### Trim the tool set
 
@@ -553,6 +546,131 @@ not a replacement for that default.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — build, test, contribute
 - [SECURITY.md](SECURITY.md) — supply-chain model, key rotation, plugin
   publishing, and vulnerability reporting
+
+---
+
+## Repository map (for agents)
+
+A dense orientation for an agent (or contributor) about to work in this
+codebase. These are **source-tree** pointers; the human-facing guides are
+under [Docs](#docs) above, and design rationale lives in the EPs (linked
+below).
+
+**Shape.** A single Go binary (`cmd/stado`, a cobra command tree) over
+~45 `internal/` packages. Bubble Tea v2 TUI; tools run as capability-gated
+WASM inside `wazero`. One UI-independent core (`internal/runtime`) backs
+every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
+`make` — **not** `go install`: bundled wasm is compiled from source and
+`//go:embed`'d (Go 1.26+, pure-Go `CGO_ENABLED=0`).
+
+**Start here**
+
+- `cmd/stado/main.go` — CLI root; bare `stado` boots the TUI.
+- `internal/runtime/agentloop.go:AgentLoop` — the agent turn loop (turn →
+  tool calls → exec → next turn).
+- `internal/tools/executor.go:Run` — how one tool call is dispatched,
+  sandboxed, and committed to the audit log.
+- `pkg/tool/tool.go`, `pkg/agent/agent.go` — the public tool + provider
+  SDK seams (the contracts everything else implements).
+
+### Core engine, state, and security
+
+| Path | Look here for |
+|---|---|
+| `internal/runtime/agentloop.go` | the agent turn loop; lifecycle hooks (pre/post-llm, post-turn); per-turn system-prompt assembly (`buildTurnSystem`) |
+| `internal/runtime/executor.go` | building the default tool registry; `ApplyToolFilter` (enabled/disabled glob allowlist); autoload selection |
+| `internal/tools/{executor,registry,classify}.go` | tool dispatch + per-call commit invariants; the name→tool registry; mutation class (tree vs trace commit) |
+| `internal/providers/` (+ `pkg/agent`) | provider impls (anthropic/openai/google/oaicompat); native thinking-signature + prompt-cache round-trip |
+| `internal/{instructions,personas,skills}` | AGENTS.md/CLAUDE.md loading; persona inheritance; `.stado/skills/*.md` → `/skill:` commands |
+| `internal/{memory,tasks}` | approved-memory prompt context (ranked/capped); shared user+agent task list |
+| `internal/{compact,streambudget,toolinput}` | user-invoked compaction; streamed-text + tool-arg size caps |
+| `internal/runtime/subagent.go` (+ `internal/subagent`) | `spawn_agent`: child loop, forked worktree, write-scope projection |
+| `internal/state/git/{sidecar,session}.go` | the sidecar-bare-repo state model; repo-id canonicalization; per-session `tree`/`trace` refs |
+| `internal/state/git/{commit_write,commit_meta}.go` | where a session commit is written + signed; per-tool-call trailer format |
+| `internal/audit/{signer,verify}.go` | the `stado-audit-v2` signature format; strict v2 verify (no v1 fallback); the audit ref-walk |
+| `internal/sandbox/policy.go` | the capability grammar (`fs:`/`net:`/`exec:`/`env:`); policy intersection (`Merge`) |
+| `internal/sandbox/{runner_linux,runner_darwin,landlock_linux,seccomp_linux,proxy}.go` | per-OS enforcement (bwrap/landlock/seccomp, sandbox-exec); the net-allowlist CONNECT proxy |
+| `internal/broker/` | the privileged broker: session-ceiling projection, profiles (default/hardened/no-sandbox), taint, mount table (CI-asserted) |
+| `internal/{netguard,providers/envscrub,secrets}` | SSRF / private-IP egress blocking; subprocess env safelist (`inherit_env`); operator secret store |
+
+### TUI (`internal/tui`)
+
+| Path | Look here for |
+|---|---|
+| `model.go` · `model_update.go:Update` | the Bubble Tea v2 root model (central state); top-level message router |
+| `app.go:Run` | TUI boot — provider / theme / keymap / registry wiring |
+| `handler_input.go:onKey` | keypress routing; wiring a binding action to behavior (incl. `ctrl+x` chords) |
+| `handler_{stream,tools,lifecycle}.go` | streamed-token draining + throttle; tool-call→block + output sanitization; turn start/finish |
+| `model_commands.go:handleSlash` | what a `/command` *does* |
+| `keys/{defaults,schema,config}.go` | the emacs base keymap; named schemas (emacs/vscode) as deltas; `[keymap.bindings]` overrides |
+| `palette/{slash,registry}.go` | slash-command palette listing; dynamic (skill/plugin) commands |
+| `render/render.go:WrapDescList` · `palette/slash.go:truncate` | the no-truncation list formatter; display-width (`ansi.Truncate`) helpers |
+| `status_bar.go` · `sidebar.go` · `blocks_render.go` | status bar; right sidebar (incl. LSP diagnostics); per-frame conversation render |
+| `*picker/picker.go` (model/theme/tree/fleet/agent/persona/provider/session/file) | each modal picker UI; trigger in `handler_input.go`, result in `handler_picker_response.go` |
+| `theme/{theme,catalog}.go` | theme palette type; built-in theme presets |
+
+### Surfaces, protocols, plugins
+
+| Path | Look here for |
+|---|---|
+| `cmd/stado/{run,headless,acp,mcp_server}.go` | the non-TUI surface entry points (all compose `internal/runtime`) |
+| `internal/headless/server.go` · `internal/acp/server.go` | JSON-RPC headless daemon; stado-as-ACP-agent (Zed); shared line-delimited transport (`acp/jsonrpc.go`) |
+| `internal/{mcp,mcpbridge}` · `runtime/mcp_glue.go` | MCP client (connect + capability-gate stdio servers); adapting a remote MCP tool; `stado mcp-server` is the inverse |
+| `internal/{lsp,lspfind}` · `tui/sidebar.go:diagnosticEntryText` | LSP transport; per-session server lifecycle; diagnostics render + control-byte strip |
+| `internal/telemetry` (+ `cmd/stado/telemetry_runtime.go`) | OpenTelemetry spans (session→turn→tool_call); off by default |
+| `internal/plugins/runtime/{runtime,host,host_imports,tool}.go` | wazero load/instantiate; per-plugin capability gate; the `stado_*` host imports; the wasm tool-call ABI |
+| `internal/plugins/{manifest,trust}.go` | manifest schema + Ed25519 signing; TOFU trust store, rollback + revocation |
+| `internal/plugins/bundled` · `plugins/bundled/build.sh` | embedded bundled wasm (EP-0042); `auto-compact` (the default-on background plugin); `make wasm` |
+| `internal/fs` · `internal/fs/hashline` | native read/write/edit/glob/grep tools; the `LINE#HASH` anchored-edit protocol |
+| `internal/{rg,astgrep}` · `hack/fetch-binaries.go` · `hack/binary-pins.json` | embedded native `rg`/`ast-grep` extraction; build-time fetch + committed sha256 pins |
+
+### Where do I change…?
+
+| Task | Start at |
+|---|---|
+| add a CLI command / subcommand | `cmd/stado/<cmd>.go` (`rootCmd.AddCommand` in `init()`); subcommands under the group's file |
+| author a tool / read the tool contract | `pkg/tool/tool.go`; register in `internal/runtime/executor.go:BuildDefaultRegistry`, class in `internal/tools/classify.go` |
+| add / change a provider | implement `pkg/agent.Provider` in `internal/providers/<name>`; wire in `internal/tui/app.go` + `internal/config` |
+| modify the agent turn loop | `internal/runtime/agentloop.go:AgentLoop` |
+| filter / allowlist tools | `internal/runtime/executor.go:ApplyToolFilter` (`[tools].enabled/disabled`) |
+| change a default keybinding / add a keymap schema | `internal/tui/keys/defaults.go` / `keys/schema.go` (deltas over emacs); action consts in `keys/actions.go` |
+| register a slash command vs change its behavior | `internal/tui/palette/slash.go` vs `internal/tui/model_commands.go:handleSlash` |
+| add / modify a picker | `internal/tui/<name>picker/picker.go` + trigger in `handler_input.go` + `handler_picker_response.go` |
+| fix display-width truncation / wrapping | `internal/tui/render/render.go:WrapDescList` / `palette/slash.go:truncate` (`ansi.Truncate`) |
+| add a built-in theme | `internal/tui/theme/catalog.go` |
+| change a sandbox capability / per-OS enforcement | `internal/sandbox/policy.go`, then mirror in `runner_linux.go` / `sbx_profile.go` / `landlock_linux.go` / `seccomp_linux.go` |
+| change a sandbox profile's mounts | `internal/broker/mount_table.go` (CI-asserted) + `session.go`; profiles in `types.go` |
+| change the audit signature / verify | `internal/audit/signer.go` (`SignV2`/`VerifyV2`) + `verify.go` |
+| add a wasm host import (plugin capability) | `internal/plugins/runtime/host_imports.go` + a `host_<name>.go` + parse the gate in `host.go` |
+| add a bundled wasm plugin | `plugins/bundled/<name>/` + `build.sh`; inventory in `internal/plugins/bundled`; default-on policy in `internal/runtime` |
+| add an MCP server / capability gate | `internal/runtime/mcp_glue.go:attachMCP` + `internal/mcp/capability.go` |
+| add a config.toml key | `internal/config/config.go` (Config struct + koanf tags) |
+| edit the changelog | `CHANGELOG.md`, then `make changelog` (regen the embedded `internal/changelog/latest.md`; a drift test gates CI) |
+
+### Design records & working state
+
+- **Design rationale:** [docs/eps/](docs/eps/) — 40+ numbered EPs (e.g. 0004
+  sessions/audit, 0005 sandbox, 0037/0038 all-tools-as-wasm, 0050 broker),
+  indexed in [docs/eps/README.md](docs/eps/README.md). [DESIGN.md](DESIGN.md)
+  is the as-built architecture; [PLAN.md](PLAN.md) is what's *not* built yet
+  and why.
+- **Agent working state** (`.agent/`, when present): `STATE.md` resume
+  anchor; `notes/journal.md` append-only log; `decisions/` ADR-style settled
+  calls; `specs/open/` per-chunk specs + deferred stubs; `goals/`
+  long-running `/pursue` state. The conventions for all of it are in
+  [CLAUDE.md](CLAUDE.md).
+
+### Build · test · release
+
+- `make` builds (compiling bundled wasm from source first); `make check` /
+  `make lint` / `make install`; `make help` lists targets.
+- TUI tests have three layers (see [CONTRIBUTING.md](CONTRIBUTING.md)):
+  in-process teatest, `hack/tmux-uat.sh` (real PTY), and `hack/pty-bridge/`
+  (headless-Chrome visual; `STADO_PTY_BRIDGE_E2E=1`).
+- CI is [.github/workflows/ci.yml](.github/workflows/ci.yml) (fast PR gate +
+  post-merge `-race`); releases are tag-triggered via
+  [.github/workflows/release.yml](.github/workflows/release.yml) (GoReleaser
+  cross-compile + cosign + SBOM; self-runs `-race`).
 
 ---
 

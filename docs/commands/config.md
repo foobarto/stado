@@ -70,14 +70,18 @@ worktree dir   /home/user/.local/state/stado/worktrees
   provider     anthropic
   model        claude-sonnet-4-6
 
+[approvals]
+  mode         prompt
+
 [agent]
   thinking                 auto
   thinking_budget_tokens   16384
   system_prompt_path       /home/user/.config/stado/system-prompt.md
 
 [tui]
-  theme              (unset — uses theme.toml or bundled default)
-  thinking_display   show
+  theme                          (unset — uses theme.toml or bundled default)
+  thinking_display               show
+  tool_output_collapsed_height   8
 
 [memory]
   enabled        true

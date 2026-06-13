@@ -10,12 +10,12 @@ capabilities AND mount itself as an MCP server via `session/new.mcpServers`
 
 | Agent       | Binary    | ACP args     | Honors `session/new.mcpServers` | Setup needed for `tools = "stado"`                                            |
 |-------------|-----------|--------------|----------------------------------|-------------------------------------------------------------------------------|
-| **opencode**| `opencode`| `["acp"]`    | ✅ Yes                           | None — works out of the box.                                                  |
-| **gemini**  | `gemini`  | `["--acp"]`  | ❌ No                            | Register stado as MCP server in gemini config + trust the working folder.     |
+| **opencode**| `opencode`| `["acp"]`    | Yes                              | None — works out of the box.                                                  |
+| **gemini**  | `gemini`  | `["--acp"]`  | No                               | Register stado as MCP server in gemini config + trust the working folder.     |
 | **codex**   | `codex`   | (none — no stdio ACP-agent mode) | n/a    | Not invocable as ACP agent over stdio. **WRAP via MCP** instead: see `[mcp.providers.codex-mcp]` below. |
 | **claude**  | `claude`  | (none — no stdio ACP-agent mode) | n/a    | Same as codex; claude-cli's ACP role is being-the-agent for Zed-as-client, not exposing stdio for stado-as-client. |
-| **zed**     | `zed`     | n/a          | ✅ (per spec) when wrapped       | Editor, not a stdio CLI agent — out of scope for `acpwrap`.                   |
-| **hermes**  | `~/.hermes/hermes-agent/venv/bin/hermes` | ✅ Yes (verified) | None — venv binary already has ACP extras | Use the **venv binary**, not `~/.hermes/hermes-agent/hermes` (system-python launcher) and not `~/.local/bin/hermes` (separate broken entry-point). 46 stado tools land via session/new.mcpServers. MCP-serve mode requires `pip install 'mcp'` in the venv. |
+| **zed**     | `zed`     | n/a          | (per spec) when wrapped          | Editor, not a stdio CLI agent — out of scope for `acpwrap`.                   |
+| **hermes**  | `~/.hermes/hermes-agent/venv/bin/hermes` | Yes (verified) | None — venv binary already has ACP extras | Use the **venv binary**, not `~/.hermes/hermes-agent/hermes` (system-python launcher) and not `~/.local/bin/hermes` (separate broken entry-point). 46 stado tools land via session/new.mcpServers. MCP-serve mode requires `pip install 'mcp'` in the venv. |
 
 ## Per-agent setup instructions
 

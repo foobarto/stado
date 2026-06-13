@@ -29,6 +29,16 @@ Example Zed config:
 }
 ```
 
+### Flags
+
+| Flag | What it does |
+|------|--------------|
+| `--tools` | Open a git-native session and run the full audited tool loop. |
+| `--max-turns <n>` | Per-prompt turn cap (operator default; `0` falls back to `[acp].max_turns` or the built-in). |
+| `--no-turn-limit` | Effectively unlimited per-prompt turns; overrides `--max-turns`. |
+| `--resume <id-or-label>` | Resume an existing git-native session by id, prefix (≥8 chars), or description substring. A bad query fails at startup. Per-call equivalent: `session/new {"resumeSession": ID}`. |
+| `--persona <name>` | Default persona for new sessions. Resolution: `{cwd}/.stado/personas` → `<config-dir>/personas` → bundled. Empty falls back to `[defaults].persona`. Per-session override: `session/new {"persona": NAME}`. |
+
 ## Protocol Surface
 
 The current server supports:
@@ -38,6 +48,10 @@ The current server supports:
 - `session/prompt`
 - `session/cancel`
 - `shutdown`
+
+The client replies to agent-initiated requests with
+`session/choice_response` (selection prompts) and
+`session/approval_response` (tool/action approvals).
 
 When tools are enabled, tool-call notifications are sent as
 `session/update` events and tool execution is committed to the same

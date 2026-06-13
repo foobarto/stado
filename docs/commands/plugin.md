@@ -6,7 +6,10 @@ The plugin surface is split into two halves:
 
 1. **Authoring / publishing** — `init`, `gen-key`, `sign`, `digest`
 2. **Consumption / operations** — `trust`, `untrust`, `list`,
-   `installed`, `verify`, `install`, `run`
+   `installed`, `verify`, `install`
+
+There is no `stado plugin run`. An installed tool is invoked via
+`stado tool run <name>` (see below).
 
 ## What it does
 

@@ -50,9 +50,9 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0024 | [TUI Footer Density](./0024-footer-density.md) | Standards | Implemented |
 | 0025 | [Thinking Display Modes](./0025-thinking-display-modes.md) | Standards | Implemented |
 | 0026 | [Command Input Ergonomics](./0026-command-input-ergonomics.md) | Standards | Implemented |
-| 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Draft |
+| 0027 | [Repo-Root Discovery](./0027-repo-root-discovery.md) | Standards | Implemented |
 | 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
-| 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Draft |
+| 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Implemented |
 | 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Draft |
 | 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Implemented |
@@ -65,6 +65,8 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
 | 0041 | [Shell PTY tool naming — read_until and screenshot](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
+| 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
+| 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

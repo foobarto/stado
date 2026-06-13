@@ -146,8 +146,10 @@ memorising:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Submit the current input |
+| `Enter` | Submit the current input (while a turn is streaming, steers: injects into the current turn) |
 | `Shift+Enter` | Newline in input (multi-line prompt) |
+| `Alt+Enter` | Queue message for the next turn |
+| `Ctrl+Enter` | Interrupt: cancel the turn and run now |
 | `@` | Open inline agent/session/skill/file completion |
 | `Tab` | Toggle Plan / Do mode |
 | `Ctrl+P` | Open command palette |
@@ -165,13 +167,20 @@ memorising:
 | Mouse left-click | Click any tool block to focus + expand it (hold `Shift` while click-dragging if you need terminal-native selection — or set `[tui].mouse_capture = false` to disable app mouse capture entirely) |
 | `Ctrl+T` | Toggle sidebar |
 | `Ctrl+X Ctrl+B` | Toggle BTW mode |
-| `Ctrl+C` | Cancel stream / clear pending queue |
+| `Esc` / `Ctrl+G` | Interrupt model: clear queued prompt / cancel stream / cancel running tool |
+| `Ctrl+C` | Cancel stream / clear pending queue (converges on the same cancel semantic as `Esc` / `Ctrl+G`) |
 | `Ctrl+D` | Exit stado |
 | `?` | Help overlay (keybinds + slash commands) |
 | `Up` / `Down` | Prev/next in input history |
 | `PageUp` / `PageDown` | Scroll chat viewport |
 | `Home` | Scroll to top |
 | `Ctrl+Alt+G` / `End` | Scroll to bottom |
+
+Keybindings are configurable (since v0.65.0). Set the base layout with
+`[keymap].schema = "emacs"` (default) or `"vscode"`, and override
+individual actions under `[keymap.bindings]` keyed by action name (e.g.
+`sidebar_toggle = "ctrl+t"`). An unknown action name is a non-fatal
+warning, not a boot failure — the valid overrides still apply.
 
 ### Plan, Do, and BTW mode
 
@@ -379,6 +388,7 @@ relevant sections:
 | `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
 | `[tui]` | display preferences (`theme`, `thinking_display`, `mouse_capture`) |
+| `[keymap]` | keybinding layout: `schema` (`emacs` / `vscode`) + per-action overrides under `[keymap.bindings]` |
 
 ### `[tui].mouse_capture`
 

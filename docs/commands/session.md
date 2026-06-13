@@ -130,10 +130,12 @@ the child forked from the empty tree. `--json` emits the same plan shape
 for scripts. Conflicts block `--apply`; inspect or land the child
 session manually if both parent and child changed the same path.
 
-### `session revert <id>`
+### `session revert <id> <commit-or-turn>`
 
 Reset the session's worktree + tree ref to an earlier commit, on a
-new child session. Leaves the parent session intact.
+new child session. Leaves the parent session intact. The second arg
+accepts a commit hash or a `turns/<N>` tag, e.g.
+`stado session revert abc1 turns/3`.
 
 ### `session tree <id>`
 
