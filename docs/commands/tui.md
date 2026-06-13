@@ -177,10 +177,41 @@ memorising:
 | `Ctrl+Alt+G` / `End` | Scroll to bottom |
 
 Keybindings are configurable (since v0.65.0). Set the base layout with
-`[keymap].schema = "emacs"` (default) or `"vscode"`, and override
+`[keymap].schema = "emacs"` (default), `"vscode"`, or `"vim"`, and override
 individual actions under `[keymap.bindings]` keyed by action name (e.g.
 `sidebar_toggle = "ctrl+t"`). An unknown action name is a non-fatal
 warning, not a boot failure — the valid overrides still apply.
+
+### Vim modal editing (`schema = "vim"`)
+
+Setting `[keymap].schema = "vim"` turns the chat input into a modal editor
+with `NORMAL`, `INSERT`, and `VISUAL` modes. The current mode shows as a
+pill in the inline status row under the input box (only on this schema). On
+launch you start in `INSERT` so you can type immediately.
+
+- **Mode switching:** `Esc` (in `INSERT`) → `NORMAL`. `i a I A o O` →
+  `INSERT`. `v` → `VISUAL`. `Esc` in `NORMAL` is a **no-op** — to interrupt
+  the model use **`Ctrl+G`** (its `SessionInterrupt` binding survives in
+  every schema). `Enter` from `NORMAL` submits the line.
+- **Motions** (count-prefixable, e.g. `3j`, `2w`): `h j k l`, `w b e`,
+  `0 ^ $`, `gg G`.
+- **Edits:** `x` (delete char), `D` (delete to end of line), `C` (change to
+  end of line), `s` (substitute char), `r<char>` (replace char); line-wise
+  `dd` `cc` `yy`; operator + motion — `dw de db d$ d0`, `cw ce cb c$`,
+  `yw ye yb y$` (counts apply, e.g. `2dw`).
+- **Registers / paste:** one unnamed register, fed by `x` / `d*` / `y*`;
+  `p` pastes after, `P` before (line-wise vs char-wise tracked).
+- **Visual:** `v` then a motion to extend the selection, then `d`/`x`
+  (delete), `y` (yank), or `c` (change).
+- **Modifier chords still work in `NORMAL`/`VISUAL`** — `Ctrl+P`, `Ctrl+D`,
+  the `Ctrl+X` pickers, scroll chords, etc. are not swallowed by the modal
+  layer.
+
+Not implemented in v1 (deliberately): text objects (`ciw`), named registers,
+marks, macros, `:` ex-commands, `/` search, `.` repeat, `>>`/`<<` indent,
+and `J` join. `INSERT` mode keeps the standard emacs/readline input editing
+(`Ctrl+A`/`Ctrl+E`/`Ctrl+W`/…), and the modal layer is entirely inert on the
+`emacs` and `vscode` schemas (there, `Esc` keeps its interrupt behaviour).
 
 ### Plan, Do, and BTW mode
 
@@ -388,7 +419,7 @@ relevant sections:
 | `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
 | `[tui]` | display preferences (`theme`, `thinking_display`, `mouse_capture`) |
-| `[keymap]` | keybinding layout: `schema` (`emacs` / `vscode`) + per-action overrides under `[keymap.bindings]` |
+| `[keymap]` | keybinding layout: `schema` (`emacs` / `vscode` / `vim`) + per-action overrides under `[keymap.bindings]` |
 
 ### `[tui].mouse_capture`
 

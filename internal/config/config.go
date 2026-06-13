@@ -376,9 +376,9 @@ type TUIFooter struct {
 
 // Keymap is the [keymap] section — selects a named keybinding schema and
 // applies per-action overrides on top of it. Schema picks the base layout
-// (emacs or vscode); empty is treated as the emacs default. Bindings maps an
-// action name (e.g. "sidebar_toggle") to a comma-separated key list (e.g.
-// "ctrl+y,ctrl+o") that REPLACES that action's schema binding.
+// (emacs, vscode, or the modal "vim"); empty is treated as the emacs default.
+// Bindings maps an action name (e.g. "sidebar_toggle") to a comma-separated
+// key list (e.g. "ctrl+y,ctrl+o") that REPLACES that action's schema binding.
 //
 //	[keymap]
 //	schema = "vscode"
@@ -390,8 +390,10 @@ type TUIFooter struct {
 // action name is reported as a non-fatal error (the TUI logs it to stderr and
 // keeps booting) while the remaining valid overrides still apply.
 type Keymap struct {
-	// Schema names the base layout: "emacs" (default) or "vscode". Empty is
-	// treated as emacs.
+	// Schema names the base layout: "emacs" (default), "vscode", or "vim"
+	// (modal). Empty is treated as emacs. The "vim" schema layers a modal
+	// editing engine (NORMAL/INSERT/VISUAL) over the input; see
+	// internal/tui/vimmode and docs/commands/tui.md.
 	Schema string `koanf:"schema"`
 	// Bindings overrides individual actions by name. Each value is a
 	// comma-separated key list that replaces the action's schema binding.

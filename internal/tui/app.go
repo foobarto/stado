@@ -95,6 +95,9 @@ func Run(cfg *config.Config, startupNotices []string) error {
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
+	// Modal vim (keymap Phase 2): enable the modal engine only for the "vim"
+	// schema. Inert for emacs/vscode/custom. Starts in INSERT (set inside).
+	m.SetKeymapSchema(cfg.Keymap.Schema)
 	if cfg.TUI.SidebarWidth > 0 {
 		// Clamp the persisted width to the valid range — a hand-edited
 		// config could otherwise drive an out-of-range layout.

@@ -56,6 +56,20 @@ func TestResolveSchema(t *testing.T) {
 		}
 	}
 
+	// The vim schema (keymap Phase 2) is modal: its NORMAL/VISUAL behaviour is
+	// engine-driven (internal/tui/vimmode), not a binding swap, so its delta is
+	// empty and it resolves to the full emacs base. INSERT mode therefore keeps
+	// the emacs/readline input editing.
+	vim := ResolveSchema("vim")
+	for action, want := range Defaults {
+		if got := vim[action]; got != want {
+			t.Errorf("vim schema action %q = %q, want emacs base %q (vim is engine-driven, empty delta)", action, got, want)
+		}
+	}
+	if len(vim) != len(Defaults) {
+		t.Errorf("vim schema has %d actions, want %d (the emacs base)", len(vim), len(Defaults))
+	}
+
 	// ResolveSchema must not mutate the shared Defaults / Schemas maps.
 	if Defaults[InputLineHome] != "ctrl+a" {
 		t.Errorf("ResolveSchema mutated the shared Defaults map: InputLineHome = %q", Defaults[InputLineHome])

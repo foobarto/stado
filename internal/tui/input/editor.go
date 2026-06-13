@@ -182,6 +182,54 @@ func (e *Editor) SetValue(s string) {
 	e.Model.CursorEnd()
 }
 
+// SetValueWithCursor replaces the editor contents and places the cursor at the
+// given absolute BYTE offset into s (the same coordinate CursorOffset returns).
+// The offset is clamped to [0, len(s)] and snapped to a rune boundary so a
+// mid-rune offset can't corrupt multibyte text. Added for the vim modal engine
+// (vimmode), which computes a new buffer + cursor and needs to apply both —
+// plain SetValue always parks the cursor at the end.
+func (e *Editor) SetValueWithCursor(s string, off int) {
+	s = truncateStringBytes(s, MaxValueBytes)
+	e.Model.SetValue(s)
+
+	// Clamp + snap the byte offset to a rune boundary.
+	if off < 0 {
+		off = 0
+	}
+	if off > len(s) {
+		off = len(s)
+	}
+	for off > 0 && off < len(s) && !utf8.RuneStart(s[off]) {
+		off--
+	}
+
+	// Convert the byte offset to (logical line, rune column). The textarea
+	// addresses the cursor by row + rune-column, so we walk to the line the
+	// offset falls on, then count runes from that line's start to the offset.
+	line := 0
+	lineStart := 0
+	for i := 0; i < off; i++ {
+		if s[i] == '\n' {
+			line++
+			lineStart = i + 1
+		}
+	}
+	col := utf8.RuneCountInString(s[lineStart:off])
+
+	// SetValue parks the cursor at the end (last row). Move to the target row
+	// relative to it, then set the column within that row.
+	if cur := e.Model.Line(); cur > line {
+		for i := 0; i < cur-line; i++ {
+			e.Model.CursorUp()
+		}
+	} else if cur < line {
+		for i := 0; i < line-cur; i++ {
+			e.Model.CursorDown()
+		}
+	}
+	e.Model.SetCursorColumn(col)
+}
+
 // CursorOffset returns the absolute BYTE offset of the text cursor in
 // Value(). Callers (the @-mention file picker) byte-slice Value() with
 // this offset, so it must be byte-aligned: returning a rune/column count
