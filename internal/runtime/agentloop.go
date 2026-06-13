@@ -68,6 +68,14 @@ type AgentLoopOptions struct {
 	// when Workdir is empty).
 	Host tool.Host
 
+	// DefaultSandboxPolicy, when non-nil, is returned by the auto-created
+	// host's tool.SandboxPolicyProvider so bash/exec tool calls run confined
+	// by it. Nil (run / tui) keeps operator's-FS semantics; autonomous
+	// surfaces (headless) set it to runtime.NewDefaultSandboxPolicy(workdir).
+	// Model A (decision 2026-06-13). Ignored when Host is supplied — that host
+	// owns its own SandboxPolicyProvider (e.g. acp / mcp-server).
+	DefaultSandboxPolicy any
+
 	// Workdir overrides the cwd that tools see during this loop. When
 	// empty, the loop falls back to Executor.Session.WorktreePath
 	// (per-session scratch). v1 `stado run` always sets this to
@@ -211,12 +219,13 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		// the self-contained headless path.
 		defer lspfind.CloseAll()
 		opts.Host = autoApproveHost{
-			workdir:     workdir,
-			readLog:     rlog,
-			runner:      runner,
-			spawn:       spawnFn,
-			fleetBridge: fb,
-			pty:         ptyMgr,
+			workdir:              workdir,
+			readLog:              rlog,
+			runner:               runner,
+			spawn:                spawnFn,
+			fleetBridge:          fb,
+			pty:                  ptyMgr,
+			defaultSandboxPolicy: opts.DefaultSandboxPolicy,
 		}
 	}
 

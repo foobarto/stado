@@ -34,6 +34,17 @@ func (h *acpHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision,
 func (h *acpHost) Workdir() string        { return h.workdir }
 func (h *acpHost) Runner() sandbox.Runner { return h.runner }
 
+// DefaultSandboxPolicy makes acp an AUTONOMOUS surface for tool execution: a
+// Zed / ACP client drives the agent, not the operator at a terminal, so bash
+// (`shell.exec`) tool calls run under the protective default sandbox policy by
+// default — matching mcp-server / daemon, and closing the gap where acp's bash
+// previously ran unconfined. Model A (decision 2026-06-13). Returns the
+// *sandboxPolicy via `any` per tool.SandboxPolicyProvider; the wasm guest can
+// only TIGHTEN it (intersectPolicies), never widen.
+func (h *acpHost) DefaultSandboxPolicy() any {
+	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
+}
+
 func (h *acpHost) SpawnSubagent(_ context.Context, _ subagent.Request) (subagent.Result, error) {
 	return subagent.Result{}, errors.New("spawn_agent unavailable: ACP host has no subagent fleet")
 }
