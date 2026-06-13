@@ -1,48 +1,85 @@
-## v0.64.3 — audit downgrade fix + reviewer-flagged follow-ups — 2026-06-12
+## v0.65.0 — configurable keybindings + readable slash output + UAT hardening — 2026-06-13
 
-Closes a parked audit-signature finding and the sibling/doc-drift items the
-v0.64.2 PR reviews surfaced.
+Adds configurable keybinding schemas and a no-truncation formatter for slash
+list output, closes a terminal-escape-injection finding in the LSP diagnostics
+sidebar, and lands two autonomous UAT rounds that sweep the display-width
+truncation bug class across the TUI and CLI.
 
 ### Security
 
-- **Audit signature v1-downgrade closed (Codex C8/P).** `audit.VerifyV2` tried
-  the identity-bound v2 payload, then fell back to v1 (which binds only
-  tree+parents+body). With sidecar write, an attacker could copy a genuine v1
-  commit's `(tree, parents, body, signature)` into a new commit with a
-  **rewritten author/timestamp** and still have it verify under the operator's
-  key. `VerifyV2` no longer falls back to v1 — only the identity-bound v2
-  payload is accepted. `ExtractSignature` now rejects a body carrying more than
-  one `Signature:` trailer (anti trailer-injection), and `audit verify` flags a
-  duplicate-trailer commit as invalid rather than unsigned.
-  - **Behavior change:** genuinely pre-v2 (legacy v1) audit commits no longer
-    verify. They are reported distinctly as `LEGACY-V1` (not tampered) with a
-    "re-sign to verify under v2" note. All v2 history (everything signed since
-    the scheme bump) is unaffected. An optional re-sign migration is planned.
-- **Memory delete-tombstone laundering fully closed.** `delete` → `reject`/
-  `approve`/`upsert`/`edit` were already guarded; this adds the missing
-  `propose`-over-a-deleted-id path (reachable from the plugin `memory:propose`
-  bridge), which folded a tombstone back to `candidate` and let a follow-on
-  `approve` resurrect a queryable, prompt-injectable memory.
+- **LSP diagnostics terminal-escape strip.** The diagnostics sidebar rendered
+  the untrusted LSP-server message and path without `StripControlChars`, so a
+  malicious or compromised language server could leak OSC/CSI/BEL escapes
+  (clipboard hijack, title-bar rewrite) into the terminal. Both fields are now
+  stripped like every other untrusted single-line surface.
 
 ### TUI
 
-- **`/loop` status-bar indicator.** A running loop now shows `↻ loop` (or
-  `↻ loop (5m)` for a timed loop) in the status bar — the affordance EP-0036
-  promised but never shipped.
-- **Budget token caps surface everywhere.** A token-only budget (the
-  local-runner case where USD cost is always 0) now gets a proactive warn
-  block, token usage/caps in the `/context` status and `/status` modal, and the
-  always-on sidebar gauge — previously all four were USD-only. When both USD and
-  token caps are set, the sidebar shows whichever is under more pressure.
-- **`/fleet` picker `last:` column is width-bounded** (was unbounded, overflowing
-  the modal on a long tool name).
+- **Configurable keybinding schemas (Phase 1).** Switch between pre-configured
+  keymap schemas and customize bindings via config. `[keymap] schema = "emacs"`
+  (default) `| "vscode"` selects the base layout; `[keymap.bindings]` maps an
+  action name to comma-separated keys to override any single binding. An unknown
+  action name is a non-fatal stderr warning (valid overrides still apply). The
+  previously-defined-but-unwired `Messages*` scroll actions (PageUp / PageDown /
+  HalfPage / First / Last) are now wired through the registry, so rebinds and
+  the ctrl+alt half-page / home-end jumps take effect. Modal `vim`
+  (ESC→normal mode) is Phase 2.
+- **Readable slash list output (no truncation).** `/tool` / `/tools`, `/skill`,
+  `/plugin`, and the `?` help overlay rendered over-compressed lists with
+  truncated descriptions. A shared formatter now wraps descriptions
+  (display-width aware) and hang-indents them under a dynamic gutter; `/tool ls`
+  shows each tool's full description (was name + state only), and `/plugin` no
+  longer ellipsis-truncates per-tool descriptions at 120 chars.
+- **Typing no longer scrolls the conversation.** The bubbles viewport's default
+  keymap bound the text letters `j/k/h/l/b/f/u/d`, `space`, and arrows to
+  scroll; since the input is always focused, typing those scrolled the history
+  (and `ctrl+u` both deleted-to-line-start and half-paged). Both conversation
+  viewports now use a text-safe keymap — only PageUp / PageDown scroll; mouse
+  wheel is unchanged.
+- **Display-width truncation swept across the TUI.** Pickers, the slash palette,
+  the activity panel, and several modal headers truncated by rune count (or
+  byte-sliced mid-rune), so wide-CJK / emoji content overflowed the modal
+  border, wrapped onto a second interior row (corrupting height accounting), or
+  leaked invalid UTF-8. All now truncate display-width- and grapheme-aware
+  (`ansi.Truncate`). Covers the tool-call header, approval prompt, status modal,
+  choice menu, the tree / fleet / model / agent / persona / theme pickers, and
+  the `@`-mention popover.
+- **`@`-mention buffer corruption fixed.** `Editor.CursorOffset()` returned a
+  display column that was consumed as a byte offset, so accepting an `@`-mention
+  after a multibyte / CJK character corrupted the input buffer; the `@`-popover
+  also stayed open with a stale anchor after `alt+enter` / `ctrl+enter` / an
+  empty submit. Both fixed.
+- **Picker overflow + narrow-terminal fixes.** The fleet-picker header and
+  detail `SessionID`, the persona / theme right column, and the model / agent
+  pickers overflowed the modal border (or, for model / agent, a ≤50-column
+  terminal). All now clamp / truncate to the modal width, and the modelpicker
+  header no longer slices an SGR escape when narrowed.
+- **`/loop` stops cleanly on error.** An errored loop iteration returned without
+  clearing loop state, so the `↻ loop` indicator stayed lit forever while
+  nothing re-fired. An errored iteration now stops the loop and prompts `/loop`
+  to restart.
+- **No crash on a malformed plugin table row.** A plugin `table` row with more
+  cells than declared columns panicked the render (`index out of range`); the
+  extra cells are now dropped instead.
+- **Honest local-runner credential save.** The TUI provider modal claimed it
+  "recorded a credential ref" for a local-runner no-op save; it now reports the
+  no-op honestly, matching the CLI.
 
 ### CLI
 
-- **`audit export` / display + stats commands surface real storage errors.**
-  `audit export` already errored on an unknown id; the same swallow-on-resolve
-  pattern is now classified across `session show` / `session logs` (which
-  surface a real git-storage error instead of printing `(unset)` / ignoring it)
-  and the `agents` / `stats` / `usage` aggregators (which warn to stderr and
-  continue rather than silently skipping a corrupt sidecar).
+- **Rune-safe truncation.** `stats`, `plugin info`, `plugin doctor`,
+  `session show`, `session tree`, and `doctor` byte-sliced text mid-rune,
+  producing mojibake on non-ASCII content; all now truncate on rune /
+  display-width boundaries (`textutil.TruncateRunes`). `session search`'s
+  match-excerpt window likewise moved off byte offsets to display-column
+  windowing (`ansi.Cut`), so a wide-CJK / emoji excerpt is never split.
+
+### Infra
+
+- **CI cross-compile build matrix removed.** The 5-way `go build -o /dev/null`
+  matrix was redundant with GoReleaser, which already cross-compiles and signs
+  every target at release time and fails the release run on a platform break.
+  It is gone from CI — now a fast PR gate plus a post-merge `-race` validation —
+  and GoReleaser is the sole release-time build. (#141 first moved it to
+  tag-trigger; #148 removed it.)
 
