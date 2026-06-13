@@ -1812,9 +1812,9 @@
       <div>
         <h5>Verify what you're running.</h5>
         <p>
-          Release archives ship with <span class="mono">checksums.txt.sig</span> + <span class="mono">checksums.txt.cert</span> (cosign keyless, Rekor-logged).
-          The minisign root is embedded in tagged stado builds — <span class="mono">stado verify --show-builtin-keys</span> prints it offline,
-          with no network call. CI-side minisign signing of the checksum manifest is planned, so the airgap-verify path lands end-to-end.
+          Release archives ship with <span class="mono">checksums.txt.sig</span> + <span class="mono">checksums.txt.cert</span> (cosign keyless, Rekor-logged) — the live verification path.
+          The minisign airgap path is wired end-to-end in the release pipeline (pubkey embedded via ldflags + a CI signing step); it activates the moment the project's release key is provisioned,
+          at which point <span class="mono">stado verify --show-builtin-keys</span> prints the embedded root offline and <span class="mono">checksums.txt.minisig</span> ships alongside each release.
         </p>
       </div>
       <div class="seal">
@@ -1906,9 +1906,10 @@
       <h3>A release you can <em>verify</em> from an airgapped laptop.</h3>
       <p>
         Reproducible builds. Cosign-keyless signatures over a per-asset
-        <span class="mono" style="color:var(--fg)">checksums.txt</span>, Rekor-logged. The minisign
-        root is embedded in tagged binaries so once CI starts publishing
-        <span class="mono" style="color:var(--fg)">checksums.txt.minisig</span>,
+        <span class="mono" style="color:var(--fg)">checksums.txt</span>, Rekor-logged — the live path today.
+        The minisign airgap layer is wired into the pipeline (pubkey embedded via ldflags, plus a CI signing step) and
+        activates once the release key is provisioned; from then on each release publishes
+        <span class="mono" style="color:var(--fg)">checksums.txt.minisig</span> and
         <span class="mono" style="color:var(--fg)">self-update</span> verifies it without
         ever falling back to unsigned manifest verification — airgap-friendly. Audit the chain yourself.
       </p>
@@ -1917,7 +1918,7 @@
       <div class="row"><span class="k">version</span><span class="v">v0.66.0 · 2026-06-13</span></div>
       <div class="row"><span class="k">manifest</span><span class="v">checksums.txt · 17 assets</span></div>
       <div class="row"><span class="k">cosign</span><span class="v good">▮ keyless · GHA OIDC · token.actions.githubusercontent.com</span></div>
-      <div class="row"><span class="k">minisign</span><span class="v">▮ embedded root in binary · CI signing planned</span></div>
+      <div class="row"><span class="k">minisign</span><span class="v">▮ pipeline wired · activates on release-key provisioning</span></div>
       <div class="row"><span class="k">scorecard</span><span class="v good">▮ openssf · best practices</span></div>
     </div>
   </div>

@@ -53,6 +53,15 @@ builds:
       - -X github.com/foobarto/stado/internal/version.Version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{ .CommitDate }}
+      # Minisign release trust root (SECURITY.md "Embedding the pubkey").
+      # PUBKEY_B64 = base64 of the RAW 32-byte Ed25519 public key (NOT the
+      # 42-byte minisign .pub line); KEYID = decimal uint64. Values come
+      # from CI secrets, never committed. Guarded with `if index .Env`
+      # so a dev/snapshot run with the env unset still compiles: an unset
+      # pubkey injects "" (the current default → self-update stays
+      # disabled) and an unset keyid injects 0.
+      - -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignPubkey={{ if index .Env "STADO_MINISIGN_PUBKEY_B64" }}{{ .Env.STADO_MINISIGN_PUBKEY_B64 }}{{ end }}
+      - -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignKeyID={{ if index .Env "STADO_MINISIGN_KEYID" }}{{ .Env.STADO_MINISIGN_KEYID }}{{ else }}0{{ end }}
       - -buildid=                     # clear build-id (non-deterministic)
 
 # SLSA + SBOM: enabled for release builds; no-op on snapshots.
