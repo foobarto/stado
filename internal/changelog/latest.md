@@ -1,85 +1,59 @@
-## v0.65.0 — configurable keybindings + readable slash output + UAT hardening — 2026-06-13
+## v0.66.0 — per-persona scope + modal vim + ssh-agent passthrough — 2026-06-13
 
-Adds configurable keybinding schemas and a no-truncation formatter for slash
-list output, closes a terminal-escape-injection finding in the LSP diagnostics
-sidebar, and lands two autonomous UAT rounds that sweep the display-width
-truncation bug class across the TUI and CLI.
+Three user-facing features — per-persona skill/tool/plugin scoping, a modal
+vim keybinding schema, and ssh-agent forwarding with SSH-key masking for
+sandboxed sessions — plus an agent-facing repository map and a docs quality
+pass.
 
 ### Security
 
-- **LSP diagnostics terminal-escape strip.** The diagnostics sidebar rendered
-  the untrusted LSP-server message and path without `StripControlChars`, so a
-  malicious or compromised language server could leak OSC/CSI/BEL escapes
-  (clipboard hijack, title-bar rewrite) into the terminal. Both fields are now
-  stripped like every other untrusted single-line surface.
+- **ssh-agent passthrough + SSH-key masking (default-on).** A sandboxed
+  session can no longer read the SSH private-key directory (no key
+  exfiltration), while git-over-ssh keeps working via the forwarded agent
+  socket — the key never enters the sandbox. `sandbox.Policy` gains `Mask`
+  (paths shadowed with a `tmpfs`, then `known_hosts` / `config` re-bound
+  read-only on top) and `Sockets` (the host `$SSH_AUTH_SOCK` bound in +
+  re-exported). Wired into the broker ceiling, the bare TUI (which now
+  enforces the ceiling like `stado run`), `mcp-server`, and `daemon`.
+    Accepted residual — a forwarded session can sign git operations for its
+    lifetime; the key itself is never exposed. The fetch-only,
+    approval/taint-gated git-sub-agent (EP-0050 phase 7) is the eventual
+    stronger model. `session resume` does not yet enforce the ceiling
+    (follow-up).
 
 ### TUI
 
-- **Configurable keybinding schemas (Phase 1).** Switch between pre-configured
-  keymap schemas and customize bindings via config. `[keymap] schema = "emacs"`
-  (default) `| "vscode"` selects the base layout; `[keymap.bindings]` maps an
-  action name to comma-separated keys to override any single binding. An unknown
-  action name is a non-fatal stderr warning (valid overrides still apply). The
-  previously-defined-but-unwired `Messages*` scroll actions (PageUp / PageDown /
-  HalfPage / First / Last) are now wired through the registry, so rebinds and
-  the ctrl+alt half-page / home-end jumps take effect. Modal `vim`
-  (ESC→normal mode) is Phase 2.
-- **Readable slash list output (no truncation).** `/tool` / `/tools`, `/skill`,
-  `/plugin`, and the `?` help overlay rendered over-compressed lists with
-  truncated descriptions. A shared formatter now wraps descriptions
-  (display-width aware) and hang-indents them under a dynamic gutter; `/tool ls`
-  shows each tool's full description (was name + state only), and `/plugin` no
-  longer ellipsis-truncates per-tool descriptions at 120 chars.
-- **Typing no longer scrolls the conversation.** The bubbles viewport's default
-  keymap bound the text letters `j/k/h/l/b/f/u/d`, `space`, and arrows to
-  scroll; since the input is always focused, typing those scrolled the history
-  (and `ctrl+u` both deleted-to-line-start and half-paged). Both conversation
-  viewports now use a text-safe keymap — only PageUp / PageDown scroll; mouse
-  wheel is unchanged.
-- **Display-width truncation swept across the TUI.** Pickers, the slash palette,
-  the activity panel, and several modal headers truncated by rune count (or
-  byte-sliced mid-rune), so wide-CJK / emoji content overflowed the modal
-  border, wrapped onto a second interior row (corrupting height accounting), or
-  leaked invalid UTF-8. All now truncate display-width- and grapheme-aware
-  (`ansi.Truncate`). Covers the tool-call header, approval prompt, status modal,
-  choice menu, the tree / fleet / model / agent / persona / theme pickers, and
-  the `@`-mention popover.
-- **`@`-mention buffer corruption fixed.** `Editor.CursorOffset()` returned a
-  display column that was consumed as a byte offset, so accepting an `@`-mention
-  after a multibyte / CJK character corrupted the input buffer; the `@`-popover
-  also stayed open with a stale anchor after `alt+enter` / `ctrl+enter` / an
-  empty submit. Both fixed.
-- **Picker overflow + narrow-terminal fixes.** The fleet-picker header and
-  detail `SessionID`, the persona / theme right column, and the model / agent
-  pickers overflowed the modal border (or, for model / agent, a ≤50-column
-  terminal). All now clamp / truncate to the modal width, and the modelpicker
-  header no longer slices an SGR escape when narrowed.
-- **`/loop` stops cleanly on error.** An errored loop iteration returned without
-  clearing loop state, so the `↻ loop` indicator stayed lit forever while
-  nothing re-fired. An errored iteration now stops the loop and prompts `/loop`
-  to restart.
-- **No crash on a malformed plugin table row.** A plugin `table` row with more
-  cells than declared columns panicked the render (`index out of range`); the
-  extra cells are now dropped instead.
-- **Honest local-runner credential save.** The TUI provider modal claimed it
-  "recorded a credential ref" for a local-runner no-op save; it now reports the
-  no-op honestly, matching the CLI.
+- **Per-persona skills / tools / plugins (additive).** A persona `.md` can
+  declare `tools:` / `skills:` / `plugins:` in frontmatter; when the persona
+  is active they layer on top of the global surface (extend, never hide).
+  Tools and skills re-scope live on a `/persona` switch; background plugins
+  apply at launch. The previously-dormant `recommended_tools` field is now
+  honored as a tools source.
+- **Modal vim keybinding schema.** Opt in with `[keymap] schema = "vim"` for
+  NORMAL / INSERT / VISUAL editing of the chat input: motions (`h j k l`,
+  `w b e`, `0 ^ $`, `gg G`) with counts, insert-entry (`i a I A o O`), edits
+  (`x D C s r`, line-wise `dd cc yy`, operator+motion), an unnamed register
+  with `p` / `P`, and visual selection. ESC enters NORMAL (vim-schema-only);
+  `Ctrl+G` still interrupts in every mode. Starts in INSERT so it is never a
+  launch trap.
 
 ### CLI
 
-- **Rune-safe truncation.** `stats`, `plugin info`, `plugin doctor`,
-  `session show`, `session tree`, and `doctor` byte-sliced text mid-rune,
-  producing mojibake on non-ASCII content; all now truncate on rune /
-  display-width boundaries (`textutil.TruncateRunes`). `session search`'s
-  match-excerpt window likewise moved off byte offsets to display-column
-  windowing (`ansi.Cut`), so a wide-CJK / emoji excerpt is never split.
+- **`usage` rejects an inverted time window.** `stado usage --since 1d
+  --until 7d` (an inverted window) now errors instead of silently printing a
+  reversed-window header with no rows.
 
-### Infra
+### Docs
 
-- **CI cross-compile build matrix removed.** The 5-way `go build -o /dev/null`
-  matrix was redundant with GoReleaser, which already cross-compiles and signs
-  every target at release time and fails the release run on a platform break.
-  It is gone from CI — now a fast PR gate plus a post-merge `-race` validation —
-  and GoReleaser is the sole release-time build. (#141 first moved it to
-  tag-trigger; #148 removed it.)
+- **Agent-facing repository map** in the README — a dense source-tree
+  navigation packet (subsystem map, surfaces, a "where do I change X?"
+  task → location table, and pointers to the EPs / DESIGN / PLAN / `.agent`
+  state).
+- **Docs quality pass** across 25 `.md` files: corrected stale references to
+  match the current code (the all-tools-as-wasm bundled-tool surface in
+  DESIGN, the shipped v1-security rollout in PLAN, the plugin ABI docs, the
+  `run` / `tui` command refs, the persona config path), fixed broken links,
+  and removed decorative emoji. (Flagged for a separate decision: the
+  minisign self-update path is documented but not yet wired into the release
+  pipeline.)
 
