@@ -208,7 +208,8 @@ func wrapWords(line string, width int) []string {
 			if curW > 0 {
 				out = append(out, cur.String())
 				cur.Reset()
-				curW = 0
+				// curW is reassigned below from the oversized word's tail
+				// (line ~226); no reset needed here.
 			}
 			for ansi.StringWidth(word) > width {
 				head := ansi.Cut(word, 0, width)
