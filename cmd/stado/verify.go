@@ -52,7 +52,16 @@ var verifyCmd = &cobra.Command{
 			} else {
 				fmt.Printf("  minisign pubkey:  %s\n", info.MinisignPubkey)
 			}
-			fmt.Printf("  minisign keyid:   %d\n", info.MinisignKeyID)
+			// The key-id is display-only and currently never embedded: `-X`
+			// can only set string vars, and EmbeddedMinisignKeyID is a uint64
+			// (see SECURITY.md "Embedding the pubkey"). Print it only when a
+			// real id was somehow injected; otherwise say so rather than
+			// emit a misleading "keyid: 0". Matches the JSON omitempty.
+			if info.MinisignKeyID != 0 {
+				fmt.Printf("  minisign keyid:   %d\n", info.MinisignKeyID)
+			} else if info.MinisignPubkey != "" {
+				fmt.Println("  minisign keyid:   (not embedded — display-only, see SECURITY.md)")
+			}
 		}
 		return nil
 	},

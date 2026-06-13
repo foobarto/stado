@@ -46,8 +46,7 @@ protection on the key file itself — pick a real passphrase.
 **not** the bare key — it decodes to a 42-byte blob laid out as
 `signature_algorithm(2) || key_id(8, little-endian) || ed25519_pubkey(32)`.
 stado's verifier (`internal/audit/minisign.go` + `cmd/stado/selfupdate.go`)
-pins the **raw 32-byte key, base64-encoded** (and surfaces the decimal
-key id via `stado verify --show-builtin-keys`). The embedding step below
+pins the **raw 32-byte key, base64-encoded**. The embedding step below
 strips the 10-byte `alg||key_id` prefix and re-base64s the inner 32
 bytes; feeding the 42-byte minisign line in directly is the most common
 wiring mistake — the verifier rejects it as "embedded minisign pubkey
@@ -60,17 +59,18 @@ It is empty by default, so local/dev builds do not carry a release
 trust root and `stado self-update` refuses to run. Release builds seed
 the key via `-ldflags`.
 
-Derive the two values from `stado.pub`. The trailing base64 line decodes
+Derive the pubkey from `stado.pub`. The trailing base64 line decodes
 to `alg(2) || key_id(8, little-endian) || pubkey(32)`; take the inner 32
-bytes for the pubkey and the 8 key-id bytes (LE) for the decimal id:
+bytes for the pubkey (the key-id, bytes 2..10, is computed below for
+reference only — it is not embedded today; see the note after the snippet):
 
 ```sh
 # PUBKEY_B64 = base64 of the RAW 32-byte Ed25519 key (bytes 10..42 of
 #              the decoded .pub line). This is what the verifier pins —
 #              NOT the 42-byte minisign line.
 # KEYID      = the 64-bit signer id as a DECIMAL uint64 (bytes 2..10,
-#              little-endian). Surfaced by `stado verify
-#              --show-builtin-keys`; lets operators eyeball the signer.
+#              little-endian). Reference only — NOT embedded today (see the
+#              note below); a future --show-builtin-keys would surface it.
 read -r PUBKEY_B64 KEYID < <(python3 - "$(tail -n 1 stado.pub)" <<'PY'
 import base64, struct, sys
 blob = base64.b64decode(sys.argv[1])           # 42 bytes: alg||key_id||key
@@ -83,16 +83,21 @@ PY
 go build \
   -ldflags "\
     -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignPubkey=$PUBKEY_B64 \
-    -X github.com/foobarto/stado/internal/audit.EmbeddedMinisignKeyID=$KEYID \
   " \
   -o stado ./cmd/stado
 ```
 
-For goreleaser-driven releases these `-X` fragments already live in
+The signer key-id is **not** embedded: `-X` only sets `string` variables and
+`audit.EmbeddedMinisignKeyID` is a `uint64` (injecting it link-errors with
+"not a var of type string"). It is display-only — verification does not use
+it today — so it stays `0`; surfacing it via `--show-builtin-keys` is a
+deferred follow-up (a `string`-shim + `strconv.ParseUint` in Go). The
+`$KEYID` derived above is unused for now.
+
+For goreleaser-driven releases this `-X` fragment already lives in
 `.goreleaser.yaml`'s `builds[].ldflags`, guarded so an unset env still
-compiles. Provision the derived values as the CI secrets
-`STADO_MINISIGN_PUBKEY_B64` (the raw-32 base64 above) and
-`STADO_MINISIGN_KEYID` (the decimal id) — never check either into git.
+compiles. Provision the raw-32 base64 as the CI secret
+`STADO_MINISIGN_PUBKEY_B64` — never check it into git.
 
 ### Signing a release
 
@@ -142,29 +147,29 @@ failure.
 ### Provisioning the CI secrets (for B-online)
 
 Only needed for Path B-online. From the derived values above plus the
-key file, set four GitHub Actions repository secrets:
+key file, set three GitHub Actions repository secrets:
 
 | Secret | Value |
 |---|---|
 | `STADO_MINISIGN_PUBKEY_B64` | base64 of the raw 32-byte pubkey (see *Embedding the pubkey*) — embedded via ldflags so self-update can verify offline |
-| `STADO_MINISIGN_KEYID` | the decimal uint64 key id (see *Embedding the pubkey*) |
 | `STADO_MINISIGN_SECKEY` | the full contents of `stado.key` (the encrypted minisign secret-key file, comment line included). **Presence of this secret is what arms the CI signing step.** |
 | `STADO_MINISIGN_PASSWORD` | the passphrase chosen during `minisign -G` (CI feeds it to minisign on stdin) |
 
 With none of these set — today's state — the release builds and
 publishes exactly as before: the embedded pubkey stays `""`, and the
-minisign signing/upload steps skip. Provisioning the pubkey/keyid pair
-alone (without `STADO_MINISIGN_SECKEY`) embeds the trust root but leaves
-signing to the offline path; that's a valid B-offline configuration.
+minisign signing/upload steps skip. Provisioning the pubkey alone
+(without `STADO_MINISIGN_SECKEY`) embeds the trust root but leaves signing
+to the offline path; that's a valid B-offline configuration.
 
 ### Ordered operator ceremony (summary)
 
 1. `minisign -G -p stado.pub -s stado.key` on an airgapped host; store
    `stado.key` on encrypted offline media; remember the passphrase.
-2. Derive `PUBKEY_B64` (raw-32 base64) + `KEYID` (decimal) from
-   `stado.pub` with the snippet under *Embedding the pubkey*.
-3. Set GH secrets `STADO_MINISIGN_PUBKEY_B64` + `STADO_MINISIGN_KEYID`
-   (both paths need these — they embed the verify root).
+2. Derive `PUBKEY_B64` (raw-32 base64) from `stado.pub` with the snippet
+   under *Embedding the pubkey*. (The key-id is not embedded today — see
+   that section's note — so deriving it is optional.)
+3. Set GH secret `STADO_MINISIGN_PUBKEY_B64` (both paths need it — it
+   embeds the verify root).
 4. Choose the signing path:
    - **B-online:** also set `STADO_MINISIGN_SECKEY` + `STADO_MINISIGN_PASSWORD`. CI signs + uploads automatically.
    - **B-offline:** leave those two unset; sign `checksums.txt` on the airgapped host and `gh release upload <tag> checksums.txt.minisig` per release.

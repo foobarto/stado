@@ -94,14 +94,15 @@ jobs:
           # templates skip_upload=true when this secret is unset, so
           # the release still succeeds — just without the tap PR.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          # Minisign release trust root, embedded via ldflags
-          # (.goreleaser.yaml builds[].ldflags). Both read with
-          # `{{ if index .Env "..." }}` so an unset secret expands to ""
-          # here and the template injects the empty default (current
-          # behavior: self-update stays disabled). PUBKEY_B64 = base64 of
-          # the RAW 32-byte Ed25519 public key; KEYID = decimal uint64.
+          # Minisign release trust root (the verify pubkey), embedded via the
+          # ldflag in .goreleaser.yaml builds[].ldflags. Read with
+          # `{{ if index .Env "..." }}` so an unset secret expands to "" here
+          # and the template injects the empty default (current behavior:
+          # self-update stays disabled). PUBKEY_B64 = base64 of the RAW
+          # 32-byte Ed25519 public key. (The signer key-id is not embedded —
+          # see the .goreleaser.yaml note; it's display-only + uint64, which
+          # `-X` can't set.)
           STADO_MINISIGN_PUBKEY_B64: ${{ secrets.STADO_MINISIGN_PUBKEY_B64 }}
-          STADO_MINISIGN_KEYID: ${{ secrets.STADO_MINISIGN_KEYID }}
 
       # Minisign "layer 3": additionally sign checksums.txt with the
       # long-lived release key (cosign keyless above is the always-on
@@ -128,10 +129,12 @@ jobs:
           keyfile="$(mktemp)"
           trap 'shred -u "$keyfile" 2>/dev/null || rm -f "$keyfile"' EXIT
           printf '%s' "$STADO_MINISIGN_SECKEY" > "$keyfile"
-          # -S sign, prehashed by default in recent minisign; the
-          # password is fed on stdin. Trusted comment is rendered to the
-          # verifier on `minisign -V` success.
-          printf '%s\n' "$STADO_MINISIGN_PASSWORD" | minisign -S \
+          # -S sign; -H forces prehashing so the signature is the "ED"
+          # (prehashed BLAKE2b) algorithm stado's verifier requires
+          # (internal/audit/minisign.go) regardless of the installed
+          # minisign's default. Password fed on stdin. Trusted comment is
+          # rendered to the verifier on `minisign -V` success.
+          printf '%s\n' "$STADO_MINISIGN_PASSWORD" | minisign -S -H \
             -m dist/checksums.txt \
             -s "$keyfile" \
             -t "stado ${REF_NAME} signed"
