@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
@@ -217,7 +218,14 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	if !m.Visible {
 		return ""
 	}
-	modalW := clampInt(screenWidth/2, 56, 96)
+	// Half-screen width, clamped to a usable [56,96] band, then capped so the
+	// centred box keeps a 2-col margin on each side at narrow terminals. Without
+	// the cap a <=56-col terminal pins modalW at its 56 floor (border included),
+	// so lipgloss.Place centres a box that touches — or, below 56 cols, overflows
+	// and clips — the canvas edge. The cap wins over the 56 floor on purpose: a
+	// modal that fits with breathing room beats one that fills/overflows the
+	// screen. Mirrors providerpicker's narrow-width cap.
+	modalW := minInt(clampInt(screenWidth/2, 56, 96), maxInt(screenWidth-4, 1))
 	// Compute the row budget for the match list: total screen minus
 	// modal chrome (border 2 + padding 0 + title row 1 + blank 1 +
 	// search row 1 + blank 1 + truncation indicators ~2 = 8). Leave
@@ -248,9 +256,21 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 	// columns, after short text). Match the outer modal's .Background.
 	bg := lipgloss.NewStyle().Background(theme.Background)
 
-	title := bg.Foreground(theme.Text).Bold(true).Render("Select a model")
-	hints := bg.Foreground(theme.Muted).Render("ctrl+a setup  ctrl+f favorite  esc")
-	b.WriteString(rowTwoCol(innerW, title, hints))
+	// Build the two-column header from PLAIN text and truncate before
+	// styling — routing already-styled strings through rowTwoCol's
+	// rune-based truncation would slice an SGR escape mid-sequence when the
+	// modal narrows past the header's natural width (reachable now that the
+	// narrow-width cap can push innerW below the header's ~49 cols). Mirrors
+	// providerpicker's header.
+	titleText := "Select a model"
+	hintText := "ctrl+a setup  ctrl+f favorite  esc"
+	if lipgloss.Width(titleText)+lipgloss.Width(hintText)+1 > innerW {
+		hintText = truncateVisible(hintText, maxInt(innerW-lipgloss.Width(titleText)-2, 8))
+	}
+	title := bg.Foreground(theme.Text).Bold(true).Render(titleText)
+	hints := bg.Foreground(theme.Muted).Render(hintText)
+	headerPad := maxInt(innerW-lipgloss.Width(titleText)-lipgloss.Width(hintText), 1)
+	b.WriteString(title + bg.Render(strings.Repeat(" ", headerPad)) + hints)
 	b.WriteString("\n\n")
 
 	// Search input line (same shape as palette).
@@ -386,38 +406,16 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// rowTwoCol / clampInt / maxInt — lifted from palette; kept local to
-// avoid a cross-package dependency on a sibling TUI package.
-func rowTwoCol(width int, left, right string) string {
-	lw := lipgloss.Width(left)
-	rw := lipgloss.Width(right)
-	if lw+rw+1 > width {
-		budget := width - rw - 2
-		if budget < 3 {
-			budget = 3
-		}
-		left = truncateVisible(left, budget)
-		lw = lipgloss.Width(left)
-	}
-	pad := width - lw - rw
-	if pad < 1 {
-		pad = 1
-	}
-	// Paint the padding gap with the modal background so the header row
-	// doesn't show a grey hole between the two columns.
-	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
-	return left + gap + right
-}
-
+// truncateVisible / clampInt / maxInt / minInt — lifted from palette; kept
+// local to avoid a cross-package dependency on a sibling TUI package.
+// truncateVisible is display-width- and grapheme-aware (ansi.Truncate): a
+// rune-count slice under-budgeted wide-CJK/emoji ids (rune count fits but ~2x
+// display width), hard-wrapping onto a second row / overflowing the border.
 func truncateVisible(s string, width int) string {
 	if width <= 1 {
 		return "…"
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	return string(runes[:width-1]) + "…"
+	return ansi.Truncate(s, width, "…")
 }
 
 func clampInt(v, lo, hi int) int {
@@ -432,6 +430,13 @@ func clampInt(v, lo, hi int) int {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

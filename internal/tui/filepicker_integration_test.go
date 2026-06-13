@@ -525,6 +525,80 @@ func TestFilePicker_EmailAtDoesNotTrigger(t *testing.T) {
 	}
 }
 
+// TestFilePicker_MultibyteDraftAcceptDoesNotCorruptBuffer: with a
+// multibyte rune (é, 2 bytes) before the @-mention, accepting a file
+// must replace exactly the "@query" fragment. A rune-vs-byte mismatch in
+// CursorOffset previously left a stray trailing byte in the buffer
+// ("café pkg/util.go l").
+func TestFilePicker_MultibyteDraftAcceptDoesNotCorruptBuffer(t *testing.T) {
+	m, _ := filePickerModel(t)
+
+	for _, r := range "café @util" {
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("@util should open the picker after a multibyte prefix")
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+
+	got := m.input.Value()
+	if strings.Contains(got, "@util") {
+		t.Fatalf("mention fragment not consumed: %q", got)
+	}
+	if got != "café pkg/util.go " {
+		t.Fatalf("buffer corrupted by byte/rune offset mismatch: %q, want %q", got, "café pkg/util.go ")
+	}
+}
+
+// TestFilePicker_ClosesAfterQueueClearsInput: alt+enter (QueueMessage)
+// clears the input but previously left the @-mention popover visible with
+// a stale anchor into the now-empty buffer. The picker must close when the
+// buffer it was tracking is gone.
+func TestFilePicker_ClosesAfterQueueClearsInput(t *testing.T) {
+	m, _ := filePickerModel(t)
+	for _, r := range "hi @util" {
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("picker should be open after typing @util")
+	}
+	m.state = stateStreaming // so queue actually queues rather than promoting
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
+
+	if m.input.Value() != "" {
+		t.Fatalf("queue should clear input, got %q", m.input.Value())
+	}
+	if m.filePicker.Visible {
+		t.Fatalf("picker must close after queue clears the buffer (stale anchor=%d)", m.filePicker.Anchor)
+	}
+}
+
+// TestFilePicker_ClosesOnSubmitWhenNoMatch: with the @-mention popover
+// open but matching nothing, Enter sends/steers the message (onPickerKey
+// doesn't intercept a no-selection Enter). The popover must not survive
+// the submit.
+func TestFilePicker_ClosesOnSubmitWhenNoMatch(t *testing.T) {
+	m, _ := filePickerModel(t)
+	for _, r := range "@zzzznotarealfile" {
+		_, _ = m.Update(tea.KeyPressMsg{Text: string(r)})
+	}
+	if !m.filePicker.Visible {
+		t.Fatal("picker stays visible (no matches) until the @-word is abandoned")
+	}
+	if m.filePicker.Selected() != "" {
+		t.Fatalf("expected no selection, got %q", m.filePicker.Selected())
+	}
+	// Stream in flight: Enter steers (resets input) without starting a
+	// real provider stream, so the test exercises submitInput's popover
+	// close without a nil-provider panic.
+	m.state = stateStreaming
+	_, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.filePicker.Visible {
+		t.Fatalf("picker must close after submit (stale anchor=%d)", m.filePicker.Anchor)
+	}
+}
+
 func writeSkill(t *testing.T, root, name, desc, body string) {
 	t.Helper()
 	dir := filepath.Join(root, ".stado", "skills")

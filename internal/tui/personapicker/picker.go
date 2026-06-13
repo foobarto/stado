@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
@@ -238,7 +239,11 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 				Foreground(theme.Background).
 				Render(padded))
 		} else {
-			pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
+			// Truncate both columns to fit innerW so a long persona
+			// title/description can't overflow the row — an over-long row
+			// is hard-wrapped by the outer modal box, turning one item into
+			// several physical rows and corrupting the maxRows windowing.
+			left, right, pad := fitTwoCol(innerW, left, right)
 			b.WriteString(bg.Foreground(theme.Text).Render(left) +
 				bg.Render(strings.Repeat(" ", pad)) +
 				bg.Foreground(theme.Muted).Render(right))
@@ -249,21 +254,41 @@ func (m *Model) renderBody(innerW, maxRows int) string {
 }
 
 func rowTwoCol(width int, left, right string) string {
+	left, right, pad := fitTwoCol(width, left, right)
+	return left + strings.Repeat(" ", pad) + right
+}
+
+// fitTwoCol truncates the plain-text columns so that
+// width(left)+pad+width(right) == width with pad >= 1, guaranteeing the
+// assembled row never exceeds width display columns. left is truncated
+// first (preserving the right column's [origin] tag), then right is
+// truncated to whatever space remains. Both truncations are display-
+// width- and grapheme-aware via truncateVisible.
+func fitTwoCol(width int, left, right string) (string, string, int) {
+	if width < 1 {
+		width = 1
+	}
 	lw := lipgloss.Width(left)
 	rw := lipgloss.Width(right)
 	if lw+rw+1 > width {
+		// Cap left so the right column keeps at least 3 columns; then cap
+		// right to whatever is left after left + the mandatory 1-col gap.
 		budget := width - rw - 2
 		if budget < 3 {
 			budget = 3
 		}
 		left = truncateVisible(left, budget)
 		lw = lipgloss.Width(left)
+		if rmax := width - lw - 1; rw > rmax {
+			right = truncateVisible(right, rmax)
+			rw = lipgloss.Width(right)
+		}
 	}
 	pad := width - lw - rw
 	if pad < 1 {
 		pad = 1
 	}
-	return left + strings.Repeat(" ", pad) + right
+	return left, right, pad
 }
 
 // rowTwoColBg is rowTwoCol for already-styled (background-carrying) spans:
@@ -279,15 +304,19 @@ func rowTwoColBg(bg lipgloss.Style, width int, left, right string) string {
 	return left + bg.Render(strings.Repeat(" ", pad)) + right
 }
 
+// truncateVisible clips s to width display columns, appending an ellipsis when
+// it overflows. Display-width- and grapheme-aware (ansi.Truncate) so the
+// result's lipgloss.Width is bounded by width — fitTwoCol's row-fitting relies
+// on that, and persona titles can carry wide runes (CJK, emoji) that a naive
+// rune-count slice would under-budget (~2x display width) and split mid-rune.
 func truncateVisible(s string, width int) string {
-	if width <= 1 {
+	if width <= 0 {
+		return ""
+	}
+	if width == 1 {
 		return "…"
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	return string(runes[:width-1]) + "…"
+	return ansi.Truncate(s, width, "…")
 }
 
 func clampInt(v, lo, hi int) int {
@@ -298,11 +327,4 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

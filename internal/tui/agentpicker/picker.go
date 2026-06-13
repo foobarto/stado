@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/sahilm/fuzzy"
@@ -136,7 +137,12 @@ func (m *Model) View(screenWidth, screenHeight int) string {
 	if !m.Visible {
 		return ""
 	}
-	modalW := clampInt(screenWidth/2, 48, 78)
+	// Half-screen width, clamped to a usable [48,78] band, then capped so the
+	// centred box keeps a 2-col margin on each side at narrow terminals. Without
+	// the cap a <=48-col terminal pins modalW at its 48 floor (border included),
+	// so lipgloss.Place centres a box that touches — or, below 48 cols, overflows
+	// and clips — the canvas edge. Mirrors providerpicker / modelpicker.
+	modalW := minInt(clampInt(screenWidth/2, 48, 78), maxInt(screenWidth-4, 1))
 	body := m.renderBody(modalW - 4)
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -246,15 +252,16 @@ func plainTwoCol(width int, left, right string) string {
 	return left + strings.Repeat(" ", pad) + right
 }
 
+// truncateVisible bounds s to width DISPLAY columns (incl. the tail), via
+// ansi.Truncate. A rune-count slice under-budgeted wide-CJK/emoji agent names
+// — a name whose rune count fit width still had ~2x display width and
+// hard-wrapped / overflowed the modal border. ansi.Truncate is display-width-
+// and grapheme-aware.
 func truncateVisible(s string, width int) string {
 	if width <= 1 {
 		return "."
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
-		return s
-	}
-	return string(runes[:width-1]) + "."
+	return ansi.Truncate(s, width, ".")
 }
 
 func clampInt(v, lo, hi int) int {
@@ -269,6 +276,13 @@ func clampInt(v, lo, hi int) int {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

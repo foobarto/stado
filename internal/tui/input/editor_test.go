@@ -65,3 +65,29 @@ func TestEditorPlaceholderHintsSteer(t *testing.T) {
 		t.Errorf("input placeholder should hint the Enter-while-busy steer; got %q", e.Model.Placeholder)
 	}
 }
+
+// TestCursorOffsetByteAlignedWithMultibyte: CursorOffset must return a
+// BYTE offset into Value() so callers that byte-slice the buffer (the
+// @-mention file picker) don't corrupt multibyte text. "café " is 6
+// bytes / 5 runes; with the cursor at end the offset must be 6, not 5.
+func TestCursorOffsetByteAlignedWithMultibyte(t *testing.T) {
+	e := New(keys.NewRegistry())
+	e.SetValue("café ") // SetValue puts cursor at end
+	got := e.CursorOffset()
+	want := len("café ") // 6 bytes
+	if got != want {
+		t.Fatalf("CursorOffset() = %d, want %d (byte offset, not rune count)", got, want)
+	}
+}
+
+// TestCursorOffsetByteAlignedMultiline: byte offset across logical lines
+// with a multibyte char on the second line.
+func TestCursorOffsetByteAlignedMultiline(t *testing.T) {
+	e := New(keys.NewRegistry())
+	e.SetValue("ab\ncafé") // cursor at end; "ab\n" = 3 bytes, "café" = 5 bytes -> 8
+	got := e.CursorOffset()
+	want := len("ab\ncafé")
+	if got != want {
+		t.Fatalf("CursorOffset() = %d, want %d", got, want)
+	}
+}

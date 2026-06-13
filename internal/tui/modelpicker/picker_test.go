@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // sgrEscapeRE matches lipgloss's own SGR colour styling (ESC [ … m).
@@ -204,6 +205,75 @@ func TestMergeLocalIgnoresUnreachable(t *testing.T) {
 	got := MergeLocal(catalog, "lmstudio", false, []string{"anything"})
 	if len(got) != 1 || got[0].Origin != "cerebras" {
 		t.Errorf("unreachable runner mutated the catalog: %v", got)
+	}
+}
+
+// modalBoxWidth returns the display-width of the centred modal BOX, ignoring
+// the blank padding lipgloss.Place adds to fill the canvas. View() returns a
+// canvas exactly screenWidth wide; the load-bearing measurement is the bordered
+// box, found by trimming Place's plain-space padding from each line and taking
+// the widest remaining (ANSI-aware) width.
+func modalBoxWidth(s string) int {
+	max := 0
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.Trim(line, " ")
+		if trimmed == "" {
+			continue
+		}
+		if w := lipgloss.Width(trimmed); w > max {
+			max = w
+		}
+	}
+	return max
+}
+
+// marginBudget: cols the modal box must leave free at narrow terminals — a
+// 2-col margin on each side (4 total) so the centred box never touches the
+// edge and never overflows the canvas (lipgloss.Place would clip the overflow).
+const marginBudget = 4
+
+// TestModalLeavesMarginAtNarrowWidths is the sibling of providerpicker's
+// narrow-width cap. The modelpicker clamped modalW up to its 56 floor with no
+// upper cap tied to the screen, so at <=56-col terminals the bordered box
+// filled (or overflowed) the whole canvas — touching/clipping the edges. The
+// box width must stay <= screenWidth-marginBudget so a 2-col margin survives.
+func TestModalLeavesMarginAtNarrowWidths(t *testing.T) {
+	for _, screenW := range []int{60, 58, 56, 50, 44} {
+		m := New()
+		m.Open(sampleItems(), "")
+		out := m.View(screenW, 30)
+		if got := modalBoxWidth(out); got > screenW-marginBudget {
+			t.Errorf("screenW=%d: modal box width %d leaves no breathing room (want <= %d)\n---\n%s",
+				screenW, got, screenW-marginBudget, out)
+		}
+	}
+}
+
+// TestModalStillUsableWidthAtRoomyTerminal: the narrow-width cap must not
+// shrink the modal at terminals wide enough for the design's half-screen
+// width — at 120 cols the modal should keep its clamped 56..96 size.
+func TestModalStillUsableWidthAtRoomyTerminal(t *testing.T) {
+	m := New()
+	m.Open(sampleItems(), "")
+	out := m.View(120, 40)
+	if got := modalBoxWidth(out); got < 56 {
+		t.Errorf("at 120 cols the modal should keep its half-screen width, got %d", got)
+	}
+	if got := modalBoxWidth(out); got > 120-2 {
+		t.Errorf("modal width %d exceeds the margin budget at 120 cols", got)
+	}
+}
+
+// TestHeaderNoOrphanedEscapeAtNarrowWidth: once the modal narrows past the
+// header's natural width the title/hints row must still render cleanly — no
+// ESC byte sliced mid-sequence by a rune-based truncation of already-styled
+// text. After stripping legitimate SGR there must be no lone ESC left.
+func TestHeaderNoOrphanedEscapeAtNarrowWidth(t *testing.T) {
+	m := New()
+	m.Open(sampleItems(), "")
+	out := stripSGR(m.View(44, 30))
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("orphaned ESC after SGR strip — header truncation sliced an escape: %q", out)
 	}
 }
 

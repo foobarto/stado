@@ -355,6 +355,11 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		}
 		m.input.History.Push(text)
 		m.input.Reset()
+		// Queuing clears the buffer the @-mention popover was tracking;
+		// close it so it doesn't linger with a stale anchor into nothing.
+		if m.filePicker.Visible {
+			m.filePicker.Close()
+		}
 		return m, m.applyQueue(text), true
 
 	case m.keys.Matches(msg, keys.InterruptTurn):
@@ -366,6 +371,11 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		if text != "" {
 			m.input.History.Push(text)
 			m.input.Reset()
+			// Same stale-popover guard as QueueMessage: the buffer the
+			// @-mention picker was anchored to is gone after Reset.
+			if m.filePicker.Visible {
+				m.filePicker.Close()
+			}
 		}
 		return m, m.applyInterrupt(text), true
 
@@ -454,6 +464,13 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 	text := strings.TrimSpace(m.input.Value())
 	if text == "" {
 		return m, nil, true
+	}
+	// Reaching submit means the @-mention popover wasn't accepting a
+	// selection (Enter-with-selection is intercepted in onPickerKey). The
+	// match list with no usable selection — or one left open after the
+	// query stopped matching — must not survive sending the message.
+	if m.filePicker.Visible {
+		m.filePicker.Close()
 	}
 	tuiTrace("input submit", "state", int(m.state), "chars", len(text), "probe_pending", m.providerProbePending)
 	// Enter while a turn is still streaming: queue the prompt for

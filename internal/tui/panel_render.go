@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 )
 
@@ -108,9 +110,9 @@ func writeTopBorder(b *strings.Builder, w int, label string) {
 	b.WriteString(boxTopLeft)
 	b.WriteString(boxHorizontal)
 	maxLabel := w - 2
-	label = truncRunes(label, maxLabel)
+	label = truncDisplay(label, maxLabel)
 	b.WriteString(label)
-	used := 1 + runeLen(label) // leading ─ already counted by w-2
+	used := 1 + displayWidth(label) // leading ─ already counted by w-2
 	for i := used; i < w; i++ {
 		b.WriteString(boxHorizontal)
 	}
@@ -141,31 +143,31 @@ func writeDividerRow(b *strings.Builder, w int) {
 // marker, embedded box chars) doesn't break right-border alignment.
 func writeRow(b *strings.Builder, w int, content string) {
 	b.WriteString(boxVertical)
-	content = truncRunes(content, w)
+	content = truncDisplay(content, w)
 	b.WriteString(content)
-	for i := runeLen(content); i < w; i++ {
+	for i := displayWidth(content); i < w; i++ {
 		b.WriteByte(' ')
 	}
 	b.WriteString(boxVertical)
 	b.WriteByte('\n')
 }
 
-// runeLen returns the number of runes (≈ display columns for our
-// ASCII / box-char alphabet) in s. Use this anywhere a width
-// comparison is being made — len() gives bytes and silently
-// underflows pad calculations on multi-byte content.
-func runeLen(s string) int { return len([]rune(s)) }
+// displayWidth returns the DISPLAY-COLUMN width of s. Body content comes
+// from plugin output and may carry wide-CJK / emoji graphemes whose
+// rune count is ~half their column width — counting runes (or bytes)
+// silently under-pads and shoves the right border out of alignment.
+// ansi.StringWidth is display-width- and grapheme-aware.
+func displayWidth(s string) int { return ansi.StringWidth(s) }
 
-// truncRunes truncates s to at most n runes. n ≤ 0 returns "".
-func truncRunes(s string, n int) string {
+// truncDisplay truncates s to at most n DISPLAY COLUMNS. n ≤ 0 returns
+// "". Wide-CJK / emoji safe: a rune-count slice over-budgeted a row to
+// ~2x its column width and could split a wide rune mid-grapheme,
+// leaking invalid UTF-8. ansi.Truncate never splits a grapheme.
+func truncDisplay(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n])
+	return ansi.Truncate(s, n, "")
 }
 
 // writeWrappedRows splits text on newlines, then word-wraps each line
@@ -191,34 +193,56 @@ func wrapWords(line string, width int) []string {
 	if line == "" {
 		return []string{""}
 	}
+	if width < 1 {
+		width = 1
+	}
 	var out []string
 	var cur strings.Builder
+	curW := 0 // display width of cur
 	for _, word := range strings.Fields(line) {
-		// Single oversized word.
-		if len(word) > width {
-			if cur.Len() > 0 {
+		// Single oversized word. Break it on DISPLAY-COLUMN boundaries
+		// via ansi.Cut so a wide-CJK / emoji grapheme is never split
+		// mid-rune (a byte slice word[:width] leaked invalid UTF-8 and
+		// over-budgeted the row to ~2x its column width).
+		if ansi.StringWidth(word) > width {
+			if curW > 0 {
 				out = append(out, cur.String())
 				cur.Reset()
+				// curW is reassigned below from the oversized word's tail
+				// (line ~226); no reset needed here.
 			}
-			for len(word) > width {
-				out = append(out, word[:width])
-				word = word[width:]
+			for ansi.StringWidth(word) > width {
+				head := ansi.Cut(word, 0, width)
+				if head == "" {
+					// A single grapheme wider than the budget (width <
+					// rune column width). Emit one grapheme so the loop
+					// always makes progress instead of spinning forever.
+					_, size := utf8.DecodeRuneInString(word)
+					head = word[:size]
+				}
+				out = append(out, head)
+				word = word[len(head):]
 			}
 			cur.WriteString(word)
+			curW = ansi.StringWidth(word)
 			continue
 		}
-		if cur.Len() == 0 {
+		ww := ansi.StringWidth(word)
+		if curW == 0 {
 			cur.WriteString(word)
+			curW = ww
 			continue
 		}
-		if cur.Len()+1+len(word) > width {
+		if curW+1+ww > width {
 			out = append(out, cur.String())
 			cur.Reset()
 			cur.WriteString(word)
+			curW = ww
 			continue
 		}
 		cur.WriteByte(' ')
 		cur.WriteString(word)
+		curW += 1 + ww
 	}
 	if cur.Len() > 0 {
 		out = append(out, cur.String())
@@ -255,17 +279,17 @@ func writeSection(b *strings.Builder, w int, sec pluginRuntime.Section) {
 func writeKV(b *strings.Builder, w int, pairs []pluginRuntime.KVPair) {
 	labelW := 0
 	for _, p := range pairs {
-		if len(p.Label) > labelW {
-			labelW = len(p.Label)
+		if lw := displayWidth(p.Label); lw > labelW {
+			labelW = lw
 		}
 	}
 	indent := "    "                                    // body indent
 	valIndent := indent + strings.Repeat(" ", labelW+2) // continuation rows align under value
 	for _, p := range pairs {
-		labelPad := strings.Repeat(" ", labelW-len(p.Label))
+		labelPad := strings.Repeat(" ", labelW-displayWidth(p.Label))
 		first := indent + p.Label + ":" + labelPad + " "
 		// First line gets the label; wrap value into the value column.
-		valWidth := w - len(first)
+		valWidth := w - displayWidth(first)
 		if valWidth < 1 {
 			valWidth = 1
 		}
@@ -292,13 +316,13 @@ func writeList(b *strings.Builder, w int, list pluginRuntime.ListBody) {
 			prefix = "• "
 		}
 		// First line gets prefix; continuations align under text.
-		valWidth := w - len(indent) - len(prefix)
+		valWidth := w - displayWidth(indent) - displayWidth(prefix)
 		if valWidth < 1 {
 			valWidth = 1
 		}
 		lines := wrapWords(item, valWidth)
 		writeRow(b, w, indent+prefix+lines[0])
-		contIndent := indent + strings.Repeat(" ", len(prefix))
+		contIndent := indent + strings.Repeat(" ", displayWidth(prefix))
 		for _, cont := range lines[1:] {
 			writeRow(b, w, contIndent+cont)
 		}
@@ -314,10 +338,10 @@ func writeCode(b *strings.Builder, w int, code pluginRuntime.CodeBody) {
 	if code.Language != "" {
 		writeRow(b, w, indent+"["+code.Language+"]")
 	}
-	contentWidth := w - runeLen(indent)
+	contentWidth := w - displayWidth(indent)
 	for _, line := range strings.Split(code.Content, "\n") {
-		if runeLen(line) > contentWidth {
-			line = truncRunes(line, contentWidth-1) + "›"
+		if displayWidth(line) > contentWidth {
+			line = truncDisplay(line, contentWidth-1) + "›"
 		}
 		writeRow(b, w, indent+line)
 	}
@@ -331,13 +355,17 @@ func writeTable(b *strings.Builder, w int, table pluginRuntime.TableBody) {
 	indent := "    "
 	cols := len(table.Columns)
 	widths := make([]int, cols)
+	// Column widths are measured in DISPLAY COLUMNS (not bytes): cells
+	// come from plugin output and may carry wide-CJK / emoji. byte len
+	// over-allocated wide cells to ~3x and writeTableRow then pads/truncs
+	// in display space, so the row overflowed the panel border.
 	for i, c := range table.Columns {
-		widths[i] = len(c)
+		widths[i] = displayWidth(c)
 	}
 	for _, row := range table.Rows {
 		for i, cell := range row {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
+			if i < cols && displayWidth(cell) > widths[i] {
+				widths[i] = displayWidth(cell)
 			}
 		}
 	}
@@ -386,17 +414,17 @@ func writeTable(b *strings.Builder, w int, table pluginRuntime.TableBody) {
 func writeTableRow(b *strings.Builder, w int, indent string, widths []int, cells []string) {
 	parts := make([]string, len(cells))
 	for i, cell := range cells {
-		if runeLen(cell) > widths[i] {
+		if displayWidth(cell) > widths[i] {
 			// Reserve one rune for the truncation marker; if widths[i]
 			// is 1 we have no room for any actual content, so just emit
 			// the marker.
 			if widths[i] <= 1 {
 				cell = "›"
 			} else {
-				cell = truncRunes(cell, widths[i]-1) + "›"
+				cell = truncDisplay(cell, widths[i]-1) + "›"
 			}
 		}
-		pad := widths[i] - runeLen(cell)
+		pad := widths[i] - displayWidth(cell)
 		if pad < 0 {
 			pad = 0
 		}

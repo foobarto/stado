@@ -21,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/lsp"
 	"github.com/foobarto/stado/internal/lspfind"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/version"
 )
 
@@ -642,14 +643,24 @@ func diagnosticEntryText(e lspfind.DiagnosticEntry) string {
 	// multi-line compiler message — rust-analyzer and some gopls diagnostics
 	// emit them routinely — stays on ONE sidebar row instead of injecting
 	// phantom, mis-padded continuation rows (P2.7). strings.Fields also trims.
-	msg := strings.Join(strings.Fields(e.Message), " ")
+	// Fields runs FIRST so word boundaries become single spaces; then
+	// StripControlChars removes the residual NON-whitespace control bytes —
+	// an LSP server's message is untrusted text, and ESC / CSI / OSC / BEL
+	// (OSC 52 clipboard hijack, OSC 0 title-bar rewrite, CSI cursor moves)
+	// aren't whitespace so they survive Fields. This single-line sidebar row
+	// gets the same flattening every other untrusted single-line surface does
+	// (model picker, tool names, memory IDs).
+	msg := textutil.StripControlChars(strings.Join(strings.Fields(e.Message), " "))
 	const maxMsg = 60
 	// Truncate by RUNES, not bytes: a byte slice can split a multi-byte
 	// UTF-8 rune and emit invalid output. Count whole runes against the cap.
 	if r := []rune(msg); len(r) > maxMsg {
 		msg = string(r[:maxMsg-1]) + "…"
 	}
-	locus := fmt.Sprintf("%s:%d", e.RelPath, e.Line)
+	// The RelPath is server-reported too — strip control bytes from it as
+	// well so a hostile path can't smuggle an escape sequence through the
+	// locus half of the row.
+	locus := fmt.Sprintf("%s:%d", textutil.StripControlChars(e.RelPath), e.Line)
 	if msg == "" {
 		return locus
 	}

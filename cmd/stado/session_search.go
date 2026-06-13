@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
@@ -192,28 +193,37 @@ func excerptAround(text string, match func(string) bool, width int) string {
 }
 
 func truncateAround(s, lower string, width int) string {
-	if len(s) <= width {
+	_ = lower // reserved: callers pass it but windowing is positional
+	if width < 1 {
+		width = 1
+	}
+	total := ansi.StringWidth(s)
+	if total <= width {
 		return s
 	}
-	// Naive centre: cut a window around the middle. Good enough for
-	// a scannable one-line excerpt.
-	mid := len(s) / 2
+	// Naive centre: cut a window of `width` DISPLAY COLUMNS around the
+	// middle. Offsets are measured in display columns and the window is
+	// extracted with ansi.Cut, which never splits a wide-CJK / emoji
+	// grapheme mid-rune — a byte-offset slice (s[lo:hi]) leaked invalid
+	// UTF-8 continuation bytes into the excerpt. Good enough for a
+	// scannable one-line excerpt.
+	mid := total / 2
 	half := width / 2
 	lo, hi := mid-half, mid+half
 	if lo < 0 {
 		lo = 0
 	}
-	if hi > len(s) {
-		hi = len(s)
+	if hi > total {
+		hi = total
 	}
 	prefix, suffix := "", ""
 	if lo > 0 {
 		prefix = "…"
 	}
-	if hi < len(s) {
+	if hi < total {
 		suffix = "…"
 	}
-	return prefix + s[lo:hi] + suffix
+	return prefix + ansi.Cut(s, lo, hi) + suffix
 }
 
 func printMatch(id string, h searchMatch) {

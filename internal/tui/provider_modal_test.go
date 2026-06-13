@@ -140,6 +140,50 @@ func TestApplyProviderSaveWritesRefNoSecretInBlocks(t *testing.T) {
 	}
 }
 
+// TestApplyProviderSaveLocalRunnerHonest: saving a local runner (ollama:
+// no API key, no base-url override) records NOTHING — the write is a no-op
+// because there's no env var and no base_url to store. The confirmation must
+// say so honestly, mirroring the CLI's `auth set`, rather than claiming a
+// credential ref was "recorded (api_key_env=(none))" when nothing was.
+func TestApplyProviderSaveLocalRunnerHonest(t *testing.T) {
+	keyring.MockInit()
+	m := providerModalModel(t)
+	_ = m.openProviderPicker()
+
+	err := m.applyProviderCommand(providerpicker.Command{
+		Type:     providerpicker.CommandSave,
+		Provider: "ollama",
+		EnvVar:   "",
+		BaseURL:  "",
+	})
+	if err != nil {
+		t.Fatalf("applyProviderCommand: %v", err)
+	}
+
+	var body string
+	for _, b := range m.blocks {
+		if b.kind == "system" && strings.Contains(b.body, "ollama") {
+			body = b.body
+		}
+	}
+	if body == "" {
+		t.Fatal("expected a system block confirming the ollama save")
+	}
+	// The dishonest message claimed a credential ref was recorded with an
+	// empty env var. A local runner with nothing to store must NOT say that.
+	if strings.Contains(body, "recorded credential ref") {
+		t.Errorf("local runner save should not claim a credential ref was recorded:\n%s", body)
+	}
+	if strings.Contains(body, "(none)") {
+		t.Errorf("local runner save should not render an empty (none) env var:\n%s", body)
+	}
+	// And nothing should actually be written to config (no-op write).
+	data, _ := os.ReadFile(m.cfg.ConfigPath)
+	if strings.Contains(string(data), "[inference.presets.ollama]") {
+		t.Errorf("local runner save with no overrides should write nothing:\n%s", data)
+	}
+}
+
 // TestApplyProviderRemoveClearsRef: a Remove command deletes the preset
 // block previously written for a provider.
 func TestApplyProviderRemoveClearsRef(t *testing.T) {
