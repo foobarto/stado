@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -79,6 +80,47 @@ func TestTreeModelViewHighlightsCursor(t *testing.T) {
 	}
 	if !strings.Contains(markedLine, "turns/2") {
 		t.Errorf("cursor marker on wrong row: %q (expected turns/2)", markedLine)
+	}
+}
+
+// TestFirstNNeverSlicesMidRune (wide/multi-byte truncation): firstN sliced the
+// summary by BYTE index (s[:n-1]) and compared len(s) (bytes) to n, so a summary
+// of multi-byte runes (CJK, emoji) could be cut in the middle of a rune —
+// emitting invalid UTF-8 that renders as a replacement glyph — and was truncated
+// far below its visible character count (a 30-char CJK summary is ~90 bytes >
+// 64). Truncate by RUNE so the output is always valid UTF-8 and the limit counts
+// characters, not bytes.
+func TestFirstNNeverSlicesMidRune(t *testing.T) {
+	cases := []struct {
+		name string
+		s    string
+		n    int
+	}{
+		{"ascii under limit", "short summary", 64},
+		{"ascii over limit", strings.Repeat("x", 200), 64},
+		{"cjk under char limit", strings.Repeat("情", 30), 64},     // 90 bytes, 30 runes
+		{"cjk over char limit", strings.Repeat("情報", 50), 64},     // 100 runes
+		{"emoji boundary", strings.Repeat("🙂", 70), 64},           // 4 bytes each
+		{"mixed boundary", "fix: " + strings.Repeat("あ", 80), 64}, // 2-byte-then-3-byte cross
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := firstN(tc.s, tc.n)
+			if !utf8.ValidString(got) {
+				t.Fatalf("firstN(%q.., %d) produced invalid UTF-8: %q", tc.name, tc.n, got)
+			}
+			// The visible character count must never exceed n (the rune budget).
+			if rc := utf8.RuneCountInString(got); rc > tc.n {
+				t.Fatalf("firstN(%q.., %d) returned %d runes, exceeds budget: %q",
+					tc.name, tc.n, rc, got)
+			}
+			// An under-limit summary (by char count) must survive untouched —
+			// byte-length truncation chopped CJK summaries far too early.
+			if utf8.RuneCountInString(tc.s) <= tc.n && got != tc.s {
+				t.Fatalf("firstN truncated a summary already within the char limit: in=%q out=%q",
+					tc.s, got)
+			}
+		})
 	}
 }
 

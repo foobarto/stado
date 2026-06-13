@@ -253,10 +253,8 @@ func (m *treeModel) View() tea.View {
 }
 
 func firstN(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-1] + "…"
+	// Rune-safe: summaries are user/model-influenced and may be non-ASCII.
+	return textutil.TruncateRunes(s, n)
 }
 
 // printForkOutcome is called after the tea.Program returns so the

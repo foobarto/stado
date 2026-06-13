@@ -304,11 +304,21 @@ func cacheHitRatio(u agent.Usage) float64 {
 	return float64(u.CacheReadTokens) / float64(total)
 }
 
+// truncate caps s to at most max runes, appending an ellipsis when it
+// trims. The budget is counted in RUNES, not bytes: slicing on a byte
+// boundary (the old behaviour) could cut a multi-byte UTF-8 rune in half
+// and emit a dangling lead byte — invalid UTF-8 that renders as a
+// replacement glyph in the tool-call header / approval prompt / status
+// modal. Mirrors the rune-correct trimSeed helper.
 func truncate(s string, max int) string {
-	if max <= 1 || len(s) <= max {
+	if max <= 1 {
 		return s
 	}
-	return s[:max-1] + "…"
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
 }
 
 func trimSeed(s string, max int) string {

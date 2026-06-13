@@ -498,10 +498,8 @@ var sessionShowCmd = &cobra.Command{
 			if n := len(turns); n > 0 {
 				last := turns[n-1]
 				// Truncate long summaries so the output stays parseable.
-				summary := textutil.StripControlChars(last.Summary)
-				if len(summary) > 64 {
-					summary = summary[:63] + "…"
-				}
+				// Rune-safe so a non-ASCII summary doesn't get split mid-rune.
+				summary := textutil.TruncateRunes(textutil.StripControlChars(last.Summary), 64)
 				fmt.Printf("latest    turns/%d  %s  %s\n",
 					last.Turn, last.When.Format("2006-01-02 15:04"), summary)
 			}
@@ -531,10 +529,8 @@ var sessionShowCmd = &cobra.Command{
 		if markers, err := sc.ListCompactions(id); err == nil && len(markers) > 0 {
 			fmt.Printf("compactions  %d event(s):\n", len(markers))
 			for _, m := range markers {
-				title := textutil.StripControlChars(m.Title)
-				if len(title) > 60 {
-					title = title[:59] + "…"
-				}
+				// Rune-safe: compaction titles are user/model-supplied text.
+				title := textutil.TruncateRunes(textutil.StripControlChars(m.Title), 60)
 				shaShort := m.CommitHash.String()[:12]
 				when := m.At
 				if len(when) > 19 {

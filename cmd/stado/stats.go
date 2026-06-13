@@ -41,6 +41,7 @@ import (
 	"github.com/foobarto/stado/internal/audit"
 	"github.com/foobarto/stado/internal/config"
 	stadogit "github.com/foobarto/stado/internal/state/git"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 var (
@@ -441,10 +442,10 @@ func atofSafe(s string) float64 {
 }
 
 func truncString(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-1] + "…"
+	// Rune-safe: model / tool names come from commit trailers (model-
+	// influenced) and may be non-ASCII; a raw byte slice would split a
+	// multibyte rune and emit mojibake before the ellipsis.
+	return textutil.TruncateRunes(s, n)
 }
 
 func init() {

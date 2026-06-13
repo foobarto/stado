@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -222,6 +223,40 @@ func TestRenderStats_HumanOutput(t *testing.T) {
 	gptIdx := strings.Index(out, "gpt")
 	if claudeIdx == -1 || gptIdx == -1 || claudeIdx > gptIdx {
 		t.Errorf("models not sorted by cost desc:\n%s", out)
+	}
+}
+
+// TestRenderStats_MultibyteModelNameStaysValidUTF8 guards the model /
+// tool name truncation in the stats table. Model and tool names come from
+// commit trailers (model-influenced text) and can contain non-ASCII. The
+// old `truncString` byte-sliced at `s[:n-1]`, splitting a multibyte rune
+// that straddled byte 31 and emitting a mojibake half-rune before the
+// ellipsis. The rendered table must stay valid UTF-8.
+func TestRenderStats_MultibyteModelNameStaysValidUTF8(t *testing.T) {
+	agg := newStatsAgg()
+	// 20 × "日" = 60 bytes, 20 runes — under the 32-rune cap, so it must
+	// pass through untouched. 40 × "é" = 80 bytes, 40 runes — over the
+	// 32-rune cap, and byte 31 lands mid-rune (each "é" is 2 bytes) so the
+	// broken byte-slice produces invalid UTF-8.
+	longModel := strings.Repeat("é", 40)
+	agg.byModel[longModel] = &modelStats{calls: 1, in: 10, out: 5, cost: 0.01}
+	agg.totalCalls = 1
+	// A long multibyte tool name exercises the second truncString site
+	// (24-rune cap); byte 23 also lands mid-rune for "é".
+	longTool := strings.Repeat("é", 30)
+	agg.byTool[longTool] = &toolStats{calls: 1, ms: 100}
+
+	statsDays = 7
+	var buf bytes.Buffer
+	renderStats(&buf, agg, true)
+	out := buf.String()
+
+	if !utf8.ValidString(out) {
+		t.Fatalf("renderStats emitted invalid UTF-8 (truncation split a rune):\n%q", out)
+	}
+	// Truncated cells must still carry the ellipsis marker.
+	if !strings.Contains(out, "…") {
+		t.Errorf("expected an ellipsis on the truncated model/tool cell:\n%s", out)
 	}
 }
 

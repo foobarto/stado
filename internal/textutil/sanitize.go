@@ -3,6 +3,7 @@ package textutil
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // StripControlChars removes terminal control characters from untrusted text.
@@ -77,6 +78,38 @@ func TrimLastRune(s string) string {
 		return ""
 	}
 	return string(runes[:len(runes)-1])
+}
+
+// TruncateRunes caps s at n display runes, appending "…" when it had to
+// drop any. Unlike a raw `s[:n-1]` byte slice it counts runes, never
+// splits a multibyte UTF-8 rune, and so never emits a mojibake half-rune
+// before the ellipsis. The ellipsis counts toward the budget: the result
+// is at most n runes wide.
+//
+// Use this for any user- or model-influenced text headed to a fixed-width
+// terminal surface (session summaries, compaction titles, table cells).
+// n <= 0 yields "" and n == 1 yields just "…" (no room for content).
+func TruncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	if n == 1 {
+		return "…"
+	}
+	// Keep n-1 runes, then the ellipsis, for a total visible width of n.
+	keep := n - 1
+	count := 0
+	for i := range s {
+		if count == keep {
+			return s[:i] + "…"
+		}
+		count++
+	}
+	// Unreachable given the RuneCount check above, but stay safe.
+	return s + "…"
 }
 
 // AppendWithinBytes appends as much of addition as fits under maxBytes

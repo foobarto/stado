@@ -270,3 +270,97 @@ func TestDeepForkRowDoesNotSpill(t *testing.T) {
 		}
 	}
 }
+
+// TestTruncateVisibleIsDisplayWidthAware (wide-char spill): truncateVisible
+// truncated by RUNE COUNT, not display width, so a string of wide (CJK /
+// fullwidth) graphemes whose rune count fits the budget still has a display
+// width that overflows it. Every treepicker surface that bounds a line to the
+// inner width via truncateVisible (peek transcript/banner/footer, the footer
+// count, an unselected turn row) therefore handed lipgloss an over-wide string
+// that hard-wrapped onto a second row inside the box. Assert the width
+// invariant at the source: the returned display width never exceeds the budget.
+func TestTruncateVisibleIsDisplayWidthAware(t *testing.T) {
+	cases := []struct {
+		name  string
+		s     string
+		width int
+	}{
+		{"ascii fits", "hello", 20},
+		{"ascii overflow", strings.Repeat("x", 200), 30},
+		{"cjk overflow", strings.Repeat("日本語", 60), 86},
+		{"fullwidth overflow", strings.Repeat("Ａ", 120), 40},
+		{"mixed overflow", "turn 1 · " + strings.Repeat("情報", 50), 50},
+		{"narrow budget", strings.Repeat("日", 10), 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := truncateVisible(tc.s, tc.width)
+			if w := lipgloss.Width(got); w > tc.width {
+				t.Fatalf("truncateVisible(%q.., %d) display width %d exceeds budget: %q",
+					tc.name, tc.width, w, got)
+			}
+		})
+	}
+}
+
+// TestPeekWideLineDoesNotWrap (render-level sibling of the above): a peek
+// transcript line full of wide CJK graphemes must occupy exactly ONE rendered
+// row in the peek box. Before the fix truncateVisible kept (width-1) RUNES of a
+// wide line — display width ~2x the budget — so lipgloss wrapped it onto a
+// second interior row, throwing off the box's height accounting (which windows
+// the transcript assuming one rendered row per line). Reproduce through the real
+// box() render and assert no interior content row exceeds the inner width.
+func TestPeekWideLineDoesNotWrap(t *testing.T) {
+	wide := strings.Repeat("日本語", 60) // 180 runes, display width 360
+	p := New()
+	p.Open(sample(), "")
+	p.OpenPeek(NewPeek("aaaaaaaa", 1, "a1", "label", "", []string{wide, "plain follow-up line"}))
+	out := p.peek.box(120, 40)
+	// lipgloss pads a wrapped row to the full frame width, so a width check
+	// alone can't catch the wrap. The true signature is the EXTRA interior row:
+	// the single wide transcript line must land on exactly one row carrying the
+	// CJK content, not two.
+	plain := ansi.Strip(out)
+	rowsWithCJK := 0
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "日") {
+			rowsWithCJK++
+		}
+	}
+	if rowsWithCJK != 1 {
+		t.Fatalf("wide peek transcript line spans %d interior rows, want 1 (no wrap):\n%s", rowsWithCJK, out)
+	}
+	// The "plain follow-up line" must still appear (a wrapped wide line would
+	// push it out of the windowed transcript or split the rows). It survives.
+	if !strings.Contains(plain, "plain follow-up line") {
+		t.Fatalf("follow-up line dropped — wide line consumed extra rows:\n%s", out)
+	}
+}
+
+// TestTurnRowWideLineDoesNotWrap (render-level sibling): an unselected turn row
+// whose summary carries wide CJK content must occupy exactly one rendered row in
+// the tree body. Same root cause as the peek case — truncateVisible counted
+// runes — so the over-wide row wrapped and shifted every following row down.
+func TestTurnRowWideLineDoesNotWrap(t *testing.T) {
+	wide := "turn 1 · " + strings.Repeat("日本語", 40)
+	nodes := []Node{
+		{ID: "aaaaaaaa", Label: "root", Avail: AvailIdle, Depth: 0, TurnCount: 1,
+			Turns: []Turn{{Number: 1, CommitHex: "a1", Text: wide}}},
+		{ID: "bbbbbbbb", Label: "next", Avail: AvailIdle, Depth: 0},
+	}
+	p := New()
+	p.Open(nodes, "aaaaaaaa") // auto-expands aaaaaaaa so the turn row renders
+	p.Update(key("G"))        // move cursor OFF the turn row → unselected path
+	out := p.View(120, 40)
+	// The wide turn summary must not appear on two interior rows.
+	plain := ansi.Strip(out)
+	rowsWithCJK := 0
+	for _, line := range strings.Split(plain, "\n") {
+		if strings.Contains(line, "日") {
+			rowsWithCJK++
+		}
+	}
+	if rowsWithCJK != 1 {
+		t.Fatalf("wide turn summary spans %d rows, want 1 (no wrap):\n%s", rowsWithCJK, out)
+	}
+}

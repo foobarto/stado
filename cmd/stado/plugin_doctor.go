@@ -10,6 +10,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/textutil"
 )
 
 // pluginDoctorCmd inspects an installed plugin and emits a
@@ -361,10 +362,8 @@ func buildPluginDoctorReport(mf *plugins.Manifest, dir string) (string, error) {
 	} else {
 		b.WriteString("Tools:\n")
 		for _, t := range mf.Tools {
-			desc := t.Description
-			if len(desc) > 80 {
-				desc = desc[:77] + "…"
-			}
+			// Rune-safe: author-supplied descriptions may be non-ASCII.
+			desc := textutil.TruncateRunes(t.Description, 80)
 			fmt.Fprintf(&b, "  %-12s %s\n", t.Name, desc)
 		}
 		b.WriteString("\n")

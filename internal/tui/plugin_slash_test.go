@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/foobarto/stado/internal/plugins"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
@@ -260,6 +261,74 @@ func TestPluginSlash_UnknownToolName(t *testing.T) {
 	body := m.blocks[len(m.blocks)-1].body
 	if body == "" {
 		t.Fatal("expected a system block")
+	}
+}
+
+// TestPluginToolListWidth_NeverOverflowsIndent: the nested tool block is
+// indented by pluginToolIndent under each plugin header, so its wrap
+// width must never exceed width-pluginToolIndent — otherwise the
+// indented lines overflow the enclosing system block, which re-wraps
+// them and breaks the hanging indent. The old `if toolWidth < 20 { 20 }`
+// floor clamped the width UP past the available space at narrow panels.
+func TestPluginToolListWidth_NeverOverflowsIndent(t *testing.T) {
+	for _, width := range []int{120, 40, 24, 20, 15, 10, 5, 1, 0} {
+		got := pluginToolListWidth(width)
+		if got > width-pluginToolIndent && got > 1 {
+			t.Errorf("width=%d: pluginToolListWidth=%d exceeds width-indent=%d (will overflow the indent and re-wrap)",
+				width, got, width-pluginToolIndent)
+		}
+		if got < 1 {
+			t.Errorf("width=%d: pluginToolListWidth=%d must stay >= 1", width, got)
+		}
+	}
+}
+
+// TestPluginSlash_NarrowViewportHangIndent renders the bare /plugin
+// list at a narrow viewport through the REAL system-block path and
+// asserts no wrapped tool-description continuation line flows back to
+// text-column 0. Before the slashListWidth + pluginToolListWidth fixes,
+// a narrow viewport over-wrapped the nested tool block and the box
+// re-wrapped it, dropping continuation words to column 0.
+func TestPluginSlash_NarrowViewportHangIndent(t *testing.T) {
+	m := newPluginTestModel(t)
+	verbose := strings.Repeat("generate a command with many options ", 6)
+	installFakePlugin(t, "demo-0.1.0", plugins.Manifest{
+		Name:    "demo",
+		Version: "0.1.0",
+		Author:  "test",
+		Tools: []plugins.ToolDef{
+			{Name: "run_thing", Description: verbose},
+		},
+	})
+
+	for _, vpw := range []int{60, 44, 30} {
+		m.vp.SetWidth(vpw)
+		m.vp.SetHeight(40)
+		m.handleSlash("/plugin")
+		body := m.blocks[len(m.blocks)-1].body
+		out, _ := m.renderBlock(block{kind: "system", body: body}, vpw-2)
+		stripped := ansi.Strip(out)
+		for _, ln := range strings.Split(strings.TrimRight(stripped, "\n"), "\n") {
+			content := ln
+			if i := strings.IndexAny(content, "│"); i >= 0 {
+				content = content[i+len("│"):]
+			}
+			content = strings.TrimPrefix(content, " ") // left padding
+			if strings.TrimSpace(content) == "" {
+				continue
+			}
+			// Continuation lines of the wrapped description carry the
+			// repeated phrase but are not a plugin header or tool bullet.
+			// They must be indented (nested hierarchy holds).
+			if strings.Contains(content, "many options") &&
+				!strings.HasPrefix(strings.TrimSpace(content), "·") &&
+				!strings.Contains(content, "/plugin:") {
+				if !strings.HasPrefix(content, " ") {
+					t.Errorf("vp.Width()=%d: tool-desc continuation flowed to text-column 0: %q",
+						vpw, ln)
+				}
+			}
+		}
 	}
 }
 

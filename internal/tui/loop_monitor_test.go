@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -96,6 +97,49 @@ func TestLoopStopWithoutActiveLoop(t *testing.T) {
 	got := m.blocks[0].body
 	if got == "loop stopped" {
 		t.Fatalf("`/loop stop` with no active loop falsely reported %q; expected a no-active-loop notice", got)
+	}
+}
+
+// TestLoopStopsAndReportsOnTurnError reproduces a silent-loop-death defect:
+// when a loop iteration's turn ends in stateError (provider failure,
+// non-recoverable overflow, etc.), onStreamDone returned early without
+// touching m.loop. The loop stayed non-nil — so the status bar kept showing
+// "↻ loop" forever — yet nothing ever re-iterated (immediate loops never
+// re-fired; timed loops never rescheduled their tick). The user saw an
+// "active" loop that was actually dead. Worse, blindly re-iterating an
+// immediate loop on error would be a runaway: error → immediate re-fire →
+// error → ... with no delay. The fix: an errored turn stops the loop and
+// emits a system block so the user knows it ended and why.
+func TestLoopStopsAndReportsOnTurnError(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		interval time.Duration
+	}{
+		{"immediate", 0},
+		{"timed", 5 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := queueModel(t)
+			m.loop = &loopState{prompt: "watch the build", interval: tc.interval, iter: 1}
+			// The turn errored: onStreamError set stateError + appended an
+			// "error:" block; the closed-buffer path now delivers streamDoneMsg.
+			m.state = stateError
+			m.errorMsg = "provider exploded"
+			nBlocks := len(m.blocks)
+
+			onStreamDone(m, streamDoneMsg{})
+
+			if m.loop != nil {
+				t.Fatalf("loop still active after an errored turn — status bar would show a dead '↻ loop' forever")
+			}
+			if len(m.blocks) <= nBlocks {
+				t.Fatalf("errored loop turn produced no system block — user has no idea the loop ended")
+			}
+			body := m.blocks[len(m.blocks)-1].body
+			if !strings.Contains(strings.ToLower(body), "loop") {
+				t.Fatalf("loop-ended block doesn't mention the loop: %q", body)
+			}
+		})
 	}
 }
 

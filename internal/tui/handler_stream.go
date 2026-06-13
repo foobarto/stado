@@ -93,6 +93,11 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		if cmd, ok := m.tryContextOverflowRecovery(errors.New(m.errorMsg)); ok {
 			return m, cmd
 		}
+		// EP-0036: an active loop whose iteration errored must stop, not
+		// linger. Without this the loop stayed non-nil (status bar shows a
+		// dead "↻ loop" forever) but never re-iterated — and blindly
+		// re-firing an immediate loop on error would be a no-delay runaway.
+		m.stopLoopOnError()
 		return m, nil
 	}
 	m.maybeEmitBudgetWarning()

@@ -31,20 +31,32 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-// slashListWidth is the live conversation-panel width used when wrapping
-// name+description slash outputs (/tool ls, /skill, /plugin). Mirrors the
-// renderBlocks budget (m.vp.Width()-2) so the pre-wrapped block lines line
-// up with the panel, falling back to a sane 40 when the viewport hasn't
-// been sized yet (e.g. a bare test Model with a zero-value viewport).
+// slashListWidth is the live conversation-panel text width used when
+// wrapping name+description slash outputs (/tool ls, /skill, /plugin).
+// It MUST equal the actual system-block text area, or WrapDescList wraps
+// to a width wider than the box, the box re-wraps the already-wrapped
+// lines, and the dangling word lands at column 0 — breaking the hanging
+// indent (seen at viewport widths <= 44).
 func (m *Model) slashListWidth() int {
-	// The block render width is m.vp.Width()-2 (blocks_render.go); a system
-	// block then adds a left border (1) + Padding(0,1) (2) inside that, and
-	// lipgloss v2 .Width INCLUDES border+padding — so the actual text area is
-	// 3 columns narrower. Wrap to the real text width or the renderer re-wraps
-	// our pre-wrapped lines and breaks the hanging indent.
-	w := m.vp.Width() - 2 - 3
-	if w < 40 {
+	// Mirror renderBlocks exactly: the block is rendered at
+	// max(10, m.vp.Width()-2) (blocks_render.go floors the block width at
+	// 10). The system block then adds a left border (1) + Padding(0,1)
+	// (2) inside that, and lipgloss v2 .Width INCLUDES border+padding — so
+	// the real text area is 3 columns narrower than the block width.
+	//
+	// An unsized viewport (m.vp.Width() == 0, e.g. a bare test Model)
+	// never reaches a real terminal; fall back to a sane 40 so list
+	// output in those code paths still reads well.
+	if m.vp.Width() <= 0 {
 		return 40
+	}
+	blockW := m.vp.Width() - 2
+	if blockW < 10 {
+		blockW = 10
+	}
+	w := blockW - 3
+	if w < 1 {
+		w = 1
 	}
 	return w
 }

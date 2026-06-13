@@ -315,8 +315,12 @@ func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 	b.WriteString(bg.Foreground(theme.Text).Render(truncate(singleLineSafe(e.Prompt), maxInt(innerW-8, 30))))
 	b.WriteString("\n")
 	if e.SessionID != "" {
+		// "Session: " label is 9 columns. Bound the id to the remaining
+		// width like every other detail field — SessionID comes from
+		// headless agent runs and a long one overflowed the modal border
+		// (sibling of the LastTool/prompt column-bounding fix).
 		b.WriteString(bg.Foreground(theme.Muted).Render("Session: "))
-		b.WriteString(bg.Foreground(theme.Text).Render(singleLineSafe(e.SessionID)))
+		b.WriteString(bg.Foreground(theme.Text).Render(truncate(singleLineSafe(e.SessionID), maxInt(innerW-9, 30))))
 		b.WriteString("\n")
 	}
 	if e.LastText != "" {
@@ -343,8 +347,43 @@ func renderEntryDetail(e runtime.FleetEntry, innerW int) string {
 
 // rowTwoCol — same helper modelpicker uses, lifted here to avoid a
 // cross-package dep. innerW is the modal's content width.
+//
+// At the floor modal width (64-wide screen → modalW 64 → innerW 60) the
+// header's title + key-hints content (68 columns) exceeded innerW, and
+// the old `maxInt(... , 1)` gap floor let the row render at its full
+// natural width (69 cols) — punching the right border on every /fleet
+// open, independent of entry content. Clamp the row to innerW: the right
+// column (dismissable key hints) yields first, truncated display-width
+// aware so a wide-rune hint can't slip a column through; if the left
+// column alone still overruns, truncate it too. Both truncations are
+// grapheme-safe (never split a rune, always valid UTF-8).
 func rowTwoCol(innerW int, left, right string) string {
-	pad := maxInt(innerW-lipgloss.Width(left)-lipgloss.Width(right), 1)
+	if innerW < 1 {
+		innerW = 1
+	}
+	lw := lipgloss.Width(left)
+	rw := lipgloss.Width(right)
+	// At least one column gap between left and right.
+	if lw+rw+1 > innerW {
+		// Give the left column priority but leave room for a 1-col gap.
+		rightBudget := innerW - lw - 1
+		if rightBudget < 0 {
+			rightBudget = 0
+		}
+		right = truncate(right, rightBudget)
+		rw = lipgloss.Width(right)
+		// Left column alone may still exceed innerW (long title, narrow
+		// modal). Truncate it to whatever remains after the gap + right.
+		if lw+rw+1 > innerW {
+			leftBudget := innerW - rw - 1
+			if leftBudget < 1 {
+				leftBudget = 1
+			}
+			left = truncate(left, leftBudget)
+			lw = lipgloss.Width(left)
+		}
+	}
+	pad := maxInt(innerW-lw-rw, 1)
 	// Paint the padding gap with the modal background so the header row
 	// doesn't show a grey hole between the two columns.
 	gap := lipgloss.NewStyle().Background(theme.Background).Render(strings.Repeat(" ", pad))
