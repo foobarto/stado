@@ -91,3 +91,36 @@ func TestCursorOffsetByteAlignedMultiline(t *testing.T) {
 		t.Fatalf("CursorOffset() = %d, want %d", got, want)
 	}
 }
+
+// TestSetValueWithCursorRoundTrip: SetValueWithCursor places the cursor at the
+// given byte offset, recoverable via CursorOffset. Exercises single-line,
+// multiline, multibyte, and out-of-range offsets — the vim engine relies on
+// this round-trip to apply its (buffer, cursor) results.
+func TestSetValueWithCursorRoundTrip(t *testing.T) {
+	cases := []struct {
+		val  string
+		off  int
+		want int // expected CursorOffset()
+	}{
+		{"hello", 0, 0},
+		{"hello", 3, 3},
+		{"hello", 5, 5},
+		{"hello", 99, 5},   // clamp past end
+		{"hello", -3, 0},   // clamp below zero
+		{"ab\ncd", 4, 4},   // second line, col 1
+		{"ab\ncd", 3, 3},   // second line start
+		{"café", 3, 3},     // before the multibyte é
+		{"café", 5, 5},     // after é (end)
+		{"ab\ncafé", 6, 6}, // second line, before é
+	}
+	for _, c := range cases {
+		e := New(keys.NewRegistry())
+		e.SetValueWithCursor(c.val, c.off)
+		if got := e.CursorOffset(); got != c.want {
+			t.Errorf("SetValueWithCursor(%q, %d): CursorOffset() = %d, want %d", c.val, c.off, got, c.want)
+		}
+		if e.Value() != c.val {
+			t.Errorf("SetValueWithCursor(%q, %d): Value() = %q, want %q", c.val, c.off, e.Value(), c.val)
+		}
+	}
+}

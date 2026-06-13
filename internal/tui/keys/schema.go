@@ -26,6 +26,17 @@ var Schemas = map[string]map[Action]string{
 		MessagesFirst: "ctrl+home",
 		MessagesLast:  "ctrl+end",
 	},
+
+	// vim is a MODAL schema (keymap Phase 2): its NORMAL/VISUAL behaviour is
+	// driven by the pure engine in internal/tui/vimmode, dispatched in onKey
+	// BEFORE the registry — not by per-key bindings here. So the schema delta
+	// is empty: INSERT mode inherits the full emacs input editing (the editor
+	// keymap stays emacs/readline-style, which is what a vim INSERT mode does
+	// anyway), and the modal layer sits on top. The only schema-level remap —
+	// ESC→NORMAL while INSERT — is handled in routing (vim-schema-only) rather
+	// than as a binding swap, since ESC stays SessionInterrupt in every other
+	// schema. See .agent/decisions/2026-06-13-keymap-phase2-modal-vim.md.
+	"vim": {},
 }
 
 // ResolveSchema returns the full keymap for the named schema: a copy of the

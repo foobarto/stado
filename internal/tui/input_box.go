@@ -23,6 +23,10 @@ func (m *Model) renderInputBox(mainW int) string {
 		"Model":        m.model,
 		"ProviderName": m.providerDisplayName(),
 		"Hint":         "", // reserved — "xhigh" effort-style badge lands when reasoning-effort config does
+		// VimMode is the modal-editing indicator (NORMAL/INSERT/VISUAL), shown
+		// ONLY when the vim schema is active; empty otherwise so the template
+		// omits the pill entirely. Distinct from "Mode" (Do/Plan/BTW pipeline).
+		"VimMode": m.vimModeLabel(),
 	})
 	if err != nil {
 		inline = "[input status render error: " + err.Error() + "]"

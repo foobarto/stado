@@ -23,6 +23,7 @@ import (
 
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/tui/keys"
+	"github.com/foobarto/stado/internal/tui/vimmode"
 )
 
 func onMouse(m *Model, msg tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -186,6 +187,18 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 
 	if model, cmd, handled := onPickerKey(m, msg); handled {
 		return model, cmd, true
+	}
+
+	// Modal vim dispatch (keymap Phase 2). Active ONLY when the schema is
+	// "vim"; entirely inert for emacs/vscode/custom (so nothing below changes
+	// for non-vim users). Placed after the modal + picker short-circuits (so
+	// overlays still own ESC / keys) and before the prefix-chord + flat
+	// keybinding switch (so NORMAL/VISUAL keystrokes are intercepted before
+	// they reach the editor or get typed into the buffer).
+	if m.vimEnabled {
+		if model, cmd, handled := vimDispatch(m, msg); handled {
+			return model, cmd, true
+		}
 	}
 
 	// Prefix-chord dispatch: ctrl+x <chord>, etc.
@@ -450,7 +463,132 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 		return submitInput(m)
 	}
 
+	// Vim NORMAL/VISUAL: an unhandled key must NEVER reach the editor's readline
+	// bindings (ctrl+w/u/k/a/e would edit the buffer — a modal-mode violation).
+	// App shortcuts + prefix chords are handled above and return earlier; bare
+	// keys are consumed by the engine in vimDispatch; so anything reaching here
+	// in NORMAL/VISUAL is an unbound chord — swallow it (no-op) rather than let
+	// it fall through to m.input.Update.
+	if m.vimEnabled {
+		if vm := m.vim.Mode(); vm == vimmode.ModeNormal || vm == vimmode.ModeVisual {
+			return m, nil, true
+		}
+	}
+
 	return m, nil, false
+}
+
+// vimDispatch routes a keystroke through the modal vim engine when the schema
+// is "vim". It owns three behaviours, all vim-schema-only:
+//
+//   - ESC in INSERT  -> NORMAL mode (the editor stops receiving keys; the
+//     SessionInterrupt-on-ESC behaviour is suppressed for this schema only).
+//   - ESC in NORMAL  -> no-op (per the decision; interrupt is Ctrl+G).
+//   - NORMAL / VISUAL keys -> the pure engine, which mutates (buffer, cursor)
+//     and the mode; the result is applied via SetValueWithCursor.
+//
+// Ctrl+G is never intercepted here, so SessionInterrupt keeps working in every
+// mode and schema. INSERT mode (other than the ESC remap) is left untouched —
+// returning handled=false lets the keystroke flow to the editor as usual.
+//
+// Returns handled=true only when the engine (or the ESC remap) consumed the
+// key; otherwise the caller continues its normal dispatch.
+func vimDispatch(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	// Ctrl+G always falls through to SessionInterrupt — never intercepted.
+	if keyStr == "ctrl+g" {
+		return m, nil, false
+	}
+
+	// While a prefix chord (ctrl+x ...) is mid-sequence, let the suffix key
+	// complete the binding: fall through to TryPrefix instead of letting the
+	// engine eat the bare suffix (`a`/`g`/`l`/...) as a vim command. Without
+	// this, the documented Ctrl+X pickers/shortcuts break in NORMAL/VISUAL.
+	if _, pending := m.keys.PendingPrefix(); pending {
+		return m, nil, false
+	}
+
+	mode := m.vim.Mode()
+
+	// ESC: the only key whose meaning we change in INSERT. In NORMAL it's a
+	// no-op (swallowed); in VISUAL the engine handles it (back to NORMAL).
+	if keyStr == "esc" {
+		switch mode {
+		case vimmode.ModeInsert:
+			m.vim.SetMode(vimmode.ModeNormal)
+			// Real vim parks the cursor one rune left of where INSERT left it;
+			// we keep it in place to avoid surprising edits — the cursor stays
+			// a valid byte offset and the next motion re-anchors it.
+			m.layout()
+			return m, nil, true
+		case vimmode.ModeNormal:
+			// No-op (decision): ESC in NORMAL does nothing. Consume it so it
+			// doesn't fall through to SessionInterrupt.
+			return m, nil, true
+		case vimmode.ModeVisual:
+			// Fall through to the engine below, which maps esc -> NORMAL.
+		}
+	}
+
+	// INSERT mode: the engine doesn't intercept — let the key reach the editor.
+	if mode == vimmode.ModeInsert {
+		return m, nil, false
+	}
+
+	// NORMAL / VISUAL: let modifier-chord keystrokes (ctrl+/alt+/meta+/super+)
+	// fall through to the flat keybinding switch so global app shortcuts
+	// (ctrl+d quit, ctrl+p palette, ctrl+g interrupt, the scroll chords, etc.)
+	// keep working in modal mode. The engine only handles bare keys — the vim
+	// motion / operator / edit alphabet — which is exactly what NORMAL/VISUAL
+	// is for. (vim's own ctrl-motions like ctrl+d half-page are out of scope.)
+	if isModifierChord(keyStr) {
+		return m, nil, false
+	}
+	// Enter in NORMAL mode submits the line (vi command-line accepts on Enter),
+	// so a NORMAL-mode user isn't trapped — let it fall through to InputSubmit,
+	// which resets the engine to INSERT for the next prompt. (In VISUAL we let
+	// the engine ignore it.) Shift+Enter (InputNewline) likewise falls through.
+	if mode == vimmode.ModeNormal && (keyStr == "enter" || keyStr == "shift+enter") {
+		return m, nil, false
+	}
+
+	// Non-text functional keys (tab, shift+tab, pageup/pagedown, home/end, the
+	// arrows, backspace, ...) are not part of the vim command alphabet — let
+	// them reach their app-level bindings (tab=ModeToggle, shift+tab=ToolExpand,
+	// pageup/pagedown + home/end = message scroll) instead of the engine's
+	// NORMAL catch-all swallowing them. esc/enter are handled above; printable
+	// vim keys carry msg.Text, so this only releases functional keys.
+	if msg.Text == "" {
+		return m, nil, false
+	}
+
+	// Route the key to the pure engine and apply its result.
+	res := m.vim.Handle(keyStr, m.input.Value(), m.input.CursorOffset())
+	if !res.Consumed {
+		// Engine ignored the key (shouldn't happen in NORMAL/VISUAL, which
+		// consume everything) — fall through so global chords still work.
+		return m, nil, false
+	}
+	if res.NewBuf != m.input.Value() || res.NewCursor != m.input.CursorOffset() {
+		m.input.SetValueWithCursor(res.NewBuf, res.NewCursor)
+	}
+	m.layout()
+	return m, nil, true
+}
+
+// isModifierChord reports whether a key string carries a ctrl/alt/meta/super
+// modifier (e.g. "ctrl+d", "alt+enter"). Such chords are global app shortcuts
+// that must keep working in vim NORMAL/VISUAL mode, so vimDispatch lets them
+// fall through. Shifted printable keys are NOT chords here: bubbletea renders
+// them as their text ("D", not "shift+d"), so the engine still sees the
+// uppercase command letters (D, C, I, A, O, P, G).
+func isModifierChord(key string) bool {
+	return strings.HasPrefix(key, "ctrl+") ||
+		strings.HasPrefix(key, "alt+") ||
+		strings.HasPrefix(key, "meta+") ||
+		strings.HasPrefix(key, "super+") ||
+		strings.HasPrefix(key, "hyper+")
 }
 
 // submitInput processes Enter on the chat input. Encapsulated as its
@@ -458,6 +596,13 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 // budget / context-threshold gates) and the dispatcher reads cleaner
 // without inlining ~100 lines of submission logic.
 func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
+	// Modal vim: submitting a prompt returns the engine to INSERT so the next
+	// line starts ready-to-type (rather than stranded in NORMAL). Done up front
+	// so every submit return path — send, queue, steer, gated — leaves INSERT.
+	// Harmless when vim is disabled (vimEnabled gate) or input is empty.
+	if m.vimEnabled && m.vim != nil {
+		m.vim.SetMode(vimmode.ModeInsert)
+	}
 	if m.input.Value() == "" {
 		return m, nil, true
 	}

@@ -39,6 +39,7 @@ import (
 	"github.com/foobarto/stado/internal/tui/theme"
 	"github.com/foobarto/stado/internal/tui/themepicker"
 	"github.com/foobarto/stado/internal/tui/treepicker"
+	"github.com/foobarto/stado/internal/tui/vimmode"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -275,6 +276,16 @@ type Model struct {
 	keys     *keys.Registry
 	theme    *theme.Theme
 	renderer *render.Renderer
+
+	// vimEnabled is set when the active keymap schema is "vim" (keymap
+	// Phase 2). When true, NORMAL/VISUAL keystrokes route through vim (the
+	// pure modal engine) before the registry/editor fall-through, and ESC in
+	// INSERT flips to NORMAL (vim-schema-only). When false the modal layer is
+	// entirely inert and nothing about other schemas changes. vim holds the
+	// modal state (mode + register + pending operator/count); it starts in
+	// INSERT so the user can type immediately on launch.
+	vimEnabled bool
+	vim        *vimmode.Engine
 
 	// startedAt timestamps NewModel; used by the at-quit session
 	// summary to report wall-clock uptime. Q1.
@@ -766,6 +777,11 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 		// resetForSession + closeBackgroundPlugins).
 		lspManager:     lspfind.NewLSPClientManager(context.Background()),
 		lspDiagnostics: lspfind.NewDiagnosticsStore(),
+		// Modal vim engine (keymap Phase 2). Always constructed (cheap, pure);
+		// it only acts when vimEnabled is set via SetKeymapSchema. Starts in
+		// INSERT so a vim user can type immediately rather than being trapped
+		// in NORMAL on launch.
+		vim: vimmode.New(),
 	}
 	// Text-safe viewport scrolling. The bubbles viewport default keymap binds
 	// j/k/h/l/b/f/u/d, space and the arrows to scroll; since the chat input is
@@ -847,6 +863,34 @@ func (m *Model) SetContextThresholds(soft, hard float64) {
 // hooks directly on the model.
 func (m *Model) SetHooks(postTurn string) {
 	m.hookRunner.PostTurnCmd = postTurn
+}
+
+// SetKeymapSchema records the active keybinding schema name so the TUI can
+// switch on modal behaviour. Only "vim" enables the modal engine; every other
+// schema (emacs, vscode, custom) leaves vimEnabled false and the modal layer
+// inert. Called from app.go with cfg.Keymap.Schema; tests set it directly.
+// When vim is enabled the engine starts in INSERT (set in NewModel) so the
+// user can type on launch.
+func (m *Model) SetKeymapSchema(schema string) {
+	m.vimEnabled = schema == "vim"
+	if m.vim == nil {
+		m.vim = vimmode.New()
+	}
+	if m.vimEnabled {
+		// Launch posture: INSERT, ready to type.
+		m.vim.SetMode(vimmode.ModeInsert)
+	}
+}
+
+// vimModeLabel returns the modal-editing indicator ("NORMAL"/"INSERT"/
+// "VISUAL") for the status row, or "" when the vim schema is not active so the
+// template omits the pill. Compact by design — three glyphs at most fit the
+// status row and the narrow-terminal fallback.
+func (m *Model) vimModeLabel() string {
+	if !m.vimEnabled || m.vim == nil {
+		return ""
+	}
+	return m.vim.Mode().String()
 }
 
 // SetApprovals is kept for config compatibility, but tool-call approvals
