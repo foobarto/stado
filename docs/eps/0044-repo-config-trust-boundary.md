@@ -98,17 +98,18 @@ This satisfies the defense-in-depth requirement that the interrupt keymap and
   per-project trust gate before honoring `.stado/plugins/`, and scope a project
   plugin's relative `fs:*` caps tighter than the whole session workdir.
 
-### Out of cluster (separate fixes, tracked)
+### Out of cluster (separate fixes)
 
-- **#12** auto-LSP spawns unsandboxed servers on repo edits — needs an opt-in
-  `[lsp].auto_diagnostics` gate (TUI-wired unconditionally today), not a config
-  strip.
-- **#11** redacted tool output persisted in audit blobs — a docs caveat on the
-  `post_tool` redaction example (it is not a confidentiality control), or an
-  opt-out `NoAuditBlob` hook flag; operator decision per the mutation-provenance
-  spec.
-- **#126** cross-repo memory via `.stado/user-repo` — validate the pin is an
-  ancestor/descendant of the workdir before using it (`internal/memory/context.go`).
+- **#12 (SHIPPED)** auto-LSP spawned unsandboxed servers on repo edits — now
+  gated behind opt-in `[lsp].auto_diagnostics` (default false), so a
+  prompt-injected edit in an untrusted repo can't drive host LSP spawns.
+- **#11 (SHIPPED, docs)** redacted tool output is still persisted in the sidecar
+  audit blobs — added a caveat to `docs/features/lifecycle-hooks.md` that a
+  `post_tool` mutate is context-hygiene, not secret-erasure. (A future
+  `NoAuditBlob` opt-out remains possible per the mutation-provenance spec.)
+- **#126 (SHIPPED)** cross-repo memory via a repo-committed `.stado/user-repo` —
+  the pin is now honored only when it is an ancestor/descendant of the workdir
+  (`internal/memory/context.go` `pinRelatedToWorkdir`).
 
 ## Test strategy
 - Phase 1: `TestProjectOverlayStripsSecuritySensitiveKeys` — every stripped key

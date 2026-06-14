@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -203,7 +204,7 @@ func findRepoRoot(start string) string {
 	}
 	original := dir
 	for {
-		if pinned := readUserRepoPin(dir); pinned != "" {
+		if pinned := readUserRepoPin(dir); pinned != "" && pinRelatedToWorkdir(original, pinned) {
 			return pinned
 		}
 		if workdirpath.LooksLikeRepoRoot(dir) {
@@ -215,6 +216,53 @@ func findRepoRoot(start string) string {
 		}
 		dir = parent
 	}
+}
+
+// pinRelatedToWorkdir reports whether a .stado/user-repo pin is trustworthy to
+// use as the repo-id root. It is trusted when it is an ancestor/descendant of
+// the workdir, OR when the workdir is a stado-managed session worktree (under
+// the state worktrees dir) — stado writes the pin there itself, pointing back
+// to the real checkout, which is an unrelated sibling path. A repo-committed
+// pin pointing somewhere unrelated, read from a plain checkout, is rejected so
+// it can't inject another repo's memories into this session (Codex #126; the
+// worktree carve-out is #211 P2). The symlink-escape vector is handled
+// separately by the resolver in readUserRepoPin.
+func pinRelatedToWorkdir(workdir, pin string) bool {
+	w := filepath.Clean(workdir)
+	p := filepath.Clean(pin)
+	if w == p {
+		return true
+	}
+	sep := string(filepath.Separator)
+	if strings.HasPrefix(w+sep, p+sep) || strings.HasPrefix(p+sep, w+sep) {
+		return true
+	}
+	// A stado-managed session worktree (under the state worktrees dir) carries
+	// a pin that stado itself wrote, pointing back to the real checkout — an
+	// unrelated sibling path the ancestor/descendant test above misses. Trust
+	// the pin there; only a pin read from outside the managed worktree tree
+	// (i.e. committed into a repo) is subject to the relation check (#211 P2).
+	if wt := stadoWorktreeRoot(); wt != "" {
+		if strings.HasPrefix(w+sep, filepath.Clean(wt)+sep) {
+			return true
+		}
+	}
+	return false
+}
+
+// stadoWorktreeRoot mirrors config.(*Config).WorktreeDir — the root under which
+// stado materializes per-session worktrees ($XDG_STATE_HOME/stado/worktrees).
+// Inlined (rather than importing config) to keep this low-level package free of
+// the config dependency; the path is a stable XDG convention.
+func stadoWorktreeRoot() string {
+	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "stado", "worktrees")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "stado", "worktrees")
 }
 
 func readUserRepoPin(workdir string) string {

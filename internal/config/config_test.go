@@ -161,6 +161,9 @@ command = "some-mcp-server"
 sections = ["repo"]
 [tui.footer]
 segments = ["tokens"]
+
+[lsp]
+auto_diagnostics = true
 `
 	if err := os.WriteFile(filepath.Join(stadoDir, "config.toml"), []byte(cfgBody), 0o600); err != nil {
 		t.Fatal(err)
@@ -204,6 +207,9 @@ segments = ["tokens"]
 	if len(cfg.TUI.Sidebar.Sections) != 0 || len(cfg.TUI.Footer.Segments) != 0 {
 		t.Errorf("[tui.sidebar]/[tui.footer] must be dropped (safety chrome); sidebar=%v footer=%v", cfg.TUI.Sidebar.Sections, cfg.TUI.Footer.Segments)
 	}
+	if cfg.LSP.AutoDiagnostics {
+		t.Error("[lsp].auto_diagnostics must be dropped (a repo must not re-enable unsandboxed LSP spawns)")
+	}
 
 	// Kept (legitimate EP-0035 project overrides):
 	if cfg.Defaults.Model != "project-model" {
@@ -211,6 +217,21 @@ segments = ["tokens"]
 	}
 	if _, ok := cfg.MCP.Servers["legit"]; !ok {
 		t.Errorf("[mcp.servers] should survive (legit project tool servers); got %v", cfg.MCP.Servers)
+	}
+}
+
+// TestLSPAutoDiagnosticsDefaultsOff (Codex #12): auto-spawning language servers
+// on every edit is opt-in — the default must be false so an untrusted repo
+// can't drive unsandboxed host LSP spawns via a prompt-injected edit.
+func TestLSPAutoDiagnosticsDefaultsOff(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LSP.AutoDiagnostics {
+		t.Error("LSP.AutoDiagnostics must default to false (opt-in)")
 	}
 }
 
