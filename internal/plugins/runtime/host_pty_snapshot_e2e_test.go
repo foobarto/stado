@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -187,6 +188,40 @@ func TestShellReadModesE2E(t *testing.T) {
 	}
 	if altKind != "screen" {
 		t.Errorf("read mode:auto after entering the alternate screen buffer: kind = %q, want screen", altKind)
+	}
+
+	// 7b. Auto-screen drains the raw ring (Codex P2): while on the alt
+	//     screen, write a canary and confirm it lands (via a non-draining
+	//     mode:screen peek). One mode:auto read then renders the screen AND
+	//     discards the raw backlog, so a full-screen program's escape
+	//     stream can't resurface in a later read. The byte stream feeds
+	//     the ring before the grid, so a rendered canary is a buffered
+	//     one; after the drain an explicit mode:stream read must not see
+	//     it. Guards the auto-mode backlog leak.
+	const canary = "DRAIN_CANARY"
+	invoke("write", `{"id":`+id+`,"data":"`+canary+`\n"}`)
+	deadline = time.Now().Add(2 * time.Second)
+	canarySeen := false
+	for time.Now().Before(deadline) {
+		if strings.Contains(invoke("read", `{"id":`+id+`,"mode":"screen"}`), canary) {
+			canarySeen = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !canarySeen {
+		t.Fatal("canary never rendered on the alt screen")
+	}
+	// Draining auto read (alt-screen active → screen kind → discards ring).
+	invoke("read", `{"id":`+id+`,"mode":"auto"}`)
+	// Explicit stream read consumes the ring; the drained canary must be gone.
+	var streamRes struct {
+		DataB64 string `json:"data_b64"`
+	}
+	_ = json.Unmarshal([]byte(invoke("read", `{"id":`+id+`,"mode":"stream","timeout_ms":200}`)), &streamRes)
+	dec, _ := base64.StdEncoding.DecodeString(streamRes.DataB64)
+	if strings.Contains(string(dec), canary) {
+		t.Errorf("auto-screen read did not drain the ring; canary leaked into the stream:\n%q", string(dec))
 	}
 
 	// 8. EOF path (regression guard for the -1 sentinel mishandling): spawn

@@ -197,6 +197,49 @@ func TestRingBufferOverflow(t *testing.T) {
 	}
 }
 
+// TestDiscardPending: DiscardPending drops the buffered ring bytes (returning
+// the count) so a subsequent Read sees none of them. Backs the read tool's
+// mode:"auto" screen drain (EP-0043) — see registerPTYSnapshot.
+func TestDiscardPending(t *testing.T) {
+	m := NewManager()
+	id, err := m.Spawn(SpawnOpts{Cmd: "printf discard-me; sleep 5"})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	defer m.Destroy(id)
+
+	// Wait for the printf to land in the ring.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if infos := m.List(); len(infos) == 1 && infos[0].Buffered >= len("discard-me") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	n, err := m.DiscardPending(id)
+	if err != nil {
+		t.Fatalf("DiscardPending: %v", err)
+	}
+	if n < len("discard-me") {
+		t.Fatalf("DiscardPending dropped %d bytes, want >= %d", n, len("discard-me"))
+	}
+
+	// The ring is now empty: a short non-blocking Read returns nothing.
+	got, err := m.Read(id, 4096, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Read after discard: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Read after discard returned %q, want empty (ring was drained)", got)
+	}
+
+	// And a second discard with an empty ring reports zero, no error.
+	if n2, err := m.DiscardPending(id); err != nil || n2 != 0 {
+		t.Fatalf("DiscardPending on empty ring = (%d, %v), want (0, nil)", n2, err)
+	}
+}
+
 // (EP-0043 D6: the old TestRequiresAttach was removed — read/write no
 // longer require attach, and the ErrNotAttached sentinel is gone.
 // TestWriteReadWithoutAttach covers the new contract.)

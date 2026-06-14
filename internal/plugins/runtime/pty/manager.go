@@ -647,6 +647,28 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 	return out, nil
 }
 
+// DiscardPending drops all currently-buffered unread bytes from the
+// session's raw ring without returning them, and reports how many it
+// dropped. The read tool's mode:"auto" screen path (EP-0043) uses this:
+// once a full-screen program's output has been rendered as a grid, the
+// accumulated raw escape stream is noise — discarding it stops a later
+// mode:"stream"/"auto" read from dumping the whole alt-screen backlog
+// when the program exits the alternate buffer. The vt10x emulator is a
+// separate sink, so the rendered screen is unaffected. No attach required.
+func (m *Manager) DiscardPending(id uint64) (int, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.ring.Len()
+	if n > 0 {
+		s.ring.ReadN(n)
+	}
+	return n, nil
+}
+
 // Signal sends sig to the child process. No attach required.
 func (m *Manager) Signal(id uint64, sig syscall.Signal) error {
 	s, err := m.get(id)

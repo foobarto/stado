@@ -391,6 +391,14 @@ func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportNam
 					stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 					return
 				}
+				// alt-screen active: we're about to return a rendered grid.
+				// Discard the raw ring so the full-screen program's escape
+				// backlog doesn't resurface in a later mode:stream/auto read
+				// once it leaves the alternate buffer. The grid (vt10x) is a
+				// separate sink, so the render below is unaffected. Only the
+				// auto path drains — explicit mode:"screen" stays a
+				// non-draining peek (e.g. the TUI overlay polls read-only).
+				_, _ = host.PTYManager.DiscardPending(req.ID)
 			}
 			screen, err := host.PTYManager.Snapshot(req.ID)
 			if err != nil {

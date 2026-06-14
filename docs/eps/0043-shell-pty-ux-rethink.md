@@ -258,6 +258,14 @@ export and the `stado_terminal_snapshot` host import **stay** (consumed by
 - **D9 — `shell.list` is broad + self-identifying.** All sessions in scope, with
   `description` (+ cmd/alive/age), so orphans are visible and triageable rather
   than hidden. (Spawning-PID deferred to a fast-follow — see Design.)
+- **D10 — `mode:"auto"` drains the raw ring when it renders a screen.** Surfaced
+  in review: with `auto` as the default, polling a full-screen program (vim/htop)
+  returns grid renders while the raw byte ring keeps accumulating; once the
+  program leaves the alternate buffer the next `auto`/`stream` read would dump
+  the whole escape backlog. So the `auto`→screen path discards the pending ring
+  bytes (`Manager.DiscardPending`) after rendering — the grid (vt10x) is a
+  separate sink, so the render is unaffected. Explicit `mode:"screen"` stays a
+  non-draining peek (the TUI overlay polls it read-only).
 
 ## Related
 
