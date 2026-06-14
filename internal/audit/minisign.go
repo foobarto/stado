@@ -86,6 +86,12 @@ func minisignSignPrehashed(priv ed25519.PrivateKey, keyID uint64, hash [64]byte,
 // MinisignVerify validates a .minisig file against pub + message. Returns
 // the trusted comment on success.
 func MinisignVerify(pub ed25519.PublicKey, message, sigFile []byte) (trusted string, err error) {
+	// ed25519.Verify PANICS on a wrong-length public key. Guard before any
+	// verify so a future caller handing in an embedded/operator-provided key of
+	// the wrong length gets an error, not a process crash.
+	if len(pub) != ed25519.PublicKeySize {
+		return "", fmt.Errorf("minisign: public key = %d bytes, want %d", len(pub), ed25519.PublicKeySize)
+	}
 	untrustedLine, sigLine, trustedLine, globalLine, err := parseMinisignFile(sigFile)
 	if err != nil {
 		return "", err
