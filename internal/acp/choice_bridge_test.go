@@ -356,6 +356,71 @@ func TestServerHandleSessionChoiceResponse_ExtraSelectionCannotSkipValidation(t 
 	}
 }
 
+// TestServerHandleSessionChoiceResponse_UnknownSelectionCannotSkipValidation
+// (Codex #209): with an input-bearing choice, selecting exactly one UNKNOWN id
+// passes the exact-one gate but matches no validator. The bridge must reject it
+// rather than forward the unvalidated inputValue.
+func TestServerHandleSessionChoiceResponse_UnknownSelectionCannotSkipValidation(t *testing.T) {
+	out := newWriterSync()
+	srv := NewServer(nil, nil)
+	srv.conn = NewConn(strings.NewReader(""), out)
+
+	bridgeResp := make(chan pluginRuntime.ChoiceResponse, 1)
+	go func() {
+		resp, _ := srv.requestChoice(context.Background(), "sess-1", pluginRuntime.ChoiceRequest{
+			Prompt: "Turns?",
+			Options: []pluginRuntime.ChoiceOption{
+				{ID: "n", Label: "Run with budget", Input: &pluginRuntime.ChoiceInput{
+					Default: "5", Validator: &pluginRuntime.ChoiceValidator{Kind: "int"},
+				}},
+				{ID: "cancel", Label: "Cancel"}, // a non-input sibling option
+			},
+		})
+		bridgeResp <- resp
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), `"kind":"choice"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("notification not seen; buffer: %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var notif Notification
+	_ = json.Unmarshal(bytes.TrimSpace(out.Bytes()), &notif)
+	requestID, _ := notif.Params.(map[string]any)["requestId"].(string)
+
+	// Attack 1: a single UNKNOWN id with an inputValue that would fail the
+	// validator if it ran. Must be rejected (unknown option).
+	bogus := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["bogus"],"inputValue":"abc"}`)
+	if _, err := srv.handleSessionChoiceResponse(bogus); err == nil {
+		t.Fatal("expected rejection for unknown selected option id")
+	}
+	select {
+	case got := <-bridgeResp:
+		t.Fatalf("bridge resolved on unknown selection: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	// Attack 2: select the NON-input option but smuggle an inputValue. The
+	// selection is valid (cancel exists) so it resolves, but the inputValue
+	// must be cleared, not forwarded unvalidated.
+	smuggle := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["cancel"],"inputValue":"abc"}`)
+	if _, err := srv.handleSessionChoiceResponse(smuggle); err != nil {
+		t.Fatalf("non-input selection should resolve: %v", err)
+	}
+	select {
+	case got := <-bridgeResp:
+		if got.InputValue != "" {
+			t.Errorf("inputValue for a non-input selection = %q, want cleared", got.InputValue)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge did not resolve for the valid non-input selection")
+	}
+}
+
 // writerSync wraps a bytes.Buffer with a mutex so the bridge
 // goroutine's Write and the test's read loop don't race. Provides
 // String() / Bytes() that take the same lock so callers don't have

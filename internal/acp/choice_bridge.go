@@ -233,17 +233,34 @@ func (s *Server) handleSessionChoiceResponse(raw json.RawMessage) (any, error) {
 						Message: "input-bearing choice requires exactly one selected option",
 					}
 				}
-				for _, opt := range req.Options {
-					if opt.ID != p.Selected[0] || opt.Input == nil || opt.Input.Validator == nil {
-						continue
+				// The single selection must be a KNOWN option. A bogus or
+				// non-input selection would otherwise fall through the
+				// validator loop and still forward InputValue to the plugin
+				// (Codex #209): reject unknown IDs, and for a non-input option
+				// clear InputValue so unvalidated text can't ride along.
+				var sel *pluginRuntime.ChoiceOption
+				for i := range req.Options {
+					if req.Options[i].ID == p.Selected[0] {
+						sel = &req.Options[i]
+						break
 					}
-					if err := pluginRuntime.ValidateChoiceInput(p.InputValue, opt.Input.Validator); err != nil {
+				}
+				if sel == nil {
+					return nil, &RPCError{
+						Code:    CodeInvalidParams,
+						Message: "selected option does not exist",
+					}
+				}
+				switch {
+				case sel.Input == nil:
+					p.InputValue = ""
+				case sel.Input.Validator != nil:
+					if err := pluginRuntime.ValidateChoiceInput(p.InputValue, sel.Input.Validator); err != nil {
 						return nil, &RPCError{
 							Code:    CodeInvalidParams,
 							Message: "input validation failed: " + err.Error(),
 						}
 					}
-					break
 				}
 			}
 		}
