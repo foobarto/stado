@@ -134,13 +134,18 @@ caching, thinking enablement/budgeting, vision gating, and context
 threshold enforcement.
 
 `EvCacheHit` / `EvCacheMiss` and `Usage.CacheReadTokens` /
-`CacheWriteTokens` are the canonical surface for prompt-cache telemetry;
-§"Context management" defines the invariants around what may appear in
-the cached prefix and how the hit/miss counts feed OTel metrics. The
-events and usage fields are emitted today by every provider; the OTel
-instruments they feed (`stado_cache_hit_ratio` etc.) are declared in
-`internal/telemetry` and recorded by the current runtime/provider call
-sites.
+`CacheWriteTokens` are the *intended* canonical surface for prompt-cache
+telemetry; §"Context management" defines the invariants around what may
+appear in the cached prefix and how the hit/miss counts feed OTel metrics.
+As-built caveat (do not over-read this section): the discrete `EvCacheHit`
+/ `EvCacheMiss` *events* are part of the `Event` union but are **not
+currently emitted by the core providers** — cache accounting flows through
+the `Usage.CacheReadTokens` / `CacheWriteTokens` fields where a provider
+reports them. The OTel instruments these would feed
+(`stado_cache_hit_ratio` etc.) are declared in `internal/telemetry` but
+are **not yet wired to recording call sites** (see EP-0011). Likewise
+`MaxParallelToolCalls` is reported by providers but the agent loop runs
+tool calls sequentially today and does not yet read it.
 
 ---
 

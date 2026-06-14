@@ -24,10 +24,14 @@ see-also: [0007, 0014, 0032]
 
 # EP-0033: Responsive frontline — supervisor + worker lanes
 
-> **Status: Draft.** No code yet. The /btw infrastructure already
-> implements every primitive this EP needs; the work is connecting
-> them into a persistent supervisor lane plus a small classifier
-> head, gated behind an opt-in config block.
+> **Status: Partially implemented (Phase A, v0.33.0).** The `/btw`
+> supervisor primitive shipped; the persistent supervisor lane,
+> `internal/session/lanes`, live transcript tail, `SupportsStreaming`
+> capability + validation, lane-aware `/provider|/model worker|supervisor`,
+> classifier stats, and `/redirect` are NOT yet built. The frontmatter
+> `status: Implemented` reflects Phase A only — treat the un-shipped pieces
+> below as the open design. (The original "Draft. No code yet." banner was
+> stale once `/btw` landed.)
 
 ## Problem
 
