@@ -127,6 +127,27 @@ func TestProviderErrorFinalizesStreamingBlocks(t *testing.T) {
 	}
 }
 
+// A normal (non-error) turn that ends with tool calls must NOT finalize the
+// just-emitted tool blocks at stream-done — they are about to execute, and
+// in tool_display=auto the pane must stay full until the result arrives
+// (onToolResult clears streaming). Regression: an over-broad finalize at the
+// top of onStreamDone collapsed running tools to one line. Codex P2 on #201.
+func TestToolStreamingPreservedAcrossStreamDoneWithPendingTool(t *testing.T) {
+	m := scenarioModel(t)
+	m.toolMode = displayAuto
+	m.state = stateStreaming
+	m.blocks = []block{{kind: "tool", toolID: "t1", toolName: "bash", streaming: true}}
+	m.turnToolCalls = []agent.ToolUseBlock{{ID: "t1", Name: "bash"}}
+	m.turnAllowed = map[string]struct{}{"bash": {}}
+
+	// onStreamDone runs onTurnComplete -> advanceToolQueue (tool pending);
+	// the tool has not produced a result yet, so it must remain streaming.
+	_, _ = onStreamDone(m, streamDoneMsg{})
+	if !m.blocks[0].streaming {
+		t.Fatal("a pending/running tool block must stay streaming through stream-done (auto keeps the pane full until the result)")
+	}
+}
+
 func TestStreamRejectsOversizedAssistantText(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateStreaming

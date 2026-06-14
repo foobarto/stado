@@ -86,12 +86,6 @@ func onStreamError(m *Model, msg streamErrorMsg) (tea.Model, tea.Cmd) {
 
 func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streamCancel = nil
-	// Any in-flight thinking/tool block is done once the stream ends —
-	// including the error / budget-fail paths below, which return before
-	// onTurnComplete (the normal finalize site) ever runs. Without this an
-	// errored turn's blocks keep streaming=true forever and `auto` mode
-	// never collapses them. Idempotent on the happy path.
-	m.finalizeStreamingBlocks()
 	if m.state == stateError {
 		// #19: providers that surface a context overflow as an EvError
 		// stream event (Anthropic family) land here in stateError — give
@@ -104,8 +98,14 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 		// dead "↻ loop" forever) but never re-iterated — and blindly
 		// re-firing an immediate loop on error would be a no-delay runaway.
 		m.stopLoopOnError()
-		// Reflect the just-finalized streaming blocks (auto-collapse) now,
-		// not on the next unrelated render tick.
+		// The turn is dead — finalize any in-flight thinking/tool block so
+		// `auto` mode collapses them. This branch returns before
+		// onTurnComplete (the normal finalize site), so without this an
+		// errored turn's blocks keep streaming=true forever. Confined to the
+		// error path: on the normal path a turn ending with tool calls keeps
+		// its tool blocks streaming until onToolResult arrives (they are
+		// about to execute), and the no-tool path finalizes in onTurnComplete.
+		m.finalizeStreamingBlocks()
 		m.renderBlocks()
 		return m, nil
 	}
