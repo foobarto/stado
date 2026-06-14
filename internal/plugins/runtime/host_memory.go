@@ -120,23 +120,18 @@ func registerMemoryUpdateImport(builder wazero.HostModuleBuilder, host *Host) {
 				stack[0] = api.EncodeI32(-1)
 				return
 			}
-			// EP-0015 D2: approval is a USER-only review action. A plugin must
-			// not approve candidate memories — otherwise a plugin holding
-			// memory:write could approve its own proposals, laundering
-			// attacker-controlled text into queryable (prompt-injectable)
-			// memory. Plugins may propose (stado_memory_propose) and
-			// reject/delete/edit; only the operator (CLI/TUI) approves.
-			var act struct {
-				Action string `json:"action"`
-			}
-			// Normalise exactly as memory.Store.Update does (TrimSpace+ToLower)
-			// before comparing — otherwise a case/whitespace variant
-			// ("Approve", " APPROVE ") slips past this guard and is then
-			// normalised to "approve" by the store (store.go: req.Action =
-			// strings.TrimSpace(strings.ToLower(...))), defeating it.
-			if json.Unmarshal(payload, &act) == nil &&
-				strings.TrimSpace(strings.ToLower(act.Action)) == "approve" {
-				host.Logger.Warn("stado_memory_update denied — plugins cannot approve candidate memories (user action required)",
+			// EP-0015 D2: a plugin (memory:write) must never produce an APPROVED
+			// memory — otherwise it could launder attacker-controlled text into
+			// queryable (prompt-injectable) memory. The earlier guard blocked
+			// only action=="approve", but the store also reaches approved via
+			// `supersede` (forces approved), `upsert` (defaults empty confidence
+			// to approved), and any action carrying confidence:"approved".
+			// Plugins add candidates via stado_memory_propose and may
+			// reject/delete/edit-to-candidate; only the operator (CLI/TUI)
+			// approves. pluginMemoryUpdateDenied covers all approved-producing
+			// paths (normalised to match memory.Store.Update's TrimSpace+ToLower).
+			if pluginMemoryUpdateDenied(payload) {
+				host.Logger.Warn("stado_memory_update denied — plugins cannot create approved memories (operator approval required)",
 					slog.String("plugin", host.Manifest.Name))
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -149,4 +144,40 @@ func registerMemoryUpdateImport(builder wazero.HostModuleBuilder, host *Host) {
 			stack[0] = api.EncodeI32(0)
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32}, []api.ValueType{api.ValueTypeI32}).
 		Export("stado_memory_update")
+}
+
+// pluginMemoryUpdateDenied reports whether a memory:write PLUGIN must be denied
+// this stado_memory_update payload because it would produce an APPROVED memory
+// (EP-0015 D2 — only the operator approves). It covers every approved-producing
+// path in memory.Store.Update:
+//   - action "approve" (the explicit approve transition),
+//   - action "supersede" (always forces the replacement to approved),
+//   - action "upsert" with an empty confidence (the store defaults it to
+//     approved),
+//   - any action carrying confidence:"approved".
+//
+// Plugins add candidates via stado_memory_propose and may reject / delete /
+// edit-to-candidate, none of which this denies. Fields are normalised
+// (TrimSpace+ToLower) exactly as the store does, so case/whitespace variants
+// ("Approve", " APPROVED ") can't slip past. A malformed payload is left to the
+// store to reject.
+func pluginMemoryUpdateDenied(payload []byte) bool {
+	var req struct {
+		Action string `json:"action"`
+		Item   *struct {
+			Confidence string `json:"confidence"`
+		} `json:"item"`
+	}
+	if json.Unmarshal(payload, &req) != nil {
+		return false
+	}
+	action := strings.TrimSpace(strings.ToLower(req.Action))
+	conf := ""
+	if req.Item != nil {
+		conf = strings.TrimSpace(strings.ToLower(req.Item.Confidence))
+	}
+	return action == "approve" ||
+		action == "supersede" ||
+		conf == "approved" ||
+		(action == "upsert" && conf == "")
 }

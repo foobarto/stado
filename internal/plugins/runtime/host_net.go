@@ -325,8 +325,23 @@ func dialIP(ctx context.Context, host *Host, network, hostStr, portStr string, t
 	if err != nil {
 		return nil, err
 	}
+	// Dial each GUARDED ip in turn (each already passed the private guard) so a
+	// multi-A / IPv6+IPv4 host whose first address is unreachable still
+	// connects — matching the non-streaming HTTP path — without re-resolving the
+	// hostname (which would reopen a rebinding window).
 	d := net.Dialer{Timeout: timeout}
-	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), portStr))
+	var lastErr error
+	for _, ip := range ips {
+		conn, derr := d.DialContext(ctx, network, net.JoinHostPort(ip.String(), portStr))
+		if derr == nil {
+			return conn, nil
+		}
+		lastErr = derr
+	}
+	if lastErr == nil { // ResolveAndGuard guarantees ≥1 ip; defensive
+		lastErr = fmt.Errorf("dial %s: no addresses", hostStr)
+	}
+	return nil, lastErr
 }
 
 // errCapDenied is returned by the dial helpers for cap-glob mismatch.
@@ -910,6 +925,3 @@ func (r *Runtime) closeAllNetConns(ctx context.Context) {
 func isPrivateIP(ip net.IP) bool {
 	return netguard.IsPrivateBroad(ip)
 }
-
-// errPrivateAddr is returned by the dial guard for clarity in tests.
-var errPrivateAddr = fmt.Errorf("net:dial: address is private and net:http_request_private not granted")

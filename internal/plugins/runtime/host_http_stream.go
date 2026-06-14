@@ -273,27 +273,18 @@ func openHTTPStream(ctx context.Context, host *Host, args streamRequestArgs) (st
 // non-streaming http_request).
 func httpStreamDialContext(h *Host) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		hostStr, _, err := net.SplitHostPort(addr)
+		hostStr, portStr, err := net.SplitHostPort(addr)
 		if err != nil {
 			return nil, err
 		}
-		// Streaming dial uses the SAME guard as net dial — public
-		// hosts unrestricted; private addrs need NetHTTPRequestPrivate.
-		// Emulate dialIP without the cap-glob check (the caller
-		// already enforced NetHTTPRequest / NetReqHost above).
-		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", hostStr)
-		if err != nil {
-			return nil, err
-		}
-		if !h.NetHTTPRequestPrivate {
-			for _, ip := range ips {
-				if isPrivateIP(ip) {
-					return nil, errPrivateAddr
-				}
-			}
-		}
-		d := net.Dialer{Timeout: 30 * time.Second}
-		return d.DialContext(ctx, network, addr)
+		// Pin the dial to the guarded IP via dialIP — do NOT hand the hostname
+		// to the Dialer, which would re-resolve and reopen a DNS-rebinding
+		// window (the guard sees a public IP, the dial reaches a different,
+		// e.g. loopback, IP). dialIP resolves+guards once (NetHTTPRequestPrivate,
+		// broad) and dials net.JoinHostPort(ip, port). The caller already
+		// enforced NetHTTPRequest / NetReqHost; TLS SNI/cert still use the
+		// hostname (http.Transport supplies it from the request URL).
+		return dialIP(ctx, h, network, hostStr, portStr, 30*time.Second)
 	}
 }
 

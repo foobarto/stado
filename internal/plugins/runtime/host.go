@@ -134,6 +134,12 @@ type Host struct {
 	// EP-no-internal-tools Step 4, so the fields could never be set and every
 	// reader was dead. See the "exec" case in capability parsing below.
 	ExecPTY bool
+	// ExecPTYGlobs, when non-empty, restricts stado_pty_create to binaries
+	// matching one of the terminal:open:<glob> / exec:pty:<glob> patterns —
+	// the PTY analogue of ExecProcGlobs. An empty list means broad exec:pty.
+	// Without this the PTY path ran any binary (or /bin/sh via opts.Cmd)
+	// regardless of the exec:proc glob, bypassing the cap-confinement layer.
+	ExecPTYGlobs []string
 	// ExecProc gates stado_proc_* and stado_exec (EP-0038 §B Tier 1).
 	// ExecProcGlobs, when non-empty, restricts to any of the listed
 	// exec:proc:<glob> patterns. An empty list means broad exec:proc.
@@ -157,6 +163,12 @@ type Host struct {
 	// even when the underlying dns:axfr capability is held — same posture
 	// as net:http_request vs net:http_request_private.
 	DNSAXFRPrivate bool
+	// DNSResolvePrivate loosens the stado_dns_resolve custom-server guard so a
+	// plugin may direct queries at RFC1918 / loopback resolvers. Declared via
+	// dns:resolve_private. Without it, a custom server resolving to a private
+	// address is refused (else dns:resolve alone could query the host's
+	// internal / split-horizon resolver). Mirrors DNSAXFRPrivate for AXFR.
+	DNSResolvePrivate bool
 	// CryptoHash gates stado_hash and stado_hmac (EP-0038 §B Tier 3).
 	CryptoHash bool
 	// Compress gates stado_compress / stado_decompress (Tier 3).
@@ -850,8 +862,12 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			}
 		case "terminal":
 			// EP-0038: terminal:open is the new name for exec:pty.
+			// terminal:open:<glob> scopes the PTY to specific binaries.
 			if parts[1] == "open" {
 				h.ExecPTY = true
+				if len(parts) == 3 && parts[2] != "" {
+					h.ExecPTYGlobs = h.appendExecGlob(h.ExecPTYGlobs, parts[2], "terminal:open")
+				}
 			}
 		case "exec":
 			switch parts[1] {
@@ -860,20 +876,13 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			// imports are gone. Use exec:proc:<glob> instead.
 			case "pty":
 				h.ExecPTY = true
+				if len(parts) == 3 && parts[2] != "" {
+					h.ExecPTYGlobs = h.appendExecGlob(h.ExecPTYGlobs, parts[2], "exec:pty")
+				}
 			case "proc":
 				h.ExecProc = true
 				if len(parts) == 3 && parts[2] != "" {
-					glob := parts[2]
-					// Glob shape: absolute path OR slash-free basename.
-					// Reject mixed (relative path with slashes) — it
-					// won't match procAllowed's resolved-path lookup
-					// and would be a silent-deny footgun.
-					if strings.Contains(glob, "/") && !strings.HasPrefix(glob, "/") {
-						h.Logger.Warn("exec:proc glob rejected: mixed relative-path form (use absolute path or slash-free basename)",
-							slog.String("glob", glob))
-						continue
-					}
-					h.ExecProcGlobs = append(h.ExecProcGlobs, glob)
+					h.ExecProcGlobs = h.appendExecGlob(h.ExecProcGlobs, parts[2], "exec:proc")
 				}
 			}
 		case "bundled-bin":
@@ -882,6 +891,9 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 			switch parts[1] {
 			case "resolve":
 				h.DNSResolve = true
+			case "resolve_private":
+				h.DNSResolve = true // resolve_private implies resolve
+				h.DNSResolvePrivate = true
 			case "axfr":
 				h.DNSResolve = true // axfr implies resolve
 				h.DNSAXFR = true

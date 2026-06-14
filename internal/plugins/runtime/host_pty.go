@@ -106,6 +106,19 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
 				return
 			}
+			// Enforce the exec:pty / terminal:open glob on the spawned binary —
+			// parity with the exec:proc path. Without this, exec:pty alone (or a
+			// narrow exec:pty:<glob>) could run ANY binary, and opts.Cmd expands
+			// to "/bin/sh -c <cmd>" (an unrestricted shell) inside Manager.Spawn.
+			bin := "/bin/sh" // the Manager.Spawn fallback when Argv is empty
+			if len(opts.Argv) > 0 {
+				bin = opts.Argv[0]
+			}
+			if !host.ptyAllowed(bin) {
+				host.Logger.Warn("stado_pty_create denied by cap", slog.String("bin", bin))
+				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
+				return
+			}
 			id, err := host.PTYManager.Spawn(opts)
 			if err != nil {
 				host.Logger.Warn("stado_pty_create failed", slog.String("err", err.Error()))

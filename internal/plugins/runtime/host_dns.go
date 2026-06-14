@@ -69,14 +69,20 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 			// could AXFR against 127.0.0.1:53 (the local resolver) or
 			// 192.168.x.x:53 (LAN scan). Reported in the 2026-05-09
 			// review as a sister issue to the HTTP private-cap split.
+			axfrServer := req.Server
 			if !host.DNSAXFRPrivate {
-				if denyMsg := guardAXFRTarget(ctx, req.Server); denyMsg != "" {
+				dialAddr, denyMsg := guardDNSTarget(ctx, req.Server, "dns:axfr_private")
+				if denyMsg != "" {
 					writeJSONError(mod, resPtr, resCap, denyMsg)
 					stack[0] = api.EncodeI32(-1)
 					return
 				}
+				// Dial the guarded IP, not the hostname — closes the rebinding
+				// window (guard resolves public, a second resolution at dial
+				// time could be private).
+				axfrServer = dialAddr
 			}
-			records, axfrErr := dnsAXFR(ctx, req.Zone, req.Server, timeout)
+			records, axfrErr := dnsAXFR(ctx, req.Zone, axfrServer, timeout)
 			type result struct {
 				Records []axfrRecord `json:"records"`
 				Error   string       `json:"error,omitempty"`
@@ -109,17 +115,33 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 // is non-actionable and, for AXFR-via-multicast specifically, exotic
 // enough to be more likely a probe than a legitimate query.
 func guardAXFRTarget(ctx context.Context, server string) string {
-	hostStr := server
-	if h, _, err := net.SplitHostPort(server); err == nil {
-		hostStr = h
+	_, denyMsg := guardDNSTarget(ctx, server, "dns:axfr_private")
+	return denyMsg
+}
+
+// guardDNSTarget refuses a custom DNS/AXFR server that resolves to RFC1918 /
+// loopback / link-local / multicast / unspecified when the caller lacks the
+// private cap named by capName. On accept it returns the address to DIAL,
+// pinned to the guarded IP — callers MUST dial dialAddr, not the original
+// hostname, so the server name can't be re-resolved to a private address
+// between guard and dial (DNS rebinding). On refuse it returns ("", denyMsg).
+// Shared by the AXFR path and the stado_dns_resolve custom-server path so they
+// can't drift (the resolve path previously had NO guard, letting dns:resolve
+// alone point server=127.0.0.1:53 at the host's internal / split-horizon
+// resolver).
+func guardDNSTarget(ctx context.Context, server, capName string) (dialAddr, denyMsg string) {
+	hostStr, portStr := server, "53"
+	if h, p, err := net.SplitHostPort(server); err == nil {
+		hostStr, portStr = h, p
 	}
-	if _, err := netguard.ResolveAndGuard(ctx, hostStr, false /*allowPrivate*/, true /*broad*/); err != nil {
+	ips, err := netguard.ResolveAndGuard(ctx, hostStr, false /*allowPrivate*/, true /*broad*/)
+	if err != nil {
 		if errors.Is(err, netguard.ErrPrivateAddress) {
-			return "axfr to private destination denied (dns:axfr_private capability required): " + err.Error()
+			return "", "dns query to private destination denied (" + capName + " capability required): " + err.Error()
 		}
-		return "axfr server lookup failed: " + err.Error()
+		return "", "dns server lookup failed: " + err.Error()
 	}
-	return ""
+	return net.JoinHostPort(ips[0].String(), portStr), ""
 }
 
 // axfrRecord is one DNS RR returned in the AXFR response. Rdata is
@@ -234,11 +256,31 @@ func registerDNSResolveImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			resolver := net.DefaultResolver
 			if req.Server != "" {
+				// A custom DNS server must clear the private-destination guard
+				// unless dns:resolve_private is held — otherwise a plugin with
+				// only dns:resolve could query the host's internal /
+				// split-horizon resolver (server=127.0.0.1:53). Parity with the
+				// AXFR path.
+				dialServer := req.Server
+				if !host.DNSResolvePrivate {
+					dialAddr, denyMsg := guardDNSTarget(resolveCtx, req.Server, "dns:resolve_private")
+					if denyMsg != "" {
+						host.Logger.Warn("stado_dns_resolve denied",
+							slog.String("server", req.Server), slog.String("reason", denyMsg))
+						writeJSONError(mod, resPtr, resCap, denyMsg)
+						stack[0] = api.EncodeI32(-1)
+						return
+					}
+					// Dial the GUARDED IP, not the hostname — the Dialer would
+					// otherwise re-resolve req.Server, reopening a rebinding
+					// window where the dialed IP differs from the guarded one.
+					dialServer = dialAddr
+				}
 				resolver = &net.Resolver{
 					PreferGo: true,
 					Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 						d := net.Dialer{}
-						return d.DialContext(ctx, "udp", req.Server)
+						return d.DialContext(ctx, "udp", dialServer)
 					},
 				}
 			}
