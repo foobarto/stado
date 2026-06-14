@@ -1,46 +1,47 @@
-## v0.68.0 — TUI-hang fix + EP-audit security/correctness fixes — 2026-06-14
+## v0.69.0 — EP-audit follow-ups: plugin categories, fleet cleanup, build determinism — 2026-06-14
 
-A streaming-hang fix plus a batch of fixes from an EP-vs-codebase audit. The
-headline is the TUI freeze; several sandbox/plugin security gaps where a
-documented control wasn't actually enforced are also closed.
+Continues the EP-vs-codebase audit work from v0.68.0. Installed plugins' tool
+categories now work at runtime, a background-agent resource leak on exit is
+closed, and the bundled-wasm build is determinism-gated in CI.
+
+### TUI / Plugins
+
+- **Installed-plugin tool categories work at runtime.** Plugin manifests declare
+  per-tool `categories` / `extra_categories`, validated against the canonical
+  taxonomy at install — but nothing read them back, so `tools.categories`,
+  `tools.in_category`, and the categories field of `tools.search` treated every
+  installed tool as category-less. They now surface the manifest's categories,
+  and `tools.search` matches on them. Canonical categories stay separate from
+  free-form `extra_categories`: the catalog (`tools.categories`) and
+  `[tools].autoload_categories` only see canonical entries, while extras are
+  shown distinctly in `tools.describe` and accepted for exact `tools.in_category`
+  lookups. (EP-0037)
 
 ### Fixes
 
-- **TUI no longer freezes on a cold / after-idle turn.** The OpenAI-compatible
-  streaming client (MiniMax and every OAI-compat backend) used the default HTTP
-  transport, whose HTTP/2 connection pool has no liveness check — so a pooled
-  connection silently dropped during an idle gap (common behind NAT/VM layers)
-  was reused on the next turn and blocked forever on the response read, freezing
-  the whole UI with no error. The streaming client now sets HTTP/2
-  ReadIdleTimeout + PingTimeout so a dead connection is detected and evicted
-  (no overall deadline — long generations are unaffected).
-- **Scheduled session-resume works.** `schedule` passed `--session-id` but the
-  flag is `--session`, so every scheduled session-resume failed with "unknown
-  flag". (EP-0036)
-- **`stado tool run` honors project-local plugins.** The agent-loop tool
-  registry and tool-run resolution now search project-local `.stado/plugins/`
-  in addition to the global state dir; a project plugin shadows a global one of
-  the same name. (EP-0035)
-- **ACP `register_mcp` consent is honored.** The config flag had no field, so
-  MCP auto-registration was unreachable. (EP-0032)
+- **Background fleet agents no longer leak past TUI exit.** `/spawn` agents ran
+  on goroutines parented off a non-cancellable root context, and the fleet was
+  never cancelled on quit — so exiting the UI left subagent goroutines (and the
+  provider calls / child processes they drove) running orphaned. The TUI now
+  cancels the fleet on every exit path. (EP-0034)
 
-### Security
+### Infra
 
-- **The seccomp syscall deny-list is now actually enforced.** The compiled BPF
-  filter (kills mount/ptrace/reboot/kexec_load/…) was built but never handed to
-  bubblewrap, so the kill-list the docs claim was enforced ran nowhere. It is
-  now passed via `--seccomp` on every sandboxed tool call (deny-net / allow-all
-  / no-net paths), fail-safe if unavailable. (EP-0005)
-- **The meta-tool dispatch kernel can no longer be disabled.** `tools.*` /
-  `plugin.load` / `plugin.unload` survive `[tools].disabled` / a narrow
-  allowlist (they were silently unregistered, leaving the model unable to
-  discover or activate any tool). (EP-0037)
-- **Plugins can no longer self-approve their own candidate memories.** The
-  memory host import rejected `approve` from a plugin (case/space-normalised) —
-  approval is operator-only. (EP-0015)
-- **Security harness applies on every surface.** `[harness].mode = "security"`
-  now engages on the TUI / ACP / headless surfaces (was honored only by
-  `stado run`) and is surfaced in `stado config init`. (EP-0030)
-- **Daemon repo-root discovery uses the shared HEAD-checked predicate** (a
-  stray HEAD-less `.git` is no longer accepted as a repo root). (EP-0027)
+- **Bundled-wasm rebuild determinism is gated in CI.** A new `wasm-determinism`
+  job builds the `go:embed`'d wasm twice from a cold cache and fails on any sha
+  mismatch, so a non-reproducible build can't silently ship inside a signed
+  binary. (EP-0042)
+- **Removed dead `exec:bash` / `exec:search` / `exec:ast_grep` plugin-host
+  fields and their unreachable refuse-no-runner guards** — those capabilities
+  were dropped in the no-internal-tools migration, so the fields could never be
+  set. (EP-0028)
+
+### Docs
+
+- Corrected EP status/example drift surfaced by the audit: EP-0030's stale
+  "Placeholder" body banner (the harness shipped in v0.33.0), EP-0002's
+  `[tools.overrides]` example using removed bare tool names, and a note on
+  EP-0039 that automatic anchor trust-on-first-use at install time is not yet
+  wired (the manual `plugin trust` command and override-fingerprint verification
+  are).
 
