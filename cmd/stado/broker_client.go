@@ -4,12 +4,13 @@ package main
 // (stado run, TUI, stado headless, stado acp, stado mcp-server) to
 // attach to the broker and create a session.
 //
-// The returned ceiling IS enforced: orchestrator entry points (TUI,
-// stado run, headless, acp, mcp-server) attach here, receive a
-// SessionID + projected ceiling, and pass enforceCeiling=true into the
-// runtime, which wraps the sandbox runner with the ceiling
-// (NewCeilingRunner). (The earlier "phase 1 no-op" wording predated
-// that wiring.)
+// The returned ceiling is enforced by `stado run` and the TUI: those two
+// pass enforceCeiling=true and wrap the runner with it (NewCeilingRunner,
+// run.go / tui/app.go). headless / acp / mcp-server attach here for the
+// SessionID + sandbox announce but do NOT yet thread the ceiling into
+// their runner — they rely on their host-default exec policy instead (a
+// known gap). (The earlier "phase 1 no-op" wording predated even the
+// run/TUI wiring.)
 //
 // Auto-spawn behavior matches dispatchViaDaemon in tool_run_daemon.go:
 // fast-path dial, on failure spawn `stado daemon start --quiet`
