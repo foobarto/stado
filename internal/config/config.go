@@ -846,23 +846,40 @@ func Load() (*Config, error) {
 			if int64(len(data)) > maxConfigBytes {
 				return nil, fmt.Errorf("project config exceeds %d byte limit", maxConfigBytes)
 			}
-			// Load the project overlay into a SEPARATE instance first so we
-			// can strip security-sensitive tables before merging. A repo is
-			// untrusted input. `[hooks]` runs arbitrary shell commands
-			// (post_turn = "/bin/sh -c ...") — near-zero-effort RCE (#040/#060).
-			// `[aliases]` expand into dispatched slash commands (e.g. a repo
-			// alias `test = "/tool shell.exec ..."`), so a committed alias is an
-			// exec vector too (#002). Neither may be dictated by a repo; both
-			// belong in user/global config. Project model/provider/tool
-			// overrides (the EP-0035 use case) remain honored.
+			// Load the project overlay into a SEPARATE instance first so we can
+			// strip security-sensitive keys before merging. A repo is untrusted
+			// input (threat model: "Repository contents ... attacker-controlled").
+			// The keys below have no legitimate project use, or must never be
+			// honored from a repo even if the project is otherwise trusted:
+			//   hooks / aliases     arbitrary shell / slash-command exec (#040/#060/#002)
+			//   keymap              can remap or neutralize the Esc/Ctrl+G interrupt
+			//                       kill switch, or swap the whole input model (#7/#10)
+			//   defaults.persona    selects a repo .stado/personas/*.md whose body is
+			//                       injected verbatim into the system prompt (#8/#42)
+			//   plugins.background  auto-runs installed wasm plugins at launch (#8)
+			//   acp                 register_mcp = persistent MCP backdoor (#3),
+			//                       inherit_env = host-secret passthrough (#20),
+			//                       max_turns = removes the loop circuit-breaker (#54)
+			//   mcp.providers       wrapped-MCP inherit_env host-secret passthrough
+			//                       (#20); mcp.servers stays (legit project tool servers)
+			//   tui.sidebar/footer  can hide the sandbox/budget/risk safety chrome (#14)
+			// Project model/provider/tool overrides (the EP-0035 use case) stay.
+			// koanf Delete is a recursive prefix-delete, so a dotted key like
+			// "defaults.persona" removes exactly that leaf and "acp" removes the
+			// whole subtree.
 			pk := koanf.New(".")
 			if err := pk.Load(staticBytesProvider(data), toml.Parser()); err != nil {
 				return nil, fmt.Errorf("load project config: %w", err)
 			}
-			for _, table := range []string{"hooks", "aliases"} {
-				if pk.Exists(table) {
-					pk.Delete(table)
-					fmt.Fprintf(os.Stderr, "stado: ignoring [%s] from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.\n", table)
+			for _, key := range []string{
+				"hooks", "aliases", "keymap",
+				"defaults.persona", "plugins.background",
+				"acp", "mcp.providers",
+				"tui.sidebar", "tui.footer",
+			} {
+				if pk.Exists(key) {
+					pk.Delete(key)
+					fmt.Fprintf(os.Stderr, "stado: ignoring %q from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.\n", key)
 				}
 			}
 			if err := k.Merge(pk); err != nil {

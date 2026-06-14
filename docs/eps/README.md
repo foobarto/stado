@@ -67,6 +67,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0041 | [Shell PTY tool naming — read_until and screenshot](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
 | 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
 | 0043 | [Shell PTY-UX rethink — read modes, no lock, labeled sessions](./0043-shell-pty-ux-rethink.md) | Standards | Implemented |
+| 0044 | [Repo-config trust boundary — harden project-config strip-list + per-project TOFU](./0044-repo-config-trust-boundary.md) | Standards | Accepted |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
