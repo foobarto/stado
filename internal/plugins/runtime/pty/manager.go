@@ -655,6 +655,14 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 // mode:"stream"/"auto" read from dumping the whole alt-screen backlog
 // when the program exits the alternate buffer. The vt10x emulator is a
 // separate sink, so the rendered screen is unaffected. No attach required.
+//
+// Concurrency: when another caller is actively consuming the stream — a
+// blocked Read (readWaiters) or an in-flight Expect (expectInProgress) —
+// DiscardPending is a no-op. Those callers own the ring; draining out from
+// under an Expect that's sleeping inside cond.Wait would silently eat the
+// bytes it's matching on. This mirrors destroyIfIdle's readWaiters guard.
+// The auto-screen drain only matters when the agent is polling renders and
+// nobody is reading the raw stream, which is exactly when both flags are 0.
 func (m *Manager) DiscardPending(id uint64) (int, error) {
 	s, err := m.get(id)
 	if err != nil {
@@ -662,6 +670,9 @@ func (m *Manager) DiscardPending(id uint64) (int, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.expectInProgress || s.readWaiters > 0 {
+		return 0, nil
+	}
 	n := s.ring.Len()
 	if n > 0 {
 		s.ring.ReadN(n)

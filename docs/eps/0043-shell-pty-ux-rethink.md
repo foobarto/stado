@@ -2,9 +2,10 @@
 ep: 0043
 title: Shell PTY-UX rethink — read modes, no lock, labeled sessions
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
 type: Standards
 created: 2026-06-14
+implemented-in: v0.74.0
 see-also: [0041, 0038, 0037]
 history:
   - date: 2026-06-14
@@ -25,6 +26,14 @@ history:
       mode fold + AltScreen auto-detect, attach lock + attach/detach tools
       removed, spawn description + broad list. Spawning-PID in `list` (Slice 5)
       deferred to a fast-follow. Flip to Implemented at the v0.74.0 tag.
+  - date: 2026-06-14
+    status: Implemented
+    note: >
+      Shipped in v0.74.0. Pre-release adversarial review added D10 (mode:"auto"
+      drains the raw ring when it renders a screen, guarded against an active
+      Read/Expect consumer) and made `shell.signal` accept signal names
+      ("SIGINT") host-side, not just integers. Docs synced (host-imports,
+      abi-reference, EP index, CHANGELOG).
 ---
 
 # EP-43: Shell PTY-UX rethink — read modes, no lock, labeled sessions
@@ -128,8 +137,9 @@ Host import signatures unchanged.
 Remove the access-gate use of the single-attach lock:
 
 - **`read` / `write` / `read_until` work directly by integer id** — no
-  attachment required. In the host imports (`registerPTYRead` host_pty.go:266,
-  `registerPTYWrite` :227, the expect path), drop the `ErrNotAttached` gate.
+  attachment required. In the host imports (`registerPTYRead`,
+  `registerPTYWrite`, and the expect path in `host_pty.go`), drop the
+  `ErrNotAttached` gate.
 - **Remove the `shell.attach` and `shell.detach` tools** (and their host
   imports' gate role). This cuts two tools and the ceremony — directly serving
   the discoverability goal — and eliminates the "attach first" error.
@@ -174,10 +184,11 @@ document `mode` + the auto behavior. Drop all "Requires attach" notes.
 ### Clean break: remove the `shell.screenshot` tool
 
 Remove the agent-facing `shell__screenshot` registration
-(`bundled_plugin_tools.go:207-217`), its `tool_metadata.go` entry, and its
-`cmd/stado/tool_run.go` PTY-gated-list entry. The `stado_tool_screenshot` wasm
-export and the `stado_terminal_snapshot` host import **stay** (consumed by
-`read mode:screen` and the TUI). No alias, no deprecation window (pre-1.0).
+(`bundled_plugin_tools.go`), its `tool_metadata.go` entry, and its
+`cmd/stado/tool_run.go` PTY-gated-list entry. The `stado_tool_screenshot`
+wasm-side **export is removed too** — `read mode:"screen"` renders via the
+`stado_terminal_snapshot` host import, which **stays** (also consumed by the
+TUI). No alias, no deprecation window (pre-1.0).
 
 ## Migration / rollout
 

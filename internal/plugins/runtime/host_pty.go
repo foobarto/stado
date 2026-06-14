@@ -1,14 +1,17 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -245,8 +248,11 @@ func registerPTYRead(builder wazero.HostModuleBuilder, host *Host, exportName st
 
 // stado_pty_signal(args_ptr, args_len, result_ptr, result_cap) → i32
 //
-// args = {"id": uint64, "sig": int}. sig is a POSIX signal number
-// (e.g. 2 = SIGINT, 15 = SIGTERM). Returns 0 on success.
+// args = {"id": uint64, "sig": int|string}. sig is a POSIX signal number
+// (e.g. 2 = SIGINT, 15 = SIGTERM) OR a name ("SIGINT", "TERM", case-
+// insensitive, with or without the SIG prefix) — the shell__signal tool
+// description advertises names, so the host resolves them. Returns 0 on
+// success.
 func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -255,10 +261,15 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 			resPtr := api.DecodeU32(stack[2])
 			resCap := api.DecodeU32(stack[3])
 			var req struct {
-				ID  uint64 `json:"id"`
-				Sig int    `json:"sig"`
+				ID  uint64          `json:"id"`
+				Sig json.RawMessage `json:"sig"`
 			}
 			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			sig, err := parseSignal(req.Sig)
+			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
@@ -266,7 +277,7 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
 				return
 			}
-			if err := host.PTYManager.Signal(req.ID, syscall.Signal(req.Sig)); err != nil {
+			if err := host.PTYManager.Signal(req.ID, sig); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
@@ -274,6 +285,45 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export(exportName)
+}
+
+// signalNames maps POSIX signal names (sans SIG prefix, upper-case) to
+// numbers. Covers the signals an agent realistically sends to a PTY child;
+// numeric sig works for anything outside the table.
+var signalNames = map[string]syscall.Signal{
+	"HUP": syscall.SIGHUP, "INT": syscall.SIGINT, "QUIT": syscall.SIGQUIT,
+	"KILL": syscall.SIGKILL, "USR1": syscall.SIGUSR1, "USR2": syscall.SIGUSR2,
+	"TERM": syscall.SIGTERM, "STOP": syscall.SIGSTOP, "CONT": syscall.SIGCONT,
+	"TSTP": syscall.SIGTSTP, "WINCH": syscall.SIGWINCH,
+}
+
+// parseSignal accepts a JSON number (15) or a name string ("SIGTERM" /
+// "term"). The shell__signal tool documents both forms, so a string that
+// the host silently failed to decode-as-int was a real footgun.
+func parseSignal(raw json.RawMessage) (syscall.Signal, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, fmt.Errorf("sig is required")
+	}
+	if raw[0] == '"' {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil {
+			return 0, fmt.Errorf("sig: %w", err)
+		}
+		key := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(name)), "SIG")
+		if sig, ok := signalNames[key]; ok {
+			return sig, nil
+		}
+		if n, err := strconv.Atoi(key); err == nil { // numeric string e.g. "9"
+			return syscall.Signal(n), nil
+		}
+		return 0, fmt.Errorf("sig: unknown signal name %q", name)
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, fmt.Errorf("sig: %w", err)
+	}
+	return syscall.Signal(n), nil
 }
 
 // stado_pty_resize(args_ptr, args_len, result_ptr, result_cap) → i32

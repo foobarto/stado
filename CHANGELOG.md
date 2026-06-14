@@ -56,7 +56,16 @@ reach for it: fewer tools, no ceremony, one obvious "get output" verb (EP-0043).
 - **`shell.spawn` takes a `description`** ("what this shell is for"), surfaced in
   `shell.list` so sessions are self-identifying and stale ones are easy to spot
   + `shell.destroy`. `shell.list` is broad (lists every session — orphans stay
-  visible) and drops the now-meaningless `attached` field.
+  visible) and drops the now-meaningless `attached` field. `shell.spawn` also
+  documents `buffer_bytes` in its schema (ring size; default 64 KiB).
+- **`shell.signal` accepts signal names**, not just numbers — `"SIGINT"`,
+  `"TERM"` (case-insensitive, with or without the `SIG` prefix) resolve
+  host-side, matching what the tool description always advertised.
+- **`mode:"auto"` discards the raw byte backlog when it renders a screen**, so
+  after a full-screen program (vim/htop) exits the alternate buffer a later
+  `read` returns just the current shell output instead of dumping the whole TUI
+  escape stream. Explicit `mode:"screen"` stays a non-draining peek, and the
+  drain is skipped while a `read`/`read_until` is actively consuming.
 
 ### Migration (clean break, pre-1.0)
 

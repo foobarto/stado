@@ -353,8 +353,8 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
 | `net:<host>` | DEAD — was the `stado_http_get` host allowlist; that import is gone. Use `net:http_request:<host>` |
 | `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist). Replaces the dropped `exec:bash` / `exec:search` / `exec:ast_grep` caps — declare each binary your plugin runs (`exec:proc:/usr/bin/rg`) plus `bundled-bin:<name>` for stado-bundled tools (rg, ast-grep) |
-| `exec:pty` | `stado_pty_*` PTY sessions |
-| `terminal:open` | `stado_terminal_*` PTY sessions (alias for the EP-0038c terminal surface) |
+| `exec:pty` | all PTY imports — both the `stado_pty_*` and `stado_terminal_*` name families (they register under one `ExecPTY` gate) |
+| `terminal:open` | alias of `exec:pty` (the EP-0038c name) — sets the same `ExecPTY` flag, so either cap alone grants the full PTY surface. `terminal:open:<glob>` / `exec:pty:<glob>` scope `*_create`/`*_open` to matching binaries |
 | `lsp:query` | bundled LSP imports |
 | `bundled-bin` | `stado_bundled_bin` access |
 | `dns:resolve` | `stado_dns_resolve` |
