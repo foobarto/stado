@@ -80,13 +80,13 @@ const (
 	// maxPluginRuntimeStateValueBytes shares the MemoryPayload ceiling
 	// (1 MiB). Aliased via the existing constant to prevent drift if
 	// MemoryPayload is ever resized (Copilot review on PR #70).
-	maxPluginRuntimeStateValueBytes    uint32 = maxPluginRuntimeMemoryPayloadBytes
-	maxPluginRuntimeStatePrefixBytes   uint32 = 4 << 10  // 4 KiB
-	maxPluginRuntimeJSONPathBytes      uint32 = 4 << 10  // 4 KiB (dotted path expression)
-	maxPluginRuntimeNetTransportBytes  uint32 = 32       // "tcp" / "udp" / "unix" etc.
-	maxPluginRuntimeNetHostBytes       uint32 = 1 << 10  // hostname / IPv6 + port
-	maxPluginRuntimeNetPayloadBytes    uint32 = 1 << 20  // 1 MiB per net read/write
-	maxPluginRuntimeHTTPRequestArgs    uint32 = 16 << 10 // 16 KiB (JSON request envelope)
+	maxPluginRuntimeStateValueBytes   uint32 = maxPluginRuntimeMemoryPayloadBytes
+	maxPluginRuntimeStatePrefixBytes  uint32 = 4 << 10  // 4 KiB
+	maxPluginRuntimeJSONPathBytes     uint32 = 4 << 10  // 4 KiB (dotted path expression)
+	maxPluginRuntimeNetTransportBytes uint32 = 32       // "tcp" / "udp" / "unix" etc.
+	maxPluginRuntimeNetHostBytes      uint32 = 1 << 10  // hostname / IPv6 + port
+	maxPluginRuntimeNetPayloadBytes   uint32 = 1 << 20  // 1 MiB per net read/write
+	maxPluginRuntimeHTTPRequestArgs   uint32 = 16 << 10 // 16 KiB (JSON request envelope)
 	// Note: host_json.go uses its own pre-existing maxJSONInputBytes
 	// (256 KiB) for jsonLen/valueLen — no separate JSONDocBytes cap.
 )
