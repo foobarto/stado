@@ -89,8 +89,10 @@ contract or the surrounding approval flow:
 
 ```toml
 [tools.overrides]
-webfetch = "my-patched-fetch@v1.0.0"
-read = "my-read@v2.1.0"
+# Keys are canonical (dotted) tool names. The pre-EP-0038 bare names
+# (webfetch, read) are gone — using them here would not match any tool.
+web.fetch = "my-patched-fetch@v1.0.0"
+fs.read = "my-read@v2.1.0"
 ```
 
 Host imports remain the execution boundary. Plugins declare capabilities

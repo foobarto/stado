@@ -33,6 +33,18 @@ history:
       --force flag; plugin trust --pubkey-file; plugin use <name>@<version>;
       plugin dev <dir> (gen-key → sign → trust → install). Remote git fetch / 3-tier
       artefact resolution and plugin update/update-anchor deferred as follow-ons.
+  - date: 2026-06-14
+    status: Implemented
+    note: >
+      Correction (EP-gap audit): the AUTOMATIC trust-on-first-use enforcement
+      on remote install is NOT yet wired, despite the v0.33.0 "Implemented"
+      mark. `cmd/stado/plugin_remote.go` downloads `author.pubkey` but discards
+      it (`_ = downloadFile(...)`), and `FetchAnchorPubkey` /
+      `AnchorTrustStore.IsTrusted` have no production callers. What IS wired:
+      the manual `stado plugin trust` command (populates the anchor store) and
+      override-fingerprint verification (`runtime/plugin_overrides.go`). So the
+      store + manual trust are live, but install-time anchor TOFU is pending.
+      Tracked in .agent/specs/open/ep0039-anchor-tofu-on-install.md.
 ---
 
 # EP-0039: Plugin distribution and trust — anchor repo, versioned identity, lock file
