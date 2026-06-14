@@ -50,7 +50,9 @@ func TestExecPTYGlobParsing(t *testing.T) {
 		{"exec:pty:git", true, []string{"git"}},
 		{"terminal:open:git", true, []string{"git"}},
 		{"exec:pty:/usr/bin/git", true, []string{"/usr/bin/git"}},
-		{"exec:pty:bin/git", true, nil}, // mixed relative-path -> rejected
+		// mixed relative-path glob -> rejected -> fail-closed deny sentinel
+		// (NOT empty, which would mean broad).
+		{"exec:pty:bin/git", true, []string{execGlobDeny}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.cap, func(t *testing.T) {
@@ -67,5 +69,25 @@ func TestExecPTYGlobParsing(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestExecCap_MalformedGlobFailsClosed (Codex P1 on #196): a scoped cap whose
+// ONLY glob is malformed must DENY, not fall back to broad. Covers both pty and
+// proc since they share appendExecGlob + execGlobMatch.
+func TestExecCap_MalformedGlobFailsClosed(t *testing.T) {
+	pty := NewHost(plugins.Manifest{Name: "p", Capabilities: []string{"exec:pty:bin/git"}}, t.TempDir(), nil)
+	if !pty.ExecPTY {
+		t.Fatal("ExecPTY should be set")
+	}
+	if pty.ptyAllowed("git") || pty.ptyAllowed("/bin/sh") || pty.ptyAllowed("curl") {
+		t.Error("a malformed-only exec:pty glob must deny every binary (fail closed), not allow broad")
+	}
+	proc := NewHost(plugins.Manifest{Name: "p", Capabilities: []string{"exec:proc:bin/bash"}}, t.TempDir(), nil)
+	if !proc.ExecProc {
+		t.Fatal("ExecProc should be set")
+	}
+	if proc.procAllowed("bash") || proc.procAllowed("/bin/sh") {
+		t.Error("a malformed-only exec:proc glob must deny every binary (fail closed), not allow broad")
 	}
 }

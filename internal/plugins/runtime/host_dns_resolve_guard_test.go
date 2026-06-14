@@ -16,10 +16,13 @@ import (
 func TestGuardDNSTarget_RefusesPrivateForResolve(t *testing.T) {
 	ctx := context.Background()
 	for _, server := range []string{"127.0.0.1:53", "10.0.0.1:53", "192.168.1.1:53", "169.254.1.1:53"} {
-		deny := guardDNSTarget(ctx, server, "dns:resolve_private")
+		dialAddr, deny := guardDNSTarget(ctx, server, "dns:resolve_private")
 		if deny == "" {
 			t.Errorf("server %q should be refused without dns:resolve_private", server)
 			continue
+		}
+		if dialAddr != "" {
+			t.Errorf("refused server %q should return no dial addr; got %q", server, dialAddr)
 		}
 		if !strings.Contains(deny, "dns:resolve_private") {
 			t.Errorf("denial for %q should name dns:resolve_private; got %q", server, deny)
@@ -27,10 +30,16 @@ func TestGuardDNSTarget_RefusesPrivateForResolve(t *testing.T) {
 	}
 }
 
-func TestGuardDNSTarget_AllowsPublic(t *testing.T) {
-	// 192.0.2.0/24 (TEST-NET-1) is public-by-classification — accepted.
-	if got := guardDNSTarget(context.Background(), "192.0.2.1:53", "dns:resolve_private"); got != "" {
-		t.Errorf("public DNS server should be accepted; got denial %q", got)
+func TestGuardDNSTarget_AllowsPublicAndPinsIP(t *testing.T) {
+	// 192.0.2.0/24 (TEST-NET-1) is public-by-classification — accepted, and the
+	// returned dial addr is the guarded IP:port, so the caller dials the IP
+	// rather than a re-resolvable hostname (closes the rebinding window).
+	dialAddr, deny := guardDNSTarget(context.Background(), "192.0.2.1:53", "dns:resolve_private")
+	if deny != "" {
+		t.Fatalf("public DNS server should be accepted; got denial %q", deny)
+	}
+	if dialAddr != "192.0.2.1:53" {
+		t.Errorf("dial addr should be the guarded IP:port; got %q", dialAddr)
 	}
 }
 

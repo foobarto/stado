@@ -79,17 +79,26 @@ func execGlobMatch(bin string, globs []string) bool {
 	return false
 }
 
+// execGlobDeny is appended in place of a REJECTED (malformed) glob so the cap
+// stays SCOPED (a non-empty glob set ⇒ not broad) yet matches nothing — a
+// malformed scoped exec cap fails CLOSED (deny-all) rather than silently
+// degrading to broad access (which would reopen the confinement bypass for
+// exactly the invalid-glob case the parser rejects). The NUL byte can't appear
+// in a real binary path or basename, so execGlobMatch never matches it.
+const execGlobDeny = "\x00deny"
+
 // appendExecGlob validates an exec:proc / exec:pty / terminal:open glob and
 // appends it. A mixed relative-path form (contains a slash but isn't absolute)
 // is rejected — it can't match execGlobMatch's resolved-path/basename lookup
-// and would be a silent-deny footgun.
+// and would be a silent-deny footgun. On rejection it appends execGlobDeny so
+// the scoped cap fails closed (deny-all) instead of degrading to broad.
 func (h *Host) appendExecGlob(dst []string, glob, capName string) []string {
 	if strings.Contains(glob, "/") && !strings.HasPrefix(glob, "/") {
 		if h.Logger != nil {
-			h.Logger.Warn(capName+" glob rejected: mixed relative-path form (use absolute path or slash-free basename)",
+			h.Logger.Warn(capName+" glob rejected: mixed relative-path form (use absolute path or slash-free basename); capability now denies all",
 				slog.String("glob", glob))
 		}
-		return dst
+		return append(dst, execGlobDeny)
 	}
 	return append(dst, glob)
 }
