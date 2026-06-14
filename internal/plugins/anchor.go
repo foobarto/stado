@@ -122,6 +122,17 @@ func (s *AnchorTrustStore) Fingerprint(ownerKey string) (string, error) {
 	return entry.Fingerprint, nil
 }
 
+// Remove deletes the trust entry for ownerKey. Idempotent — a missing entry is
+// not an error. Used to clear a stale pin after a legitimate key rotation so
+// the next install re-runs trust-on-first-use against the new anchor.
+func (s *AnchorTrustStore) Remove(ownerKey string) error {
+	err := os.Remove(s.entryPath(ownerKey))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s *AnchorTrustStore) load(ownerKey string) (*AnchorTrustEntry, error) {
 	data, err := os.ReadFile(s.entryPath(ownerKey))
 	if err != nil {

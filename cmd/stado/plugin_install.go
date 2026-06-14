@@ -18,6 +18,7 @@ import (
 var pluginInstallSigner string
 var pluginInstallForce bool
 var pluginInstallAutoload bool
+var pluginInstallTrustAnchor bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
 const (
@@ -47,9 +48,10 @@ var pluginInstallCmd = &cobra.Command{
 			return err
 		}
 		src := args[0]
+		remote := looksLikeRemoteIdentity(src)
 		// EP-0039: detect remote identity (host/owner/repo@version) and fetch
 		// to a local staging dir before running the install pipeline.
-		if looksLikeRemoteIdentity(src) {
+		if remote {
 			fmt.Fprintf(cmd.ErrOrStderr(), "fetching %s...\n", src)
 			fetched, fetchErr := fetchRemotePlugin(src)
 			if fetchErr != nil {
@@ -61,6 +63,18 @@ var pluginInstallCmd = &cobra.Command{
 		m, sig, err := plugins.LoadFromDir(src)
 		if err != nil {
 			return err
+		}
+		// EP-0039 step 4: a remote install must be signed by the OWNER'S anchor
+		// key. Enforce owner anchor trust-on-first-use AND bind it to the
+		// manifest signer (m.AuthorPubkeyFpr) before the install proceeds — so a
+		// manifest signed by some other globally-trusted key can't install under
+		// this owner's identity. Runs after LoadFromDir so the signer fpr is known.
+		if remote {
+			if id, idErr := plugins.ParseIdentity(args[0]); idErr == nil {
+				if err := enforceAnchorTrust(cmd, cfg, id, m.AuthorPubkeyFpr, pluginInstallTrustAnchor); err != nil {
+					return err
+				}
+			}
 		}
 		wasmPath := filepath.Join(src, "plugin.wasm")
 		if err := plugins.VerifyWASMDigest(m.WASMSHA256, wasmPath); err != nil {

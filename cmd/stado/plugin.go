@@ -24,6 +24,8 @@ func init() {
 		"Force reinstall even when the same version is already present (bypasses idempotency check). EP-0039.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallAutoload, "autoload", false,
 		"After install, persist the plugin's tools into [tools].autoload in config.toml — they'll load into every session without a separate `stado tool autoload` call.")
+	pluginInstallCmd.Flags().BoolVar(&pluginInstallTrustAnchor, "trust-anchor", false,
+		"Accept this owner's anchor fingerprint on first sight without prompting (trust-on-first-use). Use only after verifying the key out of band; non-interactive installs of a never-seen owner refuse without it. EP-0039.")
 	pluginTrustCmd.Flags().StringVar(&pluginTrustPubkeyFile, "pubkey-file", "",
 		"Path to a file containing the hex-encoded Ed25519 public key (alternative to passing inline). EP-0039.")
 	pluginSignCmd.Flags().StringVar(&pluginSignKeyPath, "key", "",
@@ -40,6 +42,6 @@ func init() {
 		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
 		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd, pluginReloadCmd,
 		// EP-0039: distribution and trust additions.
-		pluginUseCmd, pluginDevCmd)
+		pluginUseCmd, pluginDevCmd, pluginUntrustAnchorCmd)
 	rootCmd.AddCommand(pluginCmd)
 }

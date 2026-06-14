@@ -106,8 +106,6 @@ func tryGitHubRelease(id plugins.Identity, dst string) error {
 			}
 		}
 	}
-	// Optionally fetch author.pubkey from the well-known anchor.
-	_ = downloadFile(id.AnchorURL(), filepath.Join(dst, "author.pubkey"))
 	return nil
 }
 
@@ -137,7 +135,6 @@ func tryRawTreeFetch(id plugins.Identity, dst string) error {
 			return fmt.Errorf("raw tree: %s: %w", file, err)
 		}
 	}
-	_ = downloadFile(id.AnchorURL(), filepath.Join(dst, "author.pubkey"))
 	return nil
 }
 
