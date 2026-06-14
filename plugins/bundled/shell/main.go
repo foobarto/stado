@@ -327,8 +327,15 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	idLo := uint32(req.ID & 0xFFFFFFFF)
 	idHi := uint32(req.ID >> 32)
 	n := stadoTerminalRead(idLo, idHi, uint32(req.MaxBytes), uint32(req.TimeoutMs), uint32(bufPtr), uint32(req.MaxBytes))
+	if n == -1 {
+		// EOF sentinel (host contract): session closed + ring empty, and
+		// the host writes NO error string for -1. Surface a clean stream
+		// EOF — not a 1-byte garbage error from the zeroed scratch buffer.
+		out, _ := json.Marshal(map[string]any{"kind": "stream", "data_b64": "", "n": 0, "eof": true})
+		return writeRaw(resPtr, resCap, out)
+	}
 	if n < 0 {
-		// Negative return = -byte_count of error string at bufPtr.
+		// Negative (≤ -2) = -byte_count of an error string at bufPtr.
 		errLen := -n
 		if errLen > 0 && errLen <= int32(req.MaxBytes) {
 			return writeErr(resPtr, resCap, "read: "+string(sdk.Bytes(bufPtr, errLen)))
@@ -409,8 +416,8 @@ func stadoToolDestroy(argsPtr, argsLen, resPtr, resCap int32) int32 {
 //
 // `before` and `match` are base64 because PTY output routinely
 // includes ANSI escapes and other non-UTF8 sequences that JSON
-// strings can't carry losslessly. Requires attach (same contract as
-// shell_read).
+// strings can't carry losslessly. No attach required — access is by
+// session id (EP-0043 D6).
 //
 //go:wasmexport stado_tool_read_until
 func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {

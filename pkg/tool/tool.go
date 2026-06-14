@@ -141,7 +141,7 @@ type ProgressEmitter interface {
 // PTYProvider is an optional Host extension. When implemented, bundled
 // shell.* / pty.* wasm tools share a long-lived PTY manager across
 // tool dispatches instead of each dispatch getting its own. Without
-// this, shell.spawn → shell.attach in successive calls fails with
+// this, shell.spawn → shell.read/write in successive calls fails with
 // "session not found" because the per-call plugin runtime's PTY map
 // dies when the runtime closes. Returns an opaque any to avoid an
 // import cycle (the actual type is *pty.Manager).

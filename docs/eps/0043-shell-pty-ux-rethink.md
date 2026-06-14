@@ -2,10 +2,29 @@
 ep: 0043
 title: Shell PTY-UX rethink — read modes, no lock, labeled sessions
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Accepted
 type: Standards
 created: 2026-06-14
 see-also: [0041, 0038, 0037]
+history:
+  - date: 2026-06-14
+    status: Draft
+    note: >
+      Drafted after the operator observed agents not reaching for the bundled
+      `shell` PTY tools and `shell.screenshot` actively confusing them. Folds
+      screenshot into `read {mode: auto|stream|screen}` (auto via the vt100
+      alternate-screen flag), drops the single-attach lock and removes the
+      attach/detach tools (read/write reach a session by integer id), and makes
+      `spawn` accept a description surfaced by a broad self-identifying `list`.
+  - date: 2026-06-14
+    status: Accepted
+    note: >
+      Design settled through operator Q&A — swung from heavy session-token /
+      owner-scoping to the simple integer-id model (D7); `terminal:open` is the
+      security boundary. Implemented on branch ep-shell-pty-ux-rethink: read
+      mode fold + AltScreen auto-detect, attach lock + attach/detach tools
+      removed, spawn description + broad list. Spawning-PID in `list` (Slice 5)
+      deferred to a fast-follow. Flip to Implemented at the v0.74.0 tag.
 ---
 
 # EP-43: Shell PTY-UX rethink — read modes, no lock, labeled sessions
@@ -192,8 +211,8 @@ export and the `stado_terminal_snapshot` host import **stay** (consumed by
   asserting the correct `kind` + content.
 - No-lock flow: `spawn → read`/`write` with **no** attach call works; `attach`/
   `detach` tools are gone from the surface (contract test).
-- `shell.list` shows `description` + `spawning-PID` (incl. a dead-spawner →
-  orphan-visible case); list stays broad.
+- `shell.list` shows `description` (+ cmd/alive/age) and stays broad so orphans
+  are visible. (`spawning-PID` deferred to a fast-follow — see Design / Slice 5.)
 - pty-bridge E2E (project TUI rule): a full-screen program via `read mode:auto`
   returns the rendered screen; line-oriented returns the stream. **Cover the
   `stado tool run` one-shot path explicitly** (the case that surfaced the

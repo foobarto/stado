@@ -31,9 +31,10 @@ const (
 	pluginRuntimePTYDefaultTimeout        = 100 * time.Millisecond
 )
 
-// registerPTYImports wires nine host imports for the PTY plugin
-// surface: create / list / attach / detach / write / read / signal /
-// resize / destroy. All are gated on the "exec:pty" capability — if
+// registerPTYImports wires the PTY plugin host imports: create / list /
+// write / read / signal / resize / destroy / snapshot / expect (EP-0043
+// removed attach/detach — access is by session id). All are gated on the
+// "exec:pty" capability — if
 // the manifest doesn't declare it, none are exported and link-time
 // resolution from the wasm side fails (loud, not silent).
 //

@@ -90,8 +90,8 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", name)
 	}
 
-	// PTY-bound shell tools (shell.spawn / list / attach / read /
-	// write / signal / resize / destroy) need a host that
+	// PTY-bound shell tools (shell.spawn / list / read / write /
+	// signal / resize / destroy / read_until) need a host that
 	// holds the pty.Manager across calls. The daemon (`stado daemon`)
 	// is exactly that host: route PTY-bound tools through the daemon,
 	// auto-spawning it when STADO_DAEMON allows.
@@ -395,7 +395,7 @@ func marshalSchemaJSON(schema map[string]any) string {
 
 func init() {
 	toolRunCmd.Flags().StringVar(&toolRunSession, "session", "",
-		"Bind the tool run to a persisted session ID for session-aware capabilities (audit log, memory, fork). Does NOT persist PTYs — `stado tool run` is single-shot, so shell.spawn / list / attach / read / write / etc. cannot survive across invocations. Use the TUI, MCP server, or agent loop for persistent shells.")
+		"Bind the tool run to a persisted session ID for session-aware capabilities (audit log, memory, fork). Does NOT persist PTYs — `stado tool run` is single-shot, so shell.spawn / list / read / write / etc. cannot survive across invocations. Use the TUI, MCP server, or agent loop for persistent shells.")
 	_ = toolRunCmd.RegisterFlagCompletionFunc("session", completeSessionIDs)
 	toolRunCmd.Flags().StringVar(&toolRunWorkdir, "workdir", "",
 		"Override the tool's Workdir (default: cwd for bundled tools)")

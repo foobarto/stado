@@ -137,7 +137,7 @@ type autoApproveHost struct {
 	spawn       func(context.Context, subagent.Request) (subagent.Result, error)
 	fleetBridge *FleetBridgeAdapter
 	// pty is the agent-loop-lifetime PTY manager shared with bundled
-	// shell.* / pty.* tools so spawn / attach / read / write across
+	// shell.* / pty.* tools so spawn / read / write across
 	// dispatches see the same registry.
 	pty *pty.Manager
 	// defaultSandboxPolicy, when non-nil, is returned by DefaultSandboxPolicy
@@ -175,7 +175,7 @@ func (h autoApproveHost) AgentFleetBridge() any {
 
 // PTYManager implements pkg/tool.PTYProvider so bundled shell.* / pty.*
 // wasm tools share a long-lived PTY registry across dispatches in the
-// agent loop. Without this, shell.spawn → shell.attach across calls
+// agent loop. Without this, shell.spawn → shell.read/write across calls
 // would fail with "session not found" because each bundled-plugin Run
 // would otherwise build a fresh pluginRuntime with its own manager.
 func (h autoApproveHost) PTYManager() any { return h.pty }

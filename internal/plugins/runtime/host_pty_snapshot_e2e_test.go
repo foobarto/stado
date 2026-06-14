@@ -161,4 +161,69 @@ func TestShellReadModesE2E(t *testing.T) {
 	if auto.Kind != "stream" {
 		t.Errorf("read mode:auto on a non-full-screen program: kind = %q, want stream\n%s", auto.Kind, autoRes)
 	}
+
+	// 7. Drive the session onto the ALTERNATE SCREEN BUFFER (DECSET 1049 —
+	//    what vim/htop/less emit) and confirm mode:auto now flips to the
+	//    rendered screen. cat echoes the bytes back to its stdout, so the
+	//    PTY's vt10x emulator processes the escape and sets ModeAltScreen.
+	//    This exercises the AltScreen=TRUE branch — the feature's core that
+	//    the stream-only assertion above can't reach.
+	// \u001b is the ESC byte; the trailing newline flushes cat's
+	// canonical-mode line buffer so the real escape sequence (not just
+	// the kernel's ^[ echo of control bytes) reaches stdout.
+	invoke("write", `{"id":`+id+`,"data":"\u001b[?1049h\n"}`)
+	deadline = time.Now().Add(2 * time.Second)
+	var altKind string
+	for time.Now().Before(deadline) {
+		var a struct {
+			Kind string `json:"kind"`
+		}
+		_ = json.Unmarshal([]byte(invoke("read", `{"id":`+id+`,"mode":"auto"}`)), &a)
+		altKind = a.Kind
+		if altKind == "screen" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if altKind != "screen" {
+		t.Errorf("read mode:auto after entering the alternate screen buffer: kind = %q, want screen", altKind)
+	}
+
+	// 8. EOF path (regression guard for the -1 sentinel mishandling): spawn
+	//    a short-lived process, drain its output, then keep reading until the
+	//    closed+empty session surfaces a clean {"kind":"stream","eof":true}.
+	//    The bug was the guest decoding the host's -1 EOF as a 1-byte error
+	//    string read from the zeroed scratch buffer ({"error":"read: \x00"}).
+	eofOut := invoke("spawn", `{"argv":["/bin/sh","-c","printf bye"]}`)
+	var eofSpawn struct {
+		ID json.Number `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(eofOut), &eofSpawn); err != nil {
+		t.Fatalf("eof spawn unmarshal: %v (raw %q)", err, eofOut)
+	}
+	eofID := eofSpawn.ID.String()
+	defer invoke("destroy", `{"id":`+eofID+`}`)
+
+	deadline = time.Now().Add(3 * time.Second)
+	sawEOF := false
+	for time.Now().Before(deadline) {
+		var r struct {
+			Kind string `json:"kind"`
+			EOF  bool   `json:"eof"`
+		}
+		raw := invoke("read", `{"id":`+eofID+`,"mode":"stream","timeout_ms":200}`)
+		if err := json.Unmarshal([]byte(raw), &r); err != nil {
+			t.Fatalf("eof read unmarshal: %v (raw %q)", err, raw)
+		}
+		if r.EOF {
+			if r.Kind != "stream" {
+				t.Errorf("EOF read kind = %q, want stream (raw %q)", r.Kind, raw)
+			}
+			sawEOF = true
+			break
+		}
+	}
+	if !sawEOF {
+		t.Error("read mode:stream on a closed+drained session never reported eof:true")
+	}
 }

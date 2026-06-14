@@ -66,6 +66,16 @@ func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	if _, ok := reg.Get("choose_demo"); ok {
 		t.Error("choose_demo should not be in the bundled registry; it is a plugins/optional/ demo")
 	}
+	// EP-0043 D1-D6: shell.screenshot folded into shell.read (mode:screen)
+	// and the attach/detach tools removed. These wire names must NOT be
+	// registered — agents that pattern-match on the old tool list (or a
+	// stale model that still emits them) should get a clean "no such tool",
+	// not a half-wired dispatch.
+	for _, dead := range []string{"shell__screenshot", "shell__attach", "shell__detach"} {
+		if _, ok := reg.Get(dead); ok {
+			t.Errorf("%s should not be in the bundled registry (removed by EP-0043)", dead)
+		}
+	}
 	if got, ok := reg.Get("agent__spawn"); !ok {
 		t.Fatal("agent__spawn tool missing")
 	} else if _, ok := got.(*renamedTool); !ok {
@@ -191,9 +201,8 @@ func TestBundledShellReadUntil_RoundTripsThroughWasm(t *testing.T) {
 		t.Skipf("Spawn requires runnable shell environment: %v", err)
 	}
 	defer sharedMgr.Destroy(id)
-	if err := sharedMgr.Attach(id, pty.AttachOpts{}); err != nil {
-		t.Fatalf("Attach: %v", err)
-	}
+	// EP-0043 D6: no Attach — read_until (and read/write) reach the session
+	// by id alone now.
 
 	args := json.RawMessage(`{"id":` + strconv.FormatUint(id, 10) + `,"patterns":["PROMPT> "],"timeout_ms":2000}`)
 	res, err := expectTool.Run(context.Background(), args, host)

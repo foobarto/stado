@@ -268,7 +268,7 @@ type stadoMCPHost struct {
 	workdir string
 	runner  sandbox.Runner
 	// pty is a server-lifetime PTY manager shared across every tool
-	// dispatch so shell.spawn → shell.attach / read / write succeed
+	// dispatch so shell.spawn → shell.read / write succeed
 	// across calls. Without this each bundled-plugin runtime would
 	// instantiate its own pty.NewManager() and the second call would
 	// fail with "session not found." Bug-fix per operator report.

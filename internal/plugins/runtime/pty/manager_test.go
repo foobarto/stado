@@ -197,11 +197,9 @@ func TestRingBufferOverflow(t *testing.T) {
 	}
 }
 
-// TestRequiresAttach: read/write fail with ErrNotAttached when
-// nobody's attached.
 // (EP-0043 D6: the old TestRequiresAttach was removed — read/write no
-// longer require attach. TestWriteReadWithoutAttach covers the new
-// contract.)
+// longer require attach, and the ErrNotAttached sentinel is gone.
+// TestWriteReadWithoutAttach covers the new contract.)
 
 // TestCloseAll terminates pending sessions.
 func TestCloseAll(t *testing.T) {

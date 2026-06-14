@@ -139,7 +139,6 @@ type AttachOpts struct {
 var (
 	ErrNotFound        = errors.New("pty: session not found")
 	ErrAlreadyAttached = errors.New("pty: session already attached")
-	ErrNotAttached     = errors.New("pty: session not attached by caller")
 	ErrClosed          = errors.New("pty: session closed")
 	ErrNoCommand       = errors.New("pty: spawn requires argv or cmd")
 )
@@ -224,8 +223,8 @@ type session struct {
 
 // defaultClosedReapGrace is the production default for ManagerOpts.
 // ClosedReapGrace. Long enough for an agent pattern like
-// `shell.spawn bash -c 'echo result'` followed by `shell.attach +
-// shell.read` to capture the output; short enough that genuine
+// `shell.spawn bash -c 'echo result'` followed by `shell.read` to
+// capture the output; short enough that genuine
 // zombies don't accumulate.
 const defaultClosedReapGrace = 30 * time.Second
 

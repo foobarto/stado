@@ -1481,8 +1481,8 @@ func (m *Model) handleToolSlash(parts []string) tea.Cmd {
 // runPluginToolAsync the /plugin: path uses, so progress / approvals
 // / system blocks render consistently.
 //
-// PTY-bound shell tools (shell.spawn / list / attach / read / write
-// / detach / signal / resize / destroy) are refused with the same
+// PTY-bound shell tools (shell.spawn / list / read / write / signal /
+// resize / destroy / read_until) are refused with the same
 // advisory `stado tool run` uses — those need the agent loop's
 // long-lived executor, not a one-off tool dispatch.
 func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
@@ -1702,7 +1702,7 @@ func bundledToolDefForSlash(t pkgToolHandle) plugins.ToolDef {
 }
 
 // ptyBoundShellToolName is the TUI-side mirror of cmd/stado's
-// ptyBoundShellTool gate. Same nine canonical / wire names; same
+// ptyBoundShellTool gate. Same eight canonical / wire names; same
 // reasoning — single-dispatch /tool can't host a PTY across calls.
 func ptyBoundShellToolName(name string) bool {
 	canonical := name

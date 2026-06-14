@@ -60,10 +60,10 @@ const expectExitCodeWait = 100 * time.Millisecond
 // bytes seen as Before with the ring drained — call Read for further
 // output (it will return io.EOF if the session is closed and empty).
 //
-// Caller must have Attach'd the session (same contract as Read).
-// Concurrent Expect on one session is rejected with a session-named
-// error; Read concurrent with Expect is allowed but undefined: the two
-// will fight for ring bytes.
+// No attach required (EP-0043 D6 — access by id). Concurrent Expect on
+// one session is rejected with a session-named error (the expectInProgress
+// flag below); Read concurrent with Expect is allowed but undefined: the
+// two will fight for ring bytes.
 func (m *Manager) Expect(id uint64, patterns []Pattern, timeout time.Duration) (ExpectResult, error) {
 	s, err := m.get(id)
 	if err != nil {

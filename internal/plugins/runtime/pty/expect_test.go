@@ -77,6 +77,30 @@ func TestExpect_MatchExistingBufferContents(t *testing.T) {
 	}
 }
 
+// EP-0043 D6 — Expect (like Read/Write) reaches a session by id alone;
+// no Attach is required. Spawn WITHOUT attaching and confirm a match still
+// fires. Guards against re-introducing the attach gate that confused agents.
+func TestExpect_NoAttachRequired(t *testing.T) {
+	m := NewManager()
+	id, err := m.Spawn(SpawnOpts{Cmd: "printf 'READY> '; sleep 5"})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	defer m.Destroy(id)
+	// Deliberately no m.Attach(id, ...) here.
+
+	res, err := m.Expect(id, []Pattern{{Bytes: []byte("READY> ")}}, 2*time.Second)
+	if err != nil {
+		t.Fatalf("Expect without attach: %v", err)
+	}
+	if !res.Matched {
+		t.Fatalf("Matched=false without attach; want true. res=%+v", res)
+	}
+	if string(res.Match) != "READY> " {
+		t.Errorf("Match=%q; want %q", res.Match, "READY> ")
+	}
+}
+
 // AC3 — match against newly-arrived bytes works.
 func TestExpect_MatchOnNewArrivals(t *testing.T) {
 	m, id := expectAttached(t, SpawnOpts{Cmd: "sleep 0.3; echo HELLO; sleep 5"})
