@@ -85,7 +85,7 @@ func TestDefaultGitWritePathGuard_AllowsLegitimatePaths(t *testing.T) {
 	for _, okPath := range []string{
 		"main.go",
 		"src/main.go",
-		".gitignore",        // .gitignore is a file, not a .git segment
+		".gitignore",         // .gitignore is a file, not a .git segment
 		"src/.gitattributes", // .gitattributes likewise
 		"docs/README.md",
 		filepath.Join(workdir, "abs", "path.txt"),
