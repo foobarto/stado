@@ -289,12 +289,15 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 
 // signalNames maps POSIX signal names (sans SIG prefix, upper-case) to
 // numbers. Covers the signals an agent realistically sends to a PTY child;
-// numeric sig works for anything outside the table.
+// numeric sig works for anything outside the table. Only the signals defined
+// across every host target (linux/darwin/windows) live here — the Unix-only
+// extras (USR1/USR2/STOP/CONT/TSTP/WINCH) are registered by an init in
+// host_pty_signals_unix.go. They're absent from the Windows syscall package,
+// and PTYs are a Unix-only feature anyway, so the Windows build just resolves
+// the portable subset (numeric sig always works).
 var signalNames = map[string]syscall.Signal{
 	"HUP": syscall.SIGHUP, "INT": syscall.SIGINT, "QUIT": syscall.SIGQUIT,
-	"KILL": syscall.SIGKILL, "USR1": syscall.SIGUSR1, "USR2": syscall.SIGUSR2,
-	"TERM": syscall.SIGTERM, "STOP": syscall.SIGSTOP, "CONT": syscall.SIGCONT,
-	"TSTP": syscall.SIGTSTP, "WINCH": syscall.SIGWINCH,
+	"KILL": syscall.SIGKILL, "TERM": syscall.SIGTERM,
 }
 
 // parseSignal accepts a JSON number (15) or a name string ("SIGTERM" /
