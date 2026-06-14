@@ -36,7 +36,6 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
-	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/secrets"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/tool"
@@ -121,23 +120,11 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	}
 	rtHost.ToolHost = h
 
-	// Refuse exec:bash plugins on hosts without a sandbox runner — the
-	// existing safety check from the CLI invocation path. Preserved
-	// here so every dispatch path enforces it. After Step 4 (bash
-	// migrates to exec:proc:bash with optional sandbox), exec:bash
-	// disappears as a manifest cap and this branch becomes dead — fine.
-	// nil cfg = test path; skip the refuse check since there's no
-	// configured policy to enforce.
-	runner := sandbox.Detect()
-	if args.Cfg != nil && rtHost.ExecBash && !rtHost.ExecProc && runner.Name() == "none" {
-		if args.Cfg.Sandbox.RefuseNoRunner {
-			return tool.Result{
-				Error: fmt.Sprintf(
-					"plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap (Linux) or sandbox-exec (macOS), or set [sandbox] refuse_no_runner = false to run unsandboxed",
-					args.Manifest.Name),
-			}, fmt.Errorf("pluginrun: refuse_no_runner")
-		}
-	}
+	// EP-0028: the exec:bash refuse-no-runner guard that used to live here is
+	// gone. The exec:bash capability was dropped in EP-no-internal-tools
+	// Step 4 (bash now routes through exec:proc:<glob> + the sandbox), so
+	// Host.ExecBash could never be set and the branch was unreachable. Removed
+	// with the field rather than left as documented-dead code.
 
 	rt, err := pluginRuntime.New(ctx)
 	if err != nil {
