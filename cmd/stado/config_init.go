@@ -282,6 +282,16 @@ const defaultConfigTemplate = `# stado — config.toml
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# [harness] — security-research mode (EP-0030). When mode = "security", stado
+# prepends a recon-first / abusability-filter discipline to the system prompt
+# on every surface (run, TUI, ACP, headless). Override the built-in text by
+# creating .stado/harness/security.md (see ` + "`stado harness init`" + `).
+# Equivalent to the per-invocation flag: stado run --mode security.
+# ---------------------------------------------------------------------------
+# [harness]
+# mode = "security"
+
+# ---------------------------------------------------------------------------
 # [plugins] — plugin trust + revocation + transparency log (Phase 7.6 / 7.7)
 # The bundled auto-compact background plugin is enabled by default.
 # Add extra installed plugin IDs here if you want more long-lived

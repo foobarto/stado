@@ -21,6 +21,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/fs"
+	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/integrations"
@@ -105,6 +106,10 @@ func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, en
 	var builder func() (agent.Provider, error)
 	m := NewModel(cwd, cfg.Defaults.Model, cfg.Defaults.Provider, nil, rnd, keyReg)
 	m.cfg = cfg
+	// EP-0030: security harness — prepend to the system prompt in security mode,
+	// same as `stado run`. Previously the [harness].mode config knob was honored
+	// only by `stado run`, silently ignored by the TUI.
+	m.systemPrompt = harness.Prepend(m.systemPrompt, cwd, cfg.Harness.Mode)
 	// Modal vim (keymap Phase 2): enable the modal engine only for the "vim"
 	// schema. Inert for emacs/vscode/custom. Starts in INSERT (set inside).
 	m.SetKeymapSchema(cfg.Keymap.Schema)

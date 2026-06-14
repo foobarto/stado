@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/foobarto/stado/internal/acp"
+	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
@@ -71,6 +72,13 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			sysPrompt = res.Content
 		}
 	}
+	// EP-0030: security harness — prepend in security mode, same as `stado run`
+	// (autonomous surface; previously the config knob was ignored here).
+	harnessMode := ""
+	if s.Cfg != nil {
+		harnessMode = s.Cfg.Harness.Mode
+	}
+	sysPrompt = harness.Prepend(sysPrompt, workdir, harnessMode)
 
 	var localMsgs []agent.Message
 	if sess.messages != nil {
