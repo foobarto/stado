@@ -56,7 +56,11 @@ owner's anchor key (bound to the manifest signature) on first use.
     fingerprint must equal the manifest's signer) — a manifest signed by some
     other globally-trusted key is refused;
   - first sight of an owner prompts (or `--trust-anchor` to accept
-    non-interactively; refuses on a non-TTY) and records the fingerprint;
+    non-interactively; refuses on a non-TTY) and records the fingerprint.
+    `--trust-anchor` covers only the owner anchor; a fully non-interactive
+    first-time install also needs the signer key pinned (`--signer <pubkey>`
+    or a prior `stado plugin trust`), since the manifest-signature check still
+    requires a pinned author key;
   - a changed fingerprint refuses (key rotation / compromise), and the new
     `stado plugin untrust-anchor <host/owner>` clears the pin after an expected
     rotation;
