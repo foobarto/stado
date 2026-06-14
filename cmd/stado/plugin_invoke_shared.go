@@ -114,21 +114,10 @@ func runPluginInvocation(ctx context.Context, in pluginInvokeArgs) error {
 		},
 	}
 
-	// Compute exec:bash refuse-no-runner check before pluginrun (which
-	// also enforces it) so the CLI's error message is the rich one with
-	// install hints instead of pluginrun's generic copy. After Step 4
-	// migrates bash to exec:proc, this check disappears.
-	probeHost := pluginRuntime.NewHost(in.Manifest, workdir, nil)
-	if probeHost.ExecBash && !probeHost.ExecProc && runner.Name() == "none" {
-		if cfg.Sandbox.RefuseNoRunner {
-			return fmt.Errorf(
-				"tool run: plugin %s declares exec:bash but no native sandbox runner is available on this host. Install bubblewrap (Linux: `apt install bubblewrap` / `dnf install bubblewrap`) or sandbox-exec (macOS: bundled with Xcode CLT), or set [sandbox] refuse_no_runner = false to run unsandboxed",
-				in.Manifest.Name)
-		}
-		fmt.Fprintf(in.Stderr,
-			"stado: warn: plugin %s declares exec:bash but no native sandbox runner is available — running unsandboxed. Set [sandbox] refuse_no_runner = true to hard-fail instead.\n",
-			in.Manifest.Name)
-	}
+	// EP-0028: the exec:bash refuse-no-runner pre-check is gone. exec:bash was
+	// dropped as a manifest capability in EP-no-internal-tools Step 4 (bash
+	// routes through exec:proc + the sandbox), so Host.ExecBash could never be
+	// set and this branch was unreachable.
 
 	res, err := pluginrun.Run(ctx, args, host)
 	if err != nil {

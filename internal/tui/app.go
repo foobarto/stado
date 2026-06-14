@@ -128,6 +128,11 @@ func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, en
 			cfg.Agent.SystemPromptPath, m.systemPromptPath))
 	}
 	m.SetRootContext(runCtx)
+	// Cancel any background fleet agents on exit. They spawn off a
+	// non-cancellable root context, so without this they outlive the UI as
+	// orphaned goroutines / child processes (EP-0034). Deferred so it fires on
+	// the clean path and the error-return path alike.
+	defer m.Shutdown()
 	var localFallback *prewarmedLocalFallback
 	if cfg.Defaults.Provider == "" {
 		localFallback = startLocalFallbackPrewarm(runCtx, cfg)
@@ -256,6 +261,17 @@ func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, en
 	// ref shouldn't override the clean exit.
 	emitSessionSummary(m, os.Stderr)
 	return nil
+}
+
+// Shutdown releases resources that outlive the Bubble Tea event loop. Deferred
+// by Run so it fires on every exit path. Currently: cancel any background
+// fleet agents (EP-0034) — they run off a non-cancellable root context, so
+// without this they (and the provider calls / child processes they drive)
+// leak past the UI as orphans.
+func (m *Model) Shutdown() {
+	if m.fleet != nil {
+		m.fleet.CancelAll()
+	}
 }
 
 // emitSessionSummary walks the session's trace ref and writes a

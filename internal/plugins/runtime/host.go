@@ -129,10 +129,11 @@ type Host struct {
 	// opts.AllowedHosts is empty (allow-all), the client can only reach hosts
 	// the operator approved via net:http_request:<host>.
 	NetHTTPClient bool
-	ExecBash      bool
-	ExecSearch    bool
-	ExecASTGrep   bool
-	ExecPTY       bool
+	// EP-0028: ExecBash / ExecSearch / ExecASTGrep removed — their capabilities
+	// (exec:bash / exec:search / exec:ast_grep) were dropped in
+	// EP-no-internal-tools Step 4, so the fields could never be set and every
+	// reader was dead. See the "exec" case in capability parsing below.
+	ExecPTY bool
 	// ExecProc gates stado_proc_* and stado_exec (EP-0038 §B Tier 1).
 	// ExecProcGlobs, when non-empty, restricts to any of the listed
 	// exec:proc:<glob> patterns. An empty list means broad exec:proc.
