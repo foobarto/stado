@@ -100,6 +100,10 @@ type SpawnOpts struct {
 	Cols        uint16   `json:"cols,omitempty"`
 	Rows        uint16   `json:"rows,omitempty"`
 	BufferBytes int      `json:"buffer_bytes,omitempty"`
+	// Description is free-text the caller supplies to say what the session
+	// is FOR ("tail prod logs"). Surfaced in List for session
+	// identification / orphan triage. Optional. (EP-0043 D8.)
+	Description string `json:"description,omitempty"`
 }
 
 // SessionInfo is the public view of a session — what List returns.
@@ -113,8 +117,8 @@ type SpawnOpts struct {
 type SessionInfo struct {
 	ID              uint64    `json:"id"`
 	Cmd             string    `json:"cmd"`
+	Description     string    `json:"description,omitempty"`
 	Alive           bool      `json:"alive"`
-	Attached        bool      `json:"attached"`
 	StartedAt       time.Time `json:"started_at"`
 	Buffered        int       `json:"buffered"`
 	Dropped         uint64    `json:"dropped"`
@@ -141,9 +145,10 @@ var (
 )
 
 type session struct {
-	id        uint64
-	cmd       string
-	startedAt time.Time
+	id          uint64
+	cmd         string
+	description string // free-text "what this shell is for" (EP-0043 D8)
+	startedAt   time.Time
 
 	// proc/master are immutable once Spawn returns.
 	proc   *exec.Cmd
@@ -472,6 +477,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	s := &session{
 		id:              atomic.AddUint64(&m.nextID, 1),
 		cmd:             fmtCmd(argv),
+		description:     opts.Description,
 		startedAt:       now,
 		lastClientTouch: now,
 		lastDrainTouch:  now,
@@ -728,8 +734,8 @@ func (m *Manager) List() []SessionInfo {
 		out = append(out, SessionInfo{
 			ID:              s.id,
 			Cmd:             s.cmd,
+			Description:     s.description,
 			Alive:           !s.closed,
-			Attached:        s.attached,
 			StartedAt:       s.startedAt,
 			Buffered:        s.ring.Len(),
 			Dropped:         s.dropped,

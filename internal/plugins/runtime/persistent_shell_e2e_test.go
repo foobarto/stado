@@ -88,7 +88,7 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		tools[def.Name] = pt
 	}
 	for _, name := range []string{
-		"shell_create", "shell_list", "shell_attach", "shell_detach",
+		"shell_create", "shell_list",
 		"shell_write", "shell_read", "shell_signal", "shell_resize", "shell_destroy",
 	} {
 		if _, ok := tools[name]; !ok {
@@ -120,12 +120,11 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		t.Fatalf("create returned id=0 (raw=%q)", out)
 	}
 
-	// 2. list — should now have one entry, alive=true, attached=false.
+	// 2. list — should now have one entry, alive=true (EP-0043: no attach).
 	listOut := run("shell_list", `{}`)
 	var sessions []struct {
-		ID       uint64 `json:"id"`
-		Alive    bool   `json:"alive"`
-		Attached bool   `json:"attached"`
+		ID    uint64 `json:"id"`
+		Alive bool   `json:"alive"`
 	}
 	if err := json.Unmarshal([]byte(listOut), &sessions); err != nil {
 		t.Fatalf("decode list: %v (raw=%q)", err, listOut)
@@ -133,14 +132,11 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 	if len(sessions) != 1 || sessions[0].ID != created.ID {
 		t.Fatalf("list = %+v, want one entry with id=%d", sessions, created.ID)
 	}
-	if !sessions[0].Alive || sessions[0].Attached {
-		t.Fatalf("list: alive=%v attached=%v, want alive=true attached=false", sessions[0].Alive, sessions[0].Attached)
+	if !sessions[0].Alive {
+		t.Fatalf("list: alive=%v, want true", sessions[0].Alive)
 	}
 
-	// 3. attach — claim it.
-	run("shell_attach", `{"id":`+itoa(created.ID)+`}`)
-
-	// 4. write a line to cat.
+	// 3. write a line to cat — no attach (EP-0043 D6: read/write by id).
 	run("shell_write", `{"id":`+itoa(created.ID)+`,"data":"hello-from-test\n"}`)
 
 	// 5. read — drain the ring with retries because pty echoing is
@@ -150,13 +146,10 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		t.Fatalf("read: got=%q, want substring 'hello-from-test'", got)
 	}
 
-	// 6. detach — releases the claim, session stays alive.
-	run("shell_detach", `{"id":`+itoa(created.ID)+`}`)
-
-	// 7. destroy — SIGTERM/grace/SIGKILL.
+	// 6. destroy — SIGTERM/grace/SIGKILL.
 	run("shell_destroy", `{"id":`+itoa(created.ID)+`}`)
 
-	// 8. list again — registry empty.
+	// 7. list again — registry empty.
 	listOut = run("shell_list", `{}`)
 	if strings.TrimSpace(listOut) != "[]" {
 		t.Fatalf("list after destroy = %q, want []", listOut)

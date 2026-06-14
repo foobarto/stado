@@ -133,18 +133,19 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// Capabilities: terminal:open (PTY) + exec:proc (one-shot variants).
 	shellSessionCaps := []string{"terminal:open", "exec:proc"}
 	r.Register(newBundledWasmTool("shell", "stado_tool_spawn", "shell__spawn",
-		"Open an interactive PTY shell session. Returns {id} — use shell.read / shell.write / shell.destroy to drive it. Persists across tool calls. Args: argv? (default ['/bin/bash']), env?, cwd?, cols?, rows?, buffer_bytes?",
+		"Open a persistent shell session. Use this — not one-shot bash — for interactive programs (REPLs, ssh, db clients), full-screen TUIs (vim, htop), anything that prompts, and long-running processes you monitor. Returns {id}; drive it with shell.read / shell.write / shell.destroy (no attach step). Persists across tool calls. Provide a `description` of what the session is for — it shows in shell.list so sessions are easy to identify and clean up later. Args: argv? (default ['/bin/bash']), description?, env?, cwd?, cols?, rows?, buffer_bytes?",
 		tool.ClassExec,
 		schema.Object(nil, schema.Props{
-			"argv": schema.Array(schema.String()),
-			"env":  schema.Array(schema.String()),
-			"cwd":  schema.String(),
-			"cols": schema.Integer(),
-			"rows": schema.Integer(),
+			"argv":        schema.Array(schema.String()),
+			"description": schema.String("what this shell is for (shown in shell.list; helps identify/clean up sessions)"),
+			"env":         schema.Array(schema.String()),
+			"cwd":         schema.String(),
+			"cols":        schema.Integer(),
+			"rows":        schema.Integer(),
 		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_list", "shell__list",
-		"List active PTY shell sessions: id, cmd, alive, attached, started_at, buffered, dropped, exit_code.",
+		"List all active PTY shell sessions (broad — shows every session so orphans stay visible): id, cmd, description, alive, started_at, buffered, dropped, exit_code. Use the description + cmd to tell which sessions are live work vs stale; shell.destroy cleans them up.",
 		tool.ClassNonMutating,
 		schema.Empty(),
 		shellSessionCaps))

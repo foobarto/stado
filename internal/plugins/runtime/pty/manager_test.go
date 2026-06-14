@@ -61,6 +61,24 @@ func TestWriteReadInteractive(t *testing.T) {
 	}
 }
 
+// TestSpawnDescriptionInList (EP-0043 D8): a spawn description is stored
+// and surfaced in List for session identification.
+func TestSpawnDescriptionInList(t *testing.T) {
+	m := NewManager()
+	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/cat"}, Description: "tail prod logs"})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	defer m.Destroy(id)
+	infos := m.List()
+	if len(infos) != 1 {
+		t.Fatalf("List len = %d, want 1", len(infos))
+	}
+	if infos[0].Description != "tail prod logs" {
+		t.Fatalf("List description = %q, want %q", infos[0].Description, "tail prod logs")
+	}
+}
+
 // TestWriteReadWithoutAttach (EP-0043 D6): read/write no longer require
 // an explicit Attach — spawn then write/read works directly. This is the
 // "you need to attach first" friction the lock removal eliminates.
