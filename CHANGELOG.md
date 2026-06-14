@@ -54,10 +54,13 @@ narrowly-capability'd plugin exceed its declared grant.
   resolved IP but then dialed the hostname, letting it re-resolve to a private
   address after the check. They now pin and dial the guarded IP (trying every
   guarded A record), matching the hardened `dialIP` sibling.
-- **`stado_dns_resolve` against a custom server now requires `dns:resolve_private`.**
-  Previously a `dns:resolve` plugin could point at `127.0.0.1:53` and exfiltrate
-  split-horizon internal names. Custom-server resolves are now gated behind the
-  explicit `dns:resolve_private` capability (the AXFR path already guarded this).
+- **`stado_dns_resolve` against a custom server that resolves to a private
+  address now requires `dns:resolve_private`.** Previously a `dns:resolve` plugin
+  could point at `127.0.0.1:53` and query the host's internal / split-horizon
+  resolver. A custom server is now guarded like the AXFR path: if it resolves to
+  an RFC1918 / loopback / non-public address it needs the explicit
+  `dns:resolve_private` capability. Custom servers that resolve to a public
+  address (e.g. `8.8.8.8`) still work with plain `dns:resolve`.
 - **`stado_memory_update` can no longer self-approve.** The approve-guard only
   covered the `approve` action; a `memory:write` plugin could inject APPROVED
   (prompt-injectable) memories via `upsert`/`supersede` or a
@@ -71,9 +74,10 @@ narrowly-capability'd plugin exceed its declared grant.
 
 ### Plugin ABI migration note
 
-- New capability `dns:resolve_private`. Plugins that call `stado_dns_resolve`
-  with a non-default DNS server must now declare it; default-resolver lookups are
-  unaffected.
+- New capability `dns:resolve_private`. A plugin that calls `stado_dns_resolve`
+  against a custom DNS server which resolves to a private / loopback / non-public
+  address must now declare it. Default-resolver lookups, and custom servers that
+  resolve to a public address, are unaffected.
 - `exec:pty` / `terminal:open` now honor an optional `:<glob>` scope and enforce
   it on the spawned binary (previously the glob was parsed but not applied to PTY
   spawns).
