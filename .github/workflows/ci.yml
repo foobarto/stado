@@ -121,10 +121,14 @@ jobs:
       - name: Verify bundled wasm rebuild is deterministic
         run: |
           set -euo pipefail
-          bash plugins/bundled/build.sh
+          # Each build uses a fresh, isolated GOCACHE so the second run can't
+          # replay the first run's cached package/link outputs — otherwise the
+          # gate could hash cache hits and miss compiler-stage nondeterminism
+          # (the failure mode this is meant to catch). Both builds compile cold.
+          GOCACHE="${RUNNER_TEMP}/gocache-1" bash plugins/bundled/build.sh
           sha256sum internal/plugins/bundled/wasm/*.wasm | sort > "${RUNNER_TEMP}/wasm-sha-1.txt"
           rm -f internal/plugins/bundled/wasm/*.wasm
-          bash plugins/bundled/build.sh
+          GOCACHE="${RUNNER_TEMP}/gocache-2" bash plugins/bundled/build.sh
           sha256sum internal/plugins/bundled/wasm/*.wasm | sort > "${RUNNER_TEMP}/wasm-sha-2.txt"
           if ! diff -u "${RUNNER_TEMP}/wasm-sha-1.txt" "${RUNNER_TEMP}/wasm-sha-2.txt"; then
             echo "::error::bundled wasm rebuild is non-deterministic (EP-0042 D3) — release artefacts would not be reproducible from source"
