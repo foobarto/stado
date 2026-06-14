@@ -753,6 +753,11 @@ type ACPProvider struct {
 	//                  tool calls through these channels route
 	//                  through stado's Executor + sandbox runner.
 	Tools string `koanf:"tools"`
+	// RegisterMCP grants operator consent for stado to auto-write the wrapped
+	// agent's user-scope MCP config so the agent can call stado back as an MCP
+	// server (EP-0032). Without it, CheckMCPRegistration only prints a manual-
+	// setup hint and never writes any file. Default false (no auto-write).
+	RegisterMCP bool `koanf:"register_mcp"`
 }
 
 // Plugins is Phase 7's [plugins] section. CRL fields are Phase 7.6 —
