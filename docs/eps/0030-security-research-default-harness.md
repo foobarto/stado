@@ -26,9 +26,13 @@ see-also: [0002, 0008, 0013, 0017]
 
 # EP-0030: Security-research default harness — agent / subagent / skills / plugins
 
-> **Status: Placeholder.** This EP reserves a number and captures the
-> problem statement + intended scope. The worked design is deferred —
-> see EP-0001 §"Placeholders" for the lifecycle.
+> **Status: Implemented (v0.33.0; harness injection extended to all surfaces in
+> v0.68.0).** This EP began as a placeholder (problem statement + scope) and was
+> implemented without the worked-design body being filled in. The shipped
+> mechanism is the `[harness]` config knob plus `internal/harness` (`Prepend` /
+> `LoadSecurity`), which prepends the security-research harness to the system
+> prompt in security mode across `stado run`, the TUI, ACP, and headless. The
+> sections below preserve the original problem framing.
 
 ## Problem
 
