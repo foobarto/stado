@@ -277,7 +277,17 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 	// of the same name (rather than per-tool merging the two copies). seen is
 	// shared across dirs. Verified against the same (global) trust store.
 	seen := map[string]bool{}
+	projectDir := cfg.ProjectPluginsDir()
 	for _, pluginsDir := range cfg.AllPluginDirs() {
+		// Project-local plugin autoload is opt-in (Codex #4/#45): an untrusted
+		// repo's .stado/plugins/ must not auto-register tools into the live
+		// agent (shadowing built-ins, granting CWD-wide fs caps) on a bare
+		// `cd`, even when signed by a globally-trusted key. Skip it unless the
+		// operator set [plugins] allow_project_plugins.
+		if pluginsDir == projectDir && projectDir != "" && !cfg.Plugins.AllowProjectPlugins {
+			fmt.Fprintf(os.Stderr, "stado: ignoring project-local plugins in %s — set [plugins] allow_project_plugins = true (in user/global config) to autoload them (security).\n", projectDir)
+			continue
+		}
 		registerPluginsFromDir(reg, cfg, ts, stateDir, pluginsDir, seen)
 	}
 }

@@ -824,6 +824,15 @@ type Plugins struct {
 	// §"Plugin extension points for context management" has the full
 	// contract.
 	Background []string `koanf:"background"`
+
+	// AllowProjectPlugins opts into autoloading signed plugins from a repo's
+	// {cwd}/.stado/plugins/ directory. Default false (Codex #4/#45): even
+	// though signature verification still applies, autoloading a project-local
+	// plugin exposes its tool descriptions to the model and lets it shadow
+	// global/built-in tools, and a project plugin declaring `fs:write:.` gets
+	// the whole project tree — too much for an untrusted repo to enable on a
+	// bare `cd`. When false, only the global plugin dir is autoloaded.
+	AllowProjectPlugins bool `koanf:"allow_project_plugins"`
 }
 
 func Load() (*Config, error) {
@@ -886,6 +895,8 @@ func Load() (*Config, error) {
 			//   agent.system_prompt_path  points loadSystemPromptTemplate at a repo
 			//                       file → repo-controlled provider system prompt
 			//   plugins.background  auto-runs installed wasm plugins at launch (#8)
+			//   plugins.allow_project_plugins  the project-plugin autoload opt-in
+			//                       gate itself — a repo must not self-enable it (#4)
 			//   acp                 register_mcp = persistent MCP backdoor (#3),
 			//                       inherit_env = host-secret passthrough (#20),
 			//                       max_turns = removes the loop circuit-breaker (#54)
@@ -905,7 +916,8 @@ func Load() (*Config, error) {
 			for _, key := range []string{
 				"hooks", "aliases", "keymap",
 				"defaults.persona", "defaults.allow_project_persona",
-				"agent.system_prompt_path", "plugins.background",
+				"agent.system_prompt_path",
+				"plugins.background", "plugins.allow_project_plugins",
 				"acp", "mcp.providers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
