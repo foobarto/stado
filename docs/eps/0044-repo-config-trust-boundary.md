@@ -62,9 +62,11 @@ Two complementary controls:
 ### Phase 1 — always-strip (SHIPPED)
 
 `internal/config/config.go` Load() strip loop extended from `{hooks, aliases}`
-to also drop: `keymap`, `defaults.persona`, `plugins.background`, `acp` (whole —
-register_mcp + inherit_env + max_turns), `mcp.providers` (wrapped-MCP
-inherit_env; `mcp.servers` stays), `tui.sidebar`, `tui.footer`. koanf `Delete`
+to also drop: `keymap`, `defaults.persona`, `agent.system_prompt_path` (a repo
+path that `loadSystemPromptTemplate` would read into the provider system prompt
+— same injection class as `defaults.persona`; Codex #210), `plugins.background`,
+`acp` (whole — register_mcp + inherit_env + max_turns), `mcp.providers`
+(wrapped-MCP inherit_env; `mcp.servers` stays), `tui.sidebar`, `tui.footer`. koanf `Delete`
 is a recursive prefix-delete, so dotted leaves and whole subtrees both work.
 Project model/provider/tool overrides (the EP-0035 use case) remain honored.
 This satisfies the defense-in-depth requirement that the interrupt keymap and

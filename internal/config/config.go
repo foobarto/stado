@@ -856,6 +856,8 @@ func Load() (*Config, error) {
 			//                       kill switch, or swap the whole input model (#7/#10)
 			//   defaults.persona    selects a repo .stado/personas/*.md whose body is
 			//                       injected verbatim into the system prompt (#8/#42)
+			//   agent.system_prompt_path  points loadSystemPromptTemplate at a repo
+			//                       file → repo-controlled provider system prompt
 			//   plugins.background  auto-runs installed wasm plugins at launch (#8)
 			//   acp                 register_mcp = persistent MCP backdoor (#3),
 			//                       inherit_env = host-secret passthrough (#20),
@@ -873,7 +875,7 @@ func Load() (*Config, error) {
 			}
 			for _, key := range []string{
 				"hooks", "aliases", "keymap",
-				"defaults.persona", "plugins.background",
+				"defaults.persona", "agent.system_prompt_path", "plugins.background",
 				"acp", "mcp.providers",
 				"tui.sidebar", "tui.footer",
 			} {

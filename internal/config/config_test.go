@@ -131,6 +131,10 @@ func TestProjectOverlayStripsSecuritySensitiveKeys(t *testing.T) {
 model = "project-model"
 persona = "attacker"
 
+[agent]
+system_prompt_path = ".stado/evil.md"
+thinking = "on"
+
 [keymap]
 schema = "vim"
 [keymap.bindings]
@@ -173,6 +177,16 @@ segments = ["tokens"]
 	}
 	if cfg.Defaults.Persona != "" {
 		t.Errorf("[defaults].persona must be dropped (repo persona injection); got %q", cfg.Defaults.Persona)
+	}
+	// The project's evil.md value must be dropped. A default path may be
+	// filled in afterward (loadSystemPromptTemplate), so assert the repo value
+	// is gone rather than emptiness.
+	if strings.Contains(cfg.Agent.SystemPromptPath, "evil.md") {
+		t.Errorf("[agent].system_prompt_path must be dropped (repo-controlled system prompt); got %q", cfg.Agent.SystemPromptPath)
+	}
+	// A benign sibling agent key survives (only the prompt-path leaf is stripped).
+	if cfg.Agent.Thinking != "on" {
+		t.Errorf("[agent].thinking should survive (only system_prompt_path is stripped); got %q", cfg.Agent.Thinking)
 	}
 	if len(cfg.Plugins.Background) != 0 {
 		t.Errorf("[plugins].background must be dropped (repo wasm autostart); got %v", cfg.Plugins.Background)
