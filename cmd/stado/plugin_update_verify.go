@@ -4,10 +4,16 @@ package main
 // EP-0039 §G, §K.
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -73,11 +79,15 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 			if pluginUpdateCheck {
 				continue
 			}
-			// Run install with the new version.
+			// Run install with the new version. Invoke the install RunE
+			// directly rather than pluginInstallCmd.Execute() — Execute() on a
+			// child walks up and runs the ROOT command (which launches the TUI),
+			// so the latter would never actually install. (Latent until now: the
+			// old fetchLatestTag stub returned the current version, so this
+			// branch was unreachable.)
 			newID := strings.Replace(entry.Identity, "@"+id.Version, "@"+latest, 1)
 			fmt.Fprintf(cmd.ErrOrStderr(), "    installing %s...\n", newID)
-			pluginInstallCmd.SetArgs([]string{newID})
-			if err := pluginInstallCmd.Execute(); err != nil {
+			if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{newID}); err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "    install failed: %v\n", err)
 			}
 		}
@@ -88,12 +98,69 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 	},
 }
 
-// fetchLatestTag is a stub — real implementation uses GitHub /releases/latest.
-// For now returns the current version (no-op) so update is safe.
+// latestTagHTTPTimeout bounds each release-API lookup.
+const latestTagHTTPTimeout = 15 * time.Second
+
+// fetchLatestTag resolves the latest release tag for an installed plugin's
+// owner/repo via the host's release API. github.com and gitlab.com are
+// supported; other hosts return an error so `plugin update` reports a clear
+// "lookup failed" rather than silently no-op'ing (the prior stub returned the
+// current version, so update never updated anything — EP-0039 §G).
 func fetchLatestTag(id plugins.Identity) (string, error) {
-	// TODO: query GitHub API for latest release tag, gitlab API for gitlab, etc.
-	// For now this is a stub that returns the current version.
-	return id.Version, nil
+	ctx, cancel := context.WithTimeout(context.Background(), latestTagHTTPTimeout)
+	defer cancel()
+	switch id.Host {
+	case "github.com":
+		body, err := httpGetReleaseJSON(ctx, fmt.Sprintf(
+			"https://api.github.com/repos/%s/%s/releases/latest", id.Owner, id.Repo))
+		if err != nil {
+			return "", err
+		}
+		return parseReleaseTagName(body, "github")
+	case "gitlab.com":
+		proj := url.PathEscape(id.Owner + "/" + id.Repo)
+		body, err := httpGetReleaseJSON(ctx, fmt.Sprintf(
+			"https://gitlab.com/api/v4/projects/%s/releases/permalink/latest", proj))
+		if err != nil {
+			return "", err
+		}
+		return parseReleaseTagName(body, "gitlab")
+	default:
+		return "", fmt.Errorf("latest-tag lookup unsupported for host %q (github.com / gitlab.com only)", id.Host)
+	}
+}
+
+// parseReleaseTagName extracts tag_name from a GitHub/GitLab release JSON
+// object. Both APIs expose the field under the same key. Pure (testable).
+func parseReleaseTagName(body []byte, provider string) (string, error) {
+	var r struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return "", fmt.Errorf("parse %s release: %w", provider, err)
+	}
+	if r.TagName == "" {
+		return "", fmt.Errorf("%s release has no tag_name", provider)
+	}
+	return r.TagName, nil
+}
+
+// httpGetReleaseJSON GETs a release-API URL and returns the (size-capped) body.
+func httpGetReleaseJSON(ctx context.Context, u string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := (&http.Client{Timeout: latestTagHTTPTimeout}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s: HTTP %d", u, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
 func pluginLockPath(cfg *config.Config) string {
@@ -148,5 +215,5 @@ var pluginVerifyInstalledCmd = &cobra.Command{
 
 func init() {
 	pluginUpdateCmd.Flags().BoolVar(&pluginUpdateCheck, "check", false, "Show available updates without installing")
-	pluginCmd.AddCommand(pluginUpdateCmd, pluginVerifyInstalledCmd)
+	pluginCmd.AddCommand(pluginUpdateCmd, pluginVerifyInstalledCmd, pluginRemoveCmd)
 }
