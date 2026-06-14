@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -19,10 +20,33 @@ import (
 	"github.com/foobarto/stado/internal/workdirpath"
 )
 
-// safePluginName guards the glob/removal below against traversal and glob
-// injection — install dirs are <name>-<version>, and we glob <name>-* to find
-// every version, so name must be a plain segment.
+// safePluginName guards the removal below against traversal — install dirs are
+// <name>-<version> and we match the <name>- prefix to find every version, so
+// name must be a plain segment.
 var safePluginName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+
+// matchPluginVersionDirs returns the install-version directories for a plugin
+// under base. It reads base literally (os.ReadDir) and filters by the
+// "<name>-" prefix rather than filepath.Glob(base+"/<name>-*"): Glob would
+// interpret glob metacharacters (`*`, `?`, `[`, `]`) anywhere in the full
+// pattern — including the base path returned by AllPluginDirs() when the
+// project lives under a directory whose name contains them — and could return
+// directories outside base. ReadDir treats base as a literal path, so matches
+// are always direct children of base (Codex #1).
+func matchPluginVersionDirs(base, name string) []string {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	prefix := name + "-"
+	var out []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), prefix) {
+			out = append(out, filepath.Join(base, e.Name()))
+		}
+	}
+	return out
+}
 
 var pluginRemoveCmd = &cobra.Command{
 	Use:   "remove <name>",
@@ -45,7 +69,7 @@ plugin name (the install-dir prefix), e.g. 'gtfobins'.`,
 		resolver := workdirpath.NewUserConfigResolver()
 		var removed []string
 		for _, base := range cfg.AllPluginDirs() {
-			matches, _ := filepath.Glob(filepath.Join(base, name+"-*"))
+			matches := matchPluginVersionDirs(base, name)
 			for _, dir := range matches {
 				info, lerr := os.Lstat(dir)
 				if lerr != nil || !info.IsDir() {
