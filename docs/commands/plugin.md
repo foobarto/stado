@@ -115,12 +115,14 @@ tool name (not the plugin ID) and resolves the owning plugin for you.
 | `stado plugin digest <file>` | Print a WASM blob's sha256 |
 | `stado plugin trust <pubkey> [author]` | Pin a signer pubkey |
 | `stado plugin untrust <fingerprint>` | Remove a signer pin |
+| `stado plugin untrust-anchor <host/owner>` | Clear a pinned owner anchor (e.g. after a key rotation) so the next remote install re-runs trust-on-first-use |
 | `stado plugin list` | List trusted signers + installed plugins, with author and trust status |
 | `stado plugin installed` | Show installed plugin IDs (matches state/plugins/<id>/) |
 | `stado plugin verify <dir>` | Verify a plugin directory in place |
 | `stado plugin verify-installed <plugin-id>` | Re-verify an installed plugin against the trust store (catch trust-store drift) |
-| `stado plugin install <dir>` | Verify, then copy into the state dir |
-| `stado plugin update <plugin-id>` | Pull and install the latest tagged version of an installed plugin (EP-0039) |
+| `stado plugin install <dir-or-identity>` | Verify, then copy into the state dir. Accepts a local directory OR a remote identity `host/owner/repo@version` (fetched + anchor-verified). Flags: `--force` (reinstall over the same version), `--autoload` (persist the plugin's tools into `[tools].autoload`), `--signer <pubkey>` (inline-pin the author key), `--trust-anchor` (accept the owner's anchor fingerprint on first sight without prompting — for non-interactive installs; verify out of band) |
+| `stado plugin update <plugin-id>` | Fetch the latest tagged version of an installed plugin (GitHub/GitLab release API) and install it side-by-side (EP-0039). `--check` lists available updates without installing |
+| `stado plugin remove <name>` | Uninstall a plugin (all installed versions) and drop its `plugin-lock.toml` entry so `update` won't reinstall it |
 | `stado plugin use <plugin-id>` | Switch the active version for an installed plugin (per-project) |
 | `stado plugin reload <plugin-id>` | Re-read a plugin's tools and capabilities; effective inside a TUI session via `/plugin reload` |
 | `stado tool run [--session <id>] [--workdir <path>] <tool> [json-args]` | Invoke one installed tool by name (the owning plugin is resolved automatically), optionally against a persisted session. The tool host is always attached. |

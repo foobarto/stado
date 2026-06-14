@@ -385,19 +385,22 @@ broker refuses an open-ended sub-agent grant.
 #### Fetch, not push
 
 The grant is **fetch-oriented**. Package installs, module
-downloads, and `git clone` / `git fetch` need read auth, not
-push. `git push` from a fetch-purposed sub-agent is **denied at
-the tool-call dispatch point** inside the sub-agent's sandbox,
-regardless of what the ssh-agent socket would actually sign. Two
-layers compose:
+downloads, and `git clone` / `git fetch` need read auth, not push.
+The intended end-state composes two layers:
 
 - **ssh-agent** makes the key unstealable from inside the
   namespace.
 - **Tool dispatch** makes `git push` (or equivalent) unreachable
   from a fetch-purposed session.
 
-Either layer alone is insufficient. Together they bound the
-sub-agent's reach to what its declared purpose admits.
+**As-built status (not yet the end-state):** the tool-dispatch
+`git push` deny is *infrastructure-only* today — `IsForbiddenForGitSubagent`
+(internal/broker) exists but is **not wired into tool dispatch**, and the
+ssh-agent socket bind-mount / per-host key filtering are deferred to a later
+phase. The current implementation forwards the main-session ssh-agent socket
+(decision 2026-06-13) — the key is never written to disk, but a
+prompt-injected agent can still sign git operations. Treat the two-layer
+description above as the target design, not a shipped control.
 
 #### The sub-agent IS also stado's arbitrary-network-code execution
 
