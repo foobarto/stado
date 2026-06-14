@@ -23,7 +23,11 @@ func resolvePersona(perCall string, cfg *config.Config) (*personas.Persona, erro
 		name = "default"
 	}
 	cwd, _ := os.Getwd()
-	r := personas.Resolver{CWD: cwd, ConfigDir: config.ConfigDir()}
+	r := personas.Resolver{
+		CWD:          cwd,
+		ConfigDir:    config.ConfigDir(),
+		AllowProject: cfg != nil && cfg.Defaults.AllowProjectPersona,
+	}
 	// Load's errors already carry the persona name (readSource / loadResolved
 	// wrap it), so return directly — re-wrapping produced the
 	// "persona %q: persona %q: ..." doubling.
