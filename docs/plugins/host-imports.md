@@ -143,16 +143,14 @@ name; `stado_pty_*` is the legacy alias kept for backward compat.
 
 | `stado_pty_*` (legacy) | `stado_terminal_*` (canonical) | Returns | Description |
 |---|---|---|---|
-| `stado_pty_create` | `stado_terminal_open` | typed handle `term:<id>` | Open PTY session |
-| `stado_pty_list` | `stado_terminal_list` | bytes (JSON list) | List active sessions |
-| `stado_pty_attach` | `stado_terminal_attach` | 0/-1 | Single-attach lock; force=true to steal |
-| `stado_pty_detach` | `stado_terminal_detach` | 0/-1 | Release attach lock |
-| `stado_pty_read` | `stado_terminal_read` | bytes | Buffered output read |
-| `stado_pty_write` | `stado_terminal_write` | bytes | Stdin write |
+| `stado_pty_create` | `stado_terminal_open` | typed handle `term:<id>` | Open PTY session (args may carry `description`) |
+| `stado_pty_list` | `stado_terminal_list` | bytes (JSON list) | List active sessions (`id, cmd, description, alive, …`) |
+| `stado_pty_read` | `stado_terminal_read` | bytes | Raw incremental output read (no attach — EP-0043) |
+| `stado_pty_write` | `stado_terminal_write` | bytes | Stdin write (no attach) |
 | `stado_pty_signal` | `stado_terminal_signal` | 0/-1 | Posix signal (out-of-band) |
 | `stado_pty_resize` | `stado_terminal_resize` | 0/-1 | Cols + rows |
 | `stado_pty_destroy` | `stado_terminal_close` | 0 | Kill + free |
-| `stado_pty_snapshot` | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen: `{text, cols, rows, cursor, title, svg?}` |
+| `stado_pty_snapshot` | `stado_terminal_snapshot(args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Rendered screen. With `mode:"auto"` returns `{"kind":"stream"}` (no render) when not on the alternate screen buffer, else `{"kind":"screen", text, cols, rows, cursor, title, svg?}`. Backs `shell.read mode:screen/auto`. |
 | — | `stado_terminal_expect(id_lo, id_hi, args_ptr, args_len, res_ptr, res_cap) → i32` | bytes (JSON) | Read until pattern match / timeout / EOF — see below |
 
 Capability: `terminal:open` (broad) — gates all PTY ops.
@@ -185,8 +183,9 @@ ring; subsequent `stado_terminal_read` returns them.
 
 Across patterns, the EARLIEST byte position wins; ties go to the
 lower `patterns[i]` index. Concurrent `stado_terminal_expect` on the
-same session is rejected with a structured error. Requires attach
-(same contract as read).
+same session is rejected with a structured error. No attach required
+(EP-0043: the session id is the handle; `stado_*_attach`/`_detach` were
+removed).
 
 ### stado_bundled_bin
 

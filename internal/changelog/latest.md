@@ -1,34 +1,32 @@
-## v0.73.0 — configurable thinking + tool display modes — 2026-06-14
+## v0.74.0 — shell PTY-UX rethink: read modes, no attach, labeled sessions — 2026-06-14
 
-Thinking blocks and tool-output panes each get a configurable display mode in
-the TUI, with a shared four-value vocabulary and a per-block override. The
-default (`preview`) is unchanged from before, so existing setups look the same.
+Reworks the bundled `shell` plugin's persistent-PTY surface so agents actually
+reach for it: fewer tools, no ceremony, one obvious "get output" verb (EP-0043).
 
-### TUI
+### Plugins / Tools
 
-- **Display modes for thinking and tool output.** A new vocabulary —
-  `preview` / `auto` / `collapsed` / `expanded` — controls how each renders:
-  - `preview` (default): clip/tail to a few lines (the prior behavior).
-  - `auto`: full while the block is streaming/running, then collapse to a
-    single line once it finishes.
-  - `collapsed`: always a single summary line (`▪ thinking · N lines`,
-    `▸ <tool> · N lines`).
-  - `expanded`: always the full body.
-- **Separate per type.** Thinking uses `Ctrl+X H` / `/thinking [mode]`
-  (`[tui].thinking_display`); tool output uses the new `Ctrl+X O` /
-  `/tool-display [mode]` (`[tui].tool_display`). Both persist.
-- **Per-block override in any mode.** A mouse click — or `Shift+Tab` on the
-  focused/latest block — flips that one block between the mode default and its
-  opposite (full ↔ one-line) for the session, then back. Works regardless of
-  the global mode.
+- **`shell.read` gains a `mode`** — `auto` (default) returns the rendered vt100
+  screen when a full-screen program is active (vim/htop/less/installer — the
+  terminal switched to the alternate screen buffer), otherwise the raw
+  incremental byte stream; `stream` and `screen` force either. The response
+  carries a `kind` discriminator (`{kind:"stream",data_b64,n}` |
+  `{kind:"screen",text,cols,rows,cursor,title,svg?}`). For an ordinary
+  line-oriented shell the default behaves exactly as before.
+- **`shell.screenshot` is removed** — folded into `shell.read mode:"screen"`.
+  The confusing "screenshot" name (it never produced an image agents could use)
+  is gone; the rendered-screen path is the same vt100 render.
+- **`shell.attach` / `shell.detach` are removed; no attach step.** `read` /
+  `write` / `read_until` work directly by session id — `shell.spawn` then
+  `shell.write` just works. This eliminates the "you need to attach first" error
+  on the `stado tool run shell.*` one-shot path.
+- **`shell.spawn` takes a `description`** ("what this shell is for"), surfaced in
+  `shell.list` so sessions are self-identifying and stale ones are easy to spot
+  + `shell.destroy`. `shell.list` is broad (lists every session — orphans stay
+  visible) and drops the now-meaningless `attached` field.
 
-### Config
+### Migration (clean break, pre-1.0)
 
-- New `[tui].tool_display` key (default `preview`). `stado config show` and the
-  `stado config init` template document both display keys.
-- **`[tui].thinking_display` values changed** to `preview|auto|collapsed|expanded`.
-  The legacy `show`/`tail`/`hide` values still load (mapped to
-  `expanded`/`preview`/`collapsed`) so existing configs keep working, but the
-  old `hide` (fully suppress thinking) is gone — `collapsed` shows a one-line
-  header instead. New values are written canonically.
+- `shell.screenshot` → `shell.read mode:"screen"` (or just `read` + `auto`).
+- `shell.attach` / `shell.detach` removed — drop them; `read`/`write` need no
+  attach. The `read` response now carries a `kind` field.
 

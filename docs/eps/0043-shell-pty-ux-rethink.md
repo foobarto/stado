@@ -129,13 +129,19 @@ Remove the access-gate use of the single-attach lock:
   ("describe what this shell is for — used to identify and clean up sessions")
   but never requires it (empty allowed; never blocks a spawn).
 - **`shell.list` is broad and self-identifying.** It lists **all** sessions in
-  scope (nothing hidden — orphans stay visible) with: `id · description ·
-  spawning-PID · cmd · alive · age` (+ today's buffered/exit_code). The
-  **spawning PID** is the PID of the process that called `spawn` — the
-  `stado tool run` CLI (captured from the dispatch request / daemon socket peer
-  creds) or the in-process host. It is informational: if that PID is dead, the
-  session is almost certainly an orphan an operator/agent can `destroy`. So
-  `list` answers both "what are my shells for?" and "which are stale?".
+  scope (nothing hidden — orphans stay visible) with: `id · description · cmd ·
+  alive · age` (+ buffered/exit_code). The `description` answers "what is this
+  shell for?", so a list reads like real work vs stale and `shell.destroy`
+  cleans the stale ones. (Shipped.)
+- **Spawning-PID in `list` — DEFERRED (follow-up).** The original plan added the
+  PID of the process that called `spawn`. Deferred because (a) for the
+  `stado tool run` path the spawning CLI exits immediately, so its PID is a dead
+  *provenance* record, not a live orphan signal; (b) the clean plumbing is a
+  real decision — daemon-side `SO_PEERCRED` (the hook already exists at
+  `internal/daemon/server.go:263`, but needs threading through the DispatchTool
+  callback → Host → registerPTYCreate) vs a CLI-injected (spoofable, but it's
+  only informational) `spawner_pid` arg. The `description` already delivers the
+  identification value; the PID is a deliberate fast-follow, not worth rushing.
 
 ### Situation-first descriptions
 
@@ -231,8 +237,8 @@ export and the `stado_terminal_snapshot` host import **stay** (consumed by
 - **D8 — `spawn` gains an optional `description`.** Free text, may be empty;
   surfaced in `list`; the tool description asks for it but never requires it.
 - **D9 — `shell.list` is broad + self-identifying.** All sessions in scope, with
-  `description` + `spawning-PID` (+ cmd/alive/age), so orphans are visible and
-  triageable rather than hidden.
+  `description` (+ cmd/alive/age), so orphans are visible and triageable rather
+  than hidden. (Spawning-PID deferred to a fast-follow — see Design.)
 
 ## Related
 
