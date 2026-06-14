@@ -69,7 +69,7 @@ func registerSecretsGetImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			val, err := host.Secrets.Store.Get(name)
+			val, err := host.Secrets.Store.GetScoped(host.Secrets.PluginName, name)
 			if err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
 					Plugin:  host.Manifest.Name,
@@ -151,7 +151,7 @@ func registerSecretsPutImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			if err := host.Secrets.Store.Put(name, val); err != nil {
+			if err := host.Secrets.Store.PutScoped(host.Secrets.PluginName, name, val); err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
 					Plugin:  host.Manifest.Name,
 					Op:      "put",
@@ -211,7 +211,7 @@ func registerSecretsListImport(builder wazero.HostModuleBuilder, host *Host) {
 				return
 			}
 
-			names, err := host.Secrets.Store.List()
+			names, err := host.Secrets.Store.ListScoped(host.Secrets.PluginName)
 			if err != nil {
 				host.Secrets.Audit(SecretsAuditEvent{
 					Plugin:  host.Manifest.Name,
@@ -276,7 +276,7 @@ func registerSecretsDeleteImport(builder wazero.HostModuleBuilder, host *Host) {
 				deny(name, fmt.Sprintf("name %q not matched by secrets:write globs", name))
 				return
 			}
-			if err := host.Secrets.Store.Remove(name); err != nil {
+			if err := host.Secrets.Store.RemoveScoped(host.Secrets.PluginName, name); err != nil {
 				deny(name, err.Error())
 				return
 			}
