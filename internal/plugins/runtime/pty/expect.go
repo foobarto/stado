@@ -94,9 +94,6 @@ func (m *Manager) Expect(id uint64, patterns []Pattern, timeout time.Duration) (
 	if s.expectInProgress {
 		return ExpectResult{}, fmt.Errorf("session %d: expect already in progress", id)
 	}
-	if !s.attached {
-		return ExpectResult{}, ErrNotAttached
-	}
 	s.expectInProgress = true
 	defer func() { s.expectInProgress = false }()
 

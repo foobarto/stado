@@ -585,17 +585,14 @@ func (m *Manager) Detach(id uint64) error {
 	return nil
 }
 
-// Write sends bytes to the child's stdin. Requires attach.
+// Write sends bytes to the child's stdin. No attach required (EP-0043
+// D6: the session id is the handle; read/write work directly by id).
 func (m *Manager) Write(id uint64, data []byte) (int, error) {
 	s, err := m.get(id)
 	if err != nil {
 		return 0, err
 	}
 	s.mu.Lock()
-	if !s.attached {
-		s.mu.Unlock()
-		return 0, ErrNotAttached
-	}
 	if s.closed {
 		s.mu.Unlock()
 		return 0, ErrClosed
@@ -620,9 +617,6 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 	deadline := time.Now().Add(timeout)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.attached {
-		return nil, ErrNotAttached
-	}
 	// Touch on entry; bump readWaiters so the watchdog knows a client
 	// is actively blocked here even while cond.WaitTimeout sleeps with
 	// s.mu released. Without the counter, a 5-minute Read on a silent

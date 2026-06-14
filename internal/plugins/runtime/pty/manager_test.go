@@ -61,6 +61,26 @@ func TestWriteReadInteractive(t *testing.T) {
 	}
 }
 
+// TestWriteReadWithoutAttach (EP-0043 D6): read/write no longer require
+// an explicit Attach — spawn then write/read works directly. This is the
+// "you need to attach first" friction the lock removal eliminates.
+func TestWriteReadWithoutAttach(t *testing.T) {
+	m := NewManager()
+	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/cat"}})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	defer m.Destroy(id)
+	// No Attach call.
+	if _, err := m.Write(id, []byte("nolock\n")); err != nil {
+		t.Fatalf("Write without attach: %v", err)
+	}
+	got := readUntil(t, m, id, []byte("nolock"), 2*time.Second)
+	if !bytes.Contains(got, []byte("nolock")) {
+		t.Fatalf("read without attach: want 'nolock' echo, got %q", got)
+	}
+}
+
 // TestAttachContention: a session can only have one attacher; force
 // steals it.
 func TestAttachContention(t *testing.T) {
@@ -161,20 +181,9 @@ func TestRingBufferOverflow(t *testing.T) {
 
 // TestRequiresAttach: read/write fail with ErrNotAttached when
 // nobody's attached.
-func TestRequiresAttach(t *testing.T) {
-	m := NewManager()
-	id, err := m.Spawn(SpawnOpts{Argv: []string{"/bin/cat"}})
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	defer m.Destroy(id)
-	if _, err := m.Write(id, []byte("x")); !errors.Is(err, ErrNotAttached) {
-		t.Fatalf("Write w/o attach: want ErrNotAttached, got %v", err)
-	}
-	if _, err := m.Read(id, 64, 100*time.Millisecond); !errors.Is(err, ErrNotAttached) {
-		t.Fatalf("Read w/o attach: want ErrNotAttached, got %v", err)
-	}
-}
+// (EP-0043 D6: the old TestRequiresAttach was removed — read/write no
+// longer require attach. TestWriteReadWithoutAttach covers the new
+// contract.)
 
 // TestCloseAll terminates pending sessions.
 func TestCloseAll(t *testing.T) {
