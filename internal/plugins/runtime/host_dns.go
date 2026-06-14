@@ -109,15 +109,26 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 // is non-actionable and, for AXFR-via-multicast specifically, exotic
 // enough to be more likely a probe than a legitimate query.
 func guardAXFRTarget(ctx context.Context, server string) string {
+	return guardDNSTarget(ctx, server, "dns:axfr_private")
+}
+
+// guardDNSTarget refuses a custom DNS/AXFR server that resolves to RFC1918 /
+// loopback / link-local / multicast / unspecified when the caller lacks the
+// private cap named by capName. Returns "" on accept, a denial message on
+// refuse. Shared by the AXFR path and the stado_dns_resolve custom-server path
+// so they can't drift — the resolve path previously had NO guard at all, so a
+// plugin with only dns:resolve could point server=127.0.0.1:53 at the host's
+// internal / split-horizon resolver.
+func guardDNSTarget(ctx context.Context, server, capName string) string {
 	hostStr := server
 	if h, _, err := net.SplitHostPort(server); err == nil {
 		hostStr = h
 	}
 	if _, err := netguard.ResolveAndGuard(ctx, hostStr, false /*allowPrivate*/, true /*broad*/); err != nil {
 		if errors.Is(err, netguard.ErrPrivateAddress) {
-			return "axfr to private destination denied (dns:axfr_private capability required): " + err.Error()
+			return "dns query to private destination denied (" + capName + " capability required): " + err.Error()
 		}
-		return "axfr server lookup failed: " + err.Error()
+		return "dns server lookup failed: " + err.Error()
 	}
 	return ""
 }
@@ -234,6 +245,20 @@ func registerDNSResolveImport(builder wazero.HostModuleBuilder, host *Host) {
 
 			resolver := net.DefaultResolver
 			if req.Server != "" {
+				// A custom DNS server must clear the private-destination guard
+				// unless dns:resolve_private is held — otherwise a plugin with
+				// only dns:resolve could query the host's internal /
+				// split-horizon resolver (server=127.0.0.1:53). Parity with the
+				// AXFR path, which already guards via guardDNSTarget.
+				if !host.DNSResolvePrivate {
+					if denyMsg := guardDNSTarget(resolveCtx, req.Server, "dns:resolve_private"); denyMsg != "" {
+						host.Logger.Warn("stado_dns_resolve denied",
+							slog.String("server", req.Server), slog.String("reason", denyMsg))
+						writeJSONError(mod, resPtr, resCap, denyMsg)
+						stack[0] = api.EncodeI32(-1)
+						return
+					}
+				}
 				resolver = &net.Resolver{
 					PreferGo: true,
 					Dial: func(ctx context.Context, network, address string) (net.Conn, error) {

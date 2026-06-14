@@ -910,6 +910,3 @@ func (r *Runtime) closeAllNetConns(ctx context.Context) {
 func isPrivateIP(ip net.IP) bool {
 	return netguard.IsPrivateBroad(ip)
 }
-
-// errPrivateAddr is returned by the dial guard for clarity in tests.
-var errPrivateAddr = fmt.Errorf("net:dial: address is private and net:http_request_private not granted")

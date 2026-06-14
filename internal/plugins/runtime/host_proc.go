@@ -37,11 +37,24 @@ type procHandle struct {
 //   - Mixed forms (relative path with slashes, e.g. `bin/bash`) are
 //     rejected as ambiguous.
 func (h *Host) procAllowed(bin string) bool {
-	if !h.ExecProc {
-		return false
-	}
-	if len(h.ExecProcGlobs) == 0 {
-		return true // broad exec:proc
+	return h.ExecProc && execGlobMatch(bin, h.ExecProcGlobs)
+}
+
+// ptyAllowed checks the exec:pty / terminal:open capability + its glob set for a
+// PTY-spawned binary — the analogue of procAllowed. Without this the PTY path
+// ran any binary regardless of the (narrower) exec:proc glob, bypassing
+// cap-confinement.
+func (h *Host) ptyAllowed(bin string) bool {
+	return h.ExecPTY && execGlobMatch(bin, h.ExecPTYGlobs)
+}
+
+// execGlobMatch reports whether bin matches any of globs. Empty globs = broad
+// (match-all). Glob forms: absolute path (matched against the resolved abs
+// path) or slash-free basename (matched against filepath.Base). Shared by
+// procAllowed and ptyAllowed so the two exec surfaces can't drift.
+func execGlobMatch(bin string, globs []string) bool {
+	if len(globs) == 0 {
+		return true
 	}
 	abs, err := exec.LookPath(bin)
 	if err != nil {
@@ -49,10 +62,10 @@ func (h *Host) procAllowed(bin string) bool {
 	}
 	abs = filepath.Clean(abs)
 	base := filepath.Base(abs)
-	for _, glob := range h.ExecProcGlobs {
+	for _, glob := range globs {
 		if strings.Contains(glob, "/") {
-			// Absolute-path form (caller responsibility — relative
-			// glob with slashes was rejected at cap-parse time).
+			// Absolute-path form (relative glob with slashes was rejected at
+			// cap-parse time).
 			if matched, _ := filepath.Match(glob, abs); matched {
 				return true
 			}
@@ -64,6 +77,21 @@ func (h *Host) procAllowed(bin string) bool {
 		}
 	}
 	return false
+}
+
+// appendExecGlob validates an exec:proc / exec:pty / terminal:open glob and
+// appends it. A mixed relative-path form (contains a slash but isn't absolute)
+// is rejected — it can't match execGlobMatch's resolved-path/basename lookup
+// and would be a silent-deny footgun.
+func (h *Host) appendExecGlob(dst []string, glob, capName string) []string {
+	if strings.Contains(glob, "/") && !strings.HasPrefix(glob, "/") {
+		if h.Logger != nil {
+			h.Logger.Warn(capName+" glob rejected: mixed relative-path form (use absolute path or slash-free basename)",
+				slog.String("glob", glob))
+		}
+		return dst
+	}
+	return append(dst, glob)
 }
 
 func registerProcImports(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
