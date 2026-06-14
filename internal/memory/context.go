@@ -203,7 +203,7 @@ func findRepoRoot(start string) string {
 	}
 	original := dir
 	for {
-		if pinned := readUserRepoPin(dir); pinned != "" {
+		if pinned := readUserRepoPin(dir); pinned != "" && pinRelatedToWorkdir(original, pinned) {
 			return pinned
 		}
 		if workdirpath.LooksLikeRepoRoot(dir) {
@@ -215,6 +215,24 @@ func findRepoRoot(start string) string {
 		}
 		dir = parent
 	}
+}
+
+// pinRelatedToWorkdir reports whether a .stado/user-repo pin is trustworthy to
+// use as the repo-id root: it must be an ancestor or descendant of the workdir.
+// stado only ever writes a pin that points up to the real repo root from a
+// worktree it manages, so a legitimate pin is always related to the workdir. A
+// repo-committed pin pointing somewhere unrelated (e.g. another project) would
+// otherwise inject that repo's memories into this session (Codex #126). The
+// symlink-escape vector is handled separately by the resolver in readUserRepoPin;
+// this guards the content-arbitrariness of a plain regular pin file.
+func pinRelatedToWorkdir(workdir, pin string) bool {
+	w := filepath.Clean(workdir)
+	p := filepath.Clean(pin)
+	if w == p {
+		return true
+	}
+	sep := string(filepath.Separator)
+	return strings.HasPrefix(w+sep, p+sep) || strings.HasPrefix(p+sep, w+sep)
 }
 
 func readUserRepoPin(workdir string) string {

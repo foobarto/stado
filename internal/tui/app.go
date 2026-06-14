@@ -182,7 +182,12 @@ func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, en
 	// hook. Pinned to the session's LSP manager + diagnostics store + cwd
 	// so servers reap with the session and edits resolve against the
 	// user's checkout.
-	if m.lspManager != nil && m.lspDiagnostics != nil {
+	// Opt-in only (Codex #12): auto-diagnostics launches an unsandboxed
+	// language server (an operator-PATH binary that reads repo-controlled
+	// project config and may invoke build tooling) after every mutating edit.
+	// Gate it behind [lsp].auto_diagnostics so a malicious repo can't drive
+	// host LSP spawns via a prompt-injected edit.
+	if m.cfg != nil && m.cfg.LSP.AutoDiagnostics && m.lspManager != nil && m.lspDiagnostics != nil {
 		diagHook := lspfind.NewDiagnosticsHook(m.lspManager, m.lspDiagnostics, m.cwd)
 		lifecycleHooks = lifecycleHooks.Append(diagHook)
 	}

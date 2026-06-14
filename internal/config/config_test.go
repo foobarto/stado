@@ -210,6 +210,21 @@ segments = ["tokens"]
 	}
 }
 
+// TestLSPAutoDiagnosticsDefaultsOff (Codex #12): auto-spawning language servers
+// on every edit is opt-in — the default must be false so an untrusted repo
+// can't drive unsandboxed host LSP spawns via a prompt-injected edit.
+func TestLSPAutoDiagnosticsDefaultsOff(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LSP.AutoDiagnostics {
+		t.Error("LSP.AutoDiagnostics must default to false (opt-in)")
+	}
+}
+
 func TestEnvOverride(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("STADO_DEFAULTS_PROVIDER", "openai")

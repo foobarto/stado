@@ -511,6 +511,39 @@ func TestReadUserRepoPinRejectsStadoDirSymlinkEscape(t *testing.T) {
 	}
 }
 
+// TestFindRepoRootIgnoresUnrelatedRepoPin (Codex #126): a plain (non-symlink)
+// .stado/user-repo whose CONTENT points to an unrelated repo must be ignored —
+// otherwise that other repo's memories leak into this session. A pin that is an
+// ancestor of the workdir (how stado actually writes them) is still honored.
+func TestFindRepoRootIgnoresUnrelatedRepoPin(t *testing.T) {
+	// Unrelated pin: points to a sibling repo, not an ancestor/descendant.
+	workdir := filepath.Join(t.TempDir(), "evil-repo")
+	if err := os.MkdirAll(filepath.Join(workdir, ".stado"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, ".stado", "user-repo"), []byte("/home/user/other-project\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := findRepoRoot(workdir)
+	want, _ := filepath.Abs(workdir)
+	if got == "/home/user/other-project" {
+		t.Fatalf("findRepoRoot honored an unrelated repo pin (cross-repo memory leak): %q", got)
+	}
+	if got != want {
+		t.Fatalf("findRepoRoot = %q, want the workdir's own root %q", got, want)
+	}
+
+	// Sanity: an ancestor pin (the legitimate stado-managed worktree case) is
+	// still honored.
+	ancestor := filepath.Dir(want)
+	if err := os.WriteFile(filepath.Join(workdir, ".stado", "user-repo"), []byte(ancestor+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := findRepoRoot(workdir); got != ancestor {
+		t.Fatalf("findRepoRoot ignored a legitimate ancestor pin: got %q, want %q", got, ancestor)
+	}
+}
+
 func TestSessionControlRootIgnoresEscapingRepoPin(t *testing.T) {
 	outsideDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outsideDir, "user-repo"), []byte("/outside/repo\n"), 0o600); err != nil {

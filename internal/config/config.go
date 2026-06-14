@@ -53,6 +53,22 @@ type Config struct {
 	Runtime    Runtime    `koanf:"runtime"`
 	Supervisor Supervisor `koanf:"supervisor"`
 	Harness    Harness    `koanf:"harness"`
+	LSP        LSP        `koanf:"lsp"`
+}
+
+// LSP is the [lsp] config section.
+type LSP struct {
+	// AutoDiagnostics enables the TUI hook that, after a mutating edit to a
+	// source file, launches the matching language server and surfaces its
+	// diagnostics. Default false (Codex #12): the server is an operator-PATH
+	// binary that reads repo-controlled project config (tsconfig/pyproject/
+	// rust-analyzer settings) and may invoke build tooling, and today it runs
+	// unsandboxed with no per-edit consent — auto-spawning it on every edit in
+	// an untrusted repo crosses the repo→host boundary. Opt in explicitly:
+	//
+	//	[lsp]
+	//	auto_diagnostics = true
+	AutoDiagnostics bool `koanf:"auto_diagnostics"`
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
