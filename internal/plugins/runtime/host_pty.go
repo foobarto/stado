@@ -121,7 +121,19 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
 				return
 			}
-			id, err := host.PTYManager.Spawn(opts)
+			// Confine the PTY child on the surfaces that set a default sandbox
+			// policy (daemon / mcp-server / acp / headless), parity with
+			// stado_exec (#100). run / tui / resume deliberately leave
+			// DefaultSandboxPolicy nil — the PTY runs against the operator's own
+			// filesystem there, by design. The cap check above already ran on
+			// the original binary; the wrap rewrites argv to the sandbox runner.
+			sopts, serr := sandboxPTYSpawnOpts(ctx, host, opts)
+			if serr != nil {
+				host.Logger.Warn("stado_pty_create sandbox wrap failed", slog.String("err", serr.Error()))
+				stack[0] = api.EncodeI64(int64(encodeToolSidePayload(mod, resPtr, resCap, []byte(serr.Error()))))
+				return
+			}
+			id, err := host.PTYManager.Spawn(sopts)
 			if err != nil {
 				host.Logger.Warn("stado_pty_create failed", slog.String("err", err.Error()))
 				stack[0] = api.EncodeI64(int64(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error()))))
@@ -131,6 +143,44 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI64}).
 		Export(exportName)
+}
+
+// sandboxPTYSpawnOpts wraps the PTY spawn command in the host's default sandbox
+// runner when one is set (#100). Mirrors stado_exec's buildSandboxedCmd path so
+// a PTY shell is confined the same way a one-shot exec is on the confining
+// surfaces (daemon / mcp-server / acp / headless set host.DefaultSandboxPolicy).
+// When no host default is set (run / tui / resume — the operator's own FS, by
+// design) opts is returned unchanged. resolveSandboxPolicy(host, nil) yields the
+// host default or nil, so the gate matches the exec path exactly.
+//
+// The returned argv is the runner-wrapped command (e.g. bwrap … -- argv); the
+// PTY manager starts THAT under a pty, so the real shell runs inside the
+// sandbox namespace. pty.Start handles the controlling-tty setup, so the
+// SysProcAttr that buildSandboxedCmd's detachControllingTTY sets (and which we
+// drop when re-deriving argv) is not needed here.
+func sandboxPTYSpawnOpts(ctx context.Context, host *Host, opts pty.SpawnOpts) (pty.SpawnOpts, error) {
+	policy := resolveSandboxPolicy(host, nil)
+	if policy == nil {
+		return opts, nil
+	}
+	eff := opts.Argv
+	if len(eff) == 0 {
+		if opts.Cmd == "" {
+			return opts, nil // Manager.Spawn returns ErrNoCommand
+		}
+		eff = []string{"/bin/sh", "-c", opts.Cmd}
+	}
+	cmd, err := buildSandboxedCmd(ctx, policy, host.Workdir, eff, opts.Env)
+	if err != nil {
+		return opts, err
+	}
+	// Hand the runner's *exec.Cmd to the manager intact — it carries ExtraFiles
+	// (the seccomp BPF fd that `--seccomp <fd>` references) and SysProcAttr that
+	// a re-derived exec.Command from argv would drop, producing
+	// "bwrap: Can't read seccomp data: Bad file descriptor". Argv/Cmd are left
+	// as the original so List shows the real command, not the bwrap wrapper.
+	opts.PreparedCmd = cmd
+	return opts, nil
 }
 
 // stado_pty_list(buf_ptr, buf_cap) → i32
