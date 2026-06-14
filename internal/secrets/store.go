@@ -140,15 +140,21 @@ func (s *Store) Remove(name string) error {
 // dir is dot-prefixed so it can never collide with a shared secret name
 // (ValidName forbids a leading dot) and the operator-facing List skips it.
 
-// pluginScopeRoot returns <root>/.plugins/<segment>, where segment is a
-// path-safe, collision-free encoding of the plugin name: the name verbatim
-// when it's already a safe single segment, else its sha256 hex (covers
-// canonical identities like "github.com/owner/repo" that contain separators).
+// pluginScopeRoot returns <root>/.plugins/<segment>, a path-safe,
+// collision-free encoding of the plugin name. The two encodings use DISJOINT
+// prefixes ("name-" vs "hash-") so they can never alias: a path-safe single
+// segment is used verbatim under "name-", and anything else (canonical
+// identities like "github.com/owner/repo", or names with separators) is hashed
+// under "hash-". Without the disjoint prefixes a plugin could name itself the
+// 64-char hex of sha256("victim") — itself a path-safe segment — and land in
+// victim's hashed scope, defeating isolation (Codex P1).
 func (s *Store) pluginScopeRoot(plugin string) string {
-	seg := plugin
-	if ValidName(plugin) != nil {
+	var seg string
+	if ValidName(plugin) == nil {
+		seg = "name-" + plugin
+	} else {
 		sum := sha256.Sum256([]byte(plugin))
-		seg = hex.EncodeToString(sum[:])
+		seg = "hash-" + hex.EncodeToString(sum[:])
 	}
 	return filepath.Join(s.root, ".plugins", seg)
 }

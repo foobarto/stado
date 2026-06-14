@@ -1,9 +1,30 @@
 package secrets
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 )
+
+// TestScoped_NoEncodingCollision regresses the Codex P1: a plugin must not be
+// able to land in another plugin's scope by naming itself the sha256-hex of the
+// victim's (separator-containing) identity. The disjoint name-/hash- prefixes
+// must keep the two scopes distinct.
+func TestScoped_NoEncodingCollision(t *testing.T) {
+	s := newTestStore(t)
+	victim := "github.com/owner/repo" // hashed (contains separators)
+	attacker := hex.EncodeToString(func() []byte { h := sha256.Sum256([]byte(victim)); return h[:] }())
+
+	if err := s.PutScoped(victim, "secret", []byte("victim-data")); err != nil {
+		t.Fatal(err)
+	}
+	// The attacker's name is a valid single segment (64 hex chars), so without
+	// disjoint prefixes it would map to the same dir as victim's hash.
+	if got, err := s.GetScoped(attacker, "secret"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("attacker read victim's secret via hash collision: got %q err %v; want ErrNotFound", got, err)
+	}
+}
 
 // EP-0038 D19: plugin secrets must be namespaced by plugin identity so one
 // plugin can't read, overwrite, or delete another's secret — while
