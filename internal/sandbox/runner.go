@@ -31,8 +31,9 @@ func Detect() Runner {
 }
 
 // NoneRunner runs commands without any sandboxing. Used when no native
-// sandbox is available OR when the policy is a no-op. Emits a one-line
-// warning via stderr so users know they're unsandboxed.
+// sandbox is available OR when the policy is a no-op. NoneRunner itself does
+// NOT warn — the unsandboxed notice is emitted once per process by
+// WarnIfHostUnsandboxed (announce.go), not per command.
 type NoneRunner struct{}
 
 func (NoneRunner) Name() string    { return "none" }

@@ -19,6 +19,15 @@ history:
 
 # EP-11: Observability and Telemetry
 
+> **As-built caveat (EP-gap audit 2026-06-14).** `status: Implemented` covers
+> the OTel scaffolding (tracer/meter setup, span helpers, instrument
+> declarations), not full coverage. Several declared surfaces have no recording
+> call sites yet: the `stado.session` and `stado.sandbox.exec` spans, and the
+> `stado_tokens_total`, `stado_cache_hit_ratio`, `approval_rate`,
+> `sandbox_denials_total`, `sessions_active`, and `tool_latency_ms` instruments
+> (`BuildExecutor` does not set `Metrics`). Treat the instrument list below as
+> the intended surface; emission is partial.
+
 ## Problem
 
 stado has multiple long-lived surfaces, multiple tool execution paths,

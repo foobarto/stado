@@ -49,7 +49,9 @@ need narrower instructions or skill variants than the repo root.
 Project instructions are discovered by walking upward from the current
 working directory to the filesystem root. Within each directory, stado
 prefers `AGENTS.md` and falls back to `CLAUDE.md`. The first matching
-file wins and its body is injected verbatim as the system prompt.
+file wins and its body is injected unmodified into the system prompt
+template's `{{ .ProjectInstructions }}` slot — not used verbatim as the
+entire system prompt; the template wraps it (see `internal/instructions`).
 
 Skills live under `.stado/skills/*.md` and use the same upward walk.
 Each markdown file becomes one reusable prompt. Minimal frontmatter can
