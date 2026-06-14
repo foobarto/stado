@@ -24,9 +24,9 @@ permissions:
 # Two tiers: fast PR gate, post-merge validation.
 #
 # Pull requests run only the cheap gates — non-race `go test`, lint,
-# govulncheck (plus gitleaks + CodeQL in their own workflows) — so PR
-# feedback is fast. `push: main` adds the slow `-race` test (the early race
-# signal on main).
+# govulncheck, the bundled-wasm determinism check (plus gitleaks + CodeQL in
+# their own workflows) — so PR feedback is fast. `push: main` adds the slow
+# `-race` test (the early race signal on main).
 #
 # There is deliberately NO cross-compile build job here. GoReleaser
 # (release.yml) cross-compiles + signs every target at release time, and a
@@ -100,3 +100,34 @@ jobs:
         with:
           version: v2.11.4
           args: --timeout=5m
+
+  # EP-0042 D3 / item-7: the bundled wasm is built from source at
+  # build/release time and go:embed'd, so the binary-level signature only
+  # covers reproducible bytes if the rebuild is byte-for-byte deterministic.
+  # Build it twice and compare shas; a mismatch means a non-deterministic
+  # build crept in (historically these corrupted //go:wasmexport arities).
+  # Not in the tag ruleset's required set — informational gate on PR/main.
+  wasm-determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Verify bundled wasm rebuild is deterministic
+        run: |
+          set -euo pipefail
+          bash plugins/bundled/build.sh
+          sha256sum internal/plugins/bundled/wasm/*.wasm | sort > "${RUNNER_TEMP}/wasm-sha-1.txt"
+          rm -f internal/plugins/bundled/wasm/*.wasm
+          bash plugins/bundled/build.sh
+          sha256sum internal/plugins/bundled/wasm/*.wasm | sort > "${RUNNER_TEMP}/wasm-sha-2.txt"
+          if ! diff -u "${RUNNER_TEMP}/wasm-sha-1.txt" "${RUNNER_TEMP}/wasm-sha-2.txt"; then
+            echo "::error::bundled wasm rebuild is non-deterministic (EP-0042 D3) — release artefacts would not be reproducible from source"
+            exit 1
+          fi
+          echo "bundled wasm rebuild is deterministic ($(wc -l < "${RUNNER_TEMP}/wasm-sha-1.txt") artefacts)"
