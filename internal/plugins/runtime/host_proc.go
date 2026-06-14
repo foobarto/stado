@@ -233,7 +233,7 @@ func registerProcReadImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 		WithGoModuleFunction(api.GoModuleFunc(func(_ context.Context, mod api.Module, stack []uint64) {
 			h := uint32(stack[0])
 			max := api.DecodeU32(stack[1])
-			// timeout_ms at stack[2] — TODO: apply read deadline
+			timeoutMS := api.DecodeU32(stack[2])
 			bufPtr := api.DecodeU32(stack[3])
 			bufCap := api.DecodeU32(stack[4])
 			v, ok := rt.handles.get(h)
@@ -246,7 +246,12 @@ func registerProcReadImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 				max = bufCap
 			}
 			buf := make([]byte, max)
-			n, err := ph.stdout.Read(buf)
+			// Honor the plugin-supplied timeout: a positive timeout_ms bounds the
+			// read so a plugin can poll a quiet subprocess without blocking the
+			// wasm call indefinitely. The stdout pipe is an *os.File, which
+			// supports SetReadDeadline; a reader without deadline support ignores
+			// it. A timed-out (or any) read returns -1, matching the existing ABI.
+			n, err := readProcWithDeadline(ph.stdout, buf, timeoutMS)
 			if err != nil || n == 0 {
 				stack[0] = api.EncodeI32(-1)
 				return
@@ -256,6 +261,22 @@ func registerProcReadImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runti
 			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_proc_read")
+}
+
+// readProcWithDeadline reads once from r into buf, applying a read deadline of
+// timeoutMS milliseconds when timeoutMS > 0 and r supports deadlines (the
+// subprocess stdout pipe is an *os.File, which does). timeoutMS == 0 means
+// block (the prior behavior). The deadline is cleared afterward so a later
+// blocking read on the same handle isn't affected. Returns the bytes read and
+// any error (incl. a deadline-exceeded timeout).
+func readProcWithDeadline(r io.Reader, buf []byte, timeoutMS uint32) (int, error) {
+	if timeoutMS > 0 {
+		if d, ok := r.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = d.SetReadDeadline(time.Now().Add(time.Duration(timeoutMS) * time.Millisecond))
+			defer func() { _ = d.SetReadDeadline(time.Time{}) }()
+		}
+	}
+	return r.Read(buf)
 }
 
 // stado_proc_write(h, buf_ptr, buf_len) → int32
