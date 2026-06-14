@@ -52,7 +52,7 @@ func newPersonaScopeModel(t *testing.T, cwd string) *Model {
 	m := NewModel(cwd, "m", "p",
 		func() (agent.Provider, error) { return nil, nil }, rnd, keys.NewRegistry())
 	m.width, m.height = 120, 30
-	m.personaResolver = personas.Resolver{CWD: cwd}
+	m.personaResolver = personas.Resolver{CWD: cwd, AllowProject: true}
 	// Default-state base skills come from NewModel's skills.Load(cwd); mirror
 	// it explicitly so the test doesn't depend on construction order.
 	m.baseSkills = append([]skills.Skill(nil), m.skills...)

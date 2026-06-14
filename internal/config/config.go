@@ -447,6 +447,14 @@ type Defaults struct {
 	// {cwd}/.stado/personas → ~/.stado/personas → bundled.
 	// Per-call surfaces (CLI flag, /persona, agent.spawn arg) override.
 	Persona string `koanf:"persona"`
+	// AllowProjectPersona opts into honoring personas from a repo's
+	// {cwd}/.stado/personas/ directory. Default false (Codex #8/#42): a
+	// project-origin persona's body is injected verbatim into the system
+	// prompt and its tools:/plugins: frontmatter widens the agent surface, so
+	// a repo could silently take over the operating posture just by shipping
+	// a .stado/personas/default.md. When false the resolver ignores the
+	// project dir and falls back to the user/bundled persona of that name.
+	AllowProjectPersona bool `koanf:"allow_project_persona"`
 }
 
 type Approvals struct {
@@ -872,6 +880,9 @@ func Load() (*Config, error) {
 			//                       kill switch, or swap the whole input model (#7/#10)
 			//   defaults.persona    selects a repo .stado/personas/*.md whose body is
 			//                       injected verbatim into the system prompt (#8/#42)
+			//   defaults.allow_project_persona  the persona opt-in gate itself —
+			//                       a repo must not be able to self-enable project
+			//                       personas by committing this key
 			//   agent.system_prompt_path  points loadSystemPromptTemplate at a repo
 			//                       file → repo-controlled provider system prompt
 			//   plugins.background  auto-runs installed wasm plugins at launch (#8)
@@ -893,7 +904,8 @@ func Load() (*Config, error) {
 			}
 			for _, key := range []string{
 				"hooks", "aliases", "keymap",
-				"defaults.persona", "agent.system_prompt_path", "plugins.background",
+				"defaults.persona", "defaults.allow_project_persona",
+				"agent.system_prompt_path", "plugins.background",
 				"acp", "mcp.providers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
