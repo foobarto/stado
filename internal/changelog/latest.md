@@ -1,7 +1,12 @@
-## v0.74.0 — shell PTY-UX rethink: read modes, no attach, labeled sessions — 2026-06-14
+## v0.74.1 — shell PTY-UX rethink: read modes, no attach, labeled sessions — 2026-06-14
 
 Reworks the bundled `shell` plugin's persistent-PTY surface so agents actually
 reach for it: fewer tools, no ceremony, one obvious "get output" verb (EP-0043).
+
+> Ships the EP-0043 content as **v0.74.1**: the `v0.74.0` tag's release run
+> failed in GoReleaser's `windows_amd64` cross-compile (the new `shell.signal`
+> name map used Unix-only `syscall.SIG*` constants), so v0.74.0 published no
+> artifacts. v0.74.1 is that content plus the cross-platform build fix.
 
 ### Plugins / Tools
 
@@ -38,4 +43,11 @@ reach for it: fewer tools, no ceremony, one obvious "get output" verb (EP-0043).
 - `shell.screenshot` → `shell.read mode:"screen"` (or just `read` + `auto`).
 - `shell.attach` / `shell.detach` removed — drop them; `read`/`write` need no
   attach. The `read` response now carries a `kind` field.
+
+### Fixes
+
+- `shell.signal`'s name map no longer breaks the Windows build — the Unix-only
+  signal constants moved behind a `//go:build unix` file so all release targets
+  (windows/linux/darwin × amd64/arm64) cross-compile. (This is what v0.74.0's
+  release run tripped on.)
 

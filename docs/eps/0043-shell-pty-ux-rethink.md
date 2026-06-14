@@ -5,7 +5,7 @@ author: Bartosz Ptaszynski <bartosz@foobarto.me>
 status: Implemented
 type: Standards
 created: 2026-06-14
-implemented-in: v0.74.0
+implemented-in: v0.74.1
 see-also: [0041, 0038, 0037]
 history:
   - date: 2026-06-14
@@ -29,11 +29,14 @@ history:
   - date: 2026-06-14
     status: Implemented
     note: >
-      Shipped in v0.74.0. Pre-release adversarial review added D10 (mode:"auto"
+      Shipped in v0.74.1. Pre-release adversarial review added D10 (mode:"auto"
       drains the raw ring when it renders a screen, guarded against an active
       Read/Expect consumer) and made `shell.signal` accept signal names
       ("SIGINT") host-side, not just integers. Docs synced (host-imports,
-      abi-reference, EP index, CHANGELOG).
+      abi-reference, EP index, CHANGELOG). NOTE: the v0.74.0 tag's release run
+      failed GoReleaser's windows_amd64 cross-compile (the shell.signal name
+      map used Unix-only syscall.SIG* constants — fixed by moving them behind a
+      //go:build unix file), so the content actually published as v0.74.1.
 ---
 
 # EP-43: Shell PTY-UX rethink — read modes, no lock, labeled sessions
