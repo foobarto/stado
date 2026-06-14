@@ -48,10 +48,12 @@ func evaluateAnchorTrust(store *plugins.AnchorTrustStore, ownerKey, fetchedFinge
 	if err != nil {
 		return 0, "", err
 	}
-	switch {
-	case stored == "":
+	// fetchedFingerprint is non-empty here (the no-pubkey case returned above),
+	// so a tagged switch on stored is unambiguous.
+	switch stored {
+	case "":
 		return anchorFirstSight, "", nil
-	case stored == fetchedFingerprint:
+	case fetchedFingerprint:
 		return anchorTrusted, stored, nil
 	default:
 		return anchorMismatch, stored, nil
