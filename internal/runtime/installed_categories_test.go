@@ -60,15 +60,68 @@ func TestLookupToolMetadata_InstalledCategories(t *testing.T) {
 		}},
 	})
 
-	got := LookupToolMetadata(toolName).Categories
-	want := map[string]bool{"security": true, "gtfobins": true}
-	if len(got) != len(want) {
-		t.Fatalf("categories = %v; want canonical+extra %v", got, want)
+	md := LookupToolMetadata(toolName)
+	// Canonical and extra must stay separate: tools.categories and
+	// [tools].autoload_categories trust Categories as the canonical taxonomy,
+	// so a free-form extra ("gtfobins") must NOT leak into Categories.
+	if len(md.Categories) != 1 || md.Categories[0] != "security" {
+		t.Errorf("Categories = %v; want canonical-only [security]", md.Categories)
 	}
-	for _, c := range got {
-		if !want[c] {
-			t.Errorf("unexpected category %q (want only %v)", c, want)
-		}
+	if len(md.ExtraCategories) != 1 || md.ExtraCategories[0] != "gtfobins" {
+		t.Errorf("ExtraCategories = %v; want [gtfobins]", md.ExtraCategories)
+	}
+}
+
+// TestMetaCategories_ExcludesInstalledExtras regresses the Codex P2 on #180:
+// the canonical catalog (tools.categories) must not advertise a plugin's
+// free-form extra tags as canonical categories.
+func TestMetaCategories_ExcludesInstalledExtras(t *testing.T) {
+	const toolName = "gtfobins__search"
+	withInstalledManifest(t, toolName, plugins.Manifest{
+		Name: "gtfobins",
+		Tools: []plugins.ToolDef{{
+			Name:            toolName,
+			Categories:      []string{"security"},
+			ExtraCategories: []string{"gtfobins"},
+		}},
+	})
+
+	reg := tools.NewRegistry()
+	reg.Register(catStubTool{name: toolName})
+	res, err := (&metaCategories{reg: reg}).Run(context.Background(), []byte(`{}`), nil)
+	if err != nil {
+		t.Fatalf("metaCategories.Run: %v", err)
+	}
+	if !strings.Contains(res.Content, "security") {
+		t.Errorf("canonical category 'security' should appear in catalog; got %s", res.Content)
+	}
+	if strings.Contains(res.Content, "gtfobins") {
+		t.Errorf("free-form extra 'gtfobins' must NOT appear in the canonical catalog; got %s", res.Content)
+	}
+}
+
+// TestMetaInCategory_AcceptsInstalledExtra: an exact in_category lookup by a
+// free-form extra tag still finds the tool (EP-0037 §C: extras accepted for
+// exact lookups, just not the catalog).
+func TestMetaInCategory_AcceptsInstalledExtra(t *testing.T) {
+	const toolName = "gtfobins__search"
+	withInstalledManifest(t, toolName, plugins.Manifest{
+		Name: "gtfobins",
+		Tools: []plugins.ToolDef{{
+			Name:            toolName,
+			Categories:      []string{"security"},
+			ExtraCategories: []string{"gtfobins"},
+		}},
+	})
+
+	reg := tools.NewRegistry()
+	reg.Register(catStubTool{name: toolName})
+	res, err := (&metaInCategory{reg: reg}).Run(context.Background(), []byte(`{"name":"gtfobins"}`), nil)
+	if err != nil {
+		t.Fatalf("metaInCategory.Run: %v", err)
+	}
+	if !strings.Contains(res.Content, toolName) {
+		t.Fatalf("in_category by extra tag 'gtfobins' should surface %q; got %s", toolName, res.Content)
 	}
 }
 
