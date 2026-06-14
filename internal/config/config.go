@@ -889,12 +889,21 @@ func Load() (*Config, error) {
 			//   acp                 register_mcp = persistent MCP backdoor (#3),
 			//                       inherit_env = host-secret passthrough (#20),
 			//                       max_turns = removes the loop circuit-breaker (#54)
-			//   mcp.providers       wrapped-MCP inherit_env host-secret passthrough
-			//                       (#20); mcp.servers stays (legit project tool servers)
+			//   mcp.providers / mcp.servers  wrapped-MCP inherit_env host-secret
+			//                       passthrough (#20) + repo-declared MCP subprocess
+			//                       servers ([mcp.servers.x] command=… is an exec
+			//                       vector); operator declares MCP servers, not a repo
 			//   tui.sidebar/footer  can hide the sandbox/budget/risk safety chrome (#14)
 			//   lsp.auto_diagnostics  the LSP-spawn opt-in gate itself — a repo must
 			//                       not be able to re-enable unsandboxed LSP spawns (#12)
-			// Project model/provider/tool overrides (the EP-0035 use case) stay.
+			//   sandbox             a repo must never weaken the process-containment
+			//                       posture (mode/proxy/dns/allow_env) — EP-0044 phase 2
+			//   runtime             use_wasm flips native↔wasm tool impls; a repo
+			//                       swapping implementations is an operator-only call
+			//   inference           [inference.presets.x] endpoint + api_key_env is an
+			//                       API-key exfil vector — operator declares endpoints
+			// Project model/provider/tool overrides (the EP-0035 use case) stay
+			// (defaults.model/provider pick among USER-defined providers).
 			// koanf Delete is a recursive prefix-delete, so a dotted key like
 			// "defaults.persona" removes exactly that leaf and "acp" removes the
 			// whole subtree.
@@ -906,9 +915,10 @@ func Load() (*Config, error) {
 				"hooks", "aliases", "keymap",
 				"defaults.persona", "defaults.allow_project_persona",
 				"agent.system_prompt_path", "plugins.background",
-				"acp", "mcp.providers",
+				"acp", "mcp.providers", "mcp.servers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
+				"sandbox", "runtime", "inference",
 			} {
 				if pk.Exists(key) {
 					pk.Delete(key)
