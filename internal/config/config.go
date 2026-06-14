@@ -53,6 +53,22 @@ type Config struct {
 	Runtime    Runtime    `koanf:"runtime"`
 	Supervisor Supervisor `koanf:"supervisor"`
 	Harness    Harness    `koanf:"harness"`
+	LSP        LSP        `koanf:"lsp"`
+}
+
+// LSP is the [lsp] config section.
+type LSP struct {
+	// AutoDiagnostics enables the TUI hook that, after a mutating edit to a
+	// source file, launches the matching language server and surfaces its
+	// diagnostics. Default false (Codex #12): the server is an operator-PATH
+	// binary that reads repo-controlled project config (tsconfig/pyproject/
+	// rust-analyzer settings) and may invoke build tooling, and today it runs
+	// unsandboxed with no per-edit consent — auto-spawning it on every edit in
+	// an untrusted repo crosses the repo→host boundary. Opt in explicitly:
+	//
+	//	[lsp]
+	//	auto_diagnostics = true
+	AutoDiagnostics bool `koanf:"auto_diagnostics"`
 }
 
 // Hooks is the [hooks] config section — user-provided shell commands
@@ -865,6 +881,8 @@ func Load() (*Config, error) {
 			//   mcp.providers       wrapped-MCP inherit_env host-secret passthrough
 			//                       (#20); mcp.servers stays (legit project tool servers)
 			//   tui.sidebar/footer  can hide the sandbox/budget/risk safety chrome (#14)
+			//   lsp.auto_diagnostics  the LSP-spawn opt-in gate itself — a repo must
+			//                       not be able to re-enable unsandboxed LSP spawns (#12)
 			// Project model/provider/tool overrides (the EP-0035 use case) stay.
 			// koanf Delete is a recursive prefix-delete, so a dotted key like
 			// "defaults.persona" removes exactly that leaf and "acp" removes the
@@ -878,6 +896,7 @@ func Load() (*Config, error) {
 				"defaults.persona", "agent.system_prompt_path", "plugins.background",
 				"acp", "mcp.providers",
 				"tui.sidebar", "tui.footer",
+				"lsp.auto_diagnostics",
 			} {
 				if pk.Exists(key) {
 					pk.Delete(key)

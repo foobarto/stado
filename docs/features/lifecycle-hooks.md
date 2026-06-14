@@ -79,6 +79,16 @@ lua  = """
 """
 ```
 
+> **A `post_tool` mutate is NOT a confidentiality control.** It rewrites what
+> the *model* sees, but the **original, pre-mutation** tool result is still
+> recorded in the session's git sidecar audit trail (so `stado audit verify`
+> can prove what the tool actually returned). A "redact secrets" hook keeps
+> secrets out of the model's context, **not** off local disk — the unredacted
+> bytes remain in `~/.local/share/stado/sessions/<id>.git` and are recoverable
+> by anyone with access to that sidecar. Treat redaction hooks as
+> context-hygiene, not secret-erasure; if a value must never be persisted,
+> don't let the tool emit it in the first place (Codex #11).
+
 ## The handler contract
 
 A hook is a Lua chunk that defines one or more **global functions** named
