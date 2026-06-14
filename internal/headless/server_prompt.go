@@ -162,6 +162,15 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 			// F1: same lifecycle runner drives the tool-side seam.
 			exec.Hooks = lifecycleHooks
 			opts.Executor = exec
+			// Rebuild the default sandbox policy from the SIDECAR worktree, not
+			// the real checkout (Codex #5). The policy was constructed above
+			// with sess.workdir (= os.Getwd(), the user's real repo) before the
+			// git session existed; toSandboxPolicy prefers policy.CWD and the
+			// bwrap runner binds that CWD read-write, so a headless shell.exec
+			// would write straight into the user's checkout, bypassing the
+			// sidecar/land isolation. The executor's tool host already uses
+			// gs.WorktreePath — point the sandbox CWD at the same place.
+			opts.DefaultSandboxPolicy = pluginRuntime.NewDefaultSandboxPolicy(sandboxPolicyWorkdir(workdir, gs.WorktreePath))
 		}
 	}
 
@@ -195,6 +204,18 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	s.tickBackgroundPlugins(pctx, sess)
 
 	return sessionPromptResult{Text: text}, nil
+}
+
+// sandboxPolicyWorkdir picks the directory the default sandbox policy is pinned
+// to. When a git session is active its sidecar worktree wins over the session's
+// real-checkout workdir, so a headless shell.exec writes into the sidecar (which
+// `land` later applies), not the user's repository directly (Codex #5). Falls
+// back to the real workdir only when there is no sidecar worktree.
+func sandboxPolicyWorkdir(sessionWorkdir, sidecarWorktree string) string {
+	if sidecarWorktree != "" {
+		return sidecarWorktree
+	}
+	return sessionWorkdir
 }
 
 func (s *Server) emitSubagentUpdate(sessionID string, ev runtime.SubagentEvent) {
