@@ -67,8 +67,11 @@ func execGlobMatch(bin string, globs []string) bool {
 	// `exec:proc:git` would authorize /tmp/evil/git or ./git just because the
 	// basename matches, while a different binary than the operator scoped to
 	// gets executed. A basename cap only authorizes a bare-name argv[0], whose
-	// resolution is left to PATH.
-	binHasSlash := strings.ContainsRune(bin, '/')
+	// resolution is left to PATH. Detect a path in a filepath-aware way: any
+	// `/` (universal), any `\` (Windows separator; on Unix it's a rare-but-
+	// legal filename char, so treating it as a path fails closed — safe), or a
+	// volume prefix like `C:` (Windows drive-relative, no separator).
+	binHasPath := strings.ContainsAny(bin, `/\`) || filepath.VolumeName(bin) != ""
 	for _, glob := range globs {
 		if strings.Contains(glob, "/") {
 			// Absolute-path form (relative glob with slashes was rejected at
@@ -76,7 +79,7 @@ func execGlobMatch(bin string, globs []string) bool {
 			if matched, _ := filepath.Match(glob, abs); matched {
 				return true
 			}
-		} else if !binHasSlash {
+		} else if !binHasPath {
 			// Slash-free basename glob — only for a bare-name argv[0].
 			if matched, _ := filepath.Match(glob, base); matched {
 				return true

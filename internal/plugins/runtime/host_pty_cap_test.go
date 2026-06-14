@@ -32,6 +32,10 @@ func TestPtyAllowed_GlobEnforcement(t *testing.T) {
 		{"basename cap denies abs-path same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, "/tmp/evil/git", false},
 		{"basename cap denies rel-path same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, "./git", false},
 		{"basename cap denies subdir same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"python"}}, "subdir/python", false},
+		// Codex #208/P1: backslash-separated paths (Windows form) must also be
+		// treated as path-containing, not bare names.
+		{"basename cap denies backslash path", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, `C:\tmp\git`, false},
+		{"basename cap denies backslash rel path", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, `evil\git`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
