@@ -726,6 +726,9 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		}
 		m.turnText += ev.Text
 		if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "assistant" {
+			// The model moved on from thinking to its answer — the trailing
+			// thinking block is done (auto/collapsed modes collapse it now).
+			m.finalizeStreamingThinking()
 			m.blocks = append(m.blocks, block{kind: "assistant"})
 		}
 		last := len(m.blocks) - 1
@@ -759,7 +762,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		m.turnThinkSig += ev.ThinkingSig
 		if sanitizedThinking != "" {
 			if len(m.blocks) == 0 || m.blocks[len(m.blocks)-1].kind != "thinking" {
-				m.blocks = append(m.blocks, block{kind: "thinking"})
+				m.blocks = append(m.blocks, block{kind: "thinking", streaming: true})
 			}
 			last := len(m.blocks) - 1
 			m.blocks[last].body += sanitizedThinking
@@ -770,6 +773,8 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 		if ev.ToolCall == nil {
 			return
 		}
+		// A tool call after thinking ends the thinking block.
+		m.finalizeStreamingThinking()
 		m.blocks = append(m.blocks, block{
 			kind:   "tool",
 			toolID: ev.ToolCall.ID,
@@ -779,6 +784,9 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 			// rewrite the terminal title, inject a hyperlink, or ring the bell.
 			toolName:  textutil.SanitizeForTerminal(ev.ToolCall.Name),
 			startedAt: time.Now(),
+			// streaming until the result arrives (onToolResult); auto mode
+			// renders the running tool full, then collapses it once done.
+			streaming: true,
 		})
 
 	case agent.EvToolCallArgsDelta:
@@ -1002,6 +1010,12 @@ func (m *Model) onTurnComplete() tea.Cmd {
 			}
 		}
 		m.state = stateIdle
+		// Backstop: any block still flagged streaming at turn end (e.g. a
+		// trailing thinking block with no following answer) is done now, so
+		// auto mode collapses it. Re-render to reflect the collapse; the
+		// scroll-anchor in renderBlocks keeps a bottom-pinned view pinned.
+		m.finalizeStreamingBlocks()
+		m.renderBlocks()
 		// #16: a steering message with no tool boundary to ride (the turn
 		// used no tools) couldn't be injected mid-turn. Resolve it now and
 		// ALWAYS clear it — it must never leak into a later turn's
@@ -1073,6 +1087,7 @@ func (m *Model) rejectUnavailableTool(call agent.ToolUseBlock) {
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == call.ID {
 			m.blocks[i].toolResult = content
+			m.blocks[i].streaming = false
 			if m.blocks[i].endedAt.IsZero() {
 				m.blocks[i].endedAt = time.Now()
 			}

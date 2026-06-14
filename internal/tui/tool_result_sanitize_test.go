@@ -77,7 +77,7 @@ func TestOnToolResult_SanitizesResultContent(t *testing.T) {
 	assertNoToolEscapesIn(t, "rendered tool block (collapsed)", collapsed)
 
 	expandedBlk := m.blocks[len(m.blocks)-1]
-	expandedBlk.expanded = true
+	expandedBlk.override = overrideExpanded
 	expanded, err := m.renderBlock(expandedBlk, m.width)
 	if err != nil {
 		t.Fatalf("renderBlock (expanded) error: %v", err)

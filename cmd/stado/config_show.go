@@ -86,6 +86,7 @@ func renderConfigHuman(w interface {
 	write("[tui]\n")
 	write("  theme                          %s\n", fallback(cfg.TUI.Theme, "(unset — uses theme.toml or bundled default)"))
 	write("  thinking_display               %s\n", cfg.TUI.ThinkingDisplay)
+	write("  tool_display                   %s\n", cfg.TUI.ToolDisplay)
 	write("  tool_output_collapsed_height   %d\n\n", cfg.TUI.EffectiveToolOutputCollapsedHeight())
 
 	// [tui.sidebar] / [tui.footer] — chrome customization (#21). Only

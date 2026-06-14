@@ -44,6 +44,7 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
 			toolName = m.blocks[i].toolName
 			m.blocks[i].toolResult = content
+			m.blocks[i].streaming = false // result in hand — auto mode collapses it
 			m.invalidateBlockCache(i)
 			break
 		}

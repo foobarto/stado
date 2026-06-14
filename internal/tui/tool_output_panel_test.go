@@ -10,10 +10,12 @@ import (
 	"github.com/foobarto/stado/internal/config"
 )
 
-// streaming tool outputs render in a fixed-height collapsible panel:
-// collapsed → clipped to ToolOutputCollapsedHeight rows with a "… N more
-// line(s)" footer; expanded (shift+tab / click) → full body. Approach A
-// (inline collapsible), reusing block.expanded + ToolExpand.
+// In preview mode tool outputs render in a fixed-height panel: clipped to
+// ToolOutputCollapsedHeight rows with a "… N more line(s)" footer; a click
+// or shift+tab expands a block to the full body. Expansion is driven by the
+// per-block tri-state override (block.override = overrideExpanded /
+// overrideCollapsed); block.expanded is reserved for assistant-detail
+// toggles. See also display_modes_test.go for the full mode matrix.
 
 // countResultRows returns how many of the rendered, ANSI-stripped lines
 // carry a "result line NN" marker — the visible rows of the clipped
@@ -49,7 +51,7 @@ func TestToolOutputPanel_ClippedWhenCollapsed_FullWhenExpanded(t *testing.T) {
 		kind:       "tool",
 		toolName:   "bash",
 		toolResult: bigToolResult(total),
-		// expanded defaults to false → collapsed.
+		// preview mode + override none → clipped (the default).
 	}}
 
 	m.renderBlocks()
@@ -72,8 +74,9 @@ func TestToolOutputPanel_ClippedWhenCollapsed_FullWhenExpanded(t *testing.T) {
 		t.Fatalf("collapsed should show a '… N more line(s)' footer (N=%d):\n%s", total-want, plain)
 	}
 
-	// Expand → full body, no truncation footer.
-	m.blocks[0].expanded = true
+	// Expand → full body, no truncation footer. Tool blocks use the
+	// per-block override now (not expanded).
+	m.blocks[0].override = overrideExpanded
 	m.invalidateBlockCache(0)
 	m.renderBlocks()
 	full := ansi.Strip(m.vp.View())

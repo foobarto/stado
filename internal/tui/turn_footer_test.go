@@ -247,10 +247,12 @@ func TestToggleLastToolExpand_HonoursFocus(t *testing.T) {
 	m.blocks[0].focused = true
 
 	m.toggleLastToolExpand()
-	if !m.blocks[0].expanded {
-		t.Errorf("focused block (idx 0) should be expanded; got blocks: %+v", m.blocks)
+	// Tool blocks use the tri-state override (not expanded); preview is not
+	// "full", so the toggle force-expands the focused block.
+	if m.blocks[0].override != overrideExpanded {
+		t.Errorf("focused block (idx 0) should be force-expanded; got blocks: %+v", m.blocks)
 	}
-	if m.blocks[1].expanded {
+	if m.blocks[1].override != overrideNone {
 		t.Errorf("non-focused block (idx 1) should NOT toggle when another is focused")
 	}
 }

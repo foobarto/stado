@@ -1,5 +1,5 @@
 {{- /* Tool call header stays closer to opencode's compact status rows. */ -}}
-{{ if .Expanded }}{{ color "role_tool" "▾" }}{{ else }}{{ color "role_tool" "▸" }}{{ end }} {{ color "text_secondary" .Name | bold }}{{ if .ArgsPreview }} {{ color "text_dim" "·" }} {{ color "muted" .ArgsPreview }}{{ end }}{{ if .Duration }} {{ color "text_dim" "·" }} {{ color "muted" .Duration }}{{ end }}{{ if .Result }}{{ if not .Expanded }} {{ color "text_dim" "·" }} {{ color "muted" "shift+tab" }}{{ end }}{{ end }}
+{{ if .Expanded }}{{ color "role_tool" "▾" }}{{ else }}{{ color "role_tool" "▸" }}{{ end }} {{ color "text_secondary" .Name | bold }}{{ if .ArgsPreview }} {{ color "text_dim" "·" }} {{ color "muted" .ArgsPreview }}{{ end }}{{ if .Duration }} {{ color "text_dim" "·" }} {{ color "muted" .Duration }}{{ end }}{{ if .Lines }} {{ color "text_dim" "·" }} {{ color "muted" (printf "%d lines" .Lines) }}{{ end }}{{ if .Result }}{{ if not .Expanded }} {{ color "text_dim" "·" }} {{ color "muted" "shift+tab" }}{{ end }}{{ end }}
 {{- if .Expanded }}
 {{ color "text_dim" "  args" }}
 {{ indent (wrap .FullArgs .Width) 2 | color "text_dim" }}

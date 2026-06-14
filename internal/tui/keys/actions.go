@@ -38,6 +38,7 @@ const (
 	ThemeSwitch             Action = "theme_switch"
 	StatusView              Action = "status_view"
 	ThinkingToggle          Action = "thinking_toggle"
+	ToolDisplayToggle       Action = "tool_display_toggle"
 	TipsToggle              Action = "tips_toggle"
 	Approve                 Action = "approve"
 	Deny                    Action = "deny"
@@ -102,6 +103,7 @@ var ActionDescriptions = map[Action]string{
 	ThemeSwitch:             "Switch theme",
 	StatusView:              "Status modal",
 	ThinkingToggle:          "Cycle thinking display",
+	ToolDisplayToggle:       "Cycle tool-output display",
 	TipsToggle:              "Toggle help",
 	Approve:                 "Allow",
 	Deny:                    "Deny",

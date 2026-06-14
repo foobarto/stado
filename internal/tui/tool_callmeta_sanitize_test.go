@@ -64,7 +64,7 @@ func TestToolCallMeta_NameAndArgsSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderBlock (collapsed): %v", err)
 	}
-	blk.expanded = true
+	blk.override = overrideExpanded
 	expanded, err := m.renderBlock(*blk, 100)
 	if err != nil {
 		t.Fatalf("renderBlock (expanded): %v", err)

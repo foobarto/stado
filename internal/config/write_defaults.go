@@ -82,6 +82,17 @@ func WriteTUIThinkingDisplay(configPath, mode string) error {
 	})
 }
 
+// WriteTUIToolDisplay updates [tui].tool_display in config.toml.
+func WriteTUIToolDisplay(configPath, mode string) error {
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	mode = normalizeToolDisplay(mode)
+	return updateConfig(configPath, func(tree *toml.Tree) {
+		tree.SetPath([]string{"tui", "tool_display"}, mode)
+	})
+}
+
 // ToolsListKey is one of the three [tools] list-typed config keys.
 // EP-0037 §F — `stado tool {enable,disable,autoload}` config persistence.
 type ToolsListKey string

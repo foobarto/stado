@@ -11,53 +11,32 @@ const (
 	thinkingTailRunes = 1200
 )
 
-func (m thinkingDisplayMode) String() string {
-	switch m {
-	case thinkingTail:
-		return "tail"
-	case thinkingHide:
-		return "hide"
-	default:
-		return "show"
-	}
-}
-
-func parseThinkingDisplayMode(s string) (thinkingDisplayMode, bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "show", "full", "on":
-		return thinkingShow, true
-	case "tail":
-		return thinkingTail, true
-	case "hide", "off":
-		return thinkingHide, true
-	default:
-		return thinkingShow, false
-	}
-}
-
+// cycleThinkingDisplayMode advances the thinking display mode through the
+// 4-value cycle: preview -> auto -> collapsed -> expanded -> preview.
 func (m *Model) cycleThinkingDisplayMode() {
-	next := thinkingShow
-	switch m.thinkingMode {
-	case thinkingShow:
-		next = thinkingTail
-	case thinkingTail:
-		next = thinkingHide
+	m.setThinkingDisplayMode(nextDisplayMode(m.thinkingMode))
+}
+
+// nextDisplayMode is the shared preview->auto->collapsed->expanded->preview
+// cycle used by both the thinking and tool keybinds / slash commands.
+func nextDisplayMode(d displayMode) displayMode {
+	switch d {
+	case displayPreview:
+		return displayAuto
+	case displayAuto:
+		return displayCollapsed
+	case displayCollapsed:
+		return displayExpanded
+	default:
+		return displayPreview
 	}
-	m.setThinkingDisplayMode(next)
 }
 
 func (m *Model) thinkingModeStatus() string {
-	switch m.thinkingMode {
-	case thinkingTail:
-		return "thinking: tail (showing recent thinking only)"
-	case thinkingHide:
-		return "thinking: hide"
-	default:
-		return "thinking: show"
-	}
+	return "thinking: " + m.thinkingMode.label()
 }
 
-func (m *Model) setThinkingDisplayMode(mode thinkingDisplayMode) {
+func (m *Model) setThinkingDisplayMode(mode displayMode) {
 	m.thinkingMode = mode
 	m.persistThinkingDisplayMode()
 }
@@ -66,7 +45,7 @@ func (m *Model) applyConfiguredThinkingDisplay(cfg *config.Config) {
 	if cfg == nil {
 		return
 	}
-	if mode, ok := parseThinkingDisplayMode(cfg.TUI.ThinkingDisplay); ok {
+	if mode, ok := parseDisplayMode(cfg.TUI.ThinkingDisplay); ok {
 		m.thinkingMode = mode
 	}
 }
@@ -93,22 +72,6 @@ func (m *Model) announceThinkingDisplayMode() {
 		return
 	}
 	m.appendBlock(block{kind: "system", body: m.thinkingModeStatus()})
-}
-
-func (m *Model) shouldRenderBlock(blk block) bool {
-	// A thinking block is normally suppressed in hide mode, but an
-	// explicit expand (click / focus chord) overrides the global mode
-	// for that one block.
-	return blk.kind != "thinking" || m.thinkingMode != thinkingHide || blk.expanded
-}
-
-func (m *Model) thinkingBlockBody(body string, expanded bool) string {
-	// An expanded block shows its full reasoning regardless of the
-	// global tail/hide mode.
-	if expanded || m.thinkingMode != thinkingTail {
-		return body
-	}
-	return tailThinkingText(body, thinkingTailLines, thinkingTailRunes)
 }
 
 func tailThinkingText(s string, maxLines, maxRunes int) string {

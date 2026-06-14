@@ -58,7 +58,7 @@ func TestSplitView_ConvoPaneClickTogglesCorrectBlock(t *testing.T) {
 	if !consumed {
 		t.Fatal("no click in the convo pane resolved to an expandable block")
 	}
-	if !m.blocks[thinkingIdx].expanded {
+	if m.blocks[thinkingIdx].override != overrideExpanded {
 		t.Errorf("convo-pane click did not expand the thinking block (split-view click mapping broken)")
 	}
 }
@@ -79,7 +79,7 @@ func TestSplitView_ActivityPaneClickExpandsTool(t *testing.T) {
 	if !consumed {
 		t.Fatal("no click in the activity pane resolved to an expandable block")
 	}
-	if !m.blocks[toolIdx].expanded {
+	if m.blocks[toolIdx].override != overrideExpanded {
 		t.Errorf("activity-pane click did not expand the tool block (split-view click mapping broken)")
 	}
 }
@@ -116,8 +116,8 @@ func TestSingleView_ConvoPaneClickTogglesCorrectBlock(t *testing.T) {
 			thinkRow = r.start
 		}
 	}
-	if !m.handleMessagesClick(2, thinkRow-m.vp.YOffset()) || !m.blocks[thinkingIdx].expanded {
-		t.Errorf("single-view click should expand the thinking block (expanded=%v)",
-			m.blocks[thinkingIdx].expanded)
+	if !m.handleMessagesClick(2, thinkRow-m.vp.YOffset()) || m.blocks[thinkingIdx].override != overrideExpanded {
+		t.Errorf("single-view click should expand the thinking block (override=%d)",
+			m.blocks[thinkingIdx].override)
 	}
 }

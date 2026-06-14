@@ -41,9 +41,6 @@ func (m *Model) renderBlocks() {
 	m.blockLineRanges = m.blockLineRanges[:0]
 	curLine := 0
 	for i := range m.blocks {
-		if !m.shouldRenderBlock(m.blocks[i]) {
-			continue
-		}
 		if !first {
 			b.WriteString("\n")
 			curLine++ // separator line
@@ -82,7 +79,7 @@ func (m *Model) renderBlocks() {
 // immutable the moment it scrolls past the current turn.
 func (m *Model) renderBlockCached(i, width int) string {
 	blk := &m.blocks[i]
-	thinkingCacheOK := blk.kind != "thinking" || blk.cachedThinkingMode == m.thinkingMode
+	mode := m.blockDisplayMode(blk.kind)
 	if blk.cachedOut != "" &&
 		blk.cachedWidth == width &&
 		blk.cachedMeta == blk.meta &&
@@ -90,7 +87,9 @@ func (m *Model) renderBlockCached(i, width int) string {
 		blk.cachedExpand == blk.expanded &&
 		blk.cachedFocused == blk.focused &&
 		blk.cachedResult == blk.toolResult &&
-		thinkingCacheOK {
+		blk.cachedMode == mode &&
+		blk.cachedOverride == blk.override &&
+		blk.cachedStreaming == blk.streaming {
 		return blk.cachedOut
 	}
 	out, _ := m.renderBlock(*blk, width)
@@ -104,10 +103,24 @@ func (m *Model) renderBlockCached(i, width int) string {
 	blk.cachedExpand = blk.expanded
 	blk.cachedFocused = blk.focused
 	blk.cachedResult = blk.toolResult
-	if blk.kind == "thinking" {
-		blk.cachedThinkingMode = m.thinkingMode
-	}
+	blk.cachedMode = mode
+	blk.cachedOverride = blk.override
+	blk.cachedStreaming = blk.streaming
 	return out
+}
+
+// blockDisplayMode returns the display mode governing a block: tool blocks
+// follow m.toolMode, thinking blocks m.thinkingMode, everything else is
+// unaffected (returns the default; mode/override/streaming are inert for
+// those kinds).
+func (m *Model) blockDisplayMode(kind string) displayMode {
+	switch kind {
+	case "tool":
+		return m.toolMode
+	case "thinking":
+		return m.thinkingMode
+	}
+	return displayPreview
 }
 
 // stripTrailingSpacesPerLine removes trailing spaces and tabs from
@@ -250,10 +263,16 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 		}
 		return rendered, nil
 	case "thinking":
-		return m.renderer.Exec("message_thinking", map[string]any{
-			"Body":  m.thinkingBlockBody(blk.body, blk.expanded),
-			"Width": width,
-		})
+		data := map[string]any{"Width": width}
+		switch effectiveRenderKind(m.thinkingMode, blk.streaming, blk.override) {
+		case renderFull:
+			data["Body"] = blk.body
+		case renderOneLine:
+			data["Lines"] = countLines(blk.body)
+		default: // renderClipped — preview tails to the last few lines
+			data["Body"] = tailThinkingText(blk.body, thinkingTailLines, thinkingTailRunes)
+		}
+		return m.renderer.Exec("message_thinking", data)
 	case "tool":
 		duration := ""
 		if !blk.startedAt.IsZero() {
@@ -274,21 +293,34 @@ func (m *Model) renderBlock(blk block, width int) (string, error) {
 			"ArgsPreview": truncate(blk.toolArgs, 40),
 			"FullArgs":    prettyJSON(blk.toolArgs),
 			"Result":      blk.toolResult,
-			"Expanded":    blk.expanded,
 			"Duration":    duration,
 			"Width":       innerW,
 		}
-		// Collapsed tool blocks render their streaming output in a fixed-
-		// height panel: the result is clipped to the configured row budget
-		// with a "… N more lines (shift+tab)" footer. Expanding (shift+tab
-		// or click) shows the full body. Wrapping happens here (not the
-		// template) so the row count is measured post-wrap — clipping by
-		// logical lines alone would undercount a body with long wrapping
-		// lines. See memory project_lipgloss_window_postwrap_rows.
-		if !blk.expanded && strings.TrimSpace(blk.toolResult) != "" {
-			clipped, more := clipToolOutput(blk.toolResult, innerW, m.toolOutputCollapsedHeight())
-			data["CollapsedResult"] = clipped
-			data["MoreLines"] = more
+		hasResult := strings.TrimSpace(blk.toolResult) != ""
+		// The tool display mode + any per-block override pick one of three
+		// forms. renderFull = the template's Expanded branch (args +
+		// result). renderClipped (preview) = the fixed-height panel: result
+		// clipped to the configured row budget with a "… N more lines"
+		// footer. renderOneLine = header only (no CollapsedResult), with a
+		// "· N lines" hint. Wrapping happens here (not the template) so the
+		// row count is measured post-wrap — clipping by logical lines alone
+		// would undercount a body with long wrapping lines. See memory
+		// project_lipgloss_window_postwrap_rows.
+		switch effectiveRenderKind(m.toolMode, blk.streaming, blk.override) {
+		case renderFull:
+			data["Expanded"] = true
+		case renderOneLine:
+			data["Expanded"] = false
+			if hasResult {
+				data["Lines"] = countLines(blk.toolResult)
+			}
+		default: // renderClipped — preview
+			data["Expanded"] = false
+			if hasResult {
+				clipped, more := clipToolOutput(blk.toolResult, innerW, m.toolOutputCollapsedHeight())
+				data["CollapsedResult"] = clipped
+				data["MoreLines"] = more
+			}
 		}
 		return m.renderer.Exec("message_tool", data)
 	case "system":
@@ -362,9 +394,6 @@ func (m *Model) renderSplitPanes() {
 	var convoLine, activityLine int
 	for i := range m.blocks {
 		blk := &m.blocks[i]
-		if !m.shouldRenderBlock(*blk) {
-			continue
-		}
 		isActivity := blk.kind == "tool" || blk.kind == "system"
 		target := &convo
 		w := convoW

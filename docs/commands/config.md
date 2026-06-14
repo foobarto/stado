@@ -80,7 +80,8 @@ worktree dir   /home/user/.local/state/stado/worktrees
 
 [tui]
   theme                          (unset — uses theme.toml or bundled default)
-  thinking_display               show
+  thinking_display               preview
+  tool_display                   preview
   tool_output_collapsed_height   8
 
 [memory]

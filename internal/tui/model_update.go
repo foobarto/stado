@@ -135,15 +135,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) toggleLastToolExpand() {
 	// Honour focus when set; the user navigated here deliberately.
 	if m.focusedBlockIdx >= 0 && m.focusedBlockIdx < len(m.blocks) {
-		blk := &m.blocks[m.focusedBlockIdx]
-		if isExpandableBlock(*blk) {
-			blk.expanded = !blk.expanded
+		if isExpandableBlock(m.blocks[m.focusedBlockIdx]) {
+			m.toggleBlockExpansion(m.focusedBlockIdx)
 			return
 		}
 	}
 	for i := len(m.blocks) - 1; i >= 0; i-- {
 		if isExpandableBlock(m.blocks[i]) {
-			m.blocks[i].expanded = !m.blocks[i].expanded
+			m.toggleBlockExpansion(i)
 			return
 		}
 	}
@@ -293,8 +292,7 @@ func (m *Model) toggleBlockAt(idx int) bool {
 	m.clearFocus()
 	m.focusedBlockIdx = idx
 	m.blocks[idx].focused = true
-	m.blocks[idx].expanded = !m.blocks[idx].expanded
-	m.invalidateBlockCache(idx)
+	m.toggleBlockExpansion(idx)
 	return true
 }
 
