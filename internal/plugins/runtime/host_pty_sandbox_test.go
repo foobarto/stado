@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"context"
 	"os/exec"
 	"strings"
 	"testing"
@@ -28,15 +27,17 @@ func TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet(t *testing.T) {
 	wd := t.TempDir()
 	host := &Host{ExecPTY: true, Workdir: wd, DefaultSandboxPolicy: NewDefaultSandboxPolicy(wd)}
 
-	out, err := sandboxPTYSpawnOpts(context.Background(), host, pty.SpawnOpts{Argv: []string{"/bin/echo", "hi"}})
+	out, err := sandboxPTYSpawnOpts(host, pty.SpawnOpts{Argv: []string{"/bin/echo", "hi"}})
 	if err != nil {
 		t.Fatalf("sandboxPTYSpawnOpts: %v", err)
 	}
 	if out.PreparedCmd == nil {
 		t.Fatal("expected a sandbox-wrapped PreparedCmd")
 	}
-	if !strings.Contains(out.PreparedCmd.Path, "bwrap") {
-		t.Errorf("PreparedCmd should run the sandbox runner; Path=%q", out.PreparedCmd.Path)
+	// The wrapper runs the detected runner binary (bwrap on Linux, sandbox-exec
+	// on macOS) — assert against the actual runner, not a hardcoded name (Codex).
+	if runner := sandbox.Detect().Name(); !strings.Contains(out.PreparedCmd.Path, runner) {
+		t.Errorf("PreparedCmd should run the %q runner; Path=%q", runner, out.PreparedCmd.Path)
 	}
 	joined := strings.Join(out.PreparedCmd.Args, " ")
 	if !strings.Contains(joined, "/bin/echo") || !strings.Contains(joined, "hi") {
@@ -54,7 +55,7 @@ func TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet(t *testing.T) {
 func TestSandboxPTYSpawnOpts_NoWrapWithoutHostPolicy(t *testing.T) {
 	host := &Host{ExecPTY: true, Workdir: t.TempDir()} // no DefaultSandboxPolicy
 	in := pty.SpawnOpts{Argv: []string{"/bin/echo", "hi"}}
-	out, err := sandboxPTYSpawnOpts(context.Background(), host, in)
+	out, err := sandboxPTYSpawnOpts(host, in)
 	if err != nil {
 		t.Fatalf("sandboxPTYSpawnOpts: %v", err)
 	}
@@ -67,7 +68,9 @@ func TestSandboxPTYSpawnOpts_NoWrapWithoutHostPolicy(t *testing.T) {
 // runs a shell under bwrap and produces output. Skips when bwrap can't run a
 // trivial command here (e.g. user namespaces restricted in CI).
 func TestPTYSandbox_BwrapShellRuns(t *testing.T) {
-	nativeSandboxAvailable(t)
+	if sandbox.Detect().Name() != "bwrap" {
+		t.Skipf("bwrap-specific E2E; runner is %q", sandbox.Detect().Name())
+	}
 	// Probe: can bwrap actually run here?
 	probe := exec.Command("bwrap", "--ro-bind", "/", "/", "--", "/bin/true")
 	if err := probe.Run(); err != nil {
@@ -80,7 +83,7 @@ func TestPTYSandbox_BwrapShellRuns(t *testing.T) {
 	defer m.CloseAll()
 	host.PTYManager = m
 
-	opts, err := sandboxPTYSpawnOpts(context.Background(), host, pty.SpawnOpts{
+	opts, err := sandboxPTYSpawnOpts(host, pty.SpawnOpts{
 		Cmd: "echo SANDBOXED-OK", Cols: 80, Rows: 24,
 	})
 	if err != nil {

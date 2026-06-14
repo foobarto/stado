@@ -127,7 +127,7 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 			// DefaultSandboxPolicy nil — the PTY runs against the operator's own
 			// filesystem there, by design. The cap check above already ran on
 			// the original binary; the wrap rewrites argv to the sandbox runner.
-			sopts, serr := sandboxPTYSpawnOpts(ctx, host, opts)
+			sopts, serr := sandboxPTYSpawnOpts(host, opts)
 			if serr != nil {
 				host.Logger.Warn("stado_pty_create sandbox wrap failed", slog.String("err", serr.Error()))
 				stack[0] = api.EncodeI64(int64(encodeToolSidePayload(mod, resPtr, resCap, []byte(serr.Error()))))
@@ -153,12 +153,10 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 // design) opts is returned unchanged. resolveSandboxPolicy(host, nil) yields the
 // host default or nil, so the gate matches the exec path exactly.
 //
-// The returned argv is the runner-wrapped command (e.g. bwrap … -- argv); the
-// PTY manager starts THAT under a pty, so the real shell runs inside the
-// sandbox namespace. pty.Start handles the controlling-tty setup, so the
-// SysProcAttr that buildSandboxedCmd's detachControllingTTY sets (and which we
-// drop when re-deriving argv) is not needed here.
-func sandboxPTYSpawnOpts(ctx context.Context, host *Host, opts pty.SpawnOpts) (pty.SpawnOpts, error) {
+// It sets opts.PreparedCmd to the runner-wrapped *exec.Cmd (e.g. bwrap … --
+// argv); the PTY manager starts THAT under a pty, so the real shell runs inside
+// the sandbox namespace. Argv/Cmd are left as the original for List display.
+func sandboxPTYSpawnOpts(host *Host, opts pty.SpawnOpts) (pty.SpawnOpts, error) {
 	policy := resolveSandboxPolicy(host, nil)
 	if policy == nil {
 		return opts, nil
@@ -170,7 +168,20 @@ func sandboxPTYSpawnOpts(ctx context.Context, host *Host, opts pty.SpawnOpts) (p
 		}
 		eff = []string{"/bin/sh", "-c", opts.Cmd}
 	}
-	cmd, err := buildSandboxedCmd(ctx, policy, host.Workdir, eff, opts.Env)
+	// Preserve the caller's cwd (Codex #213 P2): only fall back to the host
+	// workdir when the spawn didn't request one, matching the unsandboxed path
+	// (Manager.Spawn honors opts.Cwd).
+	workdir := opts.Cwd
+	if workdir == "" {
+		workdir = host.Workdir
+	}
+	// Use a background context, NOT the host-import call's ctx (Codex #213 P2):
+	// a PTY session is persistent and outlives the stado_pty_create call, so
+	// tying the sandboxed child to a ctx that's canceled when the tool returns
+	// (or hits a per-call timeout) would kill the session. The Manager owns the
+	// lifecycle (Destroy kills the process), same as the unsandboxed
+	// exec.Command path.
+	cmd, err := buildSandboxedCmd(context.Background(), policy, workdir, eff, opts.Env)
 	if err != nil {
 		return opts, err
 	}
