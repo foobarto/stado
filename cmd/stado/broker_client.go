@@ -314,7 +314,12 @@ func summarizeFSWrite(profile broker.Profile, writes []string) string {
 // to a broker.Purpose. Phase 1: stado run, TUI, headless, ACP,
 // MCP server all map to PurposeMainChat. Sub-agent spawns use
 // PurposeSubagent (wired in phase 4 via spawn_agent → broker).
-// tool-run is handled separately via attachToolRunBroker.
+//
+// `stado tool run` does NOT attach a broker session: it dispatches via the
+// daemon (dispatchViaDaemon), and the daemon's daemonToolHost applies its own
+// protective sandbox policy to the wasm tool call. Broker-mediated tool-run via
+// the broker.v1.toolrun.sandbox handshake is deferred EP-0050 phase work and is
+// not wired from the client yet (there is no attachToolRunBroker).
 func brokerPurposeFromFlags() broker.Purpose {
 	return broker.PurposeMainChat
 }
