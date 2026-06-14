@@ -58,7 +58,14 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 			continue
 		}
 		if q != "" {
+			// Categories are part of the haystack: narrowing the surface by
+			// category (e.g. query "security") is the natural way an agent
+			// finds tools, and pre-EP-0037 fix this matched nothing because
+			// only name+description were searched.
 			hay := strings.ToLower(t.Name() + " " + t.Description())
+			if cats := toolCategories(t.Name()); len(cats) > 0 {
+				hay += " " + strings.ToLower(strings.Join(cats, " "))
+			}
 			if !strings.Contains(hay, q) {
 				continue
 			}

@@ -207,7 +207,7 @@ func LookupToolMetadata(name string) ToolMetadata {
 		// Unknown wire form — synthesise enough metadata for the
 		// listing to render rather than crash. This branch fires for
 		// installed-plugin wire names the canonical map doesn't cover.
-		return ToolMetadata{Canonical: canonical, Plugin: alias}
+		return ToolMetadata{Canonical: canonical, Plugin: alias, Categories: installedCategories(name)}
 	}
 	if canonical, ok := legacyBareAliases[name]; ok {
 		if md, ok := canonicalToolMetadata[canonical]; ok {
@@ -215,5 +215,35 @@ func LookupToolMetadata(name string) ToolMetadata {
 		}
 	}
 	// Truly unknown: return as-is so the listing shows the literal name.
-	return ToolMetadata{Canonical: name, Plugin: ""}
+	// Installed plugins may declare names that don't parse as wire form, so
+	// still try to surface their categories.
+	return ToolMetadata{Canonical: name, Plugin: "", Categories: installedCategories(name)}
+}
+
+// installedCategories returns the declared categories (canonical + extra) for
+// an installed-plugin tool, or nil when the tool isn't an installed plugin or
+// declared none. EP-0037 §C: manifests validate per-tool `categories` /
+// `extra_categories` at install time, but LookupToolMetadata never read them
+// back — so tools.search / tools.categories / tools.in_category treated every
+// installed tool as category-less. The taxonomy was parsed and then dead at
+// runtime; this is the read path that revives it. installedByTool is keyed by
+// the registered tool name, which is exactly the name passed here.
+func installedCategories(name string) []string {
+	mf, _, ok := LookupInstalledModule(name)
+	if !ok {
+		return nil
+	}
+	for _, td := range mf.Tools {
+		if td.Name != name {
+			continue
+		}
+		if len(td.Categories) == 0 && len(td.ExtraCategories) == 0 {
+			return nil
+		}
+		cats := make([]string, 0, len(td.Categories)+len(td.ExtraCategories))
+		cats = append(cats, td.Categories...)
+		cats = append(cats, td.ExtraCategories...)
+		return cats
+	}
+	return nil
 }
