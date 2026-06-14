@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/foobarto/stado/internal/httpx"
 	"github.com/foobarto/stado/internal/providers/tokenize"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/toolinput"
@@ -69,9 +70,14 @@ func New(endpoint string, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("oaicompat: endpoint must not include credentials")
 	}
 	p := &Provider{
-		endpoint:   strings.TrimRight(endpoint, "/"),
-		name:       "oaicompat",
-		httpClient: &http.Client{Timeout: 0}, // streams; no overall deadline
+		endpoint: strings.TrimRight(endpoint, "/"),
+		name:     "oaicompat",
+		// Streaming client: no overall deadline (generations can be long) BUT
+		// an h2 transport with ReadIdleTimeout/PingTimeout so a dead pooled
+		// connection is evicted instead of hanging the turn forever (the
+		// cold/after-idle TUI-hang bug). A bare http.Client{Timeout:0} used
+		// http.DefaultTransport, which has no h2 liveness check.
+		httpClient: httpx.StreamingClient(),
 		caps: agent.Capabilities{
 			MaxParallelToolCalls: 1, // conservative default; probe can raise
 		},
