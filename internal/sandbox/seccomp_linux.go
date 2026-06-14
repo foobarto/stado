@@ -25,10 +25,41 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"os"
 	"runtime"
 
 	"golang.org/x/sys/unix"
 )
+
+// newSeccompFilterFile compiles the DefaultKillSyscalls deny-list into a BPF
+// program, writes it to an anonymous in-memory file (memfd), and returns the
+// *os.File seeked to the start — ready to hand to bwrap via `--seccomp <fd>`
+// through cmd.ExtraFiles. EP-0005: this is the wiring the seccomp compiler was
+// written for but that BwrapRunner never used. The caller owns the returned
+// file and must close it after the command starts. Returns an error (the
+// caller proceeds WITHOUT seccomp — defense-in-depth must not break execution)
+// on unsupported arch or memfd failure.
+func newSeccompFilterFile() (*os.File, error) {
+	bpf, err := CompileDenyList(DefaultKillSyscalls)
+	if err != nil {
+		return nil, err
+	}
+	fd, err := unix.MemfdCreate("stado-seccomp", unix.MFD_CLOEXEC)
+	if err != nil {
+		return nil, fmt.Errorf("memfd_create: %w", err)
+	}
+	f := os.NewFile(uintptr(fd), "stado-seccomp")
+	if _, err := f.Write(bpf); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("write seccomp filter: %w", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("seek seccomp filter: %w", err)
+	}
+	return f, nil
+}
 
 // BPF opcode constants (from include/uapi/linux/filter.h). The Go
 // unix package wraps these in unix.BPF_* but some are not exported —
@@ -71,6 +102,11 @@ var DefaultKillSyscalls = []string{
 	"keyctl",
 	"ptrace",
 	"process_vm_writev",
+	// Follow-up: modern util-linux `mount` uses the new mount API
+	// (open_tree/move_mount/fsopen/fsconfig/fsmount/fspick, nrs 428-433 on
+	// both amd64 and arm64), so a legacy mount(2) kill alone no longer blocks
+	// `mount`. Add those to fully honor "mount is blocked"; tracked in the
+	// EP-0005 follow-up (needs the nrs in syscallTable for both arches).
 }
 
 // SockFilter mirrors `struct sock_filter` from linux/filter.h. Kept

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -139,6 +140,24 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 		bwrapArgs = append(bwrapArgs, "--share-net")
 	}
 
+	// EP-0005: hand the compiled seccomp deny-list to bwrap via --seccomp <fd>
+	// (child fd 3 = the first ExtraFiles entry). Defense-in-depth — kills
+	// mount/ptrace/reboot/... (DefaultKillSyscalls). Fail-safe: on any
+	// compile/memfd error, proceed WITHOUT the filter rather than break the
+	// tool call. Skipped under pasta (network-allowlist mode): fd inheritance
+	// across the pasta→bwrap exec is unverified and a rejected --seccomp fd
+	// would abort the command; the filter still covers the deny-net /
+	// allow-all / no-net paths (the common case).
+	var seccompFile *os.File
+	if !usePasta {
+		if f, ferr := newSeccompFilterFile(); ferr != nil {
+			fmt.Fprintf(os.Stderr, "stado: warn: seccomp filter unavailable, running without it: %v\n", ferr)
+		} else {
+			seccompFile = f
+			bwrapArgs = append(bwrapArgs, "--seccomp", "3")
+		}
+	}
+
 	bwrapArgs = append(bwrapArgs, "--", full)
 	bwrapArgs = append(bwrapArgs, args...)
 
@@ -162,6 +181,18 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	}
 
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
+	if seccompFile != nil {
+		// ExtraFiles[0] becomes child fd 3 (the --seccomp arg above). Close the
+		// memfd after the process finishes (it's dup'd into the child at Start).
+		cmd.ExtraFiles = []*os.File{seccompFile}
+		prev := cleanup
+		cleanup = func() {
+			if prev != nil {
+				prev()
+			}
+			_ = seccompFile.Close()
+		}
+	}
 	cmd.Env = nil
 	attachCleanup(ctx, cmd, cleanup)
 	return cmd, nil
