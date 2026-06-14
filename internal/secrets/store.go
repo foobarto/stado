@@ -1,6 +1,8 @@
 package secrets
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -57,25 +59,7 @@ func (s *Store) Get(name string) ([]byte, error) {
 	if err := ValidName(name); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(s.root, name)
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("secrets: stat %s: %w", name, err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		return nil, fmt.Errorf("secrets: refusing to read %s: permissions are %04o, expected 0600 (operator may need to chmod 0600)", name, perm)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrNotFound
-		}
-		return nil, fmt.Errorf("secrets: read %s: %w", name, err)
-	}
-	return data, nil
+	return readSecretFile(filepath.Join(s.root, name), name)
 }
 
 // Put writes the named secret atomically (write-then-rename) and chmods to
@@ -142,4 +126,145 @@ func (s *Store) Remove(name string) error {
 		return fmt.Errorf("secrets: remove %s: %w", name, err)
 	}
 	return nil
+}
+
+// ── Per-plugin scoping (EP-0038 D19) ────────────────────────────────────────
+//
+// The flat Get/Put/List/Remove above are the OPERATOR surface (the
+// `stado secrets` CLI): one shared keyspace the operator provisions. Plugins
+// must NOT share that keyspace by name — plugin A writing "token" must not be
+// readable, overwritable, or deletable by plugin B. The *Scoped variants give
+// each plugin its own keyspace under <root>/.plugins/<plugin>/, while reads
+// fall back to the shared operator keyspace so an operator-provisioned secret
+// (e.g. an API key) stays readable by any plugin granted the cap. The scope
+// dir is dot-prefixed so it can never collide with a shared secret name
+// (ValidName forbids a leading dot) and the operator-facing List skips it.
+
+// pluginScopeRoot returns <root>/.plugins/<segment>, a path-safe,
+// collision-free encoding of the plugin name. The two encodings use DISJOINT
+// prefixes ("name-" vs "hash-") so they can never alias: a path-safe single
+// segment is used verbatim under "name-", and anything else (canonical
+// identities like "github.com/owner/repo", or names with separators) is hashed
+// under "hash-". Without the disjoint prefixes a plugin could name itself the
+// 64-char hex of sha256("victim") — itself a path-safe segment — and land in
+// victim's hashed scope, defeating isolation (Codex P1).
+func (s *Store) pluginScopeRoot(plugin string) string {
+	var seg string
+	if ValidName(plugin) == nil {
+		seg = "name-" + plugin
+	} else {
+		sum := sha256.Sum256([]byte(plugin))
+		seg = "hash-" + hex.EncodeToString(sum[:])
+	}
+	return filepath.Join(s.root, ".plugins", seg)
+}
+
+// GetScoped reads a secret for a plugin: its own scoped copy first, then the
+// shared operator keyspace. (nil, ErrNotFound) when neither exists.
+func (s *Store) GetScoped(plugin, name string) ([]byte, error) {
+	if err := ValidName(name); err != nil {
+		return nil, err
+	}
+	scoped := filepath.Join(s.pluginScopeRoot(plugin), name)
+	if data, err := readSecretFile(scoped, name); err == nil {
+		return data, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	// Fall back to the shared operator keyspace (also covers secrets written
+	// by older stado versions before scoping existed).
+	return s.Get(name)
+}
+
+// PutScoped writes a secret into the plugin's own scope — never the shared
+// operator keyspace, so a plugin can't overwrite an operator secret.
+func (s *Store) PutScoped(plugin, name string, value []byte) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
+	dir := s.pluginScopeRoot(plugin)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("secrets: create plugin scope dir: %w", err)
+	}
+	tmp := filepath.Join(dir, "."+name+".tmp")
+	if err := os.WriteFile(tmp, value, 0o600); err != nil {
+		return fmt.Errorf("secrets: write temp for %s: %w", name, err)
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("secrets: chmod temp for %s: %w", name, err)
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("secrets: rename into place for %s: %w", name, err)
+	}
+	return nil
+}
+
+// ListScoped returns the names a plugin can see: its own scoped secrets unioned
+// with the shared operator keyspace, sorted and deduped.
+func (s *Store) ListScoped(plugin string) ([]string, error) {
+	shared, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range shared {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	entries, err := os.ReadDir(s.pluginScopeRoot(plugin))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("secrets: list scoped: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if !seen[e.Name()] {
+			seen[e.Name()] = true
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// RemoveScoped deletes a plugin's own scoped secret only — it never deletes a
+// shared operator secret (idempotent; missing is not an error).
+func (s *Store) RemoveScoped(plugin, name string) error {
+	if err := ValidName(name); err != nil {
+		return err
+	}
+	err := os.Remove(filepath.Join(s.pluginScopeRoot(plugin), name))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("secrets: remove scoped %s: %w", name, err)
+	}
+	return nil
+}
+
+// readSecretFile reads one secret file enforcing the 0600 permission gate.
+// Shared by Get and GetScoped.
+func readSecretFile(path, name string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("secrets: stat %s: %w", name, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		return nil, fmt.Errorf("secrets: refusing to read %s: permissions are %04o, expected 0600 (operator may need to chmod 0600)", name, perm)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("secrets: read %s: %w", name, err)
+	}
+	return data, nil
 }
