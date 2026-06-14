@@ -11,19 +11,19 @@ import (
 	"github.com/foobarto/stado/internal/plugins/bundled"
 )
 
-// TestShellScreenshotE2E drives the full chain: instantiate the bundled
-// shell.wasm, spawn a `cat` PTY, write a known string, then call
-// stado_tool_screenshot and verify the host JSON makes it back through
-// the wasm boundary intact. Catches regressions in:
+// TestShellReadModesE2E drives the full chain: instantiate the bundled
+// shell.wasm, spawn a `cat` PTY, write a known string, then exercise the
+// EP-0043 folded read: mode:"screen" returns the rendered vt100 screen
+// (the former shell.screenshot) and mode:"auto" returns the raw stream
+// because `cat` is not a full-screen program. Catches regressions in:
 //   - host import wire format (id round-trip, JSON shape)
-//   - bundled plugin's stadoToolScreenshot dispatch + buffer sizing
-//   - vt10x integration (text actually shows up in the screenshot)
+//   - the read mode dispatch (screen via the snapshot import; auto's
+//     {kind:"stream"} fall-through)
+//   - vt10x integration (text shows up in the screen render)
 //
-// One module instance drives every tool call — wazero refuses
-// duplicate instantiations of the same {name, version} and the PTY
-// registry lives on the host anyway, so re-instantiation gains
-// nothing.
-func TestShellScreenshotE2E(t *testing.T) {
+// No explicit attach (EP-0043 D6 — read/write work by id). One module
+// instance drives every tool call.
+func TestShellReadModesE2E(t *testing.T) {
 	ctx := context.Background()
 	rt, err := New(ctx)
 	if err != nil {
@@ -37,9 +37,8 @@ func TestShellScreenshotE2E(t *testing.T) {
 		Capabilities: []string{"exec:pty"},
 		Tools: []plugins.ToolDef{
 			{Name: "spawn", Class: "Exec"},
-			{Name: "attach", Class: "Exec"},
 			{Name: "write", Class: "Exec"},
-			{Name: "screenshot", Class: "NonMutating"},
+			{Name: "read", Class: "NonMutating"},
 			{Name: "destroy", Class: "Exec"},
 		},
 	}
@@ -95,46 +94,49 @@ func TestShellScreenshotE2E(t *testing.T) {
 	// idempotent — already-closed sessions return without erroring.
 	defer invoke("destroy", `{"id":`+id+`}`)
 
-	// 2. Attach + write the marker. Cat echoes stdin → stdout.
-	invoke("attach", `{"id":`+id+`}`)
+	// 2. Write the marker — no attach (EP-0043 D6). Cat echoes stdin.
 	invoke("write", `{"id":`+id+`,"data":"snapshot-marker\n"}`)
 
-	// 3. Poll snapshot until the marker appears (max 2s).
+	// 3. Poll read mode:"screen" until the marker appears in the render.
 	deadline := time.Now().Add(2 * time.Second)
 	var lastSnap string
 	for time.Now().Before(deadline) {
-		lastSnap = invoke("screenshot", `{"id":`+id+`}`)
+		lastSnap = invoke("read", `{"id":`+id+`,"mode":"screen"}`)
 		if strings.Contains(lastSnap, "snapshot-marker") {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	if !strings.Contains(lastSnap, "snapshot-marker") {
-		t.Fatalf("snapshot never contained marker. last result:\n%s", lastSnap)
+		t.Fatalf("read mode:screen never contained marker. last result:\n%s", lastSnap)
 	}
 
-	// 4. Sanity-check the JSON shape — text and dims must be present,
-	//    SVG must be absent without with_svg.
+	// 4. Sanity-check the JSON shape — kind:"screen", text + dims present,
+	//    SVG absent without with_svg.
 	var snap struct {
+		Kind string `json:"kind"`
 		Text string `json:"text"`
 		Cols int    `json:"cols"`
 		Rows int    `json:"rows"`
 		SVG  string `json:"svg"`
 	}
 	if err := json.Unmarshal([]byte(lastSnap), &snap); err != nil {
-		t.Fatalf("snapshot unmarshal: %v (raw %q)", err, lastSnap)
+		t.Fatalf("read mode:screen unmarshal: %v (raw %q)", err, lastSnap)
+	}
+	if snap.Kind != "screen" {
+		t.Errorf("read mode:screen kind = %q, want screen", snap.Kind)
 	}
 	if snap.Cols != 80 || snap.Rows != 24 {
-		t.Errorf("snapshot dims = %dx%d, want 80x24", snap.Cols, snap.Rows)
+		t.Errorf("screen dims = %dx%d, want 80x24", snap.Cols, snap.Rows)
 	}
 	if snap.SVG != "" {
-		t.Errorf("snapshot SVG present without with_svg=true (got %d bytes)", len(snap.SVG))
+		t.Errorf("screen SVG present without with_svg=true (got %d bytes)", len(snap.SVG))
 	}
 
-	// 5. with_svg=true: SVG payload should be present and well-formed.
-	withSVG := invoke("screenshot", `{"id":`+id+`,"with_svg":true}`)
+	// 5. with_svg=true: SVG payload present and well-formed.
+	withSVG := invoke("read", `{"id":`+id+`,"mode":"screen","with_svg":true}`)
 	if err := json.Unmarshal([]byte(withSVG), &snap); err != nil {
-		t.Fatalf("with_svg snapshot unmarshal: %v", err)
+		t.Fatalf("with_svg unmarshal: %v", err)
 	}
 	if !strings.HasPrefix(snap.SVG, "<svg") || !strings.HasSuffix(snap.SVG, "</svg>") {
 		head := snap.SVG
@@ -145,5 +147,18 @@ func TestShellScreenshotE2E(t *testing.T) {
 	}
 	if !strings.Contains(snap.SVG, "snapshot-marker") {
 		t.Errorf("SVG missing marker text:\n%s", snap.SVG)
+	}
+
+	// 6. mode:"auto" on `cat` (not a full-screen program → not on the
+	//    alternate screen buffer) must return the RAW STREAM, not a render.
+	autoRes := invoke("read", `{"id":`+id+`,"mode":"auto"}`)
+	var auto struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal([]byte(autoRes), &auto); err != nil {
+		t.Fatalf("read mode:auto unmarshal: %v (raw %q)", err, autoRes)
+	}
+	if auto.Kind != "stream" {
+		t.Errorf("read mode:auto on a non-full-screen program: kind = %q, want stream\n%s", auto.Kind, autoRes)
 	}
 }

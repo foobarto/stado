@@ -91,7 +91,7 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 	}
 
 	// PTY-bound shell tools (shell.spawn / list / attach / read /
-	// write / screenshot / signal / resize / destroy) need a host that
+	// write / signal / resize / destroy) need a host that
 	// holds the pty.Manager across calls. The daemon (`stado daemon`)
 	// is exactly that host: route PTY-bound tools through the daemon,
 	// auto-spawning it when STADO_DAEMON allows.
@@ -311,7 +311,6 @@ func ptyBoundShellTool(name string) bool {
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
-		"shell.screenshot",
 		// shell.read_until rides the same per-Runtime pty.Manager that
 		// the rest of the PTY family does — a one-shot CLI invocation
 		// can't reach a session id created in another process.
@@ -329,7 +328,6 @@ func ptyBoundShellTool(name string) bool {
 		"shell__signal",
 		"shell__resize",
 		"shell__destroy",
-		"shell__screenshot",
 		"shell__read_until":
 		return true
 	}

@@ -284,16 +284,55 @@ func stadoToolWrite(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return writeRaw(resPtr, resCap, out)
 }
 
+// shell_read — get output from a PTY session. EP-0043 folds the old
+// shell_screenshot in via a `mode`:
+//
+//	mode "auto" (default) — the host returns the rendered screen when a
+//	  full-screen program is active (vim/htop/less/installer — it switched
+//	  to the alternate screen buffer), else the raw incremental stream.
+//	mode "stream"  — force the raw incremental byte stream.
+//	mode "screen"  — force the rendered vt100 screen.
+//
+// Response carries a `kind` discriminator:
+//
+//	{"kind":"stream", "data_b64": <b64>, "n": N}
+//	{"kind":"screen", "text": ..., "cols": C, "rows": R, "cursor": {...}, "title": ..., "svg"?: ...}
+//
 //go:wasmexport stado_tool_read
 func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	var req struct {
-		ID        uint64 `json:"id"`
-		MaxBytes  int    `json:"max_bytes"`
-		TimeoutMs int    `json:"timeout_ms"`
+		ID        uint64  `json:"id"`
+		Mode      string  `json:"mode"`
+		MaxBytes  int     `json:"max_bytes"`
+		TimeoutMs int     `json:"timeout_ms"`
+		WithSVG   bool    `json:"with_svg"`
+		SVGCellW  float64 `json:"svg_cell_w"`
+		SVGCellH  float64 `json:"svg_cell_h"`
+		SVGFontPx int     `json:"svg_font_px"`
 	}
 	if err := json.Unmarshal(sdk.Bytes(argsPtr, argsLen), &req); err != nil || req.ID == 0 {
 		return writeErr(resPtr, resCap, "id is required")
 	}
+	mode := req.Mode
+	if mode == "" {
+		mode = "auto"
+	}
+
+	// screen | auto: ask the host for the rendered screen. For auto the host
+	// returns a {"kind":"stream"} marker (no grid render) when no full-screen
+	// program is active, in which case we fall through to the raw stream.
+	if mode == "screen" || mode == "auto" {
+		screenJSON, isStream, emsg := readScreen(req.ID, mode, req.WithSVG, req.SVGCellW, req.SVGCellH, req.SVGFontPx)
+		if emsg != "" {
+			return writeErr(resPtr, resCap, "read: "+emsg)
+		}
+		if !isStream {
+			return writeRaw(resPtr, resCap, screenJSON)
+		}
+		// auto + not full-screen → raw stream below.
+	}
+
+	// stream: raw incremental bytes since the last read.
 	if req.MaxBytes <= 0 || req.MaxBytes > 1<<20 {
 		req.MaxBytes = 64 * 1024
 	}
@@ -312,10 +351,48 @@ func stadoToolRead(argsPtr, argsLen, resPtr, resCap int32) int32 {
 		return writeErr(resPtr, resCap, "read failed")
 	}
 	out, _ := json.Marshal(map[string]any{
+		"kind":     "stream",
 		"data_b64": base64.StdEncoding.EncodeToString(sdk.Bytes(bufPtr, n)),
 		"n":        int(n),
 	})
 	return writeRaw(resPtr, resCap, out)
+}
+
+// readScreen calls the snapshot host import. Returns the rendered-screen
+// JSON (kind:"screen") to forward verbatim; isStream=true when mode=="auto"
+// and the host reported no full-screen program (caller reads the raw stream
+// instead). The result is copied out before the scratch buffer is freed.
+func readScreen(id uint64, mode string, withSVG bool, cw, ch float64, fontPx int) (out []byte, isStream bool, errMsg string) {
+	args, _ := json.Marshal(map[string]any{
+		"id":          id,
+		"mode":        mode,
+		"with_svg":    withSVG,
+		"svg_cell_w":  cw,
+		"svg_cell_h":  ch,
+		"svg_font_px": fontPx,
+	})
+	argPtr := sdk.Alloc(int32(len(args)))
+	defer sdk.Free(argPtr, int32(len(args)))
+	sdk.Write(argPtr, args)
+
+	const cap = 256 * 1024
+	buf := sdk.Alloc(cap)
+	defer sdk.Free(buf, cap)
+	n := stadoTerminalSnapshot(uint32(argPtr), uint32(len(args)), uint32(buf), cap)
+	if n < 0 {
+		return nil, false, string(sdk.Bytes(buf, -n))
+	}
+	raw := sdk.Bytes(buf, n)
+	var disc struct {
+		Kind string `json:"kind"`
+	}
+	_ = json.Unmarshal(raw, &disc)
+	if disc.Kind == "stream" {
+		return nil, true, ""
+	}
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
+	return cp, false, ""
 }
 
 //go:wasmexport stado_tool_signal
@@ -396,28 +473,9 @@ func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
-// shell_screenshot — capture the rendered terminal screen of a session.
-// args: {"id": uint64, "with_svg"?: bool, "svg_cell_w"?: float,
-//
-//	"svg_cell_h"?: float, "svg_font_px"?: int}
-//
-// Returns the host-supplied JSON {text, cols, rows, cursor, title, svg?}
-// untouched. Snapshot is read-only — no attach required, safe to call
-// concurrently with shell_read on the same session.
-//
-//go:wasmexport stado_tool_screenshot
-func stadoToolScreenshot(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	// Result can be large (a 120×32 SVG snapshot is 30–60 KB) so the
-	// scratch buf needs to be sized for that.
-	const cap = 256 * 1024
-	buf := sdk.Alloc(cap)
-	defer sdk.Free(buf, cap)
-	n := stadoTerminalSnapshot(uint32(argsPtr), uint32(argsLen), uint32(buf), cap)
-	if n < 0 {
-		return writeErr(resPtr, resCap, "screenshot: "+string(sdk.Bytes(buf, -n)))
-	}
-	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
-}
+// (EP-0043: shell_screenshot is folded into shell_read mode:"screen"/"auto";
+// the rendered-screen path lives in readScreen above, which calls the same
+// stado_terminal_snapshot host import.)
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

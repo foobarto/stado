@@ -425,6 +425,7 @@ func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportNam
 			resCap := api.DecodeU32(stack[3])
 			var req struct {
 				ID        uint64  `json:"id"`
+				Mode      string  `json:"mode"` // EP-0043: "auto" | "screen" (default "screen")
 				WithSVG   bool    `json:"with_svg"`
 				SVGCellW  float64 `json:"svg_cell_w"`
 				SVGCellH  float64 `json:"svg_cell_h"`
@@ -438,12 +439,29 @@ func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportNam
 				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
 				return
 			}
+			// EP-0043 mode:auto — when no full-screen program is active, the
+			// raw stream is the right view, so return a {"kind":"stream"}
+			// marker (the read tool then pulls the stream) WITHOUT paying for
+			// a grid render. AltScreen is a cheap bitfield read.
+			if req.Mode == "auto" {
+				alt, err := host.PTYManager.AltScreen(req.ID)
+				if err != nil {
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+					return
+				}
+				if !alt {
+					payload, _ := json.Marshal(map[string]any{"kind": "stream"})
+					stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
+					return
+				}
+			}
 			screen, err := host.PTYManager.Snapshot(req.ID)
 			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
 			out := map[string]any{
+				"kind":  "screen",
 				"text":  screen.Text(),
 				"cols":  screen.Cols,
 				"rows":  screen.Rows,
