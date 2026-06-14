@@ -1481,8 +1481,8 @@ func (m *Model) handleToolSlash(parts []string) tea.Cmd {
 // runPluginToolAsync the /plugin: path uses, so progress / approvals
 // / system blocks render consistently.
 //
-// PTY-bound shell tools (shell.spawn / list / attach / read / write
-// / detach / signal / resize / destroy) are refused with the same
+// PTY-bound shell tools (shell.spawn / list / read / write / signal /
+// resize / destroy / read_until) are refused with the same
 // advisory `stado tool run` uses — those need the agent loop's
 // long-lived executor, not a one-off tool dispatch.
 func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
@@ -1702,25 +1702,26 @@ func bundledToolDefForSlash(t pkgToolHandle) plugins.ToolDef {
 }
 
 // ptyBoundShellToolName is the TUI-side mirror of cmd/stado's
-// ptyBoundShellTool gate. Same nine canonical / wire names; same
+// ptyBoundShellTool gate. Same eight canonical / wire names; same
 // reasoning — single-dispatch /tool can't host a PTY across calls.
 func ptyBoundShellToolName(name string) bool {
 	canonical := name
 	if md := runtime.LookupToolMetadata(name); md.Canonical != "" {
 		canonical = md.Canonical
 	}
-	// NOTE: shell.screenshot is deliberately ABSENT — it is read-only and
-	// needs no attach, so a one-off /tool dispatch can serve it from the
-	// in-process pty.Manager. Only attach-requiring PTY tools are refused.
+	// EP-0043: shell.screenshot is folded into shell.read (mode:screen),
+	// which is gated here like the rest of the PTY family — they all need a
+	// pty.Manager that persists across calls, which a one-off /tool dispatch
+	// can't host.
 	switch canonical {
-	case "shell.spawn", "shell.list", "shell.attach", "shell.read",
-		"shell.write", "shell.detach", "shell.signal", "shell.resize",
+	case "shell.spawn", "shell.list", "shell.read",
+		"shell.write", "shell.signal", "shell.resize",
 		"shell.destroy", "shell.read_until":
 		return true
 	}
 	switch name {
-	case "shell__spawn", "shell__list", "shell__attach", "shell__read",
-		"shell__write", "shell__detach", "shell__signal", "shell__resize",
+	case "shell__spawn", "shell__list", "shell__read",
+		"shell__write", "shell__signal", "shell__resize",
 		"shell__destroy", "shell__read_until":
 		return true
 	}

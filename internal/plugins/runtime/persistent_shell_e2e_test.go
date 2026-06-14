@@ -2,8 +2,9 @@ package runtime_test
 
 // End-to-end test for the persistent-shell example plugin.
 // Loads the operator-built plugin.wasm + its manifest, drives the
-// full create → attach → write → read → destroy cycle through a
-// single Runtime, and verifies that:
+// full create → write → read → destroy cycle (no attach — EP-0043 D6:
+// read/write reach a session by id) through a single Runtime, and
+// verifies that:
 //
 //   - the wasm-side tool exports correctly call the host imports
 //     (no signature drift);
@@ -77,8 +78,8 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 	}
 	defer func() { _ = mod.Close(ctx) }()
 
-	// Build per-tool adapters and verify all nine declared tools are
-	// addressable.
+	// Build per-tool adapters and verify the declared tools are
+	// addressable (EP-0043 D6 dropped attach/detach).
 	tools := make(map[string]*runtime.PluginTool, len(mf.Tools))
 	for _, def := range mf.Tools {
 		pt, err := runtime.NewPluginTool(mod, def)
@@ -88,7 +89,7 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		tools[def.Name] = pt
 	}
 	for _, name := range []string{
-		"shell_create", "shell_list", "shell_attach", "shell_detach",
+		"shell_create", "shell_list",
 		"shell_write", "shell_read", "shell_signal", "shell_resize", "shell_destroy",
 	} {
 		if _, ok := tools[name]; !ok {
@@ -120,12 +121,11 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		t.Fatalf("create returned id=0 (raw=%q)", out)
 	}
 
-	// 2. list — should now have one entry, alive=true, attached=false.
+	// 2. list — should now have one entry, alive=true (EP-0043: no attach).
 	listOut := run("shell_list", `{}`)
 	var sessions []struct {
-		ID       uint64 `json:"id"`
-		Alive    bool   `json:"alive"`
-		Attached bool   `json:"attached"`
+		ID    uint64 `json:"id"`
+		Alive bool   `json:"alive"`
 	}
 	if err := json.Unmarshal([]byte(listOut), &sessions); err != nil {
 		t.Fatalf("decode list: %v (raw=%q)", err, listOut)
@@ -133,14 +133,11 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 	if len(sessions) != 1 || sessions[0].ID != created.ID {
 		t.Fatalf("list = %+v, want one entry with id=%d", sessions, created.ID)
 	}
-	if !sessions[0].Alive || sessions[0].Attached {
-		t.Fatalf("list: alive=%v attached=%v, want alive=true attached=false", sessions[0].Alive, sessions[0].Attached)
+	if !sessions[0].Alive {
+		t.Fatalf("list: alive=%v, want true", sessions[0].Alive)
 	}
 
-	// 3. attach — claim it.
-	run("shell_attach", `{"id":`+itoa(created.ID)+`}`)
-
-	// 4. write a line to cat.
+	// 3. write a line to cat — no attach (EP-0043 D6: read/write by id).
 	run("shell_write", `{"id":`+itoa(created.ID)+`,"data":"hello-from-test\n"}`)
 
 	// 5. read — drain the ring with retries because pty echoing is
@@ -150,13 +147,10 @@ func TestPersistentShellPlugin_E2E(t *testing.T) {
 		t.Fatalf("read: got=%q, want substring 'hello-from-test'", got)
 	}
 
-	// 6. detach — releases the claim, session stays alive.
-	run("shell_detach", `{"id":`+itoa(created.ID)+`}`)
-
-	// 7. destroy — SIGTERM/grace/SIGKILL.
+	// 6. destroy — SIGTERM/grace/SIGKILL.
 	run("shell_destroy", `{"id":`+itoa(created.ID)+`}`)
 
-	// 8. list again — registry empty.
+	// 7. list again — registry empty.
 	listOut = run("shell_list", `{}`)
 	if strings.TrimSpace(listOut) != "[]" {
 		t.Fatalf("list after destroy = %q, want []", listOut)
@@ -197,13 +191,14 @@ func readUntil(t *testing.T, run func(name, args string) string, id uint64, want
 	return acc
 }
 
-// TestPersistentShellPlugin_DetachReattachReplay proves the
-// "modern-terminal scrollback" property: a session can run while
-// detached, output buffers in the ring, a later attach replays the
-// captured bytes. This is the property that makes the plugin useful
-// for "reverse-shell catcher" / "long-running listener" workflows
-// where the agent does other work between attach windows.
-func TestPersistentShellPlugin_DetachReattachReplay(t *testing.T) {
+// TestPersistentShellPlugin_BackgroundBufferReplay proves the
+// "modern-terminal scrollback" property: a session runs while nobody is
+// reading, output buffers in the ring, and a later read-by-id replays the
+// captured bytes. This is the property that makes the plugin useful for
+// "reverse-shell catcher" / "long-running listener" workflows where the
+// agent does other work between reads. (EP-0043 D6 removed the attach
+// step — buffering happens unconditionally; you just read by id.)
+func TestPersistentShellPlugin_BackgroundBufferReplay(t *testing.T) {
 	rt, host, mod, tools := loadPersistentShell(t)
 	defer rt.Close(context.Background())
 	defer mod.Close(context.Background())
@@ -212,7 +207,7 @@ func TestPersistentShellPlugin_DetachReattachReplay(t *testing.T) {
 	run := mkRunner(t, tools, host)
 
 	// Spawn a session that prints once and then sleeps. Output lands
-	// in the ring buffer while we're detached.
+	// in the ring buffer while nobody is reading.
 	out := run("shell_create", `{"cmd":"printf detached-payload; sleep 5"}`)
 	id := decodeID(t, out)
 
@@ -241,11 +236,10 @@ func TestPersistentShellPlugin_DetachReattachReplay(t *testing.T) {
 		t.Fatalf("ring didn't accumulate output while detached (buffered=%d)", buffered)
 	}
 
-	// Attach now and read the buffered backlog.
-	run("shell_attach", `{"id":`+itoa(id)+`}`)
+	// Read by id and confirm the buffered backlog replays (no attach).
 	got := readUntil(t, run, id, "detached-payload", 2*time.Second)
 	if !strings.Contains(got, "detached-payload") {
-		t.Fatalf("re-attach didn't replay backlog: got=%q", got)
+		t.Fatalf("read-by-id didn't replay backlog: got=%q", got)
 	}
 
 	run("shell_destroy", `{"id":`+itoa(id)+`}`)
@@ -299,44 +293,10 @@ func TestPersistentShellPlugin_RingOverflow(t *testing.T) {
 	}
 }
 
-// TestPersistentShellPlugin_ForceAttachSteals proves the recovery
-// semantics: if a previous attacher crashed without detaching,
-// force=true takes the lock without complaint. The non-force path
-// returns a tool-level error.
-func TestPersistentShellPlugin_ForceAttachSteals(t *testing.T) {
-	rt, host, mod, tools := loadPersistentShell(t)
-	defer rt.Close(context.Background())
-	defer mod.Close(context.Background())
-	_ = host
-
-	run := mkRunner(t, tools, host)
-	runErr := func(name, args string) string {
-		t.Helper()
-		res, err := tools[name].Run(context.Background(), json.RawMessage(args), host.ToolHost)
-		if err != nil {
-			t.Fatalf("%s transport: %v", name, err)
-		}
-		// Plugin tool-level errors come back in res.Content as
-		// {"error":"..."} — see main.go writeJSON. Return raw.
-		return res.Content
-	}
-
-	out := run("shell_create", `{"argv":["/bin/cat"]}`)
-	id := decodeID(t, out)
-	defer run("shell_destroy", `{"id":`+itoa(id)+`}`)
-
-	// First attach — succeeds.
-	run("shell_attach", `{"id":`+itoa(id)+`}`)
-
-	// Second attach without force — surfaces ErrAlreadyAttached.
-	body := runErr("shell_attach", `{"id":`+itoa(id)+`}`)
-	if !strings.Contains(body, "already attached") {
-		t.Fatalf("non-force attach: want already-attached error, got %q", body)
-	}
-
-	// Third attach with force — succeeds.
-	run("shell_attach", `{"id":`+itoa(id)+`,"force":true}`)
-}
+// (EP-0043 D6 removed the attach lock; the former
+// TestPersistentShellPlugin_ForceAttachSteals — which exercised
+// force=true lock-stealing recovery — is gone with it. There is no lock
+// to steal: read/write reach a session by id.)
 
 // loadPersistentShell is the shared setup for every e2e scenario.
 // Skips when plugin.wasm isn't built; otherwise returns a wired

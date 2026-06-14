@@ -91,6 +91,22 @@ func (m *Manager) SnapshotIfChanged(id, sinceVersion uint64) (*Screen, uint64, e
 	return snapshotLocked(s), s.version, nil
 }
 
+// AltScreen reports whether the session's terminal is currently on the
+// alternate screen buffer (DEC private mode 1049/1047/47) — i.e. a
+// full-screen TUI (vim, htop, less, an installer) has taken over the
+// screen. EP-0043 `read mode:auto` uses this to decide between the
+// rendered screen and the raw stream WITHOUT paying for a grid render:
+// it's a cheap bitfield read under the session lock.
+func (m *Manager) AltScreen(id uint64) (bool, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vt.Mode()&vt10x.ModeAltScreen != 0, nil
+}
+
 // snapshotLocked builds a Screen from the session's emulator state.
 // Caller must hold s.mu. Shared between Snapshot and
 // SnapshotIfChanged so both paths produce identical output.

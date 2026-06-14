@@ -368,7 +368,7 @@ type hostAdapter struct {
 	// pty is the TUI-session-lifetime PTY manager shared across every
 	// bundled-plugin tool dispatch. Without this each call would
 	// build a fresh pluginRuntime with its own pty.NewManager(), and
-	// shell.spawn → shell.attach across calls would fail with
+	// shell.spawn → shell.read/write across calls would fail with
 	// "session not found." Bug-fix per operator report.
 	pty *pty.Manager
 }

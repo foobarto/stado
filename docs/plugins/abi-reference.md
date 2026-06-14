@@ -181,7 +181,7 @@ handles**: a 32-bit ID prefixed with a stable type tag.
 | Tag | Resource | Allocator | Imports that produce it | Imports that consume it |
 |---|---|---|---|---|
 | `proc` | One-shot subprocess | `stado_proc_spawn`, `stado_exec` | proc_read/write/wait/kill/close |
-| `term` | PTY-backed terminal session | `stado_pty_create`, `stado_terminal_open` | pty_read/write/resize/signal/destroy/attach/detach/list |
+| `term` | PTY-backed terminal session | `stado_pty_create`, `stado_terminal_open` | pty_read/write/resize/signal/destroy/list/snapshot (no attach — EP-0043) |
 | `agent` | Sub-agent in the fleet | `stado_agent_spawn` | agent_list/read_messages/send_message/cancel |
 | `session` | Forked stado session | `stado_session_fork` | (operator-facing — referenced by session ID, not handle) |
 | `plugin` | Reference to another loaded plugin | (internal — used by `tool:invoke`) | — |
@@ -353,8 +353,8 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `net:icmp` | `stado_net_icmp_echo` (ping; unprivileged ICMP if available, raw fallback needs `CAP_NET_RAW`) |
 | `net:<host>` | DEAD — was the `stado_http_get` host allowlist; that import is gone. Use `net:http_request:<host>` |
 | `exec:proc[:<path-glob>]` | `stado_proc_*` and `stado_exec` (optional binary allowlist). Replaces the dropped `exec:bash` / `exec:search` / `exec:ast_grep` caps — declare each binary your plugin runs (`exec:proc:/usr/bin/rg`) plus `bundled-bin:<name>` for stado-bundled tools (rg, ast-grep) |
-| `exec:pty` | `stado_pty_*` PTY sessions |
-| `terminal:open` | `stado_terminal_*` PTY sessions (alias for the EP-0038c terminal surface) |
+| `exec:pty` | all PTY imports — both the `stado_pty_*` and `stado_terminal_*` name families (they register under one `ExecPTY` gate) |
+| `terminal:open` | alias of `exec:pty` (the EP-0038c name) — sets the same `ExecPTY` flag, so either cap alone grants the full PTY surface. `terminal:open:<glob>` / `exec:pty:<glob>` scope `*_create`/`*_open` to matching binaries |
 | `lsp:query` | bundled LSP imports |
 | `bundled-bin` | `stado_bundled_bin` access |
 | `dns:resolve` | `stado_dns_resolve` |
@@ -487,7 +487,7 @@ optional interfaces on the host they pass into `tool.Run`:
 |---|---|---|
 | `tool.AgentFleetProvider` | `AgentFleetBridge() any` | Bundled `agent.*` tools see a shared fleet |
 | `tool.ProgressEmitter` | `EmitProgress(plugin, text)` | Bundled `stado_progress` emissions surface to the operator |
-| `tool.PTYProvider` | `PTYManager() any` | Bundled `shell.*` / `pty.*` tools share a long-lived PTY registry — without this, `shell.spawn` returns an id that the next call's `shell.attach` / `read` / `write` can't see (each `bundledPluginTool.Run` would otherwise build a fresh `pty.NewManager`) |
+| `tool.PTYProvider` | `PTYManager() any` | Bundled `shell.*` / `pty.*` tools share a long-lived PTY registry — without this, `shell.spawn` returns an id that the next call's `shell.read` / `write` can't see (each `bundledPluginTool.Run` would otherwise build a fresh `pty.NewManager`) |
 | `pluginRuntime.ApprovalBridge` | (host-package interface) | Plugins requesting `ui:approval` get an interactive prompt |
 
 When a host doesn't implement these, the bundled-plugin Run path

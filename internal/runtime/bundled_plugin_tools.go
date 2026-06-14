@@ -133,36 +133,26 @@ func buildBundledPluginRegistry() *tools.Registry {
 	// Capabilities: terminal:open (PTY) + exec:proc (one-shot variants).
 	shellSessionCaps := []string{"terminal:open", "exec:proc"}
 	r.Register(newBundledWasmTool("shell", "stado_tool_spawn", "shell__spawn",
-		"Open an interactive PTY shell session. Returns {id} — use shell.read / shell.write / shell.destroy to drive it. Persists across tool calls. Args: argv? (default ['/bin/bash']), env?, cwd?, cols?, rows?, buffer_bytes?",
+		"Open a persistent shell session. Use this — not one-shot bash — for interactive programs (REPLs, ssh, db clients), full-screen TUIs (vim, htop), anything that prompts, and long-running processes you monitor. Returns {id}; drive it with shell.read / shell.write / shell.destroy (no attach step). Persists across tool calls. Provide a `description` of what the session is for — it shows in shell.list so sessions are easy to identify and clean up later. Args: argv? (default ['/bin/bash']), description?, env?, cwd?, cols?, rows?, buffer_bytes?",
 		tool.ClassExec,
 		schema.Object(nil, schema.Props{
-			"argv": schema.Array(schema.String()),
-			"env":  schema.Array(schema.String()),
-			"cwd":  schema.String(),
-			"cols": schema.Integer(),
-			"rows": schema.Integer(),
+			"argv":         schema.Array(schema.String()),
+			"description":  schema.String("what this shell is for (shown in shell.list; helps identify/clean up sessions)"),
+			"env":          schema.Array(schema.String()),
+			"cwd":          schema.String(),
+			"cols":         schema.Integer(),
+			"rows":         schema.Integer(),
+			"buffer_bytes": schema.Integer("ring buffer size in bytes for captured output (default 65536; clamped 4096–4194304)"),
 		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_list", "shell__list",
-		"List active PTY shell sessions: id, cmd, alive, attached, started_at, buffered, dropped, exit_code.",
+		"List all active PTY shell sessions (broad — shows every session so orphans stay visible): id, cmd, description, alive, started_at, buffered, dropped, exit_code. Use the description + cmd to tell which sessions are live work vs stale; shell.destroy cleans them up.",
 		tool.ClassNonMutating,
 		schema.Empty(),
 		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_attach", "shell__attach",
-		"Attach to a PTY session to read/write. Single-attach lock per session — use force:true to steal. Args: id, force?",
-		tool.ClassExec,
-		schema.Object([]string{"id"}, schema.Props{
-			"id":    schema.Integer(),
-			"force": schema.Boolean(),
-		}),
-		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_detach", "shell__detach",
-		"Release the attachment lock on a PTY session. Args: id.",
-		tool.ClassExec,
-		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
-		shellSessionCaps))
+	// EP-0043 D6: shell.attach / shell.detach removed — read/write work by id.
 	r.Register(newBundledWasmTool("shell", "stado_tool_write", "shell__write",
-		"Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes). Requires attach.",
+		"Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes).",
 		tool.ClassExec,
 		schema.Object([]string{"id"}, schema.Props{
 			"id":       schema.Integer(),
@@ -171,12 +161,17 @@ func buildBundledPluginRegistry() *tools.Registry {
 		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_read", "shell__read",
-		"Read whatever output is currently buffered from a PTY session and return immediately. Args: id, max_bytes?, timeout_ms?. Returns {data?, data_b64, n, eof?}. This is the RAW byte stream including ANSI escape sequences — if you're driving a full-screen or interactive program (vim, htop, an installer, a menu) and the output looks like escape-code garbage, use shell.screenshot to see the rendered screen instead. To block until a specific prompt or pattern appears (rather than returning whatever is buffered now), use shell.read_until. Requires attach.",
+		"Get output from a PTY session and return immediately. mode (default \"auto\"): returns the rendered screen when a full-screen program is active (vim, htop, less, an installer — anything that repaints the screen), otherwise the raw incremental byte stream. \"stream\" forces the raw bytes (ANSI escapes and all); \"screen\" forces the rendered vt100 screen. The response carries a kind discriminator: {kind:\"stream\", data_b64, n} or {kind:\"screen\", text, cols, rows, cursor, title, svg?}. To block until a specific prompt/pattern appears (rather than returning what's buffered now), use shell.read_until.",
 		tool.ClassNonMutating,
 		schema.Object([]string{"id"}, schema.Props{
-			"id":         schema.Integer(),
-			"max_bytes":  schema.Integer(),
-			"timeout_ms": schema.Integer(),
+			"id":          schema.Integer(),
+			"mode":        schema.String("auto (default) | stream | screen"),
+			"max_bytes":   schema.Integer(),
+			"timeout_ms":  schema.Integer(),
+			"with_svg":    schema.Boolean("(screen) include rendered SVG of the screen (default false; ~30-60 KB)"),
+			"svg_cell_w":  schema.Number("(screen) SVG cell pixel width (default 8)"),
+			"svg_cell_h":  schema.Number("(screen) SVG cell pixel height (default 17)"),
+			"svg_font_px": schema.Integer("(screen) SVG font-size px (default 13)"),
 		}),
 		shellSessionCaps))
 	r.Register(newBundledWasmTool("shell", "stado_tool_signal", "shell__signal",
@@ -204,19 +199,9 @@ func buildBundledPluginRegistry() *tools.Registry {
 		tool.ClassExec,
 		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
 		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_screenshot", "shell__screenshot",
-		"Capture the rendered terminal screen of a PTY session — what a human would actually see on screen, with ANSI escapes already resolved. Use this, not shell.read, whenever a session is running a full-screen or interactive program: TUIs (vim, htop, gdb-tui), curses menus, installers, progress bars — anything that repaints the screen. Returns {text, cols, rows, cursor:{x,y,visible}, title, svg?}. Args: id, with_svg? (default false; SVG is ~30–60 KB for 120×32). Read-only: no attach required.",
-		tool.ClassNonMutating,
-		schema.Object([]string{"id"}, schema.Props{
-			"id":          schema.Integer(),
-			"with_svg":    schema.Boolean("Include rendered SVG of the screen (default false)"),
-			"svg_cell_w":  schema.Number("SVG cell pixel width (default 8)"),
-			"svg_cell_h":  schema.Number("SVG cell pixel height (default 17)"),
-			"svg_font_px": schema.Integer("SVG font-size px (default 13)"),
-		}),
-		shellSessionCaps))
+	// EP-0043: shell.screenshot folded into shell.read mode:"screen"/"auto".
 	r.Register(newBundledWasmTool("shell", "stado_tool_read_until", "shell__read_until",
-		"Read the raw byte stream from a PTY session until one of the given patterns matches, the timeout elapses, or the process exits — the one-call replacement for a read-and-check loop. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Matching operates on the raw byte stream; for full-screen TUIs use shell.screenshot instead. Requires attach.",
+		"Read the raw byte stream from a PTY session until one of the given patterns matches, the timeout elapses, or the process exits — the one-call replacement for a read-and-check loop. Returns one of: {matched:true, pattern_index, before(b64), match(b64)} | {matched:false, timeout:true, before(b64)} | {matched:false, eof:true, before(b64), exit_code}. Args: id, patterns (1..16 strings), regex? (default false; when true, patterns are RE2), timeout_ms? (default 30000; 0 = check buffer only). Matching operates on the raw byte stream; for full-screen TUIs use shell.read mode:screen instead.",
 		tool.ClassNonMutating,
 		schema.Object([]string{"id", "patterns"}, schema.Props{
 			"id":         schema.Integer(),

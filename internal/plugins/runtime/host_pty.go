@@ -1,14 +1,17 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"regexp"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,9 +34,10 @@ const (
 	pluginRuntimePTYDefaultTimeout        = 100 * time.Millisecond
 )
 
-// registerPTYImports wires nine host imports for the PTY plugin
-// surface: create / list / attach / detach / write / read / signal /
-// resize / destroy. All are gated on the "exec:pty" capability — if
+// registerPTYImports wires the PTY plugin host imports: create / list /
+// write / read / signal / resize / destroy / snapshot / expect (EP-0043
+// removed attach/detach — access is by session id). All are gated on the
+// "exec:pty" capability — if
 // the manifest doesn't declare it, none are exported and link-time
 // resolution from the wasm side fails (loud, not silent).
 //
@@ -53,10 +57,8 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerPTYCreate(builder, host, "stado_terminal_open")
 	registerPTYList(builder, host, "stado_pty_list")
 	registerPTYList(builder, host, "stado_terminal_list")
-	registerPTYAttach(builder, host, "stado_pty_attach")
-	registerPTYAttach(builder, host, "stado_terminal_attach")
-	registerPTYDetach(builder, host, "stado_pty_detach")
-	registerPTYDetach(builder, host, "stado_terminal_detach")
+	// EP-0043 D6: stado_*_attach / stado_*_detach removed — read/write
+	// work by id, no attach gate.
 	registerPTYWrite(builder, host, "stado_pty_write")
 	registerPTYWrite(builder, host, "stado_terminal_write")
 	registerPTYRead(builder, host, "stado_pty_read")
@@ -156,68 +158,6 @@ func registerPTYList(builder wazero.HostModuleBuilder, host *Host, exportName st
 		Export(exportName)
 }
 
-// stado_pty_attach(args_ptr, args_len, result_ptr, result_cap) → i32
-//
-// args = {"id": uint64, "force": bool}. Returns 0 on success, -length
-// with error string on failure.
-func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			argsPtr := api.DecodeU32(stack[0])
-			argsLen := api.DecodeU32(stack[1])
-			resPtr := api.DecodeU32(stack[2])
-			resCap := api.DecodeU32(stack[3])
-			var req struct {
-				ID    uint64 `json:"id"`
-				Force bool   `json:"force"`
-			}
-			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			if !host.ExecPTY || host.PTYManager == nil {
-				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
-				return
-			}
-			if err := host.PTYManager.Attach(req.ID, pty.AttachOpts{Force: req.Force}); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			stack[0] = api.EncodeI32(0)
-		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-			[]api.ValueType{api.ValueTypeI32}).
-		Export(exportName)
-}
-
-// stado_pty_detach(args_ptr, args_len, result_ptr, result_cap) → i32
-func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			argsPtr := api.DecodeU32(stack[0])
-			argsLen := api.DecodeU32(stack[1])
-			resPtr := api.DecodeU32(stack[2])
-			resCap := api.DecodeU32(stack[3])
-			var req struct {
-				ID uint64 `json:"id"`
-			}
-			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			if !host.ExecPTY || host.PTYManager == nil {
-				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
-				return
-			}
-			if err := host.PTYManager.Detach(req.ID); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			stack[0] = api.EncodeI32(0)
-		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-			[]api.ValueType{api.ValueTypeI32}).
-		Export(exportName)
-}
-
 // stado_pty_write(id_lo, id_hi, buf_ptr, buf_len, err_ptr, err_cap) → i32
 //
 // Returns bytes written, -length with err string on failure. The id
@@ -308,8 +248,11 @@ func registerPTYRead(builder wazero.HostModuleBuilder, host *Host, exportName st
 
 // stado_pty_signal(args_ptr, args_len, result_ptr, result_cap) → i32
 //
-// args = {"id": uint64, "sig": int}. sig is a POSIX signal number
-// (e.g. 2 = SIGINT, 15 = SIGTERM). Returns 0 on success.
+// args = {"id": uint64, "sig": int|string}. sig is a POSIX signal number
+// (e.g. 2 = SIGINT, 15 = SIGTERM) OR a name ("SIGINT", "TERM", case-
+// insensitive, with or without the SIG prefix) — the shell__signal tool
+// description advertises names, so the host resolves them. Returns 0 on
+// success.
 func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName string) {
 	builder.NewFunctionBuilder().
 		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
@@ -318,10 +261,15 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 			resPtr := api.DecodeU32(stack[2])
 			resCap := api.DecodeU32(stack[3])
 			var req struct {
-				ID  uint64 `json:"id"`
-				Sig int    `json:"sig"`
+				ID  uint64          `json:"id"`
+				Sig json.RawMessage `json:"sig"`
 			}
 			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+				return
+			}
+			sig, err := parseSignal(req.Sig)
+			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
@@ -329,7 +277,7 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
 				return
 			}
-			if err := host.PTYManager.Signal(req.ID, syscall.Signal(req.Sig)); err != nil {
+			if err := host.PTYManager.Signal(req.ID, sig); err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
@@ -337,6 +285,45 @@ func registerPTYSignal(builder wazero.HostModuleBuilder, host *Host, exportName 
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export(exportName)
+}
+
+// signalNames maps POSIX signal names (sans SIG prefix, upper-case) to
+// numbers. Covers the signals an agent realistically sends to a PTY child;
+// numeric sig works for anything outside the table.
+var signalNames = map[string]syscall.Signal{
+	"HUP": syscall.SIGHUP, "INT": syscall.SIGINT, "QUIT": syscall.SIGQUIT,
+	"KILL": syscall.SIGKILL, "USR1": syscall.SIGUSR1, "USR2": syscall.SIGUSR2,
+	"TERM": syscall.SIGTERM, "STOP": syscall.SIGSTOP, "CONT": syscall.SIGCONT,
+	"TSTP": syscall.SIGTSTP, "WINCH": syscall.SIGWINCH,
+}
+
+// parseSignal accepts a JSON number (15) or a name string ("SIGTERM" /
+// "term"). The shell__signal tool documents both forms, so a string that
+// the host silently failed to decode-as-int was a real footgun.
+func parseSignal(raw json.RawMessage) (syscall.Signal, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, fmt.Errorf("sig is required")
+	}
+	if raw[0] == '"' {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil {
+			return 0, fmt.Errorf("sig: %w", err)
+		}
+		key := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(name)), "SIG")
+		if sig, ok := signalNames[key]; ok {
+			return sig, nil
+		}
+		if n, err := strconv.Atoi(key); err == nil { // numeric string e.g. "9"
+			return syscall.Signal(n), nil
+		}
+		return 0, fmt.Errorf("sig: unknown signal name %q", name)
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, fmt.Errorf("sig: %w", err)
+	}
+	return syscall.Signal(n), nil
 }
 
 // stado_pty_resize(args_ptr, args_len, result_ptr, result_cap) → i32
@@ -425,6 +412,7 @@ func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportNam
 			resCap := api.DecodeU32(stack[3])
 			var req struct {
 				ID        uint64  `json:"id"`
+				Mode      string  `json:"mode"` // EP-0043: "auto" | "screen" (default "screen")
 				WithSVG   bool    `json:"with_svg"`
 				SVGCellW  float64 `json:"svg_cell_w"`
 				SVGCellH  float64 `json:"svg_cell_h"`
@@ -438,12 +426,37 @@ func registerPTYSnapshot(builder wazero.HostModuleBuilder, host *Host, exportNam
 				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
 				return
 			}
+			// EP-0043 mode:auto — when no full-screen program is active, the
+			// raw stream is the right view, so return a {"kind":"stream"}
+			// marker (the read tool then pulls the stream) WITHOUT paying for
+			// a grid render. AltScreen is a cheap bitfield read.
+			if req.Mode == "auto" {
+				alt, err := host.PTYManager.AltScreen(req.ID)
+				if err != nil {
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
+					return
+				}
+				if !alt {
+					payload, _ := json.Marshal(map[string]any{"kind": "stream"})
+					stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
+					return
+				}
+				// alt-screen active: we're about to return a rendered grid.
+				// Discard the raw ring so the full-screen program's escape
+				// backlog doesn't resurface in a later mode:stream/auto read
+				// once it leaves the alternate buffer. The grid (vt10x) is a
+				// separate sink, so the render below is unaffected. Only the
+				// auto path drains — explicit mode:"screen" stays a
+				// non-draining peek (e.g. the TUI overlay polls read-only).
+				_, _ = host.PTYManager.DiscardPending(req.ID)
+			}
 			screen, err := host.PTYManager.Snapshot(req.ID)
 			if err != nil {
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
 				return
 			}
 			out := map[string]any{
+				"kind":  "screen",
 				"text":  screen.Text(),
 				"cols":  screen.Cols,
 				"rows":  screen.Rows,

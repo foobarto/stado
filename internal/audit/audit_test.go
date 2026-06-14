@@ -173,10 +173,10 @@ func TestSignV2AndVerifyV2_RoundTrip(t *testing.T) {
 	signer := NewSigner(priv)
 	body := "tool(path): summary\n\nTool: write\nTurn: 1\n"
 	const (
-		authorName    = "Bartosz Ptaszynski"
-		authorEmail   = "bartosz@foobarto.me"
-		authorUnix    = int64(1779600000)
-		committerName = "Bartosz Ptaszynski"
+		authorName     = "Bartosz Ptaszynski"
+		authorEmail    = "bartosz@foobarto.me"
+		authorUnix     = int64(1779600000)
+		committerName  = "Bartosz Ptaszynski"
 		committerEmail = "bartosz@foobarto.me"
 		committerUnix  = int64(1779600005)
 	)

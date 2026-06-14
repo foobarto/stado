@@ -66,6 +66,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
 | 0041 | [Shell PTY tool naming — read_until and screenshot](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
 | 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
+| 0043 | [Shell PTY-UX rethink — read modes, no lock, labeled sessions](./0043-shell-pty-ux-rethink.md) | Standards | Implemented |
 | 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Draft |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->

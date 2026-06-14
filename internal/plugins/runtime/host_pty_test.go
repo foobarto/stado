@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
@@ -128,3 +130,34 @@ func TestPTYCapabilityParse(t *testing.T) {
 
 // silence unused-import warnings if helpers above stop using strings.
 var _ = strings.Contains
+
+// TestParseSignal covers the EP-0043 shell__signal name resolution: numeric
+// and named forms (with/without SIG prefix, any case) both resolve, and bad
+// input errors rather than silently no-op'ing.
+func TestParseSignal(t *testing.T) {
+	ok := map[string]syscall.Signal{
+		`9`:          syscall.SIGKILL,
+		`15`:         syscall.SIGTERM,
+		`"SIGINT"`:   syscall.SIGINT,
+		`"sigterm"`:  syscall.SIGTERM,
+		`"TERM"`:     syscall.SIGTERM,
+		`"int"`:      syscall.SIGINT,
+		`" SIGHUP "`: syscall.SIGHUP,
+		`"9"`:        syscall.SIGKILL,
+	}
+	for in, want := range ok {
+		got, err := parseSignal(json.RawMessage(in))
+		if err != nil {
+			t.Errorf("parseSignal(%s) error: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parseSignal(%s) = %d, want %d", in, got, want)
+		}
+	}
+	for _, bad := range []string{``, `null`, `"NOPE"`, `"SIGNOPE"`, `{}`, `"   "`} {
+		if _, err := parseSignal(json.RawMessage(bad)); err == nil {
+			t.Errorf("parseSignal(%q) = nil error, want error", bad)
+		}
+	}
+}

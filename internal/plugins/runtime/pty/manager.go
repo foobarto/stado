@@ -100,6 +100,10 @@ type SpawnOpts struct {
 	Cols        uint16   `json:"cols,omitempty"`
 	Rows        uint16   `json:"rows,omitempty"`
 	BufferBytes int      `json:"buffer_bytes,omitempty"`
+	// Description is free-text the caller supplies to say what the session
+	// is FOR ("tail prod logs"). Surfaced in List for session
+	// identification / orphan triage. Optional. (EP-0043 D8.)
+	Description string `json:"description,omitempty"`
 }
 
 // SessionInfo is the public view of a session — what List returns.
@@ -113,8 +117,8 @@ type SpawnOpts struct {
 type SessionInfo struct {
 	ID              uint64    `json:"id"`
 	Cmd             string    `json:"cmd"`
+	Description     string    `json:"description,omitempty"`
 	Alive           bool      `json:"alive"`
-	Attached        bool      `json:"attached"`
 	StartedAt       time.Time `json:"started_at"`
 	Buffered        int       `json:"buffered"`
 	Dropped         uint64    `json:"dropped"`
@@ -135,15 +139,15 @@ type AttachOpts struct {
 var (
 	ErrNotFound        = errors.New("pty: session not found")
 	ErrAlreadyAttached = errors.New("pty: session already attached")
-	ErrNotAttached     = errors.New("pty: session not attached by caller")
 	ErrClosed          = errors.New("pty: session closed")
 	ErrNoCommand       = errors.New("pty: spawn requires argv or cmd")
 )
 
 type session struct {
-	id        uint64
-	cmd       string
-	startedAt time.Time
+	id          uint64
+	cmd         string
+	description string // free-text "what this shell is for" (EP-0043 D8)
+	startedAt   time.Time
 
 	// proc/master are immutable once Spawn returns.
 	proc   *exec.Cmd
@@ -219,8 +223,8 @@ type session struct {
 
 // defaultClosedReapGrace is the production default for ManagerOpts.
 // ClosedReapGrace. Long enough for an agent pattern like
-// `shell.spawn bash -c 'echo result'` followed by `shell.attach +
-// shell.read` to capture the output; short enough that genuine
+// `shell.spawn bash -c 'echo result'` followed by `shell.read` to
+// capture the output; short enough that genuine
 // zombies don't accumulate.
 const defaultClosedReapGrace = 30 * time.Second
 
@@ -472,6 +476,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	s := &session{
 		id:              atomic.AddUint64(&m.nextID, 1),
 		cmd:             fmtCmd(argv),
+		description:     opts.Description,
 		startedAt:       now,
 		lastClientTouch: now,
 		lastDrainTouch:  now,
@@ -585,17 +590,14 @@ func (m *Manager) Detach(id uint64) error {
 	return nil
 }
 
-// Write sends bytes to the child's stdin. Requires attach.
+// Write sends bytes to the child's stdin. No attach required (EP-0043
+// D6: the session id is the handle; read/write work directly by id).
 func (m *Manager) Write(id uint64, data []byte) (int, error) {
 	s, err := m.get(id)
 	if err != nil {
 		return 0, err
 	}
 	s.mu.Lock()
-	if !s.attached {
-		s.mu.Unlock()
-		return 0, ErrNotAttached
-	}
 	if s.closed {
 		s.mu.Unlock()
 		return 0, ErrClosed
@@ -620,9 +622,6 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 	deadline := time.Now().Add(timeout)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.attached {
-		return nil, ErrNotAttached
-	}
 	// Touch on entry; bump readWaiters so the watchdog knows a client
 	// is actively blocked here even while cond.WaitTimeout sleeps with
 	// s.mu released. Without the counter, a 5-minute Read on a silent
@@ -646,6 +645,39 @@ func (m *Manager) Read(id uint64, maxBytes int, timeout time.Duration) ([]byte, 
 	}
 	out := s.ring.ReadN(maxBytes)
 	return out, nil
+}
+
+// DiscardPending drops all currently-buffered unread bytes from the
+// session's raw ring without returning them, and reports how many it
+// dropped. The read tool's mode:"auto" screen path (EP-0043) uses this:
+// once a full-screen program's output has been rendered as a grid, the
+// accumulated raw escape stream is noise — discarding it stops a later
+// mode:"stream"/"auto" read from dumping the whole alt-screen backlog
+// when the program exits the alternate buffer. The vt10x emulator is a
+// separate sink, so the rendered screen is unaffected. No attach required.
+//
+// Concurrency: when another caller is actively consuming the stream — a
+// blocked Read (readWaiters) or an in-flight Expect (expectInProgress) —
+// DiscardPending is a no-op. Those callers own the ring; draining out from
+// under an Expect that's sleeping inside cond.Wait would silently eat the
+// bytes it's matching on. This mirrors destroyIfIdle's readWaiters guard.
+// The auto-screen drain only matters when the agent is polling renders and
+// nobody is reading the raw stream, which is exactly when both flags are 0.
+func (m *Manager) DiscardPending(id uint64) (int, error) {
+	s, err := m.get(id)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.expectInProgress || s.readWaiters > 0 {
+		return 0, nil
+	}
+	n := s.ring.Len()
+	if n > 0 {
+		s.ring.ReadN(n)
+	}
+	return n, nil
 }
 
 // Signal sends sig to the child process. No attach required.
@@ -734,8 +766,8 @@ func (m *Manager) List() []SessionInfo {
 		out = append(out, SessionInfo{
 			ID:              s.id,
 			Cmd:             s.cmd,
+			Description:     s.description,
 			Alive:           !s.closed,
-			Attached:        s.attached,
 			StartedAt:       s.startedAt,
 			Buffered:        s.ring.Len(),
 			Dropped:         s.dropped,

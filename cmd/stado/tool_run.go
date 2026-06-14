@@ -90,8 +90,8 @@ func runToolByName(ctx context.Context, name, argsJSON string, opts toolRunOptio
 		return fmt.Errorf("tool %q not found — try `stado tool list` to see available tools", name)
 	}
 
-	// PTY-bound shell tools (shell.spawn / list / attach / read /
-	// write / screenshot / signal / resize / destroy) need a host that
+	// PTY-bound shell tools (shell.spawn / list / read / write /
+	// signal / resize / destroy / read_until) need a host that
 	// holds the pty.Manager across calls. The daemon (`stado daemon`)
 	// is exactly that host: route PTY-bound tools through the daemon,
 	// auto-spawning it when STADO_DAEMON allows.
@@ -304,14 +304,11 @@ func ptyBoundShellTool(name string) bool {
 	case
 		"shell.spawn",
 		"shell.list",
-		"shell.attach",
 		"shell.read",
 		"shell.write",
-		"shell.detach",
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
-		"shell.screenshot",
 		// shell.read_until rides the same per-Runtime pty.Manager that
 		// the rest of the PTY family does — a one-shot CLI invocation
 		// can't reach a session id created in another process.
@@ -322,14 +319,11 @@ func ptyBoundShellTool(name string) bool {
 	case
 		"shell__spawn",
 		"shell__list",
-		"shell__attach",
 		"shell__read",
 		"shell__write",
-		"shell__detach",
 		"shell__signal",
 		"shell__resize",
 		"shell__destroy",
-		"shell__screenshot",
 		"shell__read_until":
 		return true
 	}
@@ -401,7 +395,7 @@ func marshalSchemaJSON(schema map[string]any) string {
 
 func init() {
 	toolRunCmd.Flags().StringVar(&toolRunSession, "session", "",
-		"Bind the tool run to a persisted session ID for session-aware capabilities (audit log, memory, fork). Does NOT persist PTYs — `stado tool run` is single-shot, so shell.spawn / list / attach / read / write / etc. cannot survive across invocations. Use the TUI, MCP server, or agent loop for persistent shells.")
+		"Bind the tool run to a persisted session ID for session-aware capabilities (audit log, memory, fork). Does NOT persist PTYs — `stado tool run` is single-shot, so shell.spawn / list / read / write / etc. cannot survive across invocations. Use the TUI, MCP server, or agent loop for persistent shells.")
 	_ = toolRunCmd.RegisterFlagCompletionFunc("session", completeSessionIDs)
 	toolRunCmd.Flags().StringVar(&toolRunWorkdir, "workdir", "",
 		"Override the tool's Workdir (default: cwd for bundled tools)")

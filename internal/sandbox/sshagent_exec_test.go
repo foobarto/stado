@@ -18,10 +18,10 @@ import (
 // MaskSocketsEmission) only inspects argv and so cannot catch a runtime
 // ordering bug (e.g. the tmpfs clobbering the known_hosts restore, or a
 // socket that argv-looks-bound but isn't reachable). A sandboxed process must:
-//   1. NOT read the masked private key (no key-byte exfiltration),
-//   2. STILL read the known_hosts restored on top of the mask,
-//   3. see the forwarded agent socket (as a socket node), and
-//   4. have SSH_AUTH_SOCK exported.
+//  1. NOT read the masked private key (no key-byte exfiltration),
+//  2. STILL read the known_hosts restored on top of the mask,
+//  3. see the forwarded agent socket (as a socket node), and
+//  4. have SSH_AUTH_SOCK exported.
 //
 // Uses a TEMP key dir + a throwaway unix socket — never the real ~/.ssh.
 func TestBwrapRunner_MaskSocketsExecution(t *testing.T) {
