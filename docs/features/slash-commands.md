@@ -97,7 +97,8 @@ taking over the screen.
 |---------|----------|------|
 | `/sidebar` | `Ctrl+T` | Toggle the right-hand sidebar |
 | `/theme` | `Ctrl+X T` | Open the bundled theme picker; `/theme <id>`, `/theme light`, `/theme dark`, and `/theme toggle` switch directly |
-| `/thinking` | `Ctrl+X H` | Cycle thinking display; `/thinking show`, `/thinking tail`, and `/thinking hide` set it directly |
+| `/thinking` | `Ctrl+X H` | Cycle thinking display; `/thinking preview\|auto\|collapsed\|expanded` sets it directly |
+| `/tool-display` | `Ctrl+X O` | Cycle tool-output display; `/tool-display preview\|auto\|collapsed\|expanded` sets it directly |
 | `/debug` | | Toggle sidebar diagnostics and the info log tail |
 | `/split` | | Split the chat pane into activity (top) + conversation (bottom) |
 | `/todo <title>` | | Add a todo item to the sidebar's Todo list |
@@ -139,10 +140,13 @@ taking over the screen.
   current `theme.toml` is custom, the picker shows it as the current
   custom row. Custom themes can set `[markdown].style` to `auto`,
   `light`, or `dark`.
-- **Thinking display.** `/thinking` and `Ctrl+X H` only affect the TUI
-  viewport, and persist the selected mode to `[tui].thinking_display`.
-  Thinking blocks remain captured and persisted even when the current
-  display mode is `hide` or `tail`.
+- **Thinking + tool display.** `/thinking` / `Ctrl+X H` and
+  `/tool-display` / `Ctrl+X O` only affect the TUI viewport, persisting the
+  selected mode to `[tui].thinking_display` / `[tui].tool_display`. Both
+  cycle `preview` → `auto` → `collapsed` → `expanded`. Thinking blocks and
+  tool results remain captured and persisted regardless of the display mode;
+  in any mode a click (or `Shift+Tab` on the focused block) overrides one
+  block between full and one-line for the session.
 - **Unknown commands.** Typing `/notacommand` produces
   `unknown command: /notacommand (try /help)` as a system block
   rather than silently eating the input.

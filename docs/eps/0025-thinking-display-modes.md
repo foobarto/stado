@@ -8,6 +8,9 @@ created: 2026-04-24
 implemented-in: v0.12.0
 see-also: [3, 21]
 history:
+  - date: 2026-06-14
+    status: Implemented
+    note: "Revised in v0.73.0 — display vocabulary changed to preview/auto/collapsed/expanded (dropping the old show/tail/hide; legacy values still load), a parallel tool_display setting governs tool-output panes, and any block can be overridden between full and one-line by click / Shift+Tab. See the Revision section below."
   - date: 2026-04-25
     status: Implemented
     note: Resumed sessions now reconstruct persisted provider-native thinking as separate viewport blocks instead of assistant placeholders.
@@ -110,6 +113,43 @@ Default to `show`, matching prior behavior. Toggling `/thinking` or
 - **Alternatives:** always append a system block with the new mode.
 - **Why:** inserting UI feedback into `m.blocks` during a provider turn
   can split the visible assistant response.
+
+## Revision: 4-mode vocabulary + tool parity (v0.73.0)
+
+The original three-value `thinkingMode` (show/tail/hide) is replaced by a
+shared four-value `displayMode`, and the same control is extended to
+tool-output panes:
+
+- **preview** — clip/tail to a few lines (the thinking tail; the tool
+  `tool_output_collapsed_height` panel with its "… N more lines" footer).
+  This is the new default and reproduces the prior `tail`-style preview.
+- **auto** — render the block full while it is streaming/running, then
+  collapse it to a single line once it finishes. Backed by a per-block
+  `streaming` flag set at thinking/tool creation and cleared when the next
+  block appends, the tool result arrives, the turn completes, or the turn
+  is cancelled.
+- **collapsed** — always a single summary line (`▪ thinking · N lines`,
+  `▸ <tool> · N lines`). This replaces the old `hide` — the header stays
+  visible rather than suppressing the block entirely.
+- **expanded** — always the full body.
+
+**Separate per type.** Thinking uses `[tui].thinking_display` (`Ctrl+X H`,
+`/thinking`); tool output uses the new `[tui].tool_display` (`Ctrl+X O`,
+`/tool-display`). Both cycle the four modes and persist.
+
+**Per-block override.** In any mode, a mouse click — or `Shift+Tab` on the
+focused/latest block — flips that one block between full and one-line for
+the session (a tri-state `block.override` that wins over the mode).
+Assistant-turn details still use the original `expanded` bool.
+
+**Clean break (pre-1.0).** The canonical values are now
+preview/auto/collapsed/expanded; the old `show`/`tail`/`hide` are no longer
+written, but still parse on load (mapped to expanded/preview/collapsed) so
+existing configs keep working. The original "hide entirely" capability is
+gone — `collapsed` shows a one-line header instead of nothing.
+
+This revises the Goals above: "hide thinking blocks" becomes "collapse to
+one line", and the feature now covers tool output, not just thinking.
 
 ## Related
 

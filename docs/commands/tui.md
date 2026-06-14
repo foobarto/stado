@@ -160,7 +160,8 @@ memorising:
 | `Ctrl+X N` | Create and switch to a fresh session |
 | `Ctrl+X T` | Open theme picker |
 | `Ctrl+X S` | Open status modal |
-| `Ctrl+X H` | Cycle thinking display: show, tail, hide |
+| `Ctrl+X H` | Cycle thinking display: preview, auto, collapsed, expanded |
+| `Ctrl+X O` | Cycle tool-output display: preview, auto, collapsed, expanded |
 | `Ctrl+X K` | Open shared task manager |
 | `Shift+Tab` | Expand the focused (or latest) tool call / assistant turn details |
 | `Alt+Up` / `Alt+Down` | Move focus to older / newer expandable block (then `Shift+Tab` toggles it) |
@@ -263,12 +264,27 @@ position, and selected provider/model in memory. Switching is blocked
 during queued prompts, streams, approvals, compaction, running tools, and
 background plugin ticks.
 
-Thinking blocks are display-controlled, not capture-controlled:
-`Ctrl+X H` cycles full thinking, recent-tail-only thinking, and hidden
-thinking. `/thinking show`, `/thinking tail`, and `/thinking hide` set a
-specific mode and persist it to `[tui].thinking_display`. The toggle
-only affects the TUI viewport; provider-native thinking blocks are still
-preserved in the session transcript.
+Thinking blocks and tool-output panes are display-controlled, not
+capture-controlled. Each has its own setting that cycles through the same
+four modes:
+
+- **preview** (default) — clip to the last few lines (the thinking tail;
+  the tool `tool_output_collapsed_height` panel) with a "… N more lines"
+  footer.
+- **auto** — render full while the block is streaming/running, then
+  collapse it to a single line once it finishes.
+- **collapsed** — always a single summary line (`▪ thinking · N lines`,
+  `▸ <tool> · N lines`).
+- **expanded** — always the full body, unclipped.
+
+`Ctrl+X H` (or `/thinking [mode]`) controls thinking; `Ctrl+X O` (or
+`/tool-display [mode]`) controls tool output; both persist to
+`[tui].thinking_display` / `[tui].tool_display`. In any mode, clicking a
+block — or `Shift+Tab` on the focused/latest one — flips just that block
+between full and one-line for the rest of the session. The settings only
+affect the TUI viewport; provider-native thinking + tool results are still
+preserved in the session transcript. (Legacy `thinking_display` values
+`show`/`tail`/`hide` still load, mapped to `expanded`/`preview`/`collapsed`.)
 
 ## Slash commands
 
@@ -318,7 +334,9 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/providers` — active provider credential health plus detected local
   runners, with load/start hints when a runner has no models ready
 - `/thinking` — cycle and persist thinking display;
-  `/thinking show|tail|hide`
+  `/thinking preview|auto|collapsed|expanded`
+- `/tool-display` — cycle and persist tool-output display;
+  `/tool-display preview|auto|collapsed|expanded`
 - `/switch` — searchable session manager
 - `/tree` — navigable session fork graph: switch, branch a fork at any
   past turn, or peek a read-only transcript (`Ctrl+X G`)
@@ -418,7 +436,7 @@ relevant sections:
 | `[hooks]` | `post_turn` lifecycle shell hook |
 | `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
 | `[mcp.servers.<name>]` | external MCP tool servers |
-| `[tui]` | display preferences (`theme`, `thinking_display`, `mouse_capture`) |
+| `[tui]` | display preferences (`theme`, `thinking_display`, `tool_display`, `mouse_capture`) |
 | `[keymap]` | keybinding layout: `schema` (`emacs` / `vscode` / `vim`) + per-action overrides under `[keymap.bindings]` |
 
 ### `[tui].mouse_capture`
