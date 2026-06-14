@@ -74,6 +74,29 @@ var pluginUntrustCmd = &cobra.Command{
 	},
 }
 
+// pluginUntrustAnchorCmd clears a per-owner anchor pin (distinct from the
+// per-key signer store untrust above). EP-0039: after a legitimate anchor key
+// rotation, the stored fingerprint no longer matches the published one and
+// every reinstall refuses; clearing the pin lets the next install re-run
+// trust-on-first-use against the new key.
+var pluginUntrustAnchorCmd = &cobra.Command{
+	Use:   "untrust-anchor <host/owner>",
+	Short: "Clear a pinned owner anchor (e.g. after a key rotation)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		store := plugins.NewAnchorTrustStore(cfg.StateDir())
+		if err := store.Remove(args[0]); err != nil {
+			return fmt.Errorf("untrust-anchor: %w", err)
+		}
+		fmt.Fprintln(cmd.ErrOrStderr(), "cleared anchor pin for", args[0])
+		return nil
+	},
+}
+
 var pluginListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List installed plugins with name, version, tools, author and trust status",

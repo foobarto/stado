@@ -1,74 +1,72 @@
 package main
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/foobarto/stado/internal/plugins"
 )
 
-// EP-0039: owner anchor trust-on-first-use. evaluateAnchorTrust is the pure
-// decision core; fingerprintFromAnchorFile reads the fetched author.pubkey.
-
-func TestEvaluateAnchorTrust_Verdicts(t *testing.T) {
-	store := plugins.NewAnchorTrustStore(t.TempDir())
-	const owner = "github.com/acme"
-
-	// No fetched fingerprint → no anchor published.
-	if v, _, err := evaluateAnchorTrust(store, owner, ""); err != nil || v != anchorNoPubkey {
-		t.Fatalf("empty fp: verdict %v err %v; want anchorNoPubkey", v, err)
+// EP-0039: decideAnchor is the pure trust decision — anchor TOFU bound to the
+// manifest signer, with fail-closed behaviour when the anchor can't be fetched.
+func TestDecideAnchor(t *testing.T) {
+	const (
+		anchorFP   = "FP-ANCHOR"
+		otherFP    = "FP-OTHER"
+		manifestFP = "FP-ANCHOR" // a well-formed plugin: signer == anchor
+	)
+	cases := []struct {
+		name        string
+		cachedFP    string
+		anchorFP    string
+		manifestFpr string
+		fetchOK     bool
+		want        anchorDecision
+	}{
+		// Fetch OK, signer matches anchor.
+		{"first sight, signer==anchor", "", anchorFP, manifestFP, true, anchorFirstSight},
+		{"cached, unchanged", anchorFP, anchorFP, manifestFP, true, anchorProceed},
+		// Rotation: anchor + manifest both moved to the new key, but the cached
+		// pin still holds the old one → refuse until the pin is cleared.
+		{"cached, rotated (signer follows new anchor)", anchorFP, "FP-NEW", "FP-NEW", true, anchorRefuseMismatch},
+		// Fetch OK, signer does NOT match anchor (the P1: another trusted key
+		// signed the manifest).
+		{"first sight, signer!=anchor", "", anchorFP, otherFP, true, anchorRefuseSignerBinding},
+		{"cached match but signer!=anchor", anchorFP, anchorFP, otherFP, true, anchorRefuseSignerBinding},
+		// Fetch FAILED.
+		{"first sight, anchor unreachable", "", "", manifestFP, false, anchorRefuseUnreachable},
+		{"cached, anchor offline, signer matches cached", anchorFP, "", anchorFP, false, anchorProceed},
+		{"cached, anchor offline, signer mismatches cached", anchorFP, "", otherFP, false, anchorRefuseSignerBinding},
 	}
-
-	// Owner never seen → first sight.
-	if v, _, err := evaluateAnchorTrust(store, owner, "FP-1"); err != nil || v != anchorFirstSight {
-		t.Fatalf("unseen owner: verdict %v err %v; want anchorFirstSight", v, err)
-	}
-
-	// After trusting, the same fingerprint is trusted; a different one mismatches.
-	if err := store.Trust(owner, "FP-1", plugins.AnchorTrustOwner); err != nil {
-		t.Fatal(err)
-	}
-	if v, stored, err := evaluateAnchorTrust(store, owner, "FP-1"); err != nil || v != anchorTrusted || stored != "FP-1" {
-		t.Fatalf("matching fp: verdict %v stored %q err %v; want anchorTrusted/FP-1", v, stored, err)
-	}
-	if v, stored, err := evaluateAnchorTrust(store, owner, "FP-2"); err != nil || v != anchorMismatch || stored != "FP-1" {
-		t.Fatalf("changed fp: verdict %v stored %q err %v; want anchorMismatch/FP-1", v, stored, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := decideAnchor(tc.cachedFP, tc.anchorFP, tc.manifestFpr, tc.fetchOK)
+			if got != tc.want {
+				t.Errorf("decideAnchor(%q,%q,%q,%v) = %d; want %d",
+					tc.cachedFP, tc.anchorFP, tc.manifestFpr, tc.fetchOK, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestFingerprintFromAnchorFile(t *testing.T) {
-	dir := t.TempDir()
-
-	// Absent file → ("", nil): owner publishes no anchor.
-	if fp, err := fingerprintFromAnchorFile(dir); err != nil || fp != "" {
-		t.Fatalf("absent anchor: fp %q err %v; want empty/nil", fp, err)
-	}
-
-	// A real pubkey → fingerprint equals plugins.Fingerprint(pub).
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
+// TestAnchorStore_Remove: a cleared pin returns to first-sight (empty
+// fingerprint), so a post-rotation reinstall can re-TOFU.
+func TestAnchorStore_Remove(t *testing.T) {
+	store := plugins.NewAnchorTrustStore(t.TempDir())
+	const owner = "github.com/acme"
+	if err := store.Trust(owner, "FP-1", plugins.AnchorTrustOwner); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "author.pubkey"), []byte(hex.EncodeToString(pub)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if fp, _ := store.Fingerprint(owner); fp != "FP-1" {
+		t.Fatalf("pre-remove fingerprint = %q; want FP-1", fp)
 	}
-	got, err := fingerprintFromAnchorFile(dir)
-	if err != nil {
-		t.Fatalf("read anchor: %v", err)
+	if err := store.Remove(owner); err != nil {
+		t.Fatalf("Remove: %v", err)
 	}
-	if want := plugins.Fingerprint(pub); got != want {
-		t.Fatalf("fingerprint = %q; want %q", got, want)
+	if fp, _ := store.Fingerprint(owner); fp != "" {
+		t.Fatalf("post-remove fingerprint = %q; want empty (first sight)", fp)
 	}
-
-	// Garbage content → parse error (not silently treated as "no anchor").
-	if err := os.WriteFile(filepath.Join(dir, "author.pubkey"), []byte("not-a-key"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fingerprintFromAnchorFile(dir); err == nil {
-		t.Fatal("garbage anchor pubkey should error, got nil")
+	// Idempotent: removing again is not an error.
+	if err := store.Remove(owner); err != nil {
+		t.Fatalf("second Remove should be no-op; got %v", err)
 	}
 }

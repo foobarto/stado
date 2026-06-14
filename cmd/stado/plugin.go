@@ -42,6 +42,6 @@ func init() {
 		pluginDigestCmd, pluginInstallCmd, pluginGenKeyCmd, pluginSignCmd,
 		pluginGCCmd, pluginDoctorCmd, pluginInfoCmd, pluginReloadCmd,
 		// EP-0039: distribution and trust additions.
-		pluginUseCmd, pluginDevCmd)
+		pluginUseCmd, pluginDevCmd, pluginUntrustAnchorCmd)
 	rootCmd.AddCommand(pluginCmd)
 }
