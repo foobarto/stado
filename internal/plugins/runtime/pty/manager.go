@@ -104,6 +104,15 @@ type SpawnOpts struct {
 	// is FOR ("tail prod logs"). Surfaced in List for session
 	// identification / orphan triage. Optional. (EP-0043 D8.)
 	Description string `json:"description,omitempty"`
+
+	// PreparedCmd, when non-nil, is the exact *exec.Cmd to start under the pty
+	// instead of building one from Argv/Cmd/Env/Cwd. Set by the host when the
+	// spawn must run through the sandbox runner (#100): the runner's command
+	// carries ExtraFiles (e.g. the seccomp BPF fd referenced by `--seccomp
+	// <fd>`) and a resolved Path that a re-derived exec.Command would lose.
+	// Never set from the wasm wire (json:"-"); Argv stays the human-readable
+	// original for List display.
+	PreparedCmd *exec.Cmd `json:"-"`
 }
 
 // SessionInfo is the public view of a session — what List returns.
@@ -431,12 +440,20 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		bufBytes = maxBufferBytes
 	}
 
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // by design — agent-driven.
-	if len(opts.Env) > 0 {
-		cmd.Env = opts.Env
-	}
-	if opts.Cwd != "" {
-		cmd.Dir = opts.Cwd
+	// PreparedCmd (the sandbox-runner-wrapped command, #100) is started as-is so
+	// its ExtraFiles (seccomp fd) and resolved Path survive; argv stays the
+	// original for display. Otherwise build the command from the spawn opts.
+	var cmd *exec.Cmd
+	if opts.PreparedCmd != nil {
+		cmd = opts.PreparedCmd
+	} else {
+		cmd = exec.Command(argv[0], argv[1:]...) //nolint:gosec // by design — agent-driven.
+		if len(opts.Env) > 0 {
+			cmd.Env = opts.Env
+		}
+		if opts.Cwd != "" {
+			cmd.Dir = opts.Cwd
+		}
 	}
 
 	winsize := &pty.Winsize{}
