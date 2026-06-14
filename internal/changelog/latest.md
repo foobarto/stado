@@ -1,46 +1,32 @@
-## v0.70.0 — plugin secret isolation + anchor trust-on-first-use — 2026-06-14
+## v0.71.0 — plugin update/remove + proc-read timeout + dep bumps — 2026-06-14
 
-Two plugin-security gaps from the EP-vs-codebase audit, closed: plugin secrets
-are now isolated per plugin identity, and remote plugin installs verify the
-owner's anchor key (bound to the manifest signature) on first use.
+Closes the remaining actionable plugin-CLI gaps from the post-audit survey,
+plus a host-import fix and routine security-adjacent dependency updates.
 
-### Security
+### Plugins
 
-- **Plugin secrets are namespaced by plugin identity (EP-0038 D19).** The
-  secrets store was a single flat keyspace, so one plugin could read,
-  overwrite, or delete another's secret of the same name whenever both held a
-  matching `secrets:read|write` glob. Plugin-written secrets now live in a
-  per-plugin scope; reads fall back to the operator-provisioned shared keyspace
-  (so an operator-set API key stays readable by any granted plugin, and secrets
-  written by older versions keep working), and a plugin can no longer overwrite
-  or delete an operator secret. The `stado secrets` CLI is unchanged.
+- **`stado plugin update` actually updates.** The latest-tag lookup was a stub
+  that returned the current version, so `update` never did anything. It now
+  queries the GitHub (`/releases/latest`) and GitLab (`/releases/permalink/latest`)
+  release APIs; unsupported hosts report a clear error instead of silently
+  no-op'ing. (Fixing the stub also exposed and fixed a latent bug: the update
+  installed via a child command's `Execute()`, which runs the *root* command —
+  the TUI — so it would never have installed; it now calls the install path
+  directly.)
+- **New `stado plugin remove <name>`.** Uninstalls every installed version of a
+  plugin and drops its `plugin-lock.toml` entry so `plugin update` won't
+  resurrect it. The name is validated against path traversal / glob injection.
+- **`stado_proc_read` honors `timeout_ms`.** The per-read timeout was accepted
+  but ignored, so a plugin polling a quiet subprocess blocked the call
+  indefinitely; it now bounds the read with a deadline on the stdout pipe.
 
-- **Remote plugin install verifies the owner anchor on first use (EP-0039).**
-  `stado plugin install <host/owner/repo@ver>` now checks the owner's anchor
-  pubkey and binds it to the manifest:
-  - the manifest must be signed by the owner's anchor key (the anchor
-    fingerprint must equal the manifest's signer) — a manifest signed by some
-    other globally-trusted key is refused;
-  - first sight of an owner prompts (or `--trust-anchor` to accept
-    non-interactively; refuses on a non-TTY) and records the fingerprint.
-    `--trust-anchor` covers only the owner anchor; a fully non-interactive
-    first-time install also needs the signer key pinned (`--signer <pubkey>`
-    or a prior `stado plugin trust`), since the manifest-signature check still
-    requires a pinned author key;
-  - a changed fingerprint refuses (key rotation / compromise), and the new
-    `stado plugin untrust-anchor <host/owner>` clears the pin after an expected
-    rotation;
-  - a first-time install whose anchor can't be fetched (404 / network) fails
-    closed — cached owners are unaffected.
+### Infra
 
-  Previously the downloaded anchor key was discarded and the trust flow never
-  ran.
-
-### Docs
-
-- Swept EP/DESIGN doc-drift surfaced by the audit: the `NoneRunner` warning
-  comment, the cache-event / `MaxParallelToolCalls` emission claims in
-  DESIGN.md, the airgap `self-update` verify hint (it pointed at
-  `stado verify <artifact>`, which takes no artifact arg), and the EP-0030 /
-  EP-0033 status banners.
+- Dependency bumps: `anthropic-sdk-go` 1.46.0 → 1.50.1; `golang.org/x`
+  crypto/net/mod/sys/sync/term/text/tools (incl. security-adjacent x/crypto +
+  x/net fixes). `govulncheck` clean.
+- Added 36 regression tests pinning the security boundaries hardened in
+  v0.68.0–v0.70.0: FS-tool symlink confinement, broker ceiling narrow-only
+  invariant, `TrustVerified` TOFU ladder, revocation-list exact membership, and
+  per-plugin secrets host isolation.
 
