@@ -283,11 +283,24 @@ func dialNet(ctx context.Context, host *Host, transport, hostStr string, port in
 		if err := validateUnixSocketPath(hostStr); err != nil {
 			return nil, err
 		}
-		if !host.NetDial.CanDialUnix(hostStr) {
+		// Canonicalize before authorizing AND dialing. A symlink planted at a
+		// cap-allowed path could otherwise redirect the matched glob to a
+		// different socket (Codex #64): the glob matches the syntactic path,
+		// but the dial follows the symlink to elsewhere (e.g. a privileged
+		// /run socket). Resolve symlinks, require the RESOLVED target to match
+		// the cap, and dial that resolved path so a post-check symlink swap
+		// can't re-point us. When the path doesn't resolve (no such socket /
+		// dangling symlink) we fall back to the syntactic path — the dial then
+		// fails to connect anyway, so no privileged target is reachable.
+		dialPath := hostStr
+		if resolved, rerr := filepath.EvalSymlinks(hostStr); rerr == nil {
+			dialPath = resolved
+		}
+		if !host.NetDial.CanDialUnix(dialPath) {
 			return nil, errCapDenied
 		}
 		d := net.Dialer{Timeout: timeout}
-		return d.DialContext(ctx, "unix", hostStr)
+		return d.DialContext(ctx, "unix", dialPath)
 	default:
 		return nil, errCapDenied
 	}

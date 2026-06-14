@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -229,6 +230,53 @@ func TestDialNet_UnixEcho(t *testing.T) {
 	if got := string(buf[:n]); got != "ping" {
 		t.Errorf("echo mismatch: got %q", got)
 	}
+}
+
+// TestDialNet_UnixSymlinkEscapeDenied (Codex #64): a symlink planted at a
+// cap-allowed path that points to a socket OUTSIDE the cap must be denied —
+// the cap is matched against the resolved target, not the syntactic path.
+func TestDialNet_UnixSymlinkEscapeDenied(t *testing.T) {
+	tmp := t.TempDir()
+	// A real "privileged" socket the plugin is NOT allowed to reach.
+	privileged := filepath.Join(tmp, "privileged.sock")
+	ln, err := net.Listen("unix", privileged)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+
+	// `allowed.sock` is a symlink to the privileged socket.
+	allowed := filepath.Join(tmp, "allowed.sock")
+	if err := os.Symlink(privileged, allowed); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	// Cap allows ONLY the symlink path, not the privileged target.
+	host := &Host{NetDial: &NetDialAccess{UnixGlobs: []string{allowed}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if conn, err := dialNet(ctx, host, "unix", allowed, 0, time.Second); err == nil {
+		conn.Close()
+		t.Fatal("expected cap denial: symlink resolved to a socket outside the cap")
+	}
+
+	// Sanity: when the cap covers the RESOLVED target, the dial succeeds via
+	// the symlink (confirms the fix authorizes the real path, not over-blocks).
+	host2 := &Host{NetDial: &NetDialAccess{UnixGlobs: []string{privileged}}}
+	conn, err := dialNet(ctx, host2, "unix", allowed, 0, time.Second)
+	if err != nil {
+		t.Fatalf("dial via symlink to an allowed target should succeed: %v", err)
+	}
+	conn.Close()
 }
 
 // TestDialNet_UnixCapDenied: without a matching UnixGlob the dial fails.

@@ -61,6 +61,31 @@ func TestDefaultGitWritePathGuard_RejectsSymlinkIntoGit(t *testing.T) {
 	}
 }
 
+// Codex #19: the OPPOSITE symlink direction. `.git` is itself a symlink to a
+// real git-metadata dir with a different name (e.g. `.git -> gitdir`). Before
+// the fix the guard ONLY checked the symlink-resolved path: `.git/config`
+// resolves to `gitdir/config`, which has no `.git` segment, so the guard
+// returned nil and the write landed in real git metadata. The lexical path
+// `.git/config` must be checked too, before resolution.
+func TestDefaultGitWritePathGuard_RejectsDotGitSymlinkToOtherDir(t *testing.T) {
+	workdir := t.TempDir()
+	realGit := filepath.Join(workdir, "gitdir")
+	if err := os.Mkdir(realGit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// `.git` is a symlink pointing AT the real metadata dir `gitdir`.
+	if err := os.Symlink(realGit, filepath.Join(workdir, ".git")); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	err := DefaultGitWritePathGuard(workdir, ".git/config")
+	if err == nil {
+		t.Fatal("expected refusal for .git-symlink-to-other-dir path; got nil — guard bypass")
+	}
+	if !errors.Is(err, ErrGitMetadataWrite) {
+		t.Errorf("expected ErrGitMetadataWrite sentinel; got %v", err)
+	}
+}
+
 // macOS HFS+/APFS and Windows NTFS treat .GIT and .git as the same
 // directory. Operators on those platforms get a case-insensitive
 // bypass pre-fix.

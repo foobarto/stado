@@ -62,20 +62,36 @@ func DefaultGitWritePathGuard(workdir, path string) error {
 	}
 	resolved = filepath.Clean(resolved)
 
+	// Check the LEXICAL path first (before resolving symlinks). This catches
+	// `.git` being itself a symlink to a differently-named metadata dir
+	// (e.g. `.git -> gitdir`): EvalSymlinks would turn `.git/config` into
+	// `gitdir/config`, which has no `.git` segment and would slip past the
+	// resolved check below (Codex #19).
+	if hasDotGitSegment(resolved) {
+		return fmt.Errorf("%w: %s", ErrGitMetadataWrite, path)
+	}
+
 	// EvalSymlinks the longest existing prefix, then re-append the
 	// missing tail. This catches symlink bypass on create-new flows
 	// (the file we're about to write doesn't exist yet, but its
 	// parent — or some ancestor — may be a symlink into .git).
 	resolved = evalSymlinksBestEffort(resolved)
-
-	// Case-insensitive .git segment check — operators with macOS HFS+
-	// or Windows NTFS would otherwise bypass via `.GIT/config`.
-	for _, seg := range strings.Split(filepath.ToSlash(resolved), "/") {
-		if strings.EqualFold(seg, ".git") {
-			return fmt.Errorf("%w: %s", ErrGitMetadataWrite, path)
-		}
+	if hasDotGitSegment(resolved) {
+		return fmt.Errorf("%w: %s", ErrGitMetadataWrite, path)
 	}
 	return nil
+}
+
+// hasDotGitSegment reports whether any path segment is `.git`, case-insensitive
+// — operators on macOS HFS+/APFS or Windows NTFS would otherwise bypass via
+// `.GIT/config`.
+func hasDotGitSegment(p string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(p), "/") {
+		if strings.EqualFold(seg, ".git") {
+			return true
+		}
+	}
+	return false
 }
 
 // evalSymlinksBestEffort returns EvalSymlinks(p) when the path

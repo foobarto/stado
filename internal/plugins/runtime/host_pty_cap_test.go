@@ -26,6 +26,16 @@ func TestPtyAllowed_GlobEnforcement(t *testing.T) {
 		{"scoped denies /bin/sh fallback", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, "/bin/sh", false},
 		{"abs glob match", &Host{ExecPTY: true, ExecPTYGlobs: []string{"/usr/bin/git"}}, "/usr/bin/git", true},
 		{"abs glob miss", &Host{ExecPTY: true, ExecPTYGlobs: []string{"/usr/bin/git"}}, "/usr/bin/curl", false},
+		// Codex #44: a basename cap must NOT authorize a path-containing
+		// argv[0] whose basename happens to match — that runs an attacker
+		// binary while looking like the scoped one.
+		{"basename cap denies abs-path same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, "/tmp/evil/git", false},
+		{"basename cap denies rel-path same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, "./git", false},
+		{"basename cap denies subdir same-basename", &Host{ExecPTY: true, ExecPTYGlobs: []string{"python"}}, "subdir/python", false},
+		// Codex #208/P1: backslash-separated paths (Windows form) must also be
+		// treated as path-containing, not bare names.
+		{"basename cap denies backslash path", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, `C:\tmp\git`, false},
+		{"basename cap denies backslash rel path", &Host{ExecPTY: true, ExecPTYGlobs: []string{"git"}}, `evil\git`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
