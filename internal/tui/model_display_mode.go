@@ -83,10 +83,17 @@ func effectiveRenderKind(mode displayMode, streaming bool, ov blockOverride) ren
 	}
 }
 
-// toggleBlockExpansion flips a block between its full and one-line forms.
-// Assistant blocks toggle their details (the expanded bool); thinking and
-// tool blocks flip a tri-state per-block override that wins over the
-// display mode, so a click / shift+tab works in any mode.
+// toggleBlockExpansion flips a block between the display mode's default and
+// an override. Assistant blocks toggle their details (the expanded bool).
+//
+// For thinking/tool blocks it is an on/off toggle of the per-block
+// override: the first activation forces the opposite of what the mode
+// currently shows (a clipped/one-line block expands to full; a full block
+// collapses to one line), and the next activation clears the override so
+// the block returns to its mode-governed default. This preserves the
+// pre-display-modes behavior — e.g. in preview mode a click expands a
+// block then returns it to the clipped tail, rather than oscillating
+// full<->one-line and stranding the block away from the tail forever.
 func (m *Model) toggleBlockExpansion(idx int) {
 	if idx < 0 || idx >= len(m.blocks) {
 		return
@@ -94,14 +101,20 @@ func (m *Model) toggleBlockExpansion(idx int) {
 	blk := &m.blocks[idx]
 	switch blk.kind {
 	case "tool", "thinking":
-		mode := m.thinkingMode
-		if blk.kind == "tool" {
-			mode = m.toolMode
-		}
-		if effectiveRenderKind(mode, blk.streaming, blk.override) == renderFull {
-			blk.override = overrideCollapsed
+		if blk.override != overrideNone {
+			// Already overridden — return to the mode-governed default.
+			blk.override = overrideNone
 		} else {
-			blk.override = overrideExpanded
+			mode := m.thinkingMode
+			if blk.kind == "tool" {
+				mode = m.toolMode
+			}
+			// Override to the opposite of what the mode shows by default.
+			if effectiveRenderKind(mode, blk.streaming, overrideNone) == renderFull {
+				blk.override = overrideCollapsed
+			} else {
+				blk.override = overrideExpanded
+			}
 		}
 	default: // assistant (details)
 		blk.expanded = !blk.expanded

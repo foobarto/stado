@@ -36,6 +36,7 @@ func TestConfigShow_HumanOutputHasKeySections(t *testing.T) {
 		"[tui]",
 		"theme",
 		"thinking_display",
+		"tool_display",
 		"[memory]",
 		"budget_tokens",
 		"[context]",

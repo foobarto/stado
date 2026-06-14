@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -121,6 +122,70 @@ func TestToolDisplayModesRenderedRowCounts(t *testing.T) {
 				t.Fatalf("%s: one-line hint present=%v, want %v\n%s", tc.name, gotHint, tc.wantHint, view)
 			}
 		})
+	}
+}
+
+// ctrl+x o cycles the tool-output display mode (sibling of ctrl+x h).
+func TestToolDisplayKeybindCyclesMode(t *testing.T) {
+	m := scenarioModel(t)
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "o"})
+	if m.toolMode != displayAuto {
+		t.Fatalf("toolMode = %s, want auto after first cycle", m.toolMode)
+	}
+
+	_, _ = m.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = m.Update(tea.KeyPressMsg{Text: "o"})
+	if m.toolMode != displayCollapsed {
+		t.Fatalf("toolMode = %s, want collapsed after second cycle", m.toolMode)
+	}
+	// The thinking mode is untouched by the tool keybind.
+	if m.thinkingMode != displayPreview {
+		t.Fatalf("ctrl+x o must not change thinkingMode (got %s)", m.thinkingMode)
+	}
+}
+
+func TestToolDisplaySlashSetsAndCycles(t *testing.T) {
+	m := scenarioModel(t)
+	_ = m.handleSlash("/tool-display expanded")
+	if m.toolMode != displayExpanded {
+		t.Fatalf("toolMode = %s, want expanded", m.toolMode)
+	}
+	_ = m.handleSlash("/tool-display")
+	if m.toolMode != displayPreview {
+		t.Fatalf("toolMode = %s, want preview after cycle from expanded", m.toolMode)
+	}
+}
+
+// A running tool in auto mode renders full, then collapses to one line once
+// its result arrives (the onToolResult transition clears streaming).
+func TestToolAutoCollapsesWhenResultArrives(t *testing.T) {
+	m := scenarioModel(t)
+	m.vp.SetWidth(100)
+	m.vp.SetHeight(40)
+	m.setToolDisplayMode(displayAuto)
+	m.blocks = []block{{
+		kind:      "tool",
+		toolName:  "bash",
+		streaming: true, // running, no result yet
+	}}
+	m.renderBlocks()
+	// While running there is no result to show, but the block is in its
+	// full (Expanded) form — confirm it is not yet showing a one-line hint.
+	running := ansi.Strip(m.vp.View())
+	if strings.Contains(running, "lines") {
+		t.Fatalf("running tool in auto mode should not show a collapsed line hint:\n%s", running)
+	}
+
+	// Result arrives: streaming clears, auto collapses to one line.
+	m.blocks[0].toolResult = bigToolResult(15)
+	m.blocks[0].streaming = false
+	m.invalidateBlockCache(0)
+	m.renderBlocks()
+	done := ansi.Strip(m.vp.View())
+	if countResultRows(done) != 0 || !strings.Contains(done, "15 lines") {
+		t.Fatalf("auto mode should collapse the tool to one line once the result arrives:\n%s", done)
 	}
 }
 

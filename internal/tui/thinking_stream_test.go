@@ -97,6 +97,36 @@ func TestProviderEventErrorStopsTurnCompletion(t *testing.T) {
 	}
 }
 
+// A provider error mid-stream must still finalize any in-flight thinking /
+// tool block (clear streaming) so `auto` display mode collapses it instead
+// of leaving it fully expanded forever. Regression: the stateError path in
+// onStreamDone returns before onTurnComplete (the normal finalize site).
+func TestProviderErrorFinalizesStreamingBlocks(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.streamBuf = append(m.streamBuf,
+		agent.Event{Kind: agent.EvThinkingDelta, Text: "thinking in progress"},
+		agent.Event{Kind: agent.EvError, Err: errors.New("context overflow")},
+	)
+	m.streamBufClosed = true
+
+	_, cmd := m.Update(streamTickMsg{})
+	// The in-flight thinking block exists and is still streaming pre-done.
+	if len(m.blocks) == 0 || m.blocks[0].kind != "thinking" || !m.blocks[0].streaming {
+		t.Fatalf("expected an in-flight streaming thinking block, got %+v", m.blocks)
+	}
+	if cmd == nil {
+		t.Fatal("closed stream should schedule streamDoneMsg")
+	}
+	_, _ = m.Update(cmd())
+
+	for i, b := range m.blocks {
+		if b.streaming {
+			t.Fatalf("block %d (%s) still streaming after error streamDone: %+v", i, b.kind, b)
+		}
+	}
+}
+
 func TestStreamRejectsOversizedAssistantText(t *testing.T) {
 	m := scenarioModel(t)
 	m.state = stateStreaming
