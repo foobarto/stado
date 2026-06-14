@@ -19,8 +19,9 @@ import (
 // instructions.ComposeSystemPrompt path.
 func (m *Model) initPersona(cfg *config.Config) {
 	m.personaResolver = personas.Resolver{
-		CWD:       m.cwd,
-		ConfigDir: config.ConfigDir(),
+		CWD:          m.cwd,
+		ConfigDir:    config.ConfigDir(),
+		AllowProject: cfg != nil && cfg.Defaults.AllowProjectPersona,
 	}
 	name := ""
 	if cfg != nil {

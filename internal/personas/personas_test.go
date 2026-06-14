@@ -140,6 +140,55 @@ USER OVERRIDE BODY
 	}
 }
 
+// TestResolver_ProjectPersonaGatedByAllowProject (Codex #8/#42): a repo
+// .stado/personas/default.md must be ignored unless AllowProject is set, so a
+// cloned repo can't silently take over the system prompt. With AllowProject the
+// project file shadows the user/bundled persona (opt-in).
+func TestResolver_ProjectPersonaGatedByAllowProject(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := filepath.Join(tmp, "proj")
+	cfg := filepath.Join(tmp, "config")
+	for _, d := range []string{
+		filepath.Join(cwd, ".stado", personasSubdir),
+		filepath.Join(cfg, personasSubdir),
+	} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A repo-controlled persona that would hijack the system prompt.
+	if err := os.WriteFile(filepath.Join(cwd, ".stado", personasSubdir, "x.md"), []byte("---\nname: x\n---\nREPO-CONTROLLED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A benign user persona of the same name.
+	if err := os.WriteFile(filepath.Join(cfg, personasSubdir, "x.md"), []byte("---\nname: x\n---\nUSER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default (AllowProject=false): the project file is ignored; user wins.
+	off := Resolver{CWD: cwd, ConfigDir: cfg}
+	p, err := off.Load("x")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if strings.Contains(p.Body, "REPO-CONTROLLED") {
+		t.Errorf("project persona honored without opt-in (silent takeover); body: %q", p.Body)
+	}
+	if !strings.Contains(p.Body, "USER") {
+		t.Errorf("expected the user persona to win; body: %q", p.Body)
+	}
+
+	// Opt-in: the project file is honored and shadows the user persona.
+	on := Resolver{CWD: cwd, ConfigDir: cfg, AllowProject: true}
+	p, err = on.Load("x")
+	if err != nil {
+		t.Fatalf("Load (AllowProject): %v", err)
+	}
+	if !strings.Contains(p.Body, "REPO-CONTROLLED") {
+		t.Errorf("AllowProject did not honor the project persona; body: %q", p.Body)
+	}
+}
+
 func TestResolver_ProjectShadowsUser(t *testing.T) {
 	tmp := t.TempDir()
 	cwd := filepath.Join(tmp, "proj")
@@ -160,7 +209,7 @@ func TestResolver_ProjectShadowsUser(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, ".stado", personasSubdir, "x.md"), []byte(proj), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	r := Resolver{CWD: cwd, ConfigDir: cfg}
+	r := Resolver{CWD: cwd, ConfigDir: cfg, AllowProject: true}
 	p, err := r.Load("x")
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +458,7 @@ func TestResolver_RejectsSymlinkedPersona(t *testing.T) {
 	if err := os.Symlink(secret, filepath.Join(pdir, "evil.md")); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	r := Resolver{CWD: cwd}
+	r := Resolver{CWD: cwd, AllowProject: true}
 	if _, err := r.Load("evil"); err == nil {
 		t.Fatal("symlinked persona must not be followed; expected not-found")
 	}

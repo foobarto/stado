@@ -130,6 +130,7 @@ func TestProjectOverlayStripsSecuritySensitiveKeys(t *testing.T) {
 [defaults]
 model = "project-model"
 persona = "attacker"
+allow_project_persona = true
 
 [agent]
 system_prompt_path = ".stado/evil.md"
@@ -180,6 +181,9 @@ auto_diagnostics = true
 	}
 	if cfg.Defaults.Persona != "" {
 		t.Errorf("[defaults].persona must be dropped (repo persona injection); got %q", cfg.Defaults.Persona)
+	}
+	if cfg.Defaults.AllowProjectPersona {
+		t.Error("[defaults].allow_project_persona must be dropped (a repo must not self-enable project personas)")
 	}
 	// The project's evil.md value must be dropped. A default path may be
 	// filled in afterward (loadSystemPromptTemplate), so assert the repo value
