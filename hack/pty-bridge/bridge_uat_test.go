@@ -1326,10 +1326,24 @@ func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
 			return fmt.Errorf("first stream never started: %w", err)
 		}
 
-		// While streaming, type + submit a second prompt.
+		// While streaming, type a second prompt and QUEUE it with
+		// alt+enter. Plain Enter while busy now STEERS (mid-turn inject)
+		// under the steering/queue/interrupt input model
+		// (decision_steering_queue_interrupt_model) — only alt+enter
+		// (the QueueMessage chord) queues for the next turn and renders
+		// the "queued" marker this test asserts on. alt+enter over the
+		// pty is ESC + CR (`\x1b\r`).
+		//
+		// Send the text AND the alt+enter in ONE sendKeys batch so the
+		// bytes hit the pty contiguously. Splitting them into two
+		// chromedp.Run calls opens a race (Codex): on a slow bridge the
+		// stubbed first turn can drain between the two calls, leaving the
+		// model idle when alt+enter lands — applyQueue then promotes the
+		// prompt immediately instead of rendering the queued marker, and
+		// the assert flakes even though queuing works.
 		if err := chromedp.Run(ctx, chromedp.Evaluate(
-			`window.bridge.sendKeys('queued prompt\r')`, nil)); err != nil {
-			return fmt.Errorf("send queued: %w", err)
+			`window.bridge.sendKeys('queued prompt\x1b\r')`, nil)); err != nil {
+			return fmt.Errorf("send queued (text + alt+enter): %w", err)
 		}
 
 		// Predicate: the user-block template stado renders for a
@@ -1357,6 +1371,66 @@ func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
 			return fmt.Errorf("queued prompt never appeared during streaming: %w; snapshot:\n%s", err, snap)
 		}
 		t.Logf("✓ queued prompt visible alongside streaming first turn")
+		return nil
+	})
+}
+
+// TestBridgeE2E_Stado_DisplayModes verifies the thinking + tool
+// display-mode keybinds dispatch in a real terminal. Bridge-only
+// because:
+//   - render unit tests exercise the rendering (collapse/expand) but
+//     NOT the keybind → prefix-chord → cycle → announce → render path,
+//     which only a real pty + key bytes can drive. (EP-0025 revision /
+//     v0.73.0 display modes; CLAUDE.md "test TUI changes via pty-bridge".)
+//
+// ctrl+x o (NEW) cycles tool-output display; ctrl+x h cycles thinking
+// display. Each appends a "<thing>: <mode>" system block at idle. The
+// two are independent settings, so both markers appear after pressing
+// both chords.
+func TestBridgeE2E_Stado_DisplayModes(t *testing.T) {
+	requireBridgeE2E(t)
+	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
+	baseURL, token := startBridgeInProcess(t)
+
+	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
+		if err := connectStado(ctx, t, stadoBinAbs); err != nil {
+			return err
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge.snapshot().indexOf('Type a message') >= 0`,
+			10*time.Second); err != nil {
+			return fmt.Errorf("input never ready: %w", err)
+		}
+		time.Sleep(1500 * time.Millisecond)
+
+		// ctrl+x = \x18 (CAN); the prefix chord is ctrl+x then the
+		// second key. ctrl+x o → cycleToolDisplayMode → announce.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x18o')`, nil)); err != nil {
+			return fmt.Errorf("send ctrl+x o: %w", err)
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge.snapshot().indexOf('tool output:') >= 0`,
+			5*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("ctrl+x o did not announce a tool-output display mode: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ ctrl+x o cycled the tool-output display mode")
+
+		// ctrl+x h → cycleThinkingDisplayMode → announce. Independent
+		// of the tool setting.
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`window.bridge.sendKeys('\x18h')`, nil)); err != nil {
+			return fmt.Errorf("send ctrl+x h: %w", err)
+		}
+		if _, err := waitForSnapshot(ctx, t,
+			`window.bridge.snapshot().indexOf('thinking:') >= 0`,
+			5*time.Second); err != nil {
+			snap := snapshot(ctx, t)
+			return fmt.Errorf("ctrl+x h did not announce a thinking display mode: %w; snapshot:\n%s", err, snap)
+		}
+		t.Logf("✓ ctrl+x h cycled the thinking display mode")
 		return nil
 	})
 }
