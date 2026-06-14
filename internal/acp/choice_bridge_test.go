@@ -299,6 +299,63 @@ func TestServerHandleSessionChoiceResponse_F10InputValidatorRejectsAndAllowsRetr
 	}
 }
 
+// TestServerHandleSessionChoiceResponse_ExtraSelectionCannotSkipValidation
+// (Codex #25): a response that selects the input option PLUS an extra ID used
+// to make len(Selected)!=1 and skip the input validator. The bridge must
+// reject it instead of forwarding the unvalidated InputValue to the plugin.
+func TestServerHandleSessionChoiceResponse_ExtraSelectionCannotSkipValidation(t *testing.T) {
+	out := newWriterSync()
+	srv := NewServer(nil, nil)
+	srv.conn = NewConn(strings.NewReader(""), out)
+
+	bridgeResp := make(chan pluginRuntime.ChoiceResponse, 1)
+	go func() {
+		resp, _ := srv.requestChoice(context.Background(), "sess-1", pluginRuntime.ChoiceRequest{
+			Prompt: "Turns?",
+			Options: []pluginRuntime.ChoiceOption{
+				{
+					ID: "n", Label: "Run with budget",
+					Input: &pluginRuntime.ChoiceInput{
+						Default:   "5",
+						Validator: &pluginRuntime.ChoiceValidator{Kind: "int"},
+					},
+				},
+			},
+		})
+		bridgeResp <- resp
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), `"kind":"choice"`) {
+		if time.Now().After(deadline) {
+			t.Fatalf("notification not seen; buffer: %q", out.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	var notif Notification
+	_ = json.Unmarshal(bytes.TrimSpace(out.Bytes()), &notif)
+	requestID, _ := notif.Params.(map[string]any)["requestId"].(string)
+
+	// Attack: selected has an extra ID so len != 1; inputValue "abc" would fail
+	// the int validator if it ran. Must be rejected, NOT forwarded.
+	bad := json.RawMessage(`{"sessionId":"sess-1","requestId":"` + requestID +
+		`","selected":["n","extra"],"inputValue":"abc"}`)
+	_, err := srv.handleSessionChoiceResponse(bad)
+	if err == nil {
+		t.Fatal("expected rejection for input-bearing choice with multiple selections")
+	}
+	if rpcErr, ok := err.(*RPCError); !ok || rpcErr.Code != CodeInvalidParams {
+		t.Errorf("err = %v, want CodeInvalidParams RPCError", err)
+	}
+
+	// Bridge must NOT have resolved — the unvalidated value never reached it.
+	select {
+	case got := <-bridgeResp:
+		t.Fatalf("bridge resolved despite multi-selection bypass: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 // writerSync wraps a bytes.Buffer with a mutex so the bridge
 // goroutine's Write and the test's read loop don't race. Provides
 // String() / Bytes() that take the same lock so callers don't have

@@ -205,23 +205,46 @@ func (s *Server) handleSessionChoiceResponse(raw json.RawMessage) (any, error) {
 		return nil, &RPCError{Code: CodeInternalError, Message: "choice registry unavailable"}
 	}
 
-	// Validate input_value against the chosen option's validator
-	// before resolving. Skip validation on cancelled responses;
-	// also skip when the registry has no record of the original
-	// request (shouldn't happen but harmless to fall through).
-	if !p.Cancelled && len(p.Selected) == 1 {
+	// Validate input_value against the chosen option's validator before
+	// resolving. Skip validation on cancelled responses; also skip when the
+	// registry has no record of the original request (shouldn't happen but
+	// harmless to fall through).
+	//
+	// Input-bearing choices are single-select by construction (acpHost rejects
+	// multi-select combined with input fields). Gating validation on
+	// len(Selected)==1 is therefore NOT enough: a client could send
+	// selected:["valid","extra"] (or zero IDs) to skip the gate and forward an
+	// unvalidated InputValue to the plugin (Codex #25). So when the request
+	// offers ANY input-bearing option, require exactly one selection, then
+	// validate.
+	if !p.Cancelled {
 		if req, ok := s.choiceRegistry.peek(p.RequestID); ok {
+			hasInputOption := false
 			for _, opt := range req.Options {
-				if opt.ID != p.Selected[0] || opt.Input == nil || opt.Input.Validator == nil {
-					continue
+				if opt.Input != nil {
+					hasInputOption = true
+					break
 				}
-				if err := pluginRuntime.ValidateChoiceInput(p.InputValue, opt.Input.Validator); err != nil {
+			}
+			if hasInputOption {
+				if len(p.Selected) != 1 {
 					return nil, &RPCError{
 						Code:    CodeInvalidParams,
-						Message: "input validation failed: " + err.Error(),
+						Message: "input-bearing choice requires exactly one selected option",
 					}
 				}
-				break
+				for _, opt := range req.Options {
+					if opt.ID != p.Selected[0] || opt.Input == nil || opt.Input.Validator == nil {
+						continue
+					}
+					if err := pluginRuntime.ValidateChoiceInput(p.InputValue, opt.Input.Validator); err != nil {
+						return nil, &RPCError{
+							Code:    CodeInvalidParams,
+							Message: "input validation failed: " + err.Error(),
+						}
+					}
+					break
+				}
 			}
 		}
 	}
