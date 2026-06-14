@@ -39,9 +39,18 @@ import "github.com/foobarto/stado/internal/tools"
 
 // ToolMetadata describes a tool for operator-facing output.
 type ToolMetadata struct {
-	Canonical  string   // dotted display name (fs.read, shell.exec)
-	Plugin     string   // plugin source (fs, shell, tools, ...)
-	Categories []string // canonical taxonomy entries
+	Canonical string // dotted display name (fs.read, shell.exec)
+	Plugin    string // plugin source (fs, shell, tools, ...)
+	// Categories holds ONLY canonical taxonomy entries (validated at install
+	// time against plugins.CanonicalCategories). tools.categories and
+	// [tools].autoload_categories treat this as the authoritative taxonomy,
+	// so free-form tags must never leak in here.
+	Categories []string
+	// ExtraCategories holds the plugin's free-form tags (manifest
+	// extra_categories), NOT part of the canonical taxonomy. Surfaced
+	// distinctly in tools.describe and accepted for exact tools.in_category
+	// lookups, but kept out of the canonical catalog and autoload. EP-0037 §C.
+	ExtraCategories []string
 }
 
 // canonicalToolMetadata: one entry per canonical name. The single
@@ -207,7 +216,8 @@ func LookupToolMetadata(name string) ToolMetadata {
 		// Unknown wire form — synthesise enough metadata for the
 		// listing to render rather than crash. This branch fires for
 		// installed-plugin wire names the canonical map doesn't cover.
-		return ToolMetadata{Canonical: canonical, Plugin: alias}
+		canon, extra := installedCategoryMetadata(name)
+		return ToolMetadata{Canonical: canonical, Plugin: alias, Categories: canon, ExtraCategories: extra}
 	}
 	if canonical, ok := legacyBareAliases[name]; ok {
 		if md, ok := canonicalToolMetadata[canonical]; ok {
@@ -215,5 +225,39 @@ func LookupToolMetadata(name string) ToolMetadata {
 		}
 	}
 	// Truly unknown: return as-is so the listing shows the literal name.
-	return ToolMetadata{Canonical: name, Plugin: ""}
+	// Installed plugins may declare names that don't parse as wire form, so
+	// still try to surface their categories.
+	canon, extra := installedCategoryMetadata(name)
+	return ToolMetadata{Canonical: name, Plugin: "", Categories: canon, ExtraCategories: extra}
+}
+
+// installedCategoryMetadata returns the declared canonical categories and
+// free-form extra tags for an installed-plugin tool (nil/nil when the tool
+// isn't an installed plugin or declared none). EP-0037 §C: manifests validate
+// per-tool `categories` / `extra_categories` at install time, but
+// LookupToolMetadata never read them back — so tools.search / tools.categories
+// / tools.in_category treated every installed tool as category-less. The
+// taxonomy was parsed and then dead at runtime; this is the read path that
+// revives it, keeping canonical and extra separate so the catalog and autoload
+// (which trust `categories` as canonical) never see free-form tags.
+// installedByTool is keyed by the registered tool name, which is exactly the
+// name passed here.
+func installedCategoryMetadata(name string) (canonical, extra []string) {
+	mf, _, ok := LookupInstalledModule(name)
+	if !ok {
+		return nil, nil
+	}
+	for _, td := range mf.Tools {
+		if td.Name != name {
+			continue
+		}
+		if len(td.Categories) > 0 {
+			canonical = append(canonical, td.Categories...)
+		}
+		if len(td.ExtraCategories) > 0 {
+			extra = append(extra, td.ExtraCategories...)
+		}
+		return canonical, extra
+	}
+	return nil, nil
 }

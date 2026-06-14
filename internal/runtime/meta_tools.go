@@ -58,7 +58,15 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 			continue
 		}
 		if q != "" {
+			// Categories (canonical + free-form extras) are part of the
+			// haystack: narrowing the surface by category (e.g. query
+			// "security") is the natural way an agent finds tools, and
+			// pre-EP-0037 fix this matched nothing because only
+			// name+description were searched.
 			hay := strings.ToLower(t.Name() + " " + t.Description())
+			if cats := toolCategoriesAll(t.Name()); len(cats) > 0 {
+				hay += " " + strings.ToLower(strings.Join(cats, " "))
+			}
 			if !strings.Contains(hay, q) {
 				continue
 			}
@@ -67,9 +75,7 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 			"name":    t.Name(),
 			"summary": summarise(t.Description()),
 		}
-		if cats := toolCategories(t.Name()); len(cats) > 0 {
-			entry["categories"] = cats
-		}
+		addCategoryFields(entry, t.Name())
 		out = append(out, entry)
 		if len(out) >= req.Limit {
 			break
@@ -138,9 +144,7 @@ func (m *metaDescribe) Run(_ context.Context, args json.RawMessage, h pkgtool.Ho
 			"description": t.Description(),
 			"schema":      json.RawMessage(schema),
 		}
-		if cats := toolCategories(t.Name()); len(cats) > 0 {
-			entry["categories"] = cats
-		}
+		addCategoryFields(entry, t.Name())
 		out = append(out, entry)
 		if ta, ok := h.(pkgtool.ToolActivator); ok {
 			ta.ActivateTool(name)
@@ -216,14 +220,17 @@ func (m *metaInCategory) Run(_ context.Context, args json.RawMessage, _ pkgtool.
 	}
 	var out []map[string]any
 	for _, t := range m.reg.All() {
-		cats := toolCategories(t.Name())
-		for _, c := range cats {
+		// Exact in_category lookup matches canonical categories AND free-form
+		// extra tags (EP-0037 §C: extras are accepted for exact lookups even
+		// though they're excluded from the canonical catalog).
+		for _, c := range toolCategoriesAll(t.Name()) {
 			if c == req.Name {
-				out = append(out, map[string]any{
-					"name":       t.Name(),
-					"summary":    summarise(t.Description()),
-					"categories": cats,
-				})
+				entry := map[string]any{
+					"name":    t.Name(),
+					"summary": summarise(t.Description()),
+				}
+				addCategoryFields(entry, t.Name())
+				out = append(out, entry)
 				break
 			}
 		}
@@ -432,6 +439,35 @@ func (m *metaPluginUnload) Run(_ context.Context, args json.RawMessage, h pkgtoo
 // always return empty. This helper closes the gap.
 func toolCategories(name string) []string {
 	return LookupToolMetadata(name).Categories
+}
+
+// toolCategoriesAll returns canonical categories followed by free-form extra
+// tags. Used where matching should accept either (tools.search haystack,
+// exact tools.in_category lookup) — NOT for the canonical catalog or autoload,
+// which must stay canonical-only (toolCategories). EP-0037 §C.
+func toolCategoriesAll(name string) []string {
+	md := LookupToolMetadata(name)
+	if len(md.ExtraCategories) == 0 {
+		return md.Categories
+	}
+	out := make([]string, 0, len(md.Categories)+len(md.ExtraCategories))
+	out = append(out, md.Categories...)
+	out = append(out, md.ExtraCategories...)
+	return out
+}
+
+// addCategoryFields attaches a tool's categories to a result entry, keeping
+// canonical categories ("categories") separate from free-form extras
+// ("extra_categories"). Result consumers and EP-0037 both treat "categories"
+// as the canonical taxonomy, so extras are surfaced under their own key.
+func addCategoryFields(entry map[string]any, name string) {
+	md := LookupToolMetadata(name)
+	if len(md.Categories) > 0 {
+		entry["categories"] = md.Categories
+	}
+	if len(md.ExtraCategories) > 0 {
+		entry["extra_categories"] = md.ExtraCategories
+	}
 }
 
 func summarise(desc string) string {
