@@ -83,15 +83,20 @@ This satisfies the defense-in-depth requirement that the interrupt keymap and
   existing `promptYesNoTTY` / `tuiApprovalBridge` / ACP `requestApproval`
   bridges; untrusted+non-interactive → drop + stderr advisory.
 
-### Phase 3 — persona/plugin origin gates (DEFERRED, follow-up)
+### Phase 3 — persona/plugin origin gates
 
-- Persona Vector 1 (#8/#42): a project-origin `.stado/personas/*.md` shadows the
-  bundled/user persona silently. Gate in `initPersona` on `p.SourcePath` origin
-  (CWD prefix) → fall back to bundled + notice unless trusted/opted-in.
-- Project plugin autoload (#4/#45): `registerInstalledPluginTools` verifies only
-  the global signer store; add a per-project trust gate before honoring
-  `.stado/plugins/`, and scope a project plugin's relative `fs:*` caps tighter
-  than the whole session workdir.
+- **Persona Vector 1 (#8/#42) — SHIPPED.** A project-origin `.stado/personas/*.md`
+  shadowed the bundled/user persona silently. The `personas.Resolver` now honors
+  the `{CWD}/.stado/personas/` dir only when `AllowProject` is set, plumbed from
+  the opt-in `[defaults] allow_project_persona` (default false) at the
+  cfg-bearing surfaces (TUI/headless/acp); llmtool/subagent default off. The
+  opt-in key is itself in the project-config strip-list so a repo can't
+  self-enable it. (Vector 2 — `[defaults].persona` from project config — was
+  already closed in phase 1.)
+- **Project plugin autoload (#4/#45) — DEFERRED, follow-up.**
+  `registerInstalledPluginTools` verifies only the global signer store; add a
+  per-project trust gate before honoring `.stado/plugins/`, and scope a project
+  plugin's relative `fs:*` caps tighter than the whole session workdir.
 
 ### Out of cluster (separate fixes, tracked)
 

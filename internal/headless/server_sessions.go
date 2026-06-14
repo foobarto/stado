@@ -62,10 +62,12 @@ func (s *Server) resolveSessionPersona(name string) (*personas.Persona, *acp.RPC
 	}
 	cwd, _ := os.Getwd()
 	cfgDir := ""
+	allowProject := false
 	if s.Cfg != nil {
 		cfgDir = config.ConfigDir()
+		allowProject = s.Cfg.Defaults.AllowProjectPersona
 	}
-	p, err := (personas.Resolver{CWD: cwd, ConfigDir: cfgDir}).Load(name)
+	p, err := (personas.Resolver{CWD: cwd, ConfigDir: cfgDir, AllowProject: allowProject}).Load(name)
 	if err != nil {
 		return nil, &acp.RPCError{
 			Code:    acp.CodeInvalidParams,

@@ -72,6 +72,13 @@ type Resolver struct {
 	// $XDG_CONFIG_HOME/stado/). Personas under <ConfigDir>/personas/
 	// shadow bundled.
 	ConfigDir string
+	// AllowProject opts into the {CWD}/.stado/personas/ project directory.
+	// Default false (Codex #8/#42): a repo-origin persona body is injected
+	// verbatim into the system prompt and its tools/plugins frontmatter widens
+	// the agent surface, so it must not be honored from an untrusted repo
+	// without an explicit operator opt-in ([defaults] allow_project_persona).
+	// When false the resolver searches only user + bundled personas.
+	AllowProject bool
 }
 
 // Load resolves a persona by name. Project beats user beats bundled.
@@ -192,7 +199,10 @@ func (r Resolver) readSource(name string) ([]byte, string, error) {
 
 func (r Resolver) dirs() []string {
 	var out []string
-	if r.CWD != "" {
+	// The project {CWD}/.stado/personas/ dir is honored only when the operator
+	// opted in (Codex #8/#42) — a repo persona is an untrusted system-prompt /
+	// tool-surface vector.
+	if r.CWD != "" && r.AllowProject {
 		out = append(out, filepath.Join(r.CWD, ".stado", personasSubdir))
 	}
 	if r.ConfigDir != "" {
