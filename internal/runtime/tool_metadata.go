@@ -76,8 +76,6 @@ var canonicalToolMetadata = map[string]ToolMetadata{
 	"shell.resize":     {Canonical: "shell.resize", Plugin: "shell", Categories: []string{"shell"}},
 	"shell.signal":     {Canonical: "shell.signal", Plugin: "shell", Categories: []string{"shell"}},
 	"shell.destroy":    {Canonical: "shell.destroy", Plugin: "shell", Categories: []string{"shell"}},
-	"shell.attach":     {Canonical: "shell.attach", Plugin: "shell", Categories: []string{"shell"}},
-	"shell.detach":     {Canonical: "shell.detach", Plugin: "shell", Categories: []string{"shell"}},
 	"shell.read_until": {Canonical: "shell.read_until", Plugin: "shell", Categories: []string{"shell"}},
 
 	// code search

@@ -1714,14 +1714,14 @@ func ptyBoundShellToolName(name string) bool {
 	// pty.Manager that persists across calls, which a one-off /tool dispatch
 	// can't host.
 	switch canonical {
-	case "shell.spawn", "shell.list", "shell.attach", "shell.read",
-		"shell.write", "shell.detach", "shell.signal", "shell.resize",
+	case "shell.spawn", "shell.list", "shell.read",
+		"shell.write", "shell.signal", "shell.resize",
 		"shell.destroy", "shell.read_until":
 		return true
 	}
 	switch name {
-	case "shell__spawn", "shell__list", "shell__attach", "shell__read",
-		"shell__write", "shell__detach", "shell__signal", "shell__resize",
+	case "shell__spawn", "shell__list", "shell__read",
+		"shell__write", "shell__signal", "shell__resize",
 		"shell__destroy", "shell__read_until":
 		return true
 	}

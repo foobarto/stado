@@ -13,9 +13,7 @@
 //
 //	shell_spawn     — open a PTY session, returns id
 //	shell_list      — list active sessions
-//	shell_attach    — claim a session for read/write
-//	shell_detach    — release attachment
-//	shell_read      — read buffered output from a session
+//	shell_read      — read output (mode: auto|stream|screen)
 //	shell_write     — write to a session's stdin
 //	shell_resize    — resize PTY (cols, rows)
 //	shell_signal    — send POSIX signal
@@ -43,12 +41,6 @@ func stadoTerminalOpen(argsPtr, argsLen, resPtr, resCap uint32) int64
 
 //go:wasmimport stado stado_terminal_list
 func stadoTerminalList(bufPtr, bufCap uint32) int32
-
-//go:wasmimport stado stado_terminal_attach
-func stadoTerminalAttach(argsPtr, argsLen, resPtr, resCap uint32) int32
-
-//go:wasmimport stado stado_terminal_detach
-func stadoTerminalDetach(argsPtr, argsLen, resPtr, resCap uint32) int32
 
 //go:wasmimport stado stado_terminal_write
 func stadoTerminalWrite(idLo, idHi, bufPtr, bufLen, errPtr, errCap uint32) int32
@@ -217,15 +209,8 @@ func stadoToolList(argsPtr, argsLen, resPtr, resCap int32) int32 {
 	return writeRaw(resPtr, resCap, sdk.Bytes(buf, n))
 }
 
-//go:wasmexport stado_tool_attach
-func stadoToolAttach(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalAttach, "attach")
-}
-
-//go:wasmexport stado_tool_detach
-func stadoToolDetach(argsPtr, argsLen, resPtr, resCap int32) int32 {
-	return passthroughTerminal(argsPtr, argsLen, resPtr, resCap, stadoTerminalDetach, "detach")
-}
+// (EP-0043 D6: shell_attach / shell_detach removed — read/write work by id,
+// no attach gate.)
 
 func passthroughTerminal(
 	argsPtr, argsLen, resPtr, resCap int32,

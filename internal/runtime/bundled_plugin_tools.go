@@ -148,19 +148,7 @@ func buildBundledPluginRegistry() *tools.Registry {
 		tool.ClassNonMutating,
 		schema.Empty(),
 		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_attach", "shell__attach",
-		"Attach to a PTY session to read/write. Single-attach lock per session — use force:true to steal. Args: id, force?",
-		tool.ClassExec,
-		schema.Object([]string{"id"}, schema.Props{
-			"id":    schema.Integer(),
-			"force": schema.Boolean(),
-		}),
-		shellSessionCaps))
-	r.Register(newBundledWasmTool("shell", "stado_tool_detach", "shell__detach",
-		"Release the attachment lock on a PTY session. Args: id.",
-		tool.ClassExec,
-		schema.Object([]string{"id"}, schema.Props{"id": schema.Integer()}),
-		shellSessionCaps))
+	// EP-0043 D6: shell.attach / shell.detach removed — read/write work by id.
 	r.Register(newBundledWasmTool("shell", "stado_tool_write", "shell__write",
 		"Write input to a PTY session's stdin. Args: id, data (UTF-8 string) OR data_b64 (raw bytes).",
 		tool.ClassExec,

@@ -53,10 +53,8 @@ func registerPTYImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerPTYCreate(builder, host, "stado_terminal_open")
 	registerPTYList(builder, host, "stado_pty_list")
 	registerPTYList(builder, host, "stado_terminal_list")
-	registerPTYAttach(builder, host, "stado_pty_attach")
-	registerPTYAttach(builder, host, "stado_terminal_attach")
-	registerPTYDetach(builder, host, "stado_pty_detach")
-	registerPTYDetach(builder, host, "stado_terminal_detach")
+	// EP-0043 D6: stado_*_attach / stado_*_detach removed — read/write
+	// work by id, no attach gate.
 	registerPTYWrite(builder, host, "stado_pty_write")
 	registerPTYWrite(builder, host, "stado_terminal_write")
 	registerPTYRead(builder, host, "stado_pty_read")
@@ -152,68 +150,6 @@ func registerPTYList(builder wazero.HostModuleBuilder, host *Host, exportName st
 			}
 			stack[0] = api.EncodeI32(writeBytes(mod, bufPtr, bufCap, payload))
 		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32},
-			[]api.ValueType{api.ValueTypeI32}).
-		Export(exportName)
-}
-
-// stado_pty_attach(args_ptr, args_len, result_ptr, result_cap) → i32
-//
-// args = {"id": uint64, "force": bool}. Returns 0 on success, -length
-// with error string on failure.
-func registerPTYAttach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			argsPtr := api.DecodeU32(stack[0])
-			argsLen := api.DecodeU32(stack[1])
-			resPtr := api.DecodeU32(stack[2])
-			resCap := api.DecodeU32(stack[3])
-			var req struct {
-				ID    uint64 `json:"id"`
-				Force bool   `json:"force"`
-			}
-			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			if !host.ExecPTY || host.PTYManager == nil {
-				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
-				return
-			}
-			if err := host.PTYManager.Attach(req.ID, pty.AttachOpts{Force: req.Force}); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			stack[0] = api.EncodeI32(0)
-		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
-			[]api.ValueType{api.ValueTypeI32}).
-		Export(exportName)
-}
-
-// stado_pty_detach(args_ptr, args_len, result_ptr, result_cap) → i32
-func registerPTYDetach(builder wazero.HostModuleBuilder, host *Host, exportName string) {
-	builder.NewFunctionBuilder().
-		WithGoModuleFunction(api.GoModuleFunc(func(ctx context.Context, mod api.Module, stack []uint64) {
-			argsPtr := api.DecodeU32(stack[0])
-			argsLen := api.DecodeU32(stack[1])
-			resPtr := api.DecodeU32(stack[2])
-			resCap := api.DecodeU32(stack[3])
-			var req struct {
-				ID uint64 `json:"id"`
-			}
-			if err := decodePTYArgs(mod, argsPtr, argsLen, &req); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			if !host.ExecPTY || host.PTYManager == nil {
-				stack[0] = api.EncodeI32(ptyDenied(mod, resPtr, resCap))
-				return
-			}
-			if err := host.PTYManager.Detach(req.ID); err != nil {
-				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(err.Error())))
-				return
-			}
-			stack[0] = api.EncodeI32(0)
-		}), []api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export(exportName)
 }

@@ -236,10 +236,8 @@ func TestToolRun_RefusesPTYBoundShellTools(t *testing.T) {
 	cases := []string{
 		"shell.spawn",
 		"shell.list",
-		"shell.attach",
 		"shell.read",
 		"shell.write",
-		"shell.detach",
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",

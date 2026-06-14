@@ -304,10 +304,8 @@ func ptyBoundShellTool(name string) bool {
 	case
 		"shell.spawn",
 		"shell.list",
-		"shell.attach",
 		"shell.read",
 		"shell.write",
-		"shell.detach",
 		"shell.signal",
 		"shell.resize",
 		"shell.destroy",
@@ -321,10 +319,8 @@ func ptyBoundShellTool(name string) bool {
 	case
 		"shell__spawn",
 		"shell__list",
-		"shell__attach",
 		"shell__read",
 		"shell__write",
-		"shell__detach",
 		"shell__signal",
 		"shell__resize",
 		"shell__destroy",
