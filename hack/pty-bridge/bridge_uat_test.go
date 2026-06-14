@@ -1332,15 +1332,18 @@ func TestBridgeE2E_Stado_QueuedPrompt(t *testing.T) {
 		// (decision_steering_queue_interrupt_model) — only alt+enter
 		// (the QueueMessage chord) queues for the next turn and renders
 		// the "queued" marker this test asserts on. alt+enter over the
-		// pty is ESC + CR (`\x1b\r`); sendKeys writes the bytes
-		// contiguously so the parser reads them as one alt+Enter event.
+		// pty is ESC + CR (`\x1b\r`).
+		//
+		// Send the text AND the alt+enter in ONE sendKeys batch so the
+		// bytes hit the pty contiguously. Splitting them into two
+		// chromedp.Run calls opens a race (Codex): on a slow bridge the
+		// stubbed first turn can drain between the two calls, leaving the
+		// model idle when alt+enter lands — applyQueue then promotes the
+		// prompt immediately instead of rendering the queued marker, and
+		// the assert flakes even though queuing works.
 		if err := chromedp.Run(ctx, chromedp.Evaluate(
-			`window.bridge.sendKeys('queued prompt')`, nil)); err != nil {
-			return fmt.Errorf("type queued: %w", err)
-		}
-		if err := chromedp.Run(ctx, chromedp.Evaluate(
-			`window.bridge.sendKeys('\x1b\r')`, nil)); err != nil {
-			return fmt.Errorf("send alt+enter (queue): %w", err)
+			`window.bridge.sendKeys('queued prompt\x1b\r')`, nil)); err != nil {
+			return fmt.Errorf("send queued (text + alt+enter): %w", err)
 		}
 
 		// Predicate: the user-block template stado renders for a
