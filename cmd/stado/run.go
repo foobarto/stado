@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/runtime"
@@ -206,15 +207,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					}
 				}
 			}
-			// EP-0030: security harness — prepend harness instructions to system prompt.
-			if cfg.Harness.Mode == "security" {
-				harnessAddition := loadSecurityHarness(promptWorkdir)
-				if harnessAddition != "" && sysPrompt == "" {
-					sysPrompt = harnessAddition
-				} else if harnessAddition != "" {
-					sysPrompt = harnessAddition + "\n\n---\n\n" + sysPrompt
-				}
-			}
+			// EP-0030: security harness — prepend to the system prompt in
+			// security mode. Shared helper so run/TUI/ACP/headless inject it
+			// identically.
+			sysPrompt = harness.Prepend(sysPrompt, promptWorkdir, cfg.Harness.Mode)
 			if continueWorktree != "" {
 				promptWorkdir = continueWorktree
 			}

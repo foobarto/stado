@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/harness"
 	"github.com/foobarto/stado/internal/instructions"
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/runtime"
@@ -489,6 +490,13 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 			sysPrompt = res.Content
 		}
 	}
+	// EP-0030: security harness — prepend in security mode, same as `stado run`
+	// (autonomous surface; previously the config knob was ignored here).
+	harnessMode := ""
+	if s.Cfg != nil {
+		harnessMode = s.Cfg.Harness.Mode
+	}
+	sysPrompt = harness.Prepend(sysPrompt, workdir, harnessMode)
 
 	opts := runtime.AgentLoopOptions{
 		Provider:             prov,
