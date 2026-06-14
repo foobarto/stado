@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -249,21 +250,32 @@ func (s *Store) RemoveScoped(plugin, name string) error {
 // readSecretFile reads one secret file enforcing the 0600 permission gate.
 // Shared by Get and GetScoped.
 func readSecretFile(path, name string) ([]byte, error) {
-	info, err := os.Stat(path)
+	// Open with O_NOFOLLOW so a symlink at the final path component is NOT
+	// followed — a symlinked secret whose target happens to be 0600 must not
+	// pass the gate (the old os.Stat followed the link and checked the target's
+	// mode). fstat the OPENED fd (not the path) for the regular-file + 0600
+	// check, then read from the same fd: the permission check and the read see
+	// the same inode, closing the Stat/ReadFile TOCTOU.
+	f, err := os.OpenFile(path, os.O_RDONLY|secretOpenNoFollow, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, ErrNotFound
 		}
+		return nil, fmt.Errorf("secrets: open %s: %w", name, err)
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
 		return nil, fmt.Errorf("secrets: stat %s: %w", name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("secrets: refusing to read %s: not a regular file", name)
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		return nil, fmt.Errorf("secrets: refusing to read %s: permissions are %04o, expected 0600 (operator may need to chmod 0600)", name, perm)
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(f)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, ErrNotFound
-		}
 		return nil, fmt.Errorf("secrets: read %s: %w", name, err)
 	}
 	return data, nil
