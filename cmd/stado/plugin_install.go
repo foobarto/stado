@@ -18,6 +18,7 @@ import (
 var pluginInstallSigner string
 var pluginInstallForce bool
 var pluginInstallAutoload bool
+var pluginInstallTrustAnchor bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
 const (
@@ -56,6 +57,15 @@ var pluginInstallCmd = &cobra.Command{
 				return fmt.Errorf("install: %w", fetchErr)
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "fetched to %s\n", fetched)
+			// EP-0039: owner anchor trust-on-first-use. The fetch downloaded the
+			// owner's author.pubkey; verify its fingerprint against the per-owner
+			// anchor store (prompt/refuse on first sight, refuse on change)
+			// before the install proceeds.
+			if id, idErr := plugins.ParseIdentity(args[0]); idErr == nil {
+				if err := enforceAnchorTrust(cmd, cfg, id, fetched, pluginInstallTrustAnchor); err != nil {
+					return err
+				}
+			}
 			src = fetched
 		}
 		m, sig, err := plugins.LoadFromDir(src)
