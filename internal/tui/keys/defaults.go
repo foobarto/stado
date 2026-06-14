@@ -36,6 +36,7 @@ var Defaults = map[Action]string{
 	ThemeSwitch:             "ctrl+x t",
 	StatusView:              "ctrl+x s",
 	ThinkingToggle:          "ctrl+x h",
+	ToolDisplayToggle:       "ctrl+x o",
 	TipsToggle:              "?",
 	Approve:                 "y,enter",
 	Deny:                    "n,esc",

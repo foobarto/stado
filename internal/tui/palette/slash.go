@@ -81,7 +81,8 @@ var Commands = []Command{
 	// View — layout toggles.
 	{"/sidebar", "Toggle the right-hand sidebar; resize with ctrl+x [ / ]", "ctrl+t", "View"},
 	{"/theme", "Open the theme picker or switch to a bundled theme (/theme <id>)", "ctrl+x t", "View"},
-	{"/thinking", "Cycle or set thinking display (show, tail, hide)", "ctrl+x h", "View"},
+	{"/thinking", "Cycle or set thinking display (preview, auto, collapsed, expanded)", "ctrl+x h", "View"},
+	{"/tool-display", "Cycle or set tool-output display (preview, auto, collapsed, expanded)", "ctrl+x o", "View"},
 	{"/debug", "Toggle sidebar diagnostics and log tail", "", "View"},
 	{"/split", "Split the chat into conversation + activity tail panes", "", "View"},
 }

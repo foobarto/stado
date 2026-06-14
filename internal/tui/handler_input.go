@@ -258,6 +258,10 @@ func onKey(m *Model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 				m.cycleThinkingDisplayMode()
 				m.announceThinkingDisplayMode()
 				m.layout()
+			case keys.ToolDisplayToggle:
+				m.cycleToolDisplayMode()
+				m.announceToolDisplayMode()
+				m.layout()
 			case keys.AppExit:
 				m.state = stateQuitConfirm
 				m.layout()

@@ -26,6 +26,10 @@ func (m *Model) cancelRunningStream() bool {
 	// in-flight tool's `context.Canceled` result drains the queue.
 	// See Model.turnCancelled doc for the full agent-loop bypass.
 	m.turnCancelled = true
+	// A cancelled in-flight thinking/tool block is done — clear the
+	// streaming flag so `auto` display mode collapses it like any other
+	// finished block (the model goroutine won't append more to it).
+	m.finalizeStreamingBlocks()
 	return true
 }
 
@@ -51,6 +55,9 @@ func (m *Model) cancelRunningTool() bool {
 	// Codex validated finding (post-#46): see cancelRunningStream
 	// for the agent-loop bypass this guards against.
 	m.turnCancelled = true
+	// The cancelled tool block is done — clear streaming so `auto` mode
+	// collapses it (the result, error or not, won't grow further).
+	m.finalizeStreamingBlocks()
 	return true
 }
 

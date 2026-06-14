@@ -72,8 +72,9 @@ func TestToolOutputPanel_ClippedWhenCollapsed_FullWhenExpanded(t *testing.T) {
 		t.Fatalf("collapsed should show a '… N more line(s)' footer (N=%d):\n%s", total-want, plain)
 	}
 
-	// Expand → full body, no truncation footer.
-	m.blocks[0].expanded = true
+	// Expand → full body, no truncation footer. Tool blocks use the
+	// per-block override now (not expanded).
+	m.blocks[0].override = overrideExpanded
 	m.invalidateBlockCache(0)
 	m.renderBlocks()
 	full := ansi.Strip(m.vp.View())

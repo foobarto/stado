@@ -1,2 +1,2 @@
 {{- /* Thinking is a low-noise status line. */ -}}
-{{ marker "▪" "role_thinking" }} {{ color "text_secondary" "thinking" }}{{ if .Body }} {{ color "muted" "·" }} {{ wrap .Body .Width | color "muted" }}{{ end }}
+{{ marker "▪" "role_thinking" }} {{ color "text_secondary" "thinking" }}{{ if .Body }} {{ color "muted" "·" }} {{ wrap .Body .Width | color "muted" }}{{ end }}{{ if .Lines }} {{ color "muted" "·" }} {{ color "muted" (printf "%d lines" .Lines) }}{{ end }}

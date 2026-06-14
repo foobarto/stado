@@ -80,8 +80,22 @@ type block struct {
 	startedAt  time.Time
 	endedAt    time.Time
 
-	// expanded toggles tool call bodies and assistant turn details.
+	// expanded toggles assistant turn details (the metadata footer). For
+	// thinking/tool blocks the display mode + override drive rendering
+	// instead — see override.
 	expanded bool
+
+	// streaming is true while a thinking/tool block is still being
+	// produced (thinking body growing, or tool result not yet in). It
+	// flips false the moment the block is done — the next block appends
+	// after a thinking block, or the tool result arrives. `auto` mode
+	// renders full while streaming, then collapses to one line.
+	streaming bool
+
+	// override is the per-block display override set by a click / the
+	// expand key. overrideNone follows m.thinkingMode / m.toolMode; the
+	// other two force full or one-line for this block regardless of mode.
+	override blockOverride
 
 	// focused indicates the block is the keyboard/mouse-focused
 	// expandable; rendered with a left-edge accent marker. Mutually
@@ -95,14 +109,16 @@ type block struct {
 	// for long conversations the main goroutine blocks for hundreds of
 	// ms per tick and the UI stops responding to keys. We cache per-
 	// block and invalidate on (body | width | expanded) change.
-	cachedWidth        int
-	cachedOut          string
-	cachedMeta         string
-	cachedDetails      string
-	cachedExpand       bool
-	cachedFocused      bool
-	cachedResult       string
-	cachedThinkingMode thinkingDisplayMode
+	cachedWidth     int
+	cachedOut       string
+	cachedMeta      string
+	cachedDetails   string
+	cachedExpand    bool
+	cachedFocused   bool
+	cachedResult    string
+	cachedMode      displayMode // m.thinkingMode or m.toolMode at render time
+	cachedOverride  blockOverride
+	cachedStreaming bool
 }
 
 // blockLineRange is one entry in m.blockLineRanges — the line span a
@@ -171,12 +187,36 @@ func (m inputMode) String() string {
 	}
 }
 
-type thinkingDisplayMode int
+// displayMode controls how thinking blocks and tool-output panes are
+// rendered in the viewport. The same 4-value vocabulary drives both,
+// but each has its own setting (m.thinkingMode / m.toolMode).
+type displayMode int
 
 const (
-	thinkingShow thinkingDisplayMode = iota
-	thinkingTail
-	thinkingHide
+	displayPreview   displayMode = iota // clip/tail to a few lines (the default)
+	displayAuto                         // full while streaming, one line once done
+	displayCollapsed                    // always one line
+	displayExpanded                     // always full, unclipped
+)
+
+// blockOverride is a per-block override of the display mode, set when the
+// user clicks a block or hits the expand key. It wins over the mode for
+// that one block and sticks for the session.
+type blockOverride int
+
+const (
+	overrideNone      blockOverride = iota // follow the display mode
+	overrideExpanded                       // force full
+	overrideCollapsed                      // force one line
+)
+
+// renderKind is the resolved way a thinking/tool block renders this frame.
+type renderKind int
+
+const (
+	renderFull    renderKind = iota // full body / result
+	renderClipped                   // preview: tail (thinking) or height-clip (tool)
+	renderOneLine                   // a single summary line
 )
 
 // Internal messages used by the bubbletea update loop.
@@ -395,10 +435,11 @@ type Model struct {
 	// tools hidden from the model so it produces an analysis-only
 	// response). Tab toggles.
 	mode inputMode
-	// thinkingMode controls how provider-native thinking blocks are
-	// rendered in the TUI. It never changes what is captured or
-	// persisted; it is display-only.
-	thinkingMode thinkingDisplayMode
+	// thinkingMode / toolMode control how provider-native thinking blocks
+	// and tool-output panes are rendered in the TUI. Display-only — they
+	// never change what is captured or persisted.
+	thinkingMode displayMode
+	toolMode     displayMode
 
 	// Conversation state
 	blocks    []block

@@ -306,7 +306,11 @@ type TUI struct {
 	// stado-light, stado-contrast, or stado-rose.
 	Theme string `koanf:"theme"`
 	// ThinkingDisplay controls how provider-native thinking blocks are
-	// rendered in the viewport: show, tail, or hide.
+	// rendered in the viewport: preview (clip to a few lines, the
+	// default), auto (full while streaming, one line once done),
+	// collapsed (always one line), or expanded (always full). Legacy
+	// values show/tail/hide still load (mapped to expanded/preview/
+	// collapsed).
 	ThinkingDisplay string `koanf:"thinking_display"`
 	// MouseCapture toggles app-level mouse handling. When true (default),
 	// stado captures mouse events for click-to-expand on tool blocks +
@@ -338,6 +342,12 @@ type TUI struct {
 	// mouse click). 0 = unset (uses the default). The effective value is
 	// clamped to [3, 20] by EffectiveToolOutputCollapsedHeight.
 	ToolOutputCollapsedHeight int `koanf:"tool_output_collapsed_height"`
+	// ToolDisplay controls how tool-output panes are rendered, using the
+	// same vocabulary as ThinkingDisplay: preview (clip to
+	// tool_output_collapsed_height rows, the default), auto (full while
+	// the tool runs, one line once the result arrives), collapsed (always
+	// one line), or expanded (always full).
+	ToolDisplay string `koanf:"tool_display"`
 }
 
 // EffectiveToolOutputCollapsedHeight returns the row budget for a
@@ -896,6 +906,7 @@ func Load() (*Config, error) {
 		cfg.Agent.ThinkingBudgetTokens = 16384
 	}
 	cfg.TUI.ThinkingDisplay = normalizeThinkingDisplay(cfg.TUI.ThinkingDisplay)
+	cfg.TUI.ToolDisplay = normalizeToolDisplay(cfg.TUI.ToolDisplay)
 	// R9: distinguish "unset" (apply default) from an explicit 0 (disable the
 	// gate, per docs/features/context.md) — a bare `== 0` check can't, since
 	// both produce the float64 zero value after unmarshal. Default only when
@@ -939,20 +950,42 @@ func (p staticBytesProvider) Read() (map[string]any, error) {
 	return nil, errors.New("static bytes provider does not support parsed reads")
 }
 
-func normalizeThinkingDisplay(value string) string {
+// normalizeDisplayMode canonicalizes a display-mode config value to one of
+// preview/auto/collapsed/expanded. Empty -> preview (the default). Legacy
+// thinking_display values (show/tail/hide) map to the nearest mode so old
+// configs keep loading. Unrecognized values warn (using key for the
+// message) and fall back to preview.
+func normalizeDisplayMode(key, value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "show", "full", "on":
-		return "show"
+	case "", "preview":
+		return "preview"
+	case "auto":
+		return "auto"
+	case "collapsed":
+		return "collapsed"
+	case "expanded":
+		return "expanded"
+	// Legacy thinking_display vocabulary.
 	case "tail":
-		return "tail"
+		return "preview"
+	case "show", "full", "on":
+		return "expanded"
 	case "hide", "off":
-		return "hide"
+		return "collapsed"
 	default:
 		fmt.Fprintf(os.Stderr,
-			"stado: [tui] thinking_display=%q is invalid; using \"show\"\n",
-			value)
-		return "show"
+			"stado: [tui] %s=%q is invalid; using \"preview\"\n",
+			key, value)
+		return "preview"
 	}
+}
+
+func normalizeThinkingDisplay(value string) string {
+	return normalizeDisplayMode("thinking_display", value)
+}
+
+func normalizeToolDisplay(value string) string {
+	return normalizeDisplayMode("tool_display", value)
 }
 
 // System-prompt-template lifecycle moved to system_prompt_template.go.

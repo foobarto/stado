@@ -122,6 +122,7 @@ func Run(cfg *config.Config, startupNotices []string, ceiling sandbox.Policy, en
 	m.sidebarSections = normalizeSidebarSections(cfg.TUI.Sidebar.Sections)
 	m.footerSegments = normalizeFooterSegments(cfg.TUI.Footer.Segments)
 	m.applyConfiguredThinkingDisplay(cfg)
+	m.applyConfiguredToolDisplay(cfg)
 	if m.systemPromptPath != "" && !instructions.TemplateInjectsProjectInstructions(cfg.Agent.SystemPromptTemplate) {
 		notices = append(notices, fmt.Sprintf(
 			"stado: warning — system prompt template at %s does not include {{ .ProjectInstructions }}; project rules from %s will not reach the model. Add the block or delete the file to regenerate the default.",

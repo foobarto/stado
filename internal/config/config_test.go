@@ -30,8 +30,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Approvals.Mode != "prompt" {
 		t.Errorf("Approvals.Mode = %q, want %q", cfg.Approvals.Mode, "prompt")
 	}
-	if cfg.TUI.ThinkingDisplay != "show" {
-		t.Errorf("TUI.ThinkingDisplay = %q, want show", cfg.TUI.ThinkingDisplay)
+	if cfg.TUI.ThinkingDisplay != "preview" {
+		t.Errorf("TUI.ThinkingDisplay = %q, want preview", cfg.TUI.ThinkingDisplay)
+	}
+	if cfg.TUI.ToolDisplay != "preview" {
+		t.Errorf("TUI.ToolDisplay = %q, want preview", cfg.TUI.ToolDisplay)
 	}
 	if cfg.TUI.Theme != "" {
 		t.Errorf("TUI.Theme = %q, want empty", cfg.TUI.Theme)
@@ -57,7 +60,8 @@ func TestLoadCustomTUIThinkingDisplay(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[tui]\nthinking_display = \"tail\"\n"), 0o600); err != nil {
+	// A canonical value loads as-is; a legacy value normalizes (tail->preview).
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[tui]\nthinking_display = \"collapsed\"\ntool_display = \"tail\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,8 +69,11 @@ func TestLoadCustomTUIThinkingDisplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.TUI.ThinkingDisplay != "tail" {
-		t.Fatalf("TUI.ThinkingDisplay = %q, want tail", cfg.TUI.ThinkingDisplay)
+	if cfg.TUI.ThinkingDisplay != "collapsed" {
+		t.Fatalf("TUI.ThinkingDisplay = %q, want collapsed", cfg.TUI.ThinkingDisplay)
+	}
+	if cfg.TUI.ToolDisplay != "preview" {
+		t.Fatalf("TUI.ToolDisplay = %q, want preview (legacy tail normalized)", cfg.TUI.ToolDisplay)
 	}
 }
 

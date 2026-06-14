@@ -90,13 +90,17 @@ const defaultConfigTemplate = `# stado — config.toml
 
 # ---------------------------------------------------------------------------
 # [tui] — display-only terminal UI preferences.
-# thinking_display controls provider-native thinking blocks in the viewport;
-# it does not change provider requests or persisted transcripts.
+# thinking_display / tool_display control how thinking blocks + tool-output
+# panes render in the viewport; they do not change provider requests or
+# persisted transcripts. preview = clip to a few lines (default); auto = full
+# while streaming, one line once done; collapsed = always one line; expanded =
+# always full. Click a block (or shift+tab) to override one block in any mode.
 # ---------------------------------------------------------------------------
 # [tui]
-# theme = "stado-dark"                # bundled id; omit to use theme.toml/default
-# thinking_display = "show"          # show | tail | hide
-# tool_output_collapsed_height = 8   # rows a collapsed tool output shows; clamp 3..20
+# theme = "stado-dark"                  # bundled id; omit to use theme.toml/default
+# thinking_display = "preview"          # preview | auto | collapsed | expanded
+# tool_display = "preview"              # preview | auto | collapsed | expanded
+# tool_output_collapsed_height = 8      # rows a collapsed/preview tool output shows; clamp 3..20
 
 # [tui.sidebar].sections picks WHICH sidebar sections show and in what ORDER.
 # [tui.footer].segments picks WHICH footer segments are VISIBLE (footer order

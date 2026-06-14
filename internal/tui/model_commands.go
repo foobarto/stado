@@ -497,13 +497,23 @@ func (m *Model) handleSlash(text string) tea.Cmd {
 	case "/thinking":
 		if len(parts) == 1 {
 			m.cycleThinkingDisplayMode()
-		} else if mode, ok := parseThinkingDisplayMode(parts[1]); ok {
+		} else if mode, ok := parseDisplayMode(parts[1]); ok {
 			m.setThinkingDisplayMode(mode)
 		} else {
-			m.appendBlock(block{kind: "system", body: "usage: /thinking [show|tail|hide]"})
+			m.appendBlock(block{kind: "system", body: "usage: /thinking [preview|auto|collapsed|expanded]"})
 			break
 		}
 		m.announceThinkingDisplayMode()
+	case "/tool-display":
+		if len(parts) == 1 {
+			m.cycleToolDisplayMode()
+		} else if mode, ok := parseDisplayMode(parts[1]); ok {
+			m.setToolDisplayMode(mode)
+		} else {
+			m.appendBlock(block{kind: "system", body: "usage: /tool-display [preview|auto|collapsed|expanded]"})
+			break
+		}
+		m.announceToolDisplayMode()
 	case "/compact":
 		return m.startCompaction()
 	case "/context":
@@ -1219,6 +1229,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 	m.systemPromptTemplate = newCfg.Agent.SystemPromptTemplate
 	m.initPersona(newCfg)
 	m.applyConfiguredThinkingDisplay(newCfg)
+	m.applyConfiguredToolDisplay(newCfg)
 	// #21: re-read the configurable chrome layout so [tui.sidebar]/[tui.footer]
 	// edits take effect on /reload without a restart.
 	m.sidebarSections = normalizeSidebarSections(newCfg.TUI.Sidebar.Sections)

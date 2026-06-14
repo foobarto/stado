@@ -77,7 +77,7 @@ func TestWriteTUIThinkingDisplay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteTUIThinkingDisplay(path, "hide"); err != nil {
+	if err := WriteTUIThinkingDisplay(path, "collapsed"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -85,7 +85,43 @@ func TestWriteTUIThinkingDisplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(data)
-	for _, want := range []string{`provider = "anthropic"`, `[tui]`, `thinking_display = "hide"`} {
+	for _, want := range []string{`provider = "anthropic"`, `[tui]`, `thinking_display = "collapsed"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("config missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestWriteTUIThinkingDisplayNormalizesLegacyValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	// Legacy "hide" persists as the canonical "collapsed".
+	if err := WriteTUIThinkingDisplay(path, "hide"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `thinking_display = "collapsed"`) {
+		t.Fatalf("legacy hide should persist as collapsed:\n%s", data)
+	}
+}
+
+func TestWriteTUIToolDisplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[defaults]\nprovider = \"anthropic\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteTUIToolDisplay(path, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	for _, want := range []string{`provider = "anthropic"`, `[tui]`, `tool_display = "auto"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("config missing %q:\n%s", want, body)
 		}
