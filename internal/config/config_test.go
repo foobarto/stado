@@ -160,6 +160,9 @@ command = "some-mcp-server"
 sections = ["repo"]
 [tui.footer]
 segments = ["tokens"]
+
+[lsp]
+auto_diagnostics = true
 `
 	if err := os.WriteFile(filepath.Join(stadoDir, "config.toml"), []byte(cfgBody), 0o600); err != nil {
 		t.Fatal(err)
@@ -199,6 +202,9 @@ segments = ["tokens"]
 	}
 	if len(cfg.TUI.Sidebar.Sections) != 0 || len(cfg.TUI.Footer.Segments) != 0 {
 		t.Errorf("[tui.sidebar]/[tui.footer] must be dropped (safety chrome); sidebar=%v footer=%v", cfg.TUI.Sidebar.Sections, cfg.TUI.Footer.Segments)
+	}
+	if cfg.LSP.AutoDiagnostics {
+		t.Error("[lsp].auto_diagnostics must be dropped (a repo must not re-enable unsandboxed LSP spawns)")
 	}
 
 	// Kept (legitimate EP-0035 project overrides):
