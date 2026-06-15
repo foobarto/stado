@@ -105,10 +105,14 @@ future enhancement if real demand appears.
   opt-in key is itself in the project-config strip-list so a repo can't
   self-enable it. (Vector 2 — `[defaults].persona` from project config — was
   already closed in phase 1.)
-- **Project plugin autoload (#4/#45) — DEFERRED, follow-up.**
-  `registerInstalledPluginTools` verifies only the global signer store; add a
-  per-project trust gate before honoring `.stado/plugins/`, and scope a project
-  plugin's relative `fs:*` caps tighter than the whole session workdir.
+- **Project plugin autoload (#4/#45) — SHIPPED.**
+  `registerInstalledPluginTools` autoloaded `.stado/plugins/` (verified only by
+  the global signer store) into the live agent. Now gated behind opt-in
+  `[plugins] allow_project_plugins` (default false; the key is itself stripped
+  from project config). When off, only the global plugin dir is autoloaded; the
+  CWD-wide `fs:*` cap concern (#45) only applies once the operator has trusted
+  project plugins. Tighter per-project fs-cap scoping remains a future
+  refinement.
 
 ### Out of cluster (separate fixes)
 
