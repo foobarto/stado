@@ -360,6 +360,14 @@ func dialIP(ctx context.Context, host *Host, network, hostStr, portStr string, t
 // errCapDenied is returned by the dial helpers for cap-glob mismatch.
 var errCapDenied = fmt.Errorf("net:dial: capability not granted")
 
+// hostNetConnAllowed reports whether this host may operate on an
+// accepted or dialed connection handle. Listen-only plugins
+// (NetListen without NetDial) must still read/write/close sockets
+// they accepted via stado_net_accept.
+func hostNetConnAllowed(host *Host) bool {
+	return host != nil && (host.NetDial != nil || host.NetListen != nil)
+}
+
 // stado_net_read(handle, out_ptr, out_max, timeout_ms) → i32
 // Returns bytes read, 0 on EOF, -1 on error / unknown handle.
 func registerNetReadImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
@@ -367,7 +375,7 @@ func registerNetReadImport(builder wazero.HostModuleBuilder, host *Host, rt *Run
 		WithFunc(func(ctx context.Context, mod api.Module,
 			handle, outPtr, outMax, timeoutMs int32,
 		) int32 {
-			if host.NetDial == nil {
+			if !hostNetConnAllowed(host) {
 				return -1
 			}
 			conn, ok := lookupNetConn(rt, uint32(handle))
@@ -405,7 +413,7 @@ func registerNetWriteImport(builder wazero.HostModuleBuilder, host *Host, rt *Ru
 		WithFunc(func(ctx context.Context, mod api.Module,
 			handle, dataPtr, dataLen int32,
 		) int32 {
-			if host.NetDial == nil {
+			if !hostNetConnAllowed(host) {
 				return -1
 			}
 			conn, ok := lookupNetConn(rt, uint32(handle))
@@ -431,7 +439,7 @@ func registerNetWriteImport(builder wazero.HostModuleBuilder, host *Host, rt *Ru
 func registerNetCloseImport(builder wazero.HostModuleBuilder, host *Host, rt *Runtime) {
 	builder.NewFunctionBuilder().
 		WithFunc(func(ctx context.Context, mod api.Module, handle int32) int32 {
-			if host.NetDial == nil {
+			if !hostNetConnAllowed(host) {
 				return -1
 			}
 			conn, ok := lookupNetConn(rt, uint32(handle))
@@ -660,7 +668,7 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if !ok || lst.kind != "udp" || lst.pc == nil {
 				return -1
 			}
-			if host.NetDial == nil {
+			if !hostNetConnAllowed(host) {
 				return -1
 			}
 			// Codex P2 (2026-05-25): cap peerHost + data pre-read.

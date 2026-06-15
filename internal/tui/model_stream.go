@@ -690,6 +690,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 	case agent.EvDone:
 		if ev.Usage != nil {
 			m.usage.InputTokens = ev.Usage.InputTokens
+			m.cumulativeInputTokens += ev.Usage.InputTokens
 			m.usage.OutputTokens += ev.Usage.OutputTokens
 			m.usage.CostUSD += ev.Usage.CostUSD
 		}

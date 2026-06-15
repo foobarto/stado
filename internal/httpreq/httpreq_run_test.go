@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -271,6 +272,25 @@ func TestPrivateGuardStillRefusesMulticast(t *testing.T) {
 
 // silence unused-import warning if helper drift removes references.
 var _ = url.Parse
+
+func TestNAT64And6to4PrefixesBlocked(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+	}{
+		{"NAT64 well-known metadata", "64:ff9b::a9fe:a9fe"},
+		{"local-use NAT64", "64:ff9b:1::1"},
+		{"6to4", "2002:c058:6301::1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ip := netip.MustParseAddr(tc.ip)
+			if isPublicHTTPReqIP(ip) {
+				t.Fatalf("isPublicHTTPReqIP(%s) = true, want false", tc.ip)
+			}
+		})
+	}
+}
 
 // TestProxyURL_HTTP: when proxy_url is set to an http://... URL, the
 // configured proxy server receives the request (test using a second

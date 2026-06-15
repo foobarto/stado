@@ -28,16 +28,19 @@ import (
 const (
 	stateMaxValueBytes = 1 << 20  // 1 MB per key
 	stateMaxTotalBytes = 16 << 20 // 16 MB per plugin
+	stateMaxEntries    = 4096     // per-plugin key count ceiling
 )
 
 // StateAccess records a plugin's manifest-declared state:read /
 // state:write capability patterns. The Store itself is per-Runtime;
 // the host caller wires it after NewHost returns, like SecretsAccess.
 type StateAccess struct {
-	Store      *InstanceStore
-	ReadGlobs  []string
-	WriteGlobs []string
-	PluginName string
+	Store         *InstanceStore
+	ReadDeclared  bool // state:read granted at all (vs. not declared)
+	WriteDeclared bool // state:write granted at all (vs. not declared)
+	ReadGlobs     []string
+	WriteGlobs    []string
+	PluginName    string
 }
 
 // CanRead returns true when key matches any of ReadGlobs (empty
@@ -45,6 +48,9 @@ type StateAccess struct {
 func (s *StateAccess) CanRead(key string) bool {
 	if s == nil {
 		return false
+	}
+	if !s.ReadDeclared {
+		return false // state:read not granted — write-only must not confer read
 	}
 	if len(s.ReadGlobs) == 0 {
 		return true
@@ -61,6 +67,9 @@ func (s *StateAccess) CanRead(key string) bool {
 func (s *StateAccess) CanWrite(key string) bool {
 	if s == nil {
 		return false
+	}
+	if !s.WriteDeclared {
+		return false // state:write not granted — read-only must not confer write
 	}
 	if len(s.WriteGlobs) == 0 {
 		return true
@@ -118,8 +127,15 @@ func (s *InstanceStore) Set(plugin, key string, value []byte) error {
 	if s.entries[plugin] == nil {
 		s.entries[plugin] = map[string][]byte{}
 	}
+	_, exists := s.entries[plugin][key]
+	if !exists && len(s.entries[plugin]) >= stateMaxEntries {
+		return &stateLimitError{kind: "entries", limit: stateMaxEntries, got: len(s.entries[plugin]) + 1}
+	}
 	prevSize := len(s.entries[plugin][key])
 	delta := len(value) - prevSize
+	if !exists {
+		delta += len(key) // count key bytes on first insert (incl. zero-value keys)
+	}
 	if s.totals[plugin]+delta > stateMaxTotalBytes {
 		return &stateLimitError{kind: "plugin-total", limit: stateMaxTotalBytes, got: s.totals[plugin] + delta}
 	}
@@ -138,7 +154,7 @@ func (s *InstanceStore) Delete(plugin, key string) {
 		return
 	}
 	if v, ok := s.entries[plugin][key]; ok {
-		s.totals[plugin] -= len(v)
+		s.totals[plugin] -= len(v) + len(key)
 		delete(s.entries[plugin], key)
 	}
 }
@@ -322,6 +338,9 @@ func registerInstanceImports(builder wazero.HostModuleBuilder, host *Host) {
 
 func canBroadStateRead(s *StateAccess) bool {
 	if s == nil {
+		return false
+	}
+	if !s.ReadDeclared {
 		return false
 	}
 	if len(s.ReadGlobs) == 0 {

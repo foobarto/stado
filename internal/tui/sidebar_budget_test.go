@@ -15,7 +15,7 @@ func TestSidebarBudgetLine_TokenOnly(t *testing.T) {
 		m := &Model{}
 		m.budgetWarnTokens = 8000
 		m.budgetHardTokens = 10000
-		m.usage.InputTokens = 9000 // -> totalTokens 9000, past the warn cap
+		m.cumulativeInputTokens = 9000 // -> totalTokens 9000, past the warn cap
 		line := m.sidebarBudgetLine()
 		if line.Text == "" {
 			t.Fatal("token-only budget produced no sidebar budget line")
@@ -53,7 +53,7 @@ func TestSidebarBudgetLine_TokenOnly(t *testing.T) {
 		m.budgetHardUSD = 20
 		m.usage.CostUSD = 0 // USD not breached
 		m.budgetHardTokens = 1000
-		m.usage.InputTokens = 1500 // token hard cap breached
+		m.cumulativeInputTokens = 1500 // token hard cap breached
 		line := m.sidebarBudgetLine()
 		if !strings.Contains(line.Text, "tok") {
 			t.Fatalf("breached token cap hidden behind un-breached USD line: %q", line.Text)

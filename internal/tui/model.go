@@ -476,9 +476,11 @@ type Model struct {
 
 	// Aggregate usage across turns. usage.InputTokens is the LAST turn's
 	// prompt size (not cumulative) — it's the correct input for the
-	// context-window percentage calculation. OutputTokens and CostUSD
-	// remain cumulative.
-	usage agent.Usage
+	// context-window percentage calculation. cumulativeInputTokens tracks
+	// the session sum for hard_tokens / combined token budget gates.
+	// OutputTokens and CostUSD remain cumulative.
+	usage                  agent.Usage
+	cumulativeInputTokens  int
 
 	// Context thresholds from config.Context. Compared against
 	// usage.InputTokens / Capabilities.MaxContextTokens. See DESIGN
@@ -1031,11 +1033,11 @@ func (m *Model) budgetBreachDescription() (whatExceeded, configKnob string) {
 }
 
 // totalTokens is the cumulative input+output token count for the
-// session (Usage.InputTokens + Usage.OutputTokens). Hidden behind a
+// session (cumulativeInputTokens + Usage.OutputTokens). Hidden behind a
 // helper so cache-read/cache-write tokens can be added later without
 // changing every caller.
 func (m *Model) totalTokens() int {
-	return m.usage.InputTokens + m.usage.OutputTokens
+	return m.cumulativeInputTokens + m.usage.OutputTokens
 }
 
 // budgetWarning returns a short status-bar pill when cumulative cost

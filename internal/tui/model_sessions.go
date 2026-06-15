@@ -441,6 +441,7 @@ func (m *Model) resetForSession(sess *stadogit.Session) {
 	m.msgs = nil
 	m.todos = nil
 	m.usage = agent.Usage{}
+	m.cumulativeInputTokens = 0
 	m.state = stateIdle
 	m.errorMsg = ""
 	m.queuedPrompt = ""

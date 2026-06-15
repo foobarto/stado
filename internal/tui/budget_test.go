@@ -113,6 +113,7 @@ func TestBudget_TokenHardCapBlockMessageIsCoherent(t *testing.T) {
 	// Token-only budget: combined hard cap at 1000 tokens, no USD cap.
 	m.SetBudgetTokens(500, 1000)
 	m.usage.InputTokens = 800
+	m.cumulativeInputTokens = 800
 	m.usage.OutputTokens = 400 // total 1200 ≥ 1000
 	if !m.budgetExceeded() {
 		t.Fatal("expected budgetExceeded=true on token cap")
@@ -177,6 +178,7 @@ func TestBudget_TokenOnlyWarnFiresProactiveBlock(t *testing.T) {
 	// Token-only: warn at 500, hard at 1000, no USD cap.
 	m.SetBudgetTokens(500, 1000)
 	m.usage.InputTokens = 400
+	m.cumulativeInputTokens = 400
 	m.usage.OutputTokens = 200 // total 600 ≥ 500 warn, < 1000 hard
 
 	start := len(m.blocks)

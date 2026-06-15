@@ -59,6 +59,9 @@ var blockedHTTPReqPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fe80::/10"),
 	netip.MustParsePrefix("ff00::/8"),
 	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("64:ff9b::/96"),   // NAT64 well-known prefix
+	netip.MustParsePrefix("64:ff9b:1::/48"), // local-use NAT64
+	netip.MustParsePrefix("2002::/16"),      // 6to4
 }
 
 // Hop-by-hop headers a plugin should never set; per RFC 7230 these

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -82,38 +84,81 @@ func TestInstanceStore_PerKeyLimit(t *testing.T) {
 
 func TestInstanceStore_PerPluginTotalLimit(t *testing.T) {
 	s := NewInstanceStore()
-	chunk := make([]byte, 1<<20) // 1 MB each
-	// 16 chunks fit (16 MB cap); 17th overflows.
+	// Leave headroom for per-key byte accounting (keys are counted in totals).
+	chunk := make([]byte, (stateMaxTotalBytes/16)-64)
 	for i := 0; i < 16; i++ {
 		if err := s.Set("plug", chunkKey(i), chunk); err != nil {
 			t.Fatalf("Set chunk %d: %v", i, err)
 		}
 	}
-	if err := s.Set("plug", "overflow", chunk); err == nil {
+	overflow := make([]byte, stateMaxValueBytes)
+	if err := s.Set("plug", "overflow", overflow); err == nil {
 		t.Error("17th chunk should have been rejected")
 	}
 }
 
 func TestStateAccess_CanRead(t *testing.T) {
 	cases := []struct {
-		name      string
-		readGlobs []string
-		key       string
-		want      bool
+		name         string
+		readDeclared bool
+		readGlobs    []string
+		key          string
+		want         bool
 	}{
-		{"empty globs = match-all", nil, "anything", true},
-		{"exact match", []string{"foo"}, "foo", true},
-		{"non-match", []string{"foo"}, "bar", false},
-		{"glob match", []string{"api_*"}, "api_token", true},
-		{"glob non-match", []string{"api_*"}, "db_pwd", false},
+		{"undeclared read denied", false, nil, "anything", false},
+		{"empty globs = match-all when declared", true, nil, "anything", true},
+		{"exact match", true, []string{"foo"}, "foo", true},
+		{"non-match", true, []string{"foo"}, "bar", false},
+		{"glob match", true, []string{"api_*"}, "api_token", true},
+		{"glob non-match", true, []string{"api_*"}, "db_pwd", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &StateAccess{ReadGlobs: tc.readGlobs}
+			s := &StateAccess{ReadDeclared: tc.readDeclared, ReadGlobs: tc.readGlobs}
 			if got := s.CanRead(tc.key); got != tc.want {
 				t.Errorf("CanRead(%q) = %v, want %v", tc.key, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStateAccess_WriteOnlyCannotRead(t *testing.T) {
+	writeOnly := &StateAccess{WriteDeclared: true, WriteGlobs: []string{"cache_*"}}
+	if writeOnly.CanRead("cache_token") {
+		t.Error("write-only StateAccess must not confer read")
+	}
+	if !writeOnly.CanWrite("cache_token") {
+		t.Error("write-only StateAccess should allow scoped write")
+	}
+}
+
+func TestStateAccess_ReadOnlyCannotWrite(t *testing.T) {
+	readOnly := &StateAccess{ReadDeclared: true}
+	if readOnly.CanWrite("anything") {
+		t.Error("read-only StateAccess must not confer write")
+	}
+}
+
+func TestInstanceStore_EmptyValueCountsKeyBytes(t *testing.T) {
+	s := NewInstanceStore()
+	key := strings.Repeat("k", 1024)
+	if err := s.Set("plug", key, nil); err != nil {
+		t.Fatalf("Set empty value: %v", err)
+	}
+	if err := s.Set("plug", key, []byte{}); err != nil {
+		t.Fatalf("Set empty slice: %v", err)
+	}
+}
+
+func TestInstanceStore_EntryCountLimit(t *testing.T) {
+	s := NewInstanceStore()
+	for i := 0; i < stateMaxEntries; i++ {
+		if err := s.Set("plug", fmt.Sprintf("k%d", i), []byte("x")); err != nil {
+			t.Fatalf("Set entry %d: %v", i, err)
+		}
+	}
+	if err := s.Set("plug", "overflow", []byte("x")); err == nil {
+		t.Fatal("expected entry-count limit error")
 	}
 }
 

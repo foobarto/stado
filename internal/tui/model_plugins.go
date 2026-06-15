@@ -524,6 +524,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	m.pendingResults = nil
 	m.turnToolCalls = nil
 	m.usage = agent.Usage{}
+	m.cumulativeInputTokens = 0
 	m.budgetWarned = false
 	m.budgetAcked = false
 	m.state = stateIdle
