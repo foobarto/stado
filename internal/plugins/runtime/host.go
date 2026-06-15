@@ -970,6 +970,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if h.State == nil {
 					h.State = &StateAccess{}
 				}
+				h.State.ReadDeclared = true
 				if len(parts) == 3 && parts[2] != "" {
 					h.State.ReadGlobs = append(h.State.ReadGlobs, parts[2])
 				}
@@ -977,6 +978,7 @@ func NewHost(m plugins.Manifest, workdir string, logger *slog.Logger) *Host {
 				if h.State == nil {
 					h.State = &StateAccess{}
 				}
+				h.State.WriteDeclared = true
 				if len(parts) == 3 && parts[2] != "" {
 					h.State.WriteGlobs = append(h.State.WriteGlobs, parts[2])
 				}

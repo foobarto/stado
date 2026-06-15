@@ -619,3 +619,15 @@ func TestIsPrivateIP(t *testing.T) {
 		})
 	}
 }
+
+func TestHostNetConnAllowed(t *testing.T) {
+	if !hostNetConnAllowed(&Host{NetDial: &NetDialAccess{}}) {
+		t.Fatal("NetDial host should allow conn ops")
+	}
+	if !hostNetConnAllowed(&Host{NetListen: &NetListenAccess{}}) {
+		t.Fatal("listen-only host should allow conn ops on accepted sockets")
+	}
+	if hostNetConnAllowed(&Host{}) {
+		t.Fatal("host with no net caps should deny conn ops")
+	}
+}

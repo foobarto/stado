@@ -59,6 +59,7 @@ var blockedHTTPReqPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fe80::/10"),
 	netip.MustParsePrefix("ff00::/8"),
 	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("64:ff9b:1::/48"), // local-use NAT64 — always refused
 }
 
 // Hop-by-hop headers a plugin should never set; per RFC 7230 these
@@ -287,7 +288,13 @@ func resolveHTTPReqHost(ctx context.Context, host string) ([]netip.Addr, error) 
 
 func isPublicHTTPReqIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+	if !ip.IsValid() {
+		return false
+	}
+	if v4, ok := embeddedIPv4FromTransition(ip); ok {
+		return isPublicHTTPReqIP(v4)
+	}
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
 		return false
 	}
 	for _, prefix := range blockedHTTPReqPrefixes {
@@ -297,6 +304,25 @@ func isPublicHTTPReqIP(ip netip.Addr) bool {
 	}
 	return true
 }
+
+// embeddedIPv4FromTransition extracts an IPv4 address encoded inside
+// NAT64 (64:ff9b::/96) or 6to4 (2002::/16) transition prefixes.
+func embeddedIPv4FromTransition(ip netip.Addr) (netip.Addr, bool) {
+	if nat64WellKnown.Contains(ip) {
+		b := ip.As16()
+		return netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]}), true
+	}
+	if sixToFour.Contains(ip) {
+		b := ip.As16()
+		return netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]}), true
+	}
+	return netip.Addr{}, false
+}
+
+var (
+	nat64WellKnown = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour      = netip.MustParsePrefix("2002::/16")
+)
 
 // privateAllowedHTTPReqDialContext is the dial guard used when the
 // host opted into net:http_request_private. RFC1918, loopback,
