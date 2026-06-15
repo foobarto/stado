@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -239,6 +240,51 @@ func TestConn_CloseUnblocksServeWithSeparateReader(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Serve did not exit after Close")
+	}
+}
+
+// TestConn_ServeEOFSignalsDoneBeforeWait: on peer EOF, Serve must close
+// Done before wg.Wait so handlers blocked on conn.Done() (choice/approval
+// bridges) unwind instead of hanging until the handler finishes.
+func TestConn_ServeEOFSignalsDoneBeforeWait(t *testing.T) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+	defer clientReader.Close()
+
+	srv := NewConn(serverReader, serverWriter)
+	unblocked := make(chan struct{}, 1)
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- srv.Serve(context.Background(), func(_ context.Context, _ string, _ json.RawMessage) (any, error) {
+			select {
+			case <-srv.Done():
+				unblocked <- struct{}{}
+				return struct{}{}, nil
+			case <-time.After(5 * time.Second):
+				return nil, fmt.Errorf("handler timeout")
+			}
+		})
+	}()
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = io.WriteString(clientWriter, `{"jsonrpc":"2.0","method":"block"}`+"\n")
+		time.Sleep(20 * time.Millisecond)
+		_ = clientWriter.Close()
+	}()
+
+	select {
+	case <-unblocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler not unblocked on client EOF before Serve returned")
+	}
+	select {
+	case err := <-serveDone:
+		if err != nil {
+			t.Fatalf("Serve: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Serve did not return after EOF")
 	}
 }
 
