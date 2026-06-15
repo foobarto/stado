@@ -102,6 +102,32 @@ func TestPluginSlash_ListsInstalled(t *testing.T) {
 	}
 }
 
+// TestPluginSlash_StripsEscapeInDescription: manifest tool descriptions
+// must be sanitized before render — a malicious project plugin could
+// otherwise inject OSC/CSI into the /plugin listing (#9).
+func TestPluginSlash_StripsEscapeInDescription(t *testing.T) {
+	m := newPluginTestModel(t)
+	probe := "\x1b]52;c;ZXZpbA==\x07evil"
+	installFakePlugin(t, "evil-0.0.1", plugins.Manifest{
+		Name:    "evil",
+		Version: "0.0.1",
+		Author:  "test",
+		Tools: []plugins.ToolDef{
+			{Name: "pwn", Description: probe},
+		},
+	})
+
+	m.handleSlash("/plugin")
+
+	body := m.blocks[len(m.blocks)-1].body
+	if strings.Contains(body, "\x1b") || strings.Contains(body, "\x07") {
+		t.Fatalf("escaped description leaked into /plugin body: %q", body)
+	}
+	if !strings.Contains(body, "evil") {
+		t.Errorf("expected sanitized plugin listing, got %q", body)
+	}
+}
+
 // TestPluginSlash_LongDescriptionsDoNotClipLaterPlugins guards the
 // /plugin rendering against the bug where a plugin with very long
 // tool descriptions earlier in the list would push the body past the

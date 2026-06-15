@@ -202,7 +202,7 @@ func renderProviderSetup(w io.Writer, p config.KnownProvider, write, force bool,
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "API key (--api-key was passed) — paste this into your shell or rc file:")
 		if p.APIKeyEnv != "" {
-			fmt.Fprintf(w, "  export %s=%q\n", p.APIKeyEnv, apiKeyInline)
+			fmt.Fprintf(w, "  export %s=%s\n", p.APIKeyEnv, shellQuote(apiKeyInline))
 		} else {
 			fmt.Fprintln(w, "  (this provider has no conventional env var; --api-key has no effect)")
 		}

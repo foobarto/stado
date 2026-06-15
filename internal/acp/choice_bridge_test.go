@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -455,4 +456,29 @@ func (w *writerSync) Bytes() []byte {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]byte(nil), w.w.Bytes()...)
+}
+
+func TestRequestChoice_CancelsOnPeerDisconnect(t *testing.T) {
+	srv := NewServer(nil, nil)
+	srv.conn = NewConn(strings.NewReader(""), io.Discard)
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := srv.requestChoice(context.Background(), "sess-1", pluginRuntime.ChoiceRequest{
+			Prompt: "Pick",
+		})
+		errCh <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	srv.conn.Close()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, ErrPeerDisconnected) {
+			t.Fatalf("err = %v, want ErrPeerDisconnected", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("requestChoice did not unblock after peer disconnect")
+	}
 }

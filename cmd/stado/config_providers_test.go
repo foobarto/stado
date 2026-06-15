@@ -118,8 +118,29 @@ func TestRenderProviderSetup_APIKeyInline(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, `export GROQ_API_KEY="gsk_secret"`) {
-		t.Errorf("expected export-with-key line, got:\n%s", out)
+	if !strings.Contains(out, `export GROQ_API_KEY='gsk_secret'`) {
+		t.Errorf("expected single-quoted export-with-key line, got:\n%s", out)
+	}
+}
+
+func TestRenderProviderSetup_APIKeyInline_ShellSafe(t *testing.T) {
+	p, ok := config.LookupKnownProvider("groq")
+	if !ok {
+		t.Fatal("groq should be a known provider")
+	}
+	var buf bytes.Buffer
+	danger := "abc$(touch /tmp/pwn)"
+	if err := renderProviderSetup(&buf, p, false, false, danger); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	want := "export GROQ_API_KEY=" + shellQuote(danger)
+	if !strings.Contains(out, want) {
+		t.Fatalf("expected shell-safe export line %q in output:\n%s", want, out)
+	}
+	// Double-quoted form would execute command substitution on paste.
+	if strings.Contains(out, `export GROQ_API_KEY="`) {
+		t.Fatalf("double-quoted export hint is shell-unsafe:\n%s", out)
 	}
 }
 

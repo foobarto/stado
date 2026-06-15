@@ -247,20 +247,27 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 		if info.IsDir() {
 			continue // shouldn't happen but be defensive
 		}
+		removePath := dst
+		resolved := dst
+		if r, err := filepath.EvalSymlinks(dst); err == nil {
+			resolved = r
+		}
 		// Don't remove the binary we're currently running from —
 		// that's almost certainly not what the user meant. Tell
-		// them what to do instead.
-		if dst == self {
+		// them what to do instead. Compare resolved paths so a
+		// symlinked $HOME (e.g. Fedora Atomic) still matches self,
+		// but remove the install symlink itself — not its target.
+		if resolved == self {
 			fmt.Fprintf(os.Stderr,
 				"stado uninstall: skipping %s — that's the binary we're running from. Run `stado uninstall` from a different copy or delete it manually.\n",
-				dst)
+				removePath)
 			continue
 		}
-		if err := os.Remove(dst); err != nil {
-			fmt.Fprintf(os.Stderr, "stado uninstall: could not remove %s: %v\n", dst, err)
+		if err := os.Remove(removePath); err != nil {
+			fmt.Fprintf(os.Stderr, "stado uninstall: could not remove %s: %v\n", removePath, err)
 			continue
 		}
-		fmt.Fprintf(os.Stdout, "stado uninstall: removed %s\n", dst)
+		fmt.Fprintf(os.Stdout, "stado uninstall: removed %s\n", removePath)
 		removed++
 	}
 	if removed == 0 {

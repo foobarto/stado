@@ -586,7 +586,10 @@ func (d *daemonState) killSession(p daemon.SessionKillParams) (bool, error) {
 // listTools returns the daemon's current tool catalogue. The returned
 // schema is the JSON-marshalled form of each tool's Schema() map.
 func (d *daemonState) listTools() []daemon.ToolDescriptor {
-	all := d.registry.All()
+	d.projectMu.Lock()
+	reg := d.registry
+	d.projectMu.Unlock()
+	all := reg.All()
 	out := make([]daemon.ToolDescriptor, 0, len(all))
 	for _, t := range all {
 		md := runtime.LookupToolMetadata(t.Name())
@@ -596,7 +599,7 @@ func (d *daemonState) listTools() []daemon.ToolDescriptor {
 			Canonical:   md.Canonical,
 			Description: t.Description(),
 			Schema:      schema,
-			Class:       d.registry.ClassOf(t.Name()).String(),
+			Class:       reg.ClassOf(t.Name()).String(),
 		})
 	}
 	return out

@@ -81,6 +81,22 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("install: %w", err)
 		}
 
+		// EP-0037 §C: validate canonical categories on every tool definition.
+		// Pre-EP-0037 manifests without categories are accepted (backward compat).
+		for _, td := range m.Tools {
+			if err := plugins.ValidateCategories(td.Categories); err != nil {
+				return fmt.Errorf("install: tool %q: %w", td.Name, err)
+			}
+		}
+
+		// 2026-05-06 — plugin dep resolution (tester #8). When the
+		// manifest declares `requires`, every entry must already be
+		// installed at a satisfying version. Prevents silent partial-
+		// functionality (composite plugins like exploit-lib + http-session).
+		if reqErr := plugins.CheckRequires(m, filepath.Join(cfg.StateDir(), "plugins")); reqErr != nil {
+			return fmt.Errorf("install: %w", reqErr)
+		}
+
 		// Optional TOFU path: pin the caller-provided pubkey only after it
 		// matches and verifies the manifest, so failed installs do not leave
 		// unintended trust-store entries behind.
@@ -99,22 +115,6 @@ var pluginInstallCmd = &cobra.Command{
 			if err := consultCRL(cfg, m); err != nil {
 				return fmt.Errorf("install: %w", err)
 			}
-		}
-
-		// EP-0037 §C: validate canonical categories on every tool definition.
-		// Pre-EP-0037 manifests without categories are accepted (backward compat).
-		for _, td := range m.Tools {
-			if err := plugins.ValidateCategories(td.Categories); err != nil {
-				return fmt.Errorf("install: tool %q: %w", td.Name, err)
-			}
-		}
-
-		// 2026-05-06 — plugin dep resolution (tester #8). When the
-		// manifest declares `requires`, every entry must already be
-		// installed at a satisfying version. Prevents silent partial-
-		// functionality (composite plugins like exploit-lib + http-session).
-		if reqErr := plugins.CheckRequires(m, filepath.Join(cfg.StateDir(), "plugins")); reqErr != nil {
-			return fmt.Errorf("install: %w", reqErr)
 		}
 
 		if !filepath.IsLocal(m.Name) || !filepath.IsLocal(m.Version) ||

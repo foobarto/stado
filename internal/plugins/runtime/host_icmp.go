@@ -47,6 +47,7 @@ const (
 	icmpMaxCount           = 64
 	icmpDefaultPayloadSize = 32
 	icmpMaxPayloadSize     = 1500
+	icmpMaxTimeoutMs       = 30_000
 )
 
 func registerICMPImports(builder wazero.HostModuleBuilder, host *Host) {
@@ -79,6 +80,9 @@ func registerICMPImports(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			if args.TimeoutMs <= 0 {
 				args.TimeoutMs = icmpDefaultTimeoutMs
+			}
+			if args.TimeoutMs > icmpMaxTimeoutMs {
+				args.TimeoutMs = icmpMaxTimeoutMs
 			}
 			if args.Count <= 0 {
 				args.Count = icmpDefaultCount

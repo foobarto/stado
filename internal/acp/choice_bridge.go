@@ -163,6 +163,9 @@ func (s *Server) requestChoice(ctx context.Context, sessionID string, req plugin
 	case <-ctx.Done():
 		s.choiceRegistry.remove(id)
 		return pluginRuntime.ChoiceResponse{Cancelled: true}, ctx.Err()
+	case <-s.peerDone():
+		s.choiceRegistry.remove(id)
+		return pluginRuntime.ChoiceResponse{Cancelled: true}, ErrPeerDisconnected
 	}
 }
 

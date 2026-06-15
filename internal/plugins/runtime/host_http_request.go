@@ -66,8 +66,7 @@ func registerHTTPRequestImport(builder wazero.HostModuleBuilder, host *Host) {
 			// list) skips this check; the dial guard still blocks
 			// RFC1918 unless allowPrivate=true.
 			if !hostInRequestAllowList(host, args.URL) {
-				u, _ := url.Parse(args.URL)
-				msg := []byte("url host \"" + strings.ToLower(u.Hostname()) + "\" denied by manifest")
+				msg := []byte("url host \"" + deniedHTTPRequestHost(args.URL) + "\" denied by manifest")
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
 				return
 			}
@@ -75,8 +74,7 @@ func registerHTTPRequestImport(builder wazero.HostModuleBuilder, host *Host) {
 			// so it must clear the same allow-list — otherwise proxy_url is an
 			// egress bypass to an attacker-controlled host (#022).
 			if args.ProxyURL != "" && !hostInRequestAllowList(host, args.ProxyURL) {
-				u, _ := url.Parse(args.ProxyURL)
-				msg := []byte("proxy host \"" + strings.ToLower(u.Hostname()) + "\" denied by manifest")
+				msg := []byte("proxy host \"" + deniedHTTPRequestHost(args.ProxyURL) + "\" denied by manifest")
 				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, msg))
 				return
 			}
@@ -103,4 +101,14 @@ func registerHTTPRequestImport(builder wazero.HostModuleBuilder, host *Host) {
 			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},
 			[]api.ValueType{api.ValueTypeI32}).
 		Export("stado_http_request")
+}
+
+// deniedHTTPRequestHost returns a safe host label for denial messages.
+// Malformed URLs must not panic when building the error string (#29).
+func deniedHTTPRequestHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u == nil {
+		return strings.ToLower(raw)
+	}
+	return strings.ToLower(u.Hostname())
 }

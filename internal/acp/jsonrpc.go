@@ -23,6 +23,10 @@ const (
 
 var errRequestTooLarge = fmt.Errorf("jsonrpc: request exceeds %d bytes", maxRequestLineBytes)
 
+// ErrPeerDisconnected is returned when a blocking choice/approval wait
+// is cancelled because the JSON-RPC peer closed the connection.
+var ErrPeerDisconnected = errors.New("acp: peer disconnected")
+
 // Request is an incoming JSON-RPC 2.0 request. Notifications have no ID.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -144,9 +148,7 @@ func (c *Conn) Done() <-chan struct{} { return c.done }
 // for scripts that pipe a single JSON-RPC request into stado and expect the
 // response on stdout.
 func (c *Conn) Serve(ctx context.Context, h Handler) error {
-	defer c.Close()
 	var wg sync.WaitGroup
-	defer wg.Wait()
 	for {
 		line, err := c.readFrame()
 		if errors.Is(err, errRequestTooLarge) {
@@ -174,9 +176,14 @@ func (c *Conn) Serve(ctx context.Context, h Handler) error {
 		if err != nil {
 			select {
 			case <-c.done:
+				wg.Wait()
 				return nil
 			default:
 			}
+			// Peer disconnect: close Done before waiting for in-flight
+			// handlers so blocked choice/approval paths can unwind.
+			c.Close()
+			wg.Wait()
 			if errors.Is(err, io.EOF) {
 				return nil
 			}

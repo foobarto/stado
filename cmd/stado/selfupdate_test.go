@@ -446,3 +446,33 @@ func writeSelfUpdateTar(t *testing.T, entry tarEntry) string {
 	}
 	return archivePath
 }
+
+func TestRunUninstallRemovesSymlinkNotTarget(t *testing.T) {
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	target := filepath.Join(dir, "real-stado")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(binDir, installedBinaryName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	origPrefix := installPrefixFlag
+	installPrefixFlag = binDir
+	t.Cleanup(func() { installPrefixFlag = origPrefix })
+
+	if err := runUninstall(nil, nil); err != nil {
+		t.Fatalf("runUninstall: %v", err)
+	}
+	if _, err := os.Stat(link); !os.IsNotExist(err) {
+		t.Fatalf("symlink still present after uninstall: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("symlink target removed (want preserved): %v", err)
+	}
+}
