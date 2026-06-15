@@ -90,7 +90,12 @@ func (m *Model) spawnFleetAgent(prompt string) tea.Cmd {
 	if m.fleet == nil {
 		m.fleet = runtime.NewFleet()
 	}
-	spawner := spawnerFunc(m.buildSubagentSpawner())
+	fn := m.buildSubagentSpawner()
+	if fn == nil {
+		m.appendBlock(block{kind: "system", body: "spawn: provider not ready — wait for session init"})
+		return nil
+	}
+	spawner := spawnerFunc(fn)
 	id, err := m.fleet.Spawn(m.rootCtx, spawner, prompt, runtime.SpawnOptions{
 		Provider: m.providerDisplayName(),
 		Model:    m.model,

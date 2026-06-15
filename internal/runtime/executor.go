@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/foobarto/stado/internal/config"
@@ -520,6 +521,7 @@ func activatedSlice(reg *tools.Registry, activated map[string]bool) []pkgtool.To
 			out = append(out, t)
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name() < out[j].Name() })
 	return out
 }
 

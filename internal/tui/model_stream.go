@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -1308,6 +1309,7 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 				seen[name] = true
 			}
 		}
+		sort.Slice(pool, func(i, j int) bool { return pool[i].Name() < pool[j].Name() })
 	}
 	if m.mode == modePlan || m.mode == modeBTW {
 		out := make([]tool.Tool, 0, len(pool))
