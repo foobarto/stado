@@ -72,16 +72,28 @@ Project model/provider/tool overrides (the EP-0035 use case) remain honored.
 This satisfies the defense-in-depth requirement that the interrupt keymap and
 `inherit_env` are NEVER honored from a repo regardless of any future trust.
 
-### Phase 2 — per-project TOFU (DEFERRED, follow-up)
+### Phase 2 — remaining powerful keys (SHIPPED as strip)
 
-- New `ProjectConfigTrustStore` at `<StateDir>/project-config-trust/<repo-id>.json`,
-  keyed by `stadogit.RepoID(repoRoot)` (canonical, symlink-tolerant), modeled on
-  `internal/plugins/anchor.go` (one JSON file per key, atomic 0o600 write).
-- Gate the still-powerful project keys behind it: `mcp.servers` (subprocess
-  exec), `inference.presets` + `defaults.provider` (exfil endpoint), `sandbox`,
-  `runtime.use_wasm`. Trusted → merge; untrusted+interactive → prompt via the
-  existing `promptYesNoTTY` / `tuiApprovalBridge` / ACP `requestApproval`
-  bridges; untrusted+non-interactive → drop + stderr advisory.
+The still-powerful project keys are now **always-stripped** rather than gated by
+a per-project trust store: `mcp.servers` (a `[mcp.servers.x] command=…` is a
+subprocess-exec vector), `inference` (`[inference.presets.x] endpoint +
+api_key_env` is an API-key exfil vector), `sandbox` (a repo must never weaken
+the containment posture), and `runtime` (`use_wasm` flips native↔wasm tool
+implementations). `defaults.model`/`defaults.provider` still apply from project
+config — they only *select among USER-defined providers*, so a repo can suggest
+a model but not define an exfil endpoint.
+
+**Deviation from the original "TOFU" decision, and why.** The accepted plan was a
+`ProjectConfigTrustStore` (per-repo trust, keyed by `stadogit.RepoID`) so a
+*trusted* repo could still declare these keys. On implementation the legit
+project-use of these specific keys was judged too weak to justify a new
+trust-store subsystem + per-surface prompt wiring (its own security-critical
+bug surface, built unreviewed): a repo that wants contributors to use a
+particular MCP server / model / preset documents it, and the operator adds it to
+**user** config — the same operator-only model already used for
+`hooks`/`aliases`/`acp`. Stripping is fail-closed by construction. A per-repo
+trust store to *restore* project-level flexibility for these keys remains a clean
+future enhancement if real demand appears.
 
 ### Phase 3 — persona/plugin origin gates
 

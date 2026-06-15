@@ -900,31 +900,55 @@ func Load() (*Config, error) {
 			//   acp                 register_mcp = persistent MCP backdoor (#3),
 			//                       inherit_env = host-secret passthrough (#20),
 			//                       max_turns = removes the loop circuit-breaker (#54)
-			//   mcp.providers       wrapped-MCP inherit_env host-secret passthrough
-			//                       (#20); mcp.servers stays (legit project tool servers)
+			//   mcp.providers / mcp.servers  wrapped-MCP inherit_env host-secret
+			//                       passthrough (#20) + repo-declared MCP subprocess
+			//                       servers ([mcp.servers.x] command=… is an exec
+			//                       vector); operator declares MCP servers, not a repo
 			//   tui.sidebar/footer  can hide the sandbox/budget/risk safety chrome (#14)
 			//   lsp.auto_diagnostics  the LSP-spawn opt-in gate itself — a repo must
 			//                       not be able to re-enable unsandboxed LSP spawns (#12)
-			// Project model/provider/tool overrides (the EP-0035 use case) stay.
-			// koanf Delete is a recursive prefix-delete, so a dotted key like
-			// "defaults.persona" removes exactly that leaf and "acp" removes the
-			// whole subtree.
+			//   sandbox             a repo must never weaken the process-containment
+			//                       posture (mode/proxy/dns/allow_env) — EP-0044 phase 2
+			//   runtime             use_wasm flips native↔wasm tool impls; a repo
+			//                       swapping implementations is an operator-only call
+			//   inference           [inference.presets.x] endpoint + api_key_env is an
+			//                       API-key exfil vector — operator declares endpoints
+			// Project model/provider/tool overrides (the EP-0035 use case) stay
+			// (defaults.model/provider pick among USER-defined providers).
 			pk := koanf.New(".")
 			if err := pk.Load(staticBytesProvider(data), toml.Parser()); err != nil {
 				return nil, fmt.Errorf("load project config: %w", err)
 			}
-			for _, key := range []string{
+			// Strip CASE-INSENSITIVELY (Codex #215 P1): koanf's Exists/Delete are
+			// case-sensitive, but the final mapstructure Unmarshal matches section
+			// names case-insensitively. So a repo committing `[Sandbox]` /
+			// `[MCP.servers.x]` / `[Defaults] Persona=…` would survive a
+			// case-sensitive Delete yet still populate the tagged field — a strip
+			// bypass. Match each real (actual-cased) leaf key against the
+			// lower-cased strip set as an exact key or a table prefix, and delete
+			// the real leaf. Whole-table entries ("acp") strip every "acp.*" leaf.
+			stripKeys := []string{
 				"hooks", "aliases", "keymap",
 				"defaults.persona", "defaults.allow_project_persona",
 				"agent.system_prompt_path",
 				"plugins.background", "plugins.allow_project_plugins",
-				"acp", "mcp.providers",
+				"acp", "mcp.providers", "mcp.servers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
-			} {
-				if pk.Exists(key) {
-					pk.Delete(key)
-					fmt.Fprintf(os.Stderr, "stado: ignoring %q from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.\n", key)
+				"sandbox", "runtime", "inference",
+			}
+			warned := map[string]bool{}
+			for _, leaf := range pk.Keys() {
+				ll := strings.ToLower(leaf)
+				for _, sk := range stripKeys {
+					if ll == sk || strings.HasPrefix(ll, sk+".") {
+						pk.Delete(leaf)
+						if !warned[sk] {
+							warned[sk] = true
+							fmt.Fprintf(os.Stderr, "stado: ignoring %q from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.\n", sk)
+						}
+						break
+					}
 				}
 			}
 			if err := k.Merge(pk); err != nil {
