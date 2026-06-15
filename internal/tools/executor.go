@@ -21,6 +21,7 @@ import (
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/toolinput"
+	"github.com/foobarto/stado/internal/tools/budget"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -165,7 +166,8 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	// stderr) already happened live; this only adds the model-facing
 	// channel. Skip when there's nothing to add or the tool errored.
 	if entries := progCollector.Drain(); len(entries) > 0 && runErr == nil && res.Error == "" {
-		res.Content = renderProgressLog(entries) + res.Content
+		progress := budget.TruncateBytes(renderProgressLog(entries), budget.PluginBytes/4, "progress log truncated")
+		res.Content = budget.TruncateBytes(progress+res.Content, budget.PluginBytes, "tool result truncated")
 	}
 
 	// post_tool hook seam (F1). Fires after the tool runs, before audit:

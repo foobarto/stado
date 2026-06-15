@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"net/url"
 	"testing"
 
 	"github.com/foobarto/stado/internal/netguard"
@@ -36,5 +37,15 @@ func TestHttpStreamDialContext_RejectsMalformedAddr(t *testing.T) {
 	dial := httpStreamDialContext(&Host{})
 	if _, err := dial(context.Background(), "tcp", "no-port"); err == nil {
 		t.Error("expected error for addr without host:port")
+	}
+}
+
+func TestValidateHTTPStreamRedirect_DeniesCrossHost(t *testing.T) {
+	u, _ := url.Parse("https://evil.example/redirected")
+	if err := validateHTTPStreamRedirect(u, "api.example.com"); err == nil {
+		t.Fatal("expected cross-host redirect denial")
+	}
+	if err := validateHTTPStreamRedirect(u, "evil.example"); err != nil {
+		t.Fatalf("same-host redirect should pass, got %v", err)
 	}
 }

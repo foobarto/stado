@@ -27,6 +27,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -241,6 +242,11 @@ func openHTTPStream(ctx context.Context, host *Host, args streamRequestArgs) (st
 	if err != nil {
 		return streamRequestResult{}, nil, err
 	}
+	parsed, err := url.Parse(args.URL)
+	if err != nil || parsed.Hostname() == "" {
+		return streamRequestResult{}, nil, fmt.Errorf("http_request_stream: invalid URL")
+	}
+	initialHost := strings.ToLower(parsed.Hostname())
 	req.Header.Set("User-Agent", "stado-stream/0.1.0")
 	for k, v := range args.Headers {
 		key := strings.ToLower(strings.TrimSpace(k))
@@ -251,7 +257,16 @@ func openHTTPStream(ctx context.Context, host *Host, args streamRequestArgs) (st
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = httpStreamDialContext(host)
-	client := &http.Client{Timeout: timeout, Transport: transport}
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("http_request_stream: stopped after %d redirects", len(via))
+			}
+			return validateHTTPStreamRedirect(req.URL, initialHost)
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return streamRequestResult{}, nil, err
@@ -266,6 +281,19 @@ func openHTTPStream(ctx context.Context, host *Host, args streamRequestArgs) (st
 		},
 		&httpRespStream{body: resp.Body},
 		nil
+}
+
+func validateHTTPStreamRedirect(u *url.URL, initialHost string) error {
+	if u == nil {
+		return fmt.Errorf("http_request_stream: redirect missing URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("http_request_stream: redirect to unsupported URL scheme %q denied", u.Scheme)
+	}
+	if strings.ToLower(u.Hostname()) != initialHost {
+		return fmt.Errorf("http_request_stream: redirect to different host %q denied", u.Hostname())
+	}
+	return nil
 }
 
 // httpStreamDialContext wraps dialIP() so the stream request honours
