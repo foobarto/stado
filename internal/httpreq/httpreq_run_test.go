@@ -275,18 +275,21 @@ var _ = url.Parse
 
 func TestNAT64And6to4PrefixesBlocked(t *testing.T) {
 	cases := []struct {
-		name string
-		ip   string
+		name    string
+		ip      string
+		wantPub bool
 	}{
-		{"NAT64 well-known metadata", "64:ff9b::a9fe:a9fe"},
-		{"local-use NAT64", "64:ff9b:1::1"},
-		{"6to4", "2002:c058:6301::1"},
+		{"NAT64 metadata link-local", "64:ff9b::a9fe:a9fe", false},
+		{"local-use NAT64 prefix", "64:ff9b:1::1", false},
+		{"6to4 private embed", "2002:0a00:0001::1", false}, // 10.0.0.1
+		{"NAT64 public embed", "64:ff9b::808:808", true},    // 8.8.8.8
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ip := netip.MustParseAddr(tc.ip)
-			if isPublicHTTPReqIP(ip) {
-				t.Fatalf("isPublicHTTPReqIP(%s) = true, want false", tc.ip)
+			got := isPublicHTTPReqIP(ip)
+			if got != tc.wantPub {
+				t.Fatalf("isPublicHTTPReqIP(%s) = %v, want %v", tc.ip, got, tc.wantPub)
 			}
 		})
 	}

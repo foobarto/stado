@@ -668,7 +668,7 @@ func registerNetSendtoImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 			if !ok || lst.kind != "udp" || lst.pc == nil {
 				return -1
 			}
-			if !hostNetConnAllowed(host) {
+			if host.NetDial == nil {
 				return -1
 			}
 			// Codex P2 (2026-05-25): cap peerHost + data pre-read.
