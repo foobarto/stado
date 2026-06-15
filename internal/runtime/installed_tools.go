@@ -339,9 +339,8 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 			}
 			class, err := pluginRuntime.EffectiveToolClass(def, mf.Capabilities)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to non-mutating\n",
+				fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to exec\n",
 					name, version, def.Name, err)
-				class = tool.ClassNonMutating
 			}
 			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class, cfg, reg))
 

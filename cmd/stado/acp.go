@@ -123,6 +123,7 @@ var acpCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		applyRootProviderOverrides(cfg)
 		// CLI flags override [acp] max_turns when set. Per-session
 		// session/new param still wins above this.
 		if acpNoTurnLimit {

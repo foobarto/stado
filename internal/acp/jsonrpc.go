@@ -23,6 +23,10 @@ const (
 
 var errRequestTooLarge = fmt.Errorf("jsonrpc: request exceeds %d bytes", maxRequestLineBytes)
 
+// ErrPeerDisconnected is returned when a blocking choice/approval wait
+// is cancelled because the JSON-RPC peer closed the connection.
+var ErrPeerDisconnected = errors.New("acp: peer disconnected")
+
 // Request is an incoming JSON-RPC 2.0 request. Notifications have no ID.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`

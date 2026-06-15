@@ -43,6 +43,7 @@ var toolRunCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		applyRootProviderOverrides(cfg)
 		argsJSON := "{}"
 		if len(args) >= 2 {
 			argsJSON = args[1]

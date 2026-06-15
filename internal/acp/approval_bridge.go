@@ -125,6 +125,9 @@ func (s *Server) requestApproval(ctx context.Context, sessionID, title, body str
 	case <-ctx.Done():
 		s.approvalRegistry.remove(id)
 		return false, ctx.Err()
+	case <-s.peerDone():
+		s.approvalRegistry.remove(id)
+		return false, ErrPeerDisconnected
 	}
 }
 

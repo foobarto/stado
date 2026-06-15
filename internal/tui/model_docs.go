@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/filepicker"
 )
 
@@ -49,6 +50,9 @@ func scanDocPaths(root string) []string {
 			return tuiRepoWalkStop
 		}
 		slashRel := filepath.ToSlash(rel)
+		if textutil.HasControlChars(slashRel) {
+			return tuiRepoWalkContinue
+		}
 		if isDocPath(slashRel) {
 			out = append(out, slashRel)
 		}

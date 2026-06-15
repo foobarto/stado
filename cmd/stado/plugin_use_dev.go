@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -174,7 +176,9 @@ for production keys intended for distribution.`,
 			return fmt.Errorf("plugin dev: install: %w", installErr)
 		}
 		if pluginDevWatch {
-			return runDevWatchLoop(cmd.Context(), dir, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+			return runDevWatchLoop(ctx, dir, cmd.OutOrStdout(), cmd.ErrOrStderr())
 		}
 		return nil
 	},

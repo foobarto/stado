@@ -660,7 +660,7 @@ func (m *Model) handleToolManageSlash(parts []string) {
 			}
 			// State rides as a trailing "(autoloaded)" suffix on the desc;
 			// plain enabled tools carry no suffix to keep the listing quiet.
-			desc := t.Description()
+			desc := textutil.SanitizeForTerminal(t.Description())
 			if autoSet[t.Name()] {
 				if desc != "" {
 					desc += " "

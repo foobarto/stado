@@ -50,6 +50,7 @@ var headlessCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		applyRootProviderOverrides(cfg)
 		// EP-0042 follow-up: headless does not call MaybeRewrap today,
 		// so the JSON-RPC server runs unwrapped under mode=off and also
 		// under mode=wrap. Warn once so an integrator wiring stado into

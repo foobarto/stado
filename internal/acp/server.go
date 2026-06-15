@@ -141,7 +141,17 @@ func NewServer(cfg *config.Config, prov agent.Provider) *Server {
 	}
 }
 
-// Serve runs the server loop on r/w until the peer disconnects. Blocking.
+// peerDone returns a channel that closes when the JSON-RPC peer
+// disconnects. Nil-safe for unit tests that call requestChoice without
+// Serve.
+func (s *Server) peerDone() <-chan struct{} {
+	if s.conn == nil {
+		ch := make(chan struct{})
+		return ch
+	}
+	return s.conn.Done()
+}
+
 func (s *Server) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	s.conn = NewConn(r, w)
 	return s.conn.Serve(ctx, s.dispatch)

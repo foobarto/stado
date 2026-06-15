@@ -352,3 +352,10 @@ func readUntil(t *testing.T, m *Manager, id uint64, want []byte, total time.Dura
 
 // silence unused-import warning when building without all helpers.
 var _ = strings.Contains
+
+func TestClampPTYDim_CapsHugeValues(t *testing.T) {
+	cols, rows := clampPTYDim(65535, 65535)
+	if cols != maxPTYDim || rows != maxPTYDim {
+		t.Fatalf("clampPTYDim = (%d,%d), want (%d,%d)", cols, rows, maxPTYDim, maxPTYDim)
+	}
+}

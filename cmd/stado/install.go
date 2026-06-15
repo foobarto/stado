@@ -247,6 +247,9 @@ func runUninstall(cmd *cobra.Command, _ []string) error {
 		if info.IsDir() {
 			continue // shouldn't happen but be defensive
 		}
+		if resolved, err := filepath.EvalSymlinks(dst); err == nil {
+			dst = resolved
+		}
 		// Don't remove the binary we're currently running from —
 		// that's almost certainly not what the user meant. Tell
 		// them what to do instead.

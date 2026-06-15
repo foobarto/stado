@@ -58,3 +58,11 @@ func TestNetHTTPGet_StillWorksAfterChange(t *testing.T) {
 		t.Fatalf("NetHost=%v, want [foo.bar]", h.NetHost)
 	}
 }
+
+func TestDeniedHTTPRequestHost_MalformedURL(t *testing.T) {
+	const raw = "://not-a-url"
+	got := deniedHTTPRequestHost(raw)
+	if got != raw {
+		t.Fatalf("deniedHTTPRequestHost(%q) = %q, want raw fallback", raw, got)
+	}
+}

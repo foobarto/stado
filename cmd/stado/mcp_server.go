@@ -93,6 +93,7 @@ var mcpServerCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
+		applyRootProviderOverrides(cfg)
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
 			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
 			cwd := mustCwd()

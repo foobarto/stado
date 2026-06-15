@@ -24,6 +24,7 @@ import (
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -787,7 +788,7 @@ func renderInstalledPluginList(width int, pluginRoots ...string) string {
 		// indented under the plugin header.
 		rows := make([]render.DescRow, 0, len(mf.Tools))
 		for _, t := range mf.Tools {
-			rows = append(rows, render.DescRow{Name: "· " + t.Name, Desc: t.Description})
+			rows = append(rows, render.DescRow{Name: "· " + t.Name, Desc: textutil.SanitizeForTerminal(t.Description)})
 		}
 		block := render.WrapDescList(rows, toolWidth)
 		pad := strings.Repeat(" ", pluginToolIndent)
@@ -813,7 +814,7 @@ func renderPluginTools(nameVer string, m *plugins.Manifest) string {
 	for _, t := range m.Tools {
 		sb.WriteString("\n  · " + t.Name)
 		if t.Description != "" {
-			sb.WriteString("\n      " + t.Description)
+			sb.WriteString("\n      " + textutil.SanitizeForTerminal(t.Description))
 		}
 	}
 	sb.WriteString(fmt.Sprintf("\n\nRun with  /plugin:%s <tool> [json-args]", nameVer))

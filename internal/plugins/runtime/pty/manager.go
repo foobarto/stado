@@ -32,6 +32,7 @@ const (
 	defaultBufferBytes = 64 * 1024
 	minBufferBytes     = 4 * 1024
 	maxBufferBytes     = 4 * 1024 * 1024
+	maxPTYDim          = 1000 // vt10x allocates cols×rows cells unconditionally
 	destroyGrace       = 2 * time.Second
 )
 
@@ -439,6 +440,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	case bufBytes > maxBufferBytes:
 		bufBytes = maxBufferBytes
 	}
+	cols, rows := clampPTYDim(opts.Cols, opts.Rows)
 
 	// PreparedCmd (the sandbox-runner-wrapped command, #100) is started as-is so
 	// its ExtraFiles (seccomp fd) and resolved Path survive; argv stays the
@@ -457,9 +459,9 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 	}
 
 	winsize := &pty.Winsize{}
-	if opts.Cols > 0 || opts.Rows > 0 {
-		winsize.Cols = opts.Cols
-		winsize.Rows = opts.Rows
+	if cols > 0 || rows > 0 {
+		winsize.Cols = cols
+		winsize.Rows = rows
 		if winsize.Cols == 0 {
 			winsize.Cols = 80
 		}
@@ -481,8 +483,8 @@ func (m *Manager) Spawn(opts SpawnOpts) (uint64, error) {
 		return 0, fmt.Errorf("pty: start: %w", err)
 	}
 
-	cols := winsize.Cols
-	rows := winsize.Rows
+	cols = winsize.Cols
+	rows = winsize.Rows
 	if cols == 0 {
 		cols = 80
 	}
@@ -714,6 +716,7 @@ func (m *Manager) Signal(id uint64, sig syscall.Signal) error {
 // is resized in lockstep so Snapshot dimensions track the kernel's
 // view of the tty.
 func (m *Manager) Resize(id uint64, cols, rows uint16) error {
+	cols, rows = clampPTYDim(cols, rows)
 	s, err := m.get(id)
 	if err != nil {
 		return err
@@ -844,4 +847,14 @@ func fmtCmd(argv []string) string {
 		out += " " + a
 	}
 	return out
+}
+
+func clampPTYDim(cols, rows uint16) (uint16, uint16) {
+	if cols > maxPTYDim {
+		cols = maxPTYDim
+	}
+	if rows > maxPTYDim {
+		rows = maxPTYDim
+	}
+	return cols, rows
 }
