@@ -160,6 +160,7 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	defer func() { _ = rt.Close(runCtx) }()
 
 	host := pluginRuntime.NewHost(*mf, dir, nil)
+	host.StateDir = s.Cfg.StateDir()
 	if bridge := s.buildBridge(sess, mf.Name); bridge != nil {
 		if host.SessionObserve || host.SessionRead || host.SessionFork || host.LLMInvokeBudget > 0 {
 			host.SessionBridge = bridge
@@ -378,6 +379,7 @@ func headlessBackgroundPluginIDs(cfg *config.Config) []string {
 func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtime, pluginsRoot, id string) *pluginRuntime.BackgroundPlugin {
 	if bundled, ok := runtime.LookupBackgroundPlugin(id); ok {
 		host := pluginRuntime.NewHost(bundled.Manifest, "", nil)
+		host.StateDir = s.Cfg.StateDir()
 		bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, bundled.WASM, host)
 		if err != nil {
 			return nil
@@ -403,6 +405,7 @@ func (s *Server) loadOneBackground(ctx context.Context, rt *pluginRuntime.Runtim
 		return nil
 	}
 	host := pluginRuntime.NewHost(*mf, dir, nil)
+	host.StateDir = s.Cfg.StateDir()
 	// Background plugins start with no session bridge; tickBackgroundPlugins
 	// rebuilds one pointing at whichever session just completed a prompt.
 	bp, err := pluginRuntime.LoadBackgroundPlugin(ctx, rt, wasmBytes, host)

@@ -395,6 +395,7 @@ type bundledPluginTool struct {
 	// plugin_overrides.go's invokeReg pinning.
 	cfg       *config.Config
 	invokeReg *tools.Registry
+	invokeExec *tools.Executor
 }
 
 func newBundledPluginTool(native tool.Tool, class tool.Class) tool.Tool {
@@ -529,6 +530,7 @@ func (p *bundledPluginTool) Run(ctx context.Context, args json.RawMessage, h too
 		Cfg:            p.cfg, // per-tool, bound by setRuntime() in BuildDefaultRegistry
 		Workdir:        h.Workdir(),
 		InvokeRegistry: p.invokeReg,
+		InvokeExecutor: p.invokeExec,
 	}, h)
 }
 

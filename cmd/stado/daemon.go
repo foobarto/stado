@@ -367,6 +367,7 @@ func newDaemonState(cfg *config.Config, ptyOpts pty.ManagerOpts) (*daemonState, 
 		Model:    cfg.Defaults.Model,
 		ReadLog:  nil,
 	}
+	runtime.PinInvokeExecutor(reg, st.executor)
 	return st, nil
 }
 
@@ -398,6 +399,7 @@ func (d *daemonState) reload() (int, error) {
 		ne.Registry = newReg
 		ne.Model = newCfg.Defaults.Model
 		d.executor = &ne
+		runtime.PinInvokeExecutor(newReg, d.executor)
 	}
 	d.projectMu.Unlock()
 	return len(newReg.All()), nil

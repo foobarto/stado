@@ -17,6 +17,11 @@ import (
 	"github.com/foobarto/stado/internal/netguard"
 )
 
+const (
+	axfrMaxTimeoutMs = 120_000
+	maxAXFRRecords   = 50_000
+)
+
 func registerDNSImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerDNSResolveImport(builder, host)
 	registerDNSAXFRImport(builder, host)
@@ -61,6 +66,9 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			timeout := 30 * time.Second
 			if req.TimeoutMs > 0 {
+				if req.TimeoutMs > axfrMaxTimeoutMs {
+					req.TimeoutMs = axfrMaxTimeoutMs
+				}
 				timeout = time.Duration(req.TimeoutMs) * time.Millisecond
 			}
 			// Private-address guard: RFC1918 / loopback / link-local
@@ -190,6 +198,9 @@ func dnsAXFR(ctx context.Context, zone, server string, timeout time.Duration) ([
 			return out, fmt.Errorf("axfr stream: %w", env.Error)
 		}
 		for _, rr := range env.RR {
+			if len(out) >= maxAXFRRecords {
+				return out, fmt.Errorf("axfr: record limit exceeded (%d)", maxAXFRRecords)
+			}
 			h := rr.Header()
 			out = append(out, axfrRecord{
 				Name:  h.Name,

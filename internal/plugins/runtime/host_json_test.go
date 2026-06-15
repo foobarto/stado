@@ -100,6 +100,19 @@ func TestJSONFormat_Malformed(t *testing.T) {
 	}
 }
 
+func TestJSONFormat_RejectsDeepNesting(t *testing.T) {
+	raw := []byte(strings.Repeat("[", maxJSONNestingDepth+1) + "1" + strings.Repeat("]", maxJSONNestingDepth+1))
+	if _, err := jsonFormat(raw, 0); err == nil {
+		t.Fatal("expected depth limit error")
+	}
+}
+
+func TestJSONNestingDepth_Unbalanced(t *testing.T) {
+	if _, err := jsonNestingDepth([]byte(`[1,2`)); err == nil {
+		t.Fatal("expected unbalanced bracket error")
+	}
+}
+
 // TestJSONSetByPath: set updates the document at the path and
 // returns the canonical bytes; missing keys on existing objects
 // are added; out-of-range array indices are rejected.

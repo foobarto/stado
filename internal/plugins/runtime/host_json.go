@@ -41,6 +41,14 @@ import (
 // chunk via stado_http_response_read.
 const maxJSONInputBytes = 256 * 1024
 
+// maxJSONFormatOutputBytes caps pretty-print output so a compact input
+// cannot amplify into multi-megabyte host allocations (Codex #066).
+const maxJSONFormatOutputBytes = 4 * 1024 * 1024
+
+// maxJSONNestingDepth rejects deeply nested documents before unmarshal
+// so pathological nesting cannot blow the stack or CPU during format.
+const maxJSONNestingDepth = 64
+
 func registerJSONImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerJSONGetImport(builder, host)
 	registerJSONFormatImport(builder, host)
@@ -292,17 +300,76 @@ func setAtPath(cur any, tokens []string, newVal any) (any, error) {
 // jsonFormat pretty-prints raw JSON. indent > 0 = N-space indent;
 // 0 = compact (no whitespace).
 func jsonFormat(raw []byte, indent int) ([]byte, error) {
+	depth, err := jsonNestingDepth(raw)
+	if err != nil {
+		return nil, err
+	}
+	if depth > maxJSONNestingDepth {
+		return nil, fmt.Errorf("json: nesting depth %d exceeds limit %d", depth, maxJSONNestingDepth)
+	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil, err
 	}
+	var out []byte
 	if indent <= 0 {
-		return json.Marshal(v)
+		out, err = json.Marshal(v)
+	} else {
+		if indent > 16 {
+			indent = 16
+		}
+		out, err = json.MarshalIndent(v, "", strings.Repeat(" ", indent))
 	}
-	if indent > 16 {
-		indent = 16
+	if err != nil {
+		return nil, err
 	}
-	return json.MarshalIndent(v, "", strings.Repeat(" ", indent))
+	if len(out) > maxJSONFormatOutputBytes {
+		return nil, fmt.Errorf("json: formatted output %d bytes exceeds limit %d", len(out), maxJSONFormatOutputBytes)
+	}
+	return out, nil
+}
+
+// jsonNestingDepth scans raw JSON without allocating and returns the
+// maximum open-array/object depth. Malformed input returns an error.
+func jsonNestingDepth(raw []byte) (int, error) {
+	depth, maxDepth := 0, 0
+	inString, escape := false, false
+	for _, b := range raw {
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			switch b {
+			case '\\':
+				escape = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				return 0, fmt.Errorf("json: unexpected closing bracket")
+			}
+		}
+	}
+	if inString {
+		return 0, fmt.Errorf("json: unterminated string")
+	}
+	if depth != 0 {
+		return 0, fmt.Errorf("json: unbalanced brackets")
+	}
+	return maxDepth, nil
 }
 
 var errJSONPathNotFound = jsonError("json: path not found")

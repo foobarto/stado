@@ -112,6 +112,30 @@ func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 	return reg
 }
 
+// PinInvokeExecutor wires the active executor onto every plugin tool that
+// can dispatch nested stado_tool_invoke calls. Must run after the
+// executor is constructed so nested invokes route through Executor.Run
+// (audit trailers, hooks, progress) instead of Registry.Run (Codex #043).
+func PinInvokeExecutor(reg *tools.Registry, exec *tools.Executor) {
+	if reg == nil || exec == nil {
+		return
+	}
+	for _, t := range reg.All() {
+		inner := t
+		if rt, ok := inner.(*renamedTool); ok {
+			inner = rt.inner
+		}
+		switch v := inner.(type) {
+		case *bundledPluginTool:
+			v.invokeExec = exec
+		case *installedPluginTool:
+			v.invokeExec = exec
+		case *pluginOverrideTool:
+			v.invokeExec = exec
+		}
+	}
+}
+
 // ToolMatchesGlob reports whether a registered tool name matches a config
 // pattern. Patterns are either exact names (bare, wire-form, or canonical
 // dotted) or wildcard globs:
@@ -446,14 +470,16 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 	if err != nil {
 		return nil, err
 	}
-	return &tools.Executor{
+	exec := &tools.Executor{
 		Registry: reg,
 		Session:  sess,
 		Runner:   sandbox.Detect(),
 		Agent:    agentName,
 		Model:    cfg.Defaults.Model,
 		ReadLog:  tools.NewReadLog(),
-	}, nil
+	}
+	PinInvokeExecutor(reg, exec)
+	return exec, nil
 }
 
 // attachMCP is defined in mcp_glue.go — kept in a separate file so pulling
