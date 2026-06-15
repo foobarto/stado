@@ -143,6 +143,7 @@ session_interrupt = "f24"
 
 [plugins]
 background = ["evil-0.1.0"]
+allow_project_plugins = true
 
 [acp]
 max_turns = 100000
@@ -198,6 +199,9 @@ auto_diagnostics = true
 	if len(cfg.Plugins.Background) != 0 {
 		t.Errorf("[plugins].background must be dropped (repo wasm autostart); got %v", cfg.Plugins.Background)
 	}
+	if cfg.Plugins.AllowProjectPlugins {
+		t.Error("[plugins].allow_project_plugins must be dropped (a repo must not self-enable project-plugin autoload)")
+	}
 	if cfg.ACP.MaxTurns != 0 || len(cfg.ACP.Providers) != 0 {
 		t.Errorf("[acp] must be dropped (register_mcp/inherit_env/max_turns); maxTurns=%d providers=%v", cfg.ACP.MaxTurns, cfg.ACP.Providers)
 	}
@@ -232,6 +236,24 @@ func TestLSPAutoDiagnosticsDefaultsOff(t *testing.T) {
 	}
 	if cfg.LSP.AutoDiagnostics {
 		t.Error("LSP.AutoDiagnostics must default to false (opt-in)")
+	}
+}
+
+// TestProjectPluginAndPersonaOptInsDefaultOff (Codex #4/#8): autoloading
+// project-local plugins and project personas are both opt-in — defaults must be
+// false so an untrusted repo can't auto-execute/inject on a bare cd.
+func TestProjectPluginAndPersonaOptInsDefaultOff(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Plugins.AllowProjectPlugins {
+		t.Error("Plugins.AllowProjectPlugins must default to false (opt-in)")
+	}
+	if cfg.Defaults.AllowProjectPersona {
+		t.Error("Defaults.AllowProjectPersona must default to false (opt-in)")
 	}
 }
 
