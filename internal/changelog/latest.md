@@ -1,37 +1,30 @@
-## v0.75.1 — deferred Codex triage hardening — 2026-06-15
+## v0.75.2 — Codex triage batches 3+4 — 2026-06-15
 
-Patch follow-up to v0.75.0: closes the remaining **medium/low FIX_NOW** items
-from the post-v0.74.1 Codex export that did not need operator decisions. No
-new features — security hardening, resource caps, and correctness fixes across
-the TUI, ACP, plugin host, and CLI.
+Patch follow-up to v0.75.1: closes the next **FIX_NOW** Codex security items
+that did not need operator decisions. No new features — resource caps, audit
+parity, and host-import hardening.
 
 ### Security
 
-- **Plugin manifest descriptions are sanitized** in TUI `/plugin` and `/tool ls`
-  listings (terminal escape injection via repo-local plugin text).
-- **ACP choice/approval no longer hang on client disconnect** — `Conn.Serve`
-  signals peer disconnect before waiting for in-flight handlers.
-- **`config providers setup --api-key`** export hints use POSIX-safe
-  single-quoting (not Go `%q`, which leaves shell metacharacters active).
-- **HTTP stream requests enforce same-host redirects** (parity with non-streaming
-  `stado_http_request`; blocks cross-host redirect bypass).
-- **Plugin install validates categories/requires before trust-store writes** (a
-  category failure no longer leaves a pinned signer).
-- **Malformed HTTP-request URLs** no longer panic on the denial path.
-- **Doc picker skips control-character paths** (parity with the file picker).
+- **Plugin state KV is bounded** — `ReadDeclared`/`WriteDeclared` gate
+  undeclared keys; entry cap 4096; key bytes count toward totals.
+- **Listen-only TCP conns** allow read/write/close on accepted sockets without
+  `net:dial`; UDP `sendto` still requires `NetDial`.
+- **IPv6 transition addresses** (NAT64/6to4) decode embedded IPv4 and refuse
+  private embeds unless the private cap is held.
+- **`stado_json_format` output is capped** — 64-level nesting limit + 4 MiB
+  formatted output cap (blocks amplification from compact input).
+- **AXFR zone transfers are bounded** — 50k record cap, 120s timeout ceiling;
+  over-limit transfers abort cleanly (connection drained).
+- **Nested `stado_tool_invoke` routes through `Executor.Run`** so inner calls
+  get audit trailers and lifecycle hooks (pinned on registry rebuild/reload).
 
 ### Fixes
 
-- **`--provider` / `--model` root flags** now apply on `stado acp`, `stado
-  headless`, `stado mcp-server`, and `stado tool run` (previously ignored).
-- **`stado uninstall`** compares resolved paths for the self-binary guard but
-  removes the install symlink — not its target (Fedora Atomic `$HOME` symlink).
-- **Daemon `listTools`** snapshots the registry under lock (data-race fix).
-- **Invalid plugin tool class** keeps the conservative `exec` fallback instead
-  of downgrading to `non-mutating`.
-- **`/spawn`** guards against a nil subagent spawner (process panic).
-- **`plugin dev --watch`** cleans up on Ctrl+C via `signal.NotifyContext`.
-- **Progress-log prepend** is capped against `budget.PluginBytes`; activated-tool
-  surfaces are sorted for stable prompt-cache keys.
-- **PTY cols/rows capped at 1000**; **ICMP `timeout_ms` capped at 30s**.
+- **TUI `hard_tokens` budget** uses cumulative input tokens across the session
+  (not per-turn only).
+- **Headless `plugin.run` + background plugins** populate `cfg:state_dir` so
+  `stado_cfg_state_dir` works on ACP paths.
+- **`/reload` and `/plugin reload`** re-pin invoke executors after registry
+  rebuilds.
 
