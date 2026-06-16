@@ -193,13 +193,15 @@ func dnsAXFR(ctx context.Context, zone, server string, timeout time.Duration) ([
 		return nil, fmt.Errorf("axfr setup: %w", err)
 	}
 	out := make([]axfrRecord, 0, 64)
+	limitErr := fmt.Errorf("axfr: record limit exceeded (%d)", maxAXFRRecords)
 	for env := range envCh {
 		if env.Error != nil {
 			return out, fmt.Errorf("axfr stream: %w", env.Error)
 		}
 		for _, rr := range env.RR {
 			if len(out) >= maxAXFRRecords {
-				return out, fmt.Errorf("axfr: record limit exceeded (%d)", maxAXFRRecords)
+				abortAXFR(tr, envCh)
+				return out, limitErr
 			}
 			h := rr.Header()
 			out = append(out, axfrRecord{
@@ -212,6 +214,16 @@ func dnsAXFR(ctx context.Context, zone, server string, timeout time.Duration) ([
 		}
 	}
 	return out, nil
+}
+
+// abortAXFR closes the transfer and drains envCh so Transfer.In's reader
+// goroutine can exit instead of blocking on an unbuffered send.
+func abortAXFR(tr *dns.Transfer, envCh chan *dns.Envelope) {
+	if tr != nil {
+		tr.Close()
+	}
+	for range envCh {
+	}
 }
 
 // rrRdata extracts the type-specific portion of an RR's string form
