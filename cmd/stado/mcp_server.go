@@ -166,6 +166,7 @@ var mcpServerCmd = &cobra.Command{
 				Model:    cfg.Defaults.Model,
 				ReadLog:  nil, // single-shot calls don't dedup
 			}
+			runtime.PinInvokeExecutor(reg, executor)
 
 			for _, t := range reg.All() {
 				registerStadoTool(srv, t, host, executor)

@@ -17,6 +17,11 @@ import (
 	"github.com/foobarto/stado/internal/netguard"
 )
 
+const (
+	axfrMaxTimeoutMs = 120_000
+	maxAXFRRecords   = 50_000
+)
+
 func registerDNSImports(builder wazero.HostModuleBuilder, host *Host) {
 	registerDNSResolveImport(builder, host)
 	registerDNSAXFRImport(builder, host)
@@ -61,6 +66,9 @@ func registerDNSAXFRImport(builder wazero.HostModuleBuilder, host *Host) {
 			}
 			timeout := 30 * time.Second
 			if req.TimeoutMs > 0 {
+				if req.TimeoutMs > axfrMaxTimeoutMs {
+					req.TimeoutMs = axfrMaxTimeoutMs
+				}
 				timeout = time.Duration(req.TimeoutMs) * time.Millisecond
 			}
 			// Private-address guard: RFC1918 / loopback / link-local
@@ -185,11 +193,16 @@ func dnsAXFR(ctx context.Context, zone, server string, timeout time.Duration) ([
 		return nil, fmt.Errorf("axfr setup: %w", err)
 	}
 	out := make([]axfrRecord, 0, 64)
+	limitErr := fmt.Errorf("axfr: record limit exceeded (%d)", maxAXFRRecords)
 	for env := range envCh {
 		if env.Error != nil {
 			return out, fmt.Errorf("axfr stream: %w", env.Error)
 		}
 		for _, rr := range env.RR {
+			if len(out) >= maxAXFRRecords {
+				abortAXFR(tr, envCh)
+				return out, limitErr
+			}
 			h := rr.Header()
 			out = append(out, axfrRecord{
 				Name:  h.Name,
@@ -201,6 +214,16 @@ func dnsAXFR(ctx context.Context, zone, server string, timeout time.Duration) ([
 		}
 	}
 	return out, nil
+}
+
+// abortAXFR closes the transfer and drains envCh so Transfer.In's reader
+// goroutine can exit instead of blocking on an unbuffered send.
+func abortAXFR(tr *dns.Transfer, envCh chan *dns.Envelope) {
+	if tr != nil {
+		tr.Close()
+	}
+	for range envCh {
+	}
 }
 
 // rrRdata extracts the type-specific portion of an RR's string form

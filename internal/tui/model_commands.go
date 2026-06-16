@@ -1212,6 +1212,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 			ne := *m.executor
 			ne.Registry = newReg
 			m.executor = &ne
+			runtime.PinInvokeExecutor(newReg, m.executor)
 			tools = len(newReg.All())
 		} else {
 			m.appendBlock(block{kind: "system", body: "/reload: registry rebuild failed: " + rerr.Error()})
@@ -1274,7 +1275,10 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 		m.appendBlock(block{kind: "system", body: "/plugin reload: " + err.Error()})
 		return nil
 	}
-	m.executor.Registry = newReg
+	ne := *m.executor
+	ne.Registry = newReg
+	m.executor = &ne
+	runtime.PinInvokeExecutor(newReg, m.executor)
 
 	// The plugin set may have changed (a disabled/uninstalled plugin drops
 	// out). Flush plugin-contributed chrome so a removed plugin's sidebar/

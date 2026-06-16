@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -135,6 +136,27 @@ func TestDNSAXFR_DefaultPort(t *testing.T) {
 	// is exercised by static analysis.
 }
 
+func TestDNSAXFR_RecordLimit(t *testing.T) {
+	records := []dns.RR{
+		mustParseRR("example.test. 3600 IN SOA ns1.example.test. hostmaster.example.test. 1 7200 3600 1209600 3600"),
+	}
+	for i := 0; i < maxAXFRRecords; i++ {
+		records = append(records, mustParseRR(fmt.Sprintf("host%d.example.test. 60 IN A 192.0.2.%d", i, (i%254)+1)))
+	}
+	srv, addr := startTestAXFRServerBatched(t, "example.test.", records, 200)
+	defer srv.Shutdown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err := dnsAXFR(ctx, "example.test", addr, 10*time.Second)
+	if err == nil {
+		t.Fatal("expected record limit error")
+	}
+	if !strings.Contains(err.Error(), "record limit exceeded") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // startTestAXFRServer launches a loopback TCP DNS server that answers
 // AXFR for `zone` with `records`. Returns the running server + addr.
 func startTestAXFRServer(t *testing.T, zone string, records []dns.RR) (*dns.Server, string) {
@@ -162,6 +184,45 @@ func startTestAXFRServer(t *testing.T, zone string, records []dns.RR) (*dns.Serv
 	srv := &dns.Server{Listener: ln, Net: "tcp", Handler: mux}
 	go func() { _ = srv.ActivateAndServe() }()
 	// Tiny delay for server activation; cheap and avoids race.
+	time.Sleep(20 * time.Millisecond)
+	return srv, ln.Addr().String()
+}
+
+// startTestAXFRServerBatched streams records in fixed-size envelopes so
+// large transfers don't stall a single WriteMsg.
+func startTestAXFRServerBatched(t *testing.T, zone string, records []dns.RR, batch int) (*dns.Server, string) {
+	t.Helper()
+	if batch <= 0 {
+		batch = 100
+	}
+	mux := dns.NewServeMux()
+	mux.HandleFunc(zone, func(w dns.ResponseWriter, r *dns.Msg) {
+		if len(r.Question) == 0 || r.Question[0].Qtype != dns.TypeAXFR {
+			m := new(dns.Msg)
+			m.SetRcode(r, dns.RcodeRefused)
+			_ = w.WriteMsg(m)
+			return
+		}
+		tr := new(dns.Transfer)
+		ch := make(chan *dns.Envelope)
+		go func() {
+			for i := 0; i < len(records); i += batch {
+				end := i + batch
+				if end > len(records) {
+					end = len(records)
+				}
+				ch <- &dns.Envelope{RR: records[i:end]}
+			}
+			close(ch)
+		}()
+		_ = tr.Out(w, r, ch)
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &dns.Server{Listener: ln, Net: "tcp", Handler: mux}
+	go func() { _ = srv.ActivateAndServe() }()
 	time.Sleep(20 * time.Millisecond)
 	return srv, ln.Addr().String()
 }

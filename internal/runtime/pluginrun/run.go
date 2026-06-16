@@ -91,6 +91,12 @@ type RunArgs struct {
 	// nil = stado_tool_invoke disabled (returns -1).
 	InvokeRegistry *tools.Registry
 
+	// InvokeExecutor, when non-nil, routes stado_tool_invoke through
+	// Executor.Run so nested calls get the same audit trailers, hooks,
+	// and progress collection as top-level tool dispatch (Codex #043).
+	// When set, takes precedence over InvokeRegistry.
+	InvokeExecutor *tools.Executor
+
 	// SessionBridgeNote, when non-nil, receives any informational note
 	// produced by SessionBridgeBuilder (e.g., "session-aware capabilities
 	// declared; pass --session to attach"). Caller decides whether to
@@ -163,8 +169,12 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 		}
 	}
 
-	if rtHost.ToolInvoke != nil && args.InvokeRegistry != nil {
-		rtHost.ToolInvoke.Invoke = makeInvokeCallback(args.InvokeRegistry, h)
+	if rtHost.ToolInvoke != nil {
+		if args.InvokeExecutor != nil {
+			rtHost.ToolInvoke.Invoke = makeInvokeCallback(args.InvokeExecutor.Registry, args.InvokeExecutor, h)
+		} else if args.InvokeRegistry != nil {
+			rtHost.ToolInvoke.Invoke = makeInvokeCallback(args.InvokeRegistry, nil, h)
+		}
 	}
 
 	if rtHost.SessionObserve || rtHost.SessionRead || rtHost.SessionFork || rtHost.LLMInvokeBudget > 0 {
@@ -279,15 +289,22 @@ func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
 }
 
 // makeInvokeCallback returns the stado_tool_invoke dispatch closure.
-// The closure routes inner tool calls through the supplied registry.
+// The closure routes inner tool calls through the supplied executor when
+// present (audit + hooks + progress), otherwise through the registry.
 // Today's CLI implementation built a fresh BuildDefaultRegistry per
 // call — codex's review flagged that as bypassing active filters /
 // overrides / MCP-attached tools. Routing through the active executor's
 // registry instead means inner calls see the same surface the outer
 // caller did.
-func makeInvokeCallback(reg *tools.Registry, h tool.Host) func(context.Context, string, json.RawMessage) (string, error) {
+func makeInvokeCallback(reg *tools.Registry, exec *tools.Executor, h tool.Host) func(context.Context, string, json.RawMessage) (string, error) {
 	return func(ctx context.Context, name string, args json.RawMessage) (string, error) {
-		result, err := reg.Run(ctx, name, args, h)
+		var result tool.Result
+		var err error
+		if exec != nil {
+			result, err = exec.Run(ctx, name, args, h)
+		} else {
+			result, err = reg.Run(ctx, name, args, h)
+		}
 		if err != nil {
 			return "", err
 		}

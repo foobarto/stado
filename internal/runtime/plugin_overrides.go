@@ -41,6 +41,7 @@ type pluginOverrideTool struct {
 	// comment. cfg was already per-tool here; only invokeReg needed
 	// hoisting off the deleted package global.
 	invokeReg *tools.Registry
+	invokeExec *tools.Executor
 }
 
 func (p *pluginOverrideTool) Name() string        { return p.def.Name }
@@ -70,6 +71,7 @@ func (p *pluginOverrideTool) Run(ctx context.Context, args json.RawMessage, h to
 		Cfg:            p.cfg,
 		Workdir:        h.Workdir(),
 		InvokeRegistry: p.invokeReg,
+		InvokeExecutor: p.invokeExec,
 	}, h)
 }
 

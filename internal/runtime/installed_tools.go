@@ -109,6 +109,7 @@ type installedPluginTool struct {
 	// nested invokes can't leak across builds.
 	cfg       *config.Config
 	invokeReg *tools.Registry
+	invokeExec *tools.Executor
 }
 
 func newInstalledPluginTool(mf plugins.Manifest, def plugins.ToolDef, wasmPath string, class tool.Class, cfg *config.Config, invokeReg *tools.Registry) tool.Tool {
@@ -174,6 +175,7 @@ func (t *installedPluginTool) Run(ctx context.Context, args json.RawMessage, h t
 		// CLI invocations route through plugin_invoke_shared.go which
 		// builds a SessionBridgeBuilder from --session.
 		InvokeRegistry: t.invokeReg,
+		InvokeExecutor: t.invokeExec,
 	}, h)
 }
 
