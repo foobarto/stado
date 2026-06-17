@@ -30,7 +30,7 @@ runs at release time via `.goreleaser.yaml`.
 ```sh
 go test ./...               # full suite
 go test -race ./...         # CI runs this
-hack/tmux-uat.sh all        # real-PTY TUI harness (16 scenarios)
+hack/tmux-uat.sh all        # real-PTY TUI harness (see hack/tmux-uat.sh --help)
 cd hack/pty-bridge && \
   STADO_PTY_BRIDGE_E2E=1 STADO_BIN=$PWD/../../stado go test -v
                             # xterm.js + headless Chrome harness
@@ -143,7 +143,7 @@ probes local runners automatically if nothing's pinned.
 | `internal/runtime/` | Core agent loop — shared by TUI, run, ACP, headless |
 | `internal/tui/` | bubbletea UI |
 | `internal/providers/` | Anthropic / OpenAI / Google / oaicompat |
-| `internal/tools/` | Bundled tools (bash/fs/grep/…) |
+| `internal/tools/` | Tool executor, registry, classifier; native carve-outs (`tasks`, meta-tools). Bundled model tools live in `plugins/bundled/` + `internal/runtime/bundled_plugin_tools.go` |
 | `internal/plugins/` | wasm plugin runtime (wazero) + ABI |
 | `internal/state/git/` | Sidecar bare repo, signed refs, turn tags |
 | `internal/sandbox/` | Landlock + bwrap + seccomp + CONNECT proxy |

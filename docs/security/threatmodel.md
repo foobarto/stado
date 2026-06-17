@@ -1,13 +1,14 @@
 # stado — Threat model
 
-> Last reviewed: 2026-05-22 (re-walked against the all-wasm tool
-> architecture). **Every tool is now a signed wasm plugin** dispatched
+> Last reviewed: 2026-06-15 (EP-0044 project-config strip + v0.75.2 wasm
+> host caps). **Every tool is now a signed wasm plugin** dispatched
 > through capability-gated host imports — there are no in-process native
 > tools (the pre-EP-0037/0038 `internal/tools/*` surface is gone). See
 > `docs/eps/0037-tool-dispatch-and-operator-surface.md`,
 > `docs/eps/0038-abi-v2-bundled-wasm-and-runtime.md`,
-> `docs/eps/0005-capability-based-sandboxing.md`, and
-> `docs/eps/0030-security-research-default-harness.md`. The central shift
+> `docs/eps/0005-capability-based-sandboxing.md`,
+> `docs/eps/0030-security-research-default-harness.md`, and
+> `docs/eps/0044-repo-config-trust-boundary.md`. The central shift
 > since the 2026-04-25 review: filesystem and network access are gated by
 > per-plugin **capabilities** enforced at the host-import boundary, not
 > left to in-process trust. Update when re-walking.
@@ -90,6 +91,19 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 - Ed25519‑signed manifests; trust store with fingerprint pinning and rollback protection.
 - Optional CRL/Rekor verification paths for plugins.
 - Capability‑gated host imports for plugin FS/net/session/LLM access.
+- Host-import resource caps (v0.75.2): `stado_json_format` output capped at 4 MiB with 64-level nesting limit; `stado_dns_resolve_axfr` capped at 50k records / 120s timeout.
+- Nested `stado_tool_invoke` routes through the session `Executor.Run` when pinned (TUI/`/reload`, `stado run`, headless) so inner calls get the same audit + hook + sandbox path as top-level tools.
+
+### Repository configuration (`.stado/config.toml`)
+**Surface:** project overlay merged after user config (`internal/config/config.go`).
+
+**Risks/attacker stories:**
+- Cloned repo commits operator-domain keys — keymap overrides that neutralize Esc/Ctrl+G, `[plugins].background` autostart, MCP server declarations, `inherit_env` secret passthrough, persona injection, etc.
+
+**Mitigations (EP-0044, v0.75.0):**
+- Security-sensitive keys are **always stripped** from project config before merge (`[hooks]`, `[keymap]`, `[plugins].background`, `[mcp.*]`, `[sandbox]`, …). See `docs/commands/config.md`.
+- Project personas and project-local plugin autoload require explicit **user-config opt-in** (`allow_project_persona`, `allow_project_plugins`); the opt-in keys themselves are stripped from project config.
+- Per-project TOFU for remaining overlay keys is deferred; always-strip is the shipped posture.
 
 ### ACP JSON‑RPC server
 **Surface:** stdin/stdout RPC for editor integrations (`internal/acp`).

@@ -7,7 +7,7 @@ distribution repo (see EP-0042); keeping compiled wasm out of the source tree.
 | Lane | Where | Loaded by stado | Operator action |
 |---|---|---|---|
 | **Bundled** | [`bundled/`](bundled/) | Compiled into the stado binary at build time, available in every session | None — present once stado is installed |
-| **Optional / demos** | [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) | Built standalone, signed, installed via `stado plugin install` | `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>` |
+| **Optional / demos** | [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) | Built standalone, signed, installed via `stado plugin install` | `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>`; project copies under `.stado/plugins/` need `[plugins] allow_project_plugins = true` in user config |
 
 ## bundled/
 
@@ -48,8 +48,13 @@ built + signed there and installable remotely:
 stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>
 ```
 
-First install of any `github.com/foobarto/*` plugin prompts once to trust the
-owner's anchor key (`.stado/author.pub`); subsequent installs are silent.
+First install from a remote identity runs **owner anchor TOFU**
+(v0.70.0): the manifest must match the fetched `author.pubkey`, the
+operator is prompted on first sight (or pass `--trust-anchor` for
+non-interactive installs). Unreachable/missing anchor fails closed.
+After rotation: `stado plugin untrust-anchor <host/owner>` then
+reinstall. Local-directory installs still use `stado plugin trust` for
+the signer key. See [docs/commands/plugin.md](../docs/commands/plugin.md).
 
 ## Where to start
 

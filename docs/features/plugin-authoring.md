@@ -142,6 +142,26 @@ stado plugin install .
 Subsequent installs of newer versions from the same key just need
 `stado plugin install .` — the trust pin survives.
 
+**Remote installs** (`stado plugin install github.com/owner/repo@1.2.3`)
+verify the owner's anchor key on first sight (interactive prompt, or
+`--trust-anchor` for non-interactive). After an expected key rotation,
+`stado plugin untrust-anchor <host/owner>` then reinstall. Signer-level
+`stado plugin trust` still applies for local-directory installs.
+
+### Project-local plugins (opt-in)
+
+Repos may ship wasm under `.stado/plugins/`. Stado **does not** autoload
+them unless the operator sets in **user** config:
+
+```toml
+[plugins]
+allow_project_plugins = true
+```
+
+Default is `false` (EP-0044). The gate cannot be set from project
+config. When off, stderr names the skipped directory once per process.
+Global installs under `$XDG_DATA_HOME/stado/plugins/` are unaffected.
+
 ## Step 4 — Run
 
 ```sh
@@ -156,7 +176,7 @@ stado plugin doctor my-plugin-0.1.0
 stado tool run <tool> '<json-args>'
 ```
 
-If `tool run` produces a message like `stado_http_get returned
+If `tool run` produces a message like `stado_http_request returned
 -1` or `stado_fs_read failed`, run `plugin doctor` against the
 plugin id — it will tell you whether you need `--workdir`,
 `--session`, or to use the TUI / `stado run` instead. (The tool host
@@ -174,22 +194,19 @@ surface each requires.
 |------------------|---------------|------------------|
 | `fs:read:/abs/path`, `fs:write:/abs/path` | `stado_fs_read` / `stado_fs_write` to that path | Any |
 | `fs:read:.`, `fs:read:./sub` | Same, but resolved against `Workdir` | `tool run --workdir=$PWD` (default workdir is the plugin's install dir, not the operator's CWD — EP-0027) |
-| `net:http_get`, `net:<host>` | `stado_http_get` (markdown-converting URL fetch) | Any (the tool host is attached on every `tool run`; the old `--with-tool-host` flag became default under EP-0038) |
 | `net:http_request[:<host>]` | `stado_http_request` and `_request_stream` | Any (tool host always attached) |
 | `net:http_request_private` | Loosens dial guard to RFC1918 / loopback / link-local / CGNAT. Off by default. | Any (tool host always attached) |
 | `net:http_client` | Stateful HTTP client with cookie jar (`stado_http_client_*`) | Any (tool host always attached) |
 | `net:dial:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Outbound `stado_net_dial` (TCP / UDP / Unix). Private addresses still need `net:http_request_private`. | Any |
 | `net:listen:tcp:<host>:<port>`, `:udp:`, `:unix:<path>` | Server-side `stado_net_listen` (verbatim host:port match — no implicit `127.0.0.1 ⊂ 0.0.0.0`) | Any |
-| `exec:search`, `exec:ast_grep`, `lsp:query` | Bundled search / LSP imports | Any (tool host always attached) |
-| `exec:bash`, `exec:shallow_bash` | `stado_exec_bash` | TUI / `stado run` only — `tool run` refuses (EP-0028) |
-| `exec:proc[:<binary-glob>]` | `stado_proc_*` and `stado_exec` | TUI / `stado run` (sandbox runner needed) |
-| `exec:pty`, `terminal:open` | PTY-backed shell sessions (`stado_pty_*` / `stado_terminal_*`) | TUI / `stado run` |
+| `exec:proc[:<binary-glob>]` | `stado_proc_*` and `stado_exec`; add `bundled-bin:<name>` for rg/ast-grep | TUI / `stado run` when spawning subprocesses (sandbox runner needed) |
+| `exec:pty`, `terminal:open` | PTY-backed shell sessions (`stado_pty_*` / `stado_terminal_*`) | TUI / `stado run` (screen via `shell.read` `mode: screen`, not a separate screenshot tool — EP-0043) |
 | `session:read`, `session:fork`, `session:observe` | Session reads + fork RPC | `tool run --session <id>` |
 | `llm:invoke[:<token-budget>]` | Outbound LLM calls | `tool run --session <id>` (uses the session's provider) |
 | `memory:propose`, `memory:read`, `memory:write` | Append-only memory store | `tool run --session <id>` (or any agent loop) |
 | `state:read[:<key-glob>]`, `state:write[:<key-glob>]` | Process-lifetime in-memory KV (`stado_instance_*`) | Any |
 | `secrets:read[:<name-glob>]`, `secrets:write[:<name-glob>]` | Operator secret store (`stado_secrets_*`) | Any |
-| `tool:invoke[:<name-glob>]` | Plugin calls other registered tools (`stado_tool_invoke`) | Any (depth-limited) |
+| `tool:invoke[:<name-glob>]` | Plugin calls other registered tools (`stado_tool_invoke`) | Any (depth-limited; v0.75.2 audit path when executor pinned) |
 | `agent:fleet` | Sub-agent fleet (`stado_agent_*`) — bundled agent plugin only | TUI / `stado run` |
 | `dns:resolve` | `stado_dns_resolve` | Any |
 | `crypto:hash`, `compress` | Stateless format helpers (hash, hmac, gzip, zlib) | Any |
@@ -255,13 +272,10 @@ dir.
 
 ### Wrap the bundled webfetch with a cache
 
-The `webfetch-cached` plugin in `~/Dokumenty/htb-writeups/plugins/`
-is the canonical example — wraps `stado_http_get` behind a
-SHA-256-keyed disk cache. Manifest declares
-`net:http_get` + the cache directory as
-`fs:read:/abs/cache` and `fs:write:/abs/cache`. No flag is needed —
-`stado tool run` wires up `stado_http_get` automatically (the tool
-host is always attached).
+Use `net:http_request[:<host>]` + `stado_http_request` (the legacy
+`stado_http_get` / `net:http_get` caps are removed). A disk cache is
+just `fs:read` / `fs:write` on a cache directory plus HTTP request caps
+for the upstream host.
 
 ### Emit progress for long-running tools
 
@@ -395,11 +409,10 @@ whether to trust the plugin.
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `plugin host has no tool runtime context` | Historic error when a plugin imported a bundled tool (`stado_http_get` etc.) without `--with-tool-host` (EP-0028) | No longer reachable from the CLI: `stado tool run` always attaches the tool host (the flag became default under EP-0038). |
+| `plugin host has no tool runtime context` | Historic error when a plugin imported a bundled tool without `--with-tool-host` (EP-0028) | No longer reachable: `stado tool run` always attaches the tool host (EP-0038). |
 | `stado_fs_read failed: ... no such file or directory` | Capability is `fs:read:.` but Workdir resolved to the install dir, not your repo | Pass `--workdir=$PWD`. EP-0027. |
-| `plugin <id> declares exec:bash` (refusal) | EP-0028 won't supply a no-op sandbox.Runner | Run via `stado run` / TUI instead. The agent runtime has the real Runner. |
 | `verify: rollback detected — manifest <new> < last seen <old>` | You're trying to install an OLDER version after a newer one | Bump the version. Rollback protection is intentional — once a higher version exists for a signer, lower versions can't be reinstalled. |
-| `installed: trust: signer <fpr> not pinned` | First install from this signer | `stado plugin trust <pubkey-hex> "<name>"` then retry. |
+| `installed: trust: signer <fpr> not pinned` | First local install from this signer | `stado plugin trust <pubkey-hex> "<name>"` then retry. Remote installs use owner anchor TOFU — see `plugin.md`. |
 | Plugin works one-shot via `tool run` but not in TUI | TUI loads plugins listed under `[plugins].background` or invoked via `/plugin:<id>`; `[tools].overrides` is what you want for replacing bundled tools | Add the override to `config.toml`. |
 
 ## Related documents
@@ -422,8 +435,8 @@ whether to trust the plugin.
   signing + verification protocol.
 - [EP-0027](../eps/0027-repo-root-discovery.md) — repo-root
   discovery and why `--workdir` exists.
-- [EP-0028](../eps/0028-plugin-run-tool-host.md) — `--with-tool-host`
-  + the `exec:bash` refusal rule.
+- [EP-0028](../eps/0028-plugin-run-tool-host.md) — historical note on
+  `--with-tool-host` (now default); PTY/exec plugins need TUI/`stado run`.
 - [`SECURITY.md`](../../SECURITY.md) — plugin-publish cookbook,
   trust model, distribution recommendations.
 - [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) — opt-in

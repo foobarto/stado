@@ -9,8 +9,12 @@ Clients create in-memory sessions, send prompts, inspect tools and
 providers, run installed plugins against sessions, and shut the daemon
 down after draining in-flight RPCs.
 
-The server loads the same config, provider, system prompt template,
-background plugins, and hook settings as the TUI.
+The server loads the same config (user → project overlay with security
+strip → env), provider, system prompt template, background plugins, and
+hook settings as the TUI. Project-local plugins under `.stado/plugins/`
+autoload only when `[plugins] allow_project_plugins = true` in user config.
+Background plugin IDs in `[plugins].background` are user-only (stripped
+from project config).
 
 ## Usage
 

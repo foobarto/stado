@@ -5,9 +5,10 @@ Expose stado's configured tool registry as an MCP server over stdio.
 ## What it does
 
 `stado mcp-server` registers the bundled stado tools with MCP
-`tools/list` and `tools/call`. It applies the same `[tools].enabled`,
-`[tools].disabled`, and `[tools].overrides` config as the TUI/run
-surfaces before exposing tools to the client.
+`tools/list` and `tools/call`. It loads config with the same user →
+project overlay (security strip) → env path as other surfaces, then
+applies `[tools].enabled`, `[tools].disabled`, and `[tools].overrides`
+before exposing tools to the client.
 
 This mode is tools-only: no MCP resources, prompts, or sampling.
 The bundled `tasks` tool is exposed here too, so MCP clients can store,

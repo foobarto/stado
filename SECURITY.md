@@ -21,6 +21,31 @@ This document covers the operational procedures for the **minisign**
 half. Cosign keyless is fully automated via GitHub Actions and has no
 human-in-the-loop.
 
+For runtime trust boundaries (sandboxing, plugin capabilities, and
+untrusted repository content), see
+[docs/security/threatmodel.md](docs/security/threatmodel.md) and
+[docs/commands/config.md](docs/commands/config.md) (project overlay strip-list).
+
+---
+
+## Repository configuration trust
+
+A cloned repository may ship `.stado/config.toml`, `.stado/personas/`,
+and `.stado/plugins/`. Stado treats repo contents as **untrusted** (EP-0044):
+
+- Operator-domain keys in project config (`[hooks]`, `[keymap]`,
+  `[plugins].background`, `[mcp.servers]`, `[sandbox]`, …) are **stripped**
+  before merge. Set them in user config (`~/.config/stado/config.toml`).
+- Project personas and project-local plugin autoload are **off by default**.
+  Enable only for repos you trust:
+  - `[defaults] allow_project_persona = true`
+  - `[plugins] allow_project_plugins = true`
+- Those opt-in flags cannot be set from project config (also stripped).
+
+Plugin trust (signer pinning, CRL, Rekor) is separate: even with
+`allow_project_plugins`, wasm still must verify against the global trust
+store.
+
 ---
 
 ## Minisign key ceremony

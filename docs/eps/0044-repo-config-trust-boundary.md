@@ -2,9 +2,10 @@
 ep: 0044
 title: Repo-config trust boundary — harden the project-config strip-list + per-project TOFU
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Accepted
+status: Implemented
 type: Standards
 created: 2026-06-14
+implemented-in: v0.75.0
 see-also: [0035, 0039, 0050]
 history:
   - date: 2026-06-14
@@ -17,9 +18,19 @@ history:
       chose BOTH harden (extend the strip-list) AND per-project TOFU. Phase 1
       (always-strip harden) shipped first; TOFU + the per-surface gates are
       phased follow-ups tracked here.
+  - date: 2026-06-15
+    status: Implemented
+    note: >
+      Phase 1 always-strip + opt-in gates shipped in v0.75.0 (personas,
+      project plugins, LSP auto_diagnostics). Per-project TOFU for surviving
+      overlay keys remains deferred — always-strip is the operator posture.
 ---
 
 # EP-44: Repo-config trust boundary
+
+> **Status:** Implemented in v0.75.0 (always-strip + opt-in gates).
+> Per-project TOFU for keys that remain in the project overlay is still
+> deferred — tracked in this EP as a follow-on, not the shipped posture.
 
 ## Problem
 

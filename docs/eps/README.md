@@ -54,7 +54,7 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0028 | [`plugin run --with-tool-host` + HOME-rooted MkdirAll](./0028-plugin-run-tool-host.md) | Standards | Partial |
 | 0029 | [Config-introspection host imports — `cfg:*`](./0029-config-introspection-host-imports.md) | Standards | Implemented |
 | 0030 | [Security-research default harness](./0030-security-research-default-harness.md) | Standards | Implemented |
-| 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Draft |
+| 0031 | [`fs:read:cfg:state_dir/...` path templates](./0031-fs-cap-path-templates.md) | Standards | Implemented |
 | 0032 | [ACP client — wrap external coding-agent CLIs](./0032-acp-client-wrap-external-agents.md) | Standards | Implemented |
 | 0033 | [Responsive frontline — supervisor + worker lanes](./0033-responsive-supervisor-worker-lanes.md) | Standards | Implemented |
 | 0034 | [Background agents + fleet registry](./0034-background-agents-fleet.md) | Standards | Superseded |
@@ -64,11 +64,14 @@ it for bug fixes, dep bumps, and contained refactors.
 | 0038 | [ABI v2, bundled wasm tools, and runtime surface](./0038-abi-v2-bundled-wasm-and-runtime.md) | Standards | Implemented |
 | 0039 | [Plugin distribution and trust](./0039-plugin-distribution-and-trust.md) | Standards | Implemented |
 | 0040 | [Bundled local inference — managed llama-server sidecar](./0040-bundled-local-inference.md) | Standards | Draft |
-| 0041 | [Shell PTY tool naming — read_until and screenshot](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
+| 0041 | [Shell PTY tool naming — read_until (superseded screenshot)](./0041-shell-pty-tool-naming.md) | Standards | Implemented |
 | 0042 | [Binaries out of the source tree — bundled wasm built at release, plugins via anchor repo](./0042-binaries-out-of-source-tree.md) | Standards | Implemented |
 | 0043 | [Shell PTY-UX rethink — read modes, no lock, labeled sessions](./0043-shell-pty-ux-rethink.md) | Standards | Implemented |
-| 0044 | [Repo-config trust boundary — harden project-config strip-list + per-project TOFU](./0044-repo-config-trust-boundary.md) | Standards | Accepted |
-| 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Draft |
+| 0044 | [Repo-config trust boundary — project-config strip-list + opt-in gates](./0044-repo-config-trust-boundary.md) | Standards | Implemented |
+| 0045 | [Model-Invocable Skills (Agent Skills parity)](./0045-model-invocable-skills.md) | Standards | Draft |
+| 0046 | [Verify-Work Phase — command-gate and LLM-judge verification](./0046-verify-work-phase.md) | Standards | Draft |
+| 0047 | [Structured Agent-Loop Result Contract and Structured Output Mode](./0047-structured-loop-result-and-output.md) | Standards | Draft |
+| 0050 | [Broker — privileged session-construction and policy-validation layer](./0050-broker.md) | Standards | Partial |
 
 <!-- Add new entries in numerical order. Keep the table tidy. -->
 

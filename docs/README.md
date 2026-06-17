@@ -42,7 +42,7 @@ Shorter forms live in:
 |---------|-------|---------------|
 | All tools as WASM | [features/no-internal-tools.md](features/no-internal-tools.md) | Why every model-facing tool is a plugin |
 | AGENTS.md / CLAUDE.md | [features/instructions.md](features/instructions.md) | Project-level system prompt, auto-loaded |
-| `[budget]` cost gate | [features/budget.md](features/budget.md) | Warn + hard-cap on cumulative $ spend |
+| `[budget]` cost + token gate | [features/budget.md](features/budget.md) | Warn + hard caps on cumulative USD and token usage |
 | `.stado/skills/*.md` | [features/skills.md](features/skills.md) | Reusable prompt fragments, TUI + CLI |
 | `[hooks]` shell hook | [features/hooks.md](features/hooks.md) | Fire-and-forget shell hook on completed TUI, CLI, and headless turns |
 | `[[hooks.lifecycle]]` | [features/lifecycle-hooks.md](features/lifecycle-hooks.md) | Scriptable Lua deny/mutate hooks at pre/post-tool + pre/post-llm + post-turn |
@@ -51,7 +51,7 @@ Shorter forms live in:
 | Sandboxing | [features/sandboxing.md](features/sandboxing.md) | How Landlock + bwrap + seccomp interact |
 | Context management | [features/context.md](features/context.md) | Token counting, soft/hard thresholds, compaction |
 | Plugin authoring | [features/plugin-authoring.md](features/plugin-authoring.md) | First-time-author walkthrough — scaffold → sign → trust → install → run + `--workdir` / `[tools].overrides` patterns |
-| Personas | [features/personas.md](features/personas.md) | Operating-manual personas (software-engineer, qa-tester, prose-writer, etc.) — bundled set, custom additions, resolution order, `agent.spawn` delegation |
+| Personas | [features/personas.md](features/personas.md) | Operating-manual personas — bundled set, user additions, opt-in project personas (`allow_project_persona`), resolution order, `agent.spawn` delegation |
 | Plugin ABI | [plugins/abi-reference.md](plugins/abi-reference.md) | Systematic ABI reference — memory model, return-code conventions, typed handles, JSON envelope, capability vocabulary, manifest schema, lifecycle |
 | Plugin host imports | [plugins/host-imports.md](plugins/host-imports.md) | Function-by-function reference for every wasm host import (~70 entries, grouped by tier) |
 | Session refs | Covered in [commands/session.md](commands/session.md) and [DESIGN.md](../DESIGN.md) | Dual-ref (tree + trace) + turn tags |

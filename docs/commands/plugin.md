@@ -161,7 +161,10 @@ Relevant `config.toml` sections:
 - `[plugins].crl_issuer_pubkey` — Ed25519 key used to verify the CRL
 - `[plugins].rekor_url` — Rekor transparency-log endpoint
 - `[plugins].background` — extra installed plugin IDs loaded
-  persistently in the TUI/headless server
+  persistently in the TUI/headless server (**user config only**)
+- `[plugins].allow_project_plugins` — opt-in to autoload plugins from
+  `{cwd}/.stado/plugins/` (default false; cannot be set from project
+  config — the gate itself is stripped per EP-0044)
 - `[memory].enabled` — inject approved plugin memories as bounded
   untrusted prompt context (on by default; set `false` to opt out)
 - `[tools].overrides` — map bundled tool names to installed plugin IDs
@@ -170,6 +173,10 @@ Relevant `config.toml` sections:
 
 ## Gotchas
 
+- **Project-local plugins are off by default.** Repos may ship
+  `.stado/plugins/` for convenience, but stado ignores them unless
+  the operator sets `[plugins] allow_project_plugins = true` in user
+  config. A one-time stderr warning names the skipped directory.
 - **`plugin list` is not `plugin installed`.** `list` shows trusted
   signers; `installed` shows runnable plugin IDs.
 - **Trust is explicit unless you pass `--signer` to install.** The

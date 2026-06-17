@@ -37,7 +37,9 @@ Example Zed config:
 | `--max-turns <n>` | Per-prompt turn cap (operator default; `0` falls back to `[acp].max_turns` or the built-in). |
 | `--no-turn-limit` | Effectively unlimited per-prompt turns; overrides `--max-turns`. |
 | `--resume <id-or-label>` | Resume an existing git-native session by id, prefix (≥8 chars), or description substring. A bad query fails at startup. Per-call equivalent: `session/new {"resumeSession": ID}`. |
-| `--persona <name>` | Default persona for new sessions. Resolution: `{cwd}/.stado/personas` → `<config-dir>/personas` → bundled. Empty falls back to `[defaults].persona`. Per-session override: `session/new {"persona": NAME}`. |
+| `--persona <name>` | Default persona for new sessions. Resolution: bundled + user (`~/.config/stado/personas/`); project (`.stado/personas/`) only when `[defaults] allow_project_persona = true` in user config. Empty falls back to `[defaults].persona`, then bundled `default`. Per-session override: `session/new {"persona": NAME}`. |
+| `--provider <name>` | Override `[defaults].provider` for this process (persistent root flag). |
+| `--model <id>` | Override `[defaults].model` for this process (persistent root flag). |
 
 ## Protocol Surface
 

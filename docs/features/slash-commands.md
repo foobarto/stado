@@ -51,7 +51,7 @@ taking over the screen.
 |---------|------|
 | `/agents` | Open the agent picker for Do, Plan, and BTW (`Ctrl+X A`) |
 | `/model` | Open a model picker (no args) or set id directly: `/model claude-opus-4-7`; `Ctrl+X M` opens the picker, `Ctrl+F` toggles favorites, and `Ctrl+A` shows provider setup for the selected row |
-| `/persona` | Open the persona picker (no args) or switch directly: `/persona <name>` (saves `[defaults].persona`) |
+| `/persona` | Open the persona picker (no args) or switch directly: `/persona <name>` (saves user `[defaults].persona`; project personas require `allow_project_persona`) |
 | `/status` | Open the status modal for provider, tools, plugins, MCP, LSP readiness, OTel, sandbox, and context, with next-step hints (`Ctrl+X S`) |
 | `/stats` | Show session token usage, cost, agent count, and uptime |
 | `/config` | Show the effective config; `/config <section>` filters (e.g. `/config sandbox`) |
@@ -60,7 +60,7 @@ taking over the screen.
 | `/tools` | List tools visible to the model (honours `[tools]` filter + plan mode) |
 | `/tool` | Run a tool by name: `/tool fs.read [json]` (`/t` for short). Verbs (`ls`/`info`/`enable`/`disable`/`autoload`/`unautoload`/`reload`) flow through the same command |
 | `/alias` | Manage operator slash shortcuts — `create`/`list`/`rm`; `{N}` = positional args |
-| `/reload` | Re-read config from disk (tools, system prompt, persona, display) without restarting |
+| `/reload` | Re-read config from disk (tools, system prompt, persona, display, plugin invoke executor) without restarting |
 | `/approvals` | Compatibility hint: native tool approvals were removed; plugins can request explicit UI approval |
 | `/steer` | Inject a message into the current turn at the next tool boundary (Enter while busy; `/steer <msg>`) |
 | `/queue` | Queue a message to run when the current turn finishes (`Alt+Enter`; `/queue <msg>`) |

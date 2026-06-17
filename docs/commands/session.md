@@ -223,7 +223,7 @@ git checkout feature/react-refactor  # in your repo
 
 Relevant `config.toml` sections:
 
-- `[budget]` — warn/hard caps on cumulative cost (see
+- `[budget]` — warn/hard caps on cumulative cost and tokens (see
   [budget.md](../features/budget.md)).
 - `[context]` — soft/hard context-window thresholds.
 - `[tools]` — trim the bundled tool surface (see
