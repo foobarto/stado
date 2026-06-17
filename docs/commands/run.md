@@ -8,8 +8,10 @@ batch processing.
 
 Given `--prompt "..."`:
 
-1. Builds the provider using the same resolution path as the TUI
-   (config default → local probe → `STADO_DEFAULTS_PROVIDER` env).
+1. Loads config (user → project overlay with security strip → env →
+   defaults) and builds the provider — config default → local probe →
+   `STADO_DEFAULTS_PROVIDER` env. Root `--provider` / `--model` flags
+   override `[defaults]` after load (any subcommand).
 2. Loads any project-level instructions (`AGENTS.md` / `CLAUDE.md`)
    walking up from cwd, same as the TUI.
 3. Constructs a single-user-message `agent.TurnRequest`, calls
@@ -21,7 +23,7 @@ Given `--prompt "..."`:
 Exit codes:
 - `0` success
 - `1` provider / IO error
-- `2` max-turns reached OR cost-cap exceeded (see `[budget]`)
+- `2` max-turns reached OR `[budget]` hard cap exceeded (USD or tokens)
 
 ## Why it exists
 
@@ -116,7 +118,9 @@ what's available.
 | `--tools-autoload <globs>` | Comma-separated globs always sent to the model every turn (default: `[tools.autoload]` from config) |
 | `--tools-disable <globs>` | Comma-separated globs removed from the surface entirely (wins over enable + autoload) |
 | `--mode <general\|security>` | Harness mode: `general` (default) or `security` (recon discipline + abusability filters) |
-| `--persona <name>` | Persona used as the operating manual / system prompt |
+| `--persona <name>` | Persona used as the operating manual / system prompt. Project personas (`.stado/personas/`) require `[defaults] allow_project_persona = true` in user config |
+| `--provider <name>` | Override `[defaults].provider` for this invocation (persistent root flag) |
+| `--model <id>` | Override `[defaults].model` for this invocation (persistent root flag) |
 | `--no-sandbox` | Opt out of the v0.57.0 default sandbox: disables Landlock + ceiling-runner. Use only for development scenarios. |
 | `--session <id-or-label>` | Continue an existing session |
 | `--max-turns N` | Cap turns (default 20) |
@@ -131,11 +135,12 @@ what's available.
 
 Relevant `config.toml` sections:
 
-- `[defaults]` — `provider`, `model`.
+- `[defaults]` — `provider`, `model`, `allow_project_persona` (user only).
 - `[agent].thinking` / `thinking_budget_tokens` — extended-thinking
   on providers that support it.
-- `[budget].hard_usd` — hard cost cap; crossing exits 2 with
-  `ErrCostCapExceeded`.
+- `[budget]` — `warn_usd` / `hard_usd` and optional token caps
+  (`warn_tokens`, `hard_tokens`, per-direction variants). Crossing a
+  hard cap exits 2. See [features/budget.md](../features/budget.md).
 - `[tools].enabled` / `[tools].disabled` — trim the bundled tool
   set.
 - `[hooks].post_turn` — lifecycle shell hook fired after each completed
@@ -162,7 +167,9 @@ Relevant `config.toml` sections:
   may appear in chunks. Use `--json` for deterministic event
   boundaries.
 - **Hard cap check is turn-boundary.** A single very long turn can
-  overshoot the cap — the loop checks after the turn completes.
+  overshoot a USD or token cap — the loop checks after the turn
+  completes. `hard_tokens` uses session-cumulative input plus output
+  (v0.75.2 fixed per-turn input counting).
 - **AGENTS.md loading is cwd-walk.** Run from a subdirectory and
   stado walks up to find the instructions file; first hit wins.
 

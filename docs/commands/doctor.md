@@ -25,7 +25,7 @@ explains what it found:
 ✓ Sandbox runner      bwrap  (ok)
 ✓ Landlock            available  (kernel ≥ 5.13)
 ✓ Context thresholds  soft=70% hard=90%  (ok)
-✓ Budget caps         (unset — no cost guardrail)  (ok)
+✓ Budget caps         (unset — no cost/token guardrail)  (ok)
 ✓ Local lmstudio      http://localhost:1234/v1  (running · 13 installed model(s), none loaded — load one in LM Studio or run `lms load <model>`)
 
 all checks passed
@@ -60,7 +60,7 @@ Three drivers:
 | **Tools** | ripgrep, ast-grep, gopls (optional), git, cosign |
 | **Sandboxing** | `bwrap` presence, Landlock kernel support, active sandbox backend |
 | **Providers** | Resolved default provider, token counter availability |
-| **Config** | Context thresholds, budget caps, hooks, tools filter |
+| **Config** | Context thresholds, budget caps (USD + token fields), hooks, tools filter, project-overlay strip warnings |
 | **Local runners** | Probes ollama / llamacpp / vllm / lmstudio endpoints |
 
 Each probe is intentionally stateless — no network calls beyond

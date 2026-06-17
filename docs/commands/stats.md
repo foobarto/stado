@@ -46,4 +46,4 @@ per-tool call/time table. `--json` emits a stable object for scripts.
 
 - [session.md](session.md) — session storage and refs.
 - [audit.md](audit.md) — lower-level signed trace inspection.
-- [features/budget.md](../features/budget.md) — live cost guardrails.
+- [features/budget.md](../features/budget.md) — live USD + token guardrails.

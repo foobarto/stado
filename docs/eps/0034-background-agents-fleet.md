@@ -25,10 +25,9 @@ history:
 
 # EP-0034: Background agents fleet — spawn, observe, terminate
 
-> **Status: Draft.** No code yet. The `spawn_agent` tool +
-> `SubagentRunner` already provide the synchronous fork-a-session
-> primitive; the work is wrapping it in async lifecycle + a TUI
-> fleet view + per-entry termination.
+> **Status: Superseded by EP-0038.** No EP-0034-specific code shipped.
+> Fleet observation lives in `/fleet`, `/ps`, and `agent.spawn`; see
+> [EP-0038](./0038-abi-v2-bundled-wasm-and-runtime.md).
 
 ## Problem
 

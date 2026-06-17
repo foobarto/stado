@@ -11,10 +11,10 @@ stado config init   # write a commented template to the default path
 
 ## What it does
 
-Stado's config is layered — disk file, then `STADO_*` env vars, then
-the runtime defaults — using [koanf][1]. `stado config show` runs the
-same resolver the TUI + headless + run-once subcommands use, then
-dumps the merged result. `stado config init` seeds a first-time
+Stado's config is layered — user file, optional project overlay (with
+security stripping), then `STADO_*` env vars, then compiled defaults —
+using [koanf][1]. `stado config show` runs the same resolver the TUI +
+headless + run-once subcommands use, then dumps the merged result. `stado config init` seeds a first-time
 install with a documented template.
 
 [1]: https://github.com/knadh/koanf
@@ -94,8 +94,14 @@ worktree dir   /home/user/.local/state/stado/worktrees
   hard_threshold   0.90
 
 [budget]
-  warn_usd   (unset — no warn pill)
-  hard_usd   (unset — no hard gate)
+  warn_usd           (unset — no warn pill)
+  hard_usd           (unset — no hard gate)
+  warn_tokens        (unset)
+  hard_tokens        (unset)
+  warn_input_tokens  (unset)
+  hard_input_tokens  (unset)
+  warn_output_tokens (unset)
+  hard_output_tokens (unset)
 ```
 
 A missing config file is not an error — the output notes that values
@@ -132,19 +138,76 @@ From highest-priority to lowest:
 
 1. `STADO_*` env vars (dotted-key form: `STADO_DEFAULTS_MODEL`,
    `STADO_CONTEXT_SOFT_THRESHOLD`, …)
-2. `$XDG_CONFIG_HOME/stado/config.toml`
-3. `~/.config/stado/config.toml` (XDG fallback on non-XDG systems)
+2. `$XDG_CONFIG_HOME/stado/config.toml` (user config)
+3. `{repo}/.stado/config.toml` (project overlay — see below)
 4. Compiled-in defaults
 
 Lower layers are partial — a disk file with just
 `[defaults].provider = "openai"` leaves every other knob at the
-default.
+default. For **allowed** keys, project values override user values;
+env always wins over both.
+
+## Project overlay (`.stado/config.toml`)
+
+When the current working directory is inside a repo that has
+`.stado/config.toml`, stado merges it after user config. Repository
+contents are treated as **untrusted** (EP-0044): operator-domain keys
+are **stripped** before merge. Stripping is case-insensitive; the
+first hit per stripped prefix prints a stderr warning:
+
+```
+stado: ignoring "…" from project .stado/config.toml — not honored from a repo (security). Set it in your user/global config instead.
+```
+
+**Always stripped from project config:**
+
+| Key / table | Why |
+|-------------|-----|
+| `[hooks]`, `[aliases]` | Arbitrary exec / slash-command expansion |
+| `[keymap]` | Could neutralize Esc/Ctrl+G interrupt or swap input model |
+| `[defaults].persona`, `[defaults].allow_project_persona` | System-prompt injection; repo can't self-enable persona opt-in |
+| `[agent].system_prompt_path` | Repo-controlled provider system prompt |
+| `[plugins].background`, `[plugins].allow_project_plugins` | Wasm autostart; repo can't self-enable project-plugin autoload |
+| `[acp]` (whole table) | MCP backdoor, `inherit_env`, turn-limit bypass |
+| `[mcp.providers]`, `[mcp.servers]` | Secret passthrough + repo-declared subprocess servers |
+| `[tui.sidebar]`, `[tui.footer]` | Hiding safety chrome |
+| `[lsp].auto_diagnostics` | Repo can't re-enable unsandboxed LSP spawns |
+| `[sandbox]`, `[runtime]`, `[inference]` | Weaken containment, native↔wasm swap, API-key exfil endpoints |
+
+**Still honored from project config:** e.g. `[defaults].model` /
+`.provider` (select among user-defined providers), `[tools].*`,
+`[context].*`, `[memory].*`, `[budget].*`, `[approvals].*`.
+
+### Operator opt-ins (user config only)
+
+Set these in **user** config when you trust a specific repo:
+
+```toml
+[defaults]
+allow_project_persona = true   # honor .stado/personas/*.md (default false)
+
+[plugins]
+allow_project_plugins = true   # autoload .stado/plugins/ (default false)
+
+[lsp]
+auto_diagnostics = true        # auto-spawn LSP after mutating edits (default false)
+```
+
+A repo cannot set these keys for itself — they are in the strip list.
+
+See [EP-0044](../eps/0044-repo-config-trust-boundary.md) for the full design.
 
 ## Gotchas
 
 - **`STADO_*` env vars override the file silently.** `config show`
   displays the merged values. Inspect `~/.config/stado/config.toml`
   directly when you need the unmerged disk source.
+- **Project config is not a full schema copy.** If a knob is in the
+  strip list, committing it to `.stado/config.toml` has no effect —
+  move it to user config.
+- **`stado config show` reflects the merged effective config** after
+  stripping; keys that were stripped from the project file won't
+  appear as if the repo set them.
 - **Unknown keys are ignored** (koanf's default). A typo in a section
   name won't error — it just won't take effect. Double-check the
   effective output if a setting is not taking.

@@ -2,7 +2,7 @@
 ep: 50
 title: Broker — privileged session-construction and policy-validation layer
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Partial
 type: Standards
 created: 2026-05-27
 see-also: [30, 32, 37, 38, 42]
@@ -15,6 +15,12 @@ history:
       ceiling (phase 4), trust-root + audit-trace writer (phase 5),
       provenance/taint (phase 6), ssh-agent + git sub-agent (phase 7),
       session-tree-as-broker-client (phase 8) follow.
+  - date: 2026-06-15
+    status: Partial
+    note: >
+      Phases 1–2 shipped (broker attach default-on v0.57.0, ceiling runner on
+      TUI + stado run). Later phases (full FS/net ceiling on all surfaces,
+      mount table, taint/provenance) remain open — see phase table in-body.
 ---
 
 # EP-50: Broker

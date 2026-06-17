@@ -7,7 +7,9 @@ TUI inside the current repo.
 
 Boot sequence:
 
-1. Load config (koanf: `config.toml` + `STADO_*` env + defaults).
+1. Load config (koanf: user `config.toml` → project `.stado/config.toml`
+   with security strip → `STADO_*` env → defaults). Stripped project
+   keys print a one-time stderr warning — see [config.md](config.md).
 2. Resolve the provider — explicit `[defaults].provider` if set,
    otherwise start an async probe for bundled local runners
    (ollama / llamacpp / vllm / lmstudio) + user presets, picking the
@@ -20,7 +22,10 @@ Boot sequence:
    system prompt on every turn.
 5. Load `.stado/skills/*.md` → available as `/skill:<name>`.
 6. Load the bundled `auto-compact` background plugin, then any extra
-   installed plugins from `[plugins].background`.
+   installed plugins from `[plugins].background` in **user** config.
+   Project-local plugins under `.stado/plugins/` autoload only when
+   `[plugins] allow_project_plugins = true` in user config (default
+   false).
 7. Start the bubbletea event loop.
 
 Shutdown: `Ctrl+D` or `/exit`.
@@ -181,7 +186,9 @@ Keybindings are configurable (since v0.65.0). Set the base layout with
 `[keymap].schema = "emacs"` (default), `"vscode"`, or `"vim"`, and override
 individual actions under `[keymap.bindings]` keyed by action name (e.g.
 `sidebar_toggle = "ctrl+t"`). An unknown action name is a non-fatal
-warning, not a boot failure — the valid overrides still apply.
+warning, not a boot failure — the valid overrides still apply. Project
+repos cannot override keymaps — `[keymap]` in `.stado/config.toml` is
+stripped (EP-0044).
 
 ### Vim modal editing (`schema = "vim"`)
 
@@ -301,11 +308,13 @@ the full list. `/` opens inline fuzzy suggestions above the input;
   toggle a favorite. Selecting a model saves it as the new default.
 - `/agents` — agent picker for Do, Plan, and BTW
 - `/persona [name]` — bare opens the persona picker; `/persona <name>`
-  swaps directly to the named persona and persists the choice in
-  `[defaults].persona`. Resolution order: project (`.stado/personas/`),
-  user (`~/.config/stado/personas/`), bundled. Personas inject their
-  system prompt and tool/cap surface into subsequent turns until the
-  next swap; the system block reports `persona: <old> → <new>`
+  swaps directly to the named persona and persists the choice in user
+  `[defaults].persona`. Resolution: bundled + user
+  (`~/.config/stado/personas/`) always; project (`.stado/personas/`)
+  only when `[defaults] allow_project_persona = true` in user config
+  (default false). Personas inject their system prompt and tool/cap
+  surface into subsequent turns until the next swap; the system block
+  reports `persona: <old> → <new>`
 - `/theme` — theme picker; bundled choices are `stado-dark`,
   `stado-light`, `stado-contrast`, and `stado-rose`; `/theme light`,
   `/theme dark`, and `/theme toggle` switch without opening the picker;
@@ -429,15 +438,16 @@ relevant sections:
 
 | Section | Purpose |
 |---------|---------|
-| `[defaults]` | provider + model pins |
+| `[defaults]` | provider, model, `allow_project_persona` (user only) |
 | `[tools]` | trim the bundled tool set |
 | `[context]` | soft / hard thresholds on context-window usage |
-| `[budget]` | warn + hard cap on cumulative cost |
-| `[hooks]` | `post_turn` lifecycle shell hook |
-| `[plugins]` | extra background plugin IDs, CRL, Rekor URL |
-| `[mcp.servers.<name>]` | external MCP tool servers |
+| `[budget]` | warn + hard caps on cumulative cost and tokens |
+| `[hooks]` | `post_turn` lifecycle shell hook (user only) |
+| `[plugins]` | `allow_project_plugins`, `background` (user only), CRL, Rekor |
+| `[mcp.servers.<name>]` | external MCP tool servers (user only) |
+| `[lsp]` | `auto_diagnostics` (user only; default false) |
 | `[tui]` | display preferences (`theme`, `thinking_display`, `tool_display`, `mouse_capture`) |
-| `[keymap]` | keybinding layout: `schema` (`emacs` / `vscode` / `vim`) + per-action overrides under `[keymap.bindings]` |
+| `[keymap]` | layout + overrides (**user only** — stripped from project config) |
 
 ### `[tui].mouse_capture`
 
@@ -489,6 +499,12 @@ Three escape hatches, picking the cheapest first:
 - **Landing view** — empty sessions start with a compact stado logo,
   centered input, command hints, cwd, and version. Once the first block
   arrives, the normal chat layout takes over.
+- **Token budget (`[budget].hard_tokens`).** The hard gate uses
+  session-cumulative input plus output (v0.75.2 fixed per-turn input
+  counting). See [features/budget.md](../features/budget.md).
+- **Auto-LSP is opt-in.** `[lsp] auto_diagnostics = true` in user
+  config enables language-server spawns after mutating edits; default
+  is off (v0.75.0).
 
 ## See also
 

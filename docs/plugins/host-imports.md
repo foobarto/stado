@@ -549,6 +549,11 @@ Result JSON: `{"records": [{"name", "type", "class", "ttl", "rdata"}], "error"?:
 `MX`, `TXT`, `IN`, etc.). `rdata` is the type-specific text form
 (e.g. `"192.0.2.1"` for an A record, `"ns1.example.com."` for NS).
 
+**Resource caps (v0.75.2).** At most **50 000** records per transfer;
+default wall-clock timeout **120 s** (request `timeout_ms` capped at
+120 000). Hitting the record cap stops the transfer cleanly and returns
+partial results with an `error` field rather than hanging the plugin.
+
 A REFUSED rcode lands in `error` rather than crashing the plugin.
 
 ### stado_dns_resolve
@@ -698,6 +703,12 @@ Recursion is bounded at depth 4. A plugin invoking another plugin
 that invokes another plugin etc. counts depth at each step and
 refuses with -1 beyond the limit. Threaded via context value.
 
+When the active session has a pinned `tools.Executor` (TUI, `stado run`,
+headless `plugin.run`, `stado tool run --session`), nested invokes route
+through `Executor.Run` — same audit trailers, lifecycle hooks, and
+sandbox runner as top-level tool calls (v0.75.2). One-shot paths without
+a session executor still invoke directly without that audit wiring.
+
 Errors from the inner tool come back as a JSON envelope `{"error": "..."}`
 so the plugin can distinguish failure from "tool returned an empty
 result" (both write zero content bytes otherwise).
@@ -831,7 +842,9 @@ every plugin binary.
 
 **No capability required** — pure compute. Input bounded to 256 KB
 per call; larger payloads should be chunked via
-`stado_http_response_read`.
+`stado_http_response_read`. `_format` rejects nesting deeper than **64**
+levels and caps output at **4 MiB** so compact JSON cannot amplify into
+unbounded host allocations (v0.75.2).
 
 **Path syntax (`_get`).** Dotted form, with non-negative integers
 treated as array indices:

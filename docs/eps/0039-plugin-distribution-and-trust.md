@@ -45,9 +45,22 @@ history:
       override-fingerprint verification (`runtime/plugin_overrides.go`). So the
       store + manual trust are live, but install-time anchor TOFU is pending.
       Tracked in .agent/specs/open/ep0039-anchor-tofu-on-install.md.
+  - date: 2026-06-15
+    status: Implemented
+    note: >
+      Supersedes the 2026-06-14 gap-audit entry: owner anchor TOFU on remote
+      install shipped in v0.70.0 (`enforceAnchorTrust` in plugin_install.go).
+      `stado plugin update-anchor` remains unshipped — use untrust-anchor +
+      reinstall for rotation.
 ---
 
 # EP-0039: Plugin distribution and trust — anchor repo, versioned identity, lock file
+
+> **CLI note (2026-06):** `stado plugin update-anchor` described in §K is **not
+> shipped**. Use `stado plugin untrust-anchor <host/owner>` after a key rotation,
+> then reinstall; `stado plugin update` fetches newer tagged releases. Owner
+> anchor TOFU **on remote install is shipped** (v0.70.0) — prompt or
+> `--trust-anchor`; unreachable anchor fails closed.
 
 ## Problem
 

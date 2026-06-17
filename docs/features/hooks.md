@@ -37,7 +37,9 @@ Two drivers:
 
 ## Configuration
 
-Single knob today:
+Single knob today. The entire `[hooks]` table — including `post_turn` —
+is **user/global config only**; a repo's `.stado/config.toml` cannot
+define hooks (stripped per EP-0044).
 
 ```toml
 [hooks]
@@ -122,6 +124,8 @@ post_turn = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga"
 - **Invoked for every turn.** No filtering by cost, role, or
   content. Use jq predicates in the hook script for conditional
   behaviour.
+- **Project config cannot set hooks.** Keys in `.stado/config.toml`
+  are stripped before merge — move hook definitions to user config.
 - **Disabled when `bash` is removed from the active tool set.** This
   keeps hooks from bypassing a config that explicitly turned off shell
   execution by trimming `bash` out of `[tools]`.

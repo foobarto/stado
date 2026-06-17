@@ -369,4 +369,3 @@ the `exec` tool is denied rather than allowed through.
   model the hook surface will eventually integrate with.
 - [commands/tui.md](../commands/tui.md) — interactive surface.
 - [commands/run.md](../commands/run.md) — non-interactive surface.
-```

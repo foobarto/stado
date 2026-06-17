@@ -374,7 +374,7 @@ allowlist. **Lacking the cap → import returns -1, never crashes.**
 | `secrets:write[:<name-glob>]` | `stado_secrets_put` / `_delete` |
 | `state:read[:<key-glob>]` | `stado_instance_get` / `_list` |
 | `state:write[:<key-glob>]` | `stado_instance_set` / `_delete` |
-| `tool:invoke[:<name-glob>]` | `stado_tool_invoke` (call other registered tools) |
+| `tool:invoke[:<name-glob>]` | `stado_tool_invoke` (call other registered tools). When a session executor is pinned (TUI, `stado run`, headless), nested invokes route through `Executor.Run` for audit + lifecycle hooks (v0.75.2). See [host-imports.md](host-imports.md). |
 | `ui:approval` | `stado_ui_approve` (request operator approval) |
 
 ### 8.2 Glob semantics
@@ -468,7 +468,8 @@ session ends; tools dispatch through the same long-lived runtime.
 
 By default each `stado tool run` invocation builds a fresh runtime,
 calls one tool, and closes. Background plugins (declared via
-`[plugins].background`) keep a long-lived runtime and accumulate
+`[plugins].background` in **user config only** — stripped from project
+`.stado/config.toml`, EP-0044) keep a long-lived runtime and accumulate
 state across ticks. Bundled plugins behave like the per-call mode —
 each tool dispatch instantiates a fresh runtime to keep blast radius
 contained.

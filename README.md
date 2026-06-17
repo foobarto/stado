@@ -78,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.65.0
+  bash -s -- --dir /usr/local/bin --version v0.75.2
 ```
 
 ### Homebrew
@@ -381,7 +381,13 @@ hard_threshold = 0.90   # TUI blocks new turns; headless emits a hard warning ev
 
 Every key is overridable via env var: `STADO_DEFAULTS_PROVIDER=ollama`,
 `STADO_OTEL_ENABLED=1`, `STADO_CONTEXT_SOFT_THRESHOLD=0.6`, etc.
-Underscores map to nested dots.
+Underscores map to nested dots. Root flags `--provider` and `--model`
+override `[defaults]` after load.
+
+Repos may ship `.stado/config.toml` as a **partial overlay** — security-
+sensitive keys (`[hooks]`, `[keymap]`, `[mcp.servers]`, …) are stripped;
+project personas and `.stado/plugins/` require explicit user-config opt-in.
+See [docs/commands/config.md](docs/commands/config.md#project-overlay-stadoconfigtoml).
 
 When `[otel].enabled = true`, the runtime-facing command surfaces
 actually start the exporter runtime: `stado`, `stado session resume`,

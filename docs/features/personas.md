@@ -2,7 +2,7 @@
 
 A persona is the agent's operating manual — what it pays attention to, how aggressive it is, what it writes down, when to delegate. Selecting one switches the system-prompt body without changing what the project knows about itself (your `AGENTS.md` / `CLAUDE.md` still applies on top).
 
-Personas are markdown files with optional YAML frontmatter. stado ships eight; you can add more under `~/.config/stado/personas/` (global) or `{project-root}/.stado/personas/` (per-project, shadows global).
+Personas are markdown files with optional YAML frontmatter. stado ships eight; you can add more under `~/.config/stado/personas/` (global). Project personas under `{project-root}/.stado/personas/` are honored **only when opted in** — see [Project personas (opt-in)](#project-personas-opt-in) below.
 
 ## Bundled personas
 
@@ -19,9 +19,9 @@ Personas are markdown files with optional YAML frontmatter. stado ships eight; y
 
 ## Switching personas in a chat: `/persona`
 
-**In an interactive `stado run` session, switch persona at any time — mid-conversation — with the `/persona` slash command.** This is the everyday way to change personas; you don't need to restart or edit config.
+**In the TUI, switch persona at any time — mid-conversation — with the `/persona` slash command.** This is the everyday way to change personas; you don't need to restart or edit config.
 
-- **`/persona`** (no argument) — opens the **persona picker**: every resolvable persona (project → user → bundled), each labelled with its source. Select and press Enter.
+- **`/persona`** (no argument) — opens the **persona picker**: every resolvable persona (user → bundled, plus project when opted in), each labelled with its source. Select and press Enter.
 - **`/persona <name>`** — switches straight to that persona, skipping the picker. E.g. `/persona prose-editor`.
 
 What happens on a switch:
@@ -36,8 +36,28 @@ What happens on a switch:
 Resolution order, highest first:
 
 1. **Per-call override** — `--persona` CLI flag (at launch), the `persona` arg on `agent.spawn`, or the `persona` arg on a server's `session.new` / `stado_llm_invoke` call.
-2. **`[defaults].persona`** in `config.toml` — your saved default. The interactive `/persona` command (above) writes here, so an in-chat switch sticks across restarts.
+2. **`[defaults].persona`** in **user** `config.toml` — your saved default. The interactive `/persona` command writes here, so an in-chat switch sticks across restarts. A repo cannot set this via project config (stripped — EP-0044).
 3. **Bundled `default`** — the fallback when nothing else resolves.
+
+Project `.stado/personas/*.md` files participate only when
+`[defaults] allow_project_persona = true` in **user** config (default
+`false`). When enabled, project personas shadow user/bundled names on
+collision. The opt-in key itself is stripped from project config so a
+repo cannot self-enable.
+
+### Project personas (opt-in)
+
+Since v0.75.0 (EP-0044), repo-committed persona bodies are treated as
+untrusted system-prompt injection surface. To honor them:
+
+```toml
+# ~/.config/stado/config.toml — user config only
+[defaults]
+allow_project_persona = true
+```
+
+Without this, files under `.stado/personas/` are ignored; user and
+bundled personas still resolve normally.
 
 ### CLI
 
@@ -78,7 +98,7 @@ When `persona` is empty the call inherits the active session's persona.
 
 ## Writing your own
 
-Drop a markdown file with frontmatter under `~/.config/stado/personas/` or `{project}/.stado/personas/`:
+Drop a markdown file with frontmatter under `~/.config/stado/personas/` or, when opted in, `{project}/.stado/personas/`:
 
 ```markdown
 ---
@@ -171,11 +191,11 @@ In addition to the standard software-engineer posture, this project requires:
 
 There's no CLI command to list personas yet. To see what the resolver
 found and which source won, open the **`/persona` picker** (no argument)
-in an interactive `stado run` session: it lists every resolvable persona
-and labels each with its source (project → user → bundled). Useful when a
-project-level override isn't taking effect — the picker shows whether your
-`{project}/.stado/personas/` file is being seen and whether it shadows the
-user or bundled one.
+in the TUI: it lists every resolvable persona
+and labels each with its source (user → bundled, plus project when
+`allow_project_persona` is true). Useful when a project-level persona
+isn't appearing — check the opt-in flag before assuming a path or
+shadow bug.
 
 ## Where the persona lands in the prompt
 

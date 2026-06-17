@@ -606,7 +606,7 @@ meta-tools. A representative slice (the full surface also includes the
 | `lsp__references` | NonMutating | LSP textDocument/references |
 | `lsp__symbols` | NonMutating | LSP textDocument/documentSymbol |
 | `lsp__hover` | NonMutating | LSP textDocument/hover |
-| *(MCP servers)* | varies | auto-registered from `[mcp.servers]` |
+| *(MCP servers)* | varies | auto-registered from `[mcp.servers]` in **user config only** (stripped from project `.stado/config.toml`, EP-0044) |
 
 ### Executor invariants
 
@@ -1577,6 +1577,18 @@ modal's own Query; arrow keys navigate; Enter executes; Esc closes.
 
 ## Extension points
 
+### Configuration trust (EP-0044)
+
+Stado merges config in layers: user `config.toml` → optional project
+`.stado/config.toml` (with security strip) → `STADO_*` env. Repository
+config is **untrusted**: operator-domain keys (`[hooks]`, `[keymap]`,
+`[plugins].background`, `[mcp.*]`, `[sandbox]`, …) are stripped before
+merge. Project personas (`.stado/personas/`) and project-local plugins
+(`.stado/plugins/`) require explicit user-config opt-in
+(`allow_project_persona`, `allow_project_plugins`; default false). See
+[docs/commands/config.md](docs/commands/config.md) and
+[docs/eps/0044-repo-config-trust-boundary.md](docs/eps/0044-repo-config-trust-boundary.md).
+
 ### New provider
 
 Implement `pkg/agent.Provider`. Add a case in
@@ -1599,7 +1611,7 @@ removed.
 
 ### New MCP server
 
-Declare in config:
+Declare in **user** config (not project `.stado/config.toml`):
 
 ```toml
 [mcp.servers.github]
@@ -1616,9 +1628,13 @@ privileges.
 ### New plugin
 
 Ship a `plugin.wasm` + `plugin.manifest.json` + `plugin.manifest.sig`
-directory. Author's public key must be pinned via
-`stado plugin trust <pubkey>`. Manifest version must monotonically
-increase (rollback protection).
+directory. For local installs, the author's public key must be pinned via
+`stado plugin trust <pubkey>`. Remote installs (`stado plugin install
+<host/owner/repo@ver>`) verify the owner's anchor key on first sight
+(prompt, or `--trust-anchor` for non-interactive); rotation uses
+`stado plugin untrust-anchor <host/owner>` then reinstall (`update-anchor`
+is not shipped). Manifest version must monotonically increase (rollback
+protection).
 
 Context-management plugins (auto-compaction, second-opinion routing,
 session-replay exporters) have a dedicated set of capabilities —

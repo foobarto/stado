@@ -21,6 +21,11 @@ history:
 
 # EP-0041: Shell PTY tool naming — read_until and screenshot
 
+> **Revision (v0.74.1, EP-0043):** The agent-facing `shell.screenshot` tool
+> was removed. Screen capture is now `shell.read` with `mode: "screen"` or
+> `mode: "auto"`. This EP documents the v0.49.0 rename only; current PTY UX
+> is authoritative in [EP-0043](./0043-shell-pty-ux-rethink.md).
+
 ## Problem
 
 The shell plugin exposes three "get output from a PTY session" tools. As
