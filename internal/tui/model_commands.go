@@ -1096,9 +1096,14 @@ func (m *Model) handleSkillSlash(parts []string) tea.Cmd {
 		}
 		rows := make([]render.DescRow, 0, len(m.skills))
 		for _, sk := range m.skills {
-			desc := sk.Description
+			desc := sk.ListingDescription()
 			if desc == "" {
 				desc = "(no description)"
+			}
+			if !sk.UserInvocable {
+				desc += " [model-only]"
+			} else if sk.DisableModelInvocation {
+				desc += " [user-only]"
 			}
 			rows = append(rows, render.DescRow{Name: "/skill:" + sk.Name, Desc: desc})
 		}

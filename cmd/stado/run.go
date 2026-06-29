@@ -228,6 +228,13 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			if perr != nil {
 				fmt.Fprintf(os.Stderr, "stado run: %v\n", perr)
 			}
+			effectiveSkills, skErr := runtime.EffectiveSkills(promptWorkdir, persona)
+			if skErr != nil {
+				fmt.Fprintf(os.Stderr, "stado run: skills load: %v\n", skErr)
+			}
+			if inert := skills.InertSkills(effectiveSkills); len(inert) > 0 {
+				fmt.Fprintf(os.Stderr, "stado run: skills %v are unreachable (disable-model-invocation + user-invocable: false)\n", inert)
+			}
 			opts := runtime.AgentLoopOptions{
 				Provider: prov,
 				Config:   cfg,
@@ -235,6 +242,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				Messages: append(priorMsgs, newUserMsg),
 				MaxTurns: maxTurns,
 				Persona:  persona,
+				Skills:   effectiveSkills,
 				Hooks:    lifecycleHooks,
 				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
@@ -528,9 +536,9 @@ func resolveRunPromptFromFlags() error {
 		return fmt.Errorf("run: skill %q not found (available: %s)", runSkill, avail)
 	}
 	if runPrompt == "" {
-		runPrompt = chosen.Body
+		runPrompt = chosen.RenderedBody()
 	} else {
-		runPrompt = chosen.Body + "\n\n" + runPrompt
+		runPrompt = chosen.RenderedBody() + "\n\n" + runPrompt
 	}
 	fmt.Fprintf(os.Stderr, "stado run: loaded skill %s (%s)\n", chosen.Name, chosen.Path)
 	return nil

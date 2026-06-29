@@ -21,6 +21,7 @@ import (
 	"github.com/foobarto/stado/internal/plugins"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/streambudget"
 	"github.com/foobarto/stado/internal/subagent"
@@ -31,14 +32,29 @@ import (
 
 func (m *Model) turnSystemPrompt(userPrompt string) string {
 	mem := m.turnMemoryContext(userPrompt)
+	var sys string
 	if m.persona != nil {
-		return personas.AssembleSystem(m.persona, m.systemPrompt, mem, "")
+		sys = personas.AssembleSystem(m.persona, m.systemPrompt, mem, "")
+	} else {
+		sys = instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
+			Provider: m.providerDisplayName(),
+			Model:    m.model,
+			Memory:   mem,
+		})
 	}
-	return instructions.ComposeSystemPrompt(m.systemPromptTemplate, m.systemPrompt, instructions.RuntimeContext{
-		Provider: m.providerDisplayName(),
-		Model:    m.model,
-		Memory:   mem,
-	})
+	// EP-0045: only advertise the skill listing when model invocation is
+	// actually available — at least one model-visible skill AND skills__load
+	// not denied via [tools].disabled. Gated identically to the per-turn
+	// autoload in toolSurfaceForTurn so the two never disagree.
+	if m.skillModelInvocationEnabled() {
+		if listing := skills.FormatModelListing(m.skills); listing != "" {
+			if sys != "" {
+				sys += "\n\n"
+			}
+			sys += listing
+		}
+	}
+	return sys
 }
 
 func (m *Model) turnMemoryContext(userPrompt string) string {
@@ -1196,7 +1212,7 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 			}
 			m.toolMu.Unlock()
 		}()
-		res, err := m.executor.Run(ctx, call.Name, call.Input, host)
+		res, err := m.executor.Run(runtime.WithSkillCatalog(ctx, m.skills), call.Name, call.Input, host)
 		content := res.Content
 		isErr := res.Error != ""
 		if err != nil {
@@ -1294,7 +1310,14 @@ func (m *Model) toolSurfaceForTurn() []tool.Tool {
 	// EffectiveTools() are merged ADDITIVELY into the autoload surface for
 	// this turn. Read live off m.persona so a /persona switch re-scopes on
 	// the next turn for free — no registry rebuild, no shared-cfg mutation.
-	autoloaded := runtime.AutoloadedToolsWithExtra(m.executor.Registry, eff, m.persona.EffectiveTools())
+	extra := m.persona.EffectiveTools()
+	// EP-0045: promote skills__load onto the slate only when the session has
+	// a model-invocable skill and the tool isn't denied (same gate as the
+	// system-prompt listing in turnSystemPrompt).
+	if m.skillModelInvocationEnabled() {
+		extra = append(extra, "skills__load")
+	}
+	autoloaded := runtime.AutoloadedToolsWithExtra(m.executor.Registry, eff, extra)
 	pool := autoloaded
 	if len(m.activatedTools) > 0 {
 		seen := map[string]bool{}

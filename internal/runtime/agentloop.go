@@ -20,6 +20,7 @@ import (
 	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/skills"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
@@ -111,6 +112,10 @@ type AgentLoopOptions struct {
 	// (passed as System) and MemoryContext still append. Nil falls
 	// back to instructions.ComposeSystemPrompt for legacy callers.
 	Persona *personas.Persona
+
+	// Skills is the effective skill catalog for this loop (cwd ∪ persona).
+	// Drives the model-facing listing in the system prompt and skills__load.
+	Skills []skills.Skill
 
 	// InboxFn is the optional pull-source for operator- or peer-
 	// injected messages addressed to this agent. The loop calls it
@@ -296,6 +301,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 				attribute.String("provider.model", opts.Model),
 			),
 		)
+		turnCtx = WithSkillCatalog(turnCtx, opts.Skills)
 		turnStart := time.Now()
 
 		req := agent.TurnRequest{
@@ -313,7 +319,15 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			// EffectiveTools() merge ADDITIVELY into the autoload surface for
 			// this run — headless/run honors persona `tools:`/`recommended_tools:`
 			// the same way the TUI's per-turn path does. nil persona = no extra.
-			autoloaded := AutoloadedToolsWithExtra(opts.Executor.Registry, opts.Config, opts.Persona.EffectiveTools())
+			extra := opts.Persona.EffectiveTools()
+			// EP-0045: surface skills__load on the per-turn tool slate only
+			// when the session has a model-invocable skill (and the tool
+			// isn't denied). Keeps it off the slate — and out of the model's
+			// sight — when there's nothing to load.
+			if SkillModelInvocationEnabled(opts.Executor.Registry, opts.Skills) {
+				extra = append(extra, "skills__load")
+			}
+			autoloaded := AutoloadedToolsWithExtra(opts.Executor.Registry, opts.Config, extra)
 			surface := dedupeTools(append(autoloaded, activatedSlice(opts.Executor.Registry, activatedNames)...))
 			req.Tools = ToolDefsFromSlice(surface)
 		}
@@ -493,6 +507,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 
 		// Execute tool calls, build role=tool message.
 		var results []agent.Block
+		var skillInjections []string
 		for _, c := range calls {
 			if !toolAllowed(allowedTools, c.Name) {
 				results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
@@ -515,6 +530,17 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			if c.Name == "tools__describe" && !isErr {
 				extractActivated(content, activatedNames)
 			}
+			// EP-0045: skills__load injects the body as a user message and
+			// promotes persona-scoped allowed-tools into the session surface.
+			if c.Name == "skills__load" && !isErr {
+				for _, name := range SkillLoadAllowedTools(content) {
+					activatedNames[name] = true
+				}
+				if body, trimmed := AbsorbSkillLoad(content); body != "" {
+					skillInjections = append(skillInjections, body)
+					content = trimmed
+				}
+			}
 			results = append(results, agent.Block{ToolResult: &agent.ToolResultBlock{
 				ToolUseID: c.ID,
 				Content:   content,
@@ -522,6 +548,9 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			}})
 		}
 		msgs = append(msgs, agent.Message{Role: agent.RoleTool, Content: results})
+		for _, body := range skillInjections {
+			msgs = append(msgs, agent.Text(agent.RoleUser, body))
+		}
 
 		priorLen = len(msgs)
 		priorHash = hashMessagesPrefix(msgs, priorLen)
@@ -535,12 +564,30 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 // (project AGENTS.md + memory still append). Without a persona,
 // falls back to instructions.ComposeSystemPrompt for legacy behavior.
 func buildTurnSystem(opts AgentLoopOptions) string {
+	var sys string
 	if opts.Persona != nil {
-		return personas.AssembleSystem(opts.Persona, opts.System, opts.MemoryContext, "")
+		sys = personas.AssembleSystem(opts.Persona, opts.System, opts.MemoryContext, "")
+	} else {
+		sys = instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
+			Provider: opts.Provider.Name(),
+			Model:    opts.Model,
+			Memory:   opts.MemoryContext,
+		})
 	}
-	return instructions.ComposeSystemPrompt(opts.SystemTemplate, opts.System, instructions.RuntimeContext{
-		Provider: opts.Provider.Name(),
-		Model:    opts.Model,
-		Memory:   opts.MemoryContext,
-	})
+	// Gate the listing on the same condition as the skills__load autoload:
+	// no listing when there's no model-invocable skill or the load tool is
+	// denied, so we never advertise a capability the model can't use.
+	var reg *tools.Registry
+	if opts.Executor != nil {
+		reg = opts.Executor.Registry
+	}
+	if SkillModelInvocationEnabled(reg, opts.Skills) {
+		if listing := skills.FormatModelListing(opts.Skills); listing != "" {
+			if sys != "" {
+				sys += "\n\n"
+			}
+			sys += listing
+		}
+	}
+	return sys
 }

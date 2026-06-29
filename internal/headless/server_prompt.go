@@ -94,12 +94,25 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	// the agent loop and (below) the executor.
 	lifecycleHooks := hooks.BuildLifecycleRunner(s.Cfg)
 
+	// EP-0045: effective skill catalog (cwd ∪ persona) so the model-facing
+	// listing + skills__load work on the headless surface, matching `stado
+	// run`. Non-fatal on load error.
+	effectiveSkills, skErr := runtime.EffectiveSkills(workdir, sess.persona)
+	if skErr != nil {
+		_ = s.conn.Notify("session.update", map[string]any{
+			"sessionId": p.SessionID,
+			"kind":      "system",
+			"text":      fmt.Sprintf("skills: %v", skErr),
+		})
+	}
+
 	opts := runtime.AgentLoopOptions{
 		Provider: s.Provider,
 		Config:   s.Cfg,
 		Model:    s.Cfg.Defaults.Model,
 		Messages: localMsgs,
 		MaxTurns: 10,
+		Skills:   effectiveSkills,
 		// Autonomous surface: confine bash/exec by default (Model A,
 		// decision 2026-06-13) — matches mcp-server / acp. The auto-created
 		// host returns this from tool.SandboxPolicyProvider; the wasm guest

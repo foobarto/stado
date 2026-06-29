@@ -12,6 +12,12 @@ import (
 
 // registerMetaTools adds the dispatch-kernel tools to reg.
 // These are native Go implementations (EP-0037); they port to wasm in EP-0038.
+//
+// skills__load (EP-0045) is registered here too, but unlike the rest it is
+// NOT part of the non-disableable kernel (see IsMetaTool): it must be deniable
+// via [tools].disabled to turn model invocation off (EP-0045 trust rule 3),
+// and it's surfaced on demand only when the session has a model-invocable
+// skill (SkillModelInvocationEnabled), not unconditionally autoloaded.
 func registerMetaTools(reg *tools.Registry) {
 	reg.Register(&metaSearch{reg: reg})
 	reg.Register(&metaDescribe{reg: reg})
@@ -21,6 +27,7 @@ func registerMetaTools(reg *tools.Registry) {
 	reg.Register(&metaDeactivate{reg: reg})
 	reg.Register(&metaPluginLoad{reg: reg})
 	reg.Register(&metaPluginUnload{reg: reg})
+	reg.Register(&metaSkillLoad{})
 }
 
 // ── tools__search ──────────────────────────────────────────────────────────
@@ -55,6 +62,13 @@ func (m *metaSearch) Run(_ context.Context, args json.RawMessage, _ pkgtool.Host
 	var out []map[string]any
 	for _, t := range m.reg.All() {
 		if IsMetaTool(t.Name()) {
+			continue
+		}
+		// skills__load (EP-0045) isn't a kernel meta-tool but is still a
+		// control surface, not a task tool — it's advertised via the skills
+		// listing in the system prompt, so keep it out of the generic tool
+		// search/catalog to avoid noise (and confusion when no skills exist).
+		if t.Name() == "skills__load" {
 			continue
 		}
 		if q != "" {

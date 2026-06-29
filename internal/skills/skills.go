@@ -44,12 +44,36 @@ type Skill struct {
 	Body        string // everything after the frontmatter
 	Path        string // absolute path on disk (for error messages)
 
+	// Dir is the skill bundle directory (directory-form skills only).
+	// Exposed to the body as ${STADO_SKILL_DIR}. Empty for flat .md skills.
+	Dir string
+
 	// Slash is the optional `slash:` frontmatter field: a command name
 	// (no leading "/", no args) that registers a TUI slash shortcut for
 	// this skill. Empty when unset. Invoking `/<Slash>` runs the skill,
 	// same as `/skill:<Name>`. Collisions with built-in slash commands
 	// are rejected at registration time (in the TUI), not here.
 	Slash string
+
+	// WhenToUse is extra trigger context appended to description in the
+	// model-facing listing (EP-0045).
+	WhenToUse string
+
+	// DisableModelInvocation omits the skill from the model listing and
+	// rejects skills__load. User invocation (/skill:, slash:) still works.
+	DisableModelInvocation bool
+
+	// UserInvocable controls /skill menu and slash: registration. false
+	// hides from the operator surface (model-only background knowledge).
+	UserInvocable bool
+
+	// AllowedTools lists tools pre-approved while this skill is active.
+	// Honored only for persona-scoped skills until EP-44 TOFU (fail-closed
+	// for project skills).
+	AllowedTools []string
+
+	// Scope records discovery origin (project cwd walk vs persona file).
+	Scope Scope
 }
 
 const (
@@ -164,8 +188,12 @@ func LoadPaths(baseDir string, relPaths []string) ([]Skill, []string) {
 		}
 		sk := parse(string(body))
 		sk.Path = filepath.Join(baseDir, rel)
+		sk.Scope = ScopePersona
 		if sk.Name == "" {
 			sk.Name = strings.TrimSuffix(filepath.Base(rel), ".md")
+		}
+		if sk.Dir == "" {
+			sk.Dir = filepath.Dir(sk.Path)
 		}
 		if seen[sk.Name] {
 			continue // first wins, same nearest-wins policy as Load
@@ -193,6 +221,32 @@ func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
 	var firstErr error
 	for _, e := range entries {
 		name := e.Name()
+		if e.IsDir() {
+			if e.Type()&os.ModeSymlink != 0 {
+				continue
+			}
+			relSkill := name + "/SKILL.md"
+			info, statErr := root.Lstat(relSkill)
+			if statErr != nil {
+				continue
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				continue
+			}
+			sk, loadErr := loadSkillFile(rr, relSkill, filepath.Join(d, name), name, ScopeProject)
+			if loadErr != nil {
+				if firstErr == nil {
+					firstErr = loadErr
+				}
+				continue
+			}
+			if seen[sk.Name] {
+				continue
+			}
+			seen[sk.Name] = true
+			out = append(out, sk)
+			continue
+		}
 		if !strings.HasSuffix(name, ".md") {
 			continue
 		}
@@ -207,18 +261,12 @@ func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			continue
 		}
-		body, readErr := rr.ReadFileLimited(name, maxSkillFileBytes)
-		if readErr != nil {
+		sk, loadErr := loadSkillFile(rr, name, path, strings.TrimSuffix(name, ".md"), ScopeProject)
+		if loadErr != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("skills: read %s: %w", path, readErr)
+				firstErr = loadErr
 			}
 			continue
-		}
-		sk := parse(string(body))
-		sk.Path = path
-		if sk.Name == "" {
-			// Fall back to the filename stem.
-			sk.Name = strings.TrimSuffix(name, ".md")
 		}
 		if seen[sk.Name] {
 			continue // nearer dir already claimed this name
@@ -227,6 +275,23 @@ func loadSkillDir(d string, seen map[string]bool) ([]Skill, error) {
 		out = append(out, sk)
 	}
 	return out, firstErr
+}
+
+func loadSkillFile(rr *workdirpath.RootResolver, relPath, absPath, defaultName string, scope Scope) (Skill, error) {
+	body, readErr := rr.ReadFileLimited(relPath, maxSkillFileBytes)
+	if readErr != nil {
+		return Skill{}, fmt.Errorf("skills: read %s: %w", absPath, readErr)
+	}
+	sk := parse(string(body))
+	sk.Path = absPath
+	sk.Scope = scope
+	if sk.Name == "" {
+		sk.Name = defaultName
+	}
+	if strings.HasSuffix(relPath, "/SKILL.md") {
+		sk.Dir = absPath
+	}
+	return sk, nil
 }
 
 func readSkillDirEntries(root *os.Root, maxEntries int) ([]os.DirEntry, error) {
@@ -267,7 +332,7 @@ func readSkillDirEntries(root *os.Root, maxEntries int) ([]os.DirEntry, error) {
 // minimal — one `key: value` per line, no quoting, no nested objects.
 // Anything more elaborate is outside the "one-shot prompt" scope.
 func parse(src string) Skill {
-	sk := Skill{}
+	sk := Skill{UserInvocable: true}
 	lines := strings.Split(src, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		sk.Body = src
@@ -296,15 +361,48 @@ func parse(src string) Skill {
 			sk.Name = v
 		case "description":
 			sk.Description = v
+		case "when_to_use":
+			sk.WhenToUse = v
 		case "slash":
 			// Tolerate an operator-typed leading "/" — the canonical
 			// form is bare, but stripping it here means `slash: /foo`
 			// and `slash: foo` register the same shortcut.
 			sk.Slash = strings.TrimPrefix(strings.TrimSpace(v), "/")
+		case "disable-model-invocation":
+			if b, ok := parseBoolish(v); ok {
+				sk.DisableModelInvocation = b
+			}
+		case "user-invocable":
+			if b, ok := parseBoolish(v); ok {
+				sk.UserInvocable = b
+			}
+		case "allowed-tools":
+			sk.AllowedTools = splitCSV(v)
 		}
 	}
 	sk.Body = strings.TrimLeft(strings.Join(lines[end+1:], "\n"), "\n")
 	return sk
+}
+
+func parseBoolish(v string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "yes", "1":
+		return true, true
+	case "false", "no", "0":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func splitCSV(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // splitKV turns "name: refactor" into ("name", "refactor", true).

@@ -283,6 +283,12 @@ func IsMetaTool(name string) bool {
 	switch name {
 	case "tools__search", "tools__describe", "tools__categories", "tools__in_category",
 		"tools__activate", "tools__deactivate", "plugin__load", "plugin__unload":
+		// NB: skills__load is deliberately NOT here. EP-0045 trust rule 3
+		// requires denying it (via [tools].disabled) to disable model
+		// invocation; a non-disableable kernel tool can't honor that. It is
+		// surfaced on demand via the autoload-extra path instead (see
+		// SkillModelInvocationEnabled), so it's discoverable when skills
+		// exist yet stays fully deniable.
 		return true
 	}
 	return false

@@ -107,6 +107,24 @@ its body as the prompt. `--prompt` appends so you can layer a
 per-invocation ask on top. Unknown skill → actionable error listing
 what's available.
 
+### Model-invoked skills (EP-0045)
+
+`--skill` is the operator-driven path. Independently, every skill the
+run discovers (cwd walk ∪ the active persona's `skills:`) also surfaces
+to the model: each skill's `name` + `description` enters the system
+prompt, and the model can pull a body in on its own initiative by
+calling the `skills__load` tool — no `--skill` needed.
+
+- Keep a side-effecting skill operator-only with
+  `disable-model-invocation: true` in its frontmatter.
+- Turn model invocation off wholesale with
+  `--tools-disable skills__load` (user `--skill` is unaffected).
+- A skill that is both `disable-model-invocation: true` and
+  `user-invocable: false` is unreachable; `run` warns about it on
+  stderr at startup.
+
+See [features/skills.md](../features/skills.md) for the full surface.
+
 ## Flags
 
 | Flag | Meaning |
