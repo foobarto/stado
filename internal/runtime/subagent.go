@@ -174,6 +174,14 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 			r.emitSubagentEvent(req, child, "warning", "running", "persona "+personaName+": "+perr.Error())
 		}
 	}
+	// EP-0045: the child loop gets the effective skill catalog rooted at
+	// its worktree (∪ child persona), so model invocation works in a
+	// subagent the same as the parent loop. Non-fatal on load error —
+	// the subagent just runs without a skill listing.
+	childSkills, skErr := EffectiveSkills(child.WorktreePath, childPersona)
+	if skErr != nil {
+		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
+	}
 	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
 		Provider:             r.Provider,
 		Executor:             exec,
@@ -187,6 +195,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		Host:                 childHost,
 		InboxFn:              r.InboxFn,
 		Persona:              childPersona,
+		Skills:               childSkills,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr

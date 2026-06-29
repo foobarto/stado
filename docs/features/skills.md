@@ -1,24 +1,48 @@
 # `.stado/skills/` — reusable prompts
 
-Drop markdown files with YAML-style frontmatter in
-`.stado/skills/<name>.md` and stado exposes them as reusable
-prompts reachable via `/skill:<name>` in the TUI or `--skill <name>`
-on the CLI.
+Drop markdown skill files under `.stado/skills/` and stado exposes them as
+reusable prompts reachable via `/skill:<name>` in the TUI, `--skill <name>`
+on the CLI, or **`skills__load`** when the model decides a skill matches
+the task (EP-0045).
 
 ## File format
+
+### Flat file (single prompt)
 
 ```markdown
 ---
 name: refactor
-description: Extract a function
+description: Extract a function — shown to the model for matching
 ---
 Find repeated code near the cursor and factor it out into a helper.
-Prefer the narrowest shared scope; keep call sites unchanged.
 ```
 
-Frontmatter is optional. When absent, the filename stem (without
-`.md`) is the name and the whole file body is the content. Minimal
-parser — one `key: value` per line, no quoting, no nested objects.
+Path: `.stado/skills/<name>.md`
+
+### Directory bundle (scripts / references)
+
+```
+.stado/skills/
+  summarize/
+    SKILL.md          # required entrypoint
+    scripts/check.sh  # referenced via ${STADO_SKILL_DIR}/scripts/check.sh
+```
+
+The body may use `${STADO_SKILL_DIR}` for stable paths to bundled files.
+Supporting files are not auto-loaded — the model reads or executes them
+via normal FS/exec tools under the sandbox.
+
+Frontmatter keys (one `key: value` per line):
+
+| Key | Purpose |
+|-----|---------|
+| `name` | Skill id (defaults to filename stem or directory name) |
+| `description` | Primary text the model matches on |
+| `when_to_use` | Extra trigger context appended to the listing |
+| `slash` | Bare TUI shortcut name (registers `/<name>`) |
+| `disable-model-invocation: true` | User-only — omitted from model listing |
+| `user-invocable: false` | Model-only — hidden from `/skill` and slash shortcuts |
+| `allowed-tools` | Tools pre-approved on load (persona skills only until project TOFU) |
 
 ## Why skills exist
 
@@ -41,9 +65,8 @@ just layer `--prompt` on top when you need an ad-hoc tweak.
 ## Resolution
 
 Stado walks from cwd up to the filesystem root looking for
-`.stado/skills/` directories. Every `*.md` inside gets registered.
-Nearest wins — a module-local `.stado/skills/refactor.md` overrides
-a repo-root one.
+`.stado/skills/` directories. Each `*.md` file and each
+`<name>/SKILL.md` directory entry is registered. Nearest wins.
 
 ```
 repo-root/
@@ -87,18 +110,26 @@ stado run --skill refactor --prompt "apply to the billing module"
 Skill body first, then your prompt appended. Unknown skill →
 actionable error listing what's available.
 
+## Model invocation (EP-0045)
+
+By default, every loaded skill's `name` + `description` appear in the
+system prompt. The model can call **`skills__load`** with `{"name":"<skill>"}`
+to inject the body as a user message — same effect as `/skill:<name>`.
+
+- Set `disable-model-invocation: true` for side-effecting skills the
+  model must not auto-load (`deploy`, `commit`, …).
+- Deny `skills__load` via `[tools].disabled` to disable model invocation
+  while keeping user `/skill:` working.
+- Project skills do not honor `allowed-tools` until the repo clears the
+  EP-44 trust gate (fail-closed).
+
 ## Design notes
 
-- **No argument injection.** Skills can't take `{name}` placeholders.
-  If you need parameterisation, use `--prompt` to compose ad-hoc
-  context on top of the skill body.
-- **No include/reference expansion.** Skills are plain text; they
-  can't `@import` other skills. Keep each one self-contained.
-- **Scope is cwd-walk only.** No `~/.config/stado/skills/` user-
-  global layer yet. The nearest-wins semantics wouldn't play nicely
-  with a far-off global that could override every project — so
-  global skills are deliberately not supported. Contributions
-  welcome if you have a case where the tradeoff is wrong.
+- **Argument injection** lands in EP-0045 Phase 2 (`$ARGUMENTS`, `` !`cmd` ``).
+- **No include/reference expansion.** Skills are plain text; keep each
+  one self-contained or use directory bundles + `${STADO_SKILL_DIR}`.
+- **Scope is cwd-walk + persona `skills:`** (no `~/.config/stado/skills/`
+  until Phase 3).
 
 ## Sample
 

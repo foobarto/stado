@@ -510,12 +510,21 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 	}
 	sysPrompt = harness.Prepend(sysPrompt, workdir, harnessMode)
 
+	// EP-0045: load the effective skill catalog (cwd ∪ persona) so the
+	// model-facing listing + skills__load work on the ACP surface, matching
+	// `stado run`. Non-fatal on load error.
+	effectiveSkills, skErr := runtime.EffectiveSkills(workdir, sess.persona)
+	if skErr != nil {
+		fmt.Fprintf(os.Stderr, "stado acp: skills load: %v\n", skErr)
+	}
+
 	opts := runtime.AgentLoopOptions{
 		Provider:             prov,
 		Model:                s.Cfg.Defaults.Model,
 		Messages:             localMsgs,
 		MaxTurns:             s.resolveMaxTurns(sess),
 		Persona:              sess.persona,
+		Skills:               effectiveSkills,
 		Thinking:             s.Cfg.Agent.Thinking,
 		ThinkingBudgetTokens: s.Cfg.Agent.ThinkingBudgetTokens,
 		System:               sysPrompt,

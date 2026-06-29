@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -43,7 +44,21 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	for i := range m.blocks {
 		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == msg.result.ToolUseID {
 			toolName = m.blocks[i].toolName
-			m.blocks[i].toolResult = content
+			// skills__load (EP-0045): the tool panel only needs the short
+			// confirmation, but the full body-bearing result must survive in
+			// pendingResults so the batch handler (onToolsExecuted →
+			// absorbSkillLoads) can inject the body as a user message — same
+			// effect as a user `/skill:`. So trim for DISPLAY only; persist
+			// the raw result below. (The prior bug trimmed pendingResults at
+			// store-time, discarding the body before injection — model
+			// invocation was a TUI no-op.)
+			display := content
+			if toolName == "skills__load" && !msg.result.IsError {
+				if _, trimmed := runtime.AbsorbSkillLoad(content); trimmed != content {
+					display = trimmed
+				}
+			}
+			m.blocks[i].toolResult = display
 			m.blocks[i].streaming = false // result in hand — auto mode collapses it
 			m.invalidateBlockCache(i)
 			break
@@ -52,6 +67,9 @@ func onToolResult(m *Model, msg toolResultMsg) (tea.Model, tea.Cmd) {
 	if toolName == "agent__spawn" && !msg.result.IsError {
 		m.appendSubagentNotice(content)
 	}
+	// Persist the raw result (faithful tool output for the model + audit) —
+	// absorbSkillLoads trims any skills__load body in onToolsExecuted, after
+	// extracting it for injection.
 	m.pendingResults = append(m.pendingResults, msg.result)
 	m.renderBlocks()
 	return m, m.advanceToolQueue()
@@ -343,6 +361,10 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		// the audit log + history reflect what actually happened —
 		// the operator just doesn't get an autonomous follow-up.
 		if len(msg.results) > 0 {
+			// Trim any skills__load body out of the persisted tool result
+			// (the operator cancelled, so we never inject it) — but keep
+			// history well-formed so the next turn isn't an orphan tool_use.
+			m.absorbSkillLoads(msg.results)
 			blocks := make([]agent.Block, 0, len(msg.results))
 			for _, r := range msg.results {
 				cpy := r
@@ -359,6 +381,7 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.annotateLastAssistantToolResults(msg.results)
+	injections := m.absorbSkillLoads(msg.results)
 	// EP-0037 lazy-load: when the model called tools.describe, parse
 	// the result and add the described tools to this session's
 	// activation set so subsequent turns surface them.
@@ -373,6 +396,12 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		toolMsg := agent.Message{Role: agent.RoleTool, Content: blocks}
 		m.msgs = append(m.msgs, toolMsg)
 		m.persistMessage(toolMsg)
+	}
+	for _, body := range injections {
+		userMsg := agent.Text(agent.RoleUser, body)
+		m.msgs = append(m.msgs, userMsg)
+		m.appendBlock(block{kind: "user", body: body})
+		m.persistMessage(userMsg)
 	}
 	// #16: this is the "next opportunity" — a steering message injects
 	// here so the model's next round-trip sees it alongside the results.

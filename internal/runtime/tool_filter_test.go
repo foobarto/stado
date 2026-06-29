@@ -234,6 +234,40 @@ func TestApplyToolFilter_MetaToolKernelNonDisableable(t *testing.T) {
 	})
 }
 
+// TestSkillsLoad_Deniable: EP-0045 trust rule 3 — skills__load is registered
+// by default but is NOT part of the non-disableable kernel, so [tools].disabled
+// removes it (turning model invocation off wholesale). Contrast with
+// TestApplyToolFilter_MetaToolKernelNonDisableable, where the kernel survives.
+func TestSkillsLoad_Deniable(t *testing.T) {
+	if IsMetaTool("skills__load") {
+		t.Fatal("skills__load must NOT be a non-disableable kernel meta-tool (EP-0045 rule 3)")
+	}
+	t.Run("registered by default", func(t *testing.T) {
+		reg := BuildDefaultRegistry(nil)
+		if _, ok := reg.Get("skills__load"); !ok {
+			t.Error("skills__load should be registered by default")
+		}
+	})
+	t.Run("explicit disable removes it", func(t *testing.T) {
+		reg := BuildDefaultRegistry(nil)
+		cfg := &config.Config{}
+		cfg.Tools.Disabled = []string{"skills__load"}
+		ApplyToolFilter(reg, cfg)
+		if _, ok := reg.Get("skills__load"); ok {
+			t.Error("[tools].disabled=[skills__load] must unregister it (deniable off-switch)")
+		}
+	})
+	t.Run("glob disable removes it", func(t *testing.T) {
+		reg := BuildDefaultRegistry(nil)
+		cfg := &config.Config{}
+		cfg.Tools.Disabled = []string{"skills.*"}
+		ApplyToolFilter(reg, cfg)
+		if _, ok := reg.Get("skills__load"); ok {
+			t.Error("[tools].disabled=[skills.*] must unregister it")
+		}
+	})
+}
+
 func TestToolMatchesGlob(t *testing.T) {
 	cases := []struct {
 		name, pat string

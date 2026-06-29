@@ -854,6 +854,12 @@ func NewModel(cwd, modelName, providerName string, buildProvider func() (agent.P
 	} else {
 		m.skills = sks
 	}
+	// EP-0045: an author warning for skills that are neither model- nor
+	// user-invocable (disable-model-invocation + user-invocable: false) —
+	// they load but can never be reached, which is almost always a mistake.
+	if inert := skills.InertSkills(m.skills); len(inert) > 0 {
+		fmt.Fprintf(os.Stderr, "stado: skills %v are unreachable (disable-model-invocation + user-invocable: false)\n", inert)
+	}
 	// Register skill-declared slash shortcuts (`slash:` frontmatter) into
 	// the palette's dynamic layer + the /<name> dispatch map. Collisions
 	// with built-ins are rejected with a stderr warning (like a broken

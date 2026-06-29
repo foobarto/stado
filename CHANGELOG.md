@@ -32,6 +32,38 @@ become semver guarantees.
   `session/new` (when `--tools` is set) surfaces stale-ABI plugins
   with the specific missing imports — no silent retries.
 
+## Unreleased
+
+### Skills (EP-0045 Phase 1 — model-invocable skills)
+
+- **Skills are now model-invocable.** Each skill's `name` + `description`
+  enters the model's per-turn context cheaply, and the model can pull a
+  skill's body into the conversation on its own initiative via the
+  `skills__load` tool — progressive disclosure, matching the Agent Skills
+  standard. `/skill:<name>`, `--skill`, and `slash:` user invocation keep
+  working unchanged; they are now one of two ways to invoke a skill.
+- **Directory-form skills.** A skill may be a `<name>/SKILL.md` bundle that
+  ships supporting files (scripts, references) the body points to via
+  `${STADO_SKILL_DIR}`; flat `.stado/skills/<name>.md` files keep working.
+- **New frontmatter:** `when_to_use` (extra trigger text in the listing),
+  `disable-model-invocation` (keep a skill user-only), `user-invocable: false`
+  (model-only background skill, hidden from `/skill`), and `allowed-tools`
+  (tools pre-approved while the skill is active — project skills are
+  fail-closed until the EP-44 project-trust gate; persona skills are trusted
+  by location).
+- Skills now reach every autonomous surface (`run`, TUI, ACP, headless,
+  subagents) uniformly, not just the TUI/`run`.
+
+#### Breaking
+
+- **Every existing `.stado/skills/<name>.md` becomes model-invocable on
+  upgrade.** Its `description` now enters the model-facing listing and the
+  model may load it without the operator asking for it. To keep a skill
+  user-only, add `disable-model-invocation: true` to its frontmatter. To
+  turn model invocation off wholesale, deny `skills__load` via
+  `[tools].disabled` (user invocation is unaffected). Pre-1.0 clean break,
+  no opt-in shim (EP-0045 D7).
+
 ## v0.75.2 — Codex triage batches 3+4 — 2026-06-15
 
 Patch follow-up to v0.75.1: closes the next **FIX_NOW** Codex security items

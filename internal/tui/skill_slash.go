@@ -30,6 +30,9 @@ const skillSlashGroup = "Skills"
 func skillSlashCommands(sks []skills.Skill) (cmds []palette.Command, byCommand map[string]string, warnings []string) {
 	byCommand = make(map[string]string)
 	for _, sk := range sks {
+		if !sk.UserInvocable {
+			continue
+		}
 		name := strings.TrimSpace(sk.Slash)
 		if name == "" {
 			continue

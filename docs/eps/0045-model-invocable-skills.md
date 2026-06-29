@@ -9,6 +9,17 @@ requires: [37]
 extends: [8]
 see-also: [18, 30, 39, 44]
 history:
+  - date: 2026-06-18
+    status: Draft
+    note: Phase 1 implementation in flight on feat/ep-0045-model-invocable-skills —
+      directory SKILL.md loader, budget-capped model listing, skills__load tool,
+      frontmatter knobs (when_to_use / disable-model-invocation / user-invocable /
+      allowed-tools), persona-scoped allowed-tools (project fail-closed). Post-review
+      fixes — skills__load is deniable per trust rule 3 (NOT a non-disableable
+      kernel meta-tool; surfaced on demand only when a model-invocable skill exists,
+      and denying it suppresses the listing too); skills wired uniformly across run /
+      TUI / ACP / headless / subagents; TUI now injects the loaded body as a user
+      message; inert-skill (both invocations off) load warning.
   - date: 2026-06-17
     status: Draft
     note: Initial draft. Closes the gap between stado's user-invoked skill
