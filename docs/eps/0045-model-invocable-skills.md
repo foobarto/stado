@@ -2,13 +2,32 @@
 ep: 45
 title: Model-Invocable Skills (Agent Skills parity)
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Partial
 type: Standards
 created: 2026-06-17
 requires: [37]
 extends: [8]
 see-also: [18, 30, 39, 44]
 history:
+  - date: 2026-06-29
+    status: Partial
+    note: >
+      Phase 1 shipped — model-invocable skills land. Loader recognizes
+      directory <name>/SKILL.md bundles (${STADO_SKILL_DIR} expansion) and
+      flat .stado/skills/<name>.md, with the os.Root/size/entry-count/symlink
+      guards extended to the directory walk. Frontmatter gains when_to_use,
+      disable-model-invocation, user-invocable, allowed-tools. The budget-capped
+      model listing is appended to the system prompt and skills__load injects
+      the body as a user message, wired uniformly across run / TUI / ACP /
+      headless / subagents. Trust: project-skill allowed-tools fail closed
+      (persona-scoped only until EP-44 TOFU); denying skills__load via
+      [tools].disabled disables model invocation wholesale while /skill: keeps
+      working (rule 3); inert skills (both invocations off) warn at load. Docs
+      synced (features/skills.md, commands/run.md, commands/tui.md, CHANGELOG)
+      and the package tests (internal/skills, internal/runtime, internal/tui)
+      are green. Phases 2–4 (arguments + dynamic injection, distribution
+      scopes, parity tail) remain open — see the phase table above. Status is
+      Partial, not Implemented, until they land.
   - date: 2026-06-18
     status: Draft
     note: Phase 1 implementation in flight on feat/ep-0045-model-invocable-skills —

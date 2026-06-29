@@ -20,7 +20,9 @@ Boot sequence:
    `$XDG_DATA_HOME/stado/sessions/<repo-id>.git`).
 4. Walk cwd upward for `AGENTS.md` / `CLAUDE.md` → injected as the
    system prompt on every turn.
-5. Load `.stado/skills/*.md` → available as `/skill:<name>`.
+5. Load `.stado/skills/` (flat `*.md` and `<name>/SKILL.md` bundles) →
+   available as `/skill:<name>` for the operator **and** to the model
+   via `skills__load` (EP-0045).
 6. Load the bundled `auto-compact` background plugin, then any extra
    installed plugins from `[plugins].background` in **user** config.
    Project-local plugins under `.stado/plugins/` autoload only when
@@ -363,6 +365,14 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/memory [on|off|status]` — show or toggle approved-memory retrieval
   for this session
 - `/btw` — off-band side-question mode
+- `/skill` — list loaded skills (the listing tags each `[model-only]` or
+  `[user-only]`); `/skill:<name>` injects a skill body into the
+  conversation. Skills also surface to the model: each `name` +
+  `description` enters the system prompt and the model can load one on
+  its own via `skills__load` (EP-0045). A skill with
+  `disable-model-invocation: true` stays operator-only; denying
+  `skills__load` via `[tools].disabled` turns model invocation off while
+  `/skill:` keeps working.
 
 ## Multi-session Overlay
 
