@@ -42,7 +42,7 @@ Frontmatter keys (one `key: value` per line):
 | `slash` | Bare TUI shortcut name (registers `/<name>`) |
 | `disable-model-invocation: true` | User-only — omitted from model listing |
 | `user-invocable: false` | Model-only — hidden from `/skill` and slash shortcuts |
-| `allowed-tools` | Tools pre-approved on load (persona skills only until project TOFU) |
+| `allowed-tools` | Tools surfaced onto the slate on load (persona skills only until project TOFU; see below) |
 
 ## Why skills exist
 
@@ -122,6 +122,21 @@ to inject the body as a user message — same effect as `/skill:<name>`.
   while keeping user `/skill:` working.
 - Project skills do not honor `allowed-tools` until the repo clears the
   EP-44 trust gate (fail-closed).
+
+### What `allowed-tools` does (and doesn't)
+
+`allowed-tools` **surfaces** the named tools onto the per-turn slate when the
+skill loads, so the model can call them without a `tools__describe`
+round-trip. It does **not** widen the sandbox (a granted `bash` still runs
+under the session sandbox policy).
+
+There is no separate "skip the approval prompt" step, because stado's native
+(bundled) tools have no approval prompt — they run as soon as they're surfaced
+(see [commands/tui.md → Approvals](../commands/tui.md)). Surfacing a tool via
+`allowed-tools` therefore already gives the Claude-Code "runs without asking"
+behavior for native tools. The only interactive approval in stado is the
+opt-in **plugin `ui:approval`** card, which `allowed-tools` does not currently
+suppress.
 
 ## Design notes
 
