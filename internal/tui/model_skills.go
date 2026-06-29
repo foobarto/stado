@@ -76,12 +76,30 @@ func (m *Model) skillModelInvocationEnabled() bool {
 	return !m.sessionToolOverrideHidesTool("skills__load")
 }
 
+// toolNameForID maps a tool-call block id back to the tool name, or "" if no
+// tool block matches. Same lookup onToolResult uses to special-case results.
+func (m *Model) toolNameForID(id string) string {
+	for i := range m.blocks {
+		if m.blocks[i].kind == "tool" && m.blocks[i].toolID == id {
+			return m.blocks[i].toolName
+		}
+	}
+	return ""
+}
+
 // absorbSkillLoads trims skills__load tool results and returns skill bodies to
-// inject as user messages (EP-0045).
+// inject as user messages (EP-0045). Gated on the originating tool name so a
+// non-skills__load tool/plugin that happens to return JSON shaped like
+// SkillLoadResponse ({"loaded":true,"body":"..."}) is never mis-absorbed and
+// its output injected as a user message — mirrors the runtime loop's
+// `c.Name == "skills__load"` check.
 func (m *Model) absorbSkillLoads(results []agent.ToolResultBlock) []string {
 	var injections []string
 	for i := range results {
 		if results[i].IsError {
+			continue
+		}
+		if m.toolNameForID(results[i].ToolUseID) != "skills__load" {
 			continue
 		}
 		if body, trimmed := runtime.AbsorbSkillLoad(results[i].Content); body != "" {

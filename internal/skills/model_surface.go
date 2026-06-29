@@ -188,14 +188,17 @@ func Find(sks []Skill, name string) *Skill {
 }
 
 // Effective loads cwd skills merged with an optional persona's additive skills.
+//
+// Load returns successfully-parsed skills ALONGSIDE a per-file error for one
+// bad entry (oversize, symlink, unreadable). Effective keeps that partial
+// catalog and still merges persona skills, propagating the warning rather than
+// returning nil — a single bad skill file must not black-hole every valid
+// project + persona skill from the model listing and skills__load.
 func Effective(cwd string, personaSkills []string, personaDir string) ([]Skill, error) {
 	base, err := Load(cwd)
-	if err != nil {
-		return nil, err
-	}
 	if len(personaSkills) == 0 || strings.TrimSpace(personaDir) == "" {
-		return base, nil
+		return base, err
 	}
 	extra, _ := LoadPaths(personaDir, personaSkills)
-	return Merge(base, extra), nil
+	return Merge(base, extra), err
 }

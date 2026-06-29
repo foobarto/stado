@@ -112,6 +112,35 @@ func TestModelVisible_and_FormatModelListing(t *testing.T) {
 	}
 }
 
+// TestEffective_PreservesPartialOnLoadError: Load returns successfully-parsed
+// skills alongside a per-file error for one bad entry; Effective must keep that
+// partial catalog (and still merge persona skills) rather than black-holing
+// every valid skill on a single bad file. Regression for the Codex P2 where
+// Effective returned (nil, err), wiping the model listing + skills__load for
+// run/ACP/headless/subagent whenever any skill file was oversized/unreadable.
+func TestEffective_PreservesPartialOnLoadError(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".stado", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "good.md"), []byte("---\nname: good\ndescription: ok\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Oversized file → Load reports an error for it but still returns `good`.
+	if err := os.WriteFile(filepath.Join(dir, "big.md"), make([]byte, (1<<20)+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Effective(root, nil, "")
+	if err == nil {
+		t.Fatal("expected a per-file warning error for the oversized skill")
+	}
+	if Find(got, "good") == nil {
+		t.Fatalf("partial catalog discarded: 'good' missing (got %d skills)", len(got))
+	}
+}
+
 func TestAllowedToolsEffective_ProjectFailClosed(t *testing.T) {
 	project := Skill{Scope: ScopeProject, AllowedTools: []string{"bash"}}
 	if project.AllowedToolsEffective() {
