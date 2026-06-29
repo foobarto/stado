@@ -12,6 +12,21 @@ history:
   - date: 2026-06-29
     status: Partial
     note: >
+      Clarification (post-merge) on the `allowed-tools` trust-rule-2 wording
+      "pre-approves a prompt for an already-available tool": stado has NO
+      native-tool approval prompt — bundled tools run as soon as they are
+      surfaced (the old TUI approval loop was removed; only the opt-in plugin
+      `ui:approval` card remains, see docs/commands/tui.md). So `allowed-tools`
+      in Phase 1 == surfacing the tool onto the per-turn slate, which already
+      gives the Claude-Code "runs without asking" behavior for native tools;
+      there is no separate native approval step to skip. A 2026-06-29 operator
+      decision considered adding an approval-skip and resolved it as
+      already-satisfied (no code change); the only residual is suppressing a
+      plugin `ui:approval` card, deferred as not currently needed. See
+      .agent/decisions/2026-06-29-ep0045-phase1-merge-and-followups.md.
+  - date: 2026-06-29
+    status: Partial
+    note: >
       Phase 1 shipped — model-invocable skills land. Loader recognizes
       directory <name>/SKILL.md bundles (${STADO_SKILL_DIR} expansion) and
       flat .stado/skills/<name>.md, with the os.Root/size/entry-count/symlink
