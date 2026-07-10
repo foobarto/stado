@@ -161,6 +161,13 @@ func (s *Server) sessionDelete(raw json.RawMessage) (any, error) {
 		s.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
 	}
+	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		s.mu.Unlock()
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "session already has an active operation"}
+	}
+	sess.mu.Unlock()
 	delete(s.sessions, p.SessionID)
 	s.mu.Unlock()
 	if sess.broker != nil {

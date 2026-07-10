@@ -219,3 +219,17 @@ func TestNoToolSteerQueuesBeforeVerification(t *testing.T) {
 		t.Fatalf("turn completion cmd=%v verifying=%v queue=%q steer=%q", cmd != nil, m.verifying, m.queuedPrompt, m.steeringMsg)
 	}
 }
+
+func TestCancelledNoToolTurnSkipsVerification(t *testing.T) {
+	m := scenarioModel(t)
+	m.state = stateStreaming
+	m.turnCancelled = true
+	m.turnText = "partial response"
+	m.verifyConfig = runtime.VerifyConfig{Commands: []string{"true"}, MaxRounds: 2}
+	m.verifyEnabled = true
+
+	cmd := m.onTurnComplete()
+	if cmd != nil || m.verifying || m.state != stateIdle {
+		t.Fatalf("cancelled completion cmd=%v verifying=%v state=%v", cmd != nil, m.verifying, m.state)
+	}
+}

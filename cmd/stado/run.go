@@ -192,6 +192,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 			var continueSessID string
 			var continueWorktree string
 			var continueSession *stadogit.Session
+			var activeSession *stadogit.Session
 			persistWorktree := ""
 			persistedViewLen := 0
 			if runSessionID != "" {
@@ -315,6 +316,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 						return fmt.Errorf("session: %w", err)
 					}
 				}
+				activeSession = sess
 				persistWorktree = sess.WorktreePath
 				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
@@ -392,14 +394,14 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 			// unrestricted but every subsequent in-process write is
 			// now confined.
 			if toolsEnabled && !noSandbox {
-				if err := sandbox.ApplyLandlock(sandbox.WorktreeWrite(cwd)); err != nil {
+				if err := sandbox.ApplyLandlock(runLandlockPolicy(cwd, activeSession)); err != nil {
 					if errors.Is(err, sandbox.ErrLandlockUnavailable) {
 						fmt.Fprintln(os.Stderr, "stado run: Landlock unavailable on this kernel; continuing without in-process write confinement (bwrap still applies at the runner layer)")
 					} else {
 						return fmt.Errorf("sandbox: %w", err)
 					}
 				} else {
-					fmt.Fprintln(os.Stderr, "stado run: Landlock applied (writes confined to cwd + /tmp)")
+					fmt.Fprintln(os.Stderr, "stado run: Landlock applied (writes confined to cwd + /tmp + session audit state)")
 				}
 			}
 
@@ -430,6 +432,18 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verifica
 			return nil
 		})
 	},
+}
+
+func runLandlockPolicy(cwd string, sess *stadogit.Session) sandbox.Policy {
+	policy := sandbox.WorktreeWrite(cwd)
+	if sess == nil {
+		return policy
+	}
+	policy.FSWrite = append(policy.FSWrite, sess.WorktreePath)
+	if sess.Sidecar != nil {
+		policy.FSWrite = append(policy.FSWrite, sess.Sidecar.Path)
+	}
+	return policy
 }
 
 func runLoopUsesExitCode2(err error) bool {

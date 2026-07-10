@@ -79,7 +79,11 @@ allow-listing via a local CONNECT proxy applies to subprocess policies that use
   and landed without changing the tool-visible cwd.
 - Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
 - Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
-- `stado run` (v0.57.0+) applies Linux landlock by default, restricting writes to launch cwd + /tmp (reads remain broad at the landlock layer — the capability gate is the tighter read control). `--no-sandbox` is the explicit per-run opt-out.
+- `stado run` (v0.57.0+) applies Linux landlock by default, restricting writes
+  to launch cwd, `/tmp`, and the exact runtime-owned session worktree/sidecar
+  paths required for audit and conversation persistence (reads remain broad at
+  the landlock layer; the capability gate is the tighter read control).
+  `--no-sandbox` is the explicit per-run opt-out.
 - Residual risk: capabilities are declared per plugin and approved at install/trust time; an over-broad grant or a trusted-but-coerced tool still operates within its granted scope. There is no per-call confirmation by design (EP-0017).
 
 ### OS sandboxing & network control

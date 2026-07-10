@@ -99,6 +99,19 @@ func TestSessionDeleteUnknownErrors(t *testing.T) {
 	client.Close()
 }
 
+func TestSessionDeleteRejectsBusySession(t *testing.T) {
+	srv := NewServer(&config.Config{}, nil)
+	srv.sessions["h-1"] = &hSession{id: "h-1", busy: true}
+
+	_, err := srv.sessionDelete(json.RawMessage(`{"sessionId":"h-1"}`))
+	if err == nil || !strings.Contains(err.Error(), "active operation") {
+		t.Fatalf("busy delete error=%v", err)
+	}
+	if srv.sessions["h-1"] == nil {
+		t.Fatal("busy delete removed the active session")
+	}
+}
+
 // TestSessionCancelNoActivePromptReturnsFalse: no in-flight prompt
 // → cancelled=false, no error.
 func TestSessionCancelNoActivePromptReturnsFalse(t *testing.T) {

@@ -1049,7 +1049,7 @@ func (m *Model) onTurnComplete() tea.Cmd {
 
 	if len(m.turnToolCalls) == 0 {
 		m.resolveSteeringAtTurnEnd()
-		if m.verifyEnabled && m.verifyConfig.Enabled() {
+		if !m.turnCancelled && m.verifyEnabled && m.verifyConfig.Enabled() {
 			return m.startVerification()
 		}
 		return m.finishTurnWithoutTools()
