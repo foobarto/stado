@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,83 @@ func TestRun_SessionFlagResolvesPartialID(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+}
+
+func TestRun_FreshVerificationFailurePersistsWorkAndCritique(t *testing.T) {
+	oldLoadConfig := runLoadConfig
+	oldBuildProvider := runBuildProvider
+	oldAgentLoop := runAgentLoop
+	oldPrompt, oldSkill, oldSessionID := runPrompt, runSkill, runSessionID
+	oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox := runMaxTurns, runJSON, runNoTools, noSandbox
+	oldVerifyCommands, oldNoVerify := runVerifyCommands, runNoVerify
+	verifyFlag := runCmd.Flags().Lookup("verify")
+	oldVerifyChanged := verifyFlag.Changed
+	defer func() {
+		runLoadConfig = oldLoadConfig
+		runBuildProvider = oldBuildProvider
+		runAgentLoop = oldAgentLoop
+		runPrompt, runSkill, runSessionID = oldPrompt, oldSkill, oldSessionID
+		runMaxTurns, runJSON, runNoTools, noSandbox = oldMaxTurns, oldJSON, oldNoTools, oldNoSandbox
+		runVerifyCommands, runNoVerify = oldVerifyCommands, oldNoVerify
+		verifyFlag.Changed = oldVerifyChanged
+	}()
+
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv(envBrokerAttach, "0")
+	cwd := filepath.Join(root, "work")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	restore := chdir(t, cwd)
+	defer restore()
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Verify.Commands = []string{"false"}
+	cfg.Verify.MaxRounds = 1
+	runLoadConfig = func() (*config.Config, error) { return cfg, nil }
+	runBuildProvider = func(*config.Config) (agent.Provider, error) { return runHookProvider{}, nil }
+	runAgentLoop = func(_ context.Context, opts runtime.AgentLoopOptions) (string, []agent.Message, error) {
+		msgs := append(opts.Messages,
+			agent.Text(agent.RoleAssistant, "rejected partial work"),
+			agent.Text(agent.RoleUser, "Verification command failed: false"))
+		return "", msgs, &runtime.VerifyExhaustedError{Round: 1, Command: "false", Feedback: "failed"}
+	}
+
+	runPrompt = "do work"
+	runSkill = ""
+	runSessionID = ""
+	runMaxTurns = 2
+	runJSON = true
+	runNoTools = false
+	noSandbox = true
+	runVerifyCommands = nil
+	runNoVerify = false
+	verifyFlag.Changed = false
+
+	runCmd.SetContext(context.Background())
+	err = runCmd.RunE(runCmd, nil)
+	var coded *exitCodeError
+	if !errors.As(err, &coded) || coded.Code != 2 || !errors.Is(err, runtime.ErrVerifyExhausted) {
+		t.Fatalf("run error = %v, want exit-code-2 VerifyExhausted", err)
+	}
+	entries, err := os.ReadDir(cfg.WorktreeDir())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("worktree entries=%v err=%v", entries, err)
+	}
+	msgs, err := runtime.LoadConversation(filepath.Join(cfg.WorktreeDir(), entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 || msgs[1].Content[0].Text.Text != "rejected partial work" ||
+		!strings.Contains(msgs[2].Content[0].Text.Text, "Verification command failed") {
+		t.Fatalf("persisted failed verification messages = %+v", msgs)
+	}
 }
 
 // TestRun_SessionAppendsMessages: after a continuation run, the

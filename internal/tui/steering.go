@@ -33,7 +33,7 @@ func (m *Model) applySteer(text string) tea.Cmd {
 	if text == "" {
 		return nil
 	}
-	if m.state != stateStreaming {
+	if m.state != stateStreaming || m.verifying {
 		return m.applyQueue(text)
 	}
 	if m.steeringMsg == "" {

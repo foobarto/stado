@@ -31,6 +31,17 @@ history:
       autonomous host default policy. Broker-created subagent sessions,
       taint-at-ingestion, git-subagent mediation, and later broker-owned trust
       and audit phases remain open.
+  - date: 2026-07-10
+    status: Partial
+    note: >
+      v0.77 ordinary subagent slice: spawn_agent now creates a typed broker
+      child linked by parent_session_id. The broker projects from the parent's
+      current effective policy, retains masks/timeouts, strips SSH-agent
+      access, validates and rebases only a stado-managed child worktree, and
+      refuses profile changes. AgentLoop and the TUI now reset taint at trusted
+      operator turns and mark it at tool-result ingestion before re-entry.
+      Elevated git-subagent socket/approval/dispatch work is explicitly split
+      to GitHub #238; phases 5, 7, and 8 keep this EP Partial.
 ---
 
 # EP-50: Broker
@@ -172,8 +183,9 @@ Request:
 {
   "purpose": "main-chat" | "subagent" | "tool-run",
   "profile": "default" | "hardened" | "no-sandbox",
-  "cwd": "/abs/path",
+  "cwd": "/abs/path", // managed child worktree for purpose=subagent
   // sub-agent only:
+  "parent_session_id": "<active parent broker session>",
   "role": "explorer" | "worker",
   "mode": "read_only" | "workspace_write",
   "write_scope": ["./pkg/foo", "./pkg/bar"],
@@ -381,19 +393,40 @@ The explicit `--no-sandbox` profile also selects `NoneRunner` and removes the
 host default policy on every surface. WASM process imports use the executor's
 runner, and the runner resolves and validates its CWD against the ceiling
 before mounting it. This closes the top-level part of phase 2; subagents still
-need their own broker-created child session so role, mode, and write scope can
-be projected rather than inheriting the parent's ceiling.
+use their own broker-created child session so role, mode, and write scope are
+projected from the parent's current effective set rather than inherited whole.
+
+## Revision: ordinary broker children and ingestion taint (2026-07-10)
+
+`spawn_agent` now materializes its isolated git worktree and requests a broker
+child using `parent_session_id`, role, mode, and write scope. The broker rejects
+missing/terminated parents and profile changes. It projects against the
+parent's current effective set, carries restriction-only fields (mask and
+timeout), removes ordinary-child SSH-agent access, and rebases the checkout
+root only after validating that the destination is a direct, non-symlink child
+of stado's managed worktree root. The child executor applies the returned
+ceiling and terminates the broker handle when work finishes.
+
+At runtime, trusted operator prompts reset the parent handle to `clean` and
+tool results mark it `tainted` before the model can make another call. This is
+the conservative origin-based over-approximation from DESIGN.md. The same
+boundary is wired in `runtime.AgentLoop` (run/headless/ACP/subagents) and the
+TUI's separate stream loop.
+
+The elevated git child is not hidden inside this ordinary-child slice. Filtered
+SSH-agent materialization, approval-once UX, declared-host egress, and the
+actual git verb dispatch gate remain GitHub #238.
 
 ## Remaining phases
 
 | Phase | Scope |
 |-------|-------|
-| 2 | **Top-level implemented.** Sandbox-first default execution; broker ceiling threaded into TUI/run/headless/ACP/MCP executors; startup announcement. Broker-created subagents remain later work. |
+| 2 | **Top-level and ordinary children implemented.** Sandbox-first default execution; broker ceiling threaded into TUI/run/headless/ACP/MCP executors and projected child executors; startup announcement. |
 | 3 | Mount-and-namespace invariant table enforced in code + CI assertion. `~/.ssh/config` default-profile decision point resolved. |
 | 4 | Session capability model in code. Ceiling/effective vocabulary applied to `Policy`. Drop-only effective set. Widening-via-fork. |
 | 5 | Trust-root + audit-trace writer invariants. Trust ring + signing keys mounted RO. Broker owns sole writable handle to sidecar. Broker-decision log at canonical path. |
-| 6 | Provenance / taint tagging at ingestion. |
-| 7 | ssh-agent + git sub-agent. (Last per operator ruling — most tuning expected.) |
+| 6 | **Mechanical turn taint implemented.** Trusted operator boundary resets clean; tool-result ingestion taints before model re-entry on AgentLoop and TUI paths. Per-span metadata/audit detail can still deepen. |
+| 7 | **Substrate only.** Elevated filtered ssh-agent + git sub-agent runtime, approval, and dispatch enforcement split to GitHub #238. |
 | 8 | `stado session tree` as broker client. |
 
 ## References

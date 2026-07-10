@@ -2,12 +2,23 @@
 ep: 46
 title: Verify-Work Phase — command-gate and LLM-judge verification
 author: Bartosz Ptaszynski <bartosz@foobarto.me>
-status: Draft
+status: Partial
 type: Standards
 created: 2026-06-17
 requires: [9, 38]
 see-also: [7, 36, 37, 44, 45]
 history:
+  - date: 2026-07-10
+    status: Partial
+    version: v0.77.0
+    note: >
+      Phase 1 command gates shipped. Ordered commands run through the shared
+      sandboxed/audited shell executor at natural loop exit, failed output is
+      fed back into bounded model retries, and exhaustion returns the typed
+      verify_exhausted error. TUI and programmatic surfaces emit phase status;
+      run adds repeatable --verify and --no-verify controls. Project [verify]
+      is stripped by EP-44. The independent LLM judge and EP-47 structured
+      result envelope remain deferred, so this EP stays Partial.
   - date: 2026-06-17
     status: Draft
     note: Initial draft. Borrows the agentic loop's "verify work" phase

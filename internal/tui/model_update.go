@@ -49,6 +49,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return onStreamError(m, msg)
 	case streamDoneMsg:
 		return onStreamDone(m, msg)
+	case verifyResultMsg:
+		return onVerifyResult(m, msg)
 	case btwResultMsg:
 		return onBtwResult(m, msg)
 

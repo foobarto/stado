@@ -19,9 +19,11 @@ import (
 type writeScopeTestHost struct {
 	tools.NullHost
 	workdir string
+	policy  any
 }
 
-func (h writeScopeTestHost) Workdir() string { return h.workdir }
+func (h writeScopeTestHost) Workdir() string           { return h.workdir }
+func (h writeScopeTestHost) DefaultSandboxPolicy() any { return h.policy }
 
 func TestNewScopedWriteHostNormalizesScope(t *testing.T) {
 	base := writeScopeTestHost{workdir: t.TempDir()}
@@ -43,6 +45,17 @@ func TestNewScopedWriteHostRequiresScope(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "write_scope is required") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestScopedWriteHostPreservesDefaultSandboxPolicy(t *testing.T) {
+	policy := &struct{ name string }{name: "broker-child"}
+	host, err := NewScopedWriteHost(writeScopeTestHost{workdir: t.TempDir(), policy: policy}, []string{"src/**"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := host.DefaultSandboxPolicy(); got != policy {
+		t.Fatalf("default sandbox policy = %#v, want wrapped policy", got)
 	}
 }
 

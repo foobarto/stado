@@ -48,11 +48,13 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 	child := sandbox.Policy{
 		// Reads always attenuate to parent's read set; the child
 		// can only read what the parent could read.
-		FSRead: append([]string(nil), parent.FSRead...),
-		Net:    parent.Net,
-		Exec:   append([]string(nil), parent.Exec...),
-		Env:    append([]string(nil), parent.Env...),
-		CWD:    parent.CWD,
+		FSRead:  append([]string(nil), parent.FSRead...),
+		Net:     parent.Net,
+		Exec:    append([]string(nil), parent.Exec...),
+		Env:     withoutString(parent.Env, "SSH_AUTH_SOCK"),
+		CWD:     parent.CWD,
+		Timeout: parent.Timeout,
+		Mask:    append([]string(nil), parent.Mask...),
 	}
 
 	// Default (and read-only roles) get no writes.
@@ -73,6 +75,16 @@ func SubagentCeiling(parent sandbox.Policy, role, mode string, writeScope []stri
 	}
 	child.FSWrite = allowed
 	return child, dropped
+}
+
+func withoutString(values []string, drop string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != drop {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // anyParentCovers reports whether requested is the same as, or a
@@ -122,6 +134,16 @@ func IsSubsetOf(candidate, reference sandbox.Policy) bool {
 		return false
 	}
 	if !netSubset(candidate.Net, reference.Net) {
+		return false
+	}
+	if !exactSubset(candidate.Sockets, reference.Sockets) {
+		return false
+	}
+	// Masks restrict access, so a child must retain every parent mask.
+	if !exactSubset(reference.Mask, candidate.Mask) {
+		return false
+	}
+	if reference.Timeout > 0 && (candidate.Timeout == 0 || candidate.Timeout > reference.Timeout) {
 		return false
 	}
 	return true
@@ -203,9 +225,33 @@ func (s *Service) NarrowEffective(sessionID string, narrowed sandbox.Policy) err
 	if st.terminated {
 		return ErrSessionTerminated
 	}
+	// Restriction-only fields are sticky. Callers narrowing a capability set
+	// commonly specify only the allow dimensions; omission must not remove a
+	// parent mask or timeout and accidentally turn a partial update into a
+	// widening request.
+	narrowed.Mask = appendMissing(narrowed.Mask, st.handle.Effective.Mask)
+	if narrowed.Timeout == 0 {
+		narrowed.Timeout = st.handle.Effective.Timeout
+	}
 	if !IsSubsetOf(narrowed, st.handle.Effective) {
 		return fmt.Errorf("%w (session %s)", ErrEffectiveWiderThanCeiling, sessionID)
 	}
 	st.handle.Effective = narrowed
 	return nil
+}
+
+func appendMissing(dst, required []string) []string {
+	out := append([]string(nil), dst...)
+	seen := make(map[string]struct{}, len(out))
+	for _, value := range out {
+		seen[value] = struct{}{}
+	}
+	for _, value := range required {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = struct{}{}
+	}
+	return out
 }

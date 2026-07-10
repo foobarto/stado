@@ -641,6 +641,14 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 			m.slashInline = false
 			return m, m.handleSlash(text), true
 		}
+		// Verification has no model/tool boundary where a steer could be
+		// injected. Treat ordinary Enter as an explicit next-turn queue so the
+		// operator's message survives pass, cancellation, or exhaustion.
+		if m.verifying {
+			m.input.History.Push(text)
+			m.input.Reset()
+			return m, m.applyQueue(text), true
+		}
 		// EP-0033: supervisor lane — classify input and route accordingly.
 		if m.cfg != nil && m.cfg.Supervisor.Enabled {
 			switch classifyInput(text) {
@@ -772,6 +780,11 @@ func submitInput(m *Model) (tea.Model, tea.Cmd, bool) {
 		m.input.History.Push(text)
 		m.input.Reset()
 		tuiTrace("submit queued behind startup provider probe", "chars", len(text))
+		return m, nil, true
+	}
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.appendBlock(block{kind: "system", body: "broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
 		return m, nil, true
 	}
 	m.input.History.Push(text)

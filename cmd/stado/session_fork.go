@@ -36,7 +36,7 @@ var sessionForkCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(context.Context, *telemetry.Runtime) error {
 			at, _ := cmd.Flags().GetString("at")
 
 			var atCommit plumbing.Hash
@@ -78,7 +78,7 @@ var sessionRevertCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		return withTelemetry(cmd.Context(), cfg, func(context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(context.Context, *telemetry.Runtime) error {
 			sc, err := openSidecar(cfg)
 			if err != nil {
 				return err

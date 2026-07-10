@@ -54,6 +54,16 @@ type Config struct {
 	Supervisor Supervisor `koanf:"supervisor"`
 	Harness    Harness    `koanf:"harness"`
 	LSP        LSP        `koanf:"lsp"`
+	Verify     Verify     `koanf:"verify"`
+}
+
+// Verify configures the opt-in command gate at the agent loop's natural exit.
+// Commands are operator-authored and always execute through the session tool
+// sandbox, never a raw host shell.
+type Verify struct {
+	Commands  []string `koanf:"commands"`
+	MaxRounds int      `koanf:"max_rounds"`
+	Strict    bool     `koanf:"strict"`
 }
 
 // LSP is the [lsp] config section.
@@ -935,7 +945,7 @@ func Load() (*Config, error) {
 				"acp", "mcp.providers", "mcp.servers",
 				"tui.sidebar", "tui.footer",
 				"lsp.auto_diagnostics",
-				"sandbox", "runtime", "inference",
+				"sandbox", "runtime", "inference", "verify",
 			}
 			warned := map[string]bool{}
 			for _, leaf := range pk.Keys() {
@@ -990,6 +1000,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.Agent.ThinkingBudgetTokens == 0 {
 		cfg.Agent.ThinkingBudgetTokens = 16384
+	}
+	if len(cfg.Verify.Commands) > 0 && cfg.Verify.MaxRounds == 0 {
+		cfg.Verify.MaxRounds = 3
+	}
+	if cfg.Verify.MaxRounds < 0 {
+		return nil, fmt.Errorf("verify.max_rounds must be >= 0")
 	}
 	cfg.TUI.ThinkingDisplay = normalizeThinkingDisplay(cfg.TUI.ThinkingDisplay)
 	cfg.TUI.ToolDisplay = normalizeToolDisplay(cfg.TUI.ToolDisplay)

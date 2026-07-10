@@ -15,18 +15,25 @@ history:
     status: Implemented
     version: v0.1.0
     note: OTel spans, metrics, disabled-safe runtime startup, and fork/resume trace continuity are shipped.
+  - date: 2026-07-10
+    status: Implemented
+    version: v0.77.0
+    note: >
+      The supported metric contract is now emitted rather than declaration-only:
+      attributed tool latency plus provider/model token totals and cache-hit
+      ratio are threaded through TUI, run, headless, ACP, MCP, daemon, and
+      nested executors. Declaration-only approval, sandbox-denial, and active-
+      session instruments were removed until reliable central event sources
+      exist. In-memory SDK-reader coverage pins the live path.
 ---
 
 # EP-11: Observability and Telemetry
 
-> **As-built caveat (EP-gap audit 2026-06-14).** `status: Implemented` covers
-> the OTel scaffolding (tracer/meter setup, span helpers, instrument
-> declarations), not full coverage. Several declared surfaces have no recording
-> call sites yet: the `stado.session` and `stado.sandbox.exec` spans, and the
-> `stado_tokens_total`, `stado_cache_hit_ratio`, `approval_rate`,
-> `sandbox_denials_total`, `sessions_active`, and `tool_latency_ms` instruments
-> (`BuildExecutor` does not set `Metrics`). Treat the instrument list below as
-> the intended surface; emission is partial.
+> **As-built caveat (updated 2026-07-10).** The supported metrics are live:
+> `stado_tool_latency_ms`, `stado_tokens_total`, and
+> `stado_cache_hit_ratio`. The `stado.session` and `stado.sandbox.exec` span
+> constants still lack complete lifecycle recording, so span coverage remains
+> partial even though the metric contract is no longer declaration-only.
 
 ## Problem
 
@@ -84,16 +91,15 @@ boundaries. `stado.sandbox.exec` remains the execution-level child span
 for sandboxed process launches. These names are kept stable so dashboards
 and traces survive refactors.
 
-Metrics are defined once in `internal/telemetry/metrics.go` and treated
-as the baseline runtime instrument surface. That surface currently
-declares tool latency, token totals, prompt-cache hit ratio, approval
-decisions, sandbox denials, and active sessions, but it should not be
-read as claiming that every one of those instruments is emitted with the
-same breadth today. The clearly-wired runtime recording path today is
-tool-call latency in the executor; the remaining declared instruments
-establish the telemetry contract and naming surface that other runtime
-paths and future coverage are expected to use rather than inventing
-parallel metrics.
+Metrics are defined once in `internal/telemetry/metrics.go`. Tool latency is
+recorded end to end with `tool` and `outcome`; token counters use `provider`,
+`model`, and `direction`; cache-hit ratio uses the same provider/model
+dimensions and the TUI formula `cache_read / (cache_read + uncached_input)`.
+The runtime object is passed explicitly into every executor-owning surface,
+including later executor rebuilds and nested subagents. Instruments without a
+reliable central event source are not declared speculatively; approval,
+sandbox-denial, and active-session metrics can return when their lifecycle
+events are centralized and testable.
 
 Cross-process trace continuity is explicit. When `stado session fork`
 creates a child worktree, it writes the parent fork span's W3C

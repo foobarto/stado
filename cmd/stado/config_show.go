@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/runtime"
 )
 
 var configShowJSON bool
@@ -124,6 +125,17 @@ func renderConfigHuman(w interface {
 	} else {
 		write("  hard_usd   (unset — no hard gate)\n\n")
 	}
+
+	write("[verify]\n")
+	if len(cfg.Verify.Commands) == 0 {
+		write("  commands    (unset - disabled)\n")
+	} else {
+		for _, command := range cfg.Verify.Commands {
+			write("  command     %s\n", command)
+		}
+	}
+	write("  max_rounds  %d\n", runtime.VerifyConfigFrom(cfg).MaxRounds)
+	write("  strict      %v\n\n", cfg.Verify.Strict)
 
 	// [hooks] — turn-boundary notification (post_turn) + scriptable
 	// lifecycle deny/mutate hooks. Only render when configured; an

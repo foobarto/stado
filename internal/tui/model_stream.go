@@ -612,20 +612,39 @@ func (m *Model) promoteQueuedPrompt() tea.Cmd {
 		return nil
 	}
 	queued := m.queuedPrompt
-	m.queuedPrompt = ""
-	// Unmark the queued block before dispatching — for a slash command we
-	// route to handleSlash and return early, so clearing here (not after)
-	// avoids leaving a permanently queued=true user block in the transcript.
-	m.clearQueuedUserBlock(false)
 	if strings.HasPrefix(queued, "/") {
+		m.queuedPrompt = ""
+		m.clearQueuedUserBlock(false)
 		return m.handleSlash(queued)
 	}
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.restoreQueuedPromptToInput()
+		m.appendBlock(block{kind: "system", body: "broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
+	m.queuedPrompt = ""
+	// Unmark only after the broker accepted the operator boundary. Until then,
+	// the queued prompt remains recoverable without mutating the transcript.
+	m.clearQueuedUserBlock(false)
 	m.maybeAutoTitleSession(queued)
 	msg := agent.Text(agent.RoleUser, queued)
 	m.msgs = append(m.msgs, msg)
 	m.persistMessage(msg)
 	tuiTrace("queued prompt promoted", "chars", len(queued))
 	return m.startStream()
+}
+
+func (m *Model) setBrokerTaint(state runtime.ContextTaint) error {
+	if m.broker != nil {
+		if err := m.broker.SetTaint(m.rootCtx, state); err != nil {
+			return err
+		}
+	}
+	if state == runtime.ContextClean {
+		m.verifyRounds = 0
+	}
+	return nil
 }
 
 func (m *Model) restoreQueuedPromptToInput() string {
@@ -635,9 +654,14 @@ func (m *Model) restoreQueuedPromptToInput() string {
 	queued := m.queuedPrompt
 	m.queuedPrompt = ""
 	m.clearQueuedUserBlock(true)
-	m.input.SetValue(queued)
-	tuiTrace("queued prompt restored to input", "chars", len(queued))
-	return queued
+	draft := m.input.Value()
+	restored := queued
+	if draft != "" {
+		restored += "\n" + draft
+	}
+	m.input.SetValue(restored)
+	tuiTrace("queued prompt restored to input", "chars", len(restored))
+	return restored
 }
 
 func (m *Model) requestPluginApproval(ctx context.Context, title, body string) (bool, error) {
@@ -705,6 +729,8 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvDone:
 		if ev.Usage != nil {
+			m.metrics.RecordTurnUsage(m.rootCtx, m.providerDisplayName(), m.model,
+				ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.CacheReadTokens)
 			m.usage.InputTokens = ev.Usage.InputTokens
 			m.cumulativeInputTokens += ev.Usage.InputTokens
 			m.usage.OutputTokens += ev.Usage.OutputTokens
@@ -1022,54 +1048,45 @@ func (m *Model) onTurnComplete() tea.Cmd {
 	}
 
 	if len(m.turnToolCalls) == 0 {
-		if m.session != nil {
-			if err := m.session.NextTurn(); err != nil {
-				m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
-			}
+		m.resolveSteeringAtTurnEnd()
+		if m.verifyEnabled && m.verifyConfig.Enabled() {
+			return m.startVerification()
 		}
-		m.state = stateIdle
-		// Backstop: any block still flagged streaming at turn end (e.g. a
-		// trailing thinking block with no following answer) is done now, so
-		// auto mode collapses it. Re-render to reflect the collapse; the
-		// scroll-anchor in renderBlocks keeps a bottom-pinned view pinned.
-		m.finalizeStreamingBlocks()
-		m.renderBlocks()
-		// #16: a steering message with no tool boundary to ride (the turn
-		// used no tools) couldn't be injected mid-turn. Resolve it now and
-		// ALWAYS clear it — it must never leak into a later turn's
-		// drainSteering. Promote to the next turn only when the turn wasn't
-		// cancelled and the queued-prompt slot is free.
-		if m.steeringMsg != "" {
-			switch {
-			case m.turnCancelled:
-				// Turn abandoned — drop the steer (the cancel already notified).
-			case m.queuedPrompt == "":
-				m.queuedPrompt = m.steeringMsg
-				// Show it as a queued user block so the promoted message is
-				// visible when it runs (promoteQueuedPrompt unmarks it).
-				m.appendBlock(block{kind: "user", body: m.steeringMsg, queued: true})
-			default:
-				m.appendBlock(block{kind: "system", body: "steering message dropped — a queued prompt takes priority: " + trimSeed(m.steeringMsg, 60)})
-			}
-			m.steeringMsg = ""
-		}
-		// Drain any queued follow-up message the user typed while the
-		// previous turn was streaming. The block was already appended
-		// at queue-time for immediate visual feedback; drain just
-		// adds the message to m.msgs (the LLM-facing history) and
-		// kicks the next turn. Slash commands route through
-		// handleSlash. Queued prompts bypass the hard-threshold gate
-		// on the theory that if the user decided to queue something
-		// mid-stream, they can react to the block on arrival.
-		if m.queuedPrompt != "" {
-			return m.promoteQueuedPrompt()
-		}
-		return nil
+		return m.finishTurnWithoutTools()
 	}
 
 	m.pendingCalls = append([]agent.ToolUseBlock{}, m.turnToolCalls...)
 	m.pendingResults = nil
 	return m.advanceToolQueue()
+}
+
+func (m *Model) finishTurnWithoutTools() tea.Cmd {
+	if m.session != nil {
+		if err := m.session.NextTurn(); err != nil {
+			m.appendBlock(block{kind: "system", body: "turn boundary failed: " + err.Error()})
+		}
+	}
+	m.state = stateIdle
+	m.finalizeStreamingBlocks()
+	m.renderBlocks()
+	if m.queuedPrompt != "" {
+		return m.promoteQueuedPrompt()
+	}
+	return nil
+}
+
+func (m *Model) resolveSteeringAtTurnEnd() {
+	if m.steeringMsg != "" {
+		switch {
+		case m.turnCancelled:
+		case m.queuedPrompt == "":
+			m.queuedPrompt = m.steeringMsg
+			m.appendBlock(block{kind: "user", body: m.steeringMsg, queued: true})
+		default:
+			m.appendBlock(block{kind: "system", body: "steering message dropped — a queued prompt takes priority: " + trimSeed(m.steeringMsg, 60)})
+		}
+		m.steeringMsg = ""
+	}
 }
 
 // advanceToolQueue executes pending tool calls one-by-one without an
@@ -1250,6 +1267,8 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 		SystemTemplate:           m.systemPromptTemplate,
 		AgentName:                "stado-tui-subagent",
 		QuietRegistryDiagnostics: true,
+		Metrics:                  m.metrics,
+		Broker:                   m.broker,
 		OnEvent: func(ev runtime.SubagentEvent) {
 			if m.program != nil {
 				m.program.Send(subagentEventMsg{ev: ev})

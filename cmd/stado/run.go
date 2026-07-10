@@ -31,20 +31,22 @@ import (
 )
 
 var (
-	runPrompt        string
-	runMaxTurns      int
-	runNoTurnLimit   bool
-	runJSON          bool
-	runQuiet         bool
-	runNoTools       bool
-	runMode          string // --mode harness mode (EP-0030)
-	runTools         string // --tools (whitelist; comma-separated globs)
-	runToolsAutoload string // --tools-autoload
-	runToolsDisable  string // --tools-disable
-	runSessionID     string
-	runSkill         string
-	runPersona       string // --persona; empty = config default → bundled default
-	runHeadless      bool   // --headless: serve the JSON-RPC daemon instead of a one-shot prompt (was `stado headless`)
+	runPrompt         string
+	runMaxTurns       int
+	runNoTurnLimit    bool
+	runJSON           bool
+	runQuiet          bool
+	runNoTools        bool
+	runMode           string // --mode harness mode (EP-0030)
+	runTools          string // --tools (whitelist; comma-separated globs)
+	runToolsAutoload  string // --tools-autoload
+	runToolsDisable   string // --tools-disable
+	runSessionID      string
+	runSkill          string
+	runPersona        string // --persona; empty = config default → bundled default
+	runHeadless       bool   // --headless: serve the JSON-RPC daemon instead of a one-shot prompt (was `stado headless`)
+	runVerifyCommands []string
+	runNoVerify       bool
 	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
 	runTemperature float64
 	runTopP        float64
@@ -98,7 +100,7 @@ over stdio (multi-session; for CI and editor integration) instead of running
 a single prompt. This replaces the former ` + "`stado headless`" + ` command;
 see docs/commands/headless.md for the method reference.
 
-Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
+Exit codes: 0 success; 1 provider/IO error; 2 max-turns, budget cap, or verification exhaustion.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// --headless turns `run` into the JSON-RPC daemon (the surface
 		// formerly exposed as `stado headless`): a persistent multi-session
@@ -155,7 +157,13 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 		if cmd.Flags().Changed("top-k") {
 			cfg.Sampling.TopK = &runTopK
 		}
-		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context) error {
+		if cmd.Flags().Changed("verify") {
+			cfg.Verify.Commands = append([]string(nil), runVerifyCommands...)
+		}
+		if runNoVerify {
+			cfg.Verify.Commands = nil
+		}
+		return withTelemetry(cmd.Context(), cfg, func(runCtx context.Context, rt *telemetry.Runtime) error {
 			// F1: scriptable deny/mutate lifecycle hooks (Lua). Built
 			// once and wired into BOTH the agent loop (LLM-side points)
 			// and the executor (tool-side points) below.
@@ -184,6 +192,8 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			var continueSessID string
 			var continueWorktree string
 			var continueSession *stadogit.Session
+			persistWorktree := ""
+			persistedViewLen := 0
 			if runSessionID != "" {
 				resolved, err := resolveSessionID(cfg, runSessionID)
 				if err != nil {
@@ -196,10 +206,12 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				continueSessID = resolved
 				continueSession = sess
 				continueWorktree = sess.WorktreePath
+				persistWorktree = sess.WorktreePath
 				priorMsgs, err = runtime.LoadConversation(continueWorktree)
 				if err != nil {
 					return fmt.Errorf("run: load conversation for %s: %w", resolved, err)
 				}
+				persistedViewLen = len(priorMsgs)
 				fmt.Fprintf(os.Stderr,
 					"stado run: continuing session %s (%d prior message(s))\n",
 					resolved, len(priorMsgs))
@@ -254,15 +266,17 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				fmt.Fprintf(os.Stderr, "stado run: skills %v are unreachable (disable-model-invocation + user-invocable: false)\n", inert)
 			}
 			opts := runtime.AgentLoopOptions{
-				Provider: prov,
-				Config:   cfg,
-				Model:    cfg.Defaults.Model,
-				Messages: append(priorMsgs, newUserMsg),
-				MaxTurns: maxTurns,
-				Persona:  persona,
-				Skills:   effectiveSkills,
-				Hooks:    lifecycleHooks,
-				OnEvent:  emitter(runJSON, runQuiet, os.Stdout),
+				Provider:      prov,
+				Config:        cfg,
+				Metrics:       rt.M(),
+				Model:         cfg.Defaults.Model,
+				Messages:      append(priorMsgs, newUserMsg),
+				MaxTurns:      maxTurns,
+				Persona:       persona,
+				Skills:        effectiveSkills,
+				Hooks:         lifecycleHooks,
+				OnEvent:       emitter(runJSON, runQuiet, os.Stdout),
+				OnVerifyEvent: verifyEmitter(runJSON, os.Stdout, os.Stderr),
 				OnTurnComplete: func(turnIndex int, text string, _ []agent.ToolUseBlock, usage agent.Usage, duration time.Duration) {
 					hookRunner.FirePostTurn(runCtx, hooks.NewPostTurnPayload(turnIndex, usage, text, duration))
 				},
@@ -284,6 +298,9 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 			// executor entirely. --tools (string) is a whitelist of
 			// globs applied below if non-empty; empty = all enabled.
 			toolsEnabled := !runNoTools
+			if !toolsEnabled && runtime.VerifyConfigFrom(cfg).Enabled() {
+				return errors.New("stado run: verification commands require tools; remove --no-tools or pass --no-verify")
+			}
 			if toolsEnabled {
 				cwd, _ := os.Getwd()
 				toolWorktree := cwd
@@ -298,6 +315,8 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 						return fmt.Errorf("session: %w", err)
 					}
 				}
+				persistWorktree = sess.WorktreePath
+				persistedViewLen = len(priorMsgs)
 				// EP-0030: harness mode flag overrides config.
 				if runMode != "" {
 					cfg.Harness.Mode = runMode
@@ -312,7 +331,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				if runToolsDisable != "" {
 					cfg.Tools.Disabled = append(cfg.Tools.Disabled, splitComma(runToolsDisable)...)
 				}
-				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run")
+				opts.Executor, err = runtime.BuildExecutor(sess, cfg, "stado-run", rt.M())
 				if err != nil {
 					return fmt.Errorf("tools: %w", err)
 				}
@@ -355,6 +374,7 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				return fmt.Errorf("stado run: %w", brokerErr)
 			}
 			brokerSession.AnnounceSandboxMode(os.Stderr, "stado run")
+			opts.Broker = brokerSession
 			defer func() {
 				if closeErr := brokerSession.Close(); closeErr != nil {
 					fmt.Fprintf(os.Stderr, "stado run: broker session.terminate: %v\n", closeErr)
@@ -383,27 +403,10 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				}
 			}
 
-			_, finalMsgs, err := runAgentLoop(ctx, opts)
-			if err != nil {
-				if errors.Is(err, runtime.ErrCostCapExceeded) {
-					fmt.Fprintln(os.Stderr, "stado run: "+err.Error())
-					fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
-					os.Exit(2)
-				}
-				if strings.Contains(err.Error(), "exceeded") {
-					fmt.Fprintln(os.Stderr, err.Error())
-					os.Exit(2)
-				}
-				return err
-			}
-			if continueWorktree != "" && continueSessID != "" {
-				for i, m := range finalMsgs {
-					if i < len(priorMsgs) {
-						continue
-					}
-					if err := runtime.AppendMessage(continueWorktree, m); err != nil {
-						fmt.Fprintf(os.Stderr, "stado run: persist message %d: %v\n", i, err)
-					}
+			_, finalMsgs, loopErr := runAgentLoop(ctx, opts)
+			if persistWorktree != "" {
+				if _, err := runtime.AppendMessagesFrom(persistWorktree, finalMsgs, persistedViewLen); err != nil {
+					fmt.Fprintf(os.Stderr, "stado run: persist conversation: %v\n", err)
 				}
 				if continueSession != nil && opts.Executor == nil {
 					if err := continueSession.NextTurn(); err != nil {
@@ -411,12 +414,49 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 					}
 				}
 			}
+			if loopErr != nil {
+				if errors.Is(loopErr, runtime.ErrCostCapExceeded) {
+					fmt.Fprintln(os.Stderr, "  raise [budget].hard_usd in config.toml or pass a larger budget to continue.")
+					return &exitCodeError{Code: 2, Err: loopErr}
+				}
+				if runLoopUsesExitCode2(loopErr) {
+					return &exitCodeError{Code: 2, Err: loopErr}
+				}
+				return loopErr
+			}
 			if !runJSON {
 				fmt.Fprintln(os.Stdout)
 			}
 			return nil
 		})
 	},
+}
+
+func runLoopUsesExitCode2(err error) bool {
+	return errors.Is(err, runtime.ErrTokenCapExceeded) ||
+		errors.Is(err, runtime.ErrMaxTurnsExceeded) ||
+		errors.Is(err, runtime.ErrVerifyExhausted)
+}
+
+func verifyEmitter(jsonOut bool, out, errOut io.Writer) func(runtime.VerifyEvent) {
+	return func(ev runtime.VerifyEvent) {
+		if jsonOut {
+			encoded, _ := json.Marshal(map[string]any{
+				"type": "verify", "status": ev.Status, "round": ev.Round,
+				"command": ev.Command, "output": ev.Output,
+			})
+			fmt.Fprintln(out, string(encoded))
+			return
+		}
+		switch ev.Status {
+		case runtime.VerifyPending:
+			fmt.Fprintln(errOut, "stado verify: candidate output buffered until verification")
+		case runtime.VerifyStarted:
+			fmt.Fprintf(errOut, "stado verify: round %d: %s\n", ev.Round, ev.Command)
+		case runtime.VerifyFailed, runtime.VerifyInfrastructure, runtime.VerifyCancelled, runtime.VerifyGenerationError, runtime.VerifyExhausted:
+			fmt.Fprintf(errOut, "stado verify: %s: %s\n", ev.Status, strings.TrimSpace(ev.Output))
+		}
+	}
 }
 
 // emitter returns an OnEvent callback that streams to out.
@@ -493,7 +533,7 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		}
 		defaultPersona = p
 	}
-	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 		cwd, _ := os.Getwd()
 		brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
 		if brokerErr != nil {
@@ -518,6 +558,8 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(os.Stderr, "stado run --headless: ready (JSON-RPC 2.0, stdio)%s\n", personaTag)
 		srv := headless.NewServer(cfg, prov)
+		srv.Metrics = rt.M()
+		srv.BrokerFactory = brokerSession.CreatePeer
 		srv.DefaultPersona = defaultPersona
 		srv.ExecutorSandbox = brokerExecutorSandbox(brokerSession, noSandbox)
 		return srv.Serve(ctx, os.Stdin, os.Stdout)
@@ -556,6 +598,10 @@ func init() {
 	runCmd.Flags().BoolVar(&runQuiet, "quiet", false, "Suppress tool-call preview lines on stdout (non-JSON mode); tools still run and still commit")
 	runCmd.Flags().BoolVar(&runNoTools, "no-tools", false,
 		"Disable tools — pure-chat mode (no session, no audit).")
+	runCmd.Flags().StringArrayVar(&runVerifyCommands, "verify", nil,
+		"Run this sandboxed command before accepting completion (repeatable; overrides [verify].commands)")
+	runCmd.Flags().BoolVar(&runNoVerify, "no-verify", false,
+		"Disable configured verification commands for this run")
 	// --no-sandbox is a persistent root flag (see main.go), so it works for the
 	// TUI/acp/headless/mcp-server too, not just `run`. Do not re-register it
 	// here — a duplicate would panic at init.

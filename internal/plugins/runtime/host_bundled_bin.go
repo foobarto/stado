@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
@@ -20,14 +21,40 @@ func bundledBinPath(host *Host, name string) (string, error) {
 	if !host.BundledBin {
 		return "", fmt.Errorf("bundled-bin:%s capability required", name)
 	}
+	var path string
+	var err error
 	switch name {
 	case "ripgrep", "rg":
-		return rg.BundledPath()
+		path, err = rg.BundledPath()
 	case "ast-grep", "astgrep", "sg":
-		return astgrep.BundledPath()
+		path, err = astgrep.BundledPath()
 	default:
 		return "", fmt.Errorf("stado_bundled_bin: unknown binary %q", name)
 	}
+	if err != nil {
+		return "", err
+	}
+	return authorizeBundledExecPath(host, path)
+}
+
+// authorizeBundledExecPath binds the exact extractor-owned path into this
+// invocation's exec ceiling. A basename cap cannot authorize a path-containing
+// argv[0], so only the trusted path returned by stado_bundled_bin is added.
+func authorizeBundledExecPath(host *Host, path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("stado_bundled_bin: absolute path: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		abs = resolved
+	}
+	for _, allowed := range host.ExecProcGlobs {
+		if allowed == abs {
+			return abs, nil
+		}
+	}
+	host.ExecProcGlobs = append(host.ExecProcGlobs, abs)
+	return abs, nil
 }
 
 func registerBundledBinImport(builder wazero.HostModuleBuilder, host *Host) {

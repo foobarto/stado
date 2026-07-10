@@ -35,6 +35,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	if sess == nil {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
 	}
+	if runtime.VerifyConfigFrom(s.Cfg).Enabled() && !p.Tools {
+		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "verification commands require tools=true"}
+	}
 	if s.Provider == nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "no provider configured"}
 	}
@@ -108,6 +111,8 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	opts := runtime.AgentLoopOptions{
 		Provider: s.Provider,
 		Config:   s.Cfg,
+		Metrics:  s.Metrics,
+		Broker:   sess.broker,
 		Model:    s.Cfg.Defaults.Model,
 		Messages: localMsgs,
 		MaxTurns: 10,
@@ -160,6 +165,15 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 		OnSubagentEvent: func(ev runtime.SubagentEvent) {
 			s.emitSubagentUpdate(p.SessionID, ev)
 		},
+		OnVerifyEvent: func(ev runtime.VerifyEvent) {
+			_ = s.conn.Notify("session.update", map[string]any{
+				"sessionId": p.SessionID, "kind": "verify", "status": ev.Status,
+				"round": ev.Round, "command": ev.Command, "output": ev.Output,
+			})
+		},
+	}
+	if opts.Broker == nil {
+		opts.Broker = s.Broker
 	}
 
 	if p.Tools {
@@ -179,9 +193,6 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	}
 
 	text, msgs, err := runtime.AgentLoop(pctx, opts)
-	if err != nil {
-		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
-	}
 
 	sess.mu.Lock()
 	gs := sess.gitSess
@@ -200,6 +211,9 @@ func (s *Server) sessionPrompt(ctx context.Context, raw json.RawMessage) (any, e
 	sess.mu.Lock()
 	sess.messages = msgs
 	sess.mu.Unlock()
+	if err != nil {
+		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
+	}
 
 	// Turn-boundary tick for background plugins. Runs sequentially
 	// after the reply is assembled — clients get their result first,

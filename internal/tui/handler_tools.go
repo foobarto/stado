@@ -403,6 +403,15 @@ func onToolsExecuted(m *Model, msg toolsExecutedMsg) (tea.Model, tea.Cmd) {
 		m.appendBlock(block{kind: "user", body: body})
 		m.persistMessage(userMsg)
 	}
+	if len(msg.results) > 0 && m.broker != nil {
+		if err := m.broker.SetTaint(m.rootCtx, runtime.ContextTainted); err != nil {
+			m.state = stateError
+			m.errorMsg = err.Error()
+			m.appendBlock(block{kind: "system", body: "broker taint update failed: " + err.Error()})
+			m.renderBlocks()
+			return m, nil
+		}
+	}
 	// #16: this is the "next opportunity" — a steering message injects
 	// here so the model's next round-trip sees it alongside the results.
 	m.drainSteering()

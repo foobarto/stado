@@ -72,6 +72,7 @@ var Commands = []Command{
 	{"/new", "Create and switch to a fresh session", "ctrl+x n", "Session"},
 	{"/describe", "Set a human-readable label for this session (/describe <text> or --clear)", "", "Session"},
 	{"/budget", "Show the cost budget or /budget ack to continue past the hard cap", "", "Session"},
+	{"/verify", "Toggle completion verification (/verify on|off|status)", "", "Session"},
 	{"/skill", "List loaded skills — /skill:<name> to inject a skill's prompt body", "", "Session"},
 	{"/retry", "Regenerate the last assistant turn from the same user prompt", "", "Session"},
 	{"/loop", "Repeat a prompt automatically: /loop [duration] <prompt>  or  /loop stop (EP-0036)", "", "Session"},

@@ -32,7 +32,7 @@ func telemetryConfigFromLoaded(cfg *config.Config) telemetry.Config {
 	return out
 }
 
-func withTelemetry(ctx context.Context, cfg *config.Config, run func(context.Context) error) error {
+func withTelemetry(ctx context.Context, cfg *config.Config, run func(context.Context, *telemetry.Runtime) error) error {
 	startCtx, cancelStart := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelStart()
 
@@ -41,7 +41,7 @@ func withTelemetry(ctx context.Context, cfg *config.Config, run func(context.Con
 		return fmt.Errorf("telemetry: %w", err)
 	}
 
-	runErr := run(ctx)
+	runErr := run(ctx, rt)
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelStop()

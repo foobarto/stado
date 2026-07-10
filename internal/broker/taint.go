@@ -109,15 +109,18 @@ func (s *Service) Taint(sessionID string) (Taint, error) {
 // Returns Decision with Rule="tainted-deny" when the overlay
 // fires, otherwise the underlying policy decision.
 func (s *Service) EvaluateWithTaint(req CapabilityRequest) Decision {
-	base := s.Evaluate(req)
+	base := s.evaluate(req)
 	if !base.Admit {
+		s.logDecision(req, base)
 		return base
 	}
 	if req.SessionID == "" {
+		s.logDecision(req, base)
 		return base
 	}
 	t, err := s.Taint(req.SessionID)
 	if err != nil || t == TaintClean {
+		s.logDecision(req, base)
 		return base
 	}
 	// Tainted context overlay: stricter for sub-agent grants that
@@ -126,12 +129,15 @@ func (s *Service) EvaluateWithTaint(req CapabilityRequest) Decision {
 	// detection framework but no concrete elevated roles trigger
 	// yet (the git sub-agent role lands in phase 7).
 	if req.Purpose == PurposeSubagent && isElevatedSubagentRole(req.Role) {
-		return Decision{
+		denied := Decision{
 			Admit:  false,
 			Rule:   "tainted-deny:" + req.Role,
 			Reason: fmt.Sprintf("broker: %s sub-agent grant requires a clean (un-tainted) context", req.Role),
 		}
+		s.logDecision(req, denied)
+		return denied
 	}
+	s.logDecision(req, base)
 	return base
 }
 

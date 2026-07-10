@@ -16,7 +16,7 @@ explains what it found:
 
 ```
 ✓ OS/arch             linux/amd64  (ok)
-✓ Go runtime          go1.26.4  (ok)
+✓ Go runtime          go1.26.5  (ok)
 ✓ Config file         ~/.config/stado/config.toml  (does not exist yet)
 ✓ State dir           ~/.local/share/stado  (exists (dir))
 ✓ ripgrep (rg)        /usr/bin/rg  (ok)

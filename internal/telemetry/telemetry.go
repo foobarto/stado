@@ -136,7 +136,7 @@ func Start(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	tracer := tp.Tracer("github.com/foobarto/stado")
 	meter := mp.Meter("github.com/foobarto/stado")
-	m, err := newMetrics(meter)
+	m, err := NewMetrics(meter)
 	if err != nil {
 		_ = tp.Shutdown(ctx)
 		_ = mp.Shutdown(ctx)

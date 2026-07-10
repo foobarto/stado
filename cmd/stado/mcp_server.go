@@ -93,7 +93,7 @@ var mcpServerCmd = &cobra.Command{
 			return fmt.Errorf("mcp-server: config: %w", err)
 		}
 		applyRootProviderOverrides(cfg)
-		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context, rt *telemetry.Runtime) error {
 			// Broker attachment is default-on; STADO_BROKER_ATTACH=0 is the
 			// development opt-out for mediation, not for local sandboxing.
 			cwd := mustCwd()
@@ -163,7 +163,7 @@ var mcpServerCmd = &cobra.Command{
 				Registry: reg,
 				Session:  nil,
 				Runner:   runner,
-				Metrics:  telemetry.Metrics{},
+				Metrics:  rt.M(),
 				Agent:    "stado-mcp-server",
 				Model:    cfg.Defaults.Model,
 				ReadLog:  nil, // single-shot calls don't dedup

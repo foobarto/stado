@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/telemetry"
 )
 
 func TestBuildExecutorRegistersTasksToolBeforeFiltering(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Tools.Enabled = []string{"tasks"}
 
-	exec, err := BuildExecutor(nil, cfg, "test")
+	exec, err := BuildExecutor(nil, cfg, "test", telemetry.Metrics{})
 	if err != nil {
 		t.Fatalf("BuildExecutor: %v", err)
 	}

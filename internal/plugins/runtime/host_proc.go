@@ -204,6 +204,16 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 				ExitCode: exitCode,
 				Error:    runErr,
 			})
+			if byteLenExceedsCap(payload, resCap) {
+				msg := fmt.Sprintf("exec: response exceeds %d-byte result limit", resCap)
+				if exitCode != 0 {
+					msg = fmt.Sprintf("command exited with code %d\n%s", exitCode, msg)
+				} else if runErr != "" {
+					msg = runErr + "\n" + msg
+				}
+				stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, []byte(msg)))
+				return
+			}
 			stack[0] = api.EncodeI32(writeBytes(mod, resPtr, resCap, payload))
 		}),
 			[]api.ValueType{api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32, api.ValueTypeI32},

@@ -25,6 +25,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
 )
@@ -92,17 +93,29 @@ func runOneShot(argv []string, stdin string, timeoutMs int) (string, error) {
 	defer sdk.Free(resBuf, cap)
 	n := stadoExec(uint32(reqPtr), uint32(len(req)), uint32(resBuf), cap)
 	if n < 0 {
-		return "", &execErr{msg: "exec failed"}
+		errLen := -n
+		if errLen > cap {
+			errLen = cap
+		}
+		return "", &execErr{msg: string(sdk.Bytes(resBuf, errLen))}
 	}
 	var er struct {
-		Stdout string `json:"stdout"`
-		Error  string `json:"error,omitempty"`
+		Stdout   string `json:"stdout"`
+		ExitCode int    `json:"exit_code"`
+		Error    string `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(sdk.Bytes(resBuf, n), &er); err != nil {
-		return string(sdk.Bytes(resBuf, n)), nil
+		return "", &execErr{msg: "exec: invalid host response: " + err.Error()}
 	}
 	if er.Error != "" {
 		return "", &execErr{msg: er.Error}
+	}
+	if er.ExitCode != 0 {
+		msg := fmt.Sprintf("command exited with code %d", er.ExitCode)
+		if er.Stdout != "" {
+			msg += "\n" + er.Stdout
+		}
+		return "", &execErr{msg: msg}
 	}
 	return er.Stdout, nil
 }
@@ -472,11 +485,18 @@ func stadoToolReadUntil(argsPtr, argsLen, resPtr, resCap int32) int32 {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 func writeErr(resPtr, resCap int32, msg string) int32 {
-	b, _ := json.Marshal(map[string]string{"error": msg})
+	b := []byte(msg)
 	if int32(len(b)) > resCap {
+		b = b[:resCap]
+	}
+	if len(b) == 0 {
 		return -1
 	}
-	return sdk.Write(resPtr, b)
+	n := sdk.Write(resPtr, b)
+	if n <= 0 {
+		return -1
+	}
+	return -n
 }
 
 func writeRaw(resPtr, resCap int32, data []byte) int32 {

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/agent"
 )
 
@@ -147,6 +148,12 @@ func (m *Model) loopIterate() tea.Cmd {
 	m.loop.iter++
 	if m.loop.iter > 1 {
 		m.appendBlock(block{kind: "system", body: fmt.Sprintf("─── loop iteration %d ───", m.loop.iter)})
+	}
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.loop = nil
+		m.appendBlock(block{kind: "system", body: "loop stopped - broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
+		return nil
 	}
 	// Inject the loop prompt as a user turn and start streaming.
 	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, m.loop.prompt))

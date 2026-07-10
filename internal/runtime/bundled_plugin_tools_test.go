@@ -140,6 +140,34 @@ func TestBundledShellOneShotToolsAuthorizeTheirLiteralShell(t *testing.T) {
 	}
 }
 
+func TestBundledShellOneShotReportsNonZeroExit(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	shell, ok := reg.Get("shell__exec")
+	if !ok {
+		t.Fatal("shell__exec missing")
+	}
+	res, err := shell.Run(context.Background(), json.RawMessage(`{"command":"printf gate-failed; exit 7"}`),
+		bundledToolHost{workdir: t.TempDir(), runner: sandbox.NoneRunner{}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(res.Error, "command exited with code 7") || !strings.Contains(res.Error, "gate-failed") {
+		t.Fatalf("non-zero exit result = %+v", res)
+	}
+}
+
+func TestBundledShellOneShotRejectsTruncatedHostResponse(t *testing.T) {
+	reg := BuildDefaultRegistry(nil)
+	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
+	out := RunVerificationRound(context.Background(), exec,
+		bundledToolHost{workdir: t.TempDir(), runner: sandbox.NoneRunner{}},
+		VerifyConfig{Commands: []string{"head -c 1100000 /dev/zero; exit 9"}, MaxRounds: 1}, 1, nil)
+	if out.Status != VerifyFailed || !strings.Contains(out.Output, "command exited with code 9") ||
+		!strings.Contains(out.Output, "response exceeds") {
+		t.Fatalf("oversized non-zero verification outcome = %+v", out)
+	}
+}
+
 func TestBundledShellExecRunsUnderBrokerCeiling(t *testing.T) {
 	if sandbox.Detect().Name() != "bwrap" {
 		t.Skipf("requires bwrap; runner is %q", sandbox.Detect().Name())
@@ -167,6 +195,36 @@ func TestBundledShellExecRunsUnderBrokerCeiling(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "STADO_PROCESS_OK") {
 		t.Fatalf("content = %q", res.Content)
+	}
+}
+
+func TestBundledSearchToolsExecuteResolvedBinary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "probe.txt"), []byte("STADO_RG_PROBE\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "probe.go"), []byte("package probe\nfunc f() { println(\"STADO_AST_PROBE\") }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg := BuildDefaultRegistry(nil)
+	host := bundledToolHost{workdir: dir, runner: sandbox.NoneRunner{}}
+
+	rgTool, ok := reg.Get("rg__search")
+	if !ok {
+		t.Fatal("rg__search missing")
+	}
+	rgResult, err := rgTool.Run(context.Background(), json.RawMessage(`{"pattern":"STADO_RG_PROBE","path":"."}`), host)
+	if err != nil || rgResult.Error != "" || !strings.Contains(rgResult.Content, "probe.txt") {
+		t.Fatalf("rg resolved-binary result=%+v err=%v", rgResult, err)
+	}
+
+	astTool, ok := reg.Get("astgrep__search")
+	if !ok {
+		t.Fatal("astgrep__search missing")
+	}
+	astResult, err := astTool.Run(context.Background(), json.RawMessage(`{"pattern":"println($X)","lang":"go","path":"."}`), host)
+	if err != nil || astResult.Error != "" || !strings.Contains(astResult.Content, "probe.go") {
+		t.Fatalf("astgrep resolved-binary result=%+v err=%v", astResult, err)
 	}
 }
 

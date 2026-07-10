@@ -10,13 +10,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	cfg, parent, _ := forkPluginEnv(t)
+	cfg.Verify.Commands = []string{"false"}
+	cfg.Verify.Strict = true
 	prov := &subagentCaptureProvider{}
+	brokerCtl := &recordingBrokerController{worktree: filepath.Join(cfg.WorktreeDir(), "broker-child")}
 	var events []SubagentEvent
 
 	res, err := (SubagentRunner{
@@ -25,6 +31,7 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 		Provider:  prov,
 		Model:     "test-model",
 		AgentName: "test-subagent",
+		Broker:    brokerCtl,
 		OnEvent: func(ev SubagentEvent) {
 			events = append(events, ev)
 		},
@@ -74,10 +81,26 @@ func TestSubagentRunnerForksReadOnlyChild(t *testing.T) {
 	if events[0].ChildSession != res.ChildSession || events[1].ChildSession != res.ChildSession {
 		t.Fatalf("event child ids = %q/%q, result=%q", events[0].ChildSession, events[1].ChildSession, res.ChildSession)
 	}
+	brokerCtl.mu.Lock()
+	requests := append([]BrokerSubagentRequest(nil), brokerCtl.requests...)
+	taints := append([]ContextTaint(nil), brokerCtl.taints...)
+	closed := brokerCtl.closed
+	brokerCtl.mu.Unlock()
+	if len(requests) != 1 || requests[0].Role != subagent.DefaultRole {
+		t.Fatalf("broker child requests = %+v", requests)
+	}
+	if closed != 1 {
+		t.Fatalf("broker child close count = %d, want 1", closed)
+	}
+	if len(taints) == 0 || taints[0] != ContextTainted {
+		t.Fatalf("child initial taint = %v, want tainted", taints)
+	}
 }
 
 func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	cfg, parent, _ := forkPluginEnv(t)
+	cfg.Verify.Commands = []string{"false"}
+	cfg.Verify.Strict = true
 	prov := &workerSubagentProvider{}
 
 	res, err := (SubagentRunner{
@@ -140,6 +163,37 @@ func TestSubagentRunnerWorkerUsesScopedWriteTools(t *testing.T) {
 	}
 	if len(res.ScopeViolations) != 1 || !strings.Contains(res.ScopeViolations[0], "blocked/new.txt") {
 		t.Fatalf("scope_violations = %#v, want blocked/new.txt", res.ScopeViolations)
+	}
+}
+
+func TestConfigureWorkerToolsPreservesBrokerSandboxPolicy(t *testing.T) {
+	_, parent, _ := forkPluginEnv(t)
+	policy := &struct{ name string }{name: "broker-child"}
+	runner := sandbox.NoneRunner{}
+	exec := &tools.Executor{Registry: BuildDefaultRegistry(nil), Session: parent, Runner: runner}
+
+	host, scoped, err := configureSubagentTools(subagent.Request{
+		Mode: subagent.WorkspaceWriteMode, WriteScope: []string{"allowed/**"},
+	}, exec, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != scoped || scoped == nil {
+		t.Fatalf("worker host=%T scoped=%p", host, scoped)
+	}
+	provider, ok := host.(tool.SandboxPolicyProvider)
+	if !ok {
+		t.Fatalf("worker host %T does not expose sandbox policy", host)
+	}
+	if got := provider.DefaultSandboxPolicy(); got != policy {
+		t.Fatalf("worker sandbox policy=%#v, want broker policy", got)
+	}
+	runnerProvider, ok := host.(interface{ Runner() sandbox.Runner })
+	if !ok {
+		t.Fatalf("worker host %T does not expose sandbox runner", host)
+	}
+	if _, ok := runnerProvider.Runner().(sandbox.NoneRunner); !ok {
+		t.Fatalf("worker sandbox runner=%T, want sandbox.NoneRunner", runnerProvider.Runner())
 	}
 }
 

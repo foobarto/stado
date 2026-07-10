@@ -506,7 +506,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.renderBlocks()
 		return nil
 	}
-	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui", m.metrics)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "auto-recovery: executor: " + err.Error()})
 		m.renderBlocks()
@@ -563,6 +563,11 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		return nil
 	}
 	m.appendBlock(block{kind: "system", body: body + "\nreplaying blocked prompt in the child session"})
+	if err := m.setBrokerTaint(runtime.ContextClean); err != nil {
+		m.appendBlock(block{kind: "system", body: "broker taint reset failed: " + err.Error()})
+		m.renderBlocks()
+		return nil
+	}
 	m.appendUser(prompt)
 	m.input.Reset()
 	m.renderBlocks()

@@ -163,6 +163,35 @@ func TestEvaluateWithTaint_TaintedSessionDeniesElevatedRole(t *testing.T) {
 	}
 }
 
+func TestEvaluateWithTaint_LogsFinalTaintDenialOnce(t *testing.T) {
+	writer := &MemoryWriter{}
+	svc := NewService(DefaultPolicy(), writer)
+	parent, decision, err := svc.CreateSession(CapabilityRequest{
+		Purpose: PurposeMainChat, Profile: ProfileDefault, CWD: t.TempDir(),
+	})
+	if err != nil || !decision.Admit {
+		t.Fatalf("CreateSession: decision=%+v err=%v", decision, err)
+	}
+	if err := svc.SetTaint(parent.SessionID, TaintTainted); err != nil {
+		t.Fatal(err)
+	}
+	before := len(writer.Records())
+	got := svc.EvaluateWithTaint(CapabilityRequest{
+		Purpose: PurposeSubagent, Profile: ProfileDefault,
+		SessionID: parent.SessionID, Role: "git-fetch",
+	})
+	if got.Admit || got.Rule != "tainted-deny:git-fetch" {
+		t.Fatalf("decision = %+v", got)
+	}
+	records := writer.Records()
+	if len(records) != before+1 {
+		t.Fatalf("decision records grew by %d, want 1", len(records)-before)
+	}
+	if logged := records[len(records)-1].Decision; logged.Admit || logged.Rule != got.Rule {
+		t.Fatalf("logged decision = %+v, want %+v", logged, got)
+	}
+}
+
 func TestEvaluateWithTaint_TaintedSessionAdmitsNonElevatedRole(t *testing.T) {
 	t.Setenv("HOME", "/home/test")
 	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")

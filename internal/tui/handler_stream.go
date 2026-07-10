@@ -121,7 +121,7 @@ func onStreamDone(m *Model, _ streamDoneMsg) (tea.Model, tea.Cmd) {
 	// EP-0036: after each turn, check if the loop agent signalled
 	// done; if not and loop is active, queue the next iteration or
 	// schedule the next tick.
-	if m.loop != nil {
+	if m.loop != nil && !m.verifying {
 		lastText := m.lastAssistantText()
 		if !m.loopCheckDone(lastText) {
 			if m.loop.interval > 0 {

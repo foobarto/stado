@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/workdirpath"
 	"github.com/foobarto/stado/pkg/tool"
 )
@@ -21,6 +22,7 @@ type ScopedWriteHost struct {
 }
 
 var _ tool.WritePathGuard = (*ScopedWriteHost)(nil)
+var _ tool.SandboxPolicyProvider = (*ScopedWriteHost)(nil)
 
 // NewScopedWriteHost returns a host wrapper that permits writes only within
 // writeScope. The scope must already be explicit; an empty scope is rejected.
@@ -82,6 +84,27 @@ func (h *ScopedWriteHost) CheckWritePath(target string) error {
 	err = fmt.Errorf("write path %q is outside write_scope", target)
 	h.recordScopeViolation(target, err)
 	return err
+}
+
+// DefaultSandboxPolicy preserves the broker/process policy exposed by the
+// wrapped host. Optional interfaces are not promoted through an embedded
+// tool.Host interface, so this forwarding method is required for wasm process
+// imports in workspace-write children to remain confined.
+func (h *ScopedWriteHost) DefaultSandboxPolicy() any {
+	if provider, ok := h.Host.(tool.SandboxPolicyProvider); ok {
+		return provider.DefaultSandboxPolicy()
+	}
+	return nil
+}
+
+// Runner preserves the concrete sandbox runner supplied by the child broker.
+// Like DefaultSandboxPolicy, it must be forwarded explicitly because tool.Host
+// does not include optional process capabilities in its method set.
+func (h *ScopedWriteHost) Runner() sandbox.Runner {
+	if provider, ok := h.Host.(interface{ Runner() sandbox.Runner }); ok {
+		return provider.Runner()
+	}
+	return nil
 }
 
 func (h *ScopedWriteHost) recordScopeViolation(target string, err error) {

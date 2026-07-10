@@ -34,7 +34,7 @@ func TestWithTelemetry_PropagatesStartError(t *testing.T) {
 	}
 	t.Cleanup(func() { startTelemetryRuntime = old })
 
-	err := withTelemetry(context.Background(), &config.Config{}, func(context.Context) error { return nil })
+	err := withTelemetry(context.Background(), &config.Config{}, func(context.Context, *telemetry.Runtime) error { return nil })
 	if err == nil || err.Error() != "telemetry: boom" {
 		t.Fatalf("err = %v, want telemetry: boom", err)
 	}

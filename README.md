@@ -78,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.76.0
+  bash -s -- --dir /usr/local/bin --version v0.77.0
 ```
 
 ### Homebrew

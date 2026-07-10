@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/foobarto/stado/internal/hooks"
@@ -59,6 +61,17 @@ type Executor struct {
 // trailers for audit. If the tool isn't registered, returns an error without
 // touching refs.
 func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h tool.Host) (tool.Result, error) {
+	metricStart := time.Now()
+	metricOutcome := "error"
+	defer func() {
+		if e.Metrics.ToolLatency != nil {
+			e.Metrics.ToolLatency.Record(ctx, float64(time.Since(metricStart).Microseconds())/1000,
+				metric.WithAttributes(
+					attribute.String("tool", name),
+					attribute.String("outcome", metricOutcome),
+				))
+		}
+	}()
 	if err := toolinput.CheckLen(len(args)); err != nil {
 		return tool.Result{Error: err.Error()}, err
 	}
@@ -124,8 +137,9 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		decision, out := e.Hooks.Fire(ctx, hooks.PointPreTool, pre)
 		switch decision.Decision {
 		case hooks.DecisionDeny:
+			metricOutcome = "denied"
 			span.SetAttributes(attribute.String("tool.outcome", "denied"))
-			span.SetStatus(codes.Error, decision.Reason)
+			span.SetStatus(codes.Error, "tool denied by lifecycle hook")
 			reason := fmt.Sprintf("denied by pre_tool hook: %s", decision.Reason)
 			// Audit the denial (spec STAGE 3). The tool never ran, so
 			// there's no result/tree to record — just the deny
@@ -221,15 +235,11 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		attribute.Int("tool.result_bytes", len(res.Content)),
 	)
 	if runErr != nil {
-		span.RecordError(runErr)
-		span.SetStatus(codes.Error, runErr.Error())
+		span.RecordError(errors.New("tool execution failed"))
+		span.SetStatus(codes.Error, "tool execution failed")
 	} else if res.Error != "" {
-		span.SetStatus(codes.Error, res.Error)
+		span.SetStatus(codes.Error, "tool returned an error")
 	}
-	if e.Metrics.ToolLatency != nil {
-		e.Metrics.ToolLatency.Record(ctx, float64(duration.Milliseconds()))
-	}
-
 	meta := stadogit.CommitMeta{
 		Tool:       name,
 		ShortArg:   shortArgOf(args),
@@ -262,6 +272,7 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 	}
 
 	if e.Session == nil {
+		metricOutcome = outcome
 		return res, runErr
 	}
 
@@ -315,8 +326,9 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 				// so downstream consumers keyed on Summary/span saw
 				// success.
 				meta.Summary = fmt.Sprintf("%s [%s]", class.String(), "error")
+				outcome = "error"
 				span.SetAttributes(attribute.String("tool.outcome", "error"))
-				span.SetStatus(codes.Error, skipNote)
+				span.SetStatus(codes.Error, "audit snapshot failed")
 				e.logBuildTreeSkip(auditDir, err)
 			} else {
 				treeHash = post
@@ -401,6 +413,7 @@ func (e *Executor) Run(ctx context.Context, name string, args json.RawMessage, h
 		}
 	}
 
+	metricOutcome = outcome
 	return res, runErr
 }
 

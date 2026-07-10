@@ -10,6 +10,7 @@ import (
 	"github.com/foobarto/stado/internal/sandbox"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/tasks"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/internal/tools/tasktool"
 	"github.com/foobarto/stado/pkg/agent"
@@ -500,7 +501,7 @@ func BuildRegistryWithPluginsQuiet(cfg *config.Config) (*tools.Registry, error) 
 //
 // Respects cfg.Tools.Enabled / Disabled — the user's allowlist /
 // blocklist is applied via BuildRegistryWithPlugins.
-func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
+func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string, metrics telemetry.Metrics) (*tools.Executor, error) {
 	reg, err := BuildRegistryWithPlugins(cfg)
 	if err != nil {
 		return nil, err
@@ -509,6 +510,7 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 		Registry: reg,
 		Session:  sess,
 		Runner:   sandbox.Detect(),
+		Metrics:  metrics,
 		Agent:    agentName,
 		Model:    cfg.Defaults.Model,
 		ReadLog:  tools.NewReadLog(),
@@ -518,11 +520,11 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 }
 
 // BuildExecutorQuiet builds an executor while a TUI owns the terminal.
-func BuildExecutorQuiet(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
+func BuildExecutorQuiet(sess *stadogit.Session, cfg *config.Config, agentName string, metrics telemetry.Metrics) (*tools.Executor, error) {
 	var exec *tools.Executor
 	var err error
 	withRegistryDiagnosticsSuppressed(func() {
-		exec, err = BuildExecutor(sess, cfg, agentName)
+		exec, err = BuildExecutor(sess, cfg, agentName, metrics)
 	})
 	return exec, err
 }

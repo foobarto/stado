@@ -28,6 +28,7 @@ import (
 	"github.com/foobarto/stado/internal/daemon"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tui"
 )
 
@@ -58,7 +59,7 @@ func brokerExecutorSandbox(bs *BrokerSession, disabled bool) runtime.ExecutorSan
 // sandbox treatment as a fresh one (decision 2026-06-13: ssh-agent passthrough
 // scope — previously `session resume` passed a zero ceiling + enforce=false and
 // so ran un-fenced). Closes the broker session on return.
-func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string) error {
+func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string, metrics telemetry.Metrics) error {
 	cwd, _ := os.Getwd()
 	bs, err := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
 	if err != nil {
@@ -72,7 +73,7 @@ func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string) 
 			fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
 		}
 	}()
-	return inlineTUIRunner(cfg, notices, brokerExecutorSandbox(bs, noSandbox))
+	return inlineTUIRunner(cfg, notices, brokerExecutorSandbox(bs, noSandbox), metrics, bs)
 }
 
 // brokerAttachTimeout is the maximum wall-clock time the helper
@@ -99,17 +100,19 @@ const envBrokerAttach = "STADO_BROKER_ATTACH"
 // (broker unreachable in a test binary, env opt-out, etc.) — entry
 // points use this to decide whether to bother calling Close.
 type BrokerSession struct {
-	SessionID  string
-	Purpose    broker.Purpose
-	Profile    broker.Profile // mirrored from the request; useful for the startup banner
-	TraceRef   string
-	Ceiling    sandbox.Policy // typed; phase 2 uses this to inform runner choice
-	Skipped    bool
-	SkipReason string
+	SessionID    string
+	Purpose      broker.Purpose
+	Profile      broker.Profile // mirrored from the request; useful for the startup banner
+	TraceRef     string
+	Ceiling      sandbox.Policy // typed; phase 2 uses this to inform runner choice
+	Skipped      bool
+	SkipReason   string
+	WorktreePath string
 
 	// client is the daemon connection that holds this session.
 	// Closed by Close() after issuing session.terminate.
-	client *daemon.Client
+	client     *daemon.Client
+	ownsClient bool
 }
 
 // Close issues broker.v1.session.terminate against the session and
@@ -125,10 +128,12 @@ func (s *BrokerSession) Close() error {
 	if s.client == nil {
 		return nil
 	}
-	defer func() {
-		_ = s.client.Close()
-		s.client = nil
-	}()
+	if s.ownsClient {
+		defer func() {
+			_ = s.client.Close()
+			s.client = nil
+		}()
+	}
 	if s.SessionID == "" {
 		return nil
 	}
@@ -148,6 +153,106 @@ func (s *BrokerSession) Close() error {
 		return nil
 	}
 	return err
+}
+
+// Sandbox returns the broker-projected executor decision for this session.
+func (s *BrokerSession) Sandbox() runtime.ExecutorSandbox {
+	return brokerExecutorSandbox(s, false)
+}
+
+func (s *BrokerSession) Worktree() string {
+	if s == nil {
+		return ""
+	}
+	return s.WorktreePath
+}
+
+// SetTaint updates the broker's mechanical provenance state for this turn.
+func (s *BrokerSession) SetTaint(ctx context.Context, taint runtime.ContextTaint) error {
+	if s == nil || s.Skipped || s.SessionID == "" {
+		return nil
+	}
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	return s.client.Call(callCtx, broker.MethodSessionTaint, broker.SessionTaintParams{
+		SessionID: s.SessionID,
+		Taint:     string(taint),
+	}, nil)
+}
+
+// CreateSubagent asks the broker to mint a child projected from this
+// session's current effective policy. Skipped broker sessions preserve the
+// local development/test fallback without claiming enforcement.
+func (s *BrokerSession) CreateSubagent(ctx context.Context, req runtime.BrokerSubagentRequest) (runtime.BrokerController, error) {
+	if s == nil {
+		return nil, errors.New("broker child: parent session unavailable")
+	}
+	if s.Skipped {
+		return &BrokerSession{
+			Purpose:    broker.PurposeSubagent,
+			Profile:    s.Profile,
+			Skipped:    true,
+			SkipReason: s.SkipReason,
+			Ceiling:    s.Ceiling,
+		}, nil
+	}
+	if s.client == nil || s.SessionID == "" {
+		return nil, errors.New("broker child: parent session closed")
+	}
+	var result broker.SessionHandleResult
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	err := s.client.Call(callCtx, broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose:         broker.PurposeSubagent,
+		Profile:         s.Profile,
+		ParentSessionID: s.SessionID,
+		Role:            req.Role,
+		Mode:            req.Mode,
+		WriteScope:      req.WriteScope,
+	}, &result)
+	if err != nil {
+		return nil, err
+	}
+	return &BrokerSession{
+		SessionID:    result.SessionID,
+		Purpose:      broker.PurposeSubagent,
+		Profile:      s.Profile,
+		TraceRef:     result.TraceRef,
+		Ceiling:      result.Ceiling,
+		WorktreePath: result.CWD,
+		client:       s.client,
+	}, nil
+}
+
+// CreatePeer mints an independent top-level broker handle over the existing
+// daemon connection. Long-lived ACP/headless servers assign one peer per
+// logical client session so concurrent prompts cannot race a shared taint bit.
+func (s *BrokerSession) CreatePeer(ctx context.Context, cwd string) (runtime.BrokerController, error) {
+	if s == nil {
+		return nil, errors.New("broker peer: parent connection unavailable")
+	}
+	if s.Skipped {
+		return &BrokerSession{
+			Purpose: broker.PurposeMainChat, Profile: s.Profile,
+			Skipped: true, SkipReason: s.SkipReason, Ceiling: s.Ceiling,
+		}, nil
+	}
+	if s.client == nil {
+		return nil, errors.New("broker peer: connection closed")
+	}
+	var result broker.SessionHandleResult
+	callCtx, cancel := context.WithTimeout(ctx, brokerAttachTimeout)
+	defer cancel()
+	if err := s.client.Call(callCtx, broker.MethodSessionCreate, broker.SessionCreateParams{
+		Purpose: broker.PurposeMainChat, Profile: s.Profile, CWD: cwd,
+	}, &result); err != nil {
+		return nil, err
+	}
+	return &BrokerSession{
+		SessionID: result.SessionID, Purpose: result.Purpose, Profile: s.Profile,
+		TraceRef: result.TraceRef, Ceiling: result.Ceiling,
+		WorktreePath: result.CWD, client: s.client,
+	}, nil
 }
 
 // brokerAttachOptIn reports whether the broker attach is enabled
@@ -224,12 +329,14 @@ func attachToBroker(ctx context.Context, purpose broker.Purpose, profile broker.
 	}
 
 	return &BrokerSession{
-		SessionID: result.SessionID,
-		Purpose:   result.Purpose,
-		Profile:   profile,
-		TraceRef:  result.TraceRef,
-		Ceiling:   result.Ceiling,
-		client:    cl,
+		SessionID:    result.SessionID,
+		Purpose:      result.Purpose,
+		Profile:      profile,
+		TraceRef:     result.TraceRef,
+		Ceiling:      result.Ceiling,
+		WorktreePath: result.CWD,
+		client:       cl,
+		ownsClient:   true,
 	}, nil
 }
 

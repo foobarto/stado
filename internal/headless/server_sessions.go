@@ -43,10 +43,18 @@ func (s *Server) sessionNew(raw json.RawMessage) (any, error) {
 		return nil, perr
 	}
 	cwd, _ := os.Getwd()
+	var sessionBroker runtime.BrokerController
+	if s.BrokerFactory != nil {
+		var err error
+		sessionBroker, err = s.BrokerFactory(context.Background(), cwd)
+		if err != nil {
+			return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: "broker session: " + err.Error()}
+		}
+	}
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("h-%d", s.nextID)
-	s.sessions[id] = &hSession{id: id, workdir: cwd, persona: persona}
+	s.sessions[id] = &hSession{id: id, workdir: cwd, persona: persona, broker: sessionBroker}
 	s.mu.Unlock()
 	return sessionNewResult{SessionID: id, Workdir: cwd}, nil
 }
@@ -148,11 +156,16 @@ func (s *Server) sessionDelete(raw json.RawMessage) (any, error) {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: err.Error()}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.sessions[p.SessionID]; !ok {
+	sess, ok := s.sessions[p.SessionID]
+	if !ok {
+		s.mu.Unlock()
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
 	}
 	delete(s.sessions, p.SessionID)
+	s.mu.Unlock()
+	if sess.broker != nil {
+		_ = sess.broker.Close()
+	}
 	return struct{}{}, nil
 }
 

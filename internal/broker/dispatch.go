@@ -90,13 +90,14 @@ func (s *Service) Dispatch(ctx context.Context, method string, params json.RawMe
 // SessionCreateParams is the wire shape for broker.v1.session.create.
 // All fields not relevant to the declared purpose may be empty.
 type SessionCreateParams struct {
-	Purpose    Purpose  `json:"purpose"`
-	Profile    Profile  `json:"profile"`
-	CWD        string   `json:"cwd"`
-	Role       string   `json:"role,omitempty"`
-	Mode       string   `json:"mode,omitempty"`
-	WriteScope []string `json:"write_scope,omitempty"`
-	PluginName string   `json:"plugin_name,omitempty"`
+	Purpose         Purpose  `json:"purpose"`
+	Profile         Profile  `json:"profile"`
+	CWD             string   `json:"cwd"`
+	ParentSessionID string   `json:"parent_session_id,omitempty"`
+	Role            string   `json:"role,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	WriteScope      []string `json:"write_scope,omitempty"`
+	PluginName      string   `json:"plugin_name,omitempty"`
 }
 
 // SessionHandleResult is the wire shape for a SessionHandle in
@@ -106,6 +107,7 @@ type SessionCreateParams struct {
 type SessionHandleResult struct {
 	SessionID string         `json:"session_id"`
 	Purpose   Purpose        `json:"purpose"`
+	CWD       string         `json:"cwd"`
 	Ceiling   sandbox.Policy `json:"ceiling"`
 	TraceRef  string         `json:"trace_ref,omitempty"`
 	ExpiresAt *time.Time     `json:"expires_at,omitempty"`
@@ -198,6 +200,7 @@ func (s *Service) dispatchSessionCreate(_ context.Context, raw json.RawMessage) 
 		Mode:       params.Mode,
 		WriteScope: params.WriteScope,
 		PluginName: params.PluginName,
+		SessionID:  params.ParentSessionID,
 	}
 
 	handle, decision, err := s.CreateSession(req)
@@ -217,6 +220,7 @@ func (s *Service) dispatchSessionCreate(_ context.Context, raw json.RawMessage) 
 	result := SessionHandleResult{
 		SessionID: handle.SessionID,
 		Purpose:   handle.Purpose,
+		CWD:       handle.CWD,
 		Ceiling:   handle.Ceiling,
 		TraceRef:  handle.TraceRef,
 		CreatedAt: handle.CreatedAt,
