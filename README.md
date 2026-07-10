@@ -208,7 +208,7 @@ stado session search "react hook"       # grep across every session's conversati
 stado session gc --older-than=24h       # sweep zero-turn sessions (dry-run by default)
 stado session fork <id> --at turns/5    # fork from an earlier turn
 stado session tree <id>                 # interactive fork-from-turn picker
-stado agents list                       # active/stale parallel worktrees for this repo
+stado session kill <id>                 # stop a running session's process + drop its worktree (keeps history)
 stado session land <id> <branch>        # push agent's tree to your repo
 stado audit verify <id>                 # tamper-check the audit log
 stado audit export <id> > audit.jsonl   # machine-readable tree/trace history
@@ -260,7 +260,7 @@ Aliases: `ls` → `list`, `rm` → `delete`, `cat` → `export`.
 stado run --prompt "add a CHANGELOG entry for the next release" --json
 
 # Long-running daemon; drive from any JSON-RPC 2.0 client
-stado headless
+stado run --headless
 ```
 
 ### Editor integration (Zed, Neovim)
@@ -391,7 +391,7 @@ See [docs/commands/config.md](docs/commands/config.md#project-overlay-stadoconfi
 
 When `[otel].enabled = true`, the runtime-facing command surfaces
 actually start the exporter runtime: `stado`, `stado session resume`,
-`stado run`, `stado headless`, `stado acp`, and `stado mcp-server`.
+`stado run`, `stado run --headless`, `stado acp`, and `stado mcp-server`.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is also honored as a fallback when
 `[otel].endpoint` is unset.
 
@@ -459,7 +459,7 @@ the TUI approval card explicitly.
 ### Sandboxing
 
 As of v0.57.0 stado is **sandboxed by default** across every
-interactive surface (TUI, `stado run`, `stado headless`, `stado acp`,
+interactive surface (TUI, `stado run`, `stado run --headless`, `stado acp`,
 `stado mcp-server`). A privileged broker process (an evolution of
 `stado daemon`) projects a per-session capability ceiling and mounts
 the agent's namespace; the orchestrator can only request what global
@@ -619,7 +619,7 @@ every surface (TUI, `run`, `headless`, `acp`, `mcp-server`). Build with
 
 | Path | Look here for |
 |---|---|
-| `cmd/stado/{run,headless,acp,mcp_server}.go` | the non-TUI surface entry points (all compose `internal/runtime`) |
+| `cmd/stado/{run,acp,mcp_server}.go` | the non-TUI surface entry points (all compose `internal/runtime`) |
 | `internal/headless/server.go` · `internal/acp/server.go` | JSON-RPC headless daemon; stado-as-ACP-agent (Zed); shared line-delimited transport (`acp/jsonrpc.go`) |
 | `internal/{mcp,mcpbridge}` · `runtime/mcp_glue.go` | MCP client (connect + capability-gate stdio servers); adapting a remote MCP tool; `stado mcp-server` is the inverse |
 | `internal/{lsp,lspfind}` · `tui/sidebar.go:diagnosticEntryText` | LSP transport; per-session server lifecycle; diagnostics render + control-byte strip |

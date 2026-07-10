@@ -473,7 +473,7 @@ process-containment sandbox. Supported wrappers: **bwrap** and
 The wrap is opt-in via `[sandbox] mode = "wrap"` in `config.toml`.
 Default is `off`. Only `stado run` re-execs itself under the wrapper
 today (`internal/sandbox/wrap.go` → `MaybeRewrap`); the bare TUI,
-`stado session resume`, and `stado headless` do NOT re-exec yet — they
+`stado session resume`, and `stado run --headless` do NOT re-exec yet — they
 run unwrapped even with `mode = "wrap"` configured.
 
 To make this observable, all four entry points call
@@ -485,7 +485,7 @@ per process.
 - `mode = "off"` / unset (the default) — host is unsandboxed; warning
   points at the `[sandbox]` config knob and the supported wrappers.
 - `mode = "wrap"` but not the wrapped child — flags the gap that only
-  `stado run` re-execs today, so TUI / headless / session-resume still
+  `stado run` re-execs today, so TUI / run-headless / session-resume still
   run unwrapped under this config.
 - `mode = "external"` but no wrapper evidence is detected (i.e.
   `STADO_REWRAPPED` is unset AND `looksWrapped()` returns false) — the

@@ -1,7 +1,7 @@
 package main
 
 // broker_client.go — shared helper used by orchestrator entry points
-// (stado run, TUI, stado headless, stado acp, stado mcp-server) to
+// (stado run, TUI, stado run --headless, stado acp, stado mcp-server) to
 // attach to the broker and create a session.
 //
 // The returned ceiling is enforced by `stado run` and the TUI: those two
@@ -331,7 +331,7 @@ func brokerPurposeFromFlags() broker.Purpose {
 // brokerProfileFromFlags maps the current command's flags to a
 // broker.Profile. The persistent --no-sandbox flag selects the explicit
 // opt-out profile; otherwise the sandboxed default. Honoured by every entry
-// point that attaches to the broker (TUI, run, acp, headless, mcp-server,
+// point that attaches to the broker (TUI, run, acp, run --headless, mcp-server,
 // session tree), so the opt-out is no longer a run-only special case.
 func brokerProfileFromFlags() broker.Profile {
 	if noSandbox {

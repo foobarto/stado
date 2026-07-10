@@ -31,7 +31,7 @@ flowchart TB
         TUI[TUI]
         Run["stado run"]
         ACP["stado acp"]
-        Headless["stado headless"]
+        Headless["stado run --headless"]
     end
 
     surfaces --> Runtime
@@ -45,7 +45,7 @@ flowchart TB
     Tools["<b>internal/tools</b><br/>Executor + Registry + classifier"]
     State["<b>internal/state/git</b><br/>Sidecar, refs, signatures, materialisation"]
 
-    Agent --> Providers["anthropic · openai · google · oaicompat"]
+    Agent --> Providers["anthropic · openai · google · oaicompat · acpwrap · mcpwrap · localdetect"]
     Tools --> Sandbox
 
     Sandbox["<b>internal/sandbox</b><br/>Policy, Runner, Landlock, proxy"]
@@ -1659,11 +1659,17 @@ time instead of copying the whole template set.
 
 ## Build & test
 
-- **Build**: `go build -trimpath -buildvcs=true -ldflags="-s -w
-  -buildid=" -o stado ./cmd/stado`. Bit-for-bit reproducible.
-- **Test**: `go test ./...`. Tests that depend on external binaries
-  (`rg`, `ast-grep`, `gopls`) skip gracefully if the binary is
-  missing.
+- **Build**: `make` (builds the bundled wasm via `make wasm` **and** the
+  binary). The bundled wasm modules are `//go:embed`'d but git-ignored
+  (EP-0042), so a bare `go build ./cmd/stado` fails on a fresh checkout
+  until `make wasm` has produced them; the reproducible binary build is
+  then `go build -trimpath -buildvcs=true -ldflags="-s -w -buildid=" -o
+  stado ./cmd/stado`. Run `make changelog` after any `CHANGELOG.md` edit
+  to regenerate the embedded `internal/changelog/latest.md` (drift-guarded
+  in CI).
+- **Test**: `go test ./...` (requires `make wasm` first, same embed
+  reason). Tests that depend on external binaries (`rg`, `ast-grep`,
+  `gopls`) skip gracefully if the binary is missing.
 - **Release**: `.github/workflows/release.yml` builds the matrix via
   goreleaser, produces archives/packages + SBOMs + the signed checksum
   manifest flow, and attaches the SLSA 3 provenance path.

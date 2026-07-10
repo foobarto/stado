@@ -47,11 +47,17 @@ func ParseRequire(entry string) (RequireSpec, error) {
 	}, nil
 }
 
-// CheckRequires verifies every entry in m.Requires is satisfied by
-// an installed plugin under pluginsDir. Returns a multi-error
-// describing all unsatisfied entries (so the operator sees every
-// missing dep in one go, not just the first).
+// CheckRequires verifies every entry in m.Requires is satisfied by an
+// installed plugin under pluginsDir.
 func CheckRequires(m *Manifest, pluginsDir string) error {
+	return CheckRequiresInDirs(m, []string{pluginsDir})
+}
+
+// CheckRequiresInDirs verifies dependencies across the same ordered plugin
+// roots used by runtime discovery. A project-local plugin can therefore depend
+// on either another project-local plugin or a user-global installation.
+// Returns every unsatisfied entry in one error.
+func CheckRequiresInDirs(m *Manifest, pluginDirs []string) error {
 	if m == nil || len(m.Requires) == 0 {
 		return nil
 	}
@@ -62,8 +68,7 @@ func CheckRequires(m *Manifest, pluginsDir string) error {
 			unmet = append(unmet, err.Error())
 			continue
 		}
-		// Find the highest installed version of spec.Name under pluginsDir.
-		ver, ok := highestInstalledVersion(pluginsDir, spec.Name)
+		ver, ok := highestInstalledVersionInDirs(pluginDirs, spec.Name)
 		if !ok {
 			unmet = append(unmet, fmt.Sprintf("%s: not installed", spec.Name))
 			continue
@@ -79,6 +84,17 @@ func CheckRequires(m *Manifest, pluginsDir string) error {
 		return nil
 	}
 	return fmt.Errorf("plugin requires unmet:\n  - %s\n  install missing plugins first via `stado plugin install <id>`", strings.Join(unmet, "\n  - "))
+}
+
+func highestInstalledVersionInDirs(pluginDirs []string, name string) (string, bool) {
+	var best string
+	for _, dir := range pluginDirs {
+		ver, ok := highestInstalledVersion(dir, name)
+		if ok && (best == "" || compareVersions(ver, best) > 0) {
+			best = ver
+		}
+	}
+	return best, best != ""
 }
 
 // highestInstalledVersion scans pluginsDir for `<name>-<version>/`

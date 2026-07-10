@@ -34,7 +34,7 @@ func SameUserRepo(a, b string) bool {
 //
 // The worktree dir is a single global flat directory shared by every repo's
 // sessions; listing it unfiltered leaks every project's sessions into every
-// other project's `session list`, `agents list`, and the TUI session manager
+// other project's `session list` and the TUI session manager
 // (2032 cross-project entries in the operator's real env). A worktree is
 // included when its user-repo pin matches repoRoot (symlink-tolerant) OR when
 // it carries no pin at all — unpinned worktrees have unknown provenance, so we

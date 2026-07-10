@@ -20,6 +20,16 @@ history:
     status: Partial
     version: v0.21.1
     note: Chat status row now includes the active session label, falling back to a short session id when unlabeled.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). The body says branch detection
+      "also handles worktree `.git` files that point at a gitdir." That
+      handling was removed in the 2026-04-25 hardening commit 66179209 ("fix:
+      harden rooted file access"): status_bar.go now bails when `.git` is a
+      file rather than a directory, so inside a linked `git worktree` checkout
+      the branch segment is silently empty. Re-adding gitdir-following (safely)
+      is a small follow-up; until then the EP body over-states the capability.
 ---
 
 # EP-24: TUI Footer Density

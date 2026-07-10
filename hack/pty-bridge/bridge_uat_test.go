@@ -153,8 +153,17 @@ func driveChrome(t *testing.T, bridgeURL string, scenario func(ctx context.Conte
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	t.Cleanup(cancel)
 
-	ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+	// Chrome occasionally takes more than 30s to create a fresh profile under
+	// full-suite load. Keep the scenario timeout bounded, but leave enough
+	// launch headroom that a slow browser start is not misreported as a TUI
+	// layout failure.
+	ctx, timeoutCancel := context.WithTimeout(ctx, 60*time.Second)
 	t.Cleanup(timeoutCancel)
+	defer func() {
+		if err := closeChrome(ctx); err != nil {
+			t.Logf("close Chrome: %v", err)
+		}
+	}()
 
 	if err := chromedp.Run(ctx,
 		chromedp.Navigate(bridgeURL),
@@ -175,6 +184,15 @@ func driveChrome(t *testing.T, bridgeURL string, scenario func(ctx context.Conte
 		t.Fatalf("snapshot: %v", err)
 	}
 	return snapshot
+}
+
+// closeChrome closes the browser itself, not only the local wrapper process.
+// This matters when findChrome resolves to a Flatpak wrapper: cancelling the
+// chromedp allocator stops host-spawn but can leave the host Chrome running.
+func closeChrome(ctx context.Context) error {
+	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return chromedp.Cancel(closeCtx)
 }
 
 // TestBridgeE2E_Bash drives the bridge against /bin/bash to validate
@@ -219,6 +237,7 @@ func TestBridgeE2E_Bash(t *testing.T) {
 // the binary doesn't exist.
 func TestBridgeE2E_Stado(t *testing.T) {
 	requireBridgeE2E(t)
+	isolateXDG(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -303,17 +322,12 @@ func TestBridgeE2E_Stado(t *testing.T) {
 // existing TestBridgeE2E_Stado (which only covers landing + Ctrl+P)
 // without the cost of a per-scenario test fixture.
 //
-// NOT covered here (deliberately): a real `stado_ui_render` panel
-// emit. Doing that needs the render-demo-go plugin built + signed +
-// trusted + installed in a temp XDG dir per test run — six steps,
-// each fragile. The ASCII output of `renderPanelASCII` is already
-// exhaustively unit-tested in `internal/tui/render_panel_test.go`
-// (14 cases covering all six body kinds + variants + table
-// narrowing + width invariants); xterm.js doesn't change how those
-// bytes render. Drive that path manually if a regression is
-// suspected.
+// Plugin render, approval, and choice requests are covered by the
+// dedicated self-contained fixture scenarios below. Keeping them
+// separate lets this regression test stay focused on keyboard routing.
 func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
 	requireBridgeE2E(t)
+	isolateXDG(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -429,8 +443,7 @@ func TestBridgeE2E_Stado_F9bRegression(t *testing.T) {
 //   - STADO_PTY_BRIDGE_E2E unset (same as the other E2E tests)
 //   - Chrome binary not findable (same as the other E2E tests)
 //   - STADO_BIN not pointing at a real binary
-//   - the render-demo-go source can't be located (test runs outside
-//     the repo, e.g. installed copy of the bridge)
+//   - the in-tree testdata/ui-demo fixture can't be located
 //   - the wasip1 toolchain isn't available (`go build` for wasm)
 //
 // Allow ~10s walltime: ~3s for the wasip1 wasm build, ~2s for
@@ -441,7 +454,7 @@ func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
-	installDemoPlugin(t, stadoBinAbs, "render-demo-go", "render_demo")
+	installUITestPlugin(t, stadoBinAbs, "render_demo")
 
 	// Drive the bridge + stado.
 	baseURL, token := startBridgeInProcess(t)
@@ -506,13 +519,11 @@ func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
 			// runs. Combined with the result-line + heading
 			// checks, a panel had to render.
 			var hasPanelBorder = s.indexOf('────') >= 0;
-			var headings = ['Plain text', 'Key/value pairs', 'Numbered list',
-				'Bullet list', 'Checklist', 'Code (language hint)', 'Table', 'Diff'];
-			var sawHeading = false;
-			for (var i = 0; i < headings.length; i++) {
-				if (s.indexOf(headings[i]) >= 0) { sawHeading = true; break; }
-			}
-			return resultParts && hasPanelBorder && sawHeading;
+			// Long panels scroll their headings off the alternate screen. The
+			// fixture footer stays at the visible tail and cannot be produced by
+			// the ordinary tool-result block, so it is the stable renderer proof.
+			var sawFixtureFooter = s.indexOf('stado UAT render fixture') >= 0;
+			return resultParts && hasPanelBorder && sawFixtureFooter;
 		})()`
 		panelMatch := pollEval(ctx, t, panelPredicate, 20*time.Second, 200*time.Millisecond)
 		if !panelMatch {
@@ -520,7 +531,11 @@ func TestBridgeE2E_Stado_RendersPanel(t *testing.T) {
 			_ = chromedp.Run(ctx, chromedp.Evaluate(`window.bridge.snapshot()`, &snap))
 			return fmt.Errorf("panel never appeared; snapshot:\n%s", snap)
 		}
-		t.Logf("✓ panel reached renderer: result line + border char + at least one section heading visible")
+		final := snapshot(ctx, t)
+		if strings.Contains(final, "ignoring project-local plugins") {
+			return fmt.Errorf("registry rebuild wrote a raw warning over the active TUI; snapshot:\n%s", final)
+		}
+		t.Logf("✓ panel reached renderer: result line + border + fixture footer visible without raw stderr corruption")
 		return nil
 	})
 }
@@ -776,7 +791,7 @@ func TestBridgeE2E_Stado_ApprovalDrawer(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
-	installDemoPlugin(t, stadoBinAbs, "approval-demo-go", "approval_demo")
+	installUITestPlugin(t, stadoBinAbs, "approval_demo")
 	baseURL, token := startBridgeInProcess(t)
 
 	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
@@ -831,7 +846,7 @@ func TestBridgeE2E_Stado_ApprovalDrawer(t *testing.T) {
 			return s.indexOf('Allow') < 0 || s.indexOf('ctrl+p commands') >= 0;
 		})()`
 		if !pollEval(ctx, t, dismissed, 5*time.Second, 100*time.Millisecond) {
-			t.Logf("warning: Esc may not have dismissed the drawer cleanly (test still passed core assertions)")
+			return fmt.Errorf("Esc did not dismiss approval drawer; snapshot:\n%s", snapshot(ctx, t))
 		}
 		return nil
 	})
@@ -857,7 +872,7 @@ func TestBridgeE2E_Stado_ChoiceDrawerMultiSelect(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
 	isolateXDG(t)
-	installDemoPlugin(t, stadoBinAbs, "choose-demo-go", "choose_demo")
+	installUITestPlugin(t, stadoBinAbs, "choose_demo")
 	baseURL, token := startBridgeInProcess(t)
 
 	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
@@ -1665,6 +1680,7 @@ func TestBridgeE2E_Stado_PlanDoModeToggle(t *testing.T) {
 // the new output looks like.
 func TestBridgeE2E_StadoDebug(t *testing.T) {
 	requireBridgeE2E(t)
+	isolateXDG(t)
 	stadoBin := os.Getenv("STADO_BIN")
 	if stadoBin == "" {
 		stadoBin = "stado"
@@ -1702,7 +1718,7 @@ func TestBridgeE2E_StadoDebug(t *testing.T) {
 // plugin dev installs, stub HTTP servers, Chrome launches). The
 // previous pattern of letting `driveChrome` perform the skip
 // meant heavyweight setup ran before the gate fired — codex
-// review confirmed `installDemoPlugin` (wasm build + plugin
+// review confirmed the UI fixture install (wasm build + plugin
 // dev) executed for ~1.5s before the skip in TestBridgeE2E_
 // Stado_RendersPanel with STADO_PTY_BRIDGE_E2E unset, contra-
 // dicting the README's "stays fast and offline by default"
@@ -1877,15 +1893,14 @@ func isolateXDG(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }
 
-// installDemoPlugin builds + signs + installs a plugin from
-// `plugins/optional/<demoName>/` into the test process's XDG
+// installUITestPlugin builds + signs + installs the self-contained UI fixture
+// under testdata/ui-demo into the test process's XDG
 // (which `isolateXDG` should have already pointed at scratch).
 // Workflow:
 //
-//  1. Locate the demo source via runtime.Caller — the test file
-//     lives at <repo>/hack/pty-bridge/, the demo at
-//     <repo>/plugins/optional/<name>/. Skips when the source can't
-//     be found (e.g. test running outside the repo).
+//  1. Locate the fixture relative to this test file. Keeping it under testdata
+//     makes the UAT independent of the separately-distributed stado-plugins
+//     repository and prevents the critical drawer tests from silently skipping.
 //  2. Stage main.go + go.mod + plugin.manifest.template.json into
 //     a temp dir. Avoids mutating the source-controlled directory
 //     that `stado plugin dev` would otherwise drop signing
@@ -1902,18 +1917,17 @@ func isolateXDG(t *testing.T) {
 //
 // Returns the staging directory path (rarely needed) so callers
 // can introspect the build artefacts on failure. Used by
-// `TestBridgeE2E_Stado_RendersPanel` and the drawer scenarios
-// (approval-demo-go, choose-demo-go).
-func installDemoPlugin(t *testing.T, stadoBin, demoName, expectedToolName string) string {
+// `TestBridgeE2E_Stado_RendersPanel` and the approval/choice drawer
+// scenarios.
+func installUITestPlugin(t *testing.T, stadoBin, expectedToolName string) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
-		t.Skip("runtime.Caller failed; cannot locate demo plugin source")
+		t.Fatal("runtime.Caller failed; cannot locate UI test plugin source")
 	}
-	repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
-	demoSrc := filepath.Join(repoRoot, "plugins", "examples", demoName)
+	demoSrc := filepath.Join(filepath.Dir(thisFile), "testdata", "ui-demo")
 	if _, err := os.Stat(filepath.Join(demoSrc, "main.go")); err != nil {
-		t.Skipf("plugin source not found at %s: %v", demoSrc, err)
+		t.Fatalf("UI test plugin source not found at %s: %v", demoSrc, err)
 	}
 
 	stagingDir := t.TempDir()
@@ -1942,7 +1956,7 @@ func installDemoPlugin(t *testing.T, stadoBin, demoName, expectedToolName string
 
 	devCmd := exec.Command(stadoBin, "plugin", "dev", stagingDir)
 	if out, err := devCmd.CombinedOutput(); err != nil {
-		t.Fatalf("stado plugin dev failed for %s: %v\n%s", demoName, err, out)
+		t.Fatalf("stado plugin dev failed for UI fixture: %v\n%s", err, out)
 	}
 
 	listCmd := exec.Command(stadoBin, "tool", "list")

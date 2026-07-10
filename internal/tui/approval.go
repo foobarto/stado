@@ -141,6 +141,8 @@ func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	}
 
 	switch msg.String() {
+	case "esc", "ctrl+g":
+		return m.resolveApproval(false), true
 	case "up":
 		if m.filePicker.Visible {
 			return nil, false

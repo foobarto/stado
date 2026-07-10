@@ -23,7 +23,9 @@ func init() {
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallForce, "force", false,
 		"Force reinstall even when the same version is already present (bypasses idempotency check). EP-0039.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallAutoload, "autoload", false,
-		"After install, persist the plugin's tools into [tools].autoload in config.toml — they'll load into every session without a separate `stado tool autoload` call.")
+		"After install, persist the plugin's tools into [tools].autoload in the matching user or project config. Project-local loading still requires the user-level allow_project_plugins trust gate.")
+	pluginInstallCmd.Flags().BoolVar(&pluginInstallLocal, "local", false,
+		"Install into the current project's .stado/plugins directory instead of the user-global plugin directory. Requires a discovered .stado project root; signer trust remains user-local.")
 	pluginInstallCmd.Flags().BoolVar(&pluginInstallTrustAnchor, "trust-anchor", false,
 		"Accept this owner's anchor fingerprint on first sight without prompting (trust-on-first-use). Use only after verifying the key out of band; non-interactive installs of a never-seen owner refuse without it. EP-0039.")
 	pluginTrustCmd.Flags().StringVar(&pluginTrustPubkeyFile, "pubkey-file", "",

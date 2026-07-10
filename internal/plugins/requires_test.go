@@ -92,6 +92,24 @@ func TestCheckRequires_HighestVersionWins(t *testing.T) {
 	}
 }
 
+func TestCheckRequiresInDirs_SearchesProjectAndGlobalRoots(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, "project-dep-0.2.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(globalDir, "global-dep-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manifest{Requires: []string{
+		"project-dep >= 0.2.0",
+		"global-dep >= 1.0.0",
+	}}
+	if err := CheckRequiresInDirs(m, []string{projectDir, globalDir}); err != nil {
+		t.Fatalf("dependencies across project and global roots should pass: %v", err)
+	}
+}
+
 func TestCheckRequires_MultipleErrors(t *testing.T) {
 	dir := t.TempDir()
 	m := &Manifest{Requires: []string{

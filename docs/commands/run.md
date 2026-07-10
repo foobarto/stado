@@ -148,6 +148,7 @@ See [features/skills.md](../features/skills.md) for the full surface.
 | `--top-k <n>` | Top-k sampling (0 = provider default) |
 | `--json` | Emit JSON Lines instead of raw text |
 | `--quiet` | Suppress tool-call preview lines on stdout (non-JSON mode) |
+| `--headless` | Serve the JSON-RPC 2.0 daemon over stdio instead of a one-shot prompt (was `stado headless`). Prompt/skill/session inputs are rejected; drive sessions via the `session.*` RPC methods. See [headless.md](headless.md). |
 
 ## Config
 

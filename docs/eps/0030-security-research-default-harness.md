@@ -21,6 +21,17 @@ history:
       abusability filter). Reuse vs port question resolved: operator's ~/Dokumenty/htb-writeups/
       is canonical; this EP provides the hook points; operator copies / adapts their harness content
       into .stado/harness/security.md for project-level customisation.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). The 2026-05-05 entry above
+      claims a "bundled skills catalog at plugins/default/security-harness/".
+      No plugins/default/ directory exists. The analytical-moves content
+      (recon-first, abusability filter, anti-confirmation-bias) shipped
+      instead as the SecurityBuiltin prompt constant in
+      internal/harness/harness.go, prepended when [harness].mode="security".
+      The config knob, internal/harness loader, and `stado harness init`
+      folder layout are all as described; only the artifact location differs.
 see-also: [0002, 0008, 0013, 0017]
 ---
 

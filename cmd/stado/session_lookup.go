@@ -210,6 +210,15 @@ func worktreePathForID(root, id string) (string, error) {
 	return wt, nil
 }
 
+// shortHash renders a 7-char git short hash, or "-" for the zero hash.
+// Shared by `session show`-adjacent listings and `stado audit`.
+func shortHash(h plumbing.Hash) string {
+	if h.IsZero() {
+		return "-"
+	}
+	return h.String()[:7]
+}
+
 // findRepoRoot walks up from start looking for a git working tree.
 // Falls back to start (canonicalised) if none found, so sessions still
 // work outside repos. The working-tree predicate is shared with the

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 func TestBridgeShot_InputBoxBackground(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
 
 	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {
@@ -55,31 +55,45 @@ func TestBridgeShot_InputBoxBackground(t *testing.T) {
 		js := `(function(){
 			var buf = term.buffer.active;
 			var rows = [];
+			var holes = 0;
 			for (var y = buf.viewportY; y < buf.viewportY + term.rows; y++) {
 				var line = buf.getLine(y); if (!line) continue;
 				var text = line.translateToString(true);
 				if (text.indexOf('Type a message') < 0 && text.indexOf('Do ') < 0 &&
 				    text.indexOf('│') < 0) continue;
 				var segs = {};
+				var firstPainted = -1;
+				var lastPainted = -1;
 				for (var x = 0; x < term.cols; x++) {
 					var c = line.getCell(x); if (!c) continue;
 					var key;
 					if (c.isBgDefault()) key = 'DEFAULT';
 					else if (c.isBgRGB()) { var v=c.getBgColor(); key='rgb('+((v>>16)&255)+','+((v>>8)&255)+','+(v&255)+')'; }
 					else key = 'palette('+c.getBgColor()+')';
+					if (!c.isBgDefault()) {
+						if (firstPainted < 0) firstPainted = x;
+						lastPainted = x;
+					}
 					segs[key] = (segs[key]||0)+1;
+				}
+				for (var x = firstPainted; x >= 0 && x <= lastPainted; x++) {
+					var c = line.getCell(x);
+					if (c && c.isBgDefault()) holes++;
 				}
 				rows.push(y + ': ' + JSON.stringify(segs) + '  | ' + text.slice(0,40));
 			}
-			return rows.join('\n');
+			return {dump: rows.join('\n'), holes: holes};
 		})()`
-		var dump string
-		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &dump)); err != nil {
+		var result struct {
+			Dump  string `json:"dump"`
+			Holes int    `json:"holes"`
+		}
+		if err := chromedp.Run(ctx, chromedp.Evaluate(js, &result)); err != nil {
 			return fmt.Errorf("cell dump: %w", err)
 		}
-		t.Logf("input-box row backgrounds:\n%s", dump)
-		if strings.Contains(dump, "DEFAULT") {
-			t.Logf("NOTE: at least one input-box row has DEFAULT (unpainted) bg cells — that's the grey")
+		t.Logf("input-box row backgrounds:\n%s", result.Dump)
+		if result.Holes != 0 {
+			return fmt.Errorf("input box has %d unpainted cells after its painted surface begins", result.Holes)
 		}
 		return nil
 	})

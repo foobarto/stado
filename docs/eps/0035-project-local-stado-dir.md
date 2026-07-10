@@ -10,6 +10,8 @@ extended-by: [37]
 history:
   - date: 2026-05-05
     note: Implemented — config overlay + .stado/AGENTS.md + plugin search path
+  - date: 2026-07-10
+    note: Completed the write path with plugin install --local; dependency and lock-file resolution now reuse Config project discovery
 ---
 
 ## Summary

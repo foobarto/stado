@@ -120,7 +120,7 @@ tool name (not the plugin ID) and resolves the owning plugin for you.
 | `stado plugin installed` | Show installed plugin IDs (matches state/plugins/<id>/) |
 | `stado plugin verify <dir>` | Verify a plugin directory in place |
 | `stado plugin verify-installed <plugin-id>` | Re-verify an installed plugin against the trust store (catch trust-store drift) |
-| `stado plugin install <dir-or-identity>` | Verify, then copy into the state dir. Accepts a local directory OR a remote identity `host/owner/repo@version` (fetched + anchor-verified). Flags: `--force` (reinstall over the same version), `--autoload` (persist the plugin's tools into `[tools].autoload`), `--signer <pubkey>` (inline-pin the author key), `--trust-anchor` (accept the owner's anchor fingerprint on first sight without prompting — for non-interactive installs; verify out of band) |
+| `stado plugin install <dir-or-identity>` | Verify, then copy into the plugin directory. Accepts a local directory OR a remote identity `host/owner/repo@version` (fetched + anchor-verified). Flags: `--local` (install under the current project's `.stado/plugins/`; trust remains user-local), `--force` (reinstall over the same version), `--autoload` (persist tools into `[tools].autoload` in the matching user/project config; project loading still needs the user-level trust gate), `--signer <pubkey>` (inline-pin the author key), `--trust-anchor` (accept the owner's anchor fingerprint on first sight without prompting; verify out of band) |
 | `stado plugin update <plugin-id>` | Fetch the latest tagged version of an installed plugin (GitHub/GitLab release API) and install it side-by-side (EP-0039). `--check` lists available updates without installing |
 | `stado plugin remove <name>` | Uninstall a plugin (all installed versions) and drop its `plugin-lock.toml` entry so `update` won't reinstall it |
 | `stado plugin use <plugin-id>` | Switch the active version for an installed plugin (per-project) |
@@ -130,6 +130,11 @@ tool name (not the plugin ID) and resolves the owning plugin for you.
 | `stado plugin gc [--keep N] [--apply]` | Sweep older installed plugin versions per (signer, name) group (dry-run by default) |
 | `stado plugin doctor <plugin-id>` | Inspect manifest + emit per-surface compatibility table with the exact flags to pass |
 | `stado plugin info <plugin-id>` | Dump installed plugin's manifest as pretty JSON (sibling to doctor — info dumps, doctor analyses) |
+
+`plugin install --local` keeps signer trust in user state and does not bypass
+the project-content gate. After reviewing the plugin, set
+`[plugins] allow_project_plugins = true` in the user config to let runtime
+discovery load it; install prints this reminder when the gate is still off.
 
 ## Using plugins from the TUI
 

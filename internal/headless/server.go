@@ -19,7 +19,7 @@ import (
 	"github.com/foobarto/stado/pkg/agent"
 )
 
-// Server is the headless JSON-RPC daemon.
+// Server is the headless JSON-RPC daemon served by stado run --headless.
 type Server struct {
 	Cfg      *config.Config
 	Provider agent.Provider
@@ -30,7 +30,7 @@ type Server struct {
 	nextID   uint64 // monotonic counter so deleting sessions doesn't reuse IDs
 
 	// DefaultPersona is the operator's persona pin from
-	// `stado headless --persona <name>`. Applied to every `session.new`
+	// `stado run --headless --persona <name>`. Applied to every `session.new`
 	// when the caller's `persona` param is empty. Resolved by the CLI
 	// layer before the server starts so the wire never sees a
 	// missing-persona error after the handshake.

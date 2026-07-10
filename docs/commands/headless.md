@@ -1,10 +1,15 @@
-# `stado headless`
+# `stado run --headless`
 
 Run stado as an editor-neutral JSON-RPC 2.0 daemon over stdio.
 
+> Was `stado headless` through v0.75.x. The standalone command was folded
+> into `stado run` (the non-interactive surface); `--headless` selects the
+> daemon instead of a one-shot prompt. Behavior and the wire protocol are
+> unchanged.
+
 ## What it does
 
-`stado headless` exposes the shared runtime without the terminal UI.
+`stado run --headless` exposes the shared runtime without the terminal UI.
 Clients create in-memory sessions, send prompts, inspect tools and
 providers, run installed plugins against sessions, and shut the daemon
 down after draining in-flight RPCs.
@@ -19,7 +24,7 @@ from project config).
 ## Usage
 
 ```sh
-stado headless
+stado run --headless
 ```
 
 Requests are line-delimited JSON-RPC 2.0 messages on stdin. Responses

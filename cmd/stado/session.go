@@ -639,6 +639,7 @@ func init() {
 	sessionAttachCmd.ValidArgsFunction = idCompleter
 	sessionResumeCmd.ValidArgsFunction = idCompleter
 	sessionDeleteCmd.ValidArgsFunction = idCompleter
+	sessionKillCmd.ValidArgsFunction = idCompleter
 	sessionForkCmd.ValidArgsFunction = idCompleter
 	sessionDescribeCmd.ValidArgsFunction = idCompleter
 	sessionRevertCmd.ValidArgsFunction = idCompleter
@@ -648,7 +649,7 @@ func init() {
 	sessionCompactCmd.ValidArgsFunction = idCompleter
 
 	sessionCmd.AddCommand(
-		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionGCCmd, sessionForkCmd,
+		sessionNewCmd, sessionListCmd, sessionDeleteCmd, sessionKillCmd, sessionGCCmd, sessionForkCmd,
 		sessionAttachCmd, sessionResumeCmd, sessionShowCmd, sessionLandCmd, sessionRevertCmd,
 		sessionTreeCmd, sessionCompactCmd, sessionDescribeCmd, sessionSearchCmd,
 	)

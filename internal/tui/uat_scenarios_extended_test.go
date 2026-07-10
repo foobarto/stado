@@ -199,6 +199,38 @@ func TestUAT_ApprovalYApprovesAndAdvances(t *testing.T) {
 	}
 }
 
+func TestUAT_ApprovalCancelKeysDenyAndClose(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "escape", key: tea.KeyPressMsg{Code: tea.KeyEsc}},
+		{name: "ctrl-g", key: tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}},
+		{name: "ctrl-c", key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := scenarioModel(t)
+			resp := make(chan bool, 1)
+			_, _ = m.Update(pluginApprovalRequestMsg{
+				title: "Plugin approval", body: "Allow?", response: resp,
+			})
+			_, _ = m.Update(tc.key)
+			if m.approval != nil || m.state == stateApproval {
+				t.Fatal("cancel key left the approval drawer open")
+			}
+			select {
+			case allow := <-resp:
+				if allow {
+					t.Fatal("cancel key must deny the approval")
+				}
+			default:
+				t.Fatal("cancel key did not release the waiting plugin")
+			}
+		})
+	}
+}
+
 // E2b: approval no longer blocks draft editing; normal typing should
 // stay in the textarea until the user explicitly resolves the prompt.
 func TestUAT_ApprovalKeepsInputEditable(t *testing.T) {

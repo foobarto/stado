@@ -113,6 +113,39 @@ func TestChoiceDrawer_EscCancels(t *testing.T) {
 	}
 }
 
+func TestChoiceDrawer_OtherCancelKeys(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "ctrl-g", key: tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}},
+		{name: "ctrl-c", key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newPickerTestModel(t, "anthropic")
+			resp := make(chan pluginRuntime.ChoiceResponse, 1)
+			_, _ = m.Update(pluginChoiceRequestMsg{
+				req: pluginRuntime.ChoiceRequest{
+					Prompt: "pick", Options: []pluginRuntime.ChoiceOption{{ID: "a", Label: "A"}},
+				},
+				response: resp,
+			})
+			_, _ = m.Update(tc.key)
+			if m.choice != nil || m.state == stateChoice {
+				t.Fatal("cancel key left the choice drawer open")
+			}
+			select {
+			case got := <-resp:
+				if !got.Cancelled {
+					t.Fatal("cancel key returned a non-cancelled response")
+				}
+			default:
+				t.Fatal("cancel key did not release the waiting plugin")
+			}
+		})
+	}
+}
+
 // TestChoiceDrawer_DefaultIDPreToggles: in single mode, Default[0]
 // sets the initial cursor; in multi mode, every Default id starts
 // toggled on.

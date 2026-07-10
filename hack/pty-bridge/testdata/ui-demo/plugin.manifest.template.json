@@ -1,0 +1,35 @@
+{
+  "name": "stado-uat-ui-demo",
+  "version": "0.1.0",
+  "author": "stado UAT fixture",
+  "author_pubkey_fpr": "",
+  "wasm_sha256": "",
+  "capabilities": [
+    "ui:approval",
+    "ui:choice",
+    "ui:render"
+  ],
+  "tools": [
+    {
+      "name": "render_demo",
+      "description": "UAT fixture that renders every panel body kind.",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\"}"
+    },
+    {
+      "name": "approval_demo",
+      "description": "UAT fixture that opens the approval drawer.",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"}}}"
+    },
+    {
+      "name": "choose_demo",
+      "description": "UAT fixture that opens the choice drawer.",
+      "class": "NonMutating",
+      "schema": "{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\"},\"multi\":{\"type\":\"boolean\"},\"default\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"options\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"id\",\"label\"],\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"}}}}}}"
+    }
+  ],
+  "min_stado_version": "0.1.0",
+  "timestamp_utc": "2026-07-10T00:00:00Z",
+  "nonce": "stado-uat-ui-demo-001"
+}

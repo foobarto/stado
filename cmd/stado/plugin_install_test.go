@@ -110,6 +110,79 @@ func TestPluginInstall_WithSignerTOFU(t *testing.T) {
 	}
 }
 
+func TestPluginInstall_LocalUsesProjectDirAndGlobalTrust(t *testing.T) {
+	project := t.TempDir()
+	projectStado := filepath.Join(project, ".stado")
+	if err := os.Mkdir(projectStado, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	cfg := isolatedHome(t)
+
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	src := buildTestPluginWithTools(t, priv, pub, "local-demo", "1.0.0",
+		[]plugins.ToolDef{{Name: "local_lookup", Description: "lookup"}})
+	pluginInstallSigner = hex.EncodeToString(pub)
+	pluginInstallLocal = true
+	pluginInstallAutoload = true
+	t.Cleanup(func() {
+		pluginInstallSigner = ""
+		pluginInstallLocal = false
+		pluginInstallAutoload = false
+	})
+
+	if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
+		t.Fatalf("install --local: %v", err)
+	}
+	localDst := filepath.Join(projectStado, "plugins", "local-demo-1.0.0")
+	if _, err := os.Stat(filepath.Join(localDst, "plugin.wasm")); err != nil {
+		t.Fatalf("local install did not copy wasm: %v", err)
+	}
+	globalDst := filepath.Join(cfg.StateDir(), "plugins", "local-demo-1.0.0")
+	if _, err := os.Stat(globalDst); !os.IsNotExist(err) {
+		t.Fatalf("local install also wrote global destination, stat error = %v", err)
+	}
+	globalTrust := plugins.NewTrustStore(cfg.StateDir()).Path
+	if _, err := os.Stat(globalTrust); err != nil {
+		t.Fatalf("signer trust was not persisted in user state: %v", err)
+	}
+	projectTrust := filepath.Join(projectStado, "plugins", "trusted_keys.json")
+	if _, err := os.Stat(projectTrust); !os.IsNotExist(err) {
+		t.Fatalf("local install created project-local trust state, stat error = %v", err)
+	}
+	if got, want := pluginLockPath(cfg), filepath.Join(projectStado, "plugin-lock.toml"); got != want {
+		t.Fatalf("pluginLockPath() = %q, want project path %q", got, want)
+	}
+	projectConfig, err := os.ReadFile(filepath.Join(projectStado, "config.toml"))
+	if err != nil {
+		t.Fatalf("read project config after --local --autoload: %v", err)
+	}
+	if !strings.Contains(string(projectConfig), "local_lookup") {
+		t.Fatalf("project autoload config missing local tool: %s", projectConfig)
+	}
+	if globalConfig, err := os.ReadFile(cfg.ConfigPath); err == nil && strings.Contains(string(globalConfig), "local_lookup") {
+		t.Fatalf("local autoload leaked into user config %s", cfg.ConfigPath)
+	}
+}
+
+func TestPluginInstall_LocalRequiresProject(t *testing.T) {
+	t.Chdir(t.TempDir())
+	_ = isolatedHome(t)
+	pluginInstallLocal = true
+	t.Cleanup(func() { pluginInstallLocal = false })
+
+	err := pluginInstallCmd.RunE(pluginInstallCmd, []string{"unused"})
+	if err == nil || !strings.Contains(err.Error(), "--local requires a project .stado directory") {
+		t.Fatalf("install --local outside project error = %v", err)
+	}
+}
+
+func TestPluginInstall_LocalFlagRegistered(t *testing.T) {
+	if pluginInstallCmd.Flags().Lookup("local") == nil {
+		t.Fatal("plugin install --local flag is not registered")
+	}
+}
+
 // TestPluginInstall_Autoload: --autoload flag persists the plugin's
 // tools into [tools].autoload in config.toml so they're loaded into
 // future sessions without a separate `tool autoload` call.

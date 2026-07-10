@@ -75,7 +75,7 @@ and the loaded project content. This applies to:
 
 - The TUI (`stado`) on every turn.
 - `stado run` one-shot prompts.
-- `stado acp` / `stado headless` turns.
+- `stado acp` / `stado run --headless` turns.
 
 Sidebar in the TUI shows the basename (`AGENTS.md`, `CLAUDE.md`) so
 you can tell at a glance which file informed the prompt. When no

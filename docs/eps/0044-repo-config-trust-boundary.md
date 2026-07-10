@@ -24,6 +24,15 @@ history:
       Phase 1 always-strip + opt-in gates shipped in v0.75.0 (personas,
       project plugins, LSP auto_diagnostics). Per-project TOFU for surviving
       overlay keys remains deferred — always-strip is the operator posture.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). The Phase-1 parenthetical
+      ("`mcp.servers` stays") and the Test-strategy line ("`defaults.model` +
+      `mcp.servers` survive") are stale within this same document: Phase 2 and
+      the shipped code STRIP `mcp.servers` from project overlays
+      (config.go:935; config_test.go asserts it is dropped). Phase 2's text is
+      authoritative; the Phase-1 note and Test-strategy line predate it.
 ---
 
 # EP-44: Repo-config trust boundary

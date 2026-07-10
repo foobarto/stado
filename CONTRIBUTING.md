@@ -126,7 +126,7 @@ take seriously first.
 ```sh
 ./stado                            # TUI (recommended)
 ./stado run --prompt "hi"          # one-shot
-./stado headless                   # JSON-RPC daemon on stdio
+./stado run --headless             # JSON-RPC daemon on stdio
 ./stado acp                        # Zed Agent-Client-Protocol server
 ./stado mcp-server                 # expose tools as MCP v1
 ```

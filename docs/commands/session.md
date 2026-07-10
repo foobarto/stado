@@ -102,6 +102,20 @@ Removes the session's refs + worktree + conversation.jsonl.
 Idempotent (deleting a missing session is a stderr warning, not an
 error).
 
+### `session kill <id>`
+
+Operational stop-and-clean for a running session: reads
+`<worktree>/.stado-pid`, sends a termination signal to that process when
+it is still alive, then removes the worktree directory. Unlike
+`session delete`, the sidecar history (`refs/sessions/<id>/*`) is left
+intact — reach for `delete` when you also want to purge the refs.
+
+The ID is validated as a local session ID before any path is joined, so
+traversal forms like `../../foo` are rejected. This is the surface that
+was formerly `stado agents kill`; `agents list`/`agents attach` were
+duplicates of `session list` (STATUS=live) / `session attach` and were
+removed with the `agents` command.
+
 ### `session fork <id> [--at <turns/N|sha>]`
 
 Creates a new session branched from an existing one. Without `--at`
@@ -237,7 +251,7 @@ Session data layout:
 | `$XDG_STATE_HOME/stado/worktrees/<uuid>/` | Session worktree |
 | `<worktree>/.stado/conversation.jsonl` | Append-only persisted conversation |
 | `<worktree>/.stado/description` | Optional human label |
-| `<worktree>/.stado-pid` | Owning process PID (for `agents list`) |
+| `<worktree>/.stado-pid` | Owning process PID (for `session list` STATUS + `session kill`) |
 | `<worktree>/.stado-span-context` | W3C traceparent (for forked sessions' span linking) |
 
 ## Gotchas

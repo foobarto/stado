@@ -17,7 +17,19 @@ history:
     note: Reproducible builds, checksum-manifest signing, self-update verification, and distribution surfaces are the shipped release contract.
   - date: 2026-04-24
     status: Accepted
-    note: Documented release-numbering policy: minor for features or meaningful behavior changes, patch for smaller changes.
+    note: >
+      Documented release-numbering policy: minor for features or meaningful
+      behavior changes, patch for smaller changes.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). The body states that ldflags
+      seeding covers both `EmbeddedMinisignPubkey` and
+      `EmbeddedMinisignKeyID`. Only the pubkey is ldflags-seedable; the key
+      id is a `uint64` and `go build -X` only sets string vars, so it cannot
+      be linker-injected. `EmbeddedMinisignKeyID` is display-only and stays 0
+      today (audit/embedded.go). No behavior gap — self-update verifies the
+      pubkey; the key id is informational.
 ---
 
 # EP-12: Release Integrity and Distribution
