@@ -38,7 +38,10 @@ var sessionKillCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		pid, alive, owned := runtime.SessionProcessOwnership(wt)
+		pid, alive, owned, inspectErr := runtime.InspectSessionProcess(wt)
+		if inspectErr != nil {
+			return fmt.Errorf("refusing session cleanup: %w; worktree preserved", inspectErr)
+		}
 		if alive && !owned {
 			return fmt.Errorf("refusing to signal pid %d: session process ownership cannot be verified; worktree preserved", pid)
 		}
@@ -67,9 +70,15 @@ var sessionKillCmd = &cobra.Command{
 func waitForSessionProcessExit(worktree string, pid int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		_, alive, owned := runtime.SessionProcessOwnership(worktree)
-		if !alive || !owned {
+		_, alive, owned, inspectErr := runtime.InspectSessionProcess(worktree)
+		if inspectErr != nil {
+			return fmt.Errorf("verify session process %d exited: %w; worktree preserved", pid, inspectErr)
+		}
+		if !alive {
 			return nil
+		}
+		if !owned {
+			return fmt.Errorf("session process %d is alive but ownership cannot be verified; worktree preserved", pid)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("session process %d did not exit after termination signal; worktree preserved", pid)

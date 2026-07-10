@@ -114,22 +114,41 @@ func WriteSessionPID(worktreeDir string, pid int) error {
 // PID-only files and identity mismatches are deliberately alive-but-unowned so
 // callers never signal a possibly reused PID.
 func SessionProcessOwnership(worktreeDir string) (pid int, alive, owned bool) {
+	pid, alive, owned, _ = InspectSessionProcess(worktreeDir)
+	return pid, alive, owned
+}
+
+// InspectSessionProcess distinguishes an absent/stale process from metadata or
+// identity failures. Destructive callers must preserve the worktree on any
+// non-nil error; only an absent record or a definitely exited process is safe
+// to clean without signalling.
+func InspectSessionProcess(worktreeDir string) (pid int, alive, owned bool, inspectErr error) {
 	pid, expectedIdentity, err := readSessionProcessRecord(worktreeDir)
 	if err != nil {
-		return 0, false, false
+		if os.IsNotExist(err) {
+			return 0, false, false, nil
+		}
+		return 0, false, false, fmt.Errorf("read session process record: %w", err)
 	}
 	identity, identityErr := processIdentity(pid)
 	if identityErr != nil {
-		return pid, processAlive(pid), false
+		alive = processAlive(pid)
+		if alive {
+			return pid, true, false, fmt.Errorf("identify live session process %d: %w", pid, identityErr)
+		}
+		return pid, false, false, nil
 	}
 	alive = processAlive(pid)
 	if !alive {
-		return pid, false, false
+		return pid, false, false, nil
 	}
 	if expectedIdentity == "" {
-		return pid, alive, false
+		return pid, true, false, fmt.Errorf("live session process %d has a legacy PID-only record", pid)
 	}
-	return pid, alive, expectedIdentity == identity
+	if expectedIdentity != identity {
+		return pid, true, false, fmt.Errorf("session process identity mismatch for live pid %d", pid)
+	}
+	return pid, true, true, nil
 }
 
 func readSessionProcessRecord(worktreeDir string) (pid int, identity string, err error) {
