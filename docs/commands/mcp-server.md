@@ -32,6 +32,9 @@ TUI or a wrapper plugin when a human approval step is required.
 
 Local subprocess sandboxing still applies inside tools that use the
 stado sandbox runner, and tool visibility still follows `[tools]`.
+The server applies its broker-projected ceiling to that runner for its entire
+lifetime. The global `--no-sandbox` flag explicitly selects `NoneRunner` and
+removes the host default policy.
 
 ## Gotchas
 

@@ -71,6 +71,9 @@ clients should treat those as visibility fields and use
 
 ## Gotchas
 
+- Every tool-enabled ACP session inherits the server's broker-projected
+  ceiling. `--no-sandbox` explicitly selects `NoneRunner` and removes the ACP
+  host's default sandbox policy.
 - ACP sessions are editor sessions, not the same as `stado session`
   CLI entries unless `--tools` opens the sidecar path for execution.
 - Provider init is lazy. Startup can succeed even when provider

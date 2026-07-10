@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/broker"
+	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
@@ -36,6 +38,13 @@ type bundledToolHostWithPTY struct {
 }
 
 func (h bundledToolHostWithPTY) PTYManager() any { return h.pty }
+
+type bundledToolSandboxHost struct {
+	bundledToolHost
+	defaultPolicy any
+}
+
+func (h bundledToolSandboxHost) DefaultSandboxPolicy() any { return h.defaultPolicy }
 
 func TestBuildDefaultRegistry_UsesBundledPluginTools(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
@@ -106,12 +115,63 @@ func TestBundledPluginTool_RunRead(t *testing.T) {
 	}
 }
 
-// TestBundledPluginTool_BashUsesRunner removed Step 4 of EP-no-internal-tools.
-// The native bash.BashTool routed through sandbox.Runner with a hardcoded
-// bwrap policy (workdir + /tmp + net deny). Post-Step-4 the bash tool is
-// the wasm shell__bash, which uses stado_exec without sandbox by default —
-// plugin author opts in via the new sandbox arg. The "bash automatically
-// gets bwrap" behavior this test asserted is gone, intentionally.
+func TestBundledShellOneShotToolsAuthorizeTheirLiteralShell(t *testing.T) {
+	dir := t.TempDir()
+	reg := BuildDefaultRegistry(nil)
+	host := bundledToolHost{workdir: dir, runner: sandbox.NoneRunner{}}
+
+	for _, name := range []string{"shell__exec", "shell__sh", "shell__bash"} {
+		t.Run(name, func(t *testing.T) {
+			got, ok := reg.Get(name)
+			if !ok {
+				t.Fatalf("%s missing", name)
+			}
+			res, err := got.Run(context.Background(), json.RawMessage(`{"command":"printf STADO_PROCESS_OK"}`), host)
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if res.Error != "" {
+				t.Fatalf("tool error: %s", res.Error)
+			}
+			if !strings.Contains(res.Content, "STADO_PROCESS_OK") {
+				t.Fatalf("content = %q", res.Content)
+			}
+		})
+	}
+}
+
+func TestBundledShellExecRunsUnderBrokerCeiling(t *testing.T) {
+	if sandbox.Detect().Name() != "bwrap" {
+		t.Skipf("requires bwrap; runner is %q", sandbox.Detect().Name())
+	}
+	dir := t.TempDir()
+	ceiling := broker.MountTableFor(broker.ProfileDefault, dir).ToPolicy()
+	host := bundledToolSandboxHost{
+		bundledToolHost: bundledToolHost{
+			workdir: dir,
+			runner:  sandbox.NewCeilingRunner(sandbox.Detect(), ceiling),
+		},
+		defaultPolicy: pluginRuntime.NewDefaultSandboxPolicy(dir),
+	}
+
+	got, ok := BuildDefaultRegistry(nil).Get("shell__exec")
+	if !ok {
+		t.Fatal("shell__exec missing")
+	}
+	res, err := got.Run(context.Background(), json.RawMessage(`{"command":"printf STADO_PROCESS_OK"}`), host)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Error != "" {
+		t.Fatalf("tool error: %s", res.Error)
+	}
+	if !strings.Contains(res.Content, "STADO_PROCESS_OK") {
+		t.Fatalf("content = %q", res.Content)
+	}
+}
+
+// The wasm shell tools call stado_exec. The surface host supplies the default
+// process policy and runner; a bare test host can still omit that policy.
 
 // TestBundledPluginTool_HonoursPTYProvider: cross-call PTY persistence.
 // When the host implements tool.PTYProvider, successive bundled-plugin

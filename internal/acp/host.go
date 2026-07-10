@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/subagent"
 	"github.com/foobarto/stado/internal/tools"
@@ -20,11 +21,12 @@ import (
 // session/update kind=choice|approval instead of "interactive UI
 // unavailable". Q3 Phase B + approval-bridge follow-up.
 type acpHost struct {
-	server    *Server
-	sessionID string
-	workdir   string
-	readLog   *tools.ReadLog
-	runner    sandbox.Runner
+	server          *Server
+	sessionID       string
+	workdir         string
+	readLog         *tools.ReadLog
+	runner          sandbox.Runner
+	executorSandbox runtime.ExecutorSandbox
 }
 
 func (h *acpHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
@@ -42,7 +44,7 @@ func (h *acpHost) Runner() sandbox.Runner { return h.runner }
 // *sandboxPolicy via `any` per tool.SandboxPolicyProvider; the wasm guest can
 // only TIGHTEN it (intersectPolicies), never widen.
 func (h *acpHost) DefaultSandboxPolicy() any {
-	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
+	return h.executorSandbox.DefaultSandboxPolicy(h.workdir)
 }
 
 func (h *acpHost) SpawnSubagent(_ context.Context, _ subagent.Request) (subagent.Result, error) {

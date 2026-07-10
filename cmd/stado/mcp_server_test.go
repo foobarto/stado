@@ -125,6 +125,17 @@ func TestStadoMCPHost_RunnerInterfaceAssertable(t *testing.T) {
 	}
 }
 
+func TestStadoMCPHost_NoSandboxRemovesDefaultPolicy(t *testing.T) {
+	h := stadoMCPHost{
+		workdir:         t.TempDir(),
+		runner:          sandbox.NoneRunner{},
+		executorSandbox: runtime.ExecutorSandbox{Disabled: true},
+	}
+	if h.DefaultSandboxPolicy() != nil {
+		t.Fatal("stadoMCPHost.DefaultSandboxPolicy() must be nil after explicit --no-sandbox")
+	}
+}
+
 // Codex C1/I-c P1 regression: the mcp-server registers llm.invoke
 // AFTER runtime.BuildRegistryWithPlugins → ApplyToolFilter has run.
 // Pre-fix that meant `[tools].disabled=["llm.invoke"]` couldn't

@@ -2,7 +2,9 @@ package sandbox
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -189,6 +191,40 @@ func TestCeilingRunner_NetAllowHostsIntersects(t *testing.T) {
 	}
 	if len(inner.gotPolicy.Net.Hosts) != 1 || inner.gotPolicy.Net.Hosts[0] != "a" {
 		t.Errorf("Net.Hosts = %v, want [a]", inner.gotPolicy.Net.Hosts)
+	}
+}
+
+func TestCeilingRunnerRejectsCWDOutsideCeiling(t *testing.T) {
+	allowed := t.TempDir()
+	outside := t.TempDir()
+	inner := &recordingRunner{available: true}
+	wrapped := NewCeilingRunner(inner, Policy{FSRead: []string{allowed}})
+	if _, err := wrapped.Command(context.Background(), Policy{CWD: outside}, "true", nil, nil); err == nil {
+		t.Fatal("out-of-ceiling CWD was accepted")
+	}
+	if inner.gotPolicy.CWD != "" {
+		t.Fatalf("inner runner was called with %+v", inner.gotPolicy)
+	}
+}
+
+func TestCeilingRunnerRejectsCWDSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	escape := filepath.Join(allowed, "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatal(err)
+	}
+	inner := &recordingRunner{available: true}
+	wrapped := NewCeilingRunner(inner, Policy{FSRead: []string{allowed}})
+	if _, err := wrapped.Command(context.Background(), Policy{CWD: escape}, "true", nil, nil); err == nil {
+		t.Fatal("symlink CWD escape was accepted")
 	}
 }
 

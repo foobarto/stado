@@ -69,6 +69,31 @@ func TestBwrapRunnerCommand_AllowHostsSetsProxyEnv(t *testing.T) {
 	}
 }
 
+func TestBwrapRunner_CWDBindFollowsWritePolicy(t *testing.T) {
+	cwd := t.TempDir()
+	base := Policy{CWD: cwd, FSRead: []string{cwd}, Exec: []string{"true"}}
+
+	readOnly, err := (BwrapRunner{}).Command(context.Background(), base, "true", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArg(readOnly.Args, "--ro-bind-try", cwd) {
+		t.Fatalf("read-only CWD was not mounted read-only: %v", readOnly.Args)
+	}
+	if containsAdjacentArg(readOnly.Args, "--bind-try", cwd) {
+		t.Fatalf("read-only CWD was mounted writable: %v", readOnly.Args)
+	}
+
+	base.FSWrite = []string{cwd}
+	writable, err := (BwrapRunner{}).Command(context.Background(), base, "true", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArg(writable.Args, "--bind-try", cwd) {
+		t.Fatalf("writable CWD was not mounted writable: %v", writable.Args)
+	}
+}
+
 func TestProbePastaSpliceOnlyRejectsOversizedHelp(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "pasta")

@@ -25,18 +25,14 @@ Kernel ≥ 5.13. Filesystem ruleset applied at process start:
 
 - Read: permitted over the whole repo so `grep`/`glob`/`read` work
   naturally. Prevents writes anywhere else, even under home.
-- Write: confined to the session's worktree + `/tmp`. `bash` can
+- Write: confined to the launch cwd + `/tmp`. `bash` can
   build, edit its own scratch files, swap temp directories; it
   cannot `echo > ~/.ssh/authorized_keys`.
-- Network: **not yet restricted by the default runner.** The current
-  bubblewrap + Landlock sandbox confines the filesystem and exec surface
-  but does **not** block outbound network — a sandboxed `bash` call can
-  still reach the network. Deny-by-default egress (with host-allowlist
-  opt-in via `net:<host>`, see Layer 3 below) is the design intent but is
-  deferred to the EP-0050 broker, which is still **Draft** (enforcement is
-  a later phase). Treat network isolation as *not guaranteed* today; if you
-  need it, run the command outside stado or on an air-gapped host. Tracked
-  in `.agent/decisions/2026-06-07-sandbox-egress-document-draft-gap.md`.
+- Network: Landlock does not control egress. The broker-projected subprocess
+  policy supplies the network decision to bubblewrap: `NetDenyAll` unshares
+  the network namespace and `NetAllowHosts` uses the layer 3 proxy path.
+  In-process HTTP host imports remain governed by wasm capabilities rather
+  than Landlock.
 
 In v0.57.0+, the sandbox is **on by default** for `stado run` and
 every other orchestrator entry point. Landlock applies to the

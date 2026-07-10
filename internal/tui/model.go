@@ -380,8 +380,9 @@ type Model struct {
 
 	// Tool execution + git state. executor may be nil (no session) in which
 	// case tool calls are reported but not executed.
-	executor *tools.Executor
-	session  *stadogit.Session
+	executor        *tools.Executor
+	executorSandbox runtime.ExecutorSandbox
+	session         *stadogit.Session
 	// Cached footer VCS summary. Status rendering happens frequently, so
 	// avoid probing git on every frame.
 	statusGitCwd       string
@@ -479,8 +480,8 @@ type Model struct {
 	// context-window percentage calculation. cumulativeInputTokens tracks
 	// the session sum for hard_tokens / combined token budget gates.
 	// OutputTokens and CostUSD remain cumulative.
-	usage                  agent.Usage
-	cumulativeInputTokens  int
+	usage                 agent.Usage
+	cumulativeInputTokens int
 
 	// Context thresholds from config.Context. Compared against
 	// usage.InputTokens / Capabilities.MaxContextTokens. See DESIGN

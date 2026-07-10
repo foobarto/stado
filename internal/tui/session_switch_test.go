@@ -10,6 +10,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/runtime"
+	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tui/keys"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/internal/tui/theme"
@@ -108,6 +109,21 @@ func TestSwitchToSessionLoadsPersistedConversation(t *testing.T) {
 	}
 	if got := m.blocks[0].body; !strings.Contains(got, "hello from session two") {
 		t.Fatalf("conversation not rendered after switch: %+v", m.blocks)
+	}
+}
+
+func TestSwitchToSessionPreservesBrokerCeiling(t *testing.T) {
+	m, _, ids := newSessionSwitchModel(t)
+	m.executorSandbox = runtime.ExecutorSandbox{
+		Ceiling:        sandbox.Policy{FSWrite: []string{m.cwd}},
+		EnforceCeiling: true,
+	}
+
+	if err := m.switchToSession(ids.second); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.executor.Runner.(*sandbox.CeilingRunner); !ok {
+		t.Fatalf("runner after session switch = %T, want *sandbox.CeilingRunner", m.executor.Runner)
 	}
 }
 

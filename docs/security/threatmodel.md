@@ -1,7 +1,7 @@
 # stado — Threat model
 
-> Last reviewed: 2026-06-15 (EP-0044 project-config strip + v0.75.2 wasm
-> host caps). **Every tool is now a signed wasm plugin** dispatched
+> Last reviewed: 2026-07-10 (EP-0050 top-level process-ceiling parity).
+> **Every tool is now a signed wasm plugin** dispatched
 > through capability-gated host imports — there are no in-process native
 > tools (the pre-EP-0037/0038 `internal/tools/*` surface is gone). See
 > `docs/eps/0037-tool-dispatch-and-operator-surface.md`,
@@ -14,7 +14,24 @@
 > left to in-process trust. Update when re-walking.
 
 ## Overview
-stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthropic/OpenAI/Google/OAI‑compatible), maintains a git‑sidecar session state, and executes tools — all of which are **signed wasm plugins** (fs read/write/edit/glob/grep, shell exec + PTY sessions, ripgrep/ast‑grep, webfetch, LSP, agent spawn, plus user plugins) reached through capability-gated host imports. Sessions are stored in a sidecar bare repo with signed audit logs; mutations are materialized in a worktree and only applied to the user repo when `session land` is invoked. It supports a JSON‑RPC ACP server, headless `stado run`, and a WASM plugin runtime with signed manifests. Two **distinct** controls — don't conflate them, and mind which surfaces each covers: (1) the broker (an evolution of `stado daemon`, EP-0050) projects a per-session **capability ceiling** (FS/net), but it is **actually enforced only on `stado run` and the TUI** — those two thread the ceiling into the runner (`NewCeilingRunner`). `stado run --headless` / `stado acp` / `stado mcp-server` attach to the broker for the session/announce but currently rely on their host-default exec policy and do **not** apply the projected ceiling (a known gap — do not assume the FS/net ceiling confines those surfaces). (2) **OS process-containment** (bwrap namespace re-exec + landlock/seccomp on Linux, sandbox‑exec on macOS; Windows unsandboxed) is applied by `stado run` (the `[sandbox]` re-wrap) and by the `mcp-server`/`daemon`/`acp`/`headless` default exec policy for `stado_exec`/`stado_proc_spawn`; bash on the bare TUI/`run` surface deliberately runs against the operator's own filesystem (it is the operator's own session). Opt out per-run via `stado run --no-sandbox`, or for the whole process via `STADO_BROKER_ATTACH=0`. Network allow‑listing via a local CONNECT proxy is best‑effort.
+stado is a local CLI/TUI coding agent that integrates with LLM providers
+(Anthropic/OpenAI/Google/OAI-compatible), maintains git-sidecar session and
+audit state, and executes signed wasm tools through capability-gated host
+imports. Tools operate on the launch cwd; the sidecar worktree is the audit and
+fork substrate, not a hidden replacement working directory.
+
+Two controls are complementary. First, each wasm host import enforces the
+calling plugin's declared FS/net/exec capability. Second, the broker projects a
+per-session process ceiling that is composed with OS subprocess containment.
+TUI, `stado run`, `stado run --headless`, ACP, and `mcp-server` all derive the
+same executor sandbox decision and retain it for every executor they create.
+`stado_exec`, `stado_proc_spawn`, and PTY creation use that executor's runner;
+on Linux this is bubblewrap plus seccomp, and on macOS it is sandbox-exec.
+`--no-sandbox` is the explicit process-containment opt-out on every top-level
+surface. `STADO_BROKER_ATTACH=0` skips broker mediation only; it does not select
+`NoneRunner` or remove the local host-default process policy. Network
+allow-listing via a local CONNECT proxy applies to subprocess policies that use
+`NetAllowHosts`.
 
 ## Threat model, Trust boundaries and assumptions
 **Attacker‑controlled inputs**
@@ -35,9 +52,16 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 
 **Assumptions / constraints**
 - stado runs as a single local user; there is no multi‑tenant or network‑exposed service surface.
-- The OS user is the security boundary; tool execution inherits user privileges unless a sandbox is enabled.
+- The OS user remains the outer security boundary. The sandbox narrows what a
+  subprocess running as that user can see and mutate.
 - **Containment is capability-based, not approval-based.** There is no automatic per-tool-call approval prompt (the old native-tool approval loop was removed in EP-0017 — a prompt was a poor containment boundary). What a tool can touch is bounded by (a) which plugins are registered/enabled, (b) the FS/net/exec capabilities each plugin's manifest declares, enforced at the host-import boundary, and (c) the sandbox policy. Human approval still exists but as an **opt-in capability** (`stado_ui_approve`) a plugin invokes deliberately, not a blanket gate.
-- Sandboxing is platform‑dependent (Linux landlock + bwrap, macOS sandbox‑exec; Windows unsandboxed). As of v0.57.0 broker attachment is **default-on for every orchestrator surface** — TUI, `stado run`, `stado run --headless`, `stado acp`, and `stado mcp-server`. The projected broker ceiling is enforced directly by the TUI and one-shot `stado run`; the other surfaces currently rely on their host-default exec policy, as detailed above. Direct `stado run` writes are confined to launch cwd + `/tmp` via Landlock; `stado_exec`/`stado_proc_spawn` under `stado mcp-server`/`stado daemon` retain the EP-0030 host-default policy (PID+uid namespace isolation, restricted FS, network passthrough). Opt out per-run via `--no-sandbox`; opt out process-wide via `STADO_BROKER_ATTACH=0` (development scenarios only).
+- Sandboxing is platform-dependent (Linux Landlock + bwrap, macOS
+  sandbox-exec). Windows has no native confinement runner yet: a requested
+  subprocess policy fails closed instead of silently using the
+  `windows-passthrough` runner; `--no-sandbox` is the explicit override. Broker
+  attachment is default-on for TUI, `stado run`, `stado run --headless`, ACP,
+  and `mcp-server`; its projected process ceiling reaches all five. Direct
+  `stado run` additionally applies Landlock to the stado process itself.
 
 ## Attack surface, mitigations and attacker stories
 ### Tool execution & filesystem access
@@ -50,7 +74,9 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 
 **Mitigations:**
 - **Capability gating at the host-import boundary** (EP-0005, paths EP-0031): FS/exec/net reach is bounded by each plugin's declared, operator-approved capabilities — this is the primary containment, not a future plan.
-- Work is done in a sidecar worktree; user repo stays pristine until `session land`.
+- Tools write the launch cwd. Turn-boundary snapshots and trace metadata are
+  recorded through the sidecar worktree so sessions can be inspected, forked,
+  and landed without changing the tool-visible cwd.
 - Output truncation budgets (`internal/tools/budget`) limit bulk exfiltration.
 - Operator tool filters (`[tools] enabled/disabled`) remove a tool from the registry entirely.
 - `stado run` (v0.57.0+) applies Linux landlock by default, restricting writes to launch cwd + /tmp (reads remain broad at the landlock layer — the capability gate is the tighter read control). `--no-sandbox` is the explicit per-run opt-out.
@@ -60,14 +86,23 @@ stado is a local CLI/TUI coding agent that integrates with LLM providers (Anthro
 **Surface:** `internal/sandbox` runners (bwrap, sandbox‑exec), landlock/seccomp, HTTPS proxy allow‑list.
 
 **Risks/attacker stories:**
-- On Windows, or hosts without bwrap/sandbox‑exec, subprocesses run unsandboxed even where a host-default policy is requested (the policy is a no-op without an enforcing runner).
-- Pre-v0.57.0 `stado run` defaulted to NO sandbox (`run.go`: default policy NONE). v0.57.0 reverses that — direct `stado run` is sandbox-by-default. Operators who keep `--no-sandbox` set (or who set `STADO_BROKER_ATTACH=0`) re-take the pre-v0.57.0 risk: exec from an interactive session inherits full user privileges.
-- An explicit per-call `sandbox` field on `stado_exec` can opt out of the host default.
+- On Windows, or hosts without bwrap/sandbox-exec, sandboxed subprocess calls
+  fail because no native runner can enforce the requested policy. The explicit
+  `--no-sandbox` override restores direct execution.
+- Pre-v0.57.0 `stado run` defaulted to no sandbox. v0.57.0 reversed
+  that. Operators who set `--no-sandbox` retake the direct-execution risk;
+  `STADO_BROKER_ATTACH=0` only removes the broker-projected ceiling.
+- A plugin's explicit per-call `sandbox` field can tighten the host default but
+  cannot opt out of it. Only the operator-level `--no-sandbox` flag removes the
+  host default.
 
 **Mitigations:**
-- **Host-default protective policy** (EP-0030, v0.48.0): under `stado mcp-server` / `stado daemon`, `stado_exec`/`stado_proc_spawn` calls that don't supply their own `sandbox` field get bwrap/sandbox‑exec PID+uid namespace isolation, a restricted FS view (`/bin /sbin /tmp /var/tmp /run` reads, writes to `/tmp /var/tmp` + workdir), and network passthrough — applied by default rather than opt-in.
+- **Host-default protective policy** (EP-0030): on all five top-level
+  orchestrator surfaces, process and PTY imports that omit a guest policy get
+  bwrap/sandbox-exec isolation, a restricted FS view, and the launch cwd as a
+  write boundary. The broker ceiling can only narrow that policy.
 - Network allow‑listing via a local CONNECT proxy (host allow‑list).
-- Operators running the higher-risk surfaces (MCP server for untrusted clients, daemon) get the protective default without configuration; direct-`stado run` operators must opt in.
+- Every top-level surface gets the protective default without configuration.
 
 ### Network access and web fetching
 **Surface:** LLM provider HTTP clients, OAI‑compat endpoints, `webfetch`.

@@ -124,7 +124,7 @@ func Run(ctx context.Context, args RunArgs, h tool.Host) (tool.Result, error) {
 	if args.Cfg != nil {
 		rtHost.StateDir = args.Cfg.StateDir()
 	}
-	rtHost.ToolHost = h
+	rtHost.AttachToolHost(h)
 
 	// EP-0028: the exec:bash refuse-no-runner guard that used to live here is
 	// gone. The exec:bash capability was dropped in EP-no-internal-tools
@@ -264,15 +264,6 @@ func attachLifecycleBridges(rtHost *pluginRuntime.Host, h tool.Host) {
 	}
 	if bridge, ok := h.(pluginRuntime.RenderBridge); ok {
 		rtHost.RenderBridge = bridge
-	}
-	// SandboxPolicyProvider plumbs a host-default sandbox policy into
-	// stado_exec / stado_proc_spawn. mcp-server / daemon set this so
-	// guest plugins that don't supply their own `sandbox` field still
-	// get bwrap / sandbox-exec confinement. Pre-2026-05-09: the
-	// mcp-server header comment claimed this happened; it didn't,
-	// because there was no plumbing. The plumbing is now here.
-	if pp, ok := h.(tool.SandboxPolicyProvider); ok {
-		rtHost.DefaultSandboxPolicy = pp.DefaultSandboxPolicy()
 	}
 	// Progress emitter has two routes: the host's tool.ProgressEmitter
 	// interface (TUI / headless run / stderr) and any per-call collector

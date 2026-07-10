@@ -6,24 +6,22 @@ import (
 	"github.com/foobarto/stado/pkg/tool"
 )
 
-// autoApproveHost must implement tool.SandboxPolicyProvider so the headless
-// opt-in (AgentLoopOptions.DefaultSandboxPolicy) actually reaches the wasm
+// autoApproveHost must implement tool.SandboxPolicyProvider so the caller's
+// AgentLoopOptions.DefaultSandboxPolicy actually reaches the wasm
 // confinement path (pluginrun asserts h.(tool.SandboxPolicyProvider)).
 var _ tool.SandboxPolicyProvider = autoApproveHost{}
 
 // TestAutoApproveHost_SandboxPolicyOptIn: the auto-created host confines bash
-// ONLY when a default policy is supplied (autonomous surfaces like headless).
-// run / tui leave it nil → bash keeps operator's-FS semantics (unconfined).
+// only when its caller supplies a default policy.
 // Model A (decision 2026-06-13).
 func TestAutoApproveHost_SandboxPolicyOptIn(t *testing.T) {
-	// Operator surfaces (run / tui): no opt-in → no confinement.
+	// An omitted policy remains omitted.
 	var operator autoApproveHost
 	if operator.DefaultSandboxPolicy() != nil {
-		t.Error("default autoApproveHost (run/tui) must NOT confine bash — operator's-FS semantics")
+		t.Error("default autoApproveHost must not invent a sandbox policy")
 	}
 
-	// Autonomous surface (headless): opt-in → the supplied policy is returned
-	// verbatim so pluginrun applies it.
+	// A supplied policy is returned verbatim so pluginrun applies it.
 	sentinel := struct{ tag string }{"policy"}
 	confined := autoApproveHost{defaultSandboxPolicy: sentinel}
 	got := confined.DefaultSandboxPolicy()

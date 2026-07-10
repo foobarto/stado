@@ -106,9 +106,9 @@ type Host struct {
 	// DefaultSandboxPolicy is the sandbox policy applied to stado_exec
 	// / stado_proc_spawn calls when the wasm guest doesn't supply its
 	// own. Nil = legacy "guest opt-in only" posture (the wasm shell
-	// runs unsandboxed). Set by mcp-server / daemon entry points that
-	// want auto-confinement. Resolved via attachLifecycleBridges from
-	// the caller's tool.Host (interface SandboxPolicyProvider).
+	// runs unsandboxed). AttachToolHost copies it from the caller's
+	// tool.SandboxPolicyProvider so the process imports and Executor.Run
+	// share one surface decision.
 	//
 	// Type is *sandboxPolicy (defined in host_proc.go); kept as `any`
 	// here to avoid a forward reference in this file's import block.
@@ -278,6 +278,20 @@ type Host struct {
 	// successful FS import. Cheap workaround for the negative-return
 	// wire format: -1 alone can't carry a string.
 	lastFSError string
+}
+
+// AttachToolHost installs the caller-facing tool host and copies its default
+// process sandbox policy. Keeping these two channels together ensures wasm
+// process imports use the same runner and host policy as Executor.Run.
+func (h *Host) AttachToolHost(toolHost tool.Host) {
+	if h == nil {
+		return
+	}
+	h.ToolHost = toolHost
+	h.DefaultSandboxPolicy = nil
+	if provider, ok := toolHost.(tool.SandboxPolicyProvider); ok {
+		h.DefaultSandboxPolicy = provider.DefaultSandboxPolicy()
+	}
 }
 
 // SecretsAccess holds the capability gates and backing store for the

@@ -118,6 +118,11 @@ func DefaultMountTable(cwd string) MountTable {
 			// Writable set.
 			{Path: cwd, Mode: ModeReadWrite, Note: "launch cwd — primary write target"},
 			{Path: "/tmp", Mode: ModeReadWrite, Note: "general scratch + tool temp files"},
+			// The bundled shell wrappers launch these literal paths. Keep them
+			// in the broker ceiling so composition with the host default does
+			// not remove the mounts before bubblewrap starts the child.
+			{Path: "/bin", Mode: ModeReadOnly, Note: "system command entry points"},
+			{Path: "/sbin", Mode: ModeReadOnly, Note: "system administration command entry points"},
 
 			// Broker-owned (writable outside the namespace).
 			{Path: stateDir + "/sessions", Mode: ModeBrokerOnly, Note: "sidecar audit dir — broker owns the writable handle (phase 5)"},
@@ -173,6 +178,8 @@ func HardenedMountTable(cwd string) MountTable {
 		Rows: []MountRow{
 			{Path: cwd, Mode: ModeReadWrite, Note: "launch cwd"},
 			{Path: "/tmp", Mode: ModeReadWrite, Note: "scratch"},
+			{Path: "/bin", Mode: ModeReadOnly, Note: "system command entry points"},
+			{Path: "/sbin", Mode: ModeReadOnly, Note: "system administration command entry points"},
 
 			{Path: stateDir + "/sessions", Mode: ModeBrokerOnly, Note: "sidecar (broker-owned)"},
 			{Path: stateDir + "/broker", Mode: ModeBrokerOnly, Note: "broker-decision log"},

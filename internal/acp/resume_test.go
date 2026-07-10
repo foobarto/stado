@@ -41,7 +41,7 @@ func freshACPSession(t *testing.T, cfg *config.Config) (id, worktree string) {
 
 func TestHandleSessionNew_ResumeFromCLIDefault(t *testing.T) {
 	cfg := isolatedACPConfig(t)
-	id, _ := freshACPSession(t, cfg)
+	id, worktree := freshACPSession(t, cfg)
 
 	srv := NewServer(cfg, scriptedProvider{text: "ok"})
 	srv.conn = NewConn(strings.NewReader(""), io.Discard)
@@ -69,6 +69,10 @@ func TestHandleSessionNew_ResumeFromCLIDefault(t *testing.T) {
 	}
 	if sess.gitSess == nil {
 		t.Errorf("gitSess not attached after resume — handleSessionPrompt's ensureGitSession would re-open which loses the resume signal")
+	}
+	cwd, _ := os.Getwd()
+	if sess.workdir != cwd || sess.workdir == worktree {
+		t.Errorf("resumed tool workdir = %q, want launch cwd %q (audit worktree %q stays metadata-only)", sess.workdir, cwd, worktree)
 	}
 }
 

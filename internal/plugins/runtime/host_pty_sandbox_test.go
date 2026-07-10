@@ -18,10 +18,9 @@ func nativeSandboxAvailable(t *testing.T) {
 	}
 }
 
-// TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet (#100): on a confining surface
-// (host.DefaultSandboxPolicy set) the PTY spawn command is rewritten to run
-// under the sandbox runner, while the original command is preserved inside the
-// wrapped argv.
+// TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet (#100): when a host policy is
+// set, the PTY spawn command is rewritten to run under the sandbox runner while
+// the original command is preserved inside the wrapped argv.
 func TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet(t *testing.T) {
 	nativeSandboxAvailable(t)
 	wd := t.TempDir()
@@ -49,9 +48,30 @@ func TestSandboxPTYSpawnOpts_WrapsWhenHostPolicySet(t *testing.T) {
 	}
 }
 
-// TestSandboxPTYSpawnOpts_NoWrapWithoutHostPolicy (#100): run/tui/resume leave
-// DefaultSandboxPolicy nil (operator's own FS, by design) — the PTY spawn opts
-// must pass through unchanged.
+func TestSandboxPTYSpawnOpts_UsesSurfaceRunner(t *testing.T) {
+	wd := t.TempDir()
+	runner := &suppliedSandboxRunner{}
+	host := &Host{ExecPTY: true, Workdir: wd}
+	host.AttachToolHost(runnerToolHost{
+		runner:        runner,
+		defaultPolicy: NewDefaultSandboxPolicy(wd),
+	})
+
+	out, err := sandboxPTYSpawnOpts(host, pty.SpawnOpts{Argv: []string{"/bin/echo", "hi"}})
+	if err != nil {
+		t.Fatalf("sandboxPTYSpawnOpts: %v", err)
+	}
+	if !runner.called {
+		t.Fatal("expected PTY spawn to use the tool host's sandbox runner")
+	}
+	if out.PreparedCmd == nil || out.PreparedCmd.Path != "/bin/echo" {
+		t.Fatalf("PreparedCmd = %#v, want supplied runner command", out.PreparedCmd)
+	}
+}
+
+// TestSandboxPTYSpawnOpts_NoWrapWithoutHostPolicy (#100): a surface that
+// explicitly disables sandboxing leaves the host policy nil, so PTY spawn opts
+// pass through unchanged.
 func TestSandboxPTYSpawnOpts_NoWrapWithoutHostPolicy(t *testing.T) {
 	host := &Host{ExecPTY: true, Workdir: t.TempDir()} // no DefaultSandboxPolicy
 	in := pty.SpawnOpts{Argv: []string{"/bin/echo", "hi"}}

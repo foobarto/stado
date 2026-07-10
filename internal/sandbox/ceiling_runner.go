@@ -2,7 +2,10 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // CeilingRunner is a Runner decorator that intersects every per-call
@@ -54,10 +57,9 @@ func (r *CeilingRunner) Available() bool {
 	return r.Inner.Available()
 }
 
-// Command intersects p with the ceiling and passes the result to
-// the inner runner. The intersection is what the per-call sandbox
-// is built from; tools cannot expand beyond the ceiling regardless
-// of what their per-call Policy requests.
+// Command validates CWD against the ceiling, intersects p with the ceiling,
+// and passes the result to the inner runner. The resulting sandbox cannot
+// expand beyond the session grant even through an implicit CWD bind.
 //
 // When the ceiling is the zero value (no constraints), the
 // intersection is just p — wrapping is then a no-op decorator.
@@ -73,6 +75,12 @@ func (r *CeilingRunner) Command(ctx context.Context, p Policy, name string, args
 	if isZeroPolicy(r.Ceiling) {
 		return r.Inner.Command(ctx, p, name, args, env)
 	}
+	if p.CWD != "" {
+		readable := append(append([]string(nil), r.Ceiling.FSRead...), r.Ceiling.FSWrite...)
+		if !resolvedPathWithinAny(p.CWD, readable) {
+			return nil, fmt.Errorf("sandbox: cwd %q exceeds broker ceiling", p.CWD)
+		}
+	}
 	merged := p.Merge(r.Ceiling)
 	// A forwarded unix socket (e.g. the ssh-agent socket) in the ceiling is an
 	// operator-granted, session-level capability: a per-call Policy that names
@@ -85,6 +93,28 @@ func (r *CeilingRunner) Command(ctx context.Context, p Policy, name string, args
 		merged.Sockets = append([]string(nil), r.Ceiling.Sockets...)
 	}
 	return r.Inner.Command(ctx, merged, name, args, env)
+}
+
+// resolvedPathWithinAny checks an execution-time path against allowed roots
+// after resolving symlinks. Broker policy projection is lexical, but the
+// runner must validate the actual target before bind-mounting a CWD.
+func resolvedPathWithinAny(path string, roots []string) bool {
+	resolvedPath, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	for _, root := range roots {
+		root = strings.TrimSuffix(filepath.Clean(root), string(filepath.Separator)+"...")
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(resolvedRoot, resolvedPath)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // isZeroPolicy reports whether p is the zero value (no FSRead /

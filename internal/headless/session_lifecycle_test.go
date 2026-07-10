@@ -444,6 +444,42 @@ func TestSessionCancelCancelsSpawnedSubagent(t *testing.T) {
 	}
 }
 
+func TestSessionPromptToolsUseLaunchCWDNotAuditWorktree(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(cfg, &writePromptProvider{})
+	srv.ExecutorSandbox = stadoruntime.ExecutorSandbox{Disabled: true}
+	srv.conn = acp.NewConn(strings.NewReader(""), io.Discard)
+	srv.sessions["h-1"] = &hSession{id: "h-1", workdir: repo}
+
+	raw := json.RawMessage(`{"sessionId":"h-1","prompt":"write it","tools":true}`)
+	if _, err := srv.sessionPrompt(context.Background(), raw); err != nil {
+		t.Fatalf("sessionPrompt: %v", err)
+	}
+	written := filepath.Join(repo, "headless-written.txt")
+	if body, err := os.ReadFile(written); err != nil || string(body) != "ok" {
+		t.Fatalf("launch-cwd write = %q, %v", body, err)
+	}
+	sess := srv.sessions["h-1"]
+	if sess.gitSess == nil {
+		t.Fatal("tool-enabled prompt did not attach an audit session")
+	}
+	if _, err := os.Stat(filepath.Join(sess.gitSess.WorktreePath, "headless-written.txt")); !os.IsNotExist(err) {
+		t.Fatalf("tool write leaked into audit worktree: %v", err)
+	}
+}
+
 func TestSessionCompactGitSessionWritesAuditMarkers(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -567,6 +603,36 @@ func TestMaybeEmitContextWarning_Fraction(t *testing.T) {
 // flow unit-test without a real network call.
 type scriptedCompactProvider struct {
 	summary string
+}
+
+type writePromptProvider struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (p *writePromptProvider) Name() string                     { return "write-scripted" }
+func (p *writePromptProvider) Capabilities() agent.Capabilities { return agent.Capabilities{} }
+func (p *writePromptProvider) StreamTurn(context.Context, agent.TurnRequest) (<-chan agent.Event, error) {
+	p.mu.Lock()
+	p.calls++
+	call := p.calls
+	p.mu.Unlock()
+	ch := make(chan agent.Event, 2)
+	go func() {
+		defer close(ch)
+		if call == 1 {
+			ch <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+				ID:    "write-1",
+				Name:  "fs__write",
+				Input: json.RawMessage(`{"path":"headless-written.txt","content":"ok"}`),
+			}}
+			ch <- agent.Event{Kind: agent.EvDone}
+			return
+		}
+		ch <- agent.Event{Kind: agent.EvTextDelta, Text: "done"}
+		ch <- agent.Event{Kind: agent.EvDone}
+	}()
+	return ch, nil
 }
 
 func (scriptedCompactProvider) Name() string                     { return "scripted" }

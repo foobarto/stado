@@ -34,6 +34,28 @@ become semver guarantees.
 
 ## Unreleased
 
+### Security
+
+- **Broker ceilings now apply consistently across execution surfaces.** TUI,
+  `stado run`, `stado run --headless`, ACP, and `mcp-server` all derive one
+  executor sandbox decision from the broker session. Long-lived servers apply
+  it to every executor they create, and TUI session switches preserve it.
+  The global `--no-sandbox` flag now selects `NoneRunner` and removes the
+  autonomous host's default sandbox policy on every surface instead of only
+  changing the broker announcement. WASM process imports use that same runner,
+  and execution CWDs are symlink-resolved against the ceiling before
+  bubblewrap mounts them; a CWD is mounted read-only unless `FSWrite` permits
+  it.
+
+### Fixes
+
+- **Bundled one-shot shell tools execute again.** `shell.exec`, `shell.sh`,
+  `shell.bash`, and `shell.zsh` now authorize the absolute shell path their
+  wasm wrapper actually launches. The previous basename-only capability was
+  correctly rejected for path-containing argv, leaving every one-shot shell
+  call unusable. The broker mount table also retains `/bin` and `/sbin` when
+  composing its ceiling with the host process policy.
+
 ## v0.76.0 — architecture consolidation and TUI reliability — 2026-07-10
 
 ### Skills (EP-0045 Phase 1 — model-invocable skills)

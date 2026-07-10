@@ -364,7 +364,8 @@ type hostAdapter struct {
 	// progress receives stado_progress emissions from bundled wasm
 	// plugins. Wired so the TUI surfaces progress lines in the
 	// sidebar log tail. EP-0038h.
-	progress func(plugin, text string)
+	progress        func(plugin, text string)
+	executorSandbox runtime.ExecutorSandbox
 
 	// pty is the TUI-session-lifetime PTY manager shared across every
 	// bundled-plugin tool dispatch. Without this each call would
@@ -380,6 +381,10 @@ func (h hostAdapter) Approve(context.Context, tool.ApprovalRequest) (tool.Decisi
 
 func (h hostAdapter) Workdir() string        { return h.workdir }
 func (h hostAdapter) Runner() sandbox.Runner { return h.runner }
+
+func (h hostAdapter) DefaultSandboxPolicy() any {
+	return h.executorSandbox.DefaultSandboxPolicy(h.workdir)
+}
 
 func (h hostAdapter) RequestApproval(ctx context.Context, title, body string) (bool, error) {
 	return h.approval.RequestApproval(ctx, title, body)
@@ -513,8 +518,8 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 	m.recoveryPluginName = ""
 	m.recoveryPluginActive = false
 	m.session = child
+	m.executorSandbox.Apply(exec)
 	m.executor = exec
-	m.cwd = child.WorktreePath
 	m.msgs = nil
 	m.blocks = nil
 	m.todos = nil

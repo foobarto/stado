@@ -4,13 +4,8 @@ package main
 // (stado run, TUI, stado run --headless, stado acp, stado mcp-server) to
 // attach to the broker and create a session.
 //
-// The returned ceiling is enforced by `stado run` and the TUI: those two
-// pass enforceCeiling=true and wrap the runner with it (NewCeilingRunner,
-// run.go / tui/app.go). headless / acp / mcp-server attach here for the
-// SessionID + sandbox announce but do NOT yet thread the ceiling into
-// their runner — they rely on their host-default exec policy instead (a
-// known gap). (The earlier "phase 1 no-op" wording predated even the
-// run/TUI wiring.)
+// The returned ceiling is converted to runtime.ExecutorSandbox once at each
+// entry point and passed into every executor factory owned by that surface.
 //
 // Auto-spawn behavior matches dispatchViaDaemon in tool_run_daemon.go:
 // fast-path dial, on failure spawn `stado daemon start --quiet`
@@ -31,26 +26,28 @@ import (
 	"github.com/foobarto/stado/internal/broker"
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/daemon"
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tui"
 )
 
 // inlineTUIRunner is the function launchInlineTUI uses to boot the TUI. It is a
-// var (defaulting to tui.Run) so tests can capture the notices / ceiling /
-// enforce flag an entry point would pass without booting the real alt-screen
-// TUI (which blocks on stdin/render).
+// var (defaulting to tui.Run) so tests can capture the notices and executor
+// sandbox policy without booting the real alt-screen TUI (which blocks on
+// stdin/render).
 var inlineTUIRunner = tui.Run
 
-// tuiCeiling derives the (ceiling, enforce) pair tui.Run should receive from a
-// broker session plus the --no-sandbox flag. enforce is true only when the
-// broker actively projected a ceiling (attach not skipped) and the operator
-// did not opt out — matching the bare-TUI path. When not enforcing, the zero
-// policy is returned and the runner stays un-wrapped.
-func tuiCeiling(bs *BrokerSession, noSandbox bool) (sandbox.Policy, bool) {
-	if bs == nil || bs.Skipped || noSandbox {
-		return sandbox.Policy{}, false
+// brokerExecutorSandbox turns the process-level broker decision into the
+// shared runtime policy used by TUI, run, headless, ACP, and MCP executors.
+func brokerExecutorSandbox(bs *BrokerSession, disabled bool) runtime.ExecutorSandbox {
+	if bs == nil {
+		return runtime.ExecutorSandbox{Disabled: disabled}
 	}
-	return bs.Ceiling, true
+	disabled = disabled || bs.Profile == broker.ProfileNoSandbox
+	policy := runtime.ExecutorSandbox{Disabled: disabled}
+	policy.Ceiling = bs.Ceiling
+	policy.EnforceCeiling = !bs.Skipped && !disabled
+	return policy
 }
 
 // launchInlineTUI attaches to the broker for an inline TUI launch — the bare
@@ -75,8 +72,7 @@ func launchInlineTUI(ctx context.Context, cfg *config.Config, notices []string) 
 			fmt.Fprintf(os.Stderr, "stado: broker session.terminate: %v\n", closeErr)
 		}
 	}()
-	ceiling, enforce := tuiCeiling(bs, noSandbox)
-	return inlineTUIRunner(cfg, notices, ceiling, enforce)
+	return inlineTUIRunner(cfg, notices, brokerExecutorSandbox(bs, noSandbox))
 }
 
 // brokerAttachTimeout is the maximum wall-clock time the helper
@@ -258,7 +254,7 @@ func (s *BrokerSession) AnnounceSandboxMode(w io.Writer, surface string) {
 		if s != nil && s.SkipReason != "" {
 			reason = "(" + s.SkipReason + ")"
 		}
-		fmt.Fprintf(w, "%s: broker attach skipped %s — sandbox not actively enforced for this session\n",
+		fmt.Fprintf(w, "%s: broker attach skipped %s — broker ceiling inactive; local sandbox policy still applies unless --no-sandbox is set\n",
 			surface, reason)
 		return
 	}

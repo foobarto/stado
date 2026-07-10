@@ -21,6 +21,16 @@ history:
       Phases 1–2 shipped (broker attach default-on v0.57.0, ceiling runner on
       TUI + stado run). Later phases (full FS/net ceiling on all surfaces,
       mount table, taint/provenance) remain open — see phase table in-body.
+  - date: 2026-07-10
+    status: Partial
+    note: >
+      Completed top-level executor ceiling parity: TUI, stado run, run
+      --headless, ACP, and mcp-server now derive one executor sandbox decision
+      from the broker session and apply it to every executor they create.
+      Explicit --no-sandbox consistently selects NoneRunner and suppresses the
+      autonomous host default policy. Broker-created subagent sessions,
+      taint-at-ingestion, git-subagent mediation, and later broker-owned trust
+      and audit phases remain open.
 ---
 
 # EP-50: Broker
@@ -34,7 +44,7 @@ concerns:
    construct a sandbox is checked against a loaded policy file
    before any action is taken.
 2. **Session-creation mediation.** Orchestrator surfaces (TUI,
-   `stado run`, `stado headless`, `stado acp`, `stado mcp-server`,
+  `stado run`, `stado run --headless`, `stado acp`, `stado mcp-server`,
    `stado tool run`) ask the broker for a session over a typed
    IPC; the broker projects the request to a ceiling, constructs
    the (eventual) sandbox, and returns a handle.
@@ -361,11 +371,24 @@ The phased rollout that produced this EP, on branch
   through the orchestrator-side helper. Covers admit,
   no-sandbox profile, deny-by-policy, no-broker-running Skipped.
 
-## Future phases (not in this EP)
+## Revision: top-level ceiling parity (2026-07-10)
+
+The broker-projected ceiling is now enforced by one shared executor sandbox
+decision on every top-level execution surface: TUI, `stado run`,
+`stado run --headless`, ACP, and `mcp-server`. Long-lived servers carry that
+decision into each later executor build, and TUI session switches reapply it.
+The explicit `--no-sandbox` profile also selects `NoneRunner` and removes the
+host default policy on every surface. WASM process imports use the executor's
+runner, and the runner resolves and validates its CWD against the ceiling
+before mounting it. This closes the top-level part of phase 2; subagents still
+need their own broker-created child session so role, mode, and write scope can
+be projected rather than inheriting the parent's ceiling.
+
+## Remaining phases
 
 | Phase | Scope |
 |-------|-------|
-| 2 | Sandbox-first default execution. `STADO_BROKER_ATTACH` flipped to default-on; broker's returned ceiling threaded back into the Executor/Runner; TUI startup announcement. |
+| 2 | **Top-level implemented.** Sandbox-first default execution; broker ceiling threaded into TUI/run/headless/ACP/MCP executors; startup announcement. Broker-created subagents remain later work. |
 | 3 | Mount-and-namespace invariant table enforced in code + CI assertion. `~/.ssh/config` default-profile decision point resolved. |
 | 4 | Session capability model in code. Ceiling/effective vocabulary applied to `Policy`. Drop-only effective set. Widening-via-fork. |
 | 5 | Trust-root + audit-trace writer invariants. Trust ring + signing keys mounted RO. Broker owns sole writable handle to sidecar. Broker-decision log at canonical path. |
