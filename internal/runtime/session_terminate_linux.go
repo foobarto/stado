@@ -18,7 +18,7 @@ func terminateOwnedProcess(pid int, expectedIdentity string) error {
 		}
 		return fmt.Errorf("open pidfd for %d: %w", pid, err)
 	}
-	defer unix.Close(pidfd)
+	defer func() { _ = unix.Close(pidfd) }()
 
 	identity, state, err := linuxProcessStat(pid)
 	if err != nil {
