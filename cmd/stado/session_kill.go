@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -42,12 +43,17 @@ var sessionKillCmd = &cobra.Command{
 			return fmt.Errorf("refusing to signal pid %d: session process ownership cannot be verified; worktree preserved", pid)
 		}
 		if owned {
-			if err := terminateProcess(pid); err != nil {
-				return fmt.Errorf("terminate session process %d: %w; worktree preserved", pid, err)
-			}
-			fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
-			if err := waitForSessionProcessExit(wt, pid, 2*time.Second); err != nil {
-				return err
+			terminatedPID, terminateErr := runtime.TerminateSessionProcess(wt)
+			if errors.Is(terminateErr, os.ErrProcessDone) {
+				// The validated owner exited between observation and signalling.
+			} else if terminateErr != nil {
+				return fmt.Errorf("terminate session process %d: %w; worktree preserved", pid, terminateErr)
+			} else {
+				pid = terminatedPID
+				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
+				if err := waitForSessionProcessExit(wt, pid, 2*time.Second); err != nil {
+					return err
+				}
 			}
 		}
 		if err := workdirpath.NewUserConfigResolver().RemoveAll(wt); err != nil {

@@ -87,16 +87,8 @@ func WriteDescription(worktreeDir, text string) error {
 // ReadSessionPID returns the pid stored for a worktree, or 0 when unset,
 // invalid, or unreadable.
 func ReadSessionPID(worktreeDir string) int {
-	data, err := readSessionMetadataFile(worktreeDir, sessionPIDFile)
+	pid, _, err := readSessionProcessRecord(worktreeDir)
 	if err != nil {
-		return 0
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) == 0 {
-		return 0
-	}
-	pid, err := strconv.Atoi(fields[0])
-	if err != nil || pid <= 0 {
 		return 0
 	}
 	return pid
@@ -122,16 +114,8 @@ func WriteSessionPID(worktreeDir string, pid int) error {
 // PID-only files and identity mismatches are deliberately alive-but-unowned so
 // callers never signal a possibly reused PID.
 func SessionProcessOwnership(worktreeDir string) (pid int, alive, owned bool) {
-	data, err := readSessionMetadataFile(worktreeDir, sessionPIDFile)
+	pid, expectedIdentity, err := readSessionProcessRecord(worktreeDir)
 	if err != nil {
-		return 0, false, false
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) == 0 {
-		return 0, false, false
-	}
-	pid, err = strconv.Atoi(fields[0])
-	if err != nil || pid <= 0 {
 		return 0, false, false
 	}
 	identity, identityErr := processIdentity(pid)
@@ -142,10 +126,29 @@ func SessionProcessOwnership(worktreeDir string) (pid int, alive, owned bool) {
 	if !alive {
 		return pid, false, false
 	}
-	if len(fields) < 2 {
+	if expectedIdentity == "" {
 		return pid, alive, false
 	}
-	return pid, alive, fields[1] == identity
+	return pid, alive, expectedIdentity == identity
+}
+
+func readSessionProcessRecord(worktreeDir string) (pid int, identity string, err error) {
+	data, err := readSessionMetadataFile(worktreeDir, sessionPIDFile)
+	if err != nil {
+		return 0, "", err
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0, "", fmt.Errorf("empty session process record")
+	}
+	pid, err = strconv.Atoi(fields[0])
+	if err != nil || pid <= 0 {
+		return 0, "", fmt.Errorf("invalid session pid %q", fields[0])
+	}
+	if len(fields) >= 2 {
+		identity = fields[1]
+	}
+	return pid, identity, nil
 }
 
 func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {

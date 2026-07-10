@@ -1239,15 +1239,16 @@ func (m *Model) buildSubagentSpawner() func(context.Context, subagent.Request) (
 		return nil
 	}
 	runner := runtime.SubagentRunner{
-		Config:               m.cfg,
-		Parent:               m.session,
-		Provider:             m.provider,
-		Model:                m.model,
-		Thinking:             m.cfg.Agent.Thinking,
-		ThinkingBudgetTokens: m.cfg.Agent.ThinkingBudgetTokens,
-		System:               m.systemPrompt,
-		SystemTemplate:       m.systemPromptTemplate,
-		AgentName:            "stado-tui-subagent",
+		Config:                   m.cfg,
+		Parent:                   m.session,
+		Provider:                 m.provider,
+		Model:                    m.model,
+		Thinking:                 m.cfg.Agent.Thinking,
+		ThinkingBudgetTokens:     m.cfg.Agent.ThinkingBudgetTokens,
+		System:                   m.systemPrompt,
+		SystemTemplate:           m.systemPromptTemplate,
+		AgentName:                "stado-tui-subagent",
+		QuietRegistryDiagnostics: true,
 		OnEvent: func(ev runtime.SubagentEvent) {
 			if m.program != nil {
 				m.program.Send(subagentEventMsg{ev: ev})

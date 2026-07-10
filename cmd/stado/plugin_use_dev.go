@@ -12,6 +12,7 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
+	"github.com/foobarto/stado/internal/workdirpath"
 )
 
 // ── plugin use ────────────────────────────────────────────────────────────
@@ -46,19 +47,36 @@ var pluginUseCmd = &cobra.Command{
 			return fmt.Errorf("plugin %s@%s is not installed (use `stado plugin install` first)", name, version)
 		}
 
-		// Keep the marker beside the selected install root so project-local
-		// version choices do not change the global or another project's choice.
-		activeDir := filepath.Join(filepath.Dir(installDir), "active")
-		if err := os.MkdirAll(activeDir, 0o755); err != nil {
-			return fmt.Errorf("plugin use: create active dir: %w", err)
-		}
-		markerPath := filepath.Join(activeDir, name)
-		if err := os.WriteFile(markerPath, []byte(version), 0o644); err != nil {
-			return fmt.Errorf("plugin use: write marker: %w", err)
+		if err := writePluginActiveMarker(installDir, name, version); err != nil {
+			return err
 		}
 		fmt.Printf("active: %s → %s\n", name, version)
 		return nil
 	},
+}
+
+func writePluginActiveMarker(installDir, name, version string) error {
+	if _, err := plugins.InstalledDir(".", name); err != nil {
+		return fmt.Errorf("plugin use: %w", err)
+	}
+	if _, err := plugins.InstalledDir(".", version); err != nil {
+		return fmt.Errorf("plugin use: invalid version: %w", err)
+	}
+	// Keep the marker beside the selected install root so project-local
+	// version choices do not change the global or another project's choice.
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(installDir))
+	if err != nil {
+		return fmt.Errorf("plugin use: open install root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	resolver := workdirpath.NewRootResolver(root)
+	if err := resolver.MkdirAll("active", 0o755); err != nil {
+		return fmt.Errorf("plugin use: create active dir: %w", err)
+	}
+	if err := resolver.WriteFileAtomic(filepath.Join("active", name), []byte(version), 0o644); err != nil {
+		return fmt.Errorf("plugin use: write marker: %w", err)
+	}
+	return nil
 }
 
 var pluginDevWatch bool

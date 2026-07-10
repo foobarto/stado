@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/foobarto/stado/internal/config"
 )
 
 func captureRegistryDiagnostics(t *testing.T, fn func()) string {
@@ -28,6 +30,20 @@ func captureRegistryDiagnostics(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+func TestSubagentQuietDiagnosticsPropagateToChildRegistryBuild(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.Disabled = []string{"not-a-real-tool\x1b]52;c;payload\a"}
+	runner := SubagentRunner{Config: cfg, QuietRegistryDiagnostics: true}
+	out := captureRegistryDiagnostics(t, func() {
+		if _, err := runner.buildExecutor(nil, "test-subagent"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if out != "" {
+		t.Fatalf("TUI subagent registry diagnostics leaked to stderr: %q", out)
+	}
 }
 
 func TestRegistryDiagnosticsAreSanitizedAndSuppressible(t *testing.T) {

@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +121,57 @@ func TestCheckRequiresVerified_RejectsDirectoryNameOnly(t *testing.T) {
 	err := CheckRequiresVerified(m, []string{root}, NewTrustStore(t.TempDir()))
 	if err == nil || !strings.Contains(err.Error(), "dep: not installed") {
 		t.Fatalf("unverified directory satisfied dependency: %v", err)
+	}
+}
+
+func TestCheckRequiresVerified_DigestFailureDoesNotAdvanceRollbackState(t *testing.T) {
+	root := t.TempDir()
+	trust := NewTrustStore(t.TempDir())
+	pub, priv, fpr := tvtofuKey(t)
+	if _, err := trust.Trust(hex.EncodeToString(pub), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	expectedWASM := []byte("expected wasm")
+	digest := sha256.Sum256(expectedWASM)
+	mf := &Manifest{
+		Name:            "dep",
+		Version:         "9.0.0",
+		Author:          "alice",
+		AuthorPubkeyFpr: fpr,
+		WASMSHA256:      hex.EncodeToString(digest[:]),
+	}
+	sig, err := mf.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "dep-9.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := mf.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"plugin.manifest.json": canonical,
+		"plugin.manifest.sig":  []byte(sig),
+		"plugin.wasm":          []byte("tampered wasm"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parent := &Manifest{Requires: []string{"dep >= 1.0.0"}}
+	if err := CheckRequiresVerified(parent, []string{root}, trust); err == nil {
+		t.Fatal("tampered dependency unexpectedly satisfied requires")
+	}
+	entries, err := trust.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entries[fpr].LastVersion; got != "" {
+		t.Fatalf("digest failure advanced rollback state to %q", got)
 	}
 }
 

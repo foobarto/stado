@@ -115,10 +115,16 @@ func highestVerifiedVersionInDirs(pluginDirs []string, name string, trust *Trust
 		for _, id := range ids {
 			dir := filepath.Join(root, id)
 			mf, sig, err := LoadFromDir(dir)
-			if err != nil || mf.Name != name || trust.VerifyManifest(mf, sig) != nil {
+			if err != nil || mf.Name != name {
 				continue
 			}
 			if _, err := ReadVerifiedWASM(mf.WASMSHA256, filepath.Join(dir, "plugin.wasm")); err != nil {
+				continue
+			}
+			// VerifyManifest advances rollback state on success, so perform the
+			// non-mutating digest check first. A signed manifest beside a missing
+			// or tampered WASM must not poison LastVersion.
+			if trust.VerifyManifest(mf, sig) != nil {
 				continue
 			}
 			if best == "" || compareVersions(mf.Version, best) > 0 {

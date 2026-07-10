@@ -17,6 +17,10 @@ func processIdentity(pid int) (string, error) {
 		return "", err
 	}
 	defer windows.CloseHandle(handle)
+	return windowsProcessIdentity(handle)
+}
+
+func windowsProcessIdentity(handle windows.Handle) (string, error) {
 	var created, exited, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(handle, &created, &exited, &kernel, &user); err != nil {
 		return "", err

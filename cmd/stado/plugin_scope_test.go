@@ -64,3 +64,37 @@ func TestWithPluginInstallScopeRestoresPreviousValue(t *testing.T) {
 		t.Fatal("plugin install scope leaked after update")
 	}
 }
+
+func TestWritePluginActiveMarkerRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	pluginsDir := filepath.Join(root, "plugins")
+	installDir := filepath.Join(pluginsDir, "demo-1.0.0")
+	if err := os.MkdirAll(installDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(pluginsDir, "active")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := writePluginActiveMarker(installDir, "demo", "1.0.0"); err == nil {
+		t.Fatal("active marker write followed a symlink")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("outside marker was written: %v", err)
+	}
+}
+
+func TestWritePluginActiveMarkerRejectsTraversalSegments(t *testing.T) {
+	installDir := filepath.Join(t.TempDir(), "plugins", "demo-1.0.0")
+	if err := os.MkdirAll(installDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, version string }{
+		{name: "..", version: "1.0.0"},
+		{name: "demo", version: "../outside"},
+	} {
+		if err := writePluginActiveMarker(installDir, tc.name, tc.version); err == nil {
+			t.Fatalf("writePluginActiveMarker(%q, %q) accepted traversal", tc.name, tc.version)
+		}
+	}
+}

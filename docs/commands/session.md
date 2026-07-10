@@ -106,9 +106,10 @@ error).
 
 Operational stop-and-clean for a running session: reads
 `<worktree>/.stado-pid`, verifies that its OS process-creation identity still
-matches, sends a termination signal only to that proven owner, then removes
-the worktree directory. A live legacy/mismatched PID or a failed termination
-preserves the worktree and returns an error. Unlike
+matches, binds signalling to a stable pidfd/process handle, then removes the
+worktree directory only after that owner exits. A live legacy/mismatched PID,
+a platform without a stable process handle, or a failed termination preserves
+the worktree and returns an error. Unlike
 `session delete`, the sidecar history (`refs/sessions/<id>/*`) is left
 intact — reach for `delete` when you also want to purge the refs.
 

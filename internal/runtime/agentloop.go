@@ -125,6 +125,10 @@ type AgentLoopOptions struct {
 	// the existing transcript. Empty / nil result is a no-op.
 	InboxFn func() []string
 
+	// QuietRegistryDiagnostics propagates a live TUI's terminal ownership into
+	// nested subagents so their background registry builds remain silent.
+	QuietRegistryDiagnostics bool
+
 	// CostCapUSD is the optional cumulative-cost ceiling for this
 	// loop. Zero disables the guard (the common case). When set, the
 	// loop checks cumulative cost at every turn boundary and returns
@@ -190,16 +194,17 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			runner = opts.Executor.Runner
 		}
 		loopRunner := SubagentRunner{
-			Config:               opts.Config,
-			Parent:               sessionFromExecutor(opts.Executor),
-			Provider:             opts.Provider,
-			Model:                opts.Model,
-			Thinking:             opts.Thinking,
-			ThinkingBudgetTokens: opts.ThinkingBudgetTokens,
-			System:               opts.System,
-			SystemTemplate:       opts.SystemTemplate,
-			AgentName:            "stado-subagent",
-			OnEvent:              opts.OnSubagentEvent,
+			Config:                   opts.Config,
+			Parent:                   sessionFromExecutor(opts.Executor),
+			Provider:                 opts.Provider,
+			Model:                    opts.Model,
+			Thinking:                 opts.Thinking,
+			ThinkingBudgetTokens:     opts.ThinkingBudgetTokens,
+			System:                   opts.System,
+			SystemTemplate:           opts.SystemTemplate,
+			AgentName:                "stado-subagent",
+			OnEvent:                  opts.OnSubagentEvent,
+			QuietRegistryDiagnostics: opts.QuietRegistryDiagnostics,
 		}
 		spawnFn := buildLoopSubagentSpawner(loopRunner)
 		var fb *FleetBridgeAdapter
