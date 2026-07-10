@@ -350,6 +350,17 @@ func TestSessionProcessOwnershipRequiresCreationIdentity(t *testing.T) {
 	}
 }
 
+func TestWriteSessionPID_PersistsSentinelWhenIdentityUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	const nonexistentPID = 2147483640
+	if err := WriteSessionPID(dir, nonexistentPID); err == nil {
+		t.Fatal("expected identity lookup error for nonexistent process")
+	}
+	if got := ReadSessionPID(dir); got != nonexistentPID {
+		t.Fatalf("PID-only sentinel = %d, want %d", got, nonexistentPID)
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"

@@ -103,6 +103,13 @@ func WriteSessionPID(worktreeDir string, pid int) error {
 	}
 	identity, err := processIdentity(pid)
 	if err != nil {
+		// Persist a PID-only sentinel before returning the identity error. The
+		// session initializer is best-effort and ignores this error; without the
+		// sentinel, destructive commands would mistake a live but unverifiable
+		// owner for an inactive session and remove its worktree.
+		if writeErr := writeSessionMetadataFile(worktreeDir, sessionPIDFile, []byte(strconv.Itoa(pid)+"\n"), 0o600); writeErr != nil {
+			return fmt.Errorf("identify session process %d: %v; persist PID-only sentinel: %w", pid, err, writeErr)
+		}
 		return fmt.Errorf("identify session process %d: %w", pid, err)
 	}
 	data := []byte(strconv.Itoa(pid) + " " + identity + "\n")

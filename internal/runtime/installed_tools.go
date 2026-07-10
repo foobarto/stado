@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
-
-	"golang.org/x/mod/semver"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/plugins"
@@ -24,12 +21,7 @@ import (
 // plugin_use_dev.go:48). Returns the trimmed version string when
 // present; "" when the marker is missing or unreadable.
 func activeVersionMarker(stateDir, pluginName string) string {
-	markerPath := filepath.Join(stateDir, "plugins", "active", pluginName)
-	data, err := os.ReadFile(markerPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
+	return plugins.ActiveVersionMarker(filepath.Join(stateDir, "plugins"), pluginName)
 }
 
 // pickActiveVersion returns which version of pluginName to register,
@@ -42,36 +34,7 @@ func activeVersionMarker(stateDir, pluginName string) string {
 //
 // Returns "" if (1) misses and candidates is empty.
 func pickActiveVersion(stateDir, pluginName string, candidates []string) string {
-	if marker := activeVersionMarker(stateDir, pluginName); marker != "" {
-		normMarker := semverize(marker)
-		for _, v := range candidates {
-			if semverize(v) == normMarker {
-				return v
-			}
-		}
-		return ""
-	}
-	if len(candidates) == 0 {
-		return ""
-	}
-	best := candidates[0]
-	for _, v := range candidates[1:] {
-		if semver.Compare(semverize(v), semverize(best)) > 0 {
-			best = v
-		}
-	}
-	return best
-}
-
-// semverize prepends "v" to a version string when missing, since
-// golang.org/x/mod/semver requires the v-prefixed form. Real install
-// dirs use the no-v form (e.g. "0.1.0"); this lets us compare them
-// without rewriting the on-disk convention.
-func semverize(v string) string {
-	if len(v) > 0 && v[0] == 'v' {
-		return v
-	}
-	return "v" + v
+	return plugins.PickActiveVersion(filepath.Join(stateDir, "plugins"), pluginName, candidates)
 }
 
 // installedPluginTool wraps an installed plugin's declared tool as
@@ -214,23 +177,7 @@ func groupInstalledByName(pluginsDir string) (map[string][]string, error) {
 // dash names like "htb-lab" round-trip correctly. Returns ok=false
 // when the suffix isn't a version-shaped string.
 func splitInstalledID(id string) (name, version string, ok bool) {
-	for i := len(id) - 1; i >= 1; i-- {
-		if id[i] != '-' {
-			continue
-		}
-		rest := id[i+1:]
-		if len(rest) == 0 {
-			continue
-		}
-		// Accept: digit start (0.1.0), or v + digit (v0.1.0).
-		switch {
-		case rest[0] >= '0' && rest[0] <= '9':
-			return id[:i], rest, true
-		case rest[0] == 'v' && len(rest) >= 2 && rest[1] >= '0' && rest[1] <= '9':
-			return id[:i], rest, true
-		}
-	}
-	return "", "", false
+	return plugins.SplitInstalledID(id)
 }
 
 // installedRegistryMu protects the package-level installedByTool
