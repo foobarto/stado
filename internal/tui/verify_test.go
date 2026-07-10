@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/foobarto/stado/internal/runtime"
 )
 
@@ -220,7 +218,4 @@ func TestNoToolSteerQueuesBeforeVerification(t *testing.T) {
 	if cmd == nil || !m.verifying || m.queuedPrompt != "operator correction" || m.steeringMsg != "" {
 		t.Fatalf("turn completion cmd=%v verifying=%v queue=%q steer=%q", cmd != nil, m.verifying, m.queuedPrompt, m.steeringMsg)
 	}
-	// Keep the compiler honest that the returned command remains a Bubble Tea
-	// command without executing the verifier in this state-focused test.
-	var _ tea.Cmd = cmd
 }
