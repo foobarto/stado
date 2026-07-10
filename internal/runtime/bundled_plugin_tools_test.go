@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,11 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/foobarto/stado/internal/astgrep"
 	"github.com/foobarto/stado/internal/broker"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
+	"github.com/foobarto/stado/internal/rg"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/tools"
+	"github.com/foobarto/stado/internal/tools/binext"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -199,6 +203,8 @@ func TestBundledShellExecRunsUnderBrokerCeiling(t *testing.T) {
 }
 
 func TestBundledSearchToolsExecuteResolvedBinary(t *testing.T) {
+	requireBundledOrPATHBinary(t, "rg", rg.BundledPath)
+	requireBundledOrPATHBinary(t, "ast-grep", astgrep.BundledPath)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "probe.txt"), []byte("STADO_RG_PROBE\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -225,6 +231,18 @@ func TestBundledSearchToolsExecuteResolvedBinary(t *testing.T) {
 	astResult, err := astTool.Run(context.Background(), json.RawMessage(`{"pattern":"println($X)","lang":"go","path":"."}`), host)
 	if err != nil || astResult.Error != "" || !strings.Contains(astResult.Content, "probe.go") {
 		t.Fatalf("astgrep resolved-binary result=%+v err=%v", astResult, err)
+	}
+}
+
+func requireBundledOrPATHBinary(t *testing.T, name string, bundledPath func() (string, error)) {
+	t.Helper()
+	if _, err := bundledPath(); err == nil {
+		return
+	} else if !errors.Is(err, binext.ErrNotBundled) {
+		t.Fatalf("resolve bundled %s: %v", name, err)
+	}
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s is neither embedded nor available on PATH", name)
 	}
 }
 
