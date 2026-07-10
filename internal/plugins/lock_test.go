@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,30 @@ func TestLockRoundtrip(t *testing.T) {
 	}
 	if got := l2.Entries[0].WASMSHA256; got != "abc123" {
 		t.Errorf("wasm_sha256: got %q", got)
+	}
+}
+
+func TestLockWriteRejectsUnreadableOversize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plugin-lock.toml")
+	lock := plugins.NewLock()
+	lock.Add(plugins.LockEntry{Identity: strings.Repeat("x", 5<<20)})
+	if err := lock.Write(path); err == nil {
+		t.Fatal("Lock.Write produced a file larger than ReadLock accepts")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("oversized lock should not be written: %v", err)
+	}
+}
+
+func TestLockRemove(t *testing.T) {
+	lock := plugins.NewLock()
+	lock.Add(plugins.LockEntry{Identity: "old"})
+	lock.Add(plugins.LockEntry{Identity: "keep"})
+	if !lock.Remove("old") || lock.Remove("missing") {
+		t.Fatal("Lock.Remove returned the wrong result")
+	}
+	if len(lock.Entries) != 1 || lock.Entries[0].Identity != "keep" {
+		t.Fatalf("entries after remove = %#v", lock.Entries)
 	}
 }
 

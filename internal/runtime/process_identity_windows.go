@@ -9,15 +9,23 @@ import (
 )
 
 func processIdentity(pid int) (string, error) {
-	if pid <= 0 {
-		return "", fmt.Errorf("invalid pid %d", pid)
+	windowsPID, err := checkedWindowsPID(pid)
+	if err != nil {
+		return "", err
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, windowsPID)
 	if err != nil {
 		return "", err
 	}
 	defer windows.CloseHandle(handle)
 	return windowsProcessIdentity(handle)
+}
+
+func checkedWindowsPID(pid int) (uint32, error) {
+	if pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
+		return 0, fmt.Errorf("invalid Windows pid %d", pid)
+	}
+	return uint32(pid), nil
 }
 
 func windowsProcessIdentity(handle windows.Handle) (string, error) {

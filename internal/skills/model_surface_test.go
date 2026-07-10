@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestLoad_DirectorySKILLmd(t *testing.T) {
@@ -128,6 +129,23 @@ func TestFormatModelListing_LargeCatalogStaysWithinBudget(t *testing.T) {
 	}
 	if !strings.Contains(listing, "skill-000") {
 		t.Fatal("budgeted listing lost the catalog prefix")
+	}
+}
+
+func TestFormatModelListing_MaxCatalogStaysWithinBudget(t *testing.T) {
+	sks := make([]Skill, 4096)
+	for i := range sks {
+		sks[i] = Skill{
+			Name:        fmt.Sprintf("skill-%04d", i),
+			Description: strings.Repeat("d", 256),
+		}
+	}
+	got := FormatModelListing(sks)
+	if len(got) > maxModelListingBytes {
+		t.Fatalf("listing length = %d, want <= %d", len(got), maxModelListingBytes)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("large listing is not valid UTF-8")
 	}
 }
 

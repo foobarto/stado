@@ -54,6 +54,29 @@ func TestFetchLatestTag_UnsupportedHostErrors(t *testing.T) {
 	}
 }
 
+func TestRemoveSupersededPluginLockEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plugin-lock.toml")
+	lock := plugins.NewLock()
+	lock.Add(plugins.LockEntry{Identity: "github.com/acme/demo@v1.0.0"})
+	lock.Add(plugins.LockEntry{Identity: "github.com/acme/demo@v2.0.0"})
+	if err := lock.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeSupersededPluginLockEntry(path, "github.com/acme/demo@v1.0.0", "github.com/acme/demo@v2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := plugins.ReadLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Get("github.com/acme/demo@v1.0.0"); ok {
+		t.Fatal("superseded lock entry survived")
+	}
+	if _, ok := got.Get("github.com/acme/demo@v2.0.0"); !ok {
+		t.Fatal("new lock entry was removed")
+	}
+}
+
 // TestPluginRemove_RemovesVersionsAndLock installs two fake version dirs + a
 // lock entry, then `plugin remove` deletes both dirs and drops the lock entry.
 func TestPluginRemove_RemovesVersionsAndLock(t *testing.T) {

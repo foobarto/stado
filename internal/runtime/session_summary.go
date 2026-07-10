@@ -22,7 +22,8 @@ import (
 type SessionSummary struct {
 	ID     string
 	Status string // "live" (pid alive), "idle" (worktree present, no live pid), "detached" (no worktree)
-	// PID is the owning process's id when Status=="live"; 0 otherwise.
+	// PID is the recorded live process id when Status=="live"; 0 otherwise.
+	// Signalling still requires separately verified process ownership.
 	// Read from the .stado-pid file attachSessionScaffolding drops.
 	PID int
 	// Description is the user-supplied human label for this session
@@ -271,10 +272,12 @@ func (r SessionSummary) LastActiveFormatted() string {
 }
 
 // liveOwningPID reads .stado-pid from worktreeDir and returns (pid, true)
-// only when that process is alive and its creation identity still matches.
+// whenever the recorded process is alive. Legacy/unverifiable owners must
+// still count as live so session GC cannot remove their worktrees; signalling
+// separately requires verified ownership through InspectSessionProcess.
 func liveOwningPID(worktreeDir string) (int, bool) {
-	pid, alive, owned := SessionProcessOwnership(worktreeDir)
-	if !alive || !owned {
+	pid, alive, _ := SessionProcessOwnership(worktreeDir)
+	if !alive {
 		return 0, false
 	}
 	return pid, true

@@ -86,9 +86,8 @@ func FormatModelListing(sks []Skill) string {
 		return ""
 	}
 	type entry struct {
-		name      string
-		desc      string
-		shortened bool
+		name string
+		desc string
 	}
 	entries := make([]entry, 0, len(visible))
 	for _, sk := range visible {
@@ -98,37 +97,29 @@ func FormatModelListing(sks []Skill) string {
 		}
 		entries = append(entries, entry{name: sk.Name, desc: desc})
 	}
-	// Drop longest descriptions first when over budget; names always kept.
-	for len(entries) > 0 {
-		var b strings.Builder
-		b.WriteString("Available skills (load with skills__load when relevant):\n")
-		for _, e := range entries {
-			fmt.Fprintf(&b, "- %s: %s\n", e.name, e.desc)
+	const header = "Available skills (load with skills__load when relevant):\n"
+	const placeholder = "(description truncated — use skills__load for full body)"
+	renderedBytes := len(header)
+	shortenOrder := make([]int, 0, len(entries))
+	for i, e := range entries {
+		renderedBytes += len("- ") + len(e.name) + len(": ") + len(e.desc) + len("\n")
+		if len(e.desc) > len(placeholder) {
+			shortenOrder = append(shortenOrder, i)
 		}
-		if b.Len() <= maxModelListingBytes {
-			return strings.TrimRight(b.String(), "\n")
-		}
-		// Find the longest description that has not already been shortened.
-		// Without the marker, a catalog that remains over budget after every
-		// description reaches the placeholder repeatedly selects the same entry
-		// and spins forever.
-		worst := -1
-		worstLen := -1
-		for i, e := range entries {
-			if !e.shortened && len(e.desc) > worstLen {
-				l := len(e.desc)
-				worstLen = l
-				worst = i
-			}
-		}
-		if worst < 0 {
+	}
+	sort.Slice(shortenOrder, func(i, j int) bool {
+		return len(entries[shortenOrder[i]].desc) > len(entries[shortenOrder[j]].desc)
+	})
+	for _, i := range shortenOrder {
+		if renderedBytes <= maxModelListingBytes {
 			break
 		}
-		entries[worst].desc = "(description truncated — use skills__load for full body)"
-		entries[worst].shortened = true
+		renderedBytes -= len(entries[i].desc) - len(placeholder)
+		entries[i].desc = placeholder
 	}
 	var b strings.Builder
-	b.WriteString("Available skills (load with skills__load when relevant):\n")
+	b.Grow(min(renderedBytes, maxModelListingBytes))
+	b.WriteString(header)
 	for _, e := range entries {
 		fmt.Fprintf(&b, "- %s: %s\n", e.name, e.desc)
 	}

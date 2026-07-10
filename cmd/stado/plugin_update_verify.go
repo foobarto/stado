@@ -46,6 +46,7 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 
 		anyLock := false
 		anyUpdates := false
+		var updateFailures []string
 		for _, lockTarget := range pluginLockTargets(cfg) {
 			lock, lockErr := plugins.ReadLock(lockTarget.Path)
 			if lockErr != nil {
@@ -89,7 +90,19 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 					return pluginInstallCmd.RunE(pluginInstallCmd, []string{newID})
 				})
 				if installErr != nil {
+					// Heal lock files produced by older versions when the newer
+					// version is already installed and recorded.
+					if lockErr := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); lockErr == nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "    removed superseded lock entry %s\n", entry.Identity)
+						continue
+					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "    install failed: %v\n", installErr)
+					updateFailures = append(updateFailures, entry.Identity+": "+installErr.Error())
+					continue
+				}
+				if err := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "    lock cleanup failed: %v\n", err)
+					updateFailures = append(updateFailures, entry.Identity+": "+err.Error())
 				}
 			}
 		}
@@ -100,8 +113,25 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 		if !anyUpdates && !pluginUpdateCheck {
 			fmt.Fprintln(cmd.OutOrStdout(), "all plugins up to date")
 		}
+		if len(updateFailures) > 0 {
+			return fmt.Errorf("%d plugin update(s) failed", len(updateFailures))
+		}
 		return nil
 	},
+}
+
+func removeSupersededPluginLockEntry(lockPath, oldIdentity, newIdentity string) error {
+	lock, err := plugins.ReadLock(lockPath)
+	if err != nil {
+		return err
+	}
+	if _, ok := lock.Get(newIdentity); !ok {
+		return fmt.Errorf("updated lock entry %s is missing", newIdentity)
+	}
+	if !lock.Remove(oldIdentity) {
+		return nil
+	}
+	return lock.Write(lockPath)
 }
 
 func withPluginInstallScope(local bool, fn func() error) error {

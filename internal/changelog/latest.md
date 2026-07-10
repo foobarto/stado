@@ -84,11 +84,13 @@
   `doctor`, `verify-installed`, `reload`, `update`, `remove`, `gc`, and `use`
   now search or preserve the same project-before-global scope used by runtime
   discovery. Active-version markers and lock files remain in their install
-  scope instead of leaking project choices into user-global state.
+  scope instead of leaking project choices into user-global state. Updates
+  replace superseded versioned lock rows, and GC preserves explicitly active
+  versions in addition to its newest-version budget.
 - **Dependencies are verified, not inferred from directory names.** Install
   accepts a required plugin only after its manifest signature and WASM digest
   verify against the user trust store. Plugin lock reads and atomic writes also
-  reject symlink redirection.
+  reject symlink redirection and share one maximum file-size contract.
 
 ### Security
 

@@ -121,6 +121,42 @@ func TestPluginGC_KeepN(t *testing.T) {
 	}
 }
 
+func TestPluginGC_PreservesPinnedActiveVersion(t *testing.T) {
+	cfg := isolatedHome(t)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pluginInstallSigner = hex.EncodeToString(pub)
+	defer func() { pluginInstallSigner = "" }()
+	for _, version := range []string{"0.1.0", "0.2.0", "0.3.0"} {
+		src := buildTestPluginWithCaps(t, priv, pub, "demo", version, nil)
+		if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{src}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
+	activeDir := filepath.Join(pluginsDir, "active")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeDir, "demo"), []byte("0.1.0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pluginGCKeep = 1
+	pluginGCApply = true
+	t.Cleanup(func() { pluginGCApply = false })
+	if err := pluginGCCmd.RunE(pluginGCCmd, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"demo-0.1.0", "demo-0.3.0"} {
+		if _, err := os.Stat(filepath.Join(pluginsDir, kept)); err != nil {
+			t.Fatalf("pinned/newest version %s was deleted: %v", kept, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(pluginsDir, "demo-0.2.0")); !os.IsNotExist(err) {
+		t.Fatalf("unpinned middle version survived: %v", err)
+	}
+}
+
 // TestPluginGC_PerSignerGroups: plugins from DIFFERENT signers
 // stay in separate groups; gc only sweeps within each group.
 // Setup: signer A ships alpha-0.1.0 + alpha-0.2.0; signer B ships

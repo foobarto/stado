@@ -350,6 +350,29 @@ func TestSessionProcessOwnershipRequiresCreationIdentity(t *testing.T) {
 	}
 }
 
+func TestSummariseSession_LegacyLivePIDRemainsGCProtected(t *testing.T) {
+	base := t.TempDir()
+	worktreeRoot := filepath.Join(base, "worktrees")
+	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := stadogit.OpenOrInitSidecar(filepath.Join(base, "sessions.git"), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := stadogit.CreateSession(sc, worktreeRoot, "legacy-live", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, sessionPIDFile), []byte(itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	summary := SummariseSession(worktreeRoot, sc, sess.ID)
+	if summary.Status != "live" || summary.PID != os.Getpid() {
+		t.Fatalf("legacy live summary = %+v", summary)
+	}
+}
+
 func TestWriteSessionPID_PersistsSentinelWhenIdentityUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	const nonexistentPID = 2147483640

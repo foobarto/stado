@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -64,6 +66,7 @@ var pluginGCCmd = &cobra.Command{
 			id      string
 			version string
 			dir     string
+			pinned  bool
 		}
 		groups := make(map[string][]entry) // key = "<scope>/<signerFpr>/<name>"
 		var skipped int
@@ -75,7 +78,13 @@ var pluginGCCmd = &cobra.Command{
 				continue
 			}
 			key := location.Scope + "/" + mf.AuthorPubkeyFpr + "/" + mf.Name
-			groups[key] = append(groups[key], entry{id: location.ID, version: mf.Version, dir: location.Dir})
+			marker := plugins.ActiveVersionMarker(filepath.Dir(location.Dir), mf.Name)
+			groups[key] = append(groups[key], entry{
+				id:      location.ID,
+				version: mf.Version,
+				dir:     location.Dir,
+				pinned:  samePluginVersion(marker, mf.Version),
+			})
 		}
 
 		var keys []string
@@ -105,17 +114,27 @@ var pluginGCCmd = &cobra.Command{
 				}
 				return !less // less means i < j → so for descending we want NOT less
 			})
-			if len(es) <= pluginGCKeep {
+			var drop []entry
+			for i, e := range es {
+				if i >= pluginGCKeep && !e.pinned {
+					drop = append(drop, e)
+				}
+			}
+			if len(drop) == 0 {
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "%s — keep %d, drop %d:\n", k, pluginGCKeep, len(es)-pluginGCKeep)
+			fmt.Fprintf(os.Stderr, "%s — keep %d, drop %d:\n", k, len(es)-len(drop), len(drop))
 			for i, e := range es {
-				if i < pluginGCKeep {
-					fmt.Fprintf(os.Stderr, "  KEEP   %s\n", e.id)
-				} else {
-					fmt.Fprintf(os.Stderr, "  DROP   %s\n", e.id)
-					toDelete = append(toDelete, e)
+				if i < pluginGCKeep || e.pinned {
+					suffix := ""
+					if e.pinned {
+						suffix = " (active)"
+					}
+					fmt.Fprintf(os.Stderr, "  KEEP   %s%s\n", e.id, suffix)
+					continue
 				}
+				fmt.Fprintf(os.Stderr, "  DROP   %s\n", e.id)
+				toDelete = append(toDelete, e)
 			}
 		}
 
@@ -143,6 +162,10 @@ var pluginGCCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+func samePluginVersion(a, b string) bool {
+	return a != "" && strings.TrimPrefix(a, "v") == strings.TrimPrefix(b, "v")
 }
 
 func init() {

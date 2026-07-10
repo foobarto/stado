@@ -10,10 +10,14 @@ import (
 )
 
 func terminateOwnedProcess(pid int, expectedIdentity string) error {
+	windowsPID, err := checkedWindowsPID(pid)
+	if err != nil {
+		return err
+	}
 	handle, err := windows.OpenProcess(
 		windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE,
 		false,
-		uint32(pid),
+		windowsPID,
 	)
 	if err != nil {
 		return fmt.Errorf("open process %d: %w", pid, err)

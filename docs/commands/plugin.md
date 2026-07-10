@@ -217,7 +217,8 @@ Relevant `config.toml` sections:
 - **`plugin gc` is dry-run by default.** Project and global versions are
   grouped independently. Pass `--apply` to actually
   delete. `--keep` (default 1) controls how many newest versions to
-  preserve per (signer, name) group. Trust-store entries and
+  preserve per (scope, signer, name) group; an explicitly active version is
+  always preserved in addition to that newest-version budget. Trust-store entries and
   rollback pins are not touched, so a freshly-deleted older version
   still cannot be reinstalled by accident.
 - **When in doubt, run `plugin doctor <id>`.** It parses the

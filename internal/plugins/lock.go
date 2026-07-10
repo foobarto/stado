@@ -63,12 +63,30 @@ func (l *Lock) Write(path string) error {
 		fmt.Fprintf(&buf, "installed_at       = %q\n", e.InstalledAt)
 		buf.WriteByte('\n')
 	}
+	if int64(buf.Len()) > maxPluginLockBytes {
+		return fmt.Errorf("plugin lock exceeds %d bytes", maxPluginLockBytes)
+	}
 	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
 	return workdirpath.NewRootResolver(root).WriteFileAtomic(filepath.Base(path), buf.Bytes(), 0o644)
+}
+
+// Remove drops the entry with the exact versioned identity.
+func (l *Lock) Remove(identity string) bool {
+	removed := false
+	kept := make([]LockEntry, 0, len(l.Entries))
+	for _, entry := range l.Entries {
+		if entry.Identity == identity {
+			removed = true
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	l.Entries = kept
+	return removed
 }
 
 // ReadLock parses path as a plugin-lock.toml file.
