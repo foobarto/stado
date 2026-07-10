@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -48,8 +47,7 @@ var pluginReloadCmd = &cobra.Command{
 			// Fall back to the literal `<name>-<version>` form so callers
 			// who happen to pass a fully-qualified id still get a sensible
 			// answer (mirrors plugin info).
-			pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-			d, derr := plugins.InstalledDir(pluginsDir, name)
+			d, derr := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name)
 			if derr != nil {
 				return derr
 			}

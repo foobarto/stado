@@ -11,16 +11,18 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/plugins"
 )
 
 // ── plugin use ────────────────────────────────────────────────────────────
 
-// pluginUseCmd switches the active version for a plugin per-project.
-// Active-version state is stored in .stado/active-plugins/<name> per EP-0039 §F.
+// pluginUseCmd switches the active version for a plugin in the scope where it
+// is installed. Project-local and global installs keep independent markers.
 var pluginUseCmd = &cobra.Command{
 	Use:   "use <name>@<version>",
-	Short: "Switch the active version for an installed plugin (per-project)",
+	Short: "Switch the active version for an installed plugin in its install scope",
 	Long: "Writes the active-version marker for the named plugin.\n" +
+		"Project-local and global installs keep independent active versions.\n" +
 		"The version must already be installed (`stado plugin installed` to list).\n" +
 		"Example: stado plugin use my-plugin@v2.0.0",
 	Args: cobra.ExactArgs(1),
@@ -36,14 +38,17 @@ var pluginUseCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		installDir := filepath.Join(cfg.StateDir(), "plugins", name+"-"+version)
+		installDir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name+"-"+version)
+		if err != nil {
+			return err
+		}
 		if _, err := os.Stat(installDir); os.IsNotExist(err) {
 			return fmt.Errorf("plugin %s@%s is not installed (use `stado plugin install` first)", name, version)
 		}
 
-		// Write active-version marker to project .stado/ if available,
-		// otherwise user-level config.
-		activeDir := filepath.Join(cfg.StateDir(), "plugins", "active")
+		// Keep the marker beside the selected install root so project-local
+		// version choices do not change the global or another project's choice.
+		activeDir := filepath.Join(filepath.Dir(installDir), "active")
 		if err := os.MkdirAll(activeDir, 0o755); err != nil {
 			return fmt.Errorf("plugin use: create active dir: %w", err)
 		}

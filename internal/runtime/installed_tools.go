@@ -290,7 +290,7 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 		// operator set [plugins] allow_project_plugins.
 		if pluginsDir == projectDir && projectDir != "" && !cfg.Plugins.AllowProjectPlugins {
 			if shouldWarnIgnoredProjectPlugins(projectDir) {
-				fmt.Fprintf(os.Stderr, "stado: ignoring project-local plugins in %s — set [plugins] allow_project_plugins = true (in user/global config) to autoload them (security).\n", projectDir)
+				emitRegistryDiagnostic("stado: ignoring project-local plugins in %s — set [plugins] allow_project_plugins = true (in user/global config) to autoload them (security).\n", projectDir)
 			}
 			continue
 		}
@@ -311,7 +311,7 @@ func emitInstalledPluginDiagnosticOnce(format string, args ...any) {
 	if _, alreadyEmitted := installedPluginDiagnostics.LoadOrStore(message, struct{}{}); alreadyEmitted {
 		return
 	}
-	fmt.Fprint(os.Stderr, message)
+	emitRegistryDiagnostic("%s", message)
 }
 
 // registerPluginsFromDir registers every active installed-plugin tool found
@@ -334,7 +334,11 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 		// entirely — even if this copy fails to verify below, a project
 		// plugin authoritatively shadows the global one (no silent fallback).
 		seen[name] = true
-		version := pickActiveVersion(stateDir, name, versions)
+		markerStateDir := stateDir
+		if pluginsDir != filepath.Join(stateDir, "plugins") {
+			markerStateDir = filepath.Dir(pluginsDir)
+		}
+		version := pickActiveVersion(markerStateDir, name, versions)
 		if version == "" {
 			continue
 		}
@@ -415,7 +419,11 @@ func ResolveInstalledPluginDir(cfg *config.Config, name string) (string, bool) {
 		if !ok {
 			continue
 		}
-		version := pickActiveVersion(stateDir, name, versions)
+		markerStateDir := stateDir
+		if pluginsDir != filepath.Join(stateDir, "plugins") {
+			markerStateDir = filepath.Dir(pluginsDir)
+		}
+		version := pickActiveVersion(markerStateDir, name, versions)
 		if version == "" {
 			continue
 		}

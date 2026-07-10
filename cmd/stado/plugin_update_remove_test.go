@@ -78,7 +78,7 @@ func TestPluginRemove_RemovesVersionsAndLock(t *testing.T) {
 		}
 	}
 	// A lock entry for the same plugin (identity repo == "acme").
-	lockPath := pluginLockPath(cfg)
+	lockPath := pluginLockPath(cfg, false)
 	_ = os.MkdirAll(filepath.Dir(lockPath), 0o755)
 	lock := plugins.NewLock()
 	lock.Add(plugins.LockEntry{Identity: "github.com/acmeorg/acme@v1.1.0", WASMSHA256: "deadbeef"})

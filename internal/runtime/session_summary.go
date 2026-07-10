@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	stadogit "github.com/foobarto/stado/internal/state/git"
@@ -92,19 +91,61 @@ func ReadSessionPID(worktreeDir string) int {
 	if err != nil {
 		return 0
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0
+	}
+	pid, err := strconv.Atoi(fields[0])
 	if err != nil || pid <= 0 {
 		return 0
 	}
 	return pid
 }
 
-// WriteSessionPID stores the process id associated with a worktree.
+// WriteSessionPID stores the process id and OS process-creation identity
+// associated with a worktree. A numeric PID alone is not sufficient proof of
+// ownership because operating systems reuse PIDs after a process exits.
 func WriteSessionPID(worktreeDir string, pid int) error {
 	if strings.TrimSpace(worktreeDir) == "" || pid <= 0 {
 		return nil
 	}
-	return writeSessionMetadataFile(worktreeDir, sessionPIDFile, []byte(strconv.Itoa(pid)), 0o600)
+	identity, err := processIdentity(pid)
+	if err != nil {
+		return fmt.Errorf("identify session process %d: %w", pid, err)
+	}
+	data := []byte(strconv.Itoa(pid) + " " + identity + "\n")
+	return writeSessionMetadataFile(worktreeDir, sessionPIDFile, data, 0o600)
+}
+
+// SessionProcessOwnership reports whether the PID recorded for a worktree is
+// alive and whether its process-creation identity matches the writer's. Legacy
+// PID-only files and identity mismatches are deliberately alive-but-unowned so
+// callers never signal a possibly reused PID.
+func SessionProcessOwnership(worktreeDir string) (pid int, alive, owned bool) {
+	data, err := readSessionMetadataFile(worktreeDir, sessionPIDFile)
+	if err != nil {
+		return 0, false, false
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return 0, false, false
+	}
+	pid, err = strconv.Atoi(fields[0])
+	if err != nil || pid <= 0 {
+		return 0, false, false
+	}
+	identity, identityErr := processIdentity(pid)
+	if identityErr != nil {
+		return pid, processAlive(pid), false
+	}
+	alive = processAlive(pid)
+	if !alive {
+		return pid, false, false
+	}
+	if len(fields) < 2 {
+		return pid, alive, false
+	}
+	return pid, alive, fields[1] == identity
 }
 
 func readSessionMetadataFile(worktreeDir, name string) ([]byte, error) {
@@ -200,22 +241,11 @@ func (r SessionSummary) LastActiveFormatted() string {
 	return r.LastActive.UTC().Format("2006-01-02 15:04 UTC")
 }
 
-// liveOwningPID reads .stado-pid from worktreeDir and returns
-// (pid, true) when that process is alive. Missing file, unreadable
-// pid, or a signal-0 that errors all collapse to (0, false) — the
-// session is idle (worktree exists but nobody's using it). Works on
-// unix-likes; Windows port would need OpenProcess() instead.
+// liveOwningPID reads .stado-pid from worktreeDir and returns (pid, true)
+// only when that process is alive and its creation identity still matches.
 func liveOwningPID(worktreeDir string) (int, bool) {
-	pid := ReadSessionPID(worktreeDir)
-	if pid <= 0 {
-		return 0, false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return 0, false
-	}
-	// Signal 0 is a cheap "does this pid exist?" probe on POSIX.
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	pid, alive, owned := SessionProcessOwnership(worktreeDir)
+	if !alive || !owned {
 		return 0, false
 	}
 	return pid, true

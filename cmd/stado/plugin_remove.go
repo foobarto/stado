@@ -88,21 +88,23 @@ plugin name (the install-dir prefix), e.g. 'gtfobins'.`,
 		// Drop matching lock entries (best-effort) so `plugin update` doesn't
 		// resurrect a removed plugin. Match on the identity's repo segment /
 		// local alias — the common case where the install name equals the repo.
-		lockPath := pluginLockPath(cfg)
-		if lock, lerr := plugins.ReadLock(lockPath); lerr == nil {
-			kept := plugins.NewLock()
-			dropped := 0
-			for _, e := range lock.Entries {
-				if id, perr := plugins.ParseIdentity(e.Identity); perr == nil &&
-					(id.Repo == name || id.LocalAlias() == name) {
-					dropped++
-					continue
+		for _, lockTarget := range pluginLockTargets(cfg) {
+			lockPath := lockTarget.Path
+			if lock, lerr := plugins.ReadLock(lockPath); lerr == nil {
+				kept := plugins.NewLock()
+				dropped := 0
+				for _, e := range lock.Entries {
+					if id, perr := plugins.ParseIdentity(e.Identity); perr == nil &&
+						(id.Repo == name || id.LocalAlias() == name) {
+						dropped++
+						continue
+					}
+					kept.Add(e)
 				}
-				kept.Add(e)
-			}
-			if dropped > 0 {
-				if werr := kept.Write(lockPath); werr != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not update %s: %v\n", lockPath, werr)
+				if dropped > 0 {
+					if werr := kept.Write(lockPath); werr != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not update %s: %v\n", lockPath, werr)
+					}
 				}
 			}
 		}

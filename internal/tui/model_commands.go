@@ -655,10 +655,10 @@ func (m *Model) handleToolManageSlash(parts []string) {
 		if len(parts) >= 3 {
 			glob = parts[2]
 		}
-		reg := runtime.BuildDefaultRegistry(m.cfg)
+		reg := runtime.BuildDefaultRegistryQuiet(m.cfg)
 		eff := m.effectiveConfig()
 		if eff != nil {
-			runtime.ApplyToolFilter(reg, eff)
+			runtime.ApplyToolFilterQuiet(reg, eff)
 		}
 		// Mirror the per-turn surface: include the active persona's
 		// promoted tools in the "(autoloaded)" label so `/tool ls` matches
@@ -691,7 +691,7 @@ func (m *Model) handleToolManageSlash(parts []string) {
 			m.appendBlock(block{kind: "system", body: "/tool info <name>"})
 			return
 		}
-		reg := runtime.BuildDefaultRegistry(m.cfg)
+		reg := runtime.BuildDefaultRegistryQuiet(m.cfg)
 		t, ok := reg.Get(parts[2])
 		if !ok {
 			m.appendBlock(block{kind: "system", body: fmt.Sprintf("tool %q not found", parts[2])})
@@ -1099,20 +1099,19 @@ func (m *Model) handleBudgetSlash(parts []string) {
 // That keeps intent explicit — a rogue keystroke can't burn tokens.
 func (m *Model) handleSkillSlash(parts []string) tea.Cmd {
 	if parts[0] == "/skill" {
-		if len(m.skills) == 0 {
+		visible := skills.UserVisible(m.skills)
+		if len(visible) == 0 {
 			m.appendBlock(block{kind: "system",
-				body: "no skills loaded — drop `.stado/skills/<name>.md` files in the repo to define some"})
+				body: "no user-invocable skills loaded — drop `.stado/skills/<name>.md` files in the repo to define some"})
 			return nil
 		}
-		rows := make([]render.DescRow, 0, len(m.skills))
-		for _, sk := range m.skills {
+		rows := make([]render.DescRow, 0, len(visible))
+		for _, sk := range visible {
 			desc := sk.ListingDescription()
 			if desc == "" {
 				desc = "(no description)"
 			}
-			if !sk.UserInvocable {
-				desc += " [model-only]"
-			} else if sk.DisableModelInvocation {
+			if sk.DisableModelInvocation {
 				desc += " [user-only]"
 			}
 			rows = append(rows, render.DescRow{Name: "/skill:" + sk.Name, Desc: desc})
@@ -1220,7 +1219,7 @@ func (m *Model) handleConfigReload() tea.Cmd {
 
 	tools := -1
 	if m.executor != nil {
-		if newReg, rerr := runtime.BuildRegistryWithPlugins(newCfg); rerr == nil {
+		if newReg, rerr := runtime.BuildRegistryWithPluginsQuiet(newCfg); rerr == nil {
 			// Replace the executor with a fresh copy rather than mutating
 			// its Registry field in place (Executor.Run reads it without
 			// locking).
@@ -1285,7 +1284,7 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 	// tool filter), not the bare default registry — otherwise /plugin reload
 	// re-registers tools the operator disabled via [tools].enabled/disabled,
 	// re-exposing them on the next turn (#028).
-	newReg, err := runtime.BuildRegistryWithPlugins(m.cfg)
+	newReg, err := runtime.BuildRegistryWithPluginsQuiet(m.cfg)
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "/plugin reload: " + err.Error()})
 		return nil
@@ -1312,11 +1311,10 @@ func (m *Model) handlePluginReload(args []string) tea.Cmd {
 
 	name := args[0]
 	cfg := m.cfg
-	pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 	dir, ok := runtime.ResolveInstalledPluginDir(cfg, name)
 	if !ok {
 		// Fallback: literal `<name>-<version>` form.
-		d, derr := plugins.InstalledDir(pluginsDir, name)
+		d, derr := plugins.InstalledDirInAny(cfg.AllPluginDirs(), name)
 		if derr == nil {
 			if _, sterr := os.Stat(d); sterr == nil {
 				dir = d
@@ -1384,9 +1382,8 @@ func (m *Model) handlePluginSlash(parts []string) tea.Cmd {
 	// handlePluginReload: try the literal `<name>-<version>` form
 	// across all plugin roots first; if that path doesn't exist on
 	// disk, fall back to bare-name → active-version resolution.
-	// Bare-name lookup is single-root (global state-dir/plugins) by
-	// ResolveInstalledPluginDir's design — to address a project-local
-	// pinned version, operators must use the literal form.
+	// Bare-name lookup uses the same project-before-global precedence and
+	// per-root active marker as registry construction.
 	//
 	// InstalledDirInAny only fails on syntactically invalid ids
 	// (containing path separators, ".", "..") — a missing dir falls
@@ -1545,8 +1542,8 @@ func (m *Model) handleToolExecSlash(parts []string) tea.Cmd {
 	if eff == nil {
 		eff = cfg
 	}
-	reg := runtime.BuildDefaultRegistry(cfg)
-	runtime.ApplyToolFilter(reg, eff)
+	reg := runtime.BuildDefaultRegistryQuiet(cfg)
+	runtime.ApplyToolFilterQuiet(reg, eff)
 	registered, ok := lookupToolForSlashDispatch(reg, name)
 	if !ok {
 		// Distinguish "session hid this" from "doesn't exist" — the

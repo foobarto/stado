@@ -99,18 +99,18 @@ var pluginInstallCmd = &cobra.Command{
 		// manifest declares `requires`, every entry must already be
 		// installed at a satisfying version. Prevents silent partial-
 		// functionality (composite plugins like exploit-lib + http-session).
+		ts := plugins.NewTrustStore(cfg.StateDir())
 		dependencyDirs := []string{filepath.Join(cfg.StateDir(), "plugins")}
 		if pluginInstallLocal {
 			dependencyDirs = cfg.AllPluginDirs()
 		}
-		if reqErr := plugins.CheckRequiresInDirs(m, dependencyDirs); reqErr != nil {
+		if reqErr := plugins.CheckRequiresVerified(m, dependencyDirs, ts); reqErr != nil {
 			return fmt.Errorf("install: %w", reqErr)
 		}
 
 		// Optional TOFU path: pin the caller-provided pubkey only after it
 		// matches and verifies the manifest, so failed installs do not leave
 		// unintended trust-store entries behind.
-		ts := plugins.NewTrustStore(cfg.StateDir())
 		if pluginInstallSigner != "" {
 			entry, err := ts.TrustVerified(pluginInstallSigner, m.Author, m, sig)
 			if err != nil {
@@ -173,8 +173,8 @@ var pluginInstallCmd = &cobra.Command{
 		// EP-0039: write lock file entry if this was a remote install (identity present).
 		if looksLikeRemoteIdentity(args[0]) {
 			if id, err := plugins.ParseIdentity(args[0]); err == nil {
-				lockPath := pluginLockPath(cfg)
-				if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err == nil {
+				lockPath := pluginLockPath(cfg, pluginInstallLocal)
+				if err := workdirpath.NewUserConfigResolver().MkdirAll(filepath.Dir(lockPath), 0o755); err == nil {
 					lock, _ := plugins.ReadLock(lockPath)
 					if lock == nil {
 						lock = plugins.NewLock()

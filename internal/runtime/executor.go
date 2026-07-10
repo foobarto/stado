@@ -3,7 +3,6 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -109,6 +108,17 @@ func BuildDefaultRegistry(cfg *config.Config) *tools.Registry {
 			b.setRuntime(cfg, reg)
 		}
 	}
+	return reg
+}
+
+// BuildDefaultRegistryQuiet is for registry rebuilds after a TUI has entered
+// its alternate screen. Build failures still return through their normal API;
+// advisory diagnostics are suppressed so they cannot corrupt the display.
+func BuildDefaultRegistryQuiet(cfg *config.Config) *tools.Registry {
+	var reg *tools.Registry
+	withRegistryDiagnosticsSuppressed(func() {
+		reg = BuildDefaultRegistry(cfg)
+	})
 	return reg
 }
 
@@ -338,7 +348,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 			if matched {
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "stado: [tools].%s mentions %q — no such tool (ignored)\n", label, n)
+			emitRegistryDiagnostic("stado: [tools].%s mentions %q — no such tool (ignored)\n", label, n)
 		}
 	}
 	warnUnknownExact(cfg.Tools.Enabled, "enabled")
@@ -357,7 +367,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		disabledHit := toolMatchesAny(name, cfg.Tools.Disabled)
 		allowMiss := len(cfg.Tools.Enabled) > 0 && !toolMatchesAny(name, cfg.Tools.Enabled)
 		if disabledHit || allowMiss {
-			fmt.Fprintf(os.Stderr,
+			emitRegistryDiagnostic(
 				"stado: [tools] would remove meta-tool %q, but the dispatch kernel is non-disableable (EP-0037) — keeping it.\n",
 				name)
 		}
@@ -384,7 +394,7 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 		// next run fails fast with "no tools available" rather than
 		// "everything enabled". The kernel is retained either way.
 		if nonMetaMatches == 0 {
-			fmt.Fprintf(os.Stderr,
+			emitRegistryDiagnostic(
 				"stado: [tools].enabled = %v matched no registered tools — registry reduced to the meta-tool kernel (fail-closed). Did you mean canonical names like \"fs.read\" or globs like \"fs.*\"?\n",
 				cfg.Tools.Enabled)
 			for name := range known {
@@ -428,6 +438,14 @@ func ApplyToolFilter(reg *tools.Registry, cfg *config.Config) {
 	}
 }
 
+// ApplyToolFilterQuiet applies the same fail-closed filtering without writing
+// advisory diagnostics into a live TUI screen.
+func ApplyToolFilterQuiet(reg *tools.Registry, cfg *config.Config) {
+	withRegistryDiagnosticsSuppressed(func() {
+		ApplyToolFilter(reg, cfg)
+	})
+}
+
 // BuildRegistryWithPlugins builds the tool registry the agent loop,
 // MCP server, and any other tool-dispatching surface should share.
 // Composes:
@@ -456,7 +474,7 @@ func BuildRegistryWithPlugins(cfg *config.Config) (*tools.Registry, error) {
 
 	if len(cfg.MCP.Servers) > 0 {
 		if err := attachMCP(reg, cfg.MCP.Servers); err != nil {
-			fmt.Fprintf(os.Stderr, "stado: MCP setup: %v\n", err)
+			emitRegistryDiagnostic("stado: MCP setup: %v\n", err)
 		}
 	}
 	ApplyWasmMigration(reg, cfg)
@@ -465,6 +483,17 @@ func BuildRegistryWithPlugins(cfg *config.Config) (*tools.Registry, error) {
 	}
 	ApplyToolFilter(reg, cfg)
 	return reg, nil
+}
+
+// BuildRegistryWithPluginsQuiet is the live-TUI counterpart of
+// BuildRegistryWithPlugins.
+func BuildRegistryWithPluginsQuiet(cfg *config.Config) (*tools.Registry, error) {
+	var reg *tools.Registry
+	var err error
+	withRegistryDiagnosticsSuppressed(func() {
+		reg, err = BuildRegistryWithPlugins(cfg)
+	})
+	return reg, err
 }
 
 // BuildExecutor wires the shared registry + session + sandbox runner.
@@ -486,6 +515,16 @@ func BuildExecutor(sess *stadogit.Session, cfg *config.Config, agentName string)
 	}
 	PinInvokeExecutor(reg, exec)
 	return exec, nil
+}
+
+// BuildExecutorQuiet builds an executor while a TUI owns the terminal.
+func BuildExecutorQuiet(sess *stadogit.Session, cfg *config.Config, agentName string) (*tools.Executor, error) {
+	var exec *tools.Executor
+	var err error
+	withRegistryDiagnosticsSuppressed(func() {
+		exec, err = BuildExecutor(sess, cfg, agentName)
+	})
+	return exec, err
 }
 
 // attachMCP is defined in mcp_glue.go — kept in a separate file so pulling

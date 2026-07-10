@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -36,7 +35,7 @@ var (
 var pluginGCCmd = &cobra.Command{
 	Use:   "gc",
 	Short: "Remove older installed plugin versions, keeping the N newest per (signer, name) group (dry-run by default)",
-	Long: "Scans `<state-dir>/plugins/` and groups by (manifest signer\n" +
+	Long: "Scans project-local and global plugin roots and groups by (scope, manifest signer\n" +
 		"fingerprint, manifest name). Within each group, sorts by SemVer\n" +
 		"and keeps the --keep newest versions; the rest are listed (or\n" +
 		"deleted if --apply is set). Default --keep is 1. Plugins whose\n" +
@@ -52,16 +51,11 @@ var pluginGCCmd = &cobra.Command{
 		if pluginGCKeep < 1 {
 			return fmt.Errorf("--keep must be >= 1, got %d", pluginGCKeep)
 		}
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		ids, err := plugins.ListInstalledDirs(pluginsDir)
+		locations, err := listInstalledPluginLocations(cfg)
 		if err != nil {
-			if os.IsNotExist(err) {
-				fmt.Fprintln(os.Stderr, "(no plugins installed)")
-				return nil
-			}
-			return fmt.Errorf("read plugins dir: %w", err)
+			return err
 		}
-		if len(ids) == 0 {
+		if len(locations) == 0 {
 			fmt.Fprintln(os.Stderr, "(no plugins installed)")
 			return nil
 		}
@@ -69,18 +63,19 @@ var pluginGCCmd = &cobra.Command{
 		type entry struct {
 			id      string
 			version string
+			dir     string
 		}
-		groups := make(map[string][]entry) // key = "<signerFpr>/<name>"
+		groups := make(map[string][]entry) // key = "<scope>/<signerFpr>/<name>"
 		var skipped int
-		for _, id := range ids {
-			mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsDir, id))
+		for _, location := range locations {
+			mf, _, err := plugins.LoadFromDir(location.Dir)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "skip %s (manifest load failed: %v)\n", id, err)
+				fmt.Fprintf(os.Stderr, "skip %s/%s (manifest load failed: %v)\n", location.Scope, location.ID, err)
 				skipped++
 				continue
 			}
-			key := mf.AuthorPubkeyFpr + "/" + mf.Name
-			groups[key] = append(groups[key], entry{id: id, version: mf.Version})
+			key := location.Scope + "/" + mf.AuthorPubkeyFpr + "/" + mf.Name
+			groups[key] = append(groups[key], entry{id: location.ID, version: mf.Version, dir: location.Dir})
 		}
 
 		var keys []string
@@ -89,7 +84,7 @@ var pluginGCCmd = &cobra.Command{
 		}
 		sort.Strings(keys)
 
-		var toDelete []string
+		var toDelete []entry
 		for _, k := range keys {
 			es := groups[k]
 			// Newest first, with non-SemVer pushed to the end (preserved,
@@ -119,7 +114,7 @@ var pluginGCCmd = &cobra.Command{
 					fmt.Fprintf(os.Stderr, "  KEEP   %s\n", e.id)
 				} else {
 					fmt.Fprintf(os.Stderr, "  DROP   %s\n", e.id)
-					toDelete = append(toDelete, e.id)
+					toDelete = append(toDelete, e)
 				}
 			}
 		}
@@ -135,19 +130,13 @@ var pluginGCCmd = &cobra.Command{
 		}
 
 		var errs int
-		for _, id := range toDelete {
-			dir, err := plugins.InstalledDir(pluginsDir, id)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "invalid plugin id %q: %v\n", id, err)
+		for _, entry := range toDelete {
+			if err := workdirpath.NewUserConfigResolver().RemoveAll(entry.dir); err != nil {
+				fmt.Fprintf(os.Stderr, "remove %s: %v\n", entry.id, err)
 				errs++
 				continue
 			}
-			if err := workdirpath.NewUserConfigResolver().RemoveAll(dir); err != nil {
-				fmt.Fprintf(os.Stderr, "remove %s: %v\n", id, err)
-				errs++
-				continue
-			}
-			fmt.Fprintln(os.Stderr, "deleted", id)
+			fmt.Fprintln(os.Stderr, "deleted", entry.id)
 		}
 		if errs > 0 {
 			return fmt.Errorf("%d deletion error(s)", errs)

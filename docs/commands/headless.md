@@ -4,8 +4,8 @@ Run stado as an editor-neutral JSON-RPC 2.0 daemon over stdio.
 
 > Was `stado headless` through v0.75.x. The standalone command was folded
 > into `stado run` (the non-interactive surface); `--headless` selects the
-> daemon instead of a one-shot prompt. Behavior and the wire protocol are
-> unchanged.
+> daemon instead of a one-shot prompt. Daemon behavior and the wire protocol
+> are unchanged; one-shot flags combined with `--headless` are rejected.
 
 ## What it does
 
@@ -70,6 +70,10 @@ Omit `--fork-tree` only when the notification has no `forkTree`.
 
 ## Gotchas
 
+- `--headless` accepts `--persona` as the daemon's default persona but rejects
+  one-shot prompt, skill, session, tool-filter, harness, sampling, output, and
+  turn-limit flags. Configure daemon sessions through config and JSON-RPC so
+  values are not silently ignored.
 - Sessions are daemon-local by default. When tools or session-aware
   plugins attach a git-backed session, prompts are also appended to
   that session's `.stado/conversation.jsonl` so later compaction and

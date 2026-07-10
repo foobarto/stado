@@ -93,6 +93,32 @@ func TestSkill_UnknownReportsError(t *testing.T) {
 	}
 }
 
+func TestSkill_ModelOnlyIsHiddenAndCannotBeInjected(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".stado", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: internal-review\nuser-invocable: false\n---\nModel-only instructions.\n"
+	if err := os.WriteFile(filepath.Join(dir, "internal-review.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newSkillModel(t, root)
+	m.handleSkillSlash([]string{"/skill"})
+	if got := m.blocks[len(m.blocks)-1].body; strings.Contains(got, "internal-review") {
+		t.Fatalf("model-only skill leaked into /skill listing: %q", got)
+	}
+	startMsgs := len(m.msgs)
+	m.handleSkillSlash([]string{"/skill:internal-review"})
+	if len(m.msgs) != startMsgs {
+		t.Fatal("model-only skill was injected as a user message")
+	}
+	if got := m.blocks[len(m.blocks)-1].body; !strings.Contains(got, "model-only") {
+		t.Fatalf("direct invocation did not explain the refusal: %q", got)
+	}
+}
+
 // TestSkill_SidebarSurfacesCount: when skills are loaded, the
 // sidebar renders a "Skills: N — /skill" row so users discover
 // the feature without needing to know the slash command in

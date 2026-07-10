@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -36,9 +37,17 @@ var sessionKillCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if pid := readPidFile(wt); pid > 0 {
-			if err := terminateProcess(pid); err == nil {
-				fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
+		pid, alive, owned := runtime.SessionProcessOwnership(wt)
+		if alive && !owned {
+			return fmt.Errorf("refusing to signal pid %d: session process ownership cannot be verified; worktree preserved", pid)
+		}
+		if owned {
+			if err := terminateProcess(pid); err != nil {
+				return fmt.Errorf("terminate session process %d: %w; worktree preserved", pid, err)
+			}
+			fmt.Fprintf(os.Stderr, "sent termination signal to pid %d\n", pid)
+			if err := waitForSessionProcessExit(wt, pid, 2*time.Second); err != nil {
+				return err
 			}
 		}
 		if err := workdirpath.NewUserConfigResolver().RemoveAll(wt); err != nil {
@@ -47,6 +56,20 @@ var sessionKillCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr, "killed", id)
 		return nil
 	},
+}
+
+func waitForSessionProcessExit(worktree string, pid int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		_, alive, owned := runtime.SessionProcessOwnership(worktree)
+		if !alive || !owned {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session process %d did not exit after termination signal; worktree preserved", pid)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // readPidFile returns the pid stored at <worktree>/.stado-pid if present,

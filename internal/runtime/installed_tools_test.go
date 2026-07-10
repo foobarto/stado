@@ -321,6 +321,36 @@ func TestResolveInstalledPluginDir_PrefersMarker(t *testing.T) {
 	}
 }
 
+func TestResolveInstalledPluginDir_UsesProjectLocalMarker(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	project := filepath.Join(root, "project")
+	pluginsDir := filepath.Join(project, ".stado", "plugins")
+	for _, sub := range []string{"foo-0.1.0", "foo-0.2.0"} {
+		if err := os.MkdirAll(filepath.Join(pluginsDir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	activeDir := filepath.Join(pluginsDir, "active")
+	if err := os.MkdirAll(activeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(activeDir, "foo"), []byte("0.1.0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, ok := ResolveInstalledPluginDir(cfg, "foo")
+	if !ok || dir != filepath.Join(pluginsDir, "foo-0.1.0") {
+		t.Fatalf("project-local resolution = (%q, %t), want pinned v0.1.0", dir, ok)
+	}
+}
+
 // TestResolveInstalledPluginDir_NotInstalled: a bare name with no
 // matching directory on disk returns ok=false.
 func TestResolveInstalledPluginDir_NotInstalled(t *testing.T) {

@@ -105,8 +105,10 @@ error).
 ### `session kill <id>`
 
 Operational stop-and-clean for a running session: reads
-`<worktree>/.stado-pid`, sends a termination signal to that process when
-it is still alive, then removes the worktree directory. Unlike
+`<worktree>/.stado-pid`, verifies that its OS process-creation identity still
+matches, sends a termination signal only to that proven owner, then removes
+the worktree directory. A live legacy/mismatched PID or a failed termination
+preserves the worktree and returns an error. Unlike
 `session delete`, the sidecar history (`refs/sessions/<id>/*`) is left
 intact — reach for `delete` when you also want to purge the refs.
 
@@ -251,7 +253,7 @@ Session data layout:
 | `$XDG_STATE_HOME/stado/worktrees/<uuid>/` | Session worktree |
 | `<worktree>/.stado/conversation.jsonl` | Append-only persisted conversation |
 | `<worktree>/.stado/description` | Optional human label |
-| `<worktree>/.stado-pid` | Owning process PID (for `session list` STATUS + `session kill`) |
+| `<worktree>/.stado-pid` | Owning process PID + creation identity (for `session list` STATUS + safe `session kill`) |
 | `<worktree>/.stado-span-context` | W3C traceparent (for forked sessions' span linking) |
 
 ## Gotchas
@@ -261,8 +263,9 @@ Session data layout:
   fork's trace ref is seeded from the fork point.
 - **`session land`** pushes a SINGLE ref. Turn tags and the trace ref
   stay in the sidecar repo — they're not promoted to your user repo.
-- **Zero-turn session cleanup**: `session list` hides them by default
-  but the worktrees stay on disk. Run `session gc --apply` periodically.
+- **Zero-turn session cleanup**: `session list` hides idle/detached empties by
+  default but keeps a live empty session visible. Worktrees stay on disk; run
+  `session gc --apply` periodically.
 - **`session compact`** is advisory by design. For CLI compaction, use a
   session-aware tool via `stado tool run --session <id> ...`; the
   example auto-compact plugin forks a child session and seeds the

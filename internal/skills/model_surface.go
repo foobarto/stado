@@ -86,8 +86,9 @@ func FormatModelListing(sks []Skill) string {
 		return ""
 	}
 	type entry struct {
-		name string
-		desc string
+		name      string
+		desc      string
+		shortened bool
 	}
 	entries := make([]entry, 0, len(visible))
 	for _, sk := range visible {
@@ -107,19 +108,24 @@ func FormatModelListing(sks []Skill) string {
 		if b.Len() <= maxModelListingBytes {
 			return strings.TrimRight(b.String(), "\n")
 		}
-		// Find longest description entry to trim.
+		// Find the longest description that has not already been shortened.
+		// Without the marker, a catalog that remains over budget after every
+		// description reaches the placeholder repeatedly selects the same entry
+		// and spins forever.
 		worst := -1
 		worstLen := -1
 		for i, e := range entries {
-			if l := len(e.desc); l > worstLen {
+			if !e.shortened && len(e.desc) > worstLen {
+				l := len(e.desc)
 				worstLen = l
 				worst = i
 			}
 		}
-		if worst < 0 || worstLen <= 0 {
+		if worst < 0 {
 			break
 		}
 		entries[worst].desc = "(description truncated — use skills__load for full body)"
+		entries[worst].shortened = true
 	}
 	var b strings.Builder
 	b.WriteString("Available skills (load with skills__load when relevant):\n")
@@ -129,13 +135,14 @@ func FormatModelListing(sks []Skill) string {
 	out := strings.TrimRight(b.String(), "\n")
 	if len(out) > maxModelListingBytes {
 		// Back the cut up to a UTF-8 rune boundary so we never split a
-		// multibyte rune (a byte slice at maxModelListingBytes could land
-		// mid-rune and emit a replacement char).
-		cut := maxModelListingBytes
+		// multibyte rune. Reserve the ellipsis bytes inside the budget rather
+		// than appending them after a maxModelListingBytes slice.
+		ellipsis := "…"
+		cut := maxModelListingBytes - len(ellipsis)
 		for cut > 0 && !utf8.RuneStart(out[cut]) {
 			cut--
 		}
-		out = out[:cut] + "…"
+		out = out[:cut] + ellipsis
 	}
 	return out
 }
@@ -199,6 +206,14 @@ func Effective(cwd string, personaSkills []string, personaDir string) ([]Skill, 
 	if len(personaSkills) == 0 || strings.TrimSpace(personaDir) == "" {
 		return base, err
 	}
-	extra, _ := LoadPaths(personaDir, personaSkills)
+	extra, warnings := LoadPaths(personaDir, personaSkills)
+	if len(warnings) > 0 {
+		warningErr := fmt.Errorf("%s", strings.Join(warnings, "; "))
+		if err != nil {
+			err = fmt.Errorf("%v; %w", err, warningErr)
+		} else {
+			err = warningErr
+		}
+	}
 	return Merge(base, extra), err
 }

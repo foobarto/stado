@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 
@@ -157,7 +156,7 @@ func VerifyInstalledPluginsABI(ctx context.Context, cfg *config.Config) ([]ABIIs
 		// Non-fatal: degrade to export-only checks. The caller already
 		// gets actionable info on missing tool exports; missing-host-
 		// import detection is a v0.45.0+ enhancement.
-		fmt.Fprintf(os.Stderr, "stado: warn: ABI verify host-import set unavailable: %v\n", err)
+		emitRegistryDiagnostic("stado: warn: ABI verify host-import set unavailable: %v\n", err)
 		provided = nil
 	}
 

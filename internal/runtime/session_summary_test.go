@@ -331,6 +331,25 @@ func TestWriteSessionPIDRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestSessionProcessOwnershipRequiresCreationIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteSessionPID(dir, os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
+	pid, alive, owned := SessionProcessOwnership(dir)
+	if pid != os.Getpid() || !alive || !owned {
+		t.Fatalf("ownership = (%d, %t, %t), want (%d, true, true)", pid, alive, owned, os.Getpid())
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, sessionPIDFile), []byte(itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pid, alive, owned = SessionProcessOwnership(dir)
+	if pid != os.Getpid() || !alive || owned {
+		t.Fatalf("legacy ownership = (%d, %t, %t), want (%d, true, false)", pid, alive, owned, os.Getpid())
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"

@@ -42,3 +42,38 @@ func TestRunHeadless_FlagRegistered(t *testing.T) {
 		t.Fatal("run --headless flag is not registered")
 	}
 }
+
+func TestRunHeadless_RejectsIgnoredRunFlags(t *testing.T) {
+	for _, name := range []string{"no-tools", "tools", "tools-disable", "mode", "json", "max-turns", "temperature"} {
+		t.Run(name, func(t *testing.T) {
+			flag := runCmd.Flags().Lookup(name)
+			if flag == nil {
+				t.Fatalf("run flag --%s is not registered", name)
+			}
+			oldValue, oldChanged := flag.Value.String(), flag.Changed
+			value := "true"
+			switch name {
+			case "tools", "tools-disable":
+				value = "fs.*"
+			case "mode":
+				value = "plan"
+			case "max-turns":
+				value = "3"
+			case "temperature":
+				value = "0.5"
+			}
+			if err := runCmd.Flags().Set(name, value); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = runCmd.Flags().Set(name, oldValue)
+				flag.Changed = oldChanged
+			})
+
+			err := runHeadlessMode(runCmd, nil)
+			if err == nil || !strings.Contains(err.Error(), "--"+name) {
+				t.Fatalf("run --headless --%s error = %v, want explicit rejection", name, err)
+			}
+		})
+	}
+}

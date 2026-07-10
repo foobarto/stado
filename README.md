@@ -78,7 +78,7 @@ Useful overrides:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/foobarto/stado/main/install.sh | \
-  bash -s -- --dir /usr/local/bin --version v0.75.2
+  bash -s -- --dir /usr/local/bin --version v0.76.0
 ```
 
 ### Homebrew
@@ -237,16 +237,18 @@ stado plugin gen-key my-plugin.seed     # one-time signer key
 stado plugin sign plugin.manifest.json --key my-plugin.seed --wasm plugin.wasm
 stado plugin trust <pubkey-hex> "Alice Example"
 stado plugin verify .                   # signature + digest + rollback/CRL/Rekor
-stado plugin install .                  # copy into state/plugins/
-stado plugin list                       # pinned signer keys
-stado plugin installed                  # installed plugin IDs
+stado plugin install .                  # install globally under user state
+stado plugin install --local .          # install under this project's .stado/plugins/
+stado plugin list                       # detailed bundled + installed catalog
+stado plugin installed                  # concise IDs with project/global scope
 stado tool run <tool> '{...}'           # invoke a plugin tool directly
 stado tool run --session <sid> <tool> '{...}'  # session-aware tool CLI
 ```
 
-`plugin list` shows trusted authors; `plugin installed` shows runnable
-plugin IDs (`<name>-<version>`). The shipped bundled plugin catalog
-lives under [plugins/bundled/](plugins/bundled/): `plugins/bundled/auto-compact/`
+`plugin list` shows the detailed catalog and trust state; `plugin installed`
+shows runnable plugin IDs (`<name>-<version>`) and project/global scope. The
+shipped bundled plugin catalog lives under [plugins/bundled/](plugins/bundled/):
+`plugins/bundled/auto-compact/`
 is on by default. Opt-in plugins (the former `optional/` + `demos/`) now live in
 [foobarto/stado-plugins](https://github.com/foobarto/stado-plugins) and install
 via `stado plugin install github.com/foobarto/stado-plugins/<plugin>@<version>`.

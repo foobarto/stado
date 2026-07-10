@@ -3,9 +3,13 @@ package plugins
 import (
 	"bytes"
 	"fmt"
-	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
+
+const maxPluginLockBytes int64 = 4 << 20
 
 // LockEntry is one row in plugin-lock.toml. EP-0039 §lock file.
 type LockEntry struct {
@@ -59,13 +63,23 @@ func (l *Lock) Write(path string) error {
 		fmt.Fprintf(&buf, "installed_at       = %q\n", e.InstalledAt)
 		buf.WriteByte('\n')
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return workdirpath.NewRootResolver(root).WriteFileAtomic(filepath.Base(path), buf.Bytes(), 0o644)
 }
 
 // ReadLock parses path as a plugin-lock.toml file.
 // Returns os.ErrNotExist when the file is absent.
 func ReadLock(path string) (*Lock, error) {
-	data, err := os.ReadFile(path)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(filepath.Base(path), maxPluginLockBytes)
 	if err != nil {
 		return nil, err
 	}

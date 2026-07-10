@@ -71,3 +71,28 @@ func TestLockGet(t *testing.T) {
 		t.Error("Get should return false for missing entry")
 	}
 }
+
+func TestLockReadWriteRejectSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.toml")
+	if err := os.WriteFile(outside, []byte("sentinel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "plugin-lock.toml")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := plugins.ReadLock(path); err == nil {
+		t.Fatal("ReadLock followed a symlink")
+	}
+	if err := plugins.NewLock().Write(path); err == nil {
+		t.Fatal("Lock.Write replaced or followed a symlink")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "sentinel" {
+		t.Fatalf("outside file changed through lock symlink: %q", got)
+	}
+}

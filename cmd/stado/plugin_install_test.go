@@ -150,8 +150,11 @@ func TestPluginInstall_LocalUsesProjectDirAndGlobalTrust(t *testing.T) {
 	if _, err := os.Stat(projectTrust); !os.IsNotExist(err) {
 		t.Fatalf("local install created project-local trust state, stat error = %v", err)
 	}
-	if got, want := pluginLockPath(cfg), filepath.Join(projectStado, "plugin-lock.toml"); got != want {
+	if got, want := pluginLockPath(cfg, true), filepath.Join(projectStado, "plugin-lock.toml"); got != want {
 		t.Fatalf("pluginLockPath() = %q, want project path %q", got, want)
+	}
+	if got, want := pluginLockPath(cfg, false), filepath.Join(cfg.StateDir(), "plugin-lock.toml"); got != want {
+		t.Fatalf("global pluginLockPath() = %q, want %q", got, want)
 	}
 	projectConfig, err := os.ReadFile(filepath.Join(projectStado, "config.toml"))
 	if err != nil {

@@ -110,6 +110,18 @@ func TestCheckRequiresInDirs_SearchesProjectAndGlobalRoots(t *testing.T) {
 	}
 }
 
+func TestCheckRequiresVerified_RejectsDirectoryNameOnly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "dep-999.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manifest{Requires: []string{"dep >= 1.0.0"}}
+	err := CheckRequiresVerified(m, []string{root}, NewTrustStore(t.TempDir()))
+	if err == nil || !strings.Contains(err.Error(), "dep: not installed") {
+		t.Fatalf("unverified directory satisfied dependency: %v", err)
+	}
+}
+
 func TestCheckRequires_MultipleErrors(t *testing.T) {
 	dir := t.TempDir()
 	m := &Manifest{Requires: []string{
