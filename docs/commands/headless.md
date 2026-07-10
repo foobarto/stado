@@ -70,10 +70,11 @@ Omit `--fork-tree` only when the notification has no `forkTree`.
 
 ## Gotchas
 
-- `--headless` accepts `--persona` as the daemon's default persona but rejects
-  one-shot prompt, skill, session, tool-filter, harness, sampling, output, and
-  turn-limit flags. Configure daemon sessions through config and JSON-RPC so
-  values are not silently ignored.
+- `--headless` accepts `--persona`, `--provider`, `--model`, and `--no-sandbox`
+  as daemon invocation controls but rejects one-shot prompt, skill, session,
+  tool-filter, harness, sampling, output, and turn-limit flags. Configure
+  daemon sessions through config and JSON-RPC so values are not silently
+  ignored.
 - Sessions are daemon-local by default. When tools or session-aware
   plugins attach a git-backed session, prompts are also appended to
   that session's `.stado/conversation.jsonl` so later compaction and

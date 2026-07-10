@@ -77,3 +77,31 @@ func TestRunHeadless_RejectsIgnoredRunFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestRunHeadless_AllowsHonoredInvocationFlags(t *testing.T) {
+	for _, name := range []string{"provider", "model", "no-sandbox"} {
+		t.Run(name, func(t *testing.T) {
+			flag := rootCmd.PersistentFlags().Lookup(name)
+			if flag == nil {
+				t.Fatalf("root flag --%s is not registered", name)
+			}
+			oldValue, oldChanged := flag.Value.String(), flag.Changed
+			value := "test-value"
+			if name == "no-sandbox" {
+				value = "true"
+			}
+			if err := rootCmd.PersistentFlags().Set(name, value); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = rootCmd.PersistentFlags().Set(name, oldValue)
+				flag.Changed = oldChanged
+			})
+			for _, rejected := range incompatibleHeadlessFlags(runCmd) {
+				if rejected == "--"+name {
+					t.Fatalf("honored daemon flag --%s was rejected", name)
+				}
+			}
+		})
+	}
+}

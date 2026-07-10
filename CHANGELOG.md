@@ -135,7 +135,8 @@ become semver guarantees.
   worktree is preserved when ownership cannot be proven or termination fails.
 - **Headless daemon flags fail loudly.** `stado run --headless` rejects
   one-shot run and safety flags it cannot honor instead of silently ignoring
-  them; daemon sessions must be configured through config and JSON-RPC.
+  them; persistent `--provider`, `--model`, and `--no-sandbox` controls remain
+  supported, while session behavior is configured through config and JSON-RPC.
 - **Registry diagnostics are terminal-safe.** Runtime registry warnings strip
   control sequences, and rebuilds performed while the TUI owns the alternate
   screen, including background subagents, use a quiet diagnostic path.

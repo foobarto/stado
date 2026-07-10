@@ -34,7 +34,7 @@ var (
 // pin and shouldn't.
 var pluginGCCmd = &cobra.Command{
 	Use:   "gc",
-	Short: "Remove older installed plugin versions, keeping the N newest per (signer, name) group (dry-run by default)",
+	Short: "Remove older installed plugin versions, keeping the N newest per (scope, signer, name) group (dry-run by default)",
 	Long: "Scans project-local and global plugin roots and groups by (scope, manifest signer\n" +
 		"fingerprint, manifest name). Within each group, sorts by SemVer\n" +
 		"and keeps the --keep newest versions; the rest are listed (or\n" +
@@ -147,7 +147,7 @@ var pluginGCCmd = &cobra.Command{
 
 func init() {
 	pluginGCCmd.Flags().IntVar(&pluginGCKeep, "keep", 1,
-		"Number of newest versions to keep per (signer, name) group")
+		"Number of newest versions to keep per (scope, signer, name) group")
 	pluginGCCmd.Flags().BoolVar(&pluginGCApply, "apply", false,
 		"Delete the listed older versions (default: dry-run)")
 }
