@@ -22,9 +22,9 @@ import (
 	"github.com/foobarto/stado/internal/skills"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/internal/subagent"
+	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/toolinput"
 	"github.com/foobarto/stado/internal/tools"
-	"github.com/foobarto/stado/internal/textutil"
 	"github.com/foobarto/stado/internal/tui/render"
 	"github.com/foobarto/stado/pkg/agent"
 	"github.com/foobarto/stado/pkg/tool"
@@ -501,7 +501,7 @@ func (m *Model) adoptForkedSession(childID, seed string) tea.Cmd {
 		m.renderBlocks()
 		return nil
 	}
-	exec, err := runtime.BuildExecutor(child, cfg, "stado-tui")
+	exec, err := runtime.BuildExecutorQuiet(child, cfg, "stado-tui")
 	if err != nil {
 		m.appendBlock(block{kind: "system", body: "auto-recovery: executor: " + err.Error()})
 		m.renderBlocks()

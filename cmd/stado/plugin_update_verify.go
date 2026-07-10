@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,62 +39,106 @@ With "all", attempts to update every installed plugin tracked by lock file.`,
 		if err != nil {
 			return err
 		}
-		// Look for project lock file.
-		lockPath := pluginLockPath(cfg)
-		lock, err := plugins.ReadLock(lockPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				fmt.Fprintln(cmd.OutOrStdout(), "no plugin-lock.toml — install plugins via 'stado plugin install <identity>' to enable updates")
-				return nil
-			}
-			return err
-		}
-
 		target := ""
 		if len(args) > 0 {
 			target = args[0]
 		}
 
+		anyLock := false
 		anyUpdates := false
-		for _, entry := range lock.Entries {
-			if target != "" && target != "all" && !strings.Contains(entry.Identity, target) {
-				continue
+		var updateFailures []string
+		for _, lockTarget := range pluginLockTargets(cfg) {
+			lock, lockErr := plugins.ReadLock(lockTarget.Path)
+			if lockErr != nil {
+				if os.IsNotExist(lockErr) {
+					continue
+				}
+				return lockErr
 			}
-			id, parseErr := plugins.ParseIdentity(entry.Identity)
-			if parseErr != nil {
-				continue
+			anyLock = true
+			for _, entry := range lock.Entries {
+				if target != "" && target != "all" && !strings.Contains(entry.Identity, target) {
+					continue
+				}
+				id, parseErr := plugins.ParseIdentity(entry.Identity)
+				if parseErr != nil {
+					continue
+				}
+				latest, err := fetchLatestTag(id)
+				if err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "  %s: latest-tag lookup failed: %v\n", entry.Identity, err)
+					continue
+				}
+				if latest == id.Version {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s: up to date (%s)\n", entry.Identity, id.Version)
+					continue
+				}
+				anyUpdates = true
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s → %s\n", entry.Identity, id.Version, latest)
+				if pluginUpdateCheck {
+					continue
+				}
+				// Run install with the new version. Invoke the install RunE
+				// directly rather than pluginInstallCmd.Execute() — Execute() on a
+				// child walks up and runs the ROOT command (which launches the TUI),
+				// so the latter would never actually install. (Latent until now: the
+				// old fetchLatestTag stub returned the current version, so this
+				// branch was unreachable.)
+				newID := strings.Replace(entry.Identity, "@"+id.Version, "@"+latest, 1)
+				fmt.Fprintf(cmd.ErrOrStderr(), "    installing %s...\n", newID)
+				installErr := withPluginInstallScope(lockTarget.Local, func() error {
+					return pluginInstallCmd.RunE(pluginInstallCmd, []string{newID})
+				})
+				if installErr != nil {
+					// Heal lock files produced by older versions when the newer
+					// version is already installed and recorded.
+					if lockErr := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); lockErr == nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "    removed superseded lock entry %s\n", entry.Identity)
+						continue
+					}
+					fmt.Fprintf(cmd.ErrOrStderr(), "    install failed: %v\n", installErr)
+					updateFailures = append(updateFailures, entry.Identity+": "+installErr.Error())
+					continue
+				}
+				if err := removeSupersededPluginLockEntry(lockTarget.Path, entry.Identity, newID); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "    lock cleanup failed: %v\n", err)
+					updateFailures = append(updateFailures, entry.Identity+": "+err.Error())
+				}
 			}
-			latest, err := fetchLatestTag(id)
-			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "  %s: latest-tag lookup failed: %v\n", entry.Identity, err)
-				continue
-			}
-			if latest == id.Version {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s: up to date (%s)\n", entry.Identity, id.Version)
-				continue
-			}
-			anyUpdates = true
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s → %s\n", entry.Identity, id.Version, latest)
-			if pluginUpdateCheck {
-				continue
-			}
-			// Run install with the new version. Invoke the install RunE
-			// directly rather than pluginInstallCmd.Execute() — Execute() on a
-			// child walks up and runs the ROOT command (which launches the TUI),
-			// so the latter would never actually install. (Latent until now: the
-			// old fetchLatestTag stub returned the current version, so this
-			// branch was unreachable.)
-			newID := strings.Replace(entry.Identity, "@"+id.Version, "@"+latest, 1)
-			fmt.Fprintf(cmd.ErrOrStderr(), "    installing %s...\n", newID)
-			if err := pluginInstallCmd.RunE(pluginInstallCmd, []string{newID}); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "    install failed: %v\n", err)
-			}
+		}
+		if !anyLock {
+			fmt.Fprintln(cmd.OutOrStdout(), "no plugin-lock.toml — install plugins via 'stado plugin install <identity>' to enable updates")
+			return nil
 		}
 		if !anyUpdates && !pluginUpdateCheck {
 			fmt.Fprintln(cmd.OutOrStdout(), "all plugins up to date")
 		}
+		if len(updateFailures) > 0 {
+			return fmt.Errorf("%d plugin update(s) failed", len(updateFailures))
+		}
 		return nil
 	},
+}
+
+func removeSupersededPluginLockEntry(lockPath, oldIdentity, newIdentity string) error {
+	lock, err := plugins.ReadLock(lockPath)
+	if err != nil {
+		return err
+	}
+	if _, ok := lock.Get(newIdentity); !ok {
+		return fmt.Errorf("updated lock entry %s is missing", newIdentity)
+	}
+	if !lock.Remove(oldIdentity) {
+		return nil
+	}
+	return lock.Write(lockPath)
+}
+
+func withPluginInstallScope(local bool, fn func() error) error {
+	oldLocal := pluginInstallLocal
+	pluginInstallLocal = local
+	defer func() { pluginInstallLocal = oldLocal }()
+	return fn()
 }
 
 // latestTagHTTPTimeout bounds each release-API lookup.
@@ -163,16 +206,6 @@ func httpGetReleaseJSON(ctx context.Context, u string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
-func pluginLockPath(cfg *config.Config) string {
-	// Config discovery is the source of truth for project scope. Return this
-	// path before the lock exists so a first remote install in a project does
-	// not silently fall back to user-global state.
-	if projectDir := cfg.ProjectStadoDir(); projectDir != "" {
-		return filepath.Join(projectDir, "plugin-lock.toml")
-	}
-	return filepath.Join(cfg.StateDir(), "plugin-lock.toml")
-}
-
 // ── plugin verify ────────────────────────────────────────────────────────
 
 var pluginVerifyInstalledCmd = &cobra.Command{
@@ -184,10 +217,12 @@ var pluginVerifyInstalledCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		dir, err := plugins.InstalledDir(pluginsDir, args[0])
+		dir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
 		if err != nil {
 			return err
+		}
+		if _, err := os.Stat(dir); err != nil {
+			return fmt.Errorf("plugin %q is not installed", args[0])
 		}
 		mf, sig, err := plugins.LoadFromDir(dir)
 		if err != nil {

@@ -3,6 +3,7 @@ package plugins
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/mod/semver"
@@ -58,6 +59,21 @@ func CheckRequires(m *Manifest, pluginsDir string) error {
 // on either another project-local plugin or a user-global installation.
 // Returns every unsatisfied entry in one error.
 func CheckRequiresInDirs(m *Manifest, pluginDirs []string) error {
+	return checkRequires(m, func(spec RequireSpec) (string, bool) {
+		return highestInstalledVersionInDirs(pluginDirs, spec.Name)
+	})
+}
+
+// CheckRequiresVerified validates dependencies against signed, digest-verified
+// plugin installations. Directory names alone are not sufficient because a
+// repository can populate .stado/plugins with arbitrary entries.
+func CheckRequiresVerified(m *Manifest, pluginDirs []string, trust *TrustStore) error {
+	return checkRequires(m, func(spec RequireSpec) (string, bool) {
+		return effectiveVerifiedVersionInDirs(pluginDirs, spec.Name, trust)
+	})
+}
+
+func checkRequires(m *Manifest, resolve func(RequireSpec) (string, bool)) error {
 	if m == nil || len(m.Requires) == 0 {
 		return nil
 	}
@@ -68,7 +84,7 @@ func CheckRequiresInDirs(m *Manifest, pluginDirs []string) error {
 			unmet = append(unmet, err.Error())
 			continue
 		}
-		ver, ok := highestInstalledVersionInDirs(pluginDirs, spec.Name)
+		ver, ok := resolve(spec)
 		if !ok {
 			unmet = append(unmet, fmt.Sprintf("%s: not installed", spec.Name))
 			continue
@@ -84,6 +100,51 @@ func CheckRequiresInDirs(m *Manifest, pluginDirs []string) error {
 		return nil
 	}
 	return fmt.Errorf("plugin requires unmet:\n  - %s\n  install missing plugins first via `stado plugin install <id>`", strings.Join(unmet, "\n  - "))
+}
+
+func effectiveVerifiedVersionInDirs(pluginDirs []string, name string, trust *TrustStore) (string, bool) {
+	if trust == nil {
+		return "", false
+	}
+	for _, root := range pluginDirs {
+		ids, err := ListInstalledDirs(root)
+		if err != nil {
+			continue
+		}
+		var versions []string
+		for _, id := range ids {
+			pluginName, version, ok := SplitInstalledID(id)
+			if ok && pluginName == name {
+				versions = append(versions, version)
+			}
+		}
+		if len(versions) == 0 {
+			continue
+		}
+		// The first root containing this name claims it exactly as runtime
+		// discovery does. A broken/shadowing project install must not fall
+		// through to a valid global copy.
+		version := PickActiveVersion(root, name, versions)
+		if version == "" {
+			return "", false
+		}
+		dir := filepath.Join(root, name+"-"+version)
+		mf, sig, err := LoadFromDir(dir)
+		if err != nil || mf.Name != name {
+			return "", false
+		}
+		if _, err := ReadVerifiedWASM(mf.WASMSHA256, filepath.Join(dir, "plugin.wasm")); err != nil {
+			return "", false
+		}
+		// VerifyManifest advances rollback state on success, so perform the
+		// non-mutating digest check first. A signed manifest beside a missing
+		// or tampered WASM must not poison LastVersion.
+		if trust.VerifyManifest(mf, sig) != nil {
+			return "", false
+		}
+		return mf.Version, true
+	}
+	return "", false
 }
 
 func highestInstalledVersionInDirs(pluginDirs []string, name string) (string, bool) {

@@ -48,6 +48,10 @@ type SubagentRunner struct {
 	// it unless their spawn request specified one. Empty = no
 	// inherited persona (use bundled default). EP-0038i.
 	PersonaName string
+
+	// QuietRegistryDiagnostics is set by TUI-originated runners so background
+	// child registry construction cannot write stderr over the alternate screen.
+	QuietRegistryDiagnostics bool
 }
 
 // WithInbox returns a copy of the runner with InboxFn set. Implements
@@ -142,7 +146,7 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		return subagent.Result{}, err
 	}
 
-	exec, err := BuildExecutor(child, r.Config, agentName)
+	exec, err := r.buildExecutor(child, agentName)
 	if err != nil {
 		err = fmt.Errorf("spawn_agent: child tools: %w", err)
 		r.emitSubagentEvent(req, child, "finished", "error", err.Error())
@@ -183,19 +187,20 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 		r.emitSubagentEvent(req, child, "warning", "running", "skills: "+skErr.Error())
 	}
 	text, msgs, err := AgentLoop(childCtx, AgentLoopOptions{
-		Provider:             r.Provider,
-		Executor:             exec,
-		Model:                r.Model,
-		Messages:             seed,
-		MaxTurns:             req.MaxTurns,
-		Thinking:             r.Thinking,
-		ThinkingBudgetTokens: r.ThinkingBudgetTokens,
-		System:               r.System,
-		SystemTemplate:       r.SystemTemplate,
-		Host:                 childHost,
-		InboxFn:              r.InboxFn,
-		Persona:              childPersona,
-		Skills:               childSkills,
+		Provider:                 r.Provider,
+		Executor:                 exec,
+		Model:                    r.Model,
+		Messages:                 seed,
+		MaxTurns:                 req.MaxTurns,
+		Thinking:                 r.Thinking,
+		ThinkingBudgetTokens:     r.ThinkingBudgetTokens,
+		System:                   r.System,
+		SystemTemplate:           r.SystemTemplate,
+		Host:                     childHost,
+		InboxFn:                  r.InboxFn,
+		Persona:                  childPersona,
+		Skills:                   childSkills,
+		QuietRegistryDiagnostics: r.QuietRegistryDiagnostics,
 	})
 	if appendErr := appendSubagentMessages(child.WorktreePath, msgs, len(seed)); appendErr != nil && err == nil {
 		err = appendErr
@@ -235,6 +240,13 @@ func (r SubagentRunner) SpawnSubagent(ctx context.Context, req subagent.Request)
 	r.attachWorkerAdoptionCommand(&result)
 	r.emitSubagentResultEvent(req, child, result)
 	return result, nil
+}
+
+func (r SubagentRunner) buildExecutor(child *stadogit.Session, agentName string) (*tools.Executor, error) {
+	if r.QuietRegistryDiagnostics {
+		return BuildExecutorQuiet(child, r.Config, agentName)
+	}
+	return BuildExecutor(child, r.Config, agentName)
 }
 
 func prepareSubagentRequest(req subagent.Request) (subagent.Request, error) {

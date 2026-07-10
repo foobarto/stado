@@ -1,13 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -55,5 +60,93 @@ func TestReadPidFileRejectsSymlinkEscape(t *testing.T) {
 
 	if got := readPidFile(worktree); got != 0 {
 		t.Fatalf("readPidFile followed symlink escape: %d", got)
+	}
+}
+
+func TestSessionKill_RefusesUnverifiedLivePID(t *testing.T) {
+	cfg, sc, restore := statsEnv(t)
+	defer restore()
+
+	const id = "kill-unverified"
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidRecord := []byte(fmt.Sprintf("%d deliberately-wrong-identity\n", os.Getpid()))
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, ".stado-pid"), pidRecord, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err = sessionKillCmd.RunE(sessionKillCmd, []string{id})
+	if err == nil || !strings.Contains(err.Error(), "identity mismatch") {
+		t.Fatalf("session kill error = %v, want ownership refusal", err)
+	}
+	if _, statErr := os.Stat(sess.WorktreePath); statErr != nil {
+		t.Fatalf("worktree must be preserved after refusal: %v", statErr)
+	}
+}
+
+func TestSessionKill_WaitsForOwnedProcessBeforeRemovingWorktree(t *testing.T) {
+	if stdruntime.GOOS != "linux" && stdruntime.GOOS != "windows" {
+		t.Skip("stable process termination is not implemented on this platform")
+	}
+	cfg, sc, restore := statsEnv(t)
+	defer restore()
+
+	const id = "kill-owned-process"
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := exec.Command("sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Skipf("start sleep fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	})
+	if err := runtime.WriteSessionPID(sess.WorktreePath, child.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sessionKillCmd.RunE(sessionKillCmd, []string{id}); err != nil {
+		t.Fatalf("session kill: %v", err)
+	}
+	if _, statErr := os.Stat(sess.WorktreePath); !os.IsNotExist(statErr) {
+		t.Fatalf("worktree should be removed only after child exits, stat err = %v", statErr)
+	}
+}
+
+func TestSessionKill_PreservesWorktreeForMalformedPIDRecord(t *testing.T) {
+	cfg, sc, restore := statsEnv(t)
+	defer restore()
+
+	const id = "kill-malformed-pid"
+	sess, err := stadogit.CreateSession(sc, cfg.WorktreeDir(), id, plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, ".stado-pid"), []byte("not-a-pid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = sessionKillCmd.RunE(sessionKillCmd, []string{id})
+	if err == nil || !strings.Contains(err.Error(), "worktree preserved") {
+		t.Fatalf("session kill malformed record error = %v", err)
+	}
+	if _, statErr := os.Stat(sess.WorktreePath); statErr != nil {
+		t.Fatalf("worktree must survive malformed PID record: %v", statErr)
+	}
+}
+
+func TestWaitForSessionProcessExitRejectsIdentityFailure(t *testing.T) {
+	worktree := t.TempDir()
+	record := []byte(fmt.Sprintf("%d wrong-identity\n", os.Getpid()))
+	if err := os.WriteFile(filepath.Join(worktree, ".stado-pid"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := waitForSessionProcessExit(worktree, os.Getpid(), 50*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "worktree preserved") {
+		t.Fatalf("wait identity failure error = %v", err)
 	}
 }

@@ -97,45 +97,43 @@ func FormatModelListing(sks []Skill) string {
 		}
 		entries = append(entries, entry{name: sk.Name, desc: desc})
 	}
-	// Drop longest descriptions first when over budget; names always kept.
-	for len(entries) > 0 {
-		var b strings.Builder
-		b.WriteString("Available skills (load with skills__load when relevant):\n")
-		for _, e := range entries {
-			fmt.Fprintf(&b, "- %s: %s\n", e.name, e.desc)
+	const header = "Available skills (load with skills__load when relevant):\n"
+	const placeholder = "(description truncated — use skills__load for full body)"
+	renderedBytes := len(header)
+	shortenOrder := make([]int, 0, len(entries))
+	for i, e := range entries {
+		renderedBytes += len("- ") + len(e.name) + len(": ") + len(e.desc) + len("\n")
+		if len(e.desc) > len(placeholder) {
+			shortenOrder = append(shortenOrder, i)
 		}
-		if b.Len() <= maxModelListingBytes {
-			return strings.TrimRight(b.String(), "\n")
-		}
-		// Find longest description entry to trim.
-		worst := -1
-		worstLen := -1
-		for i, e := range entries {
-			if l := len(e.desc); l > worstLen {
-				worstLen = l
-				worst = i
-			}
-		}
-		if worst < 0 || worstLen <= 0 {
+	}
+	sort.Slice(shortenOrder, func(i, j int) bool {
+		return len(entries[shortenOrder[i]].desc) > len(entries[shortenOrder[j]].desc)
+	})
+	for _, i := range shortenOrder {
+		if renderedBytes <= maxModelListingBytes {
 			break
 		}
-		entries[worst].desc = "(description truncated — use skills__load for full body)"
+		renderedBytes -= len(entries[i].desc) - len(placeholder)
+		entries[i].desc = placeholder
 	}
 	var b strings.Builder
-	b.WriteString("Available skills (load with skills__load when relevant):\n")
+	b.Grow(min(renderedBytes, maxModelListingBytes))
+	b.WriteString(header)
 	for _, e := range entries {
 		fmt.Fprintf(&b, "- %s: %s\n", e.name, e.desc)
 	}
 	out := strings.TrimRight(b.String(), "\n")
 	if len(out) > maxModelListingBytes {
 		// Back the cut up to a UTF-8 rune boundary so we never split a
-		// multibyte rune (a byte slice at maxModelListingBytes could land
-		// mid-rune and emit a replacement char).
-		cut := maxModelListingBytes
+		// multibyte rune. Reserve the ellipsis bytes inside the budget rather
+		// than appending them after a maxModelListingBytes slice.
+		ellipsis := "…"
+		cut := maxModelListingBytes - len(ellipsis)
 		for cut > 0 && !utf8.RuneStart(out[cut]) {
 			cut--
 		}
-		out = out[:cut] + "…"
+		out = out[:cut] + ellipsis
 	}
 	return out
 }
@@ -199,6 +197,14 @@ func Effective(cwd string, personaSkills []string, personaDir string) ([]Skill, 
 	if len(personaSkills) == 0 || strings.TrimSpace(personaDir) == "" {
 		return base, err
 	}
-	extra, _ := LoadPaths(personaDir, personaSkills)
+	extra, warnings := LoadPaths(personaDir, personaSkills)
+	if len(warnings) > 0 {
+		warningErr := fmt.Errorf("%s", strings.Join(warnings, "; "))
+		if err != nil {
+			err = fmt.Errorf("%v; %w", err, warningErr)
+		} else {
+			err = warningErr
+		}
+	}
 	return Merge(base, extra), err
 }

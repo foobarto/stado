@@ -148,7 +148,7 @@ See [features/skills.md](../features/skills.md) for the full surface.
 | `--top-k <n>` | Top-k sampling (0 = provider default) |
 | `--json` | Emit JSON Lines instead of raw text |
 | `--quiet` | Suppress tool-call preview lines on stdout (non-JSON mode) |
-| `--headless` | Serve the JSON-RPC 2.0 daemon over stdio instead of a one-shot prompt (was `stado headless`). Prompt/skill/session inputs are rejected; drive sessions via the `session.*` RPC methods. See [headless.md](headless.md). |
+| `--headless` | Serve the JSON-RPC 2.0 daemon over stdio instead of a one-shot prompt (was `stado headless`). One-shot run flags are rejected rather than ignored; `--persona`, `--provider`, `--model`, and `--no-sandbox` are honored daemon controls. Configure sessions through config and the `session.*` RPC methods. See [headless.md](headless.md). |
 
 ## Config
 
@@ -169,6 +169,12 @@ Relevant `config.toml` sections:
 `stado config show` prints the resolved effective config.
 
 ## Gotchas
+
+- **Headless daemon mode is not a one-shot run.** `stado run --headless`
+  rejects prompts, skills, session IDs, tool filters, harness mode, sampling,
+  output, and turn-limit flags because those values cannot govern every
+  JSON-RPC session. Use config plus `session.*` requests. `--persona`,
+  `--provider`, `--model`, and `--no-sandbox` remain supported for daemon setup.
 
 - **`--tools` opens a session each invocation** unless `--session` is
   passed. They accumulate. `session gc --apply` periodically.

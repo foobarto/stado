@@ -106,16 +106,14 @@ var pluginListCmd = &cobra.Command{
 			return err
 		}
 		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-
 		// Load trust store for author fingerprint → trusted status.
 		ts := plugins.NewTrustStore(cfg.StateDir())
 		trust, _ := ts.Load() // non-fatal if missing
 
 		// Enumerate installed plugin directories.
-		ids, err := plugins.ListInstalledDirs(pluginsDir)
-		if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("read plugins dir: %w", err)
+		locations, err := listInstalledPluginLocations(cfg)
+		if err != nil {
+			return err
 		}
 
 		type row struct {
@@ -132,11 +130,11 @@ var pluginListCmd = &cobra.Command{
 		}
 
 		var rows []row
-		for _, id := range ids {
-			mf, _, loadErr := plugins.LoadFromDir(filepath.Join(pluginsDir, id))
+		for _, location := range locations {
+			mf, _, loadErr := plugins.LoadFromDir(location.Dir)
 			if loadErr != nil {
 				// Show even if manifest is broken.
-				rows = append(rows, row{name: id, version: "?", author: "manifest load failed"})
+				rows = append(rows, row{name: location.ID, version: "?", author: "manifest load failed", path: location.Dir})
 				continue
 			}
 			var toolNames []string
@@ -155,7 +153,7 @@ var pluginListCmd = &cobra.Command{
 				toolNames:   tns,
 				author:      mf.Author,
 				fingerprint: mf.AuthorPubkeyFpr,
-				path:        filepath.Join(pluginsDir, id, "plugin.wasm"),
+				path:        filepath.Join(location.Dir, "plugin.wasm"),
 				trusted:     trusted,
 				caps:        len(mf.Capabilities),
 			})
@@ -267,28 +265,23 @@ var pluginInstalledCmd = &cobra.Command{
 			return err
 		}
 		_ = runtime.BuildDefaultRegistry(cfg) // unused — side-effect: triggers bundled-tool registrations
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		ids, err := plugins.ListInstalledDirs(pluginsDir)
+		locations, err := listInstalledPluginLocations(cfg)
 		if err != nil {
-			if os.IsNotExist(err) {
-				fmt.Fprintln(os.Stderr, "(no plugins installed)")
-				return nil
-			}
-			return fmt.Errorf("read plugins dir: %w", err)
+			return err
 		}
-		if len(ids) == 0 {
+		if len(locations) == 0 {
 			fmt.Fprintln(os.Stderr, "(no plugins installed)")
 			return nil
 		}
-		for _, id := range ids {
-			mf, _, err := plugins.LoadFromDir(filepath.Join(pluginsDir, id))
+		for _, location := range locations {
+			mf, _, err := plugins.LoadFromDir(location.Dir)
 			if err != nil {
-				fmt.Printf("%s  (manifest load failed: %v)\n", id, err)
+				fmt.Printf("%s  scope=%s  (manifest load failed: %v)\n", location.ID, location.Scope, err)
 				continue
 			}
 			tools := len(mf.Tools)
-			fmt.Printf("%s  author=%s  tools=%d  caps=%d\n",
-				id, mf.Author, tools, len(mf.Capabilities))
+			fmt.Printf("%s  scope=%s  author=%s  tools=%d  caps=%d\n",
+				location.ID, location.Scope, mf.Author, tools, len(mf.Capabilities))
 		}
 		return nil
 	},

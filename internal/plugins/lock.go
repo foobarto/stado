@@ -3,9 +3,13 @@ package plugins
 import (
 	"bytes"
 	"fmt"
-	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/foobarto/stado/internal/workdirpath"
 )
+
+const maxPluginLockBytes int64 = 4 << 20
 
 // LockEntry is one row in plugin-lock.toml. EP-0039 §lock file.
 type LockEntry struct {
@@ -59,13 +63,41 @@ func (l *Lock) Write(path string) error {
 		fmt.Fprintf(&buf, "installed_at       = %q\n", e.InstalledAt)
 		buf.WriteByte('\n')
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	if int64(buf.Len()) > maxPluginLockBytes {
+		return fmt.Errorf("plugin lock exceeds %d bytes", maxPluginLockBytes)
+	}
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	return workdirpath.NewRootResolver(root).WriteFileAtomic(filepath.Base(path), buf.Bytes(), 0o644)
+}
+
+// Remove drops the entry with the exact versioned identity.
+func (l *Lock) Remove(identity string) bool {
+	removed := false
+	kept := make([]LockEntry, 0, len(l.Entries))
+	for _, entry := range l.Entries {
+		if entry.Identity == identity {
+			removed = true
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	l.Entries = kept
+	return removed
 }
 
 // ReadLock parses path as a plugin-lock.toml file.
 // Returns os.ErrNotExist when the file is absent.
 func ReadLock(path string) (*Lock, error) {
-	data, err := os.ReadFile(path)
+	root, err := workdirpath.NewUserConfigResolver().OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	data, err := workdirpath.NewRootResolver(root).ReadFileLimited(filepath.Base(path), maxPluginLockBytes)
 	if err != nil {
 		return nil, err
 	}

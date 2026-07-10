@@ -1,10 +1,12 @@
 package skills
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestLoad_DirectorySKILLmd(t *testing.T) {
@@ -112,6 +114,41 @@ func TestModelVisible_and_FormatModelListing(t *testing.T) {
 	}
 }
 
+func TestFormatModelListing_LargeCatalogStaysWithinBudget(t *testing.T) {
+	sks := make([]Skill, 100)
+	for i := range sks {
+		sks[i] = Skill{
+			Name:        fmt.Sprintf("skill-%03d-%s", i, strings.Repeat("n", 32)),
+			Description: strings.Repeat("description ", 20),
+		}
+	}
+
+	listing := FormatModelListing(sks)
+	if len(listing) > maxModelListingBytes {
+		t.Fatalf("listing size = %d, want <= %d", len(listing), maxModelListingBytes)
+	}
+	if !strings.Contains(listing, "skill-000") {
+		t.Fatal("budgeted listing lost the catalog prefix")
+	}
+}
+
+func TestFormatModelListing_MaxCatalogStaysWithinBudget(t *testing.T) {
+	sks := make([]Skill, 4096)
+	for i := range sks {
+		sks[i] = Skill{
+			Name:        fmt.Sprintf("skill-%04d", i),
+			Description: strings.Repeat("d", 256),
+		}
+	}
+	got := FormatModelListing(sks)
+	if len(got) > maxModelListingBytes {
+		t.Fatalf("listing length = %d, want <= %d", len(got), maxModelListingBytes)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("large listing is not valid UTF-8")
+	}
+}
+
 // TestEffective_PreservesPartialOnLoadError: Load returns successfully-parsed
 // skills alongside a per-file error for one bad entry; Effective must keep that
 // partial catalog (and still merge persona skills) rather than black-holing
@@ -149,5 +186,19 @@ func TestAllowedToolsEffective_ProjectFailClosed(t *testing.T) {
 	persona := Skill{Scope: ScopePersona, AllowedTools: []string{"bash"}}
 	if !persona.AllowedToolsEffective() {
 		t.Error("persona skill allowed-tools should apply")
+	}
+}
+
+func TestEffective_PreservesPersonaSkillsAndReturnsWarnings(t *testing.T) {
+	personaDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(personaDir, "good.md"), []byte("---\nname: good\ndescription: valid\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Effective(t.TempDir(), []string{"good.md", "missing.md"}, personaDir)
+	if err == nil || !strings.Contains(err.Error(), "missing.md") {
+		t.Fatalf("Effective warning = %v, want missing persona skill diagnostic", err)
+	}
+	if Find(got, "good") == nil {
+		t.Fatalf("valid persona skill was discarded: %+v", got)
 	}
 }

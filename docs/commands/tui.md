@@ -365,9 +365,10 @@ the full list. `/` opens inline fuzzy suggestions above the input;
 - `/memory [on|off|status]` — show or toggle approved-memory retrieval
   for this session
 - `/btw` — off-band side-question mode
-- `/skill` — list loaded skills (the listing tags each `[model-only]` or
-  `[user-only]`); `/skill:<name>` injects a skill body into the
-  conversation. Skills also surface to the model: each `name` +
+- `/skill` — list user-invocable skills (`[user-only]` marks entries hidden
+  from the model); `/skill:<name>` injects a skill body into the conversation.
+  Model-only (`user-invocable: false`) entries are omitted and direct user
+  invocation is refused. Skills also surface to the model: each `name` +
   `description` enters the system prompt and the model can load one on
   its own via `skills__load` (EP-0045). A skill with
   `disable-model-invocation: true` stays operator-only; denying

@@ -42,3 +42,66 @@ func TestRunHeadless_FlagRegistered(t *testing.T) {
 		t.Fatal("run --headless flag is not registered")
 	}
 }
+
+func TestRunHeadless_RejectsIgnoredRunFlags(t *testing.T) {
+	for _, name := range []string{"no-tools", "tools", "tools-disable", "mode", "json", "max-turns", "temperature"} {
+		t.Run(name, func(t *testing.T) {
+			flag := runCmd.Flags().Lookup(name)
+			if flag == nil {
+				t.Fatalf("run flag --%s is not registered", name)
+			}
+			oldValue, oldChanged := flag.Value.String(), flag.Changed
+			value := "true"
+			switch name {
+			case "tools", "tools-disable":
+				value = "fs.*"
+			case "mode":
+				value = "plan"
+			case "max-turns":
+				value = "3"
+			case "temperature":
+				value = "0.5"
+			}
+			if err := runCmd.Flags().Set(name, value); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = runCmd.Flags().Set(name, oldValue)
+				flag.Changed = oldChanged
+			})
+
+			err := runHeadlessMode(runCmd, nil)
+			if err == nil || !strings.Contains(err.Error(), "--"+name) {
+				t.Fatalf("run --headless --%s error = %v, want explicit rejection", name, err)
+			}
+		})
+	}
+}
+
+func TestRunHeadless_AllowsHonoredInvocationFlags(t *testing.T) {
+	for _, name := range []string{"provider", "model", "no-sandbox"} {
+		t.Run(name, func(t *testing.T) {
+			flag := rootCmd.PersistentFlags().Lookup(name)
+			if flag == nil {
+				t.Fatalf("root flag --%s is not registered", name)
+			}
+			oldValue, oldChanged := flag.Value.String(), flag.Changed
+			value := "test-value"
+			if name == "no-sandbox" {
+				value = "true"
+			}
+			if err := rootCmd.PersistentFlags().Set(name, value); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = rootCmd.PersistentFlags().Set(name, oldValue)
+				flag.Changed = oldChanged
+			})
+			for _, rejected := range incompatibleHeadlessFlags(runCmd) {
+				if rejected == "--"+name {
+					t.Fatalf("honored daemon flag --%s was rejected", name)
+				}
+			}
+		})
+	}
+}

@@ -1,6 +1,9 @@
 package plugins
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +110,121 @@ func TestCheckRequiresInDirs_SearchesProjectAndGlobalRoots(t *testing.T) {
 	}}
 	if err := CheckRequiresInDirs(m, []string{projectDir, globalDir}); err != nil {
 		t.Fatalf("dependencies across project and global roots should pass: %v", err)
+	}
+}
+
+func TestCheckRequiresVerified_RejectsDirectoryNameOnly(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "dep-999.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manifest{Requires: []string{"dep >= 1.0.0"}}
+	err := CheckRequiresVerified(m, []string{root}, NewTrustStore(t.TempDir()))
+	if err == nil || !strings.Contains(err.Error(), "dep: not installed") {
+		t.Fatalf("unverified directory satisfied dependency: %v", err)
+	}
+}
+
+func TestCheckRequiresVerified_DigestFailureDoesNotAdvanceRollbackState(t *testing.T) {
+	root := t.TempDir()
+	trust := NewTrustStore(t.TempDir())
+	pub, priv, fpr := tvtofuKey(t)
+	if _, err := trust.Trust(hex.EncodeToString(pub), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	expectedWASM := []byte("expected wasm")
+	digest := sha256.Sum256(expectedWASM)
+	mf := &Manifest{
+		Name:            "dep",
+		Version:         "9.0.0",
+		Author:          "alice",
+		AuthorPubkeyFpr: fpr,
+		WASMSHA256:      hex.EncodeToString(digest[:]),
+	}
+	sig, err := mf.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "dep-9.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := mf.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"plugin.manifest.json": canonical,
+		"plugin.manifest.sig":  []byte(sig),
+		"plugin.wasm":          []byte("tampered wasm"),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	parent := &Manifest{Requires: []string{"dep >= 1.0.0"}}
+	if err := CheckRequiresVerified(parent, []string{root}, trust); err == nil {
+		t.Fatal("tampered dependency unexpectedly satisfied requires")
+	}
+	entries, err := trust.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entries[fpr].LastVersion; got != "" {
+		t.Fatalf("digest failure advanced rollback state to %q", got)
+	}
+}
+
+func TestCheckRequiresVerified_ProjectShadowBlocksGlobalFallback(t *testing.T) {
+	projectRoot := t.TempDir()
+	globalRoot := t.TempDir()
+	trust := NewTrustStore(t.TempDir())
+	pub, priv, fpr := tvtofuKey(t)
+	if _, err := trust.Trust(hex.EncodeToString(pub), "alice"); err != nil {
+		t.Fatal(err)
+	}
+	writeVerifiedDependencyFixture(t, projectRoot, "dep", "1.0.0", fpr, priv)
+	writeVerifiedDependencyFixture(t, globalRoot, "dep", "2.0.0", fpr, priv)
+
+	parent := &Manifest{Requires: []string{"dep >= 2.0.0"}}
+	err := CheckRequiresVerified(parent, []string{projectRoot, globalRoot}, trust)
+	if err == nil || !strings.Contains(err.Error(), "installed v1.0.0 < required v2.0.0") {
+		t.Fatalf("global dependency bypassed project shadow: %v", err)
+	}
+}
+
+func writeVerifiedDependencyFixture(t *testing.T, root, name, version, fpr string, priv ed25519.PrivateKey) {
+	t.Helper()
+	wasm := []byte("wasm-" + name + "-" + version)
+	digest := sha256.Sum256(wasm)
+	mf := &Manifest{
+		Name:            name,
+		Version:         version,
+		Author:          "alice",
+		AuthorPubkeyFpr: fpr,
+		WASMSHA256:      hex.EncodeToString(digest[:]),
+	}
+	sig, err := mf.Sign(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := mf.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, name+"-"+version)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for filename, data := range map[string][]byte{
+		"plugin.manifest.json": canonical,
+		"plugin.manifest.sig":  []byte(sig),
+		"plugin.wasm":          wasm,
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filename), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

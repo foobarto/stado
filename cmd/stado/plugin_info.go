@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -56,11 +55,10 @@ var pluginInfoCmd = &cobra.Command{
 		// (e.g. "gtfobins" → "<plugins>/gtfobins-0.1.0") first, falling
 		// back to the literal `<name>-<version>` form so existing scripts
 		// keep working.
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
 		dir, ok := runtime.ResolveInstalledPluginDir(cfg, args[0])
 		if !ok {
 			var err error
-			dir, err = plugins.InstalledDir(pluginsDir, args[0])
+			dir, err = plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
 			if err != nil {
 				return err
 			}

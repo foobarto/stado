@@ -42,6 +42,9 @@ func (m *Model) injectSkill(name string) error {
 	if chosen == nil {
 		return fmt.Errorf("skill %q not found - try /skill for the list", name)
 	}
+	if !chosen.UserInvocable {
+		return fmt.Errorf("skill %q is model-only and cannot be invoked with /skill", name)
+	}
 	body := chosen.RenderedBody()
 	m.msgs = append(m.msgs, agent.Text(agent.RoleUser, body))
 	m.appendBlock(block{kind: "user", body: body})

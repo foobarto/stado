@@ -8,10 +8,12 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/harness"
@@ -481,6 +483,10 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 	if runPrompt != "" || len(args) > 0 || runSkill != "" || runSessionID != "" {
 		return fmt.Errorf("run --headless is a JSON-RPC daemon and takes no prompt/--skill/--session; drive it with the session.* RPC methods")
 	}
+	incompatible := incompatibleHeadlessFlags(cmd)
+	if len(incompatible) > 0 {
+		return fmt.Errorf("run --headless does not accept one-shot run flags: %s; configure daemon sessions through config and the session.* RPC methods", strings.Join(incompatible, ", "))
+	}
 	cfg, err := runLoadConfig()
 	if err != nil {
 		return err
@@ -526,6 +532,27 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		srv.DefaultPersona = defaultPersona
 		return srv.Serve(ctx, os.Stdin, os.Stdout)
 	})
+}
+
+func incompatibleHeadlessFlags(cmd *cobra.Command) []string {
+	var incompatible []string
+	seen := make(map[string]struct{})
+	visitChanged := func(flag *pflag.Flag) {
+		if _, ok := seen[flag.Name]; ok {
+			return
+		}
+		seen[flag.Name] = struct{}{}
+		switch flag.Name {
+		case "headless", "persona", "provider", "model", "no-sandbox":
+			// These flags are consumed by daemon setup or broker attachment.
+		default:
+			incompatible = append(incompatible, "--"+flag.Name)
+		}
+	}
+	cmd.Flags().Visit(visitChanged)
+	cmd.InheritedFlags().Visit(visitChanged)
+	sort.Strings(incompatible)
+	return incompatible
 }
 
 func init() {

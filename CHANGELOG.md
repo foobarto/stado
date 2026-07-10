@@ -34,6 +34,8 @@ become semver guarantees.
 
 ## Unreleased
 
+## v0.76.0 — architecture consolidation and TUI reliability — 2026-07-10
+
 ### Skills (EP-0045 Phase 1 — model-invocable skills)
 
 - **Skills are now model-invocable.** Each skill's `name` + `description`
@@ -111,6 +113,44 @@ become semver guarantees.
   rather than writing raw stderr over live input, sidebar, and result rows.
 - **Landing plugin summaries respect terminal width.** Long plugin lists now
   truncate with an ellipsis instead of clipping a plugin name at the edge.
+
+### Plugins
+
+- **Project-local management is consistent.** `list`, `installed`, `info`,
+  `doctor`, `verify-installed`, `reload`, `update`, `remove`, `gc`, and `use`
+  now search or preserve the same project-before-global scope used by runtime
+  discovery. Active-version markers and lock files remain in their install
+  scope instead of leaking project choices into user-global state. Updates
+  replace superseded versioned lock rows, and GC preserves explicitly active
+  versions in addition to its newest-version budget.
+- **Dependencies are verified, not inferred from directory names.** Install
+  accepts a required plugin only after its manifest signature and WASM digest
+  verify against the user trust store. Plugin lock reads and atomic writes also
+  reject symlink redirection and share one maximum file-size contract.
+
+### Security
+
+- **`session kill` verifies process ownership.** Session PID records now carry
+  an OS process-creation identity, and signalling is bound to a stable pidfd or
+  process handle. A live legacy, mismatched, or otherwise unverifiable PID is
+  never signalled; platforms without a stable handle fail closed, and the
+  worktree is preserved when ownership cannot be proven or termination fails.
+- **Headless daemon flags fail loudly.** `stado run --headless` rejects
+  one-shot run and safety flags it cannot honor instead of silently ignoring
+  them; persistent `--provider`, `--model`, and `--no-sandbox` controls remain
+  supported, while session behavior is configured through config and JSON-RPC.
+- **Registry diagnostics are terminal-safe.** Runtime registry warnings strip
+  control sequences, and rebuilds performed while the TUI owns the alternate
+  screen, including background subagents, use a quiet diagnostic path.
+
+### Fixes
+
+- **Large skill catalogs no longer hang** while fitting the model-facing
+  listing to its byte budget; persona skill load warnings are preserved.
+- **Model-only skills remain model-only.** `user-invocable: false` entries are
+  absent from `/skill` and direct `/skill:<name>` injection is refused.
+- **Live zero-turn sessions remain visible** in the default session list, and
+  Windows liveness checks now use process handles rather than Unix signals.
 
 ### Infra
 

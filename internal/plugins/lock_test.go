@@ -3,6 +3,7 @@ package plugins_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,30 @@ func TestLockRoundtrip(t *testing.T) {
 	}
 }
 
+func TestLockWriteRejectsUnreadableOversize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plugin-lock.toml")
+	lock := plugins.NewLock()
+	lock.Add(plugins.LockEntry{Identity: strings.Repeat("x", 5<<20)})
+	if err := lock.Write(path); err == nil {
+		t.Fatal("Lock.Write produced a file larger than ReadLock accepts")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("oversized lock should not be written: %v", err)
+	}
+}
+
+func TestLockRemove(t *testing.T) {
+	lock := plugins.NewLock()
+	lock.Add(plugins.LockEntry{Identity: "old"})
+	lock.Add(plugins.LockEntry{Identity: "keep"})
+	if !lock.Remove("old") || lock.Remove("missing") {
+		t.Fatal("Lock.Remove returned the wrong result")
+	}
+	if len(lock.Entries) != 1 || lock.Entries[0].Identity != "keep" {
+		t.Fatalf("entries after remove = %#v", lock.Entries)
+	}
+}
+
 func TestLockMissingFile(t *testing.T) {
 	_, err := plugins.ReadLock("/nonexistent/plugin-lock.toml")
 	if !os.IsNotExist(err) {
@@ -69,5 +94,30 @@ func TestLockGet(t *testing.T) {
 	_, ok = l.Get("github.com/foo/other@v1.0.0")
 	if ok {
 		t.Error("Get should return false for missing entry")
+	}
+}
+
+func TestLockReadWriteRejectSymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.toml")
+	if err := os.WriteFile(outside, []byte("sentinel"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "plugin-lock.toml")
+	if err := os.Symlink(outside, path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := plugins.ReadLock(path); err == nil {
+		t.Fatal("ReadLock followed a symlink")
+	}
+	if err := plugins.NewLock().Write(path); err == nil {
+		t.Fatal("Lock.Write replaced or followed a symlink")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "sentinel" {
+		t.Fatalf("outside file changed through lock symlink: %q", got)
 	}
 }

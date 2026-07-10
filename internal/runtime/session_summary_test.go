@@ -331,6 +331,59 @@ func TestWriteSessionPIDRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestSessionProcessOwnershipRequiresCreationIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteSessionPID(dir, os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
+	pid, alive, owned := SessionProcessOwnership(dir)
+	if pid != os.Getpid() || !alive || !owned {
+		t.Fatalf("ownership = (%d, %t, %t), want (%d, true, true)", pid, alive, owned, os.Getpid())
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, sessionPIDFile), []byte(itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pid, alive, owned = SessionProcessOwnership(dir)
+	if pid != os.Getpid() || !alive || owned {
+		t.Fatalf("legacy ownership = (%d, %t, %t), want (%d, true, false)", pid, alive, owned, os.Getpid())
+	}
+}
+
+func TestSummariseSession_LegacyLivePIDRemainsGCProtected(t *testing.T) {
+	base := t.TempDir()
+	worktreeRoot := filepath.Join(base, "worktrees")
+	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := stadogit.OpenOrInitSidecar(filepath.Join(base, "sessions.git"), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := stadogit.CreateSession(sc, worktreeRoot, "legacy-live", plumbing.ZeroHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sess.WorktreePath, sessionPIDFile), []byte(itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	summary := SummariseSession(worktreeRoot, sc, sess.ID)
+	if summary.Status != "live" || summary.PID != os.Getpid() {
+		t.Fatalf("legacy live summary = %+v", summary)
+	}
+}
+
+func TestWriteSessionPID_PersistsSentinelWhenIdentityUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	const nonexistentPID = 2147483640
+	if err := WriteSessionPID(dir, nonexistentPID); err == nil {
+		t.Fatal("expected identity lookup error for nonexistent process")
+	}
+	if got := ReadSessionPID(dir); got != nonexistentPID {
+		t.Fatalf("PID-only sentinel = %d, want %d", got, nonexistentPID)
+	}
+}
+
 // TestSummariseSession_StalePIDFallsBackToIdle — a .stado-pid file
 // pointing at a non-existent pid must NOT be read as live. 2147483640
 // is a very-high pid unlikely to exist; os.FindProcess will "succeed"

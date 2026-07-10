@@ -36,8 +36,7 @@ var pluginDoctorCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		pluginsDir := filepath.Join(cfg.StateDir(), "plugins")
-		dir, err := plugins.InstalledDir(pluginsDir, args[0])
+		dir, err := plugins.InstalledDirInAny(cfg.AllPluginDirs(), args[0])
 		if err != nil {
 			return err
 		}

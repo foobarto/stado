@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -40,7 +39,7 @@ type pluginOverrideTool struct {
 	// Codex C4/Q P2 — per-tool invoke registry. See bundledPluginTool
 	// comment. cfg was already per-tool here; only invokeReg needed
 	// hoisting off the deleted package global.
-	invokeReg *tools.Registry
+	invokeReg  *tools.Registry
 	invokeExec *tools.Executor
 }
 
@@ -237,7 +236,7 @@ func consultOverrideCRL(cfg *config.Config, mf *plugins.Manifest) error {
 
 	var pub ed25519.PublicKey
 	if cfg.Plugins.CRLIssuerPubkey == "" {
-		fmt.Fprintln(os.Stderr, "crl: warning — plugins.crl_issuer_pubkey not set; CRL refresh skipped. Using cached copy if present.")
+		emitRegistryDiagnostic("crl: warning — plugins.crl_issuer_pubkey not set; CRL refresh skipped. Using cached copy if present.\n")
 	} else {
 		p, err := decodeOverridePubkey(cfg.Plugins.CRLIssuerPubkey)
 		if err != nil {
@@ -249,11 +248,11 @@ func consultOverrideCRL(cfg *config.Config, mf *plugins.Manifest) error {
 	if pub != nil {
 		fresh, err := plugins.Fetch(cfg.Plugins.CRLURL, pub)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "crl: fetch failed (%v); falling back to cached copy\n", err)
+			emitRegistryDiagnostic("crl: fetch failed (%v); falling back to cached copy\n", err)
 		} else {
 			crl = fresh
 			if err := plugins.SaveLocal(fresh, crlPath); err != nil {
-				fmt.Fprintf(os.Stderr, "crl: cache write failed (%v); continuing with in-memory copy\n", err)
+				emitRegistryDiagnostic("crl: cache write failed (%v); continuing with in-memory copy\n", err)
 			}
 		}
 	}
@@ -267,7 +266,7 @@ func consultOverrideCRL(cfg *config.Config, mf *plugins.Manifest) error {
 	}
 	if crl == nil {
 		if pub == nil {
-			fmt.Fprintln(os.Stderr, "crl: no issuer pubkey and no cache; revocation check skipped.")
+			emitRegistryDiagnostic("crl: no issuer pubkey and no cache; revocation check skipped.\n")
 		}
 		return nil
 	}
@@ -295,11 +294,11 @@ func consultOverrideRekor(ctx context.Context, cfg *config.Config, mf *plugins.M
 	entry, err := plugins.SearchByHash(ctx, cfg.Plugins.RekorURL, canonical)
 	if err != nil {
 		if errors.Is(err, plugins.ErrRekorNotFound) {
-			fmt.Fprintln(os.Stderr, "rekor: warning — no transparency-log entry found for this plugin signature")
+			emitRegistryDiagnostic("rekor: warning — no transparency-log entry found for this plugin signature\n")
 			return nil
 		}
 		if strings.Contains(strings.ToLower(err.Error()), "airgap") {
-			fmt.Fprintln(os.Stderr, "rekor: warning — transparency log unavailable in this build; continuing")
+			emitRegistryDiagnostic("rekor: warning — transparency log unavailable in this build; continuing\n")
 			return nil
 		}
 		return err
