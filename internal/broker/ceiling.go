@@ -103,7 +103,8 @@ func anyParentCovers(parentPaths []string, requested string) bool {
 //   - Net: candidate's NetPolicy must be at-or-below reference's
 //     (DenyAll < AllowHosts < AllowAll; AllowHosts must be a
 //     subset of reference's host set when both are AllowHosts).
-//   - CWD: ignored (it's a workdir, not a privilege).
+//   - CWD: ignored here; CeilingRunner separately resolves it and requires it
+//     to be covered by the ceiling's readable/writable paths before mounting.
 //   - Timeout: ignored.
 //
 // Used by NarrowEffective to validate the narrow-only invariant.

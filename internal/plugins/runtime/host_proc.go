@@ -31,9 +31,9 @@ type procHandle struct {
 // Glob forms (EP-no-internal-tools Step 3):
 //   - Absolute path: matched against the resolved absolute path
 //     (`exec:proc:/usr/bin/bash`, `exec:proc:/usr/bin/impacket-*`)
-//   - Slash-free basename: matched against `filepath.Base(resolved)`
-//     so cross-distro portability works without hand-tuning manifests
-//     (`exec:proc:bash` matches /usr/bin/bash AND /bin/bash)
+//   - Slash-free basename: accepted only for a bare-name argv[0], then matched
+//     against `filepath.Base(resolved)` (`exec:proc:bash` matches argv[0]
+//     `bash`, whose resolution is left to PATH)
 //   - Mixed forms (relative path with slashes, e.g. `bin/bash`) are
 //     rejected as ambiguous.
 func (h *Host) procAllowed(bin string) bool {
@@ -169,7 +169,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			cmd, cmdErr := buildSandboxedCmd(execCtx, resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
+			cmd, cmdErr := buildSandboxedCmdWithRunner(execCtx, sandboxRunnerForHost(host), resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
 			if cmdErr != nil {
 				type errResult struct {
 					Error string `json:"error"`
@@ -236,7 +236,7 @@ func registerProcSpawnImport(builder wazero.HostModuleBuilder, host *Host, rt *R
 				stack[0] = 0
 				return
 			}
-			cmd, cmdErr := buildSandboxedCmd(ctx, resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
+			cmd, cmdErr := buildSandboxedCmdWithRunner(ctx, sandboxRunnerForHost(host), resolveSandboxPolicy(host, req.Sandbox), host.Workdir, req.Argv, req.Env)
 			if cmdErr != nil {
 				host.Logger.Warn("stado_proc_spawn sandbox build failed", slog.String("err", cmdErr.Error()))
 				stack[0] = 0
@@ -424,8 +424,8 @@ func registerProcCloseImport(builder wazero.HostModuleBuilder, _ *Host, rt *Runt
 }
 
 // NewDefaultSandboxPolicy returns the host-default sandbox policy for
-// entry points that auto-confine stado_exec / stado_proc_spawn calls
-// (mcp-server, daemon). The policy is conservatively permissive — runs
+// entry points that auto-confine stado_exec / stado_proc_spawn calls.
+// The policy is conservatively permissive — runs
 // the child under bwrap / sandbox-exec for PID + uid namespace
 // isolation, allows reading the system paths bash typically needs
 // (/bin, /sbin, /tmp, /run; /usr, /lib, /lib64, /etc, /proc, /dev are
@@ -476,6 +476,10 @@ func NewDefaultSandboxPolicy(workdir string) any {
 		// surface, not the default.
 		Net: "allow",
 	}
+	if workdir != "" {
+		p.FSRead = append(p.FSRead, workdir)
+		p.FSWrite = append(p.FSWrite, workdir)
+	}
 	// ssh-agent forwarding, default-on (decision 2026-06-13): when the
 	// host has an agent socket, bind it + keep SSH_AUTH_SOCK so
 	// git-over-ssh works from a sandboxed bash tool call. Only the
@@ -495,9 +499,7 @@ func NewDefaultSandboxPolicy(workdir string) any {
 // but with JSON tags + nil-when-unset semantics (the field is omitempty).
 //
 // Unsandboxed is the explicit opt-out signal. It's honored ONLY
-// when there is no host default to enforce — i.e., from stado run /
-// stado tool run / TUI entry points where the operator's invocation
-// is explicit. With a host default set (mcp-server / daemon),
+// when there is no host default to enforce. With a host default set,
 // Unsandboxed=true is IGNORED and the host policy still applies.
 // This was the security hole flagged in the third-pass review:
 // otherwise any plugin author could shrug off host confinement.
@@ -746,6 +748,10 @@ func intersectNet(host, guest string) string {
 // "none" but a non-nil policy was requested, returns an error — silent-
 // fall-back-to-unsandboxed would defeat the plugin author's intent.
 func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir string, argv []string, env []string) (*exec.Cmd, error) {
+	return buildSandboxedCmdWithRunner(ctx, sandbox.Detect(), policy, workdir, argv, env)
+}
+
+func buildSandboxedCmdWithRunner(ctx context.Context, runner sandbox.Runner, policy *sandboxPolicy, workdir string, argv []string, env []string) (*exec.Cmd, error) {
 	if policy == nil {
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec
 		cmd.Dir = workdir
@@ -758,7 +764,6 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 		detachControllingTTY(cmd)
 		return cmd, nil
 	}
-	runner := sandbox.Detect()
 	// "none" means no runner at all (Linux without bwrap, macOS
 	// without sandbox-exec). "windows-passthrough" is the Windows
 	// runner that runs unsandboxed because we don't yet have a
@@ -767,7 +772,10 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 	// defeat the plugin author's intent and, worse, give MCP/daemon
 	// callers the false impression that confinement is active when
 	// it isn't.
-	if name := runner.Name(); name == "none" || name == "windows-passthrough" {
+	if runner == nil {
+		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no sandbox runner was configured")
+	}
+	if name := runner.Name(); !runner.Available() || name == "none" || name == "windows-passthrough" {
 		return nil, fmt.Errorf("stado_exec: sandbox policy requested but no native sandbox runner available on %s (install bubblewrap on Linux or sandbox-exec on macOS; Windows confinement is not yet supported — set sandbox.unsandboxed=true to opt out explicitly)", name)
 	}
 	p := toSandboxPolicy(policy, workdir)
@@ -779,6 +787,17 @@ func buildSandboxedCmd(ctx context.Context, policy *sandboxPolicy, workdir strin
 		detachControllingTTY(cmd)
 	}
 	return cmd, err
+}
+
+func sandboxRunnerForHost(host *Host) sandbox.Runner {
+	if host != nil && host.ToolHost != nil {
+		if provider, ok := host.ToolHost.(interface{ Runner() sandbox.Runner }); ok {
+			if runner := provider.Runner(); runner != nil {
+				return runner
+			}
+		}
+	}
+	return sandbox.Detect()
 }
 
 // toSandboxPolicy translates the wasm-side wire shape into a

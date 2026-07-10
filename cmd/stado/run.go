@@ -319,13 +319,9 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				// F1: same lifecycle runner drives the tool-side
 				// (pre/post-tool) deny/mutate seam.
 				opts.Executor.Hooks = lifecycleHooks
-				// v1 sandbox policy for `stado run`:
-				//   default (noSandbox=false) → BwrapRunner via
-				//     sandbox.Detect() + Landlock writes-confined
-				//     to launch cwd + /tmp.
-				//   --no-sandbox (noSandbox=true) → NoneRunner,
-				//     no Landlock, agent operates on the actual
-				//     filesystem with no namespace isolation.
+				// The broker decision is applied below after attach. Landlock is
+				// likewise delayed until the broker daemon has had a chance to
+				// start, so both layers use one explicit sandbox decision.
 				//
 				// Reverses an earlier UX-pressured retreat documented
 				// in DESIGN.md §Sandbox → "Reversal of an earlier UX
@@ -334,9 +330,6 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				// && stado run` to operate on ~/projects/foo, not on
 				// a per-session scratch worktree.
 				opts.Workdir = cwd
-				if noSandbox {
-					opts.Executor.Runner = sandbox.NoneRunner{}
-				}
 				if noSandbox {
 					fmt.Fprintf(os.Stderr, "stado run: session %s (cwd %s, audit %s) [--no-sandbox]\n", sess.ID, cwd, sess.WorktreePath)
 				} else {
@@ -368,16 +361,12 @@ Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 				}
 			}()
 
-			// Phase 5c: wrap the Executor's runner with the broker's
-			// projected ceiling. Per-call Policy intersects with the
-			// ceiling at runner-construction time so a tool whose
-			// per-call Policy exceeds the ceiling gets the
-			// intersection. Skipped sessions (test binaries, opt-out)
-			// keep the un-wrapped runner; --no-sandbox keeps
-			// NoneRunner from the earlier override.
-			if !brokerSession.Skipped && !noSandbox && opts.Executor != nil {
-				opts.Executor.Runner = sandbox.NewCeilingRunner(opts.Executor.Runner, brokerSession.Ceiling)
-			}
+			// Apply the same broker decision used by every other executor-owning
+			// surface. This preserves skipped attaches and makes --no-sandbox an
+			// explicit NoneRunner selection.
+			executorSandbox := brokerExecutorSandbox(brokerSession, noSandbox)
+			executorSandbox.Apply(opts.Executor)
+			opts.DefaultSandboxPolicy = executorSandbox.DefaultSandboxPolicy(cwd)
 
 			// Apply Landlock LAST so the broker auto-spawn above ran
 			// unrestricted but every subsequent in-process write is
@@ -530,6 +519,7 @@ func runHeadlessMode(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "stado run --headless: ready (JSON-RPC 2.0, stdio)%s\n", personaTag)
 		srv := headless.NewServer(cfg, prov)
 		srv.DefaultPersona = defaultPersona
+		srv.ExecutorSandbox = brokerExecutorSandbox(brokerSession, noSandbox)
 		return srv.Serve(ctx, os.Stdin, os.Stdout)
 	})
 }

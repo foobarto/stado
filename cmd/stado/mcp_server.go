@@ -55,7 +55,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/foobarto/stado/internal/config"
-	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
 	"github.com/foobarto/stado/internal/plugins/runtime/pty"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
@@ -95,7 +94,8 @@ var mcpServerCmd = &cobra.Command{
 		}
 		applyRootProviderOverrides(cfg)
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
-			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			// Broker attachment is default-on; STADO_BROKER_ATTACH=0 is the
+			// development opt-out for mediation, not for local sandboxing.
 			cwd := mustCwd()
 			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
 			if brokerErr != nil {
@@ -107,6 +107,7 @@ var mcpServerCmd = &cobra.Command{
 					fmt.Fprintf(os.Stderr, "mcp-server: broker session.terminate: %v\n", closeErr)
 				}
 			}()
+			executorSandbox := brokerExecutorSandbox(brokerSession, noSandbox)
 
 			// Shared composition with the agent loop / CLI: bundled +
 			// installed plugin tools + tasks + MCP-attached + wasm
@@ -143,10 +144,11 @@ var mcpServerCmd = &cobra.Command{
 			runtime.ApplyToolFilter(reg, cfg)
 
 			srv := server.NewMCPServer("stado", stadoVersion())
-			runner := sandbox.Detect()
+			runner := executorSandbox.Runner(sandbox.Detect())
 			host := stadoMCPHost{
-				workdir: mustCwd(),
-				runner:  runner,
+				workdir:         mustCwd(),
+				runner:          runner,
+				executorSandbox: executorSandbox,
 				// Server-lifetime PTY manager — shell.spawn → shell.read
 				// across MCP calls share state. Reaped on server exit.
 				pty: pty.NewManager(),
@@ -267,8 +269,9 @@ func rawSchema(m map[string]any) json.RawMessage {
 // would run unsandboxed even on hosts where bwrap/sandbox-exec is
 // available — silent and bad.
 type stadoMCPHost struct {
-	workdir string
-	runner  sandbox.Runner
+	workdir         string
+	runner          sandbox.Runner
+	executorSandbox runtime.ExecutorSandbox
 	// pty is a server-lifetime PTY manager shared across every tool
 	// dispatch so shell.spawn → shell.read / write succeed
 	// across calls. Without this each bundled-plugin runtime would
@@ -302,7 +305,7 @@ func (h stadoMCPHost) PTYManager() any { return h.pty }
 // default — they can only TIGHTEN host policy, never weaken it. The
 // resolver lives at host_proc.go:resolveSandboxPolicy + intersectPolicies.
 func (h stadoMCPHost) DefaultSandboxPolicy() any {
-	return pluginRuntime.NewDefaultSandboxPolicy(h.workdir)
+	return h.executorSandbox.DefaultSandboxPolicy(h.workdir)
 }
 
 func mustCwd() string {

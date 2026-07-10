@@ -9,7 +9,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 )
 
@@ -138,12 +138,13 @@ func TestSessionResume_AttachesBrokerAndEnforcesCeiling(t *testing.T) {
 	// Capture what resume hands the TUI instead of booting the real one.
 	prevRunner := inlineTUIRunner
 	defer func() { inlineTUIRunner = prevRunner }()
-	var called, gotEnforce bool
+	var called bool
+	var gotSandbox runtime.ExecutorSandbox
 	var gotNotices []string
-	inlineTUIRunner = func(_ *config.Config, notices []string, _ sandbox.Policy, enforce bool) error {
+	inlineTUIRunner = func(_ *config.Config, notices []string, executorSandbox runtime.ExecutorSandbox) error {
 		called = true
 		gotNotices = notices
-		gotEnforce = enforce
+		gotSandbox = executorSandbox
 		return nil
 	}
 
@@ -160,8 +161,9 @@ func TestSessionResume_AttachesBrokerAndEnforcesCeiling(t *testing.T) {
 	if !strings.Contains(joined, "broker attach skipped") {
 		t.Errorf("resume notices should carry the broker-attach announcement; got:\n%s", joined)
 	}
-	// Skipped attach → ceiling not enforced (the OS fence needs a live broker).
-	if gotEnforce {
+	// Skipped attach means no broker ceiling. The local sandbox runner and host
+	// policy are independent and remain selected by ExecutorSandbox.
+	if gotSandbox.EnforceCeiling {
 		t.Error("a skipped attach should not enforce the ceiling")
 	}
 }

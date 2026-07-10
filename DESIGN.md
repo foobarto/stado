@@ -1356,6 +1356,7 @@ roadmap item).
 |---|---|---|
 | Launch cwd (e.g. operator's project) | RW | RW |
 | `/tmp` | RW | RW |
+| `/bin`, `/sbin` | RO | RO |
 | Worktree (`$XDG_STATE_HOME/stado/worktrees/<id>`) | RW (when materialised) | RW |
 | stado state dir (sidecar + audit, `$XDG_DATA_HOME/stado/sessions/`) | not in agent's writable set; append-only via broker / dedicated trace writer | same |
 | Plugin trust ring (`$XDG_DATA_HOME/stado/plugins/trusted_keys.json`, anchor-trust dir, revocation list) | RO | RO |

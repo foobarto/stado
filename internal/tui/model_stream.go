@@ -1156,9 +1156,10 @@ func (m *Model) executeCallAsync(call agent.ToolUseBlock) tea.Cmd {
 	// where turn-boundary tree commits live (m.session.WorktreePath); it
 	// is NOT the agent's working directory.
 	host := hostAdapter{
-		workdir: m.cwd,
-		readLog: m.executor.ReadLog,
-		runner:  m.executor.Runner,
+		workdir:         m.cwd,
+		readLog:         m.executor.ReadLog,
+		runner:          m.executor.Runner,
+		executorSandbox: m.executorSandbox,
 		approval: tuiApprovalBridge{
 			model: m,
 		},

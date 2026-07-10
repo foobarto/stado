@@ -5,7 +5,6 @@ import (
 
 	"github.com/foobarto/stado/internal/acp"
 	"github.com/foobarto/stado/internal/config"
-	"github.com/foobarto/stado/internal/runtime"
 )
 
 type toolInfo struct {
@@ -15,7 +14,7 @@ type toolInfo struct {
 }
 
 func (s *Server) toolsList() (any, error) {
-	exec, err := runtime.BuildExecutor(nil, s.Cfg, "stado-headless")
+	exec, err := s.buildExecutor(nil)
 	if err != nil {
 		return nil, &acp.RPCError{Code: acp.CodeInternalError, Message: err.Error()}
 	}

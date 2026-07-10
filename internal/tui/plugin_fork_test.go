@@ -168,6 +168,7 @@ func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 	m.recoveryPluginName = "auto-compact"
 	m.recoveryPluginActive = true
 	m.input.SetValue(m.recoveryPrompt)
+	launchCWD := m.cwd
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -189,6 +190,9 @@ func TestPluginForkMsg_AutoRecoveryAdoptsChildSession(t *testing.T) {
 	}
 	if m.session == nil || m.session.ID != child.ID {
 		t.Fatalf("session id = %v, want %s", m.session, child.ID)
+	}
+	if m.cwd != launchCWD {
+		t.Fatalf("cwd = %q, want launch cwd %q after recovery", m.cwd, launchCWD)
 	}
 	if m.input.Value() != "" {
 		t.Fatalf("input should be reset after replay, got %q", m.input.Value())

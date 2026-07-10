@@ -222,19 +222,19 @@ func buildBundledPluginRegistry() *tools.Registry {
 	r.Register(newBundledWasmTool("shell", "stado_tool_exec", "shell__exec",
 		"Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
-		[]string{"exec:proc:sh"}))
+		[]string{"exec:proc:/bin/sh"}))
 	r.Register(newBundledWasmTool("shell", "stado_tool_bash", "shell__bash",
 		"Execute a shell command via /bin/bash -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
-		[]string{"exec:proc:bash"}))
+		[]string{"exec:proc:/bin/bash"}))
 	r.Register(newBundledWasmTool("shell", "stado_tool_sh", "shell__sh",
 		"Execute a shell command via /bin/sh -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
-		[]string{"exec:proc:sh"}))
+		[]string{"exec:proc:/bin/sh"}))
 	r.Register(newBundledWasmTool("shell", "stado_tool_zsh", "shell__zsh",
 		"Execute a shell command via /usr/bin/zsh -c, return combined stdout+stderr.",
 		tool.ClassExec, commandSchema,
-		[]string{"exec:proc:zsh"}))
+		[]string{"exec:proc:/usr/bin/zsh"}))
 
 	// EP-no-internal-tools Step 5: rg.search + astgrep.search via
 	// stado_exec spawning the bundled binaries. Replaces the native
@@ -393,8 +393,8 @@ type bundledPluginTool struct {
 	// dispatch. ApplyToolOverrides operates on a different type
 	// (pluginOverrideTool) and wires those independently — see
 	// plugin_overrides.go's invokeReg pinning.
-	cfg       *config.Config
-	invokeReg *tools.Registry
+	cfg        *config.Config
+	invokeReg  *tools.Registry
 	invokeExec *tools.Executor
 }
 

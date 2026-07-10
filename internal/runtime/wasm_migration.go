@@ -290,7 +290,7 @@ func (t *wasmMigrationTool) Run(ctx context.Context, args json.RawMessage, h pkg
 	if t.cfg != nil {
 		host.StateDir = t.cfg.StateDir()
 	}
-	host.ToolHost = h
+	host.AttachToolHost(h)
 	if bridge, ok := h.(pluginRuntime.ApprovalBridge); ok {
 		host.ApprovalBridge = bridge
 	}

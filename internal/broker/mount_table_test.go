@@ -24,6 +24,8 @@ func TestDefaultMountTable_HasCriticalRows(t *testing.T) {
 	expects := map[string]MountMode{
 		"/work":                                  ModeReadWrite,
 		"/tmp":                                   ModeReadWrite,
+		"/bin":                                   ModeReadOnly,
+		"/sbin":                                  ModeReadOnly,
 		"/home/test/.local/share/stado/sessions": ModeBrokerOnly,
 		"/home/test/.local/share/stado/broker":   ModeBrokerOnly,
 		"/home/test/.local/share/stado/plugins/trusted_keys.json": ModeReadOnly,
@@ -51,6 +53,30 @@ func TestDefaultMountTable_HasCriticalRows(t *testing.T) {
 		} else if mode != wantMode {
 			t.Errorf("row %q: mode = %s, want %s", path, mode, wantMode)
 		}
+	}
+}
+
+func TestMountTablesKeepLiteralShellPathsReadable(t *testing.T) {
+	t.Setenv("HOME", "/home/test")
+	t.Setenv("XDG_DATA_HOME", "/home/test/.local/share")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+
+	for _, profile := range []Profile{ProfileDefault, ProfileHardened} {
+		t.Run(string(profile), func(t *testing.T) {
+			policy := MountTableFor(profile, "/work").ToPolicy()
+			for _, want := range []string{"/bin", "/sbin"} {
+				found := false
+				for _, got := range policy.FSRead {
+					if got == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("FSRead = %v, missing %s", policy.FSRead, want)
+				}
+			}
+		})
 	}
 }
 

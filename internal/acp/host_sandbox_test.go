@@ -3,6 +3,7 @@ package acp
 import (
 	"testing"
 
+	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/pkg/tool"
 )
 
@@ -20,5 +21,12 @@ func TestACPHost_ConfinesBashByDefault(t *testing.T) {
 	h := &acpHost{workdir: t.TempDir()}
 	if h.DefaultSandboxPolicy() == nil {
 		t.Fatal("acpHost.DefaultSandboxPolicy() must return a non-nil policy so bash is confined")
+	}
+}
+
+func TestACPHost_NoSandboxRemovesDefaultPolicy(t *testing.T) {
+	h := &acpHost{workdir: t.TempDir(), executorSandbox: runtime.ExecutorSandbox{Disabled: true}}
+	if h.DefaultSandboxPolicy() != nil {
+		t.Fatal("acpHost.DefaultSandboxPolicy() must be nil after explicit --no-sandbox")
 	}
 }

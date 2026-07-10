@@ -67,6 +67,10 @@ type Server struct {
 	Cfg      *config.Config
 	Provider agent.Provider
 
+	// ExecutorSandbox is derived once by the CLI from the broker session and
+	// applied to every per-session executor this long-lived server creates.
+	ExecutorSandbox runtime.ExecutorSandbox
+
 	// EnableTools, if set, means session.prompt opens a sidecar session on
 	// demand and runs the full audited executor loop (tools + git commits
 	// + sandbox). Advertised as ToolCalls: true in initialize.
@@ -402,9 +406,10 @@ func (s *Server) buildResumedSession(id string, maxTurns int) (*acpSession, erro
 			Message: "resumeSession: load conversation: " + err.Error(),
 		}
 	}
+	cwd, _ := os.Getwd()
 	return &acpSession{
 		id:               id,
-		workdir:          worktreePath,
+		workdir:          cwd,
 		maxTurns:         maxTurns,
 		gitSess:          gitSess,
 		messages:         priorMsgs,
@@ -571,17 +576,18 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		gitSess := sess.gitSess
 		sess.mu.Unlock()
 		if gitSess != nil {
-			exec, err := runtime.BuildExecutor(gitSess, s.Cfg, "stado-acp")
+			exec, err := s.buildExecutor(gitSess)
 			if err != nil {
 				return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 			}
 			opts.Executor = exec
 			opts.Host = &acpHost{
-				server:    s,
-				sessionID: p.SessionID,
-				workdir:   workdir,
-				readLog:   exec.ReadLog,
-				runner:    exec.Runner,
+				server:          s,
+				sessionID:       p.SessionID,
+				workdir:         workdir,
+				readLog:         exec.ReadLog,
+				runner:          exec.Runner,
+				executorSandbox: s.ExecutorSandbox,
 			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {

@@ -121,12 +121,10 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 				stack[0] = api.EncodeI64(int64(ptyDenied(mod, resPtr, resCap)))
 				return
 			}
-			// Confine the PTY child on the surfaces that set a default sandbox
-			// policy (daemon / mcp-server / acp / headless), parity with
-			// stado_exec (#100). run / tui / resume deliberately leave
-			// DefaultSandboxPolicy nil — the PTY runs against the operator's own
-			// filesystem there, by design. The cap check above already ran on
-			// the original binary; the wrap rewrites argv to the sandbox runner.
+			// Confine the PTY child whenever the surface sets a default sandbox
+			// policy, at parity with stado_exec (#100). The cap check above
+			// already ran on the original binary; the wrap rewrites argv to the
+			// surface's sandbox runner.
 			sopts, serr := sandboxPTYSpawnOpts(host, opts)
 			if serr != nil {
 				host.Logger.Warn("stado_pty_create sandbox wrap failed", slog.String("err", serr.Error()))
@@ -147,11 +145,9 @@ func registerPTYCreate(builder wazero.HostModuleBuilder, host *Host, exportName 
 
 // sandboxPTYSpawnOpts wraps the PTY spawn command in the host's default sandbox
 // runner when one is set (#100). Mirrors stado_exec's buildSandboxedCmd path so
-// a PTY shell is confined the same way a one-shot exec is on the confining
-// surfaces (daemon / mcp-server / acp / headless set host.DefaultSandboxPolicy).
-// When no host default is set (run / tui / resume — the operator's own FS, by
-// design) opts is returned unchanged. resolveSandboxPolicy(host, nil) yields the
-// host default or nil, so the gate matches the exec path exactly.
+// a PTY shell is confined by the same runner as a one-shot exec. When no host
+// default is set, opts is returned unchanged. resolveSandboxPolicy(host, nil)
+// yields the host default or nil, so the gate matches the exec path exactly.
 //
 // It sets opts.PreparedCmd to the runner-wrapped *exec.Cmd (e.g. bwrap … --
 // argv); the PTY manager starts THAT under a pty, so the real shell runs inside
@@ -181,7 +177,7 @@ func sandboxPTYSpawnOpts(host *Host, opts pty.SpawnOpts) (pty.SpawnOpts, error) 
 	// (or hits a per-call timeout) would kill the session. The Manager owns the
 	// lifecycle (Destroy kills the process), same as the unsandboxed
 	// exec.Command path.
-	cmd, err := buildSandboxedCmd(context.Background(), policy, workdir, eff, opts.Env)
+	cmd, err := buildSandboxedCmdWithRunner(context.Background(), sandboxRunnerForHost(host), policy, workdir, eff, opts.Env)
 	if err != nil {
 		return opts, err
 	}

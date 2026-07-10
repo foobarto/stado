@@ -86,14 +86,14 @@ Concretely, the gap today:
 
 | Capability | Claude Code | stado today |
 |---|---|---|
-| Model can invoke a skill by matching its description | yes (core) | **no** |
-| Skill body is a directory with bundled scripts/refs | `<name>/SKILL.md` + files | flat `.md`, no bundle |
+| Model can invoke a skill by matching its description | yes (core) | **yes (Phase 1)** |
+| Skill body is a directory with bundled scripts/refs | `<name>/SKILL.md` + files | **yes; flat `.md` also supported** |
 | Personal / global skills | `~/.claude/skills/` | no (deliberate, EP-8 D2/skills.go) |
 | Plugin-bundled skills (namespaced) | `<plugin>/skills/` | no |
 | Arguments / substitution | `$ARGUMENTS`, `$N`, `$name`, `${...}` | no (EP-8 non-goal) |
 | Dynamic context injection | `` !`cmd` `` runs before model sees it | no (EP-8 non-goal) |
-| Per-skill tool pre-approval | `allowed-tools` | no |
-| Invocation control | `disable-model-invocation`, `user-invocable` | partial (`slash:` only) |
+| Per-skill tool pre-approval | `allowed-tools` | persona-scoped surfacing; project scope fail-closed pending trust |
+| Invocation control | `disable-model-invocation`, `user-invocable` | **yes (Phase 1)** |
 | Forked/subagent execution | `context: fork` + `agent:` | no |
 | Per-persona skill scoping | via subagent `skills:` | **yes — stado is ahead here** |
 

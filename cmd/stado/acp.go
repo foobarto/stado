@@ -157,7 +157,8 @@ var acpCmd = &cobra.Command{
 			defaultPersona = p
 		}
 		return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
-			// v1 broker attach (phase 1: opt-in via STADO_BROKER_ATTACH=1).
+			// Broker attachment is default-on; STADO_BROKER_ATTACH=0 is the
+			// development opt-out for mediation, not for local sandboxing.
 			cwd, _ := os.Getwd()
 			brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
 			if brokerErr != nil {
@@ -187,6 +188,7 @@ var acpCmd = &cobra.Command{
 			s.EnableTools = acpTools
 			s.ResumeSessionID = resumeID
 			s.DefaultPersona = defaultPersona
+			s.ExecutorSandbox = brokerExecutorSandbox(brokerSession, noSandbox)
 			return s.Serve(ctx, os.Stdin, os.Stdout)
 		})
 	},

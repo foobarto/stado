@@ -15,6 +15,7 @@ import (
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/personas"
 	pluginRuntime "github.com/foobarto/stado/internal/plugins/runtime"
+	"github.com/foobarto/stado/internal/runtime"
 	stadogit "github.com/foobarto/stado/internal/state/git"
 	"github.com/foobarto/stado/pkg/agent"
 )
@@ -23,6 +24,10 @@ import (
 type Server struct {
 	Cfg      *config.Config
 	Provider agent.Provider
+
+	// ExecutorSandbox is derived once by the CLI from the broker session and
+	// applied to every per-session executor this long-lived server creates.
+	ExecutorSandbox runtime.ExecutorSandbox
 
 	conn     *acp.Conn
 	mu       sync.Mutex

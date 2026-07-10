@@ -2,10 +2,42 @@ package runtime
 
 import (
 	"context"
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/pkg/tool"
 )
+
+type suppliedSandboxRunner struct {
+	called bool
+}
+
+func (r *suppliedSandboxRunner) Name() string    { return "supplied" }
+func (r *suppliedSandboxRunner) Available() bool { return true }
+func (r *suppliedSandboxRunner) Command(ctx context.Context, _ sandbox.Policy, name string, args, _ []string) (*exec.Cmd, error) {
+	r.called = true
+	return exec.CommandContext(ctx, name, args...), nil //nolint:gosec
+}
+
+type runnerToolHost struct {
+	runner        sandbox.Runner
+	defaultPolicy any
+}
+
+func (h runnerToolHost) Approve(context.Context, tool.ApprovalRequest) (tool.Decision, error) {
+	return tool.DecisionAllow, nil
+}
+func (h runnerToolHost) Workdir() string { return "/work" }
+func (h runnerToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
+	return tool.PriorReadInfo{}, false
+}
+func (h runnerToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
+func (h runnerToolHost) Runner() sandbox.Runner                      { return h.runner }
+func (h runnerToolHost) DefaultSandboxPolicy() any                   { return h.defaultPolicy }
 
 // TestBuildSandboxedCmd_NilPolicyRunsUnsandboxed locks down the
 // stado_exec posture documented in cmd/stado/mcp_server.go after the
@@ -170,8 +202,32 @@ func TestNewDefaultSandboxPolicy_PermissiveByDefault(t *testing.T) {
 			t.Errorf("default policy FSRead missing %q. Without it, /bin/sh / /bin/bash literals fail to execvp under bwrap on distros where /bin isn't a symlink to /usr/bin.", p)
 		}
 	}
-	if len(resolved.FSWrite) == 0 {
-		t.Errorf("default policy FSWrite is empty — plugins writing to /tmp will fail")
+	if !slices.Contains(resolved.FSRead, "/some/workdir") {
+		t.Errorf("default policy FSRead missing workdir: %v", resolved.FSRead)
+	}
+	if !slices.Contains(resolved.FSWrite, "/some/workdir") {
+		t.Errorf("default policy FSWrite missing workdir: %v", resolved.FSWrite)
+	}
+}
+
+func TestSandboxRunnerForHostUsesExecutorRunner(t *testing.T) {
+	runner := &suppliedSandboxRunner{}
+	defaultPolicy := NewDefaultSandboxPolicy(t.TempDir())
+	host := &Host{}
+	host.AttachToolHost(runnerToolHost{runner: runner, defaultPolicy: defaultPolicy})
+	if host.DefaultSandboxPolicy != defaultPolicy {
+		t.Fatal("AttachToolHost did not copy the surface default policy")
+	}
+	if got := sandboxRunnerForHost(host); got != runner {
+		t.Fatalf("runner = %T, want supplied runner", got)
+	}
+	policy := NewDefaultSandboxPolicy(t.TempDir()).(*sandboxPolicy)
+	cmd, err := buildSandboxedCmdWithRunner(context.Background(), sandboxRunnerForHost(host), policy, policy.CWD, []string{"true"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd == nil || !runner.called {
+		t.Fatal("supplied executor runner was not used")
 	}
 }
 
@@ -209,8 +265,8 @@ func TestResolveSandboxPolicy_HostAsCeiling(t *testing.T) {
 	})
 
 	t.Run("Unsandboxed=true with NO host default: honored", func(t *testing.T) {
-		// stado run / stado tool run path: no host default. Plugin
-		// can opt out — operator-explicit invocation.
+		// Legacy or explicit direct-execution host: with no host default,
+		// the guest can still opt out of a guest-supplied policy.
 		hostNoDefault := &Host{}
 		guest := &sandboxPolicy{Unsandboxed: true}
 		if got := resolveSandboxPolicy(hostNoDefault, guest); got != nil {

@@ -75,10 +75,15 @@ Omit `--fork-tree` only when the notification has no `forkTree`.
   tool-filter, harness, sampling, output, and turn-limit flags. Configure
   daemon sessions through config and JSON-RPC so values are not silently
   ignored.
+- By default, every executor created for a daemon session is bounded by the
+  broker-projected ceiling. `--no-sandbox` explicitly selects `NoneRunner` and
+  removes the autonomous host's default sandbox policy for the daemon lifetime.
 - Sessions are daemon-local by default. When tools or session-aware
   plugins attach a git-backed session, prompts are also appended to
   that session's `.stado/conversation.jsonl` so later compaction and
-  resume paths see the same transcript.
+  resume paths see the same transcript. Tools operate on the session's launch
+  cwd; the sidecar worktree remains the audit/fork substrate rather than a
+  hidden replacement working directory.
 - `session.compact` applies immediately; unlike TUI `/compact`, it has
   no preview/edit/confirm loop.
 - `plugin.run` requires a live headless session because session-aware

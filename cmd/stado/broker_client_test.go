@@ -144,6 +144,9 @@ func TestAnnounceSandboxMode_Skipped(t *testing.T) {
 	if !strings.Contains(got, "test-binary auto-spawn refused") {
 		t.Errorf("announcement %q lacks skip reason", got)
 	}
+	if !strings.Contains(got, "local sandbox policy still applies") {
+		t.Errorf("announcement %q should distinguish broker skip from sandbox opt-out", got)
+	}
 }
 
 func TestAnnounceSandboxMode_Active(t *testing.T) {
@@ -206,47 +209,51 @@ func TestAnnounceSandboxMode_NilSession(t *testing.T) {
 	}
 }
 
-// TestTUICeiling: the (ceiling, enforce) derivation shared by the bare TUI and
-// `session resume`. enforce is true only when the broker actively projected a
-// ceiling (attach not skipped) and the operator didn't pass --no-sandbox; in
-// every other case the runner stays un-wrapped (zero policy, enforce=false).
-func TestTUICeiling(t *testing.T) {
+// TestBrokerExecutorSandbox covers the one derivation shared by every
+// executor-owning surface.
+func TestBrokerExecutorSandbox(t *testing.T) {
 	ceil := sandbox.Policy{FSWrite: []string{"/work", "/tmp"}}
 
 	t.Run("nil session does not enforce", func(t *testing.T) {
-		c, enf := tuiCeiling(nil, false)
-		if enf {
+		got := brokerExecutorSandbox(nil, false)
+		if got.EnforceCeiling || got.Disabled {
 			t.Error("nil session should not enforce")
 		}
-		if len(c.FSWrite) != 0 {
-			t.Errorf("nil session should yield the zero policy, got %v", c.FSWrite)
+		if len(got.Ceiling.FSWrite) != 0 {
+			t.Errorf("nil session should yield the zero policy, got %v", got.Ceiling.FSWrite)
 		}
 	})
 	t.Run("skipped session does not enforce", func(t *testing.T) {
-		c, enf := tuiCeiling(&BrokerSession{Skipped: true, Ceiling: ceil}, false)
-		if enf {
+		got := brokerExecutorSandbox(&BrokerSession{Skipped: true, Ceiling: ceil}, false)
+		if got.EnforceCeiling {
 			t.Error("skipped attach should not enforce")
 		}
-		if len(c.FSWrite) != 0 {
-			t.Errorf("skipped session should yield the zero policy, got %v", c.FSWrite)
+		if len(got.Ceiling.FSWrite) != 2 {
+			t.Errorf("skipped session should preserve the broker projection for diagnostics, got %v", got.Ceiling.FSWrite)
 		}
 	})
 	t.Run("active session enforces the broker ceiling", func(t *testing.T) {
-		c, enf := tuiCeiling(&BrokerSession{Ceiling: ceil}, false)
-		if !enf {
+		got := brokerExecutorSandbox(&BrokerSession{Ceiling: ceil}, false)
+		if !got.EnforceCeiling {
 			t.Error("active session should enforce the ceiling")
 		}
-		if len(c.FSWrite) != 2 {
-			t.Errorf("active session should return the broker ceiling, got %v", c.FSWrite)
+		if len(got.Ceiling.FSWrite) != 2 {
+			t.Errorf("active session should return the broker ceiling, got %v", got.Ceiling.FSWrite)
 		}
 	})
-	t.Run("no-sandbox opt-out does not enforce", func(t *testing.T) {
-		c, enf := tuiCeiling(&BrokerSession{Ceiling: ceil}, true)
-		if enf {
+	t.Run("no-sandbox opt-out disables runner", func(t *testing.T) {
+		got := brokerExecutorSandbox(&BrokerSession{Ceiling: ceil}, true)
+		if got.EnforceCeiling {
 			t.Error("--no-sandbox should not enforce even with a projected ceiling")
 		}
-		if len(c.FSWrite) != 0 {
-			t.Errorf("--no-sandbox should yield the zero policy, got %v", c.FSWrite)
+		if !got.Disabled {
+			t.Error("--no-sandbox should select the disabled executor policy")
+		}
+	})
+	t.Run("broker no-sandbox profile is authoritative", func(t *testing.T) {
+		got := brokerExecutorSandbox(&BrokerSession{Profile: broker.ProfileNoSandbox}, false)
+		if !got.Disabled || got.EnforceCeiling {
+			t.Fatalf("policy = %+v, want disabled without ceiling enforcement", got)
 		}
 	})
 }

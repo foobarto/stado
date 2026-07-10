@@ -71,8 +71,9 @@ type AgentLoopOptions struct {
 
 	// DefaultSandboxPolicy, when non-nil, is returned by the auto-created
 	// host's tool.SandboxPolicyProvider so bash/exec tool calls run confined
-	// by it. Nil (run / tui) keeps operator's-FS semantics; autonomous
-	// surfaces (headless) set it to runtime.NewDefaultSandboxPolicy(workdir).
+	// by it. Top-level sandboxed surfaces set it from
+	// ExecutorSandbox.DefaultSandboxPolicy; an explicit --no-sandbox decision
+	// leaves it nil.
 	// Model A (decision 2026-06-13). Ignored when Host is supplied — that host
 	// owns its own SandboxPolicyProvider (e.g. acp / mcp-server).
 	DefaultSandboxPolicy any

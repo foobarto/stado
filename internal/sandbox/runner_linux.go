@@ -52,7 +52,11 @@ func (r BwrapRunner) Command(ctx context.Context, p Policy, name string, args []
 	}
 
 	if p.CWD != "" {
-		bwrapArgs = append(bwrapArgs, "--bind-try", p.CWD, p.CWD, "--chdir", p.CWD)
+		bindMode := "--ro-bind-try"
+		if resolvedPathWithinAny(p.CWD, p.FSWrite) {
+			bindMode = "--bind-try"
+		}
+		bwrapArgs = append(bwrapArgs, bindMode, p.CWD, p.CWD, "--chdir", p.CWD)
 	}
 	for _, rp := range p.FSRead {
 		bwrapArgs = append(bwrapArgs, "--ro-bind-try", rp, rp)
