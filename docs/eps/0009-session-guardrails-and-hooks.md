@@ -16,6 +16,18 @@ history:
     status: Implemented
     version: v0.1.0
     note: Budget caps and post-turn hooks are current operator guardrails; native approval handling was later extended by EP-17.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). This EP's "hooks are
+      intentionally narrow / notification-only" framing (body + D3) is now
+      stale: full Lua lifecycle hooks shipped in the 2026-06-11 feature batch
+      and CAN deny and mutate tool calls (internal/hooks/lifecycle.go, lua.go,
+      build.go; wired via BuildLifecycleRunner in TUI/run/headless). The
+      `[hooks].post_turn` surface still exists as described; it is no longer
+      the whole story. See the Revision below and
+      docs/features/lifecycle-hooks.md. A dedicated superseding EP for the
+      lifecycle-hook contract is tracked as a follow-up.
 ---
 
 # EP-9: Session Guardrails and Hooks
@@ -69,6 +81,13 @@ command with a stable JSON payload after a turn completes in the TUI,
 inherits environment, writes through stado's stderr, is capped by a
 short timeout, and cannot block or rewrite the already-finished turn.
 Hook failures are logged and never treated as turn failures.
+
+> **Update (2026-07-09):** the "notification-only" characterization above
+> and in D3 describes the *original* hook surface. A separate, more
+> powerful **Lua lifecycle-hook** system shipped later (2026-06-11 batch)
+> that *can* deny and mutate tool calls. See the Revision at the end of
+> this EP and `docs/features/lifecycle-hooks.md`. `[hooks].post_turn` is
+> unchanged; it is now one of two hook surfaces.
 
 These controls are scoped so they can be reasoned about locally:
 plugin approval requests are explicit capability-gated interactions,
@@ -131,4 +150,27 @@ and budget acknowledgements stay easy to reset.
 - [EP-17: Tool Surface Policy and Plugin Approval UI](./0017-tool-surface-policy-and-plugin-approval-ui.md)
 - [docs/features/budget.md](../features/budget.md)
 - [docs/features/hooks.md](../features/hooks.md)
+- [docs/features/lifecycle-hooks.md](../features/lifecycle-hooks.md)
 - [docs/commands/tui.md](../commands/tui.md#approvals)
+
+## Revision (2026-07-09) — Lua lifecycle hooks (deny + mutate)
+
+The original body and D3 describe a deliberately narrow, notification-only
+hook surface (`[hooks].post_turn`). That is still accurate for `post_turn`,
+but it is no longer the full hook surface. A second, more powerful hook
+system shipped in the 2026-06-11 feature batch and is now live:
+
+- **Lua lifecycle hooks** run at defined lifecycle points and have **full
+  power — they can deny a tool call and they can mutate its input** before
+  it runs. This directly reverses this EP's original non-goal ("making hooks
+  able to rewrite or block") for the lifecycle surface (the `post_turn`
+  surface keeps the original non-goal).
+- Implementation: `internal/hooks/lifecycle.go`, `internal/hooks/lua.go`,
+  `internal/hooks/build.go`; the runner is assembled by
+  `BuildLifecycleRunner` and wired across the TUI, `stado run`, and headless
+  `session.prompt`.
+- User-facing docs: `docs/features/lifecycle-hooks.md`.
+
+This Revision is a corrective pointer only. The deny/mutate lifecycle-hook
+contract deserves its own Standards EP that supersedes the relevant parts of
+this one; that EP is a tracked follow-up, not yet written.

@@ -164,21 +164,11 @@ func httpGetReleaseJSON(ctx context.Context, u string) ([]byte, error) {
 }
 
 func pluginLockPath(cfg *config.Config) string {
-	// Project-local first, falls back to user-level.
-	if cwd, err := os.Getwd(); err == nil {
-		// Walk up looking for .stado/
-		dir := cwd
-		for {
-			candidate := filepath.Join(dir, ".stado", "plugin-lock.toml")
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-		}
+	// Config discovery is the source of truth for project scope. Return this
+	// path before the lock exists so a first remote install in a project does
+	// not silently fall back to user-global state.
+	if projectDir := cfg.ProjectStadoDir(); projectDir != "" {
+		return filepath.Join(projectDir, "plugin-lock.toml")
 	}
 	return filepath.Join(cfg.StateDir(), "plugin-lock.toml")
 }

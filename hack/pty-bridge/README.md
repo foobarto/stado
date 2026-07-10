@@ -106,9 +106,10 @@ by default.
   (or `stado` on `$PATH`).
 - A Chrome / Chromium binary at `~/.local/bin/chrome`, OR set
   `STADO_PTY_BRIDGE_CHROME=/path/to/chrome`.
-- For the demo-plugin scenarios (render / approval / choice
-  drawer): `GOOS=wasip1 GOARCH=wasm go build` toolchain (any
-  recent Go on a host with the wasip1 target — bundled).
+- For the UI-plugin scenarios (render / approval / choice drawer):
+  `GOOS=wasip1 GOARCH=wasm go build` toolchain. The self-contained fixture
+  lives under `testdata/ui-demo`; these tests do not depend on the separately
+  distributed `stado-plugins` repository or network access.
 - For the streaming scenarios (text-delta / queued / sidebar /
   markdown / mode toggle): no extra setup — they use an
   in-process `httptest.Server` as a stub LLM provider.

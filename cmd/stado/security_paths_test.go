@@ -23,7 +23,7 @@ func TestSessionDescribe_RejectsTraversalID(t *testing.T) {
 	}
 }
 
-func TestAgentsKill_RejectsTraversalID(t *testing.T) {
+func TestSessionKill_RejectsTraversalID(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
@@ -41,7 +41,7 @@ func TestAgentsKill_RejectsTraversalID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = agentsKillCmd.RunE(agentsKillCmd, []string{"../../victim"})
+	err = sessionKillCmd.RunE(sessionKillCmd, []string{"../../victim"})
 	if err == nil {
 		t.Fatal("expected traversal id to fail")
 	}
@@ -53,7 +53,7 @@ func TestAgentsKill_RejectsTraversalID(t *testing.T) {
 	}
 }
 
-func TestAgentsKill_RejectsSymlinkedWorktreeRoot(t *testing.T) {
+func TestSessionKill_RejectsSymlinkedWorktreeRoot(t *testing.T) {
 	root := t.TempDir()
 	stateHome := filepath.Join(root, "state")
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -75,9 +75,9 @@ func TestAgentsKill_RejectsSymlinkedWorktreeRoot(t *testing.T) {
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	err := agentsKillCmd.RunE(agentsKillCmd, []string{id})
+	err := sessionKillCmd.RunE(sessionKillCmd, []string{id})
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("agents kill error = %v, want symlink rejection", err)
+		t.Fatalf("session kill error = %v, want symlink rejection", err)
 	}
 	if _, err := os.Stat(filepath.Join(outside, "worktrees", id, "keep.txt")); err != nil {
 		t.Fatalf("symlink target was modified: %v", err)

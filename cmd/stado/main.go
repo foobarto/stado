@@ -62,10 +62,10 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// The TUI needs both a usable stdin and stdout TTY; without
 		// one, bubbletea bails with a low-level "/dev/tty: no such
-		// device" message. Catch that early with an actionable pointer
-		// to the scripting surfaces (`run`, `headless`).
+		// device" message. Catch that early with an actionable pointer to
+		// the one-shot and persistent non-interactive `run` modes.
 		if !isatty.IsTerminal(os.Stdin.Fd()) || !isatty.IsTerminal(os.Stdout.Fd()) {
-			return fmt.Errorf("stado: interactive TUI requires a TTY — try `stado run --prompt \"...\"` for one-shot, or `stado headless` for JSON-RPC")
+			return fmt.Errorf("stado: interactive TUI requires a TTY — try `stado run --prompt \"...\"` for one-shot, or `stado run --headless` for JSON-RPC")
 		}
 		cfg, err := config.Load()
 		if err != nil {
@@ -148,7 +148,7 @@ var configPathCmd = &cobra.Command{
 var unsafeSkipBundleVerify bool
 
 // noSandbox is the v1 sandbox opt-out, persistent across every entry point
-// (TUI, run, acp, headless, mcp-server, session tree) — all of which resolve
+// (TUI, run, run --headless, acp, mcp-server, session tree) — all of which resolve
 // their posture through brokerProfileFromFlags(). Previously --no-sandbox was a
 // run-only flag, so `stado --no-sandbox` (TUI) failed with "unknown flag" and
 // the non-run entry points had no opt-out at all.
@@ -202,7 +202,7 @@ func main() {
 // a typo'd shell name (`stado completion fsh`) otherwise writes help text into
 // that file and reports success, so neither the user nor a wrapping script sees
 // the failure. The same silent-success affected `session`, `config`, `plugin`,
-// `tool`, `agents`, `schedule`, and `harness`. Top-level `stado <bad>` already
+// `tool`, `schedule`, and `harness`. Top-level `stado <bad>` already
 // errors; this makes the subcommand groups consistent.
 //
 // Commands with their own Run/RunE (the root TUI, leaf commands) are left

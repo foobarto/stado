@@ -139,6 +139,10 @@ func (m *Model) anyModalOpen() bool {
 		return true
 	case m.fleetPicker != nil && m.fleetPicker.Visible:
 		return true
+	case m.approval != nil:
+		return true
+	case m.choice != nil:
+		return true
 	}
 	return false
 }
@@ -177,6 +181,12 @@ func (m *Model) closeAllModals() {
 	}
 	if m.fleetPicker != nil && m.fleetPicker.Visible {
 		m.fleetPicker.Close()
+	}
+	if m.approval != nil {
+		m.resolveApproval(false)
+	}
+	if m.choice != nil {
+		m.resolveChoiceCancel()
 	}
 	m.layout()
 }

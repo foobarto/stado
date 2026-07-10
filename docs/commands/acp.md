@@ -75,7 +75,7 @@ clients should treat those as visibility fields and use
   CLI entries unless `--tools` opens the sidecar path for execution.
 - Provider init is lazy. Startup can succeed even when provider
   credentials are missing; the first prompt surfaces the failure.
-- Use `stado headless` when you want an editor-neutral JSON-RPC method
+- Use `stado run --headless` when you want an editor-neutral JSON-RPC method
   set rather than Zed ACP.
 
 ## See also

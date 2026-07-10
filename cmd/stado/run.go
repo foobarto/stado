@@ -15,8 +15,10 @@ import (
 
 	"github.com/foobarto/stado/internal/config"
 	"github.com/foobarto/stado/internal/harness"
+	"github.com/foobarto/stado/internal/headless"
 	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/instructions"
+	"github.com/foobarto/stado/internal/personas"
 	"github.com/foobarto/stado/internal/runtime"
 	"github.com/foobarto/stado/internal/sandbox"
 	"github.com/foobarto/stado/internal/skills"
@@ -40,6 +42,7 @@ var (
 	runSessionID     string
 	runSkill         string
 	runPersona       string // --persona; empty = config default → bundled default
+	runHeadless      bool   // --headless: serve the JSON-RPC daemon instead of a one-shot prompt (was `stado headless`)
 	// Sampling overrides (EP-0036). Zero value means "use config / provider default".
 	runTemperature float64
 	runTopP        float64
@@ -88,8 +91,21 @@ masks credential-bearing paths. Pass --no-sandbox to opt out — tools
 run as direct subprocesses with full filesystem access, intended for
 development scenarios and explicit operator override.
 
+Daemon mode: pass --headless to serve a line-delimited JSON-RPC 2.0 daemon
+over stdio (multi-session; for CI and editor integration) instead of running
+a single prompt. This replaces the former ` + "`stado headless`" + ` command;
+see docs/commands/headless.md for the method reference.
+
 Exit codes: 0 success; 1 provider/IO error; 2 max-turns reached.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// --headless turns `run` into the JSON-RPC daemon (the surface
+		// formerly exposed as `stado headless`): a persistent multi-session
+		// stdio server, not a one-shot prompt. Branch before prompt
+		// resolution / MaybeRewrap / the 10-minute timeout so the daemon
+		// keeps its own lifecycle exactly as the standalone command had it.
+		if runHeadless {
+			return runHeadlessMode(cmd, args)
+		}
 		if runPrompt == "" && len(args) > 0 {
 			runPrompt = strings.Join(args, " ")
 		}
@@ -453,6 +469,65 @@ func emitter(jsonOut, quiet bool, out io.Writer) func(agent.Event) {
 	}
 }
 
+// runHeadlessMode serves the line-delimited JSON-RPC 2.0 daemon over stdio —
+// the surface formerly exposed as `stado headless`. It is a persistent
+// multi-session server, not a one-shot run, so it deliberately does NOT call
+// sandbox.MaybeRewrap or impose run's 10-minute context timeout; per-call
+// inputs arrive through the session.* RPC methods rather than run's flags.
+func runHeadlessMode(cmd *cobra.Command, args []string) error {
+	// Reject one-shot-only inputs so a misuse like
+	// `stado run --headless --prompt hi` fails loudly instead of silently
+	// dropping the prompt. Per-call prompts go through session.prompt.
+	if runPrompt != "" || len(args) > 0 || runSkill != "" || runSessionID != "" {
+		return fmt.Errorf("run --headless is a JSON-RPC daemon and takes no prompt/--skill/--session; drive it with the session.* RPC methods")
+	}
+	cfg, err := runLoadConfig()
+	if err != nil {
+		return err
+	}
+	applyRootProviderOverrides(cfg)
+	// The daemon runs unwrapped under mode=off and mode=wrap alike (no
+	// MaybeRewrap), so warn once — an integrator wiring stado into another
+	// harness sees the containment posture on stderr.
+	sandbox.WarnIfHostUnsandboxed(sandbox.WrapConfig{Mode: cfg.Sandbox.Mode})
+	var defaultPersona *personas.Persona
+	if runPersona != "" {
+		p, err := resolvePersona(runPersona, cfg)
+		if err != nil {
+			return fmt.Errorf("run --headless: %w", err)
+		}
+		defaultPersona = p
+	}
+	return withTelemetry(cmd.Context(), cfg, func(ctx context.Context) error {
+		cwd, _ := os.Getwd()
+		brokerSession, brokerErr := attachToBroker(ctx, brokerPurposeFromFlags(), brokerProfileFromFlags(), cwd)
+		if brokerErr != nil {
+			return fmt.Errorf("stado run --headless: %w", brokerErr)
+		}
+		brokerSession.AnnounceSandboxMode(os.Stderr, "stado run --headless")
+		defer func() {
+			if closeErr := brokerSession.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "stado run --headless: broker session.terminate: %v\n", closeErr)
+			}
+		}()
+
+		prov, provErr := runBuildProvider(cfg)
+		if provErr != nil {
+			// Non-fatal: the daemon still serves non-LLM RPCs (tools.list,
+			// plugin.*) so an integrator can wire up before credentials land.
+			fmt.Fprintf(os.Stderr, "stado run --headless: provider unavailable: %v\n", provErr)
+		}
+		personaTag := ""
+		if defaultPersona != nil {
+			personaTag = " (persona=" + defaultPersona.Name + ")"
+		}
+		fmt.Fprintf(os.Stderr, "stado run --headless: ready (JSON-RPC 2.0, stdio)%s\n", personaTag)
+		srv := headless.NewServer(cfg, prov)
+		srv.DefaultPersona = defaultPersona
+		return srv.Serve(ctx, os.Stdin, os.Stdout)
+	})
+}
+
 func init() {
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt text (or provide as positional argument)")
 	runCmd.Flags().StringVar(&runSkill, "skill", "",
@@ -481,6 +556,8 @@ func init() {
 		"Persona name to use as the operating manual (system prompt). "+
 			"Empty = [defaults].persona from config, or bundled default. "+
 			"Resolution: {cwd}/.stado/personas → ~/.stado/personas → bundled.")
+	runCmd.Flags().BoolVar(&runHeadless, "headless", false,
+		"Serve a line-delimited JSON-RPC 2.0 daemon over stdio (multi-session; for CI and editor integration) instead of running a one-shot prompt. Prompt/skill/session inputs are rejected; drive sessions via the session.* RPC methods. --persona sets the default persona for new sessions.")
 	runCmd.Flags().StringVar(&runSessionID, "session", "",
 		"Continue an existing session: prior conversation is loaded, the new prompt appended, and the exchange persisted. Accepts uuid, uuid-prefix (≥8 chars), or description substring.")
 	// EP-0036: sampling overrides. Zero value = use config/provider default.

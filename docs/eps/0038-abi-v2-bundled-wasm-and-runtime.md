@@ -45,6 +45,19 @@ history:
       /ps /top /kill /stats /sandbox /config TUI introspection commands;
       [YOU] multi-producer renderer marker; sandbox MaybeRewrap wrap-mode re-exec.
       /session attach RW deferred — stub present, full implementation follow-on.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). Two body-vs-code divergences,
+      neither a runtime gap: (1) The §K migration paths never materialized as
+      written — bundled wasm lives at `internal/plugins/bundled/wasm/` (not
+      `internal/bundledplugins/`) and host imports live in
+      `internal/plugins/runtime/host_*.go` (not `internal/host/*`). The
+      `internal/tools/*` types were NOT moved to `internal/host/*`. (2) The
+      "Related" section claims this EP adds `cfg:config_dir`,
+      `cfg:plugin_install_dir`, and `cfg:worktree_dir` imports; only
+      `cfg:state_dir` was ever wired (expandFSEntry / registerCfgImports).
+      Bundled plugins that need a path use `cfg:state_dir/...` today.
 ---
 
 # EP-0038: ABI v2, bundled wasm tools, and runtime surface

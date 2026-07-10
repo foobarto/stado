@@ -28,7 +28,8 @@ var verifyCmd = &cobra.Command{
 		"With --show-builtin-keys, also prints the embedded minisign public key\n" +
 		"this binary was compiled with — the root `stado self-update` verifies\n" +
 		"checksums.txt.minisig against. (The signer key id is display-only and\n" +
-		"not embedded today; see SECURITY.md.) DESIGN §10.4.\n\n" +
+		"not embedded today; see SECURITY.md.) See EP-0012 (release\n" +
+		"integrity) and DESIGN.md \"Build & test\" for the provenance model.\n\n" +
 		"Combined with `go build -trimpath -buildvcs=true`, this lets an auditor\n" +
 		"confirm a binary came from the expected source commit.",
 	RunE: func(cmd *cobra.Command, args []string) error {

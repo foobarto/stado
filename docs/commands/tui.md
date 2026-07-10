@@ -50,7 +50,7 @@ Interactive coding sessions benefit from:
 - A sidebar pinning session label, cwd, model, instructions, skills.
 
 Everything the TUI does is backed by `internal/runtime`'s core agent
-loop, so `stado run` / `stado acp` / `stado headless` produce
+loop, so `stado run` / `stado acp` / `stado run --headless` produce
 bit-identical conversations from the same input.
 
 ## Launching

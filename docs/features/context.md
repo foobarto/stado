@@ -145,7 +145,7 @@ hard_threshold = 0.90   # 0 < x ≤ 1; 0 disables the block
 # hard_threshold = 0.98
 ```
 
-Headless mode (`stado headless`) honours the same thresholds, but its
+Headless mode (`stado run --headless`) honours the same thresholds, but its
 JSON event stream emits `session.update { kind: "context_warning",
 level: "soft" | "hard" }` when completed turns sit at or above the
 configured threshold. Headless does not block its callers on its own.

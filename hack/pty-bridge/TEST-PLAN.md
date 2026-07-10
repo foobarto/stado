@@ -192,10 +192,9 @@ bridge-UAT-only vs. teatest), and **cost** (rough seconds).
 
 #### 5. Approval drawer styling
 
-- **Trigger:** `/tool approval_demo` (assuming
-  `plugins/demos/approval-demo-go` installed via the same
-  `stado plugin dev` pattern `TestBridgeE2E_Stado_RendersPanel`
-  uses).
+- **Trigger:** `/tool approval_demo` from the in-tree `testdata/ui-demo`
+  fixture installed via the same `stado plugin dev` pattern used by
+  `TestBridgeE2E_Stado_RendersPanel`.
 - **Assertion:** snapshot contains the warning indicator (⚠ or
   `[!]` marker per current implementation), border around the
   body block, "Allow" + "Deny" keycaps with selection contrast,
@@ -204,9 +203,8 @@ bridge-UAT-only vs. teatest), and **cost** (rough seconds).
   blends colours + box-drawing — teatest tests the
   `pluginApprovalRequestMsg` routing but doesn't see the drawer's
   rendered styling. Catches lipgloss padding regressions.
-- **Cost:** ~6s (build approval-demo wasm + `plugin dev` install
-  + drive). Could share build infrastructure with the panel test
-  (extract a `installDemoPlugin` helper).
+- **Cost:** ~6s (build the UI fixture + `plugin dev` install + drive).
+  Shares `installUITestPlugin` with the panel and choice tests.
 
 #### 6. Choice drawer multi-select with checkboxes
 
@@ -322,11 +320,10 @@ When the new scenarios start landing, extract these helpers from
 func waitForSnapshot(ctx context.Context, t *testing.T, predicate string,
     timeout time.Duration) (snapshot string, err error)
 
-// installDemoPlugin builds + signs + installs a plugins/optional/<name>
-// plugin into the test process's XDG via `stado plugin dev`. Returns
-// once `tool list` shows the registered tool. Used by render-demo,
-// approval-demo, choose-demo, etc.
-func installDemoPlugin(t *testing.T, stadoBin, demoName string)
+// installUITestPlugin builds + signs + installs testdata/ui-demo into the
+// test process's XDG via `stado plugin dev`. Returns once `tool list` shows
+// the expected registered tool.
+func installUITestPlugin(t *testing.T, stadoBin, expectedToolName string)
 
 // connectStado is the boilerplate that fills the bridge's cmd field
 // and clicks connect. Not pulled out yet because each test slightly
@@ -334,7 +331,7 @@ func installDemoPlugin(t *testing.T, stadoBin, demoName string)
 // arrives.
 ```
 
-The `installDemoPlugin` helper is the highest-leverage one — three
+The `installUITestPlugin` helper is the highest-leverage one — three
 of the proposed scenarios need it.
 
 ## Cost summary (as-shipped)

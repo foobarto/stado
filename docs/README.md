@@ -20,8 +20,7 @@ Shorter forms live in:
 |---------|-------|-----------|
 | `stado` (TUI) | [commands/tui.md](commands/tui.md) | Interactive chat + tool loop |
 | `stado run` | [commands/run.md](commands/run.md) | Non-interactive single-shot prompt |
-| `stado session` | [commands/session.md](commands/session.md) | Create/list/fork/land agent sessions |
-| `stado agents` | [commands/agents.md](commands/agents.md) | Parallel agent view + kill |
+| `stado session` | [commands/session.md](commands/session.md) | Create/list/fork/land/kill agent sessions |
 | `stado audit` | [commands/audit.md](commands/audit.md) | Verify signed tree/trace refs |
 | `stado doctor` | [commands/doctor.md](commands/doctor.md) | Environment health-check |
 | `stado config` | [commands/config.md](commands/config.md) | Edit / show effective config |
@@ -29,7 +28,7 @@ Shorter forms live in:
 | `stado memory` | [commands/memory.md](commands/memory.md) | Review plugin-proposed persistent memories |
 | `stado learning` | [commands/learning.md](commands/learning.md) | Propose reviewable operational lessons |
 | `stado stats` | [commands/stats.md](commands/stats.md) | Cost + usage dashboard |
-| `stado headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
+| `stado run --headless` | [commands/headless.md](commands/headless.md) | JSON-RPC daemon |
 | `stado acp` | [commands/acp.md](commands/acp.md) | Zed Agent-Client-Protocol server |
 | `stado mcp-server` | [commands/mcp-server.md](commands/mcp-server.md) | Expose tools via MCP v1 |
 | `stado verify` | [commands/verify.md](commands/verify.md) | Print build provenance |

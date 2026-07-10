@@ -64,6 +64,63 @@ become semver guarantees.
   `[tools].disabled` (user invocation is unaffected). Pre-1.0 clean break,
   no opt-in shim (EP-0045 D7).
 
+### CLI
+
+- **`stado agents` removed; folded into `stado session`.** The `agents`
+  command was a thin operational veneer over sessions whose subcommands
+  duplicated `session`: `agents attach` was identical to `session attach`,
+  and `agents list` surfaced the same live/stale rows `session list`
+  already shows via its STATUS column (plus `session show <id>` for the
+  tree/trace SHAs). The one behaviour unique to `agents` — signalling a
+  running agent's process before removing its worktree while **keeping**
+  the sidecar history — is now `stado session kill <id>`. `session delete`
+  stays the destructive sibling that also purges the refs.
+
+- **`stado headless` removed; folded into `stado run --headless`.** The
+  JSON-RPC 2.0 daemon is now a mode of `run` (the non-interactive surface)
+  rather than its own top-level command. The wire protocol, methods, and
+  behaviour are unchanged; `--headless` skips run's one-shot path (no prompt,
+  no turn cap, no 10-minute timeout) and serves the persistent stdio server.
+  `--persona` sets the default persona for new sessions.
+
+- **Project-local plugin installs are complete.** `stado plugin install
+  --local <dir-or-identity>` now installs into the discovered project's
+  `.stado/plugins/` directory while keeping signer trust user-local.
+  Dependency resolution searches project and global plugin roots, first-time
+  lock files stay in the project, and `--local --autoload` updates the project
+  config instead of the user-global config.
+
+#### Removed surfaces
+
+- `stado agents list` -> `stado session list` (STATUS=`live` marks running
+  sessions; `session show <id>` prints the tree/trace SHAs).
+- `stado agents attach <id>` -> `stado session attach <id>` (identical output).
+- `stado agents kill <id>` -> `stado session kill <id>` (same signal +
+  worktree removal, history preserved). Pre-1.0 clean break, no alias.
+- `stado headless` -> `stado run --headless` (same JSON-RPC daemon; per-call
+  inputs go through the `session.*` methods). Pre-1.0 clean break, no alias.
+
+### TUI
+
+- **Plugin approval and choice drawers cancel reliably.** `Esc` and `Ctrl+G`
+  resolve the pending request as denied/cancelled, and the global `Ctrl+C`
+  modal close path now includes both drawers instead of leaving the plugin
+  blocked until timeout.
+- **Plugin diagnostics no longer corrupt the alternate screen.** Registry
+  rebuilds emit each installed-plugin warning once, before the TUI starts,
+  rather than writing raw stderr over live input, sidebar, and result rows.
+- **Landing plugin summaries respect terminal width.** Long plugin lists now
+  truncate with an ellipsis instead of clipping a plugin name at the edge.
+
+### Infra
+
+- **PTY UAT is self-contained and leak-free.** Render, approval, and choice
+  tests use an in-tree WASM fixture; Chrome is closed gracefully even through
+  the Flatpak wrapper; XDG state and background assertions are isolated.
+- **Broker daemon integration tests use short Unix-socket paths** and surface
+  early server errors, avoiding false handshake timeouts under a long
+  `GOTMPDIR`.
+
 ## v0.75.2 — Codex triage batches 3+4 — 2026-06-15
 
 Patch follow-up to v0.75.1: closes the next **FIX_NOW** Codex security items

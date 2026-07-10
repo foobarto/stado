@@ -107,8 +107,8 @@ type installedPluginTool struct {
 	// each instance to the registry-build that created it; subsequent
 	// builds get their own instances with their own pointers, so
 	// nested invokes can't leak across builds.
-	cfg       *config.Config
-	invokeReg *tools.Registry
+	cfg        *config.Config
+	invokeReg  *tools.Registry
 	invokeExec *tools.Executor
 }
 
@@ -237,8 +237,10 @@ func splitInstalledID(id string) (name, version string, ok bool) {
 // map populated by registerInstalledPluginTools and consumed by
 // LookupInstalledModule (used by cmd/stado/tool_run.go to dispatch).
 var (
-	installedRegistryMu sync.Mutex
-	installedByTool     = map[string]installedRecord{}
+	installedRegistryMu          sync.Mutex
+	installedByTool              = map[string]installedRecord{}
+	ignoredProjectPluginWarnings sync.Map
+	installedPluginDiagnostics   sync.Map
 )
 
 type installedRecord struct {
@@ -287,11 +289,29 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 		// `cd`, even when signed by a globally-trusted key. Skip it unless the
 		// operator set [plugins] allow_project_plugins.
 		if pluginsDir == projectDir && projectDir != "" && !cfg.Plugins.AllowProjectPlugins {
-			fmt.Fprintf(os.Stderr, "stado: ignoring project-local plugins in %s — set [plugins] allow_project_plugins = true (in user/global config) to autoload them (security).\n", projectDir)
+			if shouldWarnIgnoredProjectPlugins(projectDir) {
+				fmt.Fprintf(os.Stderr, "stado: ignoring project-local plugins in %s — set [plugins] allow_project_plugins = true (in user/global config) to autoload them (security).\n", projectDir)
+			}
 			continue
 		}
 		registerPluginsFromDir(reg, cfg, ts, stateDir, pluginsDir, seen)
 	}
+}
+
+func shouldWarnIgnoredProjectPlugins(projectDir string) bool {
+	_, alreadyWarned := ignoredProjectPluginWarnings.LoadOrStore(projectDir, struct{}{})
+	return !alreadyWarned
+}
+
+// emitInstalledPluginDiagnosticOnce keeps registry rebuilds from writing raw
+// stderr into Bubble Tea's alternate screen. The initial registry build still
+// reports each distinct problem before the TUI starts.
+func emitInstalledPluginDiagnosticOnce(format string, args ...any) {
+	message := fmt.Sprintf(format, args...)
+	if _, alreadyEmitted := installedPluginDiagnostics.LoadOrStore(message, struct{}{}); alreadyEmitted {
+		return
+	}
+	fmt.Fprint(os.Stderr, message)
 }
 
 // registerPluginsFromDir registers every active installed-plugin tool found
@@ -303,7 +323,7 @@ func registerInstalledPluginTools(reg *tools.Registry, cfg *config.Config) {
 func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins.TrustStore, stateDir, pluginsDir string, seen map[string]bool) {
 	groups, err := groupInstalledByName(pluginsDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "stado: warn: enumerate installed plugins in %s: %v\n", pluginsDir, err)
+		emitInstalledPluginDiagnosticOnce("stado: warn: enumerate installed plugins in %s: %v\n", pluginsDir, err)
 		return
 	}
 	for name, versions := range groups {
@@ -321,27 +341,27 @@ func registerPluginsFromDir(reg *tools.Registry, cfg *config.Config, ts *plugins
 		dir := filepath.Join(pluginsDir, name+"-"+version)
 		mf, sig, err := plugins.LoadFromDir(dir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s manifest load: %v\n", name, version, err)
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s manifest load: %v\n", name, version, err)
 			continue
 		}
 		if err := ts.VerifyManifest(mf, sig); err != nil {
-			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s signature failed: %v; not registered\n", name, version, err)
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s signature failed: %v; not registered\n", name, version, err)
 			continue
 		}
 		wasmPath := filepath.Join(dir, "plugin.wasm")
 		// Re-verify wasm sha now to catch tampering between install
 		// and registration.
 		if _, err := plugins.ReadVerifiedWASM(mf.WASMSHA256, wasmPath); err != nil {
-			fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s wasm verify: %v; not registered\n", name, version, err)
+			emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s wasm verify: %v; not registered\n", name, version, err)
 			continue
 		}
 		for _, def := range mf.Tools {
 			if _, exists := reg.Get(def.Name); exists {
-				fmt.Fprintf(os.Stderr, "stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
+				emitInstalledPluginDiagnosticOnce("stado: info: plugin %s@%s overrides registered tool %s\n", name, version, def.Name)
 			}
 			class, err := pluginRuntime.EffectiveToolClass(def, mf.Capabilities)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to exec\n",
+				emitInstalledPluginDiagnosticOnce("stado: warn: plugin %s@%s tool %s: class resolve: %v; defaulting to exec\n",
 					name, version, def.Name, err)
 			}
 			reg.Register(newInstalledPluginTool(*mf, def, wasmPath, class, cfg, reg))

@@ -13,9 +13,12 @@ import (
 // upper-left corner.
 func TestLandingShowsWhatsNewUpperLeft(t *testing.T) {
 	m := newPickerTestModel(t, "anthropic")
-	m.width, m.height = 120, 40
+	// Use a height where the changelog and full branded banner both fit.
+	// Shorter terminals intentionally prioritize the banner; that behavior is
+	// pinned separately by TestLanding_WhatsNewYieldsThenReturns.
+	m.width, m.height = 120, 60
 
-	out := ansi.Strip(m.renderLanding(120, 40))
+	out := ansi.Strip(m.renderLanding(120, 60))
 	rel := changelog.Latest()
 
 	if !strings.Contains(out, "what's new") {

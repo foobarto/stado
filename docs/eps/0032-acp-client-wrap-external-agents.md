@@ -19,14 +19,29 @@ history:
   - date: 2026-05-05
     status: Implemented
     note: Phase A+B shipped. Phase C (merge mode) explicitly deferred per EP decision — "defer until B has been in use long enough." Status updated to Implemented for phases A+B.
+  - date: 2026-07-09
+    status: Implemented
+    note: >
+      Doc correction (planned-vs-code audit). Two body staleness items fixed:
+      (1) the top status banner still said "Draft … Phase B not yet
+      implemented", contradicting the Implemented frontmatter and the shipped
+      Phase B code — banner updated. (2) §H points at a new file
+      `internal/acp/toolhost.go`; the as-built tool-host actually lives in
+      `internal/providers/acpwrap/{toolhost,mcpmount,host}.go` (a stale
+      pointer to the old path also lingers in an internal/acp/client.go
+      comment). Phase B is gated by Tools="stado" and ClientCapabilities
+      ReadTextFile, as designed.
 see-also: [0005, 0006]
 ---
 
 # EP-0032: ACP client — wrap external coding-agent CLIs as stado providers
 
-> **Status: Draft.** Phase A is implemented and shipping in v0.27.0.
-> Phase B (tool-host capability) and Phase C (per-call hybrid) are
-> design-locked here but not yet implemented.
+> **Status: Implemented (Phases A + B).** Phase A shipped in v0.27.0;
+> Phase B (tool-host capability) shipped later (see the history log and the
+> 2026-07-09 correction). Phase C (per-call hybrid) remains explicitly
+> deferred. The "Phase B (planned)" sections below are retained as the
+> original design record — where they name file paths, see the 2026-07-09
+> history note for the as-built locations.
 
 ## Problem
 

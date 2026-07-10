@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/foobarto/stado/internal/changelog"
 	"github.com/foobarto/stado/internal/runtime"
@@ -78,7 +79,7 @@ func (m *Model) renderLanding(width, height int) string {
 	}
 	input := strings.TrimRight(m.renderInputBox(m.landingInputW(width)), "\n")
 	hint := landingHint(m.theme)
-	plugins := m.landingPluginsHint()
+	plugins := m.landingPluginsHint(width)
 	providerHint := m.landingProviderHint(width)
 
 	// #22: a brief changelog summary anchored to the upper-left corner. It
@@ -323,7 +324,7 @@ func (m *Model) landingProviderHint(width int) string {
 // — the caller skips the spacing block in that case. Q2 (low-prio
 // follow-up to EP-no-internal-tools): the operator sees what plugin
 // surface is live before typing the first prompt.
-func (m *Model) landingPluginsHint() string {
+func (m *Model) landingPluginsHint(width int) string {
 	if m.executor == nil {
 		return ""
 	}
@@ -340,7 +341,7 @@ func (m *Model) landingPluginsHint() string {
 		parts[i] = m.theme.Fg("text_secondary").Render(n)
 	}
 	count := m.theme.Fg("muted").Render(fmt.Sprintf("%d plugins  ", len(names)))
-	return count + strings.Join(parts, dot)
+	return ansi.Truncate(count+strings.Join(parts, dot), width, "…")
 }
 
 // landingWhatsNewWidth caps the upper-left changelog block so it stays a

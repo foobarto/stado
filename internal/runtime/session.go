@@ -210,9 +210,9 @@ func attachSessionScaffolding(sess *stadogit.Session, cfg *config.Config, userRe
 		)
 	}
 
-	// Drop a pid file so `stado agents list` / `stado agents kill` can find
-	// this process. Best-effort: ignore write errors (worktree might be
-	// read-only or similar).
+	// Drop a pid file so `stado session list` (STATUS=live) / `stado session
+	// kill` can find this process. Best-effort: ignore write errors (worktree
+	// might be read-only or similar).
 	_ = WriteSessionPID(sess.WorktreePath, os.Getpid())
 }
 

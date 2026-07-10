@@ -18,6 +18,7 @@ import (
 var pluginInstallSigner string
 var pluginInstallForce bool
 var pluginInstallAutoload bool
+var pluginInstallLocal bool
 var pluginInstallTrustAnchor bool
 
 // Keep plugin install copies aligned with the maximum signed WASM payload.
@@ -34,7 +35,8 @@ var pluginInstallCmd = &cobra.Command{
 		"copies the plugin directory into $XDG_DATA_HOME/stado/plugins/\n" +
 		"<name>-<version>/. Idempotent — re-installing the same version is a\n" +
 		"no-op advisory; a newer version installs alongside so rollback is a\n" +
-		"directory swap.\n\n" +
+		"directory swap. Pass --local to install into the discovered project's\n" +
+		".stado/plugins/ directory instead; signer trust remains user-local.\n\n" +
 		"When the plugin's author key isn't pinned, install fails with a hint\n" +
 		"pointing at `stado plugin trust <pubkey>`. Pass --signer <pubkey> to\n" +
 		"TOFU-pin inline (manifest carries only the fingerprint; stado needs\n" +
@@ -44,6 +46,10 @@ var pluginInstallCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		installDir, err := pluginInstallBaseDir(cfg, pluginInstallLocal)
 		if err != nil {
 			return err
 		}
@@ -93,7 +99,11 @@ var pluginInstallCmd = &cobra.Command{
 		// manifest declares `requires`, every entry must already be
 		// installed at a satisfying version. Prevents silent partial-
 		// functionality (composite plugins like exploit-lib + http-session).
-		if reqErr := plugins.CheckRequires(m, filepath.Join(cfg.StateDir(), "plugins")); reqErr != nil {
+		dependencyDirs := []string{filepath.Join(cfg.StateDir(), "plugins")}
+		if pluginInstallLocal {
+			dependencyDirs = cfg.AllPluginDirs()
+		}
+		if reqErr := plugins.CheckRequiresInDirs(m, dependencyDirs); reqErr != nil {
 			return fmt.Errorf("install: %w", reqErr)
 		}
 
@@ -122,7 +132,7 @@ var pluginInstallCmd = &cobra.Command{
 			return fmt.Errorf("install: plugin manifest Name or Version contains path separators or traversal (name=%q version=%q)", m.Name, m.Version)
 		}
 
-		dst := filepath.Join(cfg.StateDir(), "plugins", m.Name+"-"+m.Version)
+		dst := filepath.Join(installDir, m.Name+"-"+m.Version)
 		if info, err := os.Lstat(dst); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("install: destination is a symlink: %s", dst)
@@ -177,6 +187,11 @@ var pluginInstallCmd = &cobra.Command{
 			}
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "installed %s v%s at %s\n", m.Name, m.Version, dst)
+		if pluginInstallLocal && !cfg.Plugins.AllowProjectPlugins {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"note: project plugin loading is disabled; set [plugins] allow_project_plugins = true in %s after reviewing the project plugin\n",
+				cfg.ConfigPath)
+		}
 
 		// --autoload: persist this plugin's tools into config.toml's
 		// [tools].autoload list so they're loaded into every session
@@ -186,14 +201,31 @@ var pluginInstallCmd = &cobra.Command{
 			for _, td := range m.Tools {
 				names = append(names, td.Name)
 			}
-			if err := config.WriteToolsListAdd(cfg.ConfigPath, "autoload", names); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warn: --autoload could not update %s: %v\n", cfg.ConfigPath, err)
+			autoloadPath := cfg.ConfigPath
+			if pluginInstallLocal {
+				autoloadPath = filepath.Join(cfg.ProjectStadoDir(), "config.toml")
+			}
+			if err := config.WriteToolsListAdd(autoloadPath, "autoload", names); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warn: --autoload could not update %s: %v\n", autoloadPath, err)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "autoloaded: %s\n", strings.Join(names, ", "))
 			}
 		}
 		return nil
 	},
+}
+
+func pluginInstallBaseDir(cfg *config.Config, local bool) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("install: config is required")
+	}
+	if !local {
+		return filepath.Join(cfg.StateDir(), "plugins"), nil
+	}
+	if dir := cfg.ProjectPluginsDir(); dir != "" {
+		return dir, nil
+	}
+	return "", fmt.Errorf("install: --local requires a project .stado directory in the current directory or an ancestor")
 }
 
 // copyDir copies files + regular dirs from src to dst. Symlinks and

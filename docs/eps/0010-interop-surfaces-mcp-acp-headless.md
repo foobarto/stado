@@ -15,6 +15,9 @@ history:
     status: Implemented
     version: v0.1.0
     note: ACP, headless, MCP client attachment, and `mcp-server` are current integration surfaces over the shared runtime.
+  - date: 2026-07-09
+    status: Implemented
+    note: The standalone `stado headless` command was folded into `stado run --headless` (the non-interactive surface); the JSON-RPC daemon, its methods, and the wire protocol are unchanged. Body references below to `stado headless` name the pre-fold command.
 ---
 
 # EP-10: Interop Surfaces: MCP, ACP, and Headless

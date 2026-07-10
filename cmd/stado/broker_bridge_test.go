@@ -123,7 +123,18 @@ func TestBrokerDecisionLog_RoundTripThroughDaemon(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", stateRoot)
 	cfg := &config.Config{}
 
-	socketPath := filepath.Join(t.TempDir(), "broker-decisionlog.sock")
+	socketFile, err := os.CreateTemp("", "stado-broker-decisionlog-*.sock")
+	if err != nil {
+		t.Fatalf("reserve short socket path: %v", err)
+	}
+	socketPath := socketFile.Name()
+	if err := socketFile.Close(); err != nil {
+		t.Fatalf("close socket-path placeholder: %v", err)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		t.Fatalf("remove socket-path placeholder: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(socketPath) })
 	svc, err := buildBrokerService(cfg)
 	if err != nil {
 		t.Fatalf("buildBrokerService: %v", err)
@@ -135,10 +146,14 @@ func TestBrokerDecisionLog_RoundTripThroughDaemon(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	serveErr := make(chan error, 1)
+	serverExited := false
 	go func() { serveErr <- srv.Serve(ctx) }()
 	defer func() {
 		_ = srv.Stop()
 		cancel()
+		if serverExited {
+			return
+		}
 		select {
 		case <-serveErr:
 		case <-time.After(10 * time.Second):
@@ -153,6 +168,12 @@ func TestBrokerDecisionLog_RoundTripThroughDaemon(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	var client *daemon.Client
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-serveErr:
+			serverExited = true
+			t.Fatalf("daemon server exited before handshake: %v", err)
+		default:
+		}
 		c, _, derr := daemon.DialAndHandshake(ctx, socketPath, "test")
 		if derr == nil {
 			client = c

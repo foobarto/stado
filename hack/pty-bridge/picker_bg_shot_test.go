@@ -18,6 +18,7 @@ import (
 func TestBridgeShot_ModelPickerBackground(t *testing.T) {
 	requireBridgeE2E(t)
 	stadoBinAbs := stadoBinForTest(t)
+	isolateXDG(t)
 	baseURL, token := startBridgeInProcess(t)
 
 	driveChrome(t, baseURL+"/?token="+token, func(ctx context.Context) error {

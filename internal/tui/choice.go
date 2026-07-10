@@ -289,7 +289,7 @@ func (m *Model) handleChoiceKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.choiceCursor < len(m.choice.options) &&
 		m.choice.options[m.choiceCursor].Input != nil
 	switch msg.String() {
-	case "esc":
+	case "esc", "ctrl+g":
 		return m.resolveChoiceCancel(), true
 	case "up":
 		if m.choiceCursor > 0 {
