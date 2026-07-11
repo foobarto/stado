@@ -104,12 +104,16 @@ func (s *Server) pluginRun(ctx context.Context, raw json.RawMessage) (any, error
 	if p.ID == "" || p.Tool == "" {
 		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "plugin.run requires id + tool"}
 	}
-	s.mu.Lock()
-	sess := s.sessions[p.SessionID]
-	s.mu.Unlock()
-	if sess == nil {
-		return nil, &acp.RPCError{Code: acp.CodeInvalidParams, Message: "unknown sessionId"}
+	sess, startErr := s.lockSessionForOperation(p.SessionID)
+	if startErr != nil {
+		return nil, startErr
 	}
+	sess.mu.Unlock()
+	defer func() {
+		sess.mu.Lock()
+		sess.busy = false
+		sess.mu.Unlock()
+	}()
 
 	pluginsRoot := filepath.Join(s.Cfg.StateDir(), "plugins")
 	dir, err := plugins.InstalledDir(pluginsRoot, p.ID)

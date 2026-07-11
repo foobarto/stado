@@ -229,6 +229,7 @@ func TestPluginForkMsg_RestoresRecoveryPromptWhenBrokerResetFails(t *testing.T) 
 	m.recoveryPrompt = "retry this in the child"
 	m.recoveryPluginName = "auto-compact"
 	m.recoveryPluginActive = true
+	m.queuedPrompt = "queued follow-up"
 	m.input.SetValue("unsent draft")
 
 	cfg, err := config.Load()
@@ -246,11 +247,48 @@ func TestPluginForkMsg_RestoresRecoveryPromptWhenBrokerResetFails(t *testing.T) 
 	if cmd != nil {
 		t.Fatal("failed broker reset returned a stream command")
 	}
-	if got := m.input.Value(); got != "retry this in the child\nunsent draft" {
+	if got := m.input.Value(); got != "retry this in the child\nqueued follow-up\nunsent draft" {
 		t.Fatalf("restored input = %q", got)
 	}
 	if m.session == nil || m.session.ID != child.ID {
 		t.Fatalf("child session was not adopted: %+v", m.session)
+	}
+}
+
+func TestPluginForkMsg_PreservesQueuedFollowupAndDraftAfterReplay(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	m := newForkTestModel(t)
+	m.provider = forkRecoveryProvider{}
+	m.buildProvider = func() (agent.Provider, error) { return m.provider, nil }
+	m.recoveryPrompt = "retry this in the child"
+	m.recoveryPluginName = "auto-compact"
+	m.recoveryPluginActive = true
+	m.queuedPrompt = "queued follow-up"
+	m.input.SetValue("unsent draft")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := runtime.ForkPluginSession(cfg, m.session, "", "condensed conversation", "auto-compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, cmd := m.Update(pluginForkMsg{
+		plugin: "auto-compact", childID: child.ID, seed: "condensed conversation",
+	})
+	if cmd == nil {
+		t.Fatal("successful replay did not return a stream command")
+	}
+	if got := m.input.Value(); got != "queued follow-up\nunsent draft" {
+		t.Fatalf("retained input = %q", got)
+	}
+	last := m.msgs[len(m.msgs)-1]
+	if last.Content[0].Text == nil || last.Content[0].Text.Text != "retry this in the child" {
+		t.Fatalf("replayed prompt = %+v", last)
 	}
 }
 
