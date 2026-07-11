@@ -339,6 +339,11 @@ func (fragmentedVerifyProvider) StreamTurn(context.Context, agent.TurnRequest) (
 		for range maxBufferedVerifyEvents + 1 {
 			events <- agent.Event{Kind: agent.EvTextDelta, Text: "x"}
 		}
+		for range 1024 {
+			events <- agent.Event{Kind: agent.EvToolCallEnd, ToolCall: &agent.ToolUseBlock{
+				ID: "post-cap", Name: "flood", Input: json.RawMessage(`{"payload":"ignored"}`),
+			}}
+		}
 		events <- agent.Event{Kind: agent.EvDone}
 	}()
 	return events, nil

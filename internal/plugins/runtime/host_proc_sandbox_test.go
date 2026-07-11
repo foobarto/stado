@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"math"
 	"os/exec"
 	"slices"
 	"strings"
@@ -49,6 +50,15 @@ func TestCappedOutputDrainsAndBoundsMemory(t *testing.T) {
 	}
 	if !w.overflow || w.buf.Len() != 5 {
 		t.Fatalf("overflow=%v len=%d", w.overflow, w.buf.Len())
+	}
+}
+
+func TestProcCaptureLimitIgnoresOversizedGuestClaim(t *testing.T) {
+	if got := procCaptureLimit(math.MaxUint32); got != maxProcCaptureBytes {
+		t.Fatalf("capture limit for max guest claim = %d, want %d", got, maxProcCaptureBytes)
+	}
+	if got := procCaptureLimit(4096); got != 4096 {
+		t.Fatalf("capture limit for small guest claim = %d", got)
 	}
 }
 

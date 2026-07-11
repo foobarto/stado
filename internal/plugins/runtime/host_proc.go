@@ -35,6 +35,15 @@ type cappedOutput struct {
 	overflow bool
 }
 
+const maxProcCaptureBytes = 1 << 20
+
+func procCaptureLimit(claimed uint32) int {
+	if claimed > maxProcCaptureBytes {
+		return maxProcCaptureBytes
+	}
+	return int(claimed)
+}
+
 func (w *cappedOutput) Write(p []byte) (int, error) {
 	written := len(p)
 	remaining := w.limit - w.buf.Len()
@@ -207,7 +216,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			if req.Stdin != "" {
 				cmd.Stdin = strings.NewReader(req.Stdin)
 			}
-			out := cappedOutput{limit: int(resCap)}
+			out := cappedOutput{limit: procCaptureLimit(resCap)}
 			cmd.Stdout = &out
 			cmd.Stderr = &out
 

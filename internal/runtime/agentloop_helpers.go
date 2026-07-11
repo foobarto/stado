@@ -92,25 +92,36 @@ func hashMessagesPrefix(msgs []agent.Message, n int) string {
 // usage, err). usage is the final EvDone.Usage on providers that
 // report it; zero value if the provider emits neither EvDone nor a
 // Usage payload.
-func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []agent.ToolUseBlock, agent.Usage, error) {
+func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event) error, cancel func()) (string, []agent.ToolUseBlock, agent.Usage, error) {
 	var text string
 	var calls []agent.ToolUseBlock
 	var usage agent.Usage
 	var thinkingBytes int
+	var collectErr error
 	for ev := range ch {
+		if collectErr != nil {
+			continue
+		}
 		switch ev.Kind {
 		case agent.EvTextDelta:
 			if err := streambudget.CheckAppend("assistant text", len(text), len(ev.Text), streambudget.MaxAssistantTextBytes); err != nil {
-				return text, calls, usage, err
+				collectErr = err
 			}
 		case agent.EvThinkingDelta:
 			if err := streambudget.CheckAppend("assistant thinking", thinkingBytes, len(ev.Text), streambudget.MaxThinkingTextBytes); err != nil {
-				return text, calls, usage, err
+				collectErr = err
+			} else {
+				thinkingBytes += len(ev.Text)
 			}
-			thinkingBytes += len(ev.Text)
 		}
-		if onEvent != nil {
-			onEvent(ev)
+		if collectErr == nil && onEvent != nil {
+			collectErr = onEvent(ev)
+		}
+		if collectErr != nil {
+			if cancel != nil {
+				cancel()
+			}
+			continue
 		}
 		switch ev.Kind {
 		case agent.EvTextDelta:
@@ -124,10 +135,13 @@ func collectTurn(ch <-chan agent.Event, onEvent func(agent.Event)) (string, []ag
 				usage = *ev.Usage
 			}
 		case agent.EvError:
-			return text, calls, usage, ev.Err
+			collectErr = ev.Err
+			if cancel != nil {
+				cancel()
+			}
 		}
 	}
-	return text, calls, usage, nil
+	return text, calls, usage, collectErr
 }
 
 type autoApproveHost struct {

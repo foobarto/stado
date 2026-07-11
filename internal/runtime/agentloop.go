@@ -440,8 +440,10 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		}
 		turnSpan.SetAttributes(attribute.String("provider.model", req.Model))
 
-		ch, err := opts.Provider.StreamTurn(turnCtx, req)
+		providerCtx, cancelProvider := context.WithCancel(turnCtx)
+		ch, err := opts.Provider.StreamTurn(providerCtx, req)
 		if err != nil {
+			cancelProvider()
 			closeVerifyPending(err)
 			turnSpan.RecordError(err)
 			turnSpan.SetStatus(codes.Error, err.Error())
@@ -452,15 +454,22 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		turnEvents := make([]agent.Event, 0, 8)
 		turnEventBytes := 0
 		var turnEventErr error
-		onEvent := opts.OnEvent
+		var onEvent func(agent.Event) error
 		if opts.Verify.Enabled() && opts.OnEvent != nil {
-			onEvent = func(event agent.Event) {
+			onEvent = func(event agent.Event) error {
 				if turnEventErr == nil {
 					turnEventErr = bufferVerifyEvent(&turnEvents, &turnEventBytes, event)
 				}
+				return turnEventErr
+			}
+		} else if opts.OnEvent != nil {
+			onEvent = func(event agent.Event) error {
+				opts.OnEvent(event)
+				return nil
 			}
 		}
-		text, calls, usage, err := collectTurn(ch, onEvent)
+		text, calls, usage, err := collectTurn(ch, onEvent, cancelProvider)
+		cancelProvider()
 		if err != nil {
 			closeVerifyPending(err)
 			turnSpan.RecordError(err)
