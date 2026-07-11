@@ -629,7 +629,8 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 		gitSess := sess.gitSess
 		sess.mu.Unlock()
 		if gitSess != nil {
-			exec, err := s.buildExecutor(gitSess)
+			executorSandbox := s.executorSandboxFor(sess)
+			exec, err := s.buildExecutorWithSandbox(gitSess, executorSandbox)
 			if err != nil {
 				return nil, &RPCError{Code: CodeInternalError, Message: err.Error()}
 			}
@@ -640,7 +641,7 @@ func (s *Server) handleSessionPrompt(ctx context.Context, raw json.RawMessage) (
 				workdir:         workdir,
 				readLog:         exec.ReadLog,
 				runner:          exec.Runner,
-				executorSandbox: s.ExecutorSandbox,
+				executorSandbox: executorSandbox,
 			}
 		}
 	} else if sess.maxTurns == 0 && (s.Cfg == nil || s.Cfg.ACP.MaxTurns == 0) {

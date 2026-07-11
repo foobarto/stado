@@ -64,8 +64,8 @@ func TestSubagentCeiling_OutsideScopeDropped_CeilTr(t *testing.T) {
 	})
 
 	gotWrite := ceilTrStrset(child.FSWrite)
-	if !gotWrite["/work/pkg/sub"] {
-		t.Errorf("subpath /work/pkg/sub should be allowed; child.FSWrite=%v", child.FSWrite)
+	if !gotWrite["/work/pkg"] {
+		t.Errorf("subpath /work/pkg/sub should project to mount root /work/pkg; child.FSWrite=%v", child.FSWrite)
 	}
 	if !gotWrite["/tmp"] {
 		t.Errorf("exact match /tmp should be allowed; child.FSWrite=%v", child.FSWrite)
@@ -398,8 +398,8 @@ func TestSubagentCeiling_DotDotEscapeDropped_CeilTr(t *testing.T) {
 	if gotWrite["/etc"] {
 		t.Fatalf("dotdot escape /work/../etc leaked into child.FSWrite=%v — ceiling WIDENED", child.FSWrite)
 	}
-	if !gotWrite["/work/b"] {
-		t.Errorf("/work/a/../b (=/work/b) should be allowed; child.FSWrite=%v", child.FSWrite)
+	if !gotWrite["/work"] {
+		t.Errorf("/work/a/../b should project to mount root /work; child.FSWrite=%v", child.FSWrite)
 	}
 	// The escaped path is surfaced (under its cleaned form) in dropped.
 	if !ceilTrStrset(dropped)["/etc"] {

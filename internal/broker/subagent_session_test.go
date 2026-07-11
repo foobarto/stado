@@ -31,7 +31,7 @@ func TestCreateSession_SubagentProjectsParentEffectiveIntoManagedWorktree(t *tes
 	if child.CWD != childCWD || child.Ceiling.CWD != childCWD {
 		t.Fatalf("child cwd = %q/%q, want %q", child.CWD, child.Ceiling.CWD, childCWD)
 	}
-	wantWrite := filepath.Join(childCWD, "src")
+	wantWrite := childCWD
 	if len(child.Ceiling.FSWrite) != 1 || child.Ceiling.FSWrite[0] != wantWrite {
 		t.Fatalf("child writes = %v, want [%s]", child.Ceiling.FSWrite, wantWrite)
 	}

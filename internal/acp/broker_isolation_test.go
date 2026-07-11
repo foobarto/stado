@@ -10,8 +10,9 @@ import (
 )
 
 type isolatedBrokerProbe struct {
-	mu     sync.Mutex
-	taints []runtime.ContextTaint
+	mu      sync.Mutex
+	taints  []runtime.ContextTaint
+	sandbox runtime.ExecutorSandbox
 }
 
 func (b *isolatedBrokerProbe) CreateSubagent(context.Context, runtime.BrokerSubagentRequest) (runtime.BrokerController, error) {
@@ -23,9 +24,9 @@ func (b *isolatedBrokerProbe) SetTaint(_ context.Context, taint runtime.ContextT
 	b.mu.Unlock()
 	return nil
 }
-func (*isolatedBrokerProbe) Sandbox() runtime.ExecutorSandbox { return runtime.ExecutorSandbox{} }
-func (*isolatedBrokerProbe) Worktree() string                 { return "" }
-func (*isolatedBrokerProbe) Close() error                     { return nil }
+func (b *isolatedBrokerProbe) Sandbox() runtime.ExecutorSandbox { return b.sandbox }
+func (*isolatedBrokerProbe) Worktree() string                   { return "" }
+func (*isolatedBrokerProbe) Close() error                       { return nil }
 
 func TestSessionNewUsesIndependentBrokerHandles(t *testing.T) {
 	srv := NewServer(&config.Config{}, nil)
@@ -55,4 +56,16 @@ func TestSessionNewUsesIndependentBrokerHandles(t *testing.T) {
 		t.Fatalf("taint state crossed sessions: first=%v second=%v", created[0].taints, created[1].taints)
 	}
 	srv.closeSessionBrokers()
+}
+
+func TestSessionUsesItsOwnBrokerSandbox(t *testing.T) {
+	srv := NewServer(&config.Config{}, nil)
+	srv.ExecutorSandbox = runtime.ExecutorSandbox{Disabled: true}
+	want := runtime.ExecutorSandbox{EnforceCeiling: true}
+	sess := &acpSession{broker: &isolatedBrokerProbe{sandbox: want}}
+
+	got := srv.executorSandboxFor(sess)
+	if got.Disabled || !got.EnforceCeiling {
+		t.Fatalf("session sandbox=%+v, want %+v", got, want)
+	}
 }
