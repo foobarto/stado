@@ -158,6 +158,9 @@ func TestBundledShellOneShotReportsNonZeroExit(t *testing.T) {
 	if !strings.Contains(res.Error, "command exited with code 7") || !strings.Contains(res.Error, "gate-failed") {
 		t.Fatalf("non-zero exit result = %+v", res)
 	}
+	if res.FailureKind != tool.FailureExit || res.ExitCode == nil || *res.ExitCode != 7 {
+		t.Fatalf("non-zero exit classification = %+v", res)
+	}
 }
 
 func TestBundledShellOneShotRejectsTruncatedHostResponse(t *testing.T) {

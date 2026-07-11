@@ -229,11 +229,36 @@ func TestRunVerificationRoundUsesBundledSandboxedShellExitStatus(t *testing.T) {
 	reg := BuildDefaultRegistry(nil)
 	exec := &tools.Executor{Registry: reg, Runner: sandbox.NoneRunner{}}
 	host := bundledToolHost{workdir: t.TempDir(), runner: sandbox.NoneRunner{}}
-	out := RunVerificationRound(context.Background(), exec, host,
-		VerifyConfig{Commands: []string{"printf actual-gate; exit 9"}, MaxRounds: 1}, 1, nil)
-	if out.Status != VerifyFailed || !strings.Contains(out.Output, "code 9") || !strings.Contains(out.Output, "actual-gate") {
-		t.Fatalf("bundled verification outcome = %+v", out)
+	for _, code := range []int{9, 126, 127} {
+		out := RunVerificationRound(context.Background(), exec, host,
+			VerifyConfig{Commands: []string{fmt.Sprintf("printf actual-gate; exit %d", code)}, MaxRounds: 1}, 1, nil)
+		if out.Status != VerifyFailed || !strings.Contains(out.Output, fmt.Sprintf("code %d", code)) ||
+			!strings.Contains(out.Output, "actual-gate") {
+			t.Fatalf("exit %d verification outcome = %+v", code, out)
+		}
 	}
+}
+
+func TestRunVerificationRoundUsesStructuredLaunchFailure(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(fixedVerifyTool{result: tool.Result{
+		Error: "fork/exec failed", FailureKind: tool.FailureLaunch,
+	}})
+	out := RunVerificationRound(context.Background(), &tools.Executor{Registry: reg}, nil,
+		VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1}, 1, nil)
+	if out.Status != VerifyInfrastructure || out.Err == nil {
+		t.Fatalf("launch failure outcome = %+v", out)
+	}
+}
+
+type fixedVerifyTool struct{ result tool.Result }
+
+func (fixedVerifyTool) Name() string           { return verifyToolName }
+func (fixedVerifyTool) Description() string    { return "fixed verify result" }
+func (fixedVerifyTool) Schema() map[string]any { return map[string]any{"type": "object"} }
+func (fixedVerifyTool) Class() tool.Class      { return tool.ClassExec }
+func (t fixedVerifyTool) Run(context.Context, json.RawMessage, tool.Host) (tool.Result, error) {
+	return t.result, nil
 }
 
 type scriptedVerifyTool struct {

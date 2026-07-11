@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/foobarto/stado/internal/config"
+	"github.com/foobarto/stado/internal/hooks"
 	"github.com/foobarto/stado/internal/telemetry"
 	"github.com/foobarto/stado/internal/tools"
 	"github.com/foobarto/stado/pkg/agent"
@@ -35,6 +36,14 @@ func TestAgentLoopRecordsExecutorAndProviderMetrics(t *testing.T) {
 		Executor: exec,
 		Config:   cfg,
 		Metrics:  metrics,
+		Hooks: hooks.NewLifecycleRunner(hooks.BuiltinHook{
+			HookName: "route-model", Subscribed: []hooks.Point{hooks.PointPreLLM},
+			Fn: func(_ context.Context, _ hooks.Point, payload hooks.Payload) (hooks.HookResult, error) {
+				mutated := *payload.(*hooks.PreLLMPayload)
+				mutated.Model = "routed-model"
+				return hooks.Mutate(&mutated), nil
+			},
+		}),
 		Model:    "metric-model",
 		Messages: []agent.Message{agent.Text(agent.RoleUser, "measure")},
 		MaxTurns: 2,
@@ -74,6 +83,9 @@ func TestAgentLoopRecordsExecutorAndProviderMetrics(t *testing.T) {
 	var total int64
 	for _, point := range tokens.DataPoints {
 		total += point.Value
+		if got, _ := point.Attributes.Value("model"); got.AsString() != "routed-model" {
+			t.Fatalf("token model attr = %q, want routed-model", got.AsString())
+		}
 	}
 	if total != 21 {
 		t.Fatalf("token total = %d, want 21", total)

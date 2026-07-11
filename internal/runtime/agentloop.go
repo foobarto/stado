@@ -474,7 +474,7 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 		totalTokens += usage.InputTokens + usage.OutputTokens
 		totalInputTokens += usage.InputTokens
 		totalOutputTokens += usage.OutputTokens
-		opts.Metrics.RecordTurnUsage(turnCtx, opts.Provider.Name(), opts.Model,
+		opts.Metrics.RecordTurnUsage(turnCtx, opts.Provider.Name(), req.Model,
 			usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		turnSpan.SetAttributes(
 			attribute.Int("turn.text_bytes", len(text)),

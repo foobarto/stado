@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/foobarto/stado/internal/config"
@@ -135,16 +134,16 @@ func RunVerificationRound(ctx context.Context, executor *tools.Executor, host to
 			return verifyInfrastructure(round, command, err.Error(), err, onEvent)
 		}
 		if res.Error != "" {
-			if code, ok := verifyExitCode(res.Error); ok && code != 126 && code != 127 {
-				feedback := fmt.Sprintf("Verification command failed: %s\n%s", command, res.Error)
-				out := VerifyOutcome{
-					Status: VerifyFailed, Round: round, Command: command,
-					Output: res.Error, Feedback: feedback,
-				}
-				emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: res.Error})
-				return out
+			if res.FailureKind == tool.FailureLaunch {
+				return verifyInfrastructure(round, command, res.Error, errors.New(res.Error), onEvent)
 			}
-			return verifyInfrastructure(round, command, res.Error, errors.New(res.Error), onEvent)
+			feedback := fmt.Sprintf("Verification command failed: %s\n%s", command, res.Error)
+			out := VerifyOutcome{
+				Status: VerifyFailed, Round: round, Command: command,
+				Output: res.Error, Feedback: feedback,
+			}
+			emitVerify(onEvent, VerifyEvent{Status: out.Status, Round: round, Command: command, Output: res.Error})
+			return out
 		}
 		emitVerify(onEvent, VerifyEvent{Status: VerifyPassed, Round: round, Command: command, Output: res.Content})
 	}
@@ -176,19 +175,4 @@ func emitVerifyGenerationEnd(fn func(VerifyEvent), round int, err error) {
 		output = err.Error()
 	}
 	emitVerify(fn, VerifyEvent{Status: status, Round: round, Output: output})
-}
-
-func verifyExitCode(message string) (int, bool) {
-	const prefix = "command exited with code "
-	i := strings.Index(message, prefix)
-	if i < 0 {
-		return 0, false
-	}
-	rest := message[i+len(prefix):]
-	end := strings.IndexAny(rest, " \r\n\t")
-	if end >= 0 {
-		rest = rest[:end]
-	}
-	code, err := strconv.Atoi(rest)
-	return code, err == nil
 }

@@ -40,6 +40,27 @@ func TestNewPluginTool_SchemaDefaults(t *testing.T) {
 	}
 }
 
+func TestDecodeToolSideErrorEnvelope(t *testing.T) {
+	code := 127
+	payload, err := json.Marshal(tool.ErrorEnvelopeV1{
+		Schema: tool.ErrorEnvelopeSchemaV1, Kind: tool.FailureExit,
+		Message: "command exited with code 127", ExitCode: &code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decodeToolSideError(string(payload))
+	if got.Error != "command exited with code 127" || got.FailureKind != tool.FailureExit ||
+		got.ExitCode == nil || *got.ExitCode != 127 {
+		t.Fatalf("decoded result = %+v", got)
+	}
+
+	plain := decodeToolSideError("ordinary plugin failure")
+	if plain.Error != "ordinary plugin failure" || plain.FailureKind != tool.FailureUnknown || plain.ExitCode != nil {
+		t.Fatalf("plain result = %+v", plain)
+	}
+}
+
 func TestNewPluginTool_ClassRoundTrip(t *testing.T) {
 	mod := &Module{Name: "demo"}
 	pt, err := NewPluginTool(mod, plugins.ToolDef{

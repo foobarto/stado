@@ -17,6 +17,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 
 	"github.com/foobarto/stado/internal/sandbox"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 // procHandle holds the state for a long-lived spawned process.
@@ -208,6 +209,13 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 				msg := fmt.Sprintf("exec: response exceeds %d-byte result limit", resCap)
 				if exitCode != 0 {
 					msg = fmt.Sprintf("command exited with code %d\n%s", exitCode, msg)
+					failureCode := exitCode
+					structured, _ := json.Marshal(tool.ErrorEnvelopeV1{
+						Schema: tool.ErrorEnvelopeSchemaV1, Kind: tool.FailureExit,
+						Message: msg, ExitCode: &failureCode,
+					})
+					stack[0] = api.EncodeI32(encodeToolSidePayload(mod, resPtr, resCap, structured))
+					return
 				} else if runErr != "" {
 					msg = runErr + "\n" + msg
 				}

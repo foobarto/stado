@@ -198,7 +198,7 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	if n < 0 {
 		msg, ok := readToolSideError(p.mod.wasmMod, resultPtr, n, resultCap)
 		if ok {
-			return tool.Result{Error: truncatePluginOutput(msg)}, nil
+			return decodeToolSideError(msg), nil
 		}
 		return tool.Result{Error: fmt.Sprintf("plugin %s %s: tool-side error",
 			p.mod.Name, p.def.Name)}, nil
@@ -216,6 +216,19 @@ func (p *PluginTool) Run(ctx context.Context, args json.RawMessage, _ tool.Host)
 	out := make([]byte, len(result))
 	copy(out, result)
 	return tool.Result{Content: truncatePluginOutput(string(out))}, nil
+}
+
+func decodeToolSideError(message string) tool.Result {
+	result := tool.Result{Error: truncatePluginOutput(message)}
+	var envelope tool.ErrorEnvelopeV1
+	if err := json.Unmarshal([]byte(message), &envelope); err != nil ||
+		envelope.Schema != tool.ErrorEnvelopeSchemaV1 || envelope.Message == "" {
+		return result
+	}
+	result.Error = truncatePluginOutput(envelope.Message)
+	result.FailureKind = envelope.Kind
+	result.ExitCode = envelope.ExitCode
+	return result
 }
 
 func truncatePluginOutput(s string) string {

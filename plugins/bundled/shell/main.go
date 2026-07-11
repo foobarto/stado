@@ -28,6 +28,7 @@ import (
 	"fmt"
 
 	"github.com/foobarto/stado/internal/plugins/bundled/sdk"
+	"github.com/foobarto/stado/pkg/tool"
 )
 
 func main() {}
@@ -97,7 +98,13 @@ func runOneShot(argv []string, stdin string, timeoutMs int) (string, error) {
 		if errLen > cap {
 			errLen = cap
 		}
-		return "", &execErr{msg: string(sdk.Bytes(resBuf, errLen))}
+		message := string(sdk.Bytes(resBuf, errLen))
+		var envelope tool.ErrorEnvelopeV1
+		if json.Unmarshal([]byte(message), &envelope) == nil &&
+			envelope.Schema == tool.ErrorEnvelopeSchemaV1 && envelope.Message != "" {
+			return "", &execErr{msg: envelope.Message, kind: envelope.Kind, exitCode: envelope.ExitCode}
+		}
+		return "", &execErr{msg: message, kind: tool.FailureLaunch}
 	}
 	var er struct {
 		Stdout   string `json:"stdout"`
@@ -105,24 +112,40 @@ func runOneShot(argv []string, stdin string, timeoutMs int) (string, error) {
 		Error    string `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(sdk.Bytes(resBuf, n), &er); err != nil {
-		return "", &execErr{msg: "exec: invalid host response: " + err.Error()}
+		return "", &execErr{msg: "exec: invalid host response: " + err.Error(), kind: tool.FailureLaunch}
 	}
 	if er.Error != "" {
-		return "", &execErr{msg: er.Error}
+		return "", &execErr{msg: er.Error, kind: tool.FailureLaunch}
 	}
 	if er.ExitCode != 0 {
 		msg := fmt.Sprintf("command exited with code %d", er.ExitCode)
 		if er.Stdout != "" {
 			msg += "\n" + er.Stdout
 		}
-		return "", &execErr{msg: msg}
+		code := er.ExitCode
+		return "", &execErr{msg: msg, kind: tool.FailureExit, exitCode: &code}
 	}
 	return er.Stdout, nil
 }
 
-type execErr struct{ msg string }
+type execErr struct {
+	msg      string
+	kind     tool.FailureKind
+	exitCode *int
+}
 
 func (e *execErr) Error() string { return e.msg }
+
+func (e *execErr) envelope() string {
+	payload, err := json.Marshal(tool.ErrorEnvelopeV1{
+		Schema: tool.ErrorEnvelopeSchemaV1, Kind: e.kind,
+		Message: e.msg, ExitCode: e.exitCode,
+	})
+	if err != nil {
+		return e.msg
+	}
+	return string(payload)
+}
 
 func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int) int32 {
 	if command != "" {
@@ -130,6 +153,9 @@ func execTool(resPtr, resCap int32, argv []string, command string, timeoutMs int
 	}
 	out, err := runOneShot(argv, "", timeoutMs)
 	if err != nil {
+		if structured, ok := err.(*execErr); ok {
+			return writeErr(resPtr, resCap, structured.envelope())
+		}
 		return writeErr(resPtr, resCap, err.Error())
 	}
 	return writeRaw(resPtr, resCap, []byte(out))

@@ -514,6 +514,10 @@ func (m *Model) startStream() tea.Cmd {
 			}
 		}
 	}
+	// Keep the per-turn snapshot aligned with the request actually sent after
+	// pre_llm routing. Footers and usage metrics must not charge the configured
+	// model when a hook selected another one.
+	m.turnModel = req.Model
 
 	// Shared stream buffer — the stream goroutine appends events
 	// here under m.streamBufMu; the tea.Tick-driven flush reads them
@@ -527,7 +531,7 @@ func (m *Model) startStream() tea.Cmd {
 
 	go func() {
 		defer cancel()
-		tuiTrace("provider stream start", "provider", m.providerDisplayName(), "model", m.model)
+		tuiTrace("provider stream start", "provider", m.turnProvider, "model", m.turnModel)
 		ch, err := m.provider.StreamTurn(ctx, req)
 		if err != nil {
 			tuiTrace("provider stream error", "error", err.Error())
@@ -729,7 +733,7 @@ func (m *Model) handleStreamEvent(ev agent.Event) {
 	switch ev.Kind {
 	case agent.EvDone:
 		if ev.Usage != nil {
-			m.metrics.RecordTurnUsage(m.rootCtx, m.providerDisplayName(), m.model,
+			m.metrics.RecordTurnUsage(m.rootCtx, m.turnProvider, m.turnModel,
 				ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.CacheReadTokens)
 			m.usage.InputTokens = ev.Usage.InputTokens
 			m.cumulativeInputTokens += ev.Usage.InputTokens
