@@ -56,6 +56,55 @@ func TestCeilingRunner_IntersectsWithCeiling(t *testing.T) {
 	}
 }
 
+func TestCeilingRunner_EnforcesExecCeiling(t *testing.T) {
+	tests := []struct {
+		name    string
+		ceiling Policy
+		perCall Policy
+		want    []string
+	}{
+		{
+			name:    "deny-all ceiling is not mistaken for zero policy",
+			ceiling: Policy{Exec: []string{}},
+			perCall: Policy{},
+			want:    []string{},
+		},
+		{
+			name:    "omitted per-call exec inherits ceiling allowlist",
+			ceiling: Policy{Exec: []string{"git"}},
+			perCall: Policy{},
+			want:    []string{"git"},
+		},
+		{
+			name:    "omitted ceiling exec preserves per-call allowlist",
+			ceiling: Policy{FSRead: []string{"/work"}},
+			perCall: Policy{FSRead: []string{"/work"}, Exec: []string{"git"}},
+			want:    []string{"git"},
+		},
+		{
+			name:    "disjoint allowlists deny all",
+			ceiling: Policy{Exec: []string{"git"}},
+			perCall: Policy{Exec: []string{"go"}},
+			want:    []string{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := &recordingRunner{available: true}
+			wrapped := NewCeilingRunner(inner, tc.ceiling)
+			if _, err := wrapped.Command(context.Background(), tc.perCall, "true", nil, nil); err != nil {
+				t.Fatalf("Command: %v", err)
+			}
+			if tc.want != nil && inner.gotPolicy.Exec == nil {
+				t.Fatalf("inner Exec = nil, want %#v", tc.want)
+			}
+			if strings.Join(inner.gotPolicy.Exec, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("inner Exec = %#v, want %#v", inner.gotPolicy.Exec, tc.want)
+			}
+		})
+	}
+}
+
 // TestCeilingRunner_ForwardsCeilingSocketAndMask: a forwarded socket + mask in
 // the ceiling must reach the inner Policy even when the per-call Policy names
 // neither. The socket is an operator-granted, session-level capability — a

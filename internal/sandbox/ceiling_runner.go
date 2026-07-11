@@ -123,7 +123,7 @@ func resolvedPathWithinAny(path string, roots []string) bool {
 func isZeroPolicy(p Policy) bool {
 	return len(p.FSRead) == 0 &&
 		len(p.FSWrite) == 0 &&
-		len(p.Exec) == 0 &&
+		p.Exec == nil &&
 		len(p.Env) == 0 &&
 		len(p.Mask) == 0 &&
 		len(p.Sockets) == 0 &&
