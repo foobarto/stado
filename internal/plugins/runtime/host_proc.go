@@ -27,6 +27,31 @@ type procHandle struct {
 	stdout io.ReadCloser
 }
 
+// cappedOutput retains at most limit bytes while reporting full writes to the
+// child process, so stdout/stderr continue to drain without unbounded memory.
+type cappedOutput struct {
+	buf      bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (w *cappedOutput) Write(p []byte) (int, error) {
+	written := len(p)
+	remaining := w.limit - w.buf.Len()
+	if remaining > 0 {
+		if remaining > len(p) {
+			remaining = len(p)
+		}
+		_, _ = w.buf.Write(p[:remaining])
+	}
+	if remaining < len(p) {
+		w.overflow = true
+	}
+	return written, nil
+}
+
+func (w *cappedOutput) String() string { return w.buf.String() }
+
 // procAllowed checks exec:proc / exec:proc:<glob> capability.
 //
 // Glob forms (EP-no-internal-tools Step 3):
@@ -182,7 +207,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 			if req.Stdin != "" {
 				cmd.Stdin = strings.NewReader(req.Stdin)
 			}
-			var out bytes.Buffer
+			out := cappedOutput{limit: int(resCap)}
 			cmd.Stdout = &out
 			cmd.Stderr = &out
 
@@ -205,7 +230,7 @@ func registerExecImport(builder wazero.HostModuleBuilder, host *Host) {
 				ExitCode: exitCode,
 				Error:    runErr,
 			})
-			if byteLenExceedsCap(payload, resCap) {
+			if out.overflow || byteLenExceedsCap(payload, resCap) {
 				msg := fmt.Sprintf("exec: response exceeds %d-byte result limit", resCap)
 				if exitCode != 0 {
 					msg = fmt.Sprintf("command exited with code %d\n%s", exitCode, msg)

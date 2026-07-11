@@ -35,6 +35,23 @@ func (h runnerToolHost) Workdir() string { return "/work" }
 func (h runnerToolHost) PriorRead(tool.ReadKey) (tool.PriorReadInfo, bool) {
 	return tool.PriorReadInfo{}, false
 }
+
+func TestCappedOutputDrainsAndBoundsMemory(t *testing.T) {
+	w := &cappedOutput{limit: 5}
+	for _, chunk := range []string{"abc", "defgh"} {
+		n, err := w.Write([]byte(chunk))
+		if err != nil || n != len(chunk) {
+			t.Fatalf("Write(%q) = %d, %v", chunk, n, err)
+		}
+	}
+	if got := w.String(); got != "abcde" {
+		t.Fatalf("captured output = %q", got)
+	}
+	if !w.overflow || w.buf.Len() != 5 {
+		t.Fatalf("overflow=%v len=%d", w.overflow, w.buf.Len())
+	}
+}
+
 func (h runnerToolHost) RecordRead(tool.ReadKey, tool.PriorReadInfo) {}
 func (h runnerToolHost) Runner() sandbox.Runner                      { return h.runner }
 func (h runnerToolHost) DefaultSandboxPolicy() any                   { return h.defaultPolicy }

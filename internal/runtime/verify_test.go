@@ -203,25 +203,28 @@ func TestAgentLoopClosesPendingVerificationAtCostCap(t *testing.T) {
 	}
 }
 
-func TestAgentLoopCoalescesFragmentedCandidateBeforeVerification(t *testing.T) {
+func TestAgentLoopRejectsCandidateThatExceedsVerificationBuffer(t *testing.T) {
 	gate := &scriptedVerifyTool{}
 	reg := tools.NewRegistry()
 	reg.Register(gate)
 	var published []agent.Event
+	var statuses []VerifyStatus
 	final, _, err := AgentLoop(context.Background(), AgentLoopOptions{
 		Provider: fragmentedVerifyProvider{}, Executor: &tools.Executor{Registry: reg},
 		Model: "m", Messages: []agent.Message{agent.Text(agent.RoleUser, "done")},
 		MaxTurns: 1, Verify: VerifyConfig{Commands: []string{"go test ./..."}, MaxRounds: 1},
-		OnEvent: func(event agent.Event) { published = append(published, event) },
+		OnEvent:       func(event agent.Event) { published = append(published, event) },
+		OnVerifyEvent: func(event VerifyEvent) { statuses = append(statuses, event.Status) },
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "exceeded event budget") {
+		t.Fatalf("buffer error = %v", err)
 	}
-	if len(final) != maxBufferedVerifyEvents+1 {
-		t.Fatalf("coalesced final length=%d", len(final))
+	if final != "" || len(published) != 0 || gate.calls != 0 {
+		t.Fatalf("final=%q published=%d gate calls=%d", final, len(published), gate.calls)
 	}
-	if len(published) != 2 || published[0].Kind != agent.EvTextDelta || published[1].Kind != agent.EvDone {
-		t.Fatalf("coalesced events=%d %+v", len(published), published)
+	wantStatuses := []VerifyStatus{VerifyPending, VerifyGenerationError}
+	if !reflect.DeepEqual(statuses, wantStatuses) {
+		t.Fatalf("statuses = %v, want %v", statuses, wantStatuses)
 	}
 }
 

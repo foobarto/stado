@@ -469,7 +469,11 @@ func AgentLoop(ctx context.Context, opts AgentLoopOptions) (string, []agent.Mess
 			return finalText, msgs, err
 		}
 		if turnEventErr != nil {
-			turnEvents = coalesceVerifyEvents(text, calls, usage)
+			closeVerifyPending(turnEventErr)
+			turnSpan.RecordError(turnEventErr)
+			turnSpan.SetStatus(codes.Error, turnEventErr.Error())
+			turnSpan.End()
+			return finalText, msgs, turnEventErr
 		}
 		totalCostUSD += usage.CostUSD
 		totalTokens += usage.InputTokens + usage.OutputTokens
